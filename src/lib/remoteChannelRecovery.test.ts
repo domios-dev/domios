@@ -1,5 +1,7 @@
 import { describe, expect, finish, it } from "../test/standaloneTest";
-import { createRemoteChannelRecovery } from "./remoteChannelRecovery";
+import { createRemoteChannelRecovery, createSilenceDeadline, parkStalledConnection } from "./remoteChannelRecovery";
+
+const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 import type { RemoteTransportAvailability, RemoteTransportChannel } from "./remoteTabTransportState";
 
 const advanced = (prev: number | null, next: number): boolean => prev === null || next > prev;
@@ -89,6 +91,54 @@ describe("remote channel recovery", () => {
     expect(recovery.noteProgress(gen, 100)).toBe(false);
     expect(recovery.handleStreamEnd(gen, "eof")).toBe("stale");
     expect(recovery.signal()).toBe("stale");
+  });
+
+  it("parkStalledConnection parks + aborts the current generation, no-ops otherwise", () => {
+    const { recovery } = build();
+    const gen = recovery.beginConnection();
+
+    // Current generation -> park (awaiting signal) and tear down the socket.
+    const silent = new AbortController();
+    expect(parkStalledConnection(recovery, gen, silent)).toBe(true);
+    expect(silent.signal.aborted).toBe(true);
+    expect(recovery.isAwaitingSignal()).toBe(true);
+
+    // Superseded generation -> no-op.
+    const next = recovery.beginConnection();
+    expect(next).toBe(gen + 1);
+    const stale = new AbortController();
+    expect(parkStalledConnection(recovery, gen, stale)).toBe(false);
+    expect(stale.signal.aborted).toBe(false);
+  });
+
+  it("silence deadline parks after silence; re-arm resets it and clear cancels it", async () => {
+    // Fires on genuine silence: no re-arm within the window -> park + abort.
+    {
+      const { recovery } = build();
+      const gen = recovery.beginConnection();
+      const ctl = new AbortController();
+      const deadline = createSilenceDeadline(recovery, gen, ctl, 5);
+      deadline.arm();
+      await wait(40);
+      expect(ctl.signal.aborted).toBe(true);
+      expect(recovery.isAwaitingSignal()).toBe(true);
+    }
+    // Re-arm before expiry keeps it alive (a keep-alive on an idle-healthy tab);
+    // clear() on teardown stops the chain so it cannot outlive the connection.
+    {
+      const { recovery } = build();
+      const gen = recovery.beginConnection();
+      const ctl = new AbortController();
+      const deadline = createSilenceDeadline(recovery, gen, ctl, 30);
+      deadline.arm();
+      await wait(15); deadline.arm();
+      await wait(15); deadline.arm();
+      await wait(15);
+      expect(ctl.signal.aborted).toBe(false); // never idle a full window straight.
+      deadline.clear();
+      await wait(50);
+      expect(ctl.signal.aborted).toBe(false); // cleared: no park after teardown.
+    }
   });
 });
 

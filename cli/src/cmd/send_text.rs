@@ -523,6 +523,16 @@ pub fn resolve_send_text_input<R: std::io::Read>(
 /// only — a short scalar argument stays inline, so the shape of the payload
 /// decides, not the caller.
 pub fn pad_nudge(source: &str, text: &str) -> Option<String> {
+    staging_nudge(
+        source,
+        text,
+        "Stage it in the pad (`codeterm pad path`) and pass --from-pad.",
+    )
+}
+
+/// Same heavy-inline guard as `pad_nudge`; the caller supplies the staging
+/// remedy naming the flag valid for its command (spawn: --task-file/--plan-task).
+pub fn staging_nudge(source: &str, text: &str, remedy: &str) -> Option<String> {
     const INLINE_BUDGET: usize = 240;
     if source != "positional" {
         return None;
@@ -538,8 +548,35 @@ pub fn pad_nudge(source: &str, text: &str) -> Option<String> {
     };
     Some(format!(
         "hint: this payload is {shape} and went inline — the shell mangles backticks, $, quotes, \
-         and newlines on the way. Stage it in the pad (`codeterm pad path`) and pass --from-pad."
+         and newlines on the way. {remedy}"
     ))
+}
+
+/// Print the report-body staging nudge to stderr (skipped for `--json`).
+pub fn nudge_report_body(json: bool, text: &str) {
+    emit_staging_nudge(
+        json,
+        text,
+        "Stage it in the pad (`codeterm pad path`) and pass --from-pad.",
+    );
+}
+
+/// Print the spawn-task staging nudge naming the flags spawn actually has.
+pub fn nudge_spawn_task(json: bool, text: &str) {
+    emit_staging_nudge(
+        json,
+        text,
+        "Pass it byte-exact with --task-file <path>, or bind a plan task via --plan-task <id> — both bypass the shell.",
+    );
+}
+
+fn emit_staging_nudge(json: bool, text: &str, remedy: &str) {
+    if json {
+        return;
+    }
+    if let Some(hint) = staging_nudge("positional", text, remedy) {
+        eprintln!("{hint}");
+    }
 }
 
 #[cfg(test)]
@@ -742,5 +779,17 @@ mod tests {
                 "{source} must not be nudged"
             );
         }
+    }
+
+    #[test]
+    fn staging_nudge_names_the_caller_supplied_flag() {
+        // Same heavy-inline guard: short scalars stay silent.
+        assert!(super::staging_nudge("positional", "done", "use --task-file <path>").is_none());
+        // Heavy payload surfaces the caller's remedy verbatim, not a hardcoded flag.
+        let hint =
+            super::staging_nudge("positional", "line one\nline two", "use --task-file <path>")
+                .expect("multiline inline payload is nudged");
+        assert!(hint.contains("--task-file <path>"));
+        assert!(!hint.contains("--from-pad"));
     }
 }

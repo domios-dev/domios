@@ -1,26 +1,22 @@
 import { afterEach, describe, expect, finish, it, vi } from "../test/standaloneTest";
 import {
   remoteTabEventSubscriptionSnapshot, resumeRemoteTabEvents, subscribeRemoteTabEvent,
-  waitForRemoteTabEventGenerationSettlement,
 } from "./remoteTabEvents";
 import { onRemoteTransportState } from "./remoteTabTransportState";
 
 describe("remote chat event subscription ownership", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("old finalizer cannot clear replacement and original unsubscribe owns it", async () => {
-    let settleOldFetch!: (response: Response) => void;
-    const oldFetch = new Promise<Response>((resolve) => { settleOldFetch = resolve; });
-    vi.stubGlobal("fetch", vi.fn().mockReturnValueOnce(oldFetch).mockReturnValue(new Promise(() => {})));
+  it("resume does not supersede a first-frame-awaiting connection; unsubscribe owns it", async () => {
+    // In-flight fetch, no frame delivered yet: resume must leave it alone rather
+    // than restart it mid initial replay (the churn race that blanked panes).
+    vi.stubGlobal("fetch", vi.fn().mockReturnValue(new Promise(() => {})));
     const event = "tab-chat-msg-mesh:peer/tab";
     const unsubscribe = subscribeRemoteTabEvent(event, () => undefined)!;
     expect(remoteTabEventSubscriptionSnapshot(event)?.generation).toBe(1);
-    const oldSettled = waitForRemoteTabEventGenerationSettlement(event, 1);
     resumeRemoteTabEvents();
-    expect(remoteTabEventSubscriptionSnapshot(event)?.generation).toBe(2);
-    settleOldFetch(new Response(null));
-    await oldSettled;
-    expect(remoteTabEventSubscriptionSnapshot(event)).toMatchObject({ generation: 2, hasController: true });
+    expect(remoteTabEventSubscriptionSnapshot(event)?.generation).toBe(1);
+    expect(remoteTabEventSubscriptionSnapshot(event)).toMatchObject({ generation: 1, hasController: true });
     unsubscribe();
     expect(remoteTabEventSubscriptionSnapshot(event)).toBeNull();
     vi.unstubAllGlobals();
