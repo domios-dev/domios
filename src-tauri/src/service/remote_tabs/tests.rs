@@ -155,3 +155,41 @@ fn remote_projection_excludes_tabs_without_a_local_controller() {
         .collect::<Vec<_>>();
     assert_eq!(ids, ["mesh:peer-a/owned"]);
 }
+
+#[test]
+fn remote_projection_preserves_the_peer_session_identity() {
+    let projected = merge_ordinary_tab_projection(
+        &[serde_json::json!({"id":"controller", "title":"local"})],
+        &[RemotePeerProjection {
+            peer_id: "peer".into(),
+            peer_name: "PEER".into(),
+            authenticated: true,
+            reachable: true,
+            availability: "available",
+            tabs: vec![serde_json::json!({
+                "id": "worker",
+                "agent_session_id": "session-1",
+                "session_binding_nonce": "nonce-1",
+            })],
+            controllers: std::collections::HashMap::from([(
+                "worker".into(),
+                "controller".into(),
+            )]),
+        }],
+    );
+    let remote = projected
+        .iter()
+        .find(|tab| tab.get("id").and_then(serde_json::Value::as_str) == Some("mesh:peer/worker"))
+        .expect("projected remote Tab");
+    for (field, expected) in [
+        ("agent_session_id", "session-1"),
+        ("session_binding_nonce", "nonce-1"),
+    ] {
+        assert_eq!(
+            remote.get(field).and_then(serde_json::Value::as_str),
+            Some(expected),
+            "{field} must survive projection: chat transcript authority compares the whole \
+             session identity, and a missing element rejects the transcript",
+        );
+    }
+}
