@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic contract and mutation fixtures for bounce-unwinding prompts."""
+"""Deterministic prompt-contract and embedded-doc reading fixtures."""
 
 import json
 import sys
@@ -12,6 +12,8 @@ FIXTURES = json.loads(
     Path(__file__).with_name("protocol-fixtures.json").read_text(encoding="utf-8")
 )
 CONTRACT = ROOT / "src-tauri/prompts/bounce_unwinding_contract.md"
+
+
 def record_output(record, fields):
     return "\n".join(f"{field}: {record[field]}" for field in fields)
 
@@ -62,6 +64,7 @@ def assert_prompt_contract():
     assert "`codeterm orchestrator learn`" in schema
     assert "`codeterm plan retrospective <plan> --body \"...\"`" in schema
 
+
 def controlled_mutations(fixtures, fields):
     accepted = fixtures[0]["record"]
     weakened = dict(accepted, **{"Baseline oracle": "cargo test loop_engine"})
@@ -89,6 +92,32 @@ def controlled_mutations(fixtures, fields):
         raise AssertionError("unbounded-budget mutation was accepted")
 
 
+def validate_docs_reading_response(fixture, response):
+    expected = f"codeterm docs {fixture['document']}"
+    assert fixture["question"].strip(), "docs-reading fixture needs a question"
+    assert response == expected, "docs question did not choose the complete document"
+    assert sha256(response.encode()).hexdigest() == fixture["expected_output_sha256"], (
+        "docs-reading expected output drifted"
+    )
+    assert response.count("codeterm docs ") == 1, "docs read must be one invocation"
+    assert not any(flag in response for flag in ("--head", "--section", "--full"))
+
+
+def assert_docs_reading_contract():
+    fixtures = FIXTURES["docs_reading_fixtures"]
+    assert [fixture["id"] for fixture in fixtures] == ["D1"]
+    for fixture in fixtures:
+        validate_docs_reading_response(fixture, fixture["response"])
+
+    partial_mode = "codeterm docs ORCHESTRATION --section dispatch-contract"
+    try:
+        validate_docs_reading_response(fixtures[0], partial_mode)
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError("partial document mode was accepted")
+
+
 def main():
     fields = FIXTURES["required_fields"]
     fixtures = FIXTURES["fixtures"]
@@ -106,7 +135,8 @@ def main():
     assert_baseline_immutable(fixtures[7]["record"], fixtures[0]["record"])
     assert_followup_is_bounded(fixtures[3]["record"], set())
     controlled_mutations(fixtures, fields)
-    print("prompt-contract F1-F10 exact records and mutation negatives passed")
+    assert_docs_reading_contract()
+    print("prompt-contract F1-F10 records, D1 docs read, and mutation negatives passed")
 
 
 if __name__ == "__main__":

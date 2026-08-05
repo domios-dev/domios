@@ -111,7 +111,16 @@ impl MotionDecoder {
     }
 
     pub fn step(&mut self, lines: &[String]) -> MotionFrame {
-        let hashes: Vec<u64> = lines.iter().map(|l| fnv64(l.trim_end().as_bytes())).collect();
+        self.step_with_cursor(lines, None)
+    }
+
+    /// `cursor_row` locates the input composer: the draft being typed below the
+    /// nearest chrome rule above the cursor never leaks into the turn view.
+    pub fn step_with_cursor(&mut self, lines: &[String], cursor_row: Option<usize>) -> MotionFrame {
+        let hashes: Vec<u64> = lines
+            .iter()
+            .map(|l| fnv64(l.trim_end().as_bytes()))
+            .collect();
         let last_nonblank = lines.iter().rposition(|l| !l.trim().is_empty());
         self.mutation_streak.resize(lines.len(), 0);
         self.idle_ticks.resize(lines.len(), 0);
@@ -174,7 +183,8 @@ impl MotionDecoder {
 
         for &r in &changed {
             let cur = lines[r].trim_end();
-            let shifted_source = shift_up > 0 && prev.lines.get(r + shift_up).map(|p| p.trim_end()) == Some(cur);
+            let shifted_source =
+                shift_up > 0 && prev.lines.get(r + shift_up).map(|p| p.trim_end()) == Some(cur);
             if shifted_source {
                 classes.shifted.push(r as u16);
                 self.mutation_streak[r] = 0;
@@ -184,7 +194,8 @@ impl MotionDecoder {
             let fresh_row = prev_row.is_empty()
                 && !cur.is_empty()
                 && prev.last_nonblank.is_none_or(|ln| r >= ln);
-            let tail_growth = !prev_row.is_empty() && cur.len() > prev_row.len() && cur.starts_with(prev_row);
+            let tail_growth =
+                !prev_row.is_empty() && cur.len() > prev_row.len() && cur.starts_with(prev_row);
             self.idle_ticks[r] = 0;
             if fresh_row || tail_growth {
                 classes.appended.push(r as u16);
@@ -235,7 +246,7 @@ impl MotionDecoder {
             .filter(|(_, &streak)| streak >= VOLATILE_STREAK)
             .map(|(r, _)| r as u16)
             .collect();
-        let turn_live = self.turn_live_view(lines, last_nonblank, &volatile_region);
+        let turn_live = self.turn_live_view(lines, last_nonblank, &volatile_region, cursor_row);
 
         self.prev = Some(PrevFrame {
             lines: lines.to_vec(),
@@ -259,6 +270,7 @@ impl MotionDecoder {
         lines: &[String],
         last_nonblank: Option<usize>,
         volatile_region: &[u16],
+        cursor_row: Option<usize>,
     ) -> Vec<String> {
         let Some(boundary) = self.turn_boundary else {
             return Vec::new();
@@ -269,7 +281,23 @@ impl MotionDecoder {
         if boundary > last {
             return Vec::new();
         }
-        let mut view: Vec<String> = (boundary..=last)
+        // The composer draft sits below the nearest chrome rule above the
+        // cursor; everything from that rule down is input, not turn content.
+        let mut end = last;
+        if let Some(cursor) = cursor_row.map(|row| row.min(last)) {
+            if cursor >= boundary {
+                if let Some(rule) = (boundary..=cursor)
+                    .rev()
+                    .find(|&r| is_chrome_row(&lines[r]))
+                {
+                    if rule == boundary {
+                        return Vec::new();
+                    }
+                    end = rule - 1;
+                }
+            }
+        }
+        let mut view: Vec<String> = (boundary..=end)
             .filter(|r| !volatile_region.contains(&(*r as u16)))
             .map(|r| lines[r].trim_end().to_string())
             .collect();
@@ -334,7 +362,8 @@ fn is_chrome_row(row: &str) -> bool {
     {
         return true;
     }
-    if matches!(trimmed.chars().next(), Some('❯' | '›' | '→')) && trimmed.chars().count() <= 2 {
+    if matches!(trimmed.chars().next(), Some('❯' | '›' | '→')) && trimmed.chars().count() <= 2
+    {
         return true;
     }
     let lower = trimmed.to_lowercase();

@@ -1,40 +1,71 @@
 import { useMemo, type ReactNode } from "react";
-import { Clock3, Plus, X } from "lucide-react";
+import { Clock3, MonitorUp, Plus, X } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import type {
   Tab,
   TabStatus,
   ProviderDescriptor,
-  RemoteWorkersByOrchestrator,
   Team,
   Workspace,
 } from "../../lib/types";
+import { anchorsTeam } from "../../lib/roleKind";
+import type { TeamMemberRole } from "../../lib/teamActions";
 import type { PlanIndexEntry } from "../Canvas/plansApi";
 import type { Plan } from "../Canvas/types";
 import type { ActiveWorkSnapshot } from "../Canvas/planView/activeWork";
 import { resolveTabTabActivity } from "../Canvas/tabTabActivity";
 import { openTeamPlanCanvas } from "../Canvas/workspacePlanEntry";
-import { RemoteWorkerRow } from "./RemoteWorkerRow";
 import { SortableContext, verticalListSortingStrategy, TAB_PREFIX } from "./sortable";
 import { isWorkspaceTabActive } from "./sidebarSelection";
 import { persistTabRename, SidebarSingleTabRow } from "./SidebarPlanPeerPair";
 import { sortTeamManagers } from "./orchestrationSections";
 import { TabItem } from "./TabItem";
+import { remoteTeamIdentity } from "./remoteOwnership";
 import { isSidebarTabVisible } from "./workspaceTabs";
 import { useWorkspaceCrons } from "../../hooks/useWorkspaceCrons";
 import { cronSelectionStore } from "../Cron/cronSelectionStore";
 import { DropdownMenu } from "../shared/DropdownMenu";
-import {
-  TeamUnit,
-  type TeamMemberRole,
-} from "./TeamUnit";
+import { TeamUnit } from "./TeamUnit";
 
 type TeamTab = Tab & { team_id?: string | null };
 type TeamPlan = Plan & { team_id?: string | null };
 
-function newestActivePlansByTeam(plans: readonly TeamPlan[]): Map<string, Plan> {
+function effectiveTeamId(tab: Tab): string | null {
+  return remoteTeamIdentity(tab)?.id ?? (tab as TeamTab).team_id ?? null;
+}
+
+function indexedPlan(entry: PlanIndexEntry): Plan {
+  return {
+    id: entry.plan_id,
+    title: entry.title,
+    sections: [],
+    status: entry.status,
+    owner: entry.owner,
+    team_id: entry.team_id,
+    project_path: entry.canonical_project_path ?? "",
+    created_at: entry.updated_at,
+    updated_at: entry.updated_at,
+    milestone_kinds: [],
+    loops: [],
+    elements: [],
+    tasks: [],
+    canvas: { viewport: null },
+    owner_history: [],
+  };
+}
+
+function newestActivePlansByTeam(
+  plans: readonly TeamPlan[],
+  planIndex: readonly PlanIndexEntry[],
+): Map<string, Plan> {
+  const fullById = new Map(plans.map((plan) => [plan.id, plan]));
   const grouped = new Map<string, Plan>();
-  for (const plan of plans) {
+  const indexedIds = new Set(planIndex.map((entry) => entry.plan_id));
+  const candidates = [
+    ...planIndex.map((entry) => fullById.get(entry.plan_id) ?? indexedPlan(entry)),
+    ...plans.filter((plan) => !indexedIds.has(plan.id)),
+  ];
+  for (const plan of candidates) {
     if (!plan.team_id || plan.status !== "active") continue;
     const current = grouped.get(plan.team_id);
     const currentUpdatedAt = current?.updated_at ?? current?.created_at ?? 0;
@@ -52,8 +83,8 @@ interface TeamTabMember {
 }
 
 function isEligibleTeamStaffingManager(member: TeamTabMember): boolean {
-  return member.tab.role === "Orchestrator"
-    || (member.tab.role === "Manager" && member.tab.role_profile === "planner");
+  return member.tab.can_spawn === true
+    && member.tab.role === "Manager";
 }
 
 function selectTeamStaffingManager(members: readonly TeamTabMember[]): string | null {
@@ -70,7 +101,6 @@ export interface SidebarWorkspaceTabsProps {
   planIndex: PlanIndexEntry[];
   plans: Plan[];
   activeWork: ActiveWorkSnapshot | null;
-  remoteWorkers: RemoteWorkersByOrchestrator;
   providers: ProviderDescriptor[];
   providersLoading?: boolean;
   closingTabIds: Set<string>;
@@ -87,6 +117,7 @@ export interface SidebarWorkspaceTabsProps {
   onCloseTab: (tabId: string) => void;
   onRenameTab: (tabId: string, title: string) => void;
   onNewSession: () => void;
+  onOpenRemoteTab?: () => void;
   newSessionDisabled?: boolean;
   onRenameTeam?: (teamId: string, name: string, managerTabId: string) => void | Promise<void>;
   onAddTeamMember?: (
@@ -96,7 +127,7 @@ export interface SidebarWorkspaceTabsProps {
     managerTabId: string,
     model?: string,
   ) => void | Promise<void>;
-  onCloseTeam?: (teamId: string, managerTabId: string) => void;
+  onCloseTeam?: (teamId: string) => void;
 }
 
 export function SidebarWorkspaceTabs({
@@ -109,7 +140,6 @@ export function SidebarWorkspaceTabs({
   planIndex,
   plans,
   activeWork,
-  remoteWorkers,
   providers,
   providersLoading,
   closingTabIds,
@@ -126,6 +156,7 @@ export function SidebarWorkspaceTabs({
   onCloseTab,
   onRenameTab,
   onNewSession,
+  onOpenRemoteTab,
   newSessionDisabled = false,
   onRenameTeam,
   onAddTeamMember,
@@ -139,20 +170,41 @@ export function SidebarWorkspaceTabs({
   const membersByTeam = useMemo(() => {
     const grouped = new Map<string, TeamTabMember[]>();
     sortedTabs.forEach((tab, index) => {
-      const teamTab = tab as TeamTab;
-      if (!teamTab.team_id) return;
-      const members = grouped.get(teamTab.team_id) ?? [];
-      members.push({ tab: teamTab, index });
-      grouped.set(teamTab.team_id, members);
+      const teamId = effectiveTeamId(tab);
+      if (!teamId) return;
+      const members = grouped.get(teamId) ?? [];
+      members.push({ tab, index });
+      grouped.set(teamId, members);
     });
     return grouped;
   }, [sortedTabs, tabs]);
+
+  const remoteTeams = useMemo(() => {
+    const map = new Map<string, Team>();
+    for (const tab of sortedTabs) {
+      const identity = remoteTeamIdentity(tab);
+      if (identity && !map.has(identity.id)) {
+        map.set(identity.id, {
+          id: identity.id,
+          name: identity.title,
+          lifecycle: "active",
+          created_at: 0,
+          workspace_id: ws.id,
+          remote_peer_name: identity.peerName,
+        });
+      }
+    }
+    return map;
+  }, [sortedTabs, ws.id]);
 
   const teamById = useMemo(
     () => new Map(teams.filter((team) => team.workspace_id === ws.id).map((team) => [team.id, team])),
     [teams, ws.id],
   );
-  const plansByTeam = useMemo(() => newestActivePlansByTeam(plans as TeamPlan[]), [plans]);
+  const plansByTeam = useMemo(
+    () => newestActivePlansByTeam(plans as TeamPlan[], planIndex),
+    [plans, planIndex],
+  );
 
   const sharedRow = {
     workspaceId: ws.id,
@@ -227,18 +279,18 @@ export function SidebarWorkspaceTabs({
   const renderedTeamIds = new Set<string>();
   const rows: ReactNode[] = [];
   const looseItems = sortedTabs
-    .filter((tab) => !(tab as TeamTab).team_id)
+    .filter((tab) => !effectiveTeamId(tab))
     .map((tab) => `${TAB_PREFIX}${tab.id}`);
   const pinnedLooseItems = sortedTabs
     .filter(
       (tab) =>
-        !(tab as TeamTab).team_id && tab.protected,
+        !effectiveTeamId(tab) && tab.protected,
     )
     .map((tab) => `${TAB_PREFIX}${tab.id}`);
 
   for (const [index, tab] of sortedTabs.entries()) {
     const teamTab = tab as TeamTab;
-    const teamId = teamTab.team_id ?? null;
+    const teamId = effectiveTeamId(teamTab);
     if (!teamId) {
       rows.push(
         <SidebarSingleTabRow
@@ -263,24 +315,19 @@ export function SidebarWorkspaceTabs({
 
     const members = membersByTeam.get(teamId) ?? [];
     const managers = sortTeamManagers(
-      members.filter((member) => member.tab.role === "Orchestrator" || member.tab.role === "Manager"),
+      members.filter((member) => member.tab.role === "Manager"),
     );
     const terminals = members.filter((member) => member.tab.role == null);
     const workers = members.filter((member) =>
-      member.tab.role !== "Orchestrator"
+      !anchorsTeam(member.tab)
       && member.tab.role !== "Manager"
       && member.tab.role != null,
     );
     const managerItems = managers.map((member) => `${TAB_PREFIX}${member.tab.id}`);
     const workerItems = workers.map((member) => `${TAB_PREFIX}${member.tab.id}`);
     const terminalItems = terminals.map((member) => `${TAB_PREFIX}${member.tab.id}`);
-    const orchestratorIds = managers
-      .filter((member) => member.tab.role === "Orchestrator")
-      .map((member) => member.tab.id);
-    const teamRemoteWorkers = orchestratorIds.flatMap((id) => remoteWorkers[id] ?? []);
     const workingLocal = workers.filter((member) => tabStatuses[member.tab.id] === "Working").length;
-    const workingRemote = teamRemoteWorkers.filter((worker) => worker.status === "working").length;
-    const team = teamById.get(teamId) ?? {
+    const team = teamById.get(teamId) ?? remoteTeams.get(teamId) ?? {
       id: teamId,
       name: null,
       lifecycle: "forming" as const,
@@ -302,20 +349,13 @@ export function SidebarWorkspaceTabs({
             {managers.map((member) => renderMemberRow(member, managerItems))}
           </SortableContext>
         }
-        workerCount={workers.length + teamRemoteWorkers.length}
-        workingWorkerCount={workingLocal + workingRemote}
+        workerCount={workers.length}
+        workingWorkerCount={workingLocal}
         workers={
           <>
             <SortableContext items={workerItems} strategy={verticalListSortingStrategy}>
               {workers.map((member) => renderMemberRow(member, workerItems))}
             </SortableContext>
-            {teamRemoteWorkers.map((worker) => (
-              <RemoteWorkerRow
-                key={`${worker.peer}/${worker.remote_tab}`}
-                worker={worker}
-                depth={0}
-              />
-            ))}
           </>
         }
         terminalCount={terminals.length}
@@ -377,9 +417,7 @@ export function SidebarWorkspaceTabs({
         onAddMember={onAddTeamMember && managerTabId
           ? (role, providerId, model) => onAddTeamMember(teamId, role, providerId, managerTabId, model)
           : undefined}
-        onCloseTeam={onCloseTeam && managerTabId
-          ? (teamId) => onCloseTeam(teamId, managerTabId)
-          : undefined}
+        onCloseTeam={onCloseTeam}
       />,
     );
   }
@@ -387,18 +425,25 @@ export function SidebarWorkspaceTabs({
   return (
     <>
       {rows}
-      <button
-        type="button"
-        data-testid="sidebar-new-session"
-        onClick={onNewSession}
-        disabled={newSessionDisabled}
-        aria-disabled={newSessionDisabled}
-        className={`sidebar-new-session flex items-center gap-2 min-w-0 max-w-full mx-2 mt-1 mb-0.5 px-3 ${touchMode ? "min-h-[44px] py-2" : "py-1"} rounded-md text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] disabled:opacity-40 disabled:hover:bg-transparent transition-colors`}
-        title={newSessionDisabled ? "Finish Get started before creating another session" : "New session in this workspace"}
-      >
-        <Plus size={10} strokeWidth={1.5} className="shrink-0" />
-        <span className={`${sidebarActionText} min-w-0 truncate`}>New session</span>
-      </button>
+      <div className="mx-2 mt-1 mb-0.5 flex min-w-0 items-center gap-1">
+        <button
+          type="button"
+          data-testid="sidebar-new-session"
+          onClick={onNewSession}
+          disabled={newSessionDisabled}
+          aria-disabled={newSessionDisabled}
+          className={`sidebar-new-session flex min-w-0 flex-1 items-center gap-2 px-3 ${touchMode ? "min-h-[44px] py-2" : "py-1"} rounded-md text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] disabled:opacity-40 disabled:hover:bg-transparent transition-colors`}
+          title={newSessionDisabled ? "Finish Get started before creating another session" : "New session in this workspace"}
+        >
+          <Plus size={10} strokeWidth={1.5} className="shrink-0" />
+          <span className={`${sidebarActionText} min-w-0 truncate`}>New session</span>
+        </button>
+        {onOpenRemoteTab && (
+          <button type="button" onClick={onOpenRemoteTab} aria-label="Open remote Tab" title="Open remote Tab" className={`flex shrink-0 items-center justify-center rounded-md text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-muted-fg)] ${touchMode ? "h-11 w-11" : "h-6 w-6"}`}>
+            <MonitorUp size={12} strokeWidth={1.5} />
+          </button>
+        )}
+      </div>
     </>
   );
 }

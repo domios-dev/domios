@@ -273,6 +273,22 @@ mod tests {
     }
 
     #[test]
+    fn docs_help_teaches_discovery_and_complete_named_read() {
+        let help = crate::cmd::docs::render_help().to_lowercase();
+
+        assert!(help.contains("read embedded codeterm documentation"));
+        for document in crate::cmd::docs::DOCS {
+            assert!(help.contains(&document.name.to_lowercase()));
+            assert!(help.contains(&document.purpose.to_lowercase()));
+        }
+        assert!(!help.contains("--section"));
+        assert!(!help.contains("--full"));
+        assert!(!help.contains("--head"));
+        assert!(!help.contains("preview"));
+        assert!(!help.contains("slug"));
+    }
+
+    #[test]
     fn chat_ui_command_paths_are_fresh() {
         let committed =
             std::fs::read_to_string(COMMAND_PATHS_PATH).expect("commandPaths.ts missing");
@@ -294,12 +310,16 @@ mod tests {
         for path in [PROMPT_PATH, SKILL_PATH] {
             let text = std::fs::read_to_string(path).expect("read agent instruction source");
             assert!(
-                !text.contains("codeterm tab "),
+                !text.contains("codeterm pane "),
                 "{path} teaches the removed legacy command namespace"
             );
             assert!(
-                !text.contains(" --tab "),
-                "{path} teaches the removed `--tab` flag"
+                !text.contains(" --pane "),
+                "{path} teaches the removed `--pane` flag"
+            );
+            assert!(
+                text.contains("codeterm tab "),
+                "{path} omits the canonical tab namespace"
             );
         }
     }
@@ -363,9 +383,7 @@ mod tests {
         if let Some(rest) = s.strip_prefix("$ ") {
             s = rest.trim();
         }
-        s.strip_prefix(head)?
-            .strip_prefix(' ')
-            .map(str::trim_start)
+        s.strip_prefix(head)?.strip_prefix(' ').map(str::trim_start)
     }
 
     fn find_sub<'a>(cmd: &'a Command, name: &str) -> Option<&'a Command> {
@@ -481,7 +499,10 @@ mod tests {
 
     fn check_help_text(root: &Command, cmd: &Command, path: &[String], bad: &mut Vec<String>) {
         let mut texts: Vec<String> = Vec::new();
-        for text in [cmd.get_about(), cmd.get_long_about()].into_iter().flatten() {
+        for text in [cmd.get_about(), cmd.get_long_about()]
+            .into_iter()
+            .flatten()
+        {
             texts.push(text.to_string());
         }
         for arg in cmd.get_arguments() {
@@ -525,12 +546,12 @@ mod tests {
         let root = Cli::command();
         let mut bad: Vec<String> = Vec::new();
 
-        for (name, body) in crate::cmd::docs::DOCS {
-            for (idx, line) in body.lines().enumerate() {
+        for document in crate::cmd::docs::DOCS {
+            for (idx, line) in document.body.lines().enumerate() {
                 let Some(rest) = prescription(line, "codeterm") else {
                     continue;
                 };
-                let origin = format!("docs {name}:{}", idx + 1);
+                let origin = format!("docs {}:{}", document.name, idx + 1);
                 check_prescription(&root, &[], rest, &origin, &mut bad);
             }
         }

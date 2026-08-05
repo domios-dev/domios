@@ -48,12 +48,20 @@ pub(crate) struct PendingBind {
     pub(crate) configured: String,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub(crate) struct RestApiRuntimePolicy {
+    pub(crate) enabled: bool,
+    pub(crate) cors: bool,
+    pub(crate) cors_allow_origins: Vec<String>,
+}
+
 #[derive(Clone)]
 struct RestApiLifecycle {
     status: RestApiStatus,
     listener_owned: bool,
     recovery_transition: u64,
     bound_addr: Option<SocketAddr>,
+    runtime_policy: RestApiRuntimePolicy,
 }
 
 #[derive(Clone)]
@@ -72,6 +80,10 @@ pub(crate) struct RestApiControl {
     server_exit: Arc<Mutex<Option<oneshot::Receiver<()>>>>,
     #[cfg(test)]
     shutdown_error: Arc<AtomicBool>,
+    #[cfg(test)]
+    bind_error: Arc<AtomicBool>,
+    #[cfg(test)]
+    initial_listener: Arc<Mutex<Option<tokio::net::TcpListener>>>,
 }
 
 #[derive(Debug)]
@@ -112,6 +124,7 @@ impl RestApiControl {
                 listener_owned: false,
                 recovery_transition: 0,
                 bound_addr: None,
+                runtime_policy: RestApiRuntimePolicy::default(),
             })),
             status_events,
             lifecycle_events,
@@ -125,6 +138,10 @@ impl RestApiControl {
             server_exit: Arc::new(Mutex::new(None)),
             #[cfg(test)]
             shutdown_error: Arc::new(AtomicBool::new(false)),
+            #[cfg(test)]
+            bind_error: Arc::new(AtomicBool::new(false)),
+            #[cfg(test)]
+            initial_listener: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -187,6 +204,14 @@ impl RestApiControl {
     pub(crate) fn bound_addr(&self) -> Option<SocketAddr> {
         let lifecycle = self.lifecycle.lock();
         lifecycle.bound_addr.filter(|_| lifecycle.listener_owned)
+    }
+
+    pub(crate) fn set_runtime_policy(&self, policy: RestApiRuntimePolicy) {
+        self.lifecycle.lock().runtime_policy = policy;
+    }
+
+    pub(crate) fn runtime_policy(&self) -> RestApiRuntimePolicy {
+        self.lifecycle.lock().runtime_policy.clone()
     }
 
     /// None only when the live socket is provably serving `configured`; anything
@@ -374,6 +399,26 @@ impl RestApiControl {
     fn take_shutdown_error(&self) -> bool {
         self.shutdown_error.swap(false, Ordering::AcqRel)
     }
+
+    #[cfg(test)]
+    fn force_bind_error(&self) {
+        self.bind_error.store(true, Ordering::Release);
+    }
+
+    #[cfg(test)]
+    fn take_bind_error(&self) -> bool {
+        self.bind_error.swap(false, Ordering::AcqRel)
+    }
+
+    #[cfg(test)]
+    fn install_initial_listener(&self, listener: tokio::net::TcpListener) {
+        *self.initial_listener.lock() = Some(listener);
+    }
+
+    #[cfg(test)]
+    fn take_initial_listener(&self) -> Option<tokio::net::TcpListener> {
+        self.initial_listener.lock().take()
+    }
 }
 
 pub(crate) type RestApiControlState = Arc<RestApiControl>;
@@ -417,6 +462,29 @@ async fn prove_health(address: SocketAddr) -> Result<(), String> {
     }
 }
 
+// Unix restart generations can overlap during handoff, so every listener must
+// opt into SO_REUSEPORT before the first generation binds.
+#[cfg(unix)]
+fn enable_shared_port_binding(socket: &tokio::net::TcpSocket) -> std::io::Result<()> {
+    use std::os::fd::AsRawFd;
+
+    let enabled: libc::c_int = 1;
+    let result = unsafe {
+        libc::setsockopt(
+            socket.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_REUSEPORT,
+            std::ptr::from_ref(&enabled).cast(),
+            std::mem::size_of_val(&enabled) as libc::socklen_t,
+        )
+    };
+    if result == -1 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
 async fn bind_listener(bind_addr: &str) -> std::io::Result<tokio::net::TcpListener> {
     let address = bind_addr
         .parse::<SocketAddr>()
@@ -427,6 +495,8 @@ async fn bind_listener(bind_addr: &str) -> std::io::Result<tokio::net::TcpListen
         tokio::net::TcpSocket::new_v6()?
     };
     socket.set_reuseaddr(true)?;
+    #[cfg(unix)]
+    enable_shared_port_binding(&socket)?;
     socket.bind(address)?;
     socket.listen(1024)
 }
@@ -578,7 +648,20 @@ pub(crate) async fn start(control: RestApiControlState, bind_addr: String, route
 
     loop {
         let generation = control.begin_generation();
-        let listener = match bind_listener(&bind_addr).await {
+        #[cfg(test)]
+        let listener = if control.take_bind_error() {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::AddrInUse,
+                "forced bind ownership failure",
+            ))
+        } else if let Some(listener) = control.take_initial_listener() {
+            Ok(listener)
+        } else {
+            bind_listener(&bind_addr).await
+        };
+        #[cfg(not(test))]
+        let listener = bind_listener(&bind_addr).await;
+        let listener = match listener {
             Ok(listener) => listener,
             Err(error) => {
                 let message =
@@ -658,11 +741,16 @@ pub(crate) async fn start(control: RestApiControlState, bind_addr: String, route
         control.listener_bound(generation, local_addr);
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
         let mut server = Box::pin(
-            axum::serve(listener, router.clone())
-                .with_graceful_shutdown(async {
-                    let _ = shutdown_rx.await;
-                })
-                .into_future(),
+            axum::serve(
+                listener,
+                router
+                    .clone()
+                    .into_make_service_with_connect_info::<SocketAddr>(),
+            )
+            .with_graceful_shutdown(async {
+                let _ = shutdown_rx.await;
+            })
+            .into_future(),
         );
         let health = prove_health(local_addr);
         tokio::pin!(health);

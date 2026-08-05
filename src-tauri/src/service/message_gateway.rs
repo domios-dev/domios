@@ -316,6 +316,7 @@ impl MessageGateway {
             .insert(tab_id.to_string());
     }
 
+    #[allow(dead_code)]
     pub(crate) fn clear_worker_report_requirement(&self, tab_id: &str) {
         self.worker_report_required.lock().remove(tab_id);
     }

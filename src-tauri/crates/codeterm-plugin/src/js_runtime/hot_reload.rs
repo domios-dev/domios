@@ -38,6 +38,7 @@ impl CapabilityRegistries {
     pub fn register_plugin(&self, manifest: &PluginManifest, vm: &Arc<super::PluginVm>) {
         let id = &manifest.id;
         let caps = &manifest.capabilities;
+        self.deregister_plugin(id);
         if caps.transcriber {
             self.transcribe.register(
                 id.clone(),
@@ -119,6 +120,8 @@ pub struct HotReloadRegistry {
     service: Mutex<Option<std::sync::Weak<dyn PluginHostCtx>>>,
     #[cfg(test)]
     load_count: std::sync::atomic::AtomicUsize,
+    #[cfg(test)]
+    contribution_event_count: std::sync::atomic::AtomicUsize,
 }
 
 static WATCHER: OnceLock<Arc<HotReloadRegistry>> = OnceLock::new();
@@ -153,6 +156,8 @@ impl HotReloadRegistry {
             service: Mutex::new(None),
             #[cfg(test)]
             load_count: std::sync::atomic::AtomicUsize::new(0),
+            #[cfg(test)]
+            contribution_event_count: std::sync::atomic::AtomicUsize::new(0),
         })
     }
 
@@ -215,6 +220,9 @@ impl HotReloadRegistry {
     }
 
     fn emit_agent_provider_changed(&self) {
+        #[cfg(test)]
+        self.contribution_event_count
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let svc = self.service.lock().clone().and_then(|w| w.upgrade());
         if let Some(svc) = svc {
             svc.contributions_changed("agent_provider");
@@ -369,6 +377,11 @@ impl HotReloadRegistry {
             Ok(mut provider) => {
                 let id = provider.manifest().id.clone();
                 let version = provider.manifest().version.clone();
+                let was_spawnable_chatbackend = self
+                    .caps
+                    .chatbackend
+                    .get(&id)
+                    .is_some_and(|backend| backend.spawnable());
                 self.register_vm(&id, provider.vm());
                 let activated_at_startup = self.activated_startup.lock().contains(&id);
                 if provider.manifest().requires_reload && !activated_at_startup {
@@ -396,7 +409,9 @@ impl HotReloadRegistry {
                     log::info!("[plugin-watcher] registered {id}");
                     self.emit_agent_provider_changed();
                 } else {
-                    if provider.manifest().capabilities.chat_backend_spawnable() {
+                    if was_spawnable_chatbackend
+                        || provider.manifest().capabilities.chat_backend_spawnable()
+                    {
                         self.emit_agent_provider_changed();
                     }
                     log::info!(
@@ -435,6 +450,12 @@ impl HotReloadRegistry {
     #[cfg(test)]
     pub fn load_count(&self) -> usize {
         self.load_count.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    #[cfg(test)]
+    pub fn contribution_event_count(&self) -> usize {
+        self.contribution_event_count
+            .load(std::sync::atomic::Ordering::SeqCst)
     }
 }
 

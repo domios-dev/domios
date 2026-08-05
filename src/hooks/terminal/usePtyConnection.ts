@@ -6,6 +6,7 @@ import { subscribeTabOutput, webOutputStreamActive, type TabOutputSink } from ".
 import { useMuxSelector } from "../../store/multiplexer";
 import { consumePendingCwd } from "../../lib/pendingCommands";
 import { uid } from "../../lib/uid";
+import { parseCompositeTabId } from "../../lib/remoteTabTransport";
 import { writeTerminalHistory } from "./terminalHistoryWrite";
 import {
   captureTerminalViewport,
@@ -34,6 +35,14 @@ async function fetchTabHistory(tabId: string): Promise<string> {
     if (text) return text;
   } catch { /* ignore */ }
   return "";
+}
+
+export function shouldFetchInitialTerminalHistory(
+  ptyId: string | null | undefined,
+  isWeb: boolean,
+  isRemote: boolean,
+): boolean {
+  return Boolean(ptyId) && !isWeb && !isRemote;
 }
 
 export interface UsePtyConnectionOptions {
@@ -202,7 +211,8 @@ export function usePtyConnection({
         });
       }
       // user killswitched it back via localStorage `codeterm-web-output-stream=off`.
-      const useOutputStream = webOutputStreamActive();
+      const isRemote = parseCompositeTabId(tabId) !== null;
+      const useOutputStream = webOutputStreamActive() || isRemote;
 
       // so re-sending up to 2MB of ANSI on every tab activation is wasteful.
       if (ptyId && IS_WEB) {
@@ -212,7 +222,7 @@ export function usePtyConnection({
           // the long-poll tail cursor only matters to the read_pty fallback transport.
           if (!useOutputStream) resetWebPtyTail(ptyId);
         }
-      } else if (ptyId) {
+      } else if (shouldFetchInitialTerminalHistory(ptyId, IS_WEB, isRemote)) {
         const claim = claimInitialTerminalHistory(tabId, term);
         if (claim) {
           historyClaim = claim;

@@ -28,6 +28,19 @@ export interface ActionDescriptor {
 
 /** Resolve a tab id/short-id to a human tab name. Returns undefined when unknown. */
 export type TabNameResolver = (tabRef: string) => string | undefined;
+/** Resolve a mesh peer id/name to its human instance name. */
+export type PeerNameResolver = (peerRef: string) => string | undefined;
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f-]{27}$/i;
+
+export function formatCommunicationEndpoint(label: string): string {
+  const parts = label.split("@").map((part) => part.trim()).filter(Boolean);
+  return parts.length > 1 ? `${parts.slice(0, -1).join(" @ ")} @ ${parts[parts.length - 1]}` : label.trim();
+}
+
+function friendlyPeerName(peerRef: string, resolve?: PeerNameResolver): string {
+  return resolve?.(peerRef) ?? (UUID_RE.test(peerRef) ? "remote peer" : peerRef);
+}
 
 export type NavigationTarget =
   | { kind: "tab"; id: string }
@@ -205,14 +218,19 @@ function reportFields(inv: CodetermInvocation): Array<{ label: string; value: st
 }
 
 /** Build the compact lead/object/chips payload used by the action card header. */
-export function describeAction(inv: CodetermInvocation, result?: string, resolve?: TabNameResolver): ActionDescriptor {
+export function describeAction(inv: CodetermInvocation, result?: string, resolve?: TabNameResolver, resolvePeer?: PeerNameResolver): ActionDescriptor {
   const path = inv.path.join(" ");
   if (isHelp(inv)) {
     return { lead: "help", object: path, chips: [] };
   }
   if (isSend(inv)) {
-    const sent = parseSend(inv, result, resolve);
-    return { lead: sent.mesh ? "mesh →" : "send", object: sent.mesh ?? sent.recipient, chips: sent.mesh ? ["peer"] : [], detail: sent.body };
+    const sent = parseSend(inv, result, resolve, resolvePeer);
+    return {
+      lead: "Sent to",
+      object: formatCommunicationEndpoint(`${sent.recipient}${sent.mesh ? ` @ ${sent.mesh}` : ""}`),
+      chips: sent.mesh ? ["mesh"] : ["tab"],
+      detail: sent.body,
+    };
   }
   if (path === "tab get-text") {
     const tab = targetTab(inv, resolve);
@@ -376,7 +394,7 @@ export interface SentMessage {
   recipient: string;
   mesh?: string;
   body: string;
-  bodySource: "resolved" | "typed";
+  bodySource: "resolved" | "typed" | "pad";
   status?: CardStatus;
 }
 
@@ -385,24 +403,33 @@ export function parseSend(
   inv: CodetermInvocation,
   result?: string,
   resolve?: TabNameResolver,
+  resolvePeer?: PeerNameResolver,
 ): SentMessage {
   const p = inv.flags.tab ?? inv.flags.tab;
   let recipient: string;
   if (typeof p !== "string") recipient = "current tab";
   else recipient = resolve?.(p) ?? `tab ${p}`;
-  const mesh = typeof inv.flags.mesh === "string" ? inv.flags.mesh : undefined;
+  const meshRef = typeof inv.flags.mesh === "string" ? inv.flags.mesh : undefined;
+  const mesh = meshRef ? friendlyPeerName(meshRef, resolvePeer) : undefined;
   const resolved = resolvedSendText(result);
   const typed = decodeCliMessageText(inv.positionals[0] ?? "");
+  const fromPad = inv.flags["from-pad"];
+  const staged =
+    typeof fromPad === "string" ||
+    typeof inv.flags["from-file"] === "string" ||
+    inv.flags.stdin === true;
   return {
     recipient,
     mesh,
-    body: resolved || typed || sendBodyDescriptor(inv),
-    bodySource: resolved == null ? "typed" : "resolved",
+    body: resolved || (staged ? sendBodyDescriptor(inv) : typed) || sendBodyDescriptor(inv),
+    bodySource: resolved != null ? "resolved" : typeof fromPad === "string" ? "pad" : "typed",
     status: deliveredStatus(result),
   };
 }
 
 function sendBodyDescriptor(inv: CodetermInvocation): string {
+  const fromPad = inv.flags["from-pad"];
+  if (typeof fromPad === "string") return `AgentPad payload: ${fromPad}`;
   const fromFile = inv.flags["from-file"];
   if (typeof fromFile === "string") return `Message sent from file: ${fromFile}`;
   if (inv.flags.stdin === true) return "Message sent from standard input.";

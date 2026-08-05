@@ -1,16 +1,18 @@
 import type { LaunchParams, ModelInfo, ParsedPrompt, PluginModule } from "@codeterm/plugin-sdk";
 import { discoverCodexModels } from "./models";
 import {
-  parseActiveTerminalChoice,
   parseCodexPrompt,
-  parseMenuOptions,
   responseKeysForIndex,
-  type MenuOption,
 } from "./prompt";
 import { readSessionMeta, SESSION_MODEL_TAIL_BYTES } from "./sessionMeta";
 import { fetchCodexUsage, parseCodexUsage } from "./usage";
-import { unwrapShellCommand } from "./execWrapper";
+import { summarizeExecScript, unwrapShellCommand } from "./execWrapper";
 import { patchEdits } from "./patchEdits";
+import {
+  classifyCodexTabState,
+  type TabStateClassification,
+  type TabStateSnapshot,
+} from "./tabState";
 
 const CODETERM_CODEX_HOOK_MARKER = "codeterm-codex-session-binding-v1";
 const CODETERM_CODEX_PROFILE_CLEANUP_MARKER = "codeterm-profile-cleanup-v1";
@@ -369,7 +371,7 @@ const plugin: PluginModule = {
   checkIntegration(): unknown {
     const path = codexHooksPath();
     if (!path || !host.fs.fileExists(path)) {
-      return { hooks_file_exists: false, hooks_installed: false, session_start_hook: false, hook_trust_state: "missing", hook_trust_enabled: null };
+      return { hooks_file_exists: false, hooks_installed: false, session_start_hook: false, hook_trust_state: "missing", hook_trust_enabled: null, target: path || "~/.codex/hooks.json", backup_exists: !!path && host.fs.fileExists(path + ".codeterm-backup"), proposed_changes: ["SessionStart hook", "hook trust"] };
     }
     const json = host.fs.readJson<CodexHooks>(path);
     if (!json) {
@@ -409,37 +411,123 @@ const plugin: PluginModule = {
       session_start_hook: current && trustOk,
       hook_trust_state: trustState,
       hook_trust_enabled: trustState === "enabled" ? true : (trustState === "disabled" ? false : null),
+      target: path,
+      backup_exists: host.fs.fileExists(path + ".codeterm-backup"),
+      proposed_changes: ["SessionStart hook", "hook trust"],
     };
   },
 
-  installIntegration(apiPort: number): unknown {
+  installIntegration(
+    apiPort: number,
+    options?: { consent?: boolean },
+  ): unknown {
+    if (!options || options.consent !== true) {
+      return { ok: false, error: "provider integration installation requires explicit local-user consent" };
+    }
     const path = codexHooksPath();
     if (!path) return { ok: false, error: "could not resolve ~/.codex/hooks.json" };
 
-    const json = (host.fs.fileExists(path) ? (host.fs.readJson<CodexHooks>(path) || {}) : {}) as CodexHooks;
-    if (!json.hooks || typeof json.hooks !== "object") json.hooks = {};
-    if (!Array.isArray(json.hooks.SessionStart)) json.hooks.SessionStart = [];
+    const hooksExisted = host.fs.fileExists(path);
+    const originalHooksValue = hooksExisted ? host.fs.readFile(path) : null;
+    if (hooksExisted && typeof originalHooksValue !== "string") {
+      return { ok: false, error: "could not read existing hooks JSON at " + path };
+    }
+    const originalHooks = typeof originalHooksValue === "string" ? originalHooksValue : "";
+    let parsedHooks: unknown = {};
+    if (hooksExisted) {
+      try {
+        parsedHooks = JSON.parse(originalHooks);
+      } catch (_) {
+        return { ok: false, error: "existing hooks JSON is malformed at " + path };
+      }
+    }
+    if (!parsedHooks || typeof parsedHooks !== "object" || Array.isArray(parsedHooks)) {
+      return { ok: false, error: "existing hooks JSON must contain an object at " + path };
+    }
+    const json = parsedHooks as CodexHooks;
+    if (json.hooks !== undefined && (typeof json.hooks !== "object" || Array.isArray(json.hooks))) {
+      return { ok: false, error: "hooks is not an object" };
+    }
+    if (json.hooks?.SessionStart !== undefined && !Array.isArray(json.hooks.SessionStart)) {
+      return { ok: false, error: "hooks.SessionStart is not an array" };
+    }
+    const configPath = codexConfigPath();
+    const configExisted = !!configPath && host.fs.fileExists(configPath);
+    const originalConfigValue = configPath && configExisted ? host.fs.readFile(configPath) : null;
+    if (configExisted && typeof originalConfigValue !== "string") {
+      return { ok: false, error: "could not read existing Codex config at " + configPath };
+    }
+    const originalConfig = typeof originalConfigValue === "string" ? originalConfigValue : "";
+    const scriptPath = host.platform() === "windows" ? codexWindowsHookScriptPath() : null;
+    const scriptExisted = !!scriptPath && host.fs.fileExists(scriptPath);
+    const originalScriptValue = scriptExisted && scriptPath ? host.fs.readFile(scriptPath) : null;
+    if (scriptExisted && typeof originalScriptValue !== "string") {
+      return { ok: false, error: "could not read existing hook script at " + scriptPath };
+    }
+    const originalScript = typeof originalScriptValue === "string" ? originalScriptValue : "";
+    const ownershipPath = codexHookTrustOwnershipPath();
+    const ownershipSnapshot = ownershipPath ? captureIntegrationFile(ownershipPath) : null;
+    if (ownershipPath && !ownershipSnapshot) {
+      return { ok: false, error: "could not read existing Codex trust ownership record" };
+    }
+    const artifactPaths = [
+      path + ".codeterm-backup",
+      path + ".codeterm-backup-state",
+      ...(configPath && configExisted ? [configPath + ".codeterm-backup"] : []),
+      ...(scriptPath ? [scriptPath + ".codeterm-backup", scriptPath + ".codeterm-backup-state"] : []),
+    ];
+    const artifactSnapshots = artifactPaths.map(captureIntegrationFile);
+    if (artifactSnapshots.some((snapshot) => snapshot === null)) {
+      return { ok: false, error: "could not snapshot existing CodeTerm integration artifacts" };
+    }
+    const rollbackSnapshots: IntegrationFileSnapshot[] = [
+      { path, existed: hooksExisted, bytes: originalHooks },
+      ...(configPath ? [{ path: configPath, existed: configExisted, bytes: originalConfig }] : []),
+      ...(scriptPath ? [{ path: scriptPath, existed: scriptExisted, bytes: originalScript }] : []),
+      ...(ownershipSnapshot ? [ownershipSnapshot] : []),
+      ...(artifactSnapshots as IntegrationFileSnapshot[]),
+    ];
+    const fail = (error: string) => {
+      const restored = restoreIntegrationFiles(rollbackSnapshots);
+      return { ok: false, error: restored ? error : error + "; exact rollback failed" };
+    };
+    if (!host.fs.writeFile(path + ".codeterm-backup", originalHooks)
+      || !host.fs.writeFile(path + ".codeterm-backup-state", hooksExisted ? "present" : "absent")) {
+      return fail("could not write recoverable backup for " + path);
+    }
+    if (configPath && configExisted
+      && !host.fs.writeFile(configPath + ".codeterm-backup", originalConfig)) {
+      return fail("could not write recoverable backup for " + configPath);
+    }
+    if (scriptPath && (!host.fs.writeFile(scriptPath + ".codeterm-backup", originalScript)
+      || !host.fs.writeFile(scriptPath + ".codeterm-backup-state", scriptExisted ? "present" : "absent"))) {
+      return fail("could not write recoverable backup for " + scriptPath);
+    }
+    if (!json.hooks) json.hooks = {};
+    if (json.hooks.SessionStart !== undefined && !Array.isArray(json.hooks.SessionStart)) {
+      return { ok: false, error: "hooks.SessionStart is not an array" };
+    }
+    if (!json.hooks.SessionStart) json.hooks.SessionStart = [];
     json.hooks.SessionStart = json.hooks.SessionStart.filter((entry) => !isCodetermCodexHook(entry));
 
     const nullDev = host.platform() === "windows" ? "NUL" : "/dev/null";
     const port = apiPort | 0;
-    const portExpr = "${CODETERM_API_PORT:-" + port + "}";
     const authH = '-H "Authorization: Bearer ${CODETERM_API_TOKEN}"';
     const nonceH = '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}"';
-    const cmd = "curl -s -X POST http://localhost:" + portExpr
-      + "/api/tabs/$CODETERM_TAB_ID/hook/session_start "
+    const guard = 'if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ]; then ';
+    const cmd = guard + 'curl -s -X POST "$CODETERM_API_URL'
+      + "/api/tabs/$CODETERM_TAB_ID/hook/session_start\" "
       + "-H 'Content-Type: application/json' "
       + "-H 'X-CodeTerm-Agent-Provider: codex' "
       + nonceH + " "
       + authH
-      + " --data-binary @- > " + nullDev + " 2>&1 || true";
-    const scriptPath = codexWindowsHookScriptPath();
+      + " --data-binary @- > " + nullDev + " 2>&1 || true; fi";
     const commandWindows = scriptPath
       ? 'powershell -NoProfile -ExecutionPolicy Bypass -File "' + scriptPath + '"'
       : cmd;
 
     if (scriptPath && !host.fs.writeFile(scriptPath, codexWindowsHookScript(port))) {
-      return { ok: false, error: "writeFile failed for " + scriptPath };
+      return fail("writeFile failed for " + scriptPath);
     }
 
     json.hooks.SessionStart.push({
@@ -456,30 +544,83 @@ const plugin: PluginModule = {
     const ok = host.fs.writeJson(path, json);
     if (ok) {
       const trust = enableExistingCodexHookTrust(path);
+      if (trust.write_failed) return fail("could not enable existing Codex hook trust");
+      if (trust.changed) {
+        if (!ownershipPath || !host.fs.writeFile(ownershipPath, path)) {
+          return fail("could not record owned Codex hook trust expansion");
+        }
+      }
       host.log("info", "[codex-plugin] SessionStart hook installed at " + path);
-      return { ok: true, hook_trust_state: trust };
+      return { ok: true, hook_trust_state: trust.state };
     }
-    return { ok: false, error: "writeJson failed for " + path };
+    return fail("writeJson failed for " + path);
   },
 
   uninstallIntegration(): unknown {
     const path = codexHooksPath();
-    if (!path || !host.fs.fileExists(path)) return { ok: true };
-    const json = host.fs.readJson<CodexHooks>(path);
-    if (!json || !json.hooks || typeof json.hooks !== "object") return { ok: true };
-    if (Array.isArray(json.hooks.SessionStart)) {
-      json.hooks.SessionStart = json.hooks.SessionStart.filter((entry) => !isCodetermCodexHook(entry));
+    if (!path) return { ok: true };
+    let hooksOk = true;
+    if (host.fs.fileExists(path)) {
+      const json = host.fs.readJson<CodexHooks>(path);
+      if (!json || !json.hooks || typeof json.hooks !== "object") {
+        return { ok: false, error: "could not safely read hooks JSON at " + path };
+      }
+      if (Array.isArray(json.hooks.SessionStart)) {
+        json.hooks.SessionStart = json.hooks.SessionStart.filter((entry) => !isCodetermCodexHook(entry));
+      }
+      hooksOk = host.fs.writeJson(path, json);
     }
-    const ok = host.fs.writeJson(path, json);
+    const ownershipPath = codexHookTrustOwnershipPath();
+    if (ownershipPath && host.fs.fileExists(ownershipPath)) {
+      const ownedTarget = host.fs.readFile(ownershipPath);
+      if (ownedTarget === path && disableOwnedCodexHookTrust(path)) {
+        host.fs.removeFile(ownershipPath);
+      }
+    }
     const scriptPath = codexWindowsHookScriptPath();
-    if (scriptPath && host.fs.fileExists(scriptPath)) host.fs.removeFile(scriptPath);
-    return ok ? { ok: true } : { ok: false, error: "writeJson failed for " + path };
+    if (scriptPath && host.fs.fileExists(scriptPath) && isOwnedCodexWindowsHookScript(scriptPath)) {
+      host.fs.removeFile(scriptPath);
+    }
+    return hooksOk ? { ok: true } : { ok: false, error: "writeJson failed for " + path };
+  },
+
+  restoreIntegration(): unknown {
+    const path = codexHooksPath();
+    if (!path) return { ok: false, error: "could not resolve ~/.codex/hooks.json" };
+    const backup = path + ".codeterm-backup";
+    if (!host.fs.fileExists(backup)) return { ok: false, error: "no recoverable backup at " + backup };
+    const hooks = host.fs.readFile(backup);
+    if (typeof hooks !== "string") return { ok: false, error: "restore failed for " + path };
+    const hooksState = host.fs.readFile(path + ".codeterm-backup-state");
+    if (hooksState === "absent" || (typeof hooksState !== "string" && hooks === "")) {
+      if (host.fs.fileExists(path) && !host.fs.removeFile(path)) return { ok: false, error: "restore failed for " + path };
+    } else if (!host.fs.writeFile(path, hooks)) {
+      return { ok: false, error: "restore failed for " + path };
+    }
+    const config = codexConfigPath();
+    if (config && host.fs.fileExists(config + ".codeterm-backup")) {
+      const original = host.fs.readFile(config + ".codeterm-backup");
+      if (typeof original !== "string" || !host.fs.writeFile(config, original)) return { ok: false, error: "restore failed for " + config };
+      const ownershipPath = codexHookTrustOwnershipPath();
+      if (ownershipPath && host.fs.fileExists(ownershipPath)) host.fs.removeFile(ownershipPath);
+    }
+    const script = host.platform() === "windows" ? codexWindowsHookScriptPath() : null;
+    if (script && host.fs.fileExists(script + ".codeterm-backup")) {
+      const original = host.fs.readFile(script + ".codeterm-backup");
+      if (typeof original !== "string") return { ok: false, error: "restore failed for " + script };
+      const scriptState = host.fs.readFile(script + ".codeterm-backup-state");
+      if (scriptState === "absent" || (typeof scriptState !== "string" && original === "")) {
+        if (host.fs.fileExists(script) && !host.fs.removeFile(script)) return { ok: false, error: "restore failed for " + script };
+      } else if (!host.fs.writeFile(script, original)) {
+        return { ok: false, error: "restore failed for " + script };
+      }
+    }
+    return { ok: true };
   },
 
   ensureIntegrationOnStartup(apiPort: number): unknown {
-    const status = this.checkIntegration!() as { hooks_installed?: boolean; hook_trust_state?: string };
-    if (status && status.hooks_installed) return { ok: true };
-    return this.installIntegration!(apiPort);
+    void apiPort;
+    return { ok: true, changed: false };
   },
 
   // Parse the `/status` TUI screen into a UsageSnapshot; gauges report "% left", snapshot stores "% used".
@@ -602,262 +743,21 @@ const plugin: PluginModule = {
   },
 
   classifyTabState(snapshot: TabStateSnapshot): TabStateClassification | null {
-    // Normalize CRLF/CR → LF: the structural patterns below match on \n boundaries.
-    const screen = String((snapshot && snapshot.screenText) || "").replace(/\r\n?/g, "\n");
-    if (!screen.trim()) return null;
+    return classifyCodexTabState(snapshot, host.unixNowMs());
+  },
 
-    // Busy veto: a streaming tab is never parked at an input request.
-    if (looksBusy(screen)) return { state: "working", confidence: 0 };
-
-    const activeChoice = parseActiveTerminalChoice(screen);
-    const authConfidence = activeChoice
-      ? scoreAuthPrompt(activeChoice.options.map((option) => option.label).join("\n"))
-      : 0;
-    if (authConfidence >= CLASSIFY_THRESHOLD) {
-      return {
-        state: "waiting_on_auth",
-        confidence: authConfidence,
-        action: { surface: { kind: "auth_prompt", payload: { reason: "login_detected" } } },
-      };
-    }
-
-    // Model/effort picker veto: numbered menus without a limit notice must not schedule a resume.
-    if (looksLikeModelPicker(screen)) return { state: "working", confidence: 0 };
-
-    // Ensemble vote for the codex self-update prompt.
-    const upd = scoreUpdatePrompt(screen);
-    if (upd.confidence >= CLASSIFY_THRESHOLD && upd.skipKeys && upd.skipKeys.length > 0) {
-      return {
-        state: "update_prompt",
-        confidence: upd.confidence,
-        action: { keys: upd.skipKeys },
-      };
-    }
-
-    // Usage-limit notice → schedule resume at the parsed reset (no menu to confirm).
-    const rl = scoreRateLimit(screen, host.unixNowMs());
-    if (rl.confidence >= CLASSIFY_THRESHOLD) {
-      const action: TabStateAction = {};
-      const data: { resetAt?: string } = {};
-      if (rl.resetAtMs !== null) {
-        data.resetAt = new Date(rl.resetAtMs).toISOString();
-        action.delayedResume = {
-          at: new Date(rl.resetAtMs + RESUME_BUFFER_MS).toISOString(),
-          text: "continue your work",
-          thenKeys: ["enter"],
-        };
-      } else {
-        action.surface = { kind: "rate_limit", payload: { reason: "reset_time_unparsed" } };
-      }
-      return {
-        state: "rate_limited",
-        confidence: rl.confidence,
-        data: rl.resetAtMs !== null ? data : undefined,
-        action: action,
-      };
-    }
-
-    if (activeChoice) {
-      return {
-        state: "clarifying_question",
-        confidence: 1,
-        data: { questions: [activeChoice.question] },
-        action: {
-          surface: {
-            kind: "clarifying_question",
-            payload: { questions: [activeChoice.question] },
-          },
-        },
-      };
-    }
-
-    // Some signal but not a confident verdict → no action, so the reactor never fires on a partial read.
-    const partial = rl.confidence > upd.confidence ? rl.confidence : upd.confidence;
-    if (partial > 0) return { state: "unknown", confidence: partial };
-
-    return { state: "working", confidence: 0 };
+  providerSelfUpdateCapability(): {
+    inSession: boolean;
+    restartRequired: boolean;
+    completionSignal: "provider_classification";
+  } {
+    return {
+      inSession: true,
+      restartRequired: true,
+      completionSignal: "provider_classification",
+    };
   },
 };
-
-// Tab-state classification (codex self-update prompt). Wire shapes mirror
-// src-tauri/src/agent/tab_state.rs, declared locally because the SDK exposes
-
-interface TabStateSnapshot {
-  tabId: string;
-  agentType: string;
-  sessionId?: string | null;
-  cwd?: string | null;
-  screenText: string;
-}
-
-type TabState =
-  | "working"
-  | "waiting_on_auth"
-  | "update_prompt"
-  | "rate_limited"
-  | "clarifying_question"
-  | "idle_stuck"
-  | "unknown";
-
-interface TabStateAction {
-  keys?: string[];
-  delayedResume?: { at: string; text: string; thenKeys?: string[] };
-  surface?: { kind: string; payload: unknown };
-}
-
-interface TabStateClassification {
-  state: TabState;
-  confidence: number;
-  data?: { resetAt?: string; questions?: string[] };
-  action?: TabStateAction;
-}
-
-// Must match the core reactor's GLOBAL_THRESHOLD (state_reactor.rs) — below it the reactor would reject the verdict.
-const CLASSIFY_THRESHOLD = 0.8;
-
-// Buffer past the parsed reset so `continue your work` lands after the limit actually clears.
-const RESUME_BUFFER_MS = 60 * 1000;
-
-// there's no distinct Skip option, so we never blindly Enter on the default "Update now".
-function skipNavigationKeys(options: MenuOption[]): string[] | null {
-  if (options.length === 0) return null;
-  let highlightIdx = -1;
-  for (let i = 0; i < options.length; i++) {
-    if (options[i].highlighted) { highlightIdx = i; break; }
-  }
-  if (highlightIdx === -1) highlightIdx = 0; // codex defaults to option 1
-  let skipIdx = -1;
-  for (let i = 0; i < options.length; i++) {
-    const label = options[i].label;
-    if (/\bskip\b/i.test(label) && !/\bupdate\b/i.test(label)) { skipIdx = i; break; }
-  }
-  if (skipIdx === -1) return null;
-  const keys: string[] = [];
-  const delta = skipIdx - highlightIdx;
-  if (delta > 0) for (let i = 0; i < delta; i++) keys.push("down");
-  else if (delta < 0) for (let i = 0; i < -delta; i++) keys.push("up");
-  keys.push("enter");
-  return keys;
-}
-
-interface UpdateScore { confidence: number; skipKeys: string[] | null }
-
-// signal is a numbered menu carrying both "update" and "skip"; a lone signal stays sub-threshold.
-function scoreUpdatePrompt(screen: string): UpdateScore {
-  const options = parseMenuOptions(screen);
-  let hasUpdateOption = false;
-  let hasSkipOption = false;
-  for (let i = 0; i < options.length; i++) {
-    if (/\bupdate\b/i.test(options[i].label)) hasUpdateOption = true;
-    if (/\bskip\b/i.test(options[i].label)) hasSkipOption = true;
-  }
-  const sigUpdateSkipMenu = hasUpdateOption && hasSkipOption;          // 0.45
-  const sigAvailable = /\b(update|version)\s+available\b/i.test(screen); // 0.20
-  const sigVersionArrow = /\d+\.\d+(?:\.\d+)?\s*(?:->|→|=>)\s*\d+\.\d+(?:\.\d+)?/.test(screen); // 0.15
-  const sigPressEnter = /press\s+enter\s+to\s+continue/i.test(screen); // 0.10
-  const sigReleaseNotes = /release\s+notes/i.test(screen);             // 0.10
-
-  let confidence = 0;
-  if (sigUpdateSkipMenu) confidence += 0.45;
-  if (sigAvailable) confidence += 0.2;
-  if (sigVersionArrow) confidence += 0.15;
-  if (sigPressEnter) confidence += 0.1;
-  if (sigReleaseNotes) confidence += 0.1;
-  if (confidence > 1) confidence = 1;
-
-  // Only compute Skip navigation when the actionable menu signal is present.
-  const skipKeys = sigUpdateSkipMenu ? skipNavigationKeys(options) : null;
-  return { confidence: confidence, skipKeys: skipKeys };
-}
-
-function looksBusy(screen: string): boolean {
-  const s = String(screen || "");
-  return (
-    /\bctrl\+c to (?:cancel|stop|interrupt|quit)\b/i.test(s) ||
-    /\bWorking[….]/.test(s) ||
-    /\((?:esc|ctrl\+c) to interrupt\)/i.test(s)
-  );
-}
-
-function looksLikeModelPicker(screen: string): boolean {
-  const s = String(screen || "");
-  if (!/\bselect\s+(?:model|reasoning)\b/i.test(s)) return false;
-  return /\bpress\s+enter\s+to\s+confirm\b/i.test(s) && /\besc\s+to\s+go\s+back\b/i.test(s);
-}
-
-interface RateLimitScore { confidence: number; resetAtMs: number | null }
-
-// Structural signals for codex's plain-text usage-limit notice (weights sum to 1.0).
-function scoreRateLimit(screen: string, nowMs: number): RateLimitScore {
-  const s = String(screen || "");
-  const sigHitLimit = /\bhit your usage limit\b/i.test(s) || /\breached your usage limit\b/i.test(s); // 0.50
-  const sigTryAgain = /\btry again at\b/i.test(s);                                                   // 0.30
-  const sigSettingsLink = /chatgpt\.com\/codex\/settings/i.test(s);                                   // 0.10
-  const sigResetClock = /\btry again at\b[^\n]{0,48}?\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i.test(s);    // 0.10
-
-  let confidence = 0;
-  if (sigHitLimit) confidence += 0.5;
-  if (sigTryAgain) confidence += 0.3;
-  if (sigSettingsLink) confidence += 0.1;
-  if (sigResetClock) confidence += 0.1;
-  if (confidence > 1) confidence = 1;
-
-  const resetAtMs = parseTryAgainClock(s, nowMs);
-  return { confidence: confidence, resetAtMs: resetAtMs };
-}
-
-function parseTryAgainClock(screen: string, nowMs: number): number | null {
-  const m = /\btry again at\b[^\n]{0,48}?(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b/i.exec(String(screen || ""));
-  if (!m) return null;
-  return codexParseTodayClock(m[1], nowMs);
-}
-
-interface HMmAmPm { hh: number; mm: number; pm: boolean }
-
-function codexParseHMmAmPm(s: string): HMmAmPm | null {
-  s = String(s || "").trim().toLowerCase();
-  let pm: boolean;
-  if (s.slice(-2) === "pm") pm = true;
-  else if (s.slice(-2) === "am") pm = false;
-  else return null;
-  const stripped = s.slice(0, -2).trim();
-  let hh: number, mm: number;
-  const idx = stripped.indexOf(":");
-  if (idx !== -1) {
-    hh = parseInt(stripped.slice(0, idx).trim(), 10);
-    mm = parseInt(stripped.slice(idx + 1).trim(), 10);
-  } else {
-    hh = parseInt(stripped, 10);
-    mm = 0;
-  }
-  if (isNaN(hh) || isNaN(mm) || hh === 0 || hh > 12 || mm > 59) return null;
-  return { hh: hh, mm: mm, pm: pm };
-}
-
-function codexParseTodayClock(s: string, nowMs: number): number | null {
-  const t = codexParseHMmAmPm(s);
-  if (!t) return null;
-  const hour24 = (t.hh % 12) + (t.pm ? 12 : 0);
-  const now = new Date(nowMs);
-  let cand = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour24, t.mm, 0, 0);
-  if (cand.getTime() <= nowMs) cand = new Date(cand.getTime() + 24 * 3600 * 1000);
-  return cand.getTime();
-}
-
-// Auth prose is scored only inside the structurally active choice labels.
-function scoreAuthPrompt(screen: string): number {
-  const s = String(screen || "");
-  let score = 0;
-  if (/\bsign[ -]?in\b/i.test(s)) score += 0.5;
-  if (/\blog[ -]?in\b/i.test(s)) score += 0.5;
-  if (/\bauthenticat(?:e|ion|ing)\b/i.test(s)) score += 0.5;
-  if (/\bo\s?auth\b/i.test(s)) score += 0.6;
-  if (/\bapi key\b/i.test(s)) score += 0.6;
-  if (/paste\b[^\n]*\b(token|key|code|credential)/i.test(s)) score += 0.6;
-  if (/\bauthorization code\b/i.test(s)) score += 0.6;
-  if (/enter your\b[^\n]*\b(api key|token|credential)/i.test(s)) score += 0.6;
-  return score > 1 ? 1 : score;
-}
 
 // types shared by the parsers above
 
@@ -903,9 +803,11 @@ interface CodexHooks { hooks?: { SessionStart?: CodexHookEntry[] } }
 function canonicalToolFields(name: string, input: Record<string, unknown>): Record<string, unknown> {
   const raw = typeof input.raw === "string" ? input.raw : "";
   const command = typeof input.command === "string" ? input.command : typeof input.cmd === "string" ? input.cmd : "";
+  const script = name === "exec" && raw ? summarizeExecScript(raw) : null;
   const shell = raw ? unwrapShellCommand(raw) : null;
   const patch = typeof input.patch === "string" ? input.patch : name === "apply_patch" && typeof input.input === "string" ? input.input : "";
   const edits = patch ? patchEdits(patch) : [];
+  if (script) return { tool_kind: script.kind, tool_summary: script.summary, tool_detail: script.detail };
   if (shell) return { tool_kind: "command", tool_summary: shell.command, tool_detail: shell.command };
   if (command.trim()) return { tool_kind: "command", tool_summary: command.trim(), tool_detail: command.trim() };
   if (edits.length > 0) return { tool_kind: "edit", tool_summary: edits[0].path, tool_detail: patch, tool_edits: edits };
@@ -948,15 +850,43 @@ function codexWindowsHookScriptPath(): string | null {
   return home + sep + ".codex" + sep + "codeterm-session-start.ps1";
 }
 
-function codexWindowsHookScript(apiPort: number): string {
+function codexHookTrustOwnershipPath(): string | null {
+  const config = codexConfigPath();
+  return config ? config + ".codeterm-hook-trust-owned" : null;
+}
+
+interface IntegrationFileSnapshot {
+  path: string;
+  existed: boolean;
+  bytes: string;
+}
+
+function captureIntegrationFile(path: string): IntegrationFileSnapshot | null {
+  const existed = host.fs.fileExists(path);
+  const bytes = existed ? host.fs.readFile(path) : "";
+  return typeof bytes === "string" ? { path, existed, bytes } : null;
+}
+
+function restoreIntegrationFiles(snapshots: IntegrationFileSnapshot[]): boolean {
+  let restored = true;
+  for (let i = snapshots.length - 1; i >= 0; i--) {
+    const snapshot = snapshots[i];
+    const ok = snapshot.existed
+      ? host.fs.writeFile(snapshot.path, snapshot.bytes)
+      : (!host.fs.fileExists(snapshot.path) || host.fs.removeFile(snapshot.path));
+    restored = ok && restored;
+  }
+  return restored;
+}
+
+function codexWindowsHookScript(_apiPort: number): string {
   return [
     "# " + CODETERM_CODEX_HOOK_MARKER,
     "# " + CODETERM_CODEX_PROFILE_CLEANUP_MARKER,
     '$ErrorActionPreference = "SilentlyContinue"',
     "$tab = $env:CODETERM_TAB_ID",
-    "if ([string]::IsNullOrWhiteSpace($tab)) { exit 0 }",
-    '$port = if ($env:CODETERM_API_PORT) { $env:CODETERM_API_PORT } else { "' + String(apiPort || 7686) + '" }',
-    '$base = if ($env:CODETERM_API_URL) { $env:CODETERM_API_URL.TrimEnd("/") } else { "http://127.0.0.1:$port" }',
+    "if ([string]::IsNullOrWhiteSpace($tab) -or [string]::IsNullOrWhiteSpace($env:CODETERM_API_URL) -or [string]::IsNullOrWhiteSpace($env:CODETERM_API_TOKEN)) { exit 0 }",
+    '$base = $env:CODETERM_API_URL.TrimEnd("/")',
     "$headers = @{",
     '  "Content-Type" = "application/json"',
     '  "X-CodeTerm-Agent-Provider" = "codex"',
@@ -964,9 +894,7 @@ function codexWindowsHookScript(apiPort: number): string {
     "if ($env:CODETERM_SESSION_BINDING_NONCE) {",
     '  $headers["X-CodeTerm-Binding-Nonce"] = $env:CODETERM_SESSION_BINDING_NONCE',
     "}",
-    "if ($env:CODETERM_API_TOKEN) {",
-    '  $headers["Authorization"] = "Bearer $($env:CODETERM_API_TOKEN)"',
-    "}",
+    '$headers["Authorization"] = "Bearer $($env:CODETERM_API_TOKEN)"',
     "$body = [Console]::In.ReadToEnd()",
     'Invoke-RestMethod -Method Post -Uri "$base/api/tabs/$tab/hook/session_start" -Headers $headers -Body $body -TimeoutSec 5 | Out-Null',
     "$profileSuffix = $tab -replace '[^A-Za-z0-9_-]', '-'",
@@ -995,6 +923,11 @@ function isCodetermCodexHook(entry: CodexHookEntry): boolean {
   return false;
 }
 
+function isOwnedCodexWindowsHookScript(path: string): boolean {
+  const text = host.fs.readFile(path);
+  return typeof text === "string" && text === codexWindowsHookScript(0);
+}
+
 function codexHookTrustState(hooksPath: string): "enabled" | "disabled" | "missing" | "unknown" {
   const cfg = codexConfigPath();
   if (!cfg || !host.fs.fileExists(cfg)) return "missing";
@@ -1007,20 +940,39 @@ function codexHookTrustState(hooksPath: string): "enabled" | "disabled" | "missi
   return m[1] === "true" ? "enabled" : "disabled";
 }
 
-function enableExistingCodexHookTrust(hooksPath: string): "enabled" | "missing" | "unknown" {
+function enableExistingCodexHookTrust(
+  hooksPath: string,
+): { state: "enabled" | "missing" | "unknown"; changed: boolean; write_failed: boolean } {
   const cfg = codexConfigPath();
-  if (!cfg || !host.fs.fileExists(cfg)) return "missing";
+  if (!cfg || !host.fs.fileExists(cfg)) return { state: "missing", changed: false, write_failed: false };
   const text = String(host.fs.readFile(cfg) || "");
-  if (!text) return "missing";
+  if (!text) return { state: "missing", changed: false, write_failed: false };
   const span = findCodexHookTrustBlockSpan(text, hooksPath);
-  if (!span) return "missing";
+  if (!span) return { state: "missing", changed: false, write_failed: false };
   const block = text.substring(span.start, span.end);
   if (!/(?:^|\n)\s*enabled\s*=\s*false\s*(?:\n|$)/.test(block)) {
-    return codexHookTrustState(hooksPath) === "enabled" ? "enabled" : "unknown";
+    const state = codexHookTrustState(hooksPath) === "enabled" ? "enabled" : "unknown";
+    return { state, changed: false, write_failed: false };
   }
   const nextBlock = block.replace(/(^|\n)(\s*enabled\s*=\s*)false(\s*(?:\n|$))/, "$1$2true$3");
   const next = text.substring(0, span.start) + nextBlock + text.substring(span.end);
-  return host.fs.writeFile(cfg, next) ? "enabled" : "unknown";
+  return host.fs.writeFile(cfg, next)
+    ? { state: "enabled", changed: true, write_failed: false }
+    : { state: "unknown", changed: false, write_failed: true };
+}
+
+function disableOwnedCodexHookTrust(hooksPath: string): boolean {
+  const cfg = codexConfigPath();
+  if (!cfg || !host.fs.fileExists(cfg)) return true;
+  const text = host.fs.readFile(cfg);
+  if (typeof text !== "string") return false;
+  const span = findCodexHookTrustBlockSpan(text, hooksPath);
+  if (!span) return true;
+  const block = text.substring(span.start, span.end);
+  const nextBlock = block.replace(/(^|\n)(\s*enabled\s*=\s*)true(\s*(?:\n|$))/, "$1$2false$3");
+  if (nextBlock === block) return true;
+  const next = text.substring(0, span.start) + nextBlock + text.substring(span.end);
+  return host.fs.writeFile(cfg, next);
 }
 
 function findCodexHookTrustBlock(text: string, hooksPath: string): string | null {

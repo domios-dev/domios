@@ -45,7 +45,7 @@ fn close_tab_detaches_children_without_closing_them() {
     let workspace_id = state.list_workspaces()[0].id.clone();
     let orchestrator_tab = state.find_tab_for_tab(&orchestrator_id).unwrap();
     state
-        .set_tab_role(&orchestrator_id, AgentRole::Orchestrator, None)
+        .set_orchestrator_role(&orchestrator_id)
         .unwrap();
     let worker_id = state.create_tab(&workspace_id).unwrap();
     state

@@ -1,7 +1,8 @@
 //! Settings + notification schemas, model catalog, and bridge-rule install.
 
 use crate::provider::{
-    self, ActionStyle, BadgeStyle, BadgeVariant, ModelInfo, PathOpenKind, SettingField,
+    self, ActionStyle, BadgeStyle, BadgeVariant, ModelInfo, PathOpenKind, ReasoningEffortInfo,
+    SettingField,
 };
 
 /// Bundled manifest is the single shipped Claude alias catalog; the native
@@ -21,6 +22,25 @@ pub(crate) fn manifest_defaults() -> crate::model_catalog::RegisteredDefaults {
         }
     })
     .clone()
+}
+
+pub(crate) fn reasoning_effort_defaults() -> (Vec<ReasoningEffortInfo>, Option<String>) {
+    let manifest: crate::js_runtime::PluginManifest =
+        serde_json::from_str(BUNDLED_MANIFEST).expect("bundled Claude manifest parses");
+    (
+        manifest
+            .reasoning_efforts
+            .iter()
+            .map(ReasoningEffortInfo::from)
+            .collect(),
+        manifest.default_reasoning_effort,
+    )
+}
+
+pub(crate) fn reasoning_effort_launch_args_format() -> Vec<String> {
+    let manifest: crate::js_runtime::PluginManifest =
+        serde_json::from_str(BUNDLED_MANIFEST).expect("bundled Claude manifest parses");
+    manifest.commands.reasoning_effort_launch_args_format
 }
 
 /// Resolved list — registered defaults unless the user dropped
@@ -67,9 +87,44 @@ pub(super) fn notifications_schema() -> Vec<SettingField> {
                 label: "Install hooks".into(),
                 command: "install_provider_integration".into(),
                 state_query: Some("check_provider_integration".into()),
-                args: claude_args,
-                confirm: None,
+                args: Some(serde_json::json!({
+                    "provider_id": "claude",
+                    "consent": true,
+                    "precompact_memory_export": false
+                })),
+                confirm: Some("Review target ~/.claude/settings.json. CodeTerm will back it up, preserve foreign keys/hooks, and add Notification, Stop, and SessionStart callbacks. Continue?".into()),
                 style: ActionStyle::Primary,
+            },
+            SettingField::Action {
+                id: "install_hooks_with_memory_export".into(),
+                label: "Install with PreCompact memory export".into(),
+                command: "install_provider_integration".into(),
+                state_query: None,
+                args: Some(serde_json::json!({
+                    "provider_id": "claude",
+                    "consent": true,
+                    "precompact_memory_export": true
+                })),
+                confirm: Some("This separately opts in to exporting conversation context to CodeTerm memory before Claude compacts. The settings file will be backed up first. Continue?".into()),
+                style: ActionStyle::Secondary,
+            },
+            SettingField::Action {
+                id: "uninstall_hooks".into(),
+                label: "Uninstall CodeTerm hooks".into(),
+                command: "uninstall_provider_integration".into(),
+                state_query: None,
+                args: claude_args.clone(),
+                confirm: Some("Remove only CodeTerm-owned hooks and preserve foreign configuration?".into()),
+                style: ActionStyle::Secondary,
+            },
+            SettingField::Action {
+                id: "restore_hooks_backup".into(),
+                label: "Restore pre-install backup".into(),
+                command: "restore_provider_integration".into(),
+                state_query: None,
+                args: claude_args,
+                confirm: Some("Restore the recoverable pre-install backup over the current Claude settings file?".into()),
+                style: ActionStyle::Danger,
             },
         ],
     }]
@@ -213,6 +268,7 @@ mod tests {
                 assert_eq!(title, "Claude Code Notifications");
                 let mut saw_badge = false;
                 let mut saw_action = false;
+                let mut saw_restore = false;
                 for f in fields {
                     if let SettingField::Badge {
                         query_command,
@@ -244,8 +300,21 @@ mod tests {
                                 .and_then(|v| v.get("provider_id"))
                                 .and_then(|v| v.as_str())
                                 == Some("claude")
+                            && args
+                                .as_ref()
+                                .and_then(|v| v.get("consent"))
+                                .and_then(|v| v.as_bool())
+                                == Some(true)
+                            && args
+                                .as_ref()
+                                .and_then(|v| v.get("precompact_memory_export"))
+                                .and_then(|v| v.as_bool())
+                                == Some(false)
                         {
                             saw_action = true;
+                        }
+                        if command == "restore_provider_integration" {
+                            saw_restore = true;
                         }
                     }
                 }
@@ -257,6 +326,7 @@ mod tests {
                     saw_action,
                     "expected Action wired to install_provider_integration"
                 );
+                assert!(saw_restore, "expected recoverable restore action");
             }
             _ => panic!("expected Section as top-level notifications field"),
         }

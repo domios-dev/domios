@@ -177,12 +177,14 @@ yet.
 | Linux Rust PR job fails at `fmt` before compilation | A broad Rust rename/refactor was committed without applying both workspace formatters | Run `cargo fmt --manifest-path src-tauri/Cargo.toml` and `cargo fmt --manifest-path cli/Cargo.toml`, commit the mechanical formatting, then require both commands with `-- --check` before rerunning CI |
 | TS PR job reaches Biome, then parses suspended Playwright files or a generated plugin bundle | The global Biome include set accidentally covers surfaces excluded from active gates | Keep `tests/playwright/**` and generated plugin UI bundles outside `biome.json`'s active include set; do not repair or run the suspended suite as a release side effect |
 | Linux Rust PR job fails in clippy after local `build.ps1 check` passed | The build check compiles but does not run the stricter repository clippy gate | Run `bash scripts/clippy-gate.sh` on the release head and fix the reported owning code rather than adding a new lint allow |
+| Windows Rust PR job fails the mesh announce no-op tests while an earlier broad local test appeared green | The cached workspace run did not rebuild `codeterm-mesh`, and the peer fixture used an old relay protocol so an address no-op still reported a metadata change | Initialize the fixture with `RELAY_PROTOCOL_VERSION`, then run `build.ps1 test-one mesh apply_announce_empty_list_is_noop`, `build.ps1 test-one mesh apply_announce_same_addrs_returns_no_change`, and the full mesh crate before updating the PR |
 | macOS x86_64 leg queues far longer than the arm64/Docker legs, or `release-macos-x86_64.sh` exits with `FATAL: set CODETERM_MONTEREY_LIBCXX_DIR` | The Mac runner's environment lost `CODETERM_MONTEREY_LIBCXX_DIR` (must point at x86_64/universal LLVM `libc++.1.dylib` + `libc++abi.1.dylib`; the arm64 Homebrew LLVM libc++ cannot be used for the x86_64 updater — it's bundled so ONNX Runtime doesn't depend on newer system libc++ symbols missing on macOS 12 Monterey) | Restore the env var **in the runner service's persistent environment** (not just an interactive shell — a `launchd`/`svc.sh` restart drops shell-only exports), then rerun per §5. In the 1.7.2 run this cost ~85 minutes of queued-but-not-started time before the build itself ran normally. |
 | Linux arm64 leg fails to start, or the Docker build errors on missing tools | `codeterm-build-linux-arm64` Docker image is missing or stale on the Mac runner | `cd .codeterm/build-machine/docker && docker build -t codeterm-build-linux-arm64 -f Dockerfile.linux-arm64 .`. Also confirm Docker Desktop memory is ~20 GiB — the `codeterm` crate needs ≳8 GiB to compile and an under-provisioned Docker OOM-kills `rustc`. |
 | `release-windows.yml` jobs show `cancelled` for both `x86_64-pc-windows-msvc` and `aarch64-pc-windows-msvc` shortly after the tag push, no `.exe` uploaded by CI | The `windows-build` (ROG) self-hosted runner was offline/unreachable when the tag fired | Dispatch a worker on the ROG mesh peer to run `bash .agents/skills/github-release/scripts/win-release.sh $VER` directly (checkout → build → sign → upload, machine-parseable report). This produces the **x64** installer only — see next row. Once the runner is confirmed back online, `gh run rerun` (§5) can still be used for future tags; it does not retroactively fill in the missed run for this version. |
 | `latest.json` / release assets have no `windows-aarch64` entry for this version | The manual x64 fallback above has no ARM64 equivalent — cross-compiling `aarch64-pc-windows-msvc` needs the runner's `vcvarsall x64_arm64` toolchain, which only exists on the registered `windows-build` runner, not on an ad-hoc peer | Do not synthesize or claim a `windows-aarch64` asset for a release built this way. Either wait for the runner and rerun `release-windows.yml` before publishing, or ship without it and note the gap in the release notes; 1.7.2 shipped without it. |
 | Windows x64 succeeds, then ARM64 immediately fails with `rustup.exe not found` | `Swatinem/rust-cache` can clean `%USERPROFILE%\.cargo\bin` in the x64 post-job hook before the queued ARM64 job starts | Keep a copied proxy set outside Cargo's cache path (for ROG: `%USERPROFILE%\tools\rustup-proxies`) first in the runner `.env` `PATH`; restore Cargo's normal proxies, restart only the runner listener, then use `gh run rerun <run-id> --failed`. v1.7.4 proved this repair on the same tag/SHA. |
 | An archived release manifest downloads a later release or 404s after a newer version becomes GitHub Latest | The manifest used `/releases/latest/download/…` floating asset URLs | Generate all `latest.json` and updater fragment URLs with `/releases/download/vX.Y.Z/…`. Track this in issue #265; do not use an archived manifest as a stable download record until fixed. |
+| Public issue validation fails with `python: command not found` | The self-hosted runner exposes Python as `python3` only | Keep release workflows on `python3`; rerun the failed PR check after the workflow fix is pushed. |
 | `release.yml` preflight fails with `No Keychain password item found for profile: codeterm`, blaming expired Apple Developer agreements | The notary **keychain profile** vanished. `notarytool store-credentials` writes to the data-protection keychain, which only persists from a real interactive login session — from the runner (or any agent shell) it reports success and stores nothing, so the profile rots silently and cannot be re-provisioned automatically | Fixed in 1.7.5: preflight and `notarize-dmg.sh` now authenticate with `--apple-id/--team-id/--password`, taken from the `APPLE_ID`/`APPLE_TEAM_ID`/`APPLE_PASSWORD` repo secrets and falling back to `~/.claude/.secrets/apple-notary.env`. No keychain profile is consulted. If preflight still fails, the credentials themselves are bad — verify with `xcrun notarytool history --apple-id … --team-id … --password …` before suspecting Apple agreements, because the old error message pointed at the wrong cause. |
 | `git push origin release-X.Y.Z` → `src refspec release-X.Y.Z matches more than one` | The release branch and the trigger tag share a name, so the short refspec is ambiguous | Push the tag by its full ref: `git push origin refs/tags/release-X.Y.Z`. |
 | Apple notarization is broken and the whole Mac release job dies before Linux arm64 builds | Preflight aborted on the first failed check | Preflight now evaluates every check and exits once at the end, so the log shows the full picture. Note the Mac job still owns Linux arm64: `build-all.sh`'s `run_wave` keeps a failing engine from aborting the wave, but `publish-release.sh` deliberately bails when an artifact is missing, so a broken macOS leg still holds back the publish. To ship Linux arm64 independently the job would have to be split — not done yet. |
@@ -226,6 +228,34 @@ Before un-drafting/marking `--latest`:
 ```bash
 gh release edit "v$VER" --repo rollacode/codeterm --draft=false --latest
 ```
+
+## Public issue closure contract
+
+A private-source PR or commit declares a public issue only with an exact,
+repository-qualified metadata line:
+
+```text
+Public-Issue: rollacode/codeterm-releases#123
+```
+
+Use one line per issue. In PR bodies, duplicates, malformed or wrong-repository metadata, prose
+`#123` references, and GitHub closing keywords fail validation. Commit messages ignore incidental
+issue prose but reject malformed `Public-Issue:` metadata. The validator uses
+`GH_RELEASE_TOKEN` to prove every declared issue exists in `rollacode/codeterm-releases` and
+prints the normalized set in the check summary. This metadata is deliberately not a GitHub
+closing keyword, so merging private source cannot close a public issue prematurely.
+
+After publishing, `release.yml` independently verifies that the private and matching public
+releases are published, that the mirror has `latest.json`, and that every version-pinned public
+updater asset URL resolves. Only then does it resolve commits and associated private PRs in the
+release range, union their validated metadata, and close still-open public issues. Each close
+comment names `vX.Y.Z` and a declaring commit or private PR URL. Already-closed issues are skipped,
+making reruns idempotent.
+
+The close step is downstream of build, private/public publication, and mirror verification.
+Queued, cancelled, skipped, failed, or mirror-unverified runs therefore execute no issue mutation.
+Cross-repository reads and writes always name `rollacode/codeterm-releases` explicitly and use
+`GH_RELEASE_TOKEN`; `$GITHUB_REPOSITORY` is used only to read private source PR associations.
 
 ## 9. Cleanup
 
@@ -272,4 +302,4 @@ The minisign updater key (`~/.tauri/codeterm.key`, empty password; its public ha
 the `github-release` skill lists the exact ids and restore paths. A builder without the minisign
 key produces artifacts the updater can't verify.
 
-<!-- revision: 15 -->
+<!-- revision: 18 -->

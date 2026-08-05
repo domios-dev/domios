@@ -8,7 +8,7 @@ use crate::cmd::hints::{
 };
 use crate::cmd::plan_linking::render_relink_report;
 
-use super::{call, lane_params, maybe_inject_caller_tab, resolve_text};
+use super::{call, inject_trusted_session, lane_params, maybe_inject_caller_tab, resolve_text};
 
 /// Parent-free addressing: with one positional the ref is the task and the plan is inferred
 /// daemon-side; with two, the first is the plan ref and the second the task ref.
@@ -146,6 +146,23 @@ fn render_dispatch_response(value: &Value) -> String {
         return format!("Accepted {agent} worker Tab {tab}; awaiting {event}\n");
     }
     format!("Dispatched {agent} worker Tab {tab}\n")
+}
+
+/// Conspicuous but non-blocking: the dispatch already succeeded by the time this
+/// prints, and each line carries the stable id plus the exact fix.
+fn print_safety_nudges(val: &Value) {
+    let Some(nudges) = val.get("safety_nudges").and_then(Value::as_array) else {
+        return;
+    };
+    if nudges.is_empty() {
+        return;
+    }
+    eprintln!("--- lane safety: {} advisory finding(s) ---", nudges.len());
+    for nudge in nudges {
+        let field = |key: &str| nudge.get(key).and_then(Value::as_str).unwrap_or("");
+        eprintln!("  [{}] {}", field("id"), field("reason"));
+        eprintln!("      fix: {}", field("safe_alternative"));
+    }
 }
 
 fn task_status(item: &Value) -> &str {
@@ -292,6 +309,7 @@ pub(super) fn run_task(
             personality,
             intent,
             intent_file,
+            execution_intent,
             parent,
             depends_on,
             assign_tab,
@@ -372,6 +390,9 @@ pub(super) fn run_task(
             if let Some(i) = intent_text {
                 params["intent"] = json!(i);
             }
+            if let Some(execution_intent) = execution_intent {
+                params["execution_intent"] = json!(execution_intent);
+            }
             if let Some(p) = parent {
                 params["parent"] = json!(p);
             }
@@ -412,7 +433,7 @@ pub(super) fn run_task(
             if let Some(handle) = handle {
                 params["handle"] = json!(handle);
             }
-            maybe_inject_caller_tab(&mut params);
+            inject_trusted_session(&mut params);
             let mut val = call(client, "plan.task.add", params)?;
             if let Some(task_id) = val
                 .get("task_id")
@@ -605,6 +626,7 @@ pub(super) fn run_task(
             if let Some(p) = mesh {
                 params["peer"] = json!(p);
             }
+            inject_trusted_session(&mut params);
             call(client, "plan.task.assign", params).map(Some)
         }
         PlanTaskAction::Dispatch {
@@ -616,9 +638,15 @@ pub(super) fn run_task(
             parent,
             workspace,
             cwd,
+            execution_intent,
+            provider_reserve_pct,
         } => {
             let (plan_ref, task_ref) = split_task_ref(Some(plan_id), task_id);
-            let mut params = json!({ "task_id": task_ref });
+            let mut params = json!({
+                "task_id": task_ref,
+                "execution_intent": execution_intent,
+                "provider_reserve_pct": provider_reserve_pct,
+            });
             if let Some(pid) = plan_ref {
                 params["plan_id"] = json!(pid);
             }
@@ -640,7 +668,7 @@ pub(super) fn run_task(
             if let Some(cwd) = cwd {
                 params["cwd"] = json!(cwd);
             }
-            maybe_inject_caller_tab(&mut params);
+            inject_trusted_session(&mut params);
             let val = call(client, "plan.task.dispatch", params)?;
             if json {
                 return Ok(Some(val));
@@ -650,6 +678,7 @@ pub(super) fn run_task(
                     eprintln!("warning: {w}");
                 }
             }
+            print_safety_nudges(&val);
             print!("{}", render_dispatch_response(&val));
             Ok(None)
         }
@@ -725,6 +754,7 @@ pub(super) fn run_task(
             if let Some(title) = title {
                 params["title"] = json!(title);
             }
+            inject_trusted_session(&mut params);
             let val = call(client, "plan.task.respawn", params)?;
             if json {
                 return Ok(Some(val));
@@ -737,6 +767,24 @@ pub(super) fn run_task(
                 .and_then(|v| v.as_str())
                 .unwrap_or("?");
             println!("Respawned worker Tab {tab} (attempt {attempt_id})");
+            Ok(None)
+        }
+        PlanTaskAction::AdoptCheckpoint { plan_id, task_id } => {
+            let mut params = json!({ "plan_id": plan_id, "task_id": task_id });
+            maybe_inject_caller_tab(&mut params);
+            let val = call(client, "plan.task.adopt_checkpoint", params)?;
+            if json {
+                return Ok(Some(val));
+            }
+            println!(
+                "Adopted checkpoint as owner epoch {} (attempt {}). Run codeterm agent ack.",
+                val.get("owner_epoch")
+                    .and_then(|value| value.as_u64())
+                    .unwrap_or(0),
+                val.get("attempt_id")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("?")
+            );
             Ok(None)
         }
         PlanTaskAction::Link {
@@ -783,6 +831,7 @@ pub(super) fn run_task(
                     params["plan_id"] = json!(pid);
                 }
             }
+            inject_trusted_session(&mut params);
             call(client, "plan.task.rm", params).map(Some)
         }
     }

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Lane Cleanup"
+  short_description: "Safely remove stale CodeTerm worktrees and Windows residue"
+  default_prompt: "Audit and safely clean completed CodeTerm lane worktrees without losing dirty or unmerged work."

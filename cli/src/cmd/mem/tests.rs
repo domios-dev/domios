@@ -1,31 +1,25 @@
-use super::transport::mem_unavailable_message;
 use crate::{Cli, Commands, MemAction};
+use serde_json::json;
+
+#[test]
+fn mem_search_human_output_is_compact_and_json_is_machine_complete() {
+    let value = json!({"hits": [
+        {"item": {"id": "mem_1", "title": "First", "kind": "fact", "summary": "short summary", "body": "ignored"}, "score": 0.8754},
+        {"item": {"id": "mem_2", "title": "Second", "kind": "note", "body": "line one\nline two"}, "score": 0.5},
+        {"item": {"id": "mem_3", "title": "Third", "kind": "skill", "body": "x".repeat(140)}, "score": 0.125}
+    ], "query": "fixture", "total": 3});
+
+    let out = super::render_search_hits(&value);
+
+    assert_eq!(out.lines().count(), 3);
+    assert!(out.contains("mem_1 | First | fact | 0.875 | short summary"));
+    assert!(out.contains("mem_2 | Second | note | 0.500 | line one line two"));
+    assert!(out.lines().nth(2).unwrap().ends_with('…'));
+    assert!(!out.contains("{\"item\""));
+    assert_eq!(value["query"], "fixture");
+    assert_eq!(value["total"], 3);
+}
 use clap::Parser;
-
-#[test]
-fn unavailable_message_explains_socket_alive_but_http_down() {
-    let msg = mem_unavailable_message("http://127.0.0.1:7686", Some("codeterm-dev.sock"));
-
-    assert!(msg.contains("codeterm-dev.sock"));
-    assert!(msg.contains("http://127.0.0.1:7686"));
-    assert!(
-        msg.contains("HTTP-only"),
-        "must explain a live socket does not carry secrets: {msg}"
-    );
-    assert!(
-        msg.contains("secret"),
-        "must name what this message is about: {msg}"
-    );
-    assert!(msg.contains("CODETERM_API_PORT"));
-}
-
-#[test]
-fn unavailable_message_reports_no_daemon_when_socket_is_dead_too() {
-    let msg = mem_unavailable_message("http://127.0.0.1:7686", None);
-
-    assert!(msg.contains("no CodeTerm daemon is reachable"));
-    assert!(msg.contains("Start CodeTerm"));
-}
 
 #[test]
 fn pin_subcommand_parses_id() {

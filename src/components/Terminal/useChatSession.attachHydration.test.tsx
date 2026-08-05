@@ -56,6 +56,8 @@ type ChatHandler = (event: {
   payload: {
     tab_id: string;
     messages: NormalizedChatMessage[];
+    start_offset?: number;
+    offset?: number;
     source_session_id: string | null;
     session_binding_nonce: string | null;
   };
@@ -111,16 +113,30 @@ class FakeChatServer {
     });
   }
 
+  offset = 1;
+  foreignOffset = 0;
+
+  /** Live deltas carry the byte range the tailer consumed, like the production
+   *  sink; a foreign stream never advances the own-session cursor. */
   emit(
     messages: NormalizedChatMessage[],
     sourceSessionId: string | null,
     sessionBindingNonce: string | null,
     tabId = "tab",
   ): void {
+    const own = tabId === "tab"
+      && sourceSessionId === "sid-live"
+      && sessionBindingNonce === "nonce-live";
+    const start = own ? this.offset : this.foreignOffset;
+    const end = start + messages.length;
+    if (own) this.offset = end;
+    else this.foreignOffset = end;
     this.handler?.({
       payload: {
         tab_id: tabId,
         messages,
+        start_offset: start,
+        offset: end,
         source_session_id: sourceSessionId,
         session_binding_nonce: sessionBindingNonce,
       },
@@ -194,9 +210,11 @@ async function mount(server: FakeChatServer): Promise<Mounted> {
     render,
     attachmentState: () =>
       host.querySelector('[data-testid="attachment-state"]')?.textContent ?? "",
+    // Row ids are byte-range derived, so the rendered row content (which the
+    // fixture sets equal to its logical name) is the stable assertion surface.
     messageIds: () =>
       [...host.querySelectorAll('[data-testid="chat-message"]')].map(
-        (node) => node.getAttribute("data-message-id") ?? "",
+        (node) => node.textContent ?? "",
       ),
   };
 }
@@ -254,6 +272,7 @@ async function main(): Promise<void> {
   assert(app.messageIds().join(",") === "history", "pre-existing transcript did not render once");
   assert(Number(server.subscribers.size) === 1, "visible Chat did not own exactly one subscription");
 
+  const startsBeforeDeltas = server.starts.length;
   await act(async () => {
     server.emit([message("wrong-tab")], "sid-live", "nonce-live", "foreign-tab");
     server.emit([message("wrong-session")], "sid-foreign", "nonce-live");
@@ -264,24 +283,42 @@ async function main(): Promise<void> {
     app.messageIds().join(",") === "history,current-delta",
     `authority filter adopted a foreign or stale delta (${app.messageIds()})`,
   );
+  assert(
+    server.starts.length === startsBeforeDeltas,
+    `a dropped delta forced a re-attach (starts=${server.starts.length})`,
+  );
 
   const startsBeforeResync = server.starts.length;
-  server.queueStart((subscriptionId) => ({
-    text: "",
-    start_offset: 0,
-    offset: 2,
-    pending: false,
-    messages: [message("history"), message("current-delta")],
-    source_session_id: "sid-live",
-    session_binding_nonce: "nonce-live",
+  // Superseded starts never become subscribers, so the requested-start order is
+  // not an index into adoption; the live subscriber is the id resync must stop.
+  assert(Number(server.subscribers.size) === 1, "pre-resync attach did not own one subscription");
+  const adoptedBeforeResync = [...server.subscribers][0] ?? "";
+  const resyncSnapshot = deferred<StartResult>();
+  server.queueStart(async (subscriptionId) => ({
+    ...await resyncSnapshot.promise,
     subscription_id: subscriptionId,
   }));
   await act(async () => fireResync());
   await flush();
+  assert(
+    app.messageIds().join(",") === "history,current-delta",
+    "in-flight resync cleared the visible transcript",
+  );
+  resyncSnapshot.resolve({
+    text: "",
+    start_offset: 0,
+    offset: 2,
+    pending: false,
+    messages: [message("fresh-history")],
+    source_session_id: "sid-live",
+    session_binding_nonce: "nonce-live",
+  });
+  await flush();
   assert(server.starts.length === startsBeforeResync + 1, "resync did not request one snapshot");
-  assert(app.messageIds().join(",") === "history,current-delta", "resync duplicated transcript rows");
+  assert(app.messageIds().join(",") === "fresh-history", "resync did not atomically replace stale rows");
   assert(Number(server.subscribers.size) === 1, "resync left overlapping subscriptions");
-  assert(server.stops.includes(server.starts[startsBeforeResync - 1]), "resync did not stop prior subscription");
+  assert(server.stops.includes(adoptedBeforeResync), "resync did not stop prior subscription");
+  assert(!server.subscribers.has(adoptedBeforeResync), "stopped subscription stayed registered");
 
   const late = deferred<StartResult>();
   await app.render("sid-live", "nonce-live", false);

@@ -448,3 +448,128 @@ async fn deep_phase_keeps_high_importance_conversations() {
     assert_eq!(r.dropped, 0);
     assert!(mem.get(&id).unwrap().is_some());
 }
+
+// --- ensure_dreaming_cron: task command + self-heal ---
+
+mod cron_task {
+    use crate::ports::{MemCronCreateParams, MemCronJob, MemSchedulerPort};
+    use crate::worker_agent::BackgroundModelPort;
+    use codeterm_types::config::MemoryConfig;
+
+    struct FakeCompat;
+    impl BackgroundModelPort for FakeCompat {
+        fn resolve(&self, _provider: &str, _configured: &str) -> (String, bool) {
+            (String::new(), false)
+        }
+    }
+
+    #[derive(Default)]
+    struct MockScheduler {
+        jobs: Vec<MemCronJob>,
+        created: Vec<MemCronCreateParams>,
+    }
+
+    impl MemSchedulerPort for MockScheduler {
+        fn list_jobs(&self) -> Vec<MemCronJob> {
+            self.jobs.clone()
+        }
+        fn find_job_by_name(&self, name: &str) -> Option<MemCronJob> {
+            self.jobs.iter().find(|j| j.name == name).cloned()
+        }
+        fn update_job(
+            &mut self,
+            id: &str,
+            update: &mut dyn FnMut(&mut MemCronJob),
+        ) -> Result<(), String> {
+            let job = self
+                .jobs
+                .iter_mut()
+                .find(|j| j.id == id)
+                .ok_or_else(|| format!("not found: {id}"))?;
+            update(job);
+            Ok(())
+        }
+        fn set_job_protected(&mut self, _id: &str, _protected: bool) -> Result<(), String> {
+            Ok(())
+        }
+        fn create_job(&mut self, params: MemCronCreateParams) -> Result<(), String> {
+            self.jobs.push(MemCronJob {
+                id: format!("job_{}", self.jobs.len()),
+                name: params.name.clone(),
+                agent: params.agent.clone().unwrap_or_default(),
+                schedule: params.schedule.clone(),
+                task: params.task.clone(),
+                enabled: params.enabled.unwrap_or(true),
+                oneshot: params.oneshot.unwrap_or(false),
+                next_run: None,
+                jitter_max_ms: params.jitter_max_ms,
+                tz: params.tz.clone(),
+                protected: false,
+            });
+            self.created.push(params);
+            Ok(())
+        }
+        fn delete_job(&mut self, id: &str) -> Result<(), String> {
+            self.jobs.retain(|j| j.id != id);
+            Ok(())
+        }
+        fn save(&mut self) -> Result<(), String> {
+            Ok(())
+        }
+        fn compute_next_run_jittered_in(
+            &self,
+            _schedule: &str,
+            _jitter: Option<u64>,
+            _tz: Option<&str>,
+        ) -> Result<Option<u64>, String> {
+            Ok(Some(1))
+        }
+    }
+
+    fn ensure(store: &mut MockScheduler) -> Result<bool, String> {
+        crate::dreaming::ensure_dreaming_cron(store, &MemoryConfig::default(), "claude", &FakeCompat)
+    }
+
+    #[test]
+    fn fresh_task_is_runnable_dream_run() {
+        let mut store = MockScheduler::default();
+        assert!(ensure(&mut store).unwrap(), "first call creates");
+        let task = &store.created[0].task;
+        assert!(
+            task.contains("codeterm mem dream run"),
+            "task must invoke the `run` subcommand, got: {task:?}"
+        );
+        assert!(
+            !task.contains("mem dream &&"),
+            "task must not use the bare (help-only) `mem dream` form: {task:?}"
+        );
+    }
+
+    #[test]
+    fn self_heals_stale_bare_dream_task() {
+        let mut store = MockScheduler::default();
+        ensure(&mut store).unwrap();
+        // Simulate an existing install left with the old broken command.
+        let id = store.jobs[0].id.clone();
+        store.jobs[0].task =
+            "codeterm mem dream && codeterm agent report \"dreaming complete\"\n".into();
+
+        let created = ensure(&mut store).unwrap();
+        assert!(!created, "second call must not create a duplicate");
+        assert!(
+            store.jobs[0].task.contains("codeterm mem dream run"),
+            "stale task must be healed to `mem dream run`, got: {:?}",
+            store.jobs[0].task
+        );
+        assert_eq!(id, store.jobs[0].id, "self-heal must edit in place, not recreate");
+    }
+
+    #[test]
+    fn healed_task_is_idempotent() {
+        let mut store = MockScheduler::default();
+        ensure(&mut store).unwrap();
+        let healed = store.jobs[0].task.clone();
+        ensure(&mut store).unwrap();
+        assert_eq!(healed, store.jobs[0].task, "no churn once task is correct");
+    }
+}

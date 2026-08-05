@@ -43,6 +43,15 @@ async function run() {
     command("expanded-send", "codeterm send --tab worker-1 \"Please review the change\""),
     command("collapsed-tab-list", "codeterm tab list --workspace codeterm"),
   ];
+  const completedRead = command("collapsed-read", "src/coordination.ts");
+  const completedCommand = command("collapsed-command", "git status --short");
+  const completedEdit = command("expanded-edit", "edit src/coordination.ts");
+  const systemEvent: NormalizedChatMessage = {
+    id: "collapsed-system-event",
+    type: "user",
+    content: "Internal lifecycle detail",
+    inboundKind: "system",
+  };
 
   await act(async () => {
     root.render(
@@ -51,15 +60,44 @@ async function run() {
           const message = item.kind === "message" ? item.message : item.event.message;
           return <MessageBubble key={message.id} message={message} item={item.kind === "tool" ? item : undefined} />;
         })}
+        <MessageBubble
+          message={completedRead}
+          item={{ kind: "tool", event: { id: completedRead.id, phase: "result", status: "success", kind: "read", summary: "src/coordination.ts", result: "private inspection output", message: completedRead } }}
+        />
+        <MessageBubble
+          message={completedCommand}
+          item={{ kind: "tool", event: { id: completedCommand.id, phase: "result", status: "success", kind: "command", summary: "git status --short", detail: "git status --short", result: "clean", message: completedCommand } }}
+        />
+        <MessageBubble
+          message={completedEdit}
+          item={{ kind: "tool", event: { id: completedEdit.id, phase: "result", status: "success", kind: "edit", summary: "src/coordination.ts", edits: [{ path: "src/coordination.ts", old: "old", new: "new" }], message: completedEdit } }}
+        />
+        <MessageBubble message={systemEvent} origin={{ kind: "system", context: "lifecycle" }} />
       </div>,
     );
   });
 
   const cards = Array.from(host.querySelectorAll<HTMLElement>('[data-testid="chat-tool-call"]'));
-  const send = cards.find((card) => card.textContent?.includes("send"));
+  const send = cards.find((card) => card.textContent?.includes("Sent to"));
   const list = cards.find((card) => card.textContent?.includes("tab list"));
+  const read = cards.find((card) => card.textContent?.includes("Read") && card.textContent.includes("coordination.ts"));
+  const completedCommandCard = cards.find((card) => card.textContent?.includes("git status --short"));
+  const edit = cards.find((card) => card.querySelector('[data-testid="toolcard-edit-summary"]'));
   assert(send?.querySelector('[aria-label="Collapse tool details"]'), "outbound message should start expanded");
   assert(list?.querySelector('[aria-label="Expand tool details"]'), "ordinary operational command should start collapsed");
+  assert(read?.querySelector('[aria-label="Expand tool details"]'), "completed read-only inspection should start collapsed");
+  assert(!read?.textContent?.includes("private inspection output"), "collapsed read-only inspection should hide output");
+  assert(completedCommandCard?.querySelector('[aria-label="Expand tool details"]'), "completed shell command should start collapsed");
+  assert(edit?.querySelector('[aria-label="Collapse tool details"]'), "completed code edit should stay visibly expanded");
+  const system = host.querySelector<HTMLElement>('[data-testid="chat-system-event"]');
+  const systemToggle = system?.querySelector<HTMLButtonElement>("button");
+  assert(systemToggle?.getAttribute("aria-expanded") === "false", "system event should start collapsed");
+  assert(!system?.textContent?.includes("Internal lifecycle detail"), "collapsed system event should hide its body");
+  await act(async () => systemToggle?.click());
+  assert(system?.textContent?.includes("Internal lifecycle detail"), "system event should expand on demand");
+  const editDetailsId = edit?.querySelector("button")?.getAttribute("aria-controls");
+  const editDetails = editDetailsId ? edit?.querySelector<HTMLElement>(`#${editDetailsId}`) : null;
+  assert(editDetails?.style.maxHeight === "600px" && editDetails.style.overflowY === "auto", "expanded code output should use the 600px internal scroll cap");
 
   await act(async () => root.unmount());
   host.remove();

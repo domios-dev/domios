@@ -42,28 +42,14 @@ pub fn list_plan_skill_slugs(plan: &Plan) -> Vec<String> {
 }
 
 pub(super) fn list_plan_skill_summaries(plan: &Plan) -> Vec<PlanSkillRegistrySummary> {
-    let Some(skills_dir) = plan_skill_state_dir(plan).map(|dir| dir.join("skills")) else {
-        return Vec::new();
-    };
-    let Ok(entries) = std::fs::read_dir(&skills_dir) else {
-        return Vec::new();
-    };
-    let mut skills: Vec<PlanSkillRegistrySummary> = entries
-        .filter_map(Result::ok)
-        .filter(|entry| entry.path().join("SKILL.md").is_file())
-        .filter_map(|entry| {
-            let slug = entry.file_name().into_string().ok()?;
-            if slug.starts_with('.') {
-                return None;
-            }
-            let purpose = std::fs::read_to_string(entry.path().join("SKILL.md"))
-                .ok()
-                .and_then(|body| super::plan_skills::persisted_skill_purpose(&body));
-            Some(PlanSkillRegistrySummary { slug, purpose })
+    super::plan_skills::plan_skill_manifest_for_plan(plan)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|entry| PlanSkillRegistrySummary {
+            slug: entry.slug,
+            purpose: (!entry.purpose.is_empty()).then_some(entry.purpose),
         })
-        .collect();
-    skills.sort_by(|left, right| left.slug.cmp(&right.slug));
-    skills
+        .collect()
 }
 
 fn truncate_chars(value: &str, max_chars: usize) -> String {
@@ -129,20 +115,9 @@ pub fn render_plan_skill_registry_line(plan_id: &str, count: usize) -> String {
 }
 
 pub fn count_plan_skills(plan_dir: &Path) -> usize {
-    let skills_dir = plan_dir.join("skills");
-    let Ok(entries) = std::fs::read_dir(&skills_dir) else {
-        return 0;
-    };
-    entries
-        .filter_map(Result::ok)
-        .filter(|entry| {
-            entry
-                .file_name()
-                .to_str()
-                .is_some_and(|slug| !slug.starts_with('.'))
-        })
-        .filter(|entry| entry.path().join("SKILL.md").is_file())
-        .count()
+    super::plan_skills::plan_skill_manifest_from_dir(plan_dir)
+        .map(|manifest| manifest.len())
+        .unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -194,8 +169,11 @@ mod tests {
         std::fs::write(skills.join(".pending").join("SKILL.md"), "# Pending").unwrap();
         // Directory without SKILL.md is ignored.
         std::fs::create_dir_all(skills.join("stray")).unwrap();
-        // A stray ledger file is not a skill.
-        std::fs::write(skills.join("ledger.jsonl"), "{}").unwrap();
+        std::fs::write(
+            skills.join("ledger.jsonl"),
+            "{\"seq\":1,\"slug\":\"alpha\",\"verdict\":\"keep\",\"rationale\":\"fixture\"}\n{\"seq\":2,\"slug\":\"beta\",\"verdict\":\"keep\",\"rationale\":\"fixture\"}\n",
+        )
+        .unwrap();
         assert_eq!(count_plan_skills(plan_dir), 2);
     }
 

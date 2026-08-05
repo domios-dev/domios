@@ -90,6 +90,8 @@ pub struct AgentSpawnSpec {
     pub planned_model: Option<String>,
     #[serde(default)]
     pub model: Option<String>,
+    #[serde(default, skip_deserializing)]
+    pub(crate) planned_reasoning_effort: Option<String>,
     #[serde(default)]
     pub reasoning_effort: Option<String>,
     #[serde(default)]
@@ -106,8 +108,6 @@ pub struct AgentSpawnSpec {
     pub role_profile: Option<String>,
     #[serde(default)]
     pub can_spawn: Option<bool>,
-    #[serde(default = "default_true")]
-    pub auto_approve: bool,
     #[serde(default)]
     pub report_target_tab_id: Option<String>,
     #[serde(default)]
@@ -124,10 +124,6 @@ pub struct AgentSpawnSpec {
     pub resume_session_id: Option<String>,
     #[serde(default)]
     pub activate: Option<bool>,
-}
-
-fn default_true() -> bool {
-    true
 }
 
 fn merge_warnings(a: Option<String>, b: Option<String>) -> Option<String> {
@@ -207,9 +203,11 @@ impl ServiceContext {
             (TabVisibility::Visible, TabCommand::Shell) => self.spawn_visible_shell_impl(spec),
             (TabVisibility::Hidden, TabCommand::Shell) => self.spawn_hidden_shell_impl(spec),
             (TabVisibility::Visible, TabCommand::ChatBackend { .. }) => {
+                super::permission_policy::configured_full_access()?;
                 self.spawn_chatbackend_impl_with_state_change(spec, emit_state_change)
             }
             (TabVisibility::Hidden, TabCommand::ChatBackend { .. }) => {
+                super::permission_policy::configured_full_access()?;
                 self.spawn_chatbackend_impl_with_state_change(spec, emit_state_change)
             }
         }
@@ -260,7 +258,6 @@ impl ServiceContext {
             TabCommand::Agent(a) => a.clone(),
             _ => return Err("spawn_visible_agent_impl called without Agent command".into()),
         };
-
         if let Some(ref role_str) = agent.role {
             ServiceContext::parse_role(role_str)?;
         }
@@ -271,6 +268,12 @@ impl ServiceContext {
         } else {
             agent.provider.clone()
         };
+        let permission_bypass_authorization =
+            super::permission_policy::configured_permission_bypass(
+                &self.agent_registry,
+                &agent_cmd,
+            )?;
+        let permission_bypass = permission_bypass_authorization.is_some();
 
         self.require_agent_provider_ready(&agent_cmd)?;
         let cli_warning = provider_cli_install_warning(&self.agent_registry, &agent_cmd)?;
@@ -364,10 +367,8 @@ impl ServiceContext {
                     tab.worker_id = Some(wid.clone());
                 }
             }
-            if agent.auto_approve {
-                if let Some(tab) = mux.get_tab_mut(&result) {
-                    tab.auto_approve = true;
-                }
+            if let Some(tab) = mux.get_tab_mut(&result) {
+                tab.auto_approve = permission_bypass;
             }
             if default_chat_view {
                 if let Some(tab) = mux.get_tab_mut(&result) {
@@ -389,11 +390,16 @@ impl ServiceContext {
             result
         };
 
-        // changes; `can_spawn` is only forced when the caller explicitly passed --can-spawn (Some), preserving role defaults (Orchestrator defaults true, Worker false).
+        // Identity before authority: a role without a launchable provider
+        // restores as a role-bearing shell.
+        self.set_and_lock_tab_agent_type(&tab_id, agent_cmd.clone());
+        // `can_spawn` is only forced when the caller explicitly passed
+        // --can-spawn (Some), preserving the kind's default.
         if let Some(ref role_str) = agent.role {
-            if let Err(e) = self.set_tab_role(
+            if let Err(e) = self.set_tab_role_with_profile(
                 &tab_id,
                 role_str,
+                agent.role_profile.as_deref(),
                 spec.parent_tab_id.as_deref(),
                 agent.can_spawn,
             ) {
@@ -411,9 +417,9 @@ impl ServiceContext {
                 }
             }
         }
-        // Pin agent_type before launch so detect_from_output has a durable session-id source.
-        // Missing this tag leaves Codex/OpenCode tabs unresumable after restart.
-        self.set_and_lock_tab_agent_type(&tab_id, agent_cmd.clone());
+        self.ensure_agent_pad(&tab_id).inspect_err(|_| {
+            self.mux.write().rollback_spawn_tab(&ws_id, &tab_id);
+        })?;
         let launch_session_id = if agent.resume_session_id.is_none() {
             self.agent_registry
                 .with_provider(&agent_cmd, |p| p.session_id_injection())
@@ -429,6 +435,11 @@ impl ServiceContext {
         }
         if let Some(tab) = self.mux.write().get_tab_mut(&tab_id) {
             persist_model_launch_identity(tab, agent.planned_model.as_deref(), &model_resolution);
+            super::reasoning_effort::persist_launch_identity(
+                tab,
+                agent.planned_reasoning_effort.as_deref(),
+                agent.reasoning_effort.as_deref(),
+            );
         }
         self.emit_state_changed();
 
@@ -464,6 +475,8 @@ impl ServiceContext {
             });
 
         let mut legacy_params = spec.to_agent_params()?;
+        legacy_params.skip_permissions = Some(permission_bypass);
+        legacy_params.permission_bypass_authorization = permission_bypass_authorization;
         legacy_params.model = launch_model;
         legacy_params.structured_prompt_server =
             crate::service::structured_prompt::ensure_for_spawn(
@@ -499,8 +512,7 @@ impl ServiceContext {
             if let Err(error) =
                 self.create_pending_delivery(&tab_id, spec.channel.clone(), &spec.payload)
             {
-                let _ = self.mux.write().close_tab(&tab_id);
-                self.emit_state_changed();
+                let _ = self.close_tab(&tab_id);
                 return Err(error.to_string());
             }
         }
@@ -576,9 +588,7 @@ impl ServiceContext {
                         .tabs
                         .values()
                         .find(|tab| {
-                            tab.team_id.as_deref() == Some(team_id.as_str())
-                                && tab.role
-                                    == Some(crate::multiplexer::types::AgentRole::Orchestrator)
+                            tab.team_id.as_deref() == Some(team_id.as_str()) && tab.anchors_team()
                         })
                         .map(|tab| tab.id.clone())
                         .ok_or_else(|| format!("Team {team_id} has no live Orchestrator"))?;
@@ -695,8 +705,15 @@ impl ServiceContext {
 
         let pty_id = {
             let mut pty = self.pty.lock();
-            pty.spawn(None, resolved_cwd, 120, 40, env_vars)
-                .map(|(id, _)| id)?
+            match pty.spawn(None, resolved_cwd, 120, 40, env_vars) {
+                Ok((id, _)) => id,
+                Err(error) => {
+                    drop(pty);
+                    let _ = self.revoke_agent_pad(&tab_id);
+                    self.mux.write().rollback_spawn_tab(&ws_id, &tab_id);
+                    return Err(error);
+                }
+            }
         };
         if let Some(orphan) = self.mux.write().link_pty(&tab_id, pty_id.clone()) {
             self.kill_ptys(&[orphan]);
@@ -750,6 +767,12 @@ impl ServiceContext {
             return Err("AgentSpawnSpec.provider is required for hidden spawns".into());
         }
         self.require_agent_provider_ready(&agent.provider)?;
+        let permission_bypass_authorization =
+            super::permission_policy::configured_permission_bypass(
+                &self.agent_registry,
+                &agent.provider,
+            )?;
+        let permission_bypass = permission_bypass_authorization.is_some();
         let cli_warning = provider_cli_install_warning(&self.agent_registry, &agent.provider)?;
         if let Some(ref warning) = cli_warning {
             log::warn!("[spawn.hidden] {}", warning);
@@ -796,9 +819,7 @@ impl ServiceContext {
                 if let Some(ref wid) = agent.worker_id {
                     tab.worker_id = Some(wid.clone());
                 }
-                if agent.auto_approve {
-                    tab.auto_approve = true;
-                }
+                tab.auto_approve = permission_bypass;
                 if let Some(ref dir) = resolved_cwd {
                     tab.cwd = Some(dir.clone());
                 }
@@ -806,6 +827,11 @@ impl ServiceContext {
                     tab,
                     agent.planned_model.as_deref(),
                     &model_resolution,
+                );
+                super::reasoning_effort::persist_launch_identity(
+                    tab,
+                    agent.planned_reasoning_effort.as_deref(),
+                    agent.reasoning_effort.as_deref(),
                 );
                 if let Some(ref rtid) = agent.report_target_tab_id {
                     tab.report_target_tab_id = Some(rtid.clone());
@@ -836,6 +862,10 @@ impl ServiceContext {
 
         let mut env_vars: HashMap<String, String> = HashMap::new();
         env_vars.insert("CODETERM_TAB_ID".into(), tab_id.clone());
+        let agent_pad = self.ensure_agent_pad(&tab_id).inspect_err(|_| {
+            self.mux.write().rollback_spawn_tab(&ws_id, &tab_id);
+        })?;
+        env_vars.insert("CODETERM_PAD_DIR".into(), agent_pad.env_value());
         env_vars.insert(
             "CODETERM_SESSION_BINDING_NONCE".into(),
             self.ensure_session_binding_nonce(&tab_id),
@@ -874,8 +904,15 @@ impl ServiceContext {
         // Hidden agents now launch as ordinary interactive claude (no -p/stream-json), so use the same 120x40 PTY a visible agent gets.
         let pty_id = {
             let mut pty = self.pty.lock();
-            pty.spawn(None, resolved_cwd, 120, 40, env_vars)
-                .map(|(id, _)| id)?
+            match pty.spawn(None, resolved_cwd, 120, 40, env_vars) {
+                Ok((id, _)) => id,
+                Err(error) => {
+                    drop(pty);
+                    let _ = self.revoke_agent_pad(&tab_id);
+                    self.mux.write().rollback_spawn_tab(&ws_id, &tab_id);
+                    return Err(error);
+                }
+            }
         };
 
         if let Some(orphan) = self.mux.write().link_pty(&tab_id, pty_id.clone()) {
@@ -1004,7 +1041,7 @@ impl ServiceContext {
                 } else {
                     Some(model_args)
                 },
-                skip_permissions: true,
+                skip_permissions: permission_bypass,
                 session_id: launch_session_id,
                 structured_prompt_server: crate::service::structured_prompt::ensure_for_spawn(
                     &svc_outer,
@@ -1021,7 +1058,7 @@ impl ServiceContext {
                         p.build_launch_command(&launch_params),
                     )
                 })
-                .unwrap_or_else(|| format!("{} --dangerously-skip-permissions", provider));
+                .unwrap_or_else(|| provider.clone());
             crate::service::launch_diagnostics::log_launch(
                 crate::service::launch_diagnostics::AgentLaunchOrigin::HiddenSpawn,
                 &tab_id_outer,

@@ -1,8 +1,8 @@
 //! `AgentTransport` — the runtime half of a provider behind one seam, plus the
 //! atomic spawn entry the frontend calls. Both impls wrap existing substrates
 //! ([`PtyTransport`] → backend-owned PTY launch; [`ChatTransport`] →
-//! `chatbackend_launch_async`). [`ServiceContext::spawn_tab_atomic`] builds the
-//! tab and kicks launch async, returning a snapshot the client applies once.
+//! `chatbackend_launch`). [`ServiceContext::spawn_tab_atomic`] builds the tab
+//! and returns a snapshot only after transport launch succeeds.
 
 use serde::{Deserialize, Serialize};
 
@@ -21,18 +21,12 @@ pub struct AtomicSpawnParams {
     pub workspace_id: Option<String>,
     #[serde(default)]
     pub cwd: Option<String>,
-    #[serde(default = "default_true")]
-    pub skip_permissions: bool,
     /// chatBackend openSession config (systemPrompt/preset/model). Ignored for PTY.
     #[serde(default)]
     pub config: Option<serde_json::Value>,
     /// Explicit model for the spawned agent (PTY launch args / chat session model).
     #[serde(default)]
     pub model: Option<String>,
-}
-
-fn default_true() -> bool {
-    true
 }
 
 /// Authoritative result the client applies once. PTY and chat launch work stays
@@ -57,8 +51,8 @@ pub struct TransportLaunchCtx<'a> {
     pub model: Option<&'a str>,
 }
 
-/// The runtime half of a provider. `launch` never blocks tab visibility: it
-/// kicks its work onto a backend task and returns `None`.
+/// The runtime half of a provider. Callers put blocking transports on a
+/// blocking worker before invoking `launch`.
 pub trait AgentTransport {
     fn launch(
         &self,
@@ -197,18 +191,19 @@ impl AgentTransport for ChatTransport {
             }
         }
         let history_meta = config.clone();
-        svc.chatbackend_launch_async(
+        svc.chatbackend_launch(
             ctx.provider_id.to_string(),
             ctx.tab_id.to_string(),
             config,
             history_meta,
-        );
+        )?;
         Ok(None)
     }
 }
 
 impl ServiceContext {
-    /// The atomic spawn entry: pick the transport, build the tab synchronously, kick launch async, return the snapshot.
+    /// The atomic spawn entry: pick the transport, build the tab, launch it,
+    /// then return the authoritative snapshot.
     pub fn spawn_tab_atomic(&self, params: AtomicSpawnParams) -> Result<AtomicSpawn, String> {
         let provider = if params.agent_id.trim().is_empty() {
             crate::config::default_agent_provider()
@@ -296,9 +291,22 @@ impl ServiceContext {
             tab_id
         };
 
+        let permission_bypass = crate::service::permission_policy::configured_permission_bypass(
+            &self.agent_registry,
+            provider,
+        )?
+        .is_some();
+        if let Some(tab) = self.mux.write().get_tab_mut(&tab_id) {
+            tab.auto_approve = permission_bypass;
+        }
+
         if let Some(at) = agent_type {
             self.set_tab_agent_type(&tab_id, Some(at.to_string()));
         }
+        let pad = self.ensure_agent_pad(&tab_id).inspect_err(|_| {
+            self.mux.write().rollback_spawn_tab(&ws_id, &tab_id);
+            self.emit_state_changed();
+        })?;
         let _ = self.focus_tab(&tab_id);
 
         // The tab is already created/activated/focused; roll it back on launch failure so the user isn't left on a blank tab.
@@ -308,16 +316,18 @@ impl ServiceContext {
                 &TransportLaunchCtx {
                     provider_id: provider,
                     tab_id: &tab_id,
-                    skip_permissions: params.skip_permissions,
+                    skip_permissions: permission_bypass,
                     config: params.config.clone().unwrap_or(serde_json::Value::Null),
                     model: params.model.as_deref(),
                 },
             ),
             || {
                 self.mux.write().rollback_spawn_tab(&ws_id, &tab_id);
+                let _ = self.revoke_agent_pad(&tab_id);
                 self.emit_state_changed();
             },
         )?;
+        drop(pad);
 
         let snapshot = self.mux.read().snapshot();
         self.emit_state_changed();

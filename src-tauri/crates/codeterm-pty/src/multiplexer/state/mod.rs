@@ -5,6 +5,7 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use super::types::{AgentRole, Tab, TabBacking, TabType, TitleLevel, Workspace};
+use codeterm_types::agent::role_kind;
 use codeterm_types::team::Team;
 
 mod alias;
@@ -237,11 +238,15 @@ impl MultiplexerState {
             agent_provider_resolved_model: None,
             model_fallback: None,
             model_identity_mismatch: None,
+            reasoning_effort_identity: Default::default(),
+            context_epoch_archives: vec![],
             session_binding_nonce: None,
             reported_session_binding_nonce: None,
             shell_integration_nonce: None,
-            role: Some(AgentRole::Orchestrator),
-            role_profile: None,
+            lifecycle_epoch: None,
+            lifecycle_operation_id: None,
+            role: Some(AgentRole::Manager),
+            role_profile: Some(role_kind::builtins::ORCHESTRATOR.to_string()),
             team_id: None,
             watcher: None,
             parent_tab_id: None,
@@ -251,6 +256,7 @@ impl MultiplexerState {
             report_target_tab_id: None,
             report_target_mesh_peer: None,
             spawned_by_tab_id: None,
+            ownership: None,
             title_level: TitleLevel::Default,
             chat_view: false,
             pending_prompt: None,

@@ -13,7 +13,7 @@ use crate::agent::kpi_ledger::KpiEventKind;
 
 impl ServiceContext {
     pub(crate) fn kpi_attribution(&self, tab_id: &str) -> KpiAttribution {
-        let (resolved, role, provider, model) = {
+        let (resolved, role, role_profile, provider, model) = {
             let mux = self.mux.read();
             let resolved = mux
                 .resolve_tab_id(tab_id)
@@ -22,6 +22,7 @@ impl ServiceContext {
             (
                 resolved,
                 tab.and_then(|p| p.role),
+                tab.and_then(|p| p.role_profile.clone()),
                 tab.and_then(|p| p.agent_type.clone()),
                 tab.and_then(|p| p.agent_session_model.clone()),
             )
@@ -32,7 +33,7 @@ impl ServiceContext {
         };
         KpiAttribution::for_tab(resolved)
             .plan(plan_id, task_id)
-            .role(role)
+            .role(role, role_profile.as_deref())
             .provider(provider)
             .model(model)
     }

@@ -23,6 +23,7 @@
 set -u
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "$ROOT/evals/_lib/lib.sh"
+source "$ROOT/evals/_lib/role_preset.sh"
 PYTHON_BIN="$(command -v python3 || command -v python)"
 if [ -z "$PYTHON_BIN" ]; then
   echo "ABORT: neither python3 nor python is available on PATH" >&2
@@ -89,6 +90,14 @@ if ! curl -s --max-time 3 http://127.0.0.1:7686/api/health >/dev/null 2>&1; then
 fi
 BUILD=$(dev_get /api/health | "$PYTHON_BIN" -c "import json,sys;print(json.load(sys.stdin).get('build','?'))" 2>/dev/null)
 echo "  dev build: $BUILD"
+
+# Creation routes must all reach the one shared preset resolver; a kind that
+# escalated capability would poison every route below.
+if assert_manager_kinds_resolve && assert_planner_team_authority; then
+  pass "role-preset" "every creation-route kind resolves through the shared resolver"
+else
+  fail "role-preset" "role kind capability or manager guidance drifted"
+fi
 
 # Baseline plan-id set — cleanup sweeps everything created past this, and
 # the result gate asserts the set returned to it (before == after).
@@ -192,16 +201,16 @@ PY
 # B. CLI PAIR
 # =====================================================================
 scenario_B() {
-  echo; echo "=== B. CLI PAIR — orchestration new ==="
+  echo; echo "=== B. CLI PAIR — team pair ==="
   local out plan orch planner
-  out=$(dc orchestration new --orchestrator claude:opus --planner claude:fable --workspace "$WS" --json 2>&1)
+  out=$(dc team pair --orchestrator claude:opus --planner claude:fable --workspace "$WS" --json 2>&1)
   note "raw: $(echo "$out" | head -c 300)"
   plan=$(js "$out" "d.get('plan_id','')")
   orch=$(js "$out" "d.get('orchestrator_tab_id','')")
   planner=$(js "$out" "d.get('planner_tab_id','')")
 
   if [ -z "$plan" ] || [ -z "$orch" ] || [ -z "$planner" ]; then
-    fail B "orchestration new did not return plan_id+orchestrator_tab_id+planner_tab_id (got plan='$plan' orch='$orch' planner='$planner')"
+    fail B "team pair did not return plan_id+orchestrator_tab_id+planner_tab_id (got plan='$plan' orch='$orch' planner='$planner')"
     return
   fi
   CREATED_PLANS+=("$plan"); CREATED_TABS+=("$orch" "$planner")
@@ -559,7 +568,7 @@ scenario_H() {
   fi
 
   # H2: a Worker attempting orchestration/spawn --role Orchestrator is refused
-  # Backend guard check: spawn a real worker, then drive orchestration new with
+  # Backend guard check: spawn a real worker, then drive team pair with
   # that worker as the caller/spawner and expect refusal.
   local worker host_orch
   host_orch=$(new_claude_tab "$WS" "$WS_CWD" "orch-H2")
@@ -570,7 +579,7 @@ scenario_H() {
   [ -z "$worker" ] && worker=$(echo "$wout" | grep -oE "tab [a-f0-9]+" | awk '{print $2}' | head -1)
   [ -n "$worker" ] && CREATED_TABS+=("$worker")
   note "H2 worker tab: ${worker:-<none>} (parent $host_orch)"
-  # Attempt orchestration new attributed to the worker as spawner via REST.
+  # Attempt team pair attributed to the worker as spawner via REST.
   local h2_p_before h2_resp h2_p_after
   h2_p_before=$(tab_count)
 h2_body=$("$PYTHON_BIN" - "$WS" "$worker" <<'PY'
@@ -589,20 +598,20 @@ PY
   h2_p_after=$(tab_count)
   note "H2 orchestration-new-as-worker resp: $(echo "$h2_resp" | head -c 200)"
   if echo "$h2_resp" | grep -qiE "worker|refus|forbid|not allowed|hierarchy|cannot"; then
-    pass H2 "worker-attributed orchestration new refused by hierarchy guard"
+    pass H2 "worker-attributed team pair refused by hierarchy guard"
     # clean any refused-but-leaked ids
     local wp=$(js "$h2_resp" "d.get('plan_id','')"); [ -n "$wp" ] && CREATED_PLANS+=("$wp")
   else
     local wp wo wpl
     wp=$(js "$h2_resp" "d.get('plan_id','')"); wo=$(js "$h2_resp" "d.get('orchestrator_tab_id','')"); wpl=$(js "$h2_resp" "d.get('planner_tab_id','')")
     [ -n "$wp" ] && CREATED_PLANS+=("$wp"); [ -n "$wo" ] && CREATED_TABS+=("$wo"); [ -n "$wpl" ] && CREATED_TABS+=("$wpl")
-    finding H2 "no backend hierarchy guard: orchestration new attributed to a Worker (spawned_by=$worker) was NOT refused (created plan=$wp). Worker 'never spawn' is prompt-only, not enforced (bounce to hierarchy-guard lane)"
+    finding H2 "no backend hierarchy guard: team pair attributed to a Worker (spawned_by=$worker) was NOT refused (created plan=$wp). Worker 'never spawn' is prompt-only, not enforced (bounce to hierarchy-guard lane)"
   fi
 
-  # H3: orchestration new with unknown provider => clean fail, no half-pair
+  # H3: team pair with unknown provider => clean fail, no half-pair
   local h3_before h3_resp h3_plan_leak
   h3_before=$(tab_count)
-  h3_resp=$(dc orchestration new --orchestrator nonesuchprovider --planner claude --workspace "$WS" --json 2>&1)
+  h3_resp=$(dc team pair --orchestrator nonesuchprovider --planner claude --workspace "$WS" --json 2>&1)
   local h3_after=$(tab_count)
   note "H3 rc/out: $(echo "$h3_resp" | head -c 220) (tabs ${h3_before}->${h3_after})"
   # collect any leaked plan for cleanup
@@ -610,12 +619,12 @@ PY
   [ -n "$h3_plan_leak" ] && CREATED_PLANS+=("$h3_plan_leak")
   if echo "$h3_resp" | grep -qiE "unknown|not found|no such|unregistered|invalid provider|recover|complete the pair|retry"; then
     if [ "$h3_before" = "$h3_after" ]; then
-      pass H3 "unknown-provider orchestration new failed cleanly with actionable/recovery text, no tab leak"
+      pass H3 "unknown-provider team pair failed cleanly with actionable/recovery text, no tab leak"
     else
       finding H3 "unknown-provider failed with a message but left ${h3_after} tabs (was ${h3_before}) — half-pair; acceptable only if plan marked degraded + recovery printed"
     fi
   else
-    fail H3 "unknown-provider orchestration new did not fail cleanly (no actionable error; tabs ${h3_before}->${h3_after})"
+    fail H3 "unknown-provider team pair did not fail cleanly (no actionable error; tabs ${h3_before}->${h3_after})"
   fi
 }
 

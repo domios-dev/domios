@@ -12,6 +12,9 @@ const require = createRequire(import.meta.url);
 const htmlTailwindRuntime = readFileSync(require.resolve("@tailwindcss/browser"), "utf-8");
 
 function gitShortHash(): string {
+  if (process.env.CODETERM_FRONTEND_BUILD_HASH) {
+    return process.env.CODETERM_FRONTEND_BUILD_HASH;
+  }
   try {
     return execSync("git rev-parse --short HEAD", { encoding: "utf-8" }).trim();
   } catch {

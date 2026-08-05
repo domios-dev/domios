@@ -1,0 +1,16 @@
+[
+  {
+    "version": "1.8.0",
+    "sha": "1111111111111111111111111111111111111111",
+    "private_published": true,
+    "public_published": true,
+    "mirror_verified": true
+  },
+  {
+    "version": "1.8.1",
+    "sha": "2222222222222222222222222222222222222222",
+    "private_published": true,
+    "public_published": true,
+    "mirror_verified": false
+  }
+]

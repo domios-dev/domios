@@ -199,6 +199,9 @@ pub fn run() {
             commands::restart_general_agent,
             commands::restart_general_agent_tab,
             commands::restart_agent_tab,
+            commands::list_provider_update_prompts,
+            commands::respond_provider_update_prompt,
+            commands::acknowledge_provider_update_prompt,
             commands::complete_general_agent_first_run,
             commands::get_network_info,
             commands::get_serve_status,
@@ -206,6 +209,9 @@ pub fn run() {
             commands::disable_web_access,
             commands::generate_api_token,
             commands::report_webgl_status,
+            commands::list_plan_index,
+            commands::list_plans_full,
+            commands::get_plan_full,
             commands::save_clipboard_image,
             commands::save_clipboard_file,
             commands::materialize_dropped_files,
@@ -302,6 +308,7 @@ pub fn run() {
             commands::check_provider_integration,
             commands::install_provider_integration,
             commands::uninstall_provider_integration,
+            commands::restore_provider_integration,
             commands::check_provider_rule,
             commands::install_provider_rule,
             session::save_session,
@@ -341,6 +348,9 @@ pub fn run() {
             commands_mesh::mesh_scan_peers,
             commands_mesh::mesh_set_access,
             commands_mesh::mesh_peer_services_list,
+            commands_mesh::ordinary_tabs_list,
+            commands_mesh::mesh_peer_tabs_list,
+            commands_mesh::mesh_remote_tab_action,
             commands_mesh::mesh_peer_service_delete,
             commands_mesh::mesh_peer_cron_action,
             commands_mesh::mesh_peer_cron_get,
@@ -750,6 +760,7 @@ pub fn run() {
                 bridge_outbound_rx: Arc::new(Mutex::new(Some(bridge_outbound_rx))),
                 bridge_supervisor: Arc::new(bridge::supervisor::BridgeSupervisor::new()),
                 restart_tracker: crate::service::agent_restart::new_restart_tracker(),
+                provider_updates: Default::default(),
                 chat_registry: crate::service::tab_chat::ChatRegistry::new(),
                 delayed_send,
                 secret_registry: secret_registry.clone(),
@@ -984,6 +995,15 @@ pub fn run() {
                 });
             }
 
+            let overlays = service::persona::overlay::reload();
+            for rejection in overlays.rejected() {
+                log::warn!(
+                    "[role-preset] refused {} [{}] {}",
+                    rejection.path,
+                    rejection.reason.code(),
+                    rejection.reason.detail()
+                );
+            }
             service::sync_watcher::start(crate::paths::data_dir(), service_state.agent_registry.clone());
             startup::start_background_tasks(&app_handle, &states);
             // Tab-state reactor: classify parked tabs and auto-advance via the provider's recommendation.

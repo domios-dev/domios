@@ -6,22 +6,23 @@
 //! trait impl, which delegates each method to the right child.
 
 mod detection;
-mod integration;
+pub(crate) mod integration;
 mod interactive;
 mod launch;
 mod schemas;
 mod sessions;
 mod usage;
 
+#[cfg(test)]
 pub(crate) use schemas::manifest_defaults;
 
 use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::provider::{
-    AgentLaunchParams, AgentProvider, ModelInfo, ReadinessStrategy, SessionIdInjection,
-    SessionMessage, SessionMetadata, SettingField, StarterPrompt, SystemPromptDelivery,
-    TaskDelivery, UsageSnapshot, VerifySubmitStrategy,
+    AgentLaunchParams, AgentProvider, ModelInfo, ReadinessStrategy, ReasoningEffortInfo,
+    SessionIdInjection, SessionMessage, SessionMetadata, SettingField, StarterPrompt,
+    SystemPromptDelivery, TaskDelivery, UsageSnapshot, VerifySubmitStrategy,
 };
 
 use super::usage_tui::ClaudeTuiUsageParser;
@@ -34,6 +35,8 @@ pub struct ClaudeProvider;
 impl ClaudeProvider {
     pub fn new() -> Self {
         crate::model_catalog::register("claude", schemas::manifest_defaults());
+        let (efforts, default) = schemas::reasoning_effort_defaults();
+        crate::model_catalog::register_reasoning_efforts("claude", efforts, default);
         Self
     }
 }
@@ -158,6 +161,29 @@ impl AgentProvider for ClaudeProvider {
         sessions::detect_session_model(cwd, session_id).map(|family| {
             crate::model_catalog::resolve_family_model("claude", &family).unwrap_or(family)
         })
+    }
+
+    fn detect_session_reasoning_effort(&self, cwd: &str, session_id: &str) -> Option<String> {
+        sessions::detect_session_reasoning_effort(cwd, session_id)
+    }
+
+    fn reasoning_efforts(&self) -> Vec<ReasoningEffortInfo> {
+        crate::model_catalog::resolve_reasoning_efforts("claude")
+    }
+
+    fn default_reasoning_effort(&self) -> Option<String> {
+        crate::model_catalog::resolve_default_reasoning_effort("claude")
+    }
+
+    fn reasoning_effort_launch_args(&self, effort: &str) -> Vec<String> {
+        if effort.is_empty() {
+            Vec::new()
+        } else {
+            schemas::reasoning_effort_launch_args_format()
+                .into_iter()
+                .map(|arg| arg.replace("{effort}", effort))
+                .collect()
+        }
     }
 
     fn build_resume_command(&self, session_id: &str, skip_permissions: bool) -> Option<String> {
@@ -302,12 +328,20 @@ impl AgentProvider for ClaudeProvider {
         integration::check_integration()
     }
 
-    fn install_integration(&self, api_port: u16) -> Result<(), String> {
-        integration::install_integration(api_port)
+    fn install_integration(
+        &self,
+        api_port: u16,
+        options: &crate::provider::IntegrationInstallOptions,
+    ) -> Result<(), String> {
+        integration::install_integration(api_port, options)
     }
 
     fn uninstall_integration(&self) -> Result<(), String> {
         integration::uninstall_integration()
+    }
+
+    fn restore_integration(&self) -> Result<(), String> {
+        integration::restore_integration()
     }
 
     fn ensure_integration_on_startup(&self, api_port: u16) {

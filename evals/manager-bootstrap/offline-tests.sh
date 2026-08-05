@@ -65,5 +65,37 @@ set +e; out="$(PATH="$FAKE:$PATH" bash "$RUN" 2>&1)"; rc=$?; set -e
 ! rg -q '[s]leep' "$ROOT/evals/manager-bootstrap"
 ! rg -q 'claude|opus|fable|runner\\.py' "$ROOT/evals/manager-bootstrap"
 grep -q 'dev_post_as_tab' "$RUN"
+
+# --- role preset seam: one resolver, one table, no parallel Worker path ---
+PRESETS="$ROOT/src-tauri/src/service/role_preset.rs"
+OCCASIONS="$ROOT/src-tauri/src/service/persona/occasion.rs"
+LAUNCH="$ROOT/src-tauri/src/service/orchestrator/launch.rs"
+IDENTITY="$ROOT/src-tauri/src/service/role_identity.rs"
+
+# Exactly one resolver, and every injection surface routes through it.
+rg -Fq 'pub(crate) fn resolve_in(' "$PRESETS"
+[ "$(rg -c 'fn resolve_in\(' "$PRESETS")" = 1 ]
+rg -Fq 'crate::service::persona::deliver(' "$LAUNCH"
+rg -Fq 'crate::service::persona::guidance_for(' "$LAUNCH"
+rg -Fq 'crate::service::persona::guidance_for(' "$IDENTITY"
+
+# The suffixes are chosen by the table, never re-selected at an injection site.
+! rg -q 'orchestrator_suffix\(\)|planner_suffix\(\)|worker_suffix\(\)' "$LAUNCH"
+! rg -q 'role == Some\("Worker"\)|role == Some\("Orchestrator"\)' "$LAUNCH"
+! rg -q 'agent_type == "claude"|provider_id == "codex"' "$OCCASIONS" "$PRESETS"
+
+# One declarative table with an explicit fallback for every occasion.
+rg -Fq 'static TABLE: &[OccasionRules]' "$OCCASIONS"
+[ "$(rg -c 'occasion: Occasion::' "$OCCASIONS")" = "$(rg -c 'fallback: Fallback::' "$OCCASIONS")" ]
+
+# No second persona registry: the resolver is defined in exactly one file.
+[ "$(rg -c --glob '*.rs' 'fn resolve_in\(' "$ROOT/src-tauri/src" | wc -l | tr -d ' ')" = 1 ]
+
+# Overlay capability escalation is refused structurally, not by convention.
+OVERLAY="$ROOT/src-tauri/src/service/persona/overlay.rs"
+for reason in BuiltinOverride CapabilityEscalation TeamAuthorityClaim MissingCore; do
+  rg -Fq "RejectionReason::$reason" "$OVERLAY"
+done
+rg -Fq 'RoleKindCapability::LEAF' "$ROOT/src-tauri/crates/codeterm-types/src/agent/role_kind/mod.rs"
 assert_exported_tree
 echo "manager-bootstrap offline parser harness: PASS"

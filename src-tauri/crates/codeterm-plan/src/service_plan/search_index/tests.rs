@@ -76,21 +76,50 @@ fn vector_indexing_available(_db: &Path) -> bool {
     false
 }
 
-fn hold_plan_index_lock(root: &Path) -> std::thread::JoinHandle<()> {
-    // Drain any index jobs the test's own setup (create_plan/add_task) already
-    // enqueued, so this simulated external locker never races the shared
-    // IndexQueue's background writers for BEGIN IMMEDIATE on the same db.
+struct HeldPlanIndexLock {
+    release: Option<mpsc::Sender<()>>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Drop for HeldPlanIndexLock {
+    fn drop(&mut self) {
+        self.release.take().unwrap().send(()).unwrap();
+        self.thread.take().unwrap().join().unwrap();
+    }
+}
+
+fn hold_plan_index_lock(root: &Path) -> HeldPlanIndexLock {
     flush_index_queue_for_test(root);
     let project = super::super::paths::project_root(root);
     let (ready_tx, ready_rx) = mpsc::channel();
-    let locker = std::thread::spawn(move || {
+    let (release_tx, release_rx) = mpsc::channel();
+    let thread = std::thread::spawn(move || {
         let conn = open_index(&project).unwrap();
         conn.execute_batch("BEGIN IMMEDIATE").unwrap();
         ready_tx.send(()).unwrap();
-        std::thread::sleep(Duration::from_millis(225));
+        release_rx.recv().unwrap();
     });
     ready_rx.recv().unwrap();
-    locker
+    HeldPlanIndexLock {
+        release: Some(release_tx),
+        thread: Some(thread),
+    }
+}
+
+fn while_plan_index_locked<T, F>(root: &Path, operation: F) -> T
+where
+    T: Send,
+    F: FnOnce() -> T + Send,
+{
+    let locker = hold_plan_index_lock(root);
+    std::thread::scope(|scope| {
+        let (result_tx, result_rx) = mpsc::channel();
+        let operation = scope.spawn(move || result_tx.send(operation()).unwrap());
+        let result = result_rx.recv_timeout(Duration::from_secs(3));
+        drop(locker);
+        operation.join().unwrap();
+        result.expect("plan mutation waited for asynchronous index persistence")
+    })
 }
 
 #[test]
@@ -383,10 +412,8 @@ fn add_task_succeeds_when_plan_index_is_locked_after_verified_commit() {
             1,
         )
         .unwrap();
-    let locker = hold_plan_index_lock(root.path());
-
-    let task_id = store
-        .add_task(
+    let task_id = while_plan_index_locked(root.path(), || {
+        store.add_task(
             &plan.id,
             NewTask {
                 name: "Add under contention".into(),
@@ -397,7 +424,8 @@ fn add_task_succeeds_when_plan_index_is_locked_after_verified_commit() {
             },
             2,
         )
-        .unwrap();
+    })
+    .unwrap();
     assert!(task_id.starts_with("task_"));
 
     let visible = store
@@ -410,7 +438,6 @@ fn add_task_succeeds_when_plan_index_is_locked_after_verified_commit() {
     assert_eq!(visible.len(), 1);
     assert_eq!(visible[0].id, task_id);
     assert_eq!(visible[0].body, "task added while plan index is locked");
-    locker.join().unwrap();
 }
 
 #[test]
@@ -474,10 +501,8 @@ fn locked_plan_index_does_not_duplicate_task_by_retrying_unsafely() {
             1,
         )
         .unwrap();
-    let locker = hold_plan_index_lock(root.path());
-
-    let committed_id = store
-        .add_task(
+    let committed_id = while_plan_index_locked(root.path(), || {
+        store.add_task(
             &plan.id,
             NewTask {
                 name: "Exactly once".into(),
@@ -487,8 +512,8 @@ fn locked_plan_index_does_not_duplicate_task_by_retrying_unsafely() {
             },
             2,
         )
-        .unwrap();
-    locker.join().unwrap();
+    })
+    .unwrap();
 
     let tasks = store.get(&plan.id).unwrap().tasks;
     let committed = tasks
@@ -528,10 +553,8 @@ fn locked_task_update_succeeds_after_verified_commit() {
             2,
         )
         .unwrap();
-    let locker = hold_plan_index_lock(root.path());
-
-    store
-        .update_task(
+    while_plan_index_locked(root.path(), || {
+        store.update_task(
             &plan.id,
             &task_id,
             Some("Updated under contention"),
@@ -552,7 +575,8 @@ fn locked_task_update_succeeds_after_verified_commit() {
             None,
             3,
         )
-        .unwrap();
+    })
+    .unwrap();
     let task = store
         .get(&plan.id)
         .unwrap()
@@ -562,7 +586,6 @@ fn locked_task_update_succeeds_after_verified_commit() {
         .unwrap();
     assert_eq!(task.name, "Updated under contention");
     assert_eq!(task.body, "after");
-    locker.join().unwrap();
 }
 
 #[test]
@@ -589,10 +612,8 @@ fn locked_task_lane_update_succeeds_after_verified_commit() {
             2,
         )
         .unwrap();
-    let locker = hold_plan_index_lock(root.path());
-
-    store
-        .update_task_lane(
+    while_plan_index_locked(root.path(), || {
+        store.update_task_lane(
             &plan.id,
             &task_id,
             crate::service_plan::TaskLaneUpdate {
@@ -603,7 +624,8 @@ fn locked_task_lane_update_succeeds_after_verified_commit() {
             },
             3,
         )
-        .unwrap();
+    })
+    .unwrap();
     let task = store
         .get(&plan.id)
         .unwrap()
@@ -614,7 +636,6 @@ fn locked_task_lane_update_succeeds_after_verified_commit() {
     assert_eq!(task.lane.tab_id.as_deref(), Some("tab_1"));
     assert_eq!(task.lane.workspace_id.as_deref(), Some("ws_1"));
     assert_eq!(task.lane.worktree_path.as_deref(), Some("/tmp/worktree"));
-    locker.join().unwrap();
 }
 
 #[test]
@@ -641,10 +662,8 @@ fn locked_task_record_succeeds_after_verified_milestone() {
             2,
         )
         .unwrap();
-    let locker = hold_plan_index_lock(root.path());
-
-    let milestone_id = store
-        .add_milestone(
+    let milestone_id = while_plan_index_locked(root.path(), || {
+        store.add_milestone(
             &plan.id,
             &task_id,
             "decision",
@@ -653,7 +672,8 @@ fn locked_task_record_succeeds_after_verified_milestone() {
             true,
             3,
         )
-        .unwrap();
+    })
+    .unwrap();
     let task = store
         .get(&plan.id)
         .unwrap()
@@ -668,7 +688,6 @@ fn locked_task_record_succeeds_after_verified_milestone() {
         .unwrap();
     assert_eq!(milestone.kind, "decision");
     assert_eq!(milestone.text, "recorded while plan index is locked");
-    locker.join().unwrap();
 }
 
 #[test]
@@ -736,11 +755,10 @@ fn locked_task_take_succeeds_after_verified_assignment() {
             2,
         )
         .unwrap();
-    let locker = hold_plan_index_lock(root.path());
-
-    store
-        .set_task_assignment(&task_id, Some("tab_take"), Some("worker"), 3)
-        .unwrap();
+    while_plan_index_locked(root.path(), || {
+        store.set_task_assignment(&task_id, Some("tab_take"), Some("worker"), 3)
+    })
+    .unwrap();
     let task = store
         .get(&plan.id)
         .unwrap()
@@ -750,7 +768,6 @@ fn locked_task_take_succeeds_after_verified_assignment() {
         .unwrap();
     assert_eq!(task.assigned_tab_id.as_deref(), Some("tab_take"));
     assert_eq!(task.taken_by_role.as_deref(), Some("worker"));
-    locker.join().unwrap();
 }
 
 #[test]

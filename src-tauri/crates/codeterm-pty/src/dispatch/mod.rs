@@ -67,10 +67,7 @@ pub enum Command {
     TabInspect { tab_ids: Vec<String> },
 
     /// Send text to a tab's PTY
-    SendText {
-        tab_id: String,
-        text: String,
-    },
+    SendText { tab_id: String, text: String },
 
     /// Get tab output (terminal buffer)
     GetOutput {
@@ -447,9 +444,23 @@ pub(crate) fn build_tab_summary_json(
                 "agent_type": tab.agent_type,
                 "agent_session_id": tab.agent_session_id,
                 "agent_session_model": tab.agent_session_model,
+                "reasoning_effort_identity": tab.reasoning_effort_identity,
+                "context_epoch": tab.context_epoch_archives.len(),
+                "provider_context_session_id": tab.agent_session_id,
+                // Chat transcript authority compares all three: a summary that omits
+                // the nonce makes every remote projection reject its own transcript.
+                "session_binding_nonce": tab.session_binding_nonce,
+                "archived_context_epochs": tab.context_epoch_archives,
+                "pty_id": tab.pty_id,
+                "tab_type": tab.tab_type,
+                "cwd": tab.cwd,
                 "boot_stage": tab.boot_stage,
                 "status": tab.agent_state.as_ref().map(|state| state.state),
                 "role": tab.role,
+                "role_profile": tab.role_profile,
+                "ownership": tab.ownership,
+                "chat_view": tab.chat_view,
+                "backing": tab.backing,
                 "backing_kind": backing_kind,
                 "pending_delivery": tab.pending_delivery,
                 "focused": focused_id == Some(tab.id.as_str()),
@@ -949,10 +960,15 @@ mod tests {
         let tab = summaries.first().expect("summary Tab");
         assert_eq!(tab["id"].as_str(), Some(initial_tab.as_str()));
         assert_eq!(tab["workspace_id"].as_str(), Some(workspace.id.as_str()));
-        assert!(tab.get("cwd").is_none());
-        assert!(tab.get("session_binding_nonce").is_none());
         assert!(tab.get("agent_state").is_none());
         assert!(tab.get("model_fallback").is_none());
+        for identity in ["agent_session_id", "provider_context_session_id", "session_binding_nonce"] {
+            assert!(
+                tab.get(identity).is_some(),
+                "{identity} must survive into the summary: remote projections are built from it \
+                 and chat transcript authority compares the whole session identity",
+            );
+        }
     }
 
     #[test]

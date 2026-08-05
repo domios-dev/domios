@@ -12,6 +12,7 @@ pub mod connection;
 pub mod introduction;
 pub mod pairing;
 pub mod relay;
+pub mod remote_tabs;
 pub mod rpc;
 pub mod send_dedupe;
 

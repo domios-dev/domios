@@ -8,7 +8,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { OrchestrationPairForm, OrchestrationRoleRow } from "./Sidebar/OrchestrationPairForm";
 import { TeamUnit } from "./Sidebar/TeamUnit";
-import type { ModelInfo, ProviderDescriptor } from "../lib/types";
+import type { ModelInfo, ProviderDescriptor, Team } from "../lib/types";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -165,7 +165,7 @@ test("New Session pair renders the same descriptor in both roles", async () => {
 
 test("Team add-member renders exactly the injected descriptor incl. availability and default", async () => {
   const descriptor = descriptorWith(SEED_MODELS);
-  const team = { id: "team-1", name: "Team", lifecycle: "active", created_at: 0, workspace_id: "ws" };
+  const team: Team = { id: "team-1", name: "Team", lifecycle: "active", created_at: 0, workspace_id: "ws" };
   const teamUi = (models: ModelInfo[]) => (
     <TeamUnit
       team={team}

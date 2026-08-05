@@ -8,6 +8,7 @@ use serde::Deserialize;
 
 use crate::api::routes::{check_auth, resolve_tab, AppState};
 use crate::multiplexer::types::AgentRole;
+use codeterm_types::agent::role_kind::builtins::PLANNER;
 
 /// JSON error surface for `/api/agents/spawn`, so the mesh relay can parse it
 /// instead of collapsing a bare `(StatusCode, String)` body to "HTTP 500".
@@ -69,6 +70,8 @@ pub(crate) struct SpawnAgentBody {
     task_id: Option<String>,
     #[serde(alias = "plan-task")]
     plan_task: Option<String>,
+    execution_intent: Option<crate::plan::ExecutionIntent>,
+    provider_reserve_pct: Option<f32>,
     workspace_id: Option<String>,
     force_tab: Option<bool>,
     report_target_tab_id: Option<String>,
@@ -79,10 +82,12 @@ pub(crate) struct SpawnAgentBody {
     /// token (never client-supplied). Present ⇒ this spawn was relayed across the
     /// mesh and the worker should report back to `report_to` on that peer.
     origin_peer: Option<String>,
-    skip_permissions: Option<bool>,
     /// Tab id of the caller that ran `agent spawn` (CODETERM_TAB_ID).
     /// Recorded on the spawned tab for report routing fallback.
     spawned_by_tab_id: Option<String>,
+    /// Authenticated control ownership injected by the origin relay-out from its
+    /// local caller tab; the target relay boundary re-stamps `peer_id`/`peer_name`.
+    ownership: Option<codeterm_types::pty::RemoteOwnership>,
     /// Model selector — provider decides flag syntax via
     /// AgentProvider::model_launch_args.
     model: Option<String>,
@@ -252,17 +257,23 @@ pub async fn spawn_agent(
         starter_prompt,
         task_id: body.task_id,
         task_launch_authority: None,
+        plan_skill_manifest: None,
         plan_task: body.plan_task,
+        execution_intent: body.execution_intent,
+        provider_reserve_pct: body.provider_reserve_pct,
         workspace_id: body.workspace_id,
         force_tab: body.force_tab,
         existing_tab_id: None,
         skip_orchestrator_onboarding: None,
         report_target_tab_id: body.report_to.or(body.report_target_tab_id),
         report_target_mesh_peer: body.origin_peer,
-        skip_permissions: body.skip_permissions,
+        skip_permissions: None,
+        permission_bypass_authorization: None,
         spawned_by_tab_id: body.spawned_by_tab_id,
+        ownership: body.ownership,
         model: body.model,
         planned_model: None,
+        planned_reasoning_effort: None,
         reasoning_effort: body.reasoning_effort,
         system_prompt: body.system_prompt,
         preset: body.preset,
@@ -311,6 +322,8 @@ pub async fn spawn_agent(
         "requested_model": result.requested_model,
         "provider_resolved_model": result.provider_resolved_model,
         "actual_model": result.actual_model,
+        "reasoning_effort": result.reasoning_effort,
+        "reasoning_effort_provenance": result.reasoning_effort_provenance,
         "title": result.title,
         "description": result.description,
         "role": result.role,
@@ -355,7 +368,7 @@ fn validate_spawn_role(
 }
 
 /// Paired creation (task_7e5f9354): create an Orchestrator + Planner in one
-/// action. The web-mirror twin of `codeterm orchestration new` — both call
+/// action. The web-mirror twin of `codeterm team pair` — both call
 /// `ServiceContext::create_orchestration_pair`.
 pub async fn create_orchestration_pair(
     AxumState(state): AxumState<AppState>,
@@ -433,17 +446,23 @@ pub async fn set_tab_role(
         .normalize_role_profile()
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     let role = role_probe.role.unwrap_or_else(|| "Worker".into());
-    let parsed_role = crate::service::ServiceContext::parse_role(&role)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    let (parsed_role, parsed_profile) =
+        crate::service::ServiceContext::parse_role_kind(&role, role_probe.role_profile.as_deref())
+            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    let becomes_anchor = codeterm_types::agent::role_kind::anchors_team(
+        Some(parsed_role),
+        parsed_profile.as_deref(),
+    );
     let was_orchestrator = {
         let mux = state.svc.mux.read();
-        mux.get_tab(&id)
-            .map(|p| p.role == Some(AgentRole::Orchestrator))
-            .unwrap_or(false)
+        mux.get_tab(&id).map(|p| p.anchors_team()).unwrap_or(false)
     };
+    let mut plan_binding: Option<String> = None;
     let destination = match parsed_role {
-        AgentRole::Orchestrator => crate::service::AgentPlacement::Orchestrator {
-            can_spawn: body.can_spawn.unwrap_or(true),
+        AgentRole::Manager if becomes_anchor => crate::service::AgentPlacement::Manager {
+            role_profile: parsed_profile.clone().unwrap_or_default(),
+            parent_tab_id: None,
+            can_spawn: body.can_spawn,
         },
         AgentRole::Worker => crate::service::AgentPlacement::Worker {
             parent_tab_id: body.parent_tab_id.ok_or_else(|| {
@@ -452,25 +471,32 @@ pub async fn set_tab_role(
                     "Worker requires a parent_tab_id".to_string(),
                 )
             })?,
+            role_profile: parsed_profile.clone(),
         },
-        AgentRole::Manager if role_probe.role_profile.as_deref() == Some("planner") => {
-            crate::service::AgentPlacement::Planner {
-                plan_id: body.plan_id.ok_or_else(|| {
-                    (
-                        StatusCode::BAD_REQUEST,
-                        "Planner requires a plan_id".to_string(),
-                    )
-                })?,
+        // A Planner names its plan instead of a parent; the plan record owns
+        // the anchor it binds under.
+        AgentRole::Manager if parsed_profile.as_deref() == Some(PLANNER) => {
+            plan_binding = Some(body.plan_id.clone().ok_or_else(|| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    "Planner requires a plan_id".to_string(),
+                )
+            })?);
+            crate::service::AgentPlacement::Manager {
+                role_profile: PLANNER.to_string(),
+                parent_tab_id: body.parent_tab_id.clone(),
+                can_spawn: body.can_spawn,
             }
         }
         AgentRole::Manager => crate::service::AgentPlacement::Manager {
-            parent_tab_id: body.parent_tab_id.ok_or_else(|| {
+            parent_tab_id: Some(body.parent_tab_id.clone().ok_or_else(|| {
                 (
                     StatusCode::BAD_REQUEST,
                     "Manager requires a parent_tab_id".to_string(),
                 )
-            })?,
-            role_profile: role_probe.role_profile,
+            })?),
+            role_profile: parsed_profile.clone().unwrap_or_default(),
+            can_spawn: body.can_spawn,
         },
     };
     state
@@ -478,12 +504,13 @@ pub async fn set_tab_role(
         .transition_agent(crate::service::AgentTransitionRequest {
             tab_id: id.clone(),
             destination,
+            plan_binding,
             require_verified_session: true,
             planner_replacement: None,
             plan_rebind: None,
         })
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-    if parsed_role == AgentRole::Orchestrator {
+    if becomes_anchor {
         state
             .svc
             .maybe_deliver_orchestrator_promotion_onboarding(&id, was_orchestrator);
@@ -656,8 +683,7 @@ fn agent_restart_response(
         "session_id": outcome.session_id,
         "session_was_stale": outcome.session_was_stale,
         "session_action": outcome.session_action(),
-        "auto_approve": outcome.auto_approve,
-        "permission_profile": outcome.permission_profile(),
+        "full_access": outcome.auto_approve,
         "force": outcome.force,
     })
 }
@@ -828,15 +854,6 @@ pub async fn list_agent_providers(
     list_agent_providers_blocking(state.svc.provider_registry.clone()).await
 }
 
-/// Public provider list for local plugin verification/UI smoke checks.
-/// This exposes provider descriptors only; mutating agent routes remain
-/// authenticated.
-pub async fn list_agent_providers_public(
-    AxumState(state): AxumState<AppState>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    list_agent_providers_blocking(state.svc.provider_registry.clone()).await
-}
-
 async fn list_agent_providers_blocking(
     registry: std::sync::Arc<crate::provider::ProviderRegistry>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
@@ -915,6 +932,7 @@ pub async fn restart_general_agent_tab(
 #[derive(serde::Deserialize)]
 pub struct CompleteFirstRunBody {
     pub provider_id: String,
+    pub full_access: bool,
 }
 
 /// Web-mirror twin of `complete_general_agent_first_run`.
@@ -930,6 +948,7 @@ pub async fn complete_general_agent_first_run(
         &state.config,
         &app,
         &body.provider_id,
+        body.full_access,
     )
     .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     Ok(Json(serde_json::json!({"ok": true})))

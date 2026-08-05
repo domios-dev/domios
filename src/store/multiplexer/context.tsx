@@ -5,6 +5,7 @@ import type {
   OrchestrationPairInput,
   OrchestrationPairResult,
 } from "../../lib/types";
+import type { RemotePeerTabs } from "../../lib/remoteTabPortal";
 import type { MuxStateStore } from "./selectorStore";
 
 /** Ids returned by a successful spawn — enough to resolve + select the tab. */
@@ -26,6 +27,7 @@ export interface MultiplexerActionsContextType {
   /** Reorder the workspace list to the given order. */
   reorderWorkspaces: (orderedWorkspaceIds: string[]) => void;
   createTab: (workspaceId: string, cwd?: string) => Promise<{ id: string } | void>;
+  attachRemoteTab?: (workspaceId: string, peer: RemotePeerTabs, tab: RemotePeerTabs["tabs"][number]) => void;
   closeTab: (workspaceId: string, tabId: string) => void;
   /** Reopen a recently-closed tab (index 0 = most recent). */
   reopenClosed: (workspaceId: string, index?: number) => void;
@@ -50,11 +52,10 @@ export interface MultiplexerActionsContextType {
   setTabTitle: (workspaceId: string, tabId: string, title: string) => void;
   setAgentType: (tabId: string, agentType: string | null) => void;
   updateTabStatus: (tabId: string, status: TabStatus) => void;
-  spawnClaudeTab: (workspaceId: string, skipPermissions: boolean, cwd?: string) => void;
+  spawnClaudeTab: (workspaceId: string, cwd?: string) => void;
   spawnAgentTab: (
     workspaceId: string,
     agentId: string,
-    skipPermissions: boolean,
     cwd?: string,
     model?: string,
   ) => Promise<SpawnedTab | null>;

@@ -18,9 +18,10 @@ interface ToolCardFrameProps {
   action?: ReactNode;
   variant?: "smart" | "codeterm";
   visualOverride?: ToolKindVisual;
+  disclosureLabel?: string;
 }
 
-export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onToggle, children, command, title, summary, metric, chips, tail, action, variant = "smart", visualOverride }: ToolCardFrameProps) {
+export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onToggle, children, command, title, summary, metric, chips, tail, action, variant = "smart", visualOverride, disclosureLabel }: ToolCardFrameProps) {
   const globalShowCommands = useShowCommands();
   const visual = visualOverride ?? toolKindVisual[event.kind];
   const Glyph = visual.glyph;
@@ -34,6 +35,7 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
     ? "color-mix(in srgb, var(--ct-red) 6%, var(--ct-surface))"
     : expanded || variant === "codeterm" ? "var(--ct-surface)" : "color-mix(in srgb, var(--ct-surface) 60%, transparent)";
   const label = title === undefined ? visual.label : title;
+  const detailsId = `chat-details-${event.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
 
   return (
     <div
@@ -45,7 +47,9 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
       <div className="flex min-w-0 items-center gap-2.5 px-3 py-2 text-left text-xs">
         <button
           type="button"
-          aria-label={expanded ? "Collapse tool details" : "Expand tool details"}
+          aria-label={disclosureLabel ? `${expanded ? "Hide" : "Show"} ${disclosureLabel}` : expanded ? "Collapse tool details" : "Expand tool details"}
+          aria-expanded={expanded}
+          aria-controls={detailsId}
           onClick={onToggle}
           className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
         >
@@ -73,14 +77,16 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
         <ChevronRight aria-hidden="true" size={14} className={expanded ? "rotate-90" : ""} style={{ color: "var(--ct-muted-fg)" }} />
       </div>
       {isCommand && commandVisible && command}
-      {expanded && (
-        <div
-          className={variant === "codeterm" ? "border-t px-3.5 pb-3 pt-2" : "pb-3 pl-[46px] pr-3 pt-0.5"}
-          style={{ borderColor: "var(--ct-border)" }}
-        >
-          {children}
-        </div>
-      )}
+      <div
+        id={detailsId}
+        role="region"
+        aria-label={disclosureLabel ?? "Tool details"}
+        hidden={!expanded}
+        className={variant === "codeterm" ? "border-t px-3.5 pb-3 pt-2" : "pb-3 pl-[46px] pr-3 pt-0.5"}
+        style={{ borderColor: "var(--ct-border)", boxSizing: "border-box", maxHeight: "600px", overflowY: "auto" }}
+      >
+        {expanded ? children : null}
+      </div>
     </div>
   );
 }

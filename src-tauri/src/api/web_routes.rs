@@ -157,6 +157,14 @@ pub async fn peer_cron_get(
 #[derive(Deserialize)]
 pub(crate) struct EventsStreamQuery {
     since: Option<String>,
+    tab_id: Option<String>,
+}
+
+fn event_matches_tab(event: &crate::api::events::SystemEvent, tab_id: Option<&str>) -> bool {
+    let Some(tab_id) = tab_id else { return true };
+    let (event_type, data) = render_event(event);
+    data.get("tab_id").and_then(serde_json::Value::as_str) == Some(tab_id)
+        || event_type.ends_with(&format!("-{tab_id}"))
 }
 
 /// Parse a `<boot_id>:<seq>` cursor; the boot_id is dash-free hex (no colon).
@@ -227,6 +235,7 @@ pub async fn events_stream(
     let cursor_seq = since.as_ref().map(|(_, s)| *s);
     let plan = snap.plan(since.as_ref().map(|(b, s)| (b.as_str(), *s)));
     let events = state.events.clone();
+    let tab_id = q.tab_id;
 
     let stream = async_stream::stream! {
         // tracks the highest seq yielded so the live loop drops the overlap.
@@ -247,6 +256,7 @@ pub async fn events_stream(
             }
         };
         for se in &replay {
+            if !event_matches_tab(&se.event, tab_id.as_deref()) { continue; }
             if se.seq > replayed_max {
                 replayed_max = se.seq;
             }
@@ -259,6 +269,7 @@ pub async fn events_stream(
                         continue;
                     }
                     replayed_max = se.seq;
+                    if !event_matches_tab(&se.event, tab_id.as_deref()) { continue; }
                     yield Ok(event_frame(&se, &boot));
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
@@ -956,8 +967,6 @@ pub async fn chat_raw_stop(
 #[derive(Deserialize)]
 pub(crate) struct ChatBackfillBody {
     before_offset: u64,
-    #[serde(default)]
-    max_bytes: Option<u64>,
 }
 
 pub async fn chat_raw_backfill(
@@ -969,7 +978,7 @@ pub async fn chat_raw_backfill(
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let svc = state.svc.clone();
     let result = tokio::task::spawn_blocking(move || {
-        crate::commands::chat_backfill_core(&svc, tab_id, body.before_offset, body.max_bytes)
+        crate::commands::chat_backfill_core(&svc, tab_id, body.before_offset)
     })
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?

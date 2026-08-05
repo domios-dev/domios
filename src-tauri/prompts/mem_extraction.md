@@ -158,7 +158,7 @@ HARD BANS:
   just a restated title. No substance → don't save it (use a graph relation).
 
 ──────────────────────────────────────────────────────────────────────
-REMINDER: You have exactly one way to act: **Bash tool calls**.
+REMINDER: YOU HAVE EXACTLY ONE WAY TO ACT: BASH TOOL CALLS.
 If you're about to write a ```bash block```, stop — invoke Bash instead.
 
 Begin.

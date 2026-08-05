@@ -294,6 +294,14 @@ async fn run_probe_for(inner: Arc<UsagePollerInner>, key: AccountKey) -> Result<
                             );
                             on_success(&inner, &key);
                             emit_event(&inner.svc, &key, id);
+                            if snap.session_pct.is_some_and(|pct| pct >= 100.0)
+                                || snap.weekly_pct.is_some_and(|pct| pct >= 100.0)
+                                || snap
+                                    .spend_remaining_cents
+                                    .is_some_and(|remaining| remaining <= 0.0)
+                            {
+                                inner.svc.signal_provider_exhaustion(&key.provider);
+                            }
                         }
                         Err(e) => {
                             log::warn!("[usage.poller] db insert: {}", e);
@@ -347,11 +355,19 @@ async fn run_probe_for(inner: Arc<UsagePollerInner>, key: AccountKey) -> Result<
         }
         Err(e) => {
             let msg = e.to_string();
+            let failure_kind = match &e {
+                super::probe::ProbeError::FetchFailed(_) => UsageFailureKind::FetchError,
+                super::probe::ProbeError::NoQuotaFreeSource(_) => {
+                    UsageFailureKind::SourceUnavailable
+                }
+                super::probe::ProbeError::Internal(_) => UsageFailureKind::Internal,
+                super::probe::ProbeError::BinaryMissing(_) => UsageFailureKind::SourceUnavailable,
+            };
             let _ = inner.store.insert_failure_kind(
                 &key.provider,
                 key.account_id.as_deref(),
                 None,
-                UsageFailureKind::Timeout,
+                failure_kind,
                 &msg,
                 probe_command.as_deref(),
             );

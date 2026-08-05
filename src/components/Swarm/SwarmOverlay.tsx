@@ -6,18 +6,13 @@ import { useSwarmCanvas } from "./useSwarmCanvas";
 import { computeTreeLayout } from "./layout";
 import type { SwarmState, SwarmNode, SwarmEdge, ReportParticle } from "./types";
 import type { Tab, TabStatus } from "../../lib/types";
+import { ORCHESTRATOR_KIND, roleKind } from "../../lib/roleKind";
 
 let particleCounter = 0;
 
-function mapRoleToSwarm(role: Tab["role"]): SwarmNode["role"] {
-  switch (role) {
-    case "Orchestrator":
-      return "Orchestrator";
-    case "Worker":
-      return "Worker";
-    default:
-      return null;
-  }
+function mapRoleToSwarm(tab: Pick<Tab, "role" | "role_profile">): SwarmNode["role"] {
+  if (tab.role === "Worker") return "Worker";
+  return roleKind(tab) === ORCHESTRATOR_KIND ? "Orchestrator" : null;
 }
 
 function mapTabStatus(
@@ -60,7 +55,7 @@ export function SwarmOverlay({ visible, onClose }: SwarmOverlayProps) {
     for (const tab of Object.values(state.tabs)) {
       if (!tab.role) continue;
 
-      const mappedRole = mapRoleToSwarm(tab.role);
+      const mappedRole = mapRoleToSwarm(tab);
       const mappedStatus = mapTabStatus(tab.id, (state as any).tabStatuses || {});
 
       nodes.set(tab.id, {

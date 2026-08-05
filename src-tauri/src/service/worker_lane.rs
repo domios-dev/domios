@@ -118,6 +118,26 @@ impl ServiceContext {
         Ok(Some(lane))
     }
 
+    pub(crate) fn resolve_spawn_workspace_identity(
+        &self,
+        params: &SpawnAgentParams,
+    ) -> Option<(String, String)> {
+        let mux = self.mux.read();
+        let id = crate::service::spawn::resolve_spawn_workspace_id(
+            params.workspace_id.clone(),
+            params.parent_tab_id.as_deref(),
+            |tab_id| mux.find_workspace_for_tab(tab_id),
+            mux.get_active_workspace()
+                .map(|workspace| workspace.id.clone()),
+            mux.list_workspaces()
+                .first()
+                .map(|workspace| workspace.id.clone()),
+        )
+        .ok()?;
+        mux.get_workspace(&id)
+            .map(|workspace| (workspace.id.clone(), workspace.name.clone()))
+    }
+
     fn resolve_worker_spawn_workspace_cwd(&self, params: &SpawnAgentParams) -> Option<String> {
         let mux = self.mux.read();
         let id = crate::service::spawn::resolve_spawn_workspace_id(
@@ -134,6 +154,15 @@ impl ServiceContext {
         mux.get_workspace(&id)
             .and_then(|workspace| workspace.cwd.clone())
     }
+}
+
+/// Unconditional sibling-lane provisioning from canonical. Unlike
+/// `provision_worker_lane_for_spawn` it never no-ops on an already-shared cwd.
+pub(crate) fn provision_isolated_lane(
+    canonical_cwd: &str,
+    lane_label: &str,
+) -> Result<ProvisionedWorkerLane, String> {
+    provision_lane(canonical_cwd, lane_label)
 }
 
 fn provision_lane(project_cwd: &str, lane_label: &str) -> Result<ProvisionedWorkerLane, String> {

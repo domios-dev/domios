@@ -107,6 +107,7 @@ pub(crate) struct ChatSendLedger {
 }
 
 impl ChatSendLedger {
+    #[cfg(test)]
     pub(crate) fn try_start(
         &self,
         tab_id: &str,
@@ -232,6 +233,7 @@ impl ChatSendLedger {
     /// appended to the tab's own bound session transcript. Confirms the oldest
     /// unconfirmed send with the matching payload; one turn confirms at most
     /// one send. Unrelated, stale, or other-tab turns never match.
+    #[cfg(test)]
     pub(crate) fn confirm_delivered_user_turn(
         &self,
         tab_id: &str,

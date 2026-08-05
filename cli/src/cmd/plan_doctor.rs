@@ -74,11 +74,34 @@ pub(crate) fn assert_quality_ready(
 ) -> Result<(), String> {
     let mut report =
         doctor_report_authoritative(client, Some(plan_id.to_string()), None, "quality")?;
+    remove_approval_transition_findings(&mut report);
     escalate_planner_unpaired_for_approval(&mut report);
     if report.get("ok").and_then(Value::as_bool).unwrap_or(false) {
         return Ok(());
     }
     Err(render_quality_approval_error(plan_id, &report))
+}
+
+fn remove_approval_transition_findings(report: &mut Value) {
+    let Some(findings) = report.get_mut("findings").and_then(Value::as_array_mut) else {
+        return;
+    };
+    findings.retain(|finding| {
+        finding.get("kind").and_then(Value::as_str) != Some("tasks_before_approval")
+    });
+    let error_count = findings
+        .iter()
+        .filter(|finding| finding.get("severity").and_then(Value::as_str) == Some("error"))
+        .count();
+    let warning_count = findings
+        .iter()
+        .filter(|finding| finding.get("severity").and_then(Value::as_str) == Some("warning"))
+        .count();
+    if let Some(object) = report.as_object_mut() {
+        object.insert("error_count".into(), json!(error_count));
+        object.insert("warning_count".into(), json!(warning_count));
+        object.insert("ok".into(), json!(error_count == 0));
+    }
 }
 
 fn escalate_planner_unpaired_for_approval(report: &mut Value) {
@@ -363,5 +386,7 @@ pub(crate) fn render_doctor(report: &Value) -> String {
     out
 }
 
+#[cfg(test)]
+mod approval_transition_tests;
 #[cfg(test)]
 mod tests;

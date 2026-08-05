@@ -1,17 +1,17 @@
-// Create an empty placeholder for the codeterm-embed sidecar binary so
-// `tauri_build::build()` can validate `externalBin` before the real
-// binary is compiled. Without this, the very first cargo build that
-// runs the codeterm crate's build script on a fresh CI checkout fails
-// with "resource path bundled-embed/codeterm-embed-<triple> doesn't
-// exist". The real binary is dropped here later by bundle-embed.js.
+// Keep a placeholder so `tauri_build::build()` validates `externalBin` before the real
+// sidecar is compiled; `bundle-embed.js` replaces it later.
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
-const { execSync } = require("child_process");
+const { execFileSync } = require("child_process");
 
 const isWindows = process.platform === "win32";
 const exeExt = isWindows ? ".exe" : "";
 
-const triple = execSync("rustc -vV", { encoding: "utf8" })
+const cargoHome = process.env.CARGO_HOME || path.join(os.homedir(), ".cargo");
+const cargoRustc = path.join(cargoHome, "bin", `rustc${exeExt}`);
+const rustc = process.env.RUSTC || (fs.existsSync(cargoRustc) ? cargoRustc : "rustc");
+const triple = execFileSync(rustc, ["-vV"], { encoding: "utf8" })
   .split("\n")
   .find((l) => l.startsWith("host:"))
   .split(":")[1]

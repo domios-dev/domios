@@ -1,28 +1,14 @@
 use super::*;
-use crate::service_plan::retrospective;
+use crate::service_plan::{retrospective, PlanIncident};
 
 impl PlanStore {
     pub fn ensure_task_creation_allowed(
         &self,
         plan_id: &str,
-        kind: &str,
-        force: bool,
+        _kind: &str,
+        _force: bool,
     ) -> Result<(), PlanError> {
-        if force {
-            return Ok(());
-        }
-        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
-        // Planning-kind tasks are the planning workflow itself (improve GOAL/spec/plan/task-graph)
-        // and delegated planning subwork — always allowed regardless of state.
-        if kind == "planning" {
-            return Ok(());
-        }
-        // says so (planner-advanced planning_state, or an already-approved lifecycle).
-        if plan.execution_tasks_unlocked() {
-            Ok(())
-        } else {
-            Err(PlanError::TaskCreationRequiresApproval)
-        }
+        self.get(plan_id).ok_or(PlanError::NotFound).map(|_| ())
     }
 
     pub fn update_plan(
@@ -343,6 +329,7 @@ impl PlanStore {
             personality_provenance: new.personality_provenance,
             competition: new.competition,
             intent: new.intent,
+            execution_intent: new.execution_intent,
             parent_task_id: new.parent_task_id,
             depends_on: normalized_dependency_ids(&new.depends_on),
             assigned_tab_id,
@@ -354,6 +341,7 @@ impl PlanStore {
             milestones: vec![],
             execution_attempts: vec![],
             pause_reason: None,
+            interruption: Default::default(),
             attachments: vec![],
         };
         let verify_sections = !task.section_ids.is_empty();
@@ -434,6 +422,60 @@ impl PlanStore {
             self.verify_task_closed(plan_id, task_id, result),
             Some(task_id.to_string()),
         )
+    }
+
+    pub fn close_task_authorized(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        result: Option<&str>,
+        from: AgentRef,
+        authority: &crate::service_plan::interruption::TaskMutationAuthority,
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
+        self.with_plan(plan_id, now_ms, |plan| {
+            let task_index = plan
+                .tasks
+                .iter()
+                .position(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+                .ok_or(PlanError::TaskNotFound)?;
+            crate::service_plan::interruption::authorize_task_mutation(
+                plan,
+                &plan.tasks[task_index],
+                authority,
+            )?;
+            let was_in_review = plan.tasks[task_index].status == TaskStatus::InReview;
+            super::finalize_task_done(plan, task_index, now_ms)?;
+            if was_in_review {
+                plan.tasks[task_index].review_evidence.push(ReviewEvidence {
+                    id: crate::plan::ids::short_id("rev"),
+                    from: from.clone(),
+                    verdict: ReviewVerdict::Accept,
+                    note: result.unwrap_or("").into(),
+                    at: now_ms,
+                    changed_executable_surfaces: false,
+                    distinct_oracle: false,
+                });
+                crate::service_plan::review_gate::earn_review_credit(&mut plan.review_policy);
+            }
+            if let Some(text) = result {
+                let milestone_id =
+                    crate::plan::ids::mint_id("ms", |candidate| plan_contains_id(plan, candidate));
+                plan.tasks[task_index].milestones.push(Milestone {
+                    id: milestone_id,
+                    from,
+                    kind: "status_update".into(),
+                    text: text.into(),
+                    ts: now_ms,
+                    links: vec![],
+                    loop_id: None,
+                    iteration: None,
+                    canvas: Default::default(),
+                    attachments: vec![],
+                });
+            }
+            Ok(())
+        })
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -564,7 +606,38 @@ impl PlanStore {
     }
 
     pub fn archive(&self, plan_id: &str, now_ms: u64) -> Result<(), PlanError> {
+        self.archive_with_incident(plan_id, None, now_ms)
+    }
+
+    /// Archive status and its incident evidence are ONE write. `with_plan` commits
+    /// only after the file persists, so neither lands without the other.
+    pub fn archive_with_incident(
+        &self,
+        plan_id: &str,
+        incident: Option<PlanIncident>,
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
+        let mid = self.mint_id("ms");
         self.with_plan(plan_id, now_ms, |p| {
+            if let Some(incident) = incident.as_ref() {
+                if incident.kind.trim().is_empty() || incident.text.trim().is_empty() {
+                    return Err(PlanError::Io(
+                        "plan archive incident requires a kind and text".into(),
+                    ));
+                }
+                p.strides.push(Milestone {
+                    id: mid.clone(),
+                    from: incident.from.clone(),
+                    kind: incident.kind.clone(),
+                    text: incident.text.clone(),
+                    ts: now_ms,
+                    links: vec![],
+                    loop_id: None,
+                    iteration: None,
+                    canvas: Default::default(),
+                    attachments: vec![],
+                });
+            }
             p.status = PlanStatus::Archived;
             Ok(())
         })
@@ -615,6 +688,33 @@ impl PlanStore {
             p.owner = to;
             Ok(())
         })
+    }
+
+    /// Refresh the current owner's live session after its tab restarted.
+    /// A restart is not a handover, so no `owner_history` entry is recorded.
+    pub fn refresh_owner_session(
+        &self,
+        plan_id: &str,
+        tab_id: &str,
+        session_id: Option<&str>,
+        title: Option<&str>,
+        now_ms: u64,
+    ) -> Result<bool, PlanError> {
+        let mut refreshed = false;
+        self.with_plan(plan_id, now_ms, |p| {
+            if p.owner.tab_id.as_deref() != Some(tab_id) {
+                return Ok(());
+            }
+            let session_id = session_id.map(str::to_string);
+            let title = title.map(str::to_string).or_else(|| p.owner.title.clone());
+            if p.owner.session_id != session_id || p.owner.title != title {
+                p.owner.session_id = session_id;
+                p.owner.title = title;
+                refreshed = true;
+            }
+            Ok(())
+        })?;
+        Ok(refreshed)
     }
 
     pub fn disown(&self, plan_id: &str, now_ms: u64) -> Result<(), PlanError> {
@@ -724,13 +824,11 @@ mod planning_state_tests {
     }
 
     #[test]
-    fn drafting_blocks_execution_tasks_but_allows_planning_kind() {
+    fn drafting_records_execution_tasks_without_unlocking_them() {
         let (_d, s, pid) = store();
-        assert!(matches!(
-            add(&s, &pid, "implement"),
-            Err(PlanError::TaskCreationRequiresApproval)
-        ));
+        assert!(add(&s, &pid, "implement").is_ok());
         assert!(add(&s, &pid, "planning").is_ok());
+        assert!(!s.get(&pid).unwrap().execution_tasks_unlocked());
     }
 
     #[test]
@@ -814,7 +912,7 @@ mod team_binding_tests {
     use std::sync::{Arc, Barrier};
 
     use crate::plan::{OrchestratorRef, PlanMode, PlanStatus};
-    use crate::service_plan::{PlanError, PlanStore};
+    use crate::service_plan::{retrospective, PlanError, PlanStore};
     use tempfile::TempDir;
 
     fn store() -> (TempDir, PlanStore) {
@@ -1045,6 +1143,18 @@ mod team_binding_tests {
         create(&s, &dir, "Alpha", "team_alpha", 1).unwrap();
         let beta = create(&s, &dir, "Beta", "team_beta", 2).unwrap();
         assert_eq!(beta.team_id.as_deref(), Some("team_beta"));
+    }
+
+    /// Advisory, not a gate: a missing retrospective must never trap closure.
+    #[test]
+    fn archive_succeeds_without_retrospective() {
+        let (dir, s) = store();
+        let plan = create(&s, &dir, "Retro advisory", "team_alpha", 1).unwrap();
+        assert!(!retrospective::has_retrospective(&s.get(&plan.id).unwrap()));
+
+        s.archive(&plan.id, 2).unwrap();
+
+        assert_eq!(s.get(&plan.id).unwrap().status, PlanStatus::Archived);
     }
 
     #[test]

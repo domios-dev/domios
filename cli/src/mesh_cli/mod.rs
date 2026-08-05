@@ -5,8 +5,8 @@ use clap::Subcommand;
 
 use super::{Commands, UpdateAction};
 
-mod api_map;
-mod auth;
+pub(crate) mod api_map;
+#[cfg(test)]
 mod compat;
 mod parse;
 mod relay;
@@ -16,9 +16,22 @@ mod update;
 #[cfg(test)]
 mod tests;
 
-pub use auth::sign_request;
 pub use parse::parse_ip_port;
 pub use relay::mesh_relay_cmd;
+pub(crate) use relay::{mesh_relay_fetch_json, mesh_relay_invoke_result};
+
+fn remote_close_tab_id(command: &Commands) -> Option<&str> {
+    match command {
+        Commands::Tab {
+            action:
+                super::TabAction::Close {
+                    id: Some(id),
+                    tab: None,
+                },
+        } => Some(id),
+        _ => None,
+    }
+}
 
 #[derive(Subcommand)]
 pub enum MeshAction {
@@ -98,17 +111,14 @@ pub enum MeshPeerAction {
     },
 }
 
+pub(crate) fn is_socket_relayed(command: &Commands) -> bool {
+    crate::transport::is_socket_relayed(command)
+}
+
 /// Execute a CLI command on a remote mesh peer via relay.
 /// Reconstructs the command as an API call and sends through relay proxy.
 pub fn run_via_mesh(cli: super::Cli, target: &str) {
-    if matches!(
-        &cli.command,
-        Commands::Plan { .. }
-            | Commands::Team { .. }
-            | Commands::Spec { .. }
-            | Commands::Effort { .. }
-            | Commands::Task { .. }
-    ) {
+    if is_socket_relayed(&cli.command) {
         let (base, token) = super::read_api_config();
         let mut client = match rpc::MeshRpcClient::connect(&base, &token, target) {
             Ok(client) => client,
@@ -130,6 +140,9 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
             }
             Commands::Task { action } => {
                 crate::cmd::task::handle_task(&mut client, cli.json, action)
+            }
+            Commands::Inbox { action } => {
+                crate::cmd::task::handle_inbox(&mut client, cli.json, action)
             }
             _ => unreachable!(),
         }
@@ -157,11 +170,11 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
         std::process::exit(1);
     }
 
-    let (base, token) = super::read_api_config();
-    let http = match super::build_http(&token) {
-        Ok(c) => c,
+    let (base, _) = super::read_api_config();
+    let local = match super::build_local_api() {
+        Ok(client) => client,
         Err(e) => {
-            eprintln!("Error: failed to build HTTP client: {}", e);
+            eprintln!("Error: failed to connect to local API: {}", e);
             std::process::exit(1);
         }
     };
@@ -189,9 +202,6 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
         } = &resolved
         {
             update::run_update_apply_via_mesh(
-                &http,
-                &base,
-                &token,
                 target,
                 manifest_url.as_deref(),
                 after_update.as_deref(),
@@ -207,8 +217,7 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
         action: super::TabAction::Search { pattern },
     } = &cli.command
     {
-        let tabs =
-            relay::mesh_relay_fetch_json(&http, &base, &token, target, "GET", "/api/tabs", None);
+        let tabs = relay::mesh_relay_fetch_json(target, "GET", "/api/tabs", None);
         let arr = tabs.as_array().cloned().unwrap_or_default();
         crate::cmd::tab::print_tab_find_results(cli.json, pattern, &arr);
         return;
@@ -221,8 +230,7 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
         } = &cli.command
         {
             let (_, path, _) = api_map::cli_command_to_api(&cli.command);
-            let tabs =
-                relay::mesh_relay_fetch_json(&http, &base, &token, target, "GET", &path, None);
+            let tabs = relay::mesh_relay_fetch_json(target, "GET", &path, None);
             let arr = tabs.as_array().cloned().unwrap_or_default();
             if arr.is_empty() {
                 println!("(no Tabs)");
@@ -245,40 +253,27 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
             action: super::AgentAction::Spawn { .. }
         }
     ) {
-        relay::mesh_spawn_and_register(&http, &base, &token, target, body.as_deref(), cli.json);
+        relay::mesh_spawn_and_register(target, body.as_deref(), cli.json);
         return;
     }
-    if let Commands::Tab {
-        action: super::TabAction::Close { id },
-    } = &cli.command
-    {
-        relay::mesh_close_tab_and_forget_remote_worker(&http, &base, &token, target, id, cli.json);
+    if let Some(id) = remote_close_tab_id(&cli.command) {
+        relay::mesh_close_tab_and_forget_remote_worker(&base, target, id, cli.json);
         return;
     }
     let body = if matches!(cli.command, Commands::SendText { .. }) {
-        body.map(|b| enrich_send_body_with_local_source(&http, &base, &token, b))
+        body.map(|b| enrich_send_body_with_local_source(&local, &base, b))
     } else {
         body
     };
-    relay::mesh_relay_generic(
-        &http,
-        &base,
-        &token,
-        target,
-        &method,
-        &path,
-        body.as_deref(),
-        cli.json,
-    );
+    relay::mesh_relay_generic(target, &method, &path, body.as_deref(), cli.json);
 }
 
 /// Look up the local source tab's display label + agent model and inject them
 /// into a `send` body as `source_label` / `source_model`. The peer applies the
 /// canonical CtxPrefix with these (its own mux can't resolve a foreign tab id).
 fn enrich_send_body_with_local_source(
-    http: &reqwest::blocking::Client,
+    local: &crate::local_api::LocalApiClient,
     base: &str,
-    token: &Option<String>,
     body: String,
 ) -> String {
     let Ok(mut v) = serde_json::from_str::<serde_json::Value>(&body) else {
@@ -294,12 +289,8 @@ fn enrich_send_body_with_local_source(
     if src.is_empty() || src == "unknown" {
         return body;
     }
-    let tabs = http
+    let tabs = local
         .get(format!("{}/api/tabs", base))
-        .header(
-            "Authorization",
-            format!("Bearer {}", token.as_deref().unwrap_or("")),
-        )
         .send()
         .ok()
         .and_then(|r| r.json::<serde_json::Value>().ok());

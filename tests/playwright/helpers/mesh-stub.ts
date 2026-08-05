@@ -11,7 +11,7 @@
  * - liar   — alive, but service/relay endpoints error
  */
 import http from "node:http";
-import { randomBytes } from "node:crypto";
+import { generateKeyPairSync, sign as edSign, randomUUID, type KeyObject } from "node:crypto";
 
 export type StubMode = "happy" | "wedged" | "liar";
 
@@ -19,10 +19,16 @@ export class MeshStub {
   private server: http.Server | null = null;
   port = 0;
   mode: StubMode = "happy";
-  /** Set after the daemon assigns a manual-peer id (add-manual response). */
-  instanceId = "pw-mesh-stub-unset";
+  /** The stub's own stable identity. Manual pairing remaps the daemon's
+   *  `manual-<uuid>` placeholder to this UUID, so it must be a real UUID that
+   *  `crown`/`Uuid::parse_str` accepts — never the placeholder. */
+  instanceId = randomUUID();
   readonly instanceName = "pw-mesh-stub";
-  readonly publicKey = randomBytes(32).toString("base64");
+  /** Real Ed25519 identity so the daemon accepts our signed announce (crown auth)
+   *  and, via it, bumps our relay_protocol_version — required for versioned
+   *  relay-stream / relay-to. Random-key stubs can only pair + answer pings. */
+  readonly publicKey: string;
+  private readonly signingKey: KeyObject;
   /** method+path log so tests can assert what the daemon actually called. */
   readonly requests: string[] = [];
   private serviceCount: number;
@@ -41,10 +47,232 @@ export class MeshStub {
   configPayload: unknown = {};
   muxDelayMs = 0;
 
+  /** Remote-tab projection (D2): the single local tab this stub advertises so
+   *  the dev daemon can project `mesh:<peer>/<remoteTabId>` (remote-tab-render). */
+  remoteTabId = "shared";
+  remotePtyId = "shared-pty";
+  /** Transcript-authority identity echoed by the chat snapshot + live events so
+   *  the projected tab (agent_session_id=sourceSessionId) adopts them. */
+  sourceSessionId = "pw-stub-session";
+  sessionBindingNonce = "pw-stub-nonce";
+  /** G4 switch: when set, the chat events stream fails (500) and every open chat
+   *  stream is closed, while the PTY output stream stays live and usable. */
+  chatFail = false;
+
+  private readonly outputClients = new Set<http.ServerResponse>();
+  private readonly chatClients = new Set<http.ServerResponse>();
+  /** Append-only PTY frame log; replayed (offset > since) on every (re)connect
+   *  so cursor-resume delivers exactly what a live xterm missed. */
+  private readonly ptyLog: Array<{ output: string; offset: number }> = [];
+  private readonly chatLog: Array<{ frame: string; seq: number }> = [];
+  private readonly outputBoot = "pw-out-boot";
+  private readonly chatBoot = "pw-chat-boot";
+  private ptyOffset = 0;
+  private chatSeq = 0;
+
   constructor(opts: { services?: number; daemonBase?: string; webToken?: string } = {}) {
     this.serviceCount = opts.services ?? 3;
     this.daemonBase = opts.daemonBase ?? "http://127.0.0.1:7686";
     this.webToken = opts.webToken ?? null;
+    const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+    this.signingKey = privateKey;
+    // Raw 32-byte Ed25519 public key (last 32 bytes of the SPKI DER), base64 —
+    // exactly what crown::verify_signed_request expects for this instance_id.
+    this.publicKey = publicKey.export({ type: "spki", format: "der" }).subarray(-32).toString("base64");
+  }
+
+  /** crown signed-request token: base64(json).base64(ed25519_sig), Bearer-carried. */
+  private signToken(): string {
+    const payloadB64 = Buffer.from(
+      JSON.stringify({
+        from_instance_id: this.instanceId,
+        timestamp: Math.floor(Date.now() / 1000),
+        nonce: randomUUID(),
+      }),
+    ).toString("base64");
+    const sig = edSign(null, Buffer.from(payloadB64), this.signingKey).toString("base64");
+    return `${payloadB64}.${sig}`;
+  }
+
+  /** Announce our relay protocol version to the (already-paired) daemon so it
+   *  will open versioned relay-stream / relay-to connections to us. Empty
+   *  addresses + online keep the daemon's existing 127.0.0.1 route intact. */
+  async announce(relayProtocolVersion = 1): Promise<void> {
+    const res = await fetch(`${this.daemonBase}/api/mesh/announce`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${this.signToken()}`,
+      },
+      body: JSON.stringify({
+        instance_id: this.instanceId,
+        instance_name: this.instanceName,
+        addresses: [],
+        api_port: this.port,
+        online: true,
+        web_ui: null,
+        relay_protocol_version: relayProtocolVersion,
+      }),
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!res.ok) {
+      throw new Error(`mesh-stub announce failed: HTTP ${res.status} ${await res.text()}`);
+    }
+  }
+
+  /** The projected remote tab as the peer's `/api/tabs` would report it. */
+  tabPayload(): Record<string, unknown> {
+    return {
+      id: this.remoteTabId,
+      tab_id: this.remoteTabId,
+      title: "PW Remote Shared",
+      workspace_id: "stub-ws",
+      pty_id: this.remotePtyId,
+      agent_type: "claude",
+      agent_session_id: this.sourceSessionId,
+      session_binding_nonce: this.sessionBindingNonce,
+      backing: { kind: "pty" },
+      backing_kind: "pty",
+      chat_view: true,
+      status: "working",
+      role: "Worker",
+      hidden: false,
+      show_in_tabbar: true,
+    };
+  }
+
+  private chatStartSnapshot(): Record<string, unknown> {
+    return {
+      text: "",
+      offset: 1,
+      start_offset: 0,
+      pending: false,
+      source_session_id: this.sourceSessionId,
+      session_binding_nonce: this.sessionBindingNonce,
+      subscription_id: "pw-sub-1",
+      messages: [
+        { id: "pw-chat-snapshot", type: "assistant", content: "PW-CHAT-SNAPSHOT", timestamp: "1" },
+      ],
+    };
+  }
+
+  /** Emit a PTY output frame to every open output stream and record it for
+   *  cursor-resumed replay. Returns the new byte offset. */
+  emitPty(text: string): number {
+    this.ptyOffset += text.length;
+    const offset = this.ptyOffset;
+    this.ptyLog.push({ output: text, offset });
+    const line = `data: ${JSON.stringify({
+      tab_id: this.remoteTabId,
+      output: text,
+      offset,
+      boot: this.outputBoot,
+    })}\n\n`;
+    for (const res of this.outputClients) res.write(line);
+    return offset;
+  }
+
+  /** Emit a live tab-chat-msg event (authoritative for the projected tab). */
+  emitChat(content: string, id: string): number {
+    this.chatSeq += 1;
+    const seq = this.chatSeq;
+    const line = `data: ${JSON.stringify({
+      event_type: `tab-chat-msg-${this.remoteTabId}`,
+      boot: this.chatBoot,
+      seq,
+      data: {
+        tab_id: this.remoteTabId,
+        source_session_id: this.sourceSessionId,
+        session_binding_nonce: this.sessionBindingNonce,
+        messages: [{ id, type: "assistant", content, timestamp: String(seq) }],
+      },
+    })}\n\n`;
+    this.chatLog.push({ frame: line, seq });
+    for (const res of this.chatClients) res.write(line);
+    return seq;
+  }
+
+  /** G4: kill the chat channel — close open chat streams and make new ones 500,
+   *  leaving the PTY output channel untouched. */
+  failChat(): void {
+    this.chatFail = true;
+    for (const res of this.chatClients) {
+      try {
+        res.end();
+      } catch {
+        /* already closed */
+      }
+    }
+    this.chatClients.clear();
+  }
+
+  private parseOutputSince(since: string | null): number {
+    if (!since) return 0;
+    try {
+      const json = Buffer.from(since.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
+      const parsed = JSON.parse(json) as { boot?: string; tabs?: Record<string, number> };
+      if (parsed.boot && parsed.boot !== this.outputBoot) return 0;
+      return parsed.tabs?.[this.remoteTabId] ?? 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  private parseChatSince(since: string | null): number {
+    if (!since) return 0;
+    const [boot, seq] = since.split(":");
+    if (boot !== this.chatBoot) return 0;
+    const parsed = Number(seq);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  private serveOutputStream(req: http.IncomingMessage, res: http.ServerResponse): void {
+    const url = new URL(req.url ?? "", "http://127.0.0.1");
+    const sinceOffset = this.parseOutputSince(url.searchParams.get("since"));
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      "Access-Control-Allow-Origin": "*",
+    });
+    res.write(": pw output stream\n\n");
+    for (const frame of this.ptyLog) {
+      if (frame.offset > sinceOffset) {
+        res.write(
+          `data: ${JSON.stringify({
+            tab_id: this.remoteTabId,
+            output: frame.output,
+            offset: frame.offset,
+            boot: this.outputBoot,
+          })}\n\n`,
+        );
+      }
+    }
+    this.outputClients.add(res);
+    res.on("close", () => this.outputClients.delete(res));
+  }
+
+  private serveEventsStream(req: http.IncomingMessage, res: http.ServerResponse): void {
+    if (this.chatFail) {
+      res.writeHead(500, {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+      });
+      res.end(JSON.stringify({ error: "pw chat stream failing" }));
+      return;
+    }
+    const url = new URL(req.url ?? "", "http://127.0.0.1");
+    const sinceSeq = this.parseChatSince(url.searchParams.get("since"));
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      "Access-Control-Allow-Origin": "*",
+    });
+    res.write(": pw events stream\n\n");
+    for (const entry of this.chatLog) {
+      if (entry.seq > sinceSeq) res.write(entry.frame);
+    }
+    this.chatClients.add(res);
+    res.on("close", () => this.chatClients.delete(res));
   }
 
   start(mode: StubMode = "happy"): Promise<number> {
@@ -135,6 +363,17 @@ export class MeshStub {
       return;
     }
 
+    // Cursor'd SSE streams the dev daemon opens directly on the peer via
+    // `open_relay_stream` (GET <base>/api/{output,events}/stream?tab_id&since).
+    if (path === "/api/output/stream") {
+      req.resume();
+      return this.serveOutputStream(req, res);
+    }
+    if (path === "/api/events/stream" && !this.webToken) {
+      req.resume();
+      return this.serveEventsStream(req, res);
+    }
+
     let body = "";
     req.on("data", (c) => (body += c));
     req.on("end", () => {
@@ -220,6 +459,29 @@ export class MeshStub {
                 return;
               }
               return sendMux();
+            }
+            const bare = (cmd.path ?? "").split("?")[0];
+            if (cmd.method === "GET" && bare === "/api/tabs") {
+              return json(200, { ok: true, status: 200, data: [this.tabPayload()], error: null });
+            }
+            if (cmd.method === "GET" && bare === "/api/tabs/inspect") {
+              return json(200, {
+                ok: true,
+                status: 200,
+                data: [{ id: this.remoteTabId, tab_id: this.remoteTabId, pty_id: this.remotePtyId }],
+                error: null,
+              });
+            }
+            if (cmd.method === "POST" && bare === `/api/tabs/${this.remoteTabId}/chat-raw/start`) {
+              return json(200, { ok: true, status: 200, data: this.chatStartSnapshot(), error: null });
+            }
+            // List endpoints a real peer returns as arrays — never null, which
+            // would crash the composer (`delayedMessages.filter`) on tab select.
+            if (
+              cmd.method === "GET" &&
+              (bare.endsWith("/delayed-messages") || bare.endsWith("/shell-commands"))
+            ) {
+              return json(200, { ok: true, status: 200, data: [], error: null });
             }
           } catch {
             /* fall through */

@@ -1,6 +1,6 @@
 [package]
 name = "codeterm"
-version = "1.7.8"
+version = "1.8.0"
 edition = "2021"
 default-run = "codeterm"
 
@@ -50,6 +50,7 @@ md-5 = "0.10"
 toml = "0.8"
 dirs = "6"
 axum = { version = "0.8", features = ["multipart"] }
+tower = "0.5"
 tower-http = { version = "0.6", features = ["catch-panic", "compression-gzip", "cors", "fs", "set-header"] }
 git2 = { version = "0.19", features = ["vendored-openssl"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart", "stream", "blocking"] }
@@ -127,7 +128,6 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Securit
 tempfile = "3"
 mockito = "1"
 filetime = "0.2.29"
-tower = "0.5"
 vt100 = "0.16"
 # Enables PlanStore::new_for_test + TestSearchPort in the app's test build only.
 codeterm-plan = { path = "crates/codeterm-plan", features = ["test-support"] }

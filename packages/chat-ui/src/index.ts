@@ -14,6 +14,16 @@ export { InteractiveElementRenderer } from "./interactive/InteractiveElementRend
 export { InteractiveQuestion } from "./interactive/InteractiveQuestion";
 export type { InteractiveAnswerHandler } from "./interactive/InteractiveQuestion";
 export { ShowCommandsProvider, useShowCommands } from "./toolcard/toolKindVisual";
-export type { TabNameResolver } from "./codeterm/templates";
+export type { PeerNameResolver, TabNameResolver } from "./codeterm/templates";
 export { extractPlanRefs } from "./codeterm/planRefs";
 export { installInboundReportCardHarness } from "./codeterm/InboundReportCard.browserHarness";
+export { OutboundReportCard } from "./codeterm/OutboundReportCard";
+export type { OutboundReportDescriptor } from "./codeterm/OutboundReportCard";
+export {
+  parseDeliveredTaskOutcome,
+  reportContentBody,
+  reportIncidentLine,
+  reportVerdict,
+  shortSha,
+} from "./codeterm/reportOutcome";
+export type { ReportTaskOutcome } from "./codeterm/reportOutcome";

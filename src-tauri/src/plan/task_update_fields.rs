@@ -35,7 +35,14 @@ pub(crate) const TASK_UPDATE_KEYS: &[&str] = &[
     "why",
 ];
 
-const SOCKET_CONTEXT_KEYS: &[&str] = &["caller_tab_id", "plan_id", "task_id"];
+const SOCKET_CONTEXT_KEYS: &[&str] = &[
+    "caller_tab_id",
+    "owner_epoch",
+    "plan_id",
+    "session_binding_nonce",
+    "session_id",
+    "task_id",
+];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum TaskUpdateSeam {
@@ -135,10 +142,7 @@ pub(crate) fn valid_task_update_payloads(
             serde_json::json!({ "external_refs": ["rollacode/codeterm-releases#18"] }),
         ),
         ("group", serde_json::json!({ "group": "stream-a" })),
-        (
-            "handle",
-            serde_json::json!({ "handle": "updated-handle" }),
-        ),
+        ("handle", serde_json::json!({ "handle": "updated-handle" })),
         ("intent", serde_json::json!({ "intent": "Updated intent" })),
         ("kind", serde_json::json!({ "kind": "review" })),
         (
@@ -152,10 +156,7 @@ pub(crate) fn valid_task_update_payloads(
             "parent_task_id",
             serde_json::json!({ "parent_task_id": parent_task_id }),
         ),
-        (
-            "personality",
-            serde_json::json!({ "personality": "Dumas" }),
-        ),
+        ("personality", serde_json::json!({ "personality": "Dumas" })),
         (
             "personality_provenance",
             serde_json::json!({ "personality_provenance": "user_supplied" }),
@@ -211,10 +212,7 @@ mod tests {
     fn arbitrary_and_future_shaped_unknown_keys_are_actionable_at_both_seams() {
         for seam in [TaskUpdateSeam::Socket, TaskUpdateSeam::Rest] {
             for key in ["nonsense_field", "external_ref", "externalRefs"] {
-                let body = Value::Object(Map::from_iter([(
-                    key.to_string(),
-                    Value::Bool(true),
-                )]));
+                let body = Value::Object(Map::from_iter([(key.to_string(), Value::Bool(true))]));
                 let error = validate_task_update_fields(&body, seam).unwrap_err();
                 assert_eq!(error.unknown_key.as_deref(), Some(key));
                 assert!(error.to_string().contains(key));
@@ -231,5 +229,19 @@ mod tests {
             assert!(validate_task_update_fields(&body, TaskUpdateSeam::Socket).is_ok());
             assert!(validate_task_update_fields(&body, TaskUpdateSeam::Rest).is_err());
         }
+    }
+
+    #[test]
+    fn socket_task_update_accepts_trusted_session_identity_before_field_authorization() {
+        let body = serde_json::json!({
+            "task_id": "task",
+            "caller_tab_id": "planner",
+            "owner_epoch": 0,
+            "session_id": "session",
+            "session_binding_nonce": "nonce",
+            "name": "Structural update",
+        });
+        assert!(validate_task_update_fields(&body, TaskUpdateSeam::Socket).is_ok());
+        assert!(validate_task_update_fields(&body, TaskUpdateSeam::Rest).is_err());
     }
 }

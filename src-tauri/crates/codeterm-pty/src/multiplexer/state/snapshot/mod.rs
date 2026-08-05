@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use super::{MultiplexerSnapshot, MultiplexerState};
-use crate::multiplexer::types::{Tab, TabBacking, TabType, TitleLevel, Workspace};
+use crate::multiplexer::types::{Tab, TabAudience, TabBacking, TabType, TitleLevel, Workspace};
 
 fn derive_agent_type_from_title(title: Option<&str>) -> Option<String> {
     let t = title?.to_ascii_lowercase();
@@ -155,6 +155,10 @@ impl MultiplexerState {
                     reported_session_binding_nonce: p.reported_session_binding_nonce.clone(),
                     agent_state: p.agent_state.clone(),
                     boot_stage: p.boot_stage,
+                    reasoning_effort: p.reasoning_effort_identity.clone(),
+                    context_epochs: p.context_epoch_archives.clone(),
+                    lifecycle_epoch: p.lifecycle_epoch,
+                    lifecycle_operation_id: p.lifecycle_operation_id.clone(),
                 }),
                 role: tab.and_then(|p| p.role.map(|r| format!("{:?}", r))),
                 role_profile: tab.and_then(|p| p.role_profile.clone()),
@@ -163,10 +167,12 @@ impl MultiplexerState {
                 spawned_by_tab_id: tab.and_then(|p| p.spawned_by_tab_id.clone()),
                 report_target_tab_id: tab.and_then(|p| p.report_target_tab_id.clone()),
                 report_target_mesh_peer: tab.and_then(|p| p.report_target_mesh_peer.clone()),
+                ownership: tab.and_then(|p| p.ownership.clone()),
                 can_spawn: tab.map(|p| p.can_spawn).unwrap_or(false),
                 depth: tab.map(|p| p.depth).unwrap_or(0),
                 chat_view: tab.map(|p| p.chat_view),
                 auto_approve: tab.map(|p| p.auto_approve).unwrap_or(false),
+                audience: tab.map(|p| p.audience).unwrap_or(TabAudience::Automation),
                 agent_session_model: tab.and_then(|p| p.agent_session_model.clone()),
                 agent_planned_model: tab.and_then(|p| p.agent_planned_model.clone()),
                 agent_requested_model: tab.and_then(|p| p.agent_requested_model.clone()),
@@ -273,10 +279,12 @@ impl MultiplexerState {
                 spawned_by_tab_id,
                 report_target_tab_id,
                 report_target_mesh_peer,
+                ownership,
                 can_spawn,
                 depth,
                 chat_view,
-                auto_approve,
+                auto_approve: _,
+                audience,
                 agent_session_model,
                 agent_planned_model,
                 agent_requested_model,
@@ -300,14 +308,22 @@ impl MultiplexerState {
                 _ => TabBacking::default(),
             };
 
-            let parsed_role = role.as_deref().and_then(|r| match r {
-                "Orchestrator" | "Conductor" => {
-                    Some(crate::multiplexer::types::AgentRole::Orchestrator)
-                }
-                "Manager" => Some(crate::multiplexer::types::AgentRole::Manager),
-                "Worker" => Some(crate::multiplexer::types::AgentRole::Worker),
-                _ => None,
-            });
+            // Literal legacy migration: `Orchestrator`/`Conductor` rows carried
+            // no profile, so their anchoring kind is re-materialized here.
+            let restored_role = codeterm_types::agent::restore_role(
+                role.as_deref(),
+                role_profile.as_deref(),
+            )
+            // Residue from a partial launch would restore as a role-bearing
+            // shell; a title is not evidence, so no provider is ever guessed.
+            .filter(|_| agent_type.is_some() || chatbackend_plugin_id.is_some());
+            // A tab that never claimed a role is not residue; only a claim that
+            // failed the identity proof rolls its recorded placement back.
+            let unproven_role_claim = role.is_some() && restored_role.is_none();
+            let parsed_role = restored_role.as_ref().map(|restored| restored.role);
+            let restored_role_profile = restored_role
+                .as_ref()
+                .and_then(|restored| restored.role_profile.clone());
             let raw_title = title.as_deref().unwrap_or("Terminal");
             let legacy_title = legacy_tab_title.trim();
             let has_agent_type =
@@ -342,11 +358,9 @@ impl MultiplexerState {
                 }
             });
             let restored_identity = restored_session_id.as_ref().and(agent_identity.as_ref());
-            let restored_agent_type = agent_type
-                .clone()
-                .or_else(|| derive_agent_type_from_title(title.as_deref()));
-            let restored_locked =
-                *agent_type_locked || (!*agent_type_locked && restored_agent_type.is_some());
+            // Provider identity is committed state, never read off a title.
+            let restored_agent_type = agent_type.clone();
+            let restored_locked = *agent_type_locked || restored_agent_type.is_some();
             tabs.insert(
                 tab_id.clone(),
                 Tab {
@@ -373,36 +387,52 @@ impl MultiplexerState {
                     agent_provider_resolved_model: agent_provider_resolved_model.clone(),
                     model_fallback: model_fallback.clone(),
                     model_identity_mismatch: model_identity_mismatch.clone(),
+                    reasoning_effort_identity: restored_identity
+                        .map(|identity| identity.reasoning_effort.clone())
+                        .unwrap_or_default(),
+                    context_epoch_archives: restored_identity
+                        .map(|identity| identity.context_epochs.clone())
+                        .unwrap_or_default(),
                     session_binding_nonce: restored_identity
                         .and_then(|identity| identity.session_binding_nonce.clone()),
                     reported_session_binding_nonce: restored_identity
                         .and_then(|identity| identity.reported_session_binding_nonce.clone()),
                     shell_integration_nonce: None,
+                    lifecycle_epoch: restored_identity
+                        .and_then(|identity| identity.lifecycle_epoch),
+                    lifecycle_operation_id: restored_identity
+                        .and_then(|identity| identity.lifecycle_operation_id.clone()),
                     role: parsed_role,
-                    role_profile: role_profile.clone(),
-                    team_id: team_id.clone(),
+                    role_profile: restored_role_profile,
+                    // Membership is not authority: a roleless Team utility tab
+                    // keeps it so Team close still owns its cleanup.
+                    team_id: match unproven_role_claim {
+                        true => None,
+                        false => team_id.clone(),
+                    },
                     watcher: watcher.clone(),
-                    parent_tab_id: parent_tab_id.clone(),
+                    parent_tab_id: parsed_role.and(parent_tab_id.clone()),
                     pending_paired_planner_tab_id: None,
-                    can_spawn: *can_spawn,
-                    depth: *depth,
+                    can_spawn: parsed_role.is_some() && *can_spawn,
+                    depth: if parsed_role.is_some() { *depth } else { 0 },
                     // spawner / report target instead of hardcoding None.
                     report_target_tab_id: report_target_tab_id.clone(),
                     report_target_mesh_peer: report_target_mesh_peer.clone(),
                     spawned_by_tab_id: spawned_by_tab_id.clone(),
+                    ownership: ownership.clone(),
                     title_level: restored_level,
                     chat_view: chat_view.unwrap_or(false),
                     pending_prompt: None,
                     agent_state: restored_identity
                         .and_then(|identity| identity.agent_state.clone()),
-                    auto_approve: *auto_approve,
+                    auto_approve: false,
                     protected: false,
                     connected_services: vec![],
                     agent_set_at: None,
                     exit_suspected_at: None,
                     agent_booting: false,
                     hidden: false,
-                    audience: Default::default(),
+                    audience: *audience,
                     skip_snapshot: false,
                     show_in_tabbar: true,
                     worker_id: None,

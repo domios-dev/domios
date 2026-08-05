@@ -4,7 +4,11 @@ use axum::{
     routing::{delete, get, patch, post},
     Router,
 };
-use tower_http::{catch_panic::CatchPanicLayer, compression::CompressionLayer, cors::CorsLayer};
+use tower_http::{
+    catch_panic::CatchPanicLayer,
+    compression::CompressionLayer,
+    cors::{AllowOrigin, Any, CorsLayer},
+};
 
 use super::{
     agent_routes, bridge_routes, clipboard_routes, config_routes, cron_routes, debug_routes,
@@ -13,6 +17,28 @@ use super::{
     services_routes, session_routes, tab_agent_routes, tab_routes, task_routes, team_routes,
     theme_routes, updater_routes, usage_routes, web_routes, webhook_routes, workspace_routes,
 };
+
+/// Origins Tauri serves the app window from: custom scheme on macOS/iOS/Linux,
+/// `tauri.localhost` on Windows/Android.
+const APP_WEBVIEW_ORIGINS: [&str; 3] = [
+    "tauri://localhost",
+    "http://tauri.localhost",
+    "https://tauri.localhost",
+];
+
+/// The app's own window is a first-party client of this daemon yet cross-origin to
+/// it, so without an explicit allow every raw fetch from the UI — the remote-tab
+/// SSE streams — is rejected for a missing `Access-Control-Allow-Origin`.
+fn with_app_webview_origins(
+    mut origins: Vec<axum::http::HeaderValue>,
+) -> Vec<axum::http::HeaderValue> {
+    origins.extend(
+        APP_WEBVIEW_ORIGINS
+            .iter()
+            .filter_map(|origin| origin.parse::<axum::http::HeaderValue>().ok()),
+    );
+    origins
+}
 
 #[derive(Clone)]
 pub struct AppState {
@@ -35,6 +61,9 @@ pub struct AppState {
     /// Directory holding the built React bundle, served at the daemon root.
     pub web_dist: Option<std::path::PathBuf>,
 }
+
+#[derive(Clone)]
+pub struct LocalApiRouter(pub Router);
 
 /// Lifetime of the `codeterm-web-token` PWA bootstrap cookie (web_routes).
 pub(crate) const WEB_TOKEN_TTL: std::time::Duration = std::time::Duration::from_secs(3600);
@@ -227,6 +256,10 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/plans/{id}/tasks/{tid}/respawn",
             post(plan_routes::task_respawn),
+        )
+        .route(
+            "/api/plans/{id}/tasks/{tid}/adopt-checkpoint",
+            post(plan_routes::task_adopt_checkpoint),
         )
         .route(
             "/api/plans/{id}/tasks/{tid}/milestones",
@@ -441,10 +474,7 @@ pub fn create_router(state: AppState) -> Router {
             post(pty_routes::pty_launch_command),
         )
         .route("/api/session/save", post(session_routes::save_session_api))
-        .route(
-            "/api/providers",
-            get(agent_routes::list_agent_providers_public),
-        )
+        .route("/api/providers", get(agent_routes::list_agent_providers))
         .route(
             "/api/sessions/search",
             get(session_routes::search_sessions_api),
@@ -872,14 +902,39 @@ pub fn create_router(state: AppState) -> Router {
         router
     };
 
-    router
-        .layer(middleware::from_fn_with_state(
-            state.clone(),
-            super::auth::auth_middleware,
-        ))
-        .layer(CorsLayer::permissive())
-        .layer(CatchPanicLayer::new())
-        .with_state(state)
+    let api_config = state.config.lock().api.clone();
+    let router = router.layer(middleware::from_fn_with_state(
+        state.clone(),
+        super::auth::auth_middleware,
+    ));
+    let configured_origins = api_config
+        .cors_allow_origins
+        .iter()
+        .filter_map(|origin| origin.parse::<axum::http::HeaderValue>().ok())
+        .collect::<Vec<_>>();
+    #[cfg(debug_assertions)]
+    let origins = if api_config.cors {
+        configured_origins
+    } else {
+        ["http://localhost:1420", "http://127.0.0.1:1420"]
+            .into_iter()
+            .filter_map(|origin| origin.parse::<axum::http::HeaderValue>().ok())
+            .collect()
+    };
+    #[cfg(not(debug_assertions))]
+    let origins = configured_origins;
+    let origins = with_app_webview_origins(origins);
+    let router = if api_config.cors || cfg!(debug_assertions) {
+        router.layer(
+            CorsLayer::new()
+                .allow_origin(AllowOrigin::list(origins))
+                .allow_methods(Any)
+                .allow_headers(Any),
+        )
+    } else {
+        router
+    };
+    router.layer(CatchPanicLayer::new()).with_state(state)
 }
 
 #[cfg(test)]
@@ -887,6 +942,27 @@ mod tests {
     use axum::{body::Body, http::Request, routing::get, Router};
     use tower::ServiceExt;
     use tower_http::catch_panic::CatchPanicLayer;
+
+    #[test]
+    fn cors_origins_always_include_the_app_webview() {
+        let configured = ["https://example.test"]
+            .into_iter()
+            .filter_map(|origin| origin.parse::<axum::http::HeaderValue>().ok())
+            .collect::<Vec<_>>();
+        let origins = super::with_app_webview_origins(configured);
+        for expected in super::APP_WEBVIEW_ORIGINS {
+            assert!(
+                origins.iter().any(|origin| origin == expected),
+                "{expected} must be allowed: the app window is cross-origin to its own daemon, so without it every raw fetch from the UI is rejected",
+            );
+        }
+        assert!(
+            origins
+                .iter()
+                .any(|origin| origin == "https://example.test"),
+            "configured origins must survive the append",
+        );
+    }
 
     #[tokio::test]
     async fn catch_panic_layer_keeps_router_responsive_after_handler_panic() {

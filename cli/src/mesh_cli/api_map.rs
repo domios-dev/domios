@@ -1,6 +1,7 @@
+use crate::transport::ApiVerdict;
 use crate::{
     cmd::{delayed::parse_schedule, send_text::resolve_send_text_input},
-    Commands, UpdateAction,
+    Commands, TeamAction, UpdateAction,
 };
 
 use super::update::resolve_update_action;
@@ -9,7 +10,9 @@ use super::{parse_ip_port, MeshAction, MeshPeerAction};
 mod actions;
 
 pub(crate) use actions::send_text_to_api;
-use actions::{delayed_create_to_api, mem_to_api, now_ms, service_to_api};
+use actions::{
+    agent_to_api, delayed_create_to_api, mem_to_api, now_ms, service_to_api, team_pair_to_api,
+};
 
 pub const UNSUPPORTED_OVER_MESH: &str = "UNSUPPORTED";
 
@@ -17,81 +20,38 @@ fn unsupported(reason: &str) -> (String, String, Option<String>) {
     (UNSUPPORTED_OVER_MESH.into(), reason.into(), None)
 }
 
+/// Support is declared once in `crate::transport`; this module only builds the
+/// REST request for the commands the table says have one.
 pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
+    match crate::transport::transport_for(cmd).api_verdict {
+        ApiVerdict::Unsupported(reason) => unsupported(reason),
+        // `debug` refuses with its own message and exit code rather than a
+        // verdict; the table declares that shape instead of normalising it.
+        ApiVerdict::RefusedInPlace => {
+            eprintln!("Error: `debug` is local-only — refusing to crash a remote peer via --mesh");
+            std::process::exit(2);
+        }
+        ApiVerdict::Rest => rest_request(cmd),
+    }
+}
+
+fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
     match cmd {
-        Commands::Web { .. } => unsupported(
-            "web link is local-only — each peer's link needs that peer's own token; run it there",
-        ),
-        Commands::Plugin { .. } => {
-            unsupported("plugin management is local-only — run it on the target machine")
-        }
-        Commands::Plan { .. } => {
-            unsupported("plan management is local-only — run it on the target machine")
-        }
-        Commands::Team { .. } => {
-            unsupported("team management is local-only — run it on the target machine")
-        }
-        Commands::Spec { .. } => {
-            unsupported("spec management is local-only — run it on the target machine")
-        }
-        Commands::Effort { .. } => {
-            unsupported("effort management is local-only — run it on the target machine")
-        }
-        Commands::Orchestrator { .. } => {
-            unsupported("orchestrator handoff is local-only — run it on the target machine")
-        }
-        Commands::Orchestration { action } => match action {
-            crate::args::orchestration::OrchestrationAction::New {
-                orchestrator,
-                planner,
-                workspace,
-                title,
-            } => {
-                let (orchestrator_agent, orchestrator_model) =
-                    crate::cmd::orchestration::split_provider_model(orchestrator);
-                let (planner_agent, planner_model) =
-                    crate::cmd::orchestration::split_provider_model(planner);
-                let mut body = serde_json::json!({
-                    "orchestrator_agent": orchestrator_agent,
-                    "planner_agent": planner_agent,
-                });
-                if let Some(m) = orchestrator_model {
-                    body["orchestrator_model"] = serde_json::json!(m);
-                }
-                if let Some(m) = planner_model {
-                    body["planner_model"] = serde_json::json!(m);
-                }
-                if let Some(w) = workspace {
-                    body["workspace_id"] = serde_json::json!(w);
-                }
-                if let Some(t) = title {
-                    body["title"] = serde_json::json!(t);
-                }
-                (
-                    "POST".into(),
-                    "/api/orchestration/new".into(),
-                    Some(body.to_string()),
-                )
-            }
-        },
-        Commands::Task { .. } => {
-            unsupported("task management is local-only — run it on the target machine")
-        }
-        Commands::Canvas { .. } => {
-            unsupported("canvas control is local-only — run it on the target machine")
-        }
-        // `cli-manifest` introspects the local clap binary — no remote form.
-        Commands::CliManifest { .. } => {
-            unsupported("cli-manifest is local-only — it dumps this binary's own command tree")
-        }
+        Commands::Team {
+            action:
+                TeamAction::Pair {
+                    orchestrator,
+                    planner,
+                    workspace,
+                    title,
+                },
+        } => team_pair_to_api(orchestrator, planner, workspace, title),
         Commands::Identify => ("GET".into(), "/api/identify".into(), None),
-        Commands::Capabilities => {
-            unsupported("capabilities is socket-only; run it on the target machine")
-        }
         Commands::SendText {
             text,
             tab,
             from_file,
+            from_pad,
             stdin: use_stdin,
             actions,
             delay,
@@ -99,9 +59,9 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         } => {
             let mut stdin = std::io::stdin();
             if delay.is_some() || at.is_some() {
-                delayed_create_to_api(text, tab, from_file, *use_stdin, delay, at, &mut stdin)
+                delayed_create_to_api(text, tab, from_file, from_pad, *use_stdin, delay, at, &mut stdin)
             } else {
-                send_text_to_api(text, tab, from_file, *use_stdin, actions, &mut stdin)
+                send_text_to_api(text, tab, from_file, from_pad, *use_stdin, actions, &mut stdin)
             }
         }
         Commands::Delayed { action } => match action {
@@ -119,10 +79,11 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 delay,
                 at,
                 from_file,
+                from_pad,
                 stdin: use_stdin,
             } => {
                 let mut stdin = std::io::stdin();
-                delayed_create_to_api(text, tab, from_file, *use_stdin, delay, at, &mut stdin)
+                delayed_create_to_api(text, tab, from_file, from_pad, *use_stdin, delay, at, &mut stdin)
             }
             crate::DelayedAction::Edit {
                 id,
@@ -130,13 +91,15 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 delay,
                 at,
                 from_file,
+                from_pad,
                 stdin: use_stdin,
             } => {
                 let mut body = serde_json::Map::new();
-                if text.is_some() || from_file.is_some() || *use_stdin {
+                if text.is_some() || from_file.is_some() || from_pad.is_some() || *use_stdin {
                     match resolve_send_text_input(
                         text.clone(),
                         from_file.clone(),
+                        from_pad.clone(),
                         *use_stdin,
                         &mut std::io::stdin(),
                     ) {
@@ -178,11 +141,20 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 None,
             ),
         },
-        Commands::Notify { title, body, level } => (
-            "POST".into(),
-            "/api/notifications".into(),
-            Some(serde_json::json!({"title": title, "body": body, "level": level}).to_string()),
-        ),
+        // `notify clear` relays the list GET, exactly as `notifications clear` did:
+        // the peer has no clear endpoint and this arm never had one.
+        Commands::Notify { action } => match action {
+            crate::NotifyAction::Send { title, body, level } => (
+                "POST".into(),
+                "/api/notifications".into(),
+                Some(serde_json::json!({"title": title, "body": body, "level": level}).to_string()),
+            ),
+            crate::NotifyAction::List { unread } => {
+                let qs = if *unread { "?unread=true" } else { "" };
+                ("GET".into(), format!("/api/notifications{}", qs), None)
+            }
+            crate::NotifyAction::Clear => ("GET".into(), "/api/notifications".into(), None),
+        },
         Commands::Workspace { action } => match action {
             crate::WorkspaceAction::List => ("GET".into(), "/api/workspaces".into(), None),
             crate::WorkspaceAction::Create { name, .. } => (
@@ -217,11 +189,12 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 }
                 ("GET".into(), format!("/api/tabs?{}", query.join("&")), None)
             }
-            crate::TabAction::Inspect { tabs } => (
+            crate::TabAction::Inspect { tabs, tab } => (
                 "GET".into(),
                 format!(
                     "/api/tabs/inspect?tab_ids={}",
                     tabs.iter()
+                        .chain(tab.iter())
                         .map(|tab| urlencoding::encode(tab).into_owned())
                         .collect::<Vec<_>>()
                         .join(",")
@@ -271,11 +244,28 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 }
                 ("POST".into(), "/api/tabs".into(), Some(body.to_string()))
             }
-            crate::TabAction::Focus { id } => {
+            crate::TabAction::Focus { id, tab } => {
+                let Ok(id) = crate::args::misc::required_tab_selector(id, tab, "focus") else {
+                    return unsupported("tab focus requires --tab <ID>");
+                };
                 ("POST".into(), format!("/api/tabs/{}/focus", id), None)
             }
-            crate::TabAction::Close { id } => {
+            crate::TabAction::Close { id, tab } => {
+                let Ok(id) = crate::args::misc::required_tab_selector(id, tab, "close") else {
+                    return unsupported("tab close requires --tab <ID>");
+                };
                 ("POST".into(), format!("/api/tabs/{}/close", id), None)
+            }
+            crate::TabAction::Restart { tab, cwd, cmd } => {
+                if cmd.is_some() {
+                    return unsupported("remote tab restart does not support --cmd; restart then use codeterm tab exec");
+                }
+                let id = tab.as_deref().unwrap_or("general");
+                (
+                    "POST".into(),
+                    format!("/api/tabs/{}/restart", id),
+                    Some(serde_json::json!({"cwd": cwd}).to_string()),
+                )
             }
             crate::TabAction::Rename { title, tab } => {
                 let p = tab.as_deref().unwrap_or("general");
@@ -369,12 +359,17 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             crate::PasteAction::Put {
                 body,
                 from_file,
+                from_pad,
                 from_stdin,
                 ttl,
                 content_type,
                 pop,
             } => {
-                let resolved = if *from_stdin {
+                let resolved = if let Some(path) = from_pad {
+                    crate::cmd::payload_source::read_from_pad(path).unwrap_or_else(|e| {
+                        eprintln!("Error: {e}"); std::process::exit(1)
+                    })
+                } else if *from_stdin {
                     use std::io::Read;
                     let mut buf = String::new();
                     if let Err(e) = std::io::stdin().read_to_string(&mut buf) {
@@ -393,7 +388,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                         }
                     }
                 } else {
-                    body.clone()
+                    body.clone().unwrap_or_default()
                 };
                 if resolved.trim().is_empty() {
                     eprintln!("Error: paste put (mesh) body is empty");
@@ -426,161 +421,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 ("DELETE".into(), format!("/api/pasteboard/{}", id), None)
             }
         },
-        Commands::Report(_) => ("GET".into(), "/api/tabs".into(), None),
-        Commands::Agent { action } => match action {
-            crate::AgentAction::Spawn {
-                agent,
-                title,
-                description,
-                task,
-                task_file,
-                role,
-                parent,
-                plan,
-                report_to,
-                workspace,
-                can_spawn,
-                cwd,
-                args,
-                model,
-                reasoning_effort,
-                system_prompt,
-                preset,
-                charter,
-                charter_file,
-                interval,
-                nudge_cooldown,
-                max_actions,
-                bound_task,
-                plan_task,
-                non_user_facing,
-            } => {
-                let task = match crate::cmd::agent::resolve_spawn_task(
-                    task.clone(),
-                    task_file.clone(),
-                    &mut std::io::stdin(),
-                ) {
-                    Ok(t) => t,
-                    Err(e) => return unsupported(&format!("agent spawn task input error: {}", e)),
-                };
-                let charter = match crate::cmd::agent::resolve_spawn_charter(
-                    charter.clone(),
-                    charter_file.clone(),
-                    &mut std::io::stdin(),
-                ) {
-                    Ok(t) => t,
-                    Err(e) => {
-                        return unsupported(&format!("agent spawn charter input error: {}", e))
-                    }
-                };
-                let agent_name = agent.as_str();
-                let title = crate::cmd::agent::join_cli_words(title.clone());
-                let mut body = serde_json::json!({
-                    "agent": agent_name,
-                    "title": title,
-                    "task": task,
-                });
-                if let Some(d) = crate::cmd::agent::join_cli_words(description.clone()) {
-                    match crate::cmd::agent::normalize_tab_description(&d) {
-                        Ok(Some(d)) => body["description"] = serde_json::json!(d),
-                        Ok(None) => body["description"] = serde_json::json!(""),
-                        Err(e) => return unsupported(&e),
-                    }
-                }
-                if let Some(r) = role {
-                    body["role"] = serde_json::json!(r.as_str());
-                    if let Some(profile) = r.role_profile() {
-                        body["role_profile"] = serde_json::json!(profile);
-                    }
-                }
-                if let Some(p) = parent {
-                    body["parent_tab_id"] = serde_json::json!(p);
-                }
-                if let Some(pl) = plan {
-                    body["plan_id"] = serde_json::json!(pl);
-                }
-                let report_to = report_to.clone().or_else(|| {
-                    std::env::var("CODETERM_TAB_ID")
-                        .ok()
-                        .filter(|s| !s.is_empty())
-                });
-                if let Some(rt) = report_to {
-                    body["report_to"] = serde_json::json!(rt);
-                }
-                if let Some(w) = workspace {
-                    body["workspace_id"] = serde_json::json!(w);
-                }
-                if *can_spawn {
-                    body["can_spawn"] = serde_json::json!(true);
-                }
-                if let Some(c) = cwd {
-                    body["cwd"] = serde_json::json!(c);
-                }
-                if let Some(a) = args {
-                    if !a.is_empty() {
-                        body["args"] = serde_json::json!(a);
-                    }
-                }
-                if let Some(m) = model {
-                    body["model"] = serde_json::json!(m);
-                }
-                if let Some(effort) = reasoning_effort {
-                    body["reasoning_effort"] = serde_json::json!(effort);
-                }
-                if let Some(system_prompt) = system_prompt {
-                    body["system_prompt"] = serde_json::json!(system_prompt);
-                }
-                if let Some(preset) = preset {
-                    body["preset"] = serde_json::json!(preset);
-                }
-                if let Some(charter) = charter {
-                    body["charter"] = serde_json::json!(charter);
-                }
-                if let Some(interval) = interval {
-                    let secs = match crate::cmd::agent::parse_duration_secs(interval, "--interval")
-                    {
-                        Ok(v) => v,
-                        Err(e) => return unsupported(&e),
-                    };
-                    body["tick_interval_secs"] = serde_json::json!(secs);
-                }
-                if let Some(nudge_cooldown) = nudge_cooldown {
-                    let secs = match crate::cmd::agent::parse_duration_secs(
-                        nudge_cooldown,
-                        "--nudge-cooldown",
-                    ) {
-                        Ok(v) => v,
-                        Err(e) => return unsupported(&e),
-                    };
-                    body["nudge_cooldown_secs"] = serde_json::json!(secs);
-                }
-                if let Some(max_actions) = max_actions {
-                    body["max_actions_per_tick"] = serde_json::json!(max_actions);
-                }
-                if let Some(tid) = bound_task {
-                    body["task_id"] = serde_json::json!(tid);
-                }
-                if let Some(pt) = plan_task {
-                    body["plan_task"] = serde_json::json!(pt);
-                }
-                if *non_user_facing {
-                    body["audience"] = serde_json::json!("automation");
-                }
-                (
-                    "POST".into(),
-                    "/api/agents/spawn".into(),
-                    Some(body.to_string()),
-                )
-            }
-            crate::AgentAction::Providers | crate::AgentAction::Models { .. } => {
-                ("GET".into(), "/api/agents/providers".into(), None)
-            }
-            _ => ("GET".into(), "/api/tabs".into(), None),
-        },
-        Commands::Notifications { unread, .. } => {
-            let qs = if *unread { "?unread=true" } else { "" };
-            ("GET".into(), format!("/api/notifications{}", qs), None)
-        }
+        Commands::Agent { action } => agent_to_api(action),
         Commands::Cron { action } => match action {
             crate::CronAction::List { .. } => ("GET".into(), "/api/crons".into(), None),
             crate::CronAction::Create {
@@ -776,6 +617,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             ),
             crate::BridgeAction::Send {
                 text,
+                from_pad,
                 raw_text,
                 to,
                 append,
@@ -785,9 +627,10 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 "/api/bridge/send".into(),
                 Some(
                     serde_json::json!({
-                        "text": text
-                            .as_ref()
-                            .map(|text| crate::cmd::bridge::bridge_text(text.clone(), *raw_text)),
+                        "text": from_pad.as_ref().map(|path| crate::cmd::payload_source::read_from_pad(path)
+                            .unwrap_or_else(|e| { eprintln!("Error: {e}"); std::process::exit(1) }))
+                            .or_else(|| text.clone())
+                            .map(|text| crate::cmd::bridge::bridge_text(text, *raw_text)),
                         "chat_id": to,
                         "append": append,
                     })
@@ -886,7 +729,6 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         Commands::System { .. } => ("GET".into(), "/api/identify".into(), None),
         // `docs` / `doc` read embedded markdown — local-only by definition.
         Commands::Docs { .. } => ("GET".into(), "/api/identify".into(), None),
-        Commands::Doc { .. } => ("GET".into(), "/api/identify".into(), None),
         Commands::Usage { action } => match action {
             crate::UsageAction::Latest {
                 provider,
@@ -930,9 +772,24 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             }
         },
         Commands::Service { action } => service_to_api(action),
-        Commands::Debug { .. } => {
-            eprintln!("Error: `debug` is local-only — refusing to crash a remote peer via --mesh");
-            std::process::exit(2);
+        // Declared non-REST by the transport table, which answered before this
+        // match was reached. Listed explicitly so a new variant must choose.
+        Commands::Web { .. }
+        | Commands::Plugin { .. }
+        | Commands::Plan { .. }
+        | Commands::Team { .. }
+        | Commands::Spec { .. }
+        | Commands::Effort { .. }
+        | Commands::Orchestrator { .. }
+        | Commands::Persona { .. }
+        | Commands::Task { .. }
+        | Commands::Inbox { .. }
+        | Commands::Canvas { .. }
+        | Commands::CliManifest { .. }
+        | Commands::Capabilities
+        | Commands::Pad { .. }
+        | Commands::Debug { .. } => {
+            unreachable!("transport table declares this command non-REST")
         }
     }
 }

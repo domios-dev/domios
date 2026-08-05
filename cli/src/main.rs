@@ -1,10 +1,12 @@
 mod client;
 mod cmd;
+mod local_api;
 mod mesh_cli;
 mod stdout;
+mod transport;
 
 use cmd::identify::{resolve_api_config, resolved_data_root, resolved_instance};
-use cmd::print::{handle_result, print_human, print_object};
+use cmd::print::{handle_result, print_object};
 
 use clap::Parser;
 use client::{discover_socket, discover_socket_resolution, SocketClient};
@@ -82,46 +84,8 @@ pub fn read_api_config() -> (String, Option<String>) {
     )
 }
 
-/// Produce a fresh Ed25519 signed token from this machine's mesh identity.
-///
-/// Distinct from `read_api_config().1`: peer auth requires the signed token
-/// regardless of `CODETERM_API_TOKEN` env override. The env token is the
-/// LOCAL plain API token — paired peers don't recognise it, so using it for
-/// outbound mesh calls produces a silent 401 with a `text/plain` body that
-/// the JSON parser swallows.
-pub fn read_mesh_signed_token() -> Option<String> {
-    let config_dir = data_root();
-    let identity_path = config_dir.join("mesh").join("identity.json");
-    let content = std::fs::read_to_string(&identity_path).ok()?;
-    let id: serde_json::Value = serde_json::from_str(&content).ok()?;
-    let pk = id.get("private_key")?.as_str()?;
-    let iid = id.get("instance_id")?.as_str()?;
-    mesh_cli::sign_request(pk, iid).ok()
-}
-
-/// Build HTTP client with auth header
-pub fn build_http(token: &Option<String>) -> Result<reqwest::blocking::Client, reqwest::Error> {
-    let mut headers = reqwest::header::HeaderMap::new();
-    if let Some(t) = token {
-        if let Ok(val) = reqwest::header::HeaderValue::from_str(&format!("Bearer {}", t)) {
-            headers.insert(reqwest::header::AUTHORIZATION, val);
-        }
-    }
-    if let Ok(tab) = std::env::var("CODETERM_TAB_ID") {
-        if let Ok(v) = reqwest::header::HeaderValue::from_str(&tab) {
-            headers.insert("X-CodeTerm-Tab-Id", v);
-        }
-    }
-    if let Ok(worker) = std::env::var("CODETERM_WORKER_ID") {
-        if let Ok(v) = reqwest::header::HeaderValue::from_str(&worker) {
-            headers.insert("X-CodeTerm-Worker-Id", v);
-        }
-    }
-    reqwest::blocking::Client::builder()
-        .default_headers(headers)
-        .connect_timeout(std::time::Duration::from_secs(10))
-        .timeout(std::time::Duration::from_secs(60))
-        .build()
+pub fn build_local_api() -> Result<local_api::LocalApiClient, local_api::LocalApiError> {
+    local_api::LocalApiClient::connect()
 }
 
 mod args;
@@ -130,14 +94,16 @@ pub use args::cli::{Cli, Commands};
 pub use args::cron::CronAction;
 pub use args::delayed::DelayedAction;
 pub use args::effort::EffortAction;
+pub use args::inbox::InboxAction;
 pub use args::mem::{
     MemAction, MemCalibrationAction, MemDreamAction, MemGraphAction, MemSecretAction,
     MemSkillAction, MemWorkerAction,
 };
 pub use args::misc::{
-    BridgeAction, ConfigAction, KeepAwakeAction, NotificationAction, PasteAction, TabAction,
-    ThemeAction, WebAction, WorkspaceAction,
+    BridgeAction, ConfigAction, KeepAwakeAction, NotifyAction, PasteAction, TabAction, ThemeAction,
+    WebAction, WorkspaceAction,
 };
+pub use args::pad::PadAction;
 pub use args::plan::PlanAction;
 pub use args::plugin::{PluginAction, PluginChannelAction};
 pub use args::service::ServiceAction;
@@ -160,8 +126,16 @@ fn main() {
 
 fn main_impl() {
     let args: Vec<String> = normalize_agent_spawn_label_args(std::env::args().collect());
+    if matches!(
+        args.as_slice(),
+        [_, command, flag]
+            if command == "docs" && (flag == "--help" || flag == "-h")
+    ) {
+        print!("{}", cmd::docs::render_help());
+        return;
+    }
     hydrate_tab_task_binding_env(&args);
-    let cli = Cli::try_parse_from(&args).unwrap_or_else(|e| {
+    let mut cli = Cli::try_parse_from(&args).unwrap_or_else(|e| {
         if is_plan_dash_leading_text_error(&args, &e) {
             println!(
                 "✗ dash-leading free text was parsed as a flag.\nfix: use --field=value or --field-file PATH, for example --body='- note' or --body-file notes.md."
@@ -170,6 +144,12 @@ fn main_impl() {
         }
         e.exit()
     });
+    if let Commands::Tab { action } = &mut cli.command {
+        if let Err(error) = args::misc::normalize_required_tab_selector(action) {
+            eprintln!("Error: {error}");
+            std::process::exit(2);
+        }
+    }
 
     if let Commands::Plan {
         action: PlanAction::Delete { plan_id, yes },
@@ -181,8 +161,9 @@ fn main_impl() {
         }
     }
 
-    // `plugin` is filesystem-local (no daemon) — handle before socket/mesh.
-    if matches!(cli.command, Commands::Plugin { .. }) {
+    // `plugin` is filesystem-local (no daemon) — the table declares it the one
+    // command handled before the `--mesh` branch, so `--mesh` is ignored for it.
+    if transport::transport_for(&cli.command).local == transport::Local::PreMesh {
         match cli.command {
             Commands::Plugin { action } => cmd::plugin::handle_plugin(cli.json, action),
             _ => unreachable!(),
@@ -219,158 +200,9 @@ fn main_impl() {
         return;
     }
 
-    let json_output = cli.json;
-    if let Commands::Config { ref action } = cli.command {
-        let (base_url, token) = read_api_config();
-        let http = match build_http(&token) {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("Error: failed to build HTTP client: {}", e);
-                std::process::exit(1);
-            }
-        };
-        let result = match action {
-            ConfigAction::Get { key } => {
-                let url = format!("{}/api/config?key={}", base_url, key);
-                match http.get(&url).send() {
-                    Ok(resp) if resp.status().is_success() => {
-                        resp.json().map_err(|e| e.to_string())
-                    }
-                    Ok(resp) => {
-                        let status = resp.status();
-                        let body = resp.text().unwrap_or_default();
-                        if status.as_u16() == 404 {
-                            Err(format!("Key not found: {}", key))
-                        } else {
-                            Err(format!("API error ({}): {}", status, body))
-                        }
-                    }
-                    Err(e) => Err(e.to_string()),
-                }
-            }
-            ConfigAction::Set { key, value } => {
-                let json_value: serde_json::Value = serde_json::from_str(value)
-                    .unwrap_or_else(|_| serde_json::Value::String(value.clone()));
-                let body = serde_json::json!({ "key": key, "value": json_value });
-                match http
-                    .patch(format!("{}/api/config", base_url))
-                    .json(&body)
-                    .send()
-                {
-                    Ok(resp) if resp.status().is_success() => {
-                        let applied: serde_json::Value = resp.json().unwrap_or_default();
-                        let mut out =
-                            serde_json::json!({"ok": true, "key": key, "value": json_value});
-                        if let Some(bind) = applied.get("api_bind") {
-                            out["api_bind"] = bind.clone();
-                        }
-                        Ok(out)
-                    }
-                    Ok(resp) => Err(format!("Failed: {}", resp.text().unwrap_or_default())),
-                    Err(e) => Err(e.to_string()),
-                }
-            }
-        };
-        match result {
-            Ok(value) => {
-                if json_output {
-                    println!("{}", serde_json::to_string_pretty(&value).unwrap());
-                } else {
-                    if let Some(v) = value.get("value") {
-                        match v {
-                            serde_json::Value::String(s) => println!("{}", s),
-                            serde_json::Value::Null => println!("null"),
-                            other => println!("{}", other),
-                        }
-                    } else {
-                        print_human(&value);
-                    }
-                    // stdout stays the bare value for scripting; the divergence goes to stderr.
-                    if let Some(bind) = value.get("api_bind") {
-                        let live = bind.get("live").and_then(|v| v.as_str()).unwrap_or("?");
-                        let configured =
-                            bind.get("configured").and_then(|v| v.as_str()).unwrap_or("?");
-                        eprintln!(
-                            "warning: NOT applied to the running listener — it is still bound to {live}, \
-                             config stores {configured}. Restart CodeTerm to apply, and verify with \
-                             `lsof -nP -iTCP:<port> -sTCP:LISTEN`."
-                        );
-                    }
-                }
-            }
-            Err(e) => {
-                eprintln!("Error: {}", e);
-                std::process::exit(1);
-            }
-        }
+    let Some(cli) = transport::pre_socket::dispatch(cli) else {
         return;
-    }
-
-    // stale CODETERM_SOCKET_PATH inherited from a previous daemon PID (e.g. after update install --auto restarts the binary) doesn't make the worker exit 1 before it can do any work.
-    if let Commands::Mem {
-        action: MemAction::RunWorker {
-            ref kind,
-            ref db_path,
-        },
-    } = cli.command
-    {
-        cmd::worker::run_mem_worker(kind, db_path.as_deref());
-        return;
-    }
-
-    // Local-only graph mutation verbs — open knowledge.db directly, no daemon.
-    if let Commands::Mem {
-        action: MemAction::Graph { ref action },
-    } = cli.command
-    {
-        if let Some(()) = cmd::graph_mutate::try_dispatch_local(action) {
-            unreachable!("local graph dispatch must exit");
-        }
-    }
-
-    // `mem dream` opens knowledge.db directly. Bridge ping is best-effort and routed through `discover_socket` itself so a wedged daemon doesn't break the planner.
-    if let Commands::Mem {
-        action: MemAction::Dream { .. },
-    } = cli.command
-    {
-        match cli.command {
-            Commands::Mem {
-                action: MemAction::Dream { action },
-            } => {
-                cmd::dream::handle_dream(action);
-            }
-            _ => unreachable!(),
-        }
-    }
-
-    // during recovery when the daemon is wedged.
-    if matches!(cli.command, Commands::System { .. }) {
-        let json_mode = cli.json;
-        match cli.command {
-            Commands::System { action } => cmd::system::handle_system(json_mode, action),
-            _ => unreachable!(),
-        }
-        return;
-    }
-
-    // `cli-manifest` introspects the clap tree — no daemon dependency.
-    if matches!(cli.command, Commands::CliManifest { .. }) {
-        match cli.command {
-            Commands::CliManifest { write, markdown } => cmd::manifest::handle(write, markdown),
-            _ => unreachable!(),
-        }
-        return;
-    }
-
-    // `docs` / `doc` read embedded markdown — no daemon dependency.
-    if matches!(cli.command, Commands::Docs { .. } | Commands::Doc { .. }) {
-        match cli.command {
-            Commands::Docs { name, full, head } => cmd::docs::handle(name, full, head),
-            Commands::Doc { name } => cmd::docs::handle_doc(name),
-            _ => unreachable!(),
-        }
-        return;
-    }
+    };
 
     let resolved_socket = match discover_socket_resolution() {
         Ok(resolved) => resolved,
@@ -391,7 +223,21 @@ fn main_impl() {
     let result = match cli.command {
         Commands::Identify => cmd::identify::handle(&mut client, cli.json, resolved_socket),
 
-        Commands::Capabilities => client.call("system.capabilities", None),
+        Commands::Capabilities => {
+            let result = client.call("system.capabilities", None);
+            if cli.json {
+                result
+            } else {
+                match result {
+                    Ok(value) => print!("{}", cmd::capabilities::render(&value)),
+                    Err(error) => {
+                        eprintln!("Error: {error}");
+                        std::process::exit(1);
+                    }
+                }
+                return;
+            }
+        }
 
         Commands::Workspace { action } => {
             match cmd::local_io::handle_workspace_action(&mut client, action, cli.json) {
@@ -413,13 +259,11 @@ fn main_impl() {
             }
         }
 
-        Commands::Orchestration { action } => {
-            match cmd::orchestration::handle(&mut client, cli.json, action) {
-                Ok(Some(value)) => Ok(value),
-                Ok(None) => return,
-                Err(e) => Err(e),
-            }
-        }
+        Commands::Persona { action } => match cmd::persona::handle(&mut client, cli.json, action) {
+            Ok(Some(value)) => Ok(value),
+            Ok(None) => return,
+            Err(e) => Err(e),
+        },
 
         Commands::Tab { action } => {
             cmd::tab::handle_tab(&mut client, cli.json, action);
@@ -436,10 +280,16 @@ fn main_impl() {
             return;
         }
 
+        Commands::Pad { action } => {
+            cmd::pad::handle_pad(cli.json, action);
+            return;
+        }
+
         Commands::SendText {
             tab,
             text,
             from_file,
+            from_pad,
             stdin,
             actions,
             delay,
@@ -451,6 +301,7 @@ fn main_impl() {
                 tab,
                 text,
                 from_file,
+                from_pad,
                 stdin,
                 actions,
                 delay,
@@ -464,30 +315,29 @@ fn main_impl() {
             return;
         }
 
-        Commands::Notify { title, body, level } => {
-            let mut params = serde_json::json!({ "title": title, "level": level });
-            if let Some(b) = body {
-                params["body"] = serde_json::Value::String(b);
+        Commands::Notify { action } => match action {
+            NotifyAction::Send { title, body, level } => {
+                let mut params = serde_json::json!({ "title": title, "level": level });
+                if let Some(b) = body {
+                    params["body"] = serde_json::Value::String(b);
+                }
+                client.call("notification.create", Some(params))
             }
-            client.call("notification.create", Some(params))
-        }
+            NotifyAction::List { unread } => client.call(
+                "notification.list",
+                Some(serde_json::json!({ "unread_only": unread })),
+            ),
+            NotifyAction::Clear => client.call("notification.clear", None),
+        },
 
         Commands::Bridge { action } => {
             cmd::bridge::handle_bridge(&mut client, cli.json, action);
             return;
         }
 
-        Commands::Notifications { action, unread } => match action {
-            Some(NotificationAction::Clear) => client.call("notification.clear", None),
-            None => client.call(
-                "notification.list",
-                Some(serde_json::json!({ "unread_only": unread })),
-            ),
-        },
-
         Commands::Keepawake { action } => {
-            let (base, token) = read_api_config();
-            let http = match build_http(&token) {
+            let (base, _) = read_api_config();
+            let http = match build_local_api() {
                 Ok(c) => c,
                 Err(e) => {
                     eprintln!("Error: failed to build HTTP client: {}", e);
@@ -544,11 +394,6 @@ fn main_impl() {
             return;
         }
 
-        Commands::Report(args) => {
-            cmd::agent::handle_agent(&mut client, cli.json, AgentAction::Report(args));
-            return;
-        }
-
         Commands::Plan { action } => {
             cmd::plan::handle_plan(&mut client, cli.json, action);
             return;
@@ -569,15 +414,22 @@ fn main_impl() {
             return;
         }
 
+        Commands::Inbox { action } => {
+            cmd::task::handle_inbox(&mut client, cli.json, action);
+            return;
+        }
+
         Commands::Canvas { action } => {
             cmd::task::handle_canvas(&mut client, cli.json, action);
             return;
         }
 
         Commands::Theme { action } => {
-            // Theme commands use REST API (port 7685)
-            let base = "http://127.0.0.1:7685";
-            let http = reqwest::blocking::Client::new();
+            let (base, _) = read_api_config();
+            let http = build_local_api().unwrap_or_else(|error| {
+                eprintln!("Error: failed to connect to local API: {error}");
+                std::process::exit(1);
+            });
             match action {
                 ThemeAction::List => match http.get(format!("{}/api/themes", base)).send() {
                     Ok(resp) => {
@@ -691,7 +543,6 @@ fn main_impl() {
 
         // Docs are handled before socket connect (embedded markdown)
         Commands::Docs { .. } => unreachable!(),
-        Commands::Doc { .. } => unreachable!(),
 
         // Config is handled before socket connect (uses HTTP API)
         Commands::Config { .. } => unreachable!(),
@@ -703,7 +554,7 @@ fn main_impl() {
         Commands::Plugin { .. } => unreachable!(),
 
         Commands::Mesh { action } => {
-            cmd::mesh::handle_mesh(cli.json, action);
+            cmd::mesh::handle_mesh(&mut client, cli.json, action);
             return;
         }
         Commands::Mem { action } => {
@@ -717,7 +568,7 @@ fn main_impl() {
         }
         Commands::Sessions { action } => {
             let (base_url, token) = read_api_config();
-            let http = match build_http(&token) {
+            let http = match build_local_api() {
                 Ok(c) => c,
                 Err(e) => {
                     eprintln!("Error: failed to build HTTP client: {}", e);
@@ -729,7 +580,7 @@ fn main_impl() {
         }
         Commands::Usage { action } => {
             let (base_url, token) = read_api_config();
-            let http = match build_http(&token) {
+            let http = match build_local_api() {
                 Ok(c) => c,
                 Err(e) => {
                     eprintln!("Error: failed to build HTTP client: {}", e);
@@ -806,10 +657,8 @@ fn hydrate_tab_task_binding_env(args: &[String]) {
     let Some(binding) = response.get("binding").and_then(|value| value.as_object()) else {
         return;
     };
-    if nonempty_env("CODETERM_PLAN_ID").is_none() {
-        if let Some(plan_id) = binding.get("plan_id").and_then(|value| value.as_str()) {
-            std::env::set_var("CODETERM_PLAN_ID", plan_id);
-        }
+    if let Some(plan_id) = binding.get("plan_id").and_then(|value| value.as_str()) {
+        std::env::set_var("CODETERM_PLAN_ID", plan_id);
     }
     if nonempty_env("CODETERM_TASK_ID").is_none() {
         if let Some(task_id) = binding.get("task_id").and_then(|value| value.as_str()) {

@@ -50,6 +50,9 @@ pub struct RestartOutcome {
     pub restart_accepted: bool,
     pub old_pty_torn_down: bool,
     pub agent_ready: bool,
+    /// The tab's plan/task caller binding was re-established against its own
+    /// authoritative session. Always settled before `agent_ready` is returned.
+    pub binding_restored: bool,
     pub old_pty_id: Option<String>,
     pub new_pty_id: Option<String>,
 }
@@ -66,6 +69,7 @@ impl RestartOutcome {
             restart_accepted: true,
             old_pty_torn_down: false,
             agent_ready: false,
+            binding_restored: false,
             old_pty_id: (!snap.pty_id.is_empty()).then(|| snap.pty_id.clone()),
             new_pty_id: None,
         }
@@ -76,15 +80,6 @@ impl RestartOutcome {
         match (&self.session_id, self.session_was_stale) {
             (Some(_), false) => "resume",
             _ => "fresh",
-        }
-    }
-
-    /// Permission/sandbox profile the relaunch preserves from the tab.
-    pub fn permission_profile(&self) -> &'static str {
-        if self.auto_approve {
-            "yolo"
-        } else {
-            "sandboxed"
         }
     }
 }
@@ -144,6 +139,10 @@ impl ServiceContext {
         let snap = self.snapshot_tab_for_restart(tab_id)?;
 
         self.check_and_record_restart(&snap.tab_id)?;
+        self.record_lifecycle(
+            &snap.tab_id,
+            crate::session::lifecycle::LifecycleTransition::RestartRequested,
+        );
 
         let session_was_stale = !self.session_file_present(&snap);
         let mut outcome = RestartOutcome::accepted(&snap, session_was_stale, force);
@@ -192,11 +191,46 @@ impl ServiceContext {
             None,
         );
 
-        self.finish_observed_restart(
+        let ready = self.finish_observed_restart(
             outcome,
             &snap.pty_id,
             Duration::from_secs(RESTART_READY_TIMEOUT_SECS),
-        )
+        )?;
+        self.settle_restored_binding(ready, &snap)
+    }
+
+    /// Rebind callers before readiness is reported: a tab that cannot regain
+    /// its exact binding must not be handed back as continuable.
+    fn settle_restored_binding(
+        &self,
+        mut outcome: RestartOutcome,
+        snap: &TabRestartSnapshot,
+    ) -> Result<RestartOutcome, RestartAttemptError> {
+        // Only a resumed session has an id the tab must still be holding; a
+        // fresh launch legitimately comes back on a new one.
+        let expected = (outcome.session_action() == "resume")
+            .then_some(snap.session_id.as_deref())
+            .flatten();
+        match self.restore_caller_binding(&snap.tab_id, expected) {
+            Ok(restored) => {
+                outcome.binding_restored = true;
+                if !restored.is_empty() {
+                    log::info!(
+                        "[agent_restart] tab={} rebound owner={:?} planner={:?} tasks={}",
+                        snap.tab_id,
+                        restored.owned_plan_ids,
+                        restored.planner_plan_ids,
+                        restored.task_bindings.len(),
+                    );
+                }
+                Ok(outcome)
+            }
+            Err(reason) => Err(RestartAttemptError::Failed {
+                outcome,
+                reason,
+                timed_out: false,
+            }),
+        }
     }
 
     fn restart_general_agent_if_target(
@@ -301,7 +335,7 @@ impl ServiceContext {
             provider,
             session_id: tab.agent_session_id.clone(),
             cwd: tab.cwd.clone(),
-            auto_approve: true,
+            auto_approve: false,
             role: tab.role.map(|role| format!("{role:?}")),
             role_profile: tab.role_profile.clone(),
         })
@@ -311,12 +345,13 @@ impl ServiceContext {
         &self,
         tab_id: &str,
     ) -> Result<TabRestartSnapshot, AgentRestartError> {
-        let mux = self.mux.write();
+        let mut mux = self.mux.write();
         let resolved = mux
             .resolve_tab_id(tab_id)
             .ok_or_else(|| AgentRestartError::NotFound(format!("Tab {} not found", tab_id)))?;
         let tab = mux
             .get_tab(&resolved)
+            .cloned()
             .ok_or_else(|| AgentRestartError::NotFound(format!("Tab {} not found", tab_id)))?;
 
         let provider = tab
@@ -339,13 +374,23 @@ impl ServiceContext {
             )));
         }
 
+        let auto_approve = crate::service::permission_policy::configured_permission_bypass(
+            &self.agent_registry,
+            &provider,
+        )
+        .map_err(AgentRestartError::BadRequest)?
+        .is_some();
+        if let Some(live_tab) = mux.get_tab_mut(&resolved) {
+            live_tab.auto_approve = auto_approve;
+        }
+
         Ok(TabRestartSnapshot {
             tab_id: resolved,
             pty_id,
             provider,
             session_id: tab.agent_session_id.clone(),
             cwd: tab.cwd.clone(),
-            auto_approve: tab.auto_approve,
+            auto_approve,
             role: tab.role.map(|role| format!("{role:?}")),
             role_profile: tab.role_profile.clone(),
         })
@@ -418,7 +463,12 @@ impl ServiceContext {
         if let Some(reaper) = reaper {
             reaper.wait_bounded(Duration::from_secs(5))?;
         }
+        self.signal_worker_interruption(
+            &snap.tab_id,
+            crate::service::worker_interruption::WorkerInterruptionEvent::ForcedContextReset,
+        );
         self.screen_state.lock().remove(&snap.pty_id);
+        crate::service::stream_preview::remove(&snap.pty_id);
         self.clear_tab_agent_identity_for_lifecycle_exit(&snap.tab_id);
         {
             let mut mux = self.mux.write();
@@ -534,7 +584,18 @@ fn build_relaunch_command(
     launch_task: Option<&str>,
 ) -> Option<String> {
     let provider = &snap.provider;
-    let auto_approve = snap.auto_approve;
+    let auto_approve = match crate::service::permission_policy::configured_permission_bypass(
+        &svc.agent_registry,
+        provider,
+    ) {
+        Ok(authorization) => authorization.is_some(),
+        Err(error) => {
+            log::error!(
+                "[agent-restart] refusing policy downgrade for provider={provider}: {error}"
+            );
+            return None;
+        }
+    };
     let session_id = snap.session_id.as_deref();
     let cwd = snap.cwd.as_deref().unwrap_or_default();
     let structured_prompt_server = svc

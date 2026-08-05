@@ -7,16 +7,15 @@ import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { useMultiplexer, useMuxState } from "../../store/multiplexer";
 import { displayTitleForTab } from "../../store/multiplexer/tree";
 import { getAgentProvider } from "../../lib/agentProviders";
-import { setProviderSettings } from "../../lib/clientSettings";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import type { AppConfig } from "../../lib/types";
+import { anchorsTeam } from "../../lib/roleKind";
 import { TerminalIcon, FolderIcon, FolderPlusIcon, ExtensionsIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
 import { OrchestrationCreate, type OrchestrationCreateResult } from "./OrchestrationCreate";
 import { WorkspaceItem } from "./WorkspaceItem";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { RecentlyClosed } from "./RecentlyClosed";
-import { useRemoteWorkers } from "../../hooks/useRemoteWorkers";
 import {
   SidebarDnd,
   sortByOrder,
@@ -27,7 +26,7 @@ import { LiquidFlip } from "../shared/LiquidToggle";
 import type { MeshPresence } from "./meshPresenceHeader";
 import { flattenSidebarTabs, isSidebarTabVisible, tabsInWorkspace } from "./workspaceTabs";
 import { aggregateTabStatuses } from "./tabStatuses";
-import { useFullPlansOptional, usePlanIndexOptional } from "../Canvas/PlansProvider";
+import { usePlanIndexOptional, useSidebarPlansOptional } from "../Canvas/PlansProvider";
 import { selectActiveWork } from "../Canvas/planView/activeWork";
 import { isWorkspaceTabActive } from "./sidebarSelection";
 import { buildSidebarCycleItems, cycleStep } from "./sidebarCycle";
@@ -40,8 +39,10 @@ import { GroupCloseConfirmDialog } from "./GroupCloseConfirmDialog";
 import type { OrchestrationGroupMember } from "./orchestrationGroupClose";
 import { hydrateProtectedExpanded, initialSidebarExpanded, partitionSidebarWorkspaces } from "./sidebarSections";
 import { NewSessionPicker } from "../Terminal/NewSessionPicker";
+import { OPEN_NEW_SESSION_EVENT, type OpenNewSessionDetail } from "../../lib/newSessionChoice";
 import { WebPeerPicker } from "../WebPeerPicker/WebPeerPicker";
 import { isFirstRunGeneralTab } from "../AgentPicker";
+import { RemoteTabPicker } from "./RemoteTabPicker";
 
 export { buildHierarchyTree, buildHierarchySubtree, HierarchyTree } from "./HierarchyTree";
 
@@ -102,6 +103,7 @@ export function Sidebar({
     reorderTabs,
     reorderWorkspaces,
     createTab,
+    attachRemoteTab,
     closeTab,
     reopenClosed,
     reopenGroup,
@@ -115,30 +117,26 @@ export function Sidebar({
   } = useMultiplexer();
   const state = useMuxState();
   const isWorkspaceMode = mainView === "workspace";
-  const [agentSpawnModal, setAgentSpawnModal] = useState<
-    { folder: string; agentId: string; workspaceId: string } | null
-  >(null);
   const [folderPicker, setFolderPicker] = useState<{
     title: string;
     initialPath?: string | null;
     onSelect: (path: string) => void;
   } | null>(null);
-  const [claudeSkipPerms, setClaudeSkipPerms] = useState(false);
-  const [claudeRememberChoice, setClaudeRememberChoice] = useState(false);
   const [orchestrationModal, setOrchestrationModal] = useState<{ workspaceId: string } | null>(null);
-  const [sessionPicker, setSessionPicker] = useState<{ workspaceId: string; workspaceCwd: string | null } | null>(null);
+  const [sessionPicker, setSessionPicker] = useState<{
+    workspaceId: string;
+    workspaceCwd: string | null;
+    initialProviderId?: string;
+  } | null>(null);
+  const [remotePickerWorkspaceId, setRemotePickerWorkspaceId] = useState<string | null>(null);
   const { providers, loading: providersLoading } = useAgentProviders();
   const { index: planIndex } = usePlanIndexOptional();
-  const fullPlans = useFullPlansOptional();
+  const fullPlans = useSidebarPlansOptional();
   const activeWork = useMemo(
     () => selectActiveWork(fullPlans.plans, state.tabs),
     [fullPlans.plans, state.tabs],
   );
-  const remoteWorkers = useRemoteWorkers();
   const agentsConfig = config?.agents;
-  const claudeConfig = agentsConfig?.claude;
-  const claudeSkipRemembered = claudeConfig?.spawn_skip_permissions_remembered === true;
-  const claudeSavedSkipPerms = claudeConfig?.spawn_skip_permissions === true;
   const visibleProviders = useMemo(
     () => providers.filter((provider) => agentsConfig?.[provider.id]?.visible_in_menu !== false),
     [providers, agentsConfig],
@@ -149,6 +147,10 @@ export function Sidebar({
     workspaceId: string,
     workspaceCwd: string | null,
   ) => {
+    if (config?.agent.full_access === undefined) {
+      setSessionPicker({ workspaceId, workspaceCwd, initialProviderId: agentId });
+      return;
+    }
     let folder: string | null = workspaceCwd;
     if (!folder) {
       const provider = getAgentProvider(agentId);
@@ -157,11 +159,7 @@ export function Sidebar({
           title: `Project folder for ${provider?.displayName ?? agentId}`,
           initialPath: workspaceCwd,
           onSelect: (path) => {
-            if (agentId !== "claude" || claudeSkipRemembered) {
-              spawnAgentTab(workspaceId, agentId, agentId === "claude" && claudeSavedSkipPerms, path);
-            } else {
-              setAgentSpawnModal({ folder: path, agentId, workspaceId });
-            }
+            spawnAgentTab(workspaceId, agentId, path);
           },
         });
         return;
@@ -179,29 +177,8 @@ export function Sidebar({
       }
       if (!folder) return;
     }
-    if (agentId !== "claude" || claudeSkipRemembered) {
-      spawnAgentTab(workspaceId, agentId, agentId === "claude" && claudeSavedSkipPerms, folder);
-      return;
-    }
-    setAgentSpawnModal({ folder, agentId, workspaceId });
-  }, [spawnAgentTab, claudeSkipRemembered, claudeSavedSkipPerms]);
-
-  const handleClaudeConfirm = useCallback(() => {
-    if (!agentSpawnModal) return;
-    if (claudeRememberChoice) {
-      void setProviderSettings("claude", {
-        spawn_skip_permissions: claudeSkipPerms,
-        spawn_skip_permissions_remembered: true,
-      });
-    }
-    spawnAgentTab(
-      agentSpawnModal.workspaceId,
-      agentSpawnModal.agentId,
-      claudeSkipPerms,
-      agentSpawnModal.folder,
-    );
-    setAgentSpawnModal(null);
-  }, [agentSpawnModal, claudeSkipPerms, claudeRememberChoice, spawnAgentTab]);
+    spawnAgentTab(workspaceId, agentId, folder);
+  }, [config?.agent.full_access, spawnAgentTab]);
 
   const handleOrchestrationConfirm = useCallback((result: OrchestrationCreateResult) => {
     if (!orchestrationModal) return;
@@ -229,6 +206,17 @@ export function Sidebar({
   const handleNewSession = useCallback((workspaceId: string, workspaceCwd: string | null) => {
     if (firstRunActive) return;
     setSessionPicker({ workspaceId, workspaceCwd });
+  }, [firstRunActive]);
+
+  useEffect(() => {
+    const openRequestedSession = (event: Event) => {
+      if (firstRunActive) return;
+      const detail = (event as CustomEvent<OpenNewSessionDetail>).detail;
+      if (!detail?.workspaceId) return;
+      setSessionPicker(detail);
+    };
+    window.addEventListener(OPEN_NEW_SESSION_EVENT, openRequestedSession);
+    return () => window.removeEventListener(OPEN_NEW_SESSION_EVENT, openRequestedSession);
   }, [firstRunActive]);
 
   useEffect(() => {
@@ -422,7 +410,6 @@ export function Sidebar({
   }, [appearingTabs]);
   const [pendingTeamClose, setPendingTeamClose] = useState<{
     teamId: string;
-    managerTabId: string;
     teamName: string;
     members: OrchestrationGroupMember[];
   } | null>(null);
@@ -447,7 +434,7 @@ export function Sidebar({
     performCloseTab(wsId, tabId);
   }, [performCloseTab]);
 
-  const requestTeamClose = useCallback((wsId: string, teamId: string, managerTabId: string) => {
+  const requestTeamClose = useCallback((wsId: string, teamId: string) => {
     const ws = state.workspaces.find((workspace) => workspace.id === wsId);
     if (!ws) return;
     const teamTabs = tabsInWorkspace(ws.tabs, state.tabs).filter(
@@ -456,7 +443,6 @@ export function Sidebar({
     const team = state.teams.find((candidate) => candidate.id === teamId);
     setPendingTeamClose({
       teamId,
-      managerTabId,
       teamName: team?.name?.trim() || "Team",
       members: teamTabs.map((tab) => {
         return {
@@ -556,7 +542,7 @@ export function Sidebar({
                 const generalExpanded = expandedWorkspaces.has(generalWorkspace.id);
                 const generalActive = generalWorkspace.id === state.active_workspace_id && isWorkspaceMode;
                 const generalTabs = tabsInWorkspace(generalWorkspace.tabs, state.tabs);
-                const generalOrchestrators = Object.values(state.tabs).filter((tab) => tab.role === "Orchestrator");
+                const generalOrchestrators = Object.values(state.tabs).filter((tab) => anchorsTeam(tab));
                 return (
                   <section
                     data-testid="general-section"
@@ -585,7 +571,6 @@ export function Sidebar({
                       planIndex={planIndex}
                       plans={fullPlans.plans}
                       activeWork={activeWork}
-                      remoteWorkers={remoteWorkers}
                       providers={visibleProviders}
                       providersLoading={providersLoading}
                       closingTabIds={new Set(closingTabs.keys())}
@@ -602,11 +587,12 @@ export function Sidebar({
                       onCloseTab={(tabId) => animatedCloseTab(generalWorkspace.id, tabId)}
                       onRenameTab={(tabId, title) => setTabTitle(generalWorkspace.id, tabId, title)}
                       onNewSession={() => handleNewSession(generalWorkspace.id, generalWorkspace.cwd ?? null)}
+                      onOpenRemoteTab={() => setRemotePickerWorkspaceId(generalWorkspace.id)}
                       newSessionDisabled={firstRunActive}
                       onRenameTeam={teamActions?.onRenameTeam}
                       onAddTeamMember={teamActions?.onAddTeamMember}
                       onCloseTeam={teamActions?.onCloseTeam
-                        ? (teamId, managerTabId) => requestTeamClose(generalWorkspace.id, teamId, managerTabId)
+                        ? (teamId) => requestTeamClose(generalWorkspace.id, teamId)
                         : undefined}
                     />}
                   </section>
@@ -702,7 +688,7 @@ export function Sidebar({
                     const sortedTabs = tabsInWorkspace(ws.tabs, state.tabs);
                     const selected = ws.id === selectedWorkspaceId;
                     const isActiveVisual = ws.id === state.active_workspace_id && isWorkspaceMode;
-                    const wsOrchestrators = Object.values(state.tabs).filter((tab) => tab.role === "Orchestrator");
+                    const wsOrchestrators = Object.values(state.tabs).filter((tab) => anchorsTeam(tab));
                     return (
                       <div
                         key={ws.id}
@@ -741,7 +727,6 @@ export function Sidebar({
                           planIndex={planIndex}
                           plans={fullPlans.plans}
                           activeWork={activeWork}
-                          remoteWorkers={remoteWorkers}
                           providers={visibleProviders}
                           providersLoading={providersLoading}
                           closingTabIds={new Set(closingTabs.keys())}
@@ -764,11 +749,12 @@ export function Sidebar({
                           onCloseTab={(tabId) => animatedCloseTab(ws.id, tabId)}
                           onRenameTab={(tabId, title) => setTabTitle(ws.id, tabId, title)}
                           onNewSession={() => handleNewSession(ws.id, ws.cwd ?? null)}
+                          onOpenRemoteTab={() => setRemotePickerWorkspaceId(ws.id)}
                           newSessionDisabled={firstRunActive}
                           onRenameTeam={teamActions?.onRenameTeam}
                           onAddTeamMember={teamActions?.onAddTeamMember}
                           onCloseTeam={teamActions?.onCloseTeam
-                            ? (teamId, managerTabId) => requestTeamClose(ws.id, teamId, managerTabId)
+                            ? (teamId) => requestTeamClose(ws.id, teamId)
                             : undefined}
                         />
                       </div>
@@ -777,9 +763,14 @@ export function Sidebar({
                 </SidebarDnd>
               ))}
             </div>
+            {remotePickerWorkspaceId && (
+              <RemoteTabPicker
+                onClose={() => setRemotePickerWorkspaceId(null)}
+                onAttach={(peer, tab) => attachRemoteTab?.(remotePickerWorkspaceId, peer, tab)}
+              />
+            )}
             {!isCompact && (() => {
               const views = state.recently_closed ?? [];
-              if (views.length === 0) return null;
               const hasOrphaned = views.some((v) => v.orphaned);
               return (
                 <RecentlyClosed
@@ -895,55 +886,10 @@ export function Sidebar({
           workspaceId={sessionPicker.workspaceId}
           workspaceCwd={sessionPicker.workspaceCwd}
           agentsConfig={agentsConfig}
+          agentConfig={config?.agent}
+          initialProviderId={sessionPicker.initialProviderId}
           onClose={() => setSessionPicker(null)}
         />
-      )}
-      {agentSpawnModal && (
-        <>
-          <div className="fixed inset-0 z-50 bg-black/40" onClick={() => setAgentSpawnModal(null)} />
-          <div className="fixed z-50 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[var(--ct-surface)] border border-[var(--ct-border)] rounded-lg shadow-2xl w-[320px] overflow-hidden">
-            <div className="px-4 pt-4 pb-2">
-              <div className="text-[13px] font-medium text-[var(--ct-fg)]">Spawn {getAgentProvider(agentSpawnModal.agentId)?.displayName ?? agentSpawnModal.agentId}</div>
-              <div className="mt-2 text-[11px] text-[var(--ct-muted)] truncate" title={agentSpawnModal.folder}>
-                {agentSpawnModal.folder}
-              </div>
-            </div>
-            <div className="px-4 py-3 flex flex-col gap-2.5">
-              <label className="flex items-center gap-2.5 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={claudeSkipPerms}
-                  onChange={(e) => setClaudeSkipPerms(e.target.checked)}
-                  className="w-3.5 h-3.5 rounded accent-[var(--ct-accent)]"
-                />
-                <span className="text-[12px] text-[var(--ct-fg)]">Skip permission prompts</span>
-              </label>
-              <label className="flex items-center gap-2.5 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={claudeRememberChoice}
-                  onChange={(e) => setClaudeRememberChoice(e.target.checked)}
-                  className="w-3.5 h-3.5 rounded accent-[var(--ct-accent)]"
-                />
-                <span className="text-[12px] text-[var(--ct-muted-fg)]">Remember my choice</span>
-              </label>
-            </div>
-            <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-[var(--ct-border)]">
-              <button
-                onClick={() => setAgentSpawnModal(null)}
-                className="px-3 py-1.5 text-[11px] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] rounded-md hover:bg-[var(--ct-hover)] transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleClaudeConfirm}
-                className="px-4 py-1.5 text-[11px] font-medium text-white bg-[var(--ct-accent)] rounded-md hover:opacity-90 transition-opacity"
-              >
-                Launch
-              </button>
-            </div>
-          </div>
-        </>
       )}
 
       {orchestrationModal && (
@@ -963,7 +909,6 @@ export function Sidebar({
           onConfirm={() => {
             void teamActions?.onCloseTeam?.(
               pendingTeamClose.teamId,
-              pendingTeamClose.managerTabId,
             );
             setPendingTeamClose(null);
           }}

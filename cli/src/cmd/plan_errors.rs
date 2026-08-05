@@ -365,7 +365,7 @@ fn append_cross_daemon_hint(message: String, params: &Value, raw_error: &str) ->
         return message;
     }
     let lower = raw_error.to_ascii_lowercase();
-    if lower.contains("Tab not found")
+    if lower.contains("tab not found")
         || lower.contains("plan not found")
         || lower.contains("task not found")
     {

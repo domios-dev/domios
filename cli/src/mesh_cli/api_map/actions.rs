@@ -2,12 +2,46 @@ use crate::{
     cmd::{
         delayed::parse_schedule,
         send_text::{actions_to_json, parse_actions_spec, resolve_send_text_input},
+        team::split_provider_model,
     },
-    MemAction, MemGraphAction, ServiceAction,
+    AgentAction, MemAction, MemGraphAction, ServiceAction,
 };
 use serde_json::json;
 
 use super::unsupported;
+
+/// `team pair` is the sole Team action with a REST form. The body is the one
+/// `orchestration new` posted; the socket-only `spawned_by_tab_id` stays local.
+pub(super) fn team_pair_to_api(
+    orchestrator: &str,
+    planner: &str,
+    workspace: &Option<String>,
+    title: &Option<String>,
+) -> (String, String, Option<String>) {
+    let (orchestrator_agent, orchestrator_model) = split_provider_model(orchestrator);
+    let (planner_agent, planner_model) = split_provider_model(planner);
+    let mut body = json!({
+        "orchestrator_agent": orchestrator_agent,
+        "planner_agent": planner_agent,
+    });
+    if let Some(m) = orchestrator_model {
+        body["orchestrator_model"] = json!(m);
+    }
+    if let Some(m) = planner_model {
+        body["planner_model"] = json!(m);
+    }
+    if let Some(w) = workspace {
+        body["workspace_id"] = json!(w);
+    }
+    if let Some(t) = title {
+        body["title"] = json!(t);
+    }
+    (
+        "POST".into(),
+        "/api/orchestration/new".into(),
+        Some(body.to_string()),
+    )
+}
 
 /// Resolve free-text content for mesh relay from (inline value, file, `-`=stdin).
 /// File wins; a literal `-` reads stdin; otherwise the value is cloned.
@@ -44,20 +78,26 @@ pub(crate) fn send_text_to_api<R: std::io::Read>(
     text: &Option<String>,
     tab: &Option<String>,
     from_file: &Option<String>,
+    from_pad: &Option<String>,
     from_stdin: bool,
     actions: &Option<String>,
     stdin: &mut R,
 ) -> (String, String, Option<String>) {
     let p = tab.as_deref().unwrap_or("general");
     let source = std::env::var("CODETERM_TAB_ID").unwrap_or_else(|_| "unknown".to_string());
-    let (body_text, input_source) =
-        match resolve_send_text_input(text.clone(), from_file.clone(), from_stdin, stdin) {
-            Ok(value) => value,
-            Err(e) => {
-                eprintln!("Error: {}", e);
-                std::process::exit(1);
-            }
-        };
+    let (body_text, input_source) = match resolve_send_text_input(
+        text.clone(),
+        from_file.clone(),
+        from_pad.clone(),
+        from_stdin,
+        stdin,
+    ) {
+        Ok(value) => value,
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
+    };
     let parsed_actions = actions
         .as_deref()
         .map(parse_actions_spec)
@@ -72,6 +112,9 @@ pub(crate) fn send_text_to_api<R: std::io::Read>(
         eprintln!("      try --from-file <path> with a real tempfile.");
         eprintln!("      to send a bare Enter, pass --actions enter.");
         std::process::exit(2);
+    }
+    if !body_text.trim().is_empty() {
+        println!("{}", crate::cmd::send_text::resolved_text_echo(&body_text));
     }
     let mut body = serde_json::json!({"source_tab": source});
     if !body_text.is_empty() {
@@ -94,20 +137,26 @@ pub(crate) fn delayed_create_to_api<R: std::io::Read>(
     text: &Option<String>,
     tab: &Option<String>,
     from_file: &Option<String>,
+    from_pad: &Option<String>,
     from_stdin: bool,
     delay: &Option<String>,
     at: &Option<String>,
     stdin: &mut R,
 ) -> (String, String, Option<String>) {
     let p = tab.as_deref().unwrap_or("general");
-    let (body_text, input_source) =
-        match resolve_send_text_input(text.clone(), from_file.clone(), from_stdin, stdin) {
-            Ok(value) => value,
-            Err(e) => {
-                eprintln!("Error: {}", e);
-                std::process::exit(1);
-            }
-        };
+    let (body_text, input_source) = match resolve_send_text_input(
+        text.clone(),
+        from_file.clone(),
+        from_pad.clone(),
+        from_stdin,
+        stdin,
+    ) {
+        Ok(value) => value,
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
+    };
     if body_text.trim().is_empty() {
         eprintln!("Error: delayed message payload is empty (mesh path, source: {input_source})");
         std::process::exit(2);
@@ -639,5 +688,164 @@ pub(crate) fn service_to_api(action: &ServiceAction) -> (String, String, Option<
                 )
             }
         }
+    }
+}
+
+/// `agent spawn` carries the widest body in the mesh map; it stays here as
+/// per-command REST construction, not a transport decision.
+pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<String>) {
+    match action {
+        crate::AgentAction::Spawn {
+            agent,
+            title,
+            description,
+            task,
+            task_file,
+            role,
+            parent,
+            plan,
+            report_to,
+            workspace,
+            can_spawn,
+            cwd,
+            args,
+            model,
+            reasoning_effort,
+            system_prompt,
+            preset,
+            charter,
+            charter_file,
+            interval,
+            nudge_cooldown,
+            max_actions,
+            bound_task,
+            plan_task,
+            execution_intent,
+            provider_reserve_pct,
+            non_user_facing,
+        } => {
+            let task = match crate::cmd::agent::resolve_spawn_task(
+                task.clone(),
+                task_file.clone(),
+                cwd.as_deref(),
+                &mut std::io::stdin(),
+            ) {
+                Ok(t) => t,
+                Err(e) => return unsupported(&format!("agent spawn task input error: {}", e)),
+            };
+            let charter = match crate::cmd::agent::resolve_spawn_charter(
+                charter.clone(),
+                charter_file.clone(),
+                &mut std::io::stdin(),
+            ) {
+                Ok(t) => t,
+                Err(e) => return unsupported(&format!("agent spawn charter input error: {}", e)),
+            };
+            let agent_name = agent.as_str();
+            let title = crate::cmd::agent::join_cli_words(title.clone());
+            let mut body = serde_json::json!({
+                "agent": agent_name,
+                "title": title,
+                "task": task,
+            });
+            if let Some(d) = crate::cmd::agent::join_cli_words(description.clone()) {
+                match crate::cmd::agent::normalize_tab_description(&d) {
+                    Ok(Some(d)) => body["description"] = serde_json::json!(d),
+                    Ok(None) => body["description"] = serde_json::json!(""),
+                    Err(e) => return unsupported(&e),
+                }
+            }
+            if let Some(r) = role {
+                body["role"] = serde_json::json!(r.as_str());
+                if let Some(profile) = r.role_profile() {
+                    body["role_profile"] = serde_json::json!(profile);
+                }
+            }
+            if let Some(p) = parent {
+                body["parent_tab_id"] = serde_json::json!(p);
+            }
+            if let Some(pl) = plan {
+                body["plan_id"] = serde_json::json!(pl);
+            }
+            let report_to = report_to.clone().or_else(|| {
+                std::env::var("CODETERM_TAB_ID")
+                    .ok()
+                    .filter(|s| !s.is_empty())
+            });
+            if let Some(rt) = report_to {
+                body["report_to"] = serde_json::json!(rt);
+            }
+            if let Some(w) = workspace {
+                body["workspace_id"] = serde_json::json!(w);
+            }
+            if *can_spawn {
+                body["can_spawn"] = serde_json::json!(true);
+            }
+            if let Some(c) = cwd {
+                body["cwd"] = serde_json::json!(c);
+            }
+            if let Some(a) = args {
+                if !a.is_empty() {
+                    body["args"] = serde_json::json!(a);
+                }
+            }
+            if let Some(m) = model {
+                body["model"] = serde_json::json!(m);
+            }
+            if let Some(effort) = reasoning_effort {
+                body["reasoning_effort"] = serde_json::json!(effort);
+            }
+            if let Some(system_prompt) = system_prompt {
+                body["system_prompt"] = serde_json::json!(system_prompt);
+            }
+            if let Some(preset) = preset {
+                body["preset"] = serde_json::json!(preset);
+            }
+            if let Some(charter) = charter {
+                body["charter"] = serde_json::json!(charter);
+            }
+            if let Some(interval) = interval {
+                let secs = match crate::cmd::agent::parse_duration_secs(interval, "--interval") {
+                    Ok(v) => v,
+                    Err(e) => return unsupported(&e),
+                };
+                body["tick_interval_secs"] = serde_json::json!(secs);
+            }
+            if let Some(nudge_cooldown) = nudge_cooldown {
+                let secs = match crate::cmd::agent::parse_duration_secs(
+                    nudge_cooldown,
+                    "--nudge-cooldown",
+                ) {
+                    Ok(v) => v,
+                    Err(e) => return unsupported(&e),
+                };
+                body["nudge_cooldown_secs"] = serde_json::json!(secs);
+            }
+            if let Some(max_actions) = max_actions {
+                body["max_actions_per_tick"] = serde_json::json!(max_actions);
+            }
+            if let Some(tid) = bound_task {
+                body["task_id"] = serde_json::json!(tid);
+            }
+            if let Some(pt) = plan_task {
+                body["plan_task"] = serde_json::json!(pt);
+            }
+            if let Some(intent) = execution_intent {
+                body["execution_intent"] = serde_json::json!(intent);
+                body["provider_reserve_pct"] = serde_json::json!(provider_reserve_pct);
+            }
+            if *non_user_facing {
+                body["audience"] = serde_json::json!("automation");
+            }
+            (
+                "POST".into(),
+                "/api/agents/spawn".into(),
+                Some(body.to_string()),
+            )
+        }
+        crate::AgentAction::Providers | crate::AgentAction::Models { .. } => {
+            ("GET".into(), "/api/agents/providers".into(), None)
+        }
+        _ => ("GET".into(), "/api/tabs".into(), None),
     }
 }

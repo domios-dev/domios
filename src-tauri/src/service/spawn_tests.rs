@@ -48,7 +48,6 @@ pub fn agent_spec(provider: &str) -> SpawnTabSpec {
         visibility: TabVisibility::Visible,
         command: TabCommand::Agent(AgentSpawnSpec {
             provider: provider.into(),
-            auto_approve: true,
             ..Default::default()
         }),
         ..Default::default()
@@ -74,7 +73,10 @@ pub fn spawn_params(provider: &str) -> SpawnAgentParams {
         starter_prompt: Default::default(),
         task_id: None,
         task_launch_authority: None,
+        plan_skill_manifest: None,
         plan_task: None,
+        execution_intent: None,
+        provider_reserve_pct: None,
         workspace_id: None,
         force_tab: None,
         existing_tab_id: None,
@@ -82,9 +84,12 @@ pub fn spawn_params(provider: &str) -> SpawnAgentParams {
         report_target_tab_id: None,
         report_target_mesh_peer: None,
         skip_permissions: None,
+        permission_bypass_authorization: None,
         spawned_by_tab_id: None,
+        ownership: None,
         model: None,
         planned_model: None,
+        planned_reasoning_effort: None,
         reasoning_effort: None,
         system_prompt: None,
         preset: None,
@@ -527,23 +532,6 @@ fn resume_agent_model_does_not_inject_default() {
 }
 
 #[test]
-fn agent_auto_approve_defaults_true_via_serde() {
-    let json = r#"{"provider": "claude"}"#;
-    let agent: AgentSpawnSpec = serde_json::from_str(json).unwrap();
-    assert!(agent.auto_approve);
-}
-
-#[test]
-fn agent_auto_approve_defaults_true_via_struct() {
-    let agent = AgentSpawnSpec {
-        provider: "claude".into(),
-        auto_approve: default_true(),
-        ..Default::default()
-    };
-    assert!(agent.auto_approve);
-}
-
-#[test]
 fn shell_spec_roundtrips_json() {
     let spec = SpawnTabSpec {
         title: Some("scratch".into()),
@@ -566,7 +554,6 @@ fn agent_spec_roundtrips_json() {
             task: Some("hello".into()),
             role: Some("Worker".into()),
             can_spawn: Some(false),
-            auto_approve: true,
             worker_id: Some("w-123".into()),
             ..Default::default()
         }),
@@ -582,7 +569,6 @@ fn agent_spec_roundtrips_json() {
             assert_eq!(a.task.as_deref(), Some("hello"));
             assert_eq!(a.role.as_deref(), Some("Worker"));
             assert_eq!(a.worker_id.as_deref(), Some("w-123"));
-            assert!(a.auto_approve);
         }
         _ => panic!("expected Agent"),
     }
@@ -608,7 +594,10 @@ fn from_agent_params_carries_model_into_spec() {
         starter_prompt: Default::default(),
         task_id: None,
         task_launch_authority: None,
+        plan_skill_manifest: None,
         plan_task: None,
+        execution_intent: None,
+        provider_reserve_pct: None,
         workspace_id: None,
         force_tab: None,
         existing_tab_id: None,
@@ -616,9 +605,12 @@ fn from_agent_params_carries_model_into_spec() {
         report_target_tab_id: None,
         report_target_mesh_peer: None,
         skip_permissions: None,
+        permission_bypass_authorization: None,
         spawned_by_tab_id: None,
+        ownership: None,
         model: Some("gpt-5.4-mini".into()),
         planned_model: None,
+        planned_reasoning_effort: None,
         reasoning_effort: None,
         system_prompt: None,
         preset: None,
@@ -657,6 +649,32 @@ fn to_agent_params_carries_model_as_dedicated_field() {
         !args.iter().any(|a| a == "--model"),
         "model must not leak into args"
     );
+}
+
+#[test]
+fn planned_effort_survives_host_owned_params_spec_pipeline() {
+    let params = SpawnAgentParams {
+        agent: Some("claude".into()),
+        planned_reasoning_effort: Some("high".into()),
+        reasoning_effort: Some("medium".into()),
+        ..Default::default()
+    };
+    let spec = SpawnTabSpec::from_agent_params(params);
+    let params = spec.to_agent_params().unwrap();
+    assert_eq!(params.planned_reasoning_effort.as_deref(), Some("high"));
+    assert_eq!(params.reasoning_effort.as_deref(), Some("medium"));
+}
+
+#[test]
+fn generic_spawn_json_cannot_claim_planned_effort() {
+    let params = SpawnAgentParams::from_json(&serde_json::json!({
+        "agent": "claude",
+        "planned_reasoning_effort": "max",
+        "reasoning_effort": "high"
+    }))
+    .unwrap();
+    assert_eq!(params.planned_reasoning_effort, None);
+    assert_eq!(params.reasoning_effort.as_deref(), Some("high"));
 }
 
 #[test]
@@ -726,7 +744,10 @@ fn from_agent_params_preserves_can_spawn_option() {
         starter_prompt: Default::default(),
         task_id: None,
         task_launch_authority: None,
+        plan_skill_manifest: None,
         plan_task: None,
+        execution_intent: None,
+        provider_reserve_pct: None,
         workspace_id: None,
         force_tab: None,
         existing_tab_id: None,
@@ -734,9 +755,12 @@ fn from_agent_params_preserves_can_spawn_option() {
         report_target_tab_id: None,
         report_target_mesh_peer: None,
         skip_permissions: None,
+        permission_bypass_authorization: None,
         spawned_by_tab_id: None,
+        ownership: None,
         model: None,
         planned_model: None,
+        planned_reasoning_effort: None,
         reasoning_effort: None,
         system_prompt: None,
         preset: None,
@@ -786,7 +810,10 @@ fn from_agent_params_carries_activate_into_spec() {
         starter_prompt: Default::default(),
         task_id: None,
         task_launch_authority: None,
+        plan_skill_manifest: None,
         plan_task: None,
+        execution_intent: None,
+        provider_reserve_pct: None,
         workspace_id: None,
         force_tab: None,
         existing_tab_id: None,
@@ -794,9 +821,12 @@ fn from_agent_params_carries_activate_into_spec() {
         report_target_tab_id: None,
         report_target_mesh_peer: None,
         skip_permissions: None,
+        permission_bypass_authorization: None,
         spawned_by_tab_id: None,
+        ownership: None,
         model: None,
         planned_model: None,
+        planned_reasoning_effort: None,
         reasoning_effort: None,
         system_prompt: None,
         preset: None,

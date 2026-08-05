@@ -67,6 +67,40 @@
         "Uses a real git merge of the accepted lane into the integration branch.",
         "Runs `git merge-base --is-ancestor` before deleting the lane branch or worktree."
       ]
+    },
+    {
+      "id": 12,
+      "name": "orchestrator-revises-over-decomposed-draft-structure",
+      "prompt": "You are the Orchestrator for plan pl_demo. The Planner returned draft structure for one capability — the Wildberries benchmark comparison feature (a versioned source registry backed by a static dataset with a currentness marker; a compatibility engine classifying each external benchmark against our metrics as available, unavailable, or incompatible; period aggregation with its DTO change and cache version bump; and a Russian-language UI showing history, currentness, methodology, and a source link) — cut into 11 tasks: discover the benchmark source landscape, research currentness rules, write the source-registry tests, implement the versioned source registry, write the compatibility-engine tests, implement the compatibility engine, implement period aggregation and the DTO, bump the cache version, build the Russian UI, write the docs, and a final review/QA task. Decide and state the structure you accept before dispatch. Plain text plus any commands you would run.",
+      "expected_output": "Rejects the phase-shaped decomposition and requires 4-6 cohesive vertical tasks before dispatch.",
+      "expectations": [
+        "Does NOT dispatch the 11-task structure as drafted.",
+        "Requires between 4 and 6 cohesive vertical tasks, each delivering a reviewable capability.",
+        "States that ordinary discovery, tests, docs, and review belong inside the implementation slice rather than as their own tasks.",
+        "Revises or routes the structure back to the Planner while keeping acceptance authority, instead of silently accepting it."
+      ]
+    },
+    {
+      "id": 13,
+      "name": "orchestrator-accepts-justified-independent-boundary",
+      "prompt": "You are the Orchestrator for plan pl_demo. The Planner returned six tasks for a tray-notification capability: (1) the shared notification core, (2) the shared settings and preferences surface, (3) the Windows rollout, (4) the macOS rollout, (5) the Linux rollout — each platform rollout has a different owner, packaging path, and signing story — and (6) the notification-permission policy and credential handling, which the security team owns outright. The sixth task carries a written justification naming that boundary. Decide and state whether you accept the structure.",
+      "expected_output": "Accepts a structure that exceeds the default count because each extra task has a real independent ownership or authority boundary.",
+      "expectations": [
+        "Accepts the sixth task because the platform rollouts and the security-owned permission/credential work are genuinely independent ownership boundaries.",
+        "Does NOT force the plan back down merely to satisfy the default count.",
+        "Still requires the sixth task's justification to name that concrete boundary, not restate the work."
+      ]
+    },
+    {
+      "id": 14,
+      "name": "orchestrator-requests-user-approval-and-verifies-durable-state",
+      "prompt": "You are the Orchestrator for pl_demo. The Planner returned a coherent draft and plan doctor is green, but planning_state is still drafting. Respond to the user with the next action; do not dispatch yet.",
+      "expected_output": "Shows the plan is ready, asks the user to approve it, and requires durable approved state before dispatch.",
+      "expectations": [
+        "Summarizes that the plan is ready and explicitly asks the user for approval.",
+        "Does NOT dispatch while planning_state is drafting.",
+        "States that UI approval must be verified as planning_state approved, or that explicit conversational approval is followed by the approve action and readback."
+      ]
     }
   ]
 }

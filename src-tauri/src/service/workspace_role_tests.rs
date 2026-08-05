@@ -18,10 +18,11 @@ fn explicit_orchestrator_promotion_sets_role_and_can_spawn() {
     let (mut mux, _) = MultiplexerState::new();
     let ws = mux.list_workspaces()[0].id.clone();
     let tab_id = mux.create_tab(&ws).unwrap();
-    mux.set_tab_role(&tab_id, AgentRole::Orchestrator, None)
+    mux.set_orchestrator_role(&tab_id)
         .expect("explicit promotion");
     let tab = mux.get_tab(&tab_id).unwrap();
-    assert_eq!(tab.role, Some(AgentRole::Orchestrator));
+    assert_eq!(tab.role, Some(AgentRole::Manager));
+    assert!(tab.anchors_team(), "orchestrator kind anchors its Team");
     assert!(tab.can_spawn);
 }
 
@@ -30,7 +31,7 @@ fn explicit_worker_spawn_role_still_applies() {
     let (mut mux, _) = MultiplexerState::new();
     let ws = mux.list_workspaces()[0].id.clone();
     let orch = mux.create_tab(&ws).unwrap();
-    mux.set_tab_role(&orch, AgentRole::Orchestrator, None)
+    mux.set_orchestrator_role(&orch)
         .expect("parent orchestrator");
     let worker = mux.create_tab(&ws).unwrap();
     mux.set_tab_role(&worker, AgentRole::Worker, Some(&orch))

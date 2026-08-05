@@ -1,4 +1,5 @@
 use super::*;
+use tauri::Manager;
 
 pub(super) fn dispatch(
     method: &str,
@@ -12,6 +13,7 @@ pub(super) fn dispatch(
 ) -> Result<serde_json::Value, JsonRpcError> {
     // System methods are tiny — handle inline.
     match method {
+        "api.request" => return local_api::dispatch(&params, app),
         "system.identify" => {
             return Ok(serde_json::json!({
                 "name": "CodeTerm",
@@ -24,6 +26,7 @@ pub(super) fn dispatch(
             let methods = vec![
                 "system.identify",
                 "system.capabilities",
+                "api.request",
                 "workspace.list",
                 "workspace.create",
                 "workspace.focus",
@@ -35,6 +38,7 @@ pub(super) fn dispatch(
                 "workspace.reopen_closed_group",
                 "tab.list",
                 "tab.inspect",
+                "tab.agent_pad",
                 "tab.focus",
                 "tab.close",
                 "tab.send_text",
@@ -45,6 +49,8 @@ pub(super) fn dispatch(
                 "notification.create",
                 "notification.list",
                 "notification.clear",
+                "mesh.status",
+                "mesh.peers",
                 "agent.list",
                 "agent.hierarchy",
                 "agent.spawn",
@@ -56,6 +62,9 @@ pub(super) fn dispatch(
                 "agent.report",
                 "agent.ack",
                 "orchestration.new",
+                "persona.list",
+                "persona.show",
+                "persona.reload",
                 "team.list",
                 "team.show",
                 "team.rename",
@@ -101,6 +110,7 @@ pub(super) fn dispatch(
                 "plan.task.attempts",
                 "plan.task.attempt.show",
                 "plan.task.respawn",
+                "plan.task.adopt_checkpoint",
                 "plan.task.compete",
                 "plan.task.judge",
                 "plan.task.rm",
@@ -217,6 +227,25 @@ pub(super) fn dispatch(
             ];
             return Ok(serde_json::json!({ "methods": methods }));
         }
+        "mesh.status" => {
+            let mesh = app.state::<crate::MeshStateHandle>();
+            let manager = mesh.lock();
+            return serde_json::to_value(manager.status()).map_err(|error| JsonRpcError {
+                code: -32603,
+                message: error.to_string(),
+                data: None,
+            });
+        }
+        "mesh.peers" => {
+            let mesh = app.state::<crate::MeshStateHandle>();
+            let mut manager = mesh.lock();
+            manager.cleanup_expired_requests();
+            return serde_json::to_value(manager.peers_response()).map_err(|error| JsonRpcError {
+                code: -32603,
+                message: error.to_string(),
+                data: None,
+            });
+        }
         #[cfg(debug_assertions)]
         "debug.crash" => {
             let kind = get_string_param(&params, "kind")?;
@@ -231,6 +260,29 @@ pub(super) fn dispatch(
     }
 
     let prefix = method.split(['.', ':']).next().unwrap_or("");
+    if params
+        .as_ref()
+        .is_some_and(|value| value.get("task_id").is_some())
+        && matches!(
+            method,
+            "task.take"
+                | "task.drop"
+                | "plan.task.update"
+                | "plan.task.attach"
+                | "plan.task.close"
+                | "plan.task.pause"
+                | "plan.task.resume"
+                | "plan.task.assign"
+                | "plan.task.dispatch"
+                | "plan.task.respawn"
+                | "plan.task.compete"
+                | "plan.task.judge"
+                | "plan.task.rm"
+                | "plan.task.link"
+        )
+    {
+        plan_task_authority::verify_owner_epoch_for_task_mutation(method, &params, svc)?;
+    }
     match prefix {
         "workspace" => workspace::dispatch(method, &params, mux, app, svc),
         "team" => team::dispatch(method, &params, mux, svc),
@@ -239,6 +291,7 @@ pub(super) fn dispatch(
         "agent" => agent::dispatch(method, &params, app, svc),
         "orchestration" => orchestration::dispatch(method, &params, app, svc),
         "orchestrator" => orchestrator::dispatch(method, &params, app, svc),
+        "persona" => persona::dispatch(method, &params),
         "plan" if plan_mode::handles(method) => plan_mode::dispatch(method, &params, app, svc),
         "plan" | "task" => plan::dispatch(method, &params, app, svc),
         "canvas" => canvas::dispatch(method, &params, app),

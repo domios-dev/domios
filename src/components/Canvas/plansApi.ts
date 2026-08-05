@@ -1,4 +1,5 @@
 import { authHeaders, baseUrl, jsonHeaders } from "../MemoryPanel/memoryApi";
+import { invoke, IS_WEB } from "../../lib/bridge";
 import type { ApiConfig } from "../../lib/types";
 import type { DriftItem, OrchestratorRef, Plan, PlanStatus, Section } from "./types";
 
@@ -27,6 +28,17 @@ interface PlanIndexResponse {
 
 interface PlansFullResponse {
   plans: Plan[];
+}
+
+async function invokePlanRead<T>(
+  command: string,
+  args: Record<string, unknown> | undefined,
+  signal?: AbortSignal,
+): Promise<T> {
+  if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+  const value = await invoke<T>(command, args);
+  if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+  return value;
 }
 
 export type PlanRefTargetKind = "plan" | "task" | "section";
@@ -64,6 +76,7 @@ interface ResolveRefsResponse {
 }
 
 export async function fetchPlan(api: ApiConfig, planId: string, signal?: AbortSignal): Promise<Plan> {
+  if (!IS_WEB) return invokePlanRead("get_plan_full", { planId }, signal);
   const res = await fetch(`${baseUrl(api)}/api/plans/${encodeURIComponent(planId)}`, {
     headers: authHeaders(api),
     signal,
@@ -95,6 +108,7 @@ export async function fetchReconcile(api: ApiConfig, planId: string, signal?: Ab
 
 // Lightweight index only — one request, no per-plan bodies.
 export async function fetchPlanIndex(api: ApiConfig, signal?: AbortSignal): Promise<PlanIndexEntry[]> {
+  if (!IS_WEB) return invokePlanRead("list_plan_index", undefined, signal);
   const res = await fetch(`${baseUrl(api)}/api/plans`, {
     headers: authHeaders(api),
     signal,
@@ -126,6 +140,9 @@ export async function fetchPlans(
   signal?: AbortSignal,
   opts?: { project?: string | null },
 ): Promise<Plan[]> {
+  if (!IS_WEB) {
+    return invokePlanRead("list_plans_full", { project: opts?.project ?? null }, signal);
+  }
   const params = new URLSearchParams({ full: "1" });
   if (opts?.project) params.set("project", opts.project);
   const res = await fetch(`${baseUrl(api)}/api/plans?${params}`, {

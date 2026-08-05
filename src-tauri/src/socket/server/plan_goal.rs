@@ -5,7 +5,7 @@ use tauri::AppHandle;
 
 use crate::plan::{Goal, OrchestratorRef};
 use crate::service::plan::PlanError;
-use crate::service::{FirstPlanTeamError, ServiceState};
+use crate::service::{ServiceState, TeamPlanCreationError};
 
 use super::{get_string_param, JsonRpcError};
 
@@ -85,7 +85,7 @@ pub(super) fn dispatch(
                         });
                     let owner = OrchestratorRef::from_tab(caller_tab.unwrap_or("unknown"));
                     let outcome = svc
-                        .create_first_plan_for_orchestrator(
+                        .create_team_plan_for_orchestrator(
                             title,
                             project,
                             owner,
@@ -94,8 +94,8 @@ pub(super) fn dispatch(
                             epoch_ms(),
                         )
                         .map_err(|error| match error {
-                            FirstPlanTeamError::Plan(error) => plan_rpc_err(error),
-                            FirstPlanTeamError::Team(message) => JsonRpcError {
+                            TeamPlanCreationError::Plan(error) => plan_rpc_err(error),
+                            TeamPlanCreationError::Team(message) => JsonRpcError {
                                 code: -32602,
                                 message,
                                 data: None,

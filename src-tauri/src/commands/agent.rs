@@ -88,8 +88,15 @@ pub fn complete_general_agent_first_run(
     config: State<'_, crate::config::ConfigState>,
     app: tauri::AppHandle,
     provider_id: String,
+    full_access: bool,
 ) -> Result<(), String> {
-    crate::service::general_agent::complete_first_run_core(&svc, &config, &app, &provider_id)
+    crate::service::general_agent::complete_first_run_core(
+        &svc,
+        &config,
+        &app,
+        &provider_id,
+        full_access,
+    )
 }
 
 #[tauri::command]
@@ -167,6 +174,36 @@ pub async fn restart_agent_tab(svc: State<'_, ServiceState>, tab_id: String) -> 
             format!("Retry is available in {retry_after_secs} seconds")
         }
     })
+}
+
+#[tauri::command]
+pub fn list_provider_update_prompts(
+    svc: State<'_, ServiceState>,
+) -> Vec<crate::service::provider_update::ProviderUpdatePromptView> {
+    svc.list_provider_update_prompts()
+}
+
+#[tauri::command]
+pub async fn respond_provider_update_prompt(
+    svc: State<'_, ServiceState>,
+    prompt_id: String,
+    accept: bool,
+) -> Result<(), String> {
+    let svc = (*svc).clone();
+    tokio::task::spawn_blocking(move || svc.respond_provider_update_prompt(&prompt_id, accept))
+        .await
+        .map_err(|error| format!("provider update worker failed: {error}"))?
+}
+
+#[tauri::command]
+pub async fn acknowledge_provider_update_prompt(
+    svc: State<'_, ServiceState>,
+    prompt_id: String,
+) -> Result<(), String> {
+    let svc = (*svc).clone();
+    tokio::task::spawn_blocking(move || svc.acknowledge_provider_update_prompt(&prompt_id))
+        .await
+        .map_err(|error| format!("provider update worker failed: {error}"))?
 }
 
 /// Probe for a CLI binary. Used by the per-provider Installation card in

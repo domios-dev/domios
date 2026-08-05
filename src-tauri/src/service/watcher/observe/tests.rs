@@ -17,22 +17,19 @@ fn fixture_mux() -> (MultiplexerState, WatchFixtureIds) {
     let workspace_id = mux.find_workspace_for_tab(&orch).unwrap();
 
     let planner = mux.create_tab(&workspace_id).unwrap();
-    mux.set_tab_role(&planner, AgentRole::Manager, Some(&orch))
+    mux.set_tab_role_kind(&planner, AgentRole::Manager, Some("planner"), Some(&orch))
         .unwrap();
     mux.rename_tab(&planner, "Planner").unwrap();
-    mux.get_tab_mut(&planner).unwrap().role_profile = Some("planner".into());
 
     let watcher = mux.create_tab(&workspace_id).unwrap();
-    mux.set_tab_role(&watcher, AgentRole::Manager, Some(&orch))
+    mux.set_tab_role_kind(&watcher, AgentRole::Manager, Some("watcher"), Some(&orch))
         .unwrap();
     mux.rename_tab(&watcher, "Watcher-1").unwrap();
-    mux.get_tab_mut(&watcher).unwrap().role_profile = Some("watcher".into());
 
     let watcher2 = mux.create_tab(&workspace_id).unwrap();
-    mux.set_tab_role(&watcher2, AgentRole::Manager, Some(&orch))
+    mux.set_tab_role_kind(&watcher2, AgentRole::Manager, Some("watcher"), Some(&orch))
         .unwrap();
     mux.rename_tab(&watcher2, "Watcher-2").unwrap();
-    mux.get_tab_mut(&watcher2).unwrap().role_profile = Some("watcher".into());
 
     let worker_a = mux.create_tab(&workspace_id).unwrap();
     mux.set_tab_role(&worker_a, AgentRole::Worker, Some(&orch))
@@ -236,6 +233,7 @@ fn reports_included_when_configured() {
         actual_model: None,
         model_fallback: None,
         model_identity_mismatch: None,
+        reasoning_effort: Default::default(),
     }];
     let chat_tail = |_: &str, _: usize| Vec::new();
     let sources = ObservationSources {

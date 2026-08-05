@@ -11,15 +11,17 @@ pub const MAX_TAB_DESCRIPTION_CHARS: usize = 200;
 /// Prefix on every self-termination refusal so transports can classify it.
 pub(crate) const SELF_CLOSE_REFUSAL_PREFIX: &str = "self-termination refused";
 
-/// A coordinator must not self-terminate: an Orchestrator role, an owner of a
-/// plan, or a bound Planner of a plan. There is no AgentRole::Planner — planner
-/// identity comes from the plan graph, not a tab role.
+/// A coordinator must not self-terminate. Planner identity comes from the plan
+/// graph, not from the structural role.
 pub(crate) fn is_coordinator(
     role: Option<AgentRole>,
+    role_profile: Option<&str>,
     is_plan_owner: bool,
     is_bound_planner: bool,
 ) -> bool {
-    matches!(role, Some(AgentRole::Orchestrator)) || is_plan_owner || is_bound_planner
+    codeterm_types::agent::role_kind::anchors_team(role, role_profile)
+        || is_plan_owner
+        || is_bound_planner
 }
 
 pub fn normalize_tab_description(value: &str) -> Result<Option<String>, String> {
@@ -82,8 +84,13 @@ impl ServiceContext {
     /// bound Planner) and so must not close itself. Keys off caller identity in
     /// the mux + plan graph, never a display name.
     pub(crate) fn is_self_close_protected(&self, tab_id: &str) -> bool {
-        let role = self.mux.read().get_tab(tab_id).and_then(|p| p.role);
-        if is_coordinator(role, false, false) {
+        let (role, role_profile) = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .map(|tab| (tab.role, tab.role_profile.clone()))
+            .unwrap_or_default();
+        if is_coordinator(role, role_profile.as_deref(), false, false) {
             return true;
         }
         for plan in self.plan_store.list_full() {
@@ -93,7 +100,7 @@ impl ServiceContext {
                     PeerResolution::Planner { tab_id: p } => p == tab_id,
                     _ => false,
                 };
-            if is_coordinator(None, is_owner, is_planner) {
+            if is_coordinator(None, None, is_owner, is_planner) {
                 return true;
             }
         }
@@ -141,6 +148,10 @@ impl ServiceContext {
             let _ = self.chatbackend_close(&plugin_id, &session_id);
         }
 
+        self.record_lifecycle_end(
+            tab_id,
+            crate::session::lifecycle::LifecycleTransition::Closed,
+        );
         self.discard_pending_delivery(tab_id)
             .map_err(|error| format!("pending delivery discard failed: {error}"))?;
         self.invalidate_guarded_agent_input(tab_id);
@@ -149,6 +160,7 @@ impl ServiceContext {
         let pty_ids = self.mux.write().close_tab(tab_id)?;
         let post_focus = self.mux.read().get_focused_tab_id().map(str::to_string);
         self.kill_ptys(&pty_ids);
+        self.revoke_agent_pad(tab_id)?;
         self.clear_dead_planner_binding(tab_id);
         self.flag_bound_tasks_for_gone_tab(tab_id, epoch_ms());
         self.prompt_detector.lock().remove_tab(tab_id);
@@ -342,10 +354,20 @@ impl ServiceContext {
         if !cleared {
             return false;
         }
+        self.record_lifecycle_end(
+            tab_id,
+            crate::session::lifecycle::LifecycleTransition::RolledBack {
+                reason: "agent identity cleared on lifecycle exit".to_string(),
+            },
+        );
         self.invalidate_guarded_agent_input(tab_id);
         log::info!(
             "[agent-lifecycle] cleared Tab identity after explicit exit: {}",
             tab_id
+        );
+        self.signal_worker_interruption(
+            tab_id,
+            crate::service::worker_interruption::WorkerInterruptionEvent::ProcessExited,
         );
         self.clear_dead_planner_binding(tab_id);
         self.prompt_detector.lock().clear(tab_id);
@@ -479,6 +501,7 @@ impl ServiceContext {
                         false
                     } else if let Some(p) = mux.get_tab_mut(tab_id) {
                         if p.agent_type.as_deref() == Some(agent_id) {
+                            p.archive_context_epoch(agent_id, current);
                             p.agent_session_id = Some(new_sid.clone());
                             clear_runtime_model_evidence(p);
                             true
@@ -498,6 +521,12 @@ impl ServiceContext {
                         agent_id,
                     );
                     self.emit_state_changed();
+                    if let Err(error) = super::session_persist::persist_session_after_mutation(
+                        self,
+                        super::session_persist::SessionPersistUrgency::Prompt,
+                    ) {
+                        log::warn!("[context-epoch] failed to persist reset boundary: {error}");
+                    }
                 }
             }
         }
@@ -507,6 +536,7 @@ impl ServiceContext {
             mux.get_tab(tab_id).and_then(|p| p.agent_session_id.clone())
         };
         let Some(sid) = sid else { return };
+        self.refresh_session_reasoning_effort_once(tab_id, agent_id, &cwd, &sid);
         let (
             current_model,
             planned_model,
@@ -702,111 +732,6 @@ impl ServiceContext {
         });
     }
 
-    /// Set agent session ID on a tab. Kept as `set_agent_session_id`.
-    ///
-    /// Rejects assignments where the same session_id is already claimed by a
-    /// different tab — opencode/codex can have multiple tabs detecting in
-    /// the same cwd in parallel and the cheap "exclude list" race lets two
-    /// of them lock onto the same fresh session unless we deduplicate
-    /// atomically. Resume/snapshot rehydrate paths intentionally re-set the
-    /// same id on the same tab and are unaffected.
-    pub fn set_agent_session_id(&self, tab_id: &str, session_id: Option<String>) {
-        let session_bound = session_id.is_some();
-        let bound_session_id = session_id.clone();
-        let mut mux = self.mux.write();
-        if let Some(ref new_sid) = session_id {
-            let conflict = mux
-                .tab_ids_with_session(new_sid)
-                .into_iter()
-                .any(|other| other != tab_id);
-            if conflict {
-                log::info!(
-                    "[set_agent_session_id] rejecting duplicate sid {} for Tab {} (claimed elsewhere)",
-                    new_sid, tab_id,
-                );
-                return;
-            }
-        }
-        let mut changed = false;
-        if let Some(tab) = mux.get_tab_mut(tab_id) {
-            changed = tab.agent_session_id != session_id;
-            tab.agent_session_id = session_id;
-            tab.reported_session_binding_nonce = None;
-            if changed {
-                clear_runtime_model_evidence(tab);
-            }
-        }
-        drop(mux);
-        if changed {
-            self.invalidate_guarded_agent_input(tab_id);
-        }
-        if session_bound {
-            crate::service::general_agent::binding_wait::notify_session_bound();
-        }
-        if let Some(session_id) = bound_session_id.as_deref() {
-            match self
-                .plan_store
-                .mark_live_task_attempt_runtime_ready_for_tab(tab_id, session_id, epoch_ms())
-            {
-                Ok(Some(ready)) => crate::api::events::emit_everywhere(
-                    &self.app_handle,
-                    "plan-changed",
-                    serde_json::json!({ "plan_id": ready.plan_id }),
-                ),
-                Ok(None) => {}
-                Err(error) => log::warn!(
-                    "[set_agent_session_id] task attempt readiness failed tab={tab_id}: {error}"
-                ),
-            }
-        }
-        self.bind_planner_session(tab_id);
-        self.heal_recovery_state_if_ready();
-    }
-
-    /// Rotate the per-launch binding nonce before a provider command is written.
-    pub fn rotate_session_binding_nonce(&self, tab_id: &str) -> String {
-        self.invalidate_guarded_agent_input(tab_id);
-        let nonce = uuid::Uuid::new_v4().to_string();
-        if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
-            tab.session_binding_nonce = Some(nonce.clone());
-            tab.reported_session_binding_nonce = None;
-        }
-        nonce
-    }
-
-    /// Per-launch binding nonce for a tab. Injected as CODETERM_SESSION_BINDING_NONCE so a provider's session-start report can prove it owns this tab; a report carrying a different nonce is a stale/foreign claim and gets rejected.
-    pub fn ensure_session_binding_nonce(&self, tab_id: &str) -> String {
-        let mut mux = self.mux.write();
-        if let Some(tab) = mux.get_tab_mut(tab_id) {
-            if let Some(ref n) = tab.session_binding_nonce {
-                return n.clone();
-            }
-            let nonce = uuid::Uuid::new_v4().to_string();
-            tab.session_binding_nonce = Some(nonce.clone());
-            tab.reported_session_binding_nonce = None;
-            nonce
-        } else {
-            uuid::Uuid::new_v4().to_string()
-        }
-    }
-
-    /// Per-session shell-integration nonce, generated once and reused. Exported as
-    /// CODETERM_SHELL_NONCE so the injected shell script can stamp it onto OSC 633;E;
-    /// the marker consumer (OSC3) rejects command-line text whose nonce mismatches.
-    pub fn ensure_shell_integration_nonce(&self, tab_id: &str) -> String {
-        let mut mux = self.mux.write();
-        if let Some(tab) = mux.get_tab_mut(tab_id) {
-            if let Some(ref n) = tab.shell_integration_nonce {
-                return n.clone();
-            }
-            let nonce = uuid::Uuid::new_v4().to_string();
-            tab.shell_integration_nonce = Some(nonce.clone());
-            nonce
-        } else {
-            uuid::Uuid::new_v4().to_string()
-        }
-    }
-
     /// Set chat view state on a tab.
     pub fn set_chat_view(&self, tab_id: &str, enabled: bool) {
         if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
@@ -996,6 +921,7 @@ pub(crate) fn clear_runtime_model_evidence(tab: &mut crate::multiplexer::types::
     if let Some(fallback) = tab.model_fallback.as_mut() {
         fallback.actual_model = None;
     }
+    super::reasoning_effort::clear_runtime_evidence(tab);
 }
 
 fn runtime_model_update_matches_session(
@@ -1025,24 +951,29 @@ mod self_close_tests {
 
     #[test]
     fn orchestrator_is_coordinator() {
-        assert!(is_coordinator(Some(AgentRole::Orchestrator), false, false));
+        assert!(is_coordinator(
+            Some(AgentRole::Manager),
+            Some("orchestrator"),
+            false,
+            false
+        ));
     }
 
     #[test]
     fn plan_owner_is_coordinator() {
-        assert!(is_coordinator(Some(AgentRole::Worker), true, false));
-        assert!(is_coordinator(None, true, false));
+        assert!(is_coordinator(Some(AgentRole::Worker), None, true, false));
+        assert!(is_coordinator(None, None, true, false));
     }
 
     #[test]
     fn bound_planner_is_coordinator() {
-        assert!(is_coordinator(Some(AgentRole::Worker), false, true));
+        assert!(is_coordinator(Some(AgentRole::Worker), None, false, true));
     }
 
     #[test]
     fn plain_worker_is_not_coordinator() {
-        assert!(!is_coordinator(Some(AgentRole::Worker), false, false));
-        assert!(!is_coordinator(None, false, false));
+        assert!(!is_coordinator(Some(AgentRole::Worker), None, false, false));
+        assert!(!is_coordinator(None, None, false, false));
     }
 }
 

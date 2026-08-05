@@ -50,11 +50,11 @@ function usageNormalize(raw) {
 var CLAUDE_USAGE_KIND = "codeterm_usage_v1";
 function fetchClaudeUsage(host2) {
   const credentialsPath = host2.expandHome("~/.claude/.credentials.json");
-  if (!credentialsPath) return null;
-  const credentials = safeJson(host2.fs.readFile(credentialsPath));
+  const fileCredentials = credentialsPath ? safeJson(host2.fs.readFile(credentialsPath)) : null;
+  const credentials = readMacOsCredentials(host2) ?? fileCredentials;
   const oauth = objectAt(credentials, "claudeAiOauth");
   const accessToken = stringAt(oauth, "accessToken");
-  if (!accessToken) return null;
+  if (!accessToken) throw new Error("usage credentials unavailable");
   const response = safeJson(host2.fetch(JSON.stringify({
     url: "https://api.anthropic.com/api/oauth/usage",
     method: "GET",
@@ -65,11 +65,14 @@ function fetchClaudeUsage(host2) {
       "User-Agent": "codeterm-usage/1.7.8"
     }
   })));
-  if (numberAt(response, "status") !== 200) return null;
+  const fetchError = stringAt(response, "error");
+  if (fetchError) throw new Error(`usage request failed: ${fetchError}`);
+  const status = numberAt(response, "status");
+  if (status !== 200) throw new Error(`usage request failed: HTTP ${status ?? "unknown"}`);
   const body = safeJson(stringAt(response, "body"));
   const session = objectAt(body, "five_hour");
   const weekly = objectAt(body, "seven_day");
-  if (!session && !weekly) return null;
+  if (!session && !weekly) throw new Error("usage response missing quota windows");
   return JSON.stringify({
     kind: CLAUDE_USAGE_KIND,
     session_pct: numberAt(session, "utilization"),
@@ -77,6 +80,16 @@ function fetchClaudeUsage(host2) {
     weekly_pct: numberAt(weekly, "utilization"),
     weekly_resets_at_ms: isoToMs(stringAt(weekly, "resets_at"))
   });
+}
+function readMacOsCredentials(host2) {
+  if (host2.platform() !== "macos") return null;
+  const user = host2.envGet("USER");
+  const args = ["find-generic-password"];
+  if (user) args.push("-a", user);
+  args.push("-w", "-s", "Claude Code-credentials");
+  const result = safeJson(host2.exec(JSON.stringify({ bin: "security", args, timeoutMs: 5e3 })));
+  if (numberAt(result, "code") !== 0) return null;
+  return safeJson(stringAt(result, "stdout"));
 }
 function parseFetchedClaudeUsage(raw, nowMs) {
   const fetched = safeJson(raw);
@@ -1214,6 +1227,32 @@ var plugin = {
     }
     return null;
   },
+  detectSessionReasoningEffort(cwd, sessionId) {
+    const path = claudeSessionFilePath(cwd, sessionId);
+    if (!path || !host.fs.fileExists(path)) return null;
+    const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
+    if (!contents) return null;
+    const supported = { low: true, medium: true, high: true, xhigh: true, max: true };
+    const lines = contents.split("\n");
+    for (let i = lines.length - 1; i >= 0; i--) {
+      if (!lines[i]) continue;
+      let value;
+      try {
+        value = JSON.parse(lines[i]);
+      } catch (_) {
+        continue;
+      }
+      const message = value.message && typeof value.message === "object" ? value.message : null;
+      const metadata = message?.metadata && typeof message.metadata === "object" ? message.metadata : null;
+      const candidates = [value.effort, value.reasoning_effort, value.reasoningEffort, message?.effort, message?.reasoning_effort, metadata?.effort];
+      for (let j = 0; j < candidates.length; j++) {
+        const candidate = candidates[j];
+        const effort = typeof candidate === "string" ? candidate.trim() : "";
+        if (supported[effort]) return effort;
+      }
+    }
+    return null;
+  },
   // Discovery is genuine-only: null (no keys / failed fetch) keeps the host on
   // the registered manifest seed and must never be persisted as a live snapshot.
   discoverModels() {
@@ -1462,7 +1501,10 @@ var plugin = {
         notification_hook: false,
         stop_hook: false,
         precompact_hook: false,
-        session_start_hook: false
+        session_start_hook: false,
+        target: path || "~/.claude/settings.json",
+        backup_exists: !!path && host.fileExists(path + ".codeterm-backup"),
+        proposed_changes: ["Notification", "Stop", "SessionStart"]
       };
     }
     const json = host.fs.readJson(path);
@@ -1502,19 +1544,45 @@ var plugin = {
     const ss = sessionStartCurrent();
     return {
       settings_exists: true,
-      hooks_installed: n && s && pc && ss,
+      hooks_installed: n && s && ss,
       notification_hook: n,
       stop_hook: s,
       precompact_hook: pc,
-      session_start_hook: ss
+      session_start_hook: ss,
+      target: path,
+      backup_exists: host.fileExists(path + ".codeterm-backup"),
+      proposed_changes: ["Notification", "Stop", "SessionStart"]
     };
   },
-  installIntegration(_apiPort) {
+  installIntegration(_apiPort, options) {
+    if (!options || options.consent !== true) {
+      return { ok: false, error: "provider integration installation requires explicit local-user consent" };
+    }
     const m = manifest();
     const path = host.expandHome(m && m.integration && m.integration.settingsPath || "~/.claude/settings.json");
     if (!path) return { ok: false, error: "could not expand settingsPath" };
-    const json = host.fileExists(path) ? host.fs.readJson(path) || {} : {};
-    if (!json.hooks || typeof json.hooks !== "object") json.hooks = {};
+    const existed = host.fileExists(path);
+    const originalValue = existed ? host.fs.readFile(path) : null;
+    if (existed && typeof originalValue !== "string") {
+      return { ok: false, error: "could not read existing settings JSON at " + path };
+    }
+    const original = typeof originalValue === "string" ? originalValue : "";
+    let parsed = {};
+    if (existed) {
+      try {
+        parsed = JSON.parse(original);
+      } catch (_) {
+        return { ok: false, error: "existing settings JSON is malformed at " + path };
+      }
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { ok: false, error: "existing settings JSON must contain an object at " + path };
+    }
+    const json = parsed;
+    if (json.hooks !== void 0 && (typeof json.hooks !== "object" || Array.isArray(json.hooks))) {
+      return { ok: false, error: "hooks is not an object" };
+    }
+    if (!json.hooks) json.hooks = {};
     const guard = 'if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ]; then ';
     const authH = '-H "Authorization: Bearer $CODETERM_API_TOKEN"';
     const nonceH = '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}"';
@@ -1537,15 +1605,27 @@ var plugin = {
     const newHooks = {
       Notification: newEntry("permission_prompt", notifyCmd, 5e3),
       Stop: newEntry("", stopCmd, 5e3),
-      PreCompact: newEntry("", precompactCmd, 1e4),
       SessionStart: newEntry("", sessionStartCmd, 5e3)
     };
+    if (options.precompact_memory_export === true) {
+      newHooks.PreCompact = newEntry("", precompactCmd, 1e4);
+    }
     const keys = ["Notification", "Stop", "PreCompact", "SessionStart"];
     for (let i = 0; i < keys.length; i++) {
       const k = keys[i];
-      if (!Array.isArray(json.hooks[k])) json.hooks[k] = [];
-      json.hooks[k] = json.hooks[k].filter((entry) => !isCodetermHook(entry));
-      json.hooks[k].push(newHooks[k]);
+      if (json.hooks[k] !== void 0 && !Array.isArray(json.hooks[k])) {
+        return { ok: false, error: "hooks." + k + " is not an array" };
+      }
+      const existing = Array.isArray(json.hooks[k]) ? json.hooks[k].filter((entry) => !isCodetermHook(entry)) : [];
+      if (newHooks[k]) {
+        existing.push(newHooks[k]);
+        json.hooks[k] = existing;
+      } else if (Array.isArray(json.hooks[k])) {
+        json.hooks[k] = existing;
+      }
+    }
+    if (!host.fs.writeFile(path + ".codeterm-backup", original) || !host.fs.writeFile(path + ".codeterm-backup-state", existed ? "present" : "absent")) {
+      return { ok: false, error: "could not write recoverable backup for " + path };
     }
     const ok = host.fs.writeJson(path, json);
     if (ok) {
@@ -1558,13 +1638,34 @@ var plugin = {
     const m = manifest();
     const path = host.expandHome(m && m.integration && m.integration.settingsPath || "~/.claude/settings.json");
     if (!path || !host.fileExists(path)) return { ok: true };
-    const json = host.fs.readJson(path);
-    if (!json || !json.hooks || typeof json.hooks !== "object") return { ok: true };
-    const keys = ["Notification", "Stop"];
+    const original = host.fs.readFile(path);
+    if (typeof original !== "string") return { ok: false, error: "could not safely read settings JSON at " + path };
+    let parsed;
+    try {
+      parsed = JSON.parse(original);
+    } catch (_) {
+      return { ok: false, error: "existing settings JSON is malformed at " + path };
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { ok: false, error: "existing settings JSON must contain an object at " + path };
+    }
+    const json = parsed;
+    if (json.hooks === void 0) return { ok: true };
+    if (!json.hooks || typeof json.hooks !== "object" || Array.isArray(json.hooks)) {
+      return { ok: false, error: "hooks is not an object" };
+    }
+    const keys = ["Notification", "Stop", "PreCompact", "SessionStart"];
     for (let i = 0; i < keys.length; i++) {
       const k = keys[i];
-      if (!Array.isArray(json.hooks[k])) continue;
-      json.hooks[k] = json.hooks[k].filter((entry) => !isCodetermHook(entry));
+      if (json.hooks[k] !== void 0 && !Array.isArray(json.hooks[k])) {
+        return { ok: false, error: "hooks." + k + " is not an array" };
+      }
+    }
+    for (let i = 0; i < keys.length; i++) {
+      const k = keys[i];
+      if (Array.isArray(json.hooks[k])) {
+        json.hooks[k] = json.hooks[k].filter((entry) => !isCodetermHook(entry));
+      }
     }
     const ok = host.fs.writeJson(path, json);
     if (ok) {
@@ -1572,6 +1673,19 @@ var plugin = {
       return { ok: true };
     }
     return { ok: false, error: "writeJson failed for " + path };
+  },
+  restoreIntegration() {
+    const m = manifest();
+    const path = host.expandHome(m && m.integration && m.integration.settingsPath || "~/.claude/settings.json");
+    if (!path) return { ok: false, error: "could not expand settingsPath" };
+    const backup = path + ".codeterm-backup";
+    if (!host.fileExists(backup)) return { ok: false, error: "no recoverable backup at " + backup };
+    const original = host.fs.readFile(backup);
+    if (typeof original !== "string") return { ok: false, error: "restore failed for " + path };
+    const state = host.fs.readFile(path + ".codeterm-backup-state");
+    const wasAbsent = state === "absent" || typeof state !== "string" && original === "";
+    if (wasAbsent) return !host.fileExists(path) || host.removeFile(path) ? { ok: true } : { ok: false, error: "restore failed for " + path };
+    return host.fs.writeFile(path, original) ? { ok: true } : { ok: false, error: "restore failed for " + path };
   },
   // AS3/AS4 tab-state classification lives in ./classify; the facade delegates.
   // See that module for the auth/rate-limit/clarifying ensemble and its guarantees.

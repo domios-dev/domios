@@ -1,0 +1,11 @@
+# Raw recording artifacts stay local: multi-MB casts, SSE dumps, rendered
+# timelines. Committed per capture: meta.json + streaming-report*.json
+# (+ SUMMARY.md) — the reproducible summaries.
+*.cast
+*.ndjson
+timeline-motion.json
+session.screen*.txt
+question-screen.txt
+capture-start.json
+capture-stop.json
+*.log

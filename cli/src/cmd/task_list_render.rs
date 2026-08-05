@@ -74,9 +74,11 @@ fn append_simple_task(
         .filter_map(|item| item.get("canonical_url").and_then(Value::as_str))
         .collect::<Vec<_>>()
         .join(",");
-    let suffix = (!external_refs.is_empty())
-        .then(|| format!("\t{external_refs}"))
-        .unwrap_or_default();
+    let suffix = if external_refs.is_empty() {
+        String::new()
+    } else {
+        format!("\t{external_refs}")
+    };
     out.push_str(&format!(
         "{}{id}\t{status}\t{plan}\t{name}{suffix}\n",
         "  ".repeat(depth)

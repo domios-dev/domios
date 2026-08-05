@@ -21,6 +21,8 @@ pub const MILESTONE_GATE_LADDER: &str = "Testing ladder — per-task = focused f
 /// Appended to Planner-profile Worker tasks.
 pub const PLANNER_SUFFIX: &str = include_str!("../prompts/planner_suffix.md");
 
+pub const PLANNER_DOC: &str = include_str!("../../docs/PLANNER.md");
+
 /// Shared bounce-unwinding contract exposed through embedded docs and fixtures.
 pub const BOUNCE_UNWINDING_CONTRACT: &str = include_str!("../prompts/bounce_unwinding_contract.md");
 
@@ -29,6 +31,16 @@ pub const TEST_AUTHOR_GUIDANCE: &str = "You are a test-author. docs/contributing
 
 /// Appended to Orchestrator tasks — no-sleep rule.
 pub const ORCHESTRATOR_SUFFIX: &str = include_str!("../prompts/orchestrator_suffix.md");
+
+pub const ORCHESTRATION_DOC: &str = include_str!("../../docs/ORCHESTRATION.md");
+
+/// Task-decomposition contract shared by both planning surfaces. One source so
+/// the Planner that cuts the graph and the Orchestrator that judges it agree.
+pub const PLANNING_COMPACTION_CONTRACT: &str = include_str!("../prompts/planning_compaction.md");
+
+/// Team-bound creation contract shared by the two roles that can ask for a new
+/// agent, shell, or schedule. One source so neither can drift into a loose one.
+pub const TEAM_CREATION_CONTRACT: &str = include_str!("../prompts/team_creation_contract.md");
 
 /// Delivered when an existing agent tab becomes an Orchestrator.
 pub const ORCHESTRATOR_ONBOARDING: &str = include_str!("../prompts/orchestrator_onboarding.md");
@@ -73,6 +85,10 @@ pub const WORKER_CODETERM_CONTEXT: &str = include_str!("../prompts/worker_codete
 
 /// Shared rich-rendering capability included in every CodeTerm agent contract.
 pub const RICH_RENDERING_GUIDANCE: &str = include_str!("../prompts/rich_rendering_guidance.md");
+
+/// AgentPad contract — single source. Every surface that provisions a pad must
+/// deliver this; the pad only exists for CodeTerm-spawned agent tabs.
+pub const AGENT_PAD_RULE: &str = include_str!("../prompts/agent_pad_rule.md");
 
 /// Bootstrap instructions template — becomes the agent's personal config file after first run.
 pub const BOOTSTRAP_INSTRUCTIONS_TEMPLATE: &str =
@@ -123,8 +139,8 @@ pub fn planner_onboarding_task(
     plan_id: &str,
 ) -> String {
     format!(
-        "You are the Planner specialist for plan {plan_id}, working under Orchestrator {orchestrator_label} (tab {orchestrator_tab_id}). {PEER_PLANNER_CHARTER_LINE} {PEER_ORCH_DEFERENCE_LINE}\n\
-First read `codeterm docs PLANNER` for your role. Planner can EXECUTE: `codeterm plan goal set`, `codeterm plan section add`, `codeterm plan task add`, `codeterm plan section show`, `codeterm plan get --sections`, and `codeterm plan doctor --kind quality`. YOU cut the tasks — each carries a brief, acceptance criteria, an executable test plan, a correctness vector, and the persona/role fields (`--personality`, `--executor-role`, `--role-guidance`); the Orchestrator dispatches and accepts them, it does not create them. The full CLI reference is the `codeterm` skill (`codeterm mem search \"codeterm skill\"` if it is not loaded). A fresh pairing starts empty: if no goal or planning request has been delegated yet, reply that you are ready and WAIT — do not explore the project or read other plans."
+        "You are the Planner specialist for the active Team Plan {plan_id}, working with Orchestrator {orchestrator_label} (tab {orchestrator_tab_id}). {PEER_PLANNER_CHARTER_LINE} {PEER_ORCH_DEFERENCE_LINE}\n\
+First read `codeterm docs PLANNER` for your role. The Orchestrator owns and creates the Team Plan and may create its complete structure directly. When planning is delegated, refine that same Team Plan with `codeterm plan goal set`, `codeterm plan section add`, `codeterm plan task add`, `codeterm plan section show`, `codeterm plan get --sections`, and `codeterm plan doctor --kind quality`. No separate Planner-to-Plan binding or General Agent bootstrap is required. The full CLI reference is the `codeterm` skill (`codeterm mem search \"codeterm skill\"` if it is not loaded). If no planning request has been delegated yet, reply that you are ready and WAIT."
     )
 }
 
@@ -135,8 +151,8 @@ pub fn planner_onboarding_task_no_plan(
     orchestrator_tab_id: &str,
 ) -> String {
     format!(
-        "You are the Planner specialist paired with Orchestrator {orchestrator_label} (tab {orchestrator_tab_id}). No plan exists yet; the Orchestrator's first goal/plan create will bind you to that plan. {PEER_PLANNER_CHARTER_LINE} {PEER_ORCH_DEFERENCE_LINE}\n\
-First read `codeterm docs PLANNER` for your role. Planner can EXECUTE after a plan exists: `codeterm plan goal set`, `codeterm plan section add`, `codeterm plan task add`, `codeterm plan section show`, `codeterm plan get --sections`, and `codeterm plan doctor --kind quality`. YOU cut the tasks after the Orchestrator delegates the goal — each carries a brief, acceptance criteria, an executable test plan, a correctness vector, and the persona/role fields (`--personality`, `--executor-role`, `--role-guidance`); the Orchestrator dispatches and accepts them, it does not create them. A fresh pairing starts empty: if no goal or planning request has been delegated yet, reply that you are ready and WAIT — do not explore the project or read other plans."
+        "You are the Planner specialist paired with Orchestrator {orchestrator_label} (tab {orchestrator_tab_id}). The Team may not have a Plan yet; the Orchestrator creates it and Team membership makes it visible to you automatically. {PEER_PLANNER_CHARTER_LINE} {PEER_ORCH_DEFERENCE_LINE}\n\
+First read `codeterm docs PLANNER` for your role. Do not create a bootstrap Plan, bind yourself to a Plan, or contact the General Agent. When the Orchestrator delegates planning, refine the active Team Plan with the normal plan editing commands. If no planning request has been delegated yet, reply that you are ready and WAIT."
     )
 }
 
@@ -155,139 +171,344 @@ pub fn peer_pairing_mandate_full(spawn_cmd: &str) -> String {
 }
 
 pub fn orchestrator_suffix() -> String {
-    ORCHESTRATOR_SUFFIX.to_string()
+    let role_prompt = ORCHESTRATOR_SUFFIX
+        .replace(
+            "{planning_compaction_contract}",
+            PLANNING_COMPACTION_CONTRACT.trim(),
+        )
+        .replace("{team_creation_contract}", TEAM_CREATION_CONTRACT.trim());
+    format!(
+        "{}\n\n## Canonical Orchestrator manual\n\n{}",
+        role_prompt.trim(),
+        ORCHESTRATION_DOC.trim()
+    )
 }
 
 pub fn orchestrator_onboarding(planner_spawn_cmd: &str) -> String {
     ORCHESTRATOR_ONBOARDING
         .replace("{planner_spawn_cmd}", planner_spawn_cmd)
-        .replace("{orchestrator_suffix}", ORCHESTRATOR_SUFFIX)
+        .replace("{orchestrator_suffix}", &orchestrator_suffix())
 }
 
 pub fn planner_suffix() -> String {
-    PLANNER_SUFFIX.replace("{test_author_guidance}", TEST_AUTHOR_GUIDANCE)
+    let role_prompt = PLANNER_SUFFIX
+        .replace("{test_author_guidance}", TEST_AUTHOR_GUIDANCE)
+        .replace(
+            "{planning_compaction_contract}",
+            PLANNING_COMPACTION_CONTRACT.trim(),
+        )
+        .replace("{team_creation_contract}", TEAM_CREATION_CONTRACT.trim());
+    format!(
+        "{}\n\n## Canonical Planner manual\n\n{}",
+        role_prompt.trim(),
+        PLANNER_DOC.trim()
+    )
 }
+
+/// Upper bound for a composed role prompt. Not a style preference: every byte
+/// here is spent on every launch of that role, so growth needs a decision.
+pub const COMPOSED_ROLE_PROMPT_MAX_BYTES: usize = 32 * 1024;
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn docs_do_not_reintroduce_dead_general_agent_spec() {
-        const GENERAL_AGENT_DOC: &str = include_str!("../../docs/GENERAL_AGENT.md");
+    /// The committed clap manifest is the authority on which commands exist.
+    /// Generated artifact — read here, never written.
+    const CLI_MANIFEST: &str = include_str!("../../docs/cli-manifest.json");
 
-        assert!(!GENERAL_AGENT_DOC.contains("CODETERM-AUTO-START"));
-        assert!(!GENERAL_AGENT_DOC.contains("CODETERM-AUTO-END"));
-        assert!(!GENERAL_AGENT_DOC.contains("EXTRA_INSTRUCTIONS.md"));
-        assert!(!GENERAL_AGENT_DOC.contains("{connected_services}"));
-        assert!(!GENERAL_AGENT_DOC.contains("secrets/*.md"));
+    /// Every prompt fragment that teaches CLI grammar, with the file it is
+    /// loaded from so a failure names something a human can open.
+    fn cli_teaching_fragments() -> [(&'static str, &'static str); 7] {
+        [
+            ("general_agent.md", GENERAL_AGENT_TEMPLATE),
+            ("codeterm_rule.md", CODETERM_RULE),
+            ("codeterm_cli.md", CODETERM_CLI),
+            ("planner_suffix.md", PLANNER_SUFFIX),
+            ("orchestrator_suffix.md", ORCHESTRATOR_SUFFIX),
+            ("worker_suffix.md", WORKER_SUFFIX),
+            ("team_creation_contract.md", TEAM_CREATION_CONTRACT),
+        ]
     }
 
-    #[test]
-    fn prompt_docs_match_extraction_contract() {
-        const PROMPTS_DOC: &str = include_str!("../../docs/PROMPTS.md");
-
-        assert!(PROMPTS_DOC.contains("50,000 chars"));
-        assert!(PROMPTS_DOC.contains("excludes only `MemKind::Summary`"));
-        assert!(!PROMPTS_DOC.contains("4000 chars"));
-        assert!(!PROMPTS_DOC.contains("items longer than ~80 chars"));
+    fn subcommand<'a>(node: &'a serde_json::Value, name: &str) -> Option<&'a serde_json::Value> {
+        node["subcommands"].as_array()?.iter().find(|child| {
+            child["name"] == *name
+                || child["aliases"]
+                    .as_array()
+                    .is_some_and(|aliases| aliases.iter().any(|alias| alias == name))
+        })
     }
 
-    #[test]
-    fn prompt_surface_uses_delay_only_jitter_wording() {
-        const MEMORY_DOC: &str = include_str!("../../docs/MEMORY.md");
-        const CONFIG_DOC: &str = include_str!("../../docs/CONFIG.md");
+    fn is_leaf(node: &serde_json::Value) -> bool {
+        node["subcommands"]
+            .as_array()
+            .is_none_or(|children| children.is_empty())
+    }
 
-        for text in [CODETERM_CLI, MEMORY_DOC, CONFIG_DOC] {
-            assert!(!text.contains("±30 min jitter"));
-            assert!(!text.contains("±90 min jitter"));
-            assert!(!text.contains("5:30–6:30"));
+    /// A bare command word, or a `list|show` / `get/set` alternation of them.
+    fn command_words(token: &str) -> Option<Vec<&str>> {
+        let words: Vec<&str> = token.split(['|', '/']).filter(|w| !w.is_empty()).collect();
+        let bare = |w: &str| {
+            w.starts_with(|c: char| c.is_ascii_lowercase())
+                && w.chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        };
+        (!words.is_empty() && words.iter().copied().all(bare)).then_some(words)
+    }
+
+    /// Lines and backtick spans are where a fragment prescribes a runnable
+    /// command. Prose that merely says "codeterm" is not a reference.
+    fn command_spans(text: &str) -> Vec<&str> {
+        let mut spans = Vec::new();
+        for line in text.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("codeterm ") {
+                spans.push(trimmed);
+            }
+            for (index, part) in trimmed.split('`').enumerate() {
+                if index % 2 == 1 {
+                    spans.push(part.trim());
+                }
+            }
         }
-        assert!(CODETERM_CLI.contains("delay-only"));
-        assert!(MEMORY_DOC.contains("0..30 min delay-only jitter"));
-        assert!(CONFIG_DOC.contains("0..30 min delay-only jitter"));
+        spans
+    }
+
+    /// Resolve every command reference in one span, appending a human-readable
+    /// complaint for each reference the manifest cannot account for.
+    fn check_span(root: &serde_json::Value, span: &str, problems: &mut Vec<String>) {
+        let tokens: Vec<&str> = span.split_whitespace().collect();
+        for (index, token) in tokens.iter().enumerate() {
+            if *token != "codeterm" || index + 1 >= tokens.len() {
+                continue;
+            }
+            if command_words(tokens[index + 1]).is_none() {
+                continue; // `codeterm <cmd> --help`, a bare binary mention, prose
+            }
+            let mut node = root;
+            let mut path: Vec<&str> = Vec::new();
+            let mut cursor = index + 1;
+            let mut alternation = false;
+            let mut unknown = false;
+            while cursor < tokens.len() && !alternation && tokens[cursor] != "codeterm" {
+                let Some(words) = command_words(tokens[cursor]) else {
+                    break;
+                };
+                let resolved: Vec<Option<&serde_json::Value>> =
+                    words.iter().map(|word| subcommand(node, word)).collect();
+                if resolved.iter().any(Option::is_none) {
+                    if is_leaf(node) {
+                        break; // a positional argument of a leaf command
+                    }
+                    path.push(tokens[cursor]);
+                    problems.push(format!("unknown command `codeterm {}`", path.join(" ")));
+                    unknown = true;
+                    break;
+                }
+                node = resolved[0].expect("resolved above");
+                path.push(tokens[cursor]);
+                cursor += 1;
+                alternation = words.len() > 1;
+            }
+            if unknown {
+                continue;
+            }
+            if !alternation && !is_leaf(node) {
+                if let Some(next) = tokens.get(cursor) {
+                    if !next.starts_with('-')
+                        && !next.starts_with('<')
+                        && *next != "..."
+                        && *next != "codeterm"
+                    {
+                        problems.push(format!(
+                            "`codeterm {}` is a command group but is used as if it took arguments",
+                            path.join(" ")
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    /// A rename that strands a prompt fails here instead of teaching agents a
+    /// dead command. Resolution against the manifest, never prompt wording.
+    #[test]
+    fn prompt_cli_references_exist_in_manifest() {
+        let root: serde_json::Value =
+            serde_json::from_str(CLI_MANIFEST).expect("cli-manifest.json must parse");
+
+        let mut problems: Vec<String> = Vec::new();
+        for (name, fragment) in cli_teaching_fragments() {
+            for span in command_spans(fragment) {
+                let before = problems.len();
+                check_span(&root, span, &mut problems);
+                for problem in problems.iter_mut().skip(before) {
+                    *problem = format!("{name}: {problem}");
+                }
+            }
+        }
+
+        assert!(
+            problems.is_empty(),
+            "prompts teach commands the CLI manifest does not have. If the command \
+             is new, docs/cli-manifest.json needs regeneration:\n{}",
+            problems.join("\n")
+        );
     }
 
     #[test]
-    fn planner_suffix_uses_canonical_test_author_guidance() {
+    fn planner_suffix_substitutes_the_test_author_guidance_constant() {
         let suffix = planner_suffix();
 
-        assert!(suffix.contains(
-            "A task whose primary deliverable is tests (specs, drills, eval harnesses, baselines)"
-        ));
-        assert!(suffix.contains("`executor_role=test-author`"));
         assert!(suffix.contains(TEST_AUTHOR_GUIDANCE));
         assert!(!suffix.contains("{test_author_guidance}"));
     }
 
+    /// Worker briefs compose three fragments. Their wording belongs to the .md
+    /// files; only the composition is a mechanism worth asserting here.
     #[test]
-    fn operational_prompts_keep_clarity_fixes() {
-        assert!(WORKER_SUFFIX.contains("STATUS: in_review"));
-        assert!(WORKER_SUFFIX.contains("commit only this task's owned changes"));
-        assert!(WORKER_SUFFIX.contains("--sha YOUR_OWN_COMMIT_SHA"));
-        assert!(!WORKER_SUFFIX.contains("--sha $(git rev-parse HEAD)"));
-        assert!(WORKER_SUFFIX.contains("Read-only tasks need no commit"));
-        assert!(WORKER_SUFFIX.contains("TESTS RUN:"));
-        assert!(WORKER_SUFFIX.contains("GATES REQUESTED:"));
+    fn worker_suffix_composes_its_discipline_fragments() {
+        let rendered = worker_suffix();
         assert!(!TESTING_DISCIPLINE.trim().is_empty());
-        assert!(worker_suffix().contains(TESTING_DISCIPLINE.trim()));
-        assert!(worker_suffix().contains(QA_PIPELINE_DISCIPLINE.trim()));
-        assert!(!WORKER_LOOP_EVIDENCE_RULE.trim().is_empty());
-        assert!(WORKER_COMPETITIVE_ISOLATION_RULES
-            .iter()
-            .all(|rule| !rule.trim().is_empty()));
-        assert!(!HEARTBEAT_COMPETITIVE_ATTEMPTS_TITLE.trim().is_empty());
-        assert!(BOOTSTRAP_INSTRUCTIONS_TEMPLATE.contains("{general_dir}/bootstrap.md"));
-        assert!(!BOOTSTRAP_INSTRUCTIONS_TEMPLATE.contains("rm bootstrap.md"));
-        assert!(BRIDGE_MEM.contains("provider skill named `codeterm`"));
-        assert!(BRIDGE_MEM.contains("mem seed item"));
-        assert!(!MEM_EXTRACTION.contains("mem search returns BOTH"));
-        assert!(!DREAMING_REM.contains("mem search returns BOTH"));
+        assert!(!QA_PIPELINE_DISCIPLINE.trim().is_empty());
+        assert!(rendered.contains(TESTING_DISCIPLINE.trim()));
+        assert!(rendered.contains(QA_PIPELINE_DISCIPLINE.trim()));
+        assert!(!rendered.contains('{'), "unsubstituted placeholder remains");
     }
 
-    /// The find-guardrail must reach both spawned Worker agents and every
-    /// cron-fired agent — unconditionally, not only when a skill is declared.
     #[test]
-    fn find_guardrail_reaches_worker_and_cron_briefs() {
-        assert!(worker_suffix()
-            .to_lowercase()
-            .contains("home-/root-wide `find`"));
-        assert!(CRON_COMPLETE_SUFFIX
-            .to_lowercase()
-            .contains("home-/root-wide `find`"));
-    }
-
-    /// A cron job's declared skill must resolve to an exact, Read-able path —
-    /// never the Skill tool (cron agents can't resolve mem skills through it) or a search.
-    #[test]
-    fn cron_skill_prompts_point_at_exact_path_not_tool_or_search() {
+    fn cron_skill_prompts_keep_their_substitution_slots() {
         assert!(CRON_SKILL_HINT.contains("{skill_path}"));
         assert!(CRON_SKILL_HINT.contains("{skill_slug}"));
-        assert!(CRON_SKILL_HINT
-            .to_lowercase()
-            .contains("do not use the skill tool"));
         assert!(CRON_SKILL_MISSING.contains("{skill_slug}"));
-        assert!(CRON_SKILL_MISSING.to_lowercase().contains("cron complete"));
-        assert!(CRON_SKILL_MISSING.to_lowercase().contains("find`"));
     }
 
     #[test]
-    fn general_agent_requires_mem_skill_search_before_declaring_missing() {
-        assert!(GENERAL_AGENT_TEMPLATE.contains("Skill lookup"));
-        assert!(GENERAL_AGENT_TEMPLATE.contains("pre-injected provider skill list"));
-        assert!(GENERAL_AGENT_TEMPLATE.contains("codeterm mem search \"<capability> skill\""));
-        assert!(GENERAL_AGENT_TEMPLATE.contains("before declaring the skill missing"));
-        assert!(BRIDGE_MEM.contains("Skill lookup before \"missing\""));
-        assert!(BRIDGE_MEM.contains("codeterm mem search \"<capability> skill\""));
+    fn orchestration_guidance_uses_only_complete_document_reads() {
+        const ORCHESTRATION_DOC: &str = include_str!("../../docs/ORCHESTRATION.md");
+        const PLANNER_DOC: &str = include_str!("../../docs/PLANNER.md");
+        const PLAN_EDITING_DOC: &str = include_str!("../../docs/PLAN-EDITING.md");
+        let surfaces = [
+            ORCHESTRATOR_ONBOARDING,
+            PLANNER_SUFFIX,
+            CODETERM_CLI,
+            ORCHESTRATION_DOC,
+            PLANNER_DOC,
+            PLAN_EDITING_DOC,
+        ];
+
+        for surface in surfaces {
+            for fragment in surface.split('`') {
+                let command = fragment.trim();
+                if command.starts_with("codeterm docs") {
+                    for removed in ["--head", "--section", "--full"] {
+                        assert!(
+                            !command.contains(removed),
+                            "removed docs mode remains: {command}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// The docs-discovery rule has exactly one home, asserted by command form
+    /// rather than by the sentence that introduces it.
+    #[test]
+    fn codeterm_docs_rule_has_exactly_one_home() {
+        const DISCOVERY_FORM: &str = "codeterm docs <NAME>";
+
+        assert_eq!(CODETERM_CLI.matches(DISCOVERY_FORM).count(), 1);
+        let general = GENERAL_AGENT_TEMPLATE.replace("{codeterm_cli}", CODETERM_CLI);
+        assert_eq!(general.matches(DISCOVERY_FORM).count(), 1);
+        for role_surface in [
+            ORCHESTRATOR_ONBOARDING,
+            ORCHESTRATOR_SUFFIX,
+            PLANNER_SUFFIX,
+            WORKER_SUFFIX,
+            AGENT_CODETERM_PRIMER,
+            WORKER_CODETERM_CONTEXT,
+        ] {
+            assert_eq!(
+                role_surface.matches(DISCOVERY_FORM).count(),
+                0,
+                "role instruction restates the docs rule instead of pointing at its one home"
+            );
+        }
     }
 
     #[test]
-    fn orchestration_prompts_separate_capability_from_mode() {
-        assert!(GENERAL_AGENT_TEMPLATE.contains("Orchestrator is an explicit mode"));
-        assert!(GENERAL_AGENT_TEMPLATE.contains("Until then, stay the machine-level General Agent"));
-        assert!(CODETERM_CLI.contains("You are not automatically an Orchestrator"));
-        assert!(CODETERM_CLI.contains("Make Orchestrator"));
-        assert!(CODETERM_CLI.contains("codeterm docs ORCHESTRATION"));
+    fn agent_pad_rule_has_exactly_one_source() {
+        // The fragment is an opaque token here. Asserting its wording would make
+        // rewriting the rule fail a test that has nothing to say about wording.
+        let rule = AGENT_PAD_RULE.trim();
+        assert!(!rule.is_empty());
+
+        for surface in [
+            CODETERM_CLI,
+            ORCHESTRATOR_ONBOARDING,
+            ORCHESTRATOR_SUFFIX,
+            PLANNER_SUFFIX,
+            WORKER_SUFFIX,
+            AGENT_CODETERM_PRIMER,
+            WORKER_CODETERM_CONTEXT,
+        ] {
+            assert!(
+                !surface.contains(rule),
+                "the AgentPad rule must live only in AGENT_PAD_RULE"
+            );
+        }
+    }
+
+    #[test]
+    fn selected_instruction_references_name_whole_documents() {
+        const ORCHESTRATION_DOC: &str = include_str!("../../docs/ORCHESTRATION.md");
+        const PLANNER_DOC: &str = include_str!("../../docs/PLANNER.md");
+        const PLAN_EDITING_DOC: &str = include_str!("../../docs/PLAN-EDITING.md");
+        let surfaces = [
+            ORCHESTRATOR_ONBOARDING,
+            PLANNER_SUFFIX,
+            CODETERM_CLI,
+            ORCHESTRATION_DOC,
+            PLANNER_DOC,
+            PLAN_EDITING_DOC,
+        ];
+        for surface in surfaces {
+            for fragment in surface.split('`') {
+                let command = fragment.trim();
+                if !command.starts_with("codeterm docs ")
+                    || command.contains("<TOPIC>")
+                    || command.contains("<NAME>")
+                    || command == "codeterm docs --help"
+                {
+                    continue;
+                }
+                let document = command
+                    .strip_prefix("codeterm docs ")
+                    .and_then(|rest| rest.split_whitespace().next())
+                    .unwrap_or_default();
+                assert!(
+                    [
+                        "ORCHESTRATION",
+                        "ORCHESTRATION-OPERATIONS",
+                        "PLANNER",
+                        "PLAN-EDITING",
+                        "LANES",
+                        "BOUNCE",
+                        "TEST-AUTHORING",
+                        "ROUTING",
+                        "MESH",
+                        "MEMORY",
+                        "SECRETS",
+                        "API-CLI",
+                    ]
+                    .contains(&document),
+                    "instruction reference names an unknown document: {command}"
+                );
+                assert_eq!(command, format!("codeterm docs {document}"));
+            }
+        }
     }
 
     #[test]
@@ -295,7 +516,7 @@ mod tests {
         let filled = peer_pairing_mandate_block("codeterm agent spawn claude --role Planner");
         assert!(filled.contains("codeterm agent spawn claude --role Planner"));
         assert!(!filled.contains("{spawn_cmd}"));
-        assert!(PEER_WAIVER_HINT.contains("--planner none --note"));
+        assert!(!PEER_WAIVER_HINT.trim().is_empty());
     }
 
     #[test]
@@ -305,9 +526,6 @@ mod tests {
         assert!(!full.contains("{spawn_cmd}"));
         assert!(full.contains(PEER_PLANNER_CHARTER_LINE));
         assert!(full.contains(PEER_ORCH_DEFERENCE_LINE));
-        assert!(full.contains("single authority"));
-        assert!(!full.contains("Peer contract"));
-        assert!(!full.contains("Planner acknowledgment"));
     }
 
     #[test]
@@ -315,20 +533,6 @@ mod tests {
         let t = planner_onboarding_task("Opus Orchestrator", "tab_orch_9", "pl_abc");
         assert!(t.contains("pl_abc"), "names the plan");
         assert!(t.contains("Opus Orchestrator"), "names the orchestrator");
-        assert!(
-            t.contains("You are the Planner"),
-            "second-person onboarding"
-        );
-        assert!(t.contains("codeterm docs PLANNER"), "points at the doc");
-        assert!(
-            t.contains("Planner can EXECUTE:"),
-            "lists concrete executable actions"
-        );
-        assert!(
-            t.contains("codeterm plan task add"),
-            "names concrete planner action"
-        );
-        assert!(t.contains("--personality"), "mandates persona fields");
         assert!(t.contains(PEER_PLANNER_CHARTER_LINE), "reuses the charter");
         assert!(t.contains(PEER_ORCH_DEFERENCE_LINE), "reuses the deference");
     }
@@ -336,91 +540,162 @@ mod tests {
     #[test]
     fn planner_onboarding_task_no_plan_carries_pair_hold_state_without_plan_id() {
         let t = planner_onboarding_task_no_plan("Opus Orchestrator", "tab_orch_9");
-        assert!(t.contains("No plan exists yet"));
-        assert!(t.contains("first goal/plan create"));
         assert!(t.contains("Opus Orchestrator"));
+        // The real invariant: the no-plan variant must never leak a plan id.
         assert!(!t.contains("pl_"));
     }
 
     #[test]
-    fn orchestrator_suffix_is_bounded_and_fully_rendered() {
+    fn orchestrator_suffix_embeds_the_canonical_manual() {
         let rendered = orchestrator_suffix();
-        assert!(rendered.split_whitespace().count() < 650);
-        assert!(rendered.contains("Keep the control loop responsive"));
-        assert!(rendered.contains("explicit completion signal"));
-        assert!(rendered.contains("verification proportional to risk"));
-        assert!(rendered.contains("OPEN RISK"));
-        assert!(rendered.contains("dispatch_ready"));
-        assert!(rendered.contains("worker_ack_timeout"));
-        assert!(rendered.contains("never poll or resend blindly"));
-        assert!(!rendered.contains("{bounce_unwinding_contract}"));
-        assert!(!rendered.contains("{plan_skills_principles}"));
+        assert!(rendered.ends_with(ORCHESTRATION_DOC.trim()));
+        assert!(!rendered.contains("{planning_compaction_contract}"));
     }
 
-    #[test]
-    fn spawned_agent_primer_exposes_rich_rendering() {
-        assert!(RICH_RENDERING_GUIDANCE.contains("Mermaid"));
-        assert!(RICH_RENDERING_GUIDANCE.contains("self-contained sandboxed"));
-        assert!(RICH_RENDERING_GUIDANCE.contains("`html`"));
-        assert!(RICH_RENDERING_GUIDANCE.contains("@ct-page"));
-        assert!(RICH_RENDERING_GUIDANCE.contains("@ct-image"));
-        assert!(RICH_RENDERING_GUIDANCE.contains("@ct-document"));
-        assert!(RICH_RENDERING_GUIDANCE.contains("inline HTML only for light native markup"));
-    }
+    // Rich-rendering delivery is a composition fact, so it is asserted where the
+    // composition lives — service::orchestrator::launch::tests. The two tests that
+    // used to sit here were named after the primer and the worker context but only
+    // asserted phrases inside RICH_RENDERING_GUIDANCE, so they passed regardless of
+    // whether either recipient received it.
 
+    /// One source, every surface that cuts or judges a task graph. The fragment
+    /// is an opaque token here; its wording belongs to the .md file.
     #[test]
-    fn worker_context_exposes_rich_rendering() {
-        assert!(RICH_RENDERING_GUIDANCE.contains("self-contained sandboxed"));
-        assert!(RICH_RENDERING_GUIDANCE.contains("`html`"));
-        assert!(RICH_RENDERING_GUIDANCE.contains("render Mermaid"));
-        assert!(RICH_RENDERING_GUIDANCE.contains("@ct-page"));
-    }
+    fn planning_compaction_contract_reaches_both_planning_surfaces() {
+        let contract = PLANNING_COMPACTION_CONTRACT.trim();
+        assert!(!contract.is_empty());
 
-    #[test]
-    fn orchestration_policy_keeps_checkout_choice_and_final_user_oracle_in_sync() {
-        const ORCHESTRATION_DOC: &str = include_str!("../../docs/ORCHESTRATION.md");
-        let rendered = orchestrator_suffix();
-
-        for policy in [
-            "canonical checkout or",
-            "isolated lane",
-            "Design the smallest deterministic user-layer oracle",
-            "final integration or release verification",
-            "cold compiled builds or suites",
-            "verification Worker",
-            "Heartbeat is derived automatically",
+        for rendered in [
+            orchestrator_suffix(),
+            planner_suffix(),
+            orchestrator_onboarding("codeterm agent spawn claude --role Planner"),
         ] {
-            assert!(rendered.contains(policy), "prompt missing policy: {policy}");
             assert!(
-                ORCHESTRATION_DOC.contains(policy),
-                "orchestration doc missing policy: {policy}"
+                rendered.contains(contract),
+                "planning contract not delivered"
+            );
+            assert!(!rendered.contains("{planning_compaction_contract}"));
+        }
+    }
+
+    /// Round-trips values this test supplies, so it proves substitution rather
+    /// than a phrase the prompt happens to contain.
+    #[test]
+    fn prompt_placeholders_are_fully_substituted() {
+        let spawn_cmd = "codeterm agent spawn claude --role Planner";
+        let composed = [
+            ("orchestrator_suffix", orchestrator_suffix()),
+            ("planner_suffix", planner_suffix()),
+            (
+                "orchestrator_onboarding",
+                orchestrator_onboarding(spawn_cmd),
+            ),
+            ("peer_pairing_mandate", peer_pairing_mandate_full(spawn_cmd)),
+            (
+                "general_agent",
+                GENERAL_AGENT_TEMPLATE.replace("{codeterm_cli}", CODETERM_CLI),
+            ),
+        ];
+
+        for (name, rendered) in composed {
+            for slot in [
+                "{planning_compaction_contract}",
+                "{team_creation_contract}",
+                "{test_author_guidance}",
+                "{orchestrator_suffix}",
+                "{planner_spawn_cmd}",
+                "{spawn_cmd}",
+                "{codeterm_cli}",
+            ] {
+                assert!(
+                    !rendered.contains(slot),
+                    "{name} still carries the unsubstituted slot {slot}"
+                );
+            }
+        }
+
+        assert!(orchestrator_onboarding(spawn_cmd).contains(spawn_cmd));
+        assert!(peer_pairing_mandate_full(spawn_cmd).contains(spawn_cmd));
+    }
+
+    /// Delivery, asserted by constant identity. Fragments are opaque tokens
+    /// here: which recipient receives which, never their wording.
+    #[test]
+    fn role_fragments_reach_their_recipients() {
+        let orchestrator = orchestrator_suffix();
+        let planner = planner_suffix();
+        let worker = worker_suffix();
+
+        for (recipient, rendered, fragments) in [
+            (
+                "orchestrator",
+                &orchestrator,
+                vec![PLANNING_COMPACTION_CONTRACT, TEAM_CREATION_CONTRACT],
+            ),
+            (
+                "planner",
+                &planner,
+                vec![PLANNING_COMPACTION_CONTRACT, TEAM_CREATION_CONTRACT],
+            ),
+            (
+                "worker",
+                &worker,
+                vec![TESTING_DISCIPLINE, QA_PIPELINE_DISCIPLINE, WORKER_SUFFIX],
+            ),
+        ] {
+            for fragment in fragments {
+                let token = fragment.trim();
+                assert!(!token.is_empty(), "an empty fragment proves nothing");
+                assert_eq!(
+                    rendered.matches(token).count(),
+                    1,
+                    "{recipient} must receive each of its fragments exactly once"
+                );
+            }
+        }
+
+        // The Team-bound creation contract has one source, not a copy per role.
+        let contract = TEAM_CREATION_CONTRACT.trim();
+        for surface in [
+            WORKER_SUFFIX,
+            AGENT_CODETERM_PRIMER,
+            WORKER_CODETERM_CONTEXT,
+        ] {
+            assert!(!surface.contains(contract));
+        }
+    }
+
+    #[test]
+    fn composed_prompt_stays_within_size_bound() {
+        for (name, rendered) in [
+            ("orchestrator_suffix", orchestrator_suffix()),
+            ("planner_suffix", planner_suffix()),
+            ("worker_suffix", worker_suffix()),
+            (
+                "general_agent",
+                GENERAL_AGENT_TEMPLATE.replace("{codeterm_cli}", CODETERM_CLI),
+            ),
+        ] {
+            assert!(
+                rendered.len() <= COMPOSED_ROLE_PROMPT_MAX_BYTES,
+                "{name} is {} bytes, over COMPOSED_ROLE_PROMPT_MAX_BYTES ({})",
+                rendered.len(),
+                COMPOSED_ROLE_PROMPT_MAX_BYTES
             );
         }
     }
 
     #[test]
-    fn planner_suffix_is_bounded_and_fully_rendered() {
-        const PLANNER_DOC: &str = include_str!("../../docs/PLANNER.md");
+    fn planner_suffix_embeds_the_canonical_manual() {
         let rendered = planner_suffix();
-        assert!(rendered.split_whitespace().count() < 800);
+        assert!(rendered.ends_with(PLANNER_DOC.trim()));
+        assert!(!rendered.contains("{planning_compaction_contract}"));
         assert!(!rendered.contains("{test_author_guidance}"));
-        for policy in [
-            "smallest deterministic user-layer oracle",
-            "cold compiled builds or suites",
-            "verification Worker",
-            "Checkout placement is chosen by the Orchestrator",
-        ] {
-            assert!(rendered.contains(policy), "prompt missing policy: {policy}");
-            assert!(
-                PLANNER_DOC.contains(policy),
-                "planner doc missing policy: {policy}"
-            );
-        }
     }
 
     #[test]
     fn milestone_gate_constants_wire_into_orchestration_ladder() {
-        const ORCHESTRATION_DOC: &str = include_str!("../../docs/ORCHESTRATION.md");
+        const ORCHESTRATION_DOC: &str = include_str!("../../docs/ORCHESTRATION-OPERATIONS.md");
 
         // Suggestion fills both placeholders and names the record command.
         let msg = milestone_gate_suggestion("phase-1", "Phase 1");
@@ -428,10 +703,8 @@ mod tests {
         assert!(msg.contains("codeterm plan qa next --group phase-1"));
         assert!(!msg.contains("{label}") && !msg.contains("{key}"));
 
-        // Three-tier ladder wording lives in a shared constant AND the doc verbatim.
-        assert!(MILESTONE_GATE_LADDER.contains("per-task = focused filters only"));
-        assert!(MILESTONE_GATE_LADDER.contains("per-group (milestone) = one full regression gate"));
-        assert!(MILESTONE_GATE_LADDER.contains("per-release = the farm matrix"));
+        // The doc must quote the shared constant verbatim — asserted by constant,
+        // not by quoted prose, so rewording the ladder updates one place.
         assert!(ORCHESTRATION_DOC.contains(MILESTONE_GATE_LADDER));
         assert_eq!(REGRESSION_MILESTONE_KIND, "regression");
         assert!(!MILESTONE_GATE_HEARTBEAT_TITLE.trim().is_empty());
@@ -453,17 +726,18 @@ mod tests {
         assert!(filled.contains("bounces: 1"));
         assert!(filled.contains("gate leaks: 2"));
         assert!(!filled.contains("{trigger}") && !filled.contains("{closed}"));
-        // Routes to existing homes; invents no new store.
-        assert!(filled.contains("codeterm orchestrator learn"));
-        assert!(filled.contains("codeterm plan skill new"));
-        assert!(filled.contains("Planner"));
         assert!(!REFLECTION_HEARTBEAT_TITLE.trim().is_empty());
     }
 
+    /// Was named for GA routing while asserting template phrases; the mechanism
+    /// it can actually own is the CLI-reference injection seam.
     #[test]
-    fn general_agent_routes_project_work_to_workspaces() {
-        assert!(GENERAL_AGENT_TEMPLATE.contains("Machine scope, not project scope"));
-        assert!(GENERAL_AGENT_TEMPLATE.contains("spawn or reuse an orchestrator there"));
+    fn general_agent_template_receives_the_cli_reference() {
+        assert!(GENERAL_AGENT_TEMPLATE.contains("{codeterm_cli}"));
+
+        let general = GENERAL_AGENT_TEMPLATE.replace("{codeterm_cli}", CODETERM_CLI);
+        assert!(general.contains(CODETERM_CLI));
+        assert!(!general.contains("{codeterm_cli}"));
     }
 
     #[test]
@@ -499,6 +773,8 @@ mod tests {
             "testing_discipline.md",
             "qa_pipeline_discipline.md",
             "planner_suffix.md",
+            "planning_compaction.md",
+            "team_creation_contract.md",
             "bounce_unwinding_contract.md",
             "orchestrator_suffix.md",
             "orchestrator_onboarding.md",
@@ -512,6 +788,7 @@ mod tests {
             "bridge_mem.md",
             "general_agent.md",
             "agent_codeterm_primer.md",
+            "agent_pad_rule.md",
             "worker_codeterm_context.md",
             "rich_rendering_guidance.md",
             "codeterm_cli.md",

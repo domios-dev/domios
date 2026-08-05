@@ -17,10 +17,10 @@ import {
 import { ToolCallBubble } from "./ToolCallBubble";
 import { ShellCommandItem } from "./ShellCommandItem";
 import { ReminderCard } from "./codeterm/ReminderCard";
-import { InboundReportCard } from "./codeterm/InboundReportCard";
+import { InboundReportCard, parseInboundReport } from "./codeterm/InboundReportCard";
 import { InboundMessageCard } from "./codeterm/InboundMessageCard";
 import { messageTimestamp } from "./codeterm/relativeTime";
-import type { TabNameResolver } from "./codeterm/templates";
+import type { PeerNameResolver, TabNameResolver } from "./codeterm/templates";
 import { ChevronIcon, PRE_WRAP_CLASS } from "./CodeBlock";
 import {
   CommandBody,
@@ -42,6 +42,7 @@ import { LinkedText, PlanRefCards, type ResolvedChatPlanRef } from "./codeterm/L
 import { hasPlanRefs } from "./codeterm/planRefs";
 import { recognize } from "./codeterm/recognize";
 import { isSend } from "./codeterm/templates";
+import { parseCoordinationReport } from "./codeterm/coordinationReport";
 import {
   hasMeaningfulToolResult,
   isRenderableMessage,
@@ -65,6 +66,8 @@ interface MessageBubbleProps {
   onOriginClick?: () => void;
   /** Resolve a tab id/short-id to a tab name for CodeTerm cards (e.g. "Sent to <name>"). */
   resolveTabName?: TabNameResolver;
+  /** Resolve a mesh UUID/name to the peer's human instance name. */
+  resolvePeerName?: PeerNameResolver;
   /** Focus a referenced Tab from a CodeTerm action card. */
   onFocusTab?: (tabRef: string) => void;
   /** Open the plan view for a plan, optionally focused on a task/section node. */
@@ -109,10 +112,12 @@ function recordBubbleRender(id: string): void {
   counts[id] = (counts[id] ?? 0) + 1;
 }
 
-export const MessageBubble = React.memo(function MessageBubble({ message, item, origin, onOriginClick, resolveTabName, onFocusTab, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand }: MessageBubbleProps) {
+export const MessageBubble = React.memo(function MessageBubble({ message, item, origin, onOriginClick, resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand }: MessageBubbleProps) {
   recordBubbleRender(message.id);
   const isInboundCommunication = origin?.kind === "tab" || message.inboundKind === "tab" || message.inboundKind === "report" || message.inboundKind === "mesh";
-  const shouldAutoExpand = hasVisibleEdit(item) || isInboundCommunication || isOutboundMessage(item);
+  const isCoordinationReport = message.inboundKind === "report" && parseCoordinationReport(message.content) != null;
+  const isCompactStatusReport = message.inboundKind === "report" && /^(?:partial|in[ _-]?review)$/i.test(parseInboundReport(message.content).status ?? "");
+  const shouldAutoExpand = hasVisibleEdit(item) || (isInboundCommunication && !isCoordinationReport && !isCompactStatusReport) || isOutboundMessage(item);
   const [expanded, setExpanded] = useState(() => {
     const persisted = TOOL_EXPANDED_BY_ID.get(message.id);
     return persisted ?? shouldAutoExpand;
@@ -212,6 +217,42 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
               <div
                 className={`border-t px-3 py-2 ${userText} ${TEXT_WRAP_CLASS}`}
                 style={{ borderColor: "color-mix(in srgb, var(--ct-green, #3fb950) 22%, transparent)" }}
+              >
+                <RichMarkdown text={message.content} fontScale={fontScale} />
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    if (effectiveOrigin?.kind === "system") {
+      const title = effectiveOrigin.context ? `System · ${effectiveOrigin.context}` : "System";
+      return (
+        <div className="mb-3 w-full max-w-4xl min-w-0 mx-auto" role="status">
+          <div
+            data-testid="chat-system-event"
+            className="max-w-full min-w-0 rounded-md border"
+            style={{
+              background: "color-mix(in srgb, var(--ct-surface, #161b22) 94%, var(--ct-accent, #58a6ff) 6%)",
+              borderColor: "color-mix(in srgb, var(--ct-accent, #58a6ff) 28%, transparent)",
+              color: "var(--ct-fg)",
+            }}
+          >
+            <button
+              type="button"
+              aria-expanded={expanded}
+              onClick={() => setExpandedPersistent(!expanded)}
+              className="flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left transition-colors hover:brightness-110"
+            >
+              <Info size={14} aria-hidden="true" />
+              <span className="min-w-0 flex-1 truncate text-xs font-medium">{title}</span>
+              <ChevronIcon expanded={expanded} className="opacity-60" />
+            </button>
+            {expanded && (
+              <div
+                className={`border-t px-3 py-2 ${userText} ${TEXT_WRAP_CLASS}`}
+                style={{ borderColor: "color-mix(in srgb, var(--ct-accent, #58a6ff) 20%, transparent)" }}
               >
                 <RichMarkdown text={message.content} fontScale={fontScale} />
               </div>
@@ -421,6 +462,22 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
   }
 
   if (message.type === "system" || message.type === "local_command") {
+    if (message.systemSubtype === "context_epoch_boundary") {
+      return (
+        <div
+          role="separator"
+          aria-label={message.content}
+          data-testid="chat-context-epoch-divider"
+          data-context-epoch={message.contextEpoch}
+          className="mb-3 flex w-full max-w-4xl min-w-0 items-center gap-3 mx-auto"
+          style={{ color: "var(--ct-muted-fg)" }}
+        >
+          <span className="h-px flex-1" style={{ background: "var(--ct-border)" }} />
+          <span className="max-w-[70%] text-center text-[11px]">{message.content}</span>
+          <span className="h-px flex-1" style={{ background: "var(--ct-border)" }} />
+        </div>
+      );
+    }
     const label = message.tagName || message.systemSubtype || "system";
     const isCaveat = message.tagName === "local-command-caveat";
     const isSkillContext = message.systemSubtype === "skill_context";
@@ -528,6 +585,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
           expanded={expanded}
           onToggle={setExpandedPersistent}
           resolveTabName={resolveTabName}
+          resolvePeerName={resolvePeerName}
           onFocusTab={onFocusTab}
           onOpenPlan={onOpenPlan}
           resolvePlanRef={resolvePlanRef}

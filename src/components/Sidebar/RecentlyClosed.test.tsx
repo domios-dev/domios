@@ -254,11 +254,16 @@ test("expanding a group reveals individual Tabs, each reopenable on its own", as
   __setInvokeForTest(null);
 });
 
-test("renders nothing when there are no recently-closed entries", async () => {
+test("keeps history discoverable when there are no recently-closed entries", async () => {
   const { host: empty, root: r1 } = await render(
     <RecentlyClosed views={[]} showWorkspace={false} onReopen={() => {}} onReopenGroup={() => {}} />,
   );
-  assert(!empty.querySelector('[data-testid="recently-closed"]'), "empty ring renders no panel");
+  assert(empty.querySelector('[data-testid="recently-closed"]'), "empty history keeps its disclosure visible");
+  await expandSection(empty);
+  assert(
+    empty.querySelector('[data-testid="recently-closed-empty"]')?.textContent === "No closed tabs",
+    "expanded empty history explains that no tabs are available",
+  );
   await act(async () => r1.unmount());
 });
 

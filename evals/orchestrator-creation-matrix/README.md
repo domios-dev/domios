@@ -21,7 +21,7 @@ The script self-cleans (closes every tab/plan/workspace it created) via an
 
 | Route | Command under test | Core observable |
 |-------|--------------------|-----------------|
-| **B** CLI pair | `orchestration new --orchestrator claude:opus --planner claude:fable --workspace <ws>` | returns plan+2 tab ids; `tab list` shows both; `plan get --json` binds owner **and** planner ref; orchestrator chat carries the peer greeting; **B.IDLE** waits 60s before any goal and asserts the Planner made zero tool calls / file reads |
+| **B** CLI pair | `team pair --orchestrator claude:opus --planner claude:fable --workspace <ws>` | returns plan+2 tab ids; `tab list` shows both; `plan get --json` binds owner **and** planner ref; orchestrator chat carries the peer greeting; **B.IDLE** waits 60s before any goal and asserts the Planner made zero tool calls / file reads |
 | **C** role spawn | `agent spawn claude --role Orchestrator --workspace <ws> --task …` | onboarding carries the peer-pairing mandate block with a pre-filled planner spawn command; unpaired nudge fires next cycle |
 | **D** promotion | `POST /api/tabs/{id}/make-orchestrator` (no CLI subcommand exists) | role flips to Orchestrator; **session survives**; mandate delivered; unpaired nudge next cycle |
 | **E** planner bind | `agent spawn claude --role Planner --plan <id> --parent <orch>` | plan planner ref binds to the new tab; planner onboarding names the orch tab; **nudge stops** |
@@ -31,8 +31,8 @@ The script self-cleans (closes every tab/plan/workspace it created) via an
 
 **H negatives:**
 1. `agent spawn --role Orchestrator` with **no** `--workspace` → actionable error, zero tabs.
-2. A Worker attempting `orchestration new` / `spawn --role Orchestrator` → refused by the hierarchy guard.
-3. `orchestration new` with an unknown provider → clean fail, no half-pair (plan absent, or degraded + recovery command printed).
+2. A Worker attempting `team pair` / `spawn --role Orchestrator` → refused by the hierarchy guard.
+3. `team pair` with an unknown provider → clean fail, no half-pair (plan absent, or degraded + recovery command printed).
 
 Route **I** (in-place picker UI: pair confirm transforms the same tab) is the
 Playwright picker spec's job (scenario 7 of `task_234c14f04d9f4dbfb5a743d50486617d`),
@@ -74,7 +74,7 @@ These are candidate bounces the run will confirm or refute on live dev:
   make-orchestrator / pair lane.
 - **No `codeterm orchestrator promote` CLI.** Make-Orchestrator is only the REST
   RPC `POST /api/tabs/{id}/make-orchestrator`. Route D uses `dev_post`.
-- **No backend hierarchy guard** on `orchestration new` / `spawn --role
+- **No backend hierarchy guard** on `team pair` / `spawn --role
   Orchestrator` keyed off caller role. "Worker never spawns" is a prompt-level
   charter, not enforced in the service. Promotion *does* reject tabs that
   already have a parent (`validate_make_orchestrator`). H2 confirms/bounces this.

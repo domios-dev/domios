@@ -8,7 +8,7 @@ use crate::service::{ServiceState, SpawnIdentityProvenance};
 use super::plan::{emit_plan_changed, plan_rpc_err};
 use super::plan_fields::tab_role;
 use super::plan_refs;
-use super::plan_role_helpers::record_spawned_attempt;
+use super::plan_role_helpers::record_spawned_attempt_reporting_close;
 use super::{get_string_param, JsonRpcError};
 
 pub(super) fn metadata_field(
@@ -64,6 +64,311 @@ fn preflight_compete_review_capacity(
     Ok(())
 }
 
+/// Only a Mutating task gets per-competitor lanes. Any other intent — including
+/// the `Unspecified` default of a never-dispatched task — keeps today's path.
+pub(super) fn mutating_competition(plan: &crate::plan::Plan, task_id: &str) -> bool {
+    plan.tasks
+        .iter()
+        .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+        .is_some_and(|task| {
+            task.interruption.execution_intent == crate::plan::ExecutionIntent::Mutating
+        })
+}
+
+fn lane_provision_failed(reason: String) -> JsonRpcError {
+    JsonRpcError {
+        code: -32603,
+        message: format!("competition lane provisioning failed: {reason}"),
+        data: Some(json!({
+            "type": "competition_lane_provision_failed",
+            "stage": "lane_provision",
+            "reason": reason,
+        })),
+    }
+}
+
+/// Give this competitor its own worktree/branch/base off canonical, then prove
+/// the result is neither canonical nor a lane another task owns — before spawn.
+fn provision_competitor_lane(
+    plan: &crate::plan::Plan,
+    task_id: &str,
+    draft: &mut crate::service::plan::task_attempts::TaskCompeteDraft,
+) -> Result<crate::service::ProvisionedWorkerLane, JsonRpcError> {
+    let canonical = super::plan_task_dispatch::lane_safety::canonical_path_of(plan).to_string();
+    let label = format!("{}-{}-c{}", plan.id, task_id, draft.lane);
+    let lane = crate::service::provision_isolated_lane(&canonical, &label)
+        .map_err(lane_provision_failed)?;
+    let provenance = match lane.verify() {
+        Ok(provenance) => provenance,
+        Err(error) => {
+            return Err(release_unowned_lanes(
+                vec![lane],
+                lane_provision_failed(error),
+            ))
+        }
+    };
+    if let Err(refusal) = super::plan_task_dispatch::lane_safety::refuse_unsafe_mutating_write(
+        plan,
+        task_id,
+        &provenance.worktree_path,
+        crate::plan::ExecutionIntent::Mutating,
+    ) {
+        return Err(release_unowned_lanes(vec![lane], refusal));
+    }
+    draft.cwd = provenance.worktree_path;
+    draft.branch = Some(provenance.branch);
+    draft.base = Some(provenance.base);
+    Ok(lane)
+}
+
+pub(super) struct SpawnedCompetitor {
+    pub tab_id: String,
+    pub attempt_id: String,
+    pub lane: Option<crate::service::ProvisionedWorkerLane>,
+}
+
+/// Lanes with no tab and no recorded attempt behind them: safe to delete outright.
+fn unowned_lanes(
+    lanes: &mut [Option<crate::service::ProvisionedWorkerLane>],
+    from: usize,
+) -> Vec<crate::service::ProvisionedWorkerLane> {
+    lanes[from..].iter_mut().filter_map(Option::take).collect()
+}
+
+fn release_unowned_lanes(
+    lanes: Vec<crate::service::ProvisionedWorkerLane>,
+    error: JsonRpcError,
+) -> JsonRpcError {
+    let failures: Vec<String> = lanes
+        .into_iter()
+        .filter_map(|lane| lane.cleanup().err())
+        .collect();
+    if failures.is_empty() {
+        return error;
+    }
+    JsonRpcError {
+        code: error.code,
+        message: format!(
+            "{}; lane cleanup failed: {}",
+            error.message,
+            failures.join("; ")
+        ),
+        data: error.data,
+    }
+}
+
+/// Phase 1: every mutating lane is provisioned and verified before any spawn, so
+/// a provisioning failure rolls back with zero tabs and zero attempts in play.
+type CompetitorLanes = Vec<Option<crate::service::ProvisionedWorkerLane>>;
+
+fn provision_all_competitor_lanes(
+    plan: &crate::plan::Plan,
+    task_id: &str,
+    mut drafts: Vec<crate::service::plan::task_attempts::TaskCompeteDraft>,
+) -> Result<
+    (
+        Vec<crate::service::plan::task_attempts::TaskCompeteDraft>,
+        CompetitorLanes,
+    ),
+    JsonRpcError,
+> {
+    let mut lanes: CompetitorLanes = std::iter::repeat_with(|| None).take(drafts.len()).collect();
+    if !mutating_competition(plan, task_id) {
+        return Ok((drafts, lanes));
+    }
+    for index in 0..drafts.len() {
+        match provision_competitor_lane(plan, task_id, &mut drafts[index]) {
+            Ok(lane) => lanes[index] = Some(lane),
+            Err(error) => {
+                let provisioned = unowned_lanes(&mut lanes, 0);
+                return Err(release_unowned_lanes(provisioned, error));
+            }
+        }
+    }
+    Ok((drafts, lanes))
+}
+
+pub(super) struct CompetitorCompensation {
+    pub tab_id: String,
+    pub attempt_id: String,
+    pub worktree_path: Option<String>,
+}
+
+#[derive(Default)]
+pub(super) struct CompensationOutcome {
+    pub released: Vec<Value>,
+    pub retained: Vec<Value>,
+}
+
+impl CompensationOutcome {
+    fn is_empty(&self) -> bool {
+        self.released.is_empty() && self.retained.is_empty()
+    }
+}
+
+/// Ownership order per competitor: stop the tab, retire its attempt, and ONLY
+/// then delete its lane; a failed step retains the worktree instead of deleting.
+pub(super) fn compensate_spawned_competitors<C, R, L>(
+    competitors: Vec<CompetitorCompensation>,
+    mut close_tab: C,
+    mut retire_attempt: R,
+    mut cleanup_lane: L,
+) -> CompensationOutcome
+where
+    C: FnMut(&str) -> Result<(), String>,
+    R: FnMut(&str) -> Result<(), String>,
+    L: FnMut(&str) -> Result<(), String>,
+{
+    let mut outcome = CompensationOutcome::default();
+    for competitor in competitors {
+        let blocker = close_tab(&competitor.tab_id)
+            .err()
+            .or_else(|| retire_attempt(&competitor.tab_id).err());
+        if let Some(reason) = blocker {
+            outcome.retained.push(json!({
+                "tab_id": competitor.tab_id,
+                "attempt_id": competitor.attempt_id,
+                "worktree_path": competitor.worktree_path,
+                "reason": reason,
+            }));
+            continue;
+        }
+        match competitor.worktree_path.as_deref().map(&mut cleanup_lane) {
+            Some(Err(reason)) => outcome.retained.push(json!({
+                "tab_id": competitor.tab_id,
+                "attempt_id": competitor.attempt_id,
+                "worktree_path": competitor.worktree_path,
+                "reason": reason,
+            })),
+            _ => outcome.released.push(json!({
+                "tab_id": competitor.tab_id,
+                "attempt_id": competitor.attempt_id,
+                "worktree_path": competitor.worktree_path,
+            })),
+        }
+    }
+    outcome
+}
+
+/// Owns a tab but NO attempt, so retirement is never attempted for it; its lane
+/// is released only once its tab is confirmed closed.
+pub(super) fn compensate_current_competitor<L>(
+    tab_id: &str,
+    worktree_path: Option<&str>,
+    close_error: Option<String>,
+    mut cleanup_lane: L,
+) -> CompensationOutcome
+where
+    L: FnMut(&str) -> Result<(), String>,
+{
+    let mut outcome = CompensationOutcome::default();
+    if let Some(reason) = close_error {
+        outcome.retained.push(json!({
+            "tab_id": tab_id,
+            "attempt_id": Value::Null,
+            "worktree_path": worktree_path,
+            "reason": reason,
+        }));
+        return outcome;
+    }
+    match worktree_path.map(&mut cleanup_lane) {
+        Some(Err(reason)) => outcome.retained.push(json!({
+            "tab_id": tab_id,
+            "attempt_id": Value::Null,
+            "worktree_path": worktree_path,
+            "reason": reason,
+        })),
+        _ => outcome.released.push(json!({
+            "tab_id": tab_id,
+            "attempt_id": Value::Null,
+            "worktree_path": worktree_path,
+        })),
+    }
+    outcome
+}
+
+/// A spawned competitor whose attempt was never recorded: it is compensated
+/// separately because there is no attempt to retire.
+pub(super) struct UnrecordedCompetitor {
+    pub tab_id: String,
+    pub lane: Option<crate::service::ProvisionedWorkerLane>,
+    pub close_error: Option<String>,
+}
+
+fn compensate_competition(
+    svc: &ServiceState,
+    plan_id: &str,
+    task_id: &str,
+    live: Vec<SpawnedCompetitor>,
+    current: Option<UnrecordedCompetitor>,
+    unowned: Vec<crate::service::ProvisionedWorkerLane>,
+    now: u64,
+    error: JsonRpcError,
+) -> JsonRpcError {
+    let mut owned_lanes: std::collections::HashMap<String, crate::service::ProvisionedWorkerLane> =
+        std::collections::HashMap::new();
+    let competitors = live
+        .into_iter()
+        .map(|competitor| CompetitorCompensation {
+            tab_id: competitor.tab_id,
+            attempt_id: competitor.attempt_id,
+            worktree_path: competitor.lane.map(|lane| {
+                let path = lane.cwd.clone();
+                owned_lanes.insert(path.clone(), lane);
+                path
+            }),
+        })
+        .collect();
+    let current = current.map(|current| {
+        let path = current.lane.map(|lane| {
+            let path = lane.cwd.clone();
+            owned_lanes.insert(path.clone(), lane);
+            path
+        });
+        (current.tab_id, current.close_error, path)
+    });
+    let mut outcome = compensate_spawned_competitors(
+        competitors,
+        |tab_id| svc.close_tab(tab_id),
+        |tab_id| {
+            svc.plan_store
+                .flag_tab_gone(plan_id, task_id, tab_id, now)
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+        },
+        |path| match owned_lanes.remove(path) {
+            Some(lane) => lane.cleanup(),
+            None => Ok(()),
+        },
+    );
+    if let Some((tab_id, close_error, path)) = current {
+        let current_outcome =
+            compensate_current_competitor(&tab_id, path.as_deref(), close_error, |path| {
+                match owned_lanes.remove(path) {
+                    Some(lane) => lane.cleanup(),
+                    None => Ok(()),
+                }
+            });
+        outcome.released.extend(current_outcome.released);
+        outcome.retained.extend(current_outcome.retained);
+    }
+    let mut error = release_unowned_lanes(unowned, error);
+    if outcome.is_empty() {
+        return error;
+    }
+    let partial_state = json!({
+        "released": outcome.released,
+        "retained": outcome.retained,
+    });
+    match error.data.as_mut() {
+        Some(Value::Object(data)) => {
+            data.insert("partial_state".into(), partial_state);
+        }
+        _ => error.data = Some(json!({ "partial_state": partial_state })),
+    }
+    error
+}
+
 pub(super) fn compete(
     params: &Option<Value>,
     app: &AppHandle,
@@ -73,6 +378,7 @@ pub(super) fn compete(
     let store = &svc.plan_store;
     let p = params.as_ref();
     let (id, tid) = plan_refs::resolve_task(store, params)?;
+    super::plan_task_rpc::authorize_execution(svc, &id, p)?;
     preflight_compete_review_capacity(store, &id, &tid).map_err(plan_rpc_err)?;
     let body = p.ok_or(JsonRpcError {
         code: -32602,
@@ -107,18 +413,38 @@ pub(super) fn compete(
     let plan = store
         .get(&id)
         .ok_or_else(|| plan_rpc_err(crate::service::plan::PlanError::NotFound))?;
+    // Phase 1 — provision and verify EVERY mutating lane before the first spawn,
+    // so a provisioning failure can never delete underneath a running competitor.
+    let (mut drafts, mut lanes) = provision_all_competitor_lanes(&plan, &tid, drafts)?;
     let mut attempts = Vec::new();
     let mut spawns = Vec::new();
-    for draft in drafts {
-        let parent_tab_id = draft
+    let mut live: Vec<SpawnedCompetitor> = Vec::new();
+    // Phase 2 — spawn. From here compensation runs in ownership order.
+    for index in 0..drafts.len() {
+        let draft = &mut drafts[index];
+        let parent_tab_id = match draft
             .parent_tab_id
             .clone()
             .or_else(|| plan.owner.tab_id.clone())
-            .ok_or(JsonRpcError {
-                code: -32602,
-                message: "competition requires a parent Orchestrator tab".into(),
-                data: None,
-            })?;
+        {
+            Some(parent_tab_id) => parent_tab_id,
+            None => {
+                return Err(compensate_competition(
+                    svc,
+                    &id,
+                    &tid,
+                    live,
+                    None,
+                    unowned_lanes(&mut lanes, index),
+                    now,
+                    JsonRpcError {
+                        code: -32602,
+                        message: "competition requires a parent Orchestrator tab".into(),
+                        data: None,
+                    },
+                ))
+            }
+        };
         let spawn_params = crate::service::SpawnAgentParams {
             agent: Some(draft.provider.clone()),
             cwd: Some(draft.cwd.clone()),
@@ -131,26 +457,67 @@ pub(super) fn compete(
             model: draft.model.clone(),
             planned_model: draft.planned_model.clone(),
             spawned_by_tab_id: Some(parent_tab_id.clone()),
+            provisioned_cwd: draft.branch.is_some().then(|| draft.cwd.clone()),
             ..Default::default()
         };
         let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
-        let spawn = svc
-            .spawn_agent_sync_with_ready(spawn_params, Some(ready_tx))
-            .map_err(|e| JsonRpcError {
-                code: -32603,
-                message: e,
-                data: None,
-            })?;
-        let created = record_spawned_attempt(svc, &spawn.tab_id, || {
+        // A failed spawn creates no tab, and record_spawned_attempt closes the tab
+        // it spawned, so THIS competitor's lane is unowned on either failure.
+        let spawn = match svc.spawn_agent_sync_with_ready(spawn_params, Some(ready_tx)) {
+            Ok(spawn) => spawn,
+            Err(e) => {
+                return Err(compensate_competition(
+                    svc,
+                    &id,
+                    &tid,
+                    live,
+                    None,
+                    unowned_lanes(&mut lanes, index),
+                    now,
+                    JsonRpcError {
+                        code: -32603,
+                        message: e,
+                        data: None,
+                    },
+                ))
+            }
+        };
+        let created = match record_spawned_attempt_reporting_close(svc, &spawn.tab_id, || {
             store.record_task_compete_attempt(
                 &id,
                 &tid,
                 &spawn.tab_id,
-                &draft,
+                draft,
                 tab_role(svc, &spawn.tab_id),
                 now,
             )
-        })?;
+        }) {
+            Ok(created) => created,
+            Err(failure) => {
+                // No attempt was recorded, so nothing to retire; the lane is only
+                // safe to delete once this tab is CONFIRMED closed.
+                let current = UnrecordedCompetitor {
+                    tab_id: spawn.tab_id.clone(),
+                    lane: lanes[index].take(),
+                    close_error: failure.close_error,
+                };
+                return Err(compensate_competition(
+                    svc,
+                    &id,
+                    &tid,
+                    live,
+                    Some(current),
+                    unowned_lanes(&mut lanes, index),
+                    now,
+                    failure.error,
+                ));
+            }
+        };
+        live.push(SpawnedCompetitor {
+            tab_id: spawn.tab_id.clone(),
+            attempt_id: created.attempt.id.clone(),
+            lane: lanes[index].take(),
+        });
         let svc_for_ready = svc.clone();
         let app_for_ready = app.clone();
         let plan_id = id.clone();
@@ -270,6 +637,9 @@ fn epoch_ms() -> u64 {
         .unwrap_or_default()
         .as_millis() as u64
 }
+
+#[cfg(test)]
+mod lane_isolation_tests;
 
 #[cfg(test)]
 mod tests {

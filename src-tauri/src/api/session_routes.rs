@@ -4,6 +4,7 @@ use axum::{
     Json,
 };
 use serde::Deserialize;
+use tauri::Manager;
 
 use crate::api::routes::{check_auth, AppState};
 
@@ -92,6 +93,70 @@ pub(crate) struct ResumeSessionBody {
     model: Option<String>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ResumableIdentity {
+    role: String,
+    role_profile: Option<String>,
+    parent_tab_id: Option<String>,
+    can_spawn: bool,
+}
+
+async fn persisted_resume_identity(
+    state: &AppState,
+    provider: &str,
+    session_id: &str,
+) -> Option<ResumableIdentity> {
+    let session = state
+        .svc
+        .app_handle
+        .try_state::<crate::session::SessionState>()?
+        .inner()
+        .clone();
+    let provider = provider.to_string();
+    let session_id = session_id.to_string();
+    let persisted = tokio::task::spawn_blocking(move || {
+        let store = session.lock();
+        store.load_agent_session_identity(&provider, &session_id)
+    })
+    .await
+    .ok()??;
+    Some(ResumableIdentity {
+        role: persisted.role,
+        role_profile: persisted.role_profile,
+        parent_tab_id: persisted.parent_tab_id,
+        can_spawn: persisted.can_spawn,
+    })
+}
+
+fn restorable_identity(
+    identity: Option<ResumableIdentity>,
+    parent_is_live_orchestrator: impl Fn(&str) -> bool,
+) -> Option<ResumableIdentity> {
+    let identity = identity?;
+    let restored = codeterm_types::agent::restore_role(
+        Some(identity.role.as_str()),
+        identity.role_profile.as_deref(),
+    )?;
+    // An anchor stands alone; every other kind needs its parent still live.
+    if codeterm_types::agent::role_kind::anchors_team(
+        Some(restored.role),
+        restored.role_profile.as_deref(),
+    ) {
+        return identity.parent_tab_id.is_none().then_some(identity);
+    }
+    match identity.parent_tab_id.as_deref() {
+        Some(parent) => parent_is_live_orchestrator(parent).then_some(identity),
+        None => None,
+    }
+}
+
+fn roleless_actions(tab_id: &str) -> serde_json::Value {
+    serde_json::json!({
+        "promotion": format!("codeterm agent set-orchestrator --tab {tab_id}"),
+        "relink": format!("codeterm agent link --parent-tab <orchestrator-tab> --tab {tab_id}"),
+    })
+}
+
 /// Atomic "resume a past session" action:
 ///   1. locate the session across providers → get cwd + provider
 ///   2. create (or pick) a workspace whose cwd matches that project path
@@ -124,13 +189,31 @@ pub async fn resume_session_api(
         ),
     ))?;
 
+    let permission_bypass_authorization =
+        crate::service::permission_policy::configured_permission_bypass(
+            &state.svc.agent_registry,
+            &meta.provider,
+        )
+        .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
+    let permission_bypass = permission_bypass_authorization.is_some();
     let resume_cmd_preview = state
         .svc
         .agent_registry
         .with_provider(&meta.provider, |p| {
-            p.build_resume_command(&meta.session_id, true)
+            p.build_resume_command(&meta.session_id, permission_bypass)
         })
         .flatten();
+
+    let persisted_identity =
+        persisted_resume_identity(&state, &meta.provider, &meta.session_id).await;
+    let identity = restorable_identity(persisted_identity, |parent| {
+        state
+            .svc
+            .mux
+            .read()
+            .get_tab(parent)
+            .is_some_and(|tab| tab.anchors_team())
+    });
 
     // both spawn.
     {
@@ -143,6 +226,30 @@ pub async fn resume_session_api(
                 .iter()
                 .find_map(|w| w.tabs.contains(&tab_id).then(|| w.id.clone()))
                 .unwrap_or_default();
+            let live_identity = mux
+                .get_tab(&tab_id)
+                .and_then(|tab| {
+                    let binding_is_authoritative = tab.session_binding_nonce.is_some()
+                        && tab.session_binding_nonce == tab.reported_session_binding_nonce;
+                    let role = binding_is_authoritative.then_some(tab)?.role?;
+                    Some(serde_json::json!({
+                        "status": "restored",
+                        "role": format!("{role:?}"),
+                        "role_profile": tab.role_profile.clone(),
+                        "parent_tab_id": tab.parent_tab_id.clone(),
+                        "can_spawn": tab.can_spawn,
+                    }))
+                })
+                .unwrap_or_else(|| {
+                    serde_json::json!({
+                        "status": "roleless",
+                        "role": null,
+                        "role_profile": null,
+                        "parent_tab_id": null,
+                        "can_spawn": false,
+                        "actions": roleless_actions(&tab_id),
+                    })
+                });
             return Ok(Json(serde_json::json!({
                 "tab_id": tab_id,
                 "workspace_id": ws_id,
@@ -150,6 +257,7 @@ pub async fn resume_session_api(
                 "session_id": meta.session_id,
                 "cwd": cwd,
                 "resume_command": resume_cmd_preview,
+                "identity": live_identity,
             })));
         }
     }
@@ -211,26 +319,36 @@ pub async fn resume_session_api(
         }),
         title_provenance: Some(crate::service::SpawnIdentityProvenance::UserSupplied),
         description: None,
-        role: None,
-        role_profile: None,
-        parent_tab_id: None,
+        role: identity.as_ref().map(|identity| identity.role.clone()),
+        role_profile: identity
+            .as_ref()
+            .and_then(|identity| identity.role_profile.clone()),
+        parent_tab_id: identity
+            .as_ref()
+            .and_then(|identity| identity.parent_tab_id.clone()),
         plan_id: None,
-        can_spawn: None,
+        can_spawn: identity.as_ref().map(|identity| identity.can_spawn),
         task: None,
-        starter_prompt: crate::service::starter_prompt_for_role(None),
+        starter_prompt: crate::agent::provider::StarterPrompt::NoStarter,
         task_id: None,
         task_launch_authority: None,
+        plan_skill_manifest: None,
         plan_task: None,
+        execution_intent: None,
+        provider_reserve_pct: None,
         workspace_id: Some(ws_id.clone()),
         force_tab: None,
         existing_tab_id: None,
         skip_orchestrator_onboarding: None,
         report_target_tab_id: None,
         report_target_mesh_peer: None,
-        skip_permissions: Some(true),
+        skip_permissions: Some(permission_bypass),
+        permission_bypass_authorization,
         spawned_by_tab_id: None,
+        ownership: None,
         model: body.model.clone(),
         planned_model: None,
+        planned_reasoning_effort: None,
         reasoning_effort: None,
         system_prompt: None,
         preset: None,
@@ -254,6 +372,24 @@ pub async fn resume_session_api(
         .set_and_lock_tab_agent_type(&spawned.tab_id, meta.provider.clone());
     state.svc.emit_state_changed();
 
+    let identity_json = match identity {
+        Some(identity) => serde_json::json!({
+            "status": "restored",
+            "role": identity.role,
+            "role_profile": identity.role_profile,
+            "parent_tab_id": identity.parent_tab_id,
+            "can_spawn": identity.can_spawn,
+        }),
+        None => serde_json::json!({
+            "status": "roleless",
+            "role": null,
+            "role_profile": null,
+            "parent_tab_id": null,
+            "can_spawn": false,
+            "actions": roleless_actions(&spawned.tab_id),
+        }),
+    };
+
     Ok(Json(serde_json::json!({
         "tab_id": spawned.tab_id,
         "workspace_id": ws_id,
@@ -261,5 +397,78 @@ pub async fn resume_session_api(
         "session_id": meta.session_id,
         "cwd": cwd,
         "resume_command": resume_cmd_preview,
+        "identity": identity_json,
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sessions_resume_restores_role_without_replaying_starter() {
+        let worker = ResumableIdentity {
+            role: "Worker".into(),
+            role_profile: None,
+            parent_tab_id: Some("parent".into()),
+            can_spawn: false,
+        };
+        assert!(restorable_identity(Some(worker.clone()), |parent| parent == "parent").is_some());
+        assert!(restorable_identity(Some(worker), |_| false).is_none());
+
+        let orchestrator = ResumableIdentity {
+            role: "Orchestrator".into(),
+            role_profile: None,
+            parent_tab_id: None,
+            can_spawn: true,
+        };
+        assert!(restorable_identity(Some(orchestrator), |_| false).is_some());
+    }
+
+    #[test]
+    fn restored_worker_identity_has_no_historical_task_input() {
+        let params = crate::service::SpawnAgentParams {
+            role: Some("Worker".into()),
+            parent_tab_id: Some("orchestrator".into()),
+            can_spawn: Some(false),
+            task: None,
+            starter_prompt: crate::agent::provider::StarterPrompt::NoStarter,
+            task_id: None,
+            plan_task: None,
+            resume_session_id: Some("owned-session".into()),
+            ..Default::default()
+        };
+        assert_eq!(params.task, None);
+        assert_eq!(
+            params.starter_prompt,
+            crate::agent::provider::StarterPrompt::NoStarter
+        );
+        assert_eq!(params.task_id, None);
+        assert_eq!(params.plan_task, None);
+        let restored_context = crate::service::spawn_onboarding_task(&params).unwrap();
+        assert!(!restored_context.contains("historical"));
+        assert!(!restored_context.contains("one assigned brief"));
+
+        let fresh = crate::service::SpawnAgentParams {
+            role: Some("Worker".into()),
+            task: Some("one assigned brief".into()),
+            starter_prompt: crate::agent::provider::StarterPrompt::AssignedTask,
+            ..Default::default()
+        };
+        let fresh_context = crate::service::spawn_onboarding_task(&fresh).unwrap();
+        assert_eq!(fresh_context.matches("one assigned brief").count(), 1);
+    }
+
+    #[test]
+    fn roleless_resume_reports_exact_promotion_and_relink_actions() {
+        let actions = roleless_actions("tab-resumed");
+        assert_eq!(
+            actions["promotion"],
+            "codeterm agent set-orchestrator --tab tab-resumed"
+        );
+        assert_eq!(
+            actions["relink"],
+            "codeterm agent link --parent-tab <orchestrator-tab> --tab tab-resumed"
+        );
+    }
 }

@@ -1,10 +1,10 @@
 /**
- * Codex tab-state classifier tests (AS2 — Case A: self-update prompt auto-skip).
+ * Codex tab-state classifier tests (AS2 — Case A: self-update consent prompt).
  * Run: npx tsx plugins/provider-codex/tests/classify-tab-state.test.ts
  *
  * Loads the built QuickJS bundle (plugin.js) and exercises classifyTabState
  * against golden fixtures: the codex update prompt must classify as
- * `update_prompt` with a Skip-not-Update key action above the reactor's
+ * `update_prompt` with separate install and decline actions above the reactor's
  * confidence threshold; an auth/login screen must classify as `waiting_on_auth`
  * with NO auto-press; a negative corpus of normal output must never fire.
  */
@@ -86,15 +86,16 @@ console.log("\n--- positive: update prompt, Skip is option 2 ---\n");
   const r = classify(plugin, fixture("update-prompt-skip-option2.txt"));
   eq(r?.state, "update_prompt", "state is update_prompt");
   assert((r?.confidence ?? 0) >= GLOBAL_THRESHOLD, "confidence >= threshold", `conf=${r?.confidence}`);
-  eq(r?.action?.keys, ["down", "enter"], "navigates one down to Skip, then enter");
+  eq(r?.action?.providerUpdate?.installKeys, ["enter"], "install selects the highlighted update action");
+  eq(r?.action?.providerUpdate?.declineKeys, ["down", "enter"], "decline navigates one down to Skip, then enter");
   // highlight "Update now". The action must move OFF option 1 before enter.
   assert(
-    Array.isArray(r?.action?.keys) && r.action.keys.indexOf("down") !== -1,
-    "action moves off the default 'Update now' highlight",
+    Array.isArray(r?.action?.providerUpdate?.declineKeys) && r.action.providerUpdate.declineKeys.indexOf("down") !== -1,
+    "decline moves off the default 'Update now' highlight",
   );
   assert(
-    Array.isArray(r?.action?.keys) && r.action.keys[r.action.keys.length - 1] === "enter",
-    "action ends with enter",
+    Array.isArray(r?.action?.providerUpdate?.declineKeys) && r.action.providerUpdate.declineKeys[r.action.providerUpdate.declineKeys.length - 1] === "enter",
+    "decline ends with enter",
   );
 }
 
@@ -103,7 +104,8 @@ console.log("\n--- positive: update prompt, Skip is option 3 (dynamic navigation
   const r = classify(plugin, fixture("update-prompt-skip-option3.txt"));
   eq(r?.state, "update_prompt", "state is update_prompt");
   assert((r?.confidence ?? 0) >= GLOBAL_THRESHOLD, "confidence >= threshold", `conf=${r?.confidence}`);
-  eq(r?.action?.keys, ["down", "down", "enter"], "navigates two downs to Skip (option 3), then enter");
+  eq(r?.action?.providerUpdate?.installKeys, ["enter"], "install selects the highlighted update action");
+  eq(r?.action?.providerUpdate?.declineKeys, ["down", "down", "enter"], "decline navigates two downs to Skip (option 3), then enter");
 }
 
 console.log("\n--- auth guard: login screen → waiting_on_auth, NEVER auto-acted ---\n");

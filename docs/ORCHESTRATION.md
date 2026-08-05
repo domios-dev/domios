@@ -3,7 +3,7 @@
 This document is the compact operating contract for a CodeTerm Orchestrator.
 Use command `--help` for syntax instead of loading a command catalogue.
 
-## Read depth
+## Related documents
 
 Start narrow:
 
@@ -16,7 +16,9 @@ codeterm task show <task>
 Use `codeterm orchestrator inspect --plan <plan> --json` only to investigate a
 specific discrepancy that compact status cannot explain.
 
-Load specialized procedures only when needed:
+Use `codeterm docs <NAME>`; it returns the complete document. Use `codeterm docs`
+or `codeterm docs --help` to discover available names. Read a related playbook
+when its responsibility becomes active:
 
 | Need | Read |
 |---|---|
@@ -45,6 +47,55 @@ GOAL → Spec (WHAT/WHY) ⊥ Plan (HOW) → Tasks → Strides
 
 The Planner drafts structure. The Orchestrator approves or revises it, dispatches
 execution, judges reports, integrates accepted lanes, and owns cleanup.
+The Orchestrator may implement a genuinely small local change when delegation
+would cost more than the work, but Worker dispatch is the default for plan-owned source work. Never self-assign a normal implementation task merely because canonical is writable.
+When Team-bound, attach utility shells and cron jobs to the same Team with
+`--team <team-id>` so Team close and cleanup own their lifecycle.
+
+Plan-owned work is dispatched atomically with `codeterm plan task dispatch`,
+which spawns the Worker, assigns the task, and delivers the brief in one call.
+When a dispatch is blocked, clear the blocker or record the task as blocked.
+Never substitute a loose roleless agent: an agent outside the Team and outside
+the plan owns no task, appears in no plan state, and reports to nobody, so its
+work is invisible to every gate that would otherwise catch it.
+
+### Lane safety: two hard stops, everything else advisory
+
+A **mutating** Worker dispatch is refused before any tab is created when its
+resolved worktree is the canonical checkout, or is the lane another task owns.
+Both would destroy work in progress, so both are hard stops carrying a stable
+violation id (`lane.mutating_write_in_canonical_checkout`,
+`lane.mutating_write_in_foreign_lane`) and the exact `plan task update` command
+that supplies an isolated lane. A dispatch with no recorded lane is *not*
+refused — the dispatcher provisions an isolated lane for it, committing Team
+workspace identity and lane isolation as one value.
+
+Every other lane finding is a **non-blocking nudge**: the operation succeeds and
+the response carries `safety_nudges`, each with a stable id, why it matters, and
+the exact fix. Read-only dispatch, General-Agent creation, and plain shell tabs
+are never obstructed, including in canonical.
+
+`codeterm plan task compete` follows the same rule for parallel writers: each
+**mutating** competitor is given its own provisioned worktree, branch, and base
+before it spawns, so N competitors never share a checkout and never fall back to
+canonical. If provisioning or spawning fails part-way, the lanes already created
+in that call are removed. Read-only competition is unchanged.
+
+### Recovering a tab-gone task
+
+When a Worker's tab is gone, its owner epoch is stale by definition — so the
+epoch is not allowed to block recovery. The **live authenticated Plan owner**
+may `cancel`, `pend`, reassign, or respawn such a task. That recovery retires
+the stale attempt in the *same* transition that clears the dead owner identity,
+so no half-applied state is observable and a `dispatch_ready` arriving later for
+the retired attempt is rejected instead of resurrecting ownership. The widening
+is for the Plan owner only: a non-owner, non-epoch caller is still refused.
+
+Archiving a plan with no retrospective **succeeds** and emits the advisory
+`plan.retrospective_unrecorded`, recording durable incident evidence on the plan.
+Write the retrospective before normal closure
+(`codeterm plan retrospective <plan> --body-file <pad-relative-path>`) — but the
+mechanism is a nudge, never a gate, so it can never trap recovery or closure.
 
 ## The loop
 
@@ -57,13 +108,17 @@ Run this loop after every report, reminder, task close, tab death, or gate:
    focus.
 4. **Give every actionable task an exit:** dispatch, pause with a reason, judge,
    replan through the Planner, or escalate.
-5. **Keep writers parallel.** The Orchestrator chooses canonical checkout or
-   isolated lanes based on concurrency and file ownership.
-6. **Serialize heavy gates.** Run broad QA once in the warm canonical checkout,
-   not independently in cold lanes.
-7. **Let heartbeat follow state.** Heartbeat is derived automatically from
+5. **Keep the frontier staffed.** Do not leave a capable Worker idle while
+   independent actionable work exists. Clear dispatch, dependency, review, and
+   cleanup blockers first, then reuse a matching Worker or dispatch the next
+   bounded task without duplicating ownership.
+6. **Keep source writers parallel.** Implementation Workers use isolated,
+   source-only lanes based on concurrency and file ownership.
+7. **Own canonical verification.** Real-merge accepted ancestry first, then run
+   every build, test, dev check, and gate in the canonical checkout.
+8. **Let heartbeat follow state.** Heartbeat is derived automatically from
    plan and task state; never maintain focus or lane fields manually.
-8. **Clean accepted work.** Close the Worker tab, remove the ancestry-merged
+9. **Clean accepted work.** Close the Worker tab, remove the ancestry-merged
    worktree and branch, stop its dev process, and record cleanup.
 
 Discovery is an intermediate wave. It must produce decisions and follow-up
@@ -72,13 +127,30 @@ goal.
 
 ## Planning ownership
 
-When a Planner is bound:
+When a Planner is present:
 
-- send new requirements, evidence, and structural corrections to the Planner;
-- do not silently add GOAL, Spec, Plan sections, or execution tasks yourself;
-- run `codeterm plan doctor <plan> --kind quality` before approval and dispatch;
-- execution tasks require an approved plan;
+- the active Plan belongs to the Team and is visible through Team membership;
+- the Orchestrator creates and owns the Plan and may edit its full structure;
+- delegate structural refinement to the Planner when useful;
+- never create a separate Planner-to-Plan binding or ask the General Agent to bootstrap one;
+- run `codeterm plan doctor <plan> --kind quality`, then use one `codeterm plan
+  approve <plan>` action to approve the structure and activate its tasks;
+- after a green doctor, summarize the proposed plan to the user and explicitly
+  ask for approval; never stop silently at a completed draft;
+- do not dispatch until approval is durably recorded. After UI approval, verify
+  `planning_state=approved`; after explicit conversational approval, run the
+  approve action and verify the same state;
+- never ask the Planner to self-approve or manually set `structure_ready`;
+- draft tasks remain non-dispatchable;
 - the Orchestrator remains the sole dispatch and acceptance authority.
+
+Judge structure before dispatch against the task-shape contract: 4-6 cohesive
+vertical tasks, each delivering a reviewable capability, with ordinary
+discovery, tests, docs, and review inside the slice that implements them.
+Standalone discovery, test-author, or review tasks need a concrete independent
+boundary — a distinct security or authority owner, or independently owned
+per-platform rollout — and every task beyond five needs a justification naming
+that boundary. The Planner contract is linked in Related documents above.
 
 If the Planner is intentionally waived, record that explicitly on the plan.
 
@@ -127,9 +199,13 @@ Every Worker must be visible under the Orchestrator and carry:
 - `codeterm agent ack` as its first task action;
 - instructions to report by running `codeterm agent report`.
 
-Use `codeterm docs LANES` for the complete lane lifecycle.
-
 ## Review capacity
+
+Choose review granularity from backlog and diff size. A few large changes merit
+individual review; a growing queue of compatible small changes should share one
+review wave and canonical QA group. After real merge, the Orchestrator may fix a
+bounded mechanical integration defect directly in canonical. Bounce ownership,
+correctness, authority, scope, or design defects instead of grinding tiny edits.
 
 Review backpressure blocks ordinary implementation dispatch. A task that exists
 only to clear stranded review debt needs daemon-owned provenance. Task names,
@@ -152,123 +228,8 @@ codeterm plan review reconcile-credit <plan> --reason "<incident evidence>"
 Both mutations require the live bound Orchestrator session and record an
 immutable plan stride.
 
-## Event-driven coordination
+## Related documents
 
-Never sleep or poll for Worker readiness, reports, gates, or process startup.
-Wait on explicit readiness, session-binding, process-exit, stream-completion, or
-report events, with a bounded failure deadline.
+Verification, integration, heartbeat, and closeout: `codeterm docs ORCHESTRATION-OPERATIONS`.
 
-Long gates run in a visible tab or delegated QA lane and send an explicit
-completion marker back to the Orchestrator. Continue other frontier work while
-the gate runs.
-
-One immediate sanity read is allowed after a concrete event. Repeated manual
-checks are polling.
-
-## Verification and acceptance
-
-Workers in isolated lanes implement and report the exact focused oracle without
-starting cold compiled builds or suites. A Worker already placed in the warm
-canonical checkout may run the focused oracle directly.
-
-After integrating a lane candidate, run its focused oracle through a canonical
-verification Worker. If it fails, bounce the task with the exact command and
-failure evidence. Run broad suites only once for the compatible group.
-
-Design the smallest deterministic user-layer oracle before implementation so
-unit-green changes cannot silently break the real workflow. Keep that oracle
-fast, reusable, and event-driven.
-
-During iteration, use lightweight non-build checks where useful. Run compiled
-focused checks in the warm canonical checkout, then run the actual user-layer
-oracle once at final integration or release verification.
-
-The final verification covers the layer where the user experienced the defect:
-
-- inspect the actual diff;
-- reproduce the failing scenario;
-- run focused tests and type/build checks through repository wrappers;
-- check real UI, persisted state, transport, or recipient output where relevant;
-- review provider, platform, lifecycle, and concurrency blast radius;
-- use an independent adversarial reviewer for broad, hot-path, security,
-  session-binding, provider-boundary, or final integration changes.
-
-Unit-green alone does not close a user-visible defect. Deferred final
-user-layer evidence remains explicit open risk.
-
-Testing ladder — per-task = focused filters only; per-group (milestone) = one full regression gate (cargo suite + ts-unit, serialized in the warm checkout); per-release = the farm matrix across every platform.
-
-Repository-specific restrictions override generic gate suggestions.
-
-## Integration and cleanup
-
-Integrate accepted work with a real merge commit. Never cherry-pick, squash,
-replay, or patch-copy lane work.
-
-Before deleting a lane:
-
-```bash
-git merge-base --is-ancestor <lane-tip> <integration-tip>
-```
-
-At every group close:
-
-- close completed Worker tabs;
-- remove merged worktrees and branches;
-- stop lane-specific dev processes;
-- record cleanup status;
-- prune stale or superseded milestones;
-- re-run reconciliation and re-derive the frontier.
-
-More than five worktrees or direct Workers is cleanup pressure. More than ten is
-critical: clean inactive or merged lanes before expanding the wave.
-
-## Heartbeat
-
-Heartbeat preserves the control loop across idle time and compaction. The
-daemon derives it from plan state, live assignments, gates, and durable
-learnings. Orchestrators do not edit heartbeat fields.
-
-A reminder is handled only when plan state changes: dispatch, pause, verdict,
-bounce, replan, escalation, or recorded decision.
-
-Do not create self-send polling reminders. The plan already wakes the
-Orchestrator for open work and Worker reports.
-
-## Handoffs and plan skills
-
-Before compaction, transfer, or a long interruption, create a plan handoff with:
-
-- goal and current position;
-- branch/worktree map;
-- integrated changes and exact gates;
-- open risks;
-- ordered next actions.
-
-Read it back and verify completeness, accuracy, and executability before reseed.
-
-Store reusable effort-local procedures as plan skills:
-
-```bash
-codeterm plan skill list
-codeterm plan skill show <slug>
-codeterm plan skill new <slug>
-codeterm plan skill edit <slug>
-```
-
-Keep the oracle immutable and record keep/discard/supersede honestly. Promote a
-generally reusable recipe only during retrospective.
-
-## Closeout
-
-An effort is complete only when:
-
-- every task is done, cancelled, or paused with an explicit reason;
-- required group/release gates are recorded;
-- every spawned Worker and Planner tab is closed;
-- every accepted lane is ancestry-merged and removed;
-- lane processes are stopped;
-- stale milestones are pruned;
-- the final handoff or retrospective is recorded;
-- the plan is archived.
-<!-- revision: 44 -->
+<!-- revision: 57 -->

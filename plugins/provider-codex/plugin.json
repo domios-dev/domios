@@ -1,6 +1,6 @@
 {
   "id": "codex",
-  "version": "1.7.8",
+  "version": "1.8.0",
   "minCodeterm": "1.0.0",
   "hostApi": 2,
   "displayName": "Codex",
@@ -84,6 +84,10 @@
     "macos": "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
     "linux": "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
     "windows": "powershell -ExecutionPolicy ByPass -c \"irm https://chatgpt.com/codex/install.ps1 | iex\""
+  },
+  "integration": {
+    "kind": "provider_managed",
+    "settingsPath": "~/.codex/hooks.json"
   },
   "commands": {
     "compact": "/compact",
