@@ -53,6 +53,8 @@ async function main() {
     throw new Error(`Unexpected command: ${command}`);
   });
   __setListenForTest(async () => () => {});
+  // Keep hermetic: the tab now queries crons/sync on mount regardless of config.api.
+  globalThis.fetch = (async () => ({ ok: true, json: async () => ({}) } as Response)) as typeof fetch;
 
   const host = document.createElement("div");
   document.body.appendChild(host);
