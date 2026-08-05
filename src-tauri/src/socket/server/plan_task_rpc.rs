@@ -822,6 +822,12 @@ pub(super) fn dispatch(
                 message: format!("respawn lane verification failed: {error}"),
                 data: None,
             })?;
+            super::plan_task_dispatch::lane_safety::refuse_unsafe_mutating_write(
+                &plan,
+                &tid,
+                &provenance.worktree_path,
+                task.interruption.execution_intent.clone(),
+            )?;
             let parent_tab_id = draft
                 .parent_tab_id
                 .clone()

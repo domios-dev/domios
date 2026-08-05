@@ -1,4 +1,4 @@
-use super::super::preflight_checkout_occupancy;
+use super::super::lane_safety::preflight_checkout_occupancy;
 use crate::plan::{OrchestratorRef, TaskExecutionAttempt};
 use crate::service::plan::{NewTask, PlanStore};
 

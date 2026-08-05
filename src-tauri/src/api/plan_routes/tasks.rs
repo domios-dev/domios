@@ -350,7 +350,7 @@ pub async fn task_update(
     Json(body): Json<Value>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    verify_task_mutation_owner(&state, &headers, &id, &tid)?;
+    verify_task_mutation_owner(&state, &headers, &id, &tid, TaskMutationKind::Recovery)?;
     task_update_core(&state.svc, &headers, &id, &tid, body)
 }
 
@@ -557,7 +557,7 @@ pub async fn task_close(
     Json(body): Json<TaskCloseBody>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    verify_task_mutation_owner(&state, &headers, &id, &tid)?;
+    verify_task_mutation_owner(&state, &headers, &id, &tid, TaskMutationKind::Recovery)?;
     let from = body.from.unwrap_or_else(|| AgentRef::from_tab("unknown"));
     let owner_epoch = state
         .svc
@@ -637,7 +637,7 @@ pub async fn task_assign(
             &crate::api::tab_routes::authenticated_plan_caller(&headers),
         )
         .map_err(|message| text_err(axum::http::StatusCode::FORBIDDEN, message))?;
-    verify_task_mutation_owner(&state, &headers, &id, &tid)?;
+    verify_task_mutation_owner(&state, &headers, &id, &tid, TaskMutationKind::Recovery)?;
     let owner_epoch = state
         .svc
         .plan_store
@@ -759,11 +759,24 @@ fn rest_task_mutation_authority(
     })
 }
 
+/// REST twin of the socket gate's recovery classification: only these verbs may
+/// be widened for the live Plan owner. `task_rm` is deliberately excluded.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TaskMutationKind {
+    Recovery,
+    Ordinary,
+}
+
+fn owner_tab_is_gone(state: &AppState, owner_tab_id: Option<&str>) -> bool {
+    owner_tab_id.is_none_or(|tab_id| state.svc.mux.read().get_tab(tab_id).is_none())
+}
+
 fn verify_task_mutation_owner(
     state: &AppState,
     headers: &HeaderMap,
     plan_id: &str,
     task_id: &str,
+    recovery: TaskMutationKind,
 ) -> Result<(), (axum::http::StatusCode, Json<Value>)> {
     let detail = state
         .svc
@@ -773,6 +786,23 @@ fn verify_task_mutation_owner(
         .ok_or_else(|| plan_err(crate::service::plan::PlanError::TaskNotFound))?;
     if detail.task.interruption.owner_epoch == 0 {
         return Ok(());
+    }
+    if recovery == TaskMutationKind::Recovery
+        && owner_tab_is_gone(state, detail.task.interruption.owner_tab_id.as_deref())
+        && state
+            .svc
+            .authorize_plan_orchestrator(
+                plan_id,
+                &crate::api::tab_routes::authenticated_plan_caller(headers),
+            )
+            .is_ok()
+    {
+        return state
+            .svc
+            .plan_store
+            .retire_stale_task_owner(plan_id, task_id, None, |_| false, epoch_ms())
+            .map(|_| ())
+            .map_err(|error| text_err(axum::http::StatusCode::CONFLICT, error.to_string()));
     }
     let tab_id = headers
         .get("X-CodeTerm-Tab-Id")
@@ -899,7 +929,7 @@ pub async fn task_respawn(
             &crate::api::tab_routes::authenticated_plan_caller(&headers),
         )
         .map_err(|message| text_err(axum::http::StatusCode::FORBIDDEN, message))?;
-    verify_task_mutation_owner(&state, &headers, &id, &tid)?;
+    verify_task_mutation_owner(&state, &headers, &id, &tid, TaskMutationKind::Recovery)?;
     let draft = state
         .svc
         .plan_store
@@ -970,7 +1000,7 @@ pub async fn task_rm(
     Path((id, tid)): Path<(String, String)>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    verify_task_mutation_owner(&state, &headers, &id, &tid)?;
+    verify_task_mutation_owner(&state, &headers, &id, &tid, TaskMutationKind::Ordinary)?;
     state
         .svc
         .authorize_draft_structure_mutation(

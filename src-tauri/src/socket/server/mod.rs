@@ -42,6 +42,7 @@ mod plan_task_authority;
 mod plan_task_dispatch;
 mod plan_task_rpc;
 mod plan_time;
+mod safety_nudge;
 mod services;
 mod spec;
 mod tab;

@@ -49,61 +49,33 @@ fn unauthorized(message: &str) -> JsonRpcError {
     }
 }
 
-fn validate_bound_orchestrator_identity(
-    plan: &Plan,
-    tab_id: &str,
-    session_id: &str,
-    claimed_nonce: &str,
-    live_session_id: Option<&str>,
-    configured_nonce: Option<&str>,
-    reported_nonce: Option<&str>,
-    anchors_team: bool,
-) -> Result<(), JsonRpcError> {
-    let owner_matches = plan.owner.tab_id.as_deref() == Some(tab_id)
-        && plan.owner.session_id.as_deref() == Some(session_id);
-    let live_matches = live_session_id == Some(session_id)
-        && configured_nonce == Some(claimed_nonce)
-        && reported_nonce == Some(claimed_nonce)
-        && anchors_team;
-    if tab_id.is_empty()
-        || session_id.is_empty()
-        || claimed_nonce.is_empty()
-        || !owner_matches
-        || !live_matches
-    {
-        return Err(unauthorized(
-            "the live bound Plan Orchestrator session is required",
-        ));
+fn structural_caller(params: Option<&Value>) -> crate::service::AuthenticatedPlanCaller {
+    let field = |key: &str| {
+        let value = str_field(params, key);
+        (!value.is_empty()).then(|| value.to_string())
+    };
+    crate::service::AuthenticatedPlanCaller {
+        tab_id: field("caller_tab_id"),
+        session_id: field("session_id"),
+        binding_nonce: field("session_binding_nonce"),
     }
-    Ok(())
 }
 
+/// Authorization is the canonical owner predicate, never a private copy of it.
+/// The actor is then derived from the tab that predicate already validated.
 fn authorized_orchestrator_actor(
     svc: &ServiceState,
     plan_id: &str,
     params: Option<&Value>,
 ) -> Result<AgentRef, JsonRpcError> {
-    let tab_id = str_field(params, "caller_tab_id");
-    let session_id = str_field(params, "session_id");
-    let nonce = str_field(params, "session_binding_nonce");
-    let plan = svc
-        .plan_store
-        .get(plan_id)
-        .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
+    // Runs before any mux guard of ours: it takes its own, and parking_lot reads
+    // are not recursive.
+    svc.authorize_plan_orchestrator(plan_id, &structural_caller(params))
+        .map_err(|message| unauthorized(&message))?;
     let mux = svc.mux.read();
     let tab = mux
-        .get_tab(tab_id)
+        .get_tab(str_field(params, "caller_tab_id"))
         .ok_or_else(|| unauthorized("the claimed Orchestrator tab is not live"))?;
-    validate_bound_orchestrator_identity(
-        &plan,
-        tab_id,
-        session_id,
-        nonce,
-        tab.agent_session_id.as_deref(),
-        tab.session_binding_nonce.as_deref(),
-        tab.reported_session_binding_nonce.as_deref(),
-        tab.anchors_team(),
-    )?;
     Ok(AgentRef {
         tab_id: Some(tab.id.clone()),
         session_id: tab.agent_session_id.clone(),
@@ -357,6 +329,9 @@ pub(super) fn dispatch(
 }
 
 #[cfg(test)]
+mod authority_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::plan::OrchestratorRef;
@@ -401,69 +376,6 @@ mod tests {
         attempt.report = Some(Default::default());
         store.save(&mut stored, 4).unwrap();
         (dir, store, plan.id, task_id, attempt_id)
-    }
-
-    fn owned_plan() -> Plan {
-        Plan::new(
-            "review auth".into(),
-            "/repo".into(),
-            OrchestratorRef {
-                tab_id: Some("owner".into()),
-                session_id: Some("session".into()),
-                title: Some("Owner".into()),
-            },
-        )
-    }
-
-    #[test]
-    fn review_mutation_auth_accepts_only_the_live_bound_orchestrator_session() {
-        let plan = owned_plan();
-        validate_bound_orchestrator_identity(
-            &plan,
-            "owner",
-            "session",
-            "nonce",
-            Some("session"),
-            Some("nonce"),
-            Some("nonce"),
-            true,
-        )
-        .unwrap();
-
-        for rejected in [
-            validate_bound_orchestrator_identity(
-                &plan,
-                "worker",
-                "session",
-                "nonce",
-                Some("session"),
-                Some("nonce"),
-                Some("nonce"),
-                false,
-            ),
-            validate_bound_orchestrator_identity(
-                &plan,
-                "owner",
-                "foreign",
-                "nonce",
-                Some("foreign"),
-                Some("nonce"),
-                Some("nonce"),
-                true,
-            ),
-            validate_bound_orchestrator_identity(
-                &plan,
-                "owner",
-                "session",
-                "forged",
-                Some("session"),
-                Some("nonce"),
-                Some("nonce"),
-                true,
-            ),
-        ] {
-            assert_eq!(rejected.unwrap_err().code, -32003);
-        }
     }
 
     #[test]
