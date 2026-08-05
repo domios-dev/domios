@@ -471,17 +471,7 @@ fn enable_shared_port_binding(socket: &tokio::net::TcpSocket) -> std::io::Result
     }
 }
 
-async fn bind_listener(
-    control: &RestApiControl,
-    bind_addr: &str,
-) -> std::io::Result<tokio::net::TcpListener> {
-    #[cfg(test)]
-    if control.take_bind_error() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::AddrInUse,
-            "forced bind ownership failure",
-        ));
-    }
+async fn bind_listener(bind_addr: &str) -> std::io::Result<tokio::net::TcpListener> {
     let address = bind_addr
         .parse::<SocketAddr>()
         .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?;
@@ -644,7 +634,18 @@ pub(crate) async fn start(control: RestApiControlState, bind_addr: String, route
 
     loop {
         let generation = control.begin_generation();
-        let listener = match bind_listener(&control, &bind_addr).await {
+        #[cfg(test)]
+        let listener = if control.take_bind_error() {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::AddrInUse,
+                "forced bind ownership failure",
+            ))
+        } else {
+            bind_listener(&bind_addr).await
+        };
+        #[cfg(not(test))]
+        let listener = bind_listener(&bind_addr).await;
+        let listener = match listener {
             Ok(listener) => listener,
             Err(error) => {
                 let message =
