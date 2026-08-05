@@ -40,6 +40,7 @@ fi
 
 if [ "$ARCH" = "arm64" ]; then
   rm -rf src-tauri/target/release/bundle
+  ./build.sh release-inputs
   pnpm tauri build --config src-tauri/tauri.conf.json
   APP=src-tauri/target/release/bundle/macos/CodeTerm.app
 else
