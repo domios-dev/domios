@@ -69,7 +69,7 @@ const INVENTORY: ForkSite[] = [
   { file: "src/lib/webApi.ts", line: 142, cls: "transport-shim", note: "THE seam: daemonAuthToken() — canonical auth token per access mode" },
   { file: "src/lib/lifecycle.ts", line: 56, cls: "capability-gate", note: "visibility/pageshow/online wake resync is web-only (native webview inert)" },
   { file: "src/lib/webEvents.ts", line: 180, cls: "transport-shim", note: "THE seam: web-only SSE bootstrap guard (no-op on native); relay target byte-piped via relay-stream" },
-  { file: "src/lib/outputStream.ts", line: 108, cls: "transport-shim", note: "multiplexed PTY output over HTTP (web); relay target byte-piped via relay-stream" },
+  { file: "src/lib/outputStream.ts", line: 113, cls: "transport-shim", note: "multiplexed PTY output over HTTP (web); relay target byte-piped via relay-stream" },
   { file: "src/store/multiplexer/index.tsx", line: 61, cls: "capability-gate", note: "cache-hydrated-at-boot detection is web-only (native has no cache path)" },
   { file: "src/store/multiplexer/index.tsx", line: 78, cls: "capability-gate", note: "lazy-init hydration from the boot snapshot cache is web-only" },
   { file: "src/store/multiplexer/index.tsx", line: 143, cls: "capability-gate", note: "persist boot snapshot cache only where it can ever be read back (web)" },
