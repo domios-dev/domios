@@ -7,10 +7,10 @@ import {
   IS_WEB,
   localJson,
   relayTarget,
-  resolveRelayTarget,
   selfHost,
   setRelayTarget,
   setTokenFor,
+  usableRelayTarget,
   webJson,
 } from "../../lib/webApi";
 import type { MeshPeersResponse } from "../../lib/types";
@@ -78,16 +78,26 @@ export function WebGate({ children }: { children: ReactNode }) {
     const relayPeerId = hash.get("relay")?.trim();
     let active = true;
     const bootstrap = async () => {
+      const stored = relayTarget();
       if (relayPeerId === "self") {
         clearRelayTarget();
       } else if (relayPeerId) {
         try {
           const peers = await localJson<MeshPeersResponse>("GET", "/api/mesh/peers");
-          const peer = resolveRelayTarget(peers.paired, relayPeerId);
-          if (!peer) throw new Error("Relay peer is not paired");
+          const peer = usableRelayTarget(peers.paired, relayPeerId);
+          if (!peer) throw new Error("Relay peer cannot serve as a relay target");
           if (active) setRelayTarget(peer.id, peer.name);
         } catch {
           if (active) clearRelayTarget();
+        }
+      } else if (stored) {
+        // A target left in localStorage outlives pairing, presence and protocol;
+        // adopting it unchecked relays every request into a dead peer.
+        try {
+          const peers = await localJson<MeshPeersResponse>("GET", "/api/mesh/peers");
+          if (active && !usableRelayTarget(peers.paired, stored.id)) clearRelayTarget();
+        } catch {
+          /* local daemon unreachable — validate() reports that, keep the target */
         }
       }
       if (active) await validate();

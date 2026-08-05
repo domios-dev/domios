@@ -20,7 +20,7 @@ async function run() {
     clearRelayTarget,
     GATEWAY_STATE_EVENT,
     invalidateWebRequestContext,
-    resolveRelayTarget,
+    usableRelayTarget,
     setRelayTarget,
     setTokenFor,
     webFetch,
@@ -30,12 +30,18 @@ async function run() {
   window.addEventListener(GATEWAY_STATE_EVENT, (event) => {
     gatewayStates.push((event as CustomEvent<{ available: boolean }>).detail.available);
   });
-  const authoritative = resolveRelayTarget(
-    [{ instance_id: "peer-1", instance_name: "Authoritative name" }],
-    "peer-1",
-  );
+  const usable = { instance_id: "peer-1", instance_name: "Authoritative name", online: true, relay_protocol_version: 1 };
+  const authoritative = usableRelayTarget([usable], "peer-1");
   assert(authoritative?.name === "Authoritative name", "relay bootstrap resolves the authenticated peer name");
-  assert(resolveRelayTarget([], "peer-1") === null, "unknown relay bootstrap peers are rejected");
+  assert(usableRelayTarget([], "peer-1") === null, "unknown relay bootstrap peers are rejected");
+  assert(
+    usableRelayTarget([{ ...usable, online: false }], "peer-1") === null,
+    "an offline peer cannot be adopted as a relay target",
+  );
+  assert(
+    usableRelayTarget([{ ...usable, relay_protocol_version: 0 }], "peer-1") === null,
+    "a peer on a foreign relay protocol cannot be adopted as a relay target",
+  );
   const upload = new Blob(["image-bytes"], { type: "image/png" });
   let uploadUrl = "";
   let uploadInit: RequestInit | undefined;

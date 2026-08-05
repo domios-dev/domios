@@ -12,6 +12,7 @@ import {
   clearRelayTarget,
   dismissResumePrompt,
   localJson,
+  relayPeerUsable,
   relayTarget,
   resumePromptDismissed,
   setRelayTarget,
@@ -69,7 +70,7 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
       setLocalName(res.local_instance_name);
       setPeers(rankPeersByLastActive(paired));
       setResumePeer(
-        pickResumePeer(paired.filter((peer) => peer.online && peer.relay_protocol_version === RELAY_PROTOCOL_VERSION), res.local_last_active_ms ?? null, !!res.local_dev, {
+        pickResumePeer(paired.filter(relayPeerUsable), res.local_last_active_ms ?? null, !!res.local_dev, {
           hasRelayTarget: !!relayTarget(),
           dismissedThisSession: resumePromptDismissed(),
         }),
@@ -248,7 +249,7 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
             const active = target?.id === p.instance_id;
             const badge = formatLastActiveBadge(p.last_active_ms);
             const compatible = p.relay_protocol_version === RELAY_PROTOCOL_VERSION;
-            const available = p.online && compatible;
+            const available = relayPeerUsable(p);
             return (
               <button
                 type="button"
