@@ -256,8 +256,8 @@ pub enum AgentAction {
         /// and remains byte-exact. Mutually exclusive with --task.
         #[arg(long, value_name = "PATH")]
         task_file: Option<String>,
-        /// Extra args for the agent
-        #[arg(long, num_args = 1..)]
+        /// Extra provider args. Put this after all CodeTerm spawn options.
+        #[arg(long, num_args = 1.., allow_hyphen_values = true)]
         args: Option<Vec<String>>,
         /// Target workspace ID (default: parent's workspace or active workspace)
         #[arg(long)]
@@ -323,6 +323,16 @@ mod tests {
 
     fn parse_report(args: &[&str]) -> Result<AgentAction, clap::Error> {
         let mut full = vec!["codeterm", "agent", "report"];
+        full.extend_from_slice(args);
+        let cli = Cli::try_parse_from(full)?;
+        match cli.command {
+            crate::Commands::Agent { action } => Ok(action),
+            _ => panic!("expected agent subcommand"),
+        }
+    }
+
+    fn parse_spawn(args: &[&str]) -> Result<AgentAction, clap::Error> {
+        let mut full = vec!["codeterm", "agent", "spawn"];
         full.extend_from_slice(args);
         let cli = Cli::try_parse_from(full)?;
         match cli.command {
@@ -528,6 +538,73 @@ mod tests {
                 assert!(matches!(role, Some(SpawnRole::Worker)));
                 assert_eq!(plan.as_deref(), Some("pl_test"));
                 assert_eq!(plan_task.as_deref(), Some("my-task"));
+            }
+            _ => panic!("expected agent spawn"),
+        }
+    }
+
+    #[test]
+    fn spawn_provider_args_preserve_hyphen_values_after_codeterm_bindings() {
+        let action = parse_spawn(&[
+            "claude",
+            "--role",
+            "Worker",
+            "--plan",
+            "pl_x",
+            "--task",
+            "do x",
+            "--args",
+            "--resume",
+            "1234-uuid",
+            "--model",
+            "gpt-5",
+        ])
+        .expect("provider args should parse");
+
+        match action {
+            AgentAction::Spawn {
+                role,
+                plan,
+                task,
+                args,
+                model,
+                ..
+            } => {
+                assert!(matches!(role, Some(SpawnRole::Worker)));
+                assert_eq!(plan.as_deref(), Some("pl_x"));
+                assert_eq!(task.as_deref(), Some("do x"));
+                assert_eq!(
+                    args,
+                    Some(vec![
+                        "--resume".into(),
+                        "1234-uuid".into(),
+                        "--model".into(),
+                        "gpt-5".into(),
+                    ])
+                );
+                assert!(model.is_none());
+            }
+            _ => panic!("expected agent spawn"),
+        }
+    }
+
+    #[test]
+    fn spawn_without_provider_args_is_unaffected() {
+        let action = parse_spawn(&["claude"]).expect("spawn without options should parse");
+        match action {
+            AgentAction::Spawn { role, args, .. } => {
+                assert!(role.is_none());
+                assert!(args.is_none());
+            }
+            _ => panic!("expected agent spawn"),
+        }
+
+        let action =
+            parse_spawn(&["claude", "--role", "Worker"]).expect("role should still parse");
+        match action {
+            AgentAction::Spawn { role, args, .. } => {
+                assert!(matches!(role, Some(SpawnRole::Worker)));
+                assert!(args.is_none());
             }
             _ => panic!("expected agent spawn"),
         }

@@ -691,7 +691,10 @@ fn normalize_agent_spawn_label_args(args: Vec<String>) -> Vec<String> {
     let mut i = spawn_idx + 2;
     while i < args.len() {
         let arg = &args[i];
-        if arg == "--title" || arg == "--description" {
+        if arg == "--args" || arg.starts_with("--args=") {
+            out.extend_from_slice(&args[i..]);
+            break;
+        } else if arg == "--title" || arg == "--description" {
             let flag = arg.clone();
             i += 1;
             let start = i;
@@ -852,6 +855,49 @@ mod plan_cli_error_tests {
                     Some("--literal flag")
                 );
                 assert_eq!(task.as_deref(), Some("echo"));
+            }
+            _ => panic!("expected agent spawn"),
+        }
+    }
+
+    #[test]
+    fn agent_spawn_provider_args_bypass_label_normalization() {
+        let original: Vec<String> = [
+            "codeterm",
+            "agent",
+            "spawn",
+            "claude",
+            "--role",
+            "Worker",
+            "--args",
+            "--title",
+            "provider",
+            "session",
+            "--description",
+            "verbatim",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+        let args = normalize_agent_spawn_label_args(original.clone());
+
+        assert_eq!(args, original);
+        let cli = Cli::try_parse_from(args).expect("provider args should parse");
+        match cli.command {
+            Commands::Agent {
+                action: AgentAction::Spawn { role, args, .. },
+            } => {
+                assert!(matches!(role, Some(crate::args::agent::SpawnRole::Worker)));
+                assert_eq!(
+                    args,
+                    Some(vec![
+                        "--title".into(),
+                        "provider".into(),
+                        "session".into(),
+                        "--description".into(),
+                        "verbatim".into(),
+                    ])
+                );
             }
             _ => panic!("expected agent spawn"),
         }
