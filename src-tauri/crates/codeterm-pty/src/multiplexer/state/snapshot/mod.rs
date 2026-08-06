@@ -399,6 +399,7 @@ impl MultiplexerState {
                         .and_then(|identity| identity.session_binding_nonce.clone()),
                     reported_session_binding_nonce: restored_identity
                         .and_then(|identity| identity.reported_session_binding_nonce.clone()),
+                    prior_session_binding_nonces: Vec::new(),
                     shell_integration_nonce: None,
                     lifecycle_epoch: restored_identity
                         .and_then(|identity| identity.lifecycle_epoch),

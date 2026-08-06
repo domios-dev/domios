@@ -1,6 +1,7 @@
-use crate::multiplexer::types::AgentRole;
+use crate::multiplexer::types::{AgentRole, Tab};
 use crate::plan::{PlanMode, PlanningAuthor, PlanningState};
 use crate::service::plan::PlanError;
+use crate::service::plan_reconcile::tab_has_live_agent;
 use crate::service::ServiceContext;
 use serde_json::Value;
 
@@ -9,6 +10,95 @@ pub(crate) struct AuthenticatedPlanCaller {
     pub tab_id: Option<String>,
     pub session_id: Option<String>,
     pub binding_nonce: Option<String>,
+}
+
+/// Why a planning-authority check failed. The two -32003 causes are separate
+/// variants, not shared prose: a BINDING failure (nonce) is recovered by a
+/// rebind, a ROLE failure is not — so callers branch on the variant, never text.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PlanAuthorityError {
+    PlanNotFound,
+    /// Live same-tab, same-session caller holding a pre-relaunch lineage nonce.
+    /// Recoverable via `codeterm plan rebind` without a full agent restart.
+    BindingStaleAfterRelaunch,
+    /// No live binding proof: absent tab, dead/rebound session, wrong session,
+    /// or a nonce with no lineage to this tab. A genuinely foreign caller lands
+    /// here and is refused — the rebind never accepts it.
+    BindingForeign,
+    /// Binding is live but the caller is neither the Plan owner nor a draft
+    /// Planner for this plan.
+    RoleUnauthorized,
+}
+
+impl PlanAuthorityError {
+    pub(crate) fn diagnostic_type(self) -> &'static str {
+        match self {
+            Self::PlanNotFound => "plan_not_found",
+            Self::BindingStaleAfterRelaunch => "plan_binding_stale_after_relaunch",
+            Self::BindingForeign => "plan_binding_authorization_required",
+            Self::RoleUnauthorized => "plan_role_authorization_required",
+        }
+    }
+
+    fn message(self) -> &'static str {
+        match self {
+            Self::PlanNotFound => "plan not found",
+            Self::BindingStaleAfterRelaunch => {
+                "the live bound planning session is required; its binding nonce is stale after a relaunch — re-sync with `codeterm plan rebind <plan>`"
+            }
+            Self::BindingForeign => "the live bound planning session is required",
+            Self::RoleUnauthorized => {
+                "the live bound Plan owner or draft Planner session is required"
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for PlanAuthorityError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.message())
+    }
+}
+
+impl From<PlanAuthorityError> for String {
+    fn from(error: PlanAuthorityError) -> Self {
+        error.message().to_string()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RebindOutcome {
+    pub tab_id: String,
+    pub nonce: String,
+    /// True when the live binding was actually moved onto the presented nonce;
+    /// false when it was already current (idempotent re-sync).
+    pub resynced: bool,
+}
+
+/// Split a failed binding check into the recoverable stale-after-relaunch case
+/// versus a foreign refusal. Stale requires the SAME live tab on its own current
+/// nonce, a matching current session, and the presented nonce in this tab's
+/// lineage; anything else is foreign, so the nonce alone never proves recovery.
+fn binding_failure_class(
+    tab: &Tab,
+    requested_session: Option<&str>,
+    resolved_session: Option<&str>,
+    nonce: Option<&str>,
+) -> PlanAuthorityError {
+    let Some(nonce) = nonce else {
+        return PlanAuthorityError::BindingForeign;
+    };
+    let same_live_session = resolved_session.is_some()
+        && tab.agent_session_id.as_deref() == resolved_session
+        && requested_session.is_none_or(|requested| Some(requested) == resolved_session)
+        && tab_has_live_agent(tab);
+    let stale_lineage_nonce =
+        tab.session_binding_nonce.as_deref() != Some(nonce) && tab.binding_nonce_in_lineage(nonce);
+    if same_live_session && stale_lineage_nonce {
+        PlanAuthorityError::BindingStaleAfterRelaunch
+    } else {
+        PlanAuthorityError::BindingForeign
+    }
 }
 
 impl ServiceContext {
@@ -30,7 +120,22 @@ impl ServiceContext {
         plan_id: &str,
         caller: &AuthenticatedPlanCaller,
     ) -> Result<PlanningAuthor, String> {
-        let plan = self.plan_store.get(plan_id).ok_or("plan not found")?;
+        self.classify_planning_caller(plan_id, caller)
+            .map_err(String::from)
+    }
+
+    /// Full planning-authority verdict with the typed error preserved so the
+    /// socket layer can attach a distinct diagnostic and the rebind path can
+    /// tell a recoverable stale binding from a foreign caller.
+    pub(crate) fn classify_planning_caller(
+        &self,
+        plan_id: &str,
+        caller: &AuthenticatedPlanCaller,
+    ) -> Result<PlanningAuthor, PlanAuthorityError> {
+        let plan = self
+            .plan_store
+            .get(plan_id)
+            .ok_or(PlanAuthorityError::PlanNotFound)?;
         let tab_id = caller.tab_id.as_deref().filter(|value| !value.is_empty());
         let requested_session_id = caller
             .session_id
@@ -43,7 +148,7 @@ impl ServiceContext {
         let mux = self.mux.read();
         let tab = tab_id
             .and_then(|id| mux.get_tab(id))
-            .ok_or("the live bound planning session is required")?;
+            .ok_or(PlanAuthorityError::BindingForeign)?;
         let session_id = requested_session_id.or(tab.agent_session_id.as_deref());
         let live = requested_session_id.is_none_or(|requested| Some(requested) == session_id)
             && tab.agent_session_id.as_deref() == session_id
@@ -52,7 +157,12 @@ impl ServiceContext {
             && session_id.is_some()
             && nonce.is_some();
         if !live {
-            return Err("the live bound planning session is required".into());
+            return Err(binding_failure_class(
+                tab,
+                requested_session_id,
+                session_id,
+                nonce,
+            ));
         }
         let owner = plan.owner.tab_id.as_deref() == tab_id && tab.has_team_orchestrator_authority();
         if owner {
@@ -72,7 +182,61 @@ impl ServiceContext {
                 tab_id: tab.id.clone(),
             });
         }
-        Err("the live bound Plan owner or draft Planner session is required".into())
+        Err(PlanAuthorityError::RoleUnauthorized)
+    }
+
+    /// Re-sync a stale-after-relaunch binding. Proof: the tab is live on its own
+    /// current nonce, its session matches the caller, and the presented nonce is
+    /// in this tab's lineage; only then is the live binding moved onto that nonce
+    /// so mutation/approve/dispatch recover without a restart. Foreign refused.
+    pub(crate) fn rebind_stale_planning_session(
+        &self,
+        caller: &AuthenticatedPlanCaller,
+    ) -> Result<RebindOutcome, String> {
+        let tab_id = caller
+            .tab_id
+            .as_deref()
+            .filter(|value| !value.is_empty())
+            .ok_or("rebind requires the caller tab id")?;
+        let nonce = caller
+            .binding_nonce
+            .as_deref()
+            .filter(|value| !value.is_empty())
+            .ok_or("rebind requires the presented binding nonce")?;
+        let requested_session = caller
+            .session_id
+            .as_deref()
+            .filter(|value| !value.is_empty());
+        let mut mux = self.mux.write();
+        let tab = mux
+            .get_tab_mut(tab_id)
+            .ok_or("the tab to rebind is no longer live")?;
+        let session = requested_session.or(tab.agent_session_id.as_deref());
+        if tab.session_binding_nonce.as_deref() == Some(nonce)
+            && tab.reported_session_binding_nonce.as_deref() == Some(nonce)
+        {
+            return Ok(RebindOutcome {
+                tab_id: tab_id.to_string(),
+                nonce: nonce.to_string(),
+                resynced: false,
+            });
+        }
+        let provable = session.is_some()
+            && requested_session.is_none_or(|requested| Some(requested) == session)
+            && tab.agent_session_id.as_deref() == session
+            && tab_has_live_agent(tab)
+            && tab.binding_nonce_in_lineage(nonce);
+        if !provable {
+            return Err(PlanAuthorityError::BindingForeign.into());
+        }
+        tab.remember_superseded_binding_nonce();
+        tab.session_binding_nonce = Some(nonce.to_string());
+        tab.reported_session_binding_nonce = Some(nonce.to_string());
+        Ok(RebindOutcome {
+            tab_id: tab_id.to_string(),
+            nonce: nonce.to_string(),
+            resynced: true,
+        })
     }
 
     pub(crate) fn approve_and_activate_plan(
@@ -208,6 +372,11 @@ mod tests {
             tab.agent_session_id = Some(session.into());
             tab.session_binding_nonce = Some(nonce.into());
             tab.reported_session_binding_nonce = Some(nonce.into());
+            // Make the tab pass `tab_has_live_agent` so the stale-after-relaunch
+            // proof (which requires a genuinely live tab) is exercised.
+            tab.agent_type = Some("provider-neutral".into());
+            tab.chat_view = true;
+            tab.pty_id = Some(format!("pty-{tab_id}"));
         }
         {
             let tab = mux.get_tab_mut(&planner).unwrap();
@@ -425,5 +594,195 @@ mod tests {
             .service
             .authorize_task_execution_action(&task_id, &owner)
             .is_ok());
+    }
+
+    fn is_binding_rule(error: PlanAuthorityError) -> bool {
+        matches!(
+            error,
+            PlanAuthorityError::BindingStaleAfterRelaunch | PlanAuthorityError::BindingForeign
+        )
+    }
+
+    /// Move a live tab onto a fresh nonce while pushing its prior nonce into
+    /// lineage — exactly what a relaunch does through the production helper.
+    fn relaunch_tab(fixture: &ServiceFixture, tab_id: &str, new_nonce: &str) {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(tab_id).unwrap();
+        tab.remember_superseded_binding_nonce();
+        tab.session_binding_nonce = Some(new_nonce.into());
+        tab.reported_session_binding_nonce = Some(new_nonce.into());
+    }
+
+    // Mirror of plan_task_authority::task_mutation_authority's binding predicate
+    // (the W3-C task gate): the live tab must carry the caller's nonce as BOTH
+    // its configured and reported binding. Kept here to prove the two gates
+    // agree on the same inputs, not to re-test W3-C's internals.
+    fn w3c_task_binding_matches(fixture: &ServiceFixture, caller: &AuthenticatedPlanCaller) -> bool {
+        let mux = fixture.service.mux.read();
+        let tab = mux.get_tab(caller.tab_id.as_deref().unwrap()).unwrap();
+        let nonce = caller.binding_nonce.as_deref();
+        tab.agent_session_id.as_deref() == caller.session_id.as_deref()
+            && tab.session_binding_nonce.as_deref() == nonce
+            && tab.reported_session_binding_nonce.as_deref() == nonce
+    }
+
+    #[test]
+    fn lineage_records_superseded_nonces_bounded_and_deduped() {
+        let (mut mux, tab_id) = MultiplexerState::new();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.session_binding_nonce = Some("n0".into());
+        tab.remember_superseded_binding_nonce();
+        tab.session_binding_nonce = Some("n1".into());
+        tab.remember_superseded_binding_nonce();
+        tab.session_binding_nonce = Some("n0".into());
+        tab.remember_superseded_binding_nonce();
+        assert!(tab.binding_nonce_in_lineage("n0"));
+        assert!(tab.binding_nonce_in_lineage("n1"));
+        assert!(!tab.binding_nonce_in_lineage("never-issued"));
+        assert_eq!(
+            tab.prior_session_binding_nonces
+                .iter()
+                .filter(|nonce| *nonce == "n0")
+                .count(),
+            1,
+            "re-adopting a nonce must not duplicate its lineage entry"
+        );
+        for index in 0..20 {
+            tab.session_binding_nonce = Some(format!("m{index}"));
+            tab.remember_superseded_binding_nonce();
+        }
+        assert!(tab.prior_session_binding_nonces.len() <= 8);
+        assert!(!tab.binding_nonce_in_lineage("m0"));
+        assert!(tab.binding_nonce_in_lineage("m19"));
+    }
+
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+    #[test]
+    fn stale_after_relaunch_recovers_mutation_approve_dispatch_through_rebind() {
+        let (fixture, plan_id, _, owner) = fixture();
+        let tab_id = owner.tab_id.clone().unwrap();
+        relaunch_tab(&fixture, &tab_id, "owner-nonce-relaunched");
+        // The same caller, still holding its pre-relaunch nonce, is a recoverable
+        // binding failure — not a hard dead end.
+        assert!(matches!(
+            fixture.service.classify_planning_caller(&plan_id, &owner),
+            Err(PlanAuthorityError::BindingStaleAfterRelaunch)
+        ));
+        let outcome = fixture
+            .service
+            .rebind_stale_planning_session(&owner)
+            .expect("a provable stale-after-relaunch caller can rebind");
+        assert!(outcome.resynced);
+        // Mutation, approve, and dispatch all funnel through the authority gate,
+        // so the single rebind recovers every one of them without a restart.
+        assert!(matches!(
+            fixture.service.classify_planning_caller(&plan_id, &owner),
+            Ok(PlanningAuthor::User)
+        ));
+        assert!(fixture
+            .service
+            .approve_and_activate_plan(&plan_id, &owner, None, 5)
+            .is_ok());
+        assert!(fixture
+            .service
+            .authorize_execution_action(&plan_id, &owner)
+            .is_ok());
+        // A second rebind by the now-current caller is an idempotent no-op.
+        let repeat = fixture
+            .service
+            .rebind_stale_planning_session(&owner)
+            .expect("idempotent rebind");
+        assert!(!repeat.resynced);
+    }
+
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+    #[test]
+    fn foreign_and_cross_tab_callers_are_refused_and_rebind_rejects_them() {
+        let (fixture, plan_id, planner, owner) = fixture();
+        relaunch_tab(&fixture, owner.tab_id.as_deref().unwrap(), "owner-nonce-2");
+        // A nonce this tab never held has no lineage — foreign, and unrebindable.
+        let foreign = AuthenticatedPlanCaller {
+            binding_nonce: Some("never-issued-nonce".into()),
+            ..owner.clone()
+        };
+        assert!(matches!(
+            fixture.service.classify_planning_caller(&plan_id, &foreign),
+            Err(PlanAuthorityError::BindingForeign)
+        ));
+        assert!(fixture
+            .service
+            .rebind_stale_planning_session(&foreign)
+            .is_err());
+        // A DIFFERENT tab presenting the owner's stale nonce is foreign too: the
+        // planner tab's lineage never held it, so session-id + tab liveness alone
+        // never launder another tab's token into authority.
+        let cross_tab = AuthenticatedPlanCaller {
+            tab_id: planner.tab_id.clone(),
+            session_id: Some("planner-session".into()),
+            binding_nonce: Some("owner-nonce".into()),
+        };
+        assert!(matches!(
+            fixture.service.classify_planning_caller(&plan_id, &cross_tab),
+            Err(PlanAuthorityError::BindingForeign)
+        ));
+        assert!(fixture
+            .service
+            .rebind_stale_planning_session(&cross_tab)
+            .is_err());
+    }
+
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+    #[test]
+    fn binding_rule_and_role_rule_are_mechanically_distinct() {
+        let (fixture, plan_id, planner, owner) = fixture();
+        // Role rule: a live, correctly-bound draft Planner editing an APPROVED
+        // plan is refused by the ROLE rule (the #298 TRAP's other cause).
+        fixture
+            .service
+            .approve_and_activate_plan(&plan_id, &owner, None, 3)
+            .unwrap();
+        let role_err = match fixture.service.classify_planning_caller(&plan_id, &planner) {
+            Err(error) => error,
+            Ok(_) => panic!("a Planner editing an approved plan must fail the role rule"),
+        };
+        assert_eq!(role_err, PlanAuthorityError::RoleUnauthorized);
+        // Binding rule: a foreign nonce is refused by the BINDING rule.
+        let foreign = AuthenticatedPlanCaller {
+            binding_nonce: Some("foreign".into()),
+            ..owner.clone()
+        };
+        let binding_err = match fixture.service.classify_planning_caller(&plan_id, &foreign) {
+            Err(error) => error,
+            Ok(_) => panic!("a foreign nonce must fail the binding rule"),
+        };
+        // Mechanism, not prose: distinct variants AND distinct diagnostic types.
+        assert!(is_binding_rule(binding_err));
+        assert!(!is_binding_rule(role_err));
+        assert_ne!(role_err.diagnostic_type(), binding_err.diagnostic_type());
+    }
+
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+    #[test]
+    fn one_rebind_heals_both_the_plan_gate_and_the_w3c_task_gate() {
+        let (fixture, plan_id, _, owner) = fixture();
+        relaunch_tab(&fixture, owner.tab_id.as_deref().unwrap(), "owner-nonce-3");
+        // Before rebind BOTH gates reject the same stale caller — one coherent
+        // stale-binding verdict, not two fighting predicates.
+        let before = match fixture.service.classify_planning_caller(&plan_id, &owner) {
+            Err(error) => error,
+            Ok(_) => panic!("stale caller must be rejected before rebind"),
+        };
+        assert!(is_binding_rule(before));
+        assert!(!w3c_task_binding_matches(&fixture, &owner));
+        fixture
+            .service
+            .rebind_stale_planning_session(&owner)
+            .unwrap();
+        // After ONE rebind BOTH gates accept the same caller.
+        assert!(matches!(
+            fixture.service.classify_planning_caller(&plan_id, &owner),
+            Ok(PlanningAuthor::User)
+        ));
+        assert!(w3c_task_binding_matches(&fixture, &owner));
     }
 }

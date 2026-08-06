@@ -512,6 +512,11 @@ pub struct Tab {
     /// never proves that the current agent owns the tab.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub reported_session_binding_nonce: Option<String>,
+    /// Superseded binding nonces this tab held under its CURRENT session lineage.
+    /// Proves a pre-relaunch nonce belongs to this tab so a live same-session
+    /// caller can re-sync; a nonce absent here has no lineage and stays foreign.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub prior_session_binding_nonces: Vec<String>,
     /// Per-session nonce (env CODETERM_SHELL_NONCE) guarding OSC 633;E command text against forged output.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub shell_integration_nonce: Option<String>,
@@ -696,6 +701,36 @@ impl Tab {
         self.anchors_team() && self.team_id.is_some()
     }
 
+    /// Retire the current binding nonce into this tab's lineage before it is
+    /// replaced. Bounded and deduped; the live nonce is never its own ancestor.
+    pub fn remember_superseded_binding_nonce(&mut self) {
+        const MAX_LINEAGE: usize = 8;
+        let Some(current) = self.session_binding_nonce.clone() else {
+            return;
+        };
+        self.prior_session_binding_nonces
+            .retain(|nonce| nonce != &current);
+        self.prior_session_binding_nonces.push(current);
+        let overflow = self
+            .prior_session_binding_nonces
+            .len()
+            .saturating_sub(MAX_LINEAGE);
+        if overflow > 0 {
+            self.prior_session_binding_nonces.drain(0..overflow);
+        }
+    }
+
+    /// A nonce belongs to this tab's lineage when it is the live nonce or a
+    /// superseded one recorded under the current session. Foreign nonces never
+    /// match, so lineage membership is a spoof-resistant proof of same-tab origin.
+    pub fn binding_nonce_in_lineage(&self, nonce: &str) -> bool {
+        self.session_binding_nonce.as_deref() == Some(nonce)
+            || self
+                .prior_session_binding_nonces
+                .iter()
+                .any(|prior| prior == nonce)
+    }
+
     pub fn archive_context_epoch(&mut self, provider: &str, session_id: &str) {
         if session_id.is_empty()
             || self
@@ -751,6 +786,7 @@ mod tests {
             context_epoch_archives: vec![],
             session_binding_nonce: None,
             reported_session_binding_nonce: None,
+            prior_session_binding_nonces: Vec::new(),
             shell_integration_nonce: None,
             lifecycle_epoch: None,
             lifecycle_operation_id: None,
