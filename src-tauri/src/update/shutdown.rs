@@ -27,7 +27,10 @@ fn provider_exit_command(provider_id: &str) -> Option<&'static str> {
 /// happen outside. Steps 7-9 (relaunch + session restore + per-tab resume)
 /// happen in the NEW process via `lib.rs::init_states` (snapshot reload) and
 /// `commands::spawn_pty` (auto-resume by `agent_session_id`).
-pub async fn graceful_shutdown(app: &tauri::AppHandle) -> Result<(), String> {
+pub async fn graceful_shutdown(
+    app: &tauri::AppHandle,
+    initiating_tab_id: Option<&str>,
+) -> Result<Vec<String>, String> {
     log::info!("[updater] graceful_shutdown: starting");
 
     // Stop the liveness watchdog treating the imminent API-down as a crash.
@@ -41,10 +44,12 @@ pub async fn graceful_shutdown(app: &tauri::AppHandle) -> Result<(), String> {
 
     quiesce_pty_spawns(&svc).await?;
 
-    let agent_tabs = collect_agent_tabs(&svc);
+    let agent_tabs = collect_agent_tabs(&svc, initiating_tab_id);
+    let swept: Vec<String> = agent_tabs.iter().map(|a| a.tab_id.clone()).collect();
     log::info!(
-        "[updater] graceful_shutdown: {} agent Tab(s) need /exit",
-        agent_tabs.len()
+        "[updater] graceful_shutdown: {} agent Tab(s) need /exit (initiating Tab {:?} excluded)",
+        agent_tabs.len(),
+        initiating_tab_id
     );
 
     send_exit_to_agents(&svc, &agent_tabs);
@@ -64,7 +69,7 @@ pub async fn graceful_shutdown(app: &tauri::AppHandle) -> Result<(), String> {
         reaped,
         conpty_hosts
     );
-    Ok(())
+    Ok(swept)
 }
 
 #[derive(Clone)]
@@ -75,24 +80,47 @@ struct AgentTabInfo {
     exit_command: Option<String>,
 }
 
-fn collect_agent_tabs(svc: &ServiceState) -> Vec<AgentTabInfo> {
+fn collect_agent_tabs(svc: &ServiceState, initiating_tab_id: Option<&str>) -> Vec<AgentTabInfo> {
     let snapshot = svc.mux.read().snapshot();
-    let mut out = Vec::new();
-    for (_, tab) in snapshot.tabs.iter() {
-        let (Some(provider_id), Some(pty_id)) = (tab.agent_type.as_ref(), tab.pty_id.as_ref())
-        else {
-            continue;
-        };
-        let exit_command = svc
-            .agent_registry
+    let tabs = snapshot.tabs.iter().map(|(_, tab)| {
+        (
+            tab.id.as_str(),
+            tab.agent_type.as_deref(),
+            tab.pty_id.as_deref(),
+        )
+    });
+    select_agent_tabs(tabs, initiating_tab_id, |provider_id| {
+        svc.agent_registry
             .with_provider(provider_id, |p| p.exit_command().map(|s| s.to_string()))
             .flatten()
-            .or_else(|| provider_exit_command(provider_id).map(|s| s.to_string()));
+            .or_else(|| provider_exit_command(provider_id).map(|s| s.to_string()))
+    })
+}
+
+/// Pure selection seam. Every tab with an agent + PTY is swept EXCEPT the
+/// initiating pane (Defect 3) — the caller that ran `update install` must
+/// survive the sweep to hand off to the relaunching process.
+fn select_agent_tabs<'a, R>(
+    tabs: impl Iterator<Item = (&'a str, Option<&'a str>, Option<&'a str>)>,
+    initiating_tab_id: Option<&str>,
+    resolve_exit: R,
+) -> Vec<AgentTabInfo>
+where
+    R: Fn(&str) -> Option<String>,
+{
+    let mut out = Vec::new();
+    for (tab_id, agent_type, pty_id) in tabs {
+        let (Some(provider_id), Some(pty_id)) = (agent_type, pty_id) else {
+            continue;
+        };
+        if initiating_tab_id == Some(tab_id) {
+            continue;
+        }
         out.push(AgentTabInfo {
-            tab_id: tab.id.clone(),
-            pty_id: pty_id.clone(),
-            provider_id: provider_id.clone(),
-            exit_command,
+            tab_id: tab_id.to_string(),
+            pty_id: pty_id.to_string(),
+            provider_id: provider_id.to_string(),
+            exit_command: resolve_exit(provider_id),
         });
     }
     out
@@ -278,6 +306,50 @@ mod tests {
     fn provider_exit_command_known_providers() {
         assert_eq!(provider_exit_command("claude"), Some("/exit"));
         assert_eq!(provider_exit_command("codex"), Some("/exit"));
+    }
+
+    fn exit_for(provider: &str) -> Option<String> {
+        provider_exit_command(provider).map(|s| s.to_string())
+    }
+
+    #[test]
+    fn sweep_excludes_initiating_pane_keeps_others() {
+        // The initiating GA pane ran `update install`; it must NOT be in the
+        // kill set, while every other agent pane is.
+        let tabs = vec![
+            ("ga-tab", Some("claude"), Some("pty-ga")),
+            ("worker-1", Some("codex"), Some("pty-1")),
+            ("worker-2", Some("claude"), Some("pty-2")),
+        ];
+        let selected = select_agent_tabs(tabs.into_iter(), Some("ga-tab"), exit_for);
+        let ids: Vec<&str> = selected.iter().map(|a| a.tab_id.as_str()).collect();
+        assert!(!ids.contains(&"ga-tab"), "initiating pane must survive sweep");
+        assert!(ids.contains(&"worker-1"));
+        assert!(ids.contains(&"worker-2"));
+        assert_eq!(selected.len(), 2);
+    }
+
+    #[test]
+    fn sweep_without_initiating_id_includes_all_agent_panes() {
+        let tabs = vec![
+            ("ga-tab", Some("claude"), Some("pty-ga")),
+            ("worker-1", Some("codex"), Some("pty-1")),
+        ];
+        let selected = select_agent_tabs(tabs.into_iter(), None, exit_for);
+        assert_eq!(selected.len(), 2);
+    }
+
+    #[test]
+    fn sweep_skips_tabs_without_agent_or_pty() {
+        let tabs = vec![
+            ("plain-shell", None, Some("pty-shell")),
+            ("agent-no-pty", Some("claude"), None),
+            ("real-agent", Some("claude"), Some("pty-a")),
+        ];
+        let selected = select_agent_tabs(tabs.into_iter(), Some("ga-tab"), exit_for);
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].tab_id, "real-agent");
+        assert_eq!(selected[0].exit_command.as_deref(), Some("/exit"));
     }
 
     #[test]
