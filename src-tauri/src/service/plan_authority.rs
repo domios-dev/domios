@@ -76,25 +76,25 @@ pub(crate) struct RebindOutcome {
 }
 
 /// Split a failed binding check into the recoverable stale-after-relaunch case
-/// versus a foreign refusal. Stale requires the SAME live tab on its own current
-/// nonce, a matching current session, and the presented nonce in this tab's
-/// lineage; anything else is foreign, so the nonce alone never proves recovery.
+/// versus a foreign refusal. Stale requires a live tab, a PROVIDED caller session
+/// that matches (an absent one is never laundered into the current session), and
+/// a presented nonce whose recorded lineage session equals the tab's CURRENT
+/// session. The session-tagged lineage is the daemon-authenticated proof; tab id
+/// plus a bare nonce never suffices.
 fn binding_failure_class(
     tab: &Tab,
     requested_session: Option<&str>,
-    resolved_session: Option<&str>,
     nonce: Option<&str>,
 ) -> PlanAuthorityError {
     let Some(nonce) = nonce else {
         return PlanAuthorityError::BindingForeign;
     };
-    let same_live_session = resolved_session.is_some()
-        && tab.agent_session_id.as_deref() == resolved_session
-        && requested_session.is_none_or(|requested| Some(requested) == resolved_session)
-        && tab_has_live_agent(tab);
-    let stale_lineage_nonce =
-        tab.session_binding_nonce.as_deref() != Some(nonce) && tab.binding_nonce_in_lineage(nonce);
-    if same_live_session && stale_lineage_nonce {
+    let session_ok = tab_has_live_agent(tab)
+        && requested_session
+            .is_none_or(|requested| tab.agent_session_id.as_deref() == Some(requested));
+    let stale_lineage_nonce = tab.session_binding_nonce.as_deref() != Some(nonce)
+        && tab.binding_nonce_in_current_session_lineage(nonce);
+    if session_ok && stale_lineage_nonce {
         PlanAuthorityError::BindingStaleAfterRelaunch
     } else {
         PlanAuthorityError::BindingForeign
@@ -157,12 +157,7 @@ impl ServiceContext {
             && session_id.is_some()
             && nonce.is_some();
         if !live {
-            return Err(binding_failure_class(
-                tab,
-                requested_session_id,
-                session_id,
-                nonce,
-            ));
+            return Err(binding_failure_class(tab, requested_session_id, nonce));
         }
         let owner = plan.owner.tab_id.as_deref() == tab_id && tab.has_team_orchestrator_authority();
         if owner {
@@ -185,10 +180,12 @@ impl ServiceContext {
         Err(PlanAuthorityError::RoleUnauthorized)
     }
 
-    /// Re-sync a stale-after-relaunch binding. Proof: the tab is live on its own
-    /// current nonce, its session matches the caller, and the presented nonce is
-    /// in this tab's lineage; only then is the live binding moved onto that nonce
-    /// so mutation/approve/dispatch recover without a restart. Foreign refused.
+    /// Re-sync a stale-after-relaunch binding. Proof: the tab is live, any
+    /// PROVIDED caller session matches, and the presented nonce is tagged in this
+    /// tab's lineage to its CURRENT session (daemon-authenticated, so an absent
+    /// CODETERM_SESSION_ID is never laundered into the session). Only then is the
+    /// live binding moved onto that nonce so mutation/approve/dispatch recover
+    /// without a restart. Foreign / cross-session / cross-tab refused.
     pub(crate) fn rebind_stale_planning_session(
         &self,
         caller: &AuthenticatedPlanCaller,
@@ -211,7 +208,6 @@ impl ServiceContext {
         let tab = mux
             .get_tab_mut(tab_id)
             .ok_or("the tab to rebind is no longer live")?;
-        let session = requested_session.or(tab.agent_session_id.as_deref());
         if tab.session_binding_nonce.as_deref() == Some(nonce)
             && tab.reported_session_binding_nonce.as_deref() == Some(nonce)
         {
@@ -221,11 +217,15 @@ impl ServiceContext {
                 resynced: false,
             });
         }
-        let provable = session.is_some()
-            && requested_session.is_none_or(|requested| Some(requested) == session)
-            && tab.agent_session_id.as_deref() == session
-            && tab_has_live_agent(tab)
-            && tab.binding_nonce_in_lineage(nonce);
+        // Proof: a live tab, a PROVIDED caller session that matches (absent is
+        // never laundered), and a nonce whose lineage session equals the tab's
+        // CURRENT session. Session continuity comes from the daemon-tagged
+        // lineage, not a caller-supplied CODETERM_SESSION_ID.
+        let provable = tab_has_live_agent(tab)
+            && requested_session
+                .is_none_or(|requested| tab.agent_session_id.as_deref() == Some(requested))
+            && tab.session_binding_nonce.as_deref() != Some(nonce)
+            && tab.binding_nonce_in_current_session_lineage(nonce);
         if !provable {
             return Err(PlanAuthorityError::BindingForeign.into());
         }
@@ -603,14 +603,41 @@ mod tests {
         )
     }
 
-    /// Move a live tab onto a fresh nonce while pushing its prior nonce into
-    /// lineage — exactly what a relaunch does through the production helper.
+    /// Relaunch = resume the SAME session on a fresh nonce; the prior nonce is
+    /// retired into lineage tagged with the (unchanged) current session.
     fn relaunch_tab(fixture: &ServiceFixture, tab_id: &str, new_nonce: &str) {
         let mut mux = fixture.service.mux.write();
         let tab = mux.get_tab_mut(tab_id).unwrap();
         tab.remember_superseded_binding_nonce();
         tab.session_binding_nonce = Some(new_nonce.into());
         tab.reported_session_binding_nonce = Some(new_nonce.into());
+    }
+
+    /// Genuine session transition: retire the current nonce under the OLD session,
+    /// then move the live tab onto a brand-new session id + nonce.
+    fn transition_session(fixture: &ServiceFixture, tab_id: &str, new_session: &str, new_nonce: &str) {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(tab_id).unwrap();
+        tab.remember_superseded_binding_nonce();
+        tab.agent_session_id = Some(new_session.into());
+        tab.session_binding_nonce = Some(new_nonce.into());
+        tab.reported_session_binding_nonce = Some(new_nonce.into());
+    }
+
+    fn current_binding(fixture: &ServiceFixture, tab_id: &str) -> (Option<String>, Option<String>) {
+        let mux = fixture.service.mux.read();
+        let tab = mux.get_tab(tab_id).unwrap();
+        (
+            tab.session_binding_nonce.clone(),
+            tab.reported_session_binding_nonce.clone(),
+        )
+    }
+
+    fn sessionless(caller: &AuthenticatedPlanCaller) -> AuthenticatedPlanCaller {
+        AuthenticatedPlanCaller {
+            session_id: None,
+            ..caller.clone()
+        }
     }
 
     // Mirror of plan_task_authority::task_mutation_authority's binding predicate
@@ -627,72 +654,133 @@ mod tests {
     }
 
     #[test]
-    fn lineage_records_superseded_nonces_bounded_and_deduped() {
+    fn lineage_is_session_scoped_bounded_and_deduped() {
         let (mut mux, tab_id) = MultiplexerState::new();
         let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_session_id = Some("S".into());
         tab.session_binding_nonce = Some("n0".into());
         tab.remember_superseded_binding_nonce();
         tab.session_binding_nonce = Some("n1".into());
         tab.remember_superseded_binding_nonce();
         tab.session_binding_nonce = Some("n0".into());
         tab.remember_superseded_binding_nonce();
-        assert!(tab.binding_nonce_in_lineage("n0"));
-        assert!(tab.binding_nonce_in_lineage("n1"));
-        assert!(!tab.binding_nonce_in_lineage("never-issued"));
+        // Under the SAME current session, prior and current nonces prove lineage.
+        assert!(tab.binding_nonce_in_current_session_lineage("n0"));
+        assert!(tab.binding_nonce_in_current_session_lineage("n1"));
+        assert!(!tab.binding_nonce_in_current_session_lineage("never-issued"));
         assert_eq!(
             tab.prior_session_binding_nonces
                 .iter()
-                .filter(|nonce| *nonce == "n0")
+                .filter(|entry| entry.nonce == "n0")
                 .count(),
             1,
             "re-adopting a nonce must not duplicate its lineage entry"
         );
+        // A genuine transition: the SAME nonces no longer prove lineage, because
+        // their recorded session != the tab's new current session.
+        tab.agent_session_id = Some("S2".into());
+        tab.session_binding_nonce = Some("n2".into());
+        assert!(!tab.binding_nonce_in_current_session_lineage("n0"));
+        assert!(!tab.binding_nonce_in_current_session_lineage("n1"));
+        // No current session proves nothing.
+        tab.agent_session_id = None;
+        assert!(!tab.binding_nonce_in_current_session_lineage("n2"));
+        // Bounded under a single session.
+        tab.agent_session_id = Some("S".into());
         for index in 0..20 {
             tab.session_binding_nonce = Some(format!("m{index}"));
             tab.remember_superseded_binding_nonce();
         }
         assert!(tab.prior_session_binding_nonces.len() <= 8);
-        assert!(!tab.binding_nonce_in_lineage("m0"));
-        assert!(tab.binding_nonce_in_lineage("m19"));
+        assert!(!tab.binding_nonce_in_current_session_lineage("m0"));
+        assert!(tab.binding_nonce_in_current_session_lineage("m19"));
     }
 
     #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     #[test]
-    fn stale_after_relaunch_recovers_mutation_approve_dispatch_through_rebind() {
+    fn sessionless_relaunch_caller_recovers_mutation_approve_dispatch_through_rebind() {
         let (fixture, plan_id, _, owner) = fixture();
         let tab_id = owner.tab_id.clone().unwrap();
         relaunch_tab(&fixture, &tab_id, "owner-nonce-relaunched");
-        // The same caller, still holding its pre-relaunch nonce, is a recoverable
-        // binding failure — not a hard dead end.
+        // The REAL relaunched CLI environment carries the binding nonce but no
+        // CODETERM_SESSION_ID, so the caller omits session_id. Session continuity
+        // is proven by the daemon-tagged lineage, not the caller's env.
+        let caller = sessionless(&owner);
         assert!(matches!(
-            fixture.service.classify_planning_caller(&plan_id, &owner),
+            fixture.service.classify_planning_caller(&plan_id, &caller),
             Err(PlanAuthorityError::BindingStaleAfterRelaunch)
         ));
         let outcome = fixture
             .service
-            .rebind_stale_planning_session(&owner)
-            .expect("a provable stale-after-relaunch caller can rebind");
+            .rebind_stale_planning_session(&caller)
+            .expect("a provable same-session relaunch caller can rebind without a session id");
         assert!(outcome.resynced);
         // Mutation, approve, and dispatch all funnel through the authority gate,
         // so the single rebind recovers every one of them without a restart.
         assert!(matches!(
-            fixture.service.classify_planning_caller(&plan_id, &owner),
+            fixture.service.classify_planning_caller(&plan_id, &caller),
             Ok(PlanningAuthor::User)
         ));
         assert!(fixture
             .service
-            .approve_and_activate_plan(&plan_id, &owner, None, 5)
+            .approve_and_activate_plan(&plan_id, &caller, None, 5)
             .is_ok());
         assert!(fixture
             .service
-            .authorize_execution_action(&plan_id, &owner)
+            .authorize_execution_action(&plan_id, &caller)
             .is_ok());
         // A second rebind by the now-current caller is an idempotent no-op.
         let repeat = fixture
             .service
-            .rebind_stale_planning_session(&owner)
+            .rebind_stale_planning_session(&caller)
             .expect("idempotent rebind");
         assert!(!repeat.resynced);
+    }
+
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+    #[test]
+    fn sessionless_stale_nonce_is_refused_after_a_genuine_session_transition() {
+        let (fixture, plan_id, _, owner) = fixture();
+        let tab_id = owner.tab_id.clone().unwrap();
+        // owner-nonce is retired under the ORIGINAL session, then the tab moves to
+        // a genuinely NEW session — the retired nonce is now cross-session.
+        transition_session(&fixture, &tab_id, "owner-session-2", "owner-nonce-2");
+        let caller = sessionless(&owner); // still presents the old owner-nonce
+        assert!(matches!(
+            fixture.service.classify_planning_caller(&plan_id, &caller),
+            Err(PlanAuthorityError::BindingForeign)
+        ));
+        let before = current_binding(&fixture, &tab_id);
+        assert!(fixture
+            .service
+            .rebind_stale_planning_session(&caller)
+            .is_err());
+        // A refusal must never mutate the live current/reported binding.
+        assert_eq!(current_binding(&fixture, &tab_id), before);
+    }
+
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+    #[test]
+    fn mismatched_provided_session_is_refused_even_with_a_lineage_nonce() {
+        let (fixture, plan_id, _, owner) = fixture();
+        let tab_id = owner.tab_id.clone().unwrap();
+        relaunch_tab(&fixture, &tab_id, "owner-nonce-relaunched");
+        // A provided-but-wrong session is refused: it is not laundered, and it is
+        // not silently dropped in favour of the lineage proof either.
+        let wrong_session = AuthenticatedPlanCaller {
+            session_id: Some("some-other-session".into()),
+            ..owner.clone()
+        };
+        assert!(matches!(
+            fixture.service.classify_planning_caller(&plan_id, &wrong_session),
+            Err(PlanAuthorityError::BindingForeign)
+        ));
+        let before = current_binding(&fixture, &tab_id);
+        assert!(fixture
+            .service
+            .rebind_stale_planning_session(&wrong_session)
+            .is_err());
+        assert_eq!(current_binding(&fixture, &tab_id), before);
     }
 
     #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]

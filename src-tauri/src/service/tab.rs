@@ -57,9 +57,11 @@ pub(crate) fn clear_agent_identity_for_lifecycle_exit(
     tab.agent_type_locked = false;
     tab.agent_set_at = None;
     tab.agent_booting = false;
+    // Tag the retiring nonce with its still-current session BEFORE clearing it,
+    // so a resumed session can prove same-session lineage after relaunch.
+    tab.remember_superseded_binding_nonce();
     tab.agent_session_id = None;
     tab.agent_session_name = None;
-    tab.remember_superseded_binding_nonce();
     tab.session_binding_nonce = None;
     tab.reported_session_binding_nonce = None;
     tab.agent_state = None;
