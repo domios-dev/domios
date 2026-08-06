@@ -292,7 +292,6 @@ pub fn run() {
             commands::mux_commands::mux_respond_prompt,
             commands::mux_commands::mux_batch,
             notification::notify,
-            notification::notify_agent_input_request,
             notification::list_notifications,
             notification::mark_notification_read,
             notification::clear_notifications,

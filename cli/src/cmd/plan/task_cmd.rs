@@ -21,6 +21,34 @@ fn split_task_ref(first: Option<String>, second: Option<String>) -> (Option<Stri
     }
 }
 
+fn parse_criteria_file(content: &str) -> Vec<String> {
+    let trimmed = content.trim();
+    if trimmed.is_empty() {
+        return vec![];
+    }
+    if trimmed.starts_with('[') {
+        if let Ok(items) = serde_json::from_str::<Vec<String>>(trimmed) {
+            return items;
+        }
+    }
+    content
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+fn merge_criteria(
+    mut criterion: Vec<String>,
+    criterion_file: Option<String>,
+) -> Result<Vec<String>, String> {
+    if let Some(content) = resolve_text(None, criterion_file)? {
+        criterion.extend(parse_criteria_file(&content));
+    }
+    Ok(criterion)
+}
+
 fn render_attempts(value: &Value) -> String {
     let attempts = value
         .get("attempts")
@@ -287,6 +315,30 @@ pub(super) fn run_task(
             }
             Ok(Some(response))
         }
+        PlanTaskAction::Show {
+            plan_id,
+            task_id,
+            siblings,
+            all,
+        } => {
+            let val = call(
+                client,
+                "task.show",
+                json!({ "plan_id": plan_id, "task_id": task_id }),
+            )?;
+            if json {
+                return Ok(Some(val));
+            }
+            crate::cmd::task::print_task_result(
+                false,
+                &val,
+                Some(crate::cmd::task::TaskShowOpts {
+                    list_siblings: siblings,
+                    include_done_siblings: all,
+                }),
+            );
+            Ok(None)
+        }
         PlanTaskAction::Add {
             plan_id,
             name,
@@ -296,11 +348,14 @@ pub(super) fn run_task(
             why,
             why_file,
             criterion,
+            criterion_file,
             external_ref,
             test_plan,
+            test_plan_file,
             qa_plan,
             qa_plan_file,
             correctness,
+            correctness_file,
             body,
             body_file,
             role_guidance,
@@ -334,6 +389,9 @@ pub(super) fn run_task(
             let role_guidance_text = resolve_text(role_guidance, role_guidance_file)?;
             let intent_text = resolve_text(intent, intent_file)?;
             let qa_plan_text = resolve_text(qa_plan, qa_plan_file)?;
+            let test_plan = resolve_text(test_plan, test_plan_file)?;
+            let correctness = resolve_text(correctness, correctness_file)?;
+            let criterion = merge_criteria(criterion, criterion_file)?;
             let has_sections = sections
                 .as_deref()
                 .map(|s| s.split(',').any(|item| !item.trim().is_empty()))
@@ -488,13 +546,18 @@ pub(super) fn run_task(
             intent_file,
             sections,
             criterion,
+            criterion_file,
             external_ref,
             test_plan,
+            test_plan_file,
             qa_plan,
             qa_plan_file,
             correctness,
+            correctness_file,
             parent,
             depends_on,
+            remove_dependency,
+            replace_dependencies,
             clear_dependencies,
             tab,
             workspace_id,
@@ -512,6 +575,9 @@ pub(super) fn run_task(
             handle,
         } => {
             let (plan_ref, task_ref) = split_task_ref(plan_id, task_id);
+            let test_plan = resolve_text(test_plan, test_plan_file)?;
+            let correctness = resolve_text(correctness, correctness_file)?;
+            let criterion = merge_criteria(criterion, criterion_file)?;
             crate::cmd::plan_task_update::run(
                 client,
                 plan_ref,
@@ -539,6 +605,8 @@ pub(super) fn run_task(
                 correctness,
                 parent,
                 depends_on,
+                remove_dependency,
+                replace_dependencies,
                 clear_dependencies,
                 tab,
                 workspace_id,
@@ -840,6 +908,86 @@ pub(super) fn run_task(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::client::SocketCallError;
+
+    #[derive(Default)]
+    struct FakeRpc {
+        calls: Vec<(String, Option<Value>)>,
+    }
+
+    impl RpcClient for FakeRpc {
+        fn call_detailed(
+            &mut self,
+            method: &str,
+            params: Option<Value>,
+        ) -> Result<Value, SocketCallError> {
+            self.calls.push((method.to_string(), params));
+            Ok(json!({
+                "task": { "id": "task_1", "name": "probe", "status": "pending" },
+                "plan_id": "pl_1",
+                "plan_title": "Probe plan"
+            }))
+        }
+    }
+
+    #[test]
+    fn plan_task_show_routes_to_task_show_rpc_with_plan_and_task() {
+        let mut client = FakeRpc::default();
+        let out = run_task(
+            &mut client,
+            false,
+            PlanTaskAction::Show {
+                plan_id: "pl_1".into(),
+                task_id: "task_1".into(),
+                siblings: false,
+                all: false,
+            },
+        )
+        .expect("show runs");
+        assert!(out.is_none(), "human render returns no value to reprint");
+        assert_eq!(client.calls.len(), 1);
+        assert_eq!(client.calls[0].0, "task.show");
+        let params = client.calls[0].1.as_ref().expect("params");
+        assert_eq!(params["plan_id"], "pl_1");
+        assert_eq!(params["task_id"], "task_1");
+    }
+
+    #[test]
+    fn plan_task_show_json_returns_raw_rpc_value() {
+        let mut client = FakeRpc::default();
+        let out = run_task(
+            &mut client,
+            true,
+            PlanTaskAction::Show {
+                plan_id: "pl_1".into(),
+                task_id: "task_1".into(),
+                siblings: false,
+                all: false,
+            },
+        )
+        .expect("show runs")
+        .expect("json returns the value");
+        assert_eq!(out["task"]["id"], "task_1");
+        assert_eq!(client.calls[0].0, "task.show");
+    }
+
+    #[test]
+    fn criterion_file_parses_json_array_form() {
+        let items = parse_criteria_file("[\"first\", \"second bullet\"]");
+        assert_eq!(items, vec!["first", "second bullet"]);
+    }
+
+    #[test]
+    fn criterion_file_parses_one_per_line_form_dropping_blanks() {
+        let items = parse_criteria_file("first\n\n  second bullet  \n");
+        assert_eq!(items, vec!["first", "second bullet"]);
+    }
+
+    #[test]
+    fn merge_criteria_appends_file_content_to_flag_values() {
+        let merged = merge_criteria(vec!["from-flag".into()], None).unwrap();
+        assert_eq!(merged, vec!["from-flag"]);
+    }
 
     #[test]
     fn awaiting_dispatch_ready_is_not_rendered_as_completed_dispatch() {

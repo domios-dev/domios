@@ -273,7 +273,7 @@ pub(crate) struct TaskShowOpts {
     pub include_done_siblings: bool,
 }
 
-fn print_task_result(json: bool, val: &Value, show_opts: Option<TaskShowOpts>) {
+pub(crate) fn print_task_result(json: bool, val: &Value, show_opts: Option<TaskShowOpts>) {
     if json {
         println!("{}", serde_json::to_string_pretty(val).unwrap());
         return;
@@ -541,7 +541,8 @@ fn print_executor_role(task: &Value) {
     }
 }
 
-fn print_task_quality(task: &Value) {
+fn task_quality_lines(task: &Value) -> Vec<String> {
+    let mut lines = vec![];
     if let Some(items) = task.get("acceptance_criteria").and_then(|v| v.as_array()) {
         if !items.is_empty() {
             let rendered = items
@@ -549,23 +550,26 @@ fn print_task_quality(task: &Value) {
                 .filter_map(|v| v.as_str())
                 .collect::<Vec<_>>()
                 .join("; ");
-            println!("criteria: {rendered}");
+            lines.push(format!("criteria: {rendered}"));
         }
     }
-    if let Some(test_plan) = task.get("test_plan").and_then(|v| v.as_str()) {
-        if !test_plan.is_empty() {
-            println!("test_plan: {test_plan}");
+    for (label, key) in [
+        ("test_plan", "test_plan"),
+        ("qa_plan", "qa_plan"),
+        ("correctness", "correctness"),
+    ] {
+        if let Some(value) = task.get(key).and_then(|v| v.as_str()) {
+            if !value.is_empty() {
+                lines.push(format!("{label}: {value}"));
+            }
         }
     }
-    if let Some(qa_plan) = task.get("qa_plan").and_then(|v| v.as_str()) {
-        if !qa_plan.is_empty() {
-            println!("qa_plan: {qa_plan}");
-        }
-    }
-    if let Some(correctness) = task.get("correctness").and_then(|v| v.as_str()) {
-        if !correctness.is_empty() {
-            println!("correctness: {correctness}");
-        }
+    lines
+}
+
+fn print_task_quality(task: &Value) {
+    for line in task_quality_lines(task) {
+        println!("{line}");
     }
 }
 
@@ -819,6 +823,38 @@ mod siblings_render_tests {
         );
         assert!(line.contains("task_abcdef"));
         assert!(line.contains('…'));
+    }
+}
+
+#[cfg(test)]
+mod task_quality_render_tests {
+    use super::{executor_role_line, task_quality_lines};
+    use serde_json::json;
+
+    #[test]
+    fn surfaces_supplied_criteria_test_plan_qa_plan_and_correctness() {
+        let task = json!({
+            "acceptance_criteria": ["c1-value", "c2-value"],
+            "test_plan": "cargo test tp-value",
+            "qa_plan": "cargo test qa-value",
+            "correctness": "corr-value",
+            "executor_role": "role-value",
+        });
+        let lines = task_quality_lines(&task);
+        assert!(lines.iter().any(|l| l == "criteria: c1-value; c2-value"));
+        assert!(lines.iter().any(|l| l == "test_plan: cargo test tp-value"));
+        assert!(lines.iter().any(|l| l == "qa_plan: cargo test qa-value"));
+        assert!(lines.iter().any(|l| l == "correctness: corr-value"));
+        assert_eq!(
+            executor_role_line(&task).as_deref(),
+            Some("executor_role: role-value")
+        );
+    }
+
+    #[test]
+    fn omits_blank_or_absent_quality_fields() {
+        let lines = task_quality_lines(&json!({ "test_plan": "" }));
+        assert!(lines.is_empty(), "{lines:?}");
     }
 }
 

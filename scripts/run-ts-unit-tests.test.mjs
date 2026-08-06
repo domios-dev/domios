@@ -9,7 +9,11 @@ import path from "node:path";
 import { PassThrough } from "node:stream";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { runTsUnitTestMain, runTsUnitTests } from "./run-ts-unit-tests.mjs";
+import {
+  resolveTsUnitTimeouts,
+  runTsUnitTestMain,
+  runTsUnitTests,
+} from "./run-ts-unit-tests.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const gitBinBash = path.join(
@@ -100,6 +104,23 @@ test("rejects invalid scheduler widths", async () => {
   assert.match(text, /TS_UNIT_JOBS must be a positive integer/);
 });
 
+test("defaults to natural test and suite completion", () => {
+  assert.deepEqual(resolveTsUnitTimeouts({}), {
+    testTimeoutSeconds: undefined,
+    suiteTimeoutSeconds: undefined,
+  });
+});
+
+test("retains explicit diagnostic deadlines", () => {
+  assert.deepEqual(
+    resolveTsUnitTimeouts({
+      TS_UNIT_TIMEOUT_SECONDS: "17",
+      TS_UNIT_SUITE_TIMEOUT_SECONDS: "29",
+    }),
+    { testTimeoutSeconds: 17, suiteTimeoutSeconds: 29 },
+  );
+});
+
 test("entrypoint exits with the scheduler verdict", async () => {
   const exitCodes = [];
   await runTsUnitTestMain({
@@ -186,7 +207,7 @@ main().catch((error) => {
   assert(slowCompleted > thirdLaunched, result.stdout);
 });
 
-test("real width-20 topology completes one hundred Canvas files", async () => {
+test("real width-20 topology completes the Canvas test inventory", async () => {
   const result = await runNodeEntrypoint(
     {
       TS_UNIT_JOBS: "20",
@@ -197,11 +218,11 @@ test("real width-20 topology completes one hundred Canvas files", async () => {
     ["src/components/Canvas"],
   );
   assert.equal(result.code, 0, result.stdout + result.stderr);
-  assert.match(result.stdout, /TS unit timing: 100 completed file\(s\), TS_UNIT_JOBS=20/);
-  assert.match(result.stdout, /✓ all 100 TS unit test file\(s\) green/);
+  assert.match(result.stdout, /TS unit timing: 101 completed file\(s\), TS_UNIT_JOBS=20/);
+  assert.match(result.stdout, /✓ all 101 TS unit test file\(s\) green/);
   assert.equal(
     [...result.stdout.matchAll(/\[ts-unit trace\] completed index=/g)].length,
-    100,
+    101,
   );
 });
 
@@ -247,6 +268,7 @@ async function verifySuiteDeadline(t, forcePortable) {
     closedResolve = resolve;
   });
   server.once("connection", (socket) => {
+    socket.resume();
     socket.on("error", (error) => {
       if (error.code !== "ECONNRESET") throw error;
     });
@@ -316,6 +338,7 @@ test("real npm topology prints its deadline verdict and leaves no worker", async
     closedResolve = resolve;
   });
   server.once("connection", (socket) => {
+    socket.resume();
     socket.on("error", (error) => {
       if (error.code !== "ECONNRESET") throw error;
     });
@@ -367,6 +390,7 @@ test("per-file timeout preserves its verdict and kills the test", async (t) => {
     closedResolve = resolve;
   });
   server.once("connection", (socket) => {
+    socket.resume();
     socket.on("error", (error) => {
       if (error.code !== "ECONNRESET") throw error;
     });
@@ -413,6 +437,7 @@ test("signal event produces a partial summary and cleans the worker", async (t) 
     closedResolve = resolve;
   });
   server.once("connection", (socket) => {
+    socket.resume();
     socket.on("error", (error) => {
       if (error.code !== "ECONNRESET") throw error;
     });

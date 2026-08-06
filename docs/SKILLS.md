@@ -45,7 +45,7 @@ Skills are markdown files that Claude Code loads automatically when relevant. Wh
 17. **Edit cron job**: `codeterm cron edit ID --schedule "*/15 * * * *"` (prefer over delete+recreate to preserve history)
 18. **Complete cron run**: `codeterm cron complete --run-id UUID --summary "result"`
 19. **List cron jobs**: `codeterm cron list`, **trigger manually**: `codeterm cron trigger ID`
-20. **Read config**: `codeterm config get integrations.telegram_enabled` (dot-notation)
+20. **Read config**: `codeterm config get integrations.telegram_enabled` (dot-notation); bare `codeterm config get` (no key) dumps the whole redacted config
 21. **Write config**: `codeterm config set integrations.telegram_enabled true` (JSON values)
 22. **Send to Telegram**: `codeterm bridge send --to USER_ID --service telegram "text"` (auto-edits within 60s, `--append` to concatenate)
 23. **Keep system awake**: `codeterm keepawake start --duration-secs 3600 [--display]` (cross-platform: caffeinate on macOS, SetThreadExecutionState on Windows). Stop: `codeterm keepawake stop`. Status: `codeterm keepawake status`. Use this instead of calling `caffeinate` / `powercfg` / `systemd-inhibit` directly.
@@ -116,4 +116,4 @@ Dot-notation for nested keys. Values are JSON (true, false, 42, "string", ["arra
 
 Agent hierarchy and session integration: `codeterm docs AGENT-CONTROL`.
 
-<!-- revision: 42 -->
+<!-- revision: 43 -->

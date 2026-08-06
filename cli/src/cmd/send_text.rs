@@ -117,6 +117,125 @@ pub fn handle_send_text_result(
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TabKind {
+    Agent,
+    RawShell,
+    ChatBackend,
+    Unknown,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum SendEligibility {
+    Allow,
+    Refuse(String),
+}
+
+/// Prose/task-charter shape: multiline or beyond the inline budget. A short
+/// single-line command (e.g. `git status`) stays eligible for a raw shell.
+pub fn is_task_shaped_payload(text: &str) -> bool {
+    const INLINE_BUDGET: usize = 240;
+    text.contains('\n') || text.chars().count() > INLINE_BUDGET
+}
+
+pub fn classify_tab_kind(record: &serde_json::Value) -> TabKind {
+    let has_agent = record
+        .get("agent_type")
+        .and_then(|v| v.as_str())
+        .is_some_and(|s| !s.is_empty());
+    if has_agent {
+        return TabKind::Agent;
+    }
+    match record.get("backing_kind").and_then(|v| v.as_str()) {
+        Some("chat_backend") => TabKind::ChatBackend,
+        Some("pty") => TabKind::RawShell,
+        _ => TabKind::Unknown,
+    }
+}
+
+/// Caller-side eligibility decision — reads existing tab-record state, never
+/// touches byte delivery. Refuses task-shaped prose bound for a raw shell so a
+/// non-agent tab no longer silently executes a charter line by line (issue #8).
+pub fn decide_send_eligibility(
+    kind: TabKind,
+    text: &str,
+    require_agent: bool,
+    to_shell: bool,
+) -> SendEligibility {
+    if to_shell {
+        return SendEligibility::Allow;
+    }
+    match kind {
+        TabKind::Agent => SendEligibility::Allow,
+        TabKind::ChatBackend => {
+            if require_agent {
+                SendEligibility::Refuse(
+                    "--require-agent: target is a chat-backend tab, not a PTY agent".into(),
+                )
+            } else {
+                SendEligibility::Allow
+            }
+        }
+        TabKind::RawShell => {
+            if require_agent {
+                SendEligibility::Refuse(refuse_raw_shell_message(true))
+            } else if is_task_shaped_payload(text) {
+                SendEligibility::Refuse(refuse_raw_shell_message(false))
+            } else {
+                SendEligibility::Allow
+            }
+        }
+        TabKind::Unknown => {
+            if require_agent {
+                SendEligibility::Refuse(
+                    "--require-agent: could not confirm an agent is attached to the target tab"
+                        .into(),
+                )
+            } else {
+                SendEligibility::Allow
+            }
+        }
+    }
+}
+
+fn refuse_raw_shell_message(require_agent: bool) -> String {
+    if require_agent {
+        "target tab is a raw shell (no agent attached); --require-agent refuses to type into a shell"
+            .into()
+    } else {
+        "refusing to send prose to a raw shell tab: the shell would execute it line by line (issue #8). \
+         Pass --to-shell (alias --force) to deliver raw text to the shell, or target an agent tab."
+            .into()
+    }
+}
+
+fn probe_tab_kind(client: &mut SocketClient, tab_id: &str) -> TabKind {
+    let params = serde_json::json!({ "focused_workspace": false });
+    match client.call("tab.list", Some(params)) {
+        Ok(value) => value
+            .as_array()
+            .and_then(|tabs| {
+                tabs.iter().find(|tab| {
+                    tab.get("id").and_then(|v| v.as_str()) == Some(tab_id)
+                        || tab.get("tab_id").and_then(|v| v.as_str()) == Some(tab_id)
+                })
+            })
+            .map(classify_tab_kind)
+            .unwrap_or(TabKind::Unknown),
+        Err(_) => TabKind::Unknown,
+    }
+}
+
+fn emit_send_refusal(json: bool, msg: &str) -> ! {
+    if json {
+        let err = serde_json::json!({ "ok": false, "refused": true, "error": msg });
+        println!("{}", serde_json::to_string_pretty(&err).unwrap());
+    } else {
+        eprintln!("Error: {}", msg);
+    }
+    std::process::exit(2);
+}
+
 #[allow(
     clippy::too_many_arguments,
     reason = "CLI command preserves send text option surface."
@@ -132,8 +251,16 @@ pub fn handle_send_text(
     actions: Option<String>,
     delay: Option<String>,
     at: Option<String>,
+    require_agent: bool,
+    to_shell: bool,
 ) {
     if let Some((peer, remote_tab)) = tab.as_deref().and_then(parse_remote_tab_id) {
+        if require_agent {
+            emit_send_refusal(
+                json,
+                "--require-agent cannot verify a remote tab's agent over mesh; run send on the owning peer",
+            );
+        }
         send_composite_over_mesh(
             json,
             &peer,
@@ -162,6 +289,14 @@ pub fn handle_send_text(
     let (resolved_text, parsed_actions) =
         resolve_and_validate_send(text, from_file, from_pad, from_stdin, actions, &mut stdin);
     let tab_id = resolve_tab(client, tab);
+    if !resolved_text.trim().is_empty() {
+        let kind = probe_tab_kind(client, &tab_id);
+        if let SendEligibility::Refuse(msg) =
+            decide_send_eligibility(kind, &resolved_text, require_agent, to_shell)
+        {
+            emit_send_refusal(json, &msg);
+        }
+    }
     if let Some(actions) = parsed_actions {
         let result = send_actions_via_socket(json, &tab_id, &resolved_text, actions);
         handle_send_text_result(json, result, Some(&resolved_text));
@@ -595,10 +730,104 @@ fn emit_staging_nudge(json: bool, text: &str, remedy: &str) {
 #[cfg(test)]
 mod tests {
     use super::{
-        analyze_send_text_response, guard_against_shell_mangle, key_action_bytes,
-        parse_actions_spec, redact_resolved_send_text, resolve_send_text_input, resolved_text_echo,
-        SendActionSpec, SendTextOutcome,
+        analyze_send_text_response, classify_tab_kind, decide_send_eligibility,
+        guard_against_shell_mangle, is_task_shaped_payload, key_action_bytes, parse_actions_spec,
+        redact_resolved_send_text, resolve_send_text_input, resolved_text_echo, SendActionSpec,
+        SendEligibility, SendTextOutcome, TabKind,
     };
+
+    const CHARTER: &str = "You are Worker Leo.\nExecute the task; report on completion.";
+
+    #[test]
+    fn classify_agent_tab_from_agent_type() {
+        let record = serde_json::json!({"id": "t1", "agent_type": "claude", "backing_kind": "pty"});
+        assert_eq!(classify_tab_kind(&record), TabKind::Agent);
+    }
+
+    #[test]
+    fn classify_raw_shell_when_pty_without_agent() {
+        let record = serde_json::json!({"id": "t1", "agent_type": null, "backing_kind": "pty"});
+        assert_eq!(classify_tab_kind(&record), TabKind::RawShell);
+        let empty = serde_json::json!({"id": "t1", "agent_type": "", "backing_kind": "pty"});
+        assert_eq!(classify_tab_kind(&empty), TabKind::RawShell);
+    }
+
+    #[test]
+    fn classify_chat_backend_and_unknown() {
+        let chat = serde_json::json!({"id": "t1", "backing_kind": "chat_backend"});
+        assert_eq!(classify_tab_kind(&chat), TabKind::ChatBackend);
+        let unknown = serde_json::json!({"id": "t1"});
+        assert_eq!(classify_tab_kind(&unknown), TabKind::Unknown);
+    }
+
+    #[test]
+    fn task_shaped_payload_detects_multiline_and_long() {
+        assert!(is_task_shaped_payload("first line\nsecond line"));
+        assert!(is_task_shaped_payload(&"x".repeat(241)));
+        assert!(!is_task_shaped_payload("git status"));
+        assert!(!is_task_shaped_payload(&"y".repeat(240)));
+    }
+
+    #[test]
+    fn agent_tab_allows_prose() {
+        assert_eq!(
+            decide_send_eligibility(TabKind::Agent, CHARTER, false, false),
+            SendEligibility::Allow
+        );
+    }
+
+    #[test]
+    fn raw_shell_refuses_prose_by_default() {
+        match decide_send_eligibility(TabKind::RawShell, CHARTER, false, false) {
+            SendEligibility::Refuse(msg) => {
+                assert!(msg.contains("raw shell"));
+                assert!(msg.contains("--to-shell"));
+            }
+            other => panic!("expected Refuse, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn raw_shell_allows_short_command() {
+        assert_eq!(
+            decide_send_eligibility(TabKind::RawShell, "git status", false, false),
+            SendEligibility::Allow
+        );
+    }
+
+    #[test]
+    fn to_shell_override_allows_prose_to_shell() {
+        assert_eq!(
+            decide_send_eligibility(TabKind::RawShell, CHARTER, false, true),
+            SendEligibility::Allow
+        );
+    }
+
+    #[test]
+    fn require_agent_refuses_non_agent_targets() {
+        for kind in [TabKind::RawShell, TabKind::ChatBackend, TabKind::Unknown] {
+            assert!(
+                matches!(
+                    decide_send_eligibility(kind, "git status", true, false),
+                    SendEligibility::Refuse(_)
+                ),
+                "require_agent must refuse {:?}",
+                kind
+            );
+        }
+        assert_eq!(
+            decide_send_eligibility(TabKind::Agent, "git status", true, false),
+            SendEligibility::Allow
+        );
+    }
+
+    #[test]
+    fn chat_backend_allows_prose_by_default() {
+        assert_eq!(
+            decide_send_eligibility(TabKind::ChatBackend, CHARTER, false, false),
+            SendEligibility::Allow
+        );
+    }
 
     #[test]
     fn ok_response_is_success() {

@@ -1,6 +1,6 @@
 [package]
 name = "codeterm"
-version = "1.8.0"
+version = "1.9.0"
 edition = "2021"
 default-run = "codeterm"
 
@@ -31,7 +31,7 @@ uuid = { version = "1", features = ["v4", "serde"] }
 codeterm-types = { path = "crates/codeterm-types" }
 codeterm-util = { path = "crates/codeterm-util" }
 codeterm-mesh = { path = "crates/codeterm-mesh" }
-codeterm-mem = { path = "crates/codeterm-mem", features = ["embeddings"] }
+codeterm-mem = { path = "crates/codeterm-mem", default-features = false }
 codeterm-plan = { path = "crates/codeterm-plan" }
 codeterm-bridge = { path = "crates/codeterm-bridge" }
 codeterm-pty = { path = "crates/codeterm-pty" }
@@ -98,7 +98,7 @@ default = ["embeddings"]
 # annembed (UMAP graph layout) is macOS-only: its LAPACK backend is the
 # Accelerate framework; Windows/Linux have no provider wired and fail at
 # link time. Declared in the macOS target section below.
-embeddings = ["dep:sqlite-vec", "dep:fastembed", "dep:annembed", "dep:ndarray", "dep:hnsw_rs"]
+embeddings = ["codeterm-mem/embeddings", "dep:sqlite-vec", "dep:fastembed", "dep:annembed", "dep:ndarray", "dep:hnsw_rs"]
 dev-updater-allowlocal = []
 
 # Low-level syscalls (e.g. fd-limit raise in fdlimit.rs) on all Unix incl Linux.
@@ -172,6 +172,13 @@ split-debuginfo = "unpacked"
 debug = "line-tables-only"
 
 [profile.dev.package."*"]
+debug = false
+
+[profile.test]
+split-debuginfo = "unpacked"
+debug = "line-tables-only"
+
+[profile.test.package."*"]
 debug = false
 
 # One-off legacy plan.json → store_v2 yaml migration (T7). Deep-compare gate;

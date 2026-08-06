@@ -13,6 +13,15 @@ pub enum PlanTaskAction {
         #[arg(long, help = "Include paused, done, and cancelled tasks")]
         all: bool,
     },
+    /// Show one task in the plan with full detail (body, criteria, test_plan, correctness, executor_role, sections)
+    Show {
+        plan_id: String,
+        task_id: String,
+        #[arg(long, help = "List sibling tasks (open-only unless --all)")]
+        siblings: bool,
+        #[arg(long, help = "With --siblings, include done/cancelled tasks")]
+        all: bool,
+    },
     /// Add a task to a plan (carries model/why routing + quality fields)
     Add {
         plan_id: String,
@@ -39,6 +48,12 @@ pub enum PlanTaskAction {
         #[arg(long = "criterion", allow_hyphen_values = true)]
         criterion: Vec<String>,
         #[arg(
+            long = "criterion-file",
+            value_name = "PATH",
+            help = "Read acceptance criteria from a file: a JSON string array, or one criterion per line. Appends to --criterion"
+        )]
+        criterion_file: Option<String>,
+        #[arg(
             long = "external-ref",
             value_name = "URL_OR_REPO#NUMBER",
             help = "GitHub issue reference; repeatable. Accepts a full issue URL or owner/repository#number"
@@ -46,12 +61,16 @@ pub enum PlanTaskAction {
         external_ref: Vec<String>,
         #[arg(long, allow_hyphen_values = true)]
         test_plan: Option<String>,
+        #[arg(long, value_name = "PATH")]
+        test_plan_file: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         qa_plan: Option<String>,
         #[arg(long, value_name = "PATH")]
         qa_plan_file: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         correctness: Option<String>,
+        #[arg(long, value_name = "PATH")]
+        correctness_file: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         body: Option<String>,
         #[arg(long, value_name = "PATH")]
@@ -185,6 +204,12 @@ pub enum PlanTaskAction {
         #[arg(long = "criterion", allow_hyphen_values = true)]
         criterion: Vec<String>,
         #[arg(
+            long = "criterion-file",
+            value_name = "PATH",
+            help = "Read acceptance criteria from a file: a JSON string array, or one criterion per line. Appends to --criterion"
+        )]
+        criterion_file: Option<String>,
+        #[arg(
             long = "external-ref",
             value_name = "URL_OR_REPO#NUMBER",
             help = "GitHub issue reference to add; repeatable. Accepts a full issue URL or owner/repository#number"
@@ -192,21 +217,38 @@ pub enum PlanTaskAction {
         external_ref: Vec<String>,
         #[arg(long, allow_hyphen_values = true)]
         test_plan: Option<String>,
+        #[arg(long, value_name = "PATH")]
+        test_plan_file: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         qa_plan: Option<String>,
         #[arg(long, value_name = "PATH")]
         qa_plan_file: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         correctness: Option<String>,
+        #[arg(long, value_name = "PATH")]
+        correctness_file: Option<String>,
         #[arg(long)]
         parent: Option<String>,
         #[arg(
             long = "depends-on",
             value_name = "TASK_ID_OR_HANDLE",
             conflicts_with = "clear_dependencies",
-            help = "Task this one waits on; repeatable. Accepts a full task id (task_xxxxxx), a unique id prefix, or a task handle (see --handle)"
+            help = "Add a dependency; repeatable. Appends to existing dependencies (dedup). Accepts a full task id (task_xxxxxx), a unique id prefix, or a task handle. Use --replace-dependencies for wholesale replacement"
         )]
         depends_on: Vec<String>,
+        #[arg(
+            long = "remove-dependency",
+            value_name = "TASK_ID_OR_HANDLE",
+            conflicts_with = "clear_dependencies",
+            help = "Remove a specific dependency edge; repeatable. Applied after --depends-on additions"
+        )]
+        remove_dependency: Vec<String>,
+        #[arg(
+            long = "replace-dependencies",
+            conflicts_with = "clear_dependencies",
+            help = "Replace the whole dependency set with --depends-on instead of appending"
+        )]
+        replace_dependencies: bool,
         #[arg(long = "clear-dependencies")]
         clear_dependencies: bool,
         #[arg(long = "tab", value_name = "TAB")]
@@ -247,7 +289,7 @@ pub enum PlanTaskAction {
         #[arg(long)]
         primary: Option<String>,
     },
-    /// Close a task (records a result; rejects if subtasks are open)
+    /// Close a task from any lifecycle state. The authenticated Plan Orchestrator overrides worker owner-epoch drift; open subtasks still block
     Close {
         plan_id: String,
         task_id: Option<String>,

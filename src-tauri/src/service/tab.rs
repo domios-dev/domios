@@ -1,7 +1,7 @@
 //! Tab lifecycle: close, rename, focus.
 
 use super::ServiceContext;
-use crate::multiplexer::types::{AgentRole, TitleLevel};
+use crate::multiplexer::types::{AgentRole, TabCloseReason, TitleLevel};
 use crate::plan::peer::{resolve_planner_ref, PeerResolution};
 use crate::service::session_persist::{self, SessionPersistUrgency};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -57,6 +57,9 @@ pub(crate) fn clear_agent_identity_for_lifecycle_exit(
     tab.agent_type_locked = false;
     tab.agent_set_at = None;
     tab.agent_booting = false;
+    // Tag the retiring nonce with its still-current session BEFORE clearing it,
+    // so a resumed session can prove same-session lineage after relaunch.
+    tab.remember_superseded_binding_nonce();
     tab.agent_session_id = None;
     tab.agent_session_name = None;
     tab.session_binding_nonce = None;
@@ -141,6 +144,16 @@ impl ServiceContext {
     }
 
     pub fn close_tab(&self, tab_id: &str) -> Result<(), String> {
+        self.close_tab_with_reason(tab_id, TabCloseReason::User)
+    }
+
+    /// Close a tab, tagging why. A `PolicyWorker` close of a task-owning hidden
+    /// worker records a restorable recently-closed entry despite `hidden`.
+    pub fn close_tab_with_reason(
+        &self,
+        tab_id: &str,
+        reason: TabCloseReason,
+    ) -> Result<(), String> {
         // iteration; once close_tab drops the entry, future polls would see Provider::None and bail anyway, but explicit stop joins the thread cleanly and frees the JSONL handle.
         self.chat_registry.shutdown_tab(tab_id);
 
@@ -157,7 +170,7 @@ impl ServiceContext {
         self.invalidate_guarded_agent_input(tab_id);
         self.release_worker_persona_for_tab(tab_id);
         let pre_focus = self.mux.read().get_focused_tab_id().map(str::to_string);
-        let pty_ids = self.mux.write().close_tab(tab_id)?;
+        let pty_ids = self.mux.write().close_tab_with_reason(tab_id, reason)?;
         let post_focus = self.mux.read().get_focused_tab_id().map(str::to_string);
         self.kill_ptys(&pty_ids);
         self.revoke_agent_pad(tab_id)?;
@@ -757,12 +770,8 @@ impl ServiceContext {
     /// Clear pending_prompt state without sending anything to PTY.
     /// Used for test cleanup and state reset.
     pub fn clear_prompt(&self, tab_id: &str) -> Result<(), String> {
-        let cleared = self.mux.write().get_tab_mut(tab_id).and_then(|tab| {
-            let old = tab.pending_prompt.take()?;
-            Some((tab.agent_session_id.clone()?, old.question))
-        });
-        if let Some((session_id, question)) = cleared {
-            self.resolve_agent_input_request_notification(tab_id, &session_id, &question);
+        if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
+            tab.pending_prompt = None;
         }
         // Reset PromptDetector state so next inject is accepted (not blocked by same_options check)
         self.prompt_detector.lock().clear(tab_id);
@@ -773,20 +782,13 @@ impl ServiceContext {
     /// Respond to a pending prompt — sends the selection to PTY and clears the prompt.
     /// Only sends to PTY if there's actually a pending prompt (avoids phantom input).
     pub fn respond_prompt(&self, tab_id: &str, value: &str) -> Result<(), String> {
-        let (had_prompt, answered) = {
+        let had_prompt = {
             let mut mux = self.mux.write();
             let tab = mux
                 .get_tab_mut(tab_id)
                 .ok_or_else(|| format!("Tab not found: {}", tab_id))?;
-            let old = tab.pending_prompt.take();
-            let answered = old
-                .as_ref()
-                .and_then(|prompt| Some((tab.agent_session_id.clone()?, prompt.question.clone())));
-            (old.is_some(), answered)
+            tab.pending_prompt.take().is_some()
         };
-        if let Some((session_id, question)) = answered {
-            self.resolve_agent_input_request_notification(tab_id, &session_id, &question);
-        }
 
         // Transition PromptDetector to Cooldown — suppresses re-detection of the same prompt from PTY output that hasn't been cleared yet.
         self.prompt_detector.lock().mark_responded(tab_id);

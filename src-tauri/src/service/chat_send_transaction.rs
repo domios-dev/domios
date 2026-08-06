@@ -26,6 +26,11 @@ pub struct ChatSendStatus {
     pub ledger_id: String,
     pub sequence: u64,
     pub retained_from: u64,
+    /// Opaque client correlation token echoed verbatim from the send envelope.
+    /// Field name matches the chat-core consumer (lane ca6aebc5): `correlationId`
+    /// on NormalizedChatMessage. Absent when the send carried none — never synthesized.
+    #[serde(rename = "correlationId", skip_serializing_if = "Option::is_none")]
+    pub correlation_id: Option<String>,
 }
 
 /// Capability-based append-window boundary captured at send start.
@@ -69,6 +74,9 @@ struct ChatSendLedgerState {
     /// Normalized payload per send, retained only for exact turn-evidence
     /// correlation — never serialized back to the UI.
     payload_by_id: HashMap<String, String>,
+    /// Opaque client correlation token per send — echoed verbatim onto every
+    /// emitted status, never read by evidence/confirm/retry logic.
+    token_by_id: HashMap<String, String>,
     anchor_by_id: HashMap<String, SendEvidenceAnchor>,
     live_binding_by_id: HashMap<String, SendLiveBinding>,
     latest_by_tab: HashMap<String, String>,
@@ -83,6 +91,7 @@ impl Default for ChatSendLedgerState {
             next_sequence: 1,
             by_id: HashMap::new(),
             payload_by_id: HashMap::new(),
+            token_by_id: HashMap::new(),
             anchor_by_id: HashMap::new(),
             live_binding_by_id: HashMap::new(),
             latest_by_tab: HashMap::new(),
@@ -149,6 +158,7 @@ impl ChatSendLedger {
             ledger_id: state.ledger_id.clone(),
             sequence,
             retained_from: sequence,
+            correlation_id: None,
         };
         state
             .latest_by_tab
@@ -181,6 +191,7 @@ impl ChatSendLedger {
                 .expect("the selected terminal result exists");
             state.by_id.remove(&expired);
             state.payload_by_id.remove(&expired);
+            state.token_by_id.remove(&expired);
             state.anchor_by_id.remove(&expired);
             state.live_binding_by_id.remove(&expired);
             state.latest_by_tab.retain(|_, send_id| send_id != &expired);
@@ -189,6 +200,24 @@ impl ChatSendLedger {
                 .retain(|_, send_id| send_id != &expired);
         }
         Ok(Self::with_retention_window(&state, status))
+    }
+
+    /// Attach the send envelope's opaque client correlation token to an existing
+    /// send. Echoed verbatim onto every subsequent emitted status as
+    /// `correlationId`; passthrough metadata only — never read by evidence,
+    /// confirm, retry, or the write-once path. Returns the re-stamped status.
+    pub(crate) fn attach_client_token(
+        &self,
+        send_id: &str,
+        token: String,
+    ) -> Option<ChatSendStatus> {
+        let mut state = self.state.lock();
+        if !state.by_id.contains_key(send_id) {
+            return None;
+        }
+        state.token_by_id.insert(send_id.to_string(), token);
+        let status = state.by_id.get(send_id).cloned()?;
+        Some(Self::with_retention_window(&state, status))
     }
 
     pub(crate) fn finish(
@@ -391,6 +420,9 @@ impl ChatSendLedger {
             .front()
             .and_then(|send_id| state.by_id.get(send_id))
             .map_or(state.next_sequence, |retained| retained.sequence);
+        // Verbatim passthrough: every emitted status carries the send's client
+        // token (if any). Never read by evidence/confirm — echo only.
+        status.correlation_id = state.token_by_id.get(&status.send_id).cloned();
         status
     }
 }
@@ -444,6 +476,7 @@ impl crate::service::ServiceContext {
         tab_id: &str,
         text: String,
         submit_claim: Option<crate::service::pty_io::submit_transaction::SubmitCycleClaim>,
+        client_token: Option<String>,
     ) -> Result<ChatSendStatus, String> {
         let evidence = self.chat_send_anchor(tab_id);
         let pending = self.chat_send_ledger.try_start_scoped(
@@ -452,12 +485,28 @@ impl crate::service::ServiceContext {
             evidence.anchor.clone(),
             evidence.live_binding.clone(),
         )?;
+        let pending = match client_token {
+            Some(token) => self
+                .chat_send_ledger
+                .attach_client_token(&pending.send_id, token)
+                .unwrap_or(pending),
+            None => pending,
+        };
         let response = pending.clone();
         let svc = self.clone();
         let tab_id = tab_id.to_string();
         std::thread::spawn(move || {
             let status = run_chat_send(&svc.chat_send_ledger, pending, &text, |text| {
+                // User-origin always-deliver: a transient pre-write unlink or an
+                // unconfirmed submit degrades to pending-until-link, never a refusal.
                 svc.send_chat_text_claimed(&tab_id, text, submit_claim)
+                    .or_else(|err| {
+                        log::info!(
+                            "[chat-send] user send to Tab {tab_id} degraded to pending ({})",
+                            err.code()
+                        );
+                        err.into_surfaced(crate::service::delivery_error::SendOrigin::User)
+                    })
             });
             crate::api::events::emit_everywhere(&svc.app_handle, "chat-send-status", &status);
             if let Some(error) = status.error.as_deref() {
@@ -476,7 +525,7 @@ impl crate::service::ServiceContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::service::delivery_error::DeliveryError;
+    use crate::service::delivery_error::{DeliveryError, SendOrigin};
     use crate::service::inject_verify::InjectionError;
 
     fn submit_unconfirmed(detail: impl Into<String>) -> DeliveryError {
@@ -484,6 +533,92 @@ mod tests {
             tab: "tab-1".into(),
             detail: detail.into(),
         }
+    }
+
+    fn tab_busy(detail: impl Into<String>) -> DeliveryError {
+        DeliveryError::TabBusyRefused {
+            tab: "tab-1".into(),
+            detail: detail.into(),
+        }
+    }
+
+    fn pty_unavailable(detail: impl Into<String>) -> DeliveryError {
+        DeliveryError::PtyUnavailable {
+            tab: "tab-1".into(),
+            detail: detail.into(),
+        }
+    }
+
+    #[test]
+    fn user_send_booting_agent_degrades_to_pending_not_failed() {
+        let ledger = ChatSendLedger::default();
+        let pending = ledger.try_start("tab-1", "hello", None).unwrap();
+        let mut writes = 0;
+        // Exact neutralization start_chat_send applies at the user-origin boundary.
+        let status = run_chat_send(&ledger, pending, "hello", |_text| {
+            writes += 1;
+            Err(tab_busy("Agent in Tab tab-1 is still booting"))
+                .or_else(|e: DeliveryError| e.into_surfaced(SendOrigin::User))
+        });
+        assert_eq!(writes, 1, "submit invoked exactly once — no retry loop");
+        assert_eq!(status.state, ChatSendState::Unknown);
+        assert!(status.error.is_none());
+        assert_eq!(ledger.reconcile("tab-1")[0].state, ChatSendState::Unknown);
+    }
+
+    #[test]
+    fn user_send_unlinked_pty_degrades_to_pending_not_failed() {
+        let ledger = ChatSendLedger::default();
+        let pending = ledger.try_start("tab-1", "hello", None).unwrap();
+        let status = run_chat_send(&ledger, pending, "hello", |_text| {
+            Err(pty_unavailable("PTY did not link within 15s"))
+                .or_else(|e: DeliveryError| e.into_surfaced(SendOrigin::User))
+        });
+        assert_eq!(status.state, ChatSendState::Unknown);
+        assert!(status.error.is_none());
+    }
+
+    #[test]
+    fn user_submit_unconfirmed_neither_fails_nor_rewrites() {
+        let ledger = ChatSendLedger::default();
+        let pending = ledger.try_start("tab-1", "hi", None).unwrap();
+        let mut writes = 0;
+        let status = run_chat_send(&ledger, pending, "hi", |_text| {
+            writes += 1;
+            Err(submit_unconfirmed("submit key not acknowledged"))
+                .or_else(|e: DeliveryError| e.into_surfaced(SendOrigin::User))
+        });
+        assert_eq!(
+            writes, 1,
+            "write count stays 1 — submit recovery never re-writes"
+        );
+        assert_eq!(status.state, ChatSendState::Unknown);
+        assert!(status.error.is_none());
+    }
+
+    #[test]
+    fn user_send_turn_evidence_still_confirms_a_degraded_send() {
+        let ledger = ChatSendLedger::default();
+        let pending = ledger.try_start("tab-1", "deploy", None).unwrap();
+        run_chat_send(&ledger, pending.clone(), "deploy", |_text| {
+            Err(tab_busy("still booting"))
+                .or_else(|e: DeliveryError| e.into_surfaced(SendOrigin::User))
+        });
+        let confirmed = ledger
+            .confirm_delivered_user_turn("tab-1", "session-1", "deploy")
+            .expect("turn evidence confirms the pending user send once the PTY links");
+        assert_eq!(confirmed.send_id, pending.send_id);
+        assert_eq!(confirmed.state, ChatSendState::Sent);
+    }
+
+    #[test]
+    fn programmatic_pre_write_refusal_still_surfaces_as_failed() {
+        // Same DeliveryError WITHOUT the user neutralization (the programmatic
+        // path returns it typed) stays Failed — the split is real.
+        let ledger = ChatSendLedger::default();
+        let pending = ledger.try_start("tab-1", "hi", None).unwrap();
+        let status = run_chat_send(&ledger, pending, "hi", |_| Err(tab_busy("still booting")));
+        assert_eq!(status.state, ChatSendState::Failed);
     }
 
     #[test]
@@ -810,5 +945,84 @@ mod tests {
         assert!(ledger
             .confirm_delivered_user_turn("tab-1", "session-1", "hello")
             .is_none());
+    }
+
+    // W5-3: the send envelope's opaque client correlation token is echoed
+    // verbatim onto the committed user turn and nowhere else.
+
+    #[test]
+    fn client_token_echoes_verbatim_onto_committed_turn() {
+        let ledger = ChatSendLedger::default();
+        let token = "opt-1717-42";
+        let pending = ledger.try_start("tab-1", "deploy", None).unwrap();
+        let stamped = ledger
+            .attach_client_token(&pending.send_id, token.to_string())
+            .unwrap();
+        // Rides on the accepted status too — the wire carries it from the start.
+        assert_eq!(stamped.correlation_id.as_deref(), Some(token));
+        let confirmed = ledger
+            .confirm_delivered_user_turn("tab-1", "session-1", "deploy")
+            .expect("turn evidence confirms the pending send");
+        assert_eq!(confirmed.state, ChatSendState::Sent);
+        // Token IN == token OUT, verbatim, on the committed (confirmed) turn.
+        assert_eq!(confirmed.correlation_id.as_deref(), Some(token));
+    }
+
+    #[test]
+    fn tokenless_send_emits_no_synthesized_token() {
+        let ledger = ChatSendLedger::default();
+        let pending = ledger.try_start("tab-1", "hello", None).unwrap();
+        assert_eq!(pending.correlation_id, None);
+        let confirmed = ledger
+            .confirm_delivered_user_turn("tab-1", "session-1", "hello")
+            .unwrap();
+        assert_eq!(confirmed.correlation_id, None);
+        // Wire shape: the field is OMITTED, never emitted as a synthesized null.
+        let json = serde_json::to_value(&confirmed).unwrap();
+        assert!(json.get("correlationId").is_none());
+    }
+
+    #[test]
+    fn token_is_passthrough_only_and_never_gates_confirmation() {
+        let ledger = ChatSendLedger::default();
+        // Two sends, identical payload, DISTINCT tokens.
+        let first = ledger.try_start("tab-1", "yes", None).unwrap();
+        ledger
+            .attach_client_token(&first.send_id, "tok-A".into())
+            .unwrap();
+        let second = ledger.try_start("tab-1", "yes", None).unwrap();
+        ledger
+            .attach_client_token(&second.send_id, "tok-B".into())
+            .unwrap();
+        // The confirm path carries NO token — selection is purely payload/binding,
+        // oldest-first, exactly as before this change. The token never gates it.
+        let c1 = ledger
+            .confirm_delivered_user_turn("tab-1", "session-1", "yes")
+            .unwrap();
+        let c2 = ledger
+            .confirm_delivered_user_turn("tab-1", "session-1", "yes")
+            .unwrap();
+        assert_eq!(c1.send_id, first.send_id);
+        assert_eq!(c2.send_id, second.send_id);
+        // Each committed turn echoes its OWN send's token — passthrough, not a
+        // match key: the token rode along but never chose which send confirmed.
+        assert_eq!(c1.correlation_id.as_deref(), Some("tok-A"));
+        assert_eq!(c2.correlation_id.as_deref(), Some("tok-B"));
+    }
+
+    #[test]
+    fn emitted_wire_field_matches_chat_core_consumer_correlation_id() {
+        let ledger = ChatSendLedger::default();
+        let pending = ledger.try_start("tab-1", "hi", None).unwrap();
+        ledger
+            .attach_client_token(&pending.send_id, "tok-Z".into())
+            .unwrap();
+        let confirmed = ledger
+            .confirm_delivered_user_turn("tab-1", "session-1", "hi")
+            .unwrap();
+        let json = serde_json::to_value(&confirmed).unwrap();
+        // The serialized key is the contract the chat-core consumer (lane
+        // ca6aebc5) reads as NormalizedChatMessage.correlationId.
+        assert_eq!(json["correlationId"], serde_json::json!("tok-Z"));
     }
 }

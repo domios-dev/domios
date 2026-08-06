@@ -116,7 +116,7 @@ impl fmt::Display for PlanError {
             ),
             PlanError::InProgressRequiresTab => write!(
                 f,
-                "in_progress requires an executor tab; set both in one command: codeterm plan task update <plan> <task> --status in_progress --tab <tab-id> (CODETERM_STATE_INVARIANTS=off for emergencies)"
+                "rejected: nothing changed. in_progress needs an executor tab set in the same command. use `codeterm plan task dispatch <plan> <task>` (binds tab+status atomically), or `codeterm plan task update <plan> <task> --status in_progress --tab <tab-id>`. CODETERM_STATE_INVARIANTS=off is an emergency escape hatch and was NOT applied here"
             ),
             PlanError::BlockedRequiresLabel => write!(
                 f,

@@ -176,9 +176,9 @@ test("Chat has no delivery status surface", async () => {
   host.remove();
 });
 
-test("TabSessionChat cannot subscribe to or render delivery telemetry", () => {
+test("TabSessionChat does not subscribe to or render delivery telemetry", () => {
   const source = readFileSync(new URL("./TabSessionChat.tsx", import.meta.url), "utf8");
-  assert(!source.includes("observeChatSendStatus"), "no delivery-status subscription");
+  assert(!source.includes("listen<ChatSendStatus>"), "no delivery-status subscription");
   assert(!source.includes("ChatDeliveryState"), "no delivery-state renderer");
   assert(!source.includes("retryChatDelivery"), "no delivery Retry path");
 });

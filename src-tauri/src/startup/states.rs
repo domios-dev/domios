@@ -107,6 +107,54 @@ fn snapshot_role_bindings(
     bindings
 }
 
+/// Every agent/worker pane the snapshot held — role tabs AND bare agent panes
+/// (codex workers carry an `agent_type`, not always a role). This is the input
+/// to the per-pane restore report, so it must be broader than role bindings.
+fn snapshot_agent_panes(
+    snapshot: &crate::session::store::SessionSnapshot,
+) -> Vec<crate::crash::restore_report::RestorePane> {
+    use crate::crash::restore_report::RestorePane;
+    use crate::session::store::SplitNodeSnapshot;
+    fn collect_node(node: &SplitNodeSnapshot, panes: &mut Vec<RestorePane>) {
+        match node {
+            SplitNodeSnapshot::Leaf {
+                tab_id,
+                claude_session_id,
+                role,
+                agent_type,
+                ..
+            } if role.is_some() || agent_type.is_some() => panes.push(RestorePane {
+                tab_id: tab_id.clone(),
+                role: role.clone(),
+                agent_type: agent_type.clone(),
+                agent_session_id: claude_session_id.clone(),
+            }),
+            SplitNodeSnapshot::Leaf { .. } => {}
+            SplitNodeSnapshot::Split { children, .. } => {
+                for child in children {
+                    collect_node(child, panes);
+                }
+            }
+        }
+    }
+    let mut panes = Vec::new();
+    for tab in snapshot.workspaces.iter().flat_map(|ws| ws.tabs.iter()) {
+        collect_node(&tab.split_tree, &mut panes);
+    }
+    panes
+}
+
+fn restored_agent_pane_ids(
+    mux: &crate::multiplexer::state::MultiplexerState,
+) -> std::collections::BTreeSet<String> {
+    mux.snapshot()
+        .tabs
+        .values()
+        .filter(|tab| tab.role.is_some() || tab.agent_type.is_some())
+        .map(|tab| tab.id.clone())
+        .collect()
+}
+
 fn restored_role_bindings(
     mux: &crate::multiplexer::state::MultiplexerState,
 ) -> Vec<crate::crash::lifecycle::BindingIdentity> {
@@ -121,9 +169,46 @@ fn restored_role_bindings(
         .collect()
 }
 
+const INHERITED_IDENTITY_ENV_VARS: &[&str] = &[
+    "CODETERM_ATTEMPT_ID",
+    "CODETERM_LANE_BASE",
+    "CODETERM_MACHINE_AGENT_IDENTITY",
+    "CODETERM_PAD_DIR",
+    "CODETERM_PANE_ID",
+    "CODETERM_PARENT_TAB_ID",
+    "CODETERM_PLAN_ID",
+    "CODETERM_ROLE",
+    "CODETERM_SESSION_BINDING_NONCE",
+    "CODETERM_SESSION_ID",
+    "CODETERM_SHELL_NONCE",
+    "CODETERM_TAB_ID",
+    "CODETERM_TAB_TITLE",
+    "CODETERM_TASK_ID",
+    "CODETERM_TEAM_ID",
+    "CODETERM_WORKER_ID",
+    "CODETERM_WORKSPACE_ID",
+];
+
+fn scrub_inherited_identity_env() {
+    let mut scrubbed = Vec::new();
+    for name in INHERITED_IDENTITY_ENV_VARS {
+        if std::env::var_os(name).is_some() {
+            std::env::remove_var(name);
+            scrubbed.push(*name);
+        }
+    }
+    if !scrubbed.is_empty() {
+        log::info!(
+            "[startup] scrubbed inherited CodeTerm identity env: {}",
+            scrubbed.join(", ")
+        );
+    }
+}
+
 /// Scrub prod-targeting CodeTerm env inherited when dev starts inside prod.
 /// PTYs inherit daemon env, so every child must see this instance's API target.
 pub(crate) fn scrub_inherited_api_env(config_state: &ConfigState) {
+    scrub_inherited_identity_env();
     let api = config_state.lock().api.clone();
     let (url, port) = config::api_callback_url(&api);
     std::env::set_var("CODETERM_API_URL", &url);
@@ -198,12 +283,14 @@ pub(crate) fn init_states() -> AppStates {
 
     let ga_enabled = config_state.lock().general_agent.enabled;
     let mut bound_at_shutdown = Vec::new();
+    let mut agent_panes_at_shutdown = Vec::new();
     let mux_state_inner = {
         let last = session_state.lock().load_last();
         match last {
             Ok(Some(mut snapshot)) if !snapshot.workspaces.is_empty() => {
                 quarantine_unproven_authority(&mut snapshot);
                 bound_at_shutdown = snapshot_role_bindings(&snapshot);
+                agent_panes_at_shutdown = snapshot_agent_panes(&snapshot);
                 log::info!(
                     "Restoring session with {} workspaces, {} tabs total",
                     snapshot.workspaces.len(),
@@ -287,6 +374,14 @@ pub(crate) fn init_states() -> AppStates {
         bound_identities: bound_at_shutdown,
         restored_identities: restored_bindings,
     });
+    // Per-pane restore report: surface any agent/worker pane the snapshot held
+    // that did not come back, instead of a silently-shorter workspace (#11). Only
+    // when a session actually carried agent panes, so a fresh start does not
+    // clobber the last report with an empty one.
+    if !agent_panes_at_shutdown.is_empty() {
+        let restored_pane_ids = restored_agent_pane_ids(&mux_state_inner);
+        crate::crash::restore_report::record(&agent_panes_at_shutdown, &restored_pane_ids);
+    }
     if general_config.enabled {
         service::general_agent::ensure_directories();
         let mut general_config = general_config;
@@ -342,9 +437,13 @@ mod tests {
     #[test]
     fn scrub_overwrites_inherited_prod_api_env_with_instance_values() {
         let _guard = ENV_GUARD.lock();
+        for name in INHERITED_IDENTITY_ENV_VARS {
+            std::env::set_var(name, format!("inherited-{name}"));
+        }
         std::env::set_var("CODETERM_API_URL", "http://127.0.0.1:7685");
         std::env::set_var("CODETERM_API_PORT", "7685");
         std::env::set_var("CODETERM_API_TOKEN", "prod-token-inherited");
+        std::env::set_var("CODETERM_SOCKET_PATH", "prod-inherited.sock");
 
         let mut cfg = crate::config::schema::AppConfig::default();
         cfg.api.host = "0.0.0.0".to_string();
@@ -368,10 +467,64 @@ mod tests {
             Some("dev-token"),
             "inherited prod token must be replaced by the running instance token"
         );
+        let expected_socket_path = crate::socket::server::socket_display_path();
+        assert_eq!(
+            std::env::var("CODETERM_SOCKET_PATH").ok().as_deref(),
+            Some(expected_socket_path.as_str())
+        );
+        for name in INHERITED_IDENTITY_ENV_VARS {
+            assert!(
+                std::env::var(name).is_err(),
+                "inherited identity variable {name} must be removed"
+            );
+        }
 
         std::env::remove_var("CODETERM_API_URL");
         std::env::remove_var("CODETERM_API_PORT");
         std::env::remove_var("CODETERM_API_TOKEN");
+        std::env::remove_var("CODETERM_SOCKET_PATH");
+    }
+
+    #[test]
+    fn scrub_preserves_instance_env_and_later_daemon_identity() {
+        let _guard = ENV_GUARD.lock();
+        std::env::set_var("CODETERM_TAB_ID", "inherited-tab");
+        std::env::set_var("CODETERM_INSTANCE", "dev-test");
+        std::env::set_var("CODETERM_DATA_DIR", "/tmp/codeterm-dev-test");
+        std::env::set_var("CODETERM_DEV", "1");
+
+        let mut cfg = crate::config::schema::AppConfig::default();
+        cfg.api.port = 7686;
+        let config_state: ConfigState = Arc::new(Mutex::new(cfg));
+
+        scrub_inherited_api_env(&config_state);
+
+        assert!(std::env::var("CODETERM_TAB_ID").is_err());
+        assert_eq!(
+            std::env::var("CODETERM_INSTANCE").ok().as_deref(),
+            Some("dev-test")
+        );
+        assert_eq!(
+            std::env::var("CODETERM_DATA_DIR").ok().as_deref(),
+            Some("/tmp/codeterm-dev-test")
+        );
+        assert_eq!(std::env::var("CODETERM_DEV").ok().as_deref(), Some("1"));
+
+        std::env::set_var("CODETERM_TAB_ID", "daemon-owned-tab");
+        assert_eq!(
+            std::env::var("CODETERM_TAB_ID").ok().as_deref(),
+            Some("daemon-owned-tab"),
+            "identity assigned after the startup scrub must remain intact"
+        );
+
+        std::env::remove_var("CODETERM_API_URL");
+        std::env::remove_var("CODETERM_API_PORT");
+        std::env::remove_var("CODETERM_API_TOKEN");
+        std::env::remove_var("CODETERM_SOCKET_PATH");
+        std::env::remove_var("CODETERM_INSTANCE");
+        std::env::remove_var("CODETERM_DATA_DIR");
+        std::env::remove_var("CODETERM_DEV");
+        std::env::remove_var("CODETERM_TAB_ID");
     }
 
     /// A tokenless instance must not leave a stale inherited prod token in env —

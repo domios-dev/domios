@@ -38,11 +38,30 @@ Env vars (set in every tab): `$CODETERM_TAB_ID` (your internal tab id), `$CODETE
 | Memory, remember/recall, skills | see Mem block below | `docs MEMORY` |
 | Past chat sessions | `sessions search/get/resume` (resume handles cwd — never hand-craft `--resume`) | — |
 | Services/daemons registry | `service --help` | `docs MESH` |
-| Config keys | `config get/set` (dot-notation, JSON values) | `docs CONFIG` |
+| Config keys | `config get <key>` (dot-notation) or bare `config get` to dump the whole redacted config; `config set` (JSON values) | `docs CONFIG` |
+| Desktop notifications | `notify send "title" [--body ..] [--level info\|warning\|error]` is canonical; `notify list` / `notify clear`. `send` is required — there is no bare `notify "title"` | — |
 | Updates | `update check`, `update install --auto` | — |
 | Plugins/providers | `plugin list/install/update/update-system` | `codeterm docs API-CLI` |
-| Cross-machine payload handoff | `paste put/get --pop` (in-memory, TTL) — not `mem save` | — |
+| Cross-machine payload handoff | `paste put`, then `paste get <id>` / `paste rm <id>` (id may be bare `fpu2zp` or `paste:fpu2zp` — both resolve); `--pop` for one-shot (in-memory, TTL) — not `mem save` | — |
 | Keep system awake | `keepawake start/stop/status` | — |
+
+## Plan/task quick flags — the intuitive guesses that are WRONG
+
+These are the plan/task flags agents most often guess by analogy and get wrong.
+Verified against the clap tree; `codeterm <cmd> --help` has the rest. The command
+words below resolve; the flags are the corrections.
+
+- `codeterm plan create --title "..."` — NO `--goal`. Optional `--from-spec <id>`, `--kinds`, `--project`. The goal is set separately, after creation.
+- `codeterm plan goal set <plan> "<goal>" --vector "<how success is proven>"` — the goal text is an optional trailing positional; `--vector` is REQUIRED. `--vision`/`--vision-file`, `--constraint`, `--postulate` are optional.
+- `codeterm plan task add <plan> --name "..." --sections <csv> --criterion "..."` — the flags are `--name` (NOT --title), `--sections` (NOT --section), `--criterion` (repeatable; NOT --acceptance). Body: `--body`/`--body-file`. Quality (each has a `-file` twin): `--test-plan`/`--test-plan-file`, `--correctness`/`--correctness-file`, `--qa-plan`/`--qa-plan-file`, `--criterion-file`. Routing/persona: `--model <provider>:<model>`, `--why`, `--executor-role`, `--personality`, `--role-guidance`/`--role-guidance-file`, `--intent`. Here `--execution-intent` is the enum `repository_mutation|non_repository`.
+- `codeterm plan task dispatch <plan> <task> --execution-intent read_only|mutating` — NO `--brief`. The brief IS the task body (delivered on dispatch); to add more, pass `--from-pad` on the spawned agent. `--execution-intent` is a REQUIRED enum (`read_only|mutating`, distinct from task-add's enum), not free text.
+- `codeterm plan task update <plan> <task> --model <provider>:<model>` — `--model` is a free-form routing string stored verbatim (e.g. `claude:haiku`); a bare provider like `claude` is accepted but only resolves to a concrete model later, at dispatch. Same quality/persona flags as add.
+- `codeterm plan task show <plan> <task>` (or `codeterm task show <task>`) — the task-body reader (body, criteria, test_plan, correctness, executor_role, sections).
+- `codeterm plan mode <plan> <mode>` — the mode is a trailing positional OR `--set <mode>`; values `planning|approved|execution|complete`.
+- `codeterm plan review accept <plan> <task> --note "..."` — the verdict flag is `--note` (REQUIRED), NOT `--reason`. Same for `codeterm plan review bounce <plan> <task> --note "..."`.
+- `codeterm team pair --orchestrator <provider[:model]> --planner <provider[:model]>` — there is NO `team create`; a Team is minted at plan creation or via `team pair`.
+
+Source of truth: this file (`src-tauri/prompts/codeterm_cli.md`) plus the generated `docs/CLI.md`; `~/.claude/skills/codeterm` mirrors the repo `skills/codeterm`.
 
 ## Mesh (remote peers)
 

@@ -736,6 +736,8 @@ fn send_text_is_fire_and_forget_on_mesh() {
         actions: None,
         delay: None,
         at: None,
+        require_agent: false,
+        to_shell: false,
     };
     let (m, p, b) = cli_command_to_api(&cmd);
     assert_eq!(m, "POST");
@@ -759,6 +761,8 @@ fn send_delay_maps_to_delayed_messages() {
         actions: None,
         delay: Some("1m".into()),
         at: None,
+        require_agent: false,
+        to_shell: false,
     };
     let (m, p, b) = cli_command_to_api(&cmd);
     assert_eq!(m, "POST");

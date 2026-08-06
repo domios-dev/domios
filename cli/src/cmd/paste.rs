@@ -131,6 +131,7 @@ pub fn handle_paste(json: bool, action: PasteAction) {
             }
         },
         PasteAction::Rm { id } => {
+            let id = normalize_paste_id(&id);
             match http
                 .delete(format!("{}/api/pasteboard/{}", base, id))
                 .send()
@@ -152,6 +153,17 @@ pub fn handle_paste(json: bool, action: PasteAction) {
     }
 }
 
+/// Accept both bare (`fpu2zp`) and prefixed (`paste:fpu2zp`) ids: the stored
+/// pasteboard key is always `paste:<slug>`, so prepend the prefix when absent.
+pub fn normalize_paste_id(id: &str) -> String {
+    let trimmed = id.trim();
+    if trimmed.starts_with("paste:") {
+        trimmed.to_string()
+    } else {
+        format!("paste:{trimmed}")
+    }
+}
+
 fn fetch_paste(
     http: &crate::local_api::LocalApiClient,
     base: &str,
@@ -159,6 +171,7 @@ fn fetch_paste(
     pop: bool,
     json: bool,
 ) {
+    let id = normalize_paste_id(id);
     let url = if pop {
         format!("{}/api/pasteboard/{}?pop=true", base, id)
     } else {
@@ -266,6 +279,23 @@ mod tests {
     #[test]
     fn parse_duration_bare_number_is_minutes() {
         assert_eq!(parse_duration_ms("15"), Some(15 * 60 * 1000));
+    }
+
+    #[test]
+    fn normalize_paste_id_accepts_bare_and_prefixed() {
+        assert_eq!(normalize_paste_id("fpu2zp"), "paste:fpu2zp");
+        assert_eq!(normalize_paste_id("paste:fpu2zp"), "paste:fpu2zp");
+        // Bare and prefixed forms must collapse to the same stored key.
+        assert_eq!(
+            normalize_paste_id("fpu2zp"),
+            normalize_paste_id("paste:fpu2zp")
+        );
+        // Idempotent + trims surrounding whitespace.
+        assert_eq!(normalize_paste_id("  fpu2zp  "), "paste:fpu2zp");
+        assert_eq!(
+            normalize_paste_id(&normalize_paste_id("fpu2zp")),
+            "paste:fpu2zp"
+        );
     }
 
     #[test]

@@ -1,5 +1,7 @@
 use super::{short_id, MultiplexerState};
-use crate::multiplexer::types::{PendingDeliveryRecord, Tab, TabBacking, TabType, TitleLevel};
+use crate::multiplexer::types::{
+    PendingDeliveryRecord, Tab, TabBacking, TabCloseReason, TabType, TitleLevel,
+};
 
 impl MultiplexerState {
     /// Create a new terminal tab and register it. Returns the tab ID.
@@ -38,9 +40,12 @@ impl MultiplexerState {
             context_epoch_archives: vec![],
             session_binding_nonce: None,
             reported_session_binding_nonce: None,
+            prior_session_binding_nonces: Vec::new(),
             shell_integration_nonce: None,
             lifecycle_epoch: None,
             lifecycle_operation_id: None,
+            task_binding: None,
+            roleless_tracked: false,
             role: None,
             role_profile: None,
             team_id: None,
@@ -168,6 +173,36 @@ impl MultiplexerState {
         Ok(())
     }
 
+    /// Stamp the rename-proof assignment identity. First write wins: an existing
+    /// binding is never overwritten, so a pane cannot mutate its own identity the
+    /// way it can its title. Returns whether the binding was applied.
+    pub fn set_task_binding_once(
+        &mut self,
+        tab_id: &str,
+        binding: crate::multiplexer::types::TaskBinding,
+    ) -> Result<bool, String> {
+        let tab = self
+            .tabs
+            .get_mut(tab_id)
+            .ok_or_else(|| format!("Tab not found: {}", tab_id))?;
+        if tab.task_binding.is_some() {
+            return Ok(false);
+        }
+        tab.task_binding = Some(binding);
+        Ok(true)
+    }
+
+    /// Mark a roleless-spawned agent pane as linked into the hierarchy (parent +
+    /// audit recorded). Idempotent.
+    pub fn mark_roleless_tracked(&mut self, tab_id: &str) -> Result<(), String> {
+        let tab = self
+            .tabs
+            .get_mut(tab_id)
+            .ok_or_else(|| format!("Tab not found: {}", tab_id))?;
+        tab.roleless_tracked = true;
+        Ok(())
+    }
+
     pub fn set_tab_description(
         &mut self,
         tab_id: &str,
@@ -234,7 +269,17 @@ impl MultiplexerState {
     /// running when its parent closes. Direct children are detached before the
     /// parent is removed, preserving their role and Team membership.
     pub fn close_tab(&mut self, tab_id: &str) -> Result<Vec<String>, String> {
-        self.record_single_close(tab_id);
+        self.close_tab_with_reason(tab_id, TabCloseReason::User)
+    }
+
+    /// Close one tab, tagging why. A `PolicyWorker` close of a task-owning
+    /// hidden worker still records a restorable recently-closed entry.
+    pub fn close_tab_with_reason(
+        &mut self,
+        tab_id: &str,
+        reason: TabCloseReason,
+    ) -> Result<Vec<String>, String> {
+        self.record_single_close(tab_id, reason);
         self.close_tab_inner(tab_id)
     }
 
@@ -396,6 +441,66 @@ mod display_label_tests {
             final_title, provider_id,
             "the raw provider id must never become the Tab title"
         );
+    }
+
+    #[test]
+    fn task_binding_survives_self_rename() {
+        use crate::multiplexer::types::TaskBinding;
+        let (mut state, tab_id) = MultiplexerState::new();
+        let tab_id = state.find_tab_for_tab(&tab_id).unwrap();
+        let binding = TaskBinding {
+            plan_id: Some("pl_1".into()),
+            task_id: Some("task_9".into()),
+            spawn_handle: Some("M3 IV-gate".into()),
+            bound_at: 100,
+        };
+        assert!(state
+            .set_task_binding_once(&tab_id, binding.clone())
+            .unwrap());
+        // The pane renames itself repeatedly as its understanding evolves.
+        state.rename_tab(&tab_id, "iv gate holdings").unwrap();
+        state
+            .rename_tab_at_level(&tab_id, "something else", TitleLevel::Agent)
+            .unwrap();
+        let tab = state.get_tab(&tab_id).unwrap();
+        assert_eq!(tab.title, "iv gate holdings");
+        assert_eq!(
+            tab.task_binding.as_ref(),
+            Some(&binding),
+            "identity binding must stay stable across self-renames"
+        );
+    }
+
+    #[test]
+    fn task_binding_is_write_once_immutable() {
+        use crate::multiplexer::types::TaskBinding;
+        let (mut state, tab_id) = MultiplexerState::new();
+        let tab_id = state.find_tab_for_tab(&tab_id).unwrap();
+        let first = TaskBinding {
+            task_id: Some("task_1".into()),
+            bound_at: 1,
+            ..Default::default()
+        };
+        let second = TaskBinding {
+            task_id: Some("task_hijack".into()),
+            bound_at: 2,
+            ..Default::default()
+        };
+        assert!(state.set_task_binding_once(&tab_id, first.clone()).unwrap());
+        assert!(
+            !state.set_task_binding_once(&tab_id, second).unwrap(),
+            "a second binding write must be refused"
+        );
+        assert_eq!(state.get_tab(&tab_id).unwrap().task_binding, Some(first));
+    }
+
+    #[test]
+    fn mark_roleless_tracked_sets_flag() {
+        let (mut state, tab_id) = MultiplexerState::new();
+        let tab_id = state.find_tab_for_tab(&tab_id).unwrap();
+        assert!(!state.get_tab(&tab_id).unwrap().roleless_tracked);
+        state.mark_roleless_tracked(&tab_id).unwrap();
+        assert!(state.get_tab(&tab_id).unwrap().roleless_tracked);
     }
 
     #[test]

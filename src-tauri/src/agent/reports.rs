@@ -176,6 +176,35 @@ impl ReportStore {
             .unwrap_or_default()
     }
 
+    /// Durable audit row for a spawn that carries no worker report yet. Gives a
+    /// roleless spawn a trackable trail (parent + ledger entry) so an operator
+    /// can corroborate it instead of trusting a spoofable self-label.
+    pub fn record_spawn_audit(&self, parent_tab_id: &str, tab_id: &str, title: &str, now: u64) {
+        let Some(ledger) = self.ledger.as_ref() else {
+            return;
+        };
+        let row = LedgerRow {
+            orchestrator_tab_id: parent_tab_id.to_string(),
+            worker_tab_id: tab_id.to_string(),
+            title: title.to_string(),
+            message: "roleless spawn (tracked)".to_string(),
+            updated_at: now,
+            ..Default::default()
+        };
+        if let Err(e) = ledger.upsert(&row) {
+            log::warn!("[ledger] spawn audit upsert failed: {}", e);
+        }
+    }
+
+    /// Completed lanes across all orchestrators for the durable Done surface,
+    /// most-recently-finished first. Empty without a ledger.
+    pub fn completed_rows(&self, limit: usize) -> Vec<LedgerRow> {
+        self.ledger
+            .as_ref()
+            .and_then(|l| l.list_completed(limit).ok())
+            .unwrap_or_default()
+    }
+
     /// Add a freeform (message-only) report under an orchestrator's tab ID.
     pub fn add(
         &mut self,
@@ -735,6 +764,54 @@ mod tests {
         assert_eq!(rows[0].status, Some(ReportStatus::Done));
         assert_eq!(rows[0].model.as_deref(), Some("opus"));
         assert_eq!(rows[0].branch.as_deref(), Some("orch-p3-ledger"));
+        std::fs::remove_dir_all(db.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn spawn_audit_row_gives_roleless_pane_a_durable_trail() {
+        use crate::agent::ledger::OrchestrationLedger;
+        let db = std::env::temp_dir().join(format!(
+            "reports-audit-{}/orchestration.db",
+            ulid::Ulid::new()
+        ));
+        let ledger = std::sync::Arc::new(OrchestrationLedger::open_at(&db).unwrap());
+        let store = ReportStore::with_ledger(100, ledger);
+        store.record_spawn_audit("parent_tab", "roleless_tab", "install watchdog", 77);
+        let rows = store.ledger_rows("parent_tab");
+        assert_eq!(
+            rows.len(),
+            1,
+            "the roleless spawn is now tracked under its parent"
+        );
+        assert_eq!(rows[0].worker_tab_id, "roleless_tab");
+        assert_eq!(rows[0].title, "install watchdog");
+        assert_eq!(rows[0].updated_at, 77);
+        std::fs::remove_dir_all(db.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn completed_rows_surfaces_finished_lanes_only() {
+        use crate::agent::ledger::OrchestrationLedger;
+        let db = std::env::temp_dir().join(format!(
+            "reports-done-{}/orchestration.db",
+            ulid::Ulid::new()
+        ));
+        let ledger = std::sync::Arc::new(OrchestrationLedger::open_at(&db).unwrap());
+        let mut store = ReportStore::with_ledger(100, ledger);
+        let mut done = ReportDetails::default();
+        done.status = Some(ReportStatus::Done);
+        store.add_detailed("orch", "w_done", "Worker", "landed", done, None);
+        let mut blocked = ReportDetails::default();
+        blocked.status = Some(ReportStatus::Blocked);
+        store.add_detailed("orch", "w_blocked", "Worker", "stuck", blocked, None);
+
+        let completed = store.completed_rows(50);
+        assert_eq!(
+            completed.len(),
+            1,
+            "only finished lanes appear on the Done surface"
+        );
+        assert_eq!(completed[0].worker_tab_id, "w_done");
         std::fs::remove_dir_all(db.parent().unwrap()).ok();
     }
 

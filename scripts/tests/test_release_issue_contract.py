@@ -38,6 +38,13 @@ class ReleaseIssueContractTest(unittest.TestCase):
             "rollacode/codeterm-releases#2",
             "rollacode/codeterm-releases#17",
         ])
+        closes = self.run_contract(
+            "repository-closes",
+            "--body-file",
+            str(FIXTURES / "valid-pr.md"),
+        )
+        self.assertEqual(closes.returncode, 0, closes.stderr)
+        self.assertEqual(closes.stdout.splitlines(), ["Closes #40", "Closes #294"])
         empty = self.run_contract("parse", "--body-file", str(FIXTURES / "zero-refs.md"))
         self.assertEqual(empty.returncode, 0, empty.stderr)
         self.assertEqual(empty.stdout, "")
@@ -47,6 +54,7 @@ class ReleaseIssueContractTest(unittest.TestCase):
             "duplicate.md",
             "wrong-repo.md",
             "malformed.md",
+            "malformed-repository.md",
             "prose.md",
             "closing-keyword.md",
             "url-prose.md",
@@ -65,12 +73,52 @@ class ReleaseIssueContractTest(unittest.TestCase):
             "rollacode/codeterm-releases#17",
             "rollacode/codeterm-releases#32",
         ])
+        self.assertEqual([item["reference"] for item in resolved["repository_issues"]], [
+            "rollacode/codeterm#40",
+            "rollacode/codeterm#294",
+        ])
         self.assertNotIn("#99", result.stdout)
         issue_17 = next(issue for issue in resolved["issues"] if issue["reference"].endswith("#17"))
         self.assertEqual([source["kind"] for source in issue_17["sources"]], [
             "pull_request",
             "commit",
         ])
+
+    def test_repository_closes_are_accepted_only_for_master_prs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            commits_path = Path(directory) / "commits.json"
+            prs_path = Path(directory) / "prs.json"
+            commits_path.write_text("[]", encoding="utf-8")
+            master_pr = [{
+                "number": 293,
+                "url": "https://github.com/rollacode/codeterm/pull/293",
+                "body": "Closes #40\nCloses #294",
+                "base_ref": "master",
+            }]
+            prs_path.write_text(json.dumps(master_pr), encoding="utf-8")
+            accepted = self.run_contract(
+                "resolve",
+                "--commits-file",
+                str(commits_path),
+                "--prs-file",
+                str(prs_path),
+            )
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            self.assertEqual(
+                [item["reference"] for item in json.loads(accepted.stdout)["repository_issues"]],
+                ["rollacode/codeterm#40", "rollacode/codeterm#294"],
+            )
+            master_pr[0]["base_ref"] = "develop"
+            prs_path.write_text(json.dumps(master_pr), encoding="utf-8")
+            rejected = self.run_contract(
+                "resolve",
+                "--commits-file",
+                str(commits_path),
+                "--prs-file",
+                str(prs_path),
+            )
+            self.assertEqual(rejected.returncode, 2)
+            self.assertIn("GitHub closing keywords are forbidden", rejected.stderr)
 
     def test_commit_rejects_malformed_metadata_but_ignores_incidental_issue_prose(self):
         result = self.resolve_fixture(commits="malformed-release-commits.json")
@@ -173,6 +221,9 @@ class ReleaseIssueContractTest(unittest.TestCase):
         self.assertIn("git rev-list", workflow)
         self.assertIn('--commits-file "$RUNNER_TEMP/release-commits.json"', workflow)
         self.assertIn('--prs-file "$RUNNER_TEMP/release-prs.json"', workflow)
+        self.assertIn("--arg base_ref '${{ github.event.pull_request.base.ref }}'", workflow)
+        self.assertIn(".repository_issues[].reference", workflow)
+        self.assertIn("--repo rollacode/codeterm", workflow)
 
 
 if __name__ == "__main__":

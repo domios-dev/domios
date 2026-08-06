@@ -24,7 +24,7 @@ import type { ModelInfo, PendingPrompt } from "../../lib/types";
 import { ModelSuggestionPicker } from "./ModelSuggestionPicker";
 import { TabTaskStrip } from "./TabTaskStrip";
 import { COMPOSER_MIN_HEIGHT, applyComposerAutosize } from "./composerAutosize";
-import { sendTrackedChatMessage } from "./chatSendStatus";
+import { sendTrackedChatMessage, type ChatSendStatus } from "./chatSendStatus";
 
 const AUDIO_ATTACHMENT_RE = /\.(webm|ogg|oga|opus|mp3|wav|m4a|aac|mp4|flac)$/i;
 // several seconds) then morphs this bubble into the transcript, or an error.
@@ -265,6 +265,7 @@ function ChatComposerImpl({
   onWillSendMessage,
   addOptimistic,
   updateOptimistic,
+  observeChatSendStatus,
   showComposerError,
   onOpenTerminalFallback,
   modelBubble,
@@ -290,6 +291,7 @@ function ChatComposerImpl({
   onWillSendMessage: () => void;
   addOptimistic: (content: string) => string;
   updateOptimistic: (id: string, content: string) => void;
+  observeChatSendStatus: (status: ChatSendStatus) => void;
   showComposerError: (message: string) => void;
   onOpenTerminalFallback?: () => void;
   modelBubble?: ReactNode;
@@ -604,7 +606,7 @@ function ChatComposerImpl({
     try {
       if (chatBackend) {
         // plugin's sendMessage (chat_send_text → send_text_when_ready).
-        await sendTrackedChatMessage(tabId, optimisticId, composed);
+        observeChatSendStatus(await sendTrackedChatMessage(tabId, optimisticId, composed));
       } else {
         const fallbackCommand = allAttachments.length === 0 ? cliFallbackCommandPayload(composed) : null;
         if (fallbackCommand) {
@@ -613,7 +615,7 @@ function ChatComposerImpl({
           onOpenTerminalFallback?.();
           await invoke("write_pty_string", { ptyId: currentPtyId, data: fallbackCommand, raw: false });
         } else {
-          await sendTrackedChatMessage(tabId, optimisticId, composed);
+          observeChatSendStatus(await sendTrackedChatMessage(tabId, optimisticId, composed));
         }
       }
     } catch (e) {
@@ -977,6 +979,7 @@ export const ChatComposer = memo(ChatComposerImpl, (a, b) =>
   && a.onWillSendMessage === b.onWillSendMessage
   && a.addOptimistic === b.addOptimistic
   && a.updateOptimistic === b.updateOptimistic
+  && a.observeChatSendStatus === b.observeChatSendStatus
   && a.showComposerError === b.showComposerError
   && a.onOpenTerminalFallback === b.onOpenTerminalFallback
   && a.modelBubble === b.modelBubble

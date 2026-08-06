@@ -240,6 +240,16 @@ pub fn handle_update(
             if let Some(t) = &after_update {
                 params.push(("after_update", t.clone()));
             }
+            // Identify the calling pane so the daemon excludes it from the
+            // shutdown sweep and it survives to relaunch (Defect 3).
+            let initiating_tab = if no_continue {
+                None
+            } else {
+                continue_tab.or_else(|| std::env::var("CODETERM_TAB_ID").ok())
+            };
+            if let Some(tab) = &initiating_tab {
+                params.push(("continue_tab", tab.clone()));
+            }
             let qs = if params.is_empty() {
                 String::new()
             } else {

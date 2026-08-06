@@ -643,6 +643,46 @@ fn close_task_closes_every_live_attempt_not_only_scalar_assignment() {
 }
 
 #[test]
+fn close_task_accepts_every_lifecycle_state() {
+    for status in [
+        TaskStatus::Pending,
+        TaskStatus::InProgress,
+        TaskStatus::InReview,
+        TaskStatus::Blocked,
+        TaskStatus::Paused,
+        TaskStatus::Done,
+        TaskStatus::Cancelled,
+    ] {
+        let (store, id, tid) = store_with_task(&["status_update"]);
+        store.assign_task(&id, &tid, "tab-live", None, 20).unwrap();
+        store
+            .with_plan(&id, 25, |plan| {
+                let task = plan.tasks.iter_mut().find(|task| task.id == tid).unwrap();
+                task.status = status.clone();
+                Ok(())
+            })
+            .unwrap();
+
+        store
+            .close_task(&id, &tid, None, AgentRef::from_tab("orchestrator"), 30)
+            .unwrap();
+
+        let task = store.show_task(&tid).unwrap().task;
+        assert_eq!(task.status, TaskStatus::Done, "starting status: {status:?}");
+        assert!(
+            task.assigned_tab_id.is_none(),
+            "starting status: {status:?}"
+        );
+        assert!(
+            task.execution_attempts
+                .iter()
+                .all(|attempt| attempt.closed_at == Some(30)),
+            "starting status: {status:?}"
+        );
+    }
+}
+
+#[test]
 fn closed_task_assignment_is_not_indexed_or_bound() {
     let (store, id, tid) = store_with_task(&["status_update"]);
     store.assign_task(&id, &tid, "tab-live", None, 20).unwrap();
