@@ -87,6 +87,67 @@ fn mem_subcommand() -> clap::Command {
 }
 
 #[test]
+fn mem_recall_is_a_hidden_exact_alias_for_search() {
+    fn parsed_search(
+        argv: &[&str],
+    ) -> (
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        usize,
+        bool,
+    ) {
+        match MemOnly::try_parse_from(argv)
+            .expect("mem search spelling parses")
+            .action
+        {
+            MemAction::Search {
+                query,
+                kind,
+                area,
+                scope,
+                project,
+                limit,
+                rerank,
+            } => (query, kind, area, scope, project, limit, rerank),
+            _ => panic!("expected mem search"),
+        }
+    }
+
+    let args = [
+        "needle",
+        "--kind",
+        "fact",
+        "--area",
+        "release",
+        "--scope",
+        "global",
+        "--project",
+        "/tmp/project",
+        "--limit",
+        "7",
+        "--rerank",
+    ];
+    let canonical = std::iter::once("mem")
+        .chain(std::iter::once("search"))
+        .chain(args)
+        .collect::<Vec<_>>();
+    let alias = std::iter::once("mem")
+        .chain(std::iter::once("recall"))
+        .chain(args)
+        .collect::<Vec<_>>();
+
+    assert_eq!(parsed_search(&canonical), parsed_search(&alias));
+    let help = mem_subcommand().render_long_help().to_string();
+    assert!(
+        !help.contains("recall"),
+        "hidden alias leaked into help: {help}"
+    );
+}
+
+#[test]
 fn mem_run_worker_subcommand_exists() {
     let mem = mem_subcommand();
     let run_worker = mem
