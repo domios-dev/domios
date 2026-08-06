@@ -48,6 +48,49 @@ fn worker_report(status: ReportStatus, sha: Option<&str>) -> task_attempts::Boun
 }
 
 #[test]
+fn dispatched_attempt_records_worktree_path_and_base() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut plan = Plan::new(
+        "dispatch lane".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_tab("orch"),
+    );
+    store.save(&mut plan, 1).unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "mutate".into(),
+                kind: "implement".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    let lane = TaskLaneMetadata {
+        worktree_path: Some("/lanes/task-a".into()),
+        branch: Some("lane/task-a".into()),
+        base: Some("basecommit".into()),
+        ..Default::default()
+    };
+
+    let attempt_id = store
+        .begin_task_dispatch(&plan.id, &task_id, "worker-tab", "Worker", lane, 3)
+        .unwrap();
+
+    let task = store.get(&plan.id).unwrap().tasks.remove(0);
+    let attempt = task
+        .execution_attempts
+        .iter()
+        .find(|attempt| attempt.id == attempt_id)
+        .expect("dispatch must create the reserved attempt");
+    assert_eq!(attempt.worktree_path.as_deref(), Some("/lanes/task-a"));
+    assert_eq!(attempt.base.as_deref(), Some("basecommit"));
+    assert_eq!(attempt.branch.as_deref(), Some("lane/task-a"));
+}
+
+#[test]
 fn bound_in_review_report_advances_atomically() {
     let (_dir, store, plan_id, task_id) = bound_report_store();
     assert!(store

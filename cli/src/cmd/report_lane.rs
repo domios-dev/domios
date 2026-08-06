@@ -41,7 +41,17 @@ fn matches(value: Option<&Value>, expected: &str) -> bool {
 }
 
 fn task_readiness_scope_from_task(task: &Value, tab_id: &str) -> TaskReadinessScope {
-    let record = open_attempt(task, tab_id).or_else(|| task.get("lane"));
+    let attempt = open_attempt(task, tab_id);
+    let lane = task.get("lane");
+    // The live attempt's lane binding wins, but only when it actually carries a
+    // worktree. A partial attempt without one falls back to the task lane so the
+    // worker's own worktree is still resolved instead of forcing a canonical-HEAD
+    // comparison. worktree and base always come from the SAME record, so a live
+    // attempt never borrows a stale base from the lane.
+    let record = match attempt {
+        Some(attempt) if nonempty(attempt.get("worktree_path")).is_some() => Some(attempt),
+        _ => lane.or(attempt),
+    };
     TaskReadinessScope {
         worktree_path: record
             .and_then(|record| nonempty(record.get("worktree_path")))
@@ -231,6 +241,21 @@ mod tests {
                     "worktree_path": "/lanes/other",
                     "base": "other-base"
                 },
+            ],
+        });
+        let scope = task_readiness_scope_from_task(&task, "tab-a");
+
+        assert_eq!(scope.worktree_path.as_deref(), Some(Path::new("/lanes/a")));
+        assert_eq!(scope.base.as_deref(), Some("base-a"));
+    }
+
+    #[test]
+    fn open_attempt_without_worktree_falls_back_to_task_lane() {
+        let task = json!({
+            "id": "task_a",
+            "lane": { "worktree_path": "/lanes/a", "base": "base-a" },
+            "execution_attempts": [
+                { "executor_tab_id": "tab-a", "base": "attempt-base" },
             ],
         });
         let scope = task_readiness_scope_from_task(&task, "tab-a");

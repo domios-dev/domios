@@ -85,6 +85,20 @@ pub fn enrich_ready_report(
         return Ok((branch, sha, changed_files));
     }
     let lane_worktree = task_scope.and_then(|scope| scope.worktree_path.as_deref());
+    // A readiness report that names a commit but whose repository task bound no lane
+    // worktree must never be silently validated against whatever checkout the CLI
+    // process happens to run in — that path compares a lane commit to canonical HEAD.
+    // Refuse loudly so the worker rebinds its lane instead.
+    if task_scope.is_some()
+        && is_readiness_status(status)
+        && lane_worktree.is_none()
+        && sha
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|value| !value.is_empty())
+    {
+        return Err(unresolved_lane_refusal());
+    }
     let base = base.or_else(|| task_scope.and_then(|scope| scope.base.clone()));
     enrich_ready_report_in_scope(
         ReadinessScope {
@@ -346,6 +360,18 @@ fn git_recorded_path(cwd: &Path, value: &str) -> Result<PathBuf, String> {
 fn git_refusal(reason: String) -> ReportRefusal {
     ReportRefusal {
         reason: format!("readiness report refused: {reason}"),
+        dirty_files: Vec::new(),
+    }
+}
+
+fn unresolved_lane_refusal() -> ReportRefusal {
+    ReportRefusal {
+        reason: "readiness report refused: cannot locate your lane worktree. This task requires a \
+                 repository but no lane worktree is bound to your report, so the provided --sha \
+                 cannot be validated against your own lane HEAD (never against the canonical \
+                 checkout). Re-dispatch this task with `codeterm plan task dispatch`, or report \
+                 with explicit `--plan <plan> --task <task>` so your lane is resolved."
+            .to_string(),
         dirty_files: Vec::new(),
     }
 }
@@ -929,6 +955,56 @@ mod tests {
         run(&lane, &["commit", "-m", "owned"]);
         let owned = branch_head(&lane);
         (dir, lane, base, owned)
+    }
+
+    #[test]
+    fn scope_bound_lane_validates_against_lane_head_not_the_process_cwd() {
+        let (_lane_dir, lane, base, owned) = lane_worktree_with_owned_commit();
+        let scope = crate::cmd::report_lane::TaskReadinessScope {
+            worktree_path: Some(lane),
+            base: Some(base),
+            requires_repository: true,
+        };
+
+        let (branch, sha, _changed) = enrich_ready_report(
+            Some(&scope),
+            Some(ReportStatusArg::InReview),
+            None,
+            Some(owned.clone()),
+            None,
+            None,
+            false,
+        )
+        .expect("a scope-bound lane worktree must validate the owned sha against its own HEAD");
+
+        assert_eq!(sha.as_deref(), Some(owned.as_str()));
+        assert_eq!(branch.as_deref(), Some("lane/report"));
+    }
+
+    #[test]
+    fn repository_scope_without_lane_worktree_refuses_instead_of_canonical() {
+        let scope = crate::cmd::report_lane::TaskReadinessScope {
+            worktree_path: None,
+            base: None,
+            requires_repository: true,
+        };
+
+        let err = enrich_ready_report(
+            Some(&scope),
+            Some(ReportStatusArg::InReview),
+            None,
+            Some("0123456789abcdef0123456789abcdef01234567".into()),
+            None,
+            None,
+            false,
+        )
+        .expect_err("an unresolved lane must refuse rather than validate against canonical HEAD");
+
+        assert!(
+            err.reason.contains("cannot locate your lane worktree"),
+            "{}",
+            err.reason
+        );
     }
 
     #[test]
