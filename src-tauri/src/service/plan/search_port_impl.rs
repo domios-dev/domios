@@ -91,6 +91,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires local embedding model inference"]
     fn plan_search_includes_semantic_only_hits() {
         let port = MemSearchPort;
         port.ensure_embedding_registered();

@@ -660,10 +660,10 @@ mod tests {
     fn trust_matrix() {
         use crate::provider::ProviderTrust;
 
-        let prev_dev = std::env::var("CODETERM_DEV").ok();
+        let mut env = codeterm_util::test_env::EnvGuard::lock();
 
         // Case 1: unknown id, no dev mode → ThirdParty.
-        unsafe { std::env::remove_var("CODETERM_DEV") };
+        env.remove("CODETERM_DEV");
         {
             let root = tempfile::tempdir().unwrap();
             let dir = root.path().join("nobody-knows-this");
@@ -704,7 +704,7 @@ mod tests {
         }
 
         // Case 4: CODETERM_DEV=1 forces ThirdParty even for system id.
-        unsafe { std::env::set_var("CODETERM_DEV", "1") };
+        env.set("CODETERM_DEV", "1");
         if let Some((sys_id, _)) = crate::system_plugins::SYSTEM_PLUGIN_HASHES.first() {
             let root = tempfile::tempdir().unwrap();
             let dir = root.path().join(*sys_id);
@@ -712,13 +712,6 @@ mod tests {
             write(&dir.join("plugin.js"), "module.exports.default = {};");
             let p = load_one(&dir.join("plugin.json")).unwrap();
             assert_eq!(p.trust(), ProviderTrust::ThirdParty, "case 4");
-        }
-
-        unsafe {
-            match prev_dev {
-                Some(v) => std::env::set_var("CODETERM_DEV", v),
-                None => std::env::remove_var("CODETERM_DEV"),
-            }
         }
     }
 }

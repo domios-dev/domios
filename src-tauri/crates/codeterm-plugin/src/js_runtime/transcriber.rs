@@ -178,14 +178,14 @@ mod tests {
                 })
                 .await;
         });
-        // unrestricted sandbox, so the allowlist doesn't block the random port.)
-        std::env::set_var("CODETERM_TRANSCRIBE_URL", format!("http://{addr}"));
-
         let p = super::super::loader::load_one(&mp).expect("load transcriber");
         let t = JsTranscriber::new(p.vm().clone(), p.manifest().id.clone());
-        let out = t.transcribe(Path::new("/note.oga"), "fr").await;
+        let out = {
+            let mut env = codeterm_util::test_env::EnvGuard::lock();
+            env.set("CODETERM_TRANSCRIBE_URL", format!("http://{addr}"));
+            futures_executor::block_on(t.transcribe(Path::new("/note.oga"), "fr"))
+        };
 
-        std::env::remove_var("CODETERM_TRANSCRIBE_URL");
         let _ = tx.send(());
         let _ = handle.await;
 

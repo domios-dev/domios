@@ -281,12 +281,9 @@ fn mux_with_general_tab(stage: Option<BootStage>) -> (MuxState, String) {
 
 #[test]
 fn general_agent_env_uses_configured_api_port_not_parent_env() {
-    let original_port = std::env::var_os("CODETERM_API_PORT");
-    let original_url = std::env::var_os("CODETERM_API_URL");
-    unsafe {
-        std::env::set_var("CODETERM_API_PORT", "7685");
-        std::env::set_var("CODETERM_API_URL", "http://127.0.0.1:7685");
-    }
+    let mut process_env = codeterm_util::test_env::EnvGuard::lock();
+    process_env.set("CODETERM_API_PORT", "7685");
+    process_env.set("CODETERM_API_URL", "http://127.0.0.1:7685");
     let mut config = crate::config::schema::AppConfig::default();
     config.api.port = 7686;
     config.api.token = Some("test-token".to_string());
@@ -298,17 +295,6 @@ fn general_agent_env_uses_configured_api_port_not_parent_env() {
         "nonce-1".to_string(),
         &config,
     );
-    unsafe {
-        match original_port {
-            Some(p) => std::env::set_var("CODETERM_API_PORT", p),
-            None => std::env::remove_var("CODETERM_API_PORT"),
-        }
-        match original_url {
-            Some(u) => std::env::set_var("CODETERM_API_URL", u),
-            None => std::env::remove_var("CODETERM_API_URL"),
-        }
-    }
-
     assert_eq!(
         env.get("CODETERM_API_PORT").map(String::as_str),
         Some("7686")
