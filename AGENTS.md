@@ -42,8 +42,8 @@ Choose the operation before running a command: shared development is `docs/BUILD
 ./build.sh dev              # incremental dev (port 7686, hot reload, auto-builds CLI)
 ./build.sh check            # cargo check (~2s incremental)
 ./build.sh worktree-check   # canonical-only integration compile check
-./build.sh test-one app NAME # one focused capped app test (pty/cli also supported)
-./build.sh test-one plan NAME # one focused capped codeterm-plan test
+./build.sh test-one app NAME # one focused app test (pty/cli also supported)
+./build.sh test-one plan NAME # one focused codeterm-plan test
 ./build.sh release-preflight # refresh and verify both Cargo lockfiles before a production build
 ./build.sh test             # Rust unit tests
 ./build.sh verify           # check + unit tests + source-size gate
@@ -87,7 +87,7 @@ Use `./build.sh help` and the named build operations. Do not hand-compose Cargo 
 
 - Keep machine-level `sccache`; never share `CARGO_TARGET_DIR` across worktrees.
 - Do not remove the tuned Cargo profiles.
-- In canonical QA, use focused capped tests; a 90s timeout is a defect signal, not a reason to raise the cap.
+- In canonical QA, use focused tests through the repository wrapper. Set `TEST_CAP_SECS` only for targeted timeout diagnostics.
 - Reclaim stale targets with `cargo sweep --time 2` between efforts.
 
 ## Lane integration preserves ancestry
@@ -335,4 +335,4 @@ Bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
 - `docs/spikes/llm-codemap-eval.md` — code-map bake-off; why SCIP is the adopted code-navigation index
 - `docs/contributing/` — agents, style, architecture, per-feature testing recipes
 
-<!-- revision: 26 -->
+<!-- revision: 27 -->

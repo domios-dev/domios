@@ -1315,7 +1315,7 @@ CodeTerm build commands
   release-inputs              Build target-aware frontend, CLI, and embed bundle inputs
   worktree-check              Isolated lane-safe Rust compile check
   test-one <app|plan|pty|types|mem|mesh|plugin|cli> NAME
-                              Run one focused capped Rust test
+                              Run one focused Rust test
   test                        Run the application Rust unit suite
   verify                      Run check, tests, and source-size gate
   qa-prep                     Prepare a worktree for QA
