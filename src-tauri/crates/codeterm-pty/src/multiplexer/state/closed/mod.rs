@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 use serde::Serialize;
 
 use super::MultiplexerState;
-use crate::multiplexer::types::{ClosedTab, TabBacking, TitleLevel};
+use crate::multiplexer::types::{ClosedTab, TabBacking, TabCloseReason, TitleLevel};
 
 pub use store::{
     ClosedGroup, ClosedRow, ClosedTabsStore, GroupKind, CLOSED_GROUP_CAP, RECENTLY_CLOSED_CAP,
@@ -45,10 +45,17 @@ pub struct ClosedTabView {
 
 impl MultiplexerState {
     /// Build a closed-tab record from a live tab, overlaying tab/workspace
-    /// context. `None` for hidden/protected tabs — not user-closeable tabs.
-    fn build_closed_tab(&self, tab_id: &str) -> Option<ClosedTab> {
+    /// context. `None` for hidden/protected tabs — not user-closeable tabs —
+    /// EXCEPT a policy-driven close of a task-owning worker (a hidden worker
+    /// with a `worker_id`), which must stay restorable.
+    fn build_closed_tab(&self, tab_id: &str, reason: TabCloseReason) -> Option<ClosedTab> {
         let tab = self.tabs.get(tab_id)?;
-        if tab.hidden || tab.protected {
+        let policy_worker =
+            reason == TabCloseReason::PolicyWorker && tab.worker_id.is_some();
+        if tab.protected {
+            return None;
+        }
+        if tab.hidden && !policy_worker {
             return None;
         }
         // One conversion, so a new Tab field can't silently desync the close path.
@@ -64,8 +71,8 @@ impl MultiplexerState {
     }
 
     /// Record a single tab/tab close as a `Single` group.
-    pub(super) fn record_single_close(&mut self, tab_id: &str) {
-        let Some(record) = self.build_closed_tab(tab_id) else {
+    pub(super) fn record_single_close(&mut self, tab_id: &str, reason: TabCloseReason) {
+        let Some(record) = self.build_closed_tab(tab_id, reason) else {
             return;
         };
         let group = ClosedGroup {
@@ -86,7 +93,7 @@ impl MultiplexerState {
         let subtree = self.collect_subtree(root_tab_id);
         let records: Vec<ClosedTab> = subtree
             .iter()
-            .filter_map(|pid| self.build_closed_tab(pid))
+            .filter_map(|pid| self.build_closed_tab(pid, TabCloseReason::User))
             .collect();
         if records.is_empty() {
             return;
@@ -119,7 +126,7 @@ impl MultiplexerState {
         let tab_ids = ws.tabs.clone();
         let records: Vec<ClosedTab> = tab_ids
             .iter()
-            .filter_map(|pid| self.build_closed_tab(pid))
+            .filter_map(|pid| self.build_closed_tab(pid, TabCloseReason::User))
             .collect();
         if records.is_empty() {
             return;
@@ -214,6 +221,7 @@ impl MultiplexerState {
             tab.agent_type_locked = record.agent_type.is_some();
             tab.agent_session_id = record.agent_session_id.clone();
             tab.role_profile = record.role_profile.clone();
+            tab.worker_id = record.worker_id.clone();
             tab.agent_session_model = record.model.clone();
             tab.restored_from_snapshot = true;
             tab.chat_view =
