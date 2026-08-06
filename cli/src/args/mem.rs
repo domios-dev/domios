@@ -3,6 +3,7 @@ use clap::Subcommand;
 #[derive(Subcommand)]
 pub enum MemAction {
     /// Search across mem_items (FTS5 + hybrid scoring)
+    #[command(alias = "recall")]
     Search {
         /// Query text
         query: String,
