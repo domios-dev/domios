@@ -13,12 +13,9 @@ codeterm plan reconcile <plan>
 codeterm task show <task>
 ```
 
-Use `codeterm orchestrator inspect --plan <plan> --json` only to investigate a
-specific discrepancy that compact status cannot explain.
+Use `codeterm orchestrator inspect --plan <plan> --json` only to investigate a specific discrepancy that compact status cannot explain.
 
-Use `codeterm docs <NAME>`; it returns the complete document. Use `codeterm docs`
-or `codeterm docs --help` to discover available names. Read a related playbook
-when its responsibility becomes active:
+Use `codeterm docs <NAME>`; it returns the complete document. Use `codeterm docs` or `codeterm docs --help` to discover available names. Read a related playbook when its responsibility becomes active:
 
 | Need | Read |
 |---|---|
@@ -240,5 +237,4 @@ immutable plan stride.
 ## Related documents
 
 Verification, integration, heartbeat, and closeout: `codeterm docs ORCHESTRATION-OPERATIONS`.
-
-<!-- revision: 58 -->
+<!-- revision: 60 -->

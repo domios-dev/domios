@@ -77,6 +77,11 @@ npx tsx src/components/Terminal/chatEnrichment.test.ts      # TS chat enrichment
 | `Build gateway busy` returns immediately | Another build or the visible dev watcher owns the machine slot; the requested command did not start. | Read the reported job, owner, and command. Run later, or add `--wait-build` only when blocking the caller is intentional. |
 | `qa-prep` fails at stage `dist:node-modules-link` with `Parameter format not correct - <worktree>\node_modules` | On Windows, MSYS rewrites the bare `mklink /J` switch into the drive path `J:/` before `cmd` sees it, so `mklink` never receives the junction switch and rejects the arguments | Rerun `./build.sh qa-prep` on a build that passes the switch as `//J` (escaped from MSYS path conversion); the junction to the canonical checkout's `node_modules` is then created without elevation |
 | `pnpm install --frozen-lockfile` fails with `ENOENT` for a package inside `node_modules/.pnpm` | The local pnpm virtual store contains a partial package directory, so the lockfile is valid but linking cannot read the package manifest | Run `pnpm install --frozen-lockfile --force`, verify the missing binary or package is present, then rerun the original test command |
+| A build exits with `Timed out acquiring build gateway state mutex` | Another live or stale gateway owner held the state mutex through the acquisition deadline | Inspect `./build.sh gateway-status`; cancel only a proven stale job with `./build.sh gateway-cancel <job-id>`, then rerun. |
+| A Windows dev build fails writing `codeterm_lib.lib` with `os error 112` | The canonical target exhausted the checkout drive while replacing the debug archive | Verify no dev build is running, run `.\build.ps1 clean`, confirm free space, then restart dev. |
+| A Windows native dependency fails with `LNK1106` and a truncated cached `.o` | `sccache` retained a corrupt C/C++ object | Set `$env:SCCACHE_RECACHE='1'`, rerun once, remove the variable, and verify the object with `dumpbin`. |
+| `rustc` exits with `0xc0000005` while compiling an unchanged dependency | The Windows compiler crashed before producing a source diagnostic | Rerun the same operation once. If it repeats, preserve the rustc command and crash evidence; do not clean targets or add a deadline. |
+| Linking panics with `Invalid archive terminator` after an OS crash | A generated `.rlib` in the canonical target was truncated | Confirm no dev build is running, run `.\build.ps1 clean`, then restart the named operation. |
 
 
 If `.\build.ps1 test` stops before the Rust summary with `os error 232` or "the
@@ -216,4 +221,4 @@ If `build.ps1 check` reports E0603 for a helper under `commands::<module>`,
 call its `commands` facade re-export instead of making the implementation module
 public. The command modules are intentionally private ownership boundaries.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->
