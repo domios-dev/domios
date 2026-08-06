@@ -14,6 +14,7 @@ function acceptedStatus(): ChatSendStatus {
     ledger_id: "ledger-1",
     sequence: 1,
     retained_from: 1,
+    correlationId: "message-1",
   };
 }
 
@@ -30,7 +31,7 @@ test("accepted send enters the backend ledger once", async () => {
   assert.deepEqual(result, accepted);
   assert.deepEqual(calls, [{
     command: "chat_send_text",
-    args: { tabId: "tab-1", text: "hello" },
+    args: { tabId: "tab-1", text: "hello", clientToken: "message-1" },
   }]);
 });
 

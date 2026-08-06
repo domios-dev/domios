@@ -33,9 +33,12 @@ import {
   commitTranscriptBatch,
   replaceTranscriptWindow,
   resetTranscriptWindow,
+  stampConfirmedTranscriptRow,
+  trackTranscriptSend,
   transcriptWindowKey,
   useTranscriptWindow,
 } from "./transcriptStore";
+import type { ChatSendStatus } from "./chatSendStatus";
 import { clearPersistedChatScrollState } from "./chatViewport";
 import { useChatWindowView } from "./useChatWindowView";
 
@@ -131,6 +134,8 @@ export function useChatSession({
   const pendingLiveEventsRef = useRef<ChatMsgEvent[]>([]);
   const preserveSnapshotAnchorRef = useRef(false);
   const replaceOnNextLiveEventRef = useRef(false);
+  const sendStatusInFlightRef = useRef(false);
+  const sendStatusQueuedRef = useRef(false);
 
   onErrorRef.current = onError;
   diagnosticSinkRef.current = diagnosticSink;
@@ -225,6 +230,30 @@ export function useChatSession({
       preserveSnapshotAnchorRef.current,
     );
   }, [commitBatch, tabId]);
+
+  const reconcileSendStatuses = useCallback(async () => {
+    if (sendStatusInFlightRef.current) {
+      sendStatusQueuedRef.current = true;
+      return;
+    }
+    sendStatusInFlightRef.current = true;
+    try {
+      do {
+        sendStatusQueuedRef.current = false;
+        const statuses = await invoke<ChatSendStatus[]>("chat_send_status", { tabId });
+        for (const status of statuses) stampConfirmedTranscriptRow(windowKeyRef.current, status);
+      } while (sendStatusQueuedRef.current);
+    } catch {
+      return;
+    } finally {
+      sendStatusInFlightRef.current = false;
+    }
+  }, [tabId]);
+
+  const observeChatSendStatus = useCallback((status: ChatSendStatus) => {
+    trackTranscriptSend(windowKeyRef.current, status);
+    void reconcileSendStatuses();
+  }, [reconcileSendStatuses]);
 
   const loadOlderPage = useCallback(async (beforeOffset: number) => {
     const generationAtRequest = attachmentRef.current.generation;
@@ -332,6 +361,7 @@ export function useChatSession({
               return;
             }
             if (needsRecovery(commitLiveEvent(ev.payload))) requestRecoveryAttach();
+            void reconcileSendStatuses();
             emitDiagnostic({ edge: "state_enqueued", ...diagnosticBase });
             if (attachmentStateRef.current !== "attached") markAttached();
           },
@@ -371,6 +401,7 @@ export function useChatSession({
     emitDiagnostic,
     markAttached,
     requestRecoveryAttach,
+    reconcileSendStatuses,
     requestAttach,
     tabId,
     listenerEpoch,
@@ -594,5 +625,6 @@ export function useChatSession({
     setHistoryReading: view.setHistoryReading,
     addOptimistic: view.addOptimistic,
     updateOptimistic: view.updateOptimistic,
+    observeChatSendStatus,
   };
 }
