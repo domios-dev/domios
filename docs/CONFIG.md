@@ -150,7 +150,10 @@ curl -X PATCH http://host:7685/api/config \
 codeterm config get integrations.telegram_enabled
 codeterm config set integrations.telegram_enabled true
 codeterm config get general_agent              # read an entire section
+codeterm config get                            # no key → dump the whole redacted config
 ```
+
+`codeterm config get` with no key omits the `?key=` query and prints every key/value (secrets redacted). Passing a key scopes the read to that dot-path.
 
 Values are JSON-compatible: `true`, `false`, `42`, `"string"`, `["array"]`. Changes are saved to disk immediately and trigger a `config-changed` event.
 
@@ -175,4 +178,4 @@ Settings UI: Settings > Agents > General Agent section (enable, auto-restart tog
 
 Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`.
 
-<!-- revision: 38 -->
+<!-- revision: 39 -->

@@ -119,8 +119,44 @@ impl ParsedMarker {
     }
 }
 
+/// Where a candidate marker came from. Without a crypto transport (roadmap), the
+/// only host-controlled signal is POSITION: the daemon prepends its marker as the
+/// leading frame of the message it delivers. A well-formed marker anywhere else —
+/// inside file contents, tool output, a fetched page, or another pane's scrollback
+/// the agent reads — is forged content, never authentic routing metadata.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Provenance {
+    HostInjected,
+    StreamContent,
+}
+
+/// Classify a candidate by provenance. `HostInjected` requires the marker to be
+/// the exact leading frame, optionally wrapped in the daemon's bracketed-paste
+/// envelope. Any preceding byte — including whitespace an attacker could pad to
+/// bypass a naive trim — yields `StreamContent`.
+pub fn provenance(text: &str) -> Provenance {
+    let head = text.strip_prefix(BRACKETED_PASTE_START).unwrap_or(text);
+    if head.starts_with(OPEN) && parse(text).is_some() {
+        Provenance::HostInjected
+    } else {
+        Provenance::StreamContent
+    }
+}
+
+/// Parse a marker only when it is host-injected (the leading frame). Embedded or
+/// whitespace-padded markers return `None` even where [`parse`] alone would
+/// accept them. Trust routing metadata through this, never bare [`parse`].
+pub fn parse_host_injected(text: &str) -> Option<ParsedMarker> {
+    match provenance(text) {
+        Provenance::HostInjected => parse(text),
+        Provenance::StreamContent => None,
+    }
+}
+
 /// Parse a marker. Returns `None` unless the text starts with a CodeTerm marker
-/// frame — plain text falls through unchanged.
+/// frame — plain text falls through unchanged. This recognizes the wire shape
+/// only; it makes NO authenticity claim (it trims leading whitespace, which a
+/// forger can pad). For a trust decision use [`parse_host_injected`].
 pub fn parse(text: &str) -> Option<ParsedMarker> {
     let mut normalized = text.trim_start();
     if let Some(stripped) = normalized.strip_prefix(BRACKETED_PASTE_START) {

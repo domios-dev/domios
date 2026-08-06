@@ -42,8 +42,8 @@ Choose the operation before running a command: shared development is `docs/BUILD
 ./build.sh dev              # incremental dev (port 7686, hot reload, auto-builds CLI)
 ./build.sh check            # cargo check (~2s incremental)
 ./build.sh worktree-check   # canonical-only integration compile check
-./build.sh test-one app NAME # one focused capped app test (pty/cli also supported)
-./build.sh test-one plan NAME # one focused capped codeterm-plan test
+./build.sh test-one app NAME # one focused app test (pty/cli also supported)
+./build.sh test-one plan NAME # one focused codeterm-plan test
 ./build.sh release-preflight # refresh and verify both Cargo lockfiles before a production build
 ./build.sh test             # Rust unit tests
 ./build.sh verify           # check + unit tests + source-size gate
@@ -87,7 +87,8 @@ Use `./build.sh help` and the named build operations. Do not hand-compose Cargo 
 
 - Keep machine-level `sccache`; never share `CARGO_TARGET_DIR` across worktrees.
 - Do not remove the tuned Cargo profiles.
-- In canonical QA, use focused capped tests; a 90s timeout is a defect signal, not a reason to raise the cap.
+- In canonical QA, use focused tests through the repository wrapper. Set `TEST_CAP_SECS` only for targeted timeout diagnostics.
+- Unit suites run to natural completion by default. Set Rust or TypeScript deadlines only for an explicit targeted diagnostic.
 - Reclaim stale targets with `cargo sweep --time 2` between efforts.
 
 ## Lane integration preserves ancestry
@@ -140,7 +141,7 @@ from a task, gate, changed UI file, prior request, or release workflow.
 UI changes still require accessible roles, names, focus order, and screen-reader
 semantics; verify behavior with focused unit/API tests and manual dev inspection.
 
-On Windows invoke repo commands through `.\build.ps1`; run capped Rust tests from PowerShell foreground so the process-group timeout owns Cargo and its children.
+On Windows invoke repo commands through `.\build.ps1`; run Rust tests from PowerShell foreground so an explicitly requested process-group timeout owns Cargo and its children.
 
 ## Bench safety: NEVER call raw `codeterm` against dev — use the lib
 
@@ -316,6 +317,8 @@ Prefer cached SCIP indexes for definitions, references, and implementation graph
 
 Issue and commit titles use `<scope>: description` (`fix`, `feat`, `mem`, `mesh`, `research`, `docs`, `build`), never bracket tags. Release work must load `.agents/skills/github-release/SKILL.md`; build-farm details live in `.codeterm/build-machine/README.md`; the human-readable runbook (preflight, trigger tag, artifact matrix, troubleshooting) is `docs/RELEASE.md`. Never direct-push `master`, move published tags, or release from an unverified head.
 
+PRs that target a non-default integration branch declare each fixed source-repo issue with one exact line: `Repository-Issue: rollacode/codeterm#N`. Do not use `Closes`/`Fixes` there: GitHub ignores closing keywords outside the default branch. Before opening the final `develop` → `master` PR, render those declarations with `python3 scripts/release_issue_contract.py repository-closes --body-file <release-pr-body.md>` and put the resulting `Closes #N` lines in the final PR body. Public `codeterm-releases` issues remain separate `Public-Issue:` metadata and close only after verified artifact publication; see `docs/RELEASE.md`.
+
 ## Documentation
 
 Bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
@@ -335,4 +338,4 @@ Bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
 - `docs/spikes/llm-codemap-eval.md` — code-map bake-off; why SCIP is the adopted code-navigation index
 - `docs/contributing/` — agents, style, architecture, per-feature testing recipes
 
-<!-- revision: 26 -->
+<!-- revision: 29 -->

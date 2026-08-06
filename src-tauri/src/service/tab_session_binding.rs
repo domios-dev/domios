@@ -76,6 +76,7 @@ impl ServiceContext {
         self.open_lifecycle_epoch(tab_id);
         let nonce = uuid::Uuid::new_v4().to_string();
         if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
+            tab.remember_superseded_binding_nonce();
             tab.session_binding_nonce = Some(nonce.clone());
             tab.reported_session_binding_nonce = None;
         }

@@ -77,7 +77,16 @@ git push origin develop
 ```
 
 Then start dev from the main checkout and visually confirm the app, clean old lane worktrees
-(`../codeterm-worktrees/`), and open the PR `develop` → `master`.
+(`../codeterm-worktrees/`), and open the PR `develop` → `master`. Collect the exact
+`Repository-Issue:` lines from the included integration PR body and render the closing block:
+
+```bash
+python3 scripts/release_issue_contract.py repository-closes \
+  --body-file /path/to/integration-pr-body.md
+```
+
+Put that output in the final PR body. GitHub applies `Closes #N` only when the PR targets the
+default branch, so integration PRs targeting `develop` retain non-closing metadata instead.
 
 ## 2. Cut the release: one trigger tag
 
@@ -191,6 +200,7 @@ yet.
 | A release bundle fails with missing `dist`, `bundled-cli`, or `bundled-embed` after `beforeBuildCommand` was removed | A direct Tauri release entrypoint bypassed `build.sh release-inputs`, so the frontend or target-correct sidecars were never staged | Keep `beforeBuildCommand` absent. Run the target-aware `release-inputs` operation before every direct Tauri release build, then rerun the unpublished release from the same verified source commit. |
 | Windows release-input preparation builds the embed binary, then `bundle-embed.js` reports that `rustc` is not recognized | A nested Windows command shell cannot resolve bare `rustc` even though Cargo inherited a valid toolchain path | Use the current helper, which resolves the compiler from `RUSTC` or Cargo home without a shell lookup, then rerun `build.ps1 release-inputs`. |
 | Windows x64 publishes but ARM64 fails with `LNK4272` and unresolved CRT symbols such as `memcpy` or `memset` | `vcvarsall x64_arm64` left x64 MSVC/SDK directories in `LIB`, so the ARM linker consumed host libraries | Use the current workflow, which replaces the cross-job library path with ARM64 MSVC/UCRT/UM directories and rejects any surviving x64/x86 path before compilation; rerun only the failed ARM64 job. |
+| ARM64 fails at `release-inputs` with `LNK1120: 50 unresolved externals` (`__imp_malloc`, `_tls_index`, `__C_specific_handler`, `__imp__beginthreadex`) while the Tauri link itself is fine | `build.sh`'s `setup_env` hardcoded x64 `LIB`/`CC` and overwrote the workflow's ARM64 library path, so the CLI and `codeterm-embed` cross-builds it starts linked ARM64 objects against host CRT/SDK import libraries. The Tauri step escaped this because it runs outside `build.sh` | Use the current `setup_env`, which derives `LIB` and the target-scoped `CC_*`/`AR_*` from `CARGO_BUILD_TARGET` and aborts on any non-target library path. Verify with `bash scripts/check-msvc-cross-env.sh`, then rerun only the failed ARM64 job. |
 | Publish succeeds but public-mirror verification rejects updater URLs under `/releases/latest/download/` | The mac/Linux-ARM fragment publisher emitted mutable channel aliases while the verifier requires immutable release assets | Regenerate the fragments with `/releases/download/vX.Y.Z/` URLs, merge all platform fragments again, replace `latest.json` in both releases, and verify every anonymous URL and signature. |
 | macOS needs to be built while the self-hosted Mac is unavailable | — | `release-macos.yml` is the GitHub-hosted fallback: `gh workflow run release-macos.yml --ref master -f tag=vX.Y.Z`. It is **disabled by default** (hosted macOS minutes bill at 10×) — `gh workflow enable release-macos.yml` first and disable it again afterwards. It builds macOS only, never Linux arm64. Its checkout pins no `ref`, so it builds the default branch HEAD: verify `origin/master` still equals the release commit immediately before dispatching. |
 
@@ -233,7 +243,18 @@ Before un-drafting/marking `--latest`:
 gh release edit "v$VER" --repo rollacode/codeterm --draft=false --latest
 ```
 
-## Public issue closure contract
+## Issue closure contracts
+
+Source-repository issues use a separate two-stage contract. Integration PRs targeting
+non-default branches declare one exact line per fixed issue:
+
+```text
+Repository-Issue: rollacode/codeterm#294
+```
+
+The final `develop` → `master` PR renders those declarations as `Closes #294`; merging that PR
+closes the issue. The validator rejects closing keywords on integration PRs because GitHub ignores
+them outside the default branch.
 
 A private-source PR or commit declares a public issue only with an exact,
 repository-qualified metadata line:
@@ -306,4 +327,4 @@ The minisign updater key (`~/.tauri/codeterm.key`, empty password; its public ha
 the `github-release` skill lists the exact ids and restore paths. A builder without the minisign
 key produces artifacts the updater can't verify.
 
-<!-- revision: 21 -->
+<!-- revision: 23 -->

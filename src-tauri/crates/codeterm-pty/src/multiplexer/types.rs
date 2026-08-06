@@ -73,6 +73,15 @@ impl ReasoningEffortIdentity {
     }
 }
 
+/// Why a tab is being closed. A `PolicyWorker` close (system/exhaustion) of a
+/// task-owning worker overrides the hidden-skip so it lands in recently-closed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TabCloseReason {
+    #[default]
+    User,
+    PolicyWorker,
+}
+
 /// A closed tab retained for browser-style reopen. Captures just enough to
 /// re-materialize the tab with the SAME backing — the `backing` reuses the
 /// existing `TabBacking` serialization, and `agent_type` / `agent_session_id`
@@ -99,6 +108,10 @@ pub struct ClosedTab {
     pub agent_session_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub role_profile: Option<String>,
+    /// Worker binding — present only on a task-owning worker. Restored so a
+    /// reopened worker rebinds to its task/lane instead of launching anonymous.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub worker_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub model: Option<String>,
     #[serde(default)]
@@ -129,6 +142,7 @@ impl From<&Tab> for ClosedTab {
             agent_type: tab.agent_type.clone(),
             agent_session_id: tab.agent_session_id.clone(),
             role_profile: tab.role_profile.clone(),
+            worker_id: tab.worker_id.clone(),
             model: tab.agent_session_model.clone(),
             chat_view: tab.chat_view,
             closed_at: std::time::SystemTime::now()
@@ -394,6 +408,29 @@ pub enum TabAudience {
     Automation,
 }
 
+/// Rename-proof identity for a spawned agent tab. Captures the assignment a
+/// pane was launched with so a supervisor can match on identity, not on the
+/// mutable display title. Written once at spawn; never overwritten by rename.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct TaskBinding {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<String>,
+    /// Stable digest of the `--task` handle for ad-hoc lanes with no plan task.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spawn_handle: Option<String>,
+    pub bound_at: u64,
+}
+
+/// A superseded nonce tagged with the agent session active when it was issued.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PriorBindingNonce {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    pub nonce: String,
+}
+
 /// A tab represents one terminal, chat backend, or transient choice surface.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tab {
@@ -483,6 +520,9 @@ pub struct Tab {
     /// never proves that the current agent owns the tab.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub reported_session_binding_nonce: Option<String>,
+    /// Superseded nonces tagged with their issuing agent session.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub prior_session_binding_nonces: Vec<PriorBindingNonce>,
     /// Per-session nonce (env CODETERM_SHELL_NONCE) guarding OSC 633;E command text against forged output.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub shell_integration_nonce: Option<String>,
@@ -492,6 +532,15 @@ pub struct Tab {
     pub lifecycle_epoch: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub lifecycle_operation_id: Option<String>,
+    /// Immutable assignment identity stamped at spawn. Survives self-renames so
+    /// external supervisors can match a lane by task rather than by title.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub task_binding: Option<TaskBinding>,
+    /// True for an agent pane spawned WITHOUT a role that was nonetheless linked
+    /// into the hierarchy (parent + audit row). Distinguishes a tracked roleless
+    /// agent from an ordinary shell/utility tab, which is also role=None.
+    #[serde(default)]
+    pub roleless_tracked: bool,
     /// Structural orchestration role. The finer-grained kind lives in
     /// `role_profile` and is resolved through `role_kind` descriptors.
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -658,6 +707,42 @@ impl Tab {
         self.anchors_team() && self.team_id.is_some()
     }
 
+    /// Retire the current nonce with its issuing session before either is cleared.
+    pub fn remember_superseded_binding_nonce(&mut self) {
+        const MAX_LINEAGE: usize = 8;
+        let Some(current) = self.session_binding_nonce.clone() else {
+            return;
+        };
+        let session_id = self.agent_session_id.clone();
+        self.prior_session_binding_nonces
+            .retain(|entry| entry.nonce != current);
+        self.prior_session_binding_nonces
+            .push(PriorBindingNonce {
+                session_id,
+                nonce: current,
+            });
+        let overflow = self
+            .prior_session_binding_nonces
+            .len()
+            .saturating_sub(MAX_LINEAGE);
+        if overflow > 0 {
+            self.prior_session_binding_nonces.drain(0..overflow);
+        }
+    }
+
+    /// Whether the nonce is live or was issued under the current agent session.
+    pub fn binding_nonce_in_current_session_lineage(&self, nonce: &str) -> bool {
+        let Some(current_session) = self.agent_session_id.as_deref() else {
+            return false;
+        };
+        if self.session_binding_nonce.as_deref() == Some(nonce) {
+            return true;
+        }
+        self.prior_session_binding_nonces.iter().any(|entry| {
+            entry.nonce == nonce && entry.session_id.as_deref() == Some(current_session)
+        })
+    }
+
     pub fn archive_context_epoch(&mut self, provider: &str, session_id: &str) {
         if session_id.is_empty()
             || self
@@ -713,9 +798,12 @@ mod tests {
             context_epoch_archives: vec![],
             session_binding_nonce: None,
             reported_session_binding_nonce: None,
+            prior_session_binding_nonces: Vec::new(),
             shell_integration_nonce: None,
             lifecycle_epoch: None,
             lifecycle_operation_id: None,
+            task_binding: None,
+            roleless_tracked: false,
             role: None,
             role_profile: None,
             team_id: None,

@@ -1,6 +1,59 @@
-use super::DeliveryError;
+use super::{DeliveryError, SendOrigin};
 use crate::service::inject_verify::InjectionError;
 use axum::http::StatusCode;
+
+fn tab_busy() -> DeliveryError {
+    DeliveryError::TabBusyRefused {
+        tab: "p1".into(),
+        detail: "still booting".into(),
+    }
+}
+
+fn pty_unavailable() -> DeliveryError {
+    DeliveryError::PtyUnavailable {
+        tab: "p1".into(),
+        detail: "PTY did not link".into(),
+    }
+}
+
+fn submit_unconfirmed() -> DeliveryError {
+    DeliveryError::SubmitUnconfirmed {
+        tab: "p1".into(),
+        detail: "submit key not acknowledged".into(),
+    }
+}
+
+#[test]
+fn user_origin_never_surfaces_any_refusal() {
+    for err in [
+        tab_busy(),
+        pty_unavailable(),
+        submit_unconfirmed(),
+        DeliveryError::TabNotReachableOnPeer { tab: "p1".into() },
+    ] {
+        assert!(
+            !err.surfaces_as_failure(SendOrigin::User),
+            "{} must degrade to pending-until-link for a user send",
+            err.code()
+        );
+        assert_eq!(err.into_surfaced(SendOrigin::User), Ok(()));
+    }
+}
+
+#[test]
+fn programmatic_origin_keeps_the_honest_typed_split() {
+    // Pre-write refusals surface (nothing was written); a post-write submit
+    // stays unknown (bytes may have landed).
+    assert!(tab_busy().surfaces_as_failure(SendOrigin::Programmatic));
+    assert!(pty_unavailable().surfaces_as_failure(SendOrigin::Programmatic));
+    assert!(DeliveryError::TabNotReachableOnPeer { tab: "p1".into() }
+        .surfaces_as_failure(SendOrigin::Programmatic));
+    assert!(!submit_unconfirmed().surfaces_as_failure(SendOrigin::Programmatic));
+    assert!(tab_busy().into_surfaced(SendOrigin::Programmatic).is_err());
+    assert!(submit_unconfirmed()
+        .into_surfaced(SendOrigin::Programmatic)
+        .is_ok());
+}
 
 fn submit_never_confirmed() -> InjectionError {
     InjectionError::SubmitNeverConfirmed {

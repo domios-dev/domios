@@ -26,6 +26,9 @@ export interface OptimisticEcho {
   sentAtMs: number;
   /** Monotonic frontend order captured before transport submission. */
   clientOrder?: number;
+  /** Stable client send-correlation token. When the server echoes it onto the
+   *  committed turn, reconciliation is by identity instead of content. */
+  correlationId?: string;
 }
 
 interface CoverageToken {
@@ -144,10 +147,28 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
   parsedUsers: T[],
 ): { matchedIds: string[]; pendingIds: string[] } {
   const consumed = new Array<boolean>(parsedUsers.length).fill(false);
+  const idMatched = new Set<string>();
   const exactMatched = new Set<string>();
   const coveredMatched = new Set<string>();
   const pendingIds: string[] = [];
+  // Stable correlation id is the primary reconciliation: an echo whose token the
+  // server stamped onto a committed turn is retired by identity, immune to chip
+  // enrichment diverging the rendered text. Consume-once, and no ordering guard
+  // — a token is globally unique to its send, so its echo is unambiguous.
   for (const echo of optimistic) {
+    if (!echo.correlationId) continue;
+    for (let i = 0; i < parsedUsers.length; i++) {
+      if (consumed[i]) continue;
+      const candidate = parsedUsers[i];
+      if (candidate.type !== "user" && candidate.type !== "local_command") continue;
+      if (candidate.correlationId == null || candidate.correlationId !== echo.correlationId) continue;
+      consumed[i] = true;
+      idMatched.add(echo.id);
+      break;
+    }
+  }
+  for (const echo of optimistic) {
+    if (idMatched.has(echo.id)) continue;
     const wanted = normalizeChatText(matchableContent(echo.content)).toLowerCase();
     let hit = -1;
     if (wanted) {
@@ -179,7 +200,7 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
     tokens: consumed[index] ? [] : coverageTokens(message.content),
   }));
   for (const echo of optimistic) {
-    if (exactMatched.has(echo.id)) continue;
+    if (idMatched.has(echo.id) || exactMatched.has(echo.id)) continue;
     const wanted = tokenNeedle(echo.content);
     if (wanted.length === 0) continue;
     for (const candidate of coverage) {
@@ -193,7 +214,7 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
   }
   const fuzzyMatched = new Set<string>();
   for (const echo of optimistic) {
-    if (exactMatched.has(echo.id) || coveredMatched.has(echo.id)) continue;
+    if (idMatched.has(echo.id) || exactMatched.has(echo.id) || coveredMatched.has(echo.id)) continue;
     if (isFileIdentityMarker(echo.content)) continue;
     const echoTokens = meaningfulTokens(echo.content);
     if (echoTokens.length === 0) continue;
@@ -224,7 +245,12 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
   }
   const matchedIds: string[] = [];
   for (const echo of optimistic) {
-    if (exactMatched.has(echo.id) || coveredMatched.has(echo.id) || fuzzyMatched.has(echo.id)) {
+    if (
+      idMatched.has(echo.id)
+      || exactMatched.has(echo.id)
+      || coveredMatched.has(echo.id)
+      || fuzzyMatched.has(echo.id)
+    ) {
       matchedIds.push(echo.id);
     } else {
       pendingIds.push(echo.id);

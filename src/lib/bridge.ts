@@ -28,6 +28,17 @@ import { subscribeRemoteTabEvent } from "./remoteTabEvents";
 export type UnlistenFn = TauriUnlistenFn;
 export { IS_WEB };
 
+export interface ProviderIntegrationHealth {
+  hooks_installed?: boolean;
+  precompact_hook?: boolean;
+  session_start_hook?: boolean;
+  plugin_installed?: boolean;
+  plugin_file_current?: boolean;
+  status?: string;
+  target?: string;
+  [key: string]: unknown;
+}
+
 type Args = Record<string, unknown>;
 type Mapper = (args: Args) => Promise<unknown>;
 const webPtyOffsets = new Map<string, number>();
@@ -139,13 +150,6 @@ const HTTP_MAP: Record<string, Mapper> = {
       level: a.level,
       tab_id: a.tabId,
       workspace_id: a.workspaceId,
-    }),
-  notify_agent_input_request: (a) =>
-    webJson("POST", "/api/notifications/input-request", {
-      tab_id: a.tabId,
-      session_id: a.sessionId,
-      prompt_identity: a.promptIdentity,
-      resolved: a.resolved,
     }),
   mark_notification_read: (a) =>
     webJson("POST", `/api/notifications/${enc(s(a, "id"))}/read`),
@@ -315,6 +319,7 @@ const HTTP_MAP: Record<string, Mapper> = {
   chat_send_text: (a) =>
     webJson("POST", `/api/tabs/${enc(s(a, "tabId"))}/chat-send`, {
       text: a.text,
+      client_token: a.clientToken,
     }),
   chat_send_status: (a) =>
     webJson("GET", `/api/tabs/${enc(s(a, "tabId"))}/chat-send`),
@@ -762,6 +767,25 @@ export async function invoke<T>(cmd: string, args?: Args): Promise<T> {
       }
     }
   }
+}
+
+export function checkProviderIntegration(providerId: string): Promise<ProviderIntegrationHealth> {
+  return invoke<ProviderIntegrationHealth>("check_provider_integration", { providerId });
+}
+
+export function installProviderIntegration(
+  providerId: string,
+  precompactMemoryExport?: boolean,
+): Promise<void> {
+  return invoke<void>("install_provider_integration", {
+    providerId,
+    consent: true,
+    ...(precompactMemoryExport === undefined ? {} : { precompactMemoryExport }),
+  });
+}
+
+export function uninstallProviderIntegration(providerId: string): Promise<void> {
+  return invoke<void>("uninstall_provider_integration", { providerId });
 }
 
 function isCommandNotFoundError(err: unknown): boolean {

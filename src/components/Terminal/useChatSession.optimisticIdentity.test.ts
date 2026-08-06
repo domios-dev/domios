@@ -1,6 +1,7 @@
 // Run: npx tsx src/components/Terminal/useChatSession.optimisticIdentity.test.ts
 // addOptimistic reaches memoized rows: identity survives streaming, ordinal stays live.
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
+import type { ChatSendStatus } from "./chatSendStatus";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
@@ -26,6 +27,7 @@ type Handler = (event: { payload: unknown }) => void;
 interface HookView {
   addOptimistic: (content: string) => string;
   allMessages: NormalizedChatMessage[];
+  observeChatSendStatus: (status: ChatSendStatus) => void;
 }
 
 async function main(): Promise<void> {
@@ -34,6 +36,7 @@ async function main(): Promise<void> {
   const { useChatSession } = await import("./useChatSession");
 
   const listeners = new Map<string, Set<Handler>>();
+  let confirmedStatuses: ChatSendStatus[] = [];
   (bridge as { __setListenForTest: (fn: unknown) => void }).__setListenForTest(
     async (event: string, handler: Handler) => {
       let set = listeners.get(event);
@@ -60,6 +63,7 @@ async function main(): Promise<void> {
           session_binding_nonce: "nonce-1",
         };
       }
+      if (command === "chat_send_status") return confirmedStatuses;
       return {};
     },
   );
@@ -76,7 +80,11 @@ async function main(): Promise<void> {
       sessionBindingNonce: "nonce-1",
       active: true,
     });
-    view = { addOptimistic: session.addOptimistic, allMessages: session.allMessages };
+    view = {
+      addOptimistic: session.addOptimistic,
+      allMessages: session.allMessages,
+      observeChatSendStatus: session.observeChatSendStatus,
+    };
     return null;
   }
   const flush = async (): Promise<void> => {
@@ -96,6 +104,53 @@ async function main(): Promise<void> {
   await flush();
 
   const mountedIdentity = v().addOptimistic;
+  let chipToken = "";
+  await act(async () => {
+    chipToken = v().addOptimistic("see task_x");
+    v().observeChatSendStatus({
+      send_id: "send-chip",
+      tab_id: "tab",
+      state: "accepted",
+      error: null,
+      ledger_id: "ledger",
+      sequence: 1,
+      retained_from: 1,
+      correlationId: chipToken,
+    });
+  });
+  confirmedStatuses = [{
+    send_id: "send-chip",
+    tab_id: "tab",
+    state: "confirmed",
+    error: null,
+    ledger_id: "ledger",
+    sequence: 1,
+    retained_from: 1,
+    correlationId: chipToken,
+  }];
+  await act(async () => {
+    for (const handler of listeners.get("tab-chat-msg-tab") ?? []) {
+      handler({
+        payload: {
+          tab_id: "tab",
+          source_session_id: "sid-1",
+          session_binding_nonce: "nonce-1",
+          messages: [{
+            id: "chip-echo",
+            type: "user",
+            content: "◆ task_x — enriched chip label ◆",
+            timestamp: "1700000000500",
+          }],
+        },
+      });
+    }
+    await Promise.resolve();
+  });
+  await flush();
+  const chipRows = v().allMessages.filter((row) => row.type === "user");
+  assert(chipRows.length === 1, "chip-divergent optimistic and committed turns render one bubble");
+  assert(chipRows[0]?.id === "chip-echo", "the committed chip-bearing row wins by correlation id");
+
   let firstId = "";
   await act(async () => {
     firstId = v().addOptimistic("first");

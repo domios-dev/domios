@@ -99,6 +99,16 @@ pub(crate) fn execute_search(
     Ok(serde_json::json!({ "hits": tagged_hits }))
 }
 
+const PLAN_INDEX_LIMIT_CAP: usize = 50;
+
+// Over-fetch plan-index hits (5x) but cap at PLAN_INDEX_LIMIT_CAP; never invert Ord::clamp bounds.
+fn effective_plan_index_limit(limit: usize) -> usize {
+    limit
+        .saturating_mul(5)
+        .min(PLAN_INDEX_LIMIT_CAP)
+        .max(limit.min(PLAN_INDEX_LIMIT_CAP))
+}
+
 fn append_plan_hits(
     svc: &ServiceState,
     tagged_hits: &mut Vec<serde_json::Value>,
@@ -116,7 +126,7 @@ fn append_plan_hits(
         limit: q.limit,
     };
     if let Some(limit) = q.limit {
-        plan_query.limit = Some((limit * 5).clamp(limit, 50));
+        plan_query.limit = Some(effective_plan_index_limit(limit));
     }
     let plan_hits = svc
         .plan_store
@@ -216,5 +226,47 @@ mod tests {
 
         assert_eq!(mem_hits.len(), 3);
         assert!(mem_hits.iter().any(is_plan_hit));
+    }
+
+    // Pre-fix value for limit<=50: min(limit*5, 50), and always >= limit.
+    fn legacy_small_limit(limit: usize) -> usize {
+        (limit * 5).min(PLAN_INDEX_LIMIT_CAP)
+    }
+
+    #[test]
+    fn large_limit_is_bounded_and_never_panics() {
+        for limit in [51usize, 60, 100] {
+            let eff = effective_plan_index_limit(limit);
+            assert!(eff <= PLAN_INDEX_LIMIT_CAP, "limit={limit} eff={eff} > cap");
+            assert_eq!(eff, PLAN_INDEX_LIMIT_CAP, "limit>50 must saturate to cap");
+        }
+    }
+
+    #[test]
+    fn small_limit_matches_pre_fix_value() {
+        for limit in [1usize, 10, 50] {
+            let eff = effective_plan_index_limit(limit);
+            assert_eq!(
+                eff,
+                legacy_small_limit(limit),
+                "limit={limit} changed behavior"
+            );
+            assert!(
+                eff >= limit,
+                "limit={limit} eff={eff} dropped below user limit"
+            );
+        }
+    }
+
+    #[test]
+    fn effective_limit_invariant_over_range() {
+        for limit in 1..=1000usize {
+            let eff = effective_plan_index_limit(limit);
+            let lower = limit.min(PLAN_INDEX_LIMIT_CAP);
+            assert!(
+                (lower..=PLAN_INDEX_LIMIT_CAP).contains(&eff),
+                "limit={limit} eff={eff} out of [{lower}..={PLAN_INDEX_LIMIT_CAP}]"
+            );
+        }
     }
 }

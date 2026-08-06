@@ -6,7 +6,7 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
-host_triple=$(rustc -vV | awk -F': ' '/^host:/{print $2; exit}')
+host_triple=$(rustc -vV | awk -F': ' '/^host:/{print $2}')
 case "$host_triple" in *-windows-*) embed_ext=.exe ;; *) embed_ext= ;; esac
 
 make_fixture_repo() {
@@ -104,6 +104,48 @@ run_prompt_case() {
 run_prompt_case fast-success 0 true
 run_prompt_case fast-failure 3 bash -c 'exit 3'
 run_prompt_case disk-full-propagates 101 bash -c 'printf "os error 112\\n" >&2; exit 101'
+
+no_timeout_bin="$TMPDIR/no-timeout-bin"
+mkdir -p "$no_timeout_bin"
+printf '%s\n' '#!/usr/bin/env bash' 'printf "default path invoked timeout\\n" >&2' 'exit 99' \
+    >"$no_timeout_bin/timeout"
+chmod +x "$no_timeout_bin/timeout"
+
+run_uncapped_case() {
+    local name=$1
+    local expected_exit=$2
+    local command=$3
+    shift 3
+    local actual_exit=0
+    local output="$TMPDIR/$name.out"
+
+    if env -u TEST_CAP_SECS PATH="$no_timeout_bin:$PATH" CARGO_TEST_CMD="$command" \
+        "$WRAPPER" "$@" >"$output" 2>&1; then
+        actual_exit=0
+    else
+        actual_exit=$?
+    fi
+
+    [ "$actual_exit" -eq "$expected_exit" ] || {
+        printf '%s: expected exit %s, got %s\n' "$name" "$expected_exit" "$actual_exit" >&2
+        return 1
+    }
+    ! grep -q 'default path invoked timeout' "$output" || {
+        printf '%s: uncapped default invoked the timeout runner\n' "$name" >&2
+        return 1
+    }
+    ! grep -q 'DEADLOCK / HANG' "$output" || {
+        printf '%s: uncapped child exit was misreported as a timeout\n' "$name" >&2
+        return 1
+    }
+}
+
+run_uncapped_case uncapped-success 0 true
+run_uncapped_case uncapped-exit-124 124 bash -c 'exit 124'
+
+windows_sidecar="$base_repo/src-tauri/bundled-embed/codeterm-embed-x86_64-pc-windows-msvc.exe"
+mkdir -p "$(dirname "$windows_sidecar")"
+printf 'real-sidecar' >"$windows_sidecar"
 
 windows_target_output="$TMPDIR/windows-target.out"
 CODETERM_TEST_HOST_TRIPLE=x86_64-pc-windows-msvc CODETERM_TEST_DEV_HEALTH=healthy \

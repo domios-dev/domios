@@ -74,6 +74,16 @@ pub(crate) fn dispatch(cli: Cli) -> Option<Cli> {
     }
 }
 
+/// Build the base-relative `/api/config` GET path. With a key it scopes the
+/// query (`?key=<k>`); without one it omits the param so the backend returns
+/// the full redacted config dump.
+pub(crate) fn config_get_path(key: Option<&str>) -> String {
+    match key {
+        Some(k) => format!("/api/config?key={}", k),
+        None => "/api/config".to_string(),
+    }
+}
+
 fn handle_config(json_output: bool, action: &ConfigAction) {
     let (base_url, _) = read_api_config();
     let http = match build_local_api() {
@@ -85,14 +95,14 @@ fn handle_config(json_output: bool, action: &ConfigAction) {
     };
     let result = match action {
         ConfigAction::Get { key } => {
-            let url = format!("{}/api/config?key={}", base_url, key);
+            let url = format!("{}{}", base_url, config_get_path(key.as_deref()));
             match http.get(&url).send() {
                 Ok(resp) if resp.status().is_success() => resp.json().map_err(|e| e.to_string()),
                 Ok(resp) => {
                     let status = resp.status();
                     let body = resp.text().unwrap_or_default();
                     if status.as_u16() == 404 {
-                        Err(format!("Key not found: {}", key))
+                        Err(format!("Key not found: {}", key.as_deref().unwrap_or("")))
                     } else {
                         Err(format!("API error ({}): {}", status, body))
                     }
@@ -155,5 +165,23 @@ fn handle_config(json_output: bool, action: &ConfigAction) {
             eprintln!("Error: {}", e);
             std::process::exit(1);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::config_get_path;
+
+    #[test]
+    fn config_get_path_omits_key_param_when_absent() {
+        assert_eq!(config_get_path(None), "/api/config");
+    }
+
+    #[test]
+    fn config_get_path_scopes_query_when_key_present() {
+        assert_eq!(
+            config_get_path(Some("api.port")),
+            "/api/config?key=api.port"
+        );
     }
 }

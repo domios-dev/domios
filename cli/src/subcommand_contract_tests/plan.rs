@@ -230,6 +230,24 @@ fn plan_task_update_parses_sections() {
 }
 
 #[test]
+fn plan_task_close_help_describes_the_orchestrator_override() {
+    let command = PlanOnly::command();
+    let close = command
+        .find_subcommand("task")
+        .and_then(|task| task.find_subcommand("close"))
+        .expect("plan task close must exist");
+    let about = close
+        .get_about()
+        .expect("plan task close must explain its authority");
+    let about = about.to_string();
+
+    assert!(about.contains("any lifecycle state"), "{about}");
+    assert!(about.contains("Plan Orchestrator"), "{about}");
+    assert!(about.contains("owner-epoch"), "{about}");
+    assert!(about.contains("open subtasks"), "{about}");
+}
+
+#[test]
 fn plan_task_update_parses_quality_fields() {
     let parsed = parse_plan_cli_result([
         "codeterm",
@@ -464,6 +482,32 @@ fn plan_in_progress_parses_plan_all_and_json() {
 
     let err = parse_plan_cli_result(["codeterm", "plan", "in-progress", "pl_1", "--all"]);
     assert!(err.is_err(), "plan id and --all are mutually exclusive");
+}
+
+#[test]
+fn plan_task_show_parses_plan_and_task_positionals() {
+    let parsed = parse_plan_cli_result(["codeterm", "plan", "task", "show", "pl_1", "task_1"])
+        .expect("plan task show parses");
+    match parsed.command {
+        Commands::Plan {
+            action:
+                PlanAction::Task {
+                    action:
+                        crate::args::plan::PlanTaskAction::Show {
+                            plan_id,
+                            task_id,
+                            siblings,
+                            all,
+                        },
+                },
+        } => {
+            assert_eq!(plan_id, "pl_1");
+            assert_eq!(task_id, "task_1");
+            assert!(!siblings);
+            assert!(!all);
+        }
+        _ => panic!("expected plan task show"),
+    }
 }
 
 #[test]

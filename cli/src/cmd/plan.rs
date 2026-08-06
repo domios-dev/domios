@@ -519,13 +519,16 @@ fn run_plan(
             }
             PlanGoalAction::Set {
                 plan_id,
+                goal_text,
                 vector,
                 vision,
                 vision_file,
                 constraint,
                 postulate,
             } => {
-                let vision = resolve_text(vision, vision_file)?.unwrap_or_default();
+                let vision = resolve_text(vision, vision_file)?
+                    .or(goal_text)
+                    .unwrap_or_default();
                 let mut params = json!({
                     "plan_id": plan_id,
                     "vector": vector,
@@ -662,6 +665,15 @@ fn run_plan(
             call(client, "plan.mode.set", params)
         }
 
+        PlanAction::Rebind { plan_id } => {
+            let mut params = json!({});
+            if let Some(plan_id) = plan_id {
+                params["plan_id"] = json!(plan_id);
+            }
+            inject_trusted_session(&mut params);
+            call(client, "plan.session.rebind", params)
+        }
+
         PlanAction::PlanningState {
             plan_id,
             set,
@@ -679,8 +691,11 @@ fn run_plan(
             call(client, "plan.planning.set", params)
         }
 
-        PlanAction::Mode { plan_id, set } => {
-            let mut params = json!({ "plan_id": plan_id, "mode": set });
+        PlanAction::Mode { plan_id, mode, set } => {
+            let mode = set.or(mode).ok_or_else(|| {
+                "plan mode requires a mode: pass it as a positional or with --set (planning | approved | execution | complete)".to_string()
+            })?;
+            let mut params = json!({ "plan_id": plan_id, "mode": mode });
             inject_trusted_session(&mut params);
             call(client, "plan.mode.set", params)
         }

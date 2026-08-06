@@ -317,6 +317,54 @@ const T0 = 1_700_000_000_000;
   void matchedIds; // suppress unused warning
 }
 
+// Stable correlation id reconciles an optimistic bubble with its server echo by
+// identity, even when the echo's content is enriched with chips and diverges
+// from the raw typed text — content heuristics cannot bridge that gap.
+{
+  const userTok = (id: string, content: string, tsMs: number, token: string): NormalizedChatMessage => ({
+    id, type: "user", content, timestamp: new Date(tsMs).toISOString(), correlationId: token,
+  });
+  const echoTok = (id: string, content: string, sentAtMs: number, token: string): OptimisticEcho => ({
+    id, content, sentAtMs, correlationId: token,
+  });
+  const token = "opt-1700000000000-42";
+  // Raw typed vs chip-enriched echo share no meaningful tokens, so a match here
+  // can only come from the correlation id, not exact/coverage/fuzzy content.
+  const enrichedEcho = userTok("srv-9", "◆ Plan: quarterly roadmap #plan_abc ◆", T0 + 300, token);
+  const { matchedIds, pendingIds } = matchedOptimisticEchoes(
+    [echoTok("opt-1700000000000-42", "look at the roadmap", T0, token)],
+    [enrichedEcho],
+  );
+  eq(matchedIds, ["opt-1700000000000-42"], "correlation id reconciles chip-enriched echo despite content divergence");
+  eq(pendingIds, [], "correlation-id match leaves no duplicate optimistic bubble");
+
+  // Control: same divergent content WITHOUT a shared token must not match, proving
+  // the reconciliation above is the token's doing, not a content heuristic.
+  const untokened = matchedOptimisticEchoes(
+    [echo("opt-x", "look at the roadmap", T0)],
+    [user("srv-10", "◆ Plan: quarterly roadmap #plan_abc ◆", T0 + 300)],
+  );
+  eq(untokened.matchedIds, [], "without a shared token, chip-enriched content stays unmatched");
+  eq(untokened.pendingIds, ["opt-x"], "content divergence alone keeps the bubble pending");
+}
+
+// Distinct sends carry distinct tokens: identical text with different correlation
+// ids each reconcile to their OWN echo — consume-once, never collapsed into one.
+{
+  const userTok = (id: string, content: string, tsMs: number, token: string): NormalizedChatMessage => ({
+    id, type: "user", content, timestamp: new Date(tsMs).toISOString(), correlationId: token,
+  });
+  const echoTok = (id: string, content: string, sentAtMs: number, token: string): OptimisticEcho => ({
+    id, content, sentAtMs, correlationId: token,
+  });
+  const { matchedIds, pendingIds } = matchedOptimisticEchoes(
+    [echoTok("opt-a", "yes", T0, "tok-a"), echoTok("opt-b", "yes", T0 + 100, "tok-b")],
+    [userTok("srv-a", "yes", T0 + 200, "tok-a"), userTok("srv-b", "yes", T0 + 300, "tok-b")],
+  );
+  eq(matchedIds, ["opt-a", "opt-b"], "each distinct-token repeat matches only its own echo");
+  eq(pendingIds, [], "distinct-token repeats leave no bubble pending");
+}
+
 // collapseDuplicateUserMessages: a re-recorded send never paints twice, but
 // genuine repeats (around a reply, or minutes apart) survive.
 {

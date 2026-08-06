@@ -149,7 +149,7 @@ If a focused test fails while `link.exe` or `mt.exe` reads
 CodeTerm's private local-install `CARGO_TARGET_DIR`. Run the test through
 `scripts/test-capped.sh`; it removes that private override and uses this
 checkout's warm manifest target, or isolated `target-check` while dev is
-running. Do not delete the shared build cache or raise the timeout.
+running. Do not delete the shared build cache.
 
 If a focused Rust test fails with `PermissionDenied (os error 5)` while replacing
 a Tauri build artifact, another dev/build owner still holds the canonical target.
@@ -216,4 +216,4 @@ If `build.ps1 check` reports E0603 for a helper under `commands::<module>`,
 call its `commands` facade re-export instead of making the implementation module
 public. The command modules are intentionally private ownership boundaries.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

@@ -44,6 +44,18 @@
         "Makes the related edits as one coherent batch before testing",
         "Does NOT run a gate after every individual handler"
       ]
+    },
+    {
+      "id": 5,
+      "name": "notify-escalation-role-and-trigger",
+      "prompt": "Without running commands, answer three independent scenarios and name exact commands where relevant. (a) You are a Worker tab and you just finished your assigned task normally — do you send the user a notification, and what do you do instead if not? (b) You are an Orchestrator blocked because only the user can make a required decision and no autonomous path remains — how do you reach the user? (c) You are a solo agent, the user earlier said 'notify me when the build finishes', and the build just finished — what do you do?",
+      "expected_output": "Role-scoped rare-escalation policy: Workers never notify the user directly; solo agents and Orchestrators use codeterm notify send only for genuine user-attention need or an explicit user request.",
+      "expectations": [
+        "In scenario (a) does NOT send the user a notification for routine Worker completion and instead reports through its reporting channel",
+        "In scenario (b) uses codeterm notify send to escalate the genuinely blocked decision to the user",
+        "In scenario (c) uses codeterm notify send because the user explicitly asked to be notified",
+        "Does NOT propose provider-native or OS-level notification mechanisms in place of codeterm notify send"
+      ]
     }
   ]
 }

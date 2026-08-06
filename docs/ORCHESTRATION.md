@@ -13,12 +13,9 @@ codeterm plan reconcile <plan>
 codeterm task show <task>
 ```
 
-Use `codeterm orchestrator inspect --plan <plan> --json` only to investigate a
-specific discrepancy that compact status cannot explain.
+Use `codeterm orchestrator inspect --plan <plan> --json` only to investigate a specific discrepancy that compact status cannot explain.
 
-Use `codeterm docs <NAME>`; it returns the complete document. Use `codeterm docs`
-or `codeterm docs --help` to discover available names. Read a related playbook
-when its responsibility becomes active:
+Use `codeterm docs <NAME>`; it returns the complete document. Use `codeterm docs` or `codeterm docs --help` to discover available names. Read a related playbook when its responsibility becomes active:
 
 | Need | Read |
 |---|---|
@@ -199,6 +196,13 @@ Every Worker must be visible under the Orchestrator and carry:
 - `codeterm agent ack` as its first task action;
 - instructions to report by running `codeterm agent report`.
 
+`plan task dispatch` is local-only. A Worker spawned on a mesh peer with
+`agent spawn --mesh PEER` has no attempt on the origin plan store and no plan/task
+env, so it must report with explicit `--plan <origin-plan> --task <task>` to home
+the report back to the owning machine, or the Orchestrator attaches the arriving
+tab message by hand. Full cross-mesh dispatch is out of scope; see the spawn-then-bind
+pattern in `codeterm docs MESH`.
+
 ## Review capacity
 
 Choose review granularity from backlog and diff size. A few large changes merit
@@ -218,8 +222,10 @@ codeterm plan review authorize-capacity <plan> <task> --class canonical_gate
 ```
 
 Generic task updates, pauses, decision gates, and removals cannot move a task
-out of `in_review`; use `plan review accept` or `plan review bounce`. Historical
-credit leaked by older builds is repaired explicitly and auditably with:
+out of `in_review`; use `codeterm plan review accept <plan> <task> --note "…"`
+or `codeterm plan review bounce <plan> <task> --note "…"` (the verdict flag is
+`--note` and is required — not `--reason`). Historical credit leaked by older
+builds is repaired explicitly and auditably with:
 
 ```bash
 codeterm plan review reconcile-credit <plan> --reason "<incident evidence>"
@@ -231,5 +237,4 @@ immutable plan stride.
 ## Related documents
 
 Verification, integration, heartbeat, and closeout: `codeterm docs ORCHESTRATION-OPERATIONS`.
-
-<!-- revision: 57 -->
+<!-- revision: 60 -->

@@ -609,6 +609,105 @@ mod tests {
         );
     }
 
+    // Contract for the flags the CLI-guidance prompt documents: introspect the
+    // live clap tree so a renamed/removed flag fails here, not in an agent's hands.
+    fn subcommand<'a>(root: &'a Command, path: &[&str]) -> Option<&'a Command> {
+        let mut cur = root;
+        for seg in path {
+            cur = find_sub(cur, seg)?;
+        }
+        Some(cur)
+    }
+
+    fn has_long(cmd: &Command, long: &str) -> bool {
+        cmd.get_arguments().any(|a| {
+            a.get_long() == Some(long) || a.get_all_aliases().unwrap_or_default().contains(&long)
+        })
+    }
+
+    #[test]
+    fn documented_plan_task_flags_exist_on_their_subcommands() {
+        let root = Cli::command();
+
+        let add = subcommand(&root, &["plan", "task", "add"]).expect("plan task add exists");
+        for flag in [
+            "name",
+            "sections",
+            "criterion",
+            "body",
+            "body-file",
+            "test-plan",
+            "test-plan-file",
+            "correctness",
+            "correctness-file",
+            "executor-role",
+            "personality",
+            "role-guidance",
+            "execution-intent",
+        ] {
+            assert!(has_long(add, flag), "plan task add lost --{flag}");
+        }
+        assert!(
+            !has_long(add, "acceptance"),
+            "plan task add must not grow --acceptance"
+        );
+        assert!(
+            !has_long(add, "title"),
+            "plan task add uses --name, not --title"
+        );
+
+        let dispatch =
+            subcommand(&root, &["plan", "task", "dispatch"]).expect("plan task dispatch exists");
+        assert!(has_long(dispatch, "execution-intent"));
+        assert!(
+            !has_long(dispatch, "brief"),
+            "dispatch has no --brief; the brief is the task body"
+        );
+
+        let update =
+            subcommand(&root, &["plan", "task", "update"]).expect("plan task update exists");
+        assert!(has_long(update, "model"));
+
+        assert!(subcommand(&root, &["plan", "task", "show"]).is_some());
+    }
+
+    #[test]
+    fn documented_plan_flags_exist_on_their_subcommands() {
+        let root = Cli::command();
+
+        let create = subcommand(&root, &["plan", "create"]).expect("plan create exists");
+        assert!(has_long(create, "title"));
+        assert!(has_long(create, "from-spec"));
+        assert!(
+            !has_long(create, "goal"),
+            "plan create has no --goal; goal lives in `plan goal set`"
+        );
+
+        let goal_set = subcommand(&root, &["plan", "goal", "set"]).expect("plan goal set exists");
+        assert!(
+            has_long(goal_set, "vector"),
+            "plan goal set requires --vector"
+        );
+
+        let accept =
+            subcommand(&root, &["plan", "review", "accept"]).expect("plan review accept exists");
+        assert!(has_long(accept, "note"), "review accept uses --note");
+        assert!(
+            !has_long(accept, "reason"),
+            "review accept uses --note, not --reason"
+        );
+
+        let mode = subcommand(&root, &["plan", "mode"]).expect("plan mode exists");
+        assert!(
+            has_long(mode, "set"),
+            "plan mode keeps --set alongside the positional"
+        );
+
+        // Teams are minted with the plan or via `team pair`; there is no `team create`.
+        assert!(subcommand(&root, &["team", "pair"]).is_some());
+        assert!(subcommand(&root, &["team", "create"]).is_none());
+    }
+
     #[test]
     fn manifest_has_core_commands() {
         let m = build();

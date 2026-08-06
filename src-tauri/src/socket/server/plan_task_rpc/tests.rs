@@ -1,10 +1,11 @@
+use super::super::plan_task_authority::plan_owner_may_recover;
 use super::{
     dependency_vec_field, dispatch, external_ref_values, validate_model_field,
     verify_owner_epoch_for_task_mutation,
 };
 use crate::multiplexer::state::MultiplexerState;
 use crate::plan::task_update_fields::{valid_task_update_payloads, TASK_UPDATE_KEYS};
-use crate::plan::{OrchestratorRef, Plan};
+use crate::plan::{OrchestratorRef, Plan, TaskStatus};
 use crate::service::plan::NewTask;
 use crate::service::test_fixture::ServiceFixture;
 use serde_json::json;
@@ -309,6 +310,265 @@ fn adopted_task_mutation_rejects_missing_stale_and_rebound_authority() {
         "owner_epoch": 2
     }));
     assert!(verify_owner_epoch_for_task_mutation("plan.task.update", &rebound, &service).is_err());
+}
+
+/// Bind an in_progress task to a worker owner (tab + session + non-zero epoch),
+/// the exact shape reconcile flags `in_progress_tab_gone / needs-reassign`.
+fn bind_worker_owner(
+    fixture: &ServiceFixture,
+    plan_id: &str,
+    task_id: &str,
+    owner_tab_id: &str,
+    owner_session_id: &str,
+    owner_epoch: u64,
+) {
+    let mut plan = fixture.service.plan_store.get(plan_id).unwrap();
+    let task = plan
+        .tasks
+        .iter_mut()
+        .find(|task| task.id == task_id)
+        .unwrap();
+    task.status = TaskStatus::InProgress;
+    task.assigned_tab_id = Some(owner_tab_id.to_string());
+    task.interruption.owner_epoch = owner_epoch;
+    task.interruption.owner_tab_id = Some(owner_tab_id.to_string());
+    task.interruption.owner_session_id = Some(owner_session_id.to_string());
+    fixture.service.plan_store.save(&mut plan, 5).unwrap();
+}
+
+fn recovered_task(fixture: &ServiceFixture, plan_id: &str, task_id: &str) -> crate::plan::Task {
+    let plan = fixture.service.plan_store.get(plan_id).unwrap();
+    plan.tasks
+        .into_iter()
+        .find(|task| task.id == task_id)
+        .unwrap()
+}
+
+fn spawn_rebound_tab(fixture: &ServiceFixture, live_session_id: &str) -> String {
+    let workspace = fixture
+        .service
+        .mux
+        .write()
+        .create_workspace("rebound".into(), None)
+        .id;
+    let tab_id = fixture.service.mux.write().create_tab(&workspace).unwrap();
+    let mut mux = fixture.service.mux.write();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.agent_session_id = Some(live_session_id.into());
+    tab.session_binding_nonce = Some("rebound-nonce".into());
+    tab.reported_session_binding_nonce = Some("rebound-nonce".into());
+    tab_id
+}
+
+/// Owner SESSION dead, tab object absent from the mux: the bound Orchestrator
+/// retires the stale owner while applying the reconcile-blessed status update.
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+#[test]
+fn dead_owner_session_absent_tab_lets_bound_orchestrator_recover_update() {
+    let (fixture, plan_id, task_id, _, _, owner) = update_fixture();
+    bind_worker_owner(
+        &fixture,
+        &plan_id,
+        &task_id,
+        "dead-worker-tab",
+        "worker-session",
+        5,
+    );
+    let service = Arc::new(fixture.service.clone());
+
+    let orch_caller = Some(serde_json::Value::Object(owner_params(&owner)));
+    assert!(plan_owner_may_recover(
+        "plan.task.update",
+        &orch_caller,
+        &service,
+        &plan_id,
+        Some("dead-worker-tab"),
+        Some("worker-session"),
+    ));
+
+    let mut params = owner_params(&owner);
+    params.insert("plan_id".into(), json!(plan_id.clone()));
+    params.insert("task_id".into(), json!(task_id.clone()));
+    params.insert("status".into(), json!("blocked"));
+    params.insert("status_label".into(), json!("needs-reassign"));
+    let params = Some(serde_json::Value::Object(params));
+    verify_owner_epoch_for_task_mutation("plan.task.update", &params, &service).unwrap();
+
+    let after = recovered_task(&fixture, &plan_id, &task_id);
+    assert!(after.interruption.owner_tab_id.is_none());
+    assert!(after.interruption.owner_session_id.is_none());
+    assert!(after.interruption.owner_epoch > 5);
+    assert!(after.assigned_tab_id.is_none());
+}
+
+/// Tab lingers in the mux but rebound to a NEW session: still a gone owner, so
+/// the bound Orchestrator recovers exactly as with an absent tab.
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+#[test]
+fn lingering_tab_with_rebound_session_is_a_gone_owner() {
+    let (fixture, plan_id, task_id, _, _, owner) = update_fixture();
+    let rebound_tab = spawn_rebound_tab(&fixture, "new-rebound-session");
+    bind_worker_owner(
+        &fixture,
+        &plan_id,
+        &task_id,
+        &rebound_tab,
+        "worker-session",
+        7,
+    );
+    let service = Arc::new(fixture.service.clone());
+
+    let orch_caller = Some(serde_json::Value::Object(owner_params(&owner)));
+    assert!(
+        plan_owner_may_recover(
+            "plan.task.update",
+            &orch_caller,
+            &service,
+            &plan_id,
+            Some(&rebound_tab),
+            Some("worker-session"),
+        ),
+        "a tab rebound to a new session is not the live owner"
+    );
+
+    let mut params = owner_params(&owner);
+    params.insert("plan_id".into(), json!(plan_id.clone()));
+    params.insert("task_id".into(), json!(task_id.clone()));
+    params.insert("status".into(), json!("blocked"));
+    params.insert("status_label".into(), json!("needs-reassign"));
+    let params = Some(serde_json::Value::Object(params));
+    verify_owner_epoch_for_task_mutation("plan.task.update", &params, &service).unwrap();
+
+    let after = recovered_task(&fixture, &plan_id, &task_id);
+    assert!(after.interruption.owner_tab_id.is_none());
+    assert!(after.interruption.owner_epoch > 7);
+}
+
+/// The guard stays intact for a genuinely LIVE owner: the recovery gate refuses,
+/// and the epoch guard still rejects a foreign caller — no clobber of a live one.
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+#[test]
+fn live_owner_session_refuses_recovery_and_keeps_the_epoch_guard() {
+    let (fixture, plan_id, task_id, _, _, owner) = update_fixture();
+    let live_worker = spawn_rebound_tab(&fixture, "worker-session");
+    bind_worker_owner(
+        &fixture,
+        &plan_id,
+        &task_id,
+        &live_worker,
+        "worker-session",
+        4,
+    );
+    let service = Arc::new(fixture.service.clone());
+
+    let orch_caller = Some(serde_json::Value::Object(owner_params(&owner)));
+    assert!(
+        !plan_owner_may_recover(
+            "plan.task.close",
+            &orch_caller,
+            &service,
+            &plan_id,
+            Some(&live_worker),
+            Some("worker-session"),
+        ),
+        "a live owner session must never be recoverable by a foreign caller"
+    );
+
+    let foreign_tab = spawn_rebound_tab(&fixture, "foreign-session");
+    let foreign = Some(json!({
+        "plan_id": plan_id,
+        "task_id": task_id,
+        "caller_tab_id": foreign_tab,
+        "session_id": "foreign-session",
+        "session_binding_nonce": "rebound-nonce",
+        "owner_epoch": 4
+    }));
+    assert!(
+        verify_owner_epoch_for_task_mutation("plan.task.update", &foreign, &service).is_err(),
+        "the epoch guard must still fence a foreign caller off a live owner"
+    );
+
+    let after = recovered_task(&fixture, &plan_id, &task_id);
+    assert_eq!(
+        after.interruption.owner_epoch, 4,
+        "the live owner's epoch is untouched"
+    );
+    assert_eq!(
+        after.interruption.owner_tab_id.as_deref(),
+        Some(live_worker.as_str())
+    );
+}
+
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+#[test]
+fn bound_orchestrator_closes_a_live_worker_task_without_matching_its_epoch() {
+    let (fixture, plan_id, task_id, _, _, owner) = update_fixture();
+    let live_worker = spawn_rebound_tab(&fixture, "worker-session");
+    fixture
+        .service
+        .plan_store
+        .assign_task(&plan_id, &task_id, &live_worker, None, 5)
+        .unwrap();
+    bind_worker_owner(
+        &fixture,
+        &plan_id,
+        &task_id,
+        &live_worker,
+        "worker-session",
+        9,
+    );
+    let service = Arc::new(fixture.service.clone());
+
+    let mut params = owner_params(&owner);
+    params.insert("plan_id".into(), json!(plan_id.clone()));
+    params.insert("task_id".into(), json!(task_id.clone()));
+    params.insert("owner_epoch".into(), json!(1));
+    params.insert("result".into(), json!("accepted by orchestrator"));
+    let params = Some(serde_json::Value::Object(params));
+
+    verify_owner_epoch_for_task_mutation("plan.task.close", &params, &service).unwrap();
+    super::super::plan_lifecycle::dispatch(
+        "plan.task.close",
+        &params,
+        &fixture.service.app_handle,
+        &service,
+    )
+    .unwrap();
+
+    let task = recovered_task(&fixture, &plan_id, &task_id);
+    assert_eq!(task.status, TaskStatus::Done);
+    assert!(task.assigned_tab_id.is_none());
+    assert!(task
+        .execution_attempts
+        .iter()
+        .all(|attempt| attempt.closed_at.is_some()));
+}
+
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+#[test]
+fn non_orchestrator_cannot_use_the_close_override() {
+    let (fixture, plan_id, task_id, _, _, _) = update_fixture();
+    let live_worker = spawn_rebound_tab(&fixture, "worker-session");
+    bind_worker_owner(
+        &fixture,
+        &plan_id,
+        &task_id,
+        &live_worker,
+        "worker-session",
+        9,
+    );
+    let foreign_tab = spawn_rebound_tab(&fixture, "foreign-session");
+    let service = Arc::new(fixture.service.clone());
+    let params = Some(json!({
+        "plan_id": plan_id,
+        "task_id": task_id,
+        "caller_tab_id": foreign_tab,
+        "session_id": "foreign-session",
+        "session_binding_nonce": "rebound-nonce",
+        "owner_epoch": 1
+    }));
+
+    assert!(verify_owner_epoch_for_task_mutation("plan.task.close", &params, &service).is_err());
 }
 
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]

@@ -7,8 +7,11 @@ from pathlib import Path
 
 
 PUBLIC_REPOSITORY = "rollacode/codeterm-releases"
-REFERENCE = re.compile(r"^Public-Issue: rollacode/codeterm-releases#([1-9][0-9]*)$")
-REFERENCE_MARKER = re.compile(r"Public-Issue:", re.IGNORECASE)
+SOURCE_REPOSITORY = "rollacode/codeterm"
+PUBLIC_REFERENCE = re.compile(r"^Public-Issue: rollacode/codeterm-releases#([1-9][0-9]*)$")
+REPOSITORY_REFERENCE = re.compile(r"^Repository-Issue: rollacode/codeterm#([1-9][0-9]*)$")
+PUBLIC_REFERENCE_MARKER = re.compile(r"Public-Issue:", re.IGNORECASE)
+REPOSITORY_REFERENCE_MARKER = re.compile(r"Repository-Issue:", re.IGNORECASE)
 CLOSING_KEYWORD = re.compile(
     r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+"
     r"(?:(?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#[0-9]+|"
@@ -26,33 +29,65 @@ class ContractError(ValueError):
     pass
 
 
-def parse_body(body: str, *, reject_incidental_references: bool = True) -> list[str]:
-    references: list[str] = []
+def parse_metadata(
+    body: str, *, reject_incidental_references: bool = True
+) -> tuple[list[str], list[str]]:
+    public_references: list[str] = []
+    repository_references: list[str] = []
     seen: set[str] = set()
     errors: list[str] = []
     for line_number, line in enumerate(body.splitlines(), 1):
-        match = REFERENCE.fullmatch(line)
-        if match:
-            reference = f"{PUBLIC_REPOSITORY}#{match.group(1)}"
+        public_match = PUBLIC_REFERENCE.fullmatch(line)
+        repository_match = REPOSITORY_REFERENCE.fullmatch(line)
+        if public_match or repository_match:
+            repository = PUBLIC_REPOSITORY if public_match else SOURCE_REPOSITORY
+            number = (public_match or repository_match).group(1)
+            reference = f"{repository}#{number}"
             if reference in seen:
                 errors.append(f"line {line_number}: duplicate {reference}")
             else:
                 seen.add(reference)
-                references.append(reference)
+                target = public_references if public_match else repository_references
+                target.append(reference)
             continue
-        if REFERENCE_MARKER.search(line):
+        if PUBLIC_REFERENCE_MARKER.search(line):
             errors.append(f"line {line_number}: malformed Public-Issue metadata")
+        elif REPOSITORY_REFERENCE_MARKER.search(line):
+            errors.append(f"line {line_number}: malformed Repository-Issue metadata")
         elif reject_incidental_references and CLOSING_KEYWORD.search(line):
             errors.append(f"line {line_number}: GitHub closing keywords are forbidden")
         elif reject_incidental_references and (ISSUE_LIKE.search(line) or PUBLIC_ISSUE_URL.search(line)):
-            errors.append(f"line {line_number}: issue references must use Public-Issue metadata")
+            errors.append(f"line {line_number}: issue references must use issue metadata")
     if errors:
         raise ContractError("\n".join(errors))
-    return sorted(references, key=lambda value: int(value.rsplit("#", 1)[1]))
+    def reference_number(value: str) -> int:
+        return int(value.rsplit("#", 1)[1])
+
+    return (
+        sorted(public_references, key=reference_number),
+        sorted(repository_references, key=reference_number),
+    )
+
+
+def parse_body(body: str, *, reject_incidental_references: bool = True) -> list[str]:
+    return parse_metadata(body, reject_incidental_references=reject_incidental_references)[0]
+
+
+def repository_closes(body: str) -> list[str]:
+    return [
+        f"Closes #{reference.rsplit('#', 1)[1]}"
+        for reference in parse_metadata(body)[1]
+    ]
 
 
 def resolve_sources(commits: list[dict], prs: list[dict]) -> dict:
-    issues: dict[str, list[dict]] = {}
+    public_issues: dict[str, list[dict]] = {}
+    repository_issues: dict[str, list[dict]] = {}
+
+    def add_sources(target: dict[str, list[dict]], references: list[str], source: dict) -> None:
+        for reference in references:
+            target.setdefault(reference, []).append(source)
+
     for pr in prs:
         number = pr.get("number")
         url = pr.get("url")
@@ -60,13 +95,12 @@ def resolve_sources(commits: list[dict], prs: list[dict]) -> dict:
         if not isinstance(number, int) or not isinstance(url, str):
             raise ContractError("each PR requires integer number and string url")
         try:
-            references = parse_body(body)
+            public_references, repository_references = parse_metadata(body)
         except ContractError as error:
             raise ContractError(f"PR #{number}: {error}") from error
-        for reference in references:
-            issues.setdefault(reference, []).append(
-                {"kind": "pull_request", "number": number, "url": url}
-            )
+        source = {"kind": "pull_request", "number": number, "url": url}
+        add_sources(public_issues, public_references, source)
+        add_sources(repository_issues, repository_references, source)
     for commit in commits:
         sha = commit.get("sha")
         url = commit.get("url")
@@ -76,26 +110,32 @@ def resolve_sources(commits: list[dict], prs: list[dict]) -> dict:
         if not isinstance(url, str):
             raise ContractError("each commit requires a string url")
         try:
-            references = parse_body(body, reject_incidental_references=False)
+            public_references, repository_references = parse_metadata(
+                body, reject_incidental_references=False
+            )
         except ContractError as error:
             raise ContractError(f"commit {sha}: {error}") from error
-        for reference in references:
-            issues.setdefault(reference, []).append(
-                {"kind": "commit", "sha": sha, "url": url}
-            )
+        source = {"kind": "commit", "sha": sha, "url": url}
+        add_sources(public_issues, public_references, source)
+        add_sources(repository_issues, repository_references, source)
 
-    for sources in issues.values():
-        unique = {source["url"]: source for source in sources}
-        sources[:] = sorted(
-            unique.values(),
-            key=lambda source: (source["kind"] != "pull_request", source["url"]),
-        )
-    return {
-        "repository": PUBLIC_REPOSITORY,
-        "issues": [
+    def resolved_issues(issues: dict[str, list[dict]]) -> list[dict]:
+        for sources in issues.values():
+            unique = {source["url"]: source for source in sources}
+            sources[:] = sorted(
+                unique.values(),
+                key=lambda source: (source["kind"] != "pull_request", source["url"]),
+            )
+        return [
             {"reference": reference, "sources": issues[reference]}
             for reference in sorted(issues, key=lambda value: int(value.rsplit("#", 1)[1]))
-        ],
+        ]
+
+    return {
+        "repository": PUBLIC_REPOSITORY,
+        "issues": resolved_issues(public_issues),
+        "source_repository": SOURCE_REPOSITORY,
+        "repository_issues": resolved_issues(repository_issues),
     }
 
 
@@ -150,6 +190,8 @@ def main() -> int:
     subparsers = parser.add_subparsers(dest="command", required=True)
     parse_parser = subparsers.add_parser("parse")
     parse_parser.add_argument("--body-file", required=True)
+    closes_parser = subparsers.add_parser("repository-closes")
+    closes_parser.add_argument("--body-file", required=True)
     resolve_parser = subparsers.add_parser("resolve")
     resolve_parser.add_argument("--commits-file", required=True)
     resolve_parser.add_argument("--prs-file", required=True)
@@ -164,6 +206,9 @@ def main() -> int:
         if args.command == "parse":
             for reference in parse_body(Path(args.body_file).read_text(encoding="utf-8")):
                 print(reference)
+        elif args.command == "repository-closes":
+            for line in repository_closes(Path(args.body_file).read_text(encoding="utf-8")):
+                print(line)
         elif args.command == "resolve":
             print(json.dumps(resolve_sources(read_json(args.commits_file), read_json(args.prs_file)), indent=2))
         elif args.command == "plan-close":
