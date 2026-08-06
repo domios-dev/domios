@@ -489,10 +489,6 @@ impl ServiceContext {
                 t.clone()
             }
         });
-        let task_selection = crate::service::launch_delivery::select_visible_spawn_task(
-            agent.role.as_deref(),
-            preamble_wrapped_task.as_deref(),
-        );
         let system_prompt_capable = self
             .agent_registry
             .with_provider(&agent_cmd, |provider| {
@@ -504,6 +500,11 @@ impl ServiceContext {
                 )
             })
             .unwrap_or(false);
+        let task_selection = crate::service::launch_delivery::select_visible_spawn_task(
+            agent.role.as_deref(),
+            preamble_wrapped_task.as_deref(),
+            system_prompt_capable,
+        );
         let role_suffixed_task = super::orchestrator::role_launch_task(
             task_selection.provider_launch,
             agent.role.as_deref(),
@@ -515,11 +516,25 @@ impl ServiceContext {
             Some(prefix) => format!("{prefix}{task}"),
             None => task,
         });
-        let confirmed_first_turn = task_selection.confirmed_first_turn.map(|task| {
-            task_prefix
-                .as_deref()
-                .map_or_else(|| task.to_string(), |prefix| format!("{prefix}{task}"))
-        });
+        let confirmed_first_turn = match task_selection.confirmed_first_turn {
+            Some(crate::service::launch_delivery::VisibleSpawnFirstTurn::AssignedTaskStarter) => {
+                let prompt = crate::agent::provider::StarterPrompt::AssignedTask;
+                let text = self
+                    .agent_registry
+                    .with_provider(&agent_cmd, |provider| provider.starter_prompt_text(prompt))
+                    .flatten();
+                Some(crate::service::launch_delivery::mark_starter_prompt(
+                    prompt,
+                    crate::service::launch_delivery::assigned_task_starter(text.as_deref()),
+                ))
+            }
+            Some(crate::service::launch_delivery::VisibleSpawnFirstTurn::Task(task)) => Some(
+                task_prefix
+                    .as_deref()
+                    .map_or_else(|| task.to_string(), |prefix| format!("{prefix}{task}")),
+            ),
+            None => None,
+        };
 
         let mut legacy_params = spec.to_agent_params()?;
         legacy_params.skip_permissions = Some(permission_bypass);
