@@ -231,7 +231,16 @@ async function mountSession(
   active = true,
   sessionBindingNonce: string | null = null,
   diagnosticSink?: ChatSessionDiagnosticSink,
-): Promise<{ root: Root; render: (nextSessionId: string | null, nextActive?: boolean, nextSessionBindingNonce?: string | null) => Promise<void>; latest: () => SessionView }> {
+): Promise<{
+  root: Root;
+  render: (
+    nextSessionId: string | null,
+    nextActive?: boolean,
+    nextSessionBindingNonce?: string | null,
+  ) => Promise<void>;
+  latest: () => SessionView;
+  renderedContents: () => string[];
+}> {
   let view: SessionView = {
     attachmentState: "idle",
     error: null,
@@ -248,7 +257,15 @@ async function mountSession(
       recovering: session.recovering,
       messages: session.allMessages,
     };
-    return null;
+    return createElement(
+      "section",
+      null,
+      ...session.allMessages.map((message) => createElement(
+        "output",
+        { key: message.id, "data-testid": "projected-chat-row" },
+        message.content,
+      )),
+    );
   }
   clearTranscriptWindows();
   const host = document.createElement("div");
@@ -261,7 +278,13 @@ async function mountSession(
     await flush();
   };
   await render(sessionId, active, sessionBindingNonce);
-  return { root, render, latest: () => view };
+  return {
+    root,
+    render,
+    latest: () => view,
+    renderedContents: () => [...host.querySelectorAll('[data-testid="projected-chat-row"]')]
+      .map((node) => node.textContent ?? ""),
+  };
 }
 
 async function runChatSessionHookTests(): Promise<void> {
@@ -301,6 +324,8 @@ async function runChatSessionHookTests(): Promise<void> {
   {
     const handlers: Array<(event: { payload: ReturnType<typeof chatEvent> }) => void> = [];
     let activeHandler: ((event: { payload: ReturnType<typeof chatEvent> }) => void) | null = null;
+    const lifecycle: string[] = [];
+    const deliveredToken = "post-replacement-row-token";
     let unlistens = 0;
     let sends = 0;
     Object.defineProperty(window.navigator, "userAgent", {
@@ -308,16 +333,19 @@ async function runChatSessionHookTests(): Promise<void> {
       value: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 WebKitGTK",
     });
     __setListenForTest(async (_event, handler) => {
+      lifecycle.push("listen");
       const typed = handler as typeof activeHandler;
       handlers.push(typed!);
       activeHandler = typed;
       return () => {
+        lifecycle.push("unlisten");
         unlistens += 1;
         if (activeHandler === typed) activeHandler = null;
       };
     });
     __setInvokeForTest((async (command: string) => {
       if (command === "chat_send_text") {
+        lifecycle.push("send");
         sends += 1;
         return {
           send_id: "webkit-send",
@@ -330,6 +358,7 @@ async function runChatSessionHookTests(): Promise<void> {
         };
       }
       if (command === "chat_start") {
+        lifecycle.push("snapshot");
         return chatStartResult("sid-1", { text: "", offset: 0, messages: [] });
       }
       return {};
@@ -337,20 +366,26 @@ async function runChatSessionHookTests(): Promise<void> {
     const session = await mountSession("sid-1");
     await sendTrackedChatMessage("tab", "optimistic-webkit", "outbound");
     activeHandler = null;
+    const replacementStart = lifecycle.length;
     await act(async () => {
       window.dispatchEvent(new CustomEvent("codeterm:chat-reattached", { detail: { tabId: "tab" } }));
     });
     await flush();
     assert(sends === 1, "WebKitGTK recovery issued more than one backend chat_send_text invoke");
     assert(handlers.length === 2 && unlistens === 1, "WebKitGTK listener context replacement did not renew the native listener");
+    assert(
+      lifecycle.slice(replacementStart).filter((edge) => edge !== "send").join(",")
+        === "unlisten,listen,snapshot",
+      `WebKitGTK listener was not renewed before its authoritative snapshot (${lifecycle})`,
+    );
     await act(async () => handlers[1]?.({ payload: chatEvent("sid-1", [{
       id: "webkit-confirmation",
       type: "assistant",
-      content: "received-after-listener-replacement",
+      content: deliveredToken,
       timestamp: "1",
     }]) }));
     assert(
-      session.latest().messages.some((message) => message.id === "webkit-confirmation"),
+      session.renderedContents().includes(deliveredToken),
       "WebKitGTK replacement listener did not project the delivered transcript row",
     );
     await act(async () => session.root.unmount());

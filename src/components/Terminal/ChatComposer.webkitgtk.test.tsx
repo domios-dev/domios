@@ -2,6 +2,9 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { __setInvokeForTest } from "../../lib/bridge";
+import { MuxStateStoreContext } from "../../store/multiplexer/context";
+import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
+import type { ExtendedState } from "../../store/multiplexer/tree";
 import { ChatComposer } from "./ChatComposer";
 
 function assert(condition: unknown, label: string): asserts condition {
@@ -27,8 +30,27 @@ function setupDom(): Window {
     },
   });
   Object.defineProperty(globalThis, "cancelAnimationFrame", { configurable: true, value: () => {} });
+  Object.defineProperty(window.navigator, "userAgent", {
+    configurable: true,
+    value: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 WebKitGTK",
+  });
   return window;
 }
+
+const muxState: ExtendedState = {
+  workspaces: [],
+  tabs: {},
+  teams: [],
+  active_workspace_id: null,
+  focused_tab_id: null,
+  notifications: [],
+  tabStatuses: {},
+  toasts: [],
+  activeTabIds: {},
+  generation: 1,
+  pendingCloses: [],
+};
+const muxStore = createMuxStateStore(() => muxState);
 
 async function mount(tabId: string, optimistic: string[]): Promise<{
   root: Root;
@@ -40,25 +62,27 @@ async function mount(tabId: string, optimistic: string[]): Promise<{
   const root = createRoot(host);
   await act(async () => {
     root.render(
-      <ChatComposer
-        tabId={tabId}
-        tabProvider={null}
-        currentPtyId={null}
-        pendingPrompt={null}
-        attachments={[]}
-        addAttachments={() => {}}
-        removeAttachment={() => {}}
-        clearAttachments={() => {}}
-        handlePasteEvent={() => {}}
-        onWillSendMessage={() => {}}
-        addOptimistic={(message) => {
-          optimistic.push(message);
-          return "optimistic";
-        }}
-        updateOptimistic={() => {}}
-        showComposerError={() => {}}
-        chatBackend
-      />,
+      <MuxStateStoreContext.Provider value={muxStore}>
+        <ChatComposer
+          tabId={tabId}
+          tabProvider={null}
+          currentPtyId={null}
+          pendingPrompt={null}
+          attachments={[]}
+          addAttachments={() => {}}
+          removeAttachment={() => {}}
+          clearAttachments={() => {}}
+          handlePasteEvent={() => {}}
+          onWillSendMessage={() => {}}
+          addOptimistic={(message) => {
+            optimistic.push(message);
+            return "optimistic";
+          }}
+          updateOptimistic={() => {}}
+          showComposerError={() => {}}
+          chatBackend
+        />
+      </MuxStateStoreContext.Provider>,
     );
     await Promise.resolve();
   });
