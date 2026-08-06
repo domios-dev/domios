@@ -345,6 +345,7 @@ function toEchoes(rows: readonly NormalizedChatMessage[]): OptimisticEcho[] {
     content: row.content,
     sentAtMs: Number(row.timestamp) || 0,
     clientOrder: row.clientOrder,
+    correlationId: row.correlationId,
   }));
 }
 
