@@ -423,6 +423,18 @@ pub struct TaskBinding {
     pub bound_at: u64,
 }
 
+/// A superseded per-launch binding nonce tagged with the agent session it was
+/// issued under. `session_id` is the tab's `agent_session_id` at supersession —
+/// the daemon-authenticated identity that proves a stale nonce belongs to the
+/// tab's CURRENT session lineage (a relaunch resumes the same id) rather than an
+/// earlier, retired one (a genuine transition mints a new id).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PriorBindingNonce {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    pub nonce: String,
+}
+
 /// A tab represents one terminal, chat backend, or transient choice surface.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tab {
@@ -512,6 +524,13 @@ pub struct Tab {
     /// never proves that the current agent owns the tab.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub reported_session_binding_nonce: Option<String>,
+    /// Superseded binding nonces tagged with the agent session they were issued
+    /// under. Recovery matches a presented nonce ONLY when its recorded session
+    /// equals the tab's CURRENT session, so the daemon proves same-session
+    /// continuity without the caller carrying CODETERM_SESSION_ID. A nonce absent
+    /// here, or tagged to a different session, has no lineage and stays foreign.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub prior_session_binding_nonces: Vec<PriorBindingNonce>,
     /// Per-session nonce (env CODETERM_SHELL_NONCE) guarding OSC 633;E command text against forged output.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub shell_integration_nonce: Option<String>,
@@ -696,6 +715,50 @@ impl Tab {
         self.anchors_team() && self.team_id.is_some()
     }
 
+    /// Retire the current binding nonce into this tab's lineage before it is
+    /// replaced, tagged with the session it was issued under (read BEFORE the
+    /// caller clears `agent_session_id`). Bounded and deduped by nonce; the live
+    /// nonce is never its own ancestor.
+    pub fn remember_superseded_binding_nonce(&mut self) {
+        const MAX_LINEAGE: usize = 8;
+        let Some(current) = self.session_binding_nonce.clone() else {
+            return;
+        };
+        let session_id = self.agent_session_id.clone();
+        self.prior_session_binding_nonces
+            .retain(|entry| entry.nonce != current);
+        self.prior_session_binding_nonces
+            .push(PriorBindingNonce {
+                session_id,
+                nonce: current,
+            });
+        let overflow = self
+            .prior_session_binding_nonces
+            .len()
+            .saturating_sub(MAX_LINEAGE);
+        if overflow > 0 {
+            self.prior_session_binding_nonces.drain(0..overflow);
+        }
+    }
+
+    /// True when `nonce` belongs to this tab's CURRENT session: either the live
+    /// nonce, or a superseded one whose recorded session equals the current
+    /// `agent_session_id`. A nonce tagged to an earlier session (a genuine
+    /// transition) or never held is refused, so this proves same-session
+    /// continuity without trusting a caller-supplied session id. Absent current
+    /// session → no proof.
+    pub fn binding_nonce_in_current_session_lineage(&self, nonce: &str) -> bool {
+        let Some(current_session) = self.agent_session_id.as_deref() else {
+            return false;
+        };
+        if self.session_binding_nonce.as_deref() == Some(nonce) {
+            return true;
+        }
+        self.prior_session_binding_nonces.iter().any(|entry| {
+            entry.nonce == nonce && entry.session_id.as_deref() == Some(current_session)
+        })
+    }
+
     pub fn archive_context_epoch(&mut self, provider: &str, session_id: &str) {
         if session_id.is_empty()
             || self
@@ -751,6 +814,7 @@ mod tests {
             context_epoch_archives: vec![],
             session_binding_nonce: None,
             reported_session_binding_nonce: None,
+            prior_session_binding_nonces: Vec::new(),
             shell_integration_nonce: None,
             lifecycle_epoch: None,
             lifecycle_operation_id: None,

@@ -665,6 +665,15 @@ fn run_plan(
             call(client, "plan.mode.set", params)
         }
 
+        PlanAction::Rebind { plan_id } => {
+            let mut params = json!({});
+            if let Some(plan_id) = plan_id {
+                params["plan_id"] = json!(plan_id);
+            }
+            inject_trusted_session(&mut params);
+            call(client, "plan.session.rebind", params)
+        }
+
         PlanAction::PlanningState {
             plan_id,
             set,

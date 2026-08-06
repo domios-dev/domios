@@ -10,7 +10,11 @@ use super::{get_string_param, JsonRpcError};
 pub(super) fn handles(method: &str) -> bool {
     matches!(
         method,
-        "plan.mode.set" | "plan.planning.set" | "plan.pause" | "plan.resume"
+        "plan.mode.set"
+            | "plan.planning.set"
+            | "plan.pause"
+            | "plan.resume"
+            | "plan.session.rebind"
     )
 }
 
@@ -81,6 +85,17 @@ pub(super) fn dispatch(
                 .map_err(super::team::team_plan_rpc_err)?;
             Ok(json!({ "ok": true, "mode": mode }))
         }
+        "plan.session.rebind" => {
+            let outcome = svc
+                .rebind_stale_planning_session(&caller(params))
+                .map_err(rebind_error)?;
+            Ok(json!({
+                "ok": true,
+                "tab_id": outcome.tab_id,
+                "session_binding_nonce": outcome.nonce,
+                "resynced": outcome.resynced,
+            }))
+        }
         "plan.planning.set" => {
             let id = super::plan_refs::resolve_plan(&svc.plan_store, params)?;
             let state = get_string_param(params, "state")?;
@@ -129,6 +144,14 @@ fn authority_error(message: String) -> JsonRpcError {
         code: -32003,
         message,
         data: Some(json!({ "type": "plan_approval_authorization_required" })),
+    }
+}
+
+fn rebind_error(message: String) -> JsonRpcError {
+    JsonRpcError {
+        code: -32003,
+        message,
+        data: Some(json!({ "type": "plan_binding_rebind_refused" })),
     }
 }
 
