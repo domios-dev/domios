@@ -127,6 +127,18 @@ where
 }
 
 fn send_exit_to_agents(svc: &ServiceState, agents: &[AgentTabInfo]) {
+    dispatch_exit_submits(agents, |agent, cmd| {
+        // Route /exit through the single canonical post-ready submit path
+        // (composer-ready quiesce + paste + bounded submit-key burst) instead of
+        // a raw `\r` write that only buffers into a mid-turn composer.
+        svc.send_text_detached(&agent.tab_id, cmd);
+    });
+}
+
+/// Pure dispatch seam. Issues one submit per agent that has an exit command,
+/// passing the bare command (no trailing `\r` — the submit contract owns the
+/// submit key). Agents without an exit command fall through to the signal sweep.
+fn dispatch_exit_submits(agents: &[AgentTabInfo], mut submit: impl FnMut(&AgentTabInfo, &str)) {
     for agent in agents {
         let Some(cmd) = agent.exit_command.as_deref() else {
             log::warn!(
@@ -135,21 +147,11 @@ fn send_exit_to_agents(svc: &ServiceState, agents: &[AgentTabInfo]) {
             );
             continue;
         };
-        let payload = format!("{}\r", cmd);
-        let pty = svc.pty.lock();
-        match pty.write(&agent.pty_id, payload.as_bytes()) {
-            Ok(()) => log::info!(
-                "[updater] sent {:?} to Tab {} (provider={})",
-                cmd,
-                agent.tab_id,
-                agent.provider_id
-            ),
-            Err(e) => log::warn!(
-                "[updater] failed to send exit to Tab {}: {}",
-                agent.tab_id,
-                e
-            ),
-        }
+        log::info!(
+            "[updater] submitting {:?} to Tab {} via provider submit contract (provider={})",
+            cmd, agent.tab_id, agent.provider_id
+        );
+        submit(agent, cmd);
     }
 }
 
@@ -350,6 +352,49 @@ mod tests {
         assert_eq!(selected.len(), 1);
         assert_eq!(selected[0].tab_id, "real-agent");
         assert_eq!(selected[0].exit_command.as_deref(), Some("/exit"));
+    }
+
+    fn agent(tab: &str, provider: &str, exit: Option<&str>) -> AgentTabInfo {
+        AgentTabInfo {
+            tab_id: tab.to_string(),
+            pty_id: format!("pty-{tab}"),
+            provider_id: provider.to_string(),
+            exit_command: exit.map(|s| s.to_string()),
+        }
+    }
+
+    #[test]
+    fn exit_dispatch_submits_bare_command_not_a_raw_carriage_return_write() {
+        let agents = vec![
+            agent("t1", "claude", Some("/exit")),
+            agent("t2", "codex", Some("/exit")),
+        ];
+        let mut calls: Vec<(String, String)> = Vec::new();
+        dispatch_exit_submits(&agents, |a, cmd| calls.push((a.tab_id.clone(), cmd.to_string())));
+
+        // One submit per agent, routed through the seam (the production wiring is
+        // `send_text_detached` → the single canonical submit path), never a raw write.
+        assert_eq!(
+            calls,
+            vec![
+                ("t1".to_string(), "/exit".to_string()),
+                ("t2".to_string(), "/exit".to_string()),
+            ]
+        );
+        // The old raw-write signature was `"{cmd}\r"`; the submit contract owns the
+        // submit key, so the dispatched payload must carry no carriage return.
+        assert!(calls.iter().all(|(_, cmd)| !cmd.contains('\r')));
+    }
+
+    #[test]
+    fn exit_dispatch_skips_agents_without_an_exit_command() {
+        let agents = vec![
+            agent("t1", "claude", Some("/exit")),
+            agent("t2", "aider", None),
+        ];
+        let mut submitted: Vec<String> = Vec::new();
+        dispatch_exit_submits(&agents, |a, _| submitted.push(a.tab_id.clone()));
+        assert_eq!(submitted, vec!["t1".to_string()]);
     }
 
     #[test]
