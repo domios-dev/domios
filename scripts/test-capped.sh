@@ -1,22 +1,23 @@
 #!/usr/bin/env bash
-# Run `cargo test` under a process-group timeout.
+# Run `cargo test`, optionally under a process-group timeout.
 #
-# Kills the WHOLE process group — cargo AND every spawned test binary
-# (*/target/*/deps/*) — so no orphans survive the cap.
+# With TEST_CAP_SECS set, kills the WHOLE process group — cargo AND every
+# spawned test binary (*/target/*/deps/*) — so no orphans survive the cap.
 #
-# Exit 124 on timeout (matches GNU timeout); passes through cargo's own exit code otherwise.
+# Uncapped by default. An explicit cap exits 124 on timeout (matches GNU timeout);
+# otherwise the wrapper passes through cargo's own exit code.
 #
 # Usage:
 #   scripts/test-capped.sh [-- <cargo-test-args>...]
 #   TEST_CAP_SECS=30 scripts/test-capped.sh -- my_crate::my_mod
 #
 # Overridable env:
-#   TEST_CAP_SECS   seconds before SIGTERM + banner (default 90)
+#   TEST_CAP_SECS   optional positive seconds before SIGTERM + banner
 #   CARGO_TEST_CMD  command to run instead of "cargo test" (for testing this script itself)
 
 set -euo pipefail
 
-TEST_CAP_SECS="${TEST_CAP_SECS:-90}"
+TEST_CAP_SECS="${TEST_CAP_SECS:-}"
 CARGO_TEST_CMD="${CARGO_TEST_CMD:-cargo test}"
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # No awk `exit`: it closes the pipe, SIGPIPEs rustc, and pipefail then aborts the
@@ -125,13 +126,21 @@ run_capped() {
     fi
 }
 
-if run_capped "$TEST_CAP_SECS" $CARGO_TEST_CMD "$@"; then
+run_test() {
+    if [ -n "$TEST_CAP_SECS" ]; then
+        run_capped "$TEST_CAP_SECS" $CARGO_TEST_CMD "$@"
+    else
+        $CARGO_TEST_CMD "$@"
+    fi
+}
+
+if run_test "$@"; then
     exit 0
 else
     CARGO_EXIT=$?
 fi
 
-if [ "$CARGO_EXIT" -eq 124 ]; then
+if [ -n "$TEST_CAP_SECS" ] && [ "$CARGO_EXIT" -eq 124 ]; then
     printf '\n'
     printf '══════════════════════════════════════════════════════════════════\n'
     printf '  DEADLOCK / HANG: cargo test exceeded %ss cap.\n' "$TEST_CAP_SECS"
