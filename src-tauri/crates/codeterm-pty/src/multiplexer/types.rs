@@ -73,6 +73,15 @@ impl ReasoningEffortIdentity {
     }
 }
 
+/// Why a tab is being closed. A `PolicyWorker` close (system/exhaustion) of a
+/// task-owning worker overrides the hidden-skip so it lands in recently-closed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TabCloseReason {
+    #[default]
+    User,
+    PolicyWorker,
+}
+
 /// A closed tab retained for browser-style reopen. Captures just enough to
 /// re-materialize the tab with the SAME backing — the `backing` reuses the
 /// existing `TabBacking` serialization, and `agent_type` / `agent_session_id`
@@ -99,6 +108,10 @@ pub struct ClosedTab {
     pub agent_session_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub role_profile: Option<String>,
+    /// Worker binding — present only on a task-owning worker. Restored so a
+    /// reopened worker rebinds to its task/lane instead of launching anonymous.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub worker_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub model: Option<String>,
     #[serde(default)]
@@ -129,6 +142,7 @@ impl From<&Tab> for ClosedTab {
             agent_type: tab.agent_type.clone(),
             agent_session_id: tab.agent_session_id.clone(),
             role_profile: tab.role_profile.clone(),
+            worker_id: tab.worker_id.clone(),
             model: tab.agent_session_model.clone(),
             chat_view: tab.chat_view,
             closed_at: std::time::SystemTime::now()

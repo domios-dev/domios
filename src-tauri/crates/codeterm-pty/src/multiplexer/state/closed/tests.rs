@@ -6,7 +6,7 @@ use std::collections::HashSet;
 
 use super::*;
 use crate::multiplexer::state::MultiplexerState;
-use crate::multiplexer::types::{AgentRole, TabBacking};
+use crate::multiplexer::types::{AgentRole, TabBacking, TabCloseReason};
 
 fn ws_id(state: &MultiplexerState) -> String {
     state.list_workspaces()[0].id.clone()
@@ -377,6 +377,93 @@ fn hidden_tab_is_not_recorded() {
         state.list_recently_closed(&wsid).is_empty(),
         "hidden worker Tab must not pollute the history"
     );
+}
+
+fn make_hidden_worker(state: &mut MultiplexerState, wsid: &str) -> String {
+    let tab_id = state.create_tab(wsid).unwrap();
+    let p = state.get_tab_mut(&tab_id).unwrap();
+    p.hidden = true;
+    p.worker_id = Some("wk-7".into());
+    p.agent_type = Some("claude".into());
+    p.agent_session_id = Some("sess-9".into());
+    p.role_profile = Some("rust-backend-dev".into());
+    p.agent_session_model = Some("Opus".into());
+    p.cwd = Some("/tmp/lane-worktree".into());
+    tab_id
+}
+
+#[test]
+fn policy_close_of_hidden_worker_records_restorable_entry() {
+    let (mut state, _root) = MultiplexerState::new();
+    let wsid = ws_id(&state);
+    let tab_id = make_hidden_worker(&mut state, &wsid);
+    state
+        .close_tab_with_reason(&tab_id, TabCloseReason::PolicyWorker)
+        .unwrap();
+
+    let list = state.list_recently_closed(&wsid);
+    assert_eq!(list.len(), 1, "policy-driven worker close is recorded");
+    let rec = &list[0];
+    assert_eq!(rec.tab_id, tab_id);
+    assert_eq!(rec.worker_id.as_deref(), Some("wk-7"), "task binding");
+    assert_eq!(rec.agent_type.as_deref(), Some("claude"), "provider");
+    assert_eq!(rec.agent_session_id.as_deref(), Some("sess-9"), "session");
+    assert_eq!(rec.role_profile.as_deref(), Some("rust-backend-dev"));
+    assert_eq!(rec.model.as_deref(), Some("Opus"));
+    assert_eq!(
+        rec.cwd.as_deref(),
+        Some("/tmp/lane-worktree"),
+        "lane worktree"
+    );
+}
+
+#[test]
+fn policy_close_of_hidden_utility_tab_stays_excluded() {
+    let (mut state, _root) = MultiplexerState::new();
+    let wsid = ws_id(&state);
+    let tab_id = state.create_tab(&wsid).unwrap();
+    if let Some(p) = state.get_tab_mut(&tab_id) {
+        p.hidden = true; // no worker_id — an ordinary hidden utility shell
+    }
+    state
+        .close_tab_with_reason(&tab_id, TabCloseReason::PolicyWorker)
+        .unwrap();
+    assert!(
+        state.list_recently_closed(&wsid).is_empty(),
+        "a hidden utility tab must not flood the ring even on a policy close"
+    );
+}
+
+#[test]
+fn user_close_of_hidden_worker_stays_excluded() {
+    let (mut state, _root) = MultiplexerState::new();
+    let wsid = ws_id(&state);
+    let tab_id = make_hidden_worker(&mut state, &wsid);
+    state.close_tab(&tab_id).unwrap();
+    assert!(
+        state.list_recently_closed(&wsid).is_empty(),
+        "the hidden-skip is unchanged for a non-policy close"
+    );
+}
+
+#[test]
+fn reopen_policy_closed_worker_restores_binding() {
+    let (mut state, _root) = MultiplexerState::new();
+    let wsid = ws_id(&state);
+    let tab_id = make_hidden_worker(&mut state, &wsid);
+    state
+        .close_tab_with_reason(&tab_id, TabCloseReason::PolicyWorker)
+        .unwrap();
+
+    let new_tab = state.reopen_closed_tab(&wsid, None).unwrap();
+    let tab = state.get_tab(&new_tab).expect("worker reopened");
+    assert_eq!(tab.worker_id.as_deref(), Some("wk-7"), "task binding resumes");
+    assert_eq!(tab.agent_type.as_deref(), Some("claude"));
+    assert!(tab.agent_type_locked, "provider re-locked for resume");
+    assert_eq!(tab.agent_session_id.as_deref(), Some("sess-9"));
+    assert_eq!(tab.cwd.as_deref(), Some("/tmp/lane-worktree"), "lane resumes");
+    assert!(tab.restored_from_snapshot, "drives lazy reopen/resume");
+    assert!(state.list_recently_closed(&wsid).is_empty(), "entry consumed");
 }
 
 // ── cascade grouping ─────────────────────────────────────────────────

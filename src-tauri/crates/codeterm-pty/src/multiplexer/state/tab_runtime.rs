@@ -1,5 +1,7 @@
 use super::{short_id, MultiplexerState};
-use crate::multiplexer::types::{PendingDeliveryRecord, Tab, TabBacking, TabType, TitleLevel};
+use crate::multiplexer::types::{
+    PendingDeliveryRecord, Tab, TabBacking, TabCloseReason, TabType, TitleLevel,
+};
 
 impl MultiplexerState {
     /// Create a new terminal tab and register it. Returns the tab ID.
@@ -266,7 +268,17 @@ impl MultiplexerState {
     /// running when its parent closes. Direct children are detached before the
     /// parent is removed, preserving their role and Team membership.
     pub fn close_tab(&mut self, tab_id: &str) -> Result<Vec<String>, String> {
-        self.record_single_close(tab_id);
+        self.close_tab_with_reason(tab_id, TabCloseReason::User)
+    }
+
+    /// Close one tab, tagging why. A `PolicyWorker` close of a task-owning
+    /// hidden worker still records a restorable recently-closed entry.
+    pub fn close_tab_with_reason(
+        &mut self,
+        tab_id: &str,
+        reason: TabCloseReason,
+    ) -> Result<Vec<String>, String> {
+        self.record_single_close(tab_id, reason);
         self.close_tab_inner(tab_id)
     }
 
