@@ -155,15 +155,6 @@ impl ServiceContext {
             .unwrap_or(false)
     }
 
-    /// Whether `tab_id` is a tracked roleless agent pane (spawned without a role
-    /// but linked into the hierarchy). Unknown/missing tabs are not roleless.
-    pub(crate) fn tab_is_roleless_tracked(&self, tab_id: &str) -> bool {
-        let mux = self.mux.read();
-        mux.resolve_tab_id(tab_id)
-            .and_then(|resolved| mux.get_tab(&resolved).map(|tab| tab.roleless_tracked))
-            .unwrap_or(false)
-    }
-
     /// Run registered `chatPreprocessor` text stages over the outbound text (id order
     /// for determinism; no stages ⇒ identity; a broken stage fails safe to passthrough).
     pub fn run_outbound_stages(&self, tab_id: &str, text: String) -> String {
