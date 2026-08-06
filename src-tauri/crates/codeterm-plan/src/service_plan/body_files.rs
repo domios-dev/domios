@@ -19,6 +19,9 @@ pub struct PlanFileEntry {
     pub kind: &'static str,
     pub title: String,
     pub path: String,
+    pub exists: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub read_command: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -289,6 +292,8 @@ pub fn file_manifest(plan: &Plan) -> std::io::Result<PlanFileManifest> {
         .map(|entry| PlanFileEntry {
             kind: entry.kind,
             title: entry.title,
+            exists: entry.path.exists(),
+            read_command: entry.read_command,
             path: display_path(&entry.path),
         })
         .collect();
@@ -390,6 +395,7 @@ struct IndexEntryRaw {
     title: String,
     path: PathBuf,
     index_link_path: String,
+    read_command: Option<String>,
 }
 
 fn index_entries(plan: &Plan) -> std::io::Result<Vec<IndexEntryRaw>> {
@@ -400,6 +406,7 @@ fn index_entries(plan: &Plan) -> std::io::Result<Vec<IndexEntryRaw>> {
             title: "Goal".into(),
             path: goal_path(plan)?,
             index_link_path: "goal.md".into(),
+            read_command: None,
         });
     }
     collect_section_index_entries(plan, &plan.sections, &mut entries)?;
@@ -449,6 +456,10 @@ fn collect_section_index_entries(
             ),
             path,
             index_link_path: format!("sections/{}.md", super::tag_model::section_handle(section)),
+            read_command: Some(format!(
+                "codeterm plan section show {} {}",
+                plan.id, section.id
+            )),
         });
         collect_section_index_entries(plan, &section.subsections, entries)?;
     }
@@ -461,6 +472,7 @@ fn task_index_entry(plan: &Plan, task: &Task) -> std::io::Result<IndexEntryRaw> 
         title: format!("{} ({})", super::tag_model::task_handle(task), task.name),
         path: task_path(plan, &task.id)?,
         index_link_path: format!("tasks/{}.md", super::tag_model::task_handle(task)),
+        read_command: Some(format!("codeterm plan task show {} {}", plan.id, task.id)),
     })
 }
 
@@ -471,6 +483,7 @@ fn stride_log_index_entry(plan: &Plan, task: &Task) -> std::io::Result<IndexEntr
         title: format!("{} strides", task_handle),
         path: task_stride_log_path(plan, task)?,
         index_link_path: format!("tasks/{}/strides.jsonl", task_handle),
+        read_command: None,
     })
 }
 
@@ -485,6 +498,7 @@ fn handoff_index_entry(plan: &Plan, element: &CanvasElement) -> std::io::Result<
         title: format!("handoff #{} ({})", seq, element.id),
         path: handoff_path(plan, &element.id)?,
         index_link_path: format!("handoffs/{}.md", element.id),
+        read_command: None,
     })
 }
 
@@ -499,6 +513,7 @@ fn milestone_index_entry(
         title: format!("{} {} ({})", task_handle, milestone.kind, milestone.id),
         path: milestone_path(plan, task, milestone)?,
         index_link_path: format!("milestones/{}-{}.md", task_handle, milestone.id),
+        read_command: None,
     })
 }
 
@@ -508,6 +523,7 @@ fn element_index_entry(plan: &Plan, element: &CanvasElement) -> std::io::Result<
         title: format!("{} ({})", element.kind, element.id),
         path: element_path(plan, element)?,
         index_link_path: format!("elements/{}-{}.md", element.kind, element.id),
+        read_command: None,
     })
 }
 

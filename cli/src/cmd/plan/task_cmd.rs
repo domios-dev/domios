@@ -315,6 +315,30 @@ pub(super) fn run_task(
             }
             Ok(Some(response))
         }
+        PlanTaskAction::Show {
+            plan_id,
+            task_id,
+            siblings,
+            all,
+        } => {
+            let val = call(
+                client,
+                "task.show",
+                json!({ "plan_id": plan_id, "task_id": task_id }),
+            )?;
+            if json {
+                return Ok(Some(val));
+            }
+            crate::cmd::task::print_task_result(
+                false,
+                &val,
+                Some(crate::cmd::task::TaskShowOpts {
+                    list_siblings: siblings,
+                    include_done_siblings: all,
+                }),
+            );
+            Ok(None)
+        }
         PlanTaskAction::Add {
             plan_id,
             name,
@@ -884,6 +908,68 @@ pub(super) fn run_task(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::client::SocketCallError;
+
+    #[derive(Default)]
+    struct FakeRpc {
+        calls: Vec<(String, Option<Value>)>,
+    }
+
+    impl RpcClient for FakeRpc {
+        fn call_detailed(
+            &mut self,
+            method: &str,
+            params: Option<Value>,
+        ) -> Result<Value, SocketCallError> {
+            self.calls.push((method.to_string(), params));
+            Ok(json!({
+                "task": { "id": "task_1", "name": "probe", "status": "pending" },
+                "plan_id": "pl_1",
+                "plan_title": "Probe plan"
+            }))
+        }
+    }
+
+    #[test]
+    fn plan_task_show_routes_to_task_show_rpc_with_plan_and_task() {
+        let mut client = FakeRpc::default();
+        let out = run_task(
+            &mut client,
+            false,
+            PlanTaskAction::Show {
+                plan_id: "pl_1".into(),
+                task_id: "task_1".into(),
+                siblings: false,
+                all: false,
+            },
+        )
+        .expect("show runs");
+        assert!(out.is_none(), "human render returns no value to reprint");
+        assert_eq!(client.calls.len(), 1);
+        assert_eq!(client.calls[0].0, "task.show");
+        let params = client.calls[0].1.as_ref().expect("params");
+        assert_eq!(params["plan_id"], "pl_1");
+        assert_eq!(params["task_id"], "task_1");
+    }
+
+    #[test]
+    fn plan_task_show_json_returns_raw_rpc_value() {
+        let mut client = FakeRpc::default();
+        let out = run_task(
+            &mut client,
+            true,
+            PlanTaskAction::Show {
+                plan_id: "pl_1".into(),
+                task_id: "task_1".into(),
+                siblings: false,
+                all: false,
+            },
+        )
+        .expect("show runs")
+        .expect("json returns the value");
+        assert_eq!(out["task"]["id"], "task_1");
+        assert_eq!(client.calls[0].0, "task.show");
+    }
 
     #[test]
     fn criterion_file_parses_json_array_form() {
