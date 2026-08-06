@@ -22,6 +22,12 @@ export const WEB_UNSUPPORTED: Record<string, string> = {
     "REST listener recovery is owned by the desktop supervisor",
   restart_rest_api:
     "An HTTP client cannot restart the listener carrying its own request",
+  check_provider_integration:
+    "Provider integration health reads native host configuration",
+  install_provider_integration:
+    "Provider integration repair changes native host configuration",
+  uninstall_provider_integration:
+    "Provider integration removal changes native host configuration",
 };
 
 /** Handled in invokeRaw without HTTP_MAP / CANNED membership. */

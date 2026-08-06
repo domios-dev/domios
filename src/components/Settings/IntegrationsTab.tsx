@@ -1,15 +1,26 @@
 import { useState } from "react";
 import { Send, MessageSquare } from "lucide-react";
+import { useAgentProviders } from "../../hooks/useAgentProviders";
 import type { AppConfig } from "../../lib/types";
+import {
+  ProviderIntegrationHealthCard,
+  providersWithIntegrationHealth,
+} from "./ProviderIntegrationHealthCard";
 import { SettingsCard, SettingsPill, Toggle } from "./shared";
 
 export function IntegrationsTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void }) {
   const [allowedUsersText, setAllowedUsersText] = useState(
     (config.integrations?.telegram_allowed_users ?? []).join(", ")
   );
+  const { providers } = useAgentProviders();
+  const integrationProviders = providersWithIntegrationHealth(providers);
 
   return (
     <div className="flex flex-col gap-5" data-testid="settings-integrations-tab">
+      {integrationProviders.map((provider) => (
+        <ProviderIntegrationHealthCard key={provider.id} provider={provider} />
+      ))}
+
       <SettingsCard
         icon={<Send size={16} />}
         title="Telegram"
