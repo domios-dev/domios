@@ -430,20 +430,33 @@ pub(crate) fn init_states() -> AppStates {
 mod tests {
     use super::*;
 
-    // Serialize process-env mutation across tests in this binary.
-    static ENV_GUARD: Mutex<()> = Mutex::new(());
+    fn isolated_startup_env() -> codeterm_util::test_env::EnvGuard {
+        let mut env = codeterm_util::test_env::EnvGuard::lock();
+        for name in INHERITED_IDENTITY_ENV_VARS.iter().copied().chain([
+            "CODETERM_API_URL",
+            "CODETERM_API_PORT",
+            "CODETERM_API_TOKEN",
+            "CODETERM_SOCKET_PATH",
+            "CODETERM_INSTANCE",
+            "CODETERM_DATA_DIR",
+            "CODETERM_DEV",
+        ]) {
+            env.remove(name);
+        }
+        env
+    }
 
     /// Dev launched inside prod must scrub inherited API env before PTYs spawn.
     #[test]
     fn scrub_overwrites_inherited_prod_api_env_with_instance_values() {
-        let _guard = ENV_GUARD.lock();
+        let mut env = isolated_startup_env();
         for name in INHERITED_IDENTITY_ENV_VARS {
-            std::env::set_var(name, format!("inherited-{name}"));
+            env.set(name, format!("inherited-{name}"));
         }
-        std::env::set_var("CODETERM_API_URL", "http://127.0.0.1:7685");
-        std::env::set_var("CODETERM_API_PORT", "7685");
-        std::env::set_var("CODETERM_API_TOKEN", "prod-token-inherited");
-        std::env::set_var("CODETERM_SOCKET_PATH", "prod-inherited.sock");
+        env.set("CODETERM_API_URL", "http://127.0.0.1:7685");
+        env.set("CODETERM_API_PORT", "7685");
+        env.set("CODETERM_API_TOKEN", "prod-token-inherited");
+        env.set("CODETERM_SOCKET_PATH", "prod-inherited.sock");
 
         let mut cfg = crate::config::schema::AppConfig::default();
         cfg.api.host = "0.0.0.0".to_string();
@@ -478,20 +491,15 @@ mod tests {
                 "inherited identity variable {name} must be removed"
             );
         }
-
-        std::env::remove_var("CODETERM_API_URL");
-        std::env::remove_var("CODETERM_API_PORT");
-        std::env::remove_var("CODETERM_API_TOKEN");
-        std::env::remove_var("CODETERM_SOCKET_PATH");
     }
 
     #[test]
     fn scrub_preserves_instance_env_and_later_daemon_identity() {
-        let _guard = ENV_GUARD.lock();
-        std::env::set_var("CODETERM_TAB_ID", "inherited-tab");
-        std::env::set_var("CODETERM_INSTANCE", "dev-test");
-        std::env::set_var("CODETERM_DATA_DIR", "/tmp/codeterm-dev-test");
-        std::env::set_var("CODETERM_DEV", "1");
+        let mut env = isolated_startup_env();
+        env.set("CODETERM_TAB_ID", "inherited-tab");
+        env.set("CODETERM_INSTANCE", "dev-test");
+        env.set("CODETERM_DATA_DIR", "/tmp/codeterm-dev-test");
+        env.set("CODETERM_DEV", "1");
 
         let mut cfg = crate::config::schema::AppConfig::default();
         cfg.api.port = 7686;
@@ -510,29 +518,20 @@ mod tests {
         );
         assert_eq!(std::env::var("CODETERM_DEV").ok().as_deref(), Some("1"));
 
-        std::env::set_var("CODETERM_TAB_ID", "daemon-owned-tab");
+        env.set("CODETERM_TAB_ID", "daemon-owned-tab");
         assert_eq!(
             std::env::var("CODETERM_TAB_ID").ok().as_deref(),
             Some("daemon-owned-tab"),
             "identity assigned after the startup scrub must remain intact"
         );
-
-        std::env::remove_var("CODETERM_API_URL");
-        std::env::remove_var("CODETERM_API_PORT");
-        std::env::remove_var("CODETERM_API_TOKEN");
-        std::env::remove_var("CODETERM_SOCKET_PATH");
-        std::env::remove_var("CODETERM_INSTANCE");
-        std::env::remove_var("CODETERM_DATA_DIR");
-        std::env::remove_var("CODETERM_DEV");
-        std::env::remove_var("CODETERM_TAB_ID");
     }
 
     /// A tokenless instance must not leave a stale inherited prod token in env —
     /// otherwise a tab would present a foreign bearer that 401s everywhere.
     #[test]
     fn scrub_removes_inherited_token_when_instance_has_none() {
-        let _guard = ENV_GUARD.lock();
-        std::env::set_var("CODETERM_API_TOKEN", "prod-token-inherited");
+        let mut env = isolated_startup_env();
+        env.set("CODETERM_API_TOKEN", "prod-token-inherited");
 
         let mut cfg = crate::config::schema::AppConfig::default();
         cfg.api.port = 7686;
@@ -545,8 +544,5 @@ mod tests {
             std::env::var("CODETERM_API_TOKEN").is_err(),
             "tokenless instance must clear an inherited token, not keep prod's"
         );
-        std::env::remove_var("CODETERM_API_URL");
-        std::env::remove_var("CODETERM_API_PORT");
-        std::env::remove_var("CODETERM_SOCKET_PATH");
     }
 }

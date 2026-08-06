@@ -1,4 +1,5 @@
 pub mod agent;
+mod agent_spawn;
 pub mod bridge;
 pub mod capabilities;
 pub mod cron;

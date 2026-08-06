@@ -180,6 +180,7 @@ fn powershell_launch_inherits_an_escaped_binding_nonce() {
         "Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue; claude --resume",
         "nonce'a",
         true,
+        None,
     );
     assert_eq!(
         command,
@@ -193,6 +194,7 @@ fn posix_launch_inherits_an_escaped_binding_nonce() {
         "unset CLAUDECODE && claude --resume",
         "nonce'a",
         false,
+        None,
     );
     assert_eq!(
         command,

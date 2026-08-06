@@ -106,13 +106,15 @@ pub fn build(config: &RerankConfig) -> Box<dyn Reranker> {
 
 #[cfg(feature = "embeddings")]
 fn build_local(config: &RerankConfig) -> Option<Box<dyn Reranker>> {
-    // Default model: BAAI/bge-reranker-base — solid English+Chinese baseline, ~280MB. Override via config.model with strings like:
-    // "bge-reranker-base", "bge-reranker-v2-m3", "jina-v1-turbo-en", "jina-v2-multilingual"
-    let model_name = config
+    let model_name = local_model_name(config);
+    Some(Box::new(LocalReranker { model_name }))
+}
+
+fn local_model_name(config: &RerankConfig) -> String {
+    config
         .model
         .clone()
-        .unwrap_or_else(|| "bge-reranker-base".into());
-    Some(Box::new(LocalReranker { model_name }))
+        .unwrap_or_else(|| "bge-reranker-base".into())
 }
 
 #[cfg(not(feature = "embeddings"))]
@@ -436,7 +438,8 @@ impl LocalReranker {
                     }
                     other => return Err(format!("unknown reranker model: {}", other)),
                 };
-                let opts = RerankInitOptions::new(resolved);
+                let opts =
+                    RerankInitOptions::new(resolved).with_cache_dir(crate::model_cache_dir());
                 let new_model =
                     TextRerank::try_new(opts).map_err(|e| format!("load reranker: {}", e))?;
                 guard.insert(self.model_name.clone(), new_model);
@@ -663,13 +666,6 @@ fn call_openai(
 mod tests {
     use super::*;
     use crate::store::MemItem;
-    use std::sync::{Mutex, OnceLock};
-
-    // Tests that mutate process-wide PATH must run serialized or they race with which_on_path_finds_known_binary reading PATH on a sibling thread.
-    fn path_env_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-    }
 
     fn hit(id: &str) -> SearchHit {
         SearchHit {
@@ -728,7 +724,7 @@ mod tests {
 
     #[test]
     fn which_on_path_finds_known_binary() {
-        let _g = path_env_lock().lock().unwrap();
+        let _env = codeterm_util::test_env::EnvGuard::lock();
         assert!(
             which_on_path("rustc").is_some(),
             "expected rustc to be resolvable on PATH (running test implies it is)"
@@ -738,44 +734,29 @@ mod tests {
 
     #[test]
     fn build_claude_cli_falls_back_when_missing() {
-        let _g = path_env_lock().lock().unwrap();
+        let mut env = codeterm_util::test_env::EnvGuard::lock();
+        env.set("PATH", "");
         let cfg = RerankConfig {
             enabled: true,
             provider: "claude-cli".into(),
             api_key_env: None,
             model: None,
         };
-        let prev = std::env::var_os("PATH");
-        std::env::set_var("PATH", "");
         let r = build(&cfg);
-        if let Some(p) = prev {
-            std::env::set_var("PATH", p);
-        } else {
-            std::env::remove_var("PATH");
-        }
         let hits = vec![hit("a")];
         assert_eq!(r.rerank("q", hits, 5).len(), 1);
     }
 
     #[test]
-    fn auto_default_when_provider_empty() {
-        let _g = path_env_lock().lock().unwrap();
+    fn auto_default_uses_lazy_local_backend() {
         let cfg = RerankConfig {
             enabled: true,
             provider: "".into(),
             api_key_env: Some("DEFINITELY_UNSET_KEY".into()),
             model: None,
         };
-        let prev = std::env::var_os("PATH");
-        std::env::set_var("PATH", "");
-        let r = build(&cfg);
-        if let Some(p) = prev {
-            std::env::set_var("PATH", p);
-        } else {
-            std::env::remove_var("PATH");
-        }
-        let hits = vec![hit("a"), hit("b")];
-        assert_eq!(r.rerank("q", hits, 5).len(), 2);
+        assert!(build_local(&cfg).is_some());
+        assert_eq!(local_model_name(&cfg), "bge-reranker-base");
     }
 
     #[test]
@@ -792,16 +773,15 @@ mod tests {
     }
 
     #[test]
-    fn build_auto_falls_back_when_no_keys() {
+    fn explicit_local_model_is_selected_without_loading_weights() {
         let cfg = RerankConfig {
             enabled: true,
-            provider: "auto".into(),
-            api_key_env: Some("DEFINITELY_NOT_SET_AUTO_12345".into()),
-            model: None,
+            provider: "local".into(),
+            api_key_env: None,
+            model: Some("jina-v1-turbo-en".into()),
         };
-        let r = build(&cfg);
-        let hits = vec![hit("a"), hit("b")];
-        assert_eq!(r.rerank("q", hits, 5).len(), 2);
+        assert!(build_local(&cfg).is_some());
+        assert_eq!(local_model_name(&cfg), "jina-v1-turbo-en");
     }
 
     #[test]
