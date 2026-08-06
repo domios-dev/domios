@@ -647,13 +647,22 @@ mod tests {
         ] {
             assert!(has_long(add, flag), "plan task add lost --{flag}");
         }
-        assert!(!has_long(add, "acceptance"), "plan task add must not grow --acceptance");
-        assert!(!has_long(add, "title"), "plan task add uses --name, not --title");
+        assert!(
+            !has_long(add, "acceptance"),
+            "plan task add must not grow --acceptance"
+        );
+        assert!(
+            !has_long(add, "title"),
+            "plan task add uses --name, not --title"
+        );
 
         let dispatch =
             subcommand(&root, &["plan", "task", "dispatch"]).expect("plan task dispatch exists");
         assert!(has_long(dispatch, "execution-intent"));
-        assert!(!has_long(dispatch, "brief"), "dispatch has no --brief; the brief is the task body");
+        assert!(
+            !has_long(dispatch, "brief"),
+            "dispatch has no --brief; the brief is the task body"
+        );
 
         let update =
             subcommand(&root, &["plan", "task", "update"]).expect("plan task update exists");
@@ -669,19 +678,30 @@ mod tests {
         let create = subcommand(&root, &["plan", "create"]).expect("plan create exists");
         assert!(has_long(create, "title"));
         assert!(has_long(create, "from-spec"));
-        assert!(!has_long(create, "goal"), "plan create has no --goal; goal lives in `plan goal set`");
+        assert!(
+            !has_long(create, "goal"),
+            "plan create has no --goal; goal lives in `plan goal set`"
+        );
 
-        let goal_set =
-            subcommand(&root, &["plan", "goal", "set"]).expect("plan goal set exists");
-        assert!(has_long(goal_set, "vector"), "plan goal set requires --vector");
+        let goal_set = subcommand(&root, &["plan", "goal", "set"]).expect("plan goal set exists");
+        assert!(
+            has_long(goal_set, "vector"),
+            "plan goal set requires --vector"
+        );
 
         let accept =
             subcommand(&root, &["plan", "review", "accept"]).expect("plan review accept exists");
         assert!(has_long(accept, "note"), "review accept uses --note");
-        assert!(!has_long(accept, "reason"), "review accept uses --note, not --reason");
+        assert!(
+            !has_long(accept, "reason"),
+            "review accept uses --note, not --reason"
+        );
 
         let mode = subcommand(&root, &["plan", "mode"]).expect("plan mode exists");
-        assert!(has_long(mode, "set"), "plan mode keeps --set alongside the positional");
+        assert!(
+            has_long(mode, "set"),
+            "plan mode keeps --set alongside the positional"
+        );
 
         // Teams are minted with the plan or via `team pair`; there is no `team create`.
         assert!(subcommand(&root, &["team", "pair"]).is_some());

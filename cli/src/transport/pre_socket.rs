@@ -179,6 +179,9 @@ mod tests {
 
     #[test]
     fn config_get_path_scopes_query_when_key_present() {
-        assert_eq!(config_get_path(Some("api.port")), "/api/config?key=api.port");
+        assert_eq!(
+            config_get_path(Some("api.port")),
+            "/api/config?key=api.port"
+        );
     }
 }

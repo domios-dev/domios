@@ -51,8 +51,7 @@ mod tests {
 
     #[test]
     fn unresolved_relaunch_path_aborts_before_teardown() {
-        let err =
-            evaluate_viability(10, Err("no current exe".to_string()), Ok(())).unwrap_err();
+        let err = evaluate_viability(10, Err("no current exe".to_string()), Ok(())).unwrap_err();
         assert!(err.contains("relaunch path unresolved"));
         assert!(err.contains("no current exe"));
     }

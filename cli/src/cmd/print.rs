@@ -315,10 +315,7 @@ mod tests {
         assert!(inner.is_array(), "tabs field holds the list");
         assert_eq!(inner.as_array().unwrap().len(), 1);
         assert_eq!(inner[0]["session_binding_nonce"], "nonce-recorded");
-        assert_eq!(
-            inner[0]["reported_session_binding_nonce"],
-            "nonce-reported"
-        );
+        assert_eq!(inner[0]["reported_session_binding_nonce"], "nonce-reported");
     }
 
     #[test]

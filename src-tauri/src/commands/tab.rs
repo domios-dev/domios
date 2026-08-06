@@ -789,9 +789,11 @@ pub async fn chat_send_text(
     let submit_claim = svc.claim_chat_submit_cycle(&tab_id);
     // Anchor capture reads the session file and may enter a plugin VM.
     let svc = svc.inner().clone();
-    tokio::task::spawn_blocking(move || svc.start_chat_send(&tab_id, text, submit_claim, client_token))
-        .await
-        .map_err(|e| e.to_string())?
+    tokio::task::spawn_blocking(move || {
+        svc.start_chat_send(&tab_id, text, submit_claim, client_token)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

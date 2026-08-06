@@ -81,7 +81,10 @@ mod allowance_tests {
         snap.spend_limit_cents = Some(2000.0);
         snap.spend_remaining_cents = Some(20.0);
         let remaining = allowance_remaining_pct(&snap);
-        assert!(remaining >= RESERVE, "near-zero spend must not gate: {remaining}");
+        assert!(
+            remaining >= RESERVE,
+            "near-zero spend must not gate: {remaining}"
+        );
         assert!((remaining - 55.0).abs() < f32::EPSILON);
     }
 
@@ -99,7 +102,10 @@ mod allowance_tests {
             snap.spend_remaining_cents = remaining_cents;
             snap.spend_limit_cents = limit_cents;
             let remaining = allowance_remaining_pct(&snap);
-            assert!(remaining >= RESERVE, "degenerate pair must not gate: {remaining}");
+            assert!(
+                remaining >= RESERVE,
+                "degenerate pair must not gate: {remaining}"
+            );
         }
     }
 
@@ -111,7 +117,10 @@ mod allowance_tests {
         snap.spend_limit_cents = Some(2000.0);
         snap.spend_remaining_cents = Some(0.0);
         let remaining = allowance_remaining_pct(&snap);
-        assert!(remaining < RESERVE, "true spend exhaustion must gate: {remaining}");
+        assert!(
+            remaining < RESERVE,
+            "true spend exhaustion must gate: {remaining}"
+        );
     }
 
     #[test]
@@ -119,7 +128,10 @@ mod allowance_tests {
         let mut snap = snapshot();
         snap.session_pct = Some(97.0);
         let remaining = allowance_remaining_pct(&snap);
-        assert!(remaining < RESERVE, "session>100-reserve must gate: {remaining}");
+        assert!(
+            remaining < RESERVE,
+            "session>100-reserve must gate: {remaining}"
+        );
         assert!((remaining - 3.0).abs() < f32::EPSILON);
     }
 
@@ -129,6 +141,9 @@ mod allowance_tests {
         snap.session_pct = Some(10.0);
         snap.weekly_pct = Some(96.0);
         let remaining = allowance_remaining_pct(&snap);
-        assert!(remaining < RESERVE, "weekly>100-reserve must gate: {remaining}");
+        assert!(
+            remaining < RESERVE,
+            "weekly>100-reserve must gate: {remaining}"
+        );
     }
 }

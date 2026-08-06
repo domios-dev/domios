@@ -580,7 +580,11 @@ mod tests {
         assert!(snapshot_is_exhausted(&snap_with(None, Some(100.0), None)));
         assert!(snapshot_is_exhausted(&snap_with(None, None, Some(0.0))));
         assert!(snapshot_is_exhausted(&snap_with(None, None, Some(-5.0))));
-        assert!(!snapshot_is_exhausted(&snap_with(Some(99.9), Some(99.9), Some(1.0))));
+        assert!(!snapshot_is_exhausted(&snap_with(
+            Some(99.9),
+            Some(99.9),
+            Some(1.0)
+        )));
     }
 
     /// A SINGLE >=100 sample must interrupt no worker: the debounce advances the
@@ -589,7 +593,12 @@ mod tests {
     fn single_exhausted_sample_does_not_fire() {
         let (mut streak, mut fired) = (0, false);
         assert_eq!(
-            evaluate_exhaustion_debounce(&mut streak, &mut fired, true, EXHAUSTION_CONFIRM_THRESHOLD),
+            evaluate_exhaustion_debounce(
+                &mut streak,
+                &mut fired,
+                true,
+                EXHAUSTION_CONFIRM_THRESHOLD
+            ),
             None
         );
         assert_eq!(streak, 1);
@@ -614,7 +623,10 @@ mod tests {
             .iter()
             .filter(|s| **s == Some(ExhaustionSignal::Confirmed))
             .count();
-        assert_eq!(confirmations, 1, "confirmed exactly once across a sustained run");
+        assert_eq!(
+            confirmations, 1,
+            "confirmed exactly once across a sustained run"
+        );
         assert!(fired);
     }
 
@@ -623,11 +635,21 @@ mod tests {
     fn healthy_reading_resets_and_recovers() {
         let (mut streak, mut fired) = (0, false);
         for _ in 0..EXHAUSTION_CONFIRM_THRESHOLD {
-            evaluate_exhaustion_debounce(&mut streak, &mut fired, true, EXHAUSTION_CONFIRM_THRESHOLD);
+            evaluate_exhaustion_debounce(
+                &mut streak,
+                &mut fired,
+                true,
+                EXHAUSTION_CONFIRM_THRESHOLD,
+            );
         }
         assert!(fired);
         assert_eq!(
-            evaluate_exhaustion_debounce(&mut streak, &mut fired, false, EXHAUSTION_CONFIRM_THRESHOLD),
+            evaluate_exhaustion_debounce(
+                &mut streak,
+                &mut fired,
+                false,
+                EXHAUSTION_CONFIRM_THRESHOLD
+            ),
             Some(ExhaustionSignal::Recovered)
         );
         assert_eq!(streak, 0);
@@ -640,11 +662,21 @@ mod tests {
     fn blip_then_recovery_never_fires() {
         let (mut streak, mut fired) = (0, false);
         assert_eq!(
-            evaluate_exhaustion_debounce(&mut streak, &mut fired, true, EXHAUSTION_CONFIRM_THRESHOLD),
+            evaluate_exhaustion_debounce(
+                &mut streak,
+                &mut fired,
+                true,
+                EXHAUSTION_CONFIRM_THRESHOLD
+            ),
             None
         );
         assert_eq!(
-            evaluate_exhaustion_debounce(&mut streak, &mut fired, false, EXHAUSTION_CONFIRM_THRESHOLD),
+            evaluate_exhaustion_debounce(
+                &mut streak,
+                &mut fired,
+                false,
+                EXHAUSTION_CONFIRM_THRESHOLD
+            ),
             None
         );
         assert_eq!(streak, 0);

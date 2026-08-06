@@ -315,15 +315,16 @@ fn notify_send_is_canonical_and_bare_title_is_rejected() {
 // Form 3 — config get. ACCEPT: key is optional; absent means "dump all".
 #[test]
 fn config_get_key_is_optional_and_scoped_forms_are_distinct() {
-    let dump = Cli::try_parse_from(["codeterm", "config", "get"]).expect("keyless config get parses");
+    let dump =
+        Cli::try_parse_from(["codeterm", "config", "get"]).expect("keyless config get parses");
     assert!(matches!(
         dump.command,
         Commands::Config {
             action: ConfigAction::Get { key: None }
         }
     ));
-    let scoped =
-        Cli::try_parse_from(["codeterm", "config", "get", "api.port"]).expect("config get <key> parses");
+    let scoped = Cli::try_parse_from(["codeterm", "config", "get", "api.port"])
+        .expect("config get <key> parses");
     assert!(matches!(
         scoped.command,
         Commands::Config {

@@ -508,10 +508,7 @@ mod tests {
             std::env::var("CODETERM_DATA_DIR").ok().as_deref(),
             Some("/tmp/codeterm-dev-test")
         );
-        assert_eq!(
-            std::env::var("CODETERM_DEV").ok().as_deref(),
-            Some("1")
-        );
+        assert_eq!(std::env::var("CODETERM_DEV").ok().as_deref(), Some("1"));
 
         std::env::set_var("CODETERM_TAB_ID", "daemon-owned-tab");
         assert_eq!(

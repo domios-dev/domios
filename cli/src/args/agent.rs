@@ -599,8 +599,7 @@ mod tests {
             _ => panic!("expected agent spawn"),
         }
 
-        let action =
-            parse_spawn(&["claude", "--role", "Worker"]).expect("role should still parse");
+        let action = parse_spawn(&["claude", "--role", "Worker"]).expect("role should still parse");
         match action {
             AgentAction::Spawn { role, args, .. } => {
                 assert!(matches!(role, Some(SpawnRole::Worker)));

@@ -246,8 +246,15 @@ mod tests {
     fn small_limit_matches_pre_fix_value() {
         for limit in [1usize, 10, 50] {
             let eff = effective_plan_index_limit(limit);
-            assert_eq!(eff, legacy_small_limit(limit), "limit={limit} changed behavior");
-            assert!(eff >= limit, "limit={limit} eff={eff} dropped below user limit");
+            assert_eq!(
+                eff,
+                legacy_small_limit(limit),
+                "limit={limit} changed behavior"
+            );
+            assert!(
+                eff >= limit,
+                "limit={limit} eff={eff} dropped below user limit"
+            );
         }
     }
 

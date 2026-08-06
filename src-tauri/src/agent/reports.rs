@@ -778,7 +778,11 @@ mod tests {
         let store = ReportStore::with_ledger(100, ledger);
         store.record_spawn_audit("parent_tab", "roleless_tab", "install watchdog", 77);
         let rows = store.ledger_rows("parent_tab");
-        assert_eq!(rows.len(), 1, "the roleless spawn is now tracked under its parent");
+        assert_eq!(
+            rows.len(),
+            1,
+            "the roleless spawn is now tracked under its parent"
+        );
         assert_eq!(rows[0].worker_tab_id, "roleless_tab");
         assert_eq!(rows[0].title, "install watchdog");
         assert_eq!(rows[0].updated_at, 77);
@@ -802,7 +806,11 @@ mod tests {
         store.add_detailed("orch", "w_blocked", "Worker", "stuck", blocked, None);
 
         let completed = store.completed_rows(50);
-        assert_eq!(completed.len(), 1, "only finished lanes appear on the Done surface");
+        assert_eq!(
+            completed.len(),
+            1,
+            "only finished lanes appear on the Done surface"
+        );
         assert_eq!(completed[0].worker_tab_id, "w_done");
         std::fs::remove_dir_all(db.parent().unwrap()).ok();
     }

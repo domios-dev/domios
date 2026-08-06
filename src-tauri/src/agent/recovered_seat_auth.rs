@@ -164,7 +164,9 @@ mod tests {
         ];
         let batch = evaluate_batch(&actions);
         assert!(!batch.granted);
-        let blocked = batch.blocked_action.expect("a blocked action must be named");
+        let blocked = batch
+            .blocked_action
+            .expect("a blocked action must be named");
         assert_eq!(blocked.action_id, "write");
         assert_eq!(blocked.decision, ApprovalDecision::NeedsApproval);
         // The permitted actions keep their single-action grant even in the batch.
@@ -193,8 +195,8 @@ mod tests {
             action("focus", ActionClass::Focus),
             action("write", ActionClass::StateChange),
         ];
-        let surface =
-            recovered_seat_surface("seat-1", &actions).expect("blocked batch must render a surface");
+        let surface = recovered_seat_surface("seat-1", &actions)
+            .expect("blocked batch must render a surface");
         assert_eq!(surface.tab_id, "seat-1");
         assert_eq!(surface.blocked_action_id, "write");
         assert_eq!(surface.blocked_action_label, "action write");
