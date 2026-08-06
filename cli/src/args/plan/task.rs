@@ -13,6 +13,15 @@ pub enum PlanTaskAction {
         #[arg(long, help = "Include paused, done, and cancelled tasks")]
         all: bool,
     },
+    /// Show one task in the plan with full detail (body, criteria, test_plan, correctness, executor_role, sections)
+    Show {
+        plan_id: String,
+        task_id: String,
+        #[arg(long, help = "List sibling tasks (open-only unless --all)")]
+        siblings: bool,
+        #[arg(long, help = "With --siblings, include done/cancelled tasks")]
+        all: bool,
+    },
     /// Add a task to a plan (carries model/why routing + quality fields)
     Add {
         plan_id: String,
