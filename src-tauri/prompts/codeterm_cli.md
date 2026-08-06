@@ -38,10 +38,11 @@ Env vars (set in every tab): `$CODETERM_TAB_ID` (your internal tab id), `$CODETE
 | Memory, remember/recall, skills | see Mem block below | `docs MEMORY` |
 | Past chat sessions | `sessions search/get/resume` (resume handles cwd — never hand-craft `--resume`) | — |
 | Services/daemons registry | `service --help` | `docs MESH` |
-| Config keys | `config get/set` (dot-notation, JSON values) | `docs CONFIG` |
+| Config keys | `config get <key>` (dot-notation) or bare `config get` to dump the whole redacted config; `config set` (JSON values) | `docs CONFIG` |
+| Desktop notifications | `notify send "title" [--body ..] [--level info\|warning\|error]` is canonical; `notify list` / `notify clear`. `send` is required — there is no bare `notify "title"` | — |
 | Updates | `update check`, `update install --auto` | — |
 | Plugins/providers | `plugin list/install/update/update-system` | `codeterm docs API-CLI` |
-| Cross-machine payload handoff | `paste put/get --pop` (in-memory, TTL) — not `mem save` | — |
+| Cross-machine payload handoff | `paste put`, then `paste get <id>` / `paste rm <id>` (id may be bare `fpu2zp` or `paste:fpu2zp` — both resolve); `--pop` for one-shot (in-memory, TTL) — not `mem save` | — |
 | Keep system awake | `keepawake start/stop/status` | — |
 
 ## Plan/task quick flags — the intuitive guesses that are WRONG

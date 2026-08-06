@@ -415,11 +415,13 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 )
             }
             crate::PasteAction::Get { id, pop } => {
+                let id = crate::cmd::paste::normalize_paste_id(id);
                 let q = if *pop { "?pop=true" } else { "" };
                 ("GET".into(), format!("/api/pasteboard/{}{}", id, q), None)
             }
             crate::PasteAction::List => ("GET".into(), "/api/pasteboard".into(), None),
             crate::PasteAction::Rm { id } => {
+                let id = crate::cmd::paste::normalize_paste_id(id);
                 ("DELETE".into(), format!("/api/pasteboard/{}", id), None)
             }
         },
@@ -484,9 +486,11 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             _ => ("GET".into(), "/api/crons".into(), None),
         },
         Commands::Config { action } => match action {
-            crate::ConfigAction::Get { key } => {
-                ("GET".into(), format!("/api/config?key={}", key), None)
-            }
+            crate::ConfigAction::Get { key } => (
+                "GET".into(),
+                crate::transport::pre_socket::config_get_path(key.as_deref()),
+                None,
+            ),
             crate::ConfigAction::Set { key, value } => {
                 let v: serde_json::Value =
                     serde_json::from_str(value).unwrap_or(serde_json::json!(value));
