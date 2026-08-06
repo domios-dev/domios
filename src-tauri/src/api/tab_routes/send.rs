@@ -237,26 +237,6 @@ pub async fn send_text(
     if svc_token_match.is_none() {
         check_auth(&state, &headers)?;
     }
-    // Access control before delivery: a tracked roleless pane must not message
-    // the General Agent aliases. Pure authorization — runs before any target
-    // resolution or PTY interaction.
-    if let Some(source) = body.source_tab.as_deref().filter(|s| !s.is_empty()) {
-        let sender_roleless = state.svc.tab_is_roleless_tracked(source);
-        if crate::agent::roleless_send::is_send_blocked(sender_roleless, &raw_tab_id) {
-            return Err(SendRejection {
-                status: StatusCode::FORBIDDEN,
-                body: serde_json::json!({
-                    "ok": false,
-                    "error": {
-                        "code": "roleless_send_forbidden",
-                        "message": format!(
-                            "roleless pane {source} may not message protected alias {raw_tab_id}"
-                        ),
-                    },
-                }),
-            });
-        }
-    }
     // Reachability is the FIRST fallible step and the only one allowed to report
     // a missing tab — everything past it has resolved a real target.
     let tab_id =
