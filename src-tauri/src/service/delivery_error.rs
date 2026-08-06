@@ -3,6 +3,15 @@ use axum::http::StatusCode;
 use crate::multiplexer::types::PendingDeliveryState;
 use crate::service::inject_verify::InjectionError;
 
+/// Who initiated a send. The always-deliver-never-refuse policy applies only to
+/// USER sends (chat UI); programmatic agent-to-agent / mesh / CLI sends keep the
+/// honest typed outcomes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SendOrigin {
+    User,
+    Programmatic,
+}
+
 /// Structured outcome of a tab delivery, carried verbatim across the mesh relay
 /// boundary. The `bytes_written` flag is the load-bearing part: a caller may
 /// never be told "not found" for a tab that already holds the text.
@@ -33,6 +42,27 @@ impl DeliveryError {
     /// True only when the PTY may already hold the payload.
     pub fn bytes_written(&self) -> bool {
         matches!(self, Self::SubmitUnconfirmed { .. })
+    }
+
+    /// Whether a send of this origin may surface this outcome as a user-facing
+    /// refusal. A USER send never does (always-deliver); a programmatic send
+    /// keeps the honest split — a pre-write refusal fails, a submit is unknown.
+    pub fn surfaces_as_failure(&self, origin: SendOrigin) -> bool {
+        match origin {
+            SendOrigin::User => false,
+            SendOrigin::Programmatic => !self.bytes_written(),
+        }
+    }
+
+    /// Collapse this outcome to what a send of `origin` may surface. `Ok` means
+    /// no user-facing refusal (pending-until-link / unconfirmed); the payload is
+    /// still written at most once upstream — this never re-writes it.
+    pub fn into_surfaced(self, origin: SendOrigin) -> Result<(), Self> {
+        if self.surfaces_as_failure(origin) {
+            Err(self)
+        } else {
+            Ok(())
+        }
     }
 
     pub fn delivery_state(&self) -> PendingDeliveryState {
