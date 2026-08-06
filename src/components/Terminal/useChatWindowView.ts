@@ -43,6 +43,7 @@ function toEchoes(msgs: readonly ChatMessage[]): OptimisticEcho[] {
     content: m.content,
     sentAtMs: Number(m.timestamp) || 0,
     clientOrder: m.clientOrder,
+    correlationId: m.correlationId,
   }));
 }
 
@@ -190,6 +191,9 @@ export function useChatWindowView({
         content,
         timestamp: String(Date.now()),
         clientOrder,
+        // The bubble's own id doubles as its stable send-correlation token; the
+        // server echoes it onto the committed turn to reconcile by identity.
+        correlationId: id,
       },
     ]);
     return id;

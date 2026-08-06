@@ -220,6 +220,66 @@ function contents(state: TranscriptState): string[] {
   );
 }
 
+// ── 3c. Stable correlation id: the optimistic bubble reconciles with a
+// chip-enriched echo by identity, so the server row REPLACES it (one msg.id),
+// even though the echo's content diverges from the raw typed text.
+{
+  const attached = reduceTranscript(
+    createTranscriptState(),
+    batch("snapshot", 0, 300, [
+      { id: "0-0", type: "assistant", content: "old reply", seq: 0, timestamp: "1700000000000" },
+    ]),
+  ).state;
+  const token = "opt-1700000005000-7";
+  const optimistic: NormalizedChatMessage[] = [
+    { id: token, type: "user", content: "see task_x", timestamp: "1700000005000", clientOrder: 1, correlationId: token },
+  ];
+  // Server echoes the SAME token onto a committed turn whose content is enriched
+  // with an entity-reference chip — raw "see task_x" no longer equals the echo.
+  const echoed = reduceTranscript(
+    attached,
+    batch("delta", 300, 600, [
+      {
+        id: "300-0",
+        type: "user",
+        content: "◆ task_x — quarterly review #plan_abc ◆",
+        seq: 0,
+        clientOrder: 3,
+        correlationId: token,
+      },
+    ]),
+  ).state;
+  const reconciled = projectTranscript(echoed, optimistic);
+  eq(reconciled.pending.length, 0, "chip-enriched echo reconciles the optimistic bubble by correlation id");
+  const userRows = reconciled.rows.filter((row) => row.type === "user");
+  eq(userRows.length, 1, "optimistic + enriched echo collapse to exactly one user row");
+  eq(userRows[0]?.id, "300:0", "the SERVER row wins the single identity — not the optimistic one");
+  eq(
+    new Set(reconciled.rows.map((row) => row.id)).size,
+    reconciled.rows.length,
+    "every projected row keeps a unique id — no duplicate React key",
+  );
+}
+
+// ── 3d. Two distinct sends with identical text but DIFFERENT tokens stay two
+// bubbles — the correlation-id path never collapses real repeats.
+{
+  const echoed = reduceTranscript(
+    createTranscriptState(),
+    batch("snapshot", 0, 400, [
+      { id: "0-0", type: "user", content: "yes", seq: 0, correlationId: "tok-a" },
+      { id: "0-1", type: "assistant", content: "ok", seq: 1 },
+      { id: "0-2", type: "user", content: "yes", seq: 2, correlationId: "tok-b" },
+    ]),
+  ).state;
+  const reconciled = projectTranscript(echoed, []);
+  eq(
+    reconciled.rows.filter((row) => row.type === "user" && row.content === "yes").length,
+    2,
+    "distinct-token repeats of the same text remain two bubbles",
+  );
+}
+
 // ── 4. Live delta racing a snapshot: monotonic and idempotent by byte range.
 {
   const base = reduceTranscript(
