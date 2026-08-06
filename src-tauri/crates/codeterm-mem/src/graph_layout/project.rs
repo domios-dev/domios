@@ -280,6 +280,13 @@ fn rayleigh(cov: &[f64], v: &[f64], dim: usize) -> f64 {
 }
 
 /// Run the full projection and swap the cache. Returns the new layout_version.
+#[cfg(not(feature = "embeddings"))]
+pub fn run_full(_conn: &rusqlite::Connection, _cache: &LayoutCache) -> Result<u64, String> {
+    Err("layout projection unavailable on this build (needs the embeddings feature)".into())
+}
+
+/// Run the full projection and swap the cache. Returns the new layout_version.
+#[cfg(feature = "embeddings")]
 pub fn run_full(conn: &rusqlite::Connection, cache: &LayoutCache) -> Result<u64, String> {
     let started = std::time::Instant::now();
     let vectors = load_primary_vectors(conn)?;
@@ -287,14 +294,6 @@ pub fn run_full(conn: &rusqlite::Connection, cache: &LayoutCache) -> Result<u64,
     log::info!("[graph_layout] full projection: {n} primary vectors");
 
     let raw: Vec<Vec<f32>> = vectors.iter().map(|(_, v)| v.clone()).collect();
-    #[cfg(not(feature = "embeddings"))]
-    {
-        let _ = raw;
-        return Err(
-            "layout projection unavailable on this build (needs the embeddings feature)".into(),
-        );
-    }
-    #[cfg(feature = "embeddings")]
     let (projected, knn) = project_2d(&raw)?;
     let mut normalized = placement::normalize(&projected);
 
