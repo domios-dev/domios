@@ -181,14 +181,40 @@ impl PlanStore {
         };
         paths::normalize_plan_paths(&mut plan, project_root);
         tag_model::normalize_plan(&mut plan);
-        // Co-located spec.yaml rides with its plan (startup scan + reconcile).
-        if let Some(dir) = path.parent() {
+        // Load the co-located disk spec into memory BEFORE committing the plan, so
+        // the plan+spec persist writes the hand-edited disk spec, not the stale
+        // in-memory copy that persist_plan_and_spec would otherwise rewrite over it.
+        let colocated_spec = path.parent().and_then(|dir| {
             let spec_yaml = dir.join("spec.yaml");
-            if spec_yaml.is_file() {
-                self.load_spec_file_into_index(spec_yaml, project_root)?;
+            spec_yaml.is_file().then_some(spec_yaml)
+        });
+        if let Some(spec_yaml) = &colocated_spec {
+            match spec_store::load_spec_from_path(spec_yaml) {
+                Ok(mut spec) => {
+                    paths::normalize_spec_paths(&mut spec, project_root);
+                    self.upsert_spec_arc(spec);
+                }
+                Err(error) => log::warn!(
+                    "[plan] co-located spec {} failed to load: {}",
+                    spec_yaml.display(),
+                    error
+                ),
             }
         }
+        // Persist the plan row BEFORE its co-located spec: specs.plan_id has a FK
+        // to plans(id), so a spec written first fails with FOREIGN KEY constraint
+        // failed and used to discard the whole plan on every startup.
         self.commit_loaded_plan(plan)?;
+        // A malformed co-located spec must not take its plan down with it.
+        if let Some(spec_yaml) = colocated_spec {
+            if let Err(error) = self.load_spec_file_into_index(spec_yaml.clone(), project_root) {
+                log::warn!(
+                    "[plan] plan loaded but co-located spec {} skipped: {}",
+                    spec_yaml.display(),
+                    error
+                );
+            }
+        }
         Ok(())
     }
 

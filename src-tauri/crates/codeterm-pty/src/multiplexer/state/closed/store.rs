@@ -7,7 +7,7 @@ use rusqlite::{params, Connection};
 
 use crate::multiplexer::types::{ClosedTab, TabBacking};
 
-const CURRENT_CLOSED_SCHEMA_VERSION: u32 = 3;
+const CURRENT_CLOSED_SCHEMA_VERSION: u32 = 4;
 
 /// Per-workspace cap on retained closed tabs; oldest fall off once exceeded.
 pub const RECENTLY_CLOSED_CAP: usize = 1000;
@@ -126,6 +126,10 @@ impl ClosedTabsStore {
                     Self::migrate_v3_add_role_profile(conn)?;
                     version = 3;
                 }
+                3 => {
+                    Self::migrate_v4_add_worker_id(conn)?;
+                    version = 4;
+                }
                 CURRENT_CLOSED_SCHEMA_VERSION => return Ok(()),
                 _ => return Err(rusqlite::Error::InvalidQuery),
             }
@@ -161,7 +165,8 @@ impl ClosedTabsStore {
                 chat_view        INTEGER NOT NULL DEFAULT 0,
                 workspace_id     TEXT NOT NULL DEFAULT '',
                 workspace_name   TEXT NOT NULL DEFAULT '',
-                closed_at        INTEGER NOT NULL DEFAULT 0
+                closed_at        INTEGER NOT NULL DEFAULT 0,
+                worker_id        TEXT
             );
 
             CREATE INDEX IF NOT EXISTS idx_closed_tab_workspace
@@ -171,7 +176,7 @@ impl ClosedTabsStore {
             CREATE INDEX IF NOT EXISTS idx_closed_tab_recent
                 ON closed_tab(closed_at DESC);
 
-            PRAGMA user_version = 3;
+            PRAGMA user_version = 4;
             "#,
         )
     }
@@ -190,6 +195,15 @@ impl ClosedTabsStore {
             r#"
             ALTER TABLE closed_tab ADD COLUMN role_profile TEXT;
             PRAGMA user_version = 3;
+            "#,
+        )
+    }
+
+    fn migrate_v4_add_worker_id(conn: &Connection) -> rusqlite::Result<()> {
+        conn.execute_batch(
+            r#"
+            ALTER TABLE closed_tab ADD COLUMN worker_id TEXT;
+            PRAGMA user_version = 4;
             "#,
         )
     }
@@ -236,8 +250,8 @@ impl ClosedTabsStore {
                 r#"
                 INSERT INTO closed_tab
                     (group_id, tab_id, parent_tab_id, title, description, backing_json,
-                     cwd, agent_type, agent_session_id, role_profile, model, chat_view, workspace_id, workspace_name, closed_at)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
+                     cwd, agent_type, agent_session_id, role_profile, model, chat_view, workspace_id, workspace_name, closed_at, worker_id)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
                 "#,
                 params![
                     group.group_id,
@@ -255,6 +269,7 @@ impl ClosedTabsStore {
                     tab.workspace_id,
                     tab.workspace_name,
                     tab.closed_at as i64,
+                    tab.worker_id,
                 ],
             )
             .map_err(|e| format!("insert tab: {}", e))?;
@@ -340,7 +355,7 @@ impl ClosedTabsStore {
         let mut stmt = match conn.prepare(
             r#"
             SELECT tab_id, parent_tab_id, title, description, backing_json, cwd,
-                   agent_type, agent_session_id, role_profile, model, chat_view, workspace_id, workspace_name, closed_at
+                   agent_type, agent_session_id, role_profile, model, chat_view, workspace_id, workspace_name, closed_at, worker_id
             FROM closed_tab
             WHERE workspace_id = ?1
             ORDER BY closed_at DESC, id DESC
@@ -364,7 +379,7 @@ impl ClosedTabsStore {
             r#"
             SELECT p.group_id, g.kind, p.tab_id, p.parent_tab_id, p.title, p.description,
                    p.backing_json, p.cwd, p.agent_type, p.agent_session_id, p.role_profile, p.model, p.chat_view,
-                   p.workspace_id, p.workspace_name, p.closed_at
+                   p.workspace_id, p.workspace_name, p.closed_at, p.worker_id
             FROM closed_tab p
             JOIN closed_group g ON g.group_id = p.group_id
             ORDER BY p.closed_at DESC, p.id DESC
@@ -402,7 +417,7 @@ impl ClosedTabsStore {
         conn.query_row(
             r#"
                 SELECT id, tab_id, parent_tab_id, title, description, backing_json, cwd,
-                       agent_type, agent_session_id, role_profile, model, chat_view, workspace_id, workspace_name, closed_at
+                       agent_type, agent_session_id, role_profile, model, chat_view, workspace_id, workspace_name, closed_at, worker_id
                 FROM closed_tab
                 WHERE workspace_id = ?1
                 ORDER BY closed_at DESC, id DESC
@@ -455,7 +470,7 @@ impl ClosedTabsStore {
         conn.query_row(
             r#"
                 SELECT id, tab_id, parent_tab_id, title, description, backing_json, cwd,
-                       agent_type, agent_session_id, role_profile, model, chat_view, workspace_id, workspace_name, closed_at
+                       agent_type, agent_session_id, role_profile, model, chat_view, workspace_id, workspace_name, closed_at, worker_id
                 FROM closed_tab
                 WHERE tab_id = ?1
                 ORDER BY closed_at DESC, id DESC
@@ -505,7 +520,7 @@ impl ClosedTabsStore {
                 .prepare(
                     r#"
                     SELECT tab_id, parent_tab_id, title, description, backing_json, cwd,
-                           agent_type, agent_session_id, role_profile, model, chat_view, workspace_id, workspace_name, closed_at
+                           agent_type, agent_session_id, role_profile, model, chat_view, workspace_id, workspace_name, closed_at, worker_id
                     FROM closed_tab WHERE group_id = ?1
                     ORDER BY closed_at DESC, id DESC
                     "#,
@@ -568,6 +583,7 @@ impl ClosedTabsStore {
             workspace_id: r.get(base + 11).unwrap_or_default(),
             workspace_name: r.get(base + 12).unwrap_or_default(),
             closed_at: r.get::<_, i64>(base + 13).unwrap_or(0) as u64,
+            worker_id: r.get(base + 14).ok().flatten(),
         }
     }
 }
@@ -587,6 +603,7 @@ mod tests {
             agent_type: None,
             agent_session_id: None,
             role_profile: None,
+            worker_id: None,
             model: None,
             chat_view: false,
             closed_at,

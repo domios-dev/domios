@@ -25,8 +25,10 @@ jobs:
           printf '%s' "$PR_BODY" > "$RUNNER_TEMP/pr-body.md"
           jq -n --argjson number '${{ github.event.pull_request.number }}' \
             --arg url '${{ github.event.pull_request.html_url }}' \
+            --arg base_ref '${{ github.event.pull_request.base.ref }}' \
             --rawfile body "$RUNNER_TEMP/pr-body.md" \
-            '[{number: $number, url: $url, body: $body}]' > "$RUNNER_TEMP/release-prs.json"
+            '[{number: $number, url: $url, body: $body, base_ref: $base_ref}]' \
+            > "$RUNNER_TEMP/release-prs.json"
           printf '[]' > "$RUNNER_TEMP/release-commits.json"
           for sha in $(git rev-list '${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}'); do
             git show -s --format=%B "$sha" > "$RUNNER_TEMP/commit-body.txt"
@@ -43,6 +45,8 @@ jobs:
             > "$RUNNER_TEMP/resolved-public-issues.json"
           jq -r '.issues[].reference' "$RUNNER_TEMP/resolved-public-issues.json" \
             > "$RUNNER_TEMP/public-issues.txt"
+          jq -r '.repository_issues[].reference' "$RUNNER_TEMP/resolved-public-issues.json" \
+            > "$RUNNER_TEMP/repository-issues.txt"
 
           {
             echo "## Public issue contract"
@@ -56,5 +60,19 @@ jobs:
               done < "$RUNNER_TEMP/public-issues.txt"
             else
               echo "No public issues declared."
+            fi
+
+            echo
+            echo "## Source repository issue contract"
+            if [ -s "$RUNNER_TEMP/repository-issues.txt" ]; then
+              while IFS= read -r reference; do
+                number="${reference##*#}"
+                gh issue view "$number" \
+                  --repo rollacode/codeterm \
+                  --json number,state,title >/dev/null
+                echo "- $reference"
+              done < "$RUNNER_TEMP/repository-issues.txt"
+            else
+              echo "No source repository issues declared."
             fi
           } | tee -a "$GITHUB_STEP_SUMMARY"

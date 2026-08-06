@@ -25,6 +25,12 @@ pub(crate) use spawn_model::{
 mod spawn_hidden_delivery;
 use spawn_hidden_delivery::deliver_hidden_pty_task;
 
+#[path = "spawn_identity.rs"]
+mod spawn_identity;
+#[cfg(test)]
+pub(crate) use spawn_identity::task_spawn_handle;
+pub(crate) use spawn_identity::{now_unix_secs, roleless_spawner, task_binding_from_spawn};
+
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct SpawnTabSpec {
     #[serde(default)]
@@ -416,6 +422,39 @@ impl ServiceContext {
                     }
                 }
             }
+        } else {
+            // Roleless spawn: link it into the hierarchy so it is never an
+            // untracked, unattributable pane. Bind the spawner as parent, flag
+            // it as a tracked roleless agent, and write a durable audit row.
+            let spawner = roleless_spawner(&agent, &spec);
+            if let Some(ref parent) = spawner {
+                let mut mux = self.mux.write();
+                if let Some(tab) = mux.get_tab_mut(&tab_id) {
+                    if tab.parent_tab_id.is_none() {
+                        tab.parent_tab_id = Some(parent.clone());
+                    }
+                }
+                let _ = mux.mark_roleless_tracked(&tab_id);
+            } else {
+                let _ = self.mux.write().mark_roleless_tracked(&tab_id);
+            }
+            if let Some(parent) = spawner {
+                let title = self
+                    .mux
+                    .read()
+                    .get_tab(&tab_id)
+                    .map(|t| t.title.clone())
+                    .unwrap_or_default();
+                self.report_store.lock().record_spawn_audit(
+                    &parent,
+                    &tab_id,
+                    &title,
+                    now_unix_secs(),
+                );
+            }
+        }
+        if let Some(binding) = task_binding_from_spawn(&agent) {
+            let _ = self.mux.write().set_task_binding_once(&tab_id, binding);
         }
         self.ensure_agent_pad(&tab_id).inspect_err(|_| {
             self.mux.write().rollback_spawn_tab(&ws_id, &tab_id);

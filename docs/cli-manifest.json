@@ -404,7 +404,7 @@
               "positional": false,
               "value_name": "ARGS",
               "default": null,
-              "help": "Extra args for the agent",
+              "help": "Extra provider args. Put this after all CodeTerm spawn options",
               "aliases": []
             },
             {
@@ -5503,6 +5503,14 @@
                   "aliases": []
                 },
                 {
+                  "name": "goal_text",
+                  "positional": true,
+                  "value_name": "GOAL_TEXT",
+                  "default": null,
+                  "help": "Optional trailing goal statement; stored as vision unless --vision/--vision-file is given",
+                  "aliases": []
+                },
+                {
                   "name": "plan_id",
                   "positional": true,
                   "value_name": "PLAN_ID",
@@ -6345,6 +6353,14 @@
           "aliases": [],
           "args": [
             {
+              "name": "mode",
+              "positional": true,
+              "value_name": "MODE",
+              "default": null,
+              "help": "Mode value as a trailing positional (alternative to --set): planning | approved | execution | complete",
+              "aliases": []
+            },
+            {
               "name": "plan_id",
               "positional": true,
               "value_name": "PLAN_ID",
@@ -6828,6 +6844,22 @@
               "subcommands": []
             }
           ]
+        },
+        {
+          "name": "rebind",
+          "about": "Re-sync a planning binding nonce that went stale after an agent relaunch, recovering plan mutation/approve/dispatch without a full `agent restart`",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": "Optional plan id for context; the rebind re-syncs this tab's binding",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
         },
         {
           "name": "reconcile",
@@ -7857,11 +7889,27 @@
                   "aliases": []
                 },
                 {
+                  "name": "correctness-file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
                   "name": "criterion",
                   "positional": false,
                   "value_name": "CRITERION",
                   "default": null,
                   "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "criterion-file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": "Read acceptance criteria from a file: a JSON string array, or one criterion per line. Appends to --criterion",
                   "aliases": []
                 },
                 {
@@ -8060,6 +8108,14 @@
                   "name": "test-plan",
                   "positional": false,
                   "value_name": "TEST_PLAN",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "test-plan-file",
+                  "positional": false,
+                  "value_name": "PATH",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -8269,7 +8325,7 @@
             },
             {
               "name": "close",
-              "about": "Close a task (records a result; rejects if subtasks are open)",
+              "about": "Close a task from any lifecycle state. The authenticated Plan Orchestrator overrides worker owner-epoch drift; open subtasks still block",
               "aliases": [],
               "args": [
                 {
@@ -8700,6 +8756,46 @@
               "subcommands": []
             },
             {
+              "name": "show",
+              "about": "Show one task in the plan with full detail (body, criteria, test_plan, correctness, executor_role, sections)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "all",
+                  "positional": false,
+                  "value_name": "ALL",
+                  "default": null,
+                  "help": "With --siblings, include done/cancelled tasks",
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "siblings",
+                  "positional": false,
+                  "value_name": "SIBLINGS",
+                  "default": null,
+                  "help": "List sibling tasks (open-only unless --all)",
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
               "name": "update",
               "about": "Update task metadata, status, quality fields, or lane assignment",
               "aliases": [],
@@ -8769,6 +8865,14 @@
                   "aliases": []
                 },
                 {
+                  "name": "correctness-file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
                   "name": "criterion",
                   "positional": false,
                   "value_name": "CRITERION",
@@ -8777,11 +8881,19 @@
                   "aliases": []
                 },
                 {
+                  "name": "criterion-file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": "Read acceptance criteria from a file: a JSON string array, or one criterion per line. Appends to --criterion",
+                  "aliases": []
+                },
+                {
                   "name": "depends-on",
                   "positional": false,
                   "value_name": "TASK_ID_OR_HANDLE",
                   "default": null,
-                  "help": "Task this one waits on; repeatable. Accepts a full task id (task_xxxxxx), a unique id prefix, or a task handle (see --handle)",
+                  "help": "Add a dependency; repeatable. Appends to existing dependencies (dedup). Accepts a full task id (task_xxxxxx), a unique id prefix, or a task handle. Use --replace-dependencies for wholesale replacement",
                   "aliases": []
                 },
                 {
@@ -8913,6 +9025,22 @@
                   "aliases": []
                 },
                 {
+                  "name": "remove-dependency",
+                  "positional": false,
+                  "value_name": "TASK_ID_OR_HANDLE",
+                  "default": null,
+                  "help": "Remove a specific dependency edge; repeatable. Applied after --depends-on additions",
+                  "aliases": []
+                },
+                {
+                  "name": "replace-dependencies",
+                  "positional": false,
+                  "value_name": "REPLACE_DEPENDENCIES",
+                  "default": null,
+                  "help": "Replace the whole dependency set with --depends-on instead of appending",
+                  "aliases": []
+                },
+                {
                   "name": "role-guidance",
                   "positional": false,
                   "value_name": "ROLE_GUIDANCE",
@@ -8980,6 +9108,14 @@
                   "name": "test-plan",
                   "positional": false,
                   "value_name": "TEST_PLAN",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "test-plan-file",
+                  "positional": false,
+                  "value_name": "PATH",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -9530,6 +9666,14 @@
           "aliases": []
         },
         {
+          "name": "require-agent",
+          "positional": false,
+          "value_name": "REQUIRE_AGENT",
+          "default": null,
+          "help": "Refuse unless the target tab has an agent attached. Guards task dispatch so prose never lands in a raw shell (issue #8)",
+          "aliases": []
+        },
+        {
           "name": "stdin",
           "positional": false,
           "value_name": "STDIN",
@@ -9554,6 +9698,16 @@
           "default": null,
           "help": "Text to send (positional, or omit and use --from-file/--stdin)",
           "aliases": []
+        },
+        {
+          "name": "to-shell",
+          "positional": false,
+          "value_name": "TO_SHELL",
+          "default": null,
+          "help": "Override the raw-shell prose guard and deliver text verbatim to a shell tab (the shell will execute it). Alias: --force",
+          "aliases": [
+            "force"
+          ]
         }
       ],
       "subcommands": []

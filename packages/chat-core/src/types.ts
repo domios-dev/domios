@@ -75,6 +75,11 @@ export interface NormalizedChatMessage {
   /** Frontend-only arrival/send order hint for live optimistic merges. Providers
    *  do not emit this; refresh paths rely on `timestamp`/`seq` instead. */
   clientOrder?: number;
+  /** Stable client send-correlation token. Set on the optimistic row and echoed
+   *  by the server onto the committed user turn, so an optimistic bubble
+   *  reconciles with its echo by identity — never content, which diverges once
+   *  the echo is enriched with entity-reference chips. */
+  correlationId?: string;
   /** Persisted provider-context generation reconstructed from reset markers. */
   contextEpoch?: number;
   provider?: string;

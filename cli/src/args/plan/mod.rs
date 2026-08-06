@@ -223,6 +223,12 @@ pub enum PlanAction {
     Approve { plan_id: String },
     /// Return an approved/execution plan to planning mode
     Unapprove { plan_id: String },
+    /// Re-sync a planning binding nonce that went stale after an agent relaunch,
+    /// recovering plan mutation/approve/dispatch without a full `agent restart`.
+    Rebind {
+        /// Optional plan id for context; the rebind re-syncs this tab's binding.
+        plan_id: Option<String>,
+    },
     /// Return a draft to drafting; approval uses `plan approve`
     PlanningState {
         plan_id: String,
@@ -237,8 +243,14 @@ pub enum PlanAction {
     /// Set explicit effort mode: planning | approved | execution | complete
     Mode {
         plan_id: String,
+        #[arg(
+            value_name = "MODE",
+            conflicts_with = "set",
+            help = "Mode value as a trailing positional (alternative to --set): planning | approved | execution | complete"
+        )]
+        mode: Option<String>,
         #[arg(long)]
-        set: String,
+        set: Option<String>,
     },
     /// Park the whole effort without changing task state or executor bindings
     #[command(visible_alias = "park")]
@@ -431,6 +443,11 @@ pub enum PlanGoalAction {
     /// Set the plan's goal vector, vision, constraints, and postulates
     Set {
         plan_id: String,
+        #[arg(
+            value_name = "GOAL_TEXT",
+            help = "Optional trailing goal statement; stored as vision unless --vision/--vision-file is given"
+        )]
+        goal_text: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         vector: String,
         #[arg(long, allow_hyphen_values = true)]
@@ -578,5 +595,97 @@ mod tests {
             .to_string();
         assert!(help.contains("Cascades"), "{help}");
         assert!(help.contains("owned spec"), "{help}");
+    }
+
+    fn parse_goal_set(argv: &[&str]) -> (Option<String>, Option<String>) {
+        use crate::args::cli::Commands;
+        use crate::args::plan::{PlanAction, PlanGoalAction};
+        use clap::Parser;
+        let cli = Cli::try_parse_from(argv).expect("goal set should parse");
+        match cli.command {
+            Commands::Plan {
+                action:
+                    PlanAction::Goal {
+                        action:
+                            PlanGoalAction::Set {
+                                goal_text, vision, ..
+                            },
+                    },
+            } => (goal_text, vision),
+            _ => panic!("expected plan goal set"),
+        }
+    }
+
+    #[test]
+    fn goal_set_accepts_trailing_positional_goal_text() {
+        let (goal_text, vision) = parse_goal_set(&[
+            "codeterm",
+            "plan",
+            "goal",
+            "set",
+            "pl_1",
+            "--vector",
+            "success proof",
+            "the north-star goal",
+        ]);
+        assert_eq!(goal_text.as_deref(), Some("the north-star goal"));
+        assert_eq!(vision, None);
+    }
+
+    fn parse_mode(argv: &[&str]) -> (Option<String>, Option<String>) {
+        use crate::args::cli::Commands;
+        use crate::args::plan::PlanAction;
+        use clap::Parser;
+        let cli = Cli::try_parse_from(argv).expect("plan mode should parse");
+        match cli.command {
+            Commands::Plan {
+                action: PlanAction::Mode { mode, set, .. },
+            } => (mode, set),
+            _ => panic!("expected plan mode"),
+        }
+    }
+
+    #[test]
+    fn plan_mode_positional_and_set_route_to_same_mode_value() {
+        let (pos_mode, pos_set) = parse_mode(&["codeterm", "plan", "mode", "pl_1", "complete"]);
+        assert_eq!(pos_mode.as_deref(), Some("complete"));
+        assert_eq!(pos_set, None);
+
+        let (flag_mode, flag_set) =
+            parse_mode(&["codeterm", "plan", "mode", "pl_1", "--set", "complete"]);
+        assert_eq!(flag_set.as_deref(), Some("complete"));
+        assert_eq!(flag_mode, None);
+
+        // The handler resolves via set-or-positional; both routes yield the same mode.
+        let positional_resolved = pos_set.or(pos_mode);
+        let flag_resolved = flag_set.or(flag_mode);
+        assert_eq!(positional_resolved, flag_resolved);
+        assert_eq!(flag_resolved.as_deref(), Some("complete"));
+    }
+
+    #[test]
+    fn plan_mode_rejects_positional_and_set_together() {
+        use clap::Parser;
+        let parsed = Cli::try_parse_from([
+            "codeterm", "plan", "mode", "pl_1", "complete", "--set", "planning",
+        ]);
+        assert!(parsed.is_err(), "positional MODE and --set must conflict");
+    }
+
+    #[test]
+    fn goal_set_keeps_explicit_vision_alongside_positional() {
+        let (goal_text, vision) = parse_goal_set(&[
+            "codeterm",
+            "plan",
+            "goal",
+            "set",
+            "pl_1",
+            "--vector",
+            "proof",
+            "--vision",
+            "explicit vision",
+        ]);
+        assert_eq!(goal_text, None);
+        assert_eq!(vision.as_deref(), Some("explicit vision"));
     }
 }

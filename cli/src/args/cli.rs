@@ -124,7 +124,11 @@ pub enum Commands {
     /// Sending to a SHELL tab delivers raw text/keys verbatim — no agent
     /// return-address marker is injected, so the shell runs exactly what you
     /// send. Sending to an AGENT tab prepends the sender marker so the agent
-    /// knows who to reply to. Key/sequence examples (use --actions):
+    /// knows who to reply to. To stop task charters from being executed as
+    /// shell commands, task-shaped (multiline/long) prose bound for a raw
+    /// shell is REFUSED by default — pass --to-shell (alias --force) to send
+    /// it anyway, or --require-agent to refuse any non-agent target.
+    /// Key/sequence examples (use --actions):
     ///   --actions "up,up,enter"   replay last commands
     ///   --actions "ctrl-c"        interrupt
     ///   --actions "y"             answer a character prompt
@@ -182,6 +186,16 @@ pub enum Commands {
         /// Queue for an absolute fire time: unix milliseconds, RFC3339, or local YYYY-MM-DDTHH:MM.
         #[arg(long, conflicts_with = "delay")]
         at: Option<String>,
+
+        /// Refuse unless the target tab has an agent attached. Guards task
+        /// dispatch so prose never lands in a raw shell (issue #8).
+        #[arg(long)]
+        require_agent: bool,
+
+        /// Override the raw-shell prose guard and deliver text verbatim to a
+        /// shell tab (the shell will execute it). Alias: --force.
+        #[arg(long, visible_alias = "force", conflicts_with = "require_agent")]
+        to_shell: bool,
     },
 
     /// Manage delayed Chat UI sends

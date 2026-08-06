@@ -2,9 +2,12 @@ pub mod apply;
 pub mod channel;
 pub mod checker;
 mod conpty_cleanup;
+pub mod failure_report;
 pub mod manifest;
+pub mod orchestrate;
 pub mod post_update;
 pub mod shutdown;
+pub mod viability;
 
 pub use channel::Channel;
 pub use manifest::Manifest;
