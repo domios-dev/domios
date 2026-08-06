@@ -27,9 +27,9 @@ use spawn_hidden_delivery::deliver_hidden_pty_task;
 
 #[path = "spawn_identity.rs"]
 mod spawn_identity;
-pub(crate) use spawn_identity::{
-    now_unix_secs, roleless_spawner, task_binding_from_spawn, task_spawn_handle,
-};
+pub(crate) use spawn_identity::{now_unix_secs, roleless_spawner, task_binding_from_spawn};
+#[cfg(test)]
+pub(crate) use spawn_identity::task_spawn_handle;
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct SpawnTabSpec {
