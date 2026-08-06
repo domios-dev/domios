@@ -332,8 +332,12 @@ impl ServiceContext {
             if !finalized {
                 return;
             }
-            let cleanup_error =
-                close_worker_after_final_deadline(|| service.close_tab(&worker_tab_id));
+            let cleanup_error = close_worker_after_final_deadline(|| {
+                service.close_tab_with_reason(
+                    &worker_tab_id,
+                    crate::multiplexer::types::TabCloseReason::PolicyWorker,
+                )
+            });
             if cleanup_error.is_some() {
                 let _ = service.plan_store.mark_worker_startup_cleanup_failed(
                     &plan_id,
