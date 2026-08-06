@@ -28,6 +28,17 @@ import { subscribeRemoteTabEvent } from "./remoteTabEvents";
 export type UnlistenFn = TauriUnlistenFn;
 export { IS_WEB };
 
+export interface ProviderIntegrationHealth {
+  hooks_installed?: boolean;
+  precompact_hook?: boolean;
+  session_start_hook?: boolean;
+  plugin_installed?: boolean;
+  plugin_file_current?: boolean;
+  status?: string;
+  target?: string;
+  [key: string]: unknown;
+}
+
 type Args = Record<string, unknown>;
 type Mapper = (args: Args) => Promise<unknown>;
 const webPtyOffsets = new Map<string, number>();
@@ -763,6 +774,25 @@ export async function invoke<T>(cmd: string, args?: Args): Promise<T> {
       }
     }
   }
+}
+
+export function checkProviderIntegration(providerId: string): Promise<ProviderIntegrationHealth> {
+  return invoke<ProviderIntegrationHealth>("check_provider_integration", { providerId });
+}
+
+export function installProviderIntegration(
+  providerId: string,
+  precompactMemoryExport?: boolean,
+): Promise<void> {
+  return invoke<void>("install_provider_integration", {
+    providerId,
+    consent: true,
+    ...(precompactMemoryExport === undefined ? {} : { precompactMemoryExport }),
+  });
+}
+
+export function uninstallProviderIntegration(providerId: string): Promise<void> {
+  return invoke<void>("uninstall_provider_integration", { providerId });
 }
 
 function isCommandNotFoundError(err: unknown): boolean {
