@@ -441,12 +441,6 @@ mod tests {
         }
     }
 
-    /// Reproduces the GA-auto-resume regression: when something else holds
-    /// `mem.conn`, calling `generate_instructions(_, Some(&mem))` from the
-    /// boot path must not pin the calling thread. lifecycle::start_general_agent
-    /// now spawns the regen on a side thread; this test pretends to be the
-    /// boot path and asserts the spawn returns instantly even with the lock
-    /// taken.
     #[test]
     fn generate_instructions_does_not_block_caller_when_mem_conn_held() {
         use std::sync::mpsc;
@@ -455,21 +449,17 @@ mod tests {
         let mem = crate::mem::MemManager::open_in_memory().unwrap();
         let dir = std::env::temp_dir().join(format!("ga-noblock-{}", ulid::Ulid::new()));
         std::fs::create_dir_all(&dir).unwrap();
-        std::env::set_var("HOME", &dir);
-        std::env::set_var("USERPROFILE", &dir);
 
-        // Hold the mem connection lock for the duration of the test — simulates a long-running embed/extract worker stalled on it.
         let _conn_guard = mem.conn().lock();
 
         let mem_clone = mem.clone();
+        let output_dir = dir.clone();
         let (started_tx, started_rx) = mpsc::channel();
         let t0 = Instant::now();
         let handle = std::thread::spawn(move || {
             started_tx.send(()).unwrap();
-            // This call WILL block on conn.lock(); the parent must not.
-            generate_instructions("claude", Some(&mem_clone));
+            generate_instructions_at(&output_dir, "claude", Some(&mem_clone));
         });
-        // `spawn` returns immediately; the parent is not blocked even though the spawned closure is parked on the conn lock.
         let elapsed = t0.elapsed();
         assert!(
             elapsed < Duration::from_millis(500),
@@ -479,8 +469,9 @@ mod tests {
         started_rx
             .recv_timeout(Duration::from_secs(1))
             .expect("spawned thread must run");
-        // We deliberately leak the join handle — releasing _conn_guard when the test exits unblocks the spawned thread, but waiting on it would couple the test to wake_up's runtime cost.
-        std::mem::drop(handle);
+        drop(_conn_guard);
+        handle.join().expect("instruction generation must complete");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

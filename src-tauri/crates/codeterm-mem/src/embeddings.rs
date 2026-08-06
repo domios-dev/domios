@@ -2,7 +2,7 @@
 //!
 //! Gated behind `embeddings` feature flag to avoid pulling onnxruntime
 //! (~50MB binary) into the default build. When the feature is off, this
-//! module compiles to no-op stubs and `mem recall` falls back to FTS5
+//! module compiles to no-op stubs and `mem search` falls back to FTS5
 //! hybrid search (which delivers 96.6% on LongMemEval per MemPalace).
 //!
 //! When the feature is on:

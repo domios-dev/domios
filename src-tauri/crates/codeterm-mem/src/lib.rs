@@ -56,6 +56,18 @@ pub use reindex::{body_is_embeddable, MIN_EMBED_BODY_CHARS};
 pub use search::{SearchHit, SearchQuery};
 pub use store::{MemItem, MemKind, MemScope, NewMemItem};
 
+pub fn model_cache_dir() -> PathBuf {
+    if let Some(dir) = std::env::var_os("CODETERM_EMBED_CACHE_DIR") {
+        return PathBuf::from(dir);
+    }
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir)
+        .join(".codeterm")
+        .join("fastembed_cache")
+}
+
 /// Cap on concurrent long-running mem operations (dreaming, extraction,
 /// embedding). API search / recall / save / get never acquire this permit,
 /// so they keep priority access to the connection lock.

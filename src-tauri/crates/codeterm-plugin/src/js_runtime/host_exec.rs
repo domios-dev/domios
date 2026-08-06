@@ -691,6 +691,7 @@ mod tests {
     #[test]
     fn resolve_bin_ignores_probe_dirs_when_which_succeeds() {
         let _guard = TEST_LOCK.lock();
+        let mut process_env = codeterm_util::test_env::EnvGuard::lock();
         RESOLVED_BINS.lock().clear();
         #[cfg(windows)]
         let name = format!("host_exec_{}.cmd", uuid::Uuid::new_v4().simple());
@@ -715,7 +716,7 @@ mod tests {
         if let Some(old) = old_path.as_deref() {
             paths.extend(std::env::split_paths(old));
         }
-        std::env::set_var("PATH", std::env::join_paths(paths).unwrap());
+        process_env.set("PATH", std::env::join_paths(paths).unwrap());
 
         // Decoy dir holding a same-named executable must be ignored: which() wins.
         let dir =
@@ -734,11 +735,6 @@ mod tests {
         let resolved = resolve_bin(&name, std::slice::from_ref(&dir));
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_dir_all(&path_dir);
-        if let Some(old) = old_path {
-            std::env::set_var("PATH", old);
-        } else {
-            std::env::remove_var("PATH");
-        }
         RESOLVED_BINS.lock().clear();
         assert_eq!(
             resolved, expected,

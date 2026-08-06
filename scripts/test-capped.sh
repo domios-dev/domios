@@ -14,6 +14,7 @@
 # Overridable env:
 #   TEST_CAP_SECS   optional positive seconds before SIGTERM + banner
 #   CARGO_TEST_CMD  command to run instead of "cargo test" (for testing this script itself)
+#   CODETERM_EMBED_CACHE_DIR shared machine cache for immutable embedding models
 
 set -euo pipefail
 
@@ -23,6 +24,19 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # No awk `exit`: it closes the pipe, SIGPIPEs rustc, and pipefail then aborts the
 # whole script at exit 141 with zero output.
 HOST_TRIPLE="${CODETERM_TEST_HOST_TRIPLE:-$(rustc -vV | awk -F': ' '/^host:/{print $2}')}"
+
+configure_embed_cache() {
+    if [ -n "${CODETERM_EMBED_CACHE_DIR:-}" ]; then
+        return
+    fi
+    [ -n "${HOME:-}" ] || {
+        printf 'error: HOME is required to select the shared embedding cache.\n' >&2
+        exit 2
+    }
+    CODETERM_EMBED_CACHE_DIR="$HOME/.codeterm/fastembed_cache"
+    export CODETERM_EMBED_CACHE_DIR
+    printf '[test-capped] shared embed cache: %s\n' "$CODETERM_EMBED_CACHE_DIR"
+}
 
 [[ -n "$HOST_TRIPLE" ]] || {
     printf 'error: unable to determine Rust host triple.\n' >&2
@@ -91,6 +105,7 @@ if [[ "$ARGS_JOINED" == *" --manifest-path cli/Cargo.toml "* && "$ARGS_JOINED" =
 fi
 
 configure_windows_test_target
+configure_embed_cache
 ensure_embed_sidecar
 
 # The cap owns the bounded failure deadline. It preserves the child status unless
