@@ -184,15 +184,28 @@ Keep that Tab open and require all of the following before reporting ready:
 - exactly one Cargo process remains, the foreground `tauri dev` watcher owned
   by the visible Tab. Any second Cargo/build owner must be stopped and traced.
 
-The canonical checkout owns shared dev, broad gates, and release checks. This is a team operating rule, not a branch-name restriction in the build script; the machine-wide gateway only serializes heavy app work.
+The canonical checkout owns shared dev, broad gates, and release checks. This is
+a team operating rule, not a branch-name restriction in the build script; the
+machine-wide gateway only serializes heavy app work.
 
-Gateway-backed commands fail fast when another job owns the machine slot, so an agent turn never blocks silently behind a long-lived dev process. Add `--wait-build` only when synchronous queueing is intentional.
+Gateway-backed commands fail fast when another job owns the machine slot, so
+an agent turn never blocks silently behind a long-lived dev process. Add
+`--wait-build` only when synchronous queueing is intentional.
 
 Use `./build.sh help` as the command index. `test-one <app|plan|pty|types|mem|mesh|plugin|cli> <filter>`
-hides manifest/package details for focused tests; `verify` runs the standard check, full Rust workspace library suite, and source-size integration gate. Rust tests keep the repository-owned `scripts/test-capped.sh` wrapper but wait for Cargo and libtest to finish by default. For a targeted diagnostic only, set `TEST_CAP_SECS=<positive-seconds>`; an enforced cap terminates the test process group and exits 124, while ordinary child success or failure is propagated.
+hides manifest/package details for focused tests; `verify` runs the standard
+check, full Rust workspace library suite, and source-size integration gate.
+Rust tests keep the repository-owned `scripts/test-capped.sh` wrapper but wait
+for Cargo and libtest to finish by default. For a targeted diagnostic only, set
+`TEST_CAP_SECS=<positive-seconds>`; an enforced cap terminates the test process
+group and exits 124, while ordinary child success or failure is propagated.
 
 `./build.sh cli` is intentionally independent from the app/dev build gateway:
-Cargo serializes its separate `cli/target` itself. The command also regenerates `docs/cli-manifest.json` and the generated block in `docs/CLI.md`, then installs the release binary only into the active development data directory. Dev builds never overwrite `~/.codeterm/bin`: production CLI updates come from the bundled production app during startup, in-app update, or `install-local`.
+Cargo serializes its separate `cli/target` itself. The command also regenerates
+`docs/cli-manifest.json` and the generated block in `docs/CLI.md`, then installs
+the release binary only into the active development data directory. Dev builds
+never overwrite `~/.codeterm/bin`: production CLI updates come from the bundled
+production app during startup, in-app update, or `install-local`.
 
 ### Development troubleshooting
 
@@ -203,7 +216,12 @@ Cargo serializes its separate `cli/target` itself. The command also regenerates 
 | `npm run test:unit` terminates healthy workers at the same elapsed time while files are still passing | The TypeScript scheduler applied an implicit suite deadline, so repository growth was misclassified as a hang | Use the current uncapped default and let the suite finish. Set `TS_UNIT_TIMEOUT_SECONDS` or `TS_UNIT_SUITE_TIMEOUT_SECONDS` only for a targeted diagnostic. |
 | `bash scripts/test-capped.test.sh` exits 141 before printing an assertion | Its host-triple probe closed the `rustc -vV` pipe early under `pipefail`, so rustc received SIGPIPE | Keep the probe consuming the complete rustc output; then rerun the shell contract. |
 | The test-capped shell contract exits 2 when simulating a Windows target on macOS | The fixture asked the wrapper to synthesize a foreign-platform embed sidecar with the local rustc host | Seed the fixture's inert Windows sidecar before testing Windows target selection. |
+| A build exits with `Timed out acquiring build gateway state mutex` | Another live or stale gateway owner held the state mutex through the acquisition deadline. The failed invocation now terminates only its own Cargo/rustc descendants before returning. | Run `./build.sh gateway-status` to inspect the active and queued job IDs. If a job is stale, run `./build.sh gateway-cancel <job-id>`, then rerun the original command. |
 | `build.ps1 check` exits 75 because the visible dev owns the gateway | The canonical incremental target is intentionally single-owner; waiting behind a foreground dev process cannot complete. | Stop and make an explicit canonical integration decision. Do not move the command into a Worker lane, add `--wait-build`, or hand-compose `CARGO_TARGET_DIR`. |
+| A Windows dev build fails while writing `codeterm_lib.lib` with `os error 112` or a localized “not enough disk space” message | The canonical `src-tauri/target` exhausted the checkout drive while Cargo was replacing the debug archive. | Verify the failure owns the canonical target and no dev build is running, then run `.\build.ps1 clean`. Confirm free space before restarting `.\build.ps1 dev`; do not delete another worktree's target or touch production. |
+| A Windows native dependency fails with `LNK1106` and `dumpbin` shows a cached `.o` ending before its COFF string-table length | `sccache` retained a truncated C/C++ object; a clean Cargo target can restore the same corrupt cache entry. | In PowerShell set `$env:SCCACHE_RECACHE='1'`, rerun the failing `.\build.ps1` operation once, then remove the environment variable. Verify the rebuilt object with `dumpbin` before retrying normally. |
+| `rustc` exits with `0xc0000005 (STATUS_ACCESS_VIOLATION)` while compiling an unchanged dependency | The Windows compiler process crashed before producing a source diagnostic; this is not a Rust assertion or test failure. | Rerun the same bounded `build.ps1` operation once so completed artifacts are reused. If it repeats, stop, preserve the exact rustc command and Windows crash evidence, and report the toolchain fault; do not clean targets or raise test deadlines. |
+| After an OS crash, `rustc` panics while linking with `Invalid archive terminator` | A generated `.rlib` in the canonical Cargo target was truncated; incremental metadata cleanup cannot repair the archive payload. | Confirm no dev build is running, run `.\build.ps1 clean`, then restart the original named operation. Do not delete individual archives or reuse the damaged target. |
 | Dev compiles and opens but port 7686 never listens, with a trust-boundary policy error in `~/.codeterm-dev/logs/codeterm.log` | The retained dev config requests a non-loopback host without a bearer token, or contains a wildcard/malformed CORS origin. | Keep dev local by setting `api.host = "127.0.0.1"`, or configure a token for an intentional network-facing instance. Remove `*` and malformed entries from `api.cors_allow_origins`; an empty list is valid and denies all cross-origin browser requests. |
 | `test-one plan` fails to compile old `Task` fixtures after an orchestration schema change | The app gate compiled the plan crate as a dependency but did not compile its own unit-test fixtures. | Update every direct `Task` fixture and changed helper signature, then rerun the exact `test-one plan` filter. Do not remove the plan gate or move it to an app filter. |
 | `build.ps1 check` cannot resolve a newly re-exported plan mutation type | A split mutation module relied on `use super::*`, but the parent module did not import that public service type. | Import the type explicitly from `crate::service_plan`, then rerun the same canonical check. |
@@ -226,6 +244,6 @@ Cargo serializes its separate `cli/target` itself. The command also regenerates 
 
 ## Related documents
 
-Tooling, outputs, platform notes, and repository layout: `codeterm docs BUILD-REFERENCE`. Test workflows: `codeterm docs TESTING`.
+Tooling, outputs, platform notes, and repository layout: `docs/BUILD-REFERENCE.md`. Test workflows: `codeterm docs TESTING`.
 
-<!-- revision: 89 -->
+<!-- revision: 88 -->
