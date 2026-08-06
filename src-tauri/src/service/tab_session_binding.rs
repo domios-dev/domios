@@ -36,6 +36,14 @@ impl ServiceContext {
         let mut changed = false;
         if let Some(tab) = mux.get_tab_mut(tab_id) {
             changed = tab.agent_session_id != session_id;
+            // Only a swap between two REAL sessions is a new lineage; a resume
+            // (None -> same id) keeps the pre-relaunch nonces recoverable.
+            let genuine_session_swap = tab.agent_session_id.is_some()
+                && session_id.is_some()
+                && tab.agent_session_id != session_id;
+            if genuine_session_swap {
+                tab.prior_session_binding_nonces.clear();
+            }
             tab.agent_session_id = session_id;
             tab.reported_session_binding_nonce = None;
             if changed {
@@ -76,6 +84,7 @@ impl ServiceContext {
         self.open_lifecycle_epoch(tab_id);
         let nonce = uuid::Uuid::new_v4().to_string();
         if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
+            tab.remember_superseded_binding_nonce();
             tab.session_binding_nonce = Some(nonce.clone());
             tab.reported_session_binding_nonce = None;
         }

@@ -59,6 +59,7 @@ pub(crate) fn clear_agent_identity_for_lifecycle_exit(
     tab.agent_booting = false;
     tab.agent_session_id = None;
     tab.agent_session_name = None;
+    tab.remember_superseded_binding_nonce();
     tab.session_binding_nonce = None;
     tab.reported_session_binding_nonce = None;
     tab.agent_state = None;

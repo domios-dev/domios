@@ -223,6 +223,12 @@ pub enum PlanAction {
     Approve { plan_id: String },
     /// Return an approved/execution plan to planning mode
     Unapprove { plan_id: String },
+    /// Re-sync a planning binding nonce that went stale after an agent relaunch,
+    /// recovering plan mutation/approve/dispatch without a full `agent restart`.
+    Rebind {
+        /// Optional plan id for context; the rebind re-syncs this tab's binding.
+        plan_id: Option<String>,
+    },
     /// Return a draft to drafting; approval uses `plan approve`
     PlanningState {
         plan_id: String,
