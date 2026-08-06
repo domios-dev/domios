@@ -31,6 +31,16 @@ HOST_TRIPLE="${CODETERM_TEST_HOST_TRIPLE:-$(rustc -vV | awk -F': ' '/^host:/{pri
 configure_windows_test_target() {
     [[ "$HOST_TRIPLE" == *-windows-* ]] || return 0
     case "${CARGO_TARGET_DIR:-}" in
+        *[/\\]CodeTerm[/\\]build-gateway[/\\]targets[/\\]exceptional[/\\]*)
+            if [ "${CODETERM_ALLOW_EXTERNAL_TARGET:-0}" = "1" ] &&
+                [ "${CARGO_INCREMENTAL:-}" = "0" ] &&
+                [ "${RUSTC_WRAPPER:-}" = "sccache" ]; then
+                printf '[test-capped] using configured exceptional test target: %s\n' "$CARGO_TARGET_DIR"
+            else
+                printf '[test-capped] ignoring inherited internal build-gateway target: %s\n' "$CARGO_TARGET_DIR"
+                unset CARGO_TARGET_DIR
+            fi
+            ;;
         *[/\\]CodeTerm[/\\]build-gateway[/\\]targets[/\\]*)
             printf '[test-capped] ignoring inherited internal build-gateway target: %s\n' "$CARGO_TARGET_DIR"
             unset CARGO_TARGET_DIR
