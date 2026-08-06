@@ -143,6 +143,26 @@ run_uncapped_case() {
 run_uncapped_case uncapped-success 0 true
 run_uncapped_case uncapped-exit-124 124 bash -c 'exit 124'
 
+shared_home="$TMPDIR/shared-home"
+ephemeral_data="$TMPDIR/ephemeral-data"
+mkdir -p "$shared_home" "$ephemeral_data"
+HOME="$shared_home" CODETERM_DATA_DIR="$ephemeral_data" CARGO_TEST_CMD=bash \
+    "$WRAPPER" -c 'test "$CODETERM_EMBED_CACHE_DIR" = "$HOME/.codeterm/fastembed_cache"' \
+    >"$TMPDIR/shared-embed-cache.out" 2>&1
+grep -q '^\[test-capped\] shared embed cache:' "$TMPDIR/shared-embed-cache.out" || {
+    printf 'shared-embed-cache: wrapper did not disclose the selected machine cache\n' >&2
+    exit 1
+}
+
+explicit_embed_cache="$TMPDIR/explicit-embed-cache"
+HOME="$shared_home" CODETERM_EMBED_CACHE_DIR="$explicit_embed_cache" CARGO_TEST_CMD=bash \
+    "$WRAPPER" -c 'test "$CODETERM_EMBED_CACHE_DIR" = "$1"' bash "$explicit_embed_cache" \
+    >"$TMPDIR/explicit-embed-cache.out" 2>&1
+! grep -q '^\[test-capped\] shared embed cache:' "$TMPDIR/explicit-embed-cache.out" || {
+    printf 'explicit-embed-cache: wrapper replaced the caller override\n' >&2
+    exit 1
+}
+
 windows_sidecar="$base_repo/src-tauri/bundled-embed/codeterm-embed-x86_64-pc-windows-msvc.exe"
 mkdir -p "$(dirname "$windows_sidecar")"
 printf 'real-sidecar' >"$windows_sidecar"
