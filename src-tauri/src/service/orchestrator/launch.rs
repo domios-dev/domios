@@ -551,22 +551,19 @@ fn command_with_binding_nonce_for_shell(
     command: &str,
     binding_nonce: &str,
     windows: bool,
+    cli_path: Option<&std::ffi::OsStr>,
 ) -> String {
-    if windows {
-        format!(
-            "$env:CODETERM_SESSION_BINDING_NONCE='{}'; {command}",
-            binding_nonce.replace('\'', "''")
-        )
-    } else {
-        format!(
-            "export CODETERM_SESSION_BINDING_NONCE='{}'; {command}",
-            binding_nonce.replace('\'', "'\"'\"'")
-        )
-    }
+    super::launch_env::command_with_binding_nonce_for_shell(
+        command,
+        binding_nonce,
+        windows,
+        cli_path,
+    )
 }
 
 fn command_with_binding_nonce(command: &str, binding_nonce: &str) -> String {
-    command_with_binding_nonce_for_shell(command, binding_nonce, cfg!(windows))
+    let cli_path = std::env::var_os("CODETERM_CLI_PATH");
+    command_with_binding_nonce_for_shell(command, binding_nonce, cfg!(windows), cli_path.as_deref())
 }
 
 #[allow(dead_code)]
