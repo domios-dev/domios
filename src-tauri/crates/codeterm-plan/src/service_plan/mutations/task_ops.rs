@@ -813,7 +813,10 @@ mod fill_lane_tests {
     fn lane_and_in_progress_commit_as_one_plan_mutation() {
         let (_d, store, plan, task) = setup();
         let error = set_status(&store, &plan, &task, "in_progress", None, 5).unwrap_err();
-        assert!(error.to_string().contains("set both in one command"));
+        assert!(matches!(
+            error,
+            crate::service_plan::PlanError::InProgressRequiresTab
+        ));
 
         store
             .update_task_with_lane(
