@@ -83,7 +83,7 @@ test("indicator re-resolves to the new provider after a switch state-changed eve
   assert(after?.iconColor === "#d97757", "logo (icon) re-resolves to the Claude icon");
   // Invalidation, not a fresh-mount coincidence: the SAME tab record the store
   // produced now yields Claude where it previously yielded Codex.
-  assert(before?.id !== after?.id, "the stale Codex resolution was invalidated");
+  assert.notEqual(before?.id, after?.id, "the stale Codex resolution was invalidated");
 });
 
 test("unrelated state-changed does not thrash the resolved provider", () => {
