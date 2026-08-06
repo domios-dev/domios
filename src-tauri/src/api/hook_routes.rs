@@ -179,25 +179,6 @@ pub async fn hook_permission(
 
     state.svc.apply_prompt_decision(&decision);
 
-    // For hooks, always notify even if decision is None (hook firing means agent is waiting).
-    if matches!(decision, crate::agent::prompt::PromptDecision::None) {
-        let title = state
-            .svc
-            .mux
-            .write()
-            .get_tab(&tab_id)
-            .map(|p| p.title.clone());
-        if let Some(title) = title {
-            state.svc.notify_event(
-                "agent.permission_request",
-                serde_json::json!({
-                    "tab_id": &tab_id,
-                    "title": format!("{} needs approval", title),
-                    "body": "Agent is waiting for your permission",
-                }),
-            );
-        }
-    }
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
