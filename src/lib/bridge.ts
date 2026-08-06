@@ -315,6 +315,7 @@ const HTTP_MAP: Record<string, Mapper> = {
   chat_send_text: (a) =>
     webJson("POST", `/api/tabs/${enc(s(a, "tabId"))}/chat-send`, {
       text: a.text,
+      client_token: a.clientToken,
     }),
   chat_send_status: (a) =>
     webJson("GET", `/api/tabs/${enc(s(a, "tabId"))}/chat-send`),
