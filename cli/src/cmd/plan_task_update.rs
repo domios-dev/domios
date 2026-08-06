@@ -345,6 +345,61 @@ mod tests {
         )
     }
 
+    fn params_with_model(model: Option<String>) -> serde_json::Value {
+        build_params(
+            Some("pl_1".into()),
+            "task_1".into(),
+            None,
+            None,
+            model,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+            vec![],
+            None,
+            None,
+            vec![],
+        )
+    }
+
+    // `--model` is a free-form routing string stored verbatim; resolution to a
+    // concrete provider model happens later at dispatch, not here.
+    #[test]
+    fn model_routing_string_is_stored_verbatim() {
+        assert_eq!(
+            params_with_model(Some("claude:haiku".into())).get("model"),
+            Some(&json!("claude:haiku"))
+        );
+        assert_eq!(
+            params_with_model(Some("claude".into())).get("model"),
+            Some(&json!("claude"))
+        );
+        assert!(params_with_model(None).get("model").is_none());
+    }
+
     #[test]
     fn external_ref_is_added_while_omitted_dependencies_stay_unchanged() {
         let params = params_with(

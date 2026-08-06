@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 33 -->
+<!-- revision: 34 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -1700,6 +1700,7 @@ Update a milestone's kind or text
 
 Set explicit effort mode: planning | approved | execution | complete
 
+- `<mode>` — Mode value as a trailing positional (alternative to --set): planning | approved | execution | complete
 - `<plan_id>`
 - `--set`
 

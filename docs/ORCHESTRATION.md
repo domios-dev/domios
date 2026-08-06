@@ -225,8 +225,10 @@ codeterm plan review authorize-capacity <plan> <task> --class canonical_gate
 ```
 
 Generic task updates, pauses, decision gates, and removals cannot move a task
-out of `in_review`; use `plan review accept` or `plan review bounce`. Historical
-credit leaked by older builds is repaired explicitly and auditably with:
+out of `in_review`; use `codeterm plan review accept <plan> <task> --note "…"`
+or `codeterm plan review bounce <plan> <task> --note "…"` (the verdict flag is
+`--note` and is required — not `--reason`). Historical credit leaked by older
+builds is repaired explicitly and auditably with:
 
 ```bash
 codeterm plan review reconcile-credit <plan> --reason "<incident evidence>"

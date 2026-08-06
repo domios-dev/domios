@@ -682,8 +682,15 @@ fn run_plan(
             call(client, "plan.planning.set", params)
         }
 
-        PlanAction::Mode { plan_id, set } => {
-            let mut params = json!({ "plan_id": plan_id, "mode": set });
+        PlanAction::Mode {
+            plan_id,
+            mode,
+            set,
+        } => {
+            let mode = set.or(mode).ok_or_else(|| {
+                "plan mode requires a mode: pass it as a positional or with --set (planning | approved | execution | complete)".to_string()
+            })?;
+            let mut params = json!({ "plan_id": plan_id, "mode": mode });
             inject_trusted_session(&mut params);
             call(client, "plan.mode.set", params)
         }
