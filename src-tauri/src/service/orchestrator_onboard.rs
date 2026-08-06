@@ -241,6 +241,7 @@ mod tests {
             context_epoch_archives: vec![],
             session_binding_nonce: None,
             reported_session_binding_nonce: None,
+            prior_session_binding_nonces: Vec::new(),
             shell_integration_nonce: None,
             lifecycle_epoch: None,
             lifecycle_operation_id: None,

@@ -89,6 +89,7 @@ pub(super) fn dispatch(
                 "plan.update",
                 "plan.mode.set",
                 "plan.planning.set",
+                "plan.session.rebind",
                 "plan.archive",
                 "plan.delete",
                 "plan.transfer",

@@ -10,7 +10,7 @@ pub(super) fn authorize_draft_mutation(
     plan_id: &str,
     params: Option<&Value>,
 ) -> Result<(), JsonRpcError> {
-    svc.authorize_draft_structure_mutation(
+    svc.classify_planning_caller(
         plan_id,
         &crate::service::AuthenticatedPlanCaller {
             tab_id: params
@@ -28,10 +28,10 @@ pub(super) fn authorize_draft_mutation(
         },
     )
     .map(|_| ())
-    .map_err(|message| JsonRpcError {
+    .map_err(|error| JsonRpcError {
         code: -32003,
-        message,
-        data: Some(serde_json::json!({ "type": "plan_draft_authorization_required" })),
+        message: error.to_string(),
+        data: Some(serde_json::json!({ "type": error.diagnostic_type() })),
     })
 }
 
