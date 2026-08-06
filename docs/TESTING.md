@@ -51,7 +51,7 @@ a unit test on the parser plus, at most, one golden test for the end-to-end path
 
 One command runs every non-LLM layer and prints a per-layer summary table. Layers:
 
-1. `rust-unit` — capped `cargo test --lib` through `scripts/test-capped.sh` (always runs)
+1. `rust-unit` — uncapped `cargo test --lib` through `scripts/test-capped.sh` (always runs)
 2. `ts-unit` — `npm run test:unit` → `scripts/ts-unit-tests.sh`, every `src/**` + `packages/**` `*.test.ts` (always runs)
 3. `plugin` — `pnpm test:plugins` (always runs)
 4. `e2e-pytest` — only if dev (7686) is healthy, else a loud `SKIPPED` line
@@ -149,14 +149,15 @@ snapshot carrying the same provider, model, session id, and binding nonce, then
 drives Terminal → Chat and requires one pre-existing row and one subscription
 without losing the mode switch or identity labels.
 
-### Capped Rust test preflight
+### Rust test wrapper preflight
 
-`scripts/test-capped.sh` is the required lane-local Rust-test wrapper. In a
-fresh worktree, it creates the ignored, zero-byte `bundled-embed` sidecar only
-when that sidecar is absent, then runs the requested test under its normal hard
-process-group cap. The wrapper logs that one test-only repair once; a later run
-and a real canonical sidecar are no-ops. The bundle script rejects empty
-sidecars, so this preflight cannot produce a release artifact.
+`scripts/test-capped.sh` is the required Rust-test wrapper. In a fresh worktree,
+it creates the ignored, zero-byte `bundled-embed` sidecar only when that sidecar
+is absent, then waits for the requested test to finish. Set
+`TEST_CAP_SECS=<positive-seconds>` only for a targeted diagnostic that needs a
+process-group deadline and exit 124. The wrapper logs the test-only repair once;
+a later run and a real canonical sidecar are no-ops. The bundle script rejects
+empty sidecars, so this preflight cannot produce a release artifact.
 
 Verify the wrapper itself with the focused shell test:
 
@@ -165,7 +166,7 @@ bash scripts/test-capped.test.sh
 ```
 
 **Windows: cargo test target isolation**
-Running the capped Rust test runner against the app crate while a dev build occupies the same
+Running the Rust test wrapper against the app crate while a dev build occupies the same
 `target/` directory fails with `Os error 5` — tauri-build cannot overwrite the
 in-use `.exe`. The required wrapper detects a healthy dev instance and
 automatically routes focused tests to the worktree-local
@@ -220,4 +221,4 @@ Git for Windows at its standard location and rerun the same command.
 
 End-to-end and cross-platform verification: `codeterm docs E2E-TESTING`. Prompt detection: `codeterm docs PROMPT-DETECTION`. Test design rules: `codeterm docs TEST-AUTHORING`.
 
-<!-- revision: 32 -->
+<!-- revision: 33 -->
