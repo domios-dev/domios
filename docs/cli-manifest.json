@@ -6345,6 +6345,14 @@
           "aliases": [],
           "args": [
             {
+              "name": "mode",
+              "positional": true,
+              "value_name": "MODE",
+              "default": null,
+              "help": "Mode value as a trailing positional (alternative to --set): planning | approved | execution | complete",
+              "aliases": []
+            },
+            {
               "name": "plan_id",
               "positional": true,
               "value_name": "PLAN_ID",
