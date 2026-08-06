@@ -36,6 +36,25 @@ function positiveInteger(value, name) {
   return Number(value);
 }
 
+function optionalPositiveInteger(value, name) {
+  if (value === undefined || value === null || value === "") return undefined;
+  return positiveInteger(value, name);
+}
+
+export function resolveTsUnitTimeouts(env) {
+  return {
+    testTimeoutSeconds: optionalPositiveInteger(
+      env.TS_UNIT_TIMEOUT_SECONDS,
+      "TS_UNIT_TIMEOUT_SECONDS",
+    ),
+    suiteTimeoutSeconds: optionalPositiveInteger(
+      env.CODETERM_TS_UNIT_ENTRYPOINT_TEST_DEADLINE_SECONDS ||
+        env.TS_UNIT_SUITE_TIMEOUT_SECONDS,
+      "TS_UNIT_SUITE_TIMEOUT_SECONDS",
+    ),
+  };
+}
+
 function normalizeTestPath(file) {
   return file.split(path.sep).join("/");
 }
@@ -192,8 +211,10 @@ function startWorker({
     );
   };
 
-  const timeoutSignal = AbortSignal.timeout(testTimeoutSeconds * 1_000);
-  timeoutSignal.addEventListener("abort", () => void requestStop("timeout"), { once: true });
+  const timeoutSignal = testTimeoutSeconds === undefined
+    ? undefined
+    : AbortSignal.timeout(testTimeoutSeconds * 1_000);
+  timeoutSignal?.addEventListener("abort", () => void requestStop("timeout"), { once: true });
 
   const result = closeResult.then(({ code, signal }) => {
     closed = true;
@@ -226,6 +247,7 @@ function startWorker({
     child,
     result,
     stop: () => requestStop("suite"),
+    timeoutSignal,
   };
 }
 
@@ -329,16 +351,7 @@ export async function runTsUnitTests({
   let suiteTimeoutSeconds;
   try {
     jobs = positiveInteger(env.TS_UNIT_JOBS ?? 4, "TS_UNIT_JOBS");
-    testTimeoutSeconds = positiveInteger(
-      env.TS_UNIT_TIMEOUT_SECONDS ?? 60,
-      "TS_UNIT_TIMEOUT_SECONDS",
-    );
-    suiteTimeoutSeconds = positiveInteger(
-      env.CODETERM_TS_UNIT_ENTRYPOINT_TEST_DEADLINE_SECONDS ??
-        env.TS_UNIT_SUITE_TIMEOUT_SECONDS ??
-        80,
-      "TS_UNIT_SUITE_TIMEOUT_SECONDS",
-    );
+    ({ testTimeoutSeconds, suiteTimeoutSeconds } = resolveTsUnitTimeouts(env));
   } catch (error) {
     writeLine(errorOutput, error.message);
     return 2;
@@ -378,10 +391,12 @@ export async function runTsUnitTests({
   };
   const forwardTerm = () => queueCancellation("received TERM");
   const forwardInterrupt = () => queueCancellation("received INT");
-  const deadlineSignal = AbortSignal.timeout(suiteTimeoutSeconds * 1_000);
+  const deadlineSignal = suiteTimeoutSeconds === undefined
+    ? undefined
+    : AbortSignal.timeout(suiteTimeoutSeconds * 1_000);
   const onDeadline = () =>
     queueCancellation(`global deadline reached after ${suiteTimeoutSeconds}s`);
-  deadlineSignal.addEventListener("abort", onDeadline, { once: true });
+  deadlineSignal?.addEventListener("abort", onDeadline, { once: true });
   signalSource.once("SIGTERM", forwardTerm);
   signalSource.once("SIGINT", forwardInterrupt);
 
@@ -459,7 +474,7 @@ export async function runTsUnitTests({
   } finally {
     signalSource.removeListener("SIGTERM", forwardTerm);
     signalSource.removeListener("SIGINT", forwardInterrupt);
-    deadlineSignal.removeEventListener("abort", onDeadline);
+    deadlineSignal?.removeEventListener("abort", onDeadline);
     rmSync(logDirectory, { recursive: true, force: true });
     trace("cleanup complete");
   }

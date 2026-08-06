@@ -115,9 +115,9 @@ bash scripts/submission-matrix.sh --provider claude --dry-run
 # Rust: agent detection, multiplexer state, prompt parsing, config
 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib
 
-# TypeScript: every src/** + packages/** unit test (direct Node scheduler, 90s outer cap)
-bash -lc 'timeout --signal=TERM --kill-after=5s 90s npm run test:unit'
-# …or one file through the same bounded scheduler:
+# TypeScript: every src/** + packages/** unit test (direct Node scheduler)
+npm run test:unit
+# …or one file through the same scheduler:
 npm run test:unit -- colors.test
 
 # Shortcuts
@@ -158,6 +158,11 @@ is absent, then waits for the requested test to finish. Set
 process-group deadline and exit 124. The wrapper logs the test-only repair once;
 a later run and a real canonical sidecar are no-ops. The bundle script rejects
 empty sidecars, so this preflight cannot produce a release artifact.
+
+The TypeScript scheduler also waits for every file and the full suite by
+default. Set `TS_UNIT_TIMEOUT_SECONDS=<positive-seconds>` or
+`TS_UNIT_SUITE_TIMEOUT_SECONDS=<positive-seconds>` only for an explicit
+diagnostic deadline; ordinary `npm run test:unit` has neither implicit limit.
 
 Verify the wrapper itself with the focused shell test:
 
@@ -221,4 +226,4 @@ Git for Windows at its standard location and rerun the same command.
 
 End-to-end and cross-platform verification: `codeterm docs E2E-TESTING`. Prompt detection: `codeterm docs PROMPT-DETECTION`. Test design rules: `codeterm docs TEST-AUTHORING`.
 
-<!-- revision: 33 -->
+<!-- revision: 34 -->
