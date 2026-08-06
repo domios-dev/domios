@@ -1,6 +1,192 @@
 use super::*;
-use crate::plan::{ExecutionIntent, OrchestratorRef, Plan, TaskLaneMetadata};
-use crate::service::plan::NewTask;
+use crate::plan::{
+    ExecutionIntent, InterruptionCheckpoint, OrchestratorRef, Plan, ProviderAllowance,
+    TaskLaneMetadata, TaskStatus,
+};
+use crate::service::plan::interruption::{checkpoint_digest, PROVIDER_EXHAUSTED_LABEL};
+use crate::service::plan::{NewTask, PlanStore};
+
+fn allowance(remaining_pct: f32, observed_at: u64) -> ProviderAllowance {
+    ProviderAllowance {
+        remaining_pct,
+        observed_at,
+        stale_after_ms: 100,
+        reserve_pct: 10.0,
+    }
+}
+
+/// A PlanStore holding one live, mutating attempt owned by old-tab/old-session
+/// at epoch 1 — the exact shape a dispatched worker carries when a provider
+/// crosses its cap.
+fn bound_store() -> (tempfile::TempDir, PlanStore, String, String, String) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut plan = Plan::new(
+        "exhaustion".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_tab("orch"),
+    );
+    store.save(&mut plan, 1).unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "mutate".into(),
+                kind: "implement".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    let attempt_id = store
+        .begin_task_dispatch_with_policy(
+            &plan.id,
+            &task_id,
+            "old-tab",
+            "Worker",
+            TaskLaneMetadata::default(),
+            ExecutionIntent::Mutating,
+            Some(allowance(90.0, 3)),
+            Some("claude"),
+            3,
+        )
+        .unwrap();
+    store
+        .finish_task_dispatch(
+            &plan.id,
+            &task_id,
+            "old-tab",
+            &attempt_id,
+            "old-session",
+            "old-nonce",
+            TaskLaneMetadata::default(),
+            4,
+        )
+        .unwrap();
+    (dir, store, plan.id, task_id, attempt_id)
+}
+
+fn synthetic_checkpoint(task_id: &str, attempt_id: &str) -> InterruptionCheckpoint {
+    let diff_artifact = "diff --git a/file b/file\n+dirty\n".to_string();
+    InterruptionCheckpoint {
+        task_id: task_id.into(),
+        attempt_id: attempt_id.into(),
+        tab_id: "old-tab".into(),
+        session_id: "old-session".into(),
+        owner_epoch: 1,
+        repo_path: "repo".into(),
+        worktree_path: "worktree".into(),
+        base_head: "base".into(),
+        current_head: "head".into(),
+        git_status: "1 .M file".into(),
+        diff_sha256: checkpoint_digest(&diff_artifact),
+        diff_artifact,
+        completed_tests: vec![],
+        unresolved_work: "resume at reset".into(),
+        next_acceptance_gate: "canonical QA".into(),
+    }
+}
+
+/// PRESERVE: a confirmed exhaustion pauses the live worker without destroying
+/// it. The attempt stays OPEN (tab survives), the owner is intact (never
+/// epoch-locked to a dead tab), and a resumable checkpoint is sealed.
+#[test]
+fn provider_exhaustion_pause_preserves_worker_and_seals_checkpoint() {
+    let (_dir, store, plan_id, task_id, attempt_id) = bound_store();
+    store
+        .begin_provider_exhaustion_pause(
+            &plan_id,
+            &task_id,
+            &attempt_id,
+            "old-tab",
+            "old-session",
+            1,
+            5,
+        )
+        .unwrap();
+    let sealed = synthetic_checkpoint(&task_id, &attempt_id);
+    store
+        .finish_provider_exhaustion_pause(&plan_id, &task_id, &attempt_id, 1, sealed.clone(), 6)
+        .unwrap();
+
+    let task = store.show_task(&task_id).unwrap().task;
+    // Not destroyed / not handed off: attempt open, owner preserved.
+    assert!(
+        task.execution_attempts[0].closed_at.is_none(),
+        "paused attempt must stay open — the tab is preserved, not closed"
+    );
+    assert!(!task.interruption.handoff_required);
+    assert_eq!(task.interruption.owner_epoch, 1);
+    assert_eq!(task.interruption.owner_tab_id.as_deref(), Some("old-tab"));
+    assert_eq!(
+        task.interruption.owner_session_id.as_deref(),
+        Some("old-session")
+    );
+    // Paused surface + resumable checkpoint.
+    assert_eq!(task.status, TaskStatus::Paused);
+    assert_eq!(task.status_label.as_deref(), Some(PROVIDER_EXHAUSTED_LABEL));
+    assert_eq!(task.interruption.checkpoint, Some(sealed));
+    assert_eq!(
+        task.execution_attempts[0].interruption.reason.as_deref(),
+        Some("provider_exhausted")
+    );
+}
+
+/// SEAM with W3-C: the paused task is re-dispatchable at the SAME epoch — the
+/// live worker resumes when quota returns with no epoch bump and no deadlock.
+#[test]
+fn provider_exhaustion_pause_is_resumable_without_epoch_churn() {
+    let (_dir, store, plan_id, task_id, attempt_id) = bound_store();
+    store
+        .begin_provider_exhaustion_pause(
+            &plan_id,
+            &task_id,
+            &attempt_id,
+            "old-tab",
+            "old-session",
+            1,
+            5,
+        )
+        .unwrap();
+    // The same live owner still authenticates — the task is not orphaned.
+    assert!(store
+        .verify_task_owner_epoch(&task_id, "old-tab", "old-session", 1)
+        .is_ok());
+    store
+        .resume_from_provider_exhaustion(&plan_id, &task_id, "old-tab", "old-session", 1, 7)
+        .unwrap();
+    let task = store.show_task(&task_id).unwrap().task;
+    assert_eq!(task.status, TaskStatus::InProgress);
+    assert_eq!(task.status_label, None);
+    // Same epoch, same owner: no new epoch-deadlock introduced.
+    assert_eq!(task.interruption.owner_epoch, 1);
+    assert!(task.execution_attempts[0].closed_at.is_none());
+}
+
+/// GUARD: only ProviderExhausted changes to a pause. The non-exhaustion
+/// interruption path still fences into a closed-attempt, handoff-required state.
+#[test]
+fn non_exhaustion_interruption_path_still_hands_off() {
+    let (_dir, store, plan_id, task_id, attempt_id) = bound_store();
+    store
+        .interrupt_task_attempt(
+            &plan_id,
+            &task_id,
+            &attempt_id,
+            "old-tab",
+            "old-session",
+            1,
+            "process_exited",
+            synthetic_checkpoint(&task_id, &attempt_id),
+            5,
+        )
+        .unwrap();
+    let task = store.show_task(&task_id).unwrap().task;
+    assert!(task.interruption.handoff_required);
+    assert_eq!(task.status_label.as_deref(), Some("handoff_required"));
+    assert!(task.execution_attempts[0].closed_at.is_some());
+    assert_ne!(task.status, TaskStatus::Paused);
+}
 
 fn run(repo: &Path, args: &[&str]) {
     let status = Command::new("git")
