@@ -599,7 +599,12 @@ mod tests {
 
     /// Genuine session transition: retire the current nonce under the OLD session,
     /// then move the live tab onto a brand-new session id + nonce.
-    fn transition_session(fixture: &ServiceFixture, tab_id: &str, new_session: &str, new_nonce: &str) {
+    fn transition_session(
+        fixture: &ServiceFixture,
+        tab_id: &str,
+        new_session: &str,
+        new_nonce: &str,
+    ) {
         let mut mux = fixture.service.mux.write();
         let tab = mux.get_tab_mut(tab_id).unwrap();
         tab.remember_superseded_binding_nonce();
@@ -625,7 +630,10 @@ mod tests {
     }
 
     // Mirror the W3-C task gate so both authority paths are proven on one input.
-    fn w3c_task_binding_matches(fixture: &ServiceFixture, caller: &AuthenticatedPlanCaller) -> bool {
+    fn w3c_task_binding_matches(
+        fixture: &ServiceFixture,
+        caller: &AuthenticatedPlanCaller,
+    ) -> bool {
         let mux = fixture.service.mux.read();
         let tab = mux.get_tab(caller.tab_id.as_deref().unwrap()).unwrap();
         let nonce = caller.binding_nonce.as_deref();
@@ -752,7 +760,9 @@ mod tests {
             ..owner.clone()
         };
         assert!(matches!(
-            fixture.service.classify_planning_caller(&plan_id, &wrong_session),
+            fixture
+                .service
+                .classify_planning_caller(&plan_id, &wrong_session),
             Err(PlanAuthorityError::BindingForeign)
         ));
         let before = current_binding(&fixture, &tab_id);
@@ -789,7 +799,9 @@ mod tests {
             binding_nonce: Some("owner-nonce".into()),
         };
         assert!(matches!(
-            fixture.service.classify_planning_caller(&plan_id, &cross_tab),
+            fixture
+                .service
+                .classify_planning_caller(&plan_id, &cross_tab),
             Err(PlanAuthorityError::BindingForeign)
         ));
         assert!(fixture

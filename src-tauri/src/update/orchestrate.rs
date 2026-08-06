@@ -121,7 +121,10 @@ mod tests {
         .unwrap_err();
 
         assert!(err.contains("install target not writable"));
-        assert!(!*shutdown_ran.lock().unwrap(), "panes were torn down anyway");
+        assert!(
+            !*shutdown_ran.lock().unwrap(),
+            "panes were torn down anyway"
+        );
         assert!(!*installed.lock().unwrap());
         // Aborting with panes alive is not a teardown-abort: no artifact/signal.
         assert!(sink.0.lock().unwrap().is_empty());

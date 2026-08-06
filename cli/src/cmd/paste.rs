@@ -292,7 +292,10 @@ mod tests {
         );
         // Idempotent + trims surrounding whitespace.
         assert_eq!(normalize_paste_id("  fpu2zp  "), "paste:fpu2zp");
-        assert_eq!(normalize_paste_id(&normalize_paste_id("fpu2zp")), "paste:fpu2zp");
+        assert_eq!(
+            normalize_paste_id(&normalize_paste_id("fpu2zp")),
+            "paste:fpu2zp"
+        );
     }
 
     #[test]

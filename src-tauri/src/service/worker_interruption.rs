@@ -148,7 +148,8 @@ impl super::ServiceContext {
                         .iter()
                         .find(|attempt| {
                             attempt.closed_at.is_none()
-                                && Some(attempt.executor_tab_id.as_str()) == owner.owner_tab_id.as_deref()
+                                && Some(attempt.executor_tab_id.as_str())
+                                    == owner.owner_tab_id.as_deref()
                         })
                         .and_then(|attempt| attempt.provider.clone());
                     if paused_provider.as_deref() != Some(provider) {

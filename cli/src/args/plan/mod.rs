@@ -669,10 +669,7 @@ mod tests {
         let parsed = Cli::try_parse_from([
             "codeterm", "plan", "mode", "pl_1", "complete", "--set", "planning",
         ]);
-        assert!(
-            parsed.is_err(),
-            "positional MODE and --set must conflict"
-        );
+        assert!(parsed.is_err(), "positional MODE and --set must conflict");
     }
 
     #[test]

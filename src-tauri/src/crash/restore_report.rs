@@ -56,7 +56,10 @@ impl RestoreReport {
 
 /// Deterministic: outcome depends only on which bound tab ids came back, and
 /// panes are ordered by tab id so the report is stable across runs.
-pub fn build_restore_report(bound: &[RestorePane], restored_ids: &BTreeSet<String>) -> RestoreReport {
+pub fn build_restore_report(
+    bound: &[RestorePane],
+    restored_ids: &BTreeSet<String>,
+) -> RestoreReport {
     let mut panes: Vec<PaneOutcome> = bound
         .iter()
         .map(|pane| {
@@ -100,10 +103,7 @@ pub fn log_report(report: &RestoreReport) {
             );
         }
     } else {
-        log::info!(
-            "[restore] all {} agent pane(s) restored",
-            report.bound
-        );
+        log::info!("[restore] all {} agent pane(s) restored", report.bound);
     }
 }
 
@@ -199,8 +199,14 @@ mod tests {
 
     #[test]
     fn report_is_deterministic_regardless_of_bound_order() {
-        let a = vec![pane("w-2", None, Some("codex")), pane("w-1", None, Some("codex"))];
-        let b = vec![pane("w-1", None, Some("codex")), pane("w-2", None, Some("codex"))];
+        let a = vec![
+            pane("w-2", None, Some("codex")),
+            pane("w-1", None, Some("codex")),
+        ];
+        let b = vec![
+            pane("w-1", None, Some("codex")),
+            pane("w-2", None, Some("codex")),
+        ];
         let restored = ids(&["w-1"]);
         assert_eq!(
             build_restore_report(&a, &restored),

@@ -149,7 +149,9 @@ fn dispatch_exit_submits(agents: &[AgentTabInfo], mut submit: impl FnMut(&AgentT
         };
         log::info!(
             "[updater] submitting {:?} to Tab {} via provider submit contract (provider={})",
-            cmd, agent.tab_id, agent.provider_id
+            cmd,
+            agent.tab_id,
+            agent.provider_id
         );
         submit(agent, cmd);
     }
@@ -325,7 +327,10 @@ mod tests {
         ];
         let selected = select_agent_tabs(tabs.into_iter(), Some("ga-tab"), exit_for);
         let ids: Vec<&str> = selected.iter().map(|a| a.tab_id.as_str()).collect();
-        assert!(!ids.contains(&"ga-tab"), "initiating pane must survive sweep");
+        assert!(
+            !ids.contains(&"ga-tab"),
+            "initiating pane must survive sweep"
+        );
         assert!(ids.contains(&"worker-1"));
         assert!(ids.contains(&"worker-2"));
         assert_eq!(selected.len(), 2);
@@ -370,7 +375,9 @@ mod tests {
             agent("t2", "codex", Some("/exit")),
         ];
         let mut calls: Vec<(String, String)> = Vec::new();
-        dispatch_exit_submits(&agents, |a, cmd| calls.push((a.tab_id.clone(), cmd.to_string())));
+        dispatch_exit_submits(&agents, |a, cmd| {
+            calls.push((a.tab_id.clone(), cmd.to_string()))
+        });
 
         // One submit per agent, routed through the seam (the production wiring is
         // `send_text_detached` → the single canonical submit path), never a raw write.

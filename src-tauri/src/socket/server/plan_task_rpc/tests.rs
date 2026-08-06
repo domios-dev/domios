@@ -368,7 +368,14 @@ fn spawn_rebound_tab(fixture: &ServiceFixture, live_session_id: &str) -> String 
 fn dead_owner_session_absent_tab_lets_bound_orchestrator_recover() {
     for method in ["plan.task.close", "plan.task.update"] {
         let (fixture, plan_id, task_id, _, _, owner) = update_fixture();
-        bind_worker_owner(&fixture, &plan_id, &task_id, "dead-worker-tab", "worker-session", 5);
+        bind_worker_owner(
+            &fixture,
+            &plan_id,
+            &task_id,
+            "dead-worker-tab",
+            "worker-session",
+            5,
+        );
         let service = Arc::new(fixture.service.clone());
 
         let orch_caller = Some(serde_json::Value::Object(owner_params(&owner)));
@@ -396,10 +403,22 @@ fn dead_owner_session_absent_tab_lets_bound_orchestrator_recover() {
             .unwrap_or_else(|error| panic!("{method} must recover, got: {}", error.message));
 
         let after = recovered_task(&fixture, &plan_id, &task_id);
-        assert!(after.interruption.owner_tab_id.is_none(), "{method}: owner tab cleared");
-        assert!(after.interruption.owner_session_id.is_none(), "{method}: owner session cleared");
-        assert!(after.interruption.owner_epoch > 5, "{method}: epoch bumped past the dead owner");
-        assert!(after.assigned_tab_id.is_none(), "{method}: assignment cleared");
+        assert!(
+            after.interruption.owner_tab_id.is_none(),
+            "{method}: owner tab cleared"
+        );
+        assert!(
+            after.interruption.owner_session_id.is_none(),
+            "{method}: owner session cleared"
+        );
+        assert!(
+            after.interruption.owner_epoch > 5,
+            "{method}: epoch bumped past the dead owner"
+        );
+        assert!(
+            after.assigned_tab_id.is_none(),
+            "{method}: assignment cleared"
+        );
     }
 }
 
@@ -410,7 +429,14 @@ fn dead_owner_session_absent_tab_lets_bound_orchestrator_recover() {
 fn lingering_tab_with_rebound_session_is_a_gone_owner() {
     let (fixture, plan_id, task_id, _, _, owner) = update_fixture();
     let rebound_tab = spawn_rebound_tab(&fixture, "new-rebound-session");
-    bind_worker_owner(&fixture, &plan_id, &task_id, &rebound_tab, "worker-session", 7);
+    bind_worker_owner(
+        &fixture,
+        &plan_id,
+        &task_id,
+        &rebound_tab,
+        "worker-session",
+        7,
+    );
     let service = Arc::new(fixture.service.clone());
 
     let orch_caller = Some(serde_json::Value::Object(owner_params(&owner)));
@@ -444,7 +470,14 @@ fn lingering_tab_with_rebound_session_is_a_gone_owner() {
 fn live_owner_session_refuses_recovery_and_keeps_the_epoch_guard() {
     let (fixture, plan_id, task_id, _, _, owner) = update_fixture();
     let live_worker = spawn_rebound_tab(&fixture, "worker-session");
-    bind_worker_owner(&fixture, &plan_id, &task_id, &live_worker, "worker-session", 4);
+    bind_worker_owner(
+        &fixture,
+        &plan_id,
+        &task_id,
+        &live_worker,
+        "worker-session",
+        4,
+    );
     let service = Arc::new(fixture.service.clone());
 
     let orch_caller = Some(serde_json::Value::Object(owner_params(&owner)));
@@ -474,8 +507,14 @@ fn live_owner_session_refuses_recovery_and_keeps_the_epoch_guard() {
     );
 
     let after = recovered_task(&fixture, &plan_id, &task_id);
-    assert_eq!(after.interruption.owner_epoch, 4, "the live owner's epoch is untouched");
-    assert_eq!(after.interruption.owner_tab_id.as_deref(), Some(live_worker.as_str()));
+    assert_eq!(
+        after.interruption.owner_epoch, 4,
+        "the live owner's epoch is untouched"
+    );
+    assert_eq!(
+        after.interruption.owner_tab_id.as_deref(),
+        Some(live_worker.as_str())
+    );
 }
 
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]

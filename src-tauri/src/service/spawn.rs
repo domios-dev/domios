@@ -27,9 +27,9 @@ use spawn_hidden_delivery::deliver_hidden_pty_task;
 
 #[path = "spawn_identity.rs"]
 mod spawn_identity;
-pub(crate) use spawn_identity::{now_unix_secs, roleless_spawner, task_binding_from_spawn};
 #[cfg(test)]
 pub(crate) use spawn_identity::task_spawn_handle;
+pub(crate) use spawn_identity::{now_unix_secs, roleless_spawner, task_binding_from_spawn};
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct SpawnTabSpec {
@@ -140,7 +140,6 @@ fn merge_warnings(a: Option<String>, b: Option<String>) -> Option<String> {
         (None, None) => None,
     }
 }
-
 
 /// Explicit `workspace_id` wins; `parent_tab_id` only picks a workspace when none was requested.
 pub(crate) fn resolve_spawn_workspace_id(
@@ -446,9 +445,12 @@ impl ServiceContext {
                     .get_tab(&tab_id)
                     .map(|t| t.title.clone())
                     .unwrap_or_default();
-                self.report_store
-                    .lock()
-                    .record_spawn_audit(&parent, &tab_id, &title, now_unix_secs());
+                self.report_store.lock().record_spawn_audit(
+                    &parent,
+                    &tab_id,
+                    &title,
+                    now_unix_secs(),
+                );
             }
         }
         if let Some(binding) = task_binding_from_spawn(&agent) {

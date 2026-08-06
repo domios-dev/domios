@@ -431,7 +431,9 @@ mod tests {
     fn list_completed_returns_only_finished_lanes_newest_first() {
         let db = temp_db();
         let ledger = OrchestrationLedger::open_at(&db).unwrap();
-        ledger.upsert(&row("orch_a", "w_done", ReportStatus::Done, 300)).unwrap();
+        ledger
+            .upsert(&row("orch_a", "w_done", ReportStatus::Done, 300))
+            .unwrap();
         ledger
             .upsert(&row("orch_b", "w_review", ReportStatus::InReview, 200))
             .unwrap();
@@ -455,9 +457,15 @@ mod tests {
     fn list_completed_respects_limit() {
         let db = temp_db();
         let ledger = OrchestrationLedger::open_at(&db).unwrap();
-        ledger.upsert(&row("orch", "w1", ReportStatus::Done, 100)).unwrap();
-        ledger.upsert(&row("orch", "w2", ReportStatus::Done, 200)).unwrap();
-        ledger.upsert(&row("orch", "w3", ReportStatus::Done, 300)).unwrap();
+        ledger
+            .upsert(&row("orch", "w1", ReportStatus::Done, 100))
+            .unwrap();
+        ledger
+            .upsert(&row("orch", "w2", ReportStatus::Done, 200))
+            .unwrap();
+        ledger
+            .upsert(&row("orch", "w3", ReportStatus::Done, 300))
+            .unwrap();
         let completed = ledger.list_completed(2).unwrap();
         assert_eq!(completed.len(), 2);
         assert_eq!(completed[0].worker_tab_id, "w3");

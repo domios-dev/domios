@@ -691,11 +691,7 @@ fn run_plan(
             call(client, "plan.planning.set", params)
         }
 
-        PlanAction::Mode {
-            plan_id,
-            mode,
-            set,
-        } => {
+        PlanAction::Mode { plan_id, mode, set } => {
             let mode = set.or(mode).ok_or_else(|| {
                 "plan mode requires a mode: pass it as a positional or with --set (planning | approved | execution | complete)".to_string()
             })?;

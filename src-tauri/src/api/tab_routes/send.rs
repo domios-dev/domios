@@ -35,18 +35,16 @@ pub async fn chat_send_text(
     tokio::task::spawn_blocking(move || {
         svc.start_chat_send(&send_tab, text, submit_claim, client_token)
     })
-        .await
-        .map_err(|_| {
-            SendRejection::from((StatusCode::INTERNAL_SERVER_ERROR, "chat send task failed"))
-        })?
-        .map(Json)
-        .map_err(|detail| {
-            DeliveryError::TabBusyRefused {
-                tab: tab_id,
-                detail,
-            }
-            .into()
-        })
+    .await
+    .map_err(|_| SendRejection::from((StatusCode::INTERNAL_SERVER_ERROR, "chat send task failed")))?
+    .map(Json)
+    .map_err(|detail| {
+        DeliveryError::TabBusyRefused {
+            tab: tab_id,
+            detail,
+        }
+        .into()
+    })
 }
 
 pub async fn chat_send_status(

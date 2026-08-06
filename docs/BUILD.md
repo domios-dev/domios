@@ -211,6 +211,7 @@ production app during startup, in-app update, or `install-local`.
 
 | Symptom | Cause | Recovery |
 |---|---|---|
+| Linux CI reaches `cargo fmt --check` and prints formatting diffs across otherwise green Rust changes | An integration wave merged source-only lanes without applying the repository rustfmt version before push | Run the two manifest-scoped `cargo fmt` commands from canonical, inspect the resulting file list, then rerun both checks before pushing. |
 | `pnpm exec tsc --noEmit` reports TS2367 after a test first asserts two literal provider ids and then compares them | The assertion function narrowed both values to disjoint literals, making the later boolean expression statically unconditional even though it documents invalidation | Use `assert.notEqual` for the cross-snapshot comparison so the mechanism remains checked without constructing an always-true expression. |
 | `npm run test:unit` terminates healthy workers at the same elapsed time while files are still passing | The TypeScript scheduler applied an implicit suite deadline, so repository growth was misclassified as a hang | Use the current uncapped default and let the suite finish. Set `TS_UNIT_TIMEOUT_SECONDS` or `TS_UNIT_SUITE_TIMEOUT_SECONDS` only for a targeted diagnostic. |
 | `bash scripts/test-capped.test.sh` exits 141 before printing an assertion | Its host-triple probe closed the `rustc -vV` pipe early under `pipefail`, so rustc received SIGPIPE | Keep the probe consuming the complete rustc output; then rerun the shell contract. |
@@ -245,4 +246,4 @@ production app during startup, in-app update, or `install-local`.
 
 Tooling, outputs, platform notes, and repository layout: `codeterm docs BUILD-REFERENCE`. Test workflows: `codeterm docs TESTING`.
 
-<!-- revision: 86 -->
+<!-- revision: 87 -->

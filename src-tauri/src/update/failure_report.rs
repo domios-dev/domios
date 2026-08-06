@@ -110,7 +110,11 @@ impl UpdateFailureSink for AppFailureSink {
             abort.cause,
             artifact_str.as_deref().unwrap_or("unavailable")
         );
-        crate::api::os_notify::_send_os_notification(&self.app, "CodeTerm update failed", Some(&body));
+        crate::api::os_notify::_send_os_notification(
+            &self.app,
+            "CodeTerm update failed",
+            Some(&body),
+        );
     }
 }
 

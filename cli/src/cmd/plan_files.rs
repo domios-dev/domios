@@ -72,7 +72,10 @@ mod tests {
             .find(|l| l.starts_with("Build\t"))
             .expect("task line");
         assert!(line.contains("not on disk"), "{line}");
-        assert!(line.contains("codeterm plan task show pl_1 task_1"), "{line}");
+        assert!(
+            line.contains("codeterm plan task show pl_1 task_1"),
+            "{line}"
+        );
     }
 
     #[test]
