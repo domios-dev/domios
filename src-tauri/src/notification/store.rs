@@ -294,5 +294,4 @@ mod tests {
         assert_eq!(store.resolve_provider_update("prompt-1"), Some(id));
         assert!(store.list(false).is_empty());
     }
-
 }
