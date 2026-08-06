@@ -37,6 +37,7 @@ pub(crate) struct FallbackDeliverySpec {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct VisibleSpawnTaskSelection<'a> {
     pub provider_launch: Option<&'a str>,
+    pub provider_starter: Option<crate::agent::provider::StarterPrompt>,
     pub confirmed_first_turn: Option<VisibleSpawnFirstTurn<'a>>,
 }
 
@@ -244,22 +245,45 @@ pub(crate) fn select_visible_spawn_task<'a>(
     role: Option<&str>,
     task: Option<&'a str>,
     system_prompt_capable: bool,
+    native_starter_capable: bool,
 ) -> VisibleSpawnTaskSelection<'a> {
     let task = task.filter(|text| !text.trim().is_empty());
-    match (role, task, system_prompt_capable) {
-        (None, Some(task), true) => VisibleSpawnTaskSelection {
+    match (role, task, system_prompt_capable, native_starter_capable) {
+        (None, Some(task), true, true) => VisibleSpawnTaskSelection {
             provider_launch: Some(task),
+            provider_starter: Some(crate::agent::provider::StarterPrompt::AssignedTask),
+            confirmed_first_turn: None,
+        },
+        (None, Some(task), true, false) => VisibleSpawnTaskSelection {
+            provider_launch: Some(task),
+            provider_starter: None,
             confirmed_first_turn: Some(VisibleSpawnFirstTurn::AssignedTaskStarter),
         },
-        (None, Some(task), false) => VisibleSpawnTaskSelection {
+        (None, Some(task), false, _) => VisibleSpawnTaskSelection {
             provider_launch: None,
+            provider_starter: None,
             confirmed_first_turn: Some(VisibleSpawnFirstTurn::Task(task)),
         },
         _ => VisibleSpawnTaskSelection {
             provider_launch: task,
+            provider_starter: None,
             confirmed_first_turn: None,
         },
     }
+}
+
+pub(crate) fn visible_spawn_capabilities(
+    provider: &dyn crate::agent::provider::AgentProvider,
+) -> (bool, bool) {
+    (
+        matches!(
+            mode_for_descriptor(&provider.system_prompt_delivery()),
+            LaunchDeliveryMode::SystemPrompt
+        ),
+        provider
+            .starter_prompt_text(crate::agent::provider::StarterPrompt::AssignedTask)
+            .is_some(),
+    )
 }
 
 pub(crate) fn assigned_task_starter(provider_text: Option<&str>) -> String {
@@ -474,11 +498,24 @@ mod tests {
     }
 
     #[test]
-    fn roleless_visible_task_keeps_assignment_in_system_and_starts_with_a_turn() {
+    fn roleless_visible_task_uses_native_starter_with_system_delivery() {
         assert_eq!(
-            select_visible_spawn_task(None, Some("task"), true),
+            select_visible_spawn_task(None, Some("task"), true, true),
             VisibleSpawnTaskSelection {
                 provider_launch: Some("task"),
+                provider_starter: Some(crate::agent::provider::StarterPrompt::AssignedTask),
+                confirmed_first_turn: None,
+            }
+        );
+    }
+
+    #[test]
+    fn roleless_visible_task_falls_back_when_native_starter_is_unavailable() {
+        assert_eq!(
+            select_visible_spawn_task(None, Some("task"), true, false),
+            VisibleSpawnTaskSelection {
+                provider_launch: Some("task"),
+                provider_starter: None,
                 confirmed_first_turn: Some(VisibleSpawnFirstTurn::AssignedTaskStarter),
             }
         );
@@ -487,9 +524,10 @@ mod tests {
     #[test]
     fn roleless_visible_task_uses_the_full_turn_without_system_delivery() {
         assert_eq!(
-            select_visible_spawn_task(None, Some("task"), false),
+            select_visible_spawn_task(None, Some("task"), false, false),
             VisibleSpawnTaskSelection {
                 provider_launch: None,
+                provider_starter: None,
                 confirmed_first_turn: Some(VisibleSpawnFirstTurn::Task("task")),
             }
         );
@@ -498,11 +536,19 @@ mod tests {
     #[test]
     fn team_task_keeps_the_existing_provider_launch_route() {
         for role in ["Worker", "Planner", "Orchestrator"] {
-            for system_prompt_capable in [false, true] {
+            for (system_prompt_capable, native_starter_capable) in
+                [(false, false), (true, false), (true, true)]
+            {
                 assert_eq!(
-                    select_visible_spawn_task(Some(role), Some("task"), system_prompt_capable,),
+                    select_visible_spawn_task(
+                        Some(role),
+                        Some("task"),
+                        system_prompt_capable,
+                        native_starter_capable,
+                    ),
                     VisibleSpawnTaskSelection {
                         provider_launch: Some("task"),
+                        provider_starter: None,
                         confirmed_first_turn: None,
                     }
                 );

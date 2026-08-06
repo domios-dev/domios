@@ -489,21 +489,18 @@ impl ServiceContext {
                 t.clone()
             }
         });
-        let system_prompt_capable = self
+        let (system_prompt_capable, native_starter_capable) = self
             .agent_registry
-            .with_provider(&agent_cmd, |provider| {
-                matches!(
-                    crate::service::launch_delivery::mode_for_descriptor(
-                        &provider.system_prompt_delivery(),
-                    ),
-                    crate::service::launch_delivery::LaunchDeliveryMode::SystemPrompt
-                )
-            })
-            .unwrap_or(false);
+            .with_provider(
+                &agent_cmd,
+                crate::service::launch_delivery::visible_spawn_capabilities,
+            )
+            .unwrap_or((false, false));
         let task_selection = crate::service::launch_delivery::select_visible_spawn_task(
             agent.role.as_deref(),
             preamble_wrapped_task.as_deref(),
             system_prompt_capable,
+            native_starter_capable,
         );
         let role_suffixed_task = super::orchestrator::role_launch_task(
             task_selection.provider_launch,
@@ -537,6 +534,9 @@ impl ServiceContext {
         };
 
         let mut legacy_params = spec.to_agent_params()?;
+        if let Some(starter) = task_selection.provider_starter {
+            legacy_params.starter_prompt = starter;
+        }
         legacy_params.skip_permissions = Some(permission_bypass);
         legacy_params.permission_bypass_authorization = permission_bypass_authorization;
         legacy_params.model = launch_model;
