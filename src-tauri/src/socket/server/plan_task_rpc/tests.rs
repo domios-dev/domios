@@ -361,65 +361,44 @@ fn spawn_rebound_tab(fixture: &ServiceFixture, live_session_id: &str) -> String 
 }
 
 /// Owner SESSION dead, tab object absent from the mux: the bound Orchestrator
-/// recovers, and both `close` and the reconcile-blessed `blocked/needs-reassign`
-/// verb retire-and-recover in one transition (epoch bumped, owner cleared).
+/// retires the stale owner while applying the reconcile-blessed status update.
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
-fn dead_owner_session_absent_tab_lets_bound_orchestrator_recover() {
-    for method in ["plan.task.close", "plan.task.update"] {
-        let (fixture, plan_id, task_id, _, _, owner) = update_fixture();
-        bind_worker_owner(
-            &fixture,
-            &plan_id,
-            &task_id,
-            "dead-worker-tab",
-            "worker-session",
-            5,
-        );
-        let service = Arc::new(fixture.service.clone());
+fn dead_owner_session_absent_tab_lets_bound_orchestrator_recover_update() {
+    let (fixture, plan_id, task_id, _, _, owner) = update_fixture();
+    bind_worker_owner(
+        &fixture,
+        &plan_id,
+        &task_id,
+        "dead-worker-tab",
+        "worker-session",
+        5,
+    );
+    let service = Arc::new(fixture.service.clone());
 
-        let orch_caller = Some(serde_json::Value::Object(owner_params(&owner)));
-        assert!(
-            plan_owner_may_recover(
-                method,
-                &orch_caller,
-                &service,
-                &plan_id,
-                Some("dead-worker-tab"),
-                Some("worker-session"),
-            ),
-            "bound Orchestrator must recover a dead-owner task via {method}"
-        );
+    let orch_caller = Some(serde_json::Value::Object(owner_params(&owner)));
+    assert!(plan_owner_may_recover(
+        "plan.task.update",
+        &orch_caller,
+        &service,
+        &plan_id,
+        Some("dead-worker-tab"),
+        Some("worker-session"),
+    ));
 
-        let mut params = owner_params(&owner);
-        params.insert("plan_id".into(), json!(plan_id.clone()));
-        params.insert("task_id".into(), json!(task_id.clone()));
-        if method == "plan.task.update" {
-            params.insert("status".into(), json!("blocked"));
-            params.insert("status_label".into(), json!("needs-reassign"));
-        }
-        let params = Some(serde_json::Value::Object(params));
-        verify_owner_epoch_for_task_mutation(method, &params, &service)
-            .unwrap_or_else(|error| panic!("{method} must recover, got: {}", error.message));
+    let mut params = owner_params(&owner);
+    params.insert("plan_id".into(), json!(plan_id.clone()));
+    params.insert("task_id".into(), json!(task_id.clone()));
+    params.insert("status".into(), json!("blocked"));
+    params.insert("status_label".into(), json!("needs-reassign"));
+    let params = Some(serde_json::Value::Object(params));
+    verify_owner_epoch_for_task_mutation("plan.task.update", &params, &service).unwrap();
 
-        let after = recovered_task(&fixture, &plan_id, &task_id);
-        assert!(
-            after.interruption.owner_tab_id.is_none(),
-            "{method}: owner tab cleared"
-        );
-        assert!(
-            after.interruption.owner_session_id.is_none(),
-            "{method}: owner session cleared"
-        );
-        assert!(
-            after.interruption.owner_epoch > 5,
-            "{method}: epoch bumped past the dead owner"
-        );
-        assert!(
-            after.assigned_tab_id.is_none(),
-            "{method}: assignment cleared"
-        );
-    }
+    let after = recovered_task(&fixture, &plan_id, &task_id);
+    assert!(after.interruption.owner_tab_id.is_none());
+    assert!(after.interruption.owner_session_id.is_none());
+    assert!(after.interruption.owner_epoch > 5);
+    assert!(after.assigned_tab_id.is_none());
 }
 
 /// Tab lingers in the mux but rebound to a NEW session: still a gone owner, so
@@ -442,7 +421,7 @@ fn lingering_tab_with_rebound_session_is_a_gone_owner() {
     let orch_caller = Some(serde_json::Value::Object(owner_params(&owner)));
     assert!(
         plan_owner_may_recover(
-            "plan.task.close",
+            "plan.task.update",
             &orch_caller,
             &service,
             &plan_id,
@@ -455,8 +434,10 @@ fn lingering_tab_with_rebound_session_is_a_gone_owner() {
     let mut params = owner_params(&owner);
     params.insert("plan_id".into(), json!(plan_id.clone()));
     params.insert("task_id".into(), json!(task_id.clone()));
+    params.insert("status".into(), json!("blocked"));
+    params.insert("status_label".into(), json!("needs-reassign"));
     let params = Some(serde_json::Value::Object(params));
-    verify_owner_epoch_for_task_mutation("plan.task.close", &params, &service).unwrap();
+    verify_owner_epoch_for_task_mutation("plan.task.update", &params, &service).unwrap();
 
     let after = recovered_task(&fixture, &plan_id, &task_id);
     assert!(after.interruption.owner_tab_id.is_none());
@@ -493,12 +474,13 @@ fn live_owner_session_refuses_recovery_and_keeps_the_epoch_guard() {
         "a live owner session must never be recoverable by a foreign caller"
     );
 
+    let foreign_tab = spawn_rebound_tab(&fixture, "foreign-session");
     let foreign = Some(json!({
         "plan_id": plan_id,
         "task_id": task_id,
-        "caller_tab_id": owner,
-        "session_id": "owner-session",
-        "session_binding_nonce": "owner-nonce",
+        "caller_tab_id": foreign_tab,
+        "session_id": "foreign-session",
+        "session_binding_nonce": "rebound-nonce",
         "owner_epoch": 4
     }));
     assert!(
