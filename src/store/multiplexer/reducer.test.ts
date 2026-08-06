@@ -941,5 +941,79 @@ test("SET_STATE preserves remote tab, selection, and focus across an authoritati
   assert(next.focused_tab_id === remote.id, "remote focus survives the local snapshot");
 });
 
+function snapWithProviderTab(
+  generation: number,
+  agentType: string | null,
+  model: string | null,
+): MultiplexerState {
+  return {
+    workspaces: [
+      { id: "w1", name: "W", tabs: ["ga"], active_tab_id: "ga", cwd: null } as unknown as Workspace,
+    ],
+    tabs: {
+      ga: {
+        id: "ga",
+        pty_id: "pty-1",
+        title: "Main",
+        agent_type: agentType,
+        agent_session_model: model,
+      } as unknown as Tab,
+    },
+    active_workspace_id: "w1",
+    focused_tab_id: "ga",
+    generation,
+  };
+}
+
+test("SET_STATE adopts a switched backend agent_type (provider switch codex→claude)", () => {
+  const asCodex = reducer(base(), {
+    type: "SET_STATE",
+    state: snapWithProviderTab(1, "codex", "opus"),
+  });
+  assert(asCodex.tabs.ga.agent_type === "codex", "initial provider is codex");
+  const asClaude = reducer(asCodex, {
+    type: "SET_STATE",
+    state: snapWithProviderTab(2, "claude", "opus"),
+  });
+  assert(
+    asClaude.tabs.ga.agent_type === "claude",
+    "backend provider switch is adopted, not pinned to the stale codex value",
+  );
+});
+
+test("SET_STATE keeps last known agent_type when a restart transiently reports null", () => {
+  const asClaude = reducer(base(), {
+    type: "SET_STATE",
+    state: snapWithProviderTab(1, "claude", "opus"),
+  });
+  const transientNull = reducer(asClaude, {
+    type: "SET_STATE",
+    state: snapWithProviderTab(2, null, "opus"),
+  });
+  assert(
+    transientNull.tabs.ga.agent_type === "claude",
+    "transient null during restart teardown does not flash the indicator blank",
+  );
+});
+
+test("SET_STATE does not thrash agent_type on an unrelated snapshot", () => {
+  const asClaude = reducer(base(), {
+    type: "SET_STATE",
+    state: snapWithProviderTab(1, "claude", "opus"),
+  });
+  const unrelated = reducer(asClaude, {
+    type: "SET_STATE",
+    state: snapWithProviderTab(2, "claude", "sonnet"),
+  });
+  assert(
+    unrelated.tabs.ga.agent_type === "claude",
+    "an unrelated snapshot leaves the provider stable while other fields update",
+  );
+  assert(
+    unrelated.tabs.ga.agent_session_model === "sonnet",
+    "non-provider fields still flow through the merge",
+  );
+});
+
 console.log(failures === 0 ? "✓ reducer tests green" : `✗ ${failures} failure(s)`);
 process.exit(failures === 0 ? 0 : 1);
