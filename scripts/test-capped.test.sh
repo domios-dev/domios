@@ -6,7 +6,7 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
-host_triple=$(rustc -vV | awk -F': ' '/^host:/{print $2; exit}')
+host_triple=$(rustc -vV | awk -F': ' '/^host:/{print $2}')
 case "$host_triple" in *-windows-*) embed_ext=.exe ;; *) embed_ext= ;; esac
 
 make_fixture_repo() {
@@ -142,6 +142,10 @@ run_uncapped_case() {
 
 run_uncapped_case uncapped-success 0 true
 run_uncapped_case uncapped-exit-124 124 bash -c 'exit 124'
+
+windows_sidecar="$base_repo/src-tauri/bundled-embed/codeterm-embed-x86_64-pc-windows-msvc.exe"
+mkdir -p "$(dirname "$windows_sidecar")"
+printf 'real-sidecar' >"$windows_sidecar"
 
 windows_target_output="$TMPDIR/windows-target.out"
 CODETERM_TEST_HOST_TRIPLE=x86_64-pc-windows-msvc CODETERM_TEST_DEV_HEALTH=healthy \
