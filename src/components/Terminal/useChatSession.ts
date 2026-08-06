@@ -98,6 +98,7 @@ export function useChatSession({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [listenerReady, setListenerReady] = useState(false);
+  const [listenerEpoch, setListenerEpoch] = useState(0);
   const [attachmentState, setAttachmentState] = useState<ChatAttachmentState>("idle");
   const onErrorRef = useRef(onError);
   const diagnosticSinkRef = useRef(diagnosticSink);
@@ -192,6 +193,10 @@ export function useChatSession({
       if (activeRef.current) requestAttach(true);
     });
   }, [requestAttach]);
+
+  const requestListenerReattach = useCallback(() => {
+    setListenerEpoch((epoch) => epoch + 1);
+  }, []);
 
   const markAttached = useCallback(() => {
     attachmentStateRef.current = "attached";
@@ -368,6 +373,7 @@ export function useChatSession({
     requestRecoveryAttach,
     requestAttach,
     tabId,
+    listenerEpoch,
   ]);
 
   useEffect(() => {
@@ -547,11 +553,11 @@ export function useChatSession({
   useEffect(() => {
     const handleReattached = (event: Event) => {
       const detail = (event as CustomEvent<{ tabId?: string }>).detail;
-      if (detail?.tabId === tabId) retry();
+      if (detail?.tabId === tabId) requestListenerReattach();
     };
     window.addEventListener(CHAT_REATTACHED_EVENT, handleReattached);
     return () => window.removeEventListener(CHAT_REATTACHED_EVENT, handleReattached);
-  }, [tabId, retry]);
+  }, [requestListenerReattach, tabId]);
 
   useEffect(() => {
     if (error?.includes("chat_send_raw")) setError(null);
