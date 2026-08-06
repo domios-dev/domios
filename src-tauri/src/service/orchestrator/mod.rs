@@ -2,6 +2,7 @@
 
 mod batch;
 mod launch;
+mod launch_env;
 pub mod refresh;
 mod spawn;
 pub mod tab_relink_signal;
