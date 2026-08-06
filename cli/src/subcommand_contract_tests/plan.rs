@@ -467,6 +467,32 @@ fn plan_in_progress_parses_plan_all_and_json() {
 }
 
 #[test]
+fn plan_task_show_parses_plan_and_task_positionals() {
+    let parsed = parse_plan_cli_result(["codeterm", "plan", "task", "show", "pl_1", "task_1"])
+        .expect("plan task show parses");
+    match parsed.command {
+        Commands::Plan {
+            action:
+                PlanAction::Task {
+                    action:
+                        crate::args::plan::PlanTaskAction::Show {
+                            plan_id,
+                            task_id,
+                            siblings,
+                            all,
+                        },
+                },
+        } => {
+            assert_eq!(plan_id, "pl_1");
+            assert_eq!(task_id, "task_1");
+            assert!(!siblings);
+            assert!(!all);
+        }
+        _ => panic!("expected plan task show"),
+    }
+}
+
+#[test]
 fn plan_task_add_parses_quality_fields() {
     let parsed = parse_plan_cli_result([
         "codeterm",
