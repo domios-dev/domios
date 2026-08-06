@@ -143,8 +143,6 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 None,
             ),
         },
-        // `notify clear` relays the list GET, exactly as `notifications clear` did:
-        // the peer has no clear endpoint and this arm never had one.
         Commands::Notify { action } => match action {
             crate::NotifyAction::Send { title, body, level } => (
                 "POST".into(),
@@ -155,7 +153,9 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 let qs = if *unread { "?unread=true" } else { "" };
                 ("GET".into(), format!("/api/notifications{}", qs), None)
             }
-            crate::NotifyAction::Clear => ("GET".into(), "/api/notifications".into(), None),
+            crate::NotifyAction::Clear => {
+                ("POST".into(), "/api/notifications/clear".into(), None)
+            }
         },
         Commands::Workspace { action } => match action {
             crate::WorkspaceAction::List => ("GET".into(), "/api/workspaces".into(), None),

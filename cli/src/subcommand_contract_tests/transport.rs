@@ -394,6 +394,17 @@ fn api_map_still_builds_identical_rest_bodies() {
             "/api/identify",
         ),
         (&["codeterm", "docs"], "GET", "/api/identify"),
+        (&["codeterm", "notify", "list"], "GET", "/api/notifications"),
+        (
+            &["codeterm", "notify", "list", "--unread"],
+            "GET",
+            "/api/notifications?unread=true",
+        ),
+        (
+            &["codeterm", "notify", "clear"],
+            "POST",
+            "/api/notifications/clear",
+        ),
     ];
 
     for (argv, method, path) in cases {
