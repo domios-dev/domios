@@ -37,7 +37,13 @@ pub(crate) struct FallbackDeliverySpec {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct VisibleSpawnTaskSelection<'a> {
     pub provider_launch: Option<&'a str>,
-    pub confirmed_first_turn: Option<&'a str>,
+    pub confirmed_first_turn: Option<VisibleSpawnFirstTurn<'a>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum VisibleSpawnFirstTurn<'a> {
+    AssignedTaskStarter,
+    Task(&'a str),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -237,18 +243,39 @@ pub(crate) fn content_for_descriptor(
 pub(crate) fn select_visible_spawn_task<'a>(
     role: Option<&str>,
     task: Option<&'a str>,
+    system_prompt_capable: bool,
 ) -> VisibleSpawnTaskSelection<'a> {
     let task = task.filter(|text| !text.trim().is_empty());
-    if role.is_none() && task.is_some() {
-        VisibleSpawnTaskSelection {
+    match (role, task, system_prompt_capable) {
+        (None, Some(task), true) => VisibleSpawnTaskSelection {
+            provider_launch: Some(task),
+            confirmed_first_turn: Some(VisibleSpawnFirstTurn::AssignedTaskStarter),
+        },
+        (None, Some(task), false) => VisibleSpawnTaskSelection {
             provider_launch: None,
-            confirmed_first_turn: task,
-        }
-    } else {
-        VisibleSpawnTaskSelection {
+            confirmed_first_turn: Some(VisibleSpawnFirstTurn::Task(task)),
+        },
+        _ => VisibleSpawnTaskSelection {
             provider_launch: task,
             confirmed_first_turn: None,
-        }
+        },
+    }
+}
+
+pub(crate) fn assigned_task_starter(provider_text: Option<&str>) -> String {
+    provider_text
+        .filter(|text| !text.trim().is_empty())
+        .unwrap_or("Begin the task assigned in your system instructions.")
+        .to_string()
+}
+
+pub(crate) fn mark_starter_prompt(
+    prompt: crate::agent::provider::StarterPrompt,
+    text: String,
+) -> String {
+    match prompt.system_prefix() {
+        Some(prefix) => format!(" {prefix}{text}"),
+        None => text,
     }
 }
 
@@ -447,12 +474,23 @@ mod tests {
     }
 
     #[test]
-    fn roleless_visible_task_becomes_a_confirmed_first_turn() {
+    fn roleless_visible_task_keeps_assignment_in_system_and_starts_with_a_turn() {
         assert_eq!(
-            select_visible_spawn_task(None, Some("task")),
+            select_visible_spawn_task(None, Some("task"), true),
+            VisibleSpawnTaskSelection {
+                provider_launch: Some("task"),
+                confirmed_first_turn: Some(VisibleSpawnFirstTurn::AssignedTaskStarter),
+            }
+        );
+    }
+
+    #[test]
+    fn roleless_visible_task_uses_the_full_turn_without_system_delivery() {
+        assert_eq!(
+            select_visible_spawn_task(None, Some("task"), false),
             VisibleSpawnTaskSelection {
                 provider_launch: None,
-                confirmed_first_turn: Some("task"),
+                confirmed_first_turn: Some(VisibleSpawnFirstTurn::Task("task")),
             }
         );
     }
@@ -460,14 +498,28 @@ mod tests {
     #[test]
     fn team_task_keeps_the_existing_provider_launch_route() {
         for role in ["Worker", "Planner", "Orchestrator"] {
-            assert_eq!(
-                select_visible_spawn_task(Some(role), Some("task")),
-                VisibleSpawnTaskSelection {
-                    provider_launch: Some("task"),
-                    confirmed_first_turn: None,
-                }
-            );
+            for system_prompt_capable in [false, true] {
+                assert_eq!(
+                    select_visible_spawn_task(Some(role), Some("task"), system_prompt_capable,),
+                    VisibleSpawnTaskSelection {
+                        provider_launch: Some("task"),
+                        confirmed_first_turn: None,
+                    }
+                );
+            }
         }
+    }
+
+    #[test]
+    fn assigned_starter_prefers_provider_text_and_marks_the_turn() {
+        let provider_text = String::from("opaque provider starter");
+        assert_eq!(assigned_task_starter(Some(&provider_text)), provider_text);
+        let marked = mark_starter_prompt(
+            crate::agent::provider::StarterPrompt::AssignedTask,
+            provider_text.clone(),
+        );
+        assert!(marked.ends_with(&provider_text));
+        assert_ne!(marked, provider_text);
     }
 
     #[test]
