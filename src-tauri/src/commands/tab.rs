@@ -775,6 +775,7 @@ pub async fn chat_send_text(
     svc: tauri::State<'_, ServiceState>,
     tab_id: String,
     text: String,
+    client_token: Option<String>,
 ) -> Result<crate::service::chat_send_transaction::ChatSendStatus, String> {
     // Agent without knowing its tab id — parity with the REST send route.
     let tab_id = svc.mux.read().resolve_tab_id(&tab_id).unwrap_or(tab_id);
@@ -788,7 +789,7 @@ pub async fn chat_send_text(
     let submit_claim = svc.claim_chat_submit_cycle(&tab_id);
     // Anchor capture reads the session file and may enter a plugin VM.
     let svc = svc.inner().clone();
-    tokio::task::spawn_blocking(move || svc.start_chat_send(&tab_id, text, submit_claim))
+    tokio::task::spawn_blocking(move || svc.start_chat_send(&tab_id, text, submit_claim, client_token))
         .await
         .map_err(|e| e.to_string())?
 }
