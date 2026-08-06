@@ -39,13 +39,28 @@ well-meaning "one more heuristic" changes. Read this before touching
   serialized writer and normally still lands; claiming `pty_unavailable` here
   is exactly the false-failure incident this contract was written for.
 
+## User sends always deliver — never a user-facing refusal
+
+A USER-initiated send (chat UI, via `start_chat_send`) may never surface a
+refusal. The wait-then-write path already waits on the observable link-readiness
+signals (`await_public_agent_input_ready_blocking`, `await_pty_link_blocking` —
+condvar-backed, bounded failure deadlines, no sleeps) before its single write,
+so a transient pre-write unlink (booting agent / unlinked PTY) or an unconfirmed
+submit degrades to `unknown` (pending-until-link, resolved by later turn
+evidence), never `failed`. This is `DeliveryError::surfaces_as_failure(origin)` /
+`into_surfaced(origin)`: `SendOrigin::User` always degrades; `Programmatic`
+(agent-to-agent / mesh / CLI `send_text`) keeps the honest typed split — a proven
+pre-write refusal fails, a post-write submit is unknown. Neutralizing a user
+refusal never re-writes the payload: the single write already happened upstream.
+
 ## The Chat send ledger reconciles by exact evidence
 
 `ChatSendLedger` is the authority the UI renders. Its rules:
 
 - The serialized states are `accepted`, `unknown`, `confirmed`, and `failed`.
-  Transport uncertainty is `unknown` with no user-facing error; only a proven
-  pre-write refusal is `failed`.
+  Transport uncertainty is `unknown` with no user-facing error. A user send never
+  resolves to `failed`; only a programmatic send's proven pre-write refusal is
+  `failed`.
 - `accepted/unknown → confirmed` only happens
   when the tab's **own bound session transcript** appends a user turn whose
   normalized content equals the send's payload
@@ -110,4 +125,4 @@ well-meaning "one more heuristic" changes. Read this before touching
 | Closed-chat append-window evidence scan | `service/chat_send_evidence.rs` |
 | Live transcript deltas (evidence source) | `service/tab_chat/` sinks |
 
-<!-- revision: 10 -->
+<!-- revision: 11 -->
