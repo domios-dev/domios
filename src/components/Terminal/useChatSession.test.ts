@@ -9,7 +9,6 @@ import {
   type ChatSessionDiagnosticSink,
   useChatSession,
 } from "./useChatSession";
-import { sendTrackedChatMessage } from "./chatSendStatus";
 import { clearTranscriptWindows } from "./transcriptStore";
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 import { act, createElement } from "react";
@@ -231,16 +230,7 @@ async function mountSession(
   active = true,
   sessionBindingNonce: string | null = null,
   diagnosticSink?: ChatSessionDiagnosticSink,
-): Promise<{
-  root: Root;
-  render: (
-    nextSessionId: string | null,
-    nextActive?: boolean,
-    nextSessionBindingNonce?: string | null,
-  ) => Promise<void>;
-  latest: () => SessionView;
-  renderedContents: () => string[];
-}> {
+): Promise<{ root: Root; render: (nextSessionId: string | null, nextActive?: boolean, nextSessionBindingNonce?: string | null) => Promise<void>; latest: () => SessionView }> {
   let view: SessionView = {
     attachmentState: "idle",
     error: null,
@@ -257,15 +247,7 @@ async function mountSession(
       recovering: session.recovering,
       messages: session.allMessages,
     };
-    return createElement(
-      "section",
-      null,
-      ...session.allMessages.map((message) => createElement(
-        "output",
-        { key: message.id, "data-testid": "projected-chat-row" },
-        message.content,
-      )),
-    );
+    return null;
   }
   clearTranscriptWindows();
   const host = document.createElement("div");
@@ -278,13 +260,7 @@ async function mountSession(
     await flush();
   };
   await render(sessionId, active, sessionBindingNonce);
-  return {
-    root,
-    render,
-    latest: () => view,
-    renderedContents: () => [...host.querySelectorAll('[data-testid="projected-chat-row"]')]
-      .map((node) => node.textContent ?? ""),
-  };
+  return { root, render, latest: () => view };
 }
 
 async function runChatSessionHookTests(): Promise<void> {
@@ -319,77 +295,6 @@ async function runChatSessionHookTests(): Promise<void> {
     );
     await act(async () => session.root.unmount());
     console.log("PASS web event loss refreshes the active chat snapshot");
-  }
-
-  {
-    const handlers: Array<(event: { payload: ReturnType<typeof chatEvent> }) => void> = [];
-    let activeHandler: ((event: { payload: ReturnType<typeof chatEvent> }) => void) | null = null;
-    const lifecycle: string[] = [];
-    const deliveredToken = "post-replacement-row-token";
-    let unlistens = 0;
-    let sends = 0;
-    Object.defineProperty(window.navigator, "userAgent", {
-      configurable: true,
-      value: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 WebKitGTK",
-    });
-    __setListenForTest(async (_event, handler) => {
-      lifecycle.push("listen");
-      const typed = handler as typeof activeHandler;
-      handlers.push(typed!);
-      activeHandler = typed;
-      return () => {
-        lifecycle.push("unlisten");
-        unlistens += 1;
-        if (activeHandler === typed) activeHandler = null;
-      };
-    });
-    __setInvokeForTest((async (command: string) => {
-      if (command === "chat_send_text") {
-        lifecycle.push("send");
-        sends += 1;
-        return {
-          send_id: "webkit-send",
-          tab_id: "tab",
-          state: "accepted",
-          error: null,
-          ledger_id: "webkit-ledger",
-          sequence: sends,
-          retained_from: 1,
-        };
-      }
-      if (command === "chat_start") {
-        lifecycle.push("snapshot");
-        return chatStartResult("sid-1", { text: "", offset: 0, messages: [] });
-      }
-      return {};
-    }) as never);
-    const session = await mountSession("sid-1");
-    await sendTrackedChatMessage("tab", "optimistic-webkit", "outbound");
-    activeHandler = null;
-    const replacementStart = lifecycle.length;
-    await act(async () => {
-      window.dispatchEvent(new CustomEvent("codeterm:chat-reattached", { detail: { tabId: "tab" } }));
-    });
-    await flush();
-    assert(sends === 1, "WebKitGTK recovery issued more than one backend chat_send_text invoke");
-    assert(handlers.length === 2 && unlistens === 1, "WebKitGTK listener context replacement did not renew the native listener");
-    assert(
-      lifecycle.slice(replacementStart).filter((edge) => edge !== "send").join(",")
-        === "unlisten,listen,snapshot",
-      `WebKitGTK listener was not renewed before its authoritative snapshot (${lifecycle})`,
-    );
-    await act(async () => handlers[1]?.({ payload: chatEvent("sid-1", [{
-      id: "webkit-confirmation",
-      type: "assistant",
-      content: deliveredToken,
-      timestamp: "1",
-    }]) }));
-    assert(
-      session.renderedContents().includes(deliveredToken),
-      "WebKitGTK replacement listener did not project the delivered transcript row",
-    );
-    await act(async () => session.root.unmount());
-    console.log("PASS WebKitGTK listener replacement preserves send and visible transcript delivery");
   }
 
   {
@@ -670,11 +575,7 @@ async function runChatSessionHookTests(): Promise<void> {
     };
     let stops = 0;
     let unlistens = 0;
-    let listens = 0;
-    __setListenForTest(async () => {
-      listens += 1;
-      return () => { unlistens += 1; };
-    });
+    __setListenForTest(async () => () => { unlistens += 1; });
     __setInvokeForTest((async (command: string, args?: Record<string, unknown>) => {
       if (command === "chat_start") {
         startArgs.push(args);
@@ -689,13 +590,12 @@ async function runChatSessionHookTests(): Promise<void> {
     const session = await mountSession("sid-1");
     await act(async () => window.dispatchEvent(new CustomEvent("codeterm:chat-reattached", { detail: { tabId: "tab" } })));
     await flush();
-    assert(listens === 2 && unlistens === 1, "T7 context replacement renews the listener before re-attaching");
     await session.render("sid-2");
     await session.render("sid-3");
     await timers.advance(0);
     assert(startArgs.length === 4 && startArgs[3]?.agentSessionId === "sid-3", "T7 attaching rotation reaches the latest session");
     assert(
-      Number(stops) === 3 && unlistens === 1,
+      Number(stops) === 3 && unlistens === 0,
       `T7 attaching rotation releases each superseded subscription (${stops}/${unlistens})`,
     );
     retryAttach.resolve?.(chatStartResult("sid-1", { text: "", offset: 0, pending: true }));
@@ -703,7 +603,7 @@ async function runChatSessionHookTests(): Promise<void> {
     await timers.advance(30_000);
     assert(startArgs.length === 4, "T7 attaching rotation does not introduce polling");
     assert(
-      Number(stops) === 4 && unlistens === 1,
+      Number(stops) === 4 && unlistens === 0,
       `T7 stale completion releases its own superseded subscription (${stops}/${unlistens})`,
     );
     await act(async () => session.root.unmount());

@@ -323,49 +323,18 @@ export class ChatProjectionMonitor {
  *  produced is on screen. Returns a canceller (cancels a superseded frame when
  *  renders outrun paints — exactly the starvation the probe measures). Falls back
  *  to a synchronous record when no rAF exists (non-browser/test host). */
-function reportAfterPaintFault(error: unknown): void {
-  console.warn("[chat-projection] post-paint recovery", error);
-}
-
-export function scheduleAfterPaint(
-  record: () => void,
-  onFault: (error: unknown) => void = reportAfterPaintFault,
-): () => void {
+export function scheduleAfterPaint(record: () => void): () => void {
   const raf = typeof requestAnimationFrame === "function" ? requestAnimationFrame : null;
   const caf = typeof cancelAnimationFrame === "function" ? cancelAnimationFrame : null;
-  let cancelled = false;
-  let recorded = false;
-  const run = () => {
-    if (cancelled || recorded) return;
-    recorded = true;
-    try {
-      record();
-    } catch (error) {
-      onFault(error);
-    }
-  };
   if (!raf) {
-    run();
-    return () => { cancelled = true; };
+    record();
+    return () => {};
   }
   let inner = 0;
-  const recover = (error: unknown) => {
-    onFault(error);
-    queueMicrotask(run);
-  };
-  const schedule = (callback: () => void): number => {
-    try {
-      return raf(callback);
-    } catch (error) {
-      recover(error);
-      return 0;
-    }
-  };
-  const outer = schedule(() => {
-    inner = schedule(run);
+  const outer = raf(() => {
+    inner = raf(record);
   });
   return () => {
-    cancelled = true;
     caf?.(outer);
     caf?.(inner);
   };

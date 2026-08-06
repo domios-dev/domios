@@ -252,33 +252,6 @@ function recordComposerIgnoredKey(key: string): void {
   window.__composerPerf?.ignoredKeys.push(key);
 }
 
-function valueAfterNativeBeforeInput(
-  value: string,
-  selectionStart: number,
-  selectionEnd: number,
-  event: InputEvent,
-): string | null {
-  const start = Math.max(0, selectionStart);
-  const end = Math.max(start, selectionEnd);
-  switch (event.inputType) {
-    case "insertText":
-    case "insertReplacementText":
-    case "insertLineBreak":
-    case "insertParagraph":
-      return `${value.slice(0, start)}${event.data ?? (
-        event.inputType === "insertText" ? "" : "\n"
-      )}${value.slice(end)}`;
-    case "deleteContentBackward":
-      if (start !== end) return `${value.slice(0, start)}${value.slice(end)}`;
-      return `${value.slice(0, Math.max(0, start - 1))}${value.slice(end)}`;
-    case "deleteContentForward":
-      if (start !== end) return `${value.slice(0, start)}${value.slice(end)}`;
-      return `${value.slice(0, start)}${value.slice(end + 1)}`;
-    default:
-      return null;
-  }
-}
-
 function ChatComposerImpl({
   tabId,
   tabProvider,
@@ -343,7 +316,6 @@ function ChatComposerImpl({
   );
   const touchMode = useTouchOptimizedUi();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const pairedNativeInputRef = useRef<{ value: string } | null>(null);
   const shellRef = useRef<HTMLDivElement>(null);
   const lastSendRef = useRef<{ text: string; at: number }>({ text: "", at: 0 });
   const [delayedMessages, setDelayedMessages] = useState<DelayedMessage[]>([]);
@@ -408,45 +380,6 @@ function ChatComposerImpl({
     applyComposerAutosize(el, shellRef.current);
     recordComposerPaint();
   }, [input]);
-
-  useEffect(() => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-    const handleBeforeInput = (event: InputEvent) => {
-      pairedNativeInputRef.current = null;
-      if (event.isComposing || !event.cancelable) return;
-      const next = valueAfterNativeBeforeInput(
-        input,
-        textarea.selectionStart ?? input.length,
-        textarea.selectionEnd ?? input.length,
-        event,
-      );
-      if (next == null) return;
-      event.preventDefault();
-      const pairedInput = { value: next };
-      pairedNativeInputRef.current = pairedInput;
-      queueMicrotask(() => {
-        if (pairedNativeInputRef.current === pairedInput) pairedNativeInputRef.current = null;
-      });
-      setInput(next);
-    };
-    const handleInput = (event: Event) => {
-      const pairedInput = pairedNativeInputRef.current;
-      if (!pairedInput) {
-        setInput(textarea.value);
-        return;
-      }
-      pairedNativeInputRef.current = null;
-      textarea.value = pairedInput.value;
-      event.stopPropagation();
-    };
-    textarea.addEventListener("beforeinput", handleBeforeInput);
-    textarea.addEventListener("input", handleInput);
-    return () => {
-      textarea.removeEventListener("beforeinput", handleBeforeInput);
-      textarea.removeEventListener("input", handleInput);
-    };
-  }, [input, setInput]);
 
   useEffect(() => {
     if (modelSuggestionDismissedFor && modelSuggestionDismissedFor !== firstLine) {
