@@ -12,6 +12,7 @@ PUBLIC_REFERENCE = re.compile(r"^Public-Issue: rollacode/codeterm-releases#([1-9
 REPOSITORY_REFERENCE = re.compile(r"^Repository-Issue: rollacode/codeterm#([1-9][0-9]*)$")
 PUBLIC_REFERENCE_MARKER = re.compile(r"Public-Issue:", re.IGNORECASE)
 REPOSITORY_REFERENCE_MARKER = re.compile(r"Repository-Issue:", re.IGNORECASE)
+REPOSITORY_CLOSE = re.compile(r"^Closes #([1-9][0-9]*)$")
 CLOSING_KEYWORD = re.compile(
     r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+"
     r"(?:(?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#[0-9]+|"
@@ -30,7 +31,10 @@ class ContractError(ValueError):
 
 
 def parse_metadata(
-    body: str, *, reject_incidental_references: bool = True
+    body: str,
+    *,
+    reject_incidental_references: bool = True,
+    allow_repository_closes: bool = False,
 ) -> tuple[list[str], list[str]]:
     public_references: list[str] = []
     repository_references: list[str] = []
@@ -39,9 +43,10 @@ def parse_metadata(
     for line_number, line in enumerate(body.splitlines(), 1):
         public_match = PUBLIC_REFERENCE.fullmatch(line)
         repository_match = REPOSITORY_REFERENCE.fullmatch(line)
-        if public_match or repository_match:
+        repository_close = REPOSITORY_CLOSE.fullmatch(line) if allow_repository_closes else None
+        if public_match or repository_match or repository_close:
             repository = PUBLIC_REPOSITORY if public_match else SOURCE_REPOSITORY
-            number = (public_match or repository_match).group(1)
+            number = (public_match or repository_match or repository_close).group(1)
             reference = f"{repository}#{number}"
             if reference in seen:
                 errors.append(f"line {line_number}: duplicate {reference}")
@@ -92,10 +97,16 @@ def resolve_sources(commits: list[dict], prs: list[dict]) -> dict:
         number = pr.get("number")
         url = pr.get("url")
         body = pr.get("body") or ""
+        base_ref = pr.get("base_ref")
         if not isinstance(number, int) or not isinstance(url, str):
             raise ContractError("each PR requires integer number and string url")
+        if base_ref is not None and not isinstance(base_ref, str):
+            raise ContractError("PR base_ref must be a string when present")
         try:
-            public_references, repository_references = parse_metadata(body)
+            public_references, repository_references = parse_metadata(
+                body,
+                allow_repository_closes=base_ref == "master",
+            )
         except ContractError as error:
             raise ContractError(f"PR #{number}: {error}") from error
         source = {"kind": "pull_request", "number": number, "url": url}

@@ -215,7 +215,7 @@ jobs:
               "$RUNNER_TEMP/release-commits.json" > "$RUNNER_TEMP/release-commits.next.json"
             mv "$RUNNER_TEMP/release-commits.next.json" "$RUNNER_TEMP/release-commits.json"
             gh api "repos/${GITHUB_REPOSITORY}/commits/$sha/pulls" \
-              --jq '[.[] | select(.merged_at != null) | {number, url: .html_url, body}]' \
+              --jq '[.[] | select(.merged_at != null) | {number, url: .html_url, body, base_ref: .base.ref}]' \
               > "$RUNNER_TEMP/commit-prs.json"
             jq -s 'add | unique_by(.number)' \
               "$RUNNER_TEMP/release-prs.json" "$RUNNER_TEMP/commit-prs.json" \
