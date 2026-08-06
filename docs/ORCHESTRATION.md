@@ -199,6 +199,13 @@ Every Worker must be visible under the Orchestrator and carry:
 - `codeterm agent ack` as its first task action;
 - instructions to report by running `codeterm agent report`.
 
+`plan task dispatch` is local-only. A Worker spawned on a mesh peer with
+`agent spawn --mesh PEER` has no attempt on the origin plan store and no plan/task
+env, so it must report with explicit `--plan <origin-plan> --task <task>` to home
+the report back to the owning machine, or the Orchestrator attaches the arriving
+tab message by hand. Full cross-mesh dispatch is out of scope; see the spawn-then-bind
+pattern in `codeterm docs MESH`.
+
 ## Review capacity
 
 Choose review granularity from backlog and diff size. A few large changes merit
@@ -232,4 +239,4 @@ immutable plan stride.
 
 Verification, integration, heartbeat, and closeout: `codeterm docs ORCHESTRATION-OPERATIONS`.
 
-<!-- revision: 57 -->
+<!-- revision: 58 -->
