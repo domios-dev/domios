@@ -28,10 +28,13 @@ pub async fn chat_send_text(
         text
     };
     let submit_claim = state.svc.claim_chat_submit_cycle(&tab_id);
+    let client_token = body.client_token;
     let svc = state.svc.clone();
     let send_tab = tab_id.clone();
     // Anchor capture reads the session file and may enter a plugin VM.
-    tokio::task::spawn_blocking(move || svc.start_chat_send(&send_tab, text, submit_claim))
+    tokio::task::spawn_blocking(move || {
+        svc.start_chat_send(&send_tab, text, submit_claim, client_token)
+    })
         .await
         .map_err(|_| {
             SendRejection::from((StatusCode::INTERNAL_SERVER_ERROR, "chat send task failed"))
@@ -163,6 +166,11 @@ pub(crate) struct SendTextBody {
     /// `source_peer` so a local send can't forge report framing.
     #[serde(default)]
     pub(crate) kind: Option<String>,
+    /// Opaque client correlation token. Echoed verbatim onto the committed
+    /// user turn's ChatSendStatus (`correlationId`) so the optimistic bubble
+    /// reconciles by identity. Never interpreted; never gates delivery.
+    #[serde(default)]
+    pub(crate) client_token: Option<String>,
 }
 
 #[derive(Deserialize)]
