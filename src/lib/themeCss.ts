@@ -4,6 +4,17 @@ import { blendColor, deriveColor, parseHex } from "./colors";
 const THEME_CACHE_KEY = "codeterm-theme-v1";
 const THEME_VARS_CACHE_KEY = "codeterm-theme-css-v1";
 
+function contrastTextColor(background: string): "#000000" | "#ffffff" {
+  const [r, g, b] = parseHex(background).map((channel) => {
+    const value = channel / 255;
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  });
+  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  const blackContrast = (luminance + 0.05) / 0.05;
+  const whiteContrast = 1.05 / (luminance + 0.05);
+  return blackContrast >= whiteContrast ? "#000000" : "#ffffff";
+}
+
 export const DEFAULT_THEME: ThemeConfig = {
   name: "github-dark",
   background: "#0d1117",
@@ -42,7 +53,7 @@ export function themeToCSS(theme: ThemeConfig): Record<string, string> {
     "--ct-tray-divider": isLight
       ? blendColor(chromeBg, theme.bright_black, 0.34)
       : blendColor(chromeBg, theme.bright_white, 0.58),
-    "--ct-on-accent": isLight ? "#ffffff" : theme.bright_white,
+    "--ct-on-accent": contrastTextColor(theme.blue),
     "--ct-border": blendColor(theme.background, theme.bright_black, 0.38),
     "--ct-hover": deriveColor(theme.background, 14),
     "--ct-active": deriveColor(theme.background, 22),
