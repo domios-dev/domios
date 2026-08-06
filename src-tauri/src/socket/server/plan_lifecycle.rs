@@ -45,11 +45,22 @@ pub(super) fn dispatch(
         }
         "plan.task.close" => {
             let (id, tid) = super::plan_refs::resolve_task(store, params)?;
+            let result = p
+                .and_then(|value| value.get("result"))
+                .and_then(Value::as_str);
+            let orchestrator_override =
+                super::plan_task_authority::plan_orchestrator_close_override(
+                    method, params, svc, &id,
+                );
             let owner_epoch = store
                 .show_task(&tid)
                 .map(|detail| detail.task.interruption.owner_epoch)
                 .unwrap_or(0);
-            if owner_epoch > 0 {
+            if orchestrator_override {
+                store
+                    .close_task(&id, &tid, result, from_param(p), now)
+                    .map_err(plan_rpc_err)?;
+            } else if owner_epoch > 0 {
                 let authority = super::plan_task_authority::task_mutation_authority(params, svc)?;
                 let mux = svc.mux.read();
                 let authenticated = mux.get_tab(&authority.tab_id).is_some_and(|tab| {
@@ -67,25 +78,12 @@ pub(super) fn dispatch(
                     });
                 }
                 store
-                    .close_task_authorized(
-                        &id,
-                        &tid,
-                        p.and_then(|x| x.get("result")).and_then(|v| v.as_str()),
-                        from_param(p),
-                        &authority,
-                        now,
-                    )
+                    .close_task_authorized(&id, &tid, result, from_param(p), &authority, now)
                     .map_err(plan_rpc_err)?;
                 drop(mux);
             } else {
                 store
-                    .close_task(
-                        &id,
-                        &tid,
-                        p.and_then(|x| x.get("result")).and_then(|v| v.as_str()),
-                        from_param(p),
-                        now,
-                    )
+                    .close_task(&id, &tid, result, from_param(p), now)
                     .map_err(plan_rpc_err)?;
             }
             svc.reconcile_time_reminder_eligibility();

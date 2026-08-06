@@ -119,7 +119,7 @@ Mark a tab as orchestrator (top-level, can spawn workers)
 Spawn a new agent; roleless unless --role is provided.
 
 - `<agent>` — Agent provider id. Run `codeterm agent providers` to list registered providers (e.g. claude, codex, opencode). Default: claude
-- `--args` — Extra args for the agent
+- `--args` — Extra provider args. Put this after all CodeTerm spawn options
 - `--can-spawn` — Override whether an explicit Orchestrator may spawn children
 - `--charter` — Watcher charter text
 - `--charter-file` — Read watcher charter text from a file
@@ -1823,6 +1823,12 @@ Show the plan QA queue, or enqueue one in_review task with --task
 - `<plan_id>`
 - `--task`
 
+#### `codeterm plan rebind`
+
+Re-sync a planning binding nonce that went stale after an agent relaunch, recovering plan mutation/approve/dispatch without a full `agent restart`
+
+- `<plan_id>` — Optional plan id for context; the rebind re-syncs this tab's binding
+
 #### `codeterm plan reconcile`
 
 Detect plan/task drift and optionally apply conservative fixes
@@ -2148,7 +2154,7 @@ List execution attempts for a plan task
 
 #### `codeterm plan task close`
 
-Close a task (records a result; rejects if subtasks are open)
+Close a task from any lifecycle state. The authenticated Plan Orchestrator overrides worker owner-epoch drift; open subtasks still block
 
 - `--mesh`
 - `<plan_id>`

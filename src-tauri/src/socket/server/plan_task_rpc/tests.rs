@@ -480,6 +480,78 @@ fn live_owner_session_refuses_recovery_and_keeps_the_epoch_guard() {
 
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
+fn bound_orchestrator_closes_a_live_worker_task_without_matching_its_epoch() {
+    let (fixture, plan_id, task_id, _, _, owner) = update_fixture();
+    let live_worker = spawn_rebound_tab(&fixture, "worker-session");
+    fixture
+        .service
+        .plan_store
+        .assign_task(&plan_id, &task_id, &live_worker, None, 5)
+        .unwrap();
+    bind_worker_owner(
+        &fixture,
+        &plan_id,
+        &task_id,
+        &live_worker,
+        "worker-session",
+        9,
+    );
+    let service = Arc::new(fixture.service.clone());
+
+    let mut params = owner_params(&owner);
+    params.insert("plan_id".into(), json!(plan_id.clone()));
+    params.insert("task_id".into(), json!(task_id.clone()));
+    params.insert("owner_epoch".into(), json!(1));
+    params.insert("result".into(), json!("accepted by orchestrator"));
+    let params = Some(serde_json::Value::Object(params));
+
+    verify_owner_epoch_for_task_mutation("plan.task.close", &params, &service).unwrap();
+    super::super::plan_lifecycle::dispatch(
+        "plan.task.close",
+        &params,
+        &fixture.service.app_handle,
+        &service,
+    )
+    .unwrap();
+
+    let task = recovered_task(&fixture, &plan_id, &task_id);
+    assert_eq!(task.status, TaskStatus::Done);
+    assert!(task.assigned_tab_id.is_none());
+    assert!(task
+        .execution_attempts
+        .iter()
+        .all(|attempt| attempt.closed_at.is_some()));
+}
+
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+#[test]
+fn non_orchestrator_cannot_use_the_close_override() {
+    let (fixture, plan_id, task_id, _, _, _) = update_fixture();
+    let live_worker = spawn_rebound_tab(&fixture, "worker-session");
+    bind_worker_owner(
+        &fixture,
+        &plan_id,
+        &task_id,
+        &live_worker,
+        "worker-session",
+        9,
+    );
+    let foreign_tab = spawn_rebound_tab(&fixture, "foreign-session");
+    let service = Arc::new(fixture.service.clone());
+    let params = Some(json!({
+        "plan_id": plan_id,
+        "task_id": task_id,
+        "caller_tab_id": foreign_tab,
+        "session_id": "foreign-session",
+        "session_binding_nonce": "rebound-nonce",
+        "owner_epoch": 1
+    }));
+
+    assert!(verify_owner_epoch_for_task_mutation("plan.task.close", &params, &service).is_err());
+}
+
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+#[test]
 fn standalone_task_add_does_not_require_an_existing_task_owner() {
     let (mux, _) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);

@@ -404,7 +404,7 @@
               "positional": false,
               "value_name": "ARGS",
               "default": null,
-              "help": "Extra args for the agent",
+              "help": "Extra provider args. Put this after all CodeTerm spawn options",
               "aliases": []
             },
             {
@@ -6846,6 +6846,22 @@
           ]
         },
         {
+          "name": "rebind",
+          "about": "Re-sync a planning binding nonce that went stale after an agent relaunch, recovering plan mutation/approve/dispatch without a full `agent restart`",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": "Optional plan id for context; the rebind re-syncs this tab's binding",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "reconcile",
           "about": "Detect plan/task drift and optionally apply conservative fixes",
           "aliases": [],
@@ -8309,7 +8325,7 @@
             },
             {
               "name": "close",
-              "about": "Close a task (records a result; rejects if subtasks are open)",
+              "about": "Close a task from any lifecycle state. The authenticated Plan Orchestrator overrides worker owner-epoch drift; open subtasks still block",
               "aliases": [],
               "args": [
                 {

@@ -230,6 +230,24 @@ fn plan_task_update_parses_sections() {
 }
 
 #[test]
+fn plan_task_close_help_describes_the_orchestrator_override() {
+    let command = PlanOnly::command();
+    let close = command
+        .find_subcommand("task")
+        .and_then(|task| task.find_subcommand("close"))
+        .expect("plan task close must exist");
+    let about = close
+        .get_about()
+        .expect("plan task close must explain its authority");
+    let about = about.to_string();
+
+    assert!(about.contains("any lifecycle state"), "{about}");
+    assert!(about.contains("Plan Orchestrator"), "{about}");
+    assert!(about.contains("owner-epoch"), "{about}");
+    assert!(about.contains("open subtasks"), "{about}");
+}
+
+#[test]
 fn plan_task_update_parses_quality_fields() {
     let parsed = parse_plan_cli_result([
         "codeterm",
