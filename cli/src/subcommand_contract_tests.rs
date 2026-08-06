@@ -291,6 +291,83 @@ fn retained_spellings_still_parse() {
     }
 }
 
+// Form 1 — notify. DECISION: DOCUMENT `notify send` as canonical; do NOT ship a
+// bare `notify "title"` alias. A default-subcommand + positional-title mix routes
+// titles equal to a subcommand name (send/list/clear) to the wrong action
+// silently, and there is no positional+optional-subcommand precedent in the tree.
+#[test]
+fn notify_send_is_canonical_and_bare_title_is_rejected() {
+    let send = Cli::try_parse_from(["codeterm", "notify", "send", "Done", "--level", "info"])
+        .expect("notify send parses");
+    assert!(matches!(
+        send.command,
+        Commands::Notify {
+            action: NotifyAction::Send { ref title, ref level, body: None }
+        } if title == "Done" && level == "info"
+    ));
+    // The intuitive bare form must stay a hard error, not silently do the wrong thing.
+    assert!(
+        Cli::try_parse_from(["codeterm", "notify", "Done"]).is_err(),
+        "bare `notify \"title\"` must be rejected — `notify send` is canonical"
+    );
+}
+
+// Form 3 — config get. ACCEPT: key is optional; absent means "dump all".
+#[test]
+fn config_get_key_is_optional_and_scoped_forms_are_distinct() {
+    let dump = Cli::try_parse_from(["codeterm", "config", "get"]).expect("keyless config get parses");
+    assert!(matches!(
+        dump.command,
+        Commands::Config {
+            action: ConfigAction::Get { key: None }
+        }
+    ));
+    let scoped =
+        Cli::try_parse_from(["codeterm", "config", "get", "api.port"]).expect("config get <key> parses");
+    assert!(matches!(
+        scoped.command,
+        Commands::Config {
+            action: ConfigAction::Get { key: Some(ref k) }
+        } if k == "api.port"
+    ));
+    // Mechanism: the built request path omits `?key=` for the keyless dump and
+    // scopes it when a key is present.
+    assert_eq!(
+        crate::transport::pre_socket::config_get_path(None),
+        "/api/config"
+    );
+    assert_eq!(
+        crate::transport::pre_socket::config_get_path(Some("api.port")),
+        "/api/config?key=api.port"
+    );
+}
+
+// Form 2 — paste get/rm. ACCEPT: a bare id normalizes to the stored `paste:`
+// prefix, so the accepted (bare) form routes to the SAME request URL as the
+// canonical (prefixed) form.
+#[test]
+fn paste_get_and_rm_normalize_bare_id_to_prefixed_url() {
+    for verb in ["get", "rm"] {
+        let bare = Cli::try_parse_from(["codeterm", "paste", verb, "fpu2zp"])
+            .expect("bare paste id parses")
+            .command;
+        let prefixed = Cli::try_parse_from(["codeterm", "paste", verb, "paste:fpu2zp"])
+            .expect("prefixed paste id parses")
+            .command;
+        let (bare_method, bare_path, _) = crate::mesh_cli::api_map::cli_command_to_api(&bare);
+        let (pref_method, pref_path, _) = crate::mesh_cli::api_map::cli_command_to_api(&prefixed);
+        assert_eq!(bare_method, pref_method, "`paste {verb}` method must match");
+        assert_eq!(
+            bare_path, pref_path,
+            "`paste {verb}` bare and prefixed ids must build the same URL"
+        );
+        assert!(
+            bare_path.contains("/api/pasteboard/paste:fpu2zp"),
+            "`paste {verb}` must normalize to the stored paste: key, got {bare_path}"
+        );
+    }
+}
+
 #[test]
 fn task_read_leaves_are_preserved() {
     assert!(matches!(
