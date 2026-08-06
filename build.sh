@@ -1457,7 +1457,7 @@ EOF
       app)
         enter_build_gateway "$CMD ${*:2}"
         prepare_exceptional_worktree_target
-        scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm --lib "$test_filter"
+        scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm --lib --no-default-features "$test_filter"
         ;;
       plan) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-plan/Cargo.toml -p codeterm-plan --lib "$test_filter" ;;
       pty) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-pty/Cargo.toml -p codeterm-pty "$test_filter" ;;
