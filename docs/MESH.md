@@ -106,6 +106,48 @@ RPC endpoint to the peer's in-process plan dispatcher. Implicit local Tab identi
 and working-directory defaults are not forwarded; explicit project paths refer to
 the target machine. Mutations require `Full` peer access and carry an idempotency ID.
 
+## Cross-mesh worker reports (spawn + explicit bind)
+
+`plan task dispatch` is **local-only**: it has no `--mesh`/`--peer` flag. It spawns
+the Worker on the same daemon, binds the execution attempt, and exports
+`CODETERM_PLAN_ID`/`CODETERM_TASK_ID` into the Worker's tab. A Worker spawned on a
+remote peer with `agent spawn --mesh PEER --role Worker` therefore has **no attempt
+on the origin plan store and no plan/task env**, so a bare `agent ack` / `agent
+report --status` refuses with "tab has no plan/task assignment" and the message
+degrades to a plain tab message.
+
+Full cross-mesh dispatch (remote spawn + attempt bound on the origin plan + env
+exported into the remote tab + report routed back across the mesh) is **not wired**
+and is out of scope. Use the supported spawn-then-bind pattern instead:
+
+1. Spawn the remote Worker so its report target is the mesh peer that owns the plan:
+
+   ```bash
+   codeterm agent spawn claude --mesh PEER --role Worker --task "<brief>"
+   ```
+
+2. Have the remote Worker report with **explicit origin ids** — it never has env
+   ids, so pass them by hand. The daemon homes the report to the plan's owning
+   machine over the mesh (text/status only; attachments are not relayed):
+
+   ```bash
+   codeterm agent report --status in_review --plan <origin-plan> --task <task> \
+     --sha <lane-HEAD> "STATUS: in_review ..."
+   ```
+
+   Because explicit `--plan`/`--task` are supplied, the CLI does not fall back to a
+   plain tab message; the report carries the origin ids and homes to the owning
+   peer when the spawning tab has a mesh report target.
+
+3. If the remote Worker was **not** spawned with a mesh report target (no homing
+   peer), the report cannot reach the origin store. In that case the Orchestrator
+   attaches the arriving tab message to the task by hand, or re-runs the report
+   from a tab that does have the origin peer as its report target.
+
+Binding a remote spawn's attempt directly onto the origin plan store still needs
+cross-daemon plan resolution and remains a documented follow-up, not a shipped
+capability.
+
 ## Peer API compatibility
 
 Before a relayed CLI operation, the caller reads the peer's authenticated
@@ -186,4 +228,4 @@ When `config.mesh.enabled = false`, the auth middleware short-circuits every `/a
 
 Service registry, health, and peer management endpoints: `codeterm docs MESH-SERVICES`.
 
-<!-- revision: 14 -->
+<!-- revision: 15 -->
