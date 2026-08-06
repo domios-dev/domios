@@ -82,7 +82,7 @@ struct AgentTabInfo {
 
 fn collect_agent_tabs(svc: &ServiceState, initiating_tab_id: Option<&str>) -> Vec<AgentTabInfo> {
     let snapshot = svc.mux.read().snapshot();
-    let tabs = snapshot.tabs.iter().map(|(_, tab)| {
+    let tabs = snapshot.tabs.values().map(|tab| {
         (
             tab.id.as_str(),
             tab.agent_type.as_deref(),

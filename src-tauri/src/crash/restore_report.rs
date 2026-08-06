@@ -134,12 +134,6 @@ pub fn persist(report: &RestoreReport) {
     }
 }
 
-pub fn read_last_restore_report() -> Option<RestoreReport> {
-    std::fs::read_to_string(report_path())
-        .ok()
-        .and_then(|raw| serde_json::from_str(&raw).ok())
-}
-
 /// Compute, surface, and persist in one call. Returns the report for callers
 /// that also feed binding evidence to the recovery record.
 pub fn record(bound: &[RestorePane], restored_ids: &BTreeSet<String>) -> RestoreReport {
