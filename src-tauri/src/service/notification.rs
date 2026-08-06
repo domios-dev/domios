@@ -11,6 +11,8 @@ use codeterm_types::pty::{AgentLiveState, PendingPrompt, QuestionSubtype, Timeli
 #[derive(Debug)]
 enum NotificationAdmission {
     Diagnostic,
+    /// Explicitly requested (CLI/REST/frontend): stored, emitted, native best-effort.
+    Explicit,
     ProviderUpdate {
         prompt_id: String,
     },
@@ -104,6 +106,15 @@ fn create_notification_with_delivery(
     };
     let id = match admission {
         NotificationAdmission::Diagnostic => unreachable!(),
+        NotificationAdmission::Explicit => store.lock().add_ext(
+            title.clone(),
+            body.clone(),
+            parsed_level,
+            tab_id.clone(),
+            workspace_id.clone(),
+            actions.clone(),
+            sticky,
+        ),
         NotificationAdmission::ProviderUpdate { prompt_id } => {
             let mut store = store.lock();
             match store.add_provider_update(
@@ -208,16 +219,29 @@ impl ServiceContext {
         }
     }
 
+    /// Internal diagnostic sink: fire-and-forget, never enters the user inbox.
     pub fn create_notification(
         &self,
         title: String,
         body: Option<String>,
         level: Option<&str>,
     ) -> String {
-        self.create_notification_ext(title, body, level, None, None, None, None)
+        create_notification_with_delivery(
+            NotificationAdmission::Diagnostic,
+            &self.notif,
+            |_, _| {},
+            title,
+            body,
+            level,
+            None,
+            None,
+            None,
+            None,
+            |_| {},
+        )
     }
 
-    /// Extended notification with optional action buttons and sticky flag.
+    /// Explicitly requested notification (CLI/REST/frontend surfaces).
     pub fn create_notification_ext(
         &self,
         title: String,
@@ -229,7 +253,7 @@ impl ServiceContext {
         workspace_id: Option<String>,
     ) -> String {
         create_notification_with_delivery(
-            NotificationAdmission::Diagnostic,
+            NotificationAdmission::Explicit,
             &self.notif,
             |title, body| {
                 crate::api::os_notify::_send_os_notification(&self.app_handle, title, body)
@@ -902,6 +926,91 @@ mod tests {
         assert_eq!(emitted.lock().len(), 2);
     }
 
+    // Repro of the dev-7686 loss: `notify send` returned an id while list stayed
+    // empty. Explicit admission must persist, emit, and round-trip the same id.
+    #[test]
+    fn explicit_notification_persists_emits_and_requests_native_delivery() {
+        let store = Arc::new(Mutex::new(NotificationStore::new(10)));
+        let emitted = Mutex::new(Vec::new());
+        let native = Mutex::new(Vec::new());
+
+        let id = create_notification_with_delivery(
+            NotificationAdmission::Explicit,
+            &store,
+            |title, body| {
+                assert_eq!(
+                    store.lock().list(false).len(),
+                    1,
+                    "durable history is written before the native sink runs"
+                );
+                native
+                    .lock()
+                    .push((title.to_string(), body.map(str::to_string)));
+            },
+            "Build finished".into(),
+            Some("release artifacts ready".into()),
+            Some("warning"),
+            None,
+            None,
+            None,
+            None,
+            |payload| emitted.lock().push(payload),
+        );
+
+        let guard = store.lock();
+        let listed = guard.list(false);
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].id, id, "returned id names the stored record");
+        assert_eq!(listed[0].title, "Build finished");
+        assert_eq!(listed[0].body.as_deref(), Some("release artifacts ready"));
+        assert_eq!(listed[0].level, NotificationLevel::Warning);
+        assert!(!listed[0].read);
+        drop(guard);
+
+        assert_eq!(
+            native.lock().as_slice(),
+            &[(
+                "Build finished".to_string(),
+                Some("release artifacts ready".to_string())
+            )]
+        );
+        let events = emitted.lock();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0]["id"], id);
+    }
+
+    #[test]
+    fn native_sink_failure_does_not_drop_durable_history() {
+        let store = Arc::new(Mutex::new(NotificationStore::new(10)));
+        let emitted = Mutex::new(Vec::new());
+
+        // Denied permission / unsupported platform: the sink drops the toast.
+        let id = create_notification_with_delivery(
+            NotificationAdmission::Explicit,
+            &store,
+            |_, _| {},
+            "Escalation".into(),
+            Some("user attention required".into()),
+            Some("error"),
+            None,
+            None,
+            None,
+            None,
+            |payload| emitted.lock().push(payload),
+        );
+
+        let mut guard = store.lock();
+        assert_eq!(guard.list(false).len(), 1);
+        assert_eq!(guard.list(false)[0].id, id);
+        assert_eq!(emitted.lock().len(), 1, "bell route still fires");
+
+        guard.clear(Some(&id));
+        assert!(
+            guard.list(false).is_empty(),
+            "explicit clear is the only way the record leaves history"
+        );
+    }
+
     #[test]
     fn diagnostic_callers_never_enter_the_agent_input_inbox() {
         let store = Arc::new(Mutex::new(NotificationStore::new(20)));
@@ -914,11 +1023,9 @@ mod tests {
             "cron/scheduler.rs",
             "service/orchestrator/refresh/driver.rs",
             "service/orchestrator/batch.rs",
-            "api/notification_routes.rs",
             "service/output.rs",
             "service/tab.rs",
             "service/spawn_chatbackend.rs",
-            "socket/server/notification.rs",
         ];
 
         for source in sources {
