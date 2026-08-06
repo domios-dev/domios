@@ -84,15 +84,24 @@ pub fn should_deliver_orchestrator_onboarding(tab: Option<&Tab>, was_orchestrato
         .unwrap_or(false)
 }
 
-pub fn orchestrator_onboarding_body(tab_id: &str) -> String {
-    let spawn_cmd =
-        crate::service::plan::peer_mandate::planner_spawn_cmd_hint(Some(tab_id), "PLAN_ID");
-    crate::prompts::orchestrator_onboarding(&spawn_cmd)
+pub fn orchestrator_onboarding_body(tab_id: &str, team_id: &str, plan_id: Option<&str>) -> String {
+    crate::prompts::orchestrator_first_message(tab_id, team_id, plan_id)
 }
 
 impl ServiceContext {
     pub fn deliver_orchestrator_onboarding(&self, tab_id: &str) {
-        let body = orchestrator_onboarding_body(tab_id);
+        // An anchoring Orchestrator owns a Team; mint it now if the promotion
+        // left it unbound so the first message carries a real team id.
+        let team_id = match self.mux.write().resolve_or_mint_team_for_parent(tab_id) {
+            Ok(resolution) => resolution.team_id,
+            Err(e) => {
+                log::warn!("[orchestrator-onboard] team resolve for {tab_id} failed: {e}");
+                return;
+            }
+        };
+        let active_plan = self.plan_store.active_plan_for_team(&team_id);
+        let plan_id = active_plan.as_ref().map(|(id, _)| id.as_str());
+        let body = orchestrator_onboarding_body(tab_id, &team_id, plan_id);
         // Raw chat startup must see the full onboarding even before delivery lands.
         if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
             tab.pending_greeting = Some(body.clone());
@@ -268,18 +277,60 @@ mod tests {
         }
     }
 
-    #[test]
-    fn onboarding_body_embeds_the_rendered_orchestrator_contract() {
-        let msg = orchestrator_onboarding_body("tab-abc");
-        assert!(msg.contains("--parent tab-abc --role Planner --plan PLAN_ID"));
-        assert_eq!(
-            msg.matches(crate::prompts::ORCHESTRATION_DOC.trim())
-                .count(),
-            1
+    fn assert_no_placeholder_residue(msg: &str) {
+        for token in [
+            "PLAN_ID",
+            "{planner_spawn_cmd}",
+            "{orchestrator_suffix}",
+            "{planning_compaction_contract}",
+            "{infra_brief}",
+        ] {
+            assert!(!msg.contains(token), "first-message still carries {token}");
+        }
+        assert!(
+            !msg.to_lowercase().contains("test planner"),
+            "first-message names a phantom/example planner"
         );
-        assert!(!msg.contains("{planner_spawn_cmd}"));
-        assert!(!msg.contains("{orchestrator_suffix}"));
-        assert!(!msg.contains("{planning_compaction_contract}"));
+    }
+
+    #[test]
+    fn plan_present_first_message_round_trips_real_ids() {
+        let msg = orchestrator_onboarding_body("tab-abc", "team-xyz", Some("pl_real42"));
+        // Round-trip: the ids the test supplied must echo verbatim.
+        assert!(msg.contains("tab-abc"));
+        assert!(msg.contains("team-xyz"));
+        assert!(msg.contains("pl_real42"));
+        // A ready-to-run planner spawn bound to THIS tab and the real plan.
+        assert!(msg.contains("--parent tab-abc --role Planner --plan pl_real42"));
+        assert_no_placeholder_residue(&msg);
+    }
+
+    #[test]
+    fn plan_absent_first_message_emits_no_fake_plan_id() {
+        let msg = orchestrator_onboarding_body("tab-abc", "team-xyz", None);
+        assert!(msg.contains("tab-abc"));
+        assert!(msg.contains("team-xyz"));
+        // No fabricated plan id, and the create+bind path asserted by constant.
+        assert!(!msg.contains("pl_"));
+        assert!(msg.contains(crate::prompts::ORCH_ONBOARD_NO_PLAN_MARKER));
+        assert!(msg.contains(crate::prompts::ORCH_ONBOARD_CREATE_STEP));
+        assert!(msg.contains("--team team-xyz"));
+        assert_no_placeholder_residue(&msg);
+    }
+
+    #[test]
+    fn methodology_lives_in_system_prompt_not_first_message() {
+        let doc = crate::prompts::ORCHESTRATION_DOC.trim();
+        // System prompt path carries the manual; the first-message must not.
+        assert!(crate::prompts::orchestrator_suffix().matches(doc).count() >= 1);
+        for plan in [Some("pl_real42"), None] {
+            let msg = orchestrator_onboarding_body("tab-abc", "team-xyz", plan);
+            assert_eq!(
+                msg.matches(doc).count(),
+                0,
+                "methodology duplicated into first-message"
+            );
+        }
     }
 
     #[test]

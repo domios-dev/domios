@@ -184,10 +184,41 @@ pub fn orchestrator_suffix() -> String {
     )
 }
 
-pub fn orchestrator_onboarding(planner_spawn_cmd: &str) -> String {
-    ORCHESTRATOR_ONBOARDING
-        .replace("{planner_spawn_cmd}", planner_spawn_cmd)
-        .replace("{orchestrator_suffix}", &orchestrator_suffix())
+/// Stable marker the plan-absent first-message emits so tests assert the
+/// create-first path by constant, never by prose.
+pub const ORCH_ONBOARD_NO_PLAN_MARKER: &str =
+    "No Team Plan exists yet — create and bind one before spawning a Planner.";
+/// Stable token for the plan-absent create+bind command.
+pub const ORCH_ONBOARD_CREATE_STEP: &str = "codeterm plan create --title";
+
+fn orchestrator_infra_brief_with_plan(tab_id: &str, team_id: &str, plan_id: &str) -> String {
+    let spawn_cmd =
+        crate::service::plan::peer_mandate::planner_spawn_cmd_hint(Some(tab_id), plan_id);
+    format!(
+        "Your tab is {tab_id}. Your team is {team_id}. Your active Team Plan is {plan_id}.\n\n\
+         Begin with narrow state: `codeterm orchestrator status --plan {plan_id}`.\n\n\
+         Spawn your Planner directly (never through the General Agent) with exactly:\n{spawn_cmd}"
+    )
+}
+
+fn orchestrator_infra_brief_no_plan(tab_id: &str, team_id: &str) -> String {
+    format!(
+        "Your tab is {tab_id}. Your team is {team_id}. {ORCH_ONBOARD_NO_PLAN_MARKER}\n\n\
+         Step 1 — create and bind the Team Plan to this team:\n{ORCH_ONBOARD_CREATE_STEP} \"<your goal>\" --team {team_id}\n\n\
+         Step 2 — once step 1 prints the new plan id, spawn your Planner bound to it and to this tab (never through the General Agent):\ncodeterm agent spawn <provider> [--model <model>] --parent {tab_id} --role Planner --plan <the plan id printed in step 1>"
+    )
+}
+
+/// Concrete, real-valued first message delivered right after an Orchestrator
+/// launches. Methodology lives in the system prompt (`orchestrator_suffix`) and
+/// is intentionally NOT duplicated here — this is only infrastructure with real
+/// tab/team/plan ids, or an explicit plan-not-yet-created create+bind path.
+pub fn orchestrator_first_message(tab_id: &str, team_id: &str, plan_id: Option<&str>) -> String {
+    let brief = match plan_id {
+        Some(plan_id) => orchestrator_infra_brief_with_plan(tab_id, team_id, plan_id),
+        None => orchestrator_infra_brief_no_plan(tab_id, team_id),
+    };
+    ORCHESTRATOR_ONBOARDING.replace("{infra_brief}", &brief)
 }
 
 pub fn planner_suffix() -> String {
@@ -565,11 +596,9 @@ mod tests {
         let contract = PLANNING_COMPACTION_CONTRACT.trim();
         assert!(!contract.is_empty());
 
-        for rendered in [
-            orchestrator_suffix(),
-            planner_suffix(),
-            orchestrator_onboarding("codeterm agent spawn claude --role Planner"),
-        ] {
+        // Both planning surfaces are system prompts; the onboarding first-message
+        // no longer carries methodology, so it is intentionally absent here.
+        for rendered in [orchestrator_suffix(), planner_suffix()] {
             assert!(
                 rendered.contains(contract),
                 "planning contract not delivered"
@@ -587,8 +616,12 @@ mod tests {
             ("orchestrator_suffix", orchestrator_suffix()),
             ("planner_suffix", planner_suffix()),
             (
-                "orchestrator_onboarding",
-                orchestrator_onboarding(spawn_cmd),
+                "orchestrator_first_message",
+                orchestrator_first_message("tab-x", "team-y", Some("pl_z")),
+            ),
+            (
+                "orchestrator_first_message_no_plan",
+                orchestrator_first_message("tab-x", "team-y", None),
             ),
             ("peer_pairing_mandate", peer_pairing_mandate_full(spawn_cmd)),
             (
@@ -614,7 +647,11 @@ mod tests {
             }
         }
 
-        assert!(orchestrator_onboarding(spawn_cmd).contains(spawn_cmd));
+        // Round-trip: the ids this test supplied must survive substitution.
+        let first_message = orchestrator_first_message("tab-x", "team-y", Some("pl_z"));
+        assert!(first_message.contains("tab-x"));
+        assert!(first_message.contains("team-y"));
+        assert!(first_message.contains("pl_z"));
         assert!(peer_pairing_mandate_full(spawn_cmd).contains(spawn_cmd));
     }
 
