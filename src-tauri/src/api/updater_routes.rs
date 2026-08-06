@@ -105,6 +105,9 @@ pub struct InstallUpdateQuery {
     /// Message to inject into the General Agent tab after the new daemon
     /// boots. Persisted to disk before restart so the next boot picks it up.
     pub after_update: Option<String>,
+    /// Tab that initiated the update — excluded from the shutdown sweep so the
+    /// caller survives to hand off / relaunch (Defect 3).
+    pub continue_tab: Option<String>,
 }
 
 pub async fn install_update(
@@ -130,6 +133,7 @@ pub async fn install_update(
             (us.channel, us.install_method.clone())
         };
         let manifest_url = q.manifest_url.clone();
+        let continue_tab = q.continue_tab.clone();
         let update_state = state.update_state.clone();
         if install_method == InstallMethod::Deb {
             {
@@ -141,6 +145,7 @@ pub async fn install_update(
                 channel,
                 manifest_url,
                 install_method,
+                initiating_tab_id: continue_tab.clone(),
             };
             let plan = match check_stage_deb_update(&app, &opts, update_state.clone()).await {
                 Ok(plan) => plan,
@@ -223,6 +228,7 @@ pub async fn install_update(
                         &app,
                         version.clone(),
                         path,
+                        continue_tab.as_deref(),
                     )
                     .await
                     {
@@ -268,6 +274,7 @@ pub async fn install_update(
                     channel,
                     manifest_url,
                     install_method,
+                    initiating_tab_id: continue_tab,
                 };
                 match check_and_apply(&app, opts.clone(), update_state.clone()).await {
                     Ok(result) => match result {
