@@ -176,8 +176,8 @@ qa_gate_desc() {
     fmt) echo "cargo fmt --check (src-tauri + cli)" ;;
     check) echo "cargo check (src-tauri + cli)" ;;
     clippy) echo "cargo clippy -D warnings (src-tauri + cli)" ;;
-    rust-unit) echo "src-tauri lib unit tests (capped)" ;;
-    cli-unit) echo "cli crate unit tests (capped)" ;;
+    rust-unit) echo "src-tauri lib unit tests through the repository wrapper" ;;
+    cli-unit) echo "cli crate unit tests through the repository wrapper" ;;
     ts-unit) echo "TypeScript unit tests (pnpm test:unit)" ;;
     plugin) echo "Plugin tests (pnpm test:plugins)" ;;
     test-all) echo "build.sh test:all aggregate (non-LLM layers)" ;;
@@ -229,12 +229,10 @@ qa_run_gate_body() {
       ;;
     rust-unit)
       qa_prep_stubs
-      TEST_CAP_SECS="${QA_GATE_TEST_CAP:-90}" \
-        bash scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib
+      bash scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib
       ;;
     cli-unit)
-      TEST_CAP_SECS="${QA_GATE_TEST_CAP:-90}" \
-        bash scripts/test-capped.sh --manifest-path cli/Cargo.toml
+      bash scripts/test-capped.sh --manifest-path cli/Cargo.toml
       ;;
     ts-unit)
       pnpm -s test:unit
