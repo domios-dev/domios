@@ -6,6 +6,7 @@ import {
   type TranscriptOutcome,
   type TranscriptState,
 } from "@codeterm/chat-core";
+import type { ChatSendStatus } from "./chatSendStatus";
 
 export interface TranscriptWindow {
   transcript: TranscriptState;
@@ -16,6 +17,7 @@ export interface TranscriptWindow {
  *  switch restores the same window instead of building a second copy. */
 const windows = new Map<string, TranscriptWindow>();
 const listeners = new Map<string, Set<() => void>>();
+const pendingSends = new Map<string, Map<string, { correlationId: string; afterArrival: number }>>();
 const MAX_TRANSCRIPT_WINDOWS = 8;
 
 const EMPTY_WINDOW: TranscriptWindow = { transcript: createTranscriptState(), anchorKey: null };
@@ -48,6 +50,49 @@ export function commitTranscriptBatch(key: string, batch: TranscriptBatch): Tran
   return outcome;
 }
 
+export function trackTranscriptSend(key: string, status: ChatSendStatus): void {
+  const correlationId = status.correlationId;
+  if (!correlationId) return;
+  const sends = pendingSends.get(key) ?? new Map();
+  if (!sends.has(status.send_id)) {
+    sends.set(status.send_id, {
+      correlationId,
+      afterArrival: readTranscriptWindow(key).transcript.arrivals,
+    });
+    pendingSends.set(key, sends);
+  }
+  if (status.state === "confirmed") stampConfirmedTranscriptRow(key, status);
+}
+
+export function stampConfirmedTranscriptRow(key: string, status: ChatSendStatus): boolean {
+  if (status.state !== "confirmed") return false;
+  const sends = pendingSends.get(key);
+  const pending = sends?.get(status.send_id);
+  const correlationId = status.correlationId ?? pending?.correlationId;
+  if (!pending || !correlationId) return false;
+  const current = readTranscriptWindow(key);
+  let stamped = false;
+  const segments = current.transcript.segments.map((segment) => ({
+    ...segment,
+    rows: segment.rows.map((row) => {
+      if (
+        stamped
+        || row.correlationId != null
+        || (row.type !== "user" && row.type !== "local_command")
+        || row.clientOrder == null
+        || row.clientOrder < pending.afterArrival
+      ) return row;
+      stamped = true;
+      return { ...row, correlationId };
+    }),
+  }));
+  if (!stamped) return false;
+  sends?.delete(status.send_id);
+  if (sends?.size === 0) pendingSends.delete(key);
+  publish(key, { ...current, transcript: { ...current.transcript, segments } });
+  return true;
+}
+
 export function setTranscriptAnchor(key: string, anchorKey: string | null): void {
   const current = readTranscriptWindow(key);
   if (current.anchorKey === anchorKey) return;
@@ -55,6 +100,7 @@ export function setTranscriptAnchor(key: string, anchorKey: string | null): void
 }
 
 export function resetTranscriptWindow(key: string, preserveAnchor = false): void {
+  pendingSends.delete(key);
   if (!windows.has(key)) return;
   const current = readTranscriptWindow(key);
   publish(key, {
@@ -79,6 +125,7 @@ export function replaceTranscriptWindow(
 }
 
 export function clearTranscriptWindows(): void {
+  pendingSends.clear();
   for (const key of [...windows.keys()]) {
     windows.delete(key);
     for (const listener of listeners.get(key) ?? []) listener();

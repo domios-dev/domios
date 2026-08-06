@@ -79,6 +79,7 @@ async function mount(tabId: string, optimistic: string[]): Promise<{
             return "optimistic";
           }}
           updateOptimistic={() => {}}
+          observeChatSendStatus={() => {}}
           showComposerError={() => {}}
           chatBackend
         />

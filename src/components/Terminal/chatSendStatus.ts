@@ -8,6 +8,7 @@ export type ChatSendStatus = {
   ledger_id: string;
   sequence: number;
   retained_from: number;
+  correlationId?: string;
 };
 
 export async function sendTrackedChatMessage(
@@ -19,6 +20,7 @@ export async function sendTrackedChatMessage(
     return await invoke<ChatSendStatus>("chat_send_text", {
       tabId,
       text: message,
+      clientToken: messageId,
     });
   } catch (error) {
     console.warn("[chat-send] optimistic send request failed", {
