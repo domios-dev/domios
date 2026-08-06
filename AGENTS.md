@@ -88,6 +88,7 @@ Use `./build.sh help` and the named build operations. Do not hand-compose Cargo 
 - Keep machine-level `sccache`; never share `CARGO_TARGET_DIR` across worktrees.
 - Do not remove the tuned Cargo profiles.
 - In canonical QA, use focused tests through the repository wrapper. Set `TEST_CAP_SECS` only for targeted timeout diagnostics.
+- Unit suites run to natural completion by default. Set Rust or TypeScript deadlines only for an explicit targeted diagnostic.
 - Reclaim stale targets with `cargo sweep --time 2` between efforts.
 
 ## Lane integration preserves ancestry
@@ -140,7 +141,7 @@ from a task, gate, changed UI file, prior request, or release workflow.
 UI changes still require accessible roles, names, focus order, and screen-reader
 semantics; verify behavior with focused unit/API tests and manual dev inspection.
 
-On Windows invoke repo commands through `.\build.ps1`; run capped Rust tests from PowerShell foreground so the process-group timeout owns Cargo and its children.
+On Windows invoke repo commands through `.\build.ps1`; run Rust tests from PowerShell foreground so an explicitly requested process-group timeout owns Cargo and its children.
 
 ## Bench safety: NEVER call raw `codeterm` against dev — use the lib
 
@@ -335,4 +336,4 @@ Bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
 - `docs/spikes/llm-codemap-eval.md` — code-map bake-off; why SCIP is the adopted code-navigation index
 - `docs/contributing/` — agents, style, architecture, per-feature testing recipes
 
-<!-- revision: 27 -->
+<!-- revision: 28 -->
