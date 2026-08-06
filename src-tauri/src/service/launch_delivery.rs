@@ -35,6 +35,12 @@ pub(crate) struct FallbackDeliverySpec {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct VisibleSpawnTaskSelection<'a> {
+    pub provider_launch: Option<&'a str>,
+    pub confirmed_first_turn: Option<&'a str>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LaunchConsumptionStage {
     PtyStarting,
     ShellReady,
@@ -225,6 +231,24 @@ pub(crate) fn content_for_descriptor(
             system_prompt: None,
             fallback: content,
         },
+    }
+}
+
+pub(crate) fn select_visible_spawn_task<'a>(
+    role: Option<&str>,
+    task: Option<&'a str>,
+) -> VisibleSpawnTaskSelection<'a> {
+    let task = task.filter(|text| !text.trim().is_empty());
+    if role.is_none() && task.is_some() {
+        VisibleSpawnTaskSelection {
+            provider_launch: None,
+            confirmed_first_turn: task,
+        }
+    } else {
+        VisibleSpawnTaskSelection {
+            provider_launch: task,
+            confirmed_first_turn: None,
+        }
     }
 }
 
@@ -420,6 +444,30 @@ mod tests {
             content_for_descriptor(&SystemPromptDelivery::External, Some("manager identity"));
         assert_eq!(content.system_prompt, None);
         assert_eq!(content.fallback.as_deref(), Some("manager identity"));
+    }
+
+    #[test]
+    fn roleless_visible_task_becomes_a_confirmed_first_turn() {
+        assert_eq!(
+            select_visible_spawn_task(None, Some("task")),
+            VisibleSpawnTaskSelection {
+                provider_launch: None,
+                confirmed_first_turn: Some("task"),
+            }
+        );
+    }
+
+    #[test]
+    fn team_task_keeps_the_existing_provider_launch_route() {
+        for role in ["Worker", "Planner", "Orchestrator"] {
+            assert_eq!(
+                select_visible_spawn_task(Some(role), Some("task")),
+                VisibleSpawnTaskSelection {
+                    provider_launch: Some("task"),
+                    confirmed_first_turn: None,
+                }
+            );
+        }
     }
 
     #[test]
