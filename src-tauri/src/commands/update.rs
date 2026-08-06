@@ -39,6 +39,7 @@ pub async fn install_app_update(
             channel,
             manifest_url: None,
             install_method,
+            initiating_tab_id: None,
         },
         handle,
     )
