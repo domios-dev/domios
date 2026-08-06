@@ -1454,7 +1454,11 @@ EOF
     test_scope="${2:?test-one requires app, plan, pty, types, mem, mesh, plugin, or cli}"
     test_filter="${3:?test-one requires a test name or filter}"
     case "$test_scope" in
-      app) scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm --lib "$test_filter" ;;
+      app)
+        enter_build_gateway "$CMD ${*:2}"
+        prepare_exceptional_worktree_target
+        scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm --lib "$test_filter"
+        ;;
       plan) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-plan/Cargo.toml -p codeterm-plan --lib "$test_filter" ;;
       pty) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-pty/Cargo.toml -p codeterm-pty "$test_filter" ;;
       types) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-types/Cargo.toml -p codeterm-types --lib "$test_filter" ;;
