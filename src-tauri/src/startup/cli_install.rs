@@ -18,6 +18,10 @@ fn cli_bin_name() -> &'static str {
     }
 }
 
+fn should_install_bundled_cli(is_dev: bool) -> bool {
+    !is_dev
+}
+
 /// Resolve the bundled CLI inside the app's Resources. None in dev (no bundle).
 fn resolve_bundled_cli_src(app: &impl tauri::Manager<tauri::Wry>) -> Option<std::path::PathBuf> {
     app.path()
@@ -138,6 +142,10 @@ pub(crate) fn refresh_installed_cli(
 
 /// Install bundled CLI binary to the active data-dir bin/ on startup (runs in background).
 pub(crate) fn install_bundled_cli(app: &tauri::App) {
+    if !should_install_bundled_cli(std::env::var("CODETERM_DEV").as_deref() == Ok("1")) {
+        log::debug!("[cli-install] Dev CLI is owned by build.sh, skipping bundled refresh");
+        return;
+    }
     let Some(src) = resolve_bundled_cli_src(app) else {
         log::debug!("[cli-install] No bundled CLI found (dev mode?), skipping");
         return;
@@ -231,6 +239,12 @@ fn add_to_user_path(dir: &std::path::Path) {
 mod tests {
     use super::file_sha256;
     use std::io::Write;
+
+    #[test]
+    fn startup_bundled_cli_never_overwrites_dev_cli() {
+        assert!(!super::should_install_bundled_cli(true));
+        assert!(super::should_install_bundled_cli(false));
+    }
 
     #[test]
     fn hash_distinguishes_same_size_different_content() {
