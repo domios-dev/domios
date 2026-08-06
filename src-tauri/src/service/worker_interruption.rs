@@ -123,6 +123,132 @@ impl super::ServiceContext {
             .count()
     }
 
+    /// Resume workers this provider paused once its quota returns. Same owner,
+    /// same epoch — no adoption, no epoch churn. Symmetric to exhaustion.
+    pub fn signal_provider_recovery(&self, provider: &str) -> usize {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        let targets = self
+            .plan_store
+            .list_full()
+            .into_iter()
+            .flat_map(|plan| {
+                let plan_id = plan.id.clone();
+                plan.tasks.into_iter().filter_map(move |task| {
+                    if task.status_label.as_deref()
+                        != Some(crate::service::plan::interruption::PROVIDER_EXHAUSTED_LABEL)
+                    {
+                        return None;
+                    }
+                    let owner = &task.interruption;
+                    let paused_provider = task
+                        .execution_attempts
+                        .iter()
+                        .find(|attempt| {
+                            attempt.closed_at.is_none()
+                                && Some(attempt.executor_tab_id.as_str())
+                                    == owner.owner_tab_id.as_deref()
+                        })
+                        .and_then(|attempt| attempt.provider.clone());
+                    if paused_provider.as_deref() != Some(provider) {
+                        return None;
+                    }
+                    Some((
+                        plan_id.clone(),
+                        task.id.clone(),
+                        owner.owner_tab_id.clone()?,
+                        owner.owner_session_id.clone()?,
+                        owner.owner_epoch,
+                    ))
+                })
+            })
+            .collect::<Vec<_>>();
+        targets
+            .into_iter()
+            .filter(|(plan_id, task_id, tab, session, epoch)| {
+                self.plan_store
+                    .resume_from_provider_exhaustion(plan_id, task_id, tab, session, *epoch, now_ms)
+                    .is_ok()
+            })
+            .count()
+    }
+
+    fn pause_exhausted_worker(&self, request: WorkerInterruptionRequest, tab_id: &str) -> bool {
+        // Park the live worker: no close_tab, owner preserved, task re-dispatchable.
+        if let Err(error) = self.plan_store.begin_provider_exhaustion_pause(
+            &request.plan_id,
+            &request.task_id,
+            &request.attempt_id,
+            &request.tab_id,
+            &request.session_id,
+            request.owner_epoch,
+            request.occurred_at,
+        ) {
+            pending_interruptions()
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .remove(tab_id);
+            log::error!("[worker-interruption] exhaustion pause failed: {error}");
+            return false;
+        }
+        let svc = self.clone();
+        let pending_tab_id = tab_id.to_string();
+        tauri::async_runtime::spawn(async move {
+            if let Err(error) = svc.quiesce_worker_attempt(request).await {
+                log::error!("[worker-interruption] exhaustion checkpoint incident: {error}");
+                let _ = svc.app_handle.emit(
+                    "coordination-incident",
+                    serde_json::json!({
+                        "kind": "provider_exhaustion_checkpoint_failed",
+                        "impact": error,
+                        "fallback": "Worker is paused and preserved; it resumes at quota reset."
+                    }),
+                );
+            }
+            pending_interruptions()
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .remove(&pending_tab_id);
+        });
+        true
+    }
+
+    pub async fn quiesce_worker_attempt(
+        &self,
+        request: WorkerInterruptionRequest,
+    ) -> Result<(), String> {
+        let checkpoint_request = request.clone();
+        let checkpoint = tokio::task::spawn_blocking(move || {
+            seal_git_checkpoint(CheckpointRequest {
+                task_id: &checkpoint_request.task_id,
+                attempt_id: &checkpoint_request.attempt_id,
+                tab_id: &checkpoint_request.tab_id,
+                session_id: &checkpoint_request.session_id,
+                owner_epoch: checkpoint_request.owner_epoch,
+                repo_path: &checkpoint_request.repo_path,
+                worktree_path: &checkpoint_request.worktree_path,
+                base_head: &checkpoint_request.base_head,
+                completed_tests: checkpoint_request.completed_tests,
+                unresolved_work: checkpoint_request.unresolved_work,
+                next_acceptance_gate: checkpoint_request.next_acceptance_gate,
+            })
+        })
+        .await
+        .map_err(|error| format!("checkpoint worker failed: {error}"))??;
+        self.plan_store
+            .finish_provider_exhaustion_pause(
+                &request.plan_id,
+                &request.task_id,
+                &request.attempt_id,
+                request.owner_epoch,
+                checkpoint,
+                request.occurred_at,
+            )
+            .map_err(|error| error.to_string())
+    }
+
     pub fn signal_worker_interruption(&self, tab_id: &str, event: WorkerInterruptionEvent) -> bool {
         if pending_interruptions()
             .lock()
@@ -186,6 +312,12 @@ impl super::ServiceContext {
         if !claimed {
             return true;
         }
+        // Provider exhaustion PRESERVES the live worker: pause/quiesce it in a
+        // re-dispatchable state and NEVER close its tab. Only the non-exhaustion
+        // events (process exit / forced reset) take the destructive handoff fence.
+        if request.event == WorkerInterruptionEvent::ProviderExhausted {
+            return self.pause_exhausted_worker(request, tab_id);
+        }
         if let Err(error) = self.plan_store.begin_task_interruption(
             &request.plan_id,
             &request.task_id,
@@ -202,30 +334,6 @@ impl super::ServiceContext {
                 .remove(tab_id);
             log::error!("[worker-interruption] fence failed: {error}");
             return false;
-        }
-        if request.event == WorkerInterruptionEvent::ProviderExhausted {
-            if let Err(error) = self.close_tab(tab_id) {
-                let _ = self.plan_store.mark_interruption_checkpoint_failed(
-                    &request.plan_id,
-                    &request.task_id,
-                    &request.attempt_id,
-                    request.owner_epoch,
-                    request.occurred_at,
-                );
-                pending_interruptions()
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner())
-                    .remove(tab_id);
-                let _ = self.app_handle.emit(
-                    "coordination-incident",
-                    serde_json::json!({
-                        "kind": "worker_interruption_stop_failed",
-                        "impact": error,
-                        "fallback": "The owner is fenced in plan state; stop the tab before adoption."
-                    }),
-                );
-                return false;
-            }
         }
         let svc = self.clone();
         let pending_tab_id = tab_id.to_string();

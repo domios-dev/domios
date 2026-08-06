@@ -10,7 +10,7 @@ pub(super) fn authorize_draft_mutation(
     plan_id: &str,
     params: Option<&Value>,
 ) -> Result<(), JsonRpcError> {
-    svc.authorize_draft_structure_mutation(
+    svc.classify_planning_caller(
         plan_id,
         &crate::service::AuthenticatedPlanCaller {
             tab_id: params
@@ -28,10 +28,10 @@ pub(super) fn authorize_draft_mutation(
         },
     )
     .map(|_| ())
-    .map_err(|message| JsonRpcError {
+    .map_err(|error| JsonRpcError {
         code: -32003,
-        message,
-        data: Some(serde_json::json!({ "type": "plan_draft_authorization_required" })),
+        message: error.to_string(),
+        data: Some(serde_json::json!({ "type": error.diagnostic_type() })),
     })
 }
 
@@ -63,6 +63,18 @@ fn plan_caller(params: &Option<Value>) -> crate::service::AuthenticatedPlanCalle
     }
 }
 
+pub(super) fn plan_orchestrator_close_override(
+    method: &str,
+    params: &Option<Value>,
+    svc: &ServiceState,
+    plan_id: &str,
+) -> bool {
+    method == "plan.task.close"
+        && svc
+            .authorize_plan_orchestrator(plan_id, &plan_caller(params))
+            .is_ok()
+}
+
 /// The recovered status a `plan.task.update` asks for, so cancel and pend land
 /// in the same write as the retirement. Reassign and respawn carry no status.
 fn recovery_outcome(method: &str, params: &Option<Value>) -> Option<crate::plan::TaskStatus> {
@@ -80,19 +92,39 @@ fn recovery_outcome(method: &str, params: &Option<Value>) -> Option<crate::plan:
     }
 }
 
-/// True only for a live Plan owner whose task's owning tab is gone. Delegates to
-/// the canonical predicate rather than re-deriving a second, stricter one.
+/// The owner counts as LIVE only when its recorded tab still exists AND that
+/// tab's CURRENT agent session is the exact one the task bound. A lingering tab
+/// with no session, or one rebound to a new session, is a GONE owner — the same
+/// verdict reconcile/lane_liveness reach via `!live_agent`/session mismatch.
+fn owner_session_is_live(
+    svc: &ServiceState,
+    owner_tab_id: Option<&str>,
+    owner_session_id: Option<&str>,
+) -> bool {
+    let (Some(tab_id), Some(session_id)) = (owner_tab_id, owner_session_id) else {
+        return false;
+    };
+    svc.mux
+        .read()
+        .get_tab(tab_id)
+        .is_some_and(|tab| tab.agent_session_id.as_deref() == Some(session_id))
+}
+
+/// True only for a live Plan owner reclaiming a task whose owner SESSION is gone
+/// (tab absent, or tab present with a dead/rebound session). Keyed on owner
+/// identity, not bare tab presence, so it agrees with reconcile's TabGone.
 pub(super) fn plan_owner_may_recover(
     method: &str,
     params: &Option<Value>,
     svc: &ServiceState,
     plan_id: &str,
     owner_tab_id: Option<&str>,
+    owner_session_id: Option<&str>,
 ) -> bool {
     if !is_recovery_method(method) {
         return false;
     }
-    if owner_tab_id.is_some_and(|tab_id| svc.mux.read().get_tab(tab_id).is_some()) {
+    if owner_session_is_live(svc, owner_tab_id, owner_session_id) {
         return false;
     }
     svc.authorize_plan_orchestrator(plan_id, &plan_caller(params))
@@ -121,6 +153,9 @@ pub(super) fn verify_owner_epoch_for_task_mutation(
         .plan_store
         .show_task(&task_id)
         .ok_or_else(|| rpc_error(PlanError::TaskNotFound.to_string()))?;
+    if plan_orchestrator_close_override(method, params, svc, &detail.plan_id) {
+        return Ok(());
+    }
     if detail.task.interruption.owner_epoch == 0 {
         return Ok(());
     }
@@ -130,6 +165,7 @@ pub(super) fn verify_owner_epoch_for_task_mutation(
         svc,
         &detail.plan_id,
         detail.task.interruption.owner_tab_id.as_deref(),
+        detail.task.interruption.owner_session_id.as_deref(),
     ) {
         // Retire-and-recover is ONE transition: the verb cannot proceed until the
         // stale attempt is fenced, so a later dispatch_ready is already dead.

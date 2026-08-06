@@ -76,6 +76,8 @@ fn identity(epoch: Option<u64>, operation: Option<&str>) -> AgentIdentitySnapsho
         boot_stage: None,
         reasoning_effort: Default::default(),
         context_epochs: vec![],
+        task_binding: None,
+        roleless_tracked: false,
         lifecycle_epoch: epoch,
         lifecycle_operation_id: operation.map(str::to_string),
     }

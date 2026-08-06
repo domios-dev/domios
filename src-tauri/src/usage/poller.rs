@@ -6,10 +6,13 @@ use parking_lot::Mutex;
 
 use super::probe::UsageProbe;
 use super::store::{UsageFailureKind, UsageStoreHandle};
-use crate::agent::usage_parser::UsageParseOutcome;
+use crate::agent::usage_parser::{UsageParseOutcome, UsageSnapshot};
 use crate::service::ServiceContext;
 
 const TICK_INTERVAL: Duration = Duration::from_secs(30);
+/// A single >=100 telemetry reading can be a transient blip; treat the provider
+/// as exhausted only after this many consecutive confirming snapshots.
+const EXHAUSTION_CONFIRM_THRESHOLD: u32 = 3;
 /// Adaptive backoff steps in seconds: 10 min at peak activity, up to 50 min
 /// when idle. Last value is the floor for overnight off-device usage capture.
 const BACKOFF_STEPS_S: [u64; 5] = [600, 1200, 1800, 2400, 3000];
@@ -52,6 +55,18 @@ struct AccountState {
     /// previous probe, climbs by one on each "no activity" tick.
     backoff_idx: usize,
     in_flight: bool,
+    /// Consecutive >=100 readings; the debounce that stops one blippy sample
+    /// from nuking in-flight workers.
+    exhaustion_streak: u32,
+    /// True once a confirmed exhaustion signal fired; cleared by a healthy
+    /// reading so exhaustion fires once per cycle, not on every tick.
+    exhaustion_fired: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExhaustionSignal {
+    Confirmed,
+    Recovered,
 }
 
 #[derive(Clone)]
@@ -294,13 +309,15 @@ async fn run_probe_for(inner: Arc<UsagePollerInner>, key: AccountKey) -> Result<
                             );
                             on_success(&inner, &key);
                             emit_event(&inner.svc, &key, id);
-                            if snap.session_pct.is_some_and(|pct| pct >= 100.0)
-                                || snap.weekly_pct.is_some_and(|pct| pct >= 100.0)
-                                || snap
-                                    .spend_remaining_cents
-                                    .is_some_and(|remaining| remaining <= 0.0)
-                            {
-                                inner.svc.signal_provider_exhaustion(&key.provider);
+                            let exhausted = snapshot_is_exhausted(&snap);
+                            match register_exhaustion_reading(&inner, &key, exhausted) {
+                                Some(ExhaustionSignal::Confirmed) => {
+                                    inner.svc.signal_provider_exhaustion(&key.provider);
+                                }
+                                Some(ExhaustionSignal::Recovered) => {
+                                    inner.svc.signal_provider_recovery(&key.provider);
+                                }
+                                None => {}
                             }
                         }
                         Err(e) => {
@@ -434,6 +451,56 @@ fn on_failure(inner: &Arc<UsagePollerInner>, key: &AccountKey, reason: &str) {
     );
 }
 
+/// True when any tracked meter has crossed its limit. A raw reading — the
+/// debounce below, not this predicate, decides whether to act on it.
+fn snapshot_is_exhausted(snap: &UsageSnapshot) -> bool {
+    snap.session_pct.is_some_and(|pct| pct >= 100.0)
+        || snap.weekly_pct.is_some_and(|pct| pct >= 100.0)
+        || snap
+            .spend_remaining_cents
+            .is_some_and(|remaining| remaining <= 0.0)
+}
+
+/// Pure debounce transition. `Confirmed` fires exactly once, only after
+/// `threshold` consecutive exhausted readings; `Recovered` fires once when a
+/// healthy reading lands after a confirmed exhaustion. A single blip advances
+/// the streak but never crosses the threshold, and any healthy reading resets it.
+fn evaluate_exhaustion_debounce(
+    streak: &mut u32,
+    fired: &mut bool,
+    exhausted: bool,
+    threshold: u32,
+) -> Option<ExhaustionSignal> {
+    if exhausted {
+        *streak = streak.saturating_add(1);
+        if *streak >= threshold && !*fired {
+            *fired = true;
+            return Some(ExhaustionSignal::Confirmed);
+        }
+        None
+    } else {
+        let was_fired = *fired;
+        *streak = 0;
+        *fired = false;
+        was_fired.then_some(ExhaustionSignal::Recovered)
+    }
+}
+
+fn register_exhaustion_reading(
+    inner: &Arc<UsagePollerInner>,
+    key: &AccountKey,
+    exhausted: bool,
+) -> Option<ExhaustionSignal> {
+    let mut accounts = inner.accounts.lock();
+    let state = accounts.entry(key.clone()).or_default();
+    evaluate_exhaustion_debounce(
+        &mut state.exhaustion_streak,
+        &mut state.exhaustion_fired,
+        exhausted,
+        EXHAUSTION_CONFIRM_THRESHOLD,
+    )
+}
+
 fn providers_with_parser(svc: &ServiceContext) -> Vec<String> {
     svc.agent_registry
         .provider_ids()
@@ -492,8 +559,129 @@ fn emit_event(svc: &ServiceContext, key: &AccountKey, snapshot_id: i64) {
 
 #[cfg(test)]
 mod tests {
-    use super::row_reset_due;
+    use super::{
+        evaluate_exhaustion_debounce, row_reset_due, snapshot_is_exhausted, ExhaustionSignal,
+        EXHAUSTION_CONFIRM_THRESHOLD,
+    };
+    use crate::agent::usage_parser::UsageSnapshot;
     use crate::usage::store::UsageSnapshotRow;
+
+    fn snap_with(session: Option<f32>, weekly: Option<f32>, spend: Option<f64>) -> UsageSnapshot {
+        let mut snap = UsageSnapshot::empty("claude", "", 0);
+        snap.session_pct = session;
+        snap.weekly_pct = weekly;
+        snap.spend_remaining_cents = spend;
+        snap
+    }
+
+    #[test]
+    fn snapshot_exhaustion_reads_every_meter() {
+        assert!(snapshot_is_exhausted(&snap_with(Some(100.0), None, None)));
+        assert!(snapshot_is_exhausted(&snap_with(None, Some(100.0), None)));
+        assert!(snapshot_is_exhausted(&snap_with(None, None, Some(0.0))));
+        assert!(snapshot_is_exhausted(&snap_with(None, None, Some(-5.0))));
+        assert!(!snapshot_is_exhausted(&snap_with(
+            Some(99.9),
+            Some(99.9),
+            Some(1.0)
+        )));
+    }
+
+    /// A SINGLE >=100 sample must interrupt no worker: the debounce advances the
+    /// streak but never crosses the threshold on one reading.
+    #[test]
+    fn single_exhausted_sample_does_not_fire() {
+        let (mut streak, mut fired) = (0, false);
+        assert_eq!(
+            evaluate_exhaustion_debounce(
+                &mut streak,
+                &mut fired,
+                true,
+                EXHAUSTION_CONFIRM_THRESHOLD
+            ),
+            None
+        );
+        assert_eq!(streak, 1);
+        assert!(!fired);
+    }
+
+    /// The confirming sequence fires exactly once, and stays quiet on further
+    /// exhausted readings until a healthy reading resets the debounce.
+    #[test]
+    fn sustained_exhaustion_fires_exactly_once() {
+        let (mut streak, mut fired) = (0, false);
+        let mut signals = Vec::new();
+        for _ in 0..(EXHAUSTION_CONFIRM_THRESHOLD + 2) {
+            signals.push(evaluate_exhaustion_debounce(
+                &mut streak,
+                &mut fired,
+                true,
+                EXHAUSTION_CONFIRM_THRESHOLD,
+            ));
+        }
+        let confirmations = signals
+            .iter()
+            .filter(|s| **s == Some(ExhaustionSignal::Confirmed))
+            .count();
+        assert_eq!(
+            confirmations, 1,
+            "confirmed exactly once across a sustained run"
+        );
+        assert!(fired);
+    }
+
+    /// A sub-100 reading resets the debounce and (once fired) yields recovery.
+    #[test]
+    fn healthy_reading_resets_and_recovers() {
+        let (mut streak, mut fired) = (0, false);
+        for _ in 0..EXHAUSTION_CONFIRM_THRESHOLD {
+            evaluate_exhaustion_debounce(
+                &mut streak,
+                &mut fired,
+                true,
+                EXHAUSTION_CONFIRM_THRESHOLD,
+            );
+        }
+        assert!(fired);
+        assert_eq!(
+            evaluate_exhaustion_debounce(
+                &mut streak,
+                &mut fired,
+                false,
+                EXHAUSTION_CONFIRM_THRESHOLD
+            ),
+            Some(ExhaustionSignal::Recovered)
+        );
+        assert_eq!(streak, 0);
+        assert!(!fired);
+    }
+
+    /// A spurious >=100 blip followed by a normal reading interrupts nothing:
+    /// the streak never reaches the threshold and no signal is emitted.
+    #[test]
+    fn blip_then_recovery_never_fires() {
+        let (mut streak, mut fired) = (0, false);
+        assert_eq!(
+            evaluate_exhaustion_debounce(
+                &mut streak,
+                &mut fired,
+                true,
+                EXHAUSTION_CONFIRM_THRESHOLD
+            ),
+            None
+        );
+        assert_eq!(
+            evaluate_exhaustion_debounce(
+                &mut streak,
+                &mut fired,
+                false,
+                EXHAUSTION_CONFIRM_THRESHOLD
+            ),
+            None
+        );
+        assert_eq!(streak, 0);
+        assert!(!fired);
+    }
 
     fn row(session: Option<i64>, weekly: Option<i64>) -> UsageSnapshotRow {
         UsageSnapshotRow {

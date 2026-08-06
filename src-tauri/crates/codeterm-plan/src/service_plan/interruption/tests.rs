@@ -23,6 +23,24 @@ fn mutating_dispatch_below_provider_reserve_changes_no_bytes() {
 }
 
 #[test]
+fn mutating_dispatch_at_healthy_allowance_passes_but_exhausted_refuses() {
+    // remaining >= reserve (session=8/weekly=45 -> 55) must dispatch.
+    assert!(provider_allowance_preflight(
+        &ExecutionIntent::Mutating,
+        Some(&allowance(55.0, 100)),
+        100,
+    )
+    .is_ok());
+    // genuinely exhausted (remaining below reserve) must still refuse.
+    assert!(provider_allowance_preflight(
+        &ExecutionIntent::Mutating,
+        Some(&allowance(0.0, 100)),
+        100,
+    )
+    .is_err());
+}
+
+#[test]
 fn stale_allowance_warns_at_the_host_boundary_but_does_not_block_mutation() {
     let stale = allowance(90.0, 1);
     assert!(stale.is_stale(102));

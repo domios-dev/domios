@@ -42,6 +42,11 @@ pub fn checkpoint_digest(diff_artifact: &str) -> String {
     format!("{:x}", Sha256::digest(diff_artifact.as_bytes()))
 }
 
+/// Status label a provider-exhausted worker carries while paused. Distinct from
+/// the destructive `handoff_required` path so the surface reads "will resume at
+/// reset" and re-dispatch/recovery can tell a pause from an orphaned handoff.
+pub const PROVIDER_EXHAUSTED_LABEL: &str = "provider_exhausted";
+
 pub fn provider_allowance_preflight(
     intent: &ExecutionIntent,
     allowance: Option<&ProviderAllowance>,
@@ -183,6 +188,140 @@ impl PlanStore {
             task.status_label = Some("checkpoint_sealing".into());
             task.assigned_tab_id = None;
             task.lane.tab_id = None;
+            task.updated_at = now_ms;
+            Ok(())
+        })
+    }
+
+    /// Non-destructive quiesce for a provider-exhausted worker. Unlike
+    /// `begin_task_interruption`, the attempt stays OPEN and the owner
+    /// (tab/session/epoch) is preserved, so the SAME live worker resumes at
+    /// reset — the tab is never destroyed and the task is never epoch-locked to a
+    /// dead owner. The task parks in `Paused`/`PROVIDER_EXHAUSTED_LABEL`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn begin_provider_exhaustion_pause(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        attempt_id: &str,
+        owner_tab_id: &str,
+        owner_session_id: &str,
+        owner_epoch: u64,
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
+        self.with_plan(plan_id, now_ms, |plan| {
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+                .ok_or(PlanError::TaskNotFound)?;
+            if task.interruption.owner_epoch != owner_epoch
+                || task.interruption.owner_tab_id.as_deref() != Some(owner_tab_id)
+                || task.interruption.owner_session_id.as_deref() != Some(owner_session_id)
+            {
+                return Err(PlanError::Io("stale interruption owner".into()));
+            }
+            let task_status = task.status.clone();
+            let attempt = task
+                .execution_attempts
+                .iter_mut()
+                .find(|attempt| attempt.id == attempt_id)
+                .filter(|attempt| {
+                    attempt.closed_at.is_none()
+                        && Self::attempt_is_active_for_interruption(&task_status, attempt)
+                        && attempt.executor_tab_id == owner_tab_id
+                        && attempt.session_id.as_deref() == Some(owner_session_id)
+                        && attempt.interruption.owner_epoch == owner_epoch
+                })
+                .ok_or_else(|| PlanError::Io("interruption attempt authority changed".into()))?;
+            // Preserve the attempt and owner: this is a pause, not a handoff.
+            attempt.interruption.reason = Some("provider_exhausted".into());
+            task.interruption.handoff_required = false;
+            task.status = TaskStatus::Paused;
+            task.status_label = Some(PROVIDER_EXHAUSTED_LABEL.into());
+            task.updated_at = now_ms;
+            Ok(())
+        })
+    }
+
+    /// Attach the resumable checkpoint sealed after a pause began. Best-effort
+    /// safety snapshot; the live worker resumes without it, but it lets recovery
+    /// reconstruct the work if the tab dies while paused.
+    pub fn finish_provider_exhaustion_pause(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        attempt_id: &str,
+        owner_epoch: u64,
+        checkpoint: InterruptionCheckpoint,
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
+        if checkpoint.diff_sha256 != checkpoint_digest(&checkpoint.diff_artifact)
+            || checkpoint.task_id != task_id
+            || checkpoint.attempt_id != attempt_id
+            || checkpoint.owner_epoch != owner_epoch
+        {
+            return Err(PlanError::Io(
+                "interruption checkpoint verification failed".into(),
+            ));
+        }
+        self.with_plan(plan_id, now_ms, |plan| {
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+                .ok_or(PlanError::TaskNotFound)?;
+            if task.status_label.as_deref() != Some(PROVIDER_EXHAUSTED_LABEL)
+                || task.interruption.owner_epoch != owner_epoch
+            {
+                return Err(PlanError::Io("provider-exhaustion pause ownership changed".into()));
+            }
+            let attempt = task
+                .execution_attempts
+                .iter_mut()
+                .find(|attempt| {
+                    attempt.id == attempt_id
+                        && attempt.closed_at.is_none()
+                        && attempt.interruption.owner_epoch == owner_epoch
+                })
+                .ok_or_else(|| PlanError::Io("paused attempt changed".into()))?;
+            attempt.interruption.checkpoint_digest = Some(checkpoint.diff_sha256.clone());
+            task.interruption.checkpoint = Some(checkpoint);
+            task.updated_at = now_ms;
+            Ok(())
+        })
+    }
+
+    /// Resume a paused provider-exhausted worker when quota returns. Same owner,
+    /// same epoch — no adoption, no epoch bump. Clears the pause surface and the
+    /// safety checkpoint so the live worker owns its own state again.
+    pub fn resume_from_provider_exhaustion(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        owner_tab_id: &str,
+        owner_session_id: &str,
+        owner_epoch: u64,
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
+        self.with_plan(plan_id, now_ms, |plan| {
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+                .ok_or(PlanError::TaskNotFound)?;
+            if task.status_label.as_deref() != Some(PROVIDER_EXHAUSTED_LABEL) {
+                return Err(PlanError::Io("task is not provider-exhaustion paused".into()));
+            }
+            if task.interruption.owner_epoch != owner_epoch
+                || task.interruption.owner_tab_id.as_deref() != Some(owner_tab_id)
+                || task.interruption.owner_session_id.as_deref() != Some(owner_session_id)
+            {
+                return Err(PlanError::Io("stale resume owner".into()));
+            }
+            task.interruption.checkpoint = None;
+            task.status = TaskStatus::InProgress;
+            task.status_label = None;
             task.updated_at = now_ms;
             Ok(())
         })

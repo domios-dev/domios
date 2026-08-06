@@ -43,6 +43,8 @@ jobs:
             > "$RUNNER_TEMP/resolved-public-issues.json"
           jq -r '.issues[].reference' "$RUNNER_TEMP/resolved-public-issues.json" \
             > "$RUNNER_TEMP/public-issues.txt"
+          jq -r '.repository_issues[].reference' "$RUNNER_TEMP/resolved-public-issues.json" \
+            > "$RUNNER_TEMP/repository-issues.txt"
 
           {
             echo "## Public issue contract"
@@ -56,5 +58,19 @@ jobs:
               done < "$RUNNER_TEMP/public-issues.txt"
             else
               echo "No public issues declared."
+            fi
+
+            echo
+            echo "## Source repository issue contract"
+            if [ -s "$RUNNER_TEMP/repository-issues.txt" ]; then
+              while IFS= read -r reference; do
+                number="${reference##*#}"
+                gh issue view "$number" \
+                  --repo rollacode/codeterm \
+                  --json number,state,title >/dev/null
+                echo "- $reference"
+              done < "$RUNNER_TEMP/repository-issues.txt"
+            else
+              echo "No source repository issues declared."
             fi
           } | tee -a "$GITHUB_STEP_SUMMARY"

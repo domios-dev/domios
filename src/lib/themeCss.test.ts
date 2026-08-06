@@ -45,6 +45,12 @@ console.log("themeCss tests");
   assert("themeToCSS uses theme background", vars["--ct-bg"] === "#f6f8fa");
   assert("themeToCSS uses theme foreground", vars["--ct-fg"] === "#1f2328");
   assert("themeToCSS derives elevated background", vars["--ct-bg-elev"] !== "#0d1117");
+  assert("dark blue accent uses white text", vars["--ct-on-accent"] === "#ffffff");
+}
+
+{
+  const vars = themeToCSS(DEFAULT_THEME);
+  assert("light blue accent uses black text", vars["--ct-on-accent"] === "#000000");
 }
 
 {

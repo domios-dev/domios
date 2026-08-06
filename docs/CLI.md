@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 33 -->
+<!-- revision: 34 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -119,7 +119,7 @@ Mark a tab as orchestrator (top-level, can spawn workers)
 Spawn a new agent; roleless unless --role is provided.
 
 - `<agent>` — Agent provider id. Run `codeterm agent providers` to list registered providers (e.g. claude, codex, opencode). Default: claude
-- `--args` — Extra args for the agent
+- `--args` — Extra provider args. Put this after all CodeTerm spawn options
 - `--can-spawn` — Override whether an explicit Orchestrator may spawn children
 - `--charter` — Watcher charter text
 - `--charter-file` — Read watcher charter text from a file
@@ -1489,6 +1489,7 @@ Plan north-star goal
 Set the plan's goal vector, vision, constraints, and postulates
 
 - `--constraint`
+- `<goal_text>` — Optional trailing goal statement; stored as vision unless --vision/--vision-file is given
 - `<plan_id>`
 - `--postulate`
 - `--vector`
@@ -1700,6 +1701,7 @@ Update a milestone's kind or text
 
 Set explicit effort mode: planning | approved | execution | complete
 
+- `<mode>` — Mode value as a trailing positional (alternative to --set): planning | approved | execution | complete
 - `<plan_id>`
 - `--set`
 
@@ -1820,6 +1822,12 @@ Show the plan QA queue, or enqueue one in_review task with --task
 - `--note`
 - `<plan_id>`
 - `--task`
+
+#### `codeterm plan rebind`
+
+Re-sync a planning binding nonce that went stale after an agent relaunch, recovering plan mutation/approve/dispatch without a full `agent restart`
+
+- `<plan_id>` — Optional plan id for context; the rebind re-syncs this tab's binding
 
 #### `codeterm plan reconcile`
 
@@ -2069,7 +2077,9 @@ Add a task to a plan (carries model/why routing + quality fields)
 - `--cleanup-hint`
 - `--cleanup-status`
 - `--correctness`
+- `--correctness-file`
 - `--criterion`
+- `--criterion-file` — Read acceptance criteria from a file: a JSON string array, or one criterion per line. Appends to --criterion
 - `--depends-on` — Task this one waits on; repeatable. Accepts a full task id (task_xxxxxx), a unique id prefix, or a task handle (see --handle)
 - `--destination`
 - `--execution-intent`
@@ -2095,6 +2105,7 @@ Add a task to a plan (carries model/why routing + quality fields)
 - `--sections`
 - `--tag`
 - `--test-plan`
+- `--test-plan-file`
 - `--type`
 - `--why` — Routing rationale; stored as model_rationale in task JSON.
 - `--why-file` — Routing rationale; stored as model_rationale in task JSON.
@@ -2143,7 +2154,7 @@ List execution attempts for a plan task
 
 #### `codeterm plan task close`
 
-Close a task (records a result; rejects if subtasks are open)
+Close a task from any lifecycle state. The authenticated Plan Orchestrator overrides worker owner-epoch drift; open subtasks still block
 
 - `--mesh`
 - `<plan_id>`
@@ -2235,6 +2246,15 @@ Remove a task from the plan, or --all to reset generated tasks
 - `<task_id>`
 - `--yes`
 
+#### `codeterm plan task show`
+
+Show one task in the plan with full detail (body, criteria, test_plan, correctness, executor_role, sections)
+
+- `--all` — With --siblings, include done/cancelled tasks
+- `<plan_id>`
+- `--siblings` — List sibling tasks (open-only unless --all)
+- `<task_id>`
+
 #### `codeterm plan task update`
 
 Update task metadata, status, quality fields, or lane assignment
@@ -2247,8 +2267,10 @@ Update task metadata, status, quality fields, or lane assignment
 - `--cleanup-status`
 - `--clear-dependencies`
 - `--correctness`
+- `--correctness-file`
 - `--criterion`
-- `--depends-on` — Task this one waits on; repeatable. Accepts a full task id (task_xxxxxx), a unique id prefix, or a task handle (see --handle)
+- `--criterion-file` — Read acceptance criteria from a file: a JSON string array, or one criterion per line. Appends to --criterion
+- `--depends-on` — Add a dependency; repeatable. Appends to existing dependencies (dedup). Accepts a full task id (task_xxxxxx), a unique id prefix, or a task handle. Use --replace-dependencies for wholesale replacement
 - `--destination`
 - `--executor-role` — Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync
 - `--external-ref` — GitHub issue reference to add; repeatable. Accepts a full issue URL or owner/repository#number
@@ -2265,6 +2287,8 @@ Update task metadata, status, quality fields, or lane assignment
 - `--priority`
 - `--qa-plan`
 - `--qa-plan-file`
+- `--remove-dependency` — Remove a specific dependency edge; repeatable. Applied after --depends-on additions
+- `--replace-dependencies` — Replace the whole dependency set with --depends-on instead of appending
 - `--role-guidance` — Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. "You are Alex; property tests come before implementation; red line: a lock claim without a test is not proof."
 - `--role-guidance-file`
 - `--sections`
@@ -2274,6 +2298,7 @@ Update task metadata, status, quality fields, or lane assignment
 - `--tag`
 - `<task_id>`
 - `--test-plan`
+- `--test-plan-file`
 - `--type`
 - `--why` — Routing rationale; stored as model_rationale in task JSON.
 - `--why-file` — Routing rationale; stored as model_rationale in task JSON.
@@ -2421,9 +2446,11 @@ Send text to a tab (default: current tab)
 - `--delay` — Queue instead of sending immediately. Examples: 45s, 10m, 1h30m, 2d. Bare number means minutes. NOT the normal send path: use only for future delivery the user asked for — plain send is immediate and must never be buffered
 - `--from-file` — Read text from a file instead of the positional arg. Lets you pass payloads that would otherwise be eaten by shell quoting
 - `--from-pad` — Read text from a relative file in the current agent tab's pad
+- `--require-agent` — Refuse unless the target tab has an agent attached. Guards task dispatch so prose never lands in a raw shell (issue #8)
 - `--stdin` — Read text from stdin. Pair with a single-quoted heredoc to bypass the shell entirely: codeterm send --tab X --stdin <<'EOF' any `backticks`, $vars, etc — zero interpolation EOF
 - `--tab` — Target tab ID (default: $CODETERM_TAB_ID or focused tab)
 - `<text>` — Text to send (positional, or omit and use --from-file/--stdin)
+- `--to-shell` — Override the raw-shell prose guard and deliver text verbatim to a shell tab (the shell will execute it). Alias: --force
 
 #### `codeterm service`
 

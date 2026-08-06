@@ -37,7 +37,6 @@ import { usePlanRefResolver } from "./usePlanRefResolver";
 import { chatPlanRefView } from "./chatPlanRef";
 import { useChatScroll } from "./useChatScroll";
 import { resolveTabNavigationTarget } from "./tabNavigation";
-import { admissionDependencyKey, deriveInputRequestAdmission, waitingQuestionTracker } from "./waitingQuestionTracker";
 import { useMeshPeerNameResolver } from "./useMeshPeerNameResolver";
 import { useAgentReportProjection } from "./agentReportProjection";
 import { messageTimeMs, placeOutboundReports } from "./outboundReportPlacement";
@@ -166,6 +165,7 @@ export function TabSessionChat({
     setHistoryReading,
     addOptimistic,
     updateOptimistic,
+    observeChatSendStatus,
   } = useChatSession({
     tabId,
     agentSessionId,
@@ -228,21 +228,9 @@ export function TabSessionChat({
     (value: string) => {
       if (pendingPrompt) setAnsweredPromptQuestion(pendingPrompt.question);
       void invoke("mux_respond_prompt", { tabId, value })
-        .then(() => {
-          if (!pendingPrompt || !agentSessionId) return;
-          waitingQuestionTracker.resolve(tabId, agentSessionId, pendingPrompt.question);
-          void invoke("notify_agent_input_request", {
-            tabId,
-            sessionId: agentSessionId,
-            promptIdentity: pendingPrompt.question,
-            resolved: true,
-          }).catch((error) => {
-            console.warn("Failed to resolve waiting-for-input notification:", error);
-          });
-        })
         .catch((e) => showComposerError(e instanceof Error ? e.message : String(e)));
     },
-    [agentSessionId, pendingPrompt, tabId, showComposerError],
+    [pendingPrompt, tabId, showComposerError],
   );
 
   // input path the composer uses; jump surfaces the live terminal output.
@@ -525,41 +513,6 @@ export function TabSessionChat({
     return next;
   }, [renderedEnrichedMessages, tabAgentTypes, setFocusedTab]);
 
-  // The key covers every admission input (incl. late-arriving options/submit),
-  // so the effect re-observes exactly when the admission decision can change.
-  const admissionKey = admissionDependencyKey(
-    pendingPrompt,
-    backendState?.state ?? null,
-    backendState?.subtype ?? null,
-  );
-  useEffect(() => {
-    const admission = deriveInputRequestAdmission(
-      pendingPrompt,
-      backendState?.state ?? null,
-      backendState?.subtype ?? null,
-    );
-    waitingQuestionTracker.observeAndNotify(
-      tabId,
-      agentSessionId,
-      backendState?.state ?? null,
-      admission.promptIdentity,
-      admission.notificationReady,
-      () =>
-        invoke("notify_agent_input_request", {
-          tabId,
-          sessionId: agentSessionId,
-          promptIdentity: admission.promptIdentity,
-        }).then(
-          () => undefined,
-          (error) => {
-            console.warn("Failed to create waiting-for-input notification:", error);
-            throw error;
-          },
-        ),
-    );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agentSessionId, tabId, admissionKey]);
-
   // subtype); it arrives via the mux snapshot and events, no local polling needed.
   const liveAgentState: AgentState = useMemo(() => {
     const kind = backendState?.state ?? "idle";
@@ -797,6 +750,7 @@ export function TabSessionChat({
         onWillSendMessage={followSentMessage}
         addOptimistic={addOptimistic}
         updateOptimistic={updateOptimistic}
+        observeChatSendStatus={observeChatSendStatus}
         showComposerError={showComposerError}
         onOpenTerminalFallback={effectiveChatBackend ? undefined : onOpenTerminalFallback}
         modelBubble={composerModelBubble}

@@ -56,6 +56,8 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             actions,
             delay,
             at,
+            require_agent: _,
+            to_shell: _,
         } => {
             let mut stdin = std::io::stdin();
             if delay.is_some() || at.is_some() {
@@ -141,8 +143,6 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 None,
             ),
         },
-        // `notify clear` relays the list GET, exactly as `notifications clear` did:
-        // the peer has no clear endpoint and this arm never had one.
         Commands::Notify { action } => match action {
             crate::NotifyAction::Send { title, body, level } => (
                 "POST".into(),
@@ -153,7 +153,9 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 let qs = if *unread { "?unread=true" } else { "" };
                 ("GET".into(), format!("/api/notifications{}", qs), None)
             }
-            crate::NotifyAction::Clear => ("GET".into(), "/api/notifications".into(), None),
+            crate::NotifyAction::Clear => {
+                ("POST".into(), "/api/notifications/clear".into(), None)
+            }
         },
         Commands::Workspace { action } => match action {
             crate::WorkspaceAction::List => ("GET".into(), "/api/workspaces".into(), None),
@@ -413,11 +415,13 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 )
             }
             crate::PasteAction::Get { id, pop } => {
+                let id = crate::cmd::paste::normalize_paste_id(id);
                 let q = if *pop { "?pop=true" } else { "" };
                 ("GET".into(), format!("/api/pasteboard/{}{}", id, q), None)
             }
             crate::PasteAction::List => ("GET".into(), "/api/pasteboard".into(), None),
             crate::PasteAction::Rm { id } => {
+                let id = crate::cmd::paste::normalize_paste_id(id);
                 ("DELETE".into(), format!("/api/pasteboard/{}", id), None)
             }
         },
@@ -482,9 +486,11 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             _ => ("GET".into(), "/api/crons".into(), None),
         },
         Commands::Config { action } => match action {
-            crate::ConfigAction::Get { key } => {
-                ("GET".into(), format!("/api/config?key={}", key), None)
-            }
+            crate::ConfigAction::Get { key } => (
+                "GET".into(),
+                crate::transport::pre_socket::config_get_path(key.as_deref()),
+                None,
+            ),
             crate::ConfigAction::Set { key, value } => {
                 let v: serde_json::Value =
                     serde_json::from_str(value).unwrap_or(serde_json::json!(value));

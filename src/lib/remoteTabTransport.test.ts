@@ -24,6 +24,12 @@ describe("remote tab transport adapter", () => {
     });
     expect(claim?.suffix).toBe("/pty/claim-resize");
     expect(claim?.body).toMatchObject({ client_id: "client-1", cols: 91, rows: 33 });
+    const send = remoteTransportCall("chat_send_text", {
+      tabId: "mesh:peer/shared",
+      text: "hello",
+      clientToken: "optimistic-1",
+    });
+    expect(send?.body).toEqual({ text: "hello", client_token: "optimistic-1" });
   });
 
   it("composite to raw and raw to composite identity mapping both directions", () => {

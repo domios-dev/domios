@@ -96,14 +96,15 @@ no entry for a platform that hasn't been built yet.
 | `APPLE_TEAM_ID`              | macOS               | 10-char Apple Developer team ID. |
 | `APPLE_SIGNING_IDENTITY`     | macOS               | `Developer ID Application: …` Common Name. |
 
-## Public issue validation and release closure
+## Issue validation and release closure
 
-`.github/workflows/ready-for-release.yml` validates private PR bodies and commits. The only
-accepted public issue declaration is an exact line of the form
-`Public-Issue: rollacode/codeterm-releases#N`; `scripts/release_issue_contract.py` owns parsing and
+`.github/workflows/ready-for-release.yml` validates private PR bodies and commits. Source issues use
+`Repository-Issue: rollacode/codeterm#N`; public issues use
+`Public-Issue: rollacode/codeterm-releases#N`. `scripts/release_issue_contract.py` owns parsing and
 normalization. The workflow rejects duplicate, malformed, wrong-repository, prose, and closing-
-keyword references, verifies every declared issue through `GH_RELEASE_TOKEN`, and renders the
-normalized references in the check summary.
+keyword references, verifies every declared issue exists, and renders both normalized sets in the
+check summary. Source declarations become `Closes #N` only in the final `develop` → `master` PR;
+public declarations close only after publication.
 
 The tag-driven `.github/workflows/release.yml` has a serialized publication boundary:
 
@@ -155,4 +156,4 @@ To unblock notarization:
   inline merge is sufficient for the current release cadence.
 - Cross-compiling Linux ARM (`aarch64-unknown-linux-gnu`).
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->

@@ -24,6 +24,10 @@ pub fn uniform_id_value(value: &serde_json::Value) -> serde_json::Value {
     out
 }
 
+pub fn tab_list_json_envelope(tabs: Vec<serde_json::Value>) -> serde_json::Value {
+    serde_json::json!({ "tabs": tabs })
+}
+
 pub fn print_json(value: &serde_json::Value) {
     println!(
         "{}",
@@ -292,6 +296,27 @@ pub fn print_taxonomy(value: &serde_json::Value) {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn tab_list_json_uses_object_envelope_matching_plan_task_list() {
+        let enveloped = tab_list_json_envelope(vec![json!({
+            "id": "tab_1",
+            "title": "one",
+            "session_binding_nonce": "nonce-recorded",
+            "reported_session_binding_nonce": "nonce-reported",
+        })]);
+        assert!(
+            enveloped.is_object(),
+            "tab list --json must be an object envelope, not a bare array"
+        );
+        let inner = enveloped
+            .get("tabs")
+            .expect("envelope carries a tabs field");
+        assert!(inner.is_array(), "tabs field holds the list");
+        assert_eq!(inner.as_array().unwrap().len(), 1);
+        assert_eq!(inner[0]["session_binding_nonce"], "nonce-recorded");
+        assert_eq!(inner[0]["reported_session_binding_nonce"], "nonce-reported");
+    }
 
     #[test]
     fn uniform_id_alias_preserves_existing_id() {

@@ -140,7 +140,8 @@ pub(super) fn render_system_prompt(
 
 fn compose_system_prompt(agent: &str) -> String {
     format!(
-        "{}\n\n---\n\n{}\n\n---\n\n{}",
+        "{}\n\n---\n\n{}\n\n---\n\n{}\n\n---\n\n{}",
+        crate::prompts::AGENT_CODETERM_PRIMER,
         agent,
         crate::prompts::CODETERM_RULE,
         crate::prompts::BRIDGE_MEM,
@@ -337,6 +338,12 @@ mod tests {
         );
         assert!(rendered.contains("You are the General Agent"));
         assert_eq!(rendered.matches("You are the General Agent").count(), 1);
+        assert_eq!(
+            rendered
+                .matches(crate::prompts::AGENT_CODETERM_PRIMER.trim())
+                .count(),
+            1
+        );
         assert_eq!(rendered.matches("# CodeTerm CLI reference").count(), 1);
         assert_eq!(rendered.matches("# CodeTerm Memory Protocol").count(), 1);
         assert_eq!(rendered.matches(DOCS_RULE).count(), 1);
@@ -361,6 +368,12 @@ mod tests {
         let agents = std::fs::read_to_string(dir.join("AGENTS.md")).unwrap();
         for contract in [&agent, &agents] {
             assert_eq!(contract.matches("You are the General Agent").count(), 1);
+            assert_eq!(
+                contract
+                    .matches(crate::prompts::AGENT_CODETERM_PRIMER.trim())
+                    .count(),
+                1
+            );
             assert_eq!(contract.matches("# CodeTerm CLI reference").count(), 1);
             assert_eq!(contract.matches("# CodeTerm Memory Protocol").count(), 1);
             assert_eq!(contract.matches("IDENTITY_SENTINEL").count(), 1);

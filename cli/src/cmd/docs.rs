@@ -110,16 +110,6 @@ pub(crate) const DOCS: &[EmbeddedDoc] = &[
         "../../../docs/MEMORY-USAGE.md"
     ),
     doc!(
-        "BUILD",
-        "Development, build, and installation workflows",
-        "../../../docs/BUILD.md"
-    ),
-    doc!(
-        "BUILD-REFERENCE",
-        "Build outputs, signing, icons, and platform notes",
-        "../../../docs/BUILD-REFERENCE.md"
-    ),
-    doc!(
         "HTML",
         "Sandboxed chat HTML behavior",
         "../../../docs/HTML.md"
@@ -317,6 +307,12 @@ mod tests {
         for document in DOCS {
             assert!(names.insert(document.name.to_ascii_lowercase()));
         }
+    }
+
+    #[test]
+    fn repository_build_docs_are_not_user_facing() {
+        assert!(render_doc("BUILD").is_err());
+        assert!(render_doc("BUILD-REFERENCE").is_err());
     }
 
     #[test]

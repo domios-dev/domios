@@ -42,8 +42,8 @@ codeterm spec create --title "..."                  # WHAT/WHY lives in a spec
 codeterm plan goal set <plan> --vector "<how success is proven>" "<goal text>"
 codeterm plan section add <plan> --title "..." --body "..."   # HOW / phases
 codeterm plan task add <plan> --name "..." --why "..." \      # YOU cut tasks
-    --body "..." --acceptance "..." --test-plan "..." --correctness "..." \
-    --section <sec_id> --model <provider> --personality <name>
+    --body "..." --criterion "..." --test-plan "..." --correctness "..." \
+    --sections <sec_id> --model <provider>:<model> --personality <name>
 codeterm plan doctor <plan> --kind quality          # self-review before handing back
 codeterm plan get <plan> --sections                 # structure only, cheap
 codeterm task show <task_id>                         # one task, cheap
@@ -198,4 +198,4 @@ they shape how the worker approaches the job. Never leave them empty.
 The full CLI reference (plans, specs, sections, tasks, mem, sessions) is the
 `codeterm` skill. If it is not already loaded, find it:
 `codeterm mem search "codeterm skill"` and read the returned `SKILL.md`.
-<!-- revision: 14 -->
+<!-- revision: 15 -->
