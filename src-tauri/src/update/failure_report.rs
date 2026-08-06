@@ -30,8 +30,10 @@ impl UpdateAbort {
 }
 
 /// The seam every abort routes through: emit whatever the caller wants the user
-/// to see. Injected so the orchestration is testable with a spy.
-pub trait UpdateFailureSink {
+/// to see. Injected so the orchestration is testable with a spy. `Send + Sync`
+/// so a `&dyn UpdateFailureSink` may be held across `.await` in the orchestration
+/// future the Tauri command requires to be `Send`.
+pub trait UpdateFailureSink: Send + Sync {
     fn abort(&self, abort: &UpdateAbort);
 }
 
