@@ -471,7 +471,7 @@ pub enum BridgeAction {
 #[derive(Subcommand)]
 pub enum ConfigAction {
     /// Get a config value (dot-notation, e.g. "integrations.telegram_enabled")
-    Get { key: String },
+    Get { key: Option<String> },
     /// Set a config value (JSON-compatible: true, false, 42, "string")
     Set { key: String, value: String },
 }
