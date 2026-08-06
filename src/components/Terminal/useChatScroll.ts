@@ -18,10 +18,6 @@ import {
 
 const SHOW_SCROLL_DOWN_THRESHOLD_PX = 240;
 
-function reportScrollObserverFault(error: unknown): void {
-  console.warn("[chat-scroll] ResizeObserver recovery", error);
-}
-
 interface PendingPrependSnapshot extends ChatPrependSnapshot {
   version: unknown;
   anchorId: string | null;
@@ -153,25 +149,10 @@ export function useChatScroll({
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
-    const handleResize = (entries: ResizeObserverEntry[]) => {
-      try {
-        const ownEntry = entries.find((entry) => entry.target === el);
-        const rect = ownEntry?.contentRect;
-        if (rect && (rect.width <= 0 || rect.height <= 0)) return;
-        if (modeRef.current !== "pinned") return;
-        scrollToBottom();
-      } catch (error) {
-        reportScrollObserverFault(error);
-      }
-    };
-    let observer: ResizeObserver;
-    try {
-      observer = new ResizeObserver(handleResize);
-      observer.observe(el);
-    } catch (error) {
-      reportScrollObserverFault(error);
-      return;
-    }
+    const observer = new ResizeObserver(() => {
+      if (modeRef.current === "pinned") scrollToBottom();
+    });
+    observer.observe(el);
     return () => observer.disconnect();
   }, [scrollToBottom]);
 

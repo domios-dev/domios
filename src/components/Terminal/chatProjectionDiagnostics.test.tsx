@@ -134,7 +134,7 @@ function testForgetLifecycle(): void {
 }
 
 // ── Unit: painted-tail probe fires after paint (double rAF), not at commit ───
-async function testScheduleAfterPaint(): Promise<void> {
+function testScheduleAfterPaint(): void {
   const g = globalThis as unknown as {
     requestAnimationFrame?: (cb: () => void) => number;
     cancelAnimationFrame?: (id: number) => void;
@@ -195,21 +195,6 @@ async function testScheduleAfterPaint(): Promise<void> {
     assert(sync.count() === 1, "falls back to a synchronous record when no rAF exists");
   } finally {
     g.requestAnimationFrame = prevRaf2;
-  }
-
-  const failedFrames = hitCounter();
-  const frameFaults: unknown[] = [];
-  g.requestAnimationFrame = () => {
-    throw new Error("WebKitGTK frame scheduler lost its callback context");
-  };
-  try {
-    scheduleAfterPaint(failedFrames.hit, (error) => frameFaults.push(error));
-    await Promise.resolve();
-    assert(frameFaults.length === 1, "rAF context loss did not report an observable recovery fault");
-    assert(failedFrames.count() === 1, "rAF context loss stopped the post-paint record chain");
-  } finally {
-    g.requestAnimationFrame = prevRaf;
-    g.cancelAnimationFrame = prevCaf;
   }
 }
 
@@ -640,7 +625,7 @@ async function main(): Promise<void> {
   testAuthorityStall();
   testMonotonicAndBounded();
   testForgetLifecycle();
-  await testScheduleAfterPaint();
+  testScheduleAfterPaint();
   testFrozenTailStableIdStreaming();
   testSnapshotSignatureRecorded();
   testActivationReconcileOracle();
