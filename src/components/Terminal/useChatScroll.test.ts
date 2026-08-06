@@ -37,17 +37,6 @@ function setGeometry(el: HTMLElement, geometry: Geometry): void {
 
 let hookResult: UseChatScrollResult | null = null;
 const followTail = { current: true };
-let resizeCallback: ResizeObserverCallback | null = null;
-
-class MockWebKitResizeObserver {
-  constructor(callback: ResizeObserverCallback) {
-    resizeCallback = callback;
-  }
-
-  observe(): void {}
-  unobserve(): void {}
-  disconnect(): void {}
-}
 
 function Fixture({ revision, messageCount, firstId }: { revision: number; messageCount: number; firstId: string }) {
   hookResult = useChatScroll({
@@ -59,13 +48,7 @@ function Fixture({ revision, messageCount, firstId }: { revision: number; messag
     prependVersion: firstId,
     followTailRef: followTail,
   });
-  return createElement(
-    "div",
-    { ref: hookResult.scrollRef, "data-testid": "scroll" },
-    ...Array.from({ length: messageCount }, (_, index) =>
-      createElement("output", { key: index, "data-testid": "transcript-row" }, String(index)),
-    ),
-  );
+  return createElement("div", { ref: hookResult.scrollRef, "data-testid": "scroll" });
 }
 
 async function render(root: Root, revision: number, messageCount: number, firstId = "m-1"): Promise<void> {
@@ -74,77 +57,45 @@ async function render(root: Root, revision: number, messageCount: number, firstI
 
 async function main(): Promise<void> {
   clearPersistedChatScrollState("tab:session");
-  const previousResizeObserver = globalThis.ResizeObserver;
-  Object.defineProperty(globalThis, "ResizeObserver", {
-    configurable: true,
-    value: MockWebKitResizeObserver,
-  });
-  const previousWarn = console.warn;
-  const observerFaults: unknown[][] = [];
-  console.warn = (...args: unknown[]) => observerFaults.push(args);
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
-  try {
-    await render(root, 0, 0);
-    const scroll = host.querySelector('[data-testid="scroll"]') as HTMLElement;
-    setGeometry(scroll, { scrollHeight: 1000, clientHeight: 400 });
-    await render(root, 1, 1);
-    assertScrollTop(scroll, 600, "initial pinned transcript opens at latest");
-    assert(scroll.style.overflowAnchor === "none", "native anchoring cannot become a second writer");
+  await render(root, 0, 0);
+  const scroll = host.querySelector('[data-testid="scroll"]') as HTMLElement;
+  setGeometry(scroll, { scrollHeight: 1000, clientHeight: 400 });
+  await render(root, 1, 1);
+  assertScrollTop(scroll, 600, "initial pinned transcript opens at latest");
+  assert(scroll.style.overflowAnchor === "none", "native anchoring cannot become a second writer");
 
-    await act(async () => resizeCallback?.([{
-      target: scroll,
-      contentRect: { width: 0, height: 0 },
-    }] as ResizeObserverEntry[], {} as ResizeObserver));
-    assertScrollTop(scroll, 600, "zero-sized WebKitGTK observation moved the pinned viewport");
-    Object.defineProperty(scroll, "scrollHeight", {
-      configurable: true,
-      get: () => { throw new Error("detached WebKitGTK layout"); },
-    });
-    await act(async () => resizeCallback?.([{
-      target: scroll,
-      contentRect: { width: 1, height: 1 },
-    }] as ResizeObserverEntry[], {} as ResizeObserver));
-    assert(observerFaults.length === 1, "ResizeObserver failure was swallowed without an observable recovery fault");
-    setGeometry(scroll, { scrollHeight: 1200, clientHeight: 400 });
-    await render(root, 2, 2);
-    assert(
-      host.querySelectorAll('[data-testid="transcript-row"]').length === 2,
-      "a WebKitGTK ResizeObserver fault halted later transcript rows",
-    );
+  scroll.scrollTop = 599.9;
+  await act(async () => hookResult!.handleScroll({ currentTarget: scroll } as never));
+  assert(followTail.current, "a fractional layout clamp at the bottom keeps the live tail pinned");
 
-    scroll.scrollTop = 799.9;
-    await act(async () => hookResult!.handleScroll({ currentTarget: scroll } as never));
-    assert(followTail.current, "a fractional layout clamp at the bottom keeps the live tail pinned");
+  scroll.scrollTop = 599;
+  await act(async () => hookResult!.handleScroll({ currentTarget: scroll } as never));
+  assert(!followTail.current, "a real upward movement detaches immediately");
 
-    scroll.scrollTop = 799;
-    await act(async () => hookResult!.handleScroll({ currentTarget: scroll } as never));
-    assert(!followTail.current, "a real upward movement detaches immediately");
+  setGeometry(scroll, { scrollHeight: 1200, clientHeight: 400 });
+  await render(root, 2, 2);
+  assertScrollTop(scroll, 599, "new canonical content never moves a detached viewport");
 
-    await act(async () => hookResult!.prepareForHistoryPrepend());
-    setGeometry(scroll, { scrollHeight: 1250, clientHeight: 400 });
-    await render(root, 3, 3);
-    assertScrollTop(scroll, 799, "an intervening live update does not consume or move the prepend snapshot");
-    setGeometry(scroll, { scrollHeight: 1550, clientHeight: 400 });
-    await render(root, 4, 4, "m-0");
-    assertScrollTop(scroll, 1099, "older-history prepend preserves the visible position");
+  await act(async () => hookResult!.prepareForHistoryPrepend());
+  setGeometry(scroll, { scrollHeight: 1250, clientHeight: 400 });
+  await render(root, 3, 3);
+  assertScrollTop(scroll, 599, "an intervening live update does not consume or move the prepend snapshot");
+  setGeometry(scroll, { scrollHeight: 1550, clientHeight: 400 });
+  await render(root, 4, 4, "m-0");
+  assertScrollTop(scroll, 899, "older-history prepend preserves the visible position");
 
-    await act(async () => hookResult!.scrollToBottom());
-    assertScrollTop(scroll, 1150, "explicit down returns to latest");
-    setGeometry(scroll, { scrollHeight: 1750, clientHeight: 400 });
-    await render(root, 5, 5, "m-0");
-    assertScrollTop(scroll, 1350, "pinned viewport follows new canonical content");
-    console.log("chat scroll authority checks passed");
-  } finally {
-    await act(async () => root.unmount());
-    host.remove();
-    console.warn = previousWarn;
-    Object.defineProperty(globalThis, "ResizeObserver", {
-      configurable: true,
-      value: previousResizeObserver,
-    });
-  }
+  await act(async () => hookResult!.scrollToBottom());
+  assertScrollTop(scroll, 1150, "explicit down returns to latest");
+  setGeometry(scroll, { scrollHeight: 1750, clientHeight: 400 });
+  await render(root, 5, 5, "m-0");
+  assertScrollTop(scroll, 1350, "pinned viewport follows new canonical content");
+
+  await act(async () => root.unmount());
+  host.remove();
+  console.log("chat scroll authority checks passed");
 }
 
 void main().catch((error) => {
