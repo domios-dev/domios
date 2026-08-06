@@ -12,9 +12,7 @@ pub(crate) struct AuthenticatedPlanCaller {
     pub binding_nonce: Option<String>,
 }
 
-/// Why a planning-authority check failed. The two -32003 causes are separate
-/// variants, not shared prose: a BINDING failure (nonce) is recovered by a
-/// rebind, a ROLE failure is not — so callers branch on the variant, never text.
+/// Typed planning-authority failures keep binding and role diagnostics distinct.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PlanAuthorityError {
     PlanNotFound,
@@ -75,12 +73,7 @@ pub(crate) struct RebindOutcome {
     pub resynced: bool,
 }
 
-/// Split a failed binding check into the recoverable stale-after-relaunch case
-/// versus a foreign refusal. Stale requires a live tab, a PROVIDED caller session
-/// that matches (an absent one is never laundered into the current session), and
-/// a presented nonce whose recorded lineage session equals the tab's CURRENT
-/// session. The session-tagged lineage is the daemon-authenticated proof; tab id
-/// plus a bare nonce never suffices.
+/// Distinguish a same-session stale nonce from a foreign binding failure.
 fn binding_failure_class(
     tab: &Tab,
     requested_session: Option<&str>,
@@ -180,12 +173,7 @@ impl ServiceContext {
         Err(PlanAuthorityError::RoleUnauthorized)
     }
 
-    /// Re-sync a stale-after-relaunch binding. Proof: the tab is live, any
-    /// PROVIDED caller session matches, and the presented nonce is tagged in this
-    /// tab's lineage to its CURRENT session (daemon-authenticated, so an absent
-    /// CODETERM_SESSION_ID is never laundered into the session). Only then is the
-    /// live binding moved onto that nonce so mutation/approve/dispatch recover
-    /// without a restart. Foreign / cross-session / cross-tab refused.
+    /// Re-sync a nonce proven by the live tab's current-session lineage.
     pub(crate) fn rebind_stale_planning_session(
         &self,
         caller: &AuthenticatedPlanCaller,
@@ -217,10 +205,6 @@ impl ServiceContext {
                 resynced: false,
             });
         }
-        // Proof: a live tab, a PROVIDED caller session that matches (absent is
-        // never laundered), and a nonce whose lineage session equals the tab's
-        // CURRENT session. Session continuity comes from the daemon-tagged
-        // lineage, not a caller-supplied CODETERM_SESSION_ID.
         let provable = tab_has_live_agent(tab)
             && requested_session
                 .is_none_or(|requested| tab.agent_session_id.as_deref() == Some(requested))
@@ -640,10 +624,7 @@ mod tests {
         }
     }
 
-    // Mirror of plan_task_authority::task_mutation_authority's binding predicate
-    // (the W3-C task gate): the live tab must carry the caller's nonce as BOTH
-    // its configured and reported binding. Kept here to prove the two gates
-    // agree on the same inputs, not to re-test W3-C's internals.
+    // Mirror the W3-C task gate so both authority paths are proven on one input.
     fn w3c_task_binding_matches(fixture: &ServiceFixture, caller: &AuthenticatedPlanCaller) -> bool {
         let mux = fixture.service.mux.read();
         let tab = mux.get_tab(caller.tab_id.as_deref().unwrap()).unwrap();
@@ -702,9 +683,8 @@ mod tests {
         let (fixture, plan_id, _, owner) = fixture();
         let tab_id = owner.tab_id.clone().unwrap();
         relaunch_tab(&fixture, &tab_id, "owner-nonce-relaunched");
-        // The REAL relaunched CLI environment carries the binding nonce but no
-        // CODETERM_SESSION_ID, so the caller omits session_id. Session continuity
-        // is proven by the daemon-tagged lineage, not the caller's env.
+        // The real relaunched CLI environment has the nonce but no session id;
+        // daemon-tagged lineage proves continuity.
         let caller = sessionless(&owner);
         assert!(matches!(
             fixture.service.classify_planning_caller(&plan_id, &caller),
@@ -801,9 +781,8 @@ mod tests {
             .service
             .rebind_stale_planning_session(&foreign)
             .is_err());
-        // A DIFFERENT tab presenting the owner's stale nonce is foreign too: the
-        // planner tab's lineage never held it, so session-id + tab liveness alone
-        // never launder another tab's token into authority.
+        // Another tab cannot launder the owner's stale nonce because its lineage
+        // never held that nonce.
         let cross_tab = AuthenticatedPlanCaller {
             tab_id: planner.tab_id.clone(),
             session_id: Some("planner-session".into()),
