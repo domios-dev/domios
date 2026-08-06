@@ -457,7 +457,16 @@ impl crate::service::ServiceContext {
         let tab_id = tab_id.to_string();
         std::thread::spawn(move || {
             let status = run_chat_send(&svc.chat_send_ledger, pending, &text, |text| {
+                // User-origin always-deliver: a transient pre-write unlink or an
+                // unconfirmed submit degrades to pending-until-link, never a refusal.
                 svc.send_chat_text_claimed(&tab_id, text, submit_claim)
+                    .or_else(|err| {
+                        log::info!(
+                            "[chat-send] user send to Tab {tab_id} degraded to pending ({})",
+                            err.code()
+                        );
+                        err.into_surfaced(crate::service::delivery_error::SendOrigin::User)
+                    })
             });
             crate::api::events::emit_everywhere(&svc.app_handle, "chat-send-status", &status);
             if let Some(error) = status.error.as_deref() {
@@ -476,7 +485,7 @@ impl crate::service::ServiceContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::service::delivery_error::DeliveryError;
+    use crate::service::delivery_error::{DeliveryError, SendOrigin};
     use crate::service::inject_verify::InjectionError;
 
     fn submit_unconfirmed(detail: impl Into<String>) -> DeliveryError {
@@ -484,6 +493,92 @@ mod tests {
             tab: "tab-1".into(),
             detail: detail.into(),
         }
+    }
+
+    fn tab_busy(detail: impl Into<String>) -> DeliveryError {
+        DeliveryError::TabBusyRefused {
+            tab: "tab-1".into(),
+            detail: detail.into(),
+        }
+    }
+
+    fn pty_unavailable(detail: impl Into<String>) -> DeliveryError {
+        DeliveryError::PtyUnavailable {
+            tab: "tab-1".into(),
+            detail: detail.into(),
+        }
+    }
+
+    #[test]
+    fn user_send_booting_agent_degrades_to_pending_not_failed() {
+        let ledger = ChatSendLedger::default();
+        let pending = ledger.try_start("tab-1", "hello", None).unwrap();
+        let mut writes = 0;
+        // Exact neutralization start_chat_send applies at the user-origin boundary.
+        let status = run_chat_send(&ledger, pending, "hello", |_text| {
+            writes += 1;
+            Err(tab_busy("Agent in Tab tab-1 is still booting"))
+                .or_else(|e: DeliveryError| e.into_surfaced(SendOrigin::User))
+        });
+        assert_eq!(writes, 1, "submit invoked exactly once — no retry loop");
+        assert_eq!(status.state, ChatSendState::Unknown);
+        assert!(status.error.is_none());
+        assert_eq!(ledger.reconcile("tab-1")[0].state, ChatSendState::Unknown);
+    }
+
+    #[test]
+    fn user_send_unlinked_pty_degrades_to_pending_not_failed() {
+        let ledger = ChatSendLedger::default();
+        let pending = ledger.try_start("tab-1", "hello", None).unwrap();
+        let status = run_chat_send(&ledger, pending, "hello", |_text| {
+            Err(pty_unavailable("PTY did not link within 15s"))
+                .or_else(|e: DeliveryError| e.into_surfaced(SendOrigin::User))
+        });
+        assert_eq!(status.state, ChatSendState::Unknown);
+        assert!(status.error.is_none());
+    }
+
+    #[test]
+    fn user_submit_unconfirmed_neither_fails_nor_rewrites() {
+        let ledger = ChatSendLedger::default();
+        let pending = ledger.try_start("tab-1", "hi", None).unwrap();
+        let mut writes = 0;
+        let status = run_chat_send(&ledger, pending, "hi", |_text| {
+            writes += 1;
+            Err(submit_unconfirmed("submit key not acknowledged"))
+                .or_else(|e: DeliveryError| e.into_surfaced(SendOrigin::User))
+        });
+        assert_eq!(
+            writes, 1,
+            "write count stays 1 — submit recovery never re-writes"
+        );
+        assert_eq!(status.state, ChatSendState::Unknown);
+        assert!(status.error.is_none());
+    }
+
+    #[test]
+    fn user_send_turn_evidence_still_confirms_a_degraded_send() {
+        let ledger = ChatSendLedger::default();
+        let pending = ledger.try_start("tab-1", "deploy", None).unwrap();
+        run_chat_send(&ledger, pending.clone(), "deploy", |_text| {
+            Err(tab_busy("still booting"))
+                .or_else(|e: DeliveryError| e.into_surfaced(SendOrigin::User))
+        });
+        let confirmed = ledger
+            .confirm_delivered_user_turn("tab-1", "session-1", "deploy")
+            .expect("turn evidence confirms the pending user send once the PTY links");
+        assert_eq!(confirmed.send_id, pending.send_id);
+        assert_eq!(confirmed.state, ChatSendState::Sent);
+    }
+
+    #[test]
+    fn programmatic_pre_write_refusal_still_surfaces_as_failed() {
+        // Same DeliveryError WITHOUT the user neutralization (the programmatic
+        // path returns it typed) stays Failed — the split is real.
+        let ledger = ChatSendLedger::default();
+        let pending = ledger.try_start("tab-1", "hi", None).unwrap();
+        let status = run_chat_send(&ledger, pending, "hi", |_| Err(tab_busy("still booting")));
+        assert_eq!(status.state, ChatSendState::Failed);
     }
 
     #[test]
