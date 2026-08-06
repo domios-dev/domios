@@ -38,6 +38,13 @@ class ReleaseIssueContractTest(unittest.TestCase):
             "rollacode/codeterm-releases#2",
             "rollacode/codeterm-releases#17",
         ])
+        closes = self.run_contract(
+            "repository-closes",
+            "--body-file",
+            str(FIXTURES / "valid-pr.md"),
+        )
+        self.assertEqual(closes.returncode, 0, closes.stderr)
+        self.assertEqual(closes.stdout.splitlines(), ["Closes #40", "Closes #294"])
         empty = self.run_contract("parse", "--body-file", str(FIXTURES / "zero-refs.md"))
         self.assertEqual(empty.returncode, 0, empty.stderr)
         self.assertEqual(empty.stdout, "")
@@ -47,6 +54,7 @@ class ReleaseIssueContractTest(unittest.TestCase):
             "duplicate.md",
             "wrong-repo.md",
             "malformed.md",
+            "malformed-repository.md",
             "prose.md",
             "closing-keyword.md",
             "url-prose.md",
@@ -64,6 +72,10 @@ class ReleaseIssueContractTest(unittest.TestCase):
             "rollacode/codeterm-releases#2",
             "rollacode/codeterm-releases#17",
             "rollacode/codeterm-releases#32",
+        ])
+        self.assertEqual([item["reference"] for item in resolved["repository_issues"]], [
+            "rollacode/codeterm#40",
+            "rollacode/codeterm#294",
         ])
         self.assertNotIn("#99", result.stdout)
         issue_17 = next(issue for issue in resolved["issues"] if issue["reference"].endswith("#17"))
@@ -173,6 +185,8 @@ class ReleaseIssueContractTest(unittest.TestCase):
         self.assertIn("git rev-list", workflow)
         self.assertIn('--commits-file "$RUNNER_TEMP/release-commits.json"', workflow)
         self.assertIn('--prs-file "$RUNNER_TEMP/release-prs.json"', workflow)
+        self.assertIn(".repository_issues[].reference", workflow)
+        self.assertIn("--repo rollacode/codeterm", workflow)
 
 
 if __name__ == "__main__":

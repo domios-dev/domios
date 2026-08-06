@@ -2,9 +2,12 @@
 
 Brief description of the change (1-2 sentences).
 
-Declare each shipped public issue on its own exact metadata line in this PR or its fixing commit.
-Remove the example when none applies. Do not use GitHub closing keywords or prose issue references.
+For a PR targeting a non-default branch, declare each fixed source-repo issue on its own exact
+`Repository-Issue:` line. The final `develop` → `master` PR converts these to `Closes #N`.
+Declare shipped public issues separately. Remove examples that do not apply; do not use prose
+issue references or GitHub closing keywords outside the final PR to `master`.
 
+Repository-Issue: rollacode/codeterm#N
 Public-Issue: rollacode/codeterm-releases#N
 
 ## Verification
