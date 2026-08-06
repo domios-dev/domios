@@ -63,6 +63,18 @@ fn plan_caller(params: &Option<Value>) -> crate::service::AuthenticatedPlanCalle
     }
 }
 
+pub(super) fn plan_orchestrator_close_override(
+    method: &str,
+    params: &Option<Value>,
+    svc: &ServiceState,
+    plan_id: &str,
+) -> bool {
+    method == "plan.task.close"
+        && svc
+            .authorize_plan_orchestrator(plan_id, &plan_caller(params))
+            .is_ok()
+}
+
 /// The recovered status a `plan.task.update` asks for, so cancel and pend land
 /// in the same write as the retirement. Reassign and respawn carry no status.
 fn recovery_outcome(method: &str, params: &Option<Value>) -> Option<crate::plan::TaskStatus> {
@@ -141,6 +153,9 @@ pub(super) fn verify_owner_epoch_for_task_mutation(
         .plan_store
         .show_task(&task_id)
         .ok_or_else(|| rpc_error(PlanError::TaskNotFound.to_string()))?;
+    if plan_orchestrator_close_override(method, params, svc, &detail.plan_id) {
+        return Ok(());
+    }
     if detail.task.interruption.owner_epoch == 0 {
         return Ok(());
     }

@@ -289,7 +289,7 @@ pub enum PlanTaskAction {
         #[arg(long)]
         primary: Option<String>,
     },
-    /// Close a task (records a result; rejects if subtasks are open)
+    /// Close a task from any lifecycle state. The authenticated Plan Orchestrator overrides worker owner-epoch drift; open subtasks still block
     Close {
         plan_id: String,
         task_id: Option<String>,
