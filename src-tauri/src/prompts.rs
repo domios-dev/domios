@@ -250,7 +250,7 @@ mod tests {
 
     /// Every prompt fragment that teaches CLI grammar, with the file it is
     /// loaded from so a failure names something a human can open.
-    fn cli_teaching_fragments() -> [(&'static str, &'static str); 7] {
+    fn cli_teaching_fragments() -> [(&'static str, &'static str); 8] {
         [
             ("general_agent.md", GENERAL_AGENT_TEMPLATE),
             ("codeterm_rule.md", CODETERM_RULE),
@@ -259,6 +259,7 @@ mod tests {
             ("orchestrator_suffix.md", ORCHESTRATOR_SUFFIX),
             ("worker_suffix.md", WORKER_SUFFIX),
             ("team_creation_contract.md", TEAM_CREATION_CONTRACT),
+            ("agent_codeterm_primer.md", AGENT_CODETERM_PRIMER),
         ]
     }
 
