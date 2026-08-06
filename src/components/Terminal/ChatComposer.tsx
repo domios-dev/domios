@@ -341,7 +341,7 @@ function ChatComposerImpl({
   );
   const touchMode = useTouchOptimizedUi();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const suppressedNativeInputRef = useRef(false);
+  const pairedNativeInputRef = useRef<{ value: string } | null>(null);
   const shellRef = useRef<HTMLDivElement>(null);
   const lastSendRef = useRef<{ text: string; at: number }>({ text: "", at: 0 });
   const [delayedMessages, setDelayedMessages] = useState<DelayedMessage[]>([]);
@@ -411,7 +411,7 @@ function ChatComposerImpl({
     const textarea = textareaRef.current;
     if (!textarea) return;
     const handleBeforeInput = (event: InputEvent) => {
-      suppressedNativeInputRef.current = false;
+      pairedNativeInputRef.current = null;
       if (event.isComposing || !event.cancelable) return;
       const next = valueAfterNativeBeforeInput(
         input,
@@ -421,11 +421,29 @@ function ChatComposerImpl({
       );
       if (next == null) return;
       event.preventDefault();
-      suppressedNativeInputRef.current = true;
+      const pairedInput = { value: next };
+      pairedNativeInputRef.current = pairedInput;
+      queueMicrotask(() => {
+        if (pairedNativeInputRef.current === pairedInput) pairedNativeInputRef.current = null;
+      });
       setInput(next);
     };
+    const handleInput = (event: Event) => {
+      const pairedInput = pairedNativeInputRef.current;
+      if (!pairedInput) {
+        setInput(textarea.value);
+        return;
+      }
+      pairedNativeInputRef.current = null;
+      textarea.value = pairedInput.value;
+      event.stopPropagation();
+    };
     textarea.addEventListener("beforeinput", handleBeforeInput);
-    return () => textarea.removeEventListener("beforeinput", handleBeforeInput);
+    textarea.addEventListener("input", handleInput);
+    return () => {
+      textarea.removeEventListener("beforeinput", handleBeforeInput);
+      textarea.removeEventListener("input", handleInput);
+    };
   }, [input, setInput]);
 
   useEffect(() => {
@@ -885,13 +903,7 @@ function ChatComposerImpl({
             aria-label="Message composer"
             ref={textareaRef}
             value={input}
-            onChange={(e) => {
-              if (suppressedNativeInputRef.current) {
-                suppressedNativeInputRef.current = false;
-                return;
-              }
-              setInput(e.target.value);
-            }}
+            onChange={(e) => setInput(e.target.value)}
             onBeforeInput={(e) => {
               recordComposerBeforeInput(e.nativeEvent.inputType || "beforeinput");
             }}
