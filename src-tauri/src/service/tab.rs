@@ -1,7 +1,7 @@
 //! Tab lifecycle: close, rename, focus.
 
 use super::ServiceContext;
-use crate::multiplexer::types::{AgentRole, TitleLevel};
+use crate::multiplexer::types::{AgentRole, TabCloseReason, TitleLevel};
 use crate::plan::peer::{resolve_planner_ref, PeerResolution};
 use crate::service::session_persist::{self, SessionPersistUrgency};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -141,6 +141,16 @@ impl ServiceContext {
     }
 
     pub fn close_tab(&self, tab_id: &str) -> Result<(), String> {
+        self.close_tab_with_reason(tab_id, TabCloseReason::User)
+    }
+
+    /// Close a tab, tagging why. A `PolicyWorker` close of a task-owning hidden
+    /// worker records a restorable recently-closed entry despite `hidden`.
+    pub fn close_tab_with_reason(
+        &self,
+        tab_id: &str,
+        reason: TabCloseReason,
+    ) -> Result<(), String> {
         // iteration; once close_tab drops the entry, future polls would see Provider::None and bail anyway, but explicit stop joins the thread cleanly and frees the JSONL handle.
         self.chat_registry.shutdown_tab(tab_id);
 
@@ -157,7 +167,7 @@ impl ServiceContext {
         self.invalidate_guarded_agent_input(tab_id);
         self.release_worker_persona_for_tab(tab_id);
         let pre_focus = self.mux.read().get_focused_tab_id().map(str::to_string);
-        let pty_ids = self.mux.write().close_tab(tab_id)?;
+        let pty_ids = self.mux.write().close_tab_with_reason(tab_id, reason)?;
         let post_focus = self.mux.read().get_focused_tab_id().map(str::to_string);
         self.kill_ptys(&pty_ids);
         self.revoke_agent_pad(tab_id)?;
