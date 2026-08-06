@@ -115,8 +115,8 @@ Use spec/plan sections for plan rules or mem for durable preferences:\n\
             ))
         }
         "in_progress_requires_tab" => Some(format!(
-            "✗ in_progress requires an executor tab.\nfix: set status and tab in one command:\n  codeterm plan task update {plan_id} {} --status in_progress --tab <tab-id>\n(emergency override: CODETERM_STATE_INVARIANTS=off)",
-            task_id.unwrap_or("<task_id>")
+            "✗ rejected — nothing changed. in_progress needs an executor tab set in the same command.\nfix (atomic, pick one):\n  codeterm plan task dispatch {plan_id} {task} (binds tab+status together)\n  codeterm plan task update {plan_id} {task} --status in_progress --tab <tab-id>\nnote: CODETERM_STATE_INVARIANTS=off is an emergency escape hatch and was NOT applied here.",
+            task = task_id.unwrap_or("<task_id>")
         )),
         "blocked_requires_label" => Some(format!(
             "✗ blocked is a claim, not an operator hold.\nfix: say what unblocks it, or open a decision gate:\n  codeterm plan task update {plan_id} {} --status blocked --status-label \"<what unblocks it>\"\n  codeterm plan decision ask {plan_id} \"<question>\"",
