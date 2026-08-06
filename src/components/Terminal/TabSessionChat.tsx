@@ -166,6 +166,7 @@ export function TabSessionChat({
     setHistoryReading,
     addOptimistic,
     updateOptimistic,
+    observeChatSendStatus,
   } = useChatSession({
     tabId,
     agentSessionId,
@@ -797,6 +798,7 @@ export function TabSessionChat({
         onWillSendMessage={followSentMessage}
         addOptimistic={addOptimistic}
         updateOptimistic={updateOptimistic}
+        observeChatSendStatus={observeChatSendStatus}
         showComposerError={showComposerError}
         onOpenTerminalFallback={effectiveChatBackend ? undefined : onOpenTerminalFallback}
         modelBubble={composerModelBubble}
