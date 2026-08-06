@@ -450,6 +450,7 @@ pub(crate) fn build_tab_summary_json(
                 // Chat transcript authority compares all three: a summary that omits
                 // the nonce makes every remote projection reject its own transcript.
                 "session_binding_nonce": tab.session_binding_nonce,
+                "reported_session_binding_nonce": tab.reported_session_binding_nonce,
                 "archived_context_epochs": tab.context_epoch_archives,
                 "pty_id": tab.pty_id,
                 "tab_type": tab.tab_type,
@@ -954,7 +955,7 @@ mod tests {
     #[test]
     fn tab_summary_is_workspace_scoped_and_excludes_full_payload_fields() {
         use crate::multiplexer::state::MultiplexerState;
-        let (state, initial_tab) = MultiplexerState::new();
+        let (mut state, initial_tab) = MultiplexerState::new();
         let snapshot = state.snapshot();
         let workspace = snapshot.workspaces.first().expect("default workspace");
         let summaries = build_tab_summary_json(&snapshot, Some(&workspace.id), None, false, false);
@@ -964,13 +965,34 @@ mod tests {
         assert_eq!(tab["workspace_id"].as_str(), Some(workspace.id.as_str()));
         assert!(tab.get("agent_state").is_none());
         assert!(tab.get("model_fallback").is_none());
-        for identity in ["agent_session_id", "provider_context_session_id", "session_binding_nonce"] {
+        for identity in [
+            "agent_session_id",
+            "provider_context_session_id",
+            "session_binding_nonce",
+            "reported_session_binding_nonce",
+        ] {
             assert!(
                 tab.get(identity).is_some(),
-                "{identity} must survive into the summary: remote projections are built from it \
-                 and chat transcript authority compares the whole session identity",
+                "{identity} must survive into the summary",
             );
         }
+        assert!(tab["reported_session_binding_nonce"].is_null());
+
+        let record = state.get_tab_mut(&initial_tab).expect("default Tab");
+        record.session_binding_nonce = Some("nonce-recorded".into());
+        record.reported_session_binding_nonce = Some("nonce-reported".into());
+        let summaries = build_tab_summary_json(
+            &state.snapshot(),
+            Some(&workspace.id),
+            None,
+            false,
+            false,
+        );
+        assert_eq!(summaries[0]["session_binding_nonce"], "nonce-recorded");
+        assert_eq!(
+            summaries[0]["reported_session_binding_nonce"],
+            "nonce-reported"
+        );
     }
 
     #[test]
