@@ -77,7 +77,16 @@ git push origin develop
 ```
 
 Then start dev from the main checkout and visually confirm the app, clean old lane worktrees
-(`../codeterm-worktrees/`), and open the PR `develop` → `master`.
+(`../codeterm-worktrees/`), and open the PR `develop` → `master`. Collect the exact
+`Repository-Issue:` lines from the included integration PR body and render the closing block:
+
+```bash
+python3 scripts/release_issue_contract.py repository-closes \
+  --body-file /path/to/integration-pr-body.md
+```
+
+Put that output in the final PR body. GitHub applies `Closes #N` only when the PR targets the
+default branch, so integration PRs targeting `develop` retain non-closing metadata instead.
 
 ## 2. Cut the release: one trigger tag
 
@@ -234,7 +243,18 @@ Before un-drafting/marking `--latest`:
 gh release edit "v$VER" --repo rollacode/codeterm --draft=false --latest
 ```
 
-## Public issue closure contract
+## Issue closure contracts
+
+Source-repository issues use a separate two-stage contract. Integration PRs targeting
+non-default branches declare one exact line per fixed issue:
+
+```text
+Repository-Issue: rollacode/codeterm#294
+```
+
+The final `develop` → `master` PR renders those declarations as `Closes #294`; merging that PR
+closes the issue. The validator rejects closing keywords on integration PRs because GitHub ignores
+them outside the default branch.
 
 A private-source PR or commit declares a public issue only with an exact,
 repository-qualified metadata line:
@@ -307,4 +327,4 @@ The minisign updater key (`~/.tauri/codeterm.key`, empty password; its public ha
 the `github-release` skill lists the exact ids and restore paths. A builder without the minisign
 key produces artifacts the updater can't verify.
 
-<!-- revision: 22 -->
+<!-- revision: 23 -->
