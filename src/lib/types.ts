@@ -272,6 +272,9 @@ export interface WorkspaceInfo {
   is_active: boolean;
   cwd: string | null;
   protected?: boolean;
+  tab_ids: string[];
+  /** Set only when create_workspace deduped by cwd instead of creating one. */
+  existing?: boolean;
 }
 
 export interface TabInfo {

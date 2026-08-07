@@ -1,5 +1,5 @@
 import { recognize } from "./recognize";
-import { renderTemplate, parseSend, planLink, isHelp, isSend, navigationTarget } from "./templates";
+import { renderTemplate, parseSend, planLink, isHelp, isSend, navigationTarget, describeAction } from "./templates";
 
 let passed = 0;
 let failed = 0;
@@ -66,27 +66,46 @@ const TASK = "task_" + "b".repeat(32);
 
 // --- plan templates + link extraction ---
 {
-  const addCard = renderTemplate(inv(`codeterm plan task add --plan ${PLAN} --title "Fix login"`));
-  assert(addCard.title === "Task created: Fix login", "plan task add title");
-  assert(addCard.link?.planId === PLAN, "plan task add carries plan id");
+  // Every fixture below is the real clap shape: `plan task add <plan_id> --name`,
+  // `plan record <plan_id> --step`. A fixture using --plan/--title/--kind renders
+  // a card no user can ever produce, so it proves nothing about the renderer.
+  const addCard = renderTemplate(inv(`codeterm plan task add ${PLAN} --name "Fix login"`));
+  assert(addCard.title === "Task created: Fix login", "plan task add reads --name, the flag clap requires");
+  assert(addCard.link?.planId === PLAN, "plan task add carries the positional plan id");
 
-  const addWithTask = renderTemplate(inv(`codeterm plan task add --plan ${PLAN}`), `created ${TASK}`);
+  const addTitleFlag = renderTemplate(inv(`codeterm plan task add ${PLAN} --title "Fix login"`));
+  assert(addTitleFlag.title === "Task created", "a --title that clap rejects never names the created task");
+
+  const addWithTask = renderTemplate(inv(`codeterm plan task add ${PLAN}`), `created ${TASK}`);
   assert(addWithTask.link?.taskId === TASK, "task id recovered from result");
 
-  const upd = renderTemplate(inv(`codeterm plan task update --plan ${PLAN} --task ${TASK} --status in_review`));
+  const upd = renderTemplate(inv(`codeterm plan task update ${PLAN} ${TASK} --status in_review`));
   assert(upd.title === "Task status → in_review", "status-change card");
-  assert(upd.link?.taskId === TASK && upd.link?.planId === PLAN, "update card carries plan+task ids");
+  assert(upd.link?.taskId === TASK && upd.link?.planId === PLAN, "update card carries positional plan+task ids");
 
-  const rec = renderTemplate(inv(`codeterm plan record --plan ${PLAN} --kind decision "Chose Postgres\nmore"`));
-  assert(rec.title === "Plan updated: decision", "plan record title");
-  assert(rec.detail === "Chose Postgres", "plan record first line only");
-  assert(rec.link?.planId === PLAN, "plan record link");
+  const rec = renderTemplate(inv(`codeterm plan record ${PLAN} --step "Chose Postgres\nmore"`));
+  assert(rec.title === "Progress recorded", "plan record title without --status");
+  assert(rec.detail === "Chose Postgres", "plan record detail is the --step note, first line only");
+  assert(rec.detail !== PLAN, "plan record never renders the positional plan id as the stride note");
+  assert(rec.link?.planId === PLAN, "plan record link from the positional plan id");
+
+  const recStatus = renderTemplate(inv(`codeterm plan record ${PLAN} --task ${TASK} --status in_review --step "wired up"`));
+  assert(recStatus.title === "Progress recorded → in_review", "plan record surfaces the --status it actually writes");
+  assert(recStatus.link?.taskId === TASK, "plan record carries --task through to the link");
 
   const state = renderTemplate(inv(`codeterm plan state ${PLAN}`));
   assert(state.title === "Plan state", "plan state compact");
   assert(state.link?.planId === PLAN, "plan state link from positional");
 
   assert(planLink(inv(`codeterm plan state`)) === undefined, "no link without any plan id");
+
+  // describeAction reads the same invocation; positional 0 is the plan id there too.
+  const desc = describeAction(inv(`codeterm plan record ${PLAN} --step "Chose Postgres"`));
+  assert(desc.detail === "Chose Postgres", "descriptor detail is the --step note");
+  assert(desc.detail !== PLAN, "descriptor never falls back to the positional plan id");
+
+  const descNoStep = describeAction(inv(`codeterm plan record ${PLAN}`));
+  assert(descNoStep.detail === undefined, "no note flag means no detail, not the plan id");
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

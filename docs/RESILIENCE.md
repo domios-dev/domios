@@ -189,10 +189,11 @@ something is wrong at layer 1 or 2. Check:
    "[mem] busy" 503s near the restart timestamps.
 2. Whether a misbehaving extension or skill is hammering the API.
 3. Whether the heavy_ops semaphore is exhausted (would show as queued
-   dreaming/extraction work in `codeterm mem worker status`).
+   dreaming/extraction work in `codeterm mem worker list`; inspect one with
+   `codeterm mem worker get <id>`).
 
 The watchdog is a last-resort safety net. Persistent restarts mean the
 daemon-side backpressure (Phase 1) or process isolation (Phase 2) needs
 tuning — not more aggressive restarts.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->
