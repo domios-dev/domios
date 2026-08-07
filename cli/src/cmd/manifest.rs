@@ -335,49 +335,21 @@ mod tests {
         }
     }
 
-    fn resolve<'a>(root: &'a ManifestCommand, path: &[&str]) -> Option<&'a ManifestCommand> {
-        let mut cur = root;
-        for seg in path {
-            cur = cur
-                .subcommands
-                .iter()
-                .find(|c| c.name == *seg || c.aliases.iter().any(|a| a == seg))?;
-        }
-        Some(cur)
-    }
-
+    // The prompt every agent in every tab loads. The broad corpus covers it too;
+    // this keeps a guard that names codeterm_cli.md directly when it breaks.
+    // Trimming to the longest resolvable prefix used to pass anything under a
+    // real namespace — `codeterm workspace <anything>` resolved on `workspace`.
     #[test]
     fn prompt_cli_commands_exist() {
-        let root = build();
+        let root = Cli::command();
         let text = std::fs::read_to_string(PROMPT_PATH).expect("read codeterm_cli.md");
         let mut bad: Vec<String> = Vec::new();
-        for raw in text.lines() {
-            let line = raw.trim().trim_start_matches('`').trim_start_matches("$ ");
-            let Some(rest) = line.strip_prefix("codeterm ") else {
+        for (idx, line) in text.lines().enumerate() {
+            let Some(rest) = prescription(line, "codeterm") else {
                 continue;
             };
-            // not a subcommand — valid, skip.
-            if rest.trim_start().starts_with('-') {
-                continue;
-            }
-            // Collect leading bare-word tokens as the candidate subcommand path.
-            let mut path: Vec<&str> = Vec::new();
-            for tok in rest.split_whitespace() {
-                if tok.starts_with('-') || tok.starts_with('"') || tok.contains('=') {
-                    break;
-                }
-                if tok.starts_with('<') || tok.chars().all(|c| c.is_ascii_uppercase() || c == '_') {
-                    break; // argument placeholder (UPPERCASE / <...>)
-                }
-                path.push(tok);
-            }
-            // Trim back to the longest resolvable prefix.
-            while !path.is_empty() && resolve(&root, &path).is_none() {
-                path.pop();
-            }
-            if path.is_empty() {
-                bad.push(format!("unrecognized: {line}"));
-            }
+            let origin = format!("codeterm_cli.md:{}", idx + 1);
+            check_prescription(&root, &[], rest, &origin, &mut bad);
         }
         assert!(
             bad.is_empty(),
