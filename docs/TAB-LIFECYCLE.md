@@ -204,9 +204,15 @@ jq -r '.workspaces[].tabs[].split_tree
 
 Rotated snapshots in `sessions/backups/` are plain JSON and diff the same way.
 
-There is deliberately no CLI or in-process reader wrapping these reads. The file
-is the interface; recovery reads it for itself and exposes nothing for a caller
-to render.
+For one selected live tab, `codeterm tab inspect --tab ID --lifecycle` adds a
+read-only `lifecycle` object to the normal inspect payload. It contains the live
+lineage, this tab's ordered transitions, its surviving checkpoint, the verdict
+the recovery gate would produce, and journal-tail health. The default inspect
+payload and `tab list` stay unchanged.
+
+This is only a projection over the journal. Lifecycle authority can be changed
+only by the in-process writers and recovery gate; the CLI has no restore or
+checkpoint-mutation surface.
 
 ## Attempt retirement fences a closed tab's dispatch
 
@@ -237,4 +243,4 @@ transaction, so the intermediate state is never observable.
   validates and applies it atomically and journals itself; it is deliberately
   not a file edit and not a CLI wrapper over one.
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->

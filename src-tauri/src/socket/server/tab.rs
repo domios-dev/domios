@@ -71,8 +71,13 @@ pub(super) fn dispatch(
                     message: "tab_ids must contain strings".into(),
                     data: None,
                 })?;
+            let lifecycle = params
+                .as_ref()
+                .and_then(|value| value.get("lifecycle"))
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false);
             crate::dispatch::dispatch(
-                &crate::dispatch::Command::TabInspect { tab_ids },
+                &crate::dispatch::Command::TabInspect { tab_ids, lifecycle },
                 svc.as_ref(),
             )
             .map(|r| r.into_json())
