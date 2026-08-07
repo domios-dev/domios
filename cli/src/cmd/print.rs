@@ -61,12 +61,7 @@ pub fn handle_cli_result(json: bool, result: Result<serde_json::Value, CliError>
 }
 
 pub fn exit_with_cli_error(json: bool, error: &CliError) -> ! {
-    write_cli_error(
-        json,
-        error,
-        &mut std::io::stdout(),
-        &mut std::io::stderr().lock(),
-    );
+    write_cli_error(json, error, &mut std::io::stdout(), &mut std::io::stderr());
     std::process::exit(cli_error_exit_code(json));
 }
 
