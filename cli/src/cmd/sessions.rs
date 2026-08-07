@@ -103,12 +103,13 @@ pub fn handle_sessions(
             }
             let resp = match req.send() {
                 Ok(r) => r,
-                Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
-                }
+                Err(e) => fail_transport(json_mode, &e),
             };
+            let status = resp.status();
             let val: serde_json::Value = resp.json().unwrap_or_default();
+            if let BackendOutcome::Failure(machine) = classify_backend_response(status, &val) {
+                fail(json_mode, &format!("Error: {machine}"), &machine);
+            }
             if json_mode {
                 println!("{}", serde_json::to_string_pretty(&val).unwrap_or_default());
                 return;

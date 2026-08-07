@@ -86,6 +86,29 @@ fn resume_2xx_is_not_downgraded_by_an_error_shaped_body() {
 }
 
 #[test]
+fn search_2xx_with_no_hits_is_a_success_not_a_not_found() {
+    assert_eq!(
+        classify_backend_response(StatusCode::OK, &serde_json::json!({"hits": []})),
+        BackendOutcome::Success,
+        "an empty result set is an answer, not a backend failure"
+    );
+}
+
+#[test]
+fn search_5xx_fails_even_though_the_body_parses_as_a_result_set() {
+    assert!(
+        matches!(
+            classify_backend_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &serde_json::json!({"hits": [], "error": "index unavailable"})
+            ),
+            BackendOutcome::Failure(_)
+        ),
+        "search previously printed this body and exited 0 in BOTH modes"
+    );
+}
+
+#[test]
 fn every_success_status_class_member_stays_success() {
     for status in [
         StatusCode::OK,
