@@ -617,6 +617,91 @@ fn tab_list_and_inspect_relay_compact_scope_and_explicit_detail_ids() {
 }
 
 #[test]
+fn plugin_with_mesh_never_reaches_direct_local_dispatch() {
+    let command = Commands::Plugin {
+        action: crate::PluginAction::List,
+    };
+
+    assert!(crate::transport::should_dispatch_direct_local(
+        &command, None
+    ));
+    assert!(!crate::transport::should_dispatch_direct_local(
+        &command,
+        Some("peer")
+    ));
+    let (method, reason, body) = cli_command_to_api(&command);
+    assert_eq!(method, super::api_map::UNSUPPORTED_OVER_MESH);
+    assert!(reason.contains("local-only"));
+    assert!(body.is_none());
+}
+
+#[test]
+fn system_and_docs_refuse_instead_of_identifying_the_peer() {
+    let commands = [
+        Commands::System {
+            action: crate::SystemAction::AutostartStatus,
+        },
+        Commands::Docs { name: None },
+    ];
+
+    for command in commands {
+        let (method, reason, body) = cli_command_to_api(&command);
+        assert_eq!(method, super::api_map::UNSUPPORTED_OVER_MESH);
+        assert!(!reason.contains("/api/identify"));
+        assert!(body.is_none());
+    }
+}
+
+#[test]
+fn workspace_create_over_mesh_preserves_cwd() {
+    let command = Commands::Workspace {
+        action: crate::WorkspaceAction::Create {
+            name: "remote".into(),
+            cwd: Some("D:/Developer/project".into()),
+        },
+    };
+
+    let (method, path, body) = cli_command_to_api(&command);
+    let body: serde_json::Value = serde_json::from_str(&body.expect("body")).unwrap();
+
+    assert_eq!(method, "POST");
+    assert_eq!(path, "/api/workspaces");
+    assert_eq!(body["name"], "remote");
+    assert_eq!(body["cwd"], "D:/Developer/project");
+}
+
+#[test]
+fn workspace_move_tab_over_mesh_uses_the_mutation_route() {
+    let command = Commands::Workspace {
+        action: crate::WorkspaceAction::MoveTab {
+            tab_id: "tab_1".into(),
+            from: "ws_from".into(),
+            to: "ws_to".into(),
+        },
+    };
+
+    let (method, path, body) = cli_command_to_api(&command);
+    let body: serde_json::Value = serde_json::from_str(&body.expect("body")).unwrap();
+
+    assert_eq!(method, "POST");
+    assert_eq!(path, "/api/workspaces/ws_from/tabs/tab_1/move");
+    assert_eq!(body["to_workspace_id"], "ws_to");
+}
+
+#[test]
+fn workspace_current_over_mesh_refuses_instead_of_listing() {
+    let command = Commands::Workspace {
+        action: crate::WorkspaceAction::Current,
+    };
+
+    let (method, reason, body) = cli_command_to_api(&command);
+
+    assert_eq!(method, super::api_map::UNSUPPORTED_OVER_MESH);
+    assert!(reason.contains("caller-local"));
+    assert!(body.is_none());
+}
+
+#[test]
 fn remote_worker_forget_body_matches_registry_delete_contract() {
     let body = super::relay::remote_worker_forget_body("ROG", "tab_1");
     assert_eq!(body["peer"], "ROG");
