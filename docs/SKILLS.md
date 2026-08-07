@@ -65,8 +65,12 @@ All CLI commands support the `--json` flag for checked-in machine-readable autom
 ```bash
 codeterm tab list
 codeterm tab inspect <tab-id>
-codeterm workspace list --json
+codeterm workspace list
 ```
+
+The human workspace list is the compact top-down map: all workspaces (including
+empty ones), Teams and active Plan ids, then their live tabs. Reserve
+`workspace list --json` for automation that needs the workspace-only payload.
 
 ## Integrations
 
@@ -116,4 +120,4 @@ Dot-notation for nested keys. Values are JSON (true, false, 42, "string", ["arra
 
 Agent hierarchy and session integration: `codeterm docs AGENT-CONTROL`.
 
-<!-- revision: 44 -->
+<!-- revision: 45 -->

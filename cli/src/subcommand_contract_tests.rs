@@ -1094,3 +1094,27 @@ fn workspace_reuse_json_output_stays_on_stdout_only() {
         format!("{}\n", serde_json::to_string_pretty(&value).unwrap())
     );
 }
+
+#[test]
+fn workspace_current_prefers_the_calling_tabs_workspace() {
+    let workspaces = serde_json::json!([
+        {"id":"focused","is_active":true,"tab_ids":["other"]},
+        {"id":"caller","is_active":false,"tab_ids":["self_tab"]}
+    ]);
+    assert_eq!(
+        cmd::local_io::workspace_current_id(workspaces.as_array().unwrap(), Some("self_tab")),
+        Some("caller")
+    );
+}
+
+#[test]
+fn workspace_current_falls_back_to_global_focus_outside_a_tab() {
+    let workspaces = serde_json::json!([
+        {"id":"first","is_active":false},
+        {"id":"focused","is_active":true}
+    ]);
+    assert_eq!(
+        cmd::local_io::workspace_current_id(workspaces.as_array().unwrap(), None),
+        Some("focused")
+    );
+}

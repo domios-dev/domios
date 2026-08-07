@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 35 -->
+<!-- revision: 36 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -2995,7 +2995,7 @@ Create a new workspace. With --cwd, reuses an existing workspace at that cwd
 
 #### `codeterm workspace current`
 
-Print the current (focused) workspace ID
+Print this tab's workspace ID, falling back to the focused workspace outside a tab
 
 #### `codeterm workspace focus`
 
@@ -3005,7 +3005,7 @@ Focus a workspace by ID
 
 #### `codeterm workspace list`
 
-List all workspaces
+Show a compact workspace → Team/Plan → Tab overview. JSON stays workspace-only
 
 #### `codeterm workspace move-tab`
 

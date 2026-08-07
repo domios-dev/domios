@@ -1,7 +1,7 @@
 use std::io::Write;
 
 use crate::args::misc::WorkspaceAction;
-use crate::client::SocketClient;
+use crate::client::{RpcClient, SocketClient};
 
 pub(crate) fn workspace_create_cwd_hint() -> String {
     "hint: no --cwd — agents in this workspace inherit the daemon working directory; pass --cwd <project dir> for project work".to_string()
@@ -72,22 +72,65 @@ pub(crate) fn resolve_tab(client: &mut SocketClient, id: Option<String>) -> Stri
 }
 
 pub(crate) fn handle_workspace_action(
-    client: &mut SocketClient,
+    client: &mut dyn RpcClient,
     action: WorkspaceAction,
     json: bool,
 ) -> Option<Result<serde_json::Value, String>> {
     match action {
-        WorkspaceAction::List => Some(client.call("workspace.list", None)),
+        WorkspaceAction::List => {
+            let workspaces = client.call("workspace.list", None);
+            if json || workspaces.is_err() {
+                return Some(workspaces);
+            }
+            let workspaces = workspaces.expect("checked above");
+            let tabs = optional_overview_call(
+                client,
+                "tab.list",
+                Some(serde_json::json!({ "focused_workspace": false })),
+                serde_json::Value::Null,
+            );
+            let teams = optional_overview_call(
+                client,
+                "team.list",
+                None,
+                serde_json::json!({ "teams": [] }),
+            );
+            let plans = optional_overview_call(
+                client,
+                "plan.list",
+                Some(serde_json::json!({ "status": "active" })),
+                serde_json::json!({ "plans": [] }),
+            );
+            let caller_tab_id = std::env::var("CODETERM_TAB_ID").ok();
+            let caller_workspace_id = workspaces
+                .as_array()
+                .and_then(|rows| workspace_for_tab(rows, caller_tab_id.as_deref()));
+            print!(
+                "{}",
+                super::workspace_map::render(
+                    &workspaces,
+                    &tabs,
+                    &teams,
+                    &plans,
+                    caller_workspace_id,
+                    caller_tab_id.as_deref(),
+                )
+            );
+            None
+        }
         WorkspaceAction::Current => {
             let result = client.call("workspace.list", None);
             match result {
                 Ok(value) => {
                     if let Some(arr) = value.as_array() {
-                        let id = arr
-                            .iter()
-                            .find(|w| w.get("focused").and_then(|v| v.as_bool()).unwrap_or(false))
-                            .or_else(|| arr.first())
-                            .and_then(|w| w.get("id").and_then(|v| v.as_str()));
+                        let caller_tab_id = std::env::var("CODETERM_TAB_ID").ok();
+                        let caller_workspace_id = workspace_for_tab(arr, caller_tab_id.as_deref());
+                        if caller_tab_id.is_some() && caller_workspace_id.is_none() {
+                            eprintln!(
+                                "warning: caller Tab is absent from the workspace map; falling back to the focused workspace"
+                            );
+                        }
+                        let id = workspace_current_id(arr, caller_tab_id.as_deref());
                         if let Some(id) = id {
                             println!("{}", id);
                         }
@@ -147,6 +190,64 @@ pub(crate) fn handle_workspace_action(
     }
 }
 
+fn workspace_for_tab<'a>(
+    workspaces: &'a [serde_json::Value],
+    tab_id: Option<&str>,
+) -> Option<&'a str> {
+    let tab_id = tab_id?.trim();
+    if tab_id.is_empty() {
+        return None;
+    }
+    workspaces
+        .iter()
+        .find(|workspace| {
+            workspace
+                .get("tab_ids")
+                .and_then(|value| value.as_array())
+                .is_some_and(|ids| ids.iter().any(|id| id.as_str() == Some(tab_id)))
+        })?
+        .get("id")?
+        .as_str()
+}
+
+fn optional_overview_call(
+    client: &mut dyn RpcClient,
+    method: &str,
+    params: Option<serde_json::Value>,
+    fallback: serde_json::Value,
+) -> serde_json::Value {
+    match client.call(method, params) {
+        Ok(value) => value,
+        Err(error) => {
+            eprintln!("warning: workspace overview omitted {method}: {error}");
+            fallback
+        }
+    }
+}
+
+pub(crate) fn workspace_current_id<'a>(
+    workspaces: &'a [serde_json::Value],
+    caller_tab_id: Option<&str>,
+) -> Option<&'a str> {
+    workspace_for_tab(workspaces, caller_tab_id)
+        .and_then(|id| {
+            workspaces
+                .iter()
+                .find(|workspace| workspace.get("id").and_then(|value| value.as_str()) == Some(id))
+        })
+        .or_else(|| {
+            workspaces.iter().find(|workspace| {
+                workspace
+                    .get("is_active")
+                    .or_else(|| workspace.get("focused"))
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(false)
+            })
+        })
+        .or_else(|| workspaces.first())
+        .and_then(|workspace| workspace.get("id").and_then(|value| value.as_str()))
+}
+
 #[allow(
     clippy::too_many_arguments,
     reason = "CLI wrapper preserves send text argument surface."
@@ -183,12 +284,49 @@ pub(crate) fn handle_send_text(
 
 #[cfg(test)]
 mod tests {
-    use super::workspace_create_cwd_hint;
+    use super::*;
+    use crate::client::SocketCallError;
+
+    struct JsonWorkspaceClient {
+        calls: Vec<String>,
+        response: serde_json::Value,
+    }
+
+    impl RpcClient for JsonWorkspaceClient {
+        fn call_detailed(
+            &mut self,
+            method: &str,
+            _params: Option<serde_json::Value>,
+        ) -> Result<serde_json::Value, SocketCallError> {
+            self.calls.push(method.to_string());
+            Ok(self.response.clone())
+        }
+    }
 
     #[test]
     fn workspace_cwd_hint_names_the_flag() {
         let hint = workspace_create_cwd_hint();
         assert!(hint.contains("--cwd"));
         assert!(hint.contains("daemon working directory"));
+    }
+
+    #[test]
+    fn workspace_list_json_keeps_the_workspace_only_contract() {
+        let response = serde_json::json!([{
+            "id": "ws_one",
+            "name": "one",
+            "tab_ids": ["tab_one"]
+        }]);
+        let mut client = JsonWorkspaceClient {
+            calls: Vec::new(),
+            response: response.clone(),
+        };
+
+        let result = handle_workspace_action(&mut client, WorkspaceAction::List, true)
+            .expect("JSON mode returns the raw result")
+            .unwrap();
+
+        assert_eq!(result, response);
+        assert_eq!(client.calls, ["workspace.list"]);
     }
 }
