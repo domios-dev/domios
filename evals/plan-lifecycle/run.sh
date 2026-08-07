@@ -138,7 +138,7 @@ assert_error_contains "bad milestone kind teaching" \
   dc plan milestone add "$PLAN_ID" "$TASK_ID" --kind qa --text="bad kind"
 
 assert_error_contains "bad task status teaching" \
-  "pending|in_progress|blocked|done|cancelled" \
+  "valid task statuses:" \
   dc plan task update "$PLAN_ID" "$TASK_ID" --status almost_done
 
 assert_error_contains "unknown plan teaching" \

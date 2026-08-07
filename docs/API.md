@@ -222,19 +222,19 @@ No disk persistence — restart wipes every paste. Correct semantics for "drop a
 #### Plan task mutation authority
 
 Task-mutating calls (socket `plan.task.*`, REST `/api/plans/{id}/tasks/{tid}*`)
-carry `caller_tab_id` + `session_id` + `session_binding_nonce` + `owner_epoch`
-(REST: the matching `X-CodeTerm-*` headers). Once a task has an owner epoch, the
-caller must normally match the recorded owner exactly.
+carry caller/session/binding/owner-epoch authority (REST: matching
+`X-CodeTerm-*` headers). Once owned, the caller must match the recorded owner.
+`GET /api/tasks` and socket `task.list` return the same object: `tasks` plus an
+optional `empty_reason`. Its `kind` is `plan_not_found`, `plan_archived`,
+`plan_outside_project`, `no_plans_in_scope`, `no_tasks_in_scope`,
+`all_tasks_inactive`, or `no_match_for_filters`. The field is absent when tasks
+exist; consumers ignore unknown kinds and never invent a local explanation.
 
 A live authenticated Plan owner may recover `update`, `assign`, `respawn`, or
-`close` after the owning tab disappears; retirement and the recovered state are
-committed atomically, and late readiness cannot restore the retired attempt.
-Mutating dispatch into canonical or another task's lane is refused with `-32013`
-and a stable `violation_id`; mutating competition provisions one isolated lane
-per competitor. Other safety findings are advisory and ride successful results
-in `safety_nudges` and `_hints`. The operational recovery and lane rules are in
-`codeterm docs ORCHESTRATION`.
-Related documents: `codeterm docs API-TABS`, `codeterm docs API-INTEGRATIONS`,
-`codeterm docs API-MEMORY`, `codeterm docs API-AGENTS`,
-`codeterm docs API-TRANSPORT`, and `codeterm docs API-CLI`.
-<!-- revision: 116 -->
+`close` after its tab disappears; retirement and recovery commit atomically.
+Mutating dispatch into canonical or another task's lane is refused with `-32013`;
+competition provisions one lane per competitor. Advisory findings ride successful
+results in `safety_nudges` and `_hints`. See `codeterm docs ORCHESTRATION`.
+Related: `codeterm docs API-TABS`, `API-INTEGRATIONS`, `API-MEMORY`, `API-AGENTS`,
+`API-TRANSPORT`, and `API-CLI`.
+<!-- revision: 117 -->
