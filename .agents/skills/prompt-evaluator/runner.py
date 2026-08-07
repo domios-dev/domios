@@ -193,7 +193,7 @@ def run_agent(
         Without this, the test agent inherits the user's real GA memory and
         hook config and the eval becomes a simulation of *the actual user*,
         not of the prompt-under-test. We blow away the temp dir on exit.
-      - `--system-prompt` (not --append) — fully replaces Claude Code's base
+      - `--system-prompt-file` (not --append) — fully replaces Claude Code's base
         system prompt with the prompt-under-test. The general_agent.md prompt
         is a complete system prompt; appending it on top of Claude defaults
         creates incoherent instruction sets.
@@ -222,14 +222,16 @@ def run_agent(
 
     clean_cwd = tempfile.mkdtemp(prefix="codeterm-eval-")
     try:
+        system_prompt_path = Path(clean_cwd) / "system-prompt.md"
+        system_prompt_path.write_text(trusted_system_prompt, encoding="utf-8")
         try:
             proc = subprocess.run(
                 [
                     "claude",
                     "-p",
                     eval_prompt,
-                    "--system-prompt",
-                    trusted_system_prompt,
+                    "--system-prompt-file",
+                    str(system_prompt_path),
                     "--allowedTools",
                     "",
                     "--output-format",
