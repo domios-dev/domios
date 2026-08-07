@@ -98,7 +98,8 @@ fn resolve_service_id(client: &mut SocketClient, input: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        resolve_service_outcome, resolve_show_outcome, service_add_json, ResolveOutcome, ShowOutcome,
+        resolve_service_outcome, resolve_show_outcome, service_add_json, ResolveOutcome,
+        ShowOutcome,
     };
 
     #[test]
