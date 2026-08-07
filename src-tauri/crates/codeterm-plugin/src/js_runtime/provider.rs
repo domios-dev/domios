@@ -857,6 +857,20 @@ impl AgentProvider for JsProvider {
         .flatten()
     }
 
+    fn build_resume_command_with_context(
+        &self,
+        params: &crate::provider::AgentResumeParams,
+    ) -> Option<String> {
+        // A missing export is the undeclared class, not a failure: fall back to
+        // the plain resume so the prompt is never re-applied by accident.
+        match self.try_call::<Option<String>>("buildResumeCommandWithContext", &[json!(params)]) {
+            Some(command) => command,
+            None => self
+                .build_resume_command(&params.session_id, params.skip_permissions)
+                .map(|base| crate::provider::append_launch_args(base, &params.args)),
+        }
+    }
+
     fn has_hooks(&self) -> bool {
         self.manifest.spawn.has_hooks
     }
