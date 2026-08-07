@@ -11,6 +11,7 @@ mod compat;
 mod parse;
 mod relay;
 mod rpc;
+mod tab_list;
 mod update;
 mod workspace_topology;
 
@@ -225,25 +226,17 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
     }
 
     // Human list views reuse local formatters over remote state.
-    if !cli.json {
-        if workspace_topology::should_render(&cli.command, cli.json) {
-            workspace_topology::print_remote_workspace_topology(target);
-            return;
-        }
-        if let Commands::Tab {
-            action: super::TabAction::List { .. },
-        } = &cli.command
-        {
-            let (_, path, _) = api_map::cli_command_to_api(&cli.command);
-            let tabs = relay::mesh_relay_fetch_json(target, "GET", &path, None);
-            let arr = tabs.as_array().cloned().unwrap_or_default();
-            if arr.is_empty() {
-                println!("(no Tabs)");
-            } else {
-                print!("{}", crate::cmd::tab::render_tab_tree(&arr));
-            }
-            return;
-        }
+    if workspace_topology::should_render(&cli.command, cli.json) {
+        workspace_topology::print_remote_workspace_topology(target);
+        return;
+    }
+    // Tab list is formatted locally in both modes, so `--json` emits the same
+    // envelope as the local path instead of the peer's bare REST array.
+    if let Some(rendering) = tab_list::rendering_for(&cli) {
+        let (_, path, _) = api_map::cli_command_to_api(&cli.command);
+        let tabs = relay::mesh_relay_invoke(target, "GET", &path, None, cli.json);
+        tab_list::print(rendering, &tabs);
+        return;
     }
 
     let (method, path, body) = api_map::cli_command_to_api(&cli.command);
