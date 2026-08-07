@@ -549,16 +549,25 @@ async fn perform_relay(
                 format!("Unsupported method: {}", cmd.method),
             )
         })?;
-        if !check_access(&access, &method, &cmd.path) {
-            return Ok(crate::mesh::types::RelayResponse {
-                ok: false,
-                status: 403,
-                data: None,
-                error: Some(format!(
-                    "Peer not authorized to {} {} (access_level={:?})",
-                    cmd.method, cmd.path, access
-                )),
-            });
+        match authorize_peer_relay(sender_id, &access, &method, &cmd.path) {
+            PeerRelayAuthorization::Rejected => {
+                return Ok(crate::mesh::types::RelayResponse {
+                    ok: false,
+                    status: 403,
+                    data: None,
+                    error: Some(format!(
+                        "Peer not authorized to {} {} (access_level={:?})",
+                        cmd.method, cmd.path, access
+                    )),
+                });
+            }
+            PeerRelayAuthorization::WorkspaceClose {
+                peer_id,
+                workspace_id,
+            } => {
+                return close_workspace_from_mesh_peer(state, peer_id, workspace_id).await;
+            }
+            PeerRelayAuthorization::Forward => {}
         }
     }
 
@@ -650,6 +659,76 @@ async fn perform_relay(
         },
         data: Some(data),
     })
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum PeerRelayAuthorization<'a> {
+    Rejected,
+    WorkspaceClose {
+        peer_id: &'a str,
+        workspace_id: &'a str,
+    },
+    Forward,
+}
+
+fn authorize_peer_relay<'a>(
+    peer_id: &'a str,
+    access: &crate::mesh::types::AccessLevel,
+    method: &Method,
+    path: &'a str,
+) -> PeerRelayAuthorization<'a> {
+    if !check_access(access, method, path) {
+        return PeerRelayAuthorization::Rejected;
+    }
+    match workspace_close_target(method, path) {
+        Some(workspace_id) => PeerRelayAuthorization::WorkspaceClose {
+            peer_id,
+            workspace_id,
+        },
+        None => PeerRelayAuthorization::Forward,
+    }
+}
+
+fn workspace_close_target<'a>(method: &Method, path: &'a str) -> Option<&'a str> {
+    if *method != Method::POST {
+        return None;
+    }
+    let workspace_id = path
+        .strip_prefix("/api/workspaces/")?
+        .strip_suffix("/close")?;
+    (!workspace_id.is_empty() && !workspace_id.contains('/')).then_some(workspace_id)
+}
+
+async fn close_workspace_from_mesh_peer(
+    state: &AppState,
+    peer_id: &str,
+    workspace_id: &str,
+) -> Result<crate::mesh::types::RelayResponse, (StatusCode, String)> {
+    let service = state.svc.clone();
+    let peer_id = peer_id.to_string();
+    let workspace_id = workspace_id.to_string();
+    let result = tokio::task::spawn_blocking(move || {
+        service.close_workspace_from_authenticated_mesh_peer(&peer_id, &workspace_id)
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    match result {
+        Ok(()) => Ok(crate::mesh::types::RelayResponse {
+            ok: true,
+            status: StatusCode::OK.as_u16(),
+            data: Some(serde_json::json!({ "ok": true })),
+            error: None,
+        }),
+        Err(error) => {
+            let (status, message) = crate::api::tab_routes::map_close_error(error);
+            Ok(crate::mesh::types::RelayResponse {
+                ok: false,
+                status: status.as_u16(),
+                data: None,
+                error: Some(message),
+            })
+        }
+    }
 }
 
 /// Surface a structured delivery error (`tab_not_reachable_on_peer`,

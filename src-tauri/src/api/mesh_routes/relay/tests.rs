@@ -2,6 +2,86 @@ use super::*;
 use crate::mesh::types::RelayResponse;
 
 #[test]
+fn authorized_workspace_managers_receive_typed_close_provenance() {
+    let method = Method::POST;
+    let path = "/api/workspaces/ws_remote/close";
+    for access in [
+        crate::mesh::types::AccessLevel::Full,
+        crate::mesh::types::AccessLevel::Custom(vec![
+            crate::mesh::types::Permission::ManageWorkspaces,
+        ]),
+    ] {
+        assert_eq!(
+            authorize_peer_relay("signed-peer", &access, &method, path),
+            PeerRelayAuthorization::WorkspaceClose {
+                peer_id: "signed-peer",
+                workspace_id: "ws_remote",
+            }
+        );
+    }
+}
+
+#[test]
+fn readonly_and_agent_isolated_peers_are_rejected_before_close_dispatch() {
+    let method = Method::POST;
+    let path = "/api/workspaces/ws_remote/close";
+    for access in [
+        crate::mesh::types::AccessLevel::ReadOnly,
+        crate::mesh::types::AccessLevel::AgentIsolated,
+    ] {
+        assert_eq!(
+            authorize_peer_relay("signed-peer", &access, &method, path),
+            PeerRelayAuthorization::Rejected
+        );
+    }
+}
+
+#[test]
+fn caller_fields_in_relay_body_cannot_forge_mesh_provenance() {
+    let command = crate::mesh::types::RelayCommand {
+        method: "POST".into(),
+        path: "/api/workspaces/ws_remote/close".into(),
+        body: serde_json::json!({
+            "caller_tab_id": "forged-tab"
+        }),
+        delivery_id: None,
+    };
+    let method = Method::from_bytes(command.method.as_bytes()).unwrap();
+
+    let authorization = authorize_peer_relay(
+        "cryptographically-verified-peer",
+        &crate::mesh::types::AccessLevel::Full,
+        &method,
+        &command.path,
+    );
+
+    assert_eq!(
+        authorization,
+        PeerRelayAuthorization::WorkspaceClose {
+            peer_id: "cryptographically-verified-peer",
+            workspace_id: "ws_remote",
+        }
+    );
+}
+
+#[test]
+fn only_the_exact_workspace_close_route_gets_typed_provenance() {
+    let access = crate::mesh::types::AccessLevel::Full;
+    for (method, path) in [
+        (Method::GET, "/api/workspaces/ws_remote/close"),
+        (Method::POST, "/api/workspaces/ws_remote/close/extra"),
+        (Method::POST, "/api/workspaces/ws_remote/close?caller_tab_id=x"),
+        (Method::POST, "/api/workspaces/ws_remote/tabs/tab_1/close"),
+    ] {
+        assert_eq!(
+            authorize_peer_relay("signed-peer", &access, &method, path),
+            PeerRelayAuthorization::Forward,
+            "{method} {path}"
+        );
+    }
+}
+
+#[test]
 fn peer_relay_resolves_id_or_case_insensitive_name() {
     let peers = [("peer-a", "BLACKSTAR"), ("peer-b", "ROG")];
     assert_eq!(

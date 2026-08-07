@@ -18,6 +18,77 @@ fn prompt(question: &str) -> PendingPrompt {
     }
 }
 
+fn protected_workspace() -> (ServiceFixture, String, String) {
+    let (mut mux, coordinator) = MultiplexerState::new();
+    let workspace_id = mux.find_workspace_for_tab(&coordinator).unwrap();
+    mux.set_orchestrator_role(&coordinator).unwrap();
+    (ServiceFixture::new(mux), workspace_id, coordinator)
+}
+
+#[test]
+fn unattributed_close_refuses_a_protected_workspace() {
+    let (fixture, workspace_id, _) = protected_workspace();
+
+    let error = fixture
+        .service
+        .close_workspace_guarded(None, &workspace_id)
+        .unwrap_err();
+
+    assert!(error.starts_with(crate::service::tab::SELF_CLOSE_REFUSAL_PREFIX));
+    assert!(fixture.service.mux.read().get_workspace(&workspace_id).is_some());
+}
+
+#[test]
+fn unknown_local_tab_header_cannot_bypass_workspace_close_protection() {
+    let (fixture, workspace_id, _) = protected_workspace();
+
+    let error = fixture
+        .service
+        .close_workspace_guarded(Some("forged-tab"), &workspace_id)
+        .unwrap_err();
+
+    assert!(error.starts_with(crate::service::tab::SELF_CLOSE_REFUSAL_PREFIX));
+    assert!(fixture.service.mux.read().get_workspace(&workspace_id).is_some());
+}
+
+#[test]
+fn coordinator_local_tab_cannot_close_its_own_workspace() {
+    let (fixture, workspace_id, coordinator) = protected_workspace();
+
+    let error = fixture
+        .service
+        .close_workspace_guarded(Some(&coordinator), &workspace_id)
+        .unwrap_err();
+
+    assert!(error.starts_with(crate::service::tab::SELF_CLOSE_REFUSAL_PREFIX));
+    assert!(fixture.service.mux.read().get_workspace(&workspace_id).is_some());
+}
+
+#[test]
+fn authenticated_mesh_peer_may_close_a_protected_workspace() {
+    let (fixture, workspace_id, _) = protected_workspace();
+
+    fixture
+        .service
+        .close_workspace_from_authenticated_mesh_peer("paired-peer", &workspace_id)
+        .unwrap();
+
+    assert!(fixture.service.mux.read().get_workspace(&workspace_id).is_none());
+}
+
+#[test]
+fn empty_mesh_peer_provenance_is_rejected() {
+    let (fixture, workspace_id, _) = protected_workspace();
+
+    let error = fixture
+        .service
+        .close_workspace_from_authenticated_mesh_peer(" ", &workspace_id)
+        .unwrap_err();
+
+    assert!(error.contains("peer id"));
+    assert!(fixture.service.mux.read().get_workspace(&workspace_id).is_some());
+}
+
 #[test]
 fn workspace_close_tears_down_prompt_state_for_every_tab() {
     let (mut mux, first_tab) = MultiplexerState::new();
