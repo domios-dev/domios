@@ -16,7 +16,8 @@ use crate::service::plan::milestone_gates::RegressionGate;
 use crate::service::plan::task_queries::TaskSection;
 use crate::service::plan::{NewTask, PlanStore};
 use crate::service::{
-    provision_lane_for_test, SpawnIdentityProvenance, SpawnResult, WorkerLaneProvenance,
+    provision_lane_for_test, LaneProtection, SpawnIdentityProvenance, SpawnResult,
+    WorkerLaneProvenance,
 };
 use serde_json::json;
 use std::cell::{Cell, RefCell};
@@ -437,6 +438,7 @@ fn explicit_canonical_cwd_is_an_orchestrator_checkout_choice() {
         Some(project.to_str().unwrap()),
         project.to_str().unwrap(),
         &TaskLaneMetadata::default(),
+        LaneProtection::Enforced,
     )
     .unwrap();
     let provenance = resolved.existing.expect("canonical provenance");
@@ -468,6 +470,7 @@ fn explicit_cwd_conflicting_with_recorded_lane_is_rejected_before_provisioning()
         Some(other.to_str().unwrap()),
         project.to_str().unwrap(),
         &lane_metadata,
+        LaneProtection::Enforced,
     )
     .unwrap_err();
     assert_eq!(error.code, -32602);
