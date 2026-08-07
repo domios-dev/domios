@@ -223,35 +223,41 @@ fn hidden_task_summary(shown: usize, all_tasks: &[Value]) -> Option<String> {
     ))
 }
 
-fn canonical_path_key(path: &str) -> String {
-    std::path::PathBuf::from(path)
-        .canonicalize()
-        .unwrap_or_else(|_| std::path::PathBuf::from(path))
-        .display()
-        .to_string()
-        .trim_start_matches(r"\\?\")
-        .replace('\\', "/")
-        .to_ascii_lowercase()
-}
+const EMPTY_REASON_PLAN_NOT_FOUND: &str = "plan_not_found";
+const EMPTY_REASON_PLAN_ARCHIVED: &str = "plan_archived";
+const EMPTY_REASON_PLAN_OUTSIDE_PROJECT: &str = "plan_outside_project";
+const EMPTY_REASON_NO_PLANS_IN_SCOPE: &str = "no_plans_in_scope";
+const EMPTY_REASON_NO_TASKS_IN_SCOPE: &str = "no_tasks_in_scope";
+const EMPTY_REASON_ALL_TASKS_INACTIVE: &str = "all_tasks_inactive";
+const EMPTY_REASON_NO_MATCH_FOR_FILTERS: &str = "no_match_for_filters";
 
-fn empty_task_list_message(plan: &Value, project: Option<&str>) -> Option<String> {
-    let plan_id = plan.get("id").and_then(Value::as_str).unwrap_or("?");
-    if plan.get("status").and_then(Value::as_str) == Some("archived") {
-        return Some(format!(
-            "Plan {plan_id} is archived; archived plans are excluded from task listing."
-        ));
+/// Renders the daemon's verdict verbatim. The CLI cannot resolve project
+/// identity — a linked worktree is a distinct directory but the same project.
+fn render_empty_reason(reason: &Value) -> Option<String> {
+    let field = |key: &str| reason.get(key).and_then(Value::as_str).unwrap_or("?");
+    match reason.get("kind").and_then(Value::as_str)? {
+        EMPTY_REASON_PLAN_NOT_FOUND => Some(format!("Plan {} was not found.", field("plan_id"))),
+        EMPTY_REASON_PLAN_ARCHIVED => Some(format!(
+            "Plan {} is archived; archived plans are excluded from task listing.",
+            field("plan_id")
+        )),
+        EMPTY_REASON_PLAN_OUTSIDE_PROJECT => Some(format!(
+            "Plan {} belongs to {}, outside the current project {}.",
+            field("plan_id"),
+            field("plan_project"),
+            field("requested_project")
+        )),
+        EMPTY_REASON_NO_PLANS_IN_SCOPE => Some("No plans in this project.".into()),
+        EMPTY_REASON_NO_TASKS_IN_SCOPE => Some("This plan has no tasks yet.".into()),
+        EMPTY_REASON_ALL_TASKS_INACTIVE => Some(format!(
+            "{} task(s) exist but none is active. Use --all or --status.",
+            reason.get("hidden").and_then(Value::as_u64).unwrap_or(0)
+        )),
+        EMPTY_REASON_NO_MATCH_FOR_FILTERS => {
+            Some("No task matched the supplied filters.".into())
+        }
+        _ => None,
     }
-    let plan_project = plan
-        .get("canonical_project_path")
-        .or_else(|| plan.get("project_path"))
-        .and_then(Value::as_str)?;
-    let project = project?;
-    if canonical_path_key(plan_project) != canonical_path_key(project) {
-        return Some(format!(
-            "Plan {plan_id} belongs to {plan_project}, outside the current project {project}."
-        ));
-    }
-    None
 }
 
 pub(super) fn run_task(
@@ -275,14 +281,12 @@ pub(super) fn run_task(
             if let Some(plan_id) = &plan_id {
                 params["plan_id"] = json!(plan_id);
             }
-            let mut project_path = None;
             if !client.is_remote() {
                 if let Some(project) = std::env::current_dir()
                     .ok()
                     .map(|path| path.display().to_string())
                 {
                     params["project"] = json!(project);
-                    project_path = Some(project);
                 }
             }
             if let Some(status) = &status {
@@ -305,12 +309,9 @@ pub(super) fn run_task(
                     response["task_list_summary"] = json!(summary);
                 }
             }
-            if shown == 0 {
-                if let Some(plan_id) = plan_id {
-                    let plan = call(client, "plan.get", json!({ "plan_id": plan_id }))?;
-                    if let Some(message) = empty_task_list_message(&plan, project_path.as_deref()) {
-                        response["task_list_message"] = json!(message);
-                    }
+            if shown == 0 && !response["task_list_summary"].is_string() {
+                if let Some(message) = response.get("empty_reason").and_then(render_empty_reason) {
+                    response["task_list_message"] = json!(message);
                 }
             }
             Ok(Some(response))
@@ -906,138 +907,4 @@ pub(super) fn run_task(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::client::SocketCallError;
-
-    #[derive(Default)]
-    struct FakeRpc {
-        calls: Vec<(String, Option<Value>)>,
-    }
-
-    impl RpcClient for FakeRpc {
-        fn call_detailed(
-            &mut self,
-            method: &str,
-            params: Option<Value>,
-        ) -> Result<Value, SocketCallError> {
-            self.calls.push((method.to_string(), params));
-            Ok(json!({
-                "task": { "id": "task_1", "name": "probe", "status": "pending" },
-                "plan_id": "pl_1",
-                "plan_title": "Probe plan"
-            }))
-        }
-    }
-
-    #[test]
-    fn plan_task_show_routes_to_task_show_rpc_with_plan_and_task() {
-        let mut client = FakeRpc::default();
-        let out = run_task(
-            &mut client,
-            false,
-            PlanTaskAction::Show {
-                plan_id: "pl_1".into(),
-                task_id: "task_1".into(),
-                siblings: false,
-                all: false,
-            },
-        )
-        .expect("show runs");
-        assert!(out.is_none(), "human render returns no value to reprint");
-        assert_eq!(client.calls.len(), 1);
-        assert_eq!(client.calls[0].0, "task.show");
-        let params = client.calls[0].1.as_ref().expect("params");
-        assert_eq!(params["plan_id"], "pl_1");
-        assert_eq!(params["task_id"], "task_1");
-    }
-
-    #[test]
-    fn plan_task_show_json_returns_raw_rpc_value() {
-        let mut client = FakeRpc::default();
-        let out = run_task(
-            &mut client,
-            true,
-            PlanTaskAction::Show {
-                plan_id: "pl_1".into(),
-                task_id: "task_1".into(),
-                siblings: false,
-                all: false,
-            },
-        )
-        .expect("show runs")
-        .expect("json returns the value");
-        assert_eq!(out["task"]["id"], "task_1");
-        assert_eq!(client.calls[0].0, "task.show");
-    }
-
-    #[test]
-    fn criterion_file_parses_json_array_form() {
-        let items = parse_criteria_file("[\"first\", \"second bullet\"]");
-        assert_eq!(items, vec!["first", "second bullet"]);
-    }
-
-    #[test]
-    fn criterion_file_parses_one_per_line_form_dropping_blanks() {
-        let items = parse_criteria_file("first\n\n  second bullet  \n");
-        assert_eq!(items, vec!["first", "second bullet"]);
-    }
-
-    #[test]
-    fn merge_criteria_appends_file_content_to_flag_values() {
-        let merged = merge_criteria(vec!["from-flag".into()], None).unwrap();
-        assert_eq!(merged, vec!["from-flag"]);
-    }
-
-    #[test]
-    fn awaiting_dispatch_ready_is_not_rendered_as_completed_dispatch() {
-        let response = json!({
-            "accepted": true,
-            "state": "awaiting_dispatch_ready",
-            "tab_id": "tab-1",
-            "agent": "codex",
-            "readiness": {
-                "ready": false,
-                "awaiting_event": "dispatch_ready"
-            }
-        });
-
-        let rendered = render_dispatch_response(&response);
-
-        assert!(!rendered.contains("Dispatched"), "{rendered}");
-        assert!(rendered.contains("awaiting dispatch_ready"), "{rendered}");
-    }
-
-    #[test]
-    fn hidden_summary_names_each_hidden_status_and_all_flag() {
-        let tasks = vec![
-            json!({ "task": { "status": "pending" } }),
-            json!({ "task": { "status": "paused" } }),
-            json!({ "task": { "status": "done" } }),
-            json!({ "task": { "status": "done" } }),
-            json!({ "task": { "status": "cancelled" } }),
-        ];
-        let summary = hidden_task_summary(1, &tasks).unwrap();
-        assert!(summary.contains("1 shown; 4 hidden"), "{summary}");
-        assert!(summary.contains("paused=1"), "{summary}");
-        assert!(summary.contains("done=2"), "{summary}");
-        assert!(summary.contains("cancelled=1"), "{summary}");
-        assert!(summary.contains("Use --all"), "{summary}");
-    }
-
-    #[test]
-    fn empty_cross_project_and_archived_lists_are_explicit() {
-        let cross_project = json!({
-            "id": "pl_other",
-            "status": "active",
-            "canonical_project_path": "D:/other"
-        });
-        let message = empty_task_list_message(&cross_project, Some("D:/current")).unwrap();
-        assert!(message.contains("outside the current project"), "{message}");
-
-        let archived = json!({ "id": "pl_old", "status": "archived" });
-        let message = empty_task_list_message(&archived, Some("D:/current")).unwrap();
-        assert!(message.contains("archived"), "{message}");
-        assert!(message.contains("excluded"), "{message}");
-    }
-}
+mod tests;
