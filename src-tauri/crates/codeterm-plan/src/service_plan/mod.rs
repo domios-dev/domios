@@ -115,7 +115,7 @@ pub use state::{
 pub use store_watch::WatchOutcome;
 pub use types::{
     IndexEntry, NewTask, OpenSubtask, PlanError, PlanIncident, ReconcileFixResult, SpecIndexEntry,
-    TaskLaneUpdate,
+    TaskLaneUpdate, RPC_INTERNAL_ERROR, RPC_NOT_FOUND,
 };
 
 pub struct PlanStore {
