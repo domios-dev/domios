@@ -18,19 +18,97 @@ fn cli_bin_name() -> &'static str {
     }
 }
 
+fn bundled_cli_resource_names() -> Vec<String> {
+    #[cfg(all(windows, target_arch = "x86_64"))]
+    let target_name = Some("cli/codeterm-x86_64-pc-windows-msvc.exe");
+    #[cfg(all(windows, target_arch = "aarch64"))]
+    let target_name = Some("cli/codeterm-aarch64-pc-windows-msvc.exe");
+    #[cfg(all(windows, target_arch = "x86"))]
+    let target_name = Some("cli/codeterm-i686-pc-windows-msvc.exe");
+    #[cfg(not(windows))]
+    let target_name: Option<&str> = None;
+
+    target_name
+        .into_iter()
+        .map(str::to_string)
+        .chain(std::iter::once(format!("cli/{}", cli_bin_name())))
+        .collect()
+}
+
+#[cfg(windows)]
+fn windows_pe_machine(path: &std::path::Path) -> std::io::Result<u16> {
+    use std::io::{Read, Seek, SeekFrom};
+
+    let mut file = std::fs::File::open(path)?;
+    let mut dos = [0u8; 64];
+    file.read_exact(&mut dos)?;
+    if &dos[..2] != b"MZ" {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "missing DOS header",
+        ));
+    }
+    let pe_offset = u32::from_le_bytes(dos[60..64].try_into().unwrap()) as u64;
+    file.seek(SeekFrom::Start(pe_offset))?;
+    let mut header = [0u8; 6];
+    file.read_exact(&mut header)?;
+    if &header[..4] != b"PE\0\0" {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "missing PE header",
+        ));
+    }
+    Ok(u16::from_le_bytes([header[4], header[5]]))
+}
+
+#[cfg(windows)]
+fn bundled_cli_matches_host(path: &std::path::Path) -> bool {
+    #[cfg(target_arch = "x86_64")]
+    const EXPECTED: u16 = 0x8664;
+    #[cfg(target_arch = "aarch64")]
+    const EXPECTED: u16 = 0xaa64;
+    #[cfg(target_arch = "x86")]
+    const EXPECTED: u16 = 0x014c;
+
+    match windows_pe_machine(path) {
+        Ok(machine) if machine == EXPECTED => true,
+        Ok(machine) => {
+            log::error!(
+                "[cli-install] refusing incompatible bundled CLI {} (PE machine=0x{:04x}, expected=0x{:04x})",
+                path.display(),
+                machine,
+                EXPECTED
+            );
+            false
+        }
+        Err(error) => {
+            log::error!(
+                "[cli-install] refusing invalid bundled CLI {}: {}",
+                path.display(),
+                error
+            );
+            false
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn bundled_cli_matches_host(_path: &std::path::Path) -> bool {
+    true
+}
+
 fn should_install_bundled_cli(is_dev: bool) -> bool {
     !is_dev
 }
 
 /// Resolve the bundled CLI inside the app's Resources. None in dev (no bundle).
 fn resolve_bundled_cli_src(app: &impl tauri::Manager<tauri::Wry>) -> Option<std::path::PathBuf> {
-    app.path()
-        .resolve(
-            format!("cli/{}", cli_bin_name()),
-            tauri::path::BaseDirectory::Resource,
-        )
-        .ok()
-        .filter(|p| p.exists())
+    bundled_cli_resource_names().into_iter().find_map(|name| {
+        app.path()
+            .resolve(name, tauri::path::BaseDirectory::Resource)
+            .ok()
+            .filter(|path| path.exists() && bundled_cli_matches_host(path))
+    })
 }
 
 /// Copy the bundled CLI (`src`) to the active data-dir `bin/` iff it differs by content
@@ -244,6 +322,37 @@ mod tests {
     fn startup_bundled_cli_never_overwrites_dev_cli() {
         assert!(!super::should_install_bundled_cli(true));
         assert!(super::should_install_bundled_cli(false));
+    }
+
+    #[cfg(windows)]
+    fn write_pe(path: &std::path::Path, machine: u16) {
+        let mut bytes = vec![0u8; 0x86];
+        bytes[..2].copy_from_slice(b"MZ");
+        bytes[0x3c..0x40].copy_from_slice(&(0x80u32).to_le_bytes());
+        bytes[0x80..0x84].copy_from_slice(b"PE\0\0");
+        bytes[0x84..0x86].copy_from_slice(&machine.to_le_bytes());
+        std::fs::write(path, bytes).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn bundled_cli_rejects_foreign_windows_architecture() {
+        let dir = tempfile::tempdir().unwrap();
+        let x64 = dir.path().join("x64.exe");
+        let arm64 = dir.path().join("arm64.exe");
+        write_pe(&x64, 0x8664);
+        write_pe(&arm64, 0xaa64);
+
+        #[cfg(target_arch = "x86_64")]
+        {
+            assert!(super::bundled_cli_matches_host(&x64));
+            assert!(!super::bundled_cli_matches_host(&arm64));
+        }
+        #[cfg(target_arch = "aarch64")]
+        {
+            assert!(!super::bundled_cli_matches_host(&x64));
+            assert!(super::bundled_cli_matches_host(&arm64));
+        }
     }
 
     #[test]

@@ -2,6 +2,10 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*) fixture_target="x86_64-pc-windows-msvc" ;;
+  *) fixture_target="aarch64-apple-darwin" ;;
+esac
 
 assert_eq() {
   local expected="$1"
@@ -18,7 +22,7 @@ assert_eq() {
 build_release_dir() {
   (
     cd "$repo_root"
-    env -u CODETERM_API_PORT "$@" CODETERM_TEST_PRINT_CLI_RELEASE_DIR=1 ./build.sh cli
+    env -u CODETERM_API_PORT "$@" CODETERM_TEST_PRINT_CLI_RELEASE_DIR=1 ./build.sh cli | tail -n 1
   )
 }
 
@@ -26,8 +30,8 @@ assert_eq "cli/target/release" \
   "$(build_release_dir -u CARGO_TARGET_DIR -u CARGO_BUILD_TARGET)" \
   "build.sh default target dir"
 
-assert_eq "cli/target/aarch64-apple-darwin/release" \
-  "$(build_release_dir -u CARGO_TARGET_DIR CARGO_BUILD_TARGET=aarch64-apple-darwin)" \
+assert_eq "cli/target/$fixture_target/release" \
+  "$(build_release_dir -u CARGO_TARGET_DIR CARGO_BUILD_TARGET="$fixture_target")" \
   "build.sh default target dir with CARGO_BUILD_TARGET"
 
 assert_eq "/tmp/codeterm-cli-target/release" \
@@ -42,7 +46,11 @@ cd "$repo_root"
 node <<'NODE'
 const assert = require("assert");
 const path = require("path");
-const { resolveCliSource } = require("./scripts/bundle-cli.js");
+const {
+  bundledCliName,
+  peMachineForTarget,
+  resolveCliSource,
+} = require("./scripts/bundle-cli.js");
 const { resolveEmbedSource } = require("./scripts/bundle-embed.js");
 
 const root = path.resolve("/repo");
@@ -52,6 +60,18 @@ assert.strictEqual(
   resolveCliSource({}, root, "codeterm"),
   path.join(root, "cli", "target", "release", "codeterm")
 );
+
+assert.strictEqual(bundledCliName({}, "win32"), "codeterm.exe");
+assert.strictEqual(
+  bundledCliName({ CARGO_BUILD_TARGET: "x86_64-pc-windows-msvc" }, "win32"),
+  "codeterm-x86_64-pc-windows-msvc.exe"
+);
+assert.strictEqual(
+  bundledCliName({ CARGO_BUILD_TARGET: "aarch64-pc-windows-msvc" }, "win32"),
+  "codeterm-aarch64-pc-windows-msvc.exe"
+);
+assert.strictEqual(peMachineForTarget("x86_64-pc-windows-msvc"), 0x8664);
+assert.strictEqual(peMachineForTarget("aarch64-pc-windows-msvc"), 0xaa64);
 assert.strictEqual(
   resolveCliSource({ CARGO_BUILD_TARGET: "aarch64-apple-darwin" }, root, "codeterm"),
   path.join(root, "cli", "target", "aarch64-apple-darwin", "release", "codeterm")

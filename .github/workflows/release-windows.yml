@@ -261,7 +261,7 @@ jobs:
           New-Item -ItemType Directory -Force src-tauri\bundled-embed | Out-Null
           New-Item -ItemType Directory -Force src-tauri\bundled-cli | Out-Null
           New-Item -ItemType File -Force "src-tauri\bundled-embed\codeterm-embed-${{ matrix.target }}.exe" | Out-Null
-          New-Item -ItemType File -Force "src-tauri\bundled-cli\codeterm.exe" | Out-Null
+          New-Item -ItemType File -Force "src-tauri\bundled-cli\codeterm-${{ matrix.target }}.exe" | Out-Null
 
       - name: Build release bundle inputs
         shell: pwsh
