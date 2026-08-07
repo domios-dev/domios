@@ -5,12 +5,15 @@ use crate::cmd::print::{handle_result, print_json, tab_list_json_envelope};
 use crate::{build_local_api, read_api_config, resolve_tab, TabAction};
 
 mod capture;
+mod inspect;
 pub(crate) mod remote_target;
 mod team_utility;
 use capture::handle_tab_capture;
+use inspect::handle_tab_inspect;
+#[cfg(test)]
+use remote_target::remote_inspect_target;
 use remote_target::{
-    classify_remote_tab_id, parse_remote_tab_id, remote_inspect_target, remote_tab_chat_path,
-    RemoteTabTarget,
+    classify_remote_tab_id, parse_remote_tab_id, remote_tab_chat_path, RemoteTabTarget,
 };
 
 pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
@@ -55,36 +58,12 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                 other => handle_result(json, other),
             }
         }
-        TabAction::Inspect { mut tabs, tab } => {
-            tabs.extend(tab);
-            if tabs.is_empty() {
-                eprintln!("Error: tab inspect requires --tab <ID>");
-                std::process::exit(2);
-            }
-            match remote_inspect_target(&tabs) {
-                Ok(Some((peer, remote_tabs))) => {
-                    let ids = remote_tabs
-                        .iter()
-                        .map(|tab| urlencoding::encode(tab).into_owned())
-                        .collect::<Vec<_>>()
-                        .join(",");
-                    let data = relay_tab_json(
-                        &peer,
-                        "GET",
-                        &format!("/api/tabs/inspect?tab_ids={ids}"),
-                        None,
-                    );
-                    handle_result(json, Ok(data));
-                    return;
-                }
-                Err(error) => {
-                    handle_result(json, Err(error));
-                    return;
-                }
-                Ok(None) => {}
-            }
-            let result = client.call("tab.inspect", Some(serde_json::json!({ "tab_ids": tabs })));
-            handle_result(json, result);
+        TabAction::Inspect {
+            tabs,
+            tab,
+            lifecycle,
+        } => {
+            handle_tab_inspect(client, json, tabs, tab, lifecycle);
         }
         TabAction::New {
             workspace,
@@ -640,7 +619,7 @@ fn caller_workspace_id(client: &mut SocketClient, caller_tab_id: Option<&str>) -
     client
         .call(
             "tab.inspect",
-            Some(serde_json::json!({ "tab_ids": [tab_id] })),
+            Some(serde_json::json!({ "tab_ids": [tab_id], "lifecycle": false })),
         )
         .ok()?
         .as_array()?
@@ -655,7 +634,7 @@ fn validate_user_tab_selectors(action: &TabAction) -> Result<(), String> {
         matches!(classify_remote_tab_id(value), RemoteTabTarget::Invalid)
     }
     let invalid_selector = match action {
-        TabAction::Inspect { tabs, tab } => tabs
+        TabAction::Inspect { tabs, tab, .. } => tabs
             .iter()
             .chain(tab)
             .find(|value| invalid(value))
@@ -726,7 +705,12 @@ fn fetch_ordinary_tabs(params: &serde_json::Value) -> Result<serde_json::Value, 
     serde_json::from_str(&text).map_err(|error| error.to_string())
 }
 
-fn relay_tab_json(peer: &str, method: &str, path: &str, body: Option<&str>) -> serde_json::Value {
+pub(super) fn relay_tab_json(
+    peer: &str,
+    method: &str,
+    path: &str,
+    body: Option<&str>,
+) -> serde_json::Value {
     crate::mesh_cli::mesh_relay_fetch_json(peer, method, path, body)
 }
 

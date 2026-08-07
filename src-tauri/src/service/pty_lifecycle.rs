@@ -297,6 +297,14 @@ fn handle_pty_death(svc: &ServiceState, pty_id: &str, generation: u64) {
     };
     svc.shell_caps.lock().remove(pty_id);
 
+    if preserve_tab_authority(crate::crash::shutdown::is_update_shutdown()) {
+        log::info!(
+            "[backend-reader] preserving Tab authority during update teardown: {}",
+            tab_id.as_deref().unwrap_or("unknown")
+        );
+        return;
+    }
+
     if let Some(ref pid) = tab_id {
         svc.clear_tab_agent_identity_for_lifecycle_exit(pid);
         svc.flag_bound_tasks_for_gone_tab(pid, epoch_ms());
@@ -388,6 +396,10 @@ fn handle_pty_death(svc: &ServiceState, pty_id: &str, generation: u64) {
     }
 }
 
+fn preserve_tab_authority(update_shutdown: bool) -> bool {
+    update_shutdown
+}
+
 struct BackendReaderLease(std::sync::Arc<crate::pty::manager::PtySession>);
 
 impl Drop for BackendReaderLease {
@@ -445,6 +457,12 @@ mod tests {
     use std::collections::HashMap;
     use std::sync::Arc;
     use std::time::Duration;
+
+    #[test]
+    fn update_owned_eof_preserves_tab_authority() {
+        assert!(super::preserve_tab_authority(true));
+        assert!(!super::preserve_tab_authority(false));
+    }
 
     fn pty_state() -> crate::PtyState {
         Arc::new(TimedMutex::new("pty", PtyManager::new()))

@@ -386,6 +386,7 @@ fn every_tab_action_rejects_malformed_remote_before_local_transport() {
         TabAction::Inspect {
             tabs: vec![bad().unwrap()],
             tab: vec![],
+            lifecycle: false,
         },
         TabAction::Focus {
             id: bad(),

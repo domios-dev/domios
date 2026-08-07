@@ -204,9 +204,13 @@ jq -r '.workspaces[].tabs[].split_tree
 
 Rotated snapshots in `sessions/backups/` are plain JSON and diff the same way.
 
-There is deliberately no CLI or in-process reader wrapping these reads. The file
-is the interface; recovery reads it for itself and exposes nothing for a caller
-to render.
+For one selected live tab, `codeterm tab inspect --tab ID --lifecycle` adds a
+read-only `lifecycle` object with live lineage, ordered transitions, surviving
+checkpoint, recovery verdict, and journal-tail health. Default inspect output
+and `tab list` stay unchanged.
+
+Only in-process writers and the recovery gate can change lifecycle authority;
+the CLI projection has no restore or checkpoint-mutation surface.
 
 ## Attempt retirement fences a closed tab's dispatch
 
@@ -224,17 +228,13 @@ transaction, so the intermediate state is never observable.
 
 ## Not in scope yet
 
-- **Tab creation** is not journaled. Creation confers no authority, and the
-  first `epoch_opened` already marks where a lifecycle begins.
+- **Tab creation** is not journaled; the first `epoch_opened` marks its lifecycle.
 - **chatBackend lifecycle commits do not exist.** No chatBackend path opens a
-  lifecycle operation, so those tabs stay pre-journal and keep the prior restore
-  contract. Covering them means modelling the committed binding structurally
-  (PTY provider/session/nonce versus plugin/session), branching on transport
-  shape rather than a provider id, and journaling from the chatBackend
-  authentication path — a larger change than this audit.
+  lifecycle operation, so those tabs stay pre-journal. Covering them requires a
+  structural committed binding (PTY provider/session/nonce versus plugin/session),
+  transport-shaped logic, and journaling from chatBackend authentication.
 - **Rollback to a named checkpoint** is not implemented. Restoring a tab to an
-  earlier committed checkpoint needs an in-process authority boundary that
-  validates and applies it atomically and journals itself; it is deliberately
-  not a file edit and not a CLI wrapper over one.
+  earlier checkpoint requires an in-process boundary that validates, applies,
+  and journals atomically; it is not a file edit or CLI wrapper over one.
 
-<!-- revision: 9 -->
+<!-- revision: 11 -->

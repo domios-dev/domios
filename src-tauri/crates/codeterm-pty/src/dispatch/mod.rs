@@ -64,7 +64,11 @@ pub enum Command {
     },
 
     /// Inspect selected tabs with the full tab payload.
-    TabInspect { tab_ids: Vec<String> },
+    TabInspect {
+        tab_ids: Vec<String>,
+        #[serde(default)]
+        lifecycle: bool,
+    },
 
     /// Send text to a tab's PTY
     SendText { tab_id: String, text: String },
@@ -206,7 +210,7 @@ pub fn dispatch(cmd: &Command, ctx: &dyn CommandPort) -> Result<CommandResult, S
             *focused_workspace,
             *agents_only,
         ),
-        Command::TabInspect { tab_ids } => cmd_tab_inspect(ctx, tab_ids),
+        Command::TabInspect { tab_ids, lifecycle } => cmd_tab_inspect(ctx, tab_ids, *lifecycle),
         Command::SendText { tab_id, text } => cmd_send_text(ctx, tab_id, text),
         Command::GetOutput {
             tab_id,
@@ -310,13 +314,20 @@ fn cmd_tab_summary(
     )))
 }
 
-fn cmd_tab_inspect(ctx: &dyn CommandPort, tab_ids: &[String]) -> Result<CommandResult, String> {
+fn cmd_tab_inspect(
+    ctx: &dyn CommandPort,
+    tab_ids: &[String],
+    lifecycle: bool,
+) -> Result<CommandResult, String> {
     if tab_ids.is_empty() {
         return Err("tab.inspect requires at least one Tab id".into());
     }
+    if lifecycle && tab_ids.len() != 1 {
+        return Err("tab.inspect lifecycle history requires exactly one Tab id".into());
+    }
     let snapshot = ctx.mux_snapshot();
     let requested: std::collections::HashSet<&str> = tab_ids.iter().map(String::as_str).collect();
-    let tabs = build_tab_list_json(&snapshot)
+    let mut tabs = build_tab_list_json(&snapshot)
         .into_iter()
         .filter(|tab| {
             tab.get("id")
@@ -326,6 +337,13 @@ fn cmd_tab_inspect(ctx: &dyn CommandPort, tab_ids: &[String]) -> Result<CommandR
         .collect::<Vec<_>>();
     if tabs.len() != requested.len() {
         return Err("one or more requested Tabs were not found".into());
+    }
+    if lifecycle {
+        let tab = snapshot
+            .tabs
+            .get(&tab_ids[0])
+            .ok_or_else(|| "requested Tab was not found".to_string())?;
+        tabs[0]["lifecycle"] = crate::session::lifecycle::inspect_tab_lifecycle(tab);
     }
     Ok(CommandResult::Json(serde_json::json!(tabs)))
 }

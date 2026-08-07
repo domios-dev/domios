@@ -95,7 +95,7 @@ function workingTreeHash(excludes) {
 }
 
 function sourceState(excludedFiles) {
-  const trackedChanges = run("git", ["diff", "--name-only", "HEAD", "--"]);
+  const trackedChanges = run("git", ["diff", "--no-ext-diff", "--binary", "HEAD", "--"]);
   const untrackedFiles = run("git", ["ls-files", "--others", "--exclude-standard"]);
   const status = [trackedChanges, untrackedFiles].filter(Boolean).join("\n");
   const excludes = new Set(excludedFiles.map(relativeRepoPath).filter(Boolean));

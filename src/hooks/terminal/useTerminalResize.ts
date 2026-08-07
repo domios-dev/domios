@@ -17,7 +17,7 @@ export interface UseTerminalResizeOptions {
 }
 
 export interface UseTerminalResizeReturn {
-  commitResize: () => void;
+  commitResize: (force?: boolean) => void;
 }
 
 interface TerminalSize {
@@ -32,6 +32,14 @@ const nativeResizeCommit = !IS_WEB
 
 function sameSize(left: TerminalSize | null, right: TerminalSize): boolean {
   return left?.ptyId === right.ptyId && left.cols === right.cols && left.rows === right.rows;
+}
+
+export function resizeCommitRequired(
+  committed: TerminalSize | null,
+  next: TerminalSize,
+  force: boolean,
+): boolean {
+  return force || !sameSize(committed, next);
 }
 
 export function useTerminalResize({
@@ -50,14 +58,14 @@ export function useTerminalResize({
   const committedSizeRef = useRef<TerminalSize | null>(null);
   const nativeResizeActiveRef = useRef(false);
 
-  const commitResize = useCallback(() => {
+  const commitResize = useCallback((force = false) => {
     const term = termRef.current;
     const currentPtyId = connectedPtyRef.current ?? ptyId ?? null;
     if (!term || !currentPtyId || !resizeClientId) return;
     const size = pendingSizeRef.current ?? { cols: term.cols, rows: term.rows };
     if (size.cols <= 0 || size.rows <= 0) return;
     const next = { ptyId: currentPtyId, ...size };
-    if (sameSize(committedSizeRef.current, next)) return;
+    if (!resizeCommitRequired(committedSizeRef.current, next, force)) return;
     committedSizeRef.current = next;
     void invoke("resize_pty", {
       ptyId: currentPtyId,

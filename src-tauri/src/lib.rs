@@ -223,6 +223,7 @@ pub fn run() {
             commands::copy_image_to_clipboard,
             commands::check_for_update,
             commands::install_app_update,
+            commands::get_update_status,
             commands::open_folder,
             commands::open_url,
             commands::test_notification,

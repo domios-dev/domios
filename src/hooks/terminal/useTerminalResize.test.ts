@@ -1,4 +1,5 @@
 
+import { resizeCommitRequired } from "./useTerminalResize";
 import { tabResizeChanged } from "./tabResize";
 
 let failures = 0;
@@ -34,6 +35,12 @@ test("first real size after mount refits", () => {
 test("collapsed/hidden Tab does not refit", () => {
   assert(tabResizeChanged({ w: 800, h: 600 }, 0, 0) === false, "sub-20 dims must skip");
   assert(tabResizeChanged({ w: 0, h: 0 }, 10, 600) === false, "sub-20 width must skip");
+});
+
+test("ownership claim recommits an optimistically cached size", () => {
+  const size = { ptyId: "pty-1", cols: 160, rows: 48 };
+  assert(resizeCommitRequired(size, size, true), "forced commit must bypass the cache");
+  assert(!resizeCommitRequired(size, size, false), "ordinary duplicate must stay deduplicated");
 });
 
 if (failures > 0) {

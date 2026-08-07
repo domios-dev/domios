@@ -11,9 +11,10 @@ Cross-references:
 
 ## What the flow does
 
-The restart reuses the existing `/exit` + auto-resume Tab lifecycle —
-the same code path that powers in-tab `/exit` and the `update install --auto`
-post-install relaunch. No bespoke restart logic. Steps:
+Agent restart uses the provider's graceful exit command and then auto-resumes
+the same Tab. Update shutdown is deliberately different: it tears down owned
+PTY process trees without sending `/exit`, preserves each Tab's session binding
+and lifecycle lineage, persists the snapshot, and resumes after relaunch. Steps:
 
 1. Lookup the Tab and provider (Claude / Codex / ...).
 2. Send the provider's exit command (Claude: `/exit`, etc.).
@@ -109,3 +110,5 @@ The Orchestrator's Tab keeps running; only the Worker's PTY cycles.
 Reports the Worker had already sent are preserved (the in-memory
 `ReportStore` is not tab-scoped to PTY id; it's keyed on the parent +
 child Tab ids which don't change across restart).
+
+<!-- revision: 1 -->
