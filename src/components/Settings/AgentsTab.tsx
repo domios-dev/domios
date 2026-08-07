@@ -6,6 +6,7 @@ import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { SchemaRenderer } from "./SchemaRenderer";
 import { ProviderInstallCard } from "./ProviderInstallCard";
 import { ProviderNotifications } from "./ProviderNotifications";
+import { TelegramNotifications } from "./TelegramNotifications";
 import { SettingsCard, SettingsPill, Toggle } from "./shared";
 import { AgentIcon } from "../AgentIcon";
 import { Button } from "../shared/Button";
@@ -330,6 +331,8 @@ function NotificationsGroup({
           <span className="inline-block h-3.5 w-3.5 rounded-full bg-white translate-x-0.5" />
         </span>
       </label>
+
+      <TelegramNotifications config={config} onUpdate={onUpdate} />
 
       <ProviderNotifications
         fullConfig={config}

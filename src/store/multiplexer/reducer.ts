@@ -490,12 +490,22 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
       };
     }
 
-    case "ADD_NOTIFICATION":
+    // A coalesced notification is re-emitted under its existing id; replacing it
+    // keeps one row instead of stacking a second copy of the same event.
+    case "ADD_NOTIFICATION": {
+      const replaceById = <T extends { id: string }>(list: T[], next: T): T[] => {
+        const index = list.findIndex((entry) => entry.id === next.id);
+        if (index === -1) return [...list, next];
+        const updated = [...list];
+        updated[index] = next;
+        return updated;
+      };
       return {
         ...state,
-        notifications: [...state.notifications, action.notification],
-        toasts: [...state.toasts, action.notification],
+        notifications: replaceById(state.notifications, action.notification),
+        toasts: replaceById(state.toasts, action.notification),
       };
+    }
 
     case "UPSERT_TOAST": {
       const existingIndex = action.toast.key

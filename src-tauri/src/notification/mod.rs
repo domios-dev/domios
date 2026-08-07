@@ -31,6 +31,16 @@ pub fn notify(
     ))
 }
 
+/// Whether the Telegram push opt-in may be offered in settings at all.
+#[tauri::command]
+pub fn telegram_push_gate(
+    svc: State<'_, crate::service::ServiceState>,
+) -> Result<serde_json::Value, String> {
+    Ok(serde_json::json!({
+        "control_available": svc.telegram_push_control_available(),
+    }))
+}
+
 /// List notifications, optionally filtered to unread only.
 #[tauri::command]
 pub fn list_notifications(
