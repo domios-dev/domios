@@ -19,8 +19,12 @@ mod team_utility;
 use capture::handle_tab_capture;
 use chat_view::print_tab_chat;
 use inspect::handle_tab_inspect;
-pub use render::{format_tab_row, render_tab_tree, render_tab_tree_with_current};
-pub use search::{print_tab_find_results, rank_tabs};
+#[cfg(test)]
+use render::format_tab_row;
+pub use render::{render_tab_tree, render_tab_tree_with_current};
+#[cfg(test)]
+use search::rank_tabs;
+pub use search::print_tab_find_results;
 #[cfg(test)]
 use remote_target::remote_inspect_target;
 use remote_target::{
