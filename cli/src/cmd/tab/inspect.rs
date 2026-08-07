@@ -1,5 +1,5 @@
 use crate::client::SocketClient;
-use crate::cmd::print::{exit_with_cli_error, handle_result, CliError};
+use crate::cmd::print::{exit_with_cli_error, handle_cli_result, CliError};
 
 use super::relay_tab_json;
 use super::remote_target::remote_inspect_target;
@@ -34,15 +34,17 @@ pub(super) fn handle_tab_inspect(
                 &format!("/api/tabs/inspect?tab_ids={ids}{lifecycle_query}"),
                 None,
             );
-            handle_result(json, Ok(data));
+            handle_cli_result(json, Ok(data));
         }
         Err(error) => exit_with_cli_error(json, &CliError::new(error)),
         Ok(None) => {
-            let result = client.call(
-                "tab.inspect",
-                Some(serde_json::json!({ "tab_ids": tabs, "lifecycle": lifecycle })),
-            );
-            handle_result(json, result);
+            let result = client
+                .call_detailed(
+                    "tab.inspect",
+                    Some(serde_json::json!({ "tab_ids": tabs, "lifecycle": lifecycle })),
+                )
+                .map_err(CliError::from);
+            handle_cli_result(json, result);
         }
     }
 }
