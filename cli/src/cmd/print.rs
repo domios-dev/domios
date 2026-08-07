@@ -447,6 +447,22 @@ mod tests {
         assert!(!error.message.contains(RPC_CODE_MARKER), "{}", error.message);
     }
 
+    /// `RpcClient::call` stringifies through `Display`, which is where the code
+    /// leaks; converted sites must take `call_detailed` instead.
+    #[test]
+    fn stringifying_a_call_error_leaks_the_code_that_the_contract_strips() {
+        let leaked = tab_not_found().to_string();
+        let contracted = CliError::from(tab_not_found());
+
+        assert!(leaked.contains(RPC_CODE_MARKER), "{leaked}");
+        assert!(
+            !contracted.message.contains(RPC_CODE_MARKER),
+            "{}",
+            contracted.message
+        );
+        assert_eq!(contracted.code, Some(-32603));
+    }
+
     #[test]
     fn empty_rpc_message_is_reported_unexplained_instead_of_invented() {
         let error = CliError::from(SocketCallError::Rpc(RpcError {
