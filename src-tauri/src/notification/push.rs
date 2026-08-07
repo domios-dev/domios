@@ -14,7 +14,8 @@ pub enum PushCategory {
 }
 
 /// Wire values, in the same order as the CLI `value_enum`.
-pub const PUSH_CATEGORY_VALUES: [&str; 3] = ["milestone", "blocker", "failure"];
+#[cfg(test)]
+const PUSH_CATEGORY_VALUES: [&str; 3] = ["milestone", "blocker", "failure"];
 
 impl PushCategory {
     /// Unknown input is a rejection, never a pass-through string.
