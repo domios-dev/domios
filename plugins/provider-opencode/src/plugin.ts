@@ -1,6 +1,6 @@
 // OpenCode (sst/opencode) provider plugin (runtime logic, capability: agentProvider).
 // ProviderPlugin contract is the separate src/index.ts artifact the app imports.
-import type { LaunchParams, ModelInfo, ParsedPrompt, PluginModule } from "@codeterm/plugin-sdk";
+import type { LaunchParams, ModelInfo, ParsedPrompt, PluginModule, ResumeParams } from "@codeterm/plugin-sdk";
 
 const CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v2";
 const CODETERM_OPENCODE_PLUGIN_FILE = "codeterm-session-binding.js";
@@ -188,6 +188,33 @@ const plugin: PluginModule = {
     const parts = ["opencode", "--session", host.shell.quoteFor(sessionId, host.platform())];
     if (skipPermissions) parts.push("--dangerously-skip-permissions");
     return parts.join(" ");
+  },
+
+  // A resumed session re-reads `instructions`, so the composed prompt is
+  // re-applied through the same session-config channel buildLaunchCommand uses.
+  buildResumeCommandWithContext(params: ResumeParams): string {
+    const p = params || ({} as ResumeParams);
+    const platform = host.platform();
+    const parts = [this.buildResumeCommand(p.sessionId, p.skipPermissions)];
+    if (p.args && p.args.length > 0) {
+      for (let i = 0; i < p.args.length; i++) parts.push(String(p.args[i]));
+    }
+    const systemPrompt = p.systemPrompt;
+    if (!systemPrompt || !systemPrompt.trim()) return parts.join(" ");
+    const taskPath = host.fs.writeTempFile(systemPrompt, ".ct-task.md");
+    if (!taskPath) return parts.join(" ");
+    const taskName = taskPath.split(/[\\/]/).pop()!.replace(/[^A-Za-z0-9._-]/g, "-");
+    const localTaskPath = `.codeterm/${taskName}`;
+    const source = host.shell.quoteFor(taskPath, platform);
+    const local = host.shell.quoteFor(localTaskPath, platform);
+    const config = host.shell.quoteFor(JSON.stringify({ instructions: [localTaskPath] }), platform);
+    const prologue = platform === "windows"
+      ? `New-Item -ItemType Directory -Force -Path '.codeterm' | Out-Null; Copy-Item -LiteralPath ${source} -Destination ${local} -Force; $env:OPENCODE_CONFIG_CONTENT = ${config}; try {`
+      : `mkdir -p .codeterm && cp -- ${source} ${local} && OPENCODE_CONFIG_CONTENT=${config}`;
+    const epilogue = platform === "windows"
+      ? `} finally { Remove-Item -LiteralPath ${local} -Force -ErrorAction SilentlyContinue }`
+      : `; ct_status=$?; rm -f -- ${local}; exit $ct_status`;
+    return `${prologue} ${parts.join(" ")} ${epilogue}`;
   },
 
   // absent from opencode's env, or event field structure changed in a new release).

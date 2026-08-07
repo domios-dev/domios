@@ -72,6 +72,16 @@ export interface LaunchParams {
   [key: string]: unknown;
 }
 
+/** Full launch context for a resumed session, not just its id. */
+export interface ResumeParams {
+  sessionId: string;
+  skipPermissions?: boolean;
+  /** Composed system prompt to re-apply; absent when the host has none. */
+  systemPrompt?: string | null;
+  args?: string[];
+  [key: string]: unknown;
+}
+
 // picker can't read its layout (e.g. opencode's single-row options).
 export interface ParsedPrompt {
   question: string;
@@ -93,6 +103,8 @@ export interface AgentProvider {
   extractSessionName?(screen: string): string | null;
   buildLaunchCommand?(params: LaunchParams): string;
   buildResumeCommand?(sessionId: string, skipPermissions?: boolean): string;
+  /** Implement only when a resumed session drops the launch-time system prompt. */
+  buildResumeCommandWithContext?(params: ResumeParams): string;
   buildPromptResponse?(optionIndex: number, screen?: string): string[];
   directoryTrustPromptResponse?(prompt: ParsedPrompt, screen?: string): string[] | null;
   parsePrompt?(text: string): ParsedPrompt | null;

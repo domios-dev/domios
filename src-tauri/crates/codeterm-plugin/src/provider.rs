@@ -128,6 +128,27 @@ pub struct AgentLaunchParams {
     pub structured_prompt_server: Option<StructuredPromptServer>,
 }
 
+/// Everything a resumed session needs beyond its id. `system_prompt` is the
+/// composed launch prompt, present only when the host has one to re-apply.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentResumeParams {
+    pub session_id: String,
+    pub skip_permissions: bool,
+    pub system_prompt: Option<String>,
+    #[serde(default)]
+    pub args: Vec<String>,
+}
+
+/// Splice trailing launch args onto a command the same way
+/// `build_launch_command` splices `AgentLaunchParams::args`.
+pub fn append_launch_args(command: String, args: &[String]) -> String {
+    if args.is_empty() {
+        return command;
+    }
+    format!("{command} {}", args.join(" "))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IntegrationInstallOptions {
     pub consent: bool,
@@ -304,52 +325,10 @@ pub enum PathOpenKind {
     RevealInExplorer,
 }
 
+mod capabilities;
 mod settings;
+pub use capabilities::*;
 pub use settings::*;
-
-/// Which runtime drives a provider's tab: a PTY process or a JS chatBackend.
-/// Replaces the old injected `kind` string and is the spawn discriminant.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ProviderTransport {
-    Pty,
-    ChatBackend,
-}
-
-/// What behavior surface a provider exposes for configuration.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(tag = "model", rename_all = "snake_case")]
-pub enum BehaviorConfig {
-    #[default]
-    None,
-    OwnPromptSet,
-    PresetsAndSystemPrompt,
-    Graph,
-}
-
-/// How a system prompt reaches the provider.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SystemPromptDelivery {
-    CliFlag(String),
-    SessionConfig,
-    External,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProviderSelfUpdateCapability {
-    pub in_session: bool,
-    pub restart_required: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub completion_signal: Option<ProviderUpdateCompletionSignal>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ProviderUpdateCompletionSignal {
-    ProviderClassification,
-}
 
 /// Wire format describing one agent provider to the frontend.
 /// Built from the trait via `AgentProvider::describe()`.
@@ -459,22 +438,6 @@ pub struct ProviderDescriptor {
     pub system_prompt_delivery: SystemPromptDelivery,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum ProviderTrust {
-    System,
-    Unverified,
-    ThirdParty,
-    #[default]
-    Unknown,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct ProviderAllowanceCapability {
-    pub default_reserve_pct: f32,
-    pub telemetry_max_age_ms: u64,
-}
-
 /// Current `ProviderDescriptor` schema version. Bump on breaking change.
 pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 13;
 
@@ -569,6 +532,16 @@ pub trait AgentProvider: Send + Sync {
 
     /// Build a command to resume an existing session.
     fn build_resume_command(&self, session_id: &str, skip_permissions: bool) -> Option<String>;
+
+    /// Resume command carrying the full launch context: trailing `args` plus
+    /// `system_prompt` re-applied through this provider's own system-prompt
+    /// channel. Overriding declares "my resume drops the launch-time prompt";
+    /// the default declares the opposite, so an undeclared provider keeps its
+    /// retained copy and is never double-injected.
+    fn build_resume_command_with_context(&self, params: &AgentResumeParams) -> Option<String> {
+        let base = self.build_resume_command(&params.session_id, params.skip_permissions)?;
+        Some(append_launch_args(base, &params.args))
+    }
 
     /// Cumulative token usage from the provider's session log.
     fn read_usage(&self, _cwd: &str, _session_id: &str) -> Option<UsageSnapshot> {

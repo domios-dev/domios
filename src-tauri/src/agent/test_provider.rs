@@ -7,13 +7,15 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use super::provider::{
-    AgentLaunchParams, AgentProvider, ReadinessStrategy, ReasoningEffortInfo, TaskDelivery,
+    AgentLaunchParams, AgentProvider, ReadinessStrategy, ReasoningEffortInfo, SystemPromptDelivery,
+    TaskDelivery,
 };
 
 pub struct MockProvider {
     id: String,
     supports_chat_ui: bool,
     reasoning_efforts: Vec<ReasoningEffortInfo>,
+    system_prompt_delivery: SystemPromptDelivery,
 }
 
 impl MockProvider {
@@ -22,22 +24,29 @@ impl MockProvider {
             id: id.to_string(),
             supports_chat_ui: false,
             reasoning_efforts: Vec::new(),
+            system_prompt_delivery: SystemPromptDelivery::External,
         }
     }
 
     pub fn with_chat_ui(id: &str) -> Self {
         Self {
-            id: id.to_string(),
             supports_chat_ui: true,
-            reasoning_efforts: Vec::new(),
+            ..Self::new(id)
+        }
+    }
+
+    /// Declares a system-prompt flag but no resume re-application — the
+    /// retain class, where the host has content to hand over and must not.
+    pub fn with_system_prompt_flag(id: &str, flag: &str) -> Self {
+        Self {
+            system_prompt_delivery: SystemPromptDelivery::CliFlag(flag.to_string()),
+            ..Self::new(id)
         }
     }
 
     /// Fixture with declared reasoning-effort levels and a scriptable launch flag.
     pub fn with_reasoning_efforts(id: &str, levels: &[&str]) -> Self {
         Self {
-            id: id.to_string(),
-            supports_chat_ui: false,
             reasoning_efforts: levels
                 .iter()
                 .map(|l| ReasoningEffortInfo {
@@ -46,6 +55,7 @@ impl MockProvider {
                     description: None,
                 })
                 .collect(),
+            ..Self::new(id)
         }
     }
 }
@@ -86,6 +96,9 @@ impl AgentProvider for MockProvider {
     }
     fn task_delivery(&self) -> TaskDelivery {
         TaskDelivery::PtyInput
+    }
+    fn system_prompt_delivery(&self) -> SystemPromptDelivery {
+        self.system_prompt_delivery.clone()
     }
     fn detect_from_title(&self, title: &str) -> bool {
         title.to_lowercase().contains(&self.id)

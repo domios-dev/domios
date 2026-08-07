@@ -243,6 +243,49 @@ fn resume_command_matches_native_provider() {
     );
 }
 
+/// Native and JS must agree on the resume re-application capability. The
+/// temp-file path differs per call, so parity is asserted on the declared
+/// mechanism and on what the named file actually holds.
+#[test]
+fn resume_with_context_reapplies_the_prompt_on_both_paths() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (n, j) = pair();
+    let prompt = "## Composed identity\nparity-sentinel-91c3";
+    let params = crate::provider::AgentResumeParams {
+        session_id: "abc-def-123-456".into(),
+        skip_permissions: true,
+        system_prompt: Some(prompt.into()),
+        args: vec!["--model".into(), "parity-model".into()],
+    };
+
+    for (label, command) in [
+        (
+            "native",
+            n.build_resume_command_with_context(&params).unwrap(),
+        ),
+        ("js", j.build_resume_command_with_context(&params).unwrap()),
+    ] {
+        assert_eq!(command.matches("--resume").count(), 1, "{label}");
+        assert_eq!(
+            command.matches("--append-system-prompt-file").count(),
+            1,
+            "{label}"
+        );
+        assert!(command.contains("--model parity-model"), "{label}");
+        assert!(!command.contains(prompt), "{label} must not inline the prompt");
+        let path = command
+            .rsplit_once("--append-system-prompt-file ")
+            .expect("declared flag carries a path")
+            .1
+            .trim()
+            .trim_matches(['\'', '"']);
+        let delivered = std::fs::read_to_string(path).expect("prompt file");
+        assert_eq!(delivered.matches(prompt).count(), 1, "{label}");
+    }
+}
+
 #[test]
 fn integration_install_creates_all_four_hooks_with_markers() {
     if require_plugins().is_none() {
