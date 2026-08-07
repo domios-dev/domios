@@ -152,7 +152,7 @@ pub enum AgentAction {
     Report(ReportArgs),
     /// Acknowledge receipt and ownership of the assigned task
     Ack {
-        /// Tab ID (default: $CODETERM_TAB_ID or focused tab)
+        /// Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
         #[arg(long = "tab", value_name = "TAB")]
         tab: Option<String>,
         /// Plan id (default: $CODETERM_PLAN_ID)
