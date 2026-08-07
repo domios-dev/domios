@@ -111,6 +111,7 @@ mod tests {
     #[cfg(not(target_os = "windows"))]
     #[test]
     fn account_shell_wins_over_a_stale_shell_env() {
+        let mut env = codeterm_util::test_env::EnvGuard::lock();
         let Some(account) = account_shell() else {
             return;
         };
@@ -119,9 +120,8 @@ mod tests {
         } else {
             "/bin/sh"
         };
-        std::env::set_var("SHELL", stale);
+        env.set("SHELL", stale);
         let resolved = resolve_login_shell();
-        std::env::remove_var("SHELL");
         assert_eq!(resolved, account);
     }
 

@@ -65,37 +65,17 @@ fn load_inline_js(id: &str, plugin_js: &str) -> JsProvider {
     JsProvider::new(manifest, Arc::new(vm))
 }
 
-/// Serializes the (few) parity tests that drive a provider's filesystem
-/// capabilities through process env overrides (`CODETERM_CODEX_SESSIONS_ROOT`,
-/// `XDG_DATA_HOME`), so they can't observe each other's mutations under cargo's
-/// parallel runner. Restores the prior values on drop.
-static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
 struct EnvGuard {
-    _lock: std::sync::MutexGuard<'static, ()>,
-    saved: Vec<(String, Option<String>)>,
+    _inner: codeterm_util::test_env::EnvGuard,
 }
 
 impl EnvGuard {
     fn new(vars: &[(&str, &str)]) -> Self {
-        let lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let mut saved = Vec::new();
+        let mut inner = codeterm_util::test_env::EnvGuard::lock();
         for (k, v) in vars {
-            saved.push(((*k).to_string(), std::env::var(k).ok()));
-            std::env::set_var(k, v);
+            inner.set(k, v);
         }
-        Self { _lock: lock, saved }
-    }
-}
-
-impl Drop for EnvGuard {
-    fn drop(&mut self) {
-        for (k, v) in &self.saved {
-            match v {
-                Some(val) => std::env::set_var(k, val),
-                None => std::env::remove_var(k),
-            }
-        }
+        Self { _inner: inner }
     }
 }
 
