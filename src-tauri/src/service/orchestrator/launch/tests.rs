@@ -440,6 +440,96 @@ fn system_capable_pty_launch_carries_manager_bootstrap_without_fallback_content(
     assert!(!command.contains(content));
 }
 
+/// A composed launch prompt the test itself supplies, so every occurrence
+/// counted below came from the resume path rather than a shipped constant.
+const RESUME_COMPOSED_PROMPT: &str = "## CodeTerm resume identity\nsentinel-4f2a";
+
+fn resume_params(provider: &str) -> SpawnAgentParams {
+    SpawnAgentParams {
+        agent: Some(provider.into()),
+        resume_session_id: Some("session-77".into()),
+        model: Some("fixture-model".into()),
+        role: Some("Worker".into()),
+        ..Default::default()
+    }
+}
+
+/// Claude's `--resume` drops the launch-time system prompt, so it declares
+/// re-application. The prompt travels in the file the declared flag names —
+/// counting occurrences in the file is what proves it arrives exactly once.
+#[test]
+fn reapply_class_resume_carries_the_composed_prompt_exactly_once() {
+    let registry = AgentRegistry::new();
+    registry.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
+    let command = build_agent_command(
+        "claude",
+        &resume_params("claude"),
+        Some(RESUME_COMPOSED_PROMPT),
+        None,
+        &registry,
+    );
+
+    assert_eq!(command.matches("--resume").count(), 1);
+    assert_eq!(command.matches("--append-system-prompt-file").count(), 1);
+    let path = command
+        .rsplit_once("--append-system-prompt-file ")
+        .expect("declared flag carries a path")
+        .1
+        .trim()
+        .trim_matches(['\'', '"']);
+    let delivered = std::fs::read_to_string(path).expect("prompt file the resume command names");
+    assert_eq!(delivered.matches(RESUME_COMPOSED_PROMPT).count(), 1);
+}
+
+/// The discriminator: same composed content, same reachable resume branch,
+/// but the provider declares nothing — so re-application must not happen.
+/// A CliFlag descriptor means the host DOES hold system-prompt content here,
+/// which is what makes the zero meaningful rather than vacuous.
+#[test]
+fn retain_class_resume_carries_the_composed_prompt_zero_times() {
+    use crate::agent::test_provider::MockProvider;
+
+    let registry = AgentRegistry::new();
+    registry.register_provider(Box::new(MockProvider::with_system_prompt_flag(
+        "retaining", "--system",
+    )));
+    let command = build_agent_command(
+        "retaining",
+        &resume_params("retaining"),
+        Some(RESUME_COMPOSED_PROMPT),
+        None,
+        &registry,
+    );
+
+    assert!(command.contains("--resume session-77"));
+    assert_eq!(command.matches(RESUME_COMPOSED_PROMPT).count(), 0);
+    assert_eq!(command.matches("--system").count(), 0);
+    assert!(command.contains("--model fixture-model"));
+}
+
+/// An undeclared provider keeps today's behaviour exactly: a bare resume plus
+/// the launch args, and no prompt content of any kind.
+#[test]
+fn undeclared_provider_resume_keeps_todays_behaviour() {
+    let registry = AgentRegistry::new();
+    registry.register_provider(Box::new(crate::agent::test_provider::MockProvider::new(
+        "undeclared",
+    )));
+    let command = build_agent_command(
+        "undeclared",
+        &resume_params("undeclared"),
+        Some(RESUME_COMPOSED_PROMPT),
+        None,
+        &registry,
+    );
+
+    assert_eq!(command.matches(RESUME_COMPOSED_PROMPT).count(), 0);
+    assert_eq!(
+        command, "undeclared-cli --resume session-77 --model fixture-model",
+        "undeclared resume is the base command plus launch args, nothing else"
+    );
+}
+
 struct SpawnableChatBackend;
 
 impl ChatBackendProvider for SpawnableChatBackend {

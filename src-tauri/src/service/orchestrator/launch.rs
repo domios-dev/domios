@@ -980,16 +980,6 @@ pub(crate) fn build_agent_command(
     injected_session_id: Option<&str>,
     registry: &AgentRegistry,
 ) -> String {
-    if let Some(ref sid) = params.resume_session_id {
-        let skip = params.permission_bypass_requested(agent_cmd);
-        if let Some(cmd) = registry
-            .with_provider(agent_cmd, |p| p.build_resume_command(sid, skip))
-            .flatten()
-        {
-            return cmd;
-        }
-    }
-
     let mut args: Vec<String> = params.args.clone().unwrap_or_default();
     if let Some(ref model) = params.model {
         if !model.is_empty() {
@@ -1014,14 +1004,34 @@ pub(crate) fn build_agent_command(
         }
     }
 
-    let launch_task = registry
+    let system_prompt = registry
         .with_provider(agent_cmd, |provider| {
-            let system_prompt = crate::service::launch_delivery::content_for_descriptor(
+            crate::service::launch_delivery::content_for_descriptor(
                 &provider.system_prompt_delivery(),
                 task,
             )
-            .system_prompt;
-            system_prompt.or_else(|| {
+            .system_prompt
+        })
+        .flatten();
+
+    if let Some(ref sid) = params.resume_session_id {
+        let resume = crate::agent::provider::AgentResumeParams {
+            session_id: sid.clone(),
+            skip_permissions: params.permission_bypass_requested(agent_cmd),
+            system_prompt: system_prompt.clone(),
+            args: args.clone(),
+        };
+        if let Some(cmd) = registry
+            .with_provider(agent_cmd, |p| p.build_resume_command_with_context(&resume))
+            .flatten()
+        {
+            return cmd;
+        }
+    }
+
+    let launch_task = registry
+        .with_provider(agent_cmd, |provider| {
+            system_prompt.clone().or_else(|| {
                 matches!(
                     provider.task_delivery(),
                     crate::agent::provider::TaskDelivery::InlineFlag
