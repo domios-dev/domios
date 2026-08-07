@@ -308,6 +308,7 @@ fn worker_ack_transitions_exact_pending_task_to_in_progress() {
         None,
         project.to_str().unwrap(),
         &TaskLaneMetadata::default(),
+        LaneProtection::Enforced,
     )
     .unwrap();
     let provision_count = Cell::new(1);
