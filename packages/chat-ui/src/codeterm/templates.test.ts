@@ -1,5 +1,5 @@
 import { recognize } from "./recognize";
-import { renderTemplate, parseSend, planLink, isHelp, isSend, navigationTarget } from "./templates";
+import { renderTemplate, parseSend, planLink, isHelp, isSend, navigationTarget, describeAction } from "./templates";
 
 let passed = 0;
 let failed = 0;
@@ -98,6 +98,14 @@ const TASK = "task_" + "b".repeat(32);
   assert(state.link?.planId === PLAN, "plan state link from positional");
 
   assert(planLink(inv(`codeterm plan state`)) === undefined, "no link without any plan id");
+
+  // describeAction reads the same invocation; positional 0 is the plan id there too.
+  const desc = describeAction(inv(`codeterm plan record ${PLAN} --step "Chose Postgres"`));
+  assert(desc.detail === "Chose Postgres", "descriptor detail is the --step note");
+  assert(desc.detail !== PLAN, "descriptor never falls back to the positional plan id");
+
+  const descNoStep = describeAction(inv(`codeterm plan record ${PLAN}`));
+  assert(descNoStep.detail === undefined, "no note flag means no detail, not the plan id");
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

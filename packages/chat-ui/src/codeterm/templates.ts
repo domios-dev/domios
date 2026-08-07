@@ -286,7 +286,7 @@ export function describeAction(inv: CodetermInvocation, result?: string, resolve
   }
   if (path === "plan record") {
     const task = firstRef(TASK_RE, inv, result);
-    return { lead: "decision", object: task ? "on task" : firstRef(PLAN_RE, inv, result) ?? "plan", chips: [], detail: firstMeaningful(inv) ?? flagText(inv, "step") };
+    return { lead: "decision", object: task ? "on task" : firstRef(PLAN_RE, inv, result) ?? "plan", chips: [], detail: flagText(inv, "step", "name") };
   }
   if (path === "plan retrospective") return { lead: "retro", object: firstRef(PLAN_RE, inv, result) ?? "plan", chips: [], detail: flagText(inv, "body") ?? firstMeaningful(inv) };
   if (path === "plan state") return { lead: "state", object: firstRef(PLAN_RE, inv, result) ?? "plan", chips: [] };
