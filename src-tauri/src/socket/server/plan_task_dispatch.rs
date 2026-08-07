@@ -8,7 +8,7 @@ use crate::service::plan::milestone_gates::{
 };
 use crate::service::plan::PlanError;
 use crate::service::{
-    verify_worker_lane, ProvisionedWorkerLane, ServiceState, SpawnAgentParams,
+    verify_worker_lane, LaneProtection, ProvisionedWorkerLane, ServiceState, SpawnAgentParams,
     SpawnIdentityProvenance, WorkerLaneProvenance,
 };
 
@@ -17,12 +17,14 @@ use super::plan_refs;
 use super::JsonRpcError;
 
 mod brief;
+mod lane_resolution;
 pub(super) mod lane_safety;
 
 use super::safety_nudge::{apply_safety_nudges, safety_incident_text, SAFETY_INCIDENT_KIND};
 use brief::build_brief_with_manifest;
 #[cfg(test)]
 pub(super) use brief::{build_brief, build_brief_with_personality};
+use lane_resolution::{checkout_required, invalid_dispatch, resolve_dispatch_lane};
 use lane_safety::{
     atomic_lane_commitment, dispatch_safety_nudges, preflight_checkout_occupancy,
     refuse_unsafe_mutating_write,
@@ -74,71 +76,6 @@ fn verify_dispatched_task_binding(
     }
 }
 
-fn invalid_dispatch(reason: impl Into<String>) -> JsonRpcError {
-    let reason = reason.into();
-    JsonRpcError {
-        code: -32602,
-        message: format!("invalid task dispatch: {reason}"),
-        data: Some(json!({
-            "type": "invalid_task_dispatch",
-            "stage": "cwd_validation",
-            "reason": reason,
-        })),
-    }
-}
-
-#[derive(Clone, Debug)]
-struct DispatchLaneResolution {
-    spawn_cwd: String,
-    existing: Option<WorkerLaneProvenance>,
-}
-
-fn resolve_dispatch_lane(
-    explicit_cwd: Option<&str>,
-    canonical_cwd: &str,
-    task_lane: &TaskLaneMetadata,
-) -> Result<DispatchLaneResolution, JsonRpcError> {
-    if let Some(explicit) = explicit_cwd {
-        if task_lane.worktree_path.as_deref().is_some_and(|recorded| {
-            !crate::service::ServiceContext::paths_equal(explicit, recorded)
-        }) {
-            return Err(invalid_dispatch(format!(
-                "explicit cwd '{}' conflicts with recorded lane worktree '{}'",
-                explicit,
-                task_lane.worktree_path.as_deref().unwrap_or_default()
-            )));
-        }
-        let existing = verify_worker_lane(
-            canonical_cwd,
-            explicit,
-            task_lane.branch.as_deref(),
-            task_lane.base.as_deref(),
-        )
-        .map_err(invalid_dispatch)?;
-        return Ok(DispatchLaneResolution {
-            spawn_cwd: existing.worktree_path.clone(),
-            existing: Some(existing),
-        });
-    }
-    if let Some(recorded) = task_lane.worktree_path.as_deref() {
-        let existing = verify_worker_lane(
-            canonical_cwd,
-            recorded,
-            task_lane.branch.as_deref(),
-            task_lane.base.as_deref(),
-        )
-        .map_err(invalid_dispatch)?;
-        return Ok(DispatchLaneResolution {
-            spawn_cwd: existing.worktree_path.clone(),
-            existing: Some(existing),
-        });
-    }
-    Ok(DispatchLaneResolution {
-        spawn_cwd: canonical_cwd.to_string(),
-        existing: None,
-    })
-}
-
 fn lane_metadata_for_dispatch(
     original: &TaskLaneMetadata,
     provenance: &WorkerLaneProvenance,
@@ -155,7 +92,9 @@ fn lane_metadata_for_dispatch(
         return lane;
     }
     lane.worktree_path = Some(provenance.worktree_path.clone());
-    lane.branch = Some(provenance.branch.clone());
+    // A waived detached lane has no branch; record the absence so the advisory
+    // nudge fires instead of persisting an empty branch name.
+    lane.branch = (!provenance.branch.is_empty()).then(|| provenance.branch.clone());
     lane.base = Some(provenance.base.clone());
     lane.cleanup_status = None;
     lane
@@ -273,19 +212,6 @@ fn dispatch_ready_event(
     event
 }
 
-fn checkout_required(reason: impl Into<String>) -> JsonRpcError {
-    let reason = reason.into();
-    JsonRpcError {
-        code: -32012,
-        message: format!("repository checkout required: {reason}"),
-        data: Some(json!({
-            "type": "checkout_required",
-            "stage": "checkout_preflight",
-            "reason": reason,
-        })),
-    }
-}
-
 fn epoch_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -394,6 +320,7 @@ pub(super) struct DispatchStartup {
     pub(super) lane_for_commit: TaskLaneMetadata,
     pub(super) provenance: Option<WorkerLaneProvenance>,
     pub(super) provisioned_lane: Option<ProvisionedWorkerLane>,
+    pub(super) lane_protection: LaneProtection,
     pub(super) spawn_command: String,
 }
 
@@ -411,6 +338,7 @@ impl DispatchStartup {
                     &provenance.worktree_path,
                     Some(&provenance.branch),
                     Some(&provenance.base),
+                    self.lane_protection,
                 )
                 .map(Some),
                 None => Ok(None),
@@ -845,14 +773,18 @@ pub(super) fn dispatch(
     } else {
         plan.canonical_project_path.clone()
     };
+    // Task-level intent decides whether a repository is involved at all; the
+    // dispatch-time intent decides whether the mutating-work guards apply.
     let requires_repository = detail.task.execution_intent.requires_repository();
+    let lane_protection = LaneProtection::for_dispatch_intent(&execution_intent);
     let lane_resolution = if requires_repository {
-        verify_worker_lane(&canonical_cwd, &canonical_cwd, None, None)
+        verify_worker_lane(&canonical_cwd, &canonical_cwd, None, None, lane_protection)
             .map_err(checkout_required)?;
         Some(resolve_dispatch_lane(
             explicit_cwd.as_deref(),
             &canonical_cwd,
             &detail.task.lane,
+            lane_protection,
         )?)
     } else {
         None
@@ -880,7 +812,7 @@ pub(super) fn dispatch(
             )
             .inspect_err(|error| record_lane_safety_incident(store, &plan_id, &task_id, error))?;
         }
-        preflight_checkout_occupancy(&plan, &task_id, &spawn_cwd)?;
+        preflight_checkout_occupancy(&plan, &task_id, &spawn_cwd, lane_protection)?;
     }
     let (planned_reasoning_effort, reasoning_effort) = dispatch_reasoning_effort(p);
     let mut spawn_params = SpawnAgentParams {
@@ -1074,6 +1006,7 @@ pub(super) fn dispatch(
         lane_for_commit,
         provenance: initial_provenance.clone(),
         provisioned_lane,
+        lane_protection,
         spawn_command: format!("codeterm plan task dispatch {plan_id} {task_id}"),
     };
     std::thread::spawn(move || startup.run(ready_rx));

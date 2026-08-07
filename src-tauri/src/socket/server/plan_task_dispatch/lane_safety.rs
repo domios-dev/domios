@@ -1,6 +1,7 @@
 use serde_json::json;
 
 use crate::plan::{ExecutionIntent, Plan, TaskLaneMetadata};
+use crate::service::LaneProtection;
 
 use super::super::safety_nudge::{
     SafetyNudge, NUDGE_LANE_BASE_UNRECORDED, NUDGE_LANE_BRANCH_UNRECORDED,
@@ -145,11 +146,17 @@ pub(crate) fn dispatch_safety_nudges(
     nudges
 }
 
+/// Occupancy protects work in progress from a second writer, so a declared
+/// read-only dispatch is never obstructed by it.
 pub(crate) fn preflight_checkout_occupancy(
     plan: &Plan,
     dispatched_task_id: &str,
     checkout_path: &str,
+    protection: LaneProtection,
 ) -> Result<(), JsonRpcError> {
+    if protection.is_waived() {
+        return Ok(());
+    }
     let canonical_path = canonical_path_of(plan);
     let normalized_checkout = codeterm_paths::normalize_cwd(checkout_path);
     let occupant = plan.tasks.iter().find_map(|task| {
@@ -197,19 +204,11 @@ pub(crate) fn preflight_checkout_occupancy(
     })
 }
 
-#[cfg(windows)]
+/// Placeholders, not shell prompts: an agent shell has no tty, so the same
+/// literal template has to be runnable once substituted in either shell.
 pub(crate) fn isolated_lane_update_command(plan_id: &str, task_id: &str) -> String {
     format!(
-        "codeterm plan task update {plan_id} {task_id} --worktree (Read-Host 'Existing isolated worktree path') --branch (Read-Host 'Existing isolated branch') --base (Read-Host 'Base ref')"
-    )
-}
-
-#[cfg(not(windows))]
-pub(crate) fn isolated_lane_update_command(plan_id: &str, task_id: &str) -> String {
-    format!(
-        "codeterm plan task update {plan_id} {task_id} \
-         --worktree \"$(printf 'Existing isolated worktree path: ' >/dev/tty; IFS= read -r value </dev/tty; printf '%s' \"$value\")\" \
-         --branch \"$(printf 'Existing isolated branch: ' >/dev/tty; IFS= read -r value </dev/tty; printf '%s' \"$value\")\" \
-         --base \"$(printf 'Base ref: ' >/dev/tty; IFS= read -r value </dev/tty; printf '%s' \"$value\")\""
+        "codeterm plan task update {plan_id} {task_id} --worktree <existing-isolated-worktree-path> \
+         --branch <existing-isolated-branch> --base <base-ref>"
     )
 }
