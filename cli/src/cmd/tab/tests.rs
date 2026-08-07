@@ -46,6 +46,10 @@ fn rank_ids(needle: &str, tabs: &[serde_json::Value]) -> Vec<String> {
         .collect()
 }
 
+fn string_field<'a>(value: &'a serde_json::Value, key: &str) -> &'a str {
+    value.get(key).and_then(|field| field.as_str()).unwrap_or("")
+}
+
 #[test]
 fn render_tree_groups_by_workspace_and_nests_children() {
     let tabs = vec![
@@ -105,7 +109,7 @@ fn tab_list_uses_ordinary_remote_projection_without_remote_worker_ghosts() {
         }),
     ];
 
-    let ids: Vec<_> = tabs.iter().map(|tab| sfield(tab, "id")).collect();
+    let ids: Vec<_> = tabs.iter().map(|tab| string_field(tab, "id")).collect();
     assert_eq!(
         ids,
         [
@@ -115,9 +119,9 @@ fn tab_list_uses_ordinary_remote_projection_without_remote_worker_ghosts() {
             "mesh:peer-b/shared-tab"
         ]
     );
-    assert_eq!(sfield(&tabs[2], "remote_tab_id"), "shared-tab");
-    assert_eq!(sfield(&tabs[2], "role_profile"), "planner");
-    assert_eq!(sfield(&tabs[2], "remote_peer_name"), "A");
+    assert_eq!(string_field(&tabs[2], "remote_tab_id"), "shared-tab");
+    assert_eq!(string_field(&tabs[2], "role_profile"), "planner");
+    assert_eq!(string_field(&tabs[2], "remote_peer_name"), "A");
     assert_eq!(
         ordinary_tab_list_path(&tab_list_params(None, true, false, None)),
         "/api/tabs?all_workspaces=true"
