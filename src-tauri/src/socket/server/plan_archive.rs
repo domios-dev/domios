@@ -102,7 +102,7 @@ fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
 
 fn plan_rpc_err(e: PlanError) -> JsonRpcError {
     JsonRpcError {
-        code: -32603,
+        code: e.rpc_code(),
         message: e.to_string(),
         data: Some(e.to_json()),
     }

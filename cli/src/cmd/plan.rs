@@ -4,9 +4,10 @@ use crate::args::plan::{
     PlanAction, PlanElementAction, PlanFacetsAction, PlanGoalAction, PlanGroupsAction,
     PlanKindsAction, PlanLayoutAction, PlanLoopAction, PlanMilestoneAction, PlanNoteAction,
 };
-use crate::client::RpcClient;
+use crate::client::{RpcClient, SocketCallError};
 use crate::cmd::hints::{plan_create_spec_first_hint, push_hints};
 use crate::cmd::plan_errors::render_plan_call_error;
+use crate::cmd::print::CliError;
 
 mod adopt_search;
 pub(crate) mod caller_context;
@@ -64,11 +65,32 @@ pub(crate) fn inject_trusted_session(params: &mut Value) {
     CallerContext::from_env().apply_trusted_session(params);
 }
 
+/// The rendered explanation an operator sees, plus the daemon's code, which
+/// `--json` needs and the rendered prose deliberately never carries.
+fn plan_call_cli_error(error: SocketCallError, params: &Value) -> CliError {
+    let code = match &error {
+        SocketCallError::Rpc(rpc) => Some(rpc.code),
+        SocketCallError::Transport(_) => None,
+    };
+    CliError {
+        message: render_plan_call_error(error, params),
+        code,
+    }
+}
+
 pub(crate) fn call_plan_rpc(
     client: &mut dyn RpcClient,
     method: &str,
-    mut params: Value,
+    params: Value,
 ) -> Result<Value, String> {
+    call_plan_rpc_detailed(client, method, params).map_err(|error| error.message)
+}
+
+pub(crate) fn call_plan_rpc_detailed(
+    client: &mut dyn RpcClient,
+    method: &str,
+    mut params: Value,
+) -> Result<Value, CliError> {
     if method == "plan.task.adopt_checkpoint" {
         inject_trusted_session(&mut params);
     } else if params.get("task_id").is_some()
@@ -85,21 +107,21 @@ pub(crate) fn call_plan_rpc(
         let lookup = params.clone();
         let shown = client
             .call_detailed("task.show", Some(lookup))
-            .map_err(|error| render_plan_call_error(error, &params))?;
+            .map_err(|error| plan_call_cli_error(error, &params))?;
         let owner_epoch = shown
             .get("task")
             .unwrap_or(&shown)
             .get("interruption")
             .and_then(|value| value.get("owner_epoch"))
             .and_then(Value::as_u64)
-            .ok_or_else(|| "task mutation could not resolve owner_epoch".to_string())?;
+            .ok_or_else(|| CliError::new("task mutation could not resolve owner_epoch"))?;
         if let Some(object) = params.as_object_mut() {
             object.insert("owner_epoch".into(), json!(owner_epoch));
         }
     }
     client
         .call_detailed(method, Some(params.clone()))
-        .map_err(|e| render_plan_call_error(e, &params))
+        .map_err(|e| plan_call_cli_error(e, &params))
 }
 
 fn call(client: &mut dyn RpcClient, method: &str, params: Value) -> Result<Value, String> {
