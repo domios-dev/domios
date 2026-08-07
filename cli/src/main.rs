@@ -13,6 +13,11 @@ use client::{discover_socket, discover_socket_resolution, SocketClient};
 
 pub use mesh_cli::{MeshAction, MeshPeerAction};
 
+/// Resolve tab ID: explicit arg > $CODETERM_TAB_ID env var > refuse.
+///
+/// When running inside CodeTerm, $CODETERM_TAB_ID is set automatically by the PTY.
+/// There is no focused-tab fallback: a caller that can prove neither is refused,
+/// so a command can never act on a tab the caller does not own.
 pub fn resolve_tab(client: &mut SocketClient, id: Option<String>) -> String {
     cmd::local_io::resolve_tab(client, id)
 }
@@ -115,11 +120,6 @@ pub use args::team::TeamAction;
 pub use args::update::UpdateAction;
 pub use args::usage::UsageAction;
 
-/// Resolve tab ID: explicit arg > $CODETERM_TAB_ID env var > focused tab from server.
-///
-/// When running inside CodeTerm, $CODETERM_TAB_ID is set automatically by the PTY.
-/// This ensures commands like `tab split` always target the caller's tab,
-/// not whatever tab the user happens to have focused.
 fn main() {
     stdout::run(main_impl);
 }
@@ -576,7 +576,7 @@ fn hydrate_tab_task_binding_env(args: &[String]) {
     }
 }
 
-fn nonempty_env(name: &str) -> Option<String> {
+pub(crate) fn nonempty_env(name: &str) -> Option<String> {
     std::env::var(name)
         .ok()
         .map(|value| value.trim().to_string())
