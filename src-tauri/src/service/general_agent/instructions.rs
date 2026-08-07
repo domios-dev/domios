@@ -366,6 +366,8 @@ mod tests {
         let agent = std::fs::read_to_string(dir.join("AGENT.md")).unwrap();
         let claude = std::fs::read_to_string(dir.join("CLAUDE.md")).unwrap();
         let agents = std::fs::read_to_string(dir.join("AGENTS.md")).unwrap();
+        let pad_rule = crate::prompts::AGENT_PAD_RULE.trim();
+        assert!(!pad_rule.is_empty(), "an empty fragment proves nothing");
         for contract in [&agent, &agents] {
             assert_eq!(contract.matches("You are the General Agent").count(), 1);
             assert_eq!(
@@ -373,6 +375,11 @@ mod tests {
                     .matches(crate::prompts::AGENT_CODETERM_PRIMER.trim())
                     .count(),
                 1
+            );
+            assert_eq!(
+                contract.matches(pad_rule).count(),
+                1,
+                "the written instruction file must carry the AgentPad rule exactly once"
             );
             assert_eq!(contract.matches("# CodeTerm CLI reference").count(), 1);
             assert_eq!(contract.matches("# CodeTerm Memory Protocol").count(), 1);
