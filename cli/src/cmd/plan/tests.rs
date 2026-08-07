@@ -300,7 +300,7 @@ fn renders_readback_mismatch_without_blind_retry() {
 
 #[test]
 fn all_backend_plan_error_types_have_cli_renderers() {
-    let source = include_str!("../../../../src-tauri/src/service/plan/types.rs");
+    let source = include_str!("../../../../src-tauri/crates/codeterm-plan/src/service_plan/types.rs");
     let mut types = source
         .lines()
         .filter_map(extract_plan_error_type)
