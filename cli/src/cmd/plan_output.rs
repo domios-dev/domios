@@ -147,24 +147,32 @@ fn render_strategy_warning(val: &Value) -> Option<String> {
     ))
 }
 
+/// The one error envelope the whole CLI emits under `--json`. `code` carries the
+/// JSON-RPC code programmatically so no human-facing line has to leak it.
+pub(crate) fn error_envelope(message: &str, code: Option<i32>) -> Value {
+    serde_json::json!({
+        "ok": false,
+        "kind": "error",
+        "id": null,
+        "data": null,
+        "hints": [],
+        "error": message,
+        "code": code,
+    })
+}
+
+fn plan_error_line(json: bool, message: &str) -> String {
+    if json {
+        error_envelope(message, None).to_string()
+    } else {
+        message.to_string()
+    }
+}
+
 /// With --json, callers pipe stdout into a JSON parser — an error must stay
 /// structured (`{"error": ...}`) instead of leaking a human hint that fails jq.
 pub(crate) fn print_plan_error(json: bool, message: &str) {
-    if json {
-        println!(
-            "{}",
-            serde_json::json!({
-                "ok": false,
-                "kind": "error",
-                "id": null,
-                "data": null,
-                "hints": [],
-                "error": message,
-            })
-        );
-    } else {
-        println!("{message}");
-    }
+    println!("{}", plan_error_line(json, message));
 }
 
 pub(crate) fn print_mutation_tail(json: bool, val: &Value) {
@@ -290,6 +298,43 @@ mod tests {
         assert!(rendered.contains("3 consecutive stagnant bounces"));
         assert!(rendered.contains("review round 4"));
         assert!(rendered.contains("codeterm docs BOUNCE"));
+    }
+
+    const PLAN_NOT_FOUND: &str = "✗ plan 'zzzzzzzz' not found.\nfix: codeterm plan list --active";
+
+    #[test]
+    fn plan_json_error_line_is_the_shared_envelope_with_a_null_code() {
+        let parsed: Value =
+            serde_json::from_str(&plan_error_line(true, PLAN_NOT_FOUND)).expect("one JSON envelope");
+
+        assert_eq!(parsed["ok"], Value::Bool(false));
+        assert_eq!(parsed["kind"], "error");
+        assert_eq!(parsed["code"], Value::Null);
+        assert_eq!(parsed["error"], PLAN_NOT_FOUND);
+    }
+
+    #[test]
+    fn plan_human_error_line_keeps_its_fix_hint_verbatim() {
+        assert_eq!(plan_error_line(false, PLAN_NOT_FOUND), PLAN_NOT_FOUND);
+    }
+
+    #[test]
+    fn plan_and_cli_errors_share_one_envelope_shape() {
+        let plan_keys = envelope_keys(&serde_json::from_str(&plan_error_line(true, "x")).unwrap());
+        let cli_keys = envelope_keys(&error_envelope("x", Some(-32603)));
+
+        assert_eq!(plan_keys, cli_keys);
+    }
+
+    fn envelope_keys(value: &Value) -> Vec<String> {
+        let mut keys: Vec<String> = value
+            .as_object()
+            .expect("envelope is an object")
+            .keys()
+            .cloned()
+            .collect();
+        keys.sort();
+        keys
     }
 
     #[test]
