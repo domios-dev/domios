@@ -40,7 +40,7 @@ codeterm agent spawn claude --title "Orchestrator" --role Orchestrator --workspa
 → Spawn as **Worker** under yourself (you must be the Orchestrator).
 
 ```bash
-codeterm agent spawn claude --title "Scout" --role Worker --parent $CODETERM_TAB_ID \
+codeterm agent spawn claude --title "Scout" --role Worker --parent-tab $CODETERM_TAB_ID \
   --task "Run `codeterm mem get <role_skill_id>` first. Then: TASK: list .rs files in src-tauri/src/service/. Do not spawn. Run: codeterm agent report 'found N files: ...'"
 ```
 
@@ -69,7 +69,7 @@ You execute exactly ONE concrete task and report back.
 
 - **Spawning a Worker that will spawn more workers** → backend blocks the nested spawn. Workers are leaves. Split the work into more Workers at the Orchestrator level, or delegate to a separate Orchestrator.
 - **Trying to elevate a Worker into an Orchestrator** → backend blocks it. Orchestrators are top-level roles.
-- **Spawning an Orchestrator with a `--parent`** → backend error: "Orchestrator cannot have a parent". Orchestrators are always top-level.
+- **Spawning an Orchestrator with a `--parent-tab`** → backend error: "Orchestrator cannot have a parent". Orchestrators are always top-level.
 - **Worker's `--task` missing the report command** → worker runs, but never reports back. Always append `then run: codeterm agent report 'summary'` to worker tasks.
 
 ## Worker task template
