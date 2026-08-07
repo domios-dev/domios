@@ -476,19 +476,19 @@ const planTaskTemplate: TemplateFn = (inv, result) => {
     return { icon: "🔄", title: status ? `Task status → ${status}` : "Task updated", link };
   }
   if (action === "add") {
-    const name = strFlag(inv, "title");
+    const name = strFlag(inv, "name");
     return { icon: "🗂", title: name ? `Task created: ${name}` : "Task created", link };
   }
   return { icon: "🗂", title: `Plan task ${action ?? ""}`.trim(), link };
 };
 
 const planRecordTemplate: TemplateFn = (inv, result) => {
-  const kind = strFlag(inv, "kind");
-  const note = inv.positionals[0] ?? strFlag(inv, "note");
+  const status = strFlag(inv, "status");
+  const note = flagText(inv, "step", "name");
   const firstLine = note ? note.split("\n")[0] : undefined;
   return {
     icon: "📝",
-    title: kind ? `Plan updated: ${kind}` : "Plan updated",
+    title: status ? `Progress recorded → ${status}` : "Progress recorded",
     detail: firstLine,
     link: planLink(inv, result),
   };

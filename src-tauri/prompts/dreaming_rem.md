@@ -701,8 +701,9 @@ Recent sessions list:
 ## C.2 — Promote / archive learnings
 
     codeterm mem search "" --kind learning --limit 30
-    # Old learnings (>30 days) with high access_count → promote to fact:
-    codeterm mem update <id> --kind fact --importance 4
+    # Old learnings (>30 days) with high access_count → promote to fact.
+    # `mem update` has no --kind; learn-promote is the only kind transition.
+    codeterm mem learn-promote <id>
     # Old learnings never accessed → leave for SQL archival, do NOT delete here.
 
 ## C.3 — Stale relation cleanup
