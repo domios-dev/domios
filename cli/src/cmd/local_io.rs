@@ -531,6 +531,26 @@ mod tests {
         assert!(stderr.is_empty());
     }
 
+    /// `agent ack` writes ownership on behalf of an identity, so its arm must
+    /// reach the explicit-only resolver and never the client-based wrapper.
+    #[test]
+    fn agent_ack_resolves_its_tab_from_explicit_identity_only() {
+        const AGENT_RS: &str = include_str!("agent.rs");
+        let arm = AGENT_RS
+            .split_once("AgentAction::Ack {")
+            .expect("the ack arm exists")
+            .1
+            .split_once("AgentAction::")
+            .expect("the ack arm ends at the next action")
+            .0;
+
+        assert!(arm.contains("resolve_caller_tab(tab, \"agent ack\")"), "{arm}");
+        assert!(
+            !arm.contains("resolve_tab("),
+            "ack must not resolve through the client-based wrapper: {arm}"
+        );
+    }
+
     #[test]
     fn workspace_cwd_hint_names_the_flag() {
         let hint = workspace_create_cwd_hint();
