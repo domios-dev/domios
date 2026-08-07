@@ -1,4 +1,4 @@
-use std::io::{Read, Write};
+use std::io::Read;
 
 use crate::args::inbox::InboxAction;
 use crate::args::task::{CanvasAction, TaskAction};
@@ -8,8 +8,8 @@ use crate::cmd::hints::{
     task_model_hint, task_quality_guard_hint, task_sections_hint,
 };
 use crate::cmd::plan::inject_trusted_session;
-use crate::cmd::plan_output::{canonical_mutation_id, error_envelope};
-use crate::cmd::print::{print_object, CliError, CLI_ERROR_EXIT_CODE};
+use crate::cmd::plan_output::canonical_mutation_id;
+use crate::cmd::print::{exit_with_cli_error, print_object, CliError};
 use serde_json::{json, Value};
 
 fn read_path_or_stdin(path: &str) -> Result<String, String> {
@@ -56,44 +56,21 @@ fn cwd_project(client: &dyn RpcClient) -> Option<String> {
         .map(|path| path.display().to_string())
 }
 
-pub(crate) const HUMAN_ERROR_PREFIX: &str = "Error: ";
-
-/// Human failures go to stderr and the `--json` envelope to stdout, so a `jq`
-/// pipeline reads a parseable `ok: false` document instead of prose.
-fn write_task_error(
-    json: bool,
-    error: &CliError,
-    out: &mut impl Write,
-    err: &mut impl Write,
-) -> i32 {
-    if json {
-        let _ = writeln!(out, "{}", error_envelope(&error.message, error.code));
-    } else {
-        let _ = writeln!(err, "{HUMAN_ERROR_PREFIX}{}", error.message);
-    }
-    CLI_ERROR_EXIT_CODE
-}
-
-fn exit_with_task_error(json: bool, error: &CliError) -> ! {
-    let code = write_task_error(json, error, &mut std::io::stdout(), &mut std::io::stderr());
-    std::process::exit(code);
-}
-
 pub fn handle_task(client: &mut dyn RpcClient, json: bool, action: TaskAction) {
     let (val, show_opts) = run_task(client, json, action)
-        .unwrap_or_else(|e| exit_with_task_error(json, &CliError::new(e)));
+        .unwrap_or_else(|e| exit_with_cli_error(json, &CliError::new(e)));
     print_task_result(json, &val, show_opts);
 }
 
 pub fn handle_inbox(client: &mut dyn RpcClient, json: bool, action: InboxAction) {
     let val =
-        run_inbox(client, action).unwrap_or_else(|e| exit_with_task_error(json, &CliError::new(e)));
+        run_inbox(client, action).unwrap_or_else(|e| exit_with_cli_error(json, &CliError::new(e)));
     print_task_result(json, &val, None);
 }
 
 pub fn handle_canvas(client: &mut dyn RpcClient, json: bool, action: CanvasAction) {
-    let val = run_canvas(client, action)
-        .unwrap_or_else(|e| exit_with_task_error(json, &CliError::new(e)));
+    let val =
+        run_canvas(client, action).unwrap_or_else(|e| exit_with_cli_error(json, &CliError::new(e)));
     print_task_result(json, &val, None);
 }
 
