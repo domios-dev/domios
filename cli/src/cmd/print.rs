@@ -204,20 +204,10 @@ fn tab_json_segment(segment: &[char]) -> String {
     }
 }
 
+/// String failures are the same failures; they reach the same `--json` sink,
+/// only without a daemon code to carry.
 pub fn handle_result(json: bool, result: Result<serde_json::Value, String>) {
-    match result {
-        Ok(value) => {
-            if json {
-                print_json(&value);
-            } else {
-                print_human(&value);
-            }
-        }
-        Err(e) => {
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
-        }
-    }
+    handle_cli_result(json, result.map_err(CliError::new));
 }
 
 pub fn print_human(value: &serde_json::Value) {
@@ -415,6 +405,36 @@ mod tests {
         assert_eq!(envelope["ok"], serde_json::Value::Bool(false));
         assert_eq!(envelope["kind"], "error");
         assert_eq!(envelope["code"], -32603);
+    }
+
+    /// The string path used to own a second, `--json`-blind error arm; the sink
+    /// exits, so delegation is pinned structurally and rendering behaviourally.
+    #[test]
+    fn handle_result_error_path_emits_the_json_envelope_instead_of_bare_stderr() {
+        const PRINT_RS: &str = include_str!("print.rs");
+        let start = PRINT_RS
+            .find("pub fn handle_result(")
+            .expect("handle_result exists");
+        let rest = &PRINT_RS[start..];
+        let body = &rest[..rest.find("\n}").expect("handle_result body terminates")];
+
+        assert!(
+            body.contains("handle_cli_result(json, result.map_err(CliError::new))"),
+            "handle_result must reuse the typed sink: {body}"
+        );
+        assert!(
+            !body.contains("eprintln!") && !body.contains("process::exit"),
+            "handle_result must not keep a private error path: {body}"
+        );
+
+        let (out, err) = rendered(true, &CliError::new("plan not found"));
+
+        assert!(err.is_empty(), "--json puts the whole failure on stdout: {err}");
+        let envelope: serde_json::Value =
+            serde_json::from_str(&out).expect("stdout carries exactly one JSON envelope");
+        assert_eq!(envelope["ok"], serde_json::Value::Bool(false));
+        assert_eq!(envelope["kind"], "error");
+        assert_eq!(envelope["error"], "plan not found");
     }
 
     #[test]
