@@ -18,7 +18,6 @@ pub fn notify(
     body: Option<String>,
     level: Option<String>,
     tab_id: Option<String>,
-    workspace_id: Option<String>,
 ) -> Result<String, String> {
     Ok(svc.create_notification_ext(
         title,
@@ -26,8 +25,7 @@ pub fn notify(
         level.as_deref(),
         None,
         None,
-        tab_id,
-        workspace_id,
+        crate::service::notification::NotificationOrigin::claimed(tab_id),
     ))
 }
 
