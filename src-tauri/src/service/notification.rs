@@ -2,9 +2,57 @@
 
 use super::ServiceContext;
 use crate::notification::{
-    store::{DedupAdmission, NotificationLevel},
+    store::{DedupAdmission, NotificationLevel, NotificationProvenance},
     NotifState,
 };
+
+/// Untrusted navigation hints attached to a notification request. `caller_tab_id`
+/// is the transport-authenticated caller, `claimed_tab_id` is payload-supplied.
+#[derive(Debug, Clone, Default)]
+pub struct NotificationOrigin {
+    pub caller_tab_id: Option<String>,
+    pub claimed_tab_id: Option<String>,
+    pub peer_name: Option<String>,
+}
+
+impl NotificationOrigin {
+    pub fn claimed(tab_id: Option<String>) -> Self {
+        Self {
+            claimed_tab_id: tab_id,
+            ..Default::default()
+        }
+    }
+
+    pub fn local_tab(tab_id: String) -> Self {
+        Self {
+            caller_tab_id: Some(tab_id),
+            ..Default::default()
+        }
+    }
+}
+
+/// Resolve an origin to daemon-owned provenance. A remote peer never names a
+/// local tab, the authenticated caller outranks any payload claim, and an
+/// unresolvable id yields empty provenance rather than a stored navigation target.
+fn resolve_origin(
+    origin: &NotificationOrigin,
+    resolve_tab: impl FnOnce(&str) -> Option<NotificationProvenance>,
+) -> NotificationProvenance {
+    if let Some(peer_name) = origin.peer_name.as_deref() {
+        return NotificationProvenance {
+            peer_name: Some(peer_name.to_string()),
+            ..Default::default()
+        };
+    }
+    origin
+        .caller_tab_id
+        .as_deref()
+        .or(origin.claimed_tab_id.as_deref())
+        .map(str::trim)
+        .filter(|candidate| !candidate.is_empty())
+        .and_then(resolve_tab)
+        .unwrap_or_default()
+}
 
 #[derive(Debug)]
 enum NotificationAdmission {
@@ -33,13 +81,14 @@ fn create_notification_with_delivery(
     level: Option<&str>,
     actions: Option<serde_json::Value>,
     sticky: Option<bool>,
-    tab_id: Option<String>,
-    workspace_id: Option<String>,
+    origin: NotificationOrigin,
+    resolve_tab: impl FnOnce(&str) -> Option<NotificationProvenance>,
     emit: impl FnOnce(serde_json::Value),
 ) -> String {
     if matches!(admission, NotificationAdmission::Diagnostic) {
         return uuid::Uuid::new_v4().to_string();
     }
+    let provenance = resolve_origin(&origin, resolve_tab);
     let parsed_level = notification_level(level);
     let level_str = match &parsed_level {
         NotificationLevel::Warning => "Warning",
@@ -52,20 +101,23 @@ fn create_notification_with_delivery(
             title.clone(),
             body.clone(),
             parsed_level,
-            tab_id.clone(),
-            workspace_id.clone(),
+            provenance.clone(),
             actions.clone(),
             sticky,
         ),
         NotificationAdmission::ProviderUpdate { prompt_id } => {
+            // The prompt's only action targets its tab; a tab that no longer
+            // resolves leaves nothing to navigate to or answer.
+            if provenance.tab_id.is_none() {
+                return uuid::Uuid::new_v4().to_string();
+            }
             let mut store = store.lock();
             match store.add_provider_update(
                 prompt_id,
                 title.clone(),
                 body.clone().unwrap_or_default(),
                 actions.clone().unwrap_or_else(|| serde_json::json!([])),
-                tab_id.clone().expect("provider update has a tab"),
-                workspace_id.clone(),
+                provenance.clone(),
             ) {
                 DedupAdmission::Added(id) => id,
                 DedupAdmission::Duplicate(id) => return id,
@@ -78,8 +130,10 @@ fn create_notification_with_delivery(
         "title": title,
         "body": body,
         "level": level_str,
-        "tab_id": tab_id,
-        "workspace_id": workspace_id,
+        "tab_id": provenance.tab_id.clone(),
+        "workspace_id": provenance.workspace_id.clone(),
+        "tab_title": provenance.tab_title.clone(),
+        "peer_name": provenance.peer_name.clone(),
     });
     if let Some(ref acts) = actions {
         payload["actions"] = acts.clone();
@@ -96,6 +150,19 @@ fn create_notification_with_delivery(
 }
 
 impl ServiceContext {
+    /// Live-multiplexer lookup: a tab id only becomes provenance if the tab is
+    /// still open, and its title and workspace come from the tab, not the caller.
+    fn resolve_tab_provenance(&self, tab_id: &str) -> Option<NotificationProvenance> {
+        let mux = self.mux.read();
+        let tab_title = mux.get_tab(tab_id).map(|tab| tab.title.clone())?;
+        Some(NotificationProvenance {
+            tab_id: Some(tab_id.to_string()),
+            tab_title: Some(tab_title),
+            workspace_id: mux.find_workspace_for_tab(tab_id),
+            peer_name: None,
+        })
+    }
+
     pub(crate) fn create_provider_update_notification(
         &self,
         prompt_id: String,
@@ -103,7 +170,6 @@ impl ServiceContext {
         message: String,
         tab_id: String,
     ) -> String {
-        let workspace_id = self.mux.read().find_workspace_for_tab(&tab_id);
         let actions = serde_json::json!([
             {
                 "label": "Update",
@@ -129,8 +195,8 @@ impl ServiceContext {
             Some("info"),
             Some(actions),
             Some(true),
-            Some(tab_id),
-            workspace_id,
+            NotificationOrigin::local_tab(tab_id),
+            |candidate| self.resolve_tab_provenance(candidate),
             |payload| self.notify_event("notification-created", payload),
         )
     }
@@ -158,8 +224,8 @@ impl ServiceContext {
             level,
             None,
             None,
-            None,
-            None,
+            NotificationOrigin::default(),
+            |_| None,
             |_| {},
         )
     }
@@ -172,8 +238,7 @@ impl ServiceContext {
         level: Option<&str>,
         actions: Option<serde_json::Value>,
         sticky: Option<bool>,
-        tab_id: Option<String>,
-        workspace_id: Option<String>,
+        origin: NotificationOrigin,
     ) -> String {
         create_notification_with_delivery(
             NotificationAdmission::Explicit,
@@ -186,8 +251,8 @@ impl ServiceContext {
             level,
             actions,
             sticky,
-            tab_id,
-            workspace_id,
+            origin,
+            |candidate| self.resolve_tab_provenance(candidate),
             |payload| self.notify_event("notification-created", payload),
         )
     }
@@ -224,8 +289,8 @@ mod tests {
             Some("warning"),
             None,
             None,
-            None,
-            None,
+            NotificationOrigin::default(),
+            |_| None,
             |payload| emitted.lock().push(payload),
         );
 
@@ -266,8 +331,8 @@ mod tests {
             Some("error"),
             None,
             None,
-            None,
-            None,
+            NotificationOrigin::default(),
+            |_| None,
             |payload| emitted.lock().push(payload),
         );
 
@@ -314,8 +379,8 @@ mod tests {
                 Some("warning"),
                 None,
                 None,
-                None,
-                None,
+                NotificationOrigin::default(),
+                |_| None,
                 |payload| emitted.lock().push(payload),
             );
         }
@@ -323,5 +388,137 @@ mod tests {
         assert_eq!(store.lock().list(false).len(), 0);
         assert_eq!(emitted.lock().len(), 0);
         assert_eq!(native.lock().len(), 0);
+    }
+
+    mod notification_provenance {
+        use super::*;
+
+        /// Stand-in for the live multiplexer: only ids present here resolve, and
+        /// title plus workspace come from the registry, never from the caller.
+        const LIVE_TABS: [(&str, &str, &str); 2] = [
+            ("tab_caller", "Worker lane", "ws_lanes"),
+            ("tab_bystander", "Unrelated shell", "ws_scratch"),
+        ];
+
+        fn live_registry(candidate: &str) -> Option<NotificationProvenance> {
+            LIVE_TABS
+                .iter()
+                .find(|(id, _, _)| *id == candidate)
+                .map(|(id, title, workspace)| NotificationProvenance {
+                    tab_id: Some((*id).to_string()),
+                    tab_title: Some((*title).to_string()),
+                    workspace_id: Some((*workspace).to_string()),
+                    peer_name: None,
+                })
+        }
+
+        #[test]
+        fn unresolvable_claimed_tab_is_dropped_not_stored() {
+            let store = Arc::new(Mutex::new(NotificationStore::new(10)));
+            let emitted = Mutex::new(Vec::new());
+            assert!(
+                live_registry("tab_bystander").is_some(),
+                "the fixture keeps an unrelated live tab so an empty registry cannot short-circuit"
+            );
+
+            let id = create_notification_with_delivery(
+                NotificationAdmission::Explicit,
+                &store,
+                |_, _| {},
+                "Attention".into(),
+                Some("agent needs input".into()),
+                Some("warning"),
+                None,
+                None,
+                NotificationOrigin::claimed(Some("tab_never_existed".into())),
+                live_registry,
+                |payload| emitted.lock().push(payload),
+            );
+
+            let guard = store.lock();
+            let listed = guard.list(false);
+            assert_eq!(listed.len(), 1, "the notification still lands");
+            assert_eq!(listed[0].id, id);
+            assert_eq!(listed[0].tab_id, None, "the claim is dropped, not stored");
+            assert_eq!(listed[0].workspace_id, None);
+            assert_eq!(listed[0].tab_title, None);
+            drop(guard);
+
+            let events = emitted.lock();
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0]["tab_id"], serde_json::Value::Null);
+        }
+
+        #[test]
+        fn resolved_tab_overrides_a_conflicting_claim() {
+            let store = Arc::new(Mutex::new(NotificationStore::new(10)));
+            let emitted = Mutex::new(Vec::new());
+            let origin = NotificationOrigin {
+                caller_tab_id: Some("tab_caller".into()),
+                claimed_tab_id: Some("tab_bystander".into()),
+                peer_name: None,
+            };
+            assert_ne!(
+                origin.caller_tab_id, origin.claimed_tab_id,
+                "claim and resolution must differ for this assertion to mean anything"
+            );
+            assert!(
+                live_registry("tab_bystander").is_some(),
+                "the losing claim is itself a live tab, so only precedence can decide"
+            );
+
+            create_notification_with_delivery(
+                NotificationAdmission::Explicit,
+                &store,
+                |_, _| {},
+                "Attention".into(),
+                None,
+                Some("info"),
+                None,
+                None,
+                origin,
+                live_registry,
+                |payload| emitted.lock().push(payload),
+            );
+
+            let guard = store.lock();
+            let listed = guard.list(false);
+            assert_eq!(listed[0].tab_id.as_deref(), Some("tab_caller"));
+            assert_eq!(listed[0].tab_title.as_deref(), Some("Worker lane"));
+            assert_eq!(listed[0].workspace_id.as_deref(), Some("ws_lanes"));
+            drop(guard);
+
+            assert_eq!(emitted.lock()[0]["tab_id"], "tab_caller");
+        }
+
+        #[test]
+        fn mesh_peer_origin_never_stores_a_tab() {
+            let store = Arc::new(Mutex::new(NotificationStore::new(10)));
+            let origin = NotificationOrigin {
+                caller_tab_id: None,
+                claimed_tab_id: Some("tab_caller".into()),
+                peer_name: Some("BLACKSTAR".into()),
+            };
+
+            create_notification_with_delivery(
+                NotificationAdmission::Explicit,
+                &store,
+                |_, _| {},
+                "Remote build finished".into(),
+                None,
+                Some("info"),
+                None,
+                None,
+                origin,
+                live_registry,
+                |_| {},
+            );
+
+            let guard = store.lock();
+            let listed = guard.list(false);
+            assert_eq!(listed[0].tab_id, None);
+            assert_eq!(listed[0].workspace_id, None);
+            assert_eq!(listed[0].peer_name.as_deref(), Some("BLACKSTAR"));
+        }
     }
 }
