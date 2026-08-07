@@ -83,8 +83,9 @@ Response: `{"ok": true, "changed": true}` when the persisted id changed, `{"ok":
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
 | GET | `/api/notifications` | `?unread=true` | List notifications |
-| POST | `/api/notifications` | `{title, body?, level?, actions?, sticky?, tab_id?}` | Create notification (+ OS toast if unfocused). Navigation provenance is daemon-resolved: `X-CodeTerm-Tab-Id` outranks a body `tab_id`, an id naming no live tab is dropped (the notification still lands, without a Show Tab target), and `tab_title`/`workspace_id` come from the multiplexer. Mesh-relayed calls lose every tab claim and carry the signed peer name instead. |
+| POST | `/api/notifications` | `{title, body?, level?, actions?, sticky?, tab_id?, category?, event_key?}` | Create notification (+ OS toast if unfocused). Navigation provenance is daemon-resolved: `X-CodeTerm-Tab-Id` outranks a body `tab_id`, an id naming no live tab is dropped (the notification still lands, without a Show Tab target), and `tab_title`/`workspace_id` come from the multiplexer. Mesh-relayed calls lose every tab claim and carry the signed peer name instead. `category` is the closed set `milestone` / `blocker` / `failure`; anything else is `400`, and omitting it means local-only. Telegram delivery outcome is never returned. |
 | POST | `/api/notifications/clear` | — | Clear all |
+| GET | `/api/notifications/telegram-gate` | — | `{control_available}` — whether the settings opt-in may be offered (live bridge supervisor AND non-empty `telegram_allowed_users`). |
 
 #### Webhooks
 | Method | Path | Body | Description |
@@ -161,4 +162,4 @@ The `connect`, `approve`, `reject`, and `disconnect` endpoints are high-level �
 
 Memory item, graph, calibration, and worker endpoints: `codeterm docs API-MEMORY`.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->

@@ -33,6 +33,11 @@ desktop = true
 sound = false
 toast_duration = 5  # seconds
 
+[notifications.telegram]
+enabled = false        # opt-in push; off on a fresh install
+recipients = []        # explicit audience (chat ids) — NOT telegram_allowed_users
+per_scope_limit = 12   # lifetime push ceiling per originating tab (a count, not a rate)
+
 [orchestration]
 plan_reminders = true
 nudge_interval_secs = 1800  # 30 minutes
@@ -180,4 +185,4 @@ Settings UI: Settings > Agents > General Agent section (enable, auto-restart tog
 
 Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`.
 
-<!-- revision: 40 -->
+<!-- revision: 41 -->
