@@ -73,8 +73,12 @@ working directories, empty/protected state, Teams and active Plan ids, then live
 tabs in stable creation order. Reserve `workspace list --json` for checked-in
 automation that specifically needs the workspace-only payload.
 `workspace current` prints a bare id for shell use. Its point-query `--json`
-form adds `source: caller-tab|focus-fallback` when automation must distinguish
-the caller's workspace from the globally active fallback.
+form adds `source: explicit|caller-tab|workspace-env|focus-fallback` when
+automation must distinguish the caller's own workspace from the globally active
+fallback. Resolution is never positional: `--workspace`, then `$CODETERM_TAB_ID`
+joined through workspace membership, then a validated `$CODETERM_WORKSPACE_ID`,
+then the active workspace. A caller with no identity at all gets an empty stdout
+and exit 1, so a script must not treat an empty result as success.
 
 ## Integrations
 
@@ -124,4 +128,4 @@ Dot-notation for nested keys. Values are JSON (true, false, 42, "string", ["arra
 
 Agent hierarchy and session integration: `codeterm docs AGENT-CONTROL`.
 
-<!-- revision: 46 -->
+<!-- revision: 47 -->
