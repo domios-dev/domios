@@ -1,8 +1,9 @@
 use super::{
     build_agent_command, command_with_binding_nonce_for_shell, replacement_pty_candidate,
-    spawn_onboarding_task, take_reader_termination, worker_brief_delivery_incident, AgentRegistry,
-    LaunchFailure, LaunchGeneration, LaunchRegistry, ProviderSessionBinding,
+    take_reader_termination, worker_brief_delivery_incident, AgentRegistry, LaunchFailure,
+    LaunchGeneration, LaunchRegistry, ProviderSessionBinding,
 };
+use crate::service::orchestrator::prompt_compose::spawn_onboarding_task;
 use crate::chatbackend::{ChatBackendError, ChatBackendProvider, ChatBackendRegistry};
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{
@@ -301,14 +302,6 @@ fn production_driver_uses_typed_terminal_causes() {
 }
 
 #[test]
-fn plain_orchestrator_no_task_spawn_receives_the_system_contract() {
-    let prompt =
-        spawn_onboarding_task(&orchestrator_params(None)).expect("orchestrator system prompt");
-    assert!(prompt.starts_with(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
-    assert!(prompt.contains(crate::prompts::orchestrator_suffix().trim()));
-}
-
-#[test]
 fn plain_orchestrator_no_task_attaches_nothing() {
     let spec = SpawnTabSpec::from_agent_params(orchestrator_params(None));
     assert_eq!(spec.parent_tab_id, None);
@@ -432,19 +425,6 @@ fn provider_binding_with_a_wrong_nonce_is_ignored() {
 }
 
 #[test]
-fn explicit_orchestrator_task_is_submitted_exactly_once() {
-    let prompt = spawn_onboarding_task(&orchestrator_params(Some("inspect launch")))
-        .expect("orchestrator system prompt");
-    assert_eq!(prompt.matches("inspect launch").count(), 1);
-    assert_eq!(
-        prompt
-            .matches(crate::prompts::AGENT_CODETERM_PRIMER.trim())
-            .count(),
-        1
-    );
-}
-
-#[test]
 fn system_capable_pty_launch_carries_manager_bootstrap_without_fallback_content() {
     let registry = AgentRegistry::new();
     registry.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
@@ -458,19 +438,6 @@ fn system_capable_pty_launch_carries_manager_bootstrap_without_fallback_content(
     );
     assert!(command.contains("--append-system-prompt-file"));
     assert!(!command.contains(content));
-}
-
-#[test]
-fn planner_onboarding_remains_work_when_a_task_is_provided() {
-    let params = SpawnAgentParams {
-        task: Some("plan this".into()),
-        role: Some("Manager".into()),
-        role_profile: Some("planner".into()),
-        ..Default::default()
-    };
-    assert!(spawn_onboarding_task(&params)
-        .unwrap()
-        .contains(&crate::prompts::planner_suffix()));
 }
 
 struct SpawnableChatBackend;
@@ -524,66 +491,5 @@ fn transport_capability_paths_receive_the_primer_for_plain_orchestrator() {
             assert_eq!(role.as_deref(), Some("Orchestrator"));
         }
         other => panic!("expected chatBackend route, got {other:?}"),
-    }
-}
-
-/// The delivery half of the AgentPad invariant. The pre-existing prompt test
-/// only forbade duplication, so a recipient that never received the rule was
-/// invisible — which is exactly how spawned agents went without it.
-#[test]
-fn every_spawned_recipient_receives_the_agent_pad_rule_exactly_once() {
-    let rule = crate::prompts::AGENT_PAD_RULE.trim();
-
-    for (recipient, composed) in [
-        ("spawned non-worker", super::agent_system_prompt(None)),
-        (
-            "spawned worker",
-            super::worker_agent_system_prompt(None, None),
-        ),
-        (
-            "spawned non-worker with assignment",
-            super::agent_system_prompt(Some("do the thing")),
-        ),
-        (
-            "spawned worker with assignment",
-            super::worker_agent_system_prompt(Some("do the thing"), None),
-        ),
-    ] {
-        assert_eq!(
-            composed.matches(rule).count(),
-            1,
-            "{recipient} must receive the AgentPad rule exactly once"
-        );
-    }
-}
-
-/// A Worker is the recipient that had neither the rule nor the pointer to the
-/// skill carrying the full reference. Both arrive as whole constants.
-#[test]
-fn spawned_worker_receives_the_codeterm_primer() {
-    let composed = super::worker_agent_system_prompt(Some("do the thing"), None);
-    assert!(composed.contains(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
-    assert!(composed.contains(crate::prompts::WORKER_CODETERM_CONTEXT.trim()));
-}
-
-/// Rich-rendering guidance is a delivery fact. Two tests in prompts.rs were named
-/// for the primer and the worker context but asserted phrases inside
-/// RICH_RENDERING_GUIDANCE itself, so they proved nothing about either recipient.
-#[test]
-fn every_spawned_recipient_receives_rich_rendering_guidance() {
-    let guidance = crate::prompts::RICH_RENDERING_GUIDANCE.trim();
-
-    for (recipient, composed) in [
-        ("spawned non-worker", super::agent_system_prompt(None)),
-        (
-            "spawned worker",
-            super::worker_agent_system_prompt(None, None),
-        ),
-    ] {
-        assert_eq!(
-            composed.matches(guidance).count(),
-            1,
-            "{recipient} must receive the rich-rendering guidance exactly once"
-        );
     }
 }

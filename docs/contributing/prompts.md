@@ -68,13 +68,18 @@ The rendered output is written to three files in `general/`:
 
 ### Skill rendering
 
-`skills/codeterm/SKILL.md` is also a template with `{codeterm_cli}`. On daemon startup, `commands::skills::seed_bundled_skills` copies the bundled `skills/codeterm/` directory to `~/.codeterm/skills/codeterm/` (or `~/.codeterm-dev/skills/codeterm/` for dev). After the copy, the seeder reads the destination `SKILL.md`, replaces `{codeterm_cli}` with the same string baked into the binary (`crate::prompts::CODETERM_CLI`), and writes it back.
+`skills/codeterm/SKILL.md` is also a template. On daemon startup, `commands::skills::seed_bundled_skills` copies the bundled `skills/codeterm/` directory to `~/.codeterm/skills/codeterm/` (or `~/.codeterm-dev/skills/codeterm/` for dev), substituting each placeholder in `codeterm_skill_render_map()` as it writes:
 
-That keeps the GA prompt and the project-agent skill in lock-step: both pull the CLI surface from one file (`prompts/codeterm_cli.md`).
+| Placeholder | Source constant |
+|---|---|
+| `{codeterm_cli}` | `crate::prompts::CODETERM_CLI` (`prompts/codeterm_cli.md`) |
+| `{agent_pad_rule}` | `crate::prompts::AGENT_PAD_RULE` (`prompts/agent_pad_rule.md`) |
 
-If you change `prompts/codeterm_cli.md`:
+That keeps the GA prompt and the project-agent skill in lock-step: both pull each fragment from one file. To give the skill another shared fragment, add a placeholder plus a render-map entry — never paste the text into `SKILL.md`.
+
+If you change one of those prompt files:
 - GA picks it up on next session start (because `instructions.rs::generate_instructions` regenerates AGENT.md).
-- Project agents pick it up next time `seed_bundled_skills` runs (on daemon startup) — older copies in data-dir are overwritten when the source revision tag is higher than the destination's.
+- Project agents pick it up next time `seed_bundled_skills` runs (on daemon startup). The gate is content, not the revision tag: seed and mirror copy when the destination differs from the *rendered* source anywhere in the skill directory, so a changed constant or an edited `references/` file reinstalls at the same revision. `<!-- revision: N -->` is only a never-downgrade guard — a destination declaring a higher revision is left alone.
 
 ## Decision matrix — where does a new instruction belong?
 
@@ -131,4 +136,4 @@ Files that ship as content (skills, docs, bundled prompts) carry a `<!-- revisio
 
 GA prompt and codeterm_cli.md don't carry revision tags — they're not user-facing and get rebuilt on every binary release.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->
