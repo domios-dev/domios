@@ -16,9 +16,14 @@ also enter through this socket, while the daemon owns peer signing, endpoint
 selection, and remote transport.
 
 The human `codeterm workspace list` output is a compact topology view of every
-workspace, including empty ones, with its Teams, active Plan ids, and live tabs.
-Use `codeterm tab inspect <id>` for one tab's full record. The
+workspace, including authoritative tab counts, cwd, empty/protected state,
+Teams, active Plan ids, and live tabs in stable creation order. Use it for
+orientation, then use `codeterm tab inspect <id>` for one tab's full record.
+Whole-list JSON is an automation surface, not an agent discovery surface; the
 `workspace list --json` payload remains the workspace-only machine contract.
+The point query `workspace current --json` returns `{ "id", "source" }`, where
+`source` is `caller-tab` or `focus-fallback`; without either source the command
+prints nothing and succeeds.
 
 ## REST API
 
@@ -242,4 +247,4 @@ in `safety_nudges` and `_hints`. The operational recovery and lane rules are in
 Related documents: `codeterm docs API-TABS`, `codeterm docs API-INTEGRATIONS`,
 `codeterm docs API-MEMORY`, `codeterm docs API-AGENTS`,
 `codeterm docs API-TRANSPORT`, and `codeterm docs API-CLI`.
-<!-- revision: 114 -->
+<!-- revision: 115 -->
