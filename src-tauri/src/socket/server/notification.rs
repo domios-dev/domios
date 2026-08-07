@@ -37,8 +37,18 @@ pub(super) fn dispatch(
                 claimed_tab_id: string_param("tab_id"),
                 peer_name: None,
             };
-            let id =
-                svc.create_notification_ext(title, body, Some(level_str), None, None, origin);
+            let category = string_param("category");
+            let intent = crate::api::notification_routes::parse_push_intent(
+                category.as_deref(),
+                string_param("event_key"),
+            )
+            .map_err(|message| JsonRpcError {
+                code: -32602,
+                message: message.to_string(),
+                data: None,
+            })?;
+            let id = svc
+                .create_notification_ext(title, body, Some(level_str), None, None, origin, intent);
 
             Ok(serde_json::json!({"id": id}))
         }

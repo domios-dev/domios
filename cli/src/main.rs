@@ -318,10 +318,22 @@ fn main_impl() {
         }
 
         Commands::Notify { action } => match action {
-            NotifyAction::Send { title, body, level } => {
+            NotifyAction::Send {
+                title,
+                body,
+                level,
+                category,
+                event_key,
+            } => {
                 let mut params = serde_json::json!({ "title": title, "level": level });
                 if let Some(b) = body {
                     params["body"] = serde_json::Value::String(b);
+                }
+                if let Some(c) = category {
+                    params["category"] = serde_json::Value::String(c.as_str().to_string());
+                }
+                if let Some(k) = event_key {
+                    params["event_key"] = serde_json::Value::String(k);
                 }
                 client.call("notification.create", Some(params))
             }
