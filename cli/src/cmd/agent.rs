@@ -784,22 +784,15 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             provider_reserve_pct,
             non_user_facing,
         } => {
-            if matches!(role, Some(crate::args::agent::SpawnRole::Orchestrator))
-                && workspace.is_none()
-                && parent.is_none()
-            {
-                eprintln!("Error: --workspace is required when spawning --role Orchestrator");
-                std::process::exit(1);
-            }
-            // A Planner names its plan instead of a parent — the plan record
-            // owns the anchor it binds to.
-            if matches!(role, Some(crate::args::agent::SpawnRole::Planner))
-                && plan.is_none()
-                && parent.is_none()
-            {
-                eprintln!(
-                    "Error: --plan <id> is required when spawning --role Planner (or pass --parent)"
-                );
+            if let Err(error) = super::agent_spawn::validate_spawn_context(
+                role.as_ref(),
+                workspace.is_some(),
+                parent.is_some(),
+                plan.is_some(),
+                bound_task.is_some(),
+                plan_task.is_some(),
+            ) {
+                eprintln!("Error: {error}");
                 std::process::exit(1);
             }
             if task_file.is_none() {

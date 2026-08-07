@@ -551,22 +551,19 @@ fn command_with_binding_nonce_for_shell(
     command: &str,
     binding_nonce: &str,
     windows: bool,
+    cli_path: Option<&std::ffi::OsStr>,
 ) -> String {
-    if windows {
-        format!(
-            "$env:CODETERM_SESSION_BINDING_NONCE='{}'; {command}",
-            binding_nonce.replace('\'', "''")
-        )
-    } else {
-        format!(
-            "export CODETERM_SESSION_BINDING_NONCE='{}'; {command}",
-            binding_nonce.replace('\'', "'\"'\"'")
-        )
-    }
+    super::launch_env::command_with_binding_nonce_for_shell(
+        command,
+        binding_nonce,
+        windows,
+        cli_path,
+    )
 }
 
 fn command_with_binding_nonce(command: &str, binding_nonce: &str) -> String {
-    command_with_binding_nonce_for_shell(command, binding_nonce, cfg!(windows))
+    let cli_path = std::env::var_os("CODETERM_CLI_PATH");
+    command_with_binding_nonce_for_shell(command, binding_nonce, cfg!(windows), cli_path.as_deref())
 }
 
 #[allow(dead_code)]
@@ -1012,68 +1009,63 @@ pub(crate) fn launch_agent_in_background_with_env(
         delivery_gate.mark_provider_ready();
 
         // Launch bytes own queue order; visual readiness is diagnostic only.
-        if matches!(
-            delivery,
-            crate::service::launch_delivery::LaunchDeliveryMode::ConfirmedFallback
-        ) {
-            if let Some(spec) = fallback_spec {
-                let task_text = spec.payload.clone();
-                set_booting(false);
-                {
-                    let mut mux = svc.mux.write();
-                    let tab = mux.get_tab_mut(&tab_id).expect("launch Tab exists");
-                    tab.pending_delivery.get_or_insert_with(|| {
-                        crate::service::launch_delivery::pending_record_for_spec(spec.clone())
-                    });
-                }
-                let submit_strategy = registry
-                    .with_provider(&agent_cmd, |provider| provider.verify_submit_strategy())
-                    .unwrap_or(crate::agent::provider::VerifySubmitStrategy::None);
-                let consumption = delivery_gate.consume_injection(&svc.mux, &tab_id, &svc, || {
-                    crate::service::pty_io::submit_transaction::submit_text_with_key(
-                        &svc,
-                        &pty_id,
-                        &task_text,
-                        true,
-                        b"\r",
-                        submit_strategy,
-                        crate::service::inject_verify::VerifyOpts {
-                            require_prompt_first: false,
-                            verify_echo: true,
-                            verify_submit: true,
-                            ..Default::default()
-                        },
-                        None,
-                    )
+        if let Some(spec) = fallback_spec {
+            let task_text = spec.payload.clone();
+            set_booting(false);
+            {
+                let mut mux = svc.mux.write();
+                let tab = mux.get_tab_mut(&tab_id).expect("launch Tab exists");
+                tab.pending_delivery.get_or_insert_with(|| {
+                    crate::service::launch_delivery::pending_record_for_spec(spec.clone())
                 });
-                let cleanup_error = if matches!(
-                    &consumption,
-                    Ok(crate::service::launch_delivery::LaunchConsumptionOutcome::Confirmed)
-                ) {
-                    svc.confirm_pending_delivery(&tab_id)
-                        .err()
-                        .map(|error| error.to_string())
-                } else {
-                    None
-                };
-                let delivery_error =
-                    cleanup_error.or_else(|| consumption.err().map(|error| error.to_string()));
-                if let Some(e) = delivery_error {
-                    let (title, body) = worker_brief_delivery_incident(&tab_id, &e);
-                    svc.create_notification(title, Some(body), Some("error"));
-                    log::error!(
-                        "launch_agent: task delivery failed for Tab {} (pty {}): {}",
-                        tab_id,
-                        pty_id,
-                        e
-                    );
-                    launch.fail(&svc, LaunchFailure::TaskDelivery(e.to_string()));
-                    set_booting(false);
-                    if let Some(tx) = ready_tx {
-                        let _ = tx.send(Err(format!("task delivery failed: {}", e)));
-                    }
-                    return;
+            }
+            let submit_strategy = registry
+                .with_provider(&agent_cmd, |provider| provider.verify_submit_strategy())
+                .unwrap_or(crate::agent::provider::VerifySubmitStrategy::None);
+            let consumption = delivery_gate.consume_injection(&svc.mux, &tab_id, &svc, || {
+                crate::service::pty_io::submit_transaction::submit_text_with_key(
+                    &svc,
+                    &pty_id,
+                    &task_text,
+                    true,
+                    b"\r",
+                    submit_strategy,
+                    crate::service::inject_verify::VerifyOpts {
+                        require_prompt_first: false,
+                        verify_echo: true,
+                        verify_submit: true,
+                        ..Default::default()
+                    },
+                    None,
+                )
+            });
+            let cleanup_error = if matches!(
+                &consumption,
+                Ok(crate::service::launch_delivery::LaunchConsumptionOutcome::Confirmed)
+            ) {
+                svc.confirm_pending_delivery(&tab_id)
+                    .err()
+                    .map(|error| error.to_string())
+            } else {
+                None
+            };
+            let delivery_error =
+                cleanup_error.or_else(|| consumption.err().map(|error| error.to_string()));
+            if let Some(e) = delivery_error {
+                let (title, body) = worker_brief_delivery_incident(&tab_id, &e);
+                svc.create_notification(title, Some(body), Some("error"));
+                log::error!(
+                    "launch_agent: task delivery failed for Tab {} (pty {}): {}",
+                    tab_id,
+                    pty_id,
+                    e
+                );
+                launch.fail(&svc, LaunchFailure::TaskDelivery(e.to_string()));
+                set_booting(false);
+                if let Some(tx) = ready_tx {
+                    let _ = tx.send(Err(format!("task delivery failed: {}", e)));
                 }
+                return;
             }
         } else if task.is_some() {
             let _ = crate::service::launch_delivery::dispatch_initial_delivery::<(), fn()>(
