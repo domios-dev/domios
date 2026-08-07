@@ -82,6 +82,29 @@ pub struct UpdateState {
 }
 
 impl UpdateState {
+    pub fn runtime_status(&self) -> serde_json::Value {
+        let download_progress = self.download_total_bytes.and_then(|total| {
+            if total == 0 {
+                None
+            } else {
+                Some((self.downloaded_bytes as f64 / total as f64).min(1.0))
+            }
+        });
+        serde_json::json!({
+            "phase": self.phase.to_string(),
+            "last_error": self.last_error,
+            "channel": self.channel.to_string(),
+            "install_method": self.install_method.to_string(),
+            "current_version": env!("CARGO_PKG_VERSION"),
+            "latest_known": self.last_check.as_ref().map(|i| i.latest_version.clone()),
+            "update_available": self.last_check.as_ref().map(|i| i.update_available).unwrap_or(false),
+            "phase_age_secs": self.phase_changed_at.map(|t| t.elapsed().as_secs()),
+            "downloaded_bytes": self.downloaded_bytes,
+            "download_total_bytes": self.download_total_bytes,
+            "download_progress": download_progress,
+        })
+    }
+
     pub fn set_phase(&mut self, phase: UpdatePhase) {
         match phase {
             UpdatePhase::Checking | UpdatePhase::Downloading => self.reset_download_progress(),
@@ -193,6 +216,19 @@ mod state_tests {
         s.record_download_chunk(40, Some(100));
         s.set_phase(UpdatePhase::Applying);
         assert_eq!(s.downloaded_bytes, 100);
+    }
+
+    #[test]
+    fn runtime_status_reports_download_progress() {
+        let mut s = empty_state();
+        s.set_phase(UpdatePhase::Downloading);
+        s.record_download_chunk(25, Some(100));
+
+        let status = s.runtime_status();
+        assert_eq!(status["phase"], "downloading");
+        assert_eq!(status["downloaded_bytes"], 25);
+        assert_eq!(status["download_total_bytes"], 100);
+        assert_eq!(status["download_progress"], 0.25);
     }
 }
 

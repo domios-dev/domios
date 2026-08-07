@@ -111,8 +111,10 @@ persist_master_password = false              # Save master password in OS keycha
 The API listens only on loopback by default. A non-loopback `host` requires a
 non-empty Bearer token. The existing Mesh switch is the only network-access
 control: Mesh off rejects every remote request while localhost remains available;
-Mesh on permits authenticated remote access. CORS is closed unless `cors = true` and every allowed HTTP(S)
-origin is named in `cors_allow_origins`; `*` is never accepted. Authenticated
+Mesh on permits authenticated remote access. The installed app's WebView origins
+are always allowed to reach its local daemon. Other cross-origin clients remain
+closed unless `cors = true` and every allowed HTTP(S) origin is named in
+`cors_allow_origins`; `*` is never accepted. Authenticated
 `GET /api/config` redacts the token and reports both the configured address and
 the listener policy the process actually owns. `localhost`, `::1`, and `[::1]`
 are canonicalized to bindable loopback socket addresses; other hostnames are
@@ -178,4 +180,4 @@ Settings UI: Settings > Agents > General Agent section (enable, auto-restart tog
 
 Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`.
 
-<!-- revision: 39 -->
+<!-- revision: 40 -->
