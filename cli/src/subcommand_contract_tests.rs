@@ -1118,3 +1118,47 @@ fn workspace_current_falls_back_to_global_focus_outside_a_tab() {
         Some("focused")
     );
 }
+
+#[test]
+fn workspace_current_returns_nothing_without_caller_or_focus() {
+    let workspaces = serde_json::json!([
+        {"id":"first","is_active":false},
+        {"id":"second","is_active":false}
+    ]);
+
+    assert_eq!(
+        cmd::local_io::workspace_current_id(workspaces.as_array().unwrap(), None),
+        None
+    );
+}
+
+#[test]
+fn workspace_current_resolution_reports_caller_source() {
+    let workspaces = serde_json::json!([
+        {"id":"focused","is_active":true,"tab_ids":[]},
+        {"id":"caller","is_active":false,"tab_ids":["self_tab"]}
+    ]);
+
+    let resolved = cmd::local_io::workspace_current_resolution(
+        workspaces.as_array().unwrap(),
+        Some("self_tab"),
+    )
+    .unwrap();
+
+    assert_eq!(resolved.id, "caller");
+    assert_eq!(resolved.source.as_str(), "caller-tab");
+}
+
+#[test]
+fn workspace_current_resolution_reports_focus_fallback_source() {
+    let workspaces = serde_json::json!([
+        {"id":"inactive","is_active":false,"tab_ids":[]},
+        {"id":"focused","is_active":true,"tab_ids":[]}
+    ]);
+
+    let resolved =
+        cmd::local_io::workspace_current_resolution(workspaces.as_array().unwrap(), None).unwrap();
+
+    assert_eq!(resolved.id, "focused");
+    assert_eq!(resolved.source.as_str(), "focus-fallback");
+}
