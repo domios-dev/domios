@@ -11,7 +11,9 @@ use crate::args::cli::Cli;
 pub struct ManifestArg {
     pub name: String,
     pub positional: bool,
+    pub required: bool,
     pub value_name: Option<String>,
+    pub possible_values: Vec<String>,
     pub default: Option<String>,
     pub help: Option<String>,
     pub aliases: Vec<String>,
@@ -40,6 +42,18 @@ fn is_clap_builtin(arg: &Arg) -> bool {
     )
 }
 
+// A no-value flag still carries clap's bool parser, so an unfiltered domain
+// would advertise a `true|false` argument the flag refuses to accept.
+fn possible_values(arg: &Arg) -> Vec<String> {
+    if !arg.get_action().takes_values() {
+        return Vec::new();
+    }
+    arg.get_possible_values()
+        .into_iter()
+        .map(|value| value.get_name().to_string())
+        .collect()
+}
+
 fn walk(cmd: &Command) -> ManifestCommand {
     let mut args: Vec<ManifestArg> = cmd
         .get_arguments()
@@ -53,10 +67,12 @@ fn walk(cmd: &Command) -> ManifestCommand {
                     .unwrap_or_else(|| a.get_id().to_string())
             },
             positional: a.is_positional(),
+            required: a.is_required_set(),
             value_name: a
                 .get_value_names()
                 .and_then(|v| v.first())
                 .map(|s| s.to_string()),
+            possible_values: possible_values(a),
             default: a
                 .get_default_values()
                 .first()
@@ -129,6 +145,9 @@ pub fn to_command_paths() -> String {
 pub fn to_markdown() -> String {
     let root = build();
     let mut out = String::new();
+    // The root's own globals (`--json`, `--mesh`) belong to every command, so
+    // the reference is incomplete without them.
+    render_signature(&root, std::slice::from_ref(&root.name), &mut out);
     for cmd in &root.subcommands {
         render_md(cmd, std::slice::from_ref(&root.name), &mut out);
     }
@@ -138,6 +157,13 @@ pub fn to_markdown() -> String {
 fn render_md(cmd: &ManifestCommand, path: &[String], out: &mut String) {
     let mut full = path.to_vec();
     full.push(cmd.name.clone());
+    render_signature(cmd, &full, out);
+    for sub in &cmd.subcommands {
+        render_md(sub, &full, out);
+    }
+}
+
+fn render_signature(cmd: &ManifestCommand, full: &[String], out: &mut String) {
     out.push_str(&format!("#### `{}`\n\n", full.join(" ")));
     if let Some(about) = &cmd.about {
         out.push_str(&format!("{about}\n\n"));
@@ -159,9 +185,6 @@ fn render_md(cmd: &ManifestCommand, path: &[String], out: &mut String) {
     }
     if !cmd.args.is_empty() {
         out.push('\n');
-    }
-    for sub in &cmd.subcommands {
-        render_md(sub, &full, out);
     }
 }
 
@@ -893,6 +916,79 @@ mod tests {
         // Teams are minted with the plan or via `team pair`; there is no `team create`.
         assert!(subcommand(&root, &["team", "pair"]).is_some());
         assert!(subcommand(&root, &["team", "create"]).is_none());
+    }
+
+    fn manifest_command<'a>(root: &'a ManifestCommand, path: &[&str]) -> &'a ManifestCommand {
+        let mut cur = root;
+        for seg in path {
+            cur = cur
+                .subcommands
+                .iter()
+                .find(|c| c.name == *seg)
+                .unwrap_or_else(|| panic!("manifest has no `{}`", path.join(" ")));
+        }
+        cur
+    }
+
+    fn manifest_arg<'a>(cmd: &'a ManifestCommand, name: &str) -> &'a ManifestArg {
+        cmd.args
+            .iter()
+            .find(|a| a.name == name)
+            .unwrap_or_else(|| panic!("`{}` has no arg `{name}`", cmd.name))
+    }
+
+    // The bool *type* is shared by no-value switches and genuine bool-valued
+    // options; only the action separates them, so a domain filter keyed on
+    // anything else fails one half of this pair.
+    #[test]
+    fn possible_values_follow_the_action_not_the_value_type() {
+        let root = build();
+        let bool_domain = vec!["true".to_string(), "false".to_string()];
+
+        let switch = manifest_arg(
+            manifest_command(&root, &["agent", "report"]),
+            "acknowledge-dirty",
+        );
+        assert!(
+            switch.possible_values.is_empty(),
+            "`agent report --acknowledge-dirty` accepts no value; it must advertise no domain"
+        );
+
+        for (path, name) in [
+            (["plan", "loop", "record"].as_slice(), "stop"),
+            (["service", "list"].as_slice(), "enabled"),
+        ] {
+            let valued = manifest_arg(manifest_command(&root, path), name);
+            assert_eq!(
+                valued.possible_values,
+                bool_domain,
+                "`{} --{name}` takes a bool value; its domain must survive the filter",
+                path.join(" ")
+            );
+        }
+    }
+
+    // The daemon prints a respawn command for a stalled Worker; the flag it must
+    // carry is required here, so dropping it emits an unrunnable hint.
+    #[test]
+    fn plan_task_respawn_requires_the_attempt_flag() {
+        let respawn = manifest_command(&build(), &["plan", "task", "respawn"]);
+        assert!(
+            manifest_arg(respawn, "attempt").required,
+            "plan task respawn --attempt stopped being required"
+        );
+    }
+
+    #[test]
+    fn root_globals_render_in_the_markdown_reference() {
+        let markdown = to_markdown();
+        assert!(markdown.starts_with("#### `codeterm`\n"));
+        for global in ["- `--json`", "- `--mesh`"] {
+            assert!(
+                markdown.contains(global),
+                "root global {global} is missing from the command reference"
+            );
+        }
     }
 
     #[test]
