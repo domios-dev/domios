@@ -38,16 +38,6 @@ pub struct NotificationProvenance {
     pub peer_name: Option<String>,
 }
 
-/// Daemon-owned origin of a notification. Every field is resolved against live
-/// daemon state; nothing here may be stored straight from a caller payload.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct NotificationProvenance {
-    pub tab_id: Option<String>,
-    pub tab_title: Option<String>,
-    pub workspace_id: Option<String>,
-    pub peer_name: Option<String>,
-}
-
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub enum NotificationLevel {
     Info,
