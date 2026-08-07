@@ -454,8 +454,8 @@ fn json_error_envelope(message: String) -> serde_json::Value {
         &mut out,
         &mut err,
     );
-    assert!(out.is_empty(), "--json errors must not reach stdout");
-    serde_json::from_slice(&err).expect("stderr carries exactly one JSON envelope")
+    assert!(err.is_empty(), "--json puts the whole failure on stdout");
+    serde_json::from_slice(&out).expect("stdout carries exactly one JSON envelope")
 }
 
 #[test]
