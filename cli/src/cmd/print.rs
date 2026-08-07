@@ -510,6 +510,34 @@ mod tests {
     }
 
     #[test]
+    fn tab_list_json_envelope_survives_the_printed_uniform_id_pass() {
+        let printed = uniform_id_value(&tab_list_json_envelope(vec![json!({
+            "pane_id": "tab_1",
+            "title": "one",
+        })]));
+
+        let tabs = printed
+            .get("tabs")
+            .expect("the printed value still carries a tabs field");
+        assert!(
+            printed.is_object() && tabs.is_array(),
+            "print_json must not flatten the envelope back to a bare array: {printed}"
+        );
+        assert_eq!(tabs[0]["tab_id"], "tab_1");
+        assert!(
+            printed.get("id").is_none(),
+            "the envelope itself must not gain an entity id alias: {printed}"
+        );
+    }
+
+    #[test]
+    fn tab_list_json_envelope_keeps_the_tabs_array_when_empty() {
+        let printed = uniform_id_value(&tab_list_json_envelope(Vec::new()));
+
+        assert_eq!(printed["tabs"], json!([]));
+    }
+
+    #[test]
     fn uniform_id_alias_preserves_existing_id() {
         let out = uniform_id_value(&json!({ "id": "canonical", "task_id": "task_1" }));
         assert_eq!(out.get("id").and_then(|v| v.as_str()), Some("canonical"));

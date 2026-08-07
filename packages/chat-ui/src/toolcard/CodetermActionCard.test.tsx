@@ -194,9 +194,10 @@ if (!compactTabList.host.querySelector('[data-testid="tab-list-compact"]') || co
 if (!compactTabList.host.textContent?.includes("Adele") || !compactTabList.host.textContent.includes("Working")) throw new Error("compact tab list labels regression");
 const jsonTabList = await render(<CodetermActionCard event={{
   ...event("codeterm tab list --json"),
-  result: '[{"id":"aaaa1111","title":"Adele"}]',
+  result: '{"tabs":[{"id":"aaaa1111","title":"Adele"},{"id":"bbbb2222","title":"Scout"}]}',
 }} expanded onToggle={() => {}} />);
 if (!jsonTabList.host.querySelector('[data-testid="tab-list-json"]') || jsonTabList.host.querySelector('[data-testid="tab-list-compact"]') || !jsonTabList.host.textContent?.includes("JSON inspection")) throw new Error("tab list JSON must remain full inspection output");
+if (!jsonTabList.host.textContent?.includes("2 tabs")) throw new Error("tab list --json count must read the tabs key of the shipped envelope");
 const meshTabs = await render(<CodetermActionCard event={event("codeterm mesh tabs peer-a")} expanded onToggle={() => {}} />);
 if (meshTabs.host.querySelector('[data-testid="tab-list-compact"]')) throw new Error("mesh tabs must not use the local tab list renderer");
 
