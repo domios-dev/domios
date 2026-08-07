@@ -12,6 +12,7 @@ mod parse;
 mod relay;
 mod rpc;
 mod update;
+mod workspace_topology;
 
 #[cfg(test)]
 mod tests;
@@ -223,8 +224,12 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
         return;
     }
 
-    // `tab list` reuses local formatter over the remote compact summary.
+    // Human list views reuse local formatters over remote state.
     if !cli.json {
+        if workspace_topology::should_render(&cli.command, cli.json) {
+            workspace_topology::print_remote_workspace_topology(target);
+            return;
+        }
         if let Commands::Tab {
             action: super::TabAction::List { .. },
         } = &cli.command
