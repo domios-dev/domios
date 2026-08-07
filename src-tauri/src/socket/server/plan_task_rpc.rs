@@ -215,7 +215,7 @@ pub(super) fn dispatch(
                     .and_then(|v| v.as_str())
                     .map(str::to_string)
             };
-            let tasks = store.list_tasks(TaskListFilter {
+            let listed = store.list_tasks_with_reason(TaskListFilter {
                 project_path: p
                     .and_then(|x| x.get("project"))
                     .and_then(|v| v.as_str())
@@ -236,7 +236,11 @@ pub(super) fn dispatch(
                 plan_id,
                 status,
             });
-            Ok(json!({ "tasks": tasks }))
+            let mut response = json!({ "tasks": listed.tasks });
+            if let Some(reason) = listed.empty_reason {
+                response["empty_reason"] = serde_json::to_value(reason).unwrap_or(Value::Null);
+            }
+            Ok(response)
         }
 
         "task.show" => {
