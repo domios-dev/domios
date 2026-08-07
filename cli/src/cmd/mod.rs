@@ -69,9 +69,9 @@ mod workspace_map;
 
 pub(crate) fn render_workspace_map(
     workspaces: &serde_json::Value,
-    tabs: &serde_json::Value,
-    teams: &serde_json::Value,
-    plans: &serde_json::Value,
+    tabs: Option<&serde_json::Value>,
+    teams: Option<&serde_json::Value>,
+    plans: Option<&serde_json::Value>,
     caller_workspace_id: Option<&str>,
     caller_tab_id: Option<&str>,
 ) -> String {

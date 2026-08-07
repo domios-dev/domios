@@ -15,9 +15,9 @@ pub(super) fn should_render(command: &crate::Commands, json: bool) -> bool {
 
 struct WorkspaceTopologyData {
     workspaces: serde_json::Value,
-    tabs: serde_json::Value,
-    teams: serde_json::Value,
-    plans: serde_json::Value,
+    tabs: Option<serde_json::Value>,
+    teams: Option<serde_json::Value>,
+    plans: Option<serde_json::Value>,
 }
 
 fn fetch_workspace_topology<Rest, Rpc>(
@@ -33,13 +33,11 @@ where
     let tabs = optional_source(
         rest("GET", ALL_LOCAL_TABS_PATH),
         "remote Tabs",
-        serde_json::Value::Null,
         &mut warnings,
     );
     let teams = optional_source(
         rpc("team.list", None),
         "remote Teams",
-        serde_json::json!({ "teams": [] }),
         &mut warnings,
     );
     let plans = optional_source(
@@ -48,7 +46,6 @@ where
             Some(serde_json::json!({ "status": "active" })),
         ),
         "remote Plans",
-        serde_json::json!({ "plans": [] }),
         &mut warnings,
     );
     Ok((
@@ -65,14 +62,13 @@ where
 fn optional_source(
     result: Result<serde_json::Value, String>,
     label: &str,
-    fallback: serde_json::Value,
     warnings: &mut Vec<String>,
-) -> serde_json::Value {
+) -> Option<serde_json::Value> {
     match result {
-        Ok(value) => value,
+        Ok(value) => Some(value),
         Err(error) => {
             warnings.push(format!("warning: unable to read {label}: {error}"));
-            fallback
+            None
         }
     }
 }
@@ -107,9 +103,9 @@ pub(super) fn print_remote_workspace_topology(target: &str) {
         "{}",
         crate::cmd::render_workspace_map(
             &data.workspaces,
-            &data.tabs,
-            &data.teams,
-            &data.plans,
+            data.tabs.as_ref(),
+            data.teams.as_ref(),
+            data.plans.as_ref(),
             None,
             None,
         )
@@ -178,13 +174,13 @@ mod tests {
         assert_eq!(rpc_calls[1].0, "plan.list");
         assert_eq!(rpc_calls[1].1.as_ref().unwrap()["status"], "active");
         assert_eq!(data.workspaces[0]["id"], "ws_remote");
-        assert_eq!(data.tabs[0]["id"], "tab_remote");
+        assert_eq!(data.tabs.as_ref().unwrap()[0]["id"], "tab_remote");
         assert!(warnings.is_empty());
         let rendered = crate::cmd::render_workspace_map(
             &data.workspaces,
-            &data.tabs,
-            &data.teams,
-            &data.plans,
+            data.tabs.as_ref(),
+            data.teams.as_ref(),
+            data.plans.as_ref(),
             None,
             None,
         );
@@ -229,9 +225,9 @@ mod tests {
         let (data, warnings) = fetch_workspace_topology(&mut rest, &mut rpc).unwrap();
         let rendered = crate::cmd::render_workspace_map(
             &data.workspaces,
-            &data.tabs,
-            &data.teams,
-            &data.plans,
+            data.tabs.as_ref(),
+            data.teams.as_ref(),
+            data.plans.as_ref(),
             None,
             None,
         );
@@ -250,9 +246,9 @@ mod tests {
                 "is_active":true,
                 "tab_ids":["tab_remote"]
             }]),
-            &json!([{"id":"tab_remote","title":"Peer tab","workspace_id":"ws_remote"}]),
-            &json!({"teams":[]}),
-            &json!({"plans":[]}),
+            Some(&json!([{"id":"tab_remote","title":"Peer tab","workspace_id":"ws_remote"}])),
+            Some(&json!({"teams":[]})),
+            Some(&json!({"plans":[]})),
             None,
             None,
         );
