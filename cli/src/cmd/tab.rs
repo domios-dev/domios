@@ -10,11 +10,11 @@ pub(crate) mod remote_target;
 mod team_utility;
 use capture::handle_tab_capture;
 use inspect::handle_tab_inspect;
+#[cfg(test)]
+use remote_target::remote_inspect_target;
 use remote_target::{
     classify_remote_tab_id, parse_remote_tab_id, remote_tab_chat_path, RemoteTabTarget,
 };
-#[cfg(test)]
-use remote_target::remote_inspect_target;
 
 pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
     if let Err(error) = validate_user_tab_selectors(&action) {
