@@ -1,11 +1,17 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 36 -->
+<!-- revision: 37 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
 do not edit it by hand. Conventions: target tabs use `--tab`; `--json` is
-a global flag on every command.
+a global flag on every command. For agent orientation, prefer the human-readable
+workspace and tab maps, then inspect one selected record. Whole-list JSON is for
+checked-in automation rather than interactive discovery.
+
+`workspace current` prints a bare id for shell use. Its point-query `--json`
+form also identifies `caller-tab` or `focus-fallback` as the source. When neither
+the caller nor an active workspace resolves, it prints nothing and succeeds.
 
 **Planning?** Read `codeterm docs ORCHESTRATION` first (GOAL ⟶ Spec ⊥ Plan ⟶ Tasks ⟶ Strides; author GOAL-first, Spec=WHAT, Plan=HOW built from the spec, M:N section links). Don't cram requirements into plan sections; the Spec holds WHAT.
 
@@ -2995,7 +3001,7 @@ Create a new workspace. With --cwd, reuses an existing workspace at that cwd
 
 #### `codeterm workspace current`
 
-Print this tab's workspace ID, falling back to the focused workspace outside a tab
+Print this tab's workspace ID, or the focused workspace outside a tab
 
 #### `codeterm workspace focus`
 
@@ -3005,7 +3011,7 @@ Focus a workspace by ID
 
 #### `codeterm workspace list`
 
-Show a compact workspace → Team/Plan → Tab overview. JSON stays workspace-only
+Show a compact human-readable workspace → Team/Plan → Tab overview
 
 #### `codeterm workspace move-tab`
 

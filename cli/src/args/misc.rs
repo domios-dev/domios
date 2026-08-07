@@ -2,9 +2,9 @@ use clap::Subcommand;
 
 #[derive(Subcommand)]
 pub enum WorkspaceAction {
-    /// Show a compact workspace → Team/Plan → Tab overview. JSON stays workspace-only.
+    /// Show a compact human-readable workspace → Team/Plan → Tab overview
     List,
-    /// Print this tab's workspace ID, falling back to the focused workspace outside a tab
+    /// Print this tab's workspace ID, or the focused workspace outside a tab
     Current,
     /// Create a new workspace. With --cwd, reuses an existing workspace at that cwd.
     Create {

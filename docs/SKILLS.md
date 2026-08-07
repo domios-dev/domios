@@ -61,16 +61,20 @@ Skills are markdown files that Claude Code loads automatically when relevant. Wh
 
 ## CLI Flags
 
-All CLI commands support the `--json` flag for checked-in machine-readable automation. Do not write ad hoc whole-list JSON pipelines for interactive discovery; inspect selected records individually:
+All CLI commands support the `--json` flag for checked-in machine-readable automation. Agents should not request whole-list JSON merely to discover their surroundings; use the human maps, then inspect one selected record:
 ```bash
 codeterm tab list
 codeterm tab inspect <tab-id>
 codeterm workspace list
 ```
 
-The human workspace list is the compact top-down map: all workspaces (including
-empty ones), Teams and active Plan ids, then their live tabs. Reserve
-`workspace list --json` for automation that needs the workspace-only payload.
+The human workspace list is the compact top-down map: authoritative tab counts,
+working directories, empty/protected state, Teams and active Plan ids, then live
+tabs in stable creation order. Reserve `workspace list --json` for checked-in
+automation that specifically needs the workspace-only payload.
+`workspace current` prints a bare id for shell use. Its point-query `--json`
+form adds `source: caller-tab|focus-fallback` when automation must distinguish
+the caller's workspace from the globally active fallback.
 
 ## Integrations
 
@@ -120,4 +124,4 @@ Dot-notation for nested keys. Values are JSON (true, false, 42, "string", ["arra
 
 Agent hierarchy and session integration: `codeterm docs AGENT-CONTROL`.
 
-<!-- revision: 45 -->
+<!-- revision: 46 -->

@@ -87,19 +87,12 @@ pub(crate) fn handle_workspace_action(
                 client,
                 "tab.list",
                 Some(serde_json::json!({ "focused_workspace": false })),
-                serde_json::Value::Null,
             );
-            let teams = optional_overview_call(
-                client,
-                "team.list",
-                None,
-                serde_json::json!({ "teams": [] }),
-            );
+            let teams = optional_overview_call(client, "team.list", None);
             let plans = optional_overview_call(
                 client,
                 "plan.list",
                 Some(serde_json::json!({ "status": "active" })),
-                serde_json::json!({ "plans": [] }),
             );
             let caller_tab_id = std::env::var("CODETERM_TAB_ID").ok();
             let caller_workspace_id = workspaces
@@ -109,9 +102,9 @@ pub(crate) fn handle_workspace_action(
                 "{}",
                 super::workspace_map::render(
                     &workspaces,
-                    &tabs,
-                    &teams,
-                    &plans,
+                    tabs.as_ref(),
+                    teams.as_ref(),
+                    plans.as_ref(),
                     caller_workspace_id,
                     caller_tab_id.as_deref(),
                 )
@@ -124,15 +117,30 @@ pub(crate) fn handle_workspace_action(
                 Ok(value) => {
                     if let Some(arr) = value.as_array() {
                         let caller_tab_id = std::env::var("CODETERM_TAB_ID").ok();
-                        let caller_workspace_id = workspace_for_tab(arr, caller_tab_id.as_deref());
-                        if caller_tab_id.is_some() && caller_workspace_id.is_none() {
+                        let resolution =
+                            workspace_current_resolution(arr, caller_tab_id.as_deref());
+                        if caller_tab_id.is_some()
+                            && resolution.as_ref().is_some_and(|resolved| {
+                                resolved.source == WorkspaceResolutionSource::FocusFallback
+                            })
+                        {
                             eprintln!(
-                                "warning: caller Tab is absent from the workspace map; falling back to the focused workspace"
+                                "warning: caller Tab is absent from the workspace map; using the focused workspace if available"
                             );
                         }
-                        let id = workspace_current_id(arr, caller_tab_id.as_deref());
-                        if let Some(id) = id {
-                            println!("{}", id);
+                        if let Some(resolved) = resolution {
+                            if json {
+                                println!(
+                                    "{}",
+                                    serde_json::to_string_pretty(&serde_json::json!({
+                                        "id": resolved.id,
+                                        "source": resolved.source.as_str()
+                                    }))
+                                    .expect("workspace resolution is serializable")
+                                );
+                            } else {
+                                println!("{}", resolved.id);
+                            }
                         }
                     }
                     None
@@ -214,13 +222,12 @@ fn optional_overview_call(
     client: &mut dyn RpcClient,
     method: &str,
     params: Option<serde_json::Value>,
-    fallback: serde_json::Value,
-) -> serde_json::Value {
+) -> Option<serde_json::Value> {
     match client.call(method, params) {
-        Ok(value) => value,
+        Ok(value) => Some(value),
         Err(error) => {
             eprintln!("warning: workspace overview omitted {method}: {error}");
-            fallback
+            None
         }
     }
 }
@@ -229,23 +236,51 @@ pub(crate) fn workspace_current_id<'a>(
     workspaces: &'a [serde_json::Value],
     caller_tab_id: Option<&str>,
 ) -> Option<&'a str> {
-    workspace_for_tab(workspaces, caller_tab_id)
-        .and_then(|id| {
-            workspaces
-                .iter()
-                .find(|workspace| workspace.get("id").and_then(|value| value.as_str()) == Some(id))
-        })
-        .or_else(|| {
-            workspaces.iter().find(|workspace| {
-                workspace
-                    .get("is_active")
-                    .or_else(|| workspace.get("focused"))
-                    .and_then(|value| value.as_bool())
-                    .unwrap_or(false)
-            })
-        })
-        .or_else(|| workspaces.first())
-        .and_then(|workspace| workspace.get("id").and_then(|value| value.as_str()))
+    workspace_current_resolution(workspaces, caller_tab_id).map(|resolved| resolved.id)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum WorkspaceResolutionSource {
+    CallerTab,
+    FocusFallback,
+}
+
+impl WorkspaceResolutionSource {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::CallerTab => "caller-tab",
+            Self::FocusFallback => "focus-fallback",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct WorkspaceResolution<'a> {
+    pub(crate) id: &'a str,
+    pub(crate) source: WorkspaceResolutionSource,
+}
+
+pub(crate) fn workspace_current_resolution<'a>(
+    workspaces: &'a [serde_json::Value],
+    caller_tab_id: Option<&str>,
+) -> Option<WorkspaceResolution<'a>> {
+    if let Some(id) = workspace_for_tab(workspaces, caller_tab_id) {
+        return Some(WorkspaceResolution {
+            id,
+            source: WorkspaceResolutionSource::CallerTab,
+        });
+    }
+    let id = workspaces
+        .iter()
+        .find(|workspace| {
+            workspace.get("is_active").and_then(|value| value.as_bool()) == Some(true)
+        })?
+        .get("id")?
+        .as_str()?;
+    Some(WorkspaceResolution {
+        id,
+        source: WorkspaceResolutionSource::FocusFallback,
+    })
 }
 
 #[allow(
