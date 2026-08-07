@@ -1,4 +1,4 @@
-use super::{short_id, MultiplexerState};
+use super::{short_id, MultiplexerState, TabCloseReservation};
 use crate::multiplexer::types::{
     PendingDeliveryRecord, Tab, TabBacking, TabCloseReason, TabType, TitleLevel,
 };
@@ -279,8 +279,23 @@ impl MultiplexerState {
         tab_id: &str,
         reason: TabCloseReason,
     ) -> Result<Vec<String>, String> {
+        self.ensure_tab_membership_mutable(tab_id)?;
         self.record_single_close(tab_id, reason);
         self.close_tab_inner(tab_id)
+    }
+
+    /// Commit a tab close while holding its workspace membership reservation.
+    pub fn close_reserved_tab_with_reason(
+        &mut self,
+        reservation: TabCloseReservation,
+        reason: TabCloseReason,
+    ) -> Result<Vec<String>, String> {
+        if !self.tab_close_is_reserved_by(&reservation) {
+            return Err("Tab close reservation lost".to_string());
+        }
+        let tab_id = reservation.tab_id.clone();
+        self.release_tab_close_reservation(&reservation);
+        self.close_tab_with_reason(&tab_id, reason)
     }
 
     /// Close a hierarchy subtree for the explicit Close Team action only.
@@ -341,6 +356,9 @@ impl MultiplexerState {
     fn remove_tab_from_tree(&mut self, tab_id: &str) -> Result<(), String> {
         for ws in &mut self.workspaces {
             if let Some(idx) = ws.tabs.iter().position(|candidate| candidate == tab_id) {
+                if self.workspace_close_reservations.contains_key(&ws.id) {
+                    return Err(format!("Workspace is closing: {}", ws.id));
+                }
                 let closed_tab_id = ws.tabs[idx].clone();
                 ws.tabs.remove(idx);
                 if ws.active_tab_id.as_deref() == Some(&closed_tab_id) {

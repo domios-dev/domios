@@ -499,6 +499,7 @@ impl MultiplexerState {
             generation: std::sync::atomic::AtomicU64::new(0),
             // startup), not the session snapshot.
             closed_store: super::ClosedTabsStore::in_memory(),
+            workspace_close_reservations: HashMap::new(),
         }
     }
 }
