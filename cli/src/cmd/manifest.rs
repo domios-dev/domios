@@ -972,7 +972,8 @@ mod tests {
     // carry is required here, so dropping it emits an unrunnable hint.
     #[test]
     fn plan_task_respawn_requires_the_attempt_flag() {
-        let respawn = manifest_command(&build(), &["plan", "task", "respawn"]);
+        let root = build();
+        let respawn = manifest_command(&root, &["plan", "task", "respawn"]);
         assert!(
             manifest_arg(respawn, "attempt").required,
             "plan task respawn --attempt stopped being required"
