@@ -31,7 +31,8 @@ pub(crate) struct CreateNotifBody {
     actions: Option<serde_json::Value>,
     sticky: Option<bool>,
     tab_id: Option<String>,
-    workspace_id: Option<String>,
+    /// Stamped by the Mesh relay from the signed sender; suppresses any tab claim.
+    source_peer: Option<String>,
 }
 
 pub async fn create_notification(
@@ -40,14 +41,18 @@ pub async fn create_notification(
     Json(body): Json<CreateNotifBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
+    let origin = crate::service::notification::NotificationOrigin {
+        caller_tab_id: crate::api::tab_routes::caller_tab_header(&headers),
+        claimed_tab_id: body.tab_id,
+        peer_name: body.source_peer,
+    };
     let id = state.svc.create_notification_ext(
         body.title,
         body.body,
         body.level.as_deref(),
         body.actions,
         body.sticky,
-        body.tab_id,
-        body.workspace_id,
+        origin,
     );
     Ok(Json(serde_json::json!({"id": id})))
 }

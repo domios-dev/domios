@@ -23,25 +23,22 @@ pub(super) fn dispatch(
                 .and_then(|p| p.get("level"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("info");
-            let tab_id = params
-                .as_ref()
-                .and_then(|p| p.get("tab_id"))
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
-            let workspace_id = params
-                .as_ref()
-                .and_then(|p| p.get("workspace_id"))
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
-            let id = svc.create_notification_ext(
-                title,
-                body,
-                Some(level_str),
-                None,
-                None,
-                tab_id,
-                workspace_id,
-            );
+            let string_param = |key: &str| {
+                params
+                    .as_ref()
+                    .and_then(|p| p.get(key))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            };
+            // Both ids are caller-supplied hints; the daemon resolves them and
+            // drops whatever does not name a live tab. `workspace_id` is derived.
+            let origin = crate::service::notification::NotificationOrigin {
+                caller_tab_id: string_param("caller_tab_id"),
+                claimed_tab_id: string_param("tab_id"),
+                peer_name: None,
+            };
+            let id =
+                svc.create_notification_ext(title, body, Some(level_str), None, None, origin);
 
             Ok(serde_json::json!({"id": id}))
         }
