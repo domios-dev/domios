@@ -29,6 +29,33 @@ pub fn resolve_service_outcome(input: &str, services_list: &serde_json::Value) -
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum ShowOutcome {
+    Found,
+    NotFound,
+}
+
+/// `services.get` answers an unknown id with a JSON null rather than an RPC
+/// error, so absence has to be read off the payload.
+pub fn resolve_show_outcome(value: &serde_json::Value) -> ShowOutcome {
+    if value.is_null() {
+        ShowOutcome::NotFound
+    } else {
+        ShowOutcome::Found
+    }
+}
+
+/// Resolution happens before any `--json` branch, so both modes exit 1 on the
+/// same payloads; only the rendering differs.
+fn fail(json: bool, human: &str, machine: &str) -> ! {
+    if json {
+        crate::cmd::plan_output::print_plan_error(true, machine);
+    } else {
+        eprintln!("{human}");
+    }
+    std::process::exit(1);
+}
+
 /// Resolve a user-supplied service identifier to the canonical `svc_*` id.
 ///
 /// Service ids look like `svc_<name>_<hash>`. CLI users typically remember
@@ -70,7 +97,9 @@ fn resolve_service_id(client: &mut SocketClient, input: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve_service_outcome, service_add_json, ResolveOutcome};
+    use super::{
+        resolve_service_outcome, resolve_show_outcome, service_add_json, ResolveOutcome, ShowOutcome,
+    };
 
     #[test]
     fn canonical_id_passes_through_unchanged() {
@@ -134,6 +163,32 @@ mod tests {
         let response = serde_json::json!({"token": "secret-token"});
 
         assert_eq!(service_add_json(&response, true)["token"], "secret-token");
+    }
+
+    /// The exact payload `services.get` returns for an unknown id. Before the
+    /// fix the `--json` branch printed it and exited 0.
+    #[test]
+    fn services_get_null_payload_is_not_found() {
+        assert_eq!(
+            resolve_show_outcome(&serde_json::Value::Null),
+            ShowOutcome::NotFound
+        );
+    }
+
+    #[test]
+    fn services_get_payload_is_found() {
+        assert_eq!(
+            resolve_show_outcome(&serde_json::json!({"id": "svc_demo", "name": "demo"})),
+            ShowOutcome::Found
+        );
+    }
+
+    #[test]
+    fn empty_object_is_still_found_because_only_null_signals_absence() {
+        assert_eq!(
+            resolve_show_outcome(&serde_json::json!({})),
+            ShowOutcome::Found
+        );
     }
 }
 
@@ -268,20 +323,20 @@ pub fn handle_service(client: &mut SocketClient, json: bool, action: ServiceActi
         ServiceAction::Show { id } => {
             let id = resolve_service_id(client, &id);
             match client.call("services.get", Some(serde_json::json!({"id": id}))) {
-                Ok(val) => {
-                    if json {
-                        println!("{}", serde_json::to_string_pretty(&val).unwrap());
-                    } else if val.is_null() {
-                        eprintln!("Service not found: {}", id);
-                        std::process::exit(1);
-                    } else {
-                        print!("{}", render_service_terse(&val));
+                Ok(val) => match resolve_show_outcome(&val) {
+                    ShowOutcome::NotFound => {
+                        let message = format!("Service not found: {}", id);
+                        fail(json, &message, &message);
                     }
-                }
-                Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
-                }
+                    ShowOutcome::Found => {
+                        if json {
+                            println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                        } else {
+                            print!("{}", render_service_terse(&val));
+                        }
+                    }
+                },
+                Err(e) => fail(json, &format!("Error: {e}"), &e),
             }
         }
         ServiceAction::Edit {

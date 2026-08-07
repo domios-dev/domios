@@ -1,5 +1,40 @@
 use crate::SessionsAction;
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum BackendOutcome {
+    Success,
+    Failure(String),
+}
+
+/// HTTP status is the ONLY failure signal: a 2xx stays optimistic success even
+/// when the body carries no evidence that the resumed agent actually started.
+pub fn classify_backend_response(
+    status: reqwest::StatusCode,
+    body: &serde_json::Value,
+) -> BackendOutcome {
+    if status.is_success() {
+        BackendOutcome::Success
+    } else {
+        BackendOutcome::Failure(format!("{} — {}", status, body))
+    }
+}
+
+/// Classification happens before any `--json` branch, so both modes exit 1 on
+/// the same responses; only the rendering differs.
+fn fail(json_mode: bool, human: &str, machine: &str) -> ! {
+    if json_mode {
+        crate::cmd::plan_output::print_plan_error(true, machine);
+    } else {
+        eprintln!("{human}");
+    }
+    std::process::exit(1);
+}
+
+fn fail_transport(json_mode: bool, error: &crate::local_api::LocalApiError) -> ! {
+    let machine = error.to_string();
+    fail(json_mode, &format!("Error: {machine}"), &machine)
+}
+
 fn shell_quote(s: &str) -> String {
     if s.chars()
         .all(|c| c.is_ascii_alphanumeric() || "/_.-~".contains(c))
@@ -188,13 +223,14 @@ pub fn handle_sessions(
                 Ok(resp) => {
                     let status = resp.status();
                     let val: serde_json::Value = resp.json().unwrap_or_default();
+                    if let BackendOutcome::Failure(machine) =
+                        classify_backend_response(status, &val)
+                    {
+                        fail(json_mode, &format!("Error: {machine}"), &machine);
+                    }
                     if json_mode {
                         println!("{}", serde_json::to_string_pretty(&val).unwrap_or_default());
                         return;
-                    }
-                    if !status.is_success() {
-                        eprintln!("Error: {} — {}", status, val);
-                        std::process::exit(1);
                     }
                     let tab = val.get("tab_id").and_then(|v| v.as_str()).unwrap_or("?");
                     let ws = val
@@ -234,10 +270,7 @@ pub fn handle_sessions(
                     println!("  tab:       {}", tab);
                     println!("  cwd:       {}", cwd);
                 }
-                Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
-                }
+                Err(e) => fail_transport(json_mode, &e),
             }
         }
         SessionsAction::Get { session_id } => {
@@ -250,13 +283,14 @@ pub fn handle_sessions(
                 Ok(resp) => {
                     let status = resp.status();
                     let val: serde_json::Value = resp.json().unwrap_or_default();
+                    if let BackendOutcome::Failure(machine) =
+                        classify_backend_response(status, &val)
+                    {
+                        fail(json_mode, &format!("Error: {machine}"), &machine);
+                    }
                     if json_mode {
                         println!("{}", serde_json::to_string_pretty(&val).unwrap_or_default());
                         return;
-                    }
-                    if !status.is_success() {
-                        eprintln!("Error: {} — {}", status, val);
-                        std::process::exit(1);
                     }
                     let provider = val.get("provider").and_then(|v| v.as_str()).unwrap_or("?");
                     let cwd = val
@@ -271,11 +305,11 @@ pub fn handle_sessions(
                     println!("  file:     {}", file);
                     println!("  modified: {}", format_unix_ts(modified));
                 }
-                Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
-                }
+                Err(e) => fail_transport(json_mode, &e),
             }
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
