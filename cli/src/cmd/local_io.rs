@@ -2,6 +2,12 @@ use std::io::Write;
 
 use crate::args::misc::WorkspaceAction;
 use crate::client::{RpcClient, SocketClient};
+use crate::cmd::print::{exit_with_cli_error, CliError};
+
+const NO_TAB_IDENTITY: &str =
+    "pass --tab <id> or run inside a CodeTerm tab where CODETERM_TAB_ID is set. \
+     There is no focused-tab fallback: a caller that cannot prove which tab it is \
+     refuses rather than acting on another tab's behalf";
 
 pub(crate) fn workspace_create_cwd_hint() -> String {
     "hint: no --cwd — agents in this workspace inherit the daemon working directory; pass --cwd <project dir> for project work".to_string()
@@ -40,35 +46,43 @@ pub(crate) fn write_workspace_create_reuse_output<W: Write, E: Write>(
     Ok(true)
 }
 
-pub(crate) fn resolve_tab(client: &mut SocketClient, id: Option<String>) -> String {
-    if let Some(id) = id {
-        return id;
+pub(crate) fn resolve_tab(_client: &mut SocketClient, id: Option<String>) -> String {
+    resolve_caller_tab(id, "this command")
+}
+
+/// Caller identity is explicit or honestly absent: an explicit id, then
+/// `$CODETERM_TAB_ID` (injected per shell by the CodeTerm PTY), then a refusal.
+pub(crate) fn resolve_caller_tab(id: Option<String>, verb: &str) -> String {
+    let env_tab_id = crate::nonempty_env("CODETERM_TAB_ID");
+    match caller_tab_identity(id.as_deref(), env_tab_id.as_deref()) {
+        Some(tab_id) => tab_id,
+        None => exit_with_cli_error(json_output_requested(), &no_tab_identity_error(verb)),
     }
-    // 2. $CODETERM_TAB_ID env var (set by CodeTerm PTY for each shell)
-    if let Ok(env_id) = std::env::var("CODETERM_TAB_ID") {
-        if !env_id.is_empty() {
-            return env_id;
-        }
-    }
-    match client.call("tab.list", None) {
-        Ok(value) => {
-            if let Some(arr) = value.as_array() {
-                let tab = arr
-                    .iter()
-                    .find(|p| p.get("focused").and_then(|v| v.as_bool()).unwrap_or(false))
-                    .or_else(|| arr.first());
-                if let Some(id) = tab.and_then(|p| p.get("id").and_then(|v| v.as_str())) {
-                    return id.to_string();
-                }
-            }
-            eprintln!("Error: no Tabs found");
-            std::process::exit(1);
-        }
-        Err(e) => {
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
-        }
-    }
+}
+
+pub(crate) fn caller_tab_identity(
+    explicit: Option<&str>,
+    env_tab_id: Option<&str>,
+) -> Option<String> {
+    trimmed(explicit)
+        .or_else(|| trimmed(env_tab_id))
+        .map(str::to_string)
+}
+
+pub(crate) fn no_tab_identity_error(verb: &str) -> CliError {
+    CliError::new(format!(
+        "{verb} cannot resolve a caller tab: {NO_TAB_IDENTITY}"
+    ))
+}
+
+/// The refusal sits below the arg parser at every `resolve_tab` call site, so it
+/// reads `--json` from argv rather than threading a flag through all of them.
+fn json_output_requested() -> bool {
+    std::env::args().any(|arg| arg == "--json")
+}
+
+fn trimmed(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
 }
 
 pub(crate) fn handle_workspace_action(
@@ -337,6 +351,71 @@ mod tests {
             self.calls.push(method.to_string());
             Ok(self.response.clone())
         }
+    }
+
+    /// Every rung `resolve_caller_tab` reads is a parameter here, so the
+    /// no-identity fixture clears all of them without racing on process env.
+    #[test]
+    fn caller_tab_identity_prefers_the_explicit_id_over_the_environment() {
+        assert_eq!(
+            caller_tab_identity(Some("tab_explicit"), Some("tab_env")),
+            Some("tab_explicit".to_string())
+        );
+    }
+
+    #[test]
+    fn caller_tab_identity_falls_back_to_the_environment_only_without_an_explicit_id() {
+        assert_eq!(
+            caller_tab_identity(None, Some("tab_env")),
+            Some("tab_env".to_string())
+        );
+        assert_eq!(
+            caller_tab_identity(Some("   "), Some("tab_env")),
+            Some("tab_env".to_string()),
+            "a blank explicit id is not an identity"
+        );
+    }
+
+    #[test]
+    fn caller_tab_identity_is_absent_when_no_rung_proves_it() {
+        assert_eq!(caller_tab_identity(None, None), None);
+        assert_eq!(caller_tab_identity(Some(" "), Some("")), None);
+    }
+
+    #[test]
+    fn no_tab_identity_refusal_names_the_verb_and_leaves_stdout_empty() {
+        let error = no_tab_identity_error("agent ack");
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        crate::cmd::print::write_cli_error(false, &error, &mut stdout, &mut stderr);
+
+        assert!(error.message.starts_with("agent ack"), "{}", error.message);
+        assert!(
+            stdout.is_empty(),
+            "a refused identity must not print a tab id: {}",
+            String::from_utf8_lossy(&stdout)
+        );
+        assert!(!stderr.is_empty());
+        assert_ne!(crate::cmd::print::CLI_ERROR_EXIT_CODE, 0);
+    }
+
+    #[test]
+    fn no_tab_identity_refusal_is_a_json_envelope_under_json() {
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        crate::cmd::print::write_cli_error(
+            true,
+            &no_tab_identity_error("agent ack"),
+            &mut stdout,
+            &mut stderr,
+        );
+
+        let envelope: serde_json::Value =
+            serde_json::from_slice(&stdout).expect("stdout carries one JSON envelope");
+        assert_eq!(envelope["ok"], serde_json::Value::Bool(false));
+        assert!(stderr.is_empty());
     }
 
     #[test]
