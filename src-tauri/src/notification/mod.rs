@@ -1,3 +1,4 @@
+pub mod push;
 pub mod store;
 
 use std::sync::Arc;
@@ -26,6 +27,7 @@ pub fn notify(
         None,
         None,
         crate::service::notification::NotificationOrigin::claimed(tab_id),
+        crate::service::notification::PushIntent::default(),
     ))
 }
 

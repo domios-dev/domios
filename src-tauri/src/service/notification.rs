@@ -2,9 +2,49 @@
 
 use super::ServiceContext;
 use crate::notification::{
-    store::{DedupAdmission, NotificationLevel, NotificationProvenance},
+    push::{self, PushCategory},
+    store::{DedupAdmission, NotificationLevel, NotificationProvenance, PushRequest},
     NotifState,
 };
+
+/// Caller-side push intent. `category` is the closed enum, so routine progress
+/// has nothing to name; `event_key` is a hint the daemon derives when absent.
+#[derive(Debug, Clone, Default)]
+pub struct PushIntent {
+    pub category: Option<PushCategory>,
+    pub event_key: Option<String>,
+}
+
+/// What a push sink receives. Its `Result` is consumed by the daemon and never
+/// travels back to the caller — failure feedback invites retry, and retry is
+/// the spam vector.
+pub struct PushEnvelope {
+    pub category: PushCategory,
+    pub text: String,
+    pub notification_id: String,
+}
+
+/// Intent plus the daemon-owned policy and sink for one notification.
+pub struct PushDispatch<F> {
+    pub intent: PushIntent,
+    pub per_scope_limit: u32,
+    pub deliver: F,
+}
+
+fn inert_sink(_: PushEnvelope) -> Result<(), String> {
+    Ok(())
+}
+
+impl PushDispatch<fn(PushEnvelope) -> Result<(), String>> {
+    /// No opt-in, no audience, or no category: behaves exactly as before.
+    pub fn inert() -> Self {
+        Self {
+            intent: PushIntent::default(),
+            per_scope_limit: 0,
+            deliver: inert_sink,
+        }
+    }
+}
 
 /// Untrusted navigation hints attached to a notification request. `caller_tab_id`
 /// is the transport-authenticated caller, `claimed_tab_id` is payload-supplied.
@@ -72,6 +112,7 @@ fn notification_level(level: Option<&str>) -> NotificationLevel {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn create_notification_with_delivery(
     admission: NotificationAdmission,
     store: &NotifState,
@@ -83,6 +124,7 @@ fn create_notification_with_delivery(
     sticky: Option<bool>,
     origin: NotificationOrigin,
     resolve_tab: impl FnOnce(&str) -> Option<NotificationProvenance>,
+    push: PushDispatch<impl FnOnce(PushEnvelope) -> Result<(), String>>,
     emit: impl FnOnce(serde_json::Value),
 ) -> String {
     if matches!(admission, NotificationAdmission::Diagnostic) {
@@ -97,14 +139,47 @@ fn create_notification_with_delivery(
     };
     let id = match admission {
         NotificationAdmission::Diagnostic => unreachable!(),
-        NotificationAdmission::Explicit => store.lock().add_ext(
-            title.clone(),
-            body.clone(),
-            parsed_level,
-            provenance.clone(),
-            actions.clone(),
-            sticky,
-        ),
+        NotificationAdmission::Explicit => match push.intent.category {
+            None => store.lock().add_ext(
+                title.clone(),
+                body.clone(),
+                parsed_level,
+                provenance.clone(),
+                actions.clone(),
+                sticky,
+            ),
+            Some(category) => {
+                let admitted = store.lock().add_push(PushRequest {
+                    scope: push::scope_key(&provenance),
+                    category,
+                    event_key: push::event_key(push.intent.event_key.as_deref(), &title),
+                    title: title.clone(),
+                    body: body.clone(),
+                    level: parsed_level,
+                    provenance: provenance.clone(),
+                    per_scope_limit: push.per_scope_limit,
+                });
+                // A duplicate reuses an open record: nothing new to toast or emit.
+                if !admitted.opened_or_changed_record() {
+                    return admitted.id().to_string();
+                }
+                if admitted.should_push() {
+                    let envelope = PushEnvelope {
+                        category,
+                        text: push::render_push(category, &title, body.as_deref(), &provenance),
+                        notification_id: admitted.id().to_string(),
+                    };
+                    if let Err(reason) = (push.deliver)(envelope) {
+                        log::warn!(
+                            "[notify-push] delivery failed for {}: {reason}",
+                            admitted.id()
+                        );
+                        store.lock().mark_push_failed(admitted.id());
+                    }
+                }
+                admitted.id().to_string()
+            }
+        },
         NotificationAdmission::ProviderUpdate { prompt_id } => {
             // The prompt's only action targets its tab; a tab that no longer
             // resolves leaves nothing to navigate to or answer.
@@ -197,6 +272,7 @@ impl ServiceContext {
             Some(true),
             NotificationOrigin::local_tab(tab_id),
             |candidate| self.resolve_tab_provenance(candidate),
+            PushDispatch::inert(),
             |payload| self.notify_event("notification-created", payload),
         )
     }
@@ -226,11 +302,13 @@ impl ServiceContext {
             None,
             NotificationOrigin::default(),
             |_| None,
+            PushDispatch::inert(),
             |_| {},
         )
     }
 
     /// Explicitly requested notification (CLI/REST/frontend surfaces).
+    #[allow(clippy::too_many_arguments)]
     pub fn create_notification_ext(
         &self,
         title: String,
@@ -239,7 +317,9 @@ impl ServiceContext {
         actions: Option<serde_json::Value>,
         sticky: Option<bool>,
         origin: NotificationOrigin,
+        intent: PushIntent,
     ) -> String {
+        let (intent, per_scope_limit, audience) = self.resolve_push_policy(intent);
         create_notification_with_delivery(
             NotificationAdmission::Explicit,
             &self.notif,
@@ -253,6 +333,13 @@ impl ServiceContext {
             sticky,
             origin,
             |candidate| self.resolve_tab_provenance(candidate),
+            PushDispatch {
+                intent,
+                per_scope_limit,
+                deliver: move |envelope: PushEnvelope| {
+                    self.deliver_telegram_push(&audience, &envelope)
+                },
+            },
             |payload| self.notify_event("notification-created", payload),
         )
     }
@@ -291,6 +378,7 @@ mod tests {
             None,
             NotificationOrigin::default(),
             |_| None,
+            PushDispatch::inert(),
             |payload| emitted.lock().push(payload),
         );
 
@@ -333,6 +421,7 @@ mod tests {
             None,
             NotificationOrigin::default(),
             |_| None,
+            PushDispatch::inert(),
             |payload| emitted.lock().push(payload),
         );
 
@@ -381,6 +470,7 @@ mod tests {
                 None,
                 NotificationOrigin::default(),
                 |_| None,
+                PushDispatch::inert(),
                 |payload| emitted.lock().push(payload),
             );
         }
@@ -432,6 +522,7 @@ mod tests {
                 None,
                 NotificationOrigin::claimed(Some("tab_never_existed".into())),
                 live_registry,
+                PushDispatch::inert(),
                 |payload| emitted.lock().push(payload),
             );
 
@@ -478,6 +569,7 @@ mod tests {
                 None,
                 origin,
                 live_registry,
+                PushDispatch::inert(),
                 |payload| emitted.lock().push(payload),
             );
 
@@ -511,6 +603,7 @@ mod tests {
                 None,
                 origin,
                 live_registry,
+                PushDispatch::inert(),
                 |_| {},
             );
 
@@ -519,6 +612,152 @@ mod tests {
             assert_eq!(listed[0].tab_id, None);
             assert_eq!(listed[0].workspace_id, None);
             assert_eq!(listed[0].peer_name.as_deref(), Some("BLACKSTAR"));
+        }
+    }
+
+    mod telegram_render {
+        use super::*;
+        use crate::notification::push::MAX_BODY_CHARS;
+
+        fn live_tab(candidate: &str) -> Option<NotificationProvenance> {
+            (candidate == "tab_worker").then(|| NotificationProvenance {
+                tab_id: Some("tab_worker".into()),
+                tab_title: Some("Worker lane".into()),
+                workspace_id: Some("ws_lanes".into()),
+                peer_name: None,
+            })
+        }
+
+        fn dispatch<F>(category: PushCategory, deliver: F) -> PushDispatch<F>
+        where
+            F: FnOnce(PushEnvelope) -> Result<(), String>,
+        {
+            PushDispatch {
+                intent: PushIntent {
+                    category: Some(category),
+                    event_key: Some("release-42".into()),
+                },
+                per_scope_limit: 10,
+                deliver,
+            }
+        }
+
+        #[test]
+        fn telegram_send_failure_does_not_change_the_returned_id() {
+            let store = Arc::new(Mutex::new(NotificationStore::new(10)));
+            let emitted = Mutex::new(Vec::new());
+            let attempted = Mutex::new(Vec::new());
+
+            // Bot blocked / chat unreachable: the sink refuses the envelope.
+            let id = create_notification_with_delivery(
+                NotificationAdmission::Explicit,
+                &store,
+                |_, _| {},
+                "Release cut".into(),
+                Some("artifacts uploaded".into()),
+                Some("info"),
+                None,
+                None,
+                NotificationOrigin::claimed(Some("tab_worker".into())),
+                live_tab,
+                dispatch(PushCategory::Milestone, |envelope: PushEnvelope| {
+                    attempted.lock().push(envelope.text.clone());
+                    Err("chat unreachable".to_string())
+                }),
+                |payload| emitted.lock().push(payload),
+            );
+
+            assert_eq!(attempted.lock().len(), 1, "the sink was actually invoked");
+            let guard = store.lock();
+            let listed = guard.list(false);
+            assert_eq!(listed.len(), 1, "durable history survives a refused push");
+            assert_eq!(
+                listed[0].id, id,
+                "the caller's id names the stored record whether or not the push landed"
+            );
+            assert_eq!(
+                listed[0].push_failed,
+                Some(true),
+                "the failure is recorded on the record, not returned"
+            );
+            drop(guard);
+
+            let events = emitted.lock();
+            assert_eq!(events.len(), 1, "the local routes still fire");
+            assert_eq!(events[0]["id"], id);
+        }
+
+        #[test]
+        fn a_delivered_push_carries_capped_text_and_leaves_the_record_clean() {
+            let store = Arc::new(Mutex::new(NotificationStore::new(10)));
+            let oversized = "b".repeat(MAX_BODY_CHARS + 200);
+            let sent = Mutex::new(Vec::new());
+
+            let id = create_notification_with_delivery(
+                NotificationAdmission::Explicit,
+                &store,
+                |_, _| {},
+                "Approval required".into(),
+                Some(oversized.clone()),
+                Some("warning"),
+                None,
+                None,
+                NotificationOrigin::claimed(Some("tab_worker".into())),
+                live_tab,
+                dispatch(PushCategory::Blocker, |envelope: PushEnvelope| {
+                    sent.lock().push(envelope.text.clone());
+                    Ok(())
+                }),
+                |_| {},
+            );
+
+            let delivered = sent.lock();
+            assert_eq!(delivered.len(), 1);
+            assert_eq!(
+                delivered[0].matches('b').count(),
+                MAX_BODY_CHARS,
+                "the agent body is truncated to the cap constant, not rejected"
+            );
+            assert!(delivered[0].contains("via Worker lane"));
+            assert!(!delivered[0].contains("tab_worker"));
+            drop(delivered);
+
+            assert_eq!(store.lock().list(false)[0].push_failed, None);
+            assert_eq!(store.lock().list(false)[0].id, id);
+        }
+
+        #[test]
+        fn an_uncategorised_notification_never_reaches_the_push_sink() {
+            let store = Arc::new(Mutex::new(NotificationStore::new(10)));
+            let sent = Mutex::new(Vec::new());
+
+            create_notification_with_delivery(
+                NotificationAdmission::Explicit,
+                &store,
+                |_, _| {},
+                "Still working".into(),
+                Some("step 4 of 9".into()),
+                Some("info"),
+                None,
+                None,
+                NotificationOrigin::claimed(Some("tab_worker".into())),
+                live_tab,
+                PushDispatch {
+                    intent: PushIntent::default(),
+                    per_scope_limit: 10,
+                    deliver: |envelope: PushEnvelope| {
+                        sent.lock().push(envelope.text.clone());
+                        Ok(())
+                    },
+                },
+                |_| {},
+            );
+
+            assert!(
+                sent.lock().is_empty(),
+                "routine progress has no category, so it cannot reach the channel"
+            );
+            assert_eq!(store.lock().list(false).len(), 1);
         }
     }
 }
