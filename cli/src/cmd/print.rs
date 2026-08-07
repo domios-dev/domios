@@ -109,8 +109,13 @@ pub fn uniform_id_value(value: &serde_json::Value) -> serde_json::Value {
     out
 }
 
+/// The one key `tab list --json` wraps the list in, local and over `--mesh`.
+pub const TAB_LIST_JSON_KEY: &str = "tabs";
+
 pub fn tab_list_json_envelope(tabs: Vec<serde_json::Value>) -> serde_json::Value {
-    serde_json::json!({ "tabs": tabs })
+    let mut envelope = serde_json::Map::new();
+    envelope.insert(TAB_LIST_JSON_KEY.to_string(), serde_json::Value::Array(tabs));
+    serde_json::Value::Object(envelope)
 }
 
 pub fn print_json(value: &serde_json::Value) {
