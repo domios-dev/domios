@@ -160,6 +160,26 @@ fn tag_relay_send_source(
     }
 }
 
+/// Strip a relayed notification's navigation claims and stamp the authenticated
+/// peer name in their place. An origin-local tab or workspace id is meaningless
+/// here and would render a Show Tab button pointed at an unrelated local tab.
+fn tag_relay_notification_source(
+    body: &mut serde_json::Value,
+    method: &str,
+    path: &str,
+    sender_name: &str,
+) {
+    let bare = path.split('?').next().unwrap_or(path);
+    if !(bare == "/api/notifications" && method.eq_ignore_ascii_case("POST")) {
+        return;
+    }
+    if let Some(obj) = body.as_object_mut() {
+        obj.remove("tab_id");
+        obj.remove("workspace_id");
+        obj.insert("source_peer".into(), serde_json::json!(sender_name));
+    }
+}
+
 /// Stamp the authenticated originating-peer name onto a relayed `agent spawn` so
 /// the spawned worker gets a durable cross-mesh report target back to the caller.
 /// Mirrors [`tag_relay_send_source`]: the peer name comes from the signed token,
@@ -582,6 +602,7 @@ async fn perform_relay(
     let mut body = cmd.body.clone();
     tag_relay_send_source(&mut body, &cmd.method, &cmd.path, &sender_name);
     tag_relay_spawn_source(&mut body, &cmd.method, &cmd.path, sender_id, &sender_name);
+    tag_relay_notification_source(&mut body, &cmd.method, &cmd.path, &sender_name);
 
     let local_url = format!("http://127.0.0.1:{}{}", state.api_port, cmd.path);
     let signed_token = state.mesh.lock().sign_request().map_err(|e| {
