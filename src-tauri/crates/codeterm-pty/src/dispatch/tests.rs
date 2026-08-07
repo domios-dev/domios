@@ -73,6 +73,21 @@ fn test_command_deserialize_tab_list() {
 }
 
 #[test]
+fn tab_inspect_defaults_to_present_state_only() {
+    let cmd: Command = serde_json::from_str(
+        r#"{"cmd":"tab_inspect","tab_ids":["tab-1"]}"#,
+    )
+    .unwrap();
+    assert!(matches!(
+        cmd,
+        Command::TabInspect {
+            lifecycle: false,
+            ..
+        }
+    ));
+}
+
+#[test]
 fn test_command_result_into_json() {
     let result = CommandResult::Json(serde_json::json!({"test": true}));
     let json = result.into_json();
@@ -136,6 +151,10 @@ fn command_round_trips_through_json() {
     let commands = vec![
         Command::Health,
         Command::TabList,
+        Command::TabInspect {
+            tab_ids: vec!["p".into()],
+            lifecycle: true,
+        },
         Command::SendText {
             tab_id: "p".into(),
             text: "hi".into(),

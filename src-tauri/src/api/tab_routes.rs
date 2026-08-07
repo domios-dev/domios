@@ -71,6 +71,8 @@ pub struct TabListQuery {
 #[derive(Deserialize)]
 pub struct TabInspectQuery {
     pub tab_ids: String,
+    #[serde(default)]
+    pub lifecycle: bool,
 }
 
 pub async fn inspect_tabs(
@@ -89,7 +91,10 @@ pub async fn inspect_tabs(
         return Err((StatusCode::BAD_REQUEST, "tab_ids is required"));
     }
     let result = crate::dispatch::dispatch(
-        &crate::dispatch::Command::TabInspect { tab_ids },
+        &crate::dispatch::Command::TabInspect {
+            tab_ids,
+            lifecycle: query.lifecycle,
+        },
         state.svc.as_ref(),
     )
     .map_err(|_| (StatusCode::NOT_FOUND, "Requested Tab was not found"))?;

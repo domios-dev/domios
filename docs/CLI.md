@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 34 -->
+<!-- revision: 35 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -2744,6 +2744,7 @@ Get visible terminal text of a tab (what the user sees)
 
 Show the full daemon tab payload for one or more explicit tab ids
 
+- `--lifecycle` — Include this tab's lifecycle journal, checkpoint, and recovery verdict
 - `--tab` — One or more tab ids to inspect. Repeat the flag for multiple tabs
 - `<tabs>` — Temporary positional aliases for tab ids. Prefer --tab
 

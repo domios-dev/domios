@@ -136,7 +136,7 @@ export const TerminalTab = memo(function TerminalTab({
     if (!term || !ptyIdNow) return;
     if (term.cols <= 0 || term.rows <= 0) return;
     void claimResizeOwner(tabId, ptyIdNow, resizeClientId, term.cols, term.rows, force)
-      .then(commitResize)
+      .then(() => commitResize(true))
       .catch(() => {});
   }, [tabId, ptyId, resizeClientId, ownsLivePty, termRef, connectedPtyRef, commitResize]);
 

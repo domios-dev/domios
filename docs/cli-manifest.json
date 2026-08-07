@@ -10818,6 +10818,14 @@
           "aliases": [],
           "args": [
             {
+              "name": "lifecycle",
+              "positional": false,
+              "value_name": "LIFECYCLE",
+              "default": null,
+              "help": "Include this tab's lifecycle journal, checkpoint, and recovery verdict",
+              "aliases": []
+            },
+            {
               "name": "tab",
               "positional": false,
               "value_name": "ID",

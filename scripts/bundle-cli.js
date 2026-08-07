@@ -9,6 +9,46 @@ const isMacOS = process.platform === "darwin";
 const repoRoot = path.resolve(__dirname, "..");
 const binName = isWindows ? "codeterm.exe" : "codeterm";
 
+function bundledCliName(env = process.env, platform = process.platform) {
+  if (platform === "win32" && env.CARGO_BUILD_TARGET) {
+    return `codeterm-${env.CARGO_BUILD_TARGET}.exe`;
+  }
+  return platform === "win32" ? "codeterm.exe" : "codeterm";
+}
+
+function peMachineForTarget(target) {
+  if (target.startsWith("x86_64-")) return 0x8664;
+  if (target.startsWith("aarch64-")) return 0xaa64;
+  if (target.startsWith("i686-")) return 0x014c;
+  return undefined;
+}
+
+function readPeMachine(file) {
+  const bytes = fs.readFileSync(file);
+  if (bytes.length < 0x40 || bytes.readUInt16LE(0) !== 0x5a4d) {
+    throw new Error(`CLI is not a PE executable: ${file}`);
+  }
+  const peOffset = bytes.readUInt32LE(0x3c);
+  if (peOffset + 6 > bytes.length || bytes.readUInt32LE(peOffset) !== 0x00004550) {
+    throw new Error(`CLI has an invalid PE header: ${file}`);
+  }
+  return bytes.readUInt16LE(peOffset + 4);
+}
+
+function assertTargetArchitecture(file, env = process.env, platform = process.platform) {
+  if (platform !== "win32" || !env.CARGO_BUILD_TARGET) return;
+  const expected = peMachineForTarget(env.CARGO_BUILD_TARGET);
+  if (expected === undefined) {
+    throw new Error(`Unsupported Windows CLI target: ${env.CARGO_BUILD_TARGET}`);
+  }
+  const actual = readPeMachine(file);
+  if (actual !== expected) {
+    throw new Error(
+      `CLI architecture mismatch for ${env.CARGO_BUILD_TARGET}: expected 0x${expected.toString(16)}, got 0x${actual.toString(16)} (${file})`
+    );
+  }
+}
+
 function resolveCliReleaseDir(env = process.env, root = repoRoot) {
   const targetRoot = env.CARGO_TARGET_DIR
     ? path.resolve(env.CARGO_TARGET_DIR)
@@ -24,7 +64,7 @@ function resolveCliSource(env = process.env, root = repoRoot, binary = binName) 
 function bundleCli() {
   const src = resolveCliSource();
   const destDir = path.join(repoRoot, "src-tauri", "bundled-cli");
-  const dest = path.join(destDir, binName);
+  const dest = path.join(destDir, bundledCliName());
 
   fs.mkdirSync(destDir, { recursive: true });
 
@@ -33,7 +73,9 @@ function bundleCli() {
     process.exit(1);
   }
 
+  assertTargetArchitecture(src);
   fs.copyFileSync(src, dest);
+  assertTargetArchitecture(dest);
   console.log(`CLI bundled: ${src} -> ${dest}`);
 
   if (isMacOS) {
@@ -68,5 +110,8 @@ if (require.main === module) {
   module.exports = {
     resolveCliReleaseDir,
     resolveCliSource,
+    bundledCliName,
+    peMachineForTarget,
+    assertTargetArchitecture,
   };
 }

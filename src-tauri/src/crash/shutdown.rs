@@ -6,10 +6,19 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
 static SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
+static UPDATE_SHUTDOWN: AtomicBool = AtomicBool::new(false);
 
 /// True once a graceful-exit route has run; real crashes happen while it's `false`, so they're never suppressed.
 pub fn is_shutting_down() -> bool {
     SHUTTING_DOWN.load(Ordering::SeqCst)
+}
+
+pub fn is_update_shutdown() -> bool {
+    UPDATE_SHUTDOWN.load(Ordering::SeqCst)
+}
+
+pub fn mark_update_teardown_started() {
+    UPDATE_SHUTDOWN.store(true, Ordering::SeqCst);
 }
 
 /// Mark the process as gracefully shutting down and drop the clean-exit

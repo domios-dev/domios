@@ -12,6 +12,7 @@ import {
 import { listen } from "../lib/bridge";
 import type { ApiConfig } from "../lib/types";
 import { useConfig } from "./useConfig";
+import { checkForUpdate, getUpdateStatus, installAppUpdate } from "./updateTransport";
 
 export type UpdateStatus =
   | "idle"
@@ -105,12 +106,6 @@ function isUpdateInfo(v: unknown): v is UpdateInfo {
     typeof o.latest_version === "string" &&
     typeof o.update_available === "boolean"
   );
-}
-
-function isInstallResponse(v: unknown): v is InstallResponse {
-  if (typeof v !== "object" || v === null) return false;
-  const o = v as Record<string, unknown>;
-  return typeof o.status === "string";
 }
 
 function isUpdateChannel(v: unknown): v is UpdateChannel {
@@ -244,15 +239,11 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(
     async (force = false, opts?: { silent?: boolean }): Promise<void> => {
       if (installingRef.current) return;
-      const a = apiRef.current;
       const silent = opts?.silent ?? false;
       if (!silent) setStatus("checking");
       setError(null);
       try {
-        const url = `${baseUrl(a)}/api/update/check${force ? "?force=true" : ""}`;
-        const res = await fetch(url, { headers: authHeaders(a) });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data: unknown = await res.json();
+        const data: unknown = await checkForUpdate(force);
         if (!isUpdateInfo(data)) throw new Error("Malformed update info");
         handleInfo(data);
       } catch (e) {
@@ -368,12 +359,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
 
   const fetchRuntimeStatus = useCallback(
     async (opts?: { adopt?: boolean }): Promise<RuntimeStatus | null> => {
-      const a = apiRef.current;
-      const res = await fetch(`${baseUrl(a)}/api/update/status`, {
-        headers: authHeaders(a),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data: unknown = await res.json();
+      const data: unknown = await getUpdateStatus();
       if (!isRuntimeStatus(data)) throw new Error("Malformed update status");
       applyRuntimeStatus(data, opts);
       return normalizeRuntimeStatus(data);
@@ -382,7 +368,6 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   );
 
   const applyUpdate = useCallback(async (): Promise<InstallResponse | null> => {
-    const a = apiRef.current;
     setInstalling(true);
     setToastOpen(true);
     setStatus("checking");
@@ -390,20 +375,8 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
     setProgress((prev) => Math.max(prev, 8));
     setError(null);
     try {
-      const res = await fetch(`${baseUrl(a)}/api/update/install?method=auto`, {
-        method: "POST",
-        headers: authHeaders(a),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data: unknown = await res.json();
-      if (!isInstallResponse(data)) throw new Error("Malformed install response");
-      if (data.status === "up_to_date") {
-        setInstalling(false);
-        setToastOpen(false);
-        setProgress(0);
-        await refresh(true, { silent: true });
-      }
-      return data;
+      await installAppUpdate();
+      return { status: "updating" };
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setStatus("error");
