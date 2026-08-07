@@ -244,8 +244,12 @@ fn plan_tagged_tab_not_found_gets_cross_daemon_hint() {
         data: None,
     });
     let msg = render_plan_call_error(err, &json!({ "plan_id": "pl_dev", "task_id": "task_dev" }));
-    assert!(msg.contains("RPC error -32603: Tab not found"));
-    assert!(msg.contains("env -u CODETERM_API_TOKEN CODETERM_API_PORT=7686 codeterm"));
+    assert!(msg.contains("Tab not found"), "{msg}");
+    assert!(!msg.contains("-32"), "{msg}");
+    assert!(
+        msg.contains(crate::cmd::plan_errors::CROSS_DAEMON_HINT),
+        "{msg}"
+    );
 }
 
 #[test]
