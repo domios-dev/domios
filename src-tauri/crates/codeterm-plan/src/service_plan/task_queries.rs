@@ -84,9 +84,12 @@ pub enum TaskListEmptyReason {
     NoMatchForFilters,
 }
 
+/// The wire shape of `task.list` for every transport: serialize this whole
+/// struct, never hand-build `{ "tasks": ... }`, or the reason key drifts apart.
 #[derive(Debug, Clone, Serialize)]
 pub struct TaskListResult {
     pub tasks: Vec<TaskSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub empty_reason: Option<TaskListEmptyReason>,
 }
 
