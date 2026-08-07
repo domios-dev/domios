@@ -4,8 +4,14 @@ use clap::Subcommand;
 pub enum WorkspaceAction {
     /// Show a compact human-readable workspace → Team/Plan → Tab overview
     List,
-    /// Print this tab's workspace ID, or the focused workspace outside a tab
-    Current,
+    /// Print this tab's workspace ID. Resolution order: --workspace, then
+    /// $CODETERM_TAB_ID, then $CODETERM_WORKSPACE_ID, then the active workspace.
+    /// Exits 1 with empty stdout when no identity resolves.
+    Current {
+        /// Workspace id to report, validated against the daemon's workspace list
+        #[arg(long, value_name = "WORKSPACE_ID")]
+        workspace: Option<String>,
+    },
     /// Create a new workspace. With --cwd, reuses an existing workspace at that cwd.
     Create {
         /// Workspace name

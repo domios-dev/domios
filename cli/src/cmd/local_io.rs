@@ -2,7 +2,11 @@ use std::io::Write;
 
 use crate::args::misc::WorkspaceAction;
 use crate::client::{RpcClient, SocketClient};
-use crate::cmd::print::{exit_with_cli_error, CliError};
+use crate::cmd::print::{exit_with_cli_error, write_cli_error, CliError, CLI_ERROR_EXIT_CODE};
+
+const NO_WORKSPACE_IDENTITY: &str =
+    "no workspace identity: pass --workspace <id>, run inside a CodeTerm tab where \
+     CODETERM_TAB_ID is set, or focus a workspace";
 
 const NO_TAB_IDENTITY: &str =
     "pass --tab <id> or run inside a CodeTerm tab where CODETERM_TAB_ID is set. \
@@ -108,7 +112,7 @@ pub(crate) fn handle_workspace_action(
                 "plan.list",
                 Some(serde_json::json!({ "status": "active" })),
             );
-            let caller_tab_id = std::env::var("CODETERM_TAB_ID").ok();
+            let caller_tab_id = crate::nonempty_env("CODETERM_TAB_ID");
             let caller_workspace_id = workspaces
                 .as_array()
                 .and_then(|rows| workspace_for_tab(rows, caller_tab_id.as_deref()));
@@ -125,37 +129,30 @@ pub(crate) fn handle_workspace_action(
             );
             None
         }
-        WorkspaceAction::Current => {
+        WorkspaceAction::Current { workspace } => {
             let result = client.call("workspace.list", None);
             match result {
                 Ok(value) => {
-                    if let Some(arr) = value.as_array() {
-                        let caller_tab_id = std::env::var("CODETERM_TAB_ID").ok();
-                        let resolution =
-                            workspace_current_resolution(arr, caller_tab_id.as_deref());
-                        if caller_tab_id.is_some()
-                            && resolution.as_ref().is_some_and(|resolved| {
-                                resolved.source == WorkspaceResolutionSource::FocusFallback
-                            })
-                        {
-                            eprintln!(
-                                "warning: caller Tab is absent from the workspace map; using the focused workspace if available"
-                            );
-                        }
-                        if let Some(resolved) = resolution {
-                            if json {
-                                println!(
-                                    "{}",
-                                    serde_json::to_string_pretty(&serde_json::json!({
-                                        "id": resolved.id,
-                                        "source": resolved.source.as_str()
-                                    }))
-                                    .expect("workspace resolution is serializable")
-                                );
-                            } else {
-                                println!("{}", resolved.id);
-                            }
-                        }
+                    let empty = Vec::new();
+                    let workspaces = value.as_array().unwrap_or(&empty);
+                    let caller_tab_id = crate::nonempty_env("CODETERM_TAB_ID");
+                    let workspace_env = crate::nonempty_env("CODETERM_WORKSPACE_ID");
+                    let identity = WorkspaceIdentity {
+                        explicit: workspace.as_deref(),
+                        caller_tab_id: caller_tab_id.as_deref(),
+                        workspace_env: workspace_env.as_deref(),
+                    };
+                    let resolved = workspace_current_resolution(workspaces, identity);
+                    let notices = workspace_current_notices(workspaces, identity, &resolved);
+                    let code = write_workspace_current(
+                        resolved,
+                        &notices,
+                        json,
+                        &mut std::io::stdout(),
+                        &mut std::io::stderr(),
+                    );
+                    if code != 0 {
+                        std::process::exit(code);
                     }
                     None
                 }
@@ -251,20 +248,44 @@ pub(crate) fn workspace_current_id<'a>(
     workspaces: &'a [serde_json::Value],
     caller_tab_id: Option<&str>,
 ) -> Option<&'a str> {
-    workspace_current_resolution(workspaces, caller_tab_id).map(|resolved| resolved.id)
+    workspace_current_resolution(workspaces, WorkspaceIdentity::caller_tab(caller_tab_id))
+        .ok()
+        .map(|resolved| resolved.id)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum WorkspaceResolutionSource {
+    Explicit,
     CallerTab,
+    WorkspaceEnv,
     FocusFallback,
 }
 
 impl WorkspaceResolutionSource {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
+            Self::Explicit => "explicit",
             Self::CallerTab => "caller-tab",
+            Self::WorkspaceEnv => "workspace-env",
             Self::FocusFallback => "focus-fallback",
+        }
+    }
+}
+
+/// Every rung the resolver may consult, passed in rather than read from the
+/// process so a fixture can clear all of them at once.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct WorkspaceIdentity<'a> {
+    pub(crate) explicit: Option<&'a str>,
+    pub(crate) caller_tab_id: Option<&'a str>,
+    pub(crate) workspace_env: Option<&'a str>,
+}
+
+impl<'a> WorkspaceIdentity<'a> {
+    pub(crate) fn caller_tab(caller_tab_id: Option<&'a str>) -> Self {
+        Self {
+            caller_tab_id,
+            ..Self::default()
         }
     }
 }
@@ -275,27 +296,119 @@ pub(crate) struct WorkspaceResolution<'a> {
     pub(crate) source: WorkspaceResolutionSource,
 }
 
+/// Explicit flag, then the daemon-owned `CODETERM_TAB_ID` membership join, then a
+/// validated `CODETERM_WORKSPACE_ID`, then the active workspace. Never positional.
 pub(crate) fn workspace_current_resolution<'a>(
     workspaces: &'a [serde_json::Value],
-    caller_tab_id: Option<&str>,
-) -> Option<WorkspaceResolution<'a>> {
-    if let Some(id) = workspace_for_tab(workspaces, caller_tab_id) {
-        return Some(WorkspaceResolution {
+    identity: WorkspaceIdentity<'_>,
+) -> Result<WorkspaceResolution<'a>, CliError> {
+    if let Some(explicit) = trimmed(identity.explicit) {
+        return workspace_by_id(workspaces, explicit)
+            .map(|id| WorkspaceResolution {
+                id,
+                source: WorkspaceResolutionSource::Explicit,
+            })
+            .ok_or_else(|| CliError::new(format!("workspace '{explicit}' not found")));
+    }
+    if let Some(id) = workspace_for_tab(workspaces, identity.caller_tab_id) {
+        return Ok(WorkspaceResolution {
             id,
             source: WorkspaceResolutionSource::CallerTab,
         });
     }
-    let id = workspaces
+    if let Some(id) =
+        trimmed(identity.workspace_env).and_then(|env| workspace_by_id(workspaces, env))
+    {
+        return Ok(WorkspaceResolution {
+            id,
+            source: WorkspaceResolutionSource::WorkspaceEnv,
+        });
+    }
+    active_workspace_id(workspaces)
+        .map(|id| WorkspaceResolution {
+            id,
+            source: WorkspaceResolutionSource::FocusFallback,
+        })
+        .ok_or_else(|| CliError::new(NO_WORKSPACE_IDENTITY))
+}
+
+/// A rung that was consulted and rejected is announced; the machine-facing
+/// signal is the `source` discriminant, not this prose.
+pub(crate) fn workspace_current_notices(
+    workspaces: &[serde_json::Value],
+    identity: WorkspaceIdentity<'_>,
+    resolved: &Result<WorkspaceResolution<'_>, CliError>,
+) -> Vec<String> {
+    let mut notices = Vec::new();
+    if identity.explicit.is_some() {
+        return notices;
+    }
+    let used_caller_tab =
+        matches!(resolved, Ok(resolution) if resolution.source == WorkspaceResolutionSource::CallerTab);
+    if let Some(env) = trimmed(identity.workspace_env) {
+        if !used_caller_tab && workspace_by_id(workspaces, env).is_none() {
+            notices.push(format!(
+                "warning: CODETERM_WORKSPACE_ID '{env}' is not a known workspace; ignored"
+            ));
+        }
+    }
+    if identity.caller_tab_id.is_some() && !used_caller_tab {
+        notices.push(
+            "warning: caller Tab is absent from the workspace map; identity fell through to the workspace env or the active workspace".to_string(),
+        );
+    }
+    notices
+}
+
+pub(crate) fn write_workspace_current<W: Write, E: Write>(
+    resolved: Result<WorkspaceResolution<'_>, CliError>,
+    notices: &[String],
+    json: bool,
+    stdout: &mut W,
+    stderr: &mut E,
+) -> i32 {
+    for notice in notices {
+        let _ = writeln!(stderr, "{notice}");
+    }
+    match resolved {
+        Ok(resolution) => {
+            if json {
+                let _ = writeln!(
+                    stdout,
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "id": resolution.id,
+                        "source": resolution.source.as_str()
+                    }))
+                    .expect("workspace resolution is serializable")
+                );
+            } else {
+                let _ = writeln!(stdout, "{}", resolution.id);
+            }
+            0
+        }
+        Err(error) => {
+            write_cli_error(json, &error, stdout, stderr);
+            CLI_ERROR_EXIT_CODE
+        }
+    }
+}
+
+fn workspace_by_id<'a>(workspaces: &'a [serde_json::Value], id: &str) -> Option<&'a str> {
+    workspaces
+        .iter()
+        .filter_map(|workspace| workspace.get("id").and_then(|value| value.as_str()))
+        .find(|candidate| *candidate == id)
+}
+
+fn active_workspace_id(workspaces: &[serde_json::Value]) -> Option<&str> {
+    workspaces
         .iter()
         .find(|workspace| {
             workspace.get("is_active").and_then(|value| value.as_bool()) == Some(true)
         })?
         .get("id")?
-        .as_str()?;
-    Some(WorkspaceResolution {
-        id,
-        source: WorkspaceResolutionSource::FocusFallback,
-    })
+        .as_str()
 }
 
 #[allow(
@@ -423,6 +536,203 @@ mod tests {
         let hint = workspace_create_cwd_hint();
         assert!(hint.contains("--cwd"));
         assert!(hint.contains("daemon working directory"));
+    }
+
+    /// Every later rung is satisfiable and points at a different id, so only a
+    /// real short-circuit on the earlier rung can produce the asserted value.
+    fn ladder_fixture() -> serde_json::Value {
+        serde_json::json!([
+            {"id": "ws_explicit", "is_active": false, "tab_ids": []},
+            {"id": "ws_caller", "is_active": false, "tab_ids": ["self_tab"]},
+            {"id": "ws_env", "is_active": false, "tab_ids": []},
+            {"id": "ws_active", "is_active": true, "tab_ids": []}
+        ])
+    }
+
+    fn rendered_current(
+        workspaces: &serde_json::Value,
+        identity: WorkspaceIdentity<'_>,
+        json: bool,
+    ) -> (i32, String, String) {
+        let rows = workspaces.as_array().expect("fixture is an array");
+        let resolved = workspace_current_resolution(rows, identity);
+        let notices = workspace_current_notices(rows, identity, &resolved);
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        let code = write_workspace_current(resolved, &notices, json, &mut stdout, &mut stderr);
+        (
+            code,
+            String::from_utf8(stdout).expect("stdout is utf8"),
+            String::from_utf8(stderr).expect("stderr is utf8"),
+        )
+    }
+
+    #[test]
+    fn workspace_resolution_takes_the_explicit_flag_over_every_other_rung() {
+        let workspaces = ladder_fixture();
+
+        let resolved = workspace_current_resolution(
+            workspaces.as_array().unwrap(),
+            WorkspaceIdentity {
+                explicit: Some("ws_explicit"),
+                caller_tab_id: Some("self_tab"),
+                workspace_env: Some("ws_env"),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(resolved.id, "ws_explicit");
+        assert_eq!(resolved.source.as_str(), "explicit");
+    }
+
+    #[test]
+    fn workspace_resolution_refuses_an_explicit_id_the_daemon_does_not_know() {
+        let workspaces = ladder_fixture();
+
+        let error = workspace_current_resolution(
+            workspaces.as_array().unwrap(),
+            WorkspaceIdentity {
+                explicit: Some("ws_ghost"),
+                caller_tab_id: Some("self_tab"),
+                workspace_env: Some("ws_env"),
+            },
+        )
+        .expect_err("an unknown explicit id never falls through to a later rung");
+
+        assert!(error.message.contains("ws_ghost"), "{}", error.message);
+    }
+
+    #[test]
+    fn workspace_resolution_prefers_the_tab_join_over_the_workspace_env() {
+        let workspaces = ladder_fixture();
+
+        let resolved = workspace_current_resolution(
+            workspaces.as_array().unwrap(),
+            WorkspaceIdentity {
+                explicit: None,
+                caller_tab_id: Some("self_tab"),
+                workspace_env: Some("ws_env"),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(resolved.id, "ws_caller");
+        assert_eq!(resolved.source.as_str(), "caller-tab");
+    }
+
+    /// The caller tab is absent from every `tab_ids`, so rung 2 cannot answer and
+    /// the active workspace is a different id — a wrong result stays visible.
+    #[test]
+    fn workspace_resolution_uses_the_workspace_env_only_when_the_tab_join_is_empty() {
+        let workspaces = ladder_fixture();
+
+        let resolved = workspace_current_resolution(
+            workspaces.as_array().unwrap(),
+            WorkspaceIdentity {
+                explicit: None,
+                caller_tab_id: Some("ghost_tab"),
+                workspace_env: Some("ws_env"),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(resolved.id, "ws_env");
+        assert_eq!(resolved.source.as_str(), "workspace-env");
+    }
+
+    #[test]
+    fn workspace_resolution_ignores_a_workspace_env_the_daemon_does_not_know() {
+        let workspaces = ladder_fixture();
+        let identity = WorkspaceIdentity {
+            explicit: None,
+            caller_tab_id: None,
+            workspace_env: Some("ws_ghost"),
+        };
+
+        let (code, stdout, stderr) = rendered_current(&workspaces, identity, false);
+
+        assert_eq!(code, 0);
+        assert_eq!(stdout, "ws_active\n");
+        assert!(stderr.contains("ws_ghost"), "{stderr}");
+    }
+
+    /// No workspace carries `is_active`, so rung 4 cannot answer either — a
+    /// fixture with an active workspace would return early and never reach this.
+    #[test]
+    fn workspace_current_without_any_identity_exits_one_with_empty_stdout() {
+        let workspaces = serde_json::json!([
+            {"id": "ws_one", "is_active": false, "tab_ids": []},
+            {"id": "ws_two", "is_active": false, "tab_ids": []}
+        ]);
+        let identity = WorkspaceIdentity {
+            explicit: None,
+            caller_tab_id: None,
+            workspace_env: None,
+        };
+
+        let (code, stdout, stderr) = rendered_current(&workspaces, identity, false);
+
+        assert_eq!(code, CLI_ERROR_EXIT_CODE);
+        assert_ne!(code, 0);
+        assert!(
+            stdout.is_empty(),
+            "an unresolved identity must not print a workspace id: {stdout}"
+        );
+        assert!(stderr.starts_with("Error: "), "{stderr}");
+    }
+
+    #[test]
+    fn workspace_current_without_any_identity_emits_a_json_envelope() {
+        let workspaces = serde_json::json!([{"id": "ws_one", "is_active": false, "tab_ids": []}]);
+        let identity = WorkspaceIdentity {
+            explicit: None,
+            caller_tab_id: None,
+            workspace_env: None,
+        };
+
+        let (code, stdout, stderr) = rendered_current(&workspaces, identity, true);
+
+        assert_eq!(code, CLI_ERROR_EXIT_CODE);
+        let envelope: serde_json::Value =
+            serde_json::from_str(&stdout).expect("stdout carries one JSON envelope");
+        assert_eq!(envelope["ok"], serde_json::Value::Bool(false));
+        assert!(stderr.is_empty(), "{stderr}");
+    }
+
+    #[test]
+    fn workspace_current_marks_the_active_workspace_fallback_for_machines() {
+        let workspaces = ladder_fixture();
+        let identity = WorkspaceIdentity {
+            explicit: None,
+            caller_tab_id: Some("ghost_tab"),
+            workspace_env: None,
+        };
+
+        let (code, stdout, stderr) = rendered_current(&workspaces, identity, true);
+
+        assert_eq!(code, 0);
+        let payload: serde_json::Value = serde_json::from_str(&stdout).expect("json payload");
+        assert_eq!(payload["id"], "ws_active");
+        assert_eq!(payload["source"], "focus-fallback");
+        assert!(stderr.contains("caller Tab is absent"), "{stderr}");
+    }
+
+    /// The warning predicate needs both halves: without a caller tab there is
+    /// nothing absent from the map, so the fallback is silent.
+    #[test]
+    fn workspace_current_does_not_warn_about_an_absent_caller_tab_outside_a_tab() {
+        let workspaces = ladder_fixture();
+        let identity = WorkspaceIdentity {
+            explicit: None,
+            caller_tab_id: None,
+            workspace_env: None,
+        };
+
+        let (code, stdout, stderr) = rendered_current(&workspaces, identity, false);
+
+        assert_eq!(code, 0);
+        assert_eq!(stdout, "ws_active\n");
+        assert!(stderr.is_empty(), "{stderr}");
     }
 
     #[test]
