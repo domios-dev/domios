@@ -4,7 +4,7 @@ use clap::Subcommand;
 pub enum DelayedAction {
     /// List delayed messages for a tab
     List {
-        /// Target tab ID (default: $CODETERM_TAB_ID or focused tab)
+        /// Target tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
         #[arg(long = "tab", value_name = "TAB")]
         tab: Option<String>,
     },
@@ -14,7 +14,7 @@ pub enum DelayedAction {
         /// Text to queue (positional, or omit and use --from-file/--stdin)
         text: Option<String>,
 
-        /// Target tab ID (default: $CODETERM_TAB_ID or focused tab)
+        /// Target tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
         #[arg(long = "tab", value_name = "TAB")]
         tab: Option<String>,
 

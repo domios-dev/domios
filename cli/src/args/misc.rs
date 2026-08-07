@@ -4,8 +4,14 @@ use clap::Subcommand;
 pub enum WorkspaceAction {
     /// Show a compact human-readable workspace → Team/Plan → Tab overview
     List,
-    /// Print this tab's workspace ID, or the focused workspace outside a tab
-    Current,
+    /// Print this tab's workspace ID. Resolution order: --workspace, then
+    /// $CODETERM_TAB_ID, then $CODETERM_WORKSPACE_ID, then the active workspace.
+    /// Exits 1 with empty stdout when no identity resolves.
+    Current {
+        /// Workspace id to report, validated against the daemon's workspace list
+        #[arg(long, value_name = "WORKSPACE_ID")]
+        workspace: Option<String>,
+    },
     /// Create a new workspace. With --cwd, reuses an existing workspace at that cwd.
     Create {
         /// Workspace name
@@ -147,7 +153,7 @@ pub enum TabAction {
     Rename {
         /// New title
         title: String,
-        /// Tab ID to rename (default: current focused tab)
+        /// Tab ID to rename (default: $CODETERM_TAB_ID; no focused-tab fallback)
         #[arg(long = "tab", value_name = "TAB")]
         tab: Option<String>,
     },
@@ -155,14 +161,14 @@ pub enum TabAction {
     Describe {
         /// Short summary, max 200 chars
         summary: String,
-        /// Tab ID to describe (default: current focused tab)
+        /// Tab ID to describe (default: $CODETERM_TAB_ID; no focused-tab fallback)
         #[arg(long = "tab", value_name = "TAB")]
         tab: Option<String>,
     },
     /// Get visible terminal text of a tab (what the user sees)
     #[command(alias = "get_text", alias = "screen")]
     GetText {
-        /// Tab ID (default: current focused tab)
+        /// Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
         #[arg(long = "tab", value_name = "TAB")]
         tab: Option<String>,
         /// Include raw ANSI escape codes (colors, cursor state) instead of plain text
@@ -173,7 +179,7 @@ pub enum TabAction {
     Exec {
         /// Command to execute
         command: String,
-        /// Tab ID (default: current focused tab)
+        /// Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
         #[arg(long = "tab", value_name = "TAB")]
         tab: Option<String>,
         /// Timeout in milliseconds
@@ -182,7 +188,7 @@ pub enum TabAction {
     },
     /// Show agent status for a tab (type, provider session, prompt)
     Status {
-        /// Tab ID (default: current focused tab)
+        /// Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
         #[arg(long = "tab", value_name = "TAB")]
         tab: Option<String>,
     },
@@ -200,14 +206,14 @@ pub enum TabAction {
     /// Designed for mesh/CLI/bot drivers — type `/stop` in a Telegram bridge
     /// and have it map straight here.
     Stop {
-        /// Tab ID (default: current focused tab)
+        /// Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
         #[arg(long = "tab", value_name = "TAB")]
         tab: Option<String>,
     },
 
     /// Read a tab's parsed chat transcript (text/thinking/tool calls/results)
     Chat {
-        /// Target tab ID (default: $CODETERM_TAB_ID or focused tab)
+        /// Target tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
         #[arg(long = "tab", value_name = "TAB")]
         tab: Option<String>,
         /// Only return messages from this index onward
@@ -253,7 +259,7 @@ pub fn required_tab_selector<'a>(
 pub enum TabCaptureAction {
     /// Arm capture: tee raw PTY output (ANSI intact) + timestamps to `--out`.
     Start {
-        /// Target tab ID (default: $CODETERM_TAB_ID or focused tab)
+        /// Target tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
         #[arg(long = "tab", value_name = "TAB")]
         tab: Option<String>,
         /// Path of the `.cast` file to write.
@@ -262,7 +268,7 @@ pub enum TabCaptureAction {
     },
     /// Disarm capture: flush/close the `.cast` and write a sibling `screen.txt`.
     Stop {
-        /// Target tab ID (default: $CODETERM_TAB_ID or focused tab)
+        /// Target tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
         #[arg(long = "tab", value_name = "TAB")]
         tab: Option<String>,
     },
