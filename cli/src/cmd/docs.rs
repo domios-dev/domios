@@ -7,6 +7,7 @@ macro_rules! doc {
         EmbeddedDoc {
             name: $name,
             purpose: $purpose,
+            source: $path,
             body: include_str!($path),
         }
     };
@@ -15,7 +16,20 @@ macro_rules! doc {
 pub(crate) struct EmbeddedDoc {
     pub name: &'static str,
     pub purpose: &'static str,
+    /// Include path relative to this file — the only link back to the repository
+    /// file, so coverage checks key on provenance rather than guessing from `name`.
+    pub source: &'static str,
     pub body: &'static str,
+}
+
+const DOCS_DIR_PREFIX: &str = "../../../docs/";
+
+/// `docs/<file>.md` this entry embeds, or `None` for a source outside `docs/`
+/// or in a nested directory.
+pub(crate) fn docs_dir_file(source: &str) -> Option<&str> {
+    source
+        .strip_prefix(DOCS_DIR_PREFIX)
+        .filter(|rest| !rest.contains('/'))
 }
 
 pub(crate) const DOCS: &[EmbeddedDoc] = &[

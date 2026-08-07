@@ -2,7 +2,7 @@
 //! consumed by docs/CLI.md, the prompt doctor, and the chat-card templates.
 //! Regenerate committed artifacts with `codeterm cli-manifest --write`.
 
-use clap::{Command, CommandFactory};
+use clap::{Arg, ArgAction, Command, CommandFactory};
 use serde::Serialize;
 
 use crate::args::cli::Cli;
@@ -31,10 +31,19 @@ pub fn build() -> ManifestCommand {
     walk(&Cli::command())
 }
 
+// Clap's own `--help`/`--version` are identified by the action it injects, not
+// by an id a real user-facing flag is free to reuse (`mem restore --version`).
+fn is_clap_builtin(arg: &Arg) -> bool {
+    matches!(
+        arg.get_action(),
+        ArgAction::Help | ArgAction::HelpShort | ArgAction::HelpLong | ArgAction::Version
+    )
+}
+
 fn walk(cmd: &Command) -> ManifestCommand {
     let mut args: Vec<ManifestArg> = cmd
         .get_arguments()
-        .filter(|a| a.get_id() != "help" && a.get_id() != "version")
+        .filter(|a| !is_clap_builtin(a))
         .map(|a| ManifestArg {
             name: if a.is_positional() {
                 a.get_id().to_string()
@@ -193,6 +202,8 @@ pub fn handle(write: bool, markdown: bool) {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use super::*;
 
     fn normalize_newlines(s: &str) -> String {
@@ -420,6 +431,31 @@ mod tests {
         flags
     }
 
+    // The runnable head of a prescription. A `$(...)` span carries another
+    // program's flags, and `—`/`·`/`#` open the prose that explains the command.
+    fn runnable_tokens(rest: &str) -> Vec<String> {
+        let mut flat = String::new();
+        let mut depth = 0usize;
+        let mut chars = rest.chars().peekable();
+        while let Some(ch) = chars.next() {
+            if depth == 0 && ch == '$' && chars.peek() == Some(&'(') {
+                chars.next();
+                depth = 1;
+                continue;
+            }
+            match (depth, ch) {
+                (0, _) => flat.push(ch),
+                (_, '(') => depth += 1,
+                (_, ')') => depth -= 1,
+                _ => {}
+            }
+        }
+        flat.split_whitespace()
+            .take_while(|tok| !matches!(*tok, "—" | "·" | "//") && !tok.starts_with('#'))
+            .map(str::to_string)
+            .collect()
+    }
+
     fn check_prescription(
         root: &Command,
         base: &[String],
@@ -443,8 +479,9 @@ mod tests {
             }
         };
 
-        let mut toks = rest.split_whitespace().peekable();
-        while let Some(tok) = toks.peek().copied() {
+        let toks = runnable_tokens(rest);
+        let mut cursor = 0;
+        while let Some(tok) = toks.get(cursor).map(String::as_str) {
             let cur = chain[chain.len() - 1];
             if cur.get_subcommands().next().is_none() || !is_subcommand_token(tok) {
                 break;
@@ -465,14 +502,11 @@ mod tests {
             let Some(next) = next else { break };
             walked.push(tok.to_string());
             chain.push(next);
-            toks.next();
+            cursor += 1;
         }
 
         let flags = known_flags(&chain);
-        for tok in toks {
-            if tok.starts_with('#') {
-                break;
-            }
+        for tok in &toks[cursor..] {
             let Some(flag) = tok.strip_prefix("--") else {
                 continue;
             };
@@ -538,6 +572,63 @@ mod tests {
         }
     }
 
+    // Shipped instruction surfaces that are NOT embedded in `DOCS` and so were
+    // previously unvalidated: the skill agents load, every prompt the daemon
+    // compiles, and the generated command reference.
+    const PRESCRIPTION_CORPUS: &[&str] = &["skills", "src-tauri/prompts", "docs/CLI.md"];
+
+    fn markdown_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                markdown_files(&path, out);
+            } else if path.extension().is_some_and(|ext| ext == "md") {
+                out.push(path);
+            }
+        }
+    }
+
+    fn corpus_origin(path: &std::path::Path, rel_root: &str) -> String {
+        let root = repo_path(rel_root);
+        let tail = path.strip_prefix(&root).unwrap_or(path);
+        let tail = tail.to_string_lossy().replace('\\', "/");
+        if tail.is_empty() {
+            rel_root.to_string()
+        } else {
+            format!("{rel_root}/{tail}")
+        }
+    }
+
+    fn prescription_corpus() -> Vec<(std::path::PathBuf, String)> {
+        let mut sources = Vec::new();
+        for rel in PRESCRIPTION_CORPUS {
+            let path = repo_path(rel);
+            assert!(
+                path.exists(),
+                "prescription corpus entry `{rel}` does not exist — a corpus that resolves to nothing validates nothing"
+            );
+            if path.is_dir() {
+                let mut found = Vec::new();
+                markdown_files(&path, &mut found);
+                assert!(
+                    !found.is_empty(),
+                    "prescription corpus entry `{rel}` contains no markdown"
+                );
+                found.sort();
+                sources.extend(found.into_iter().map(|p| {
+                    let origin = corpus_origin(&p, rel);
+                    (p, origin)
+                }));
+            } else {
+                sources.push((path, (*rel).to_string()));
+            }
+        }
+        sources
+    }
+
     // The consistency oracle for everything the CLI ships as instruction: an
     // agent follows a prescribed command literally, so one that cannot run is a
     // failed tool call, not a typo.
@@ -556,12 +647,139 @@ mod tests {
             }
         }
 
+        for (path, label) in prescription_corpus() {
+            let text = std::fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+            for (idx, line) in text.lines().enumerate() {
+                let Some(rest) = prescription(line, "codeterm") else {
+                    continue;
+                };
+                let origin = format!("{label}:{}", idx + 1);
+                check_prescription(&root, &[], rest, &origin, &mut bad);
+            }
+        }
+
         check_help_text(&root, &root, &[], &mut bad);
 
         assert!(
             bad.is_empty(),
             "shipped text prescribes actions the CLI cannot perform:\n{}",
             bad.join("\n")
+        );
+    }
+
+    // Coverage is a choice, not an accident: an unlisted new doc fails here
+    // instead of silently defaulting to unvalidated. Each entry states why the
+    // document is not served by `codeterm docs`; a wildcard would defeat that.
+    const DOCS_EXCLUDED_FROM_EMBEDDING: &[(&str, &str)] = &[
+        (
+            "ARCHITECTURE.md",
+            "contributor architecture map; agent-facing runtime behavior ships in API and ORCHESTRATION",
+        ),
+        (
+            "BUILD.md",
+            "repository build procedure, held non-user-facing by `repository_build_docs_are_not_user_facing`",
+        ),
+        (
+            "BUILD-REFERENCE.md",
+            "same non-user-facing build contract as BUILD.md",
+        ),
+        (
+            "CLI.md",
+            "generated command reference; agents discover flags with `codeterm <cmd> --help`",
+        ),
+        (
+            "GENERAL_AGENT.md",
+            "design record for the General-Agent prompt, addressed to contributors editing it",
+        ),
+        (
+            "MARKER-PROVENANCE.md",
+            "provenance rationale; the rule agents must follow ships in ROUTING",
+        ),
+        (
+            "MODELS.md",
+            "provider/model catalogue; agents discover models with `codeterm agent models`",
+        ),
+        (
+            "PLUGINS.md",
+            "plugin publishing map for maintainers, well past the embedded reading boundary",
+        ),
+        (
+            "RELEASE.md",
+            "human release runbook; agents never drive a release themselves",
+        ),
+        (
+            "RESILIENCE.md",
+            "daemon-operator troubleshooting for a human reading host logs",
+        ),
+        (
+            "SECURITY-AUDIT-2026-06.md",
+            "dated audit record — a historical surface, correct as written on its date",
+        ),
+        (
+            "WEB_ACCESS.md",
+            "web-access configuration owned by the machine's maintainer",
+        ),
+        (
+            "build_machine_setup.md",
+            "build-farm host setup performed by a physical machine operator",
+        ),
+        (
+            "crash-recovery-supervisor.md",
+            "OS-wrapper supervisor contract; installed via `codeterm system enable-autostart`",
+        ),
+    ];
+
+    #[test]
+    fn every_docs_md_is_embedded_or_explicitly_excluded() {
+        let embedded: HashSet<&str> = crate::cmd::docs::DOCS
+            .iter()
+            .filter_map(|document| crate::cmd::docs::docs_dir_file(document.source))
+            .collect();
+        assert!(
+            !embedded.is_empty(),
+            "no DOCS entry resolves to a docs/*.md source — the coverage check would pass vacuously"
+        );
+
+        let excluded: HashSet<&str> = DOCS_EXCLUDED_FROM_EMBEDDING
+            .iter()
+            .map(|(file, _)| *file)
+            .collect();
+        for (file, reason) in DOCS_EXCLUDED_FROM_EMBEDDING {
+            assert!(!reason.trim().is_empty(), "{file} is excluded without a reason");
+            assert!(
+                !embedded.contains(file),
+                "{file} is both embedded and on the exclusion list"
+            );
+            assert!(
+                repo_path("docs").join(file).is_file(),
+                "exclusion list names {file}, which no longer exists"
+            );
+        }
+
+        let mut unclassified: Vec<String> = Vec::new();
+        for entry in std::fs::read_dir(repo_path("docs"))
+            .expect("read docs/")
+            .flatten()
+        {
+            let path = entry.path();
+            if path.is_dir() || path.extension().is_none_or(|ext| ext != "md") {
+                continue;
+            }
+            let file = path
+                .file_name()
+                .expect("docs entry has a file name")
+                .to_string_lossy()
+                .to_string();
+            if !embedded.contains(file.as_str()) && !excluded.contains(file.as_str()) {
+                unclassified.push(file);
+            }
+        }
+        unclassified.sort();
+        assert!(
+            unclassified.is_empty(),
+            "docs/*.md must be embedded in cmd::docs::DOCS or named in DOCS_EXCLUDED_FROM_EMBEDDING with a reason:\n{}",
+            unclassified.join("\n")
         );
     }
 
