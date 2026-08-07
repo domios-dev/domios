@@ -191,15 +191,16 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 }
                 ("GET".into(), format!("/api/tabs?{}", query.join("&")), None)
             }
-            crate::TabAction::Inspect { tabs, tab } => (
+            crate::TabAction::Inspect { tabs, tab, lifecycle } => (
                 "GET".into(),
                 format!(
-                    "/api/tabs/inspect?tab_ids={}",
+                    "/api/tabs/inspect?tab_ids={}{}",
                     tabs.iter()
                         .chain(tab.iter())
                         .map(|tab| urlencoding::encode(tab).into_owned())
                         .collect::<Vec<_>>()
-                        .join(",")
+                        .join(","),
+                    if *lifecycle { "&lifecycle=true" } else { "" }
                 ),
                 None,
             ),

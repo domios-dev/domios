@@ -597,12 +597,23 @@ fn tab_list_and_inspect_relay_compact_scope_and_explicit_detail_ids() {
         action: TabAction::Inspect {
             tabs: vec!["tab_1".into(), "tab_2".into()],
             tab: vec![],
+            lifecycle: false,
         },
     };
     let (method, path, body) = cli_command_to_api(&inspect);
     assert_eq!(method, "GET");
     assert_eq!(path, "/api/tabs/inspect?tab_ids=tab_1,tab_2");
     assert!(body.is_none());
+
+    let lifecycle = Commands::Tab {
+        action: TabAction::Inspect {
+            tabs: vec![],
+            tab: vec!["tab_1".into()],
+            lifecycle: true,
+        },
+    };
+    let (_, path, _) = cli_command_to_api(&lifecycle);
+    assert_eq!(path, "/api/tabs/inspect?tab_ids=tab_1&lifecycle=true");
 }
 
 #[test]
