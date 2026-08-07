@@ -128,17 +128,59 @@ impl ServiceContext {
     }
 
     pub fn close_workspace(&self, id: &str) -> Result<(), String> {
-        let pre_focus = self.mux.read().get_focused_tab_id().map(str::to_string);
-        let pty_ids = self.mux.write().close_workspace(id)?;
+        self.close_workspace_with_teardown(
+            id,
+            |service, tab_id| service.prepare_tab_close(tab_id),
+            |service, tab_id| service.finish_tab_close(tab_id),
+        )
+    }
+
+    fn close_workspace_with_teardown<Prepare, Finish>(
+        &self,
+        id: &str,
+        mut prepare: Prepare,
+        mut finish: Finish,
+    ) -> Result<(), String>
+    where
+        Prepare: FnMut(&Self, &str) -> Result<(), String>,
+        Finish: FnMut(&Self, &str) -> Result<(), String>,
+    {
+        let (pre_focus, prepared) = {
+            let mut mux = self.mux.write();
+            (
+                mux.get_focused_tab_id().map(str::to_string),
+                mux.reserve_workspace_close(id)?,
+            )
+        };
+        let tab_ids = prepared.tab_ids().to_vec();
+        let mut cleanup_errors = Vec::new();
+        for tab_id in &tab_ids {
+            if let Err(error) = prepare(self, tab_id) {
+                cleanup_errors.push(format!("{tab_id}: {error}"));
+            }
+        }
+        let pty_ids = self.mux.write().close_prepared_workspace(prepared)?;
         let post_focus = self.mux.read().get_focused_tab_id().map(str::to_string);
         self.kill_ptys(&pty_ids);
+        for tab_id in &tab_ids {
+            if let Err(error) = finish(self, tab_id) {
+                cleanup_errors.push(format!("{tab_id}: {error}"));
+            }
+        }
         self.emit_state_changed();
         if pre_focus != post_focus {
             if let Some(new) = post_focus {
                 self.emit_tab_focus_changed(&new);
             }
         }
-        Ok(())
+        if cleanup_errors.is_empty() {
+            Ok(())
+        } else {
+            Err(format!(
+                "workspace closed with cleanup errors: {}",
+                cleanup_errors.join("; ")
+            ))
+        }
     }
 
     pub fn move_tab(
@@ -314,3 +356,7 @@ impl ServiceContext {
 #[cfg(test)]
 #[path = "workspace_role_tests.rs"]
 mod workspace_role_tests;
+
+#[cfg(test)]
+#[path = "workspace_close_tests.rs"]
+mod workspace_close_tests;
