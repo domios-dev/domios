@@ -51,6 +51,10 @@ node scripts/cache-provenance.mjs snapshot \
 node scripts/cache-provenance.mjs check \
   --kind fixture-input --profile release --target fixture-target --flags fixture-flags \
   --features fixture-features --toolchain-fixture fixture-toolchain --manifest "$SNAPSHOT"
+touch "$ROOT/src-tauri/Cargo.toml"
+node scripts/cache-provenance.mjs check \
+  --kind fixture-input --profile release --target fixture-target --flags fixture-flags \
+  --features fixture-features --toolchain-fixture fixture-toolchain --manifest "$SNAPSHOT"
 if node scripts/cache-provenance.mjs check \
     --kind fixture-input --profile debug --target fixture-target --flags fixture-flags \
     --features fixture-features --toolchain-fixture fixture-toolchain \
