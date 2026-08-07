@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 37 -->
+<!-- revision: 38 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -23,11 +23,18 @@ The Team verbs are `codeterm team list|show|rename|close|adopt-plan|pair`. `code
 
 `codeterm plan task update --status pending|cancelled`, `plan task assign`, `plan task close`, and `plan task respawn` are available to the live Plan owner even when the former Worker's owner epoch is stale, which is the normal state once that tab is gone. The recovery retires the stale attempt in the same transition that clears the dead owner, so a late `dispatch_ready` cannot resurrect it. A non-owner caller is still refused. `codeterm plan archive` **succeeds** without a retrospective and emits the advisory `plan.retrospective_unrecorded` plus durable incident evidence; write the retrospective before normal closure, but it is a nudge, never a gate.
 
-Competition has no `codeterm plan task` verb — it is driven by the `plan.task.compete` socket JSON-RPC / REST route, which `codeterm plan task show` prints for any competition-enabled task. That route gives each **mutating** competitor its own provisioned worktree/branch/base before spawn, so N competitors never share a checkout and never fall back to canonical; lanes created earlier in the call are removed if a later competitor fails. Read-only competition is unchanged.
+Competition has no `codeterm plan task` verb — it is driven by the `plan.task.compete` route, which `codeterm plan task show` prints for any competition-enabled task. That route gives each **mutating** competitor its own provisioned worktree/branch/base before spawn, so N competitors never share a checkout and never fall back to canonical; lanes created earlier in the call are removed if a later competitor fails. Read-only competition is unchanged.
 
 `codeterm plan transfer <plan_id> --to <orchestrator-tab>` moves the plan to the destination Orchestrator's live Team. The CLI requires `CODETERM_TAB_ID`, supplies that caller identity, and the daemon requires the tab to be the source Team's Orchestrator or planner Manager; missing callers, Workers, and foreign-Team tabs cannot transfer. Transfer changes the Team, owner, owner history, and stale planner routing atomically before relinking hierarchy.
 
 <!-- cli:auto-start -->
+#### `codeterm`
+
+CodeTerm CLI — control your terminal multiplexer
+
+- `--json` — Output raw JSON instead of human-readable text
+- `--mesh` — Execute command on a remote mesh peer instead of locally
+
 #### `codeterm agent`
 
 Agent hierarchy management

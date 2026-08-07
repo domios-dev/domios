@@ -515,7 +515,7 @@ fn print_competition(task: &Value, plan: &str, task_id: &str) {
         parts.push(format!("judge: {hint}"));
     }
     println!("competition: {}", parts.join("; "));
-    println!("compete: plan.task.compete RPC/API route for {plan} {task_id}");
+    println!("compete: plan.task.compete route for {plan} {task_id}");
 }
 
 fn executor_role_line(task: &Value) -> Option<String> {
