@@ -358,15 +358,25 @@ mod move_tab_transaction_tests {
         let (mut state, first_tab) = MultiplexerState::new();
         let workspace_id = state.find_workspace_for_tab(&first_tab).unwrap();
         let prepared = state.reserve_workspace_close(&workspace_id).unwrap();
-        state.workspace_close_reservations.remove(&workspace_id);
-        let added_tab = state.create_tab(&workspace_id).unwrap();
+        let synthetic_tab = "concurrent-internal-mutation".to_string();
+        state
+            .workspaces
+            .iter_mut()
+            .find(|workspace| workspace.id == workspace_id)
+            .unwrap()
+            .tabs
+            .push(synthetic_tab.clone());
 
         let error = state.close_prepared_workspace(prepared).unwrap_err();
 
         assert!(error.contains("Workspace changed while closing"));
         assert!(state.get_workspace(&workspace_id).is_some());
         assert!(state.get_tab(&first_tab).is_some());
-        assert!(state.get_tab(&added_tab).is_some());
+        assert!(state
+            .get_workspace(&workspace_id)
+            .unwrap()
+            .tabs
+            .contains(&synthetic_tab));
         assert!(state.recent_closed_view().is_empty());
     }
 }

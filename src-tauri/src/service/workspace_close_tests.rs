@@ -56,7 +56,7 @@ fn workspace_close_keeps_one_workspace_restore_group() {
 
     fixture.service.close_workspace(&workspace_id).unwrap();
 
-    let view = fixture.service.mux.read().recent_closed_view();
+    let view = fixture.service.mux.read().snapshot().recently_closed;
     assert_eq!(view.len(), 2);
     assert!(view.iter().all(|entry| entry.group_kind == "workspace"));
     assert_eq!(view[0].group_id, view[1].group_id);
@@ -189,7 +189,7 @@ fn workspace_close_finishes_after_a_pre_teardown_error() {
     assert!(mux.get_workspace(&workspace_id).is_none());
     assert!(mux.get_tab(&first_tab).is_none());
     assert!(mux.get_tab(&second_tab).is_none());
-    let view = mux.recent_closed_view();
+    let view = mux.snapshot().recently_closed;
     assert_eq!(view.len(), 2);
     assert_eq!(view[0].group_id, view[1].group_id);
 }
