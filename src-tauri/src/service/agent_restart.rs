@@ -646,8 +646,23 @@ fn build_relaunch_command_with_registry(
     }
     if session_present {
         if let Some(sid) = session_id {
+            let system_prompt = registry
+                .with_provider(provider, |p| {
+                    crate::service::launch_delivery::content_for_descriptor(
+                        &p.system_prompt_delivery(),
+                        launch_task,
+                    )
+                    .system_prompt
+                })
+                .flatten();
+            let resume = crate::agent::provider::AgentResumeParams {
+                session_id: sid.to_string(),
+                skip_permissions: auto_approve,
+                system_prompt,
+                args: Vec::new(),
+            };
             if let Some(cmd) = registry
-                .with_provider(provider, |p| p.build_resume_command(sid, auto_approve))
+                .with_provider(provider, |p| p.build_resume_command_with_context(&resume))
                 .flatten()
             {
                 return Some(cmd);

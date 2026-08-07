@@ -1,5 +1,5 @@
 // plugin.js by scripts/build-plugin.mjs. Frontend contract lives in src/index.ts.
-import type { LaunchParams, ParsedPrompt, PluginModule } from "@codeterm/plugin-sdk";
+import type { LaunchParams, ParsedPrompt, PluginModule, ResumeParams } from "@codeterm/plugin-sdk";
 import { manifest } from "./shared";
 import {
   fetchClaudeUsage,
@@ -309,6 +309,25 @@ const plugin: PluginModule = {
     if (skipPermissions) parts.push("--dangerously-skip-permissions");
     parts.push("--resume");
     parts.push(host.shell.quoteFor(sessionId, host.platform()));
+    return parts.join(" ");
+  },
+
+  // `--resume` restores the transcript but not the launch-time system prompt,
+  // so it is re-applied through the same declared flag buildLaunchCommand uses.
+  buildResumeCommandWithContext(params: ResumeParams): string {
+    const p = params || ({} as ResumeParams);
+    const parts = [this.buildResumeCommand(p.sessionId, p.skipPermissions)];
+    if (p.args && p.args.length > 0) {
+      for (let i = 0; i < p.args.length; i++) parts.push(String(p.args[i]));
+    }
+    const systemPrompt = p.systemPrompt;
+    if (systemPrompt && systemPrompt.trim()) {
+      const visiblePath = writeTaskTempFile(systemPrompt);
+      if (visiblePath) {
+        parts.push("--append-system-prompt-file");
+        parts.push(host.shell.quoteFor(String(visiblePath), host.platform()));
+      }
+    }
     return parts.join(" ");
   },
 

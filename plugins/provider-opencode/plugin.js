@@ -179,6 +179,28 @@ var plugin = {
     if (skipPermissions) parts.push("--dangerously-skip-permissions");
     return parts.join(" ");
   },
+  // A resumed session re-reads `instructions`, so the composed prompt is
+  // re-applied through the same session-config channel buildLaunchCommand uses.
+  buildResumeCommandWithContext(params) {
+    const p = params || {};
+    const platform = host.platform();
+    const parts = [this.buildResumeCommand(p.sessionId, p.skipPermissions)];
+    if (p.args && p.args.length > 0) {
+      for (let i = 0; i < p.args.length; i++) parts.push(String(p.args[i]));
+    }
+    const systemPrompt = p.systemPrompt;
+    if (!systemPrompt || !systemPrompt.trim()) return parts.join(" ");
+    const taskPath = host.fs.writeTempFile(systemPrompt, ".ct-task.md");
+    if (!taskPath) return parts.join(" ");
+    const taskName = taskPath.split(/[\\/]/).pop().replace(/[^A-Za-z0-9._-]/g, "-");
+    const localTaskPath = `.codeterm/${taskName}`;
+    const source = host.shell.quoteFor(taskPath, platform);
+    const local = host.shell.quoteFor(localTaskPath, platform);
+    const config = host.shell.quoteFor(JSON.stringify({ instructions: [localTaskPath] }), platform);
+    const prologue = platform === "windows" ? `New-Item -ItemType Directory -Force -Path '.codeterm' | Out-Null; Copy-Item -LiteralPath ${source} -Destination ${local} -Force; $env:OPENCODE_CONFIG_CONTENT = ${config}; try {` : `mkdir -p .codeterm && cp -- ${source} ${local} && OPENCODE_CONFIG_CONTENT=${config}`;
+    const epilogue = platform === "windows" ? `} finally { Remove-Item -LiteralPath ${local} -Force -ErrorAction SilentlyContinue }` : `; ct_status=$?; rm -f -- ${local}; exit $ct_status`;
+    return `${prologue} ${parts.join(" ")} ${epilogue}`;
+  },
   // absent from opencode's env, or event field structure changed in a new release).
   // agent_session_id.is_some() short-circuits the Rust call-site before this runs.
   detectSessionId(cwd, exclude, maxAgeMs) {
