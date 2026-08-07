@@ -18,14 +18,17 @@ pub(crate) struct EmbeddedDoc {
     pub purpose: &'static str,
     /// Include path relative to this file — the only link back to the repository
     /// file, so coverage checks key on provenance rather than guessing from `name`.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub source: &'static str,
     pub body: &'static str,
 }
 
+#[cfg(test)]
 const DOCS_DIR_PREFIX: &str = "../../../docs/";
 
 /// `docs/<file>.md` this entry embeds, or `None` for a source outside `docs/`
 /// or in a nested directory.
+#[cfg(test)]
 pub(crate) fn docs_dir_file(source: &str) -> Option<&str> {
     source
         .strip_prefix(DOCS_DIR_PREFIX)

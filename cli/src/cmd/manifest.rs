@@ -576,7 +576,7 @@ mod tests {
 
     fn prescription_corpus() -> Vec<(std::path::PathBuf, String)> {
         let mut sources = Vec::new();
-        for rel in PRESCRIPTION_CORPUS {
+        for &rel in PRESCRIPTION_CORPUS {
             let path = repo_path(rel);
             assert!(
                 path.exists(),
@@ -595,7 +595,7 @@ mod tests {
                     (p, origin)
                 }));
             } else {
-                sources.push((path, (*rel).to_string()));
+                sources.push((path, rel.to_string()));
             }
         }
         sources
@@ -717,8 +717,11 @@ mod tests {
             .iter()
             .map(|(file, _)| *file)
             .collect();
-        for (file, reason) in DOCS_EXCLUDED_FROM_EMBEDDING {
-            assert!(!reason.trim().is_empty(), "{file} is excluded without a reason");
+        for &(file, reason) in DOCS_EXCLUDED_FROM_EMBEDDING {
+            assert!(
+                !reason.trim().is_empty(),
+                "{file} is excluded without a reason"
+            );
             assert!(
                 !embedded.contains(file),
                 "{file} is both embedded and on the exclusion list"
