@@ -1,3 +1,88 @@
+use std::io::Write;
+
+use crate::client::SocketCallError;
+use crate::cmd::plan_output::error_envelope;
+
+/// Exit status of every failed CLI command, with and without `--json`.
+pub const CLI_ERROR_EXIT_CODE: i32 = 1;
+
+const UNEXPLAINED_RPC_FAILURE: &str = "the daemon rejected this command without an explanation";
+
+/// A CLI failure split into the human-facing explanation and the machine-facing
+/// JSON-RPC code, so the code can reach `--json` without reaching the operator.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CliError {
+    pub message: String,
+    pub code: Option<i32>,
+}
+
+impl CliError {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            code: None,
+        }
+    }
+}
+
+impl From<SocketCallError> for CliError {
+    fn from(error: SocketCallError) -> Self {
+        match error {
+            SocketCallError::Transport(message) => Self::new(message),
+            SocketCallError::Rpc(rpc) => Self {
+                message: rpc_explanation(&rpc.message),
+                code: Some(rpc.code),
+            },
+        }
+    }
+}
+
+/// The daemon's own message is the application-level explanation; an empty one
+/// is reported as unexplained rather than dressed up as a cause we don't know.
+pub(crate) fn rpc_explanation(message: &str) -> String {
+    if message.trim().is_empty() {
+        UNEXPLAINED_RPC_FAILURE.to_string()
+    } else {
+        message.to_string()
+    }
+}
+
+pub fn handle_cli_result(json: bool, result: Result<serde_json::Value, CliError>) {
+    match result {
+        Ok(value) => {
+            if json {
+                print_json(&value);
+            } else {
+                print_human(&value);
+            }
+        }
+        Err(error) => exit_with_cli_error(json, &error),
+    }
+}
+
+pub fn exit_with_cli_error(json: bool, error: &CliError) -> ! {
+    write_cli_error(json, error, &mut std::io::stdout(), &mut std::io::stderr());
+    std::process::exit(cli_error_exit_code(json));
+}
+
+fn cli_error_exit_code(_json: bool) -> i32 {
+    CLI_ERROR_EXIT_CODE
+}
+
+pub(crate) fn write_cli_error(
+    json: bool,
+    error: &CliError,
+    out: &mut impl Write,
+    err: &mut impl Write,
+) {
+    if json {
+        let _ = writeln!(out, "{}", error_envelope(&error.message, error.code));
+        return;
+    }
+    let _ = out.flush();
+    let _ = writeln!(err, "Error: {}", error.message);
+}
+
 const ENTITY_ID_FIELDS: &[&str] = &[
     "id",
     "task_id",
@@ -295,7 +380,113 @@ pub fn print_taxonomy(value: &serde_json::Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::client::RpcError;
     use serde_json::json;
+
+    /// Every JSON-RPC code the daemon uses starts with this; asserting its
+    /// absence is structural, unlike pinning a message phrase.
+    const RPC_CODE_MARKER: &str = "-32";
+
+    fn tab_not_found() -> SocketCallError {
+        SocketCallError::Rpc(RpcError {
+            code: -32603,
+            message: "one or more requested Tabs were not found".into(),
+            data: None,
+        })
+    }
+
+    fn rendered(json: bool, error: &CliError) -> (String, String) {
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        write_cli_error(json, error, &mut out, &mut err);
+        (
+            String::from_utf8(out).expect("stdout is utf8"),
+            String::from_utf8(err).expect("stderr is utf8"),
+        )
+    }
+
+    #[test]
+    fn json_error_envelope_goes_to_stdout_and_leaves_stderr_empty() {
+        let (out, err) = rendered(true, &CliError::from(tab_not_found()));
+
+        assert!(err.is_empty(), "--json puts the whole failure on stdout: {err}");
+        let envelope: serde_json::Value =
+            serde_json::from_str(&out).expect("stdout carries exactly one JSON envelope");
+        assert_eq!(envelope["ok"], serde_json::Value::Bool(false));
+        assert_eq!(envelope["kind"], "error");
+        assert_eq!(envelope["code"], -32603);
+    }
+
+    #[test]
+    fn human_error_goes_to_stderr_without_the_raw_rpc_code() {
+        let (out, err) = rendered(false, &CliError::from(tab_not_found()));
+
+        assert!(out.is_empty(), "stdout must stay parseable: {out}");
+        assert!(!err.contains(RPC_CODE_MARKER), "{err}");
+        assert!(err.contains("one or more requested Tabs were not found"), "{err}");
+    }
+
+    #[test]
+    fn error_exit_code_is_non_zero_and_identical_in_both_modes() {
+        assert_eq!(cli_error_exit_code(true), cli_error_exit_code(false));
+        assert_ne!(cli_error_exit_code(true), 0);
+        assert_eq!(cli_error_exit_code(false), CLI_ERROR_EXIT_CODE);
+    }
+
+    #[test]
+    fn rpc_failure_keeps_the_code_programmatically_and_out_of_the_message() {
+        let error = CliError::from(tab_not_found());
+
+        assert_eq!(error.code, Some(-32603));
+        assert!(!error.message.contains(RPC_CODE_MARKER), "{}", error.message);
+    }
+
+    /// `RpcClient::call` stringifies through `Display`, which is where the code
+    /// leaks; converted sites must take `call_detailed` instead.
+    #[test]
+    fn stringifying_a_call_error_leaks_the_code_that_the_contract_strips() {
+        let leaked = tab_not_found().to_string();
+        let contracted = CliError::from(tab_not_found());
+
+        assert!(leaked.contains(RPC_CODE_MARKER), "{leaked}");
+        assert!(
+            !contracted.message.contains(RPC_CODE_MARKER),
+            "{}",
+            contracted.message
+        );
+        assert_eq!(contracted.code, Some(-32603));
+    }
+
+    #[test]
+    fn empty_rpc_message_is_reported_unexplained_instead_of_invented() {
+        let error = CliError::from(SocketCallError::Rpc(RpcError {
+            code: -32000,
+            message: "   ".into(),
+            data: None,
+        }));
+
+        assert_eq!(error.message, UNEXPLAINED_RPC_FAILURE);
+        assert_eq!(error.code, Some(-32000));
+    }
+
+    #[test]
+    fn transport_failure_has_no_code_and_keeps_its_own_text() {
+        let error = CliError::from(SocketCallError::Transport("socket is gone".into()));
+
+        assert_eq!(error.code, None);
+        assert_eq!(error.message, "socket is gone");
+    }
+
+    #[test]
+    fn locally_validated_error_still_emits_the_envelope_with_a_null_code() {
+        let (out, err) = rendered(true, &CliError::new("invalid remote tab id"));
+
+        assert!(err.is_empty(), "--json puts the whole failure on stdout: {err}");
+        let envelope: serde_json::Value = serde_json::from_str(&out).expect("one JSON envelope");
+        assert_eq!(envelope["ok"], serde_json::Value::Bool(false));
+        assert_eq!(envelope["code"], serde_json::Value::Null);
+        assert_eq!(envelope["error"], "invalid remote tab id");
+    }
 
     #[test]
     fn tab_list_json_uses_object_envelope_matching_plan_task_list() {

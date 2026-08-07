@@ -1,5 +1,8 @@
 use crate::client::SocketCallError;
+use crate::cmd::print::rpc_explanation;
 use serde_json::Value;
+
+pub(crate) const CROSS_DAEMON_HINT: &str = "hint: if this plan lives on the dev daemon but this Tab is in prod, rerun with the dev daemon selected:\n  env -u CODETERM_API_TOKEN CODETERM_API_PORT=7686 codeterm ...";
 
 pub(crate) fn render_plan_call_error(err: SocketCallError, params: &Value) -> String {
     match err {
@@ -10,11 +13,9 @@ pub(crate) fn render_plan_call_error(err: SocketCallError, params: &Value) -> St
                 .and_then(|data| render_plan_error(data, params));
             match rendered {
                 Some(message) => message,
-                None => append_cross_daemon_hint(
-                    format!("RPC error {}: {}", rpc.code, rpc.message),
-                    params,
-                    &rpc.message,
-                ),
+                None => {
+                    append_cross_daemon_hint(rpc_explanation(&rpc.message), params, &rpc.message)
+                }
             }
         }
         SocketCallError::Transport(message) => message,
@@ -375,10 +376,7 @@ fn append_cross_daemon_hint(message: String, params: &Value, raw_error: &str) ->
 }
 
 fn with_cross_daemon_hint(message: String) -> String {
-    format!(
-        "{message}\n\
-hint: if this plan lives on the dev daemon but this Tab is in prod, rerun with the dev daemon selected:\n  env -u CODETERM_API_TOKEN CODETERM_API_PORT=7686 codeterm ..."
-    )
+    format!("{message}\n{CROSS_DAEMON_HINT}")
 }
 
 fn render_undeclared_kind(data: &Value, plan_id: &str, task_id: Option<&str>) -> Option<String> {
@@ -521,6 +519,49 @@ mod tests {
             "not-found should not suggest a longer prefix: {message}"
         );
         assert!(message.contains("codeterm spec list --active"), "{message}");
+    }
+
+    fn rpc_failure(code: i32, message: &str, data: Option<Value>) -> SocketCallError {
+        SocketCallError::Rpc(crate::client::RpcError {
+            code,
+            message: message.into(),
+            data,
+        })
+    }
+
+    #[test]
+    fn unstructured_rpc_failure_keeps_the_daemon_explanation_without_the_code() {
+        let message =
+            render_plan_call_error(rpc_failure(-32602, "plan 'zz' not found", None), &json!({}));
+
+        assert!(message.contains("plan 'zz' not found"), "{message}");
+        assert!(!message.contains("-32"), "{message}");
+    }
+
+    #[test]
+    fn structured_plan_error_still_wins_over_the_raw_fallback() {
+        let message = render_plan_call_error(
+            rpc_failure(
+                -32602,
+                "resolve failed",
+                Some(json!({ "type": "ref_not_found", "kind": "plan", "reference": "zz" })),
+            ),
+            &json!({}),
+        );
+
+        assert!(
+            message.contains("fix: codeterm plan list --active"),
+            "{message}"
+        );
+        assert!(!message.contains("resolve failed"), "{message}");
+    }
+
+    #[test]
+    fn unexplained_rpc_failure_is_not_dressed_up_as_a_cause() {
+        let message = render_plan_call_error(rpc_failure(-32000, "", None), &json!({}));
+
+        assert!(!message.contains("-32"), "{message}");
+        assert_eq!(message, crate::cmd::print::rpc_explanation(""));
     }
 
     #[test]

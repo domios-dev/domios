@@ -1,6 +1,6 @@
-use super::{classify_remote_tab_id, relay_tab_json, RemoteTabTarget};
+use super::{classify_remote_tab_id, relay_tab_json, RemoteTabTarget, INVALID_REMOTE_TAB_ID};
 use crate::client::SocketClient;
-use crate::cmd::print::handle_result;
+use crate::cmd::print::{exit_with_cli_error, handle_result, CliError};
 use crate::{build_local_api, read_api_config, resolve_tab};
 
 pub(super) fn handle_tab_capture(
@@ -33,8 +33,7 @@ pub(super) fn handle_tab_capture(
             return;
         }
         Some(RemoteTabTarget::Invalid) => {
-            handle_result(json, Err("invalid remote tab id".into()));
-            return;
+            exit_with_cli_error(json, &CliError::new(INVALID_REMOTE_TAB_ID));
         }
         _ => {}
     }
