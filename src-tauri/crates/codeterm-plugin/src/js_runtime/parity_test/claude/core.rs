@@ -171,6 +171,39 @@ fn agent_state_status_reconciliation_capability_parity() {
     );
 }
 
+/// The JS path streams a session file to QuickJS in line-aligned chunks instead
+/// of one whole-file read. A fixture larger than one chunk is the only shape
+/// that exercises the seam, so parity is asserted there too — a chunk cut
+/// mid-line would silently drop or duplicate messages on the JS side only.
+#[test]
+fn parse_session_messages_parity_across_chunk_boundary() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (n, j) = pair();
+    // ~1 KiB per line × 6000 lines clears the 4 MiB per-call chunk budget.
+    let filler = "y".repeat(1000);
+    let mut jsonl = String::new();
+    for i in 0..6000 {
+        jsonl.push_str(&format!(
+            "{{\"type\":\"user\",\"isMeta\":false,\"message\":{{\"role\":\"user\",\"content\":\"msg-{i}-{filler}\"}}}}\n"
+        ));
+    }
+    assert!(jsonl.len() > 4 * 1024 * 1024, "fixture must span >1 chunk");
+
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(tmp.path(), &jsonl).unwrap();
+
+    let nm = n.parse_session_messages(tmp.path());
+    let jm = j.parse_session_messages(tmp.path());
+    assert_eq!(nm.len(), 6000, "native must see every line");
+    assert_eq!(jm.len(), nm.len(), "chunked JS read must not lose messages");
+    for (i, (a, b)) in nm.iter().zip(jm.iter()).enumerate() {
+        assert_eq!(a.text, b.text, "text @ {i}");
+        assert_eq!(a.role, b.role, "role @ {i}");
+    }
+}
+
 #[test]
 fn parse_session_messages_parity_on_jsonl_fixture() {
     if require_plugins().is_none() {
