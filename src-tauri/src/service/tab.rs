@@ -200,6 +200,9 @@ impl ServiceContext {
         let post_focus = self.mux.read().get_focused_tab_id().map(str::to_string);
         self.kill_ptys(&pty_ids);
         self.finish_tab_close(tab_id)?;
+        self.notif
+            .lock()
+            .close_push_scope(&crate::notification::push::tab_scope(tab_id));
         self.emit_state_changed();
         if pre_focus != post_focus {
             if let Some(new) = post_focus {

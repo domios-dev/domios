@@ -322,6 +322,28 @@ pub enum PasteAction {
     },
 }
 
+/// The complete set of push-eligible categories. Routine progress has no
+/// variant, so an invented category is a parse error, not a runtime string.
+#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NotifyCategory {
+    /// A material milestone worth interrupting for
+    Milestone,
+    /// Blocked, or waiting on an approval
+    Blocker,
+    /// A terminal failure
+    Failure,
+}
+
+impl NotifyCategory {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Milestone => "milestone",
+            Self::Blocker => "blocker",
+            Self::Failure => "failure",
+        }
+    }
+}
+
 #[derive(Subcommand)]
 pub enum NotifyAction {
     /// Send a notification
@@ -336,6 +358,14 @@ pub enum NotifyAction {
         /// Notification level: info, warning, error
         #[arg(long, default_value = "info")]
         level: String,
+
+        /// Opt-in push category. Omit for a local-only notification.
+        #[arg(long, value_enum)]
+        category: Option<NotifyCategory>,
+
+        /// Stable identity for coalescing. Derived from the title when omitted.
+        #[arg(long)]
+        event_key: Option<String>,
     },
     /// List notifications
     List {

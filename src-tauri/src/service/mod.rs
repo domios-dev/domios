@@ -34,6 +34,7 @@ pub(crate) mod launch_diagnostics;
 pub mod message_gateway;
 pub mod messenger;
 pub mod notification;
+mod notification_push;
 mod orchestration_pair;
 mod orchestrator;
 pub(crate) use orchestrator::{build_agent_command, provider_launch_task};
