@@ -53,7 +53,7 @@
               "value_name": "TAB",
               "possible_values": [],
               "default": null,
-              "help": "Tab ID (default: $CODETERM_TAB_ID or focused tab)",
+              "help": "Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)",
               "aliases": []
             },
             {
@@ -91,7 +91,7 @@
               "value_name": "TAB",
               "possible_values": [],
               "default": null,
-              "help": "Tab ID (default: current focused tab)",
+              "help": "Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)",
               "aliases": []
             }
           ],
@@ -109,7 +109,7 @@
               "value_name": "TAB",
               "possible_values": [],
               "default": null,
-              "help": "Tab ID (default: $CODETERM_TAB_ID or focused tab)",
+              "help": "Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)",
               "aliases": []
             }
           ],
@@ -127,7 +127,7 @@
               "value_name": "TAB",
               "possible_values": [],
               "default": null,
-              "help": "Orchestrator tab ID (default: current focused tab)",
+              "help": "Orchestrator tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)",
               "aliases": []
             }
           ],
@@ -155,7 +155,7 @@
               "value_name": "TAB",
               "possible_values": [],
               "default": null,
-              "help": "Tab ID to link (default: current focused tab)",
+              "help": "Tab ID to link (default: $CODETERM_TAB_ID; no focused-tab fallback)",
               "aliases": []
             }
           ],
@@ -183,7 +183,7 @@
               "value_name": "TAB",
               "possible_values": [],
               "default": null,
-              "help": "Tab ID (default: $CODETERM_TAB_ID or focused tab)",
+              "help": "Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)",
               "aliases": []
             }
           ],
@@ -361,7 +361,7 @@
               "value_name": "TAB",
               "possible_values": [],
               "default": null,
-              "help": "Tab ID (default: $CODETERM_TAB_ID or focused tab)",
+              "help": "Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)",
               "aliases": []
             },
             {
@@ -439,7 +439,7 @@
               "value_name": "TAB",
               "possible_values": [],
               "default": null,
-              "help": "Tab ID (default: $CODETERM_TAB_ID or focused tab)",
+              "help": "Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)",
               "aliases": []
             }
           ],
@@ -457,7 +457,7 @@
               "value_name": "TAB",
               "possible_values": [],
               "default": null,
-              "help": "Tab ID (default: current focused tab)",
+              "help": "Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)",
               "aliases": []
             }
           ],
@@ -762,7 +762,7 @@
               "value_name": "TAB",
               "possible_values": [],
               "default": null,
-              "help": "Tab ID (default: current focused tab)",
+              "help": "Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)",
               "aliases": []
             }
           ],
@@ -1690,7 +1690,7 @@
               "value_name": "TAB",
               "possible_values": [],
               "default": null,
-              "help": "Target tab ID (default: $CODETERM_TAB_ID or focused tab)",
+              "help": "Target tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)",
               "aliases": []
             },
             {
@@ -1816,7 +1816,7 @@
               "value_name": "TAB",
               "possible_values": [],
               "default": null,
-              "help": "Target tab ID (default: $CODETERM_TAB_ID or focused tab)",
+              "help": "Target tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)",
               "aliases": []
             }
           ],
@@ -11518,7 +11518,7 @@
           "value_name": "TAB",
           "possible_values": [],
           "default": null,
-          "help": "Target tab ID (default: $CODETERM_TAB_ID or focused tab)",
+          "help": "Target tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)",
           "aliases": []
         },
         {
@@ -12626,7 +12626,7 @@
                   "value_name": "TAB",
                   "possible_values": [],
                   "default": null,
-                  "help": "Target tab ID (default: $CODETERM_TAB_ID or focused tab)",
+                  "help": "Target tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)",
                   "aliases": []
                 }
               ],
@@ -12644,7 +12644,7 @@
                   "value_name": "TAB",
                   "possible_values": [],
                   "default": null,
-                  "help": "Target tab ID (default: $CODETERM_TAB_ID or focused tab)",
+                  "help": "Target tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)",
                   "aliases": []
                 }
               ],
@@ -12674,7 +12674,7 @@
               "value_name": "TAB",
               "possible_values": [],
               "default": null,
-              "help": "Target tab ID (default: $CODETERM_TAB_ID or focused tab)",
+              "help": "Target tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)",
               "aliases": []
             }
           ],
@@ -12748,7 +12748,7 @@
               "value_name": "TAB",
               "possible_values": [],
               "default": null,
-              "help": "Tab ID to describe (default: current focused tab)",
+              "help": "Tab ID to describe (default: $CODETERM_TAB_ID; no focused-tab fallback)",
               "aliases": []
             }
           ],
@@ -12776,7 +12776,7 @@
               "value_name": "TAB",
               "possible_values": [],
               "default": null,
-              "help": "Tab ID (default: current focused tab)",
+              "help": "Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)",
               "aliases": []
             },
             {
@@ -12842,7 +12842,7 @@
               "value_name": "TAB",
               "possible_values": [],
               "default": null,
-              "help": "Tab ID (default: current focused tab)",
+              "help": "Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)",
               "aliases": []
             }
           ],
@@ -13024,7 +13024,7 @@
               "value_name": "TAB",
               "possible_values": [],
               "default": null,
-              "help": "Tab ID to rename (default: current focused tab)",
+              "help": "Tab ID to rename (default: $CODETERM_TAB_ID; no focused-tab fallback)",
               "aliases": []
             },
             {
@@ -13108,7 +13108,7 @@
               "value_name": "TAB",
               "possible_values": [],
               "default": null,
-              "help": "Tab ID (default: current focused tab)",
+              "help": "Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)",
               "aliases": []
             }
           ],
@@ -13126,7 +13126,7 @@
               "value_name": "TAB",
               "possible_values": [],
               "default": null,
-              "help": "Tab ID (default: current focused tab)",
+              "help": "Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)",
               "aliases": []
             }
           ],
@@ -13872,9 +13872,20 @@
         },
         {
           "name": "current",
-          "about": "Print this tab's workspace ID, or the focused workspace outside a tab",
+          "about": "Print this tab's workspace ID. Resolution order: --workspace, then $CODETERM_TAB_ID, then $CODETERM_WORKSPACE_ID, then the active workspace. Exits 1 with empty stdout when no identity resolves",
           "aliases": [],
-          "args": [],
+          "args": [
+            {
+              "name": "workspace",
+              "positional": false,
+              "required": false,
+              "value_name": "WORKSPACE_ID",
+              "possible_values": [],
+              "default": null,
+              "help": "Workspace id to report, validated against the daemon's workspace list",
+              "aliases": []
+            }
+          ],
           "subcommands": []
         },
         {
