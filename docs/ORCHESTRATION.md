@@ -72,7 +72,7 @@ the response carries `safety_nudges`, each with a stable id, why it matters, and
 the exact fix. Read-only dispatch, General-Agent creation, and plain shell tabs
 are never obstructed, including in canonical.
 
-Competition has no CLI verb; use the `plan.task.compete` socket JSON-RPC / REST route printed by `codeterm plan task show` for competition-enabled tasks. Each
+Competition has no CLI verb; use the `plan.task.compete` route printed by `codeterm plan task show` for competition-enabled tasks. Each
 **mutating** competitor gets its own worktree, branch, and base before spawning,
 so competitors never share a checkout or fall back to canonical. Partial
 provisioning/spawn failures remove lanes created by that call. Read-only
@@ -237,4 +237,4 @@ immutable plan stride.
 ## Related documents
 
 Verification, integration, heartbeat, and closeout: `codeterm docs ORCHESTRATION-OPERATIONS`.
-<!-- revision: 62 -->
+<!-- revision: 63 -->
