@@ -236,11 +236,7 @@ pub(super) fn dispatch(
                 plan_id,
                 status,
             });
-            let mut response = json!({ "tasks": listed.tasks });
-            if let Some(reason) = listed.empty_reason {
-                response["empty_reason"] = serde_json::to_value(reason).unwrap_or(Value::Null);
-            }
-            Ok(response)
+            Ok(json!(listed))
         }
 
         "task.show" => {
