@@ -432,7 +432,11 @@ fn commands_without_context_stay_without_it() {
         "plan.decision.escalate carries no caller context and must not gain any"
     );
 
-    let mut arms = LOCAL_IO_RS.split("WorkspaceAction::");
+    let production = LOCAL_IO_RS
+        .split_once("mod tests {")
+        .expect("local_io.rs must keep tests in its cfg(test) module")
+        .0;
+    let mut arms = production.split("WorkspaceAction::");
     arms.next();
     let mut seen = 0;
     for arm in arms {
