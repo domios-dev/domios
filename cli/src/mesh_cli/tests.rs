@@ -983,3 +983,95 @@ fn web_link_is_local_only_over_mesh() {
     assert_eq!(m, super::api_map::UNSUPPORTED_OVER_MESH);
     assert!(p.contains("local-only"));
 }
+
+fn mesh_cli(json: bool, command: Commands) -> crate::Cli {
+    crate::Cli {
+        json,
+        mesh: Some("BLACKSTAR".into()),
+        command,
+    }
+}
+
+fn tab_list_command() -> Commands {
+    Commands::Tab {
+        action: TabAction::List {
+            workspace: None,
+            all_workspaces: false,
+            agents: false,
+        },
+    }
+}
+
+/// The `--json` rung is the one under test: it skips the human-tree guard, and
+/// used to fall through to the verbatim generic relay (the peer's bare array).
+#[test]
+fn mesh_tab_list_json_is_formatted_locally_instead_of_relayed_verbatim() {
+    use super::tab_list::{rendering_for, TabListRendering};
+
+    let json_mode = mesh_cli(true, tab_list_command());
+    assert!(json_mode.json, "fixture must reach the --json branch");
+    assert_eq!(rendering_for(&json_mode), Some(TabListRendering::JsonEnvelope));
+
+    let human = mesh_cli(false, tab_list_command());
+    assert_eq!(rendering_for(&human), Some(TabListRendering::Tree));
+
+    let inspect = mesh_cli(
+        true,
+        Commands::Tab {
+            action: TabAction::Inspect {
+                tabs: vec![],
+                tab: vec!["tab_1".into()],
+                lifecycle: false,
+            },
+        },
+    );
+    assert_eq!(
+        rendering_for(&inspect),
+        None,
+        "only tab list is formatted locally; everything else stays on the relay"
+    );
+}
+
+#[test]
+fn mesh_tab_list_json_emits_the_same_envelope_as_the_local_path() {
+    use crate::cmd::print::{tab_list_json_envelope, uniform_id_value, TAB_LIST_JSON_KEY};
+
+    let rest_body = serde_json::json!([
+        {"id": "tab_1", "title": "one"},
+        {"id": "tab_2", "title": "two"},
+    ]);
+
+    let over_mesh = uniform_id_value(&super::tab_list::json_envelope(&rest_body));
+    let local = uniform_id_value(&tab_list_json_envelope(rest_body.as_array().unwrap().clone()));
+
+    assert_eq!(
+        over_mesh, local,
+        "one command must not return two JSON shapes depending on transport"
+    );
+    let tabs = over_mesh[TAB_LIST_JSON_KEY]
+        .as_array()
+        .expect("the printed envelope carries the tabs array");
+    assert_eq!(tabs.len(), 2);
+}
+
+/// Normalizing at the CLI boundary must not migrate the REST contract: the
+/// relayed `GET /api/tabs` body stays the bare array its consumers read.
+#[test]
+fn mesh_tab_list_json_leaves_the_relayed_rest_body_a_bare_array() {
+    use crate::cmd::print::TAB_LIST_JSON_KEY;
+
+    let rest_body = serde_json::json!([{"id": "tab_1", "title": "one"}]);
+    let printed = super::tab_list::json_envelope(&rest_body);
+
+    assert!(
+        rest_body.is_array(),
+        "GET /api/tabs keeps its bare-array response: {rest_body}"
+    );
+    assert!(rest_body.get(TAB_LIST_JSON_KEY).is_none());
+    assert_eq!(printed[TAB_LIST_JSON_KEY], rest_body);
+    assert_eq!(
+        super::tab_list::json_envelope(&serde_json::Value::Null)[TAB_LIST_JSON_KEY],
+        serde_json::json!([]),
+        "an absent peer body still carries the tabs key"
+    );
+}
