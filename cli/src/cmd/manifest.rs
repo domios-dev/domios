@@ -544,9 +544,7 @@ mod tests {
         }
     }
 
-    // Shipped instruction surfaces that are NOT embedded in `DOCS` and so were
-    // previously unvalidated: the skill agents load, every prompt the daemon
-    // compiles, and the generated command reference.
+    // Instruction surfaces not embedded in `DOCS`, and so otherwise unvalidated.
     const PRESCRIPTION_CORPUS: &[&str] = &["skills", "src-tauri/prompts", "docs/CLI.md"];
 
     fn markdown_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
@@ -601,8 +599,7 @@ mod tests {
         sources
     }
 
-    // The consistency oracle for everything the CLI ships as instruction: an
-    // agent follows a prescribed command literally, so one that cannot run is a
+    // An agent follows a prescribed command literally; one that cannot run is a
     // failed tool call, not a typo.
     #[test]
     fn shipped_prescriptions_are_runnable() {
@@ -640,9 +637,8 @@ mod tests {
         );
     }
 
-    // Coverage is a choice, not an accident: an unlisted new doc fails here
-    // instead of silently defaulting to unvalidated. Each entry states why the
-    // document is not served by `codeterm docs`; a wildcard would defeat that.
+    // Each entry states why the document is not served by `codeterm docs`; a
+    // wildcard would let an unlisted doc silently default to unvalidated.
     const DOCS_EXCLUDED_FROM_EMBEDDING: &[(&str, &str)] = &[
         (
             "ARCHITECTURE.md",
