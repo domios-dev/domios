@@ -22,6 +22,7 @@ export function defaultConfig(): AppConfig {
     desktop: true,
     sound: false,
     toast_duration: 5,
+    telegram: { enabled: false, recipients: [], per_scope_limit: 12 },
   },
   keybindings: {
     reopen_tab: "Ctrl+Shift+T",
