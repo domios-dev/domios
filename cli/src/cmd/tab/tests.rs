@@ -444,3 +444,49 @@ fn remote_chat_path_percent_encodes_unicode_selector() {
         "/api/tabs/%D1%82%D0%B0%D0%B1%3Aone/chat?since=9",
     );
 }
+
+fn json_error_envelope(message: String) -> serde_json::Value {
+    let mut out = Vec::new();
+    let mut err = Vec::new();
+    crate::cmd::print::write_cli_error(
+        true,
+        &crate::cmd::print::CliError::new(message),
+        &mut out,
+        &mut err,
+    );
+    assert!(out.is_empty(), "--json errors must not reach stdout");
+    serde_json::from_slice(&err).expect("stderr carries exactly one JSON envelope")
+}
+
+#[test]
+fn invalid_remote_tab_selector_emits_the_envelope_with_no_rpc_code() {
+    let message = validate_user_tab_selectors(&TabAction::Status {
+        tab: Some("mesh:peer-without-a-tab".into()),
+    })
+    .expect_err("a mesh: selector without /<tab> is rejected before any RPC");
+
+    let envelope = json_error_envelope(message);
+
+    assert_eq!(envelope["ok"], serde_json::Value::Bool(false));
+    assert_eq!(envelope["kind"], "error");
+    assert_eq!(envelope["code"], serde_json::Value::Null);
+    assert!(envelope["error"]
+        .as_str()
+        .expect("error is a string")
+        .starts_with(INVALID_REMOTE_TAB_ID));
+}
+
+#[test]
+fn mixed_local_and_remote_inspection_emits_the_envelope_with_no_rpc_code() {
+    let message = remote_inspect_target(&["mesh:peer/tab_a".into(), "local_tab".into()])
+        .expect_err("mixing local and remote inspection targets is rejected locally");
+
+    let envelope = json_error_envelope(message);
+
+    assert_eq!(envelope["ok"], serde_json::Value::Bool(false));
+    assert_eq!(envelope["code"], serde_json::Value::Null);
+    assert!(!envelope["error"]
+        .as_str()
+        .expect("error is a string")
+        .contains("-32"));
+}

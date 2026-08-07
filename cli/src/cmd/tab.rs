@@ -1,8 +1,12 @@
 use super::tab_restart::handle_shell_restart;
 use crate::client::SocketClient;
 use crate::cmd::agent::normalize_tab_description;
-use crate::cmd::print::{handle_result, print_json, tab_list_json_envelope};
+use crate::cmd::print::{
+    exit_with_cli_error, handle_result, print_json, tab_list_json_envelope, CliError,
+};
 use crate::{build_local_api, read_api_config, resolve_tab, TabAction};
+
+pub(crate) const INVALID_REMOTE_TAB_ID: &str = "invalid remote tab id";
 
 mod capture;
 mod inspect;
@@ -18,8 +22,7 @@ use remote_target::{
 
 pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
     if let Err(error) = validate_user_tab_selectors(&action) {
-        handle_result(json, Err(error));
-        return;
+        exit_with_cli_error(json, &CliError::new(error));
     }
     match action {
         TabAction::List {
@@ -257,8 +260,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                 .as_deref()
                 .is_some_and(|id| matches!(classify_remote_tab_id(id), RemoteTabTarget::Invalid))
             {
-                handle_result(json, Err("invalid remote tab id".into()));
-                return;
+                exit_with_cli_error(json, &CliError::new(INVALID_REMOTE_TAB_ID));
             }
             let tab_id = resolve_tab(client, tab);
             let result = client.call(
@@ -284,8 +286,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                     return;
                 }
                 Some(RemoteTabTarget::Invalid) => {
-                    handle_result(json, Err("invalid remote tab id".into()));
-                    return;
+                    exit_with_cli_error(json, &CliError::new(INVALID_REMOTE_TAB_ID));
                 }
                 _ => {}
             }
@@ -318,8 +319,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                 .as_deref()
                 .is_some_and(|id| matches!(classify_remote_tab_id(id), RemoteTabTarget::Invalid))
             {
-                handle_result(json, Err("invalid remote tab id".into()));
-                return;
+                exit_with_cli_error(json, &CliError::new(INVALID_REMOTE_TAB_ID));
             }
             let tab_id = resolve_tab(client, tab);
             let (api_url, _) = read_api_config();
@@ -383,8 +383,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                 .as_deref()
                 .is_some_and(|id| matches!(classify_remote_tab_id(id), RemoteTabTarget::Invalid))
             {
-                handle_result(json, Err("invalid remote tab id".into()));
-                return;
+                exit_with_cli_error(json, &CliError::new(INVALID_REMOTE_TAB_ID));
             }
             let tab_id = resolve_tab(client, tab);
             let (api_url, _) = read_api_config();
@@ -441,8 +440,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                     return;
                 }
                 Some(RemoteTabTarget::Invalid) => {
-                    handle_result(json, Err("invalid remote tab id".into()));
-                    return;
+                    exit_with_cli_error(json, &CliError::new(INVALID_REMOTE_TAB_ID));
                 }
                 _ => {}
             }
@@ -495,8 +493,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                     return;
                 }
                 Some(RemoteTabTarget::Invalid) => {
-                    handle_result(json, Err("invalid remote tab id".into()));
-                    return;
+                    exit_with_cli_error(json, &CliError::new(INVALID_REMOTE_TAB_ID));
                 }
                 _ => {}
             }
@@ -555,8 +552,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                 .as_deref()
                 .is_some_and(|id| matches!(classify_remote_tab_id(id), RemoteTabTarget::Invalid))
             {
-                handle_result(json, Err("invalid remote tab id".into()));
-                return;
+                exit_with_cli_error(json, &CliError::new(INVALID_REMOTE_TAB_ID));
             }
             let tab_id = resolve_tab(client, tab);
             let (api_url, _) = read_api_config();
@@ -661,7 +657,7 @@ fn validate_user_tab_selectors(action: &TabAction) -> Result<(), String> {
         _ => None,
     };
     invalid_selector
-        .map(|selector| Err(format!("invalid remote tab id: {selector}")))
+        .map(|selector| Err(format!("{INVALID_REMOTE_TAB_ID}: {selector}")))
         .unwrap_or(Ok(()))
 }
 
