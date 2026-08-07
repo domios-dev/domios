@@ -22,6 +22,43 @@ Full fields returned by `GET /api/tabs/inspect` for each selected tab:
 | `connected_services` | `string[]` | External services connected to this tab (e.g. `["telegram"]`). Shown as icons in sidebar. |
 | `depth` | `number` | Hierarchy depth: 0 (no role), 1 (Orchestrator), 2 (Worker under Orchestrator) |
 
+### Text input routes: `/send` vs `/chat-send`
+
+Both text-input routes already exist, so no new agent send primitive is
+required. `src-tauri/src/api/tab_agent_routes.rs:16` mounts
+`/api/tabs/{id}/chat-send` next to `/api/tabs/{id}/send`, and the two are
+distinct handlers. Choosing between them is route selection, not a missing
+integration surface.
+
+| Route | Handler | Returns |
+|-------|---------|---------|
+| `POST /api/tabs/{id}/send` | `tab_routes::send_text` (`src-tauri/src/api/tab_routes/send.rs:228`) | `{ok:true}` once delivery is accepted, or a structured `DeliveryError` |
+| `POST /api/tabs/{id}/chat-send` | `tab_routes::chat_send_text` (`src-tauri/src/api/tab_routes/send.rs:14`) | One `ChatSendStatus` — `send_id`, `state`, `ledger_id`, `sequence`, optional `correlationId` |
+| `GET /api/tabs/{id}/chat-send` | `tab_routes::chat_send_status` (`src-tauri/src/api/tab_routes/send.rs:50`) | `ChatSendStatus[]` for the tab, reconciled against session-turn evidence on read |
+
+`POST .../send` is the ordinary write path: every CLI send, mesh relay, service
+push-token write, and low-level `actions` / `raw` / `batch` terminal input. It
+is **not** fire-and-forget — the tab is resolved before anything is written and
+the response is returned only after delivery is accepted. A failure serializes
+the delivery taxonomy (`tab_not_reachable_on_peer`, `tab_busy_refused`,
+`pty_unavailable`, `submit_unconfirmed`) documented in
+`docs/contributing/pty-delivery.md`.
+
+`POST .../chat-send` is the Chat UI user turn. It additionally opens a ledger
+entry so the send can be reconciled later; `GET .../chat-send` reads that
+ledger, and `state` is one of `accepted`, `unknown`, `confirmed`, `failed`
+(`ChatSendState`, `src-tauri/src/service/chat_send_transaction.rs:11`).
+
+The CLI posts only to `/send` — `cli/src/cmd/send_text.rs:412` on the mesh
+relay path and `cli/src/cmd/send_text.rs:625` locally. A `codeterm send`
+therefore opens no ledger entry, and `GET .../chat-send` will not list it.
+
+Neither route promises that the recipient has *answered*. A reply comes back
+through the return-address channel the sender was given (`codeterm send --tab
+ID [--mesh PEER]`, or `codeterm agent report` for a Worker). Reading the
+recipient's visible terminal text is not a delivery signal and must not be used
+as one.
+
 #### Permission Hook (POST /api/tabs/{id}/hook/permission)
 
 Called by Claude Code hooks (or any agent integration) to notify CodeTerm that the agent is showing a permission prompt. This is a faster path than PTY auto-detection and bypasses the cooldown period.
@@ -161,4 +198,4 @@ The `connect`, `approve`, `reject`, and `disconnect` endpoints are high-level �
 
 Memory item, graph, calibration, and worker endpoints: `codeterm docs API-MEMORY`.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->
