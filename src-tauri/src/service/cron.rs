@@ -34,13 +34,13 @@ impl ServiceContext {
                         "Cron creator Tab {creator_tab_id} does not belong to Team {team_id}"
                     ));
                 }
-                let team = mux
-                    .get_team(team_id)
+                let team_workspace = mux
+                    .team_workspace(team_id)
                     .ok_or_else(|| format!("Team {team_id} not found"))?;
-                if team.workspace_id != params.workspace_id {
+                if team_workspace != params.workspace_id {
                     return Err(format!(
                         "Team {team_id} belongs to workspace {}, not {}",
-                        team.workspace_id, params.workspace_id
+                        team_workspace, params.workspace_id
                     ));
                 }
                 Ok(())
