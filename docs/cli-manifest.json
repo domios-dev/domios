@@ -3188,6 +3188,14 @@
               "default": null,
               "help": "Mem item id",
               "aliases": []
+            },
+            {
+              "name": "version",
+              "positional": false,
+              "value_name": "VERSION",
+              "default": null,
+              "help": "History row id (from `mem history <id>`) to restore the body of. Omit to undo the latest body change",
+              "aliases": []
             }
           ],
           "subcommands": []

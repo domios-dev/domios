@@ -1,29 +1,21 @@
 # CodeTerm API Reference
 
-CodeTerm exposes authenticated REST, local JSON-RPC over a named pipe or Unix
-socket, and the `codeterm` CLI for agent integration.
+CodeTerm exposes authenticated REST, local socket JSON-RPC, and the `codeterm` CLI.
 
 ### Architecture: Unified Service Layer
 
-All multiplexer operations (workspace/tab management, agent spawn, batch commands, etc.) are implemented in a single **ServiceContext** (`src-tauri/src/service.rs`). Both REST API routes and Tauri IPC commands delegate to this shared service layer, which ensures consistent behavior — PTY cleanup, event emission, hierarchy validation — regardless of the entry point. This means every operation available via REST is also available internally via Tauri commands, with identical semantics.
+All multiplexer operations are implemented in one **ServiceContext** (`src-tauri/src/service.rs`). REST routes and Tauri IPC delegate to it, preserving PTY cleanup, events, hierarchy validation, and semantics across entry points.
 
-The CLI uses the local socket for control operations. Its internal `api.request`
-JSON-RPC method dispatches an HTTP-shaped request directly through the daemon's
-Axum router without opening a TCP connection. Unix peer credentials or the
-Windows process-token SID restrict this bridge to the daemon's OS user; the
-daemon injects its own API authentication before route dispatch. Mesh commands
-also enter through this socket, while the daemon owns peer signing, endpoint
-selection, and remote transport.
+The CLI's local socket dispatches internal `api.request` JSON-RPC calls through
+the Axum router without TCP. Unix peer credentials or the Windows process-token
+SID restrict it to the daemon's OS user; the daemon injects API authentication.
+Mesh commands use the same socket while the daemon owns signing and transport.
 
-The human `codeterm workspace list` output is a compact topology view of every
-workspace, including authoritative tab counts, cwd, empty/protected state,
-Teams, active Plan ids, and live tabs in stable creation order. Use it for
-orientation, then use `codeterm tab inspect <id>` for one tab's full record.
-Whole-list JSON is an automation surface, not an agent discovery surface; the
-`workspace list --json` payload remains the workspace-only machine contract.
-The point query `workspace current --json` returns `{ "id", "source" }`, where
-`source` is `caller-tab` or `focus-fallback`; without either source the command
-prints nothing and succeeds.
+Human `codeterm workspace list` shows authoritative tab counts, cwd, state,
+Teams, active Plans, and tabs in stable creation order. Inspect one tab with
+`codeterm tab inspect <id>`; whole-list JSON remains automation-only.
+`workspace current --json` returns `{ "id", "source" }`; without a caller tab or
+focus fallback, it prints nothing and succeeds.
 
 ## REST API
 
@@ -62,13 +54,11 @@ cors_allow_origins = ["https://console.example"]
 ```
 
 Authenticated config readback includes `api_listener.active`,
-`api_listener.configured`, and `api_listener.restart_required`. Both policy
-objects disclose `enabled`, address, CORS, and allowlisted origins; configured
-state also discloses whether authentication is configured. Full readback and
-exact `api.enabled`, `api.cors`, and `api.cors_allow_origins` queries include
-this listener truth, so a config write never masquerades as a runtime rebind.
-Listener rebind/recovery retains the generation behavior below. `localhost`,
-`::1`, and `[::1]` canonicalize to valid socket and callback URL forms.
+`api_listener.configured`, and `api_listener.restart_required`, covering enabled
+state, address, CORS/origins, and configured authentication. Exact API config
+queries include this listener truth, so writes cannot masquerade as runtime
+rebinds. `localhost`, `::1`, and `[::1]` canonicalize to valid socket/callback
+URL forms; rebind/recovery retains the generation behavior below.
 
 An empty CORS allowlist permits no cross-origin browser requests and never
 disables the API listener. `*` and malformed origins are rejected.
@@ -247,4 +237,4 @@ in `safety_nudges` and `_hints`. The operational recovery and lane rules are in
 Related documents: `codeterm docs API-TABS`, `codeterm docs API-INTEGRATIONS`,
 `codeterm docs API-MEMORY`, `codeterm docs API-AGENTS`,
 `codeterm docs API-TRANSPORT`, and `codeterm docs API-CLI`.
-<!-- revision: 115 -->
+<!-- revision: 116 -->

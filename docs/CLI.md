@@ -828,6 +828,7 @@ Restore a prior body from the audit history (undo a bad replace). With no --vers
 
 - `--changed-by` — Actor label for audit trail (defaults to "user")
 - `<id>` — Mem item id
+- `--version` — History row id (from `mem history <id>`) to restore the body of. Omit to undo the latest body change
 
 #### `codeterm mem run-worker`
 
