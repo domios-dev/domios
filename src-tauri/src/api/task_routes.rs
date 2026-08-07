@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 use crate::api::routes::AppState;
 use crate::multiplexer::types::AgentRole;
 use crate::plan::{OrchestratorRef, TaskStatus};
-use crate::service::plan::task_queries::TaskListFilter;
+use crate::service::plan::task_queries::{TaskListFilter, TaskListResult};
 use crate::service::plan::{NewTask, PlanError};
 use codeterm_types::agent::role_kind::builtins::ORCHESTRATOR;
 
@@ -120,6 +120,10 @@ pub struct ListTasksQuery {
     status: Option<String>,
 }
 
+fn list_response(listed: TaskListResult) -> Json<Value> {
+    Json(json!(listed))
+}
+
 pub async fn list(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -134,7 +138,7 @@ pub async fn list(
                 .map_err(|_| plan_err(PlanError::BadStatus))
         })
         .transpose()?;
-    let tasks = state.svc.plan_store.list_tasks(TaskListFilter {
+    let listed = state.svc.plan_store.list_tasks_with_reason(TaskListFilter {
         project_path: q.project,
         active_only: status.is_none() && (q.all != Some(true) || q.active == Some(true)),
         mine_tabs: if mine {
@@ -149,7 +153,7 @@ pub async fn list(
         plan_id: q.plan,
         status,
     });
-    Ok(Json(json!({ "tasks": tasks })))
+    Ok(list_response(listed))
 }
 
 pub async fn show(State(state): State<AppState>, Path(id): Path<String>) -> TaskRouteResult {
@@ -345,6 +349,57 @@ pub async fn canvas_focus(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::service::plan::task_queries::{TaskListEmptyReason, TaskSummary};
+
+    fn summary() -> TaskSummary {
+        TaskSummary {
+            plan_id: "pl_one".into(),
+            plan_title: "One".into(),
+            plan_owner: OrchestratorRef::default(),
+            task: serde_json::from_value(json!({
+                "id": "task_one",
+                "name": "One",
+                "type": "task",
+                "model": null,
+                "model_rationale": null,
+                "test_plan": null,
+                "correctness": null,
+                "status": "pending",
+                "status_label": null,
+                "intent": null,
+                "assigned_tab_id": null,
+                "peer": null
+            }))
+            .expect("task fixture must deserialize"),
+            section_titles: vec![],
+        }
+    }
+
+    #[test]
+    fn list_response_carries_the_empty_reason_verbatim() {
+        let reason = TaskListEmptyReason::AllTasksInactive { hidden: 3 };
+        let Json(body) = list_response(TaskListResult {
+            tasks: vec![],
+            empty_reason: Some(reason.clone()),
+        });
+
+        assert_eq!(body["tasks"], json!([]));
+        assert_eq!(
+            body["empty_reason"],
+            serde_json::to_value(&reason).expect("reason must serialize")
+        );
+    }
+
+    #[test]
+    fn list_response_omits_the_empty_reason_key_for_a_non_empty_listing() {
+        let Json(body) = list_response(TaskListResult {
+            tasks: vec![summary()],
+            empty_reason: None,
+        });
+
+        assert_eq!(body["tasks"].as_array().map(Vec::len), Some(1));
+        assert!(body.get("empty_reason").is_none());
+    }
 
     #[test]
     fn team_active_plan_conflict_is_409_with_plan_error_json() {
