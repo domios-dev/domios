@@ -335,10 +335,8 @@ mod tests {
         }
     }
 
-    // The prompt every agent in every tab loads. The broad corpus covers it too;
-    // this keeps a guard that names codeterm_cli.md directly when it breaks.
-    // Trimming to the longest resolvable prefix used to pass anything under a
-    // real namespace — `codeterm workspace <anything>` resolved on `workspace`.
+    // Walks every token: trimming to the longest resolvable prefix passed
+    // anything under a real namespace, like `codeterm workspace <anything>`.
     #[test]
     fn prompt_cli_commands_exist() {
         let root = Cli::command();
