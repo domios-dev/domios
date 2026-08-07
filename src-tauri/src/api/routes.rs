@@ -40,6 +40,29 @@ fn with_app_webview_origins(
     origins
 }
 
+fn cors_layer(cors_enabled: bool, configured_origins: &[String]) -> CorsLayer {
+    let mut origins = if cors_enabled {
+        configured_origins
+            .iter()
+            .filter_map(|origin| origin.parse::<axum::http::HeaderValue>().ok())
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    #[cfg(debug_assertions)]
+    if !cors_enabled {
+        origins.extend(
+            ["http://localhost:1420", "http://127.0.0.1:1420"]
+                .into_iter()
+                .filter_map(|origin| origin.parse::<axum::http::HeaderValue>().ok()),
+        );
+    }
+    CorsLayer::new()
+        .allow_origin(AllowOrigin::list(with_app_webview_origins(origins)))
+        .allow_methods(Any)
+        .allow_headers(Any)
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub svc: crate::service::ServiceState,
@@ -904,33 +927,7 @@ pub fn create_router(state: AppState) -> Router {
         state.clone(),
         super::auth::auth_middleware,
     ));
-    let configured_origins = api_config
-        .cors_allow_origins
-        .iter()
-        .filter_map(|origin| origin.parse::<axum::http::HeaderValue>().ok())
-        .collect::<Vec<_>>();
-    #[cfg(debug_assertions)]
-    let origins = if api_config.cors {
-        configured_origins
-    } else {
-        ["http://localhost:1420", "http://127.0.0.1:1420"]
-            .into_iter()
-            .filter_map(|origin| origin.parse::<axum::http::HeaderValue>().ok())
-            .collect()
-    };
-    #[cfg(not(debug_assertions))]
-    let origins = configured_origins;
-    let origins = with_app_webview_origins(origins);
-    let router = if api_config.cors || cfg!(debug_assertions) {
-        router.layer(
-            CorsLayer::new()
-                .allow_origin(AllowOrigin::list(origins))
-                .allow_methods(Any)
-                .allow_headers(Any),
-        )
-    } else {
-        router
-    };
+    let router = router.layer(cors_layer(api_config.cors, &api_config.cors_allow_origins));
     router.layer(CatchPanicLayer::new()).with_state(state)
 }
 
@@ -1000,6 +997,69 @@ mod tests {
             .await
             .expect("router must keep serving requests after a handler panic");
         assert_eq!(health_response.status(), axum::http::StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn production_cors_policy_allows_the_app_webview_when_cors_is_disabled() {
+        let app = Router::new()
+            .route("/", get(|| async { "ok" }))
+            .layer(super::cors_layer(false, &[]));
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/")
+                    .header(axum::http::header::ORIGIN, "http://tauri.localhost")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            response
+                .headers()
+                .get(axum::http::header::ACCESS_CONTROL_ALLOW_ORIGIN)
+                .and_then(|value| value.to_str().ok()),
+            Some("http://tauri.localhost")
+        );
+
+        let preflight = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(axum::http::Method::OPTIONS)
+                    .uri("/")
+                    .header(axum::http::header::ORIGIN, "http://tauri.localhost")
+                    .header(axum::http::header::ACCESS_CONTROL_REQUEST_METHOD, "GET")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(preflight.status(), axum::http::StatusCode::OK);
+        assert_eq!(
+            preflight
+                .headers()
+                .get(axum::http::header::ACCESS_CONTROL_ALLOW_ORIGIN)
+                .and_then(|value| value.to_str().ok()),
+            Some("http://tauri.localhost")
+        );
+
+        let denied = app
+            .oneshot(
+                Request::builder()
+                    .uri("/")
+                    .header(axum::http::header::ORIGIN, "https://configured.example")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(denied
+            .headers()
+            .get(axum::http::header::ACCESS_CONTROL_ALLOW_ORIGIN)
+            .is_none());
     }
 }
 

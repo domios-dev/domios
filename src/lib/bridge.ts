@@ -105,6 +105,10 @@ async function webJsonWithCallerTab<T>(
 
 /** Commands with a meaningful HTTP equivalent. */
 const HTTP_MAP: Record<string, Mapper> = {
+  check_for_update: (a) =>
+    webJson("GET", `/api/update/check${a.force ? "?force=true" : ""}`),
+  get_update_status: () => webJson("GET", "/api/update/status"),
+  install_app_update: () => webJson("POST", "/api/update/install?method=auto"),
   plugin_manager_snapshot: () => webJson("GET", "/api/plugins/snapshot"),
   plugin_manager_action: (a) => webJson("POST", "/api/plugins/action", a.action),
   plugin_glance: (a) => webJson("POST", "/api/plugins/glance", a),

@@ -69,30 +69,8 @@ pub async fn update_status(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-
-    let us = state.update_state.lock();
-    let elapsed_secs = us.phase_changed_at.map(|t| t.elapsed().as_secs());
-    let download_progress = us.download_total_bytes.and_then(|total| {
-        if total == 0 {
-            None
-        } else {
-            Some((us.downloaded_bytes as f64 / total as f64).min(1.0))
-        }
-    });
-    let body = serde_json::json!({
-        "phase": us.phase.to_string(),
-        "last_error": us.last_error.clone(),
-        "channel": us.channel.to_string(),
-        "install_method": us.install_method.to_string(),
-        "current_version": env!("CARGO_PKG_VERSION"),
-        "latest_known": us.last_check.as_ref().map(|i| i.latest_version.clone()),
-        "update_available": us.last_check.as_ref().map(|i| i.update_available).unwrap_or(false),
-        "phase_age_secs": elapsed_secs,
-        "downloaded_bytes": us.downloaded_bytes,
-        "download_total_bytes": us.download_total_bytes,
-        "download_progress": download_progress,
-    });
-    Ok(Json(body))
+    let status = state.update_state.lock().runtime_status();
+    Ok(Json(status))
 }
 
 #[derive(Deserialize)]
