@@ -73,7 +73,7 @@ pub struct ReportArgs {
     /// Read the report body from a relative file in the current agent tab's pad
     #[arg(long, value_name = "PATH", conflicts_with_all = ["message", "text", "doc"])]
     pub from_pad: Option<String>,
-    /// Tab ID (default: $CODETERM_TAB_ID or focused tab)
+    /// Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
     #[arg(long = "tab", value_name = "TAB")]
     pub tab: Option<String>,
     /// Plan id to append this report to (if available)
@@ -119,7 +119,7 @@ pub struct ReportArgs {
 pub enum AgentAction {
     /// Mark a tab as orchestrator (top-level, can spawn workers)
     SetOrchestrator {
-        /// Tab ID (default: current focused tab)
+        /// Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
         #[arg(long = "tab", value_name = "TAB")]
         tab: Option<String>,
     },
@@ -129,19 +129,19 @@ pub enum AgentAction {
         /// Parent tab ID (orchestrator)
         #[arg(long = "parent-tab")]
         parent: String,
-        /// Tab ID to link (default: current focused tab)
+        /// Tab ID to link (default: $CODETERM_TAB_ID; no focused-tab fallback)
         #[arg(long = "tab", value_name = "TAB")]
         tab: Option<String>,
     },
     /// Remove a tab's role (also orphans children)
     Unlink {
-        /// Tab ID (default: current focused tab)
+        /// Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
         #[arg(long = "tab", value_name = "TAB")]
         tab: Option<String>,
     },
     /// Toggle whether a tab can spawn children
     AllowSpawn {
-        /// Tab ID (default: current focused tab)
+        /// Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
         #[arg(long = "tab", value_name = "TAB")]
         tab: Option<String>,
         /// Enable or disable spawning
@@ -165,19 +165,19 @@ pub enum AgentAction {
     /// List an orchestrator's workers from the durable ledger (survives daemon
     /// restart): branch / model / status / last-seen, one row per worker.
     Ledger {
-        /// Orchestrator tab ID (default: current focused tab)
+        /// Orchestrator tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
         #[arg(long = "tab", value_name = "TAB")]
         tab: Option<String>,
     },
     /// Compact agent context (sends /compact to Claude)
     Compact {
-        /// Tab ID (default: $CODETERM_TAB_ID or focused tab)
+        /// Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
         #[arg(long = "tab", value_name = "TAB")]
         tab: Option<String>,
     },
     /// Restart agent (graceful exit; resumes only when the tab has a valid provider session)
     Restart {
-        /// Tab ID (default: $CODETERM_TAB_ID or focused tab)
+        /// Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
         #[arg(long = "tab", value_name = "TAB")]
         tab: Option<String>,
         /// Skip the graceful exit and force-kill instead. Use only when the agent is hung.
@@ -191,7 +191,7 @@ pub enum AgentAction {
     Model {
         /// Model name (Claude: sonnet, haiku, opus). Run `agent models claude` to list.
         name: String,
-        /// Tab ID (default: $CODETERM_TAB_ID or focused tab)
+        /// Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
         #[arg(long = "tab", value_name = "TAB")]
         tab: Option<String>,
     },
