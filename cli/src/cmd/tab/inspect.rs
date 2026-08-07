@@ -1,5 +1,5 @@
 use crate::client::SocketClient;
-use crate::cmd::print::handle_result;
+use crate::cmd::print::{exit_with_cli_error, handle_result, CliError};
 
 use super::relay_tab_json;
 use super::remote_target::remote_inspect_target;
@@ -36,7 +36,7 @@ pub(super) fn handle_tab_inspect(
             );
             handle_result(json, Ok(data));
         }
-        Err(error) => handle_result(json, Err(error)),
+        Err(error) => exit_with_cli_error(json, &CliError::new(error)),
         Ok(None) => {
             let result = client.call(
                 "tab.inspect",

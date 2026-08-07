@@ -74,7 +74,7 @@ fn cli_error_exit_code(_json: bool) -> i32 {
     CLI_ERROR_EXIT_CODE
 }
 
-fn write_cli_error(
+pub(crate) fn write_cli_error(
     json: bool,
     error: &CliError,
     out: &mut impl Write,
