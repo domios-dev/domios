@@ -35,7 +35,7 @@ fn poll_update_status(http: &crate::local_api::LocalApiClient, base_url: &str) {
             std::process::exit(2);
         }
         std::thread::sleep(Duration::from_millis(500));
-        match http.get(&status_url).timeout(Duration::from_secs(2)).send() {
+        match http.get(&status_url).send() {
             Ok(resp) if resp.status().is_success() => {
                 connect_failures = 0;
                 let body: serde_json::Value = resp.json().unwrap_or_default();
