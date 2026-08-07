@@ -161,16 +161,6 @@ fn main_impl() {
         }
     }
 
-    // `plugin` is filesystem-local (no daemon) — the table declares it the one
-    // command handled before the `--mesh` branch, so `--mesh` is ignored for it.
-    if transport::transport_for(&cli.command).local == transport::Local::PreMesh {
-        match cli.command {
-            Commands::Plugin { action } => cmd::plugin::handle_plugin(cli.json, action),
-            _ => unreachable!(),
-        }
-        return;
-    }
-
     if let Some(mesh_target) = cli.mesh.clone() {
         // Secrets are local-only — refuse to proxy them across the mesh. Cross-mesh secret access needs a trust model we haven't designed yet.
         if matches!(
@@ -197,6 +187,14 @@ fn main_impl() {
             std::process::exit(6);
         }
         mesh_cli::run_via_mesh(cli, &mesh_target);
+        return;
+    }
+
+    if transport::should_dispatch_direct_local(&cli.command, cli.mesh.as_deref()) {
+        match cli.command {
+            Commands::Plugin { action } => cmd::plugin::handle_plugin(cli.json, action),
+            _ => unreachable!(),
+        }
         return;
     }
 
