@@ -1,4 +1,4 @@
-use super::{short_id, MultiplexerState, WorkspaceInfo};
+use super::{short_id, MultiplexerState, PreparedWorkspaceClose, WorkspaceInfo};
 use crate::multiplexer::types::Workspace;
 
 impl MultiplexerState {
@@ -87,18 +87,37 @@ impl MultiplexerState {
 
     /// Close a workspace and return PTY IDs that need to be killed.
     pub fn close_workspace(&mut self, id: &str) -> Result<Vec<String>, String> {
+        let prepared = self.reserve_workspace_close(id)?;
+        self.close_prepared_workspace(prepared)
+    }
+
+    /// Persist a prepared restore group and remove its unchanged workspace.
+    pub fn close_prepared_workspace(
+        &mut self,
+        prepared: PreparedWorkspaceClose,
+    ) -> Result<Vec<String>, String> {
+        let id = prepared.workspace_id();
+        if !self.workspace_close_is_reserved_by(&prepared) {
+            return Err(format!("Workspace close reservation lost: {id}"));
+        }
         let idx = self
             .workspaces
             .iter()
-            .position(|w| w.id == id)
-            .ok_or_else(|| format!("Workspace not found: {}", id))?;
+            .position(|w| w.id == id);
+        let Some(idx) = idx else {
+            self.release_workspace_close_reservation(&prepared);
+            return Err(format!("Workspace not found: {id}"));
+        };
 
         if self.workspaces[idx].protected {
+            self.release_workspace_close_reservation(&prepared);
             return Err("Cannot close protected workspace".to_string());
         }
-
-        // workspace) before yanking it, so the whole workspace can be reopened.
-        self.record_workspace_close(id);
+        if self.workspaces[idx].tabs.as_slice() != prepared.tab_ids() {
+            self.release_workspace_close_reservation(&prepared);
+            return Err(format!("Workspace changed while closing: {id}"));
+        }
+        self.record_prepared_workspace_close(&prepared);
 
         let workspace = self.workspaces.remove(idx);
 
@@ -129,6 +148,8 @@ impl MultiplexerState {
             }
         }
 
+        self.release_workspace_close_reservation(&prepared);
+
         Ok(pty_ids)
     }
 
@@ -143,6 +164,9 @@ impl MultiplexerState {
     }
 
     pub fn set_workspace_protected(&mut self, id: &str, protected: bool) {
+        if self.ensure_workspace_membership_mutable(id).is_err() {
+            return;
+        }
         if let Some(ws) = self.workspaces.iter_mut().find(|w| w.id == id) {
             ws.protected = protected;
         }
@@ -180,44 +204,49 @@ impl MultiplexerState {
             return Ok(());
         }
 
-        let from_ws = self
-            .workspaces
-            .iter_mut()
-            .find(|w| w.id == from_workspace_id)
-            .ok_or_else(|| format!("Source workspace not found: {}", from_workspace_id))?;
+        self.ensure_workspace_membership_mutable(from_workspace_id)?;
+        self.ensure_workspace_membership_mutable(to_workspace_id)?;
 
-        let tab_idx = from_ws
+        let from_idx = self
+            .workspaces
+            .iter()
+            .position(|w| w.id == from_workspace_id)
+            .ok_or_else(|| format!("Source workspace not found: {}", from_workspace_id))?;
+        let tab_idx = self.workspaces[from_idx]
             .tabs
             .iter()
             .position(|candidate| candidate == tab_id)
             .ok_or_else(|| format!("Tab not found: {}", tab_id))?;
 
-        if from_ws.tabs.len() <= 1 {
+        if self.workspaces[from_idx].tabs.len() <= 1 {
             return Err("Cannot move the last tab from a workspace".to_string());
         }
 
-        let moved_tab_id = from_ws.tabs.remove(tab_idx);
-
-        if from_ws.active_tab_id.as_deref() == Some(tab_id) {
-            from_ws.active_tab_id = from_ws.tabs.last().cloned();
-        }
-
-        let to_ws = self
+        let to_idx = self
             .workspaces
-            .iter_mut()
-            .find(|w| w.id == to_workspace_id)
+            .iter()
+            .position(|w| w.id == to_workspace_id)
             .ok_or_else(|| format!("Destination workspace not found: {}", to_workspace_id))?;
 
-        let next_sort_order = to_ws
+        let next_sort_order = self.workspaces[to_idx]
             .tabs
             .iter()
             .filter_map(|candidate| self.tabs.get(candidate).map(|tab| tab.sort_order))
             .max()
             .unwrap_or(-1)
             + 1;
+        let moved_tab_id = {
+            let from_ws = &mut self.workspaces[from_idx];
+            let moved_tab_id = from_ws.tabs.remove(tab_idx);
+            if from_ws.active_tab_id.as_deref() == Some(tab_id) {
+                from_ws.active_tab_id = from_ws.tabs.last().cloned();
+            }
+            moved_tab_id
+        };
         if let Some(tab) = self.tabs.get_mut(&moved_tab_id) {
             tab.sort_order = next_sort_order;
         }
+        let to_ws = &mut self.workspaces[to_idx];
         to_ws.tabs.push(moved_tab_id);
         to_ws.active_tab_id = Some(tab_id.to_string());
 
@@ -268,5 +297,76 @@ mod tab_count_tests {
     fn tab_count_unknown_workspace_is_zero() {
         let (state, _root) = MultiplexerState::new();
         assert_eq!(state.tab_count_in_workspace("does-not-exist"), 0);
+    }
+}
+
+#[cfg(test)]
+mod move_tab_transaction_tests {
+    use super::*;
+
+    #[test]
+    fn unknown_destination_leaves_source_and_tab_unchanged() {
+        let (mut state, root) = MultiplexerState::new();
+        let source_id = state.find_workspace_for_tab(&root).unwrap();
+        let moved = state.create_tab(&source_id).unwrap();
+        state.set_active_tab(&source_id, &moved).unwrap();
+        state.get_tab_mut(&moved).unwrap().sort_order = 41;
+
+        let before_tabs = state.get_workspace(&source_id).unwrap().tabs.clone();
+        let before_active = state
+            .get_workspace(&source_id)
+            .unwrap()
+            .active_tab_id
+            .clone();
+        let before_sort_order = state.get_tab(&moved).unwrap().sort_order;
+
+        let error = state
+            .move_tab(&moved, &source_id, "missing-destination")
+            .unwrap_err();
+
+        assert!(error.contains("Destination workspace not found"));
+        assert_eq!(state.get_workspace(&source_id).unwrap().tabs, before_tabs);
+        assert_eq!(
+            state.get_workspace(&source_id).unwrap().active_tab_id,
+            before_active
+        );
+        assert_eq!(state.get_tab(&moved).unwrap().sort_order, before_sort_order);
+        assert_eq!(
+            state.find_workspace_for_tab(&moved).as_deref(),
+            Some(source_id.as_str())
+        );
+    }
+
+    #[test]
+    fn last_tab_guard_precedes_destination_validation() {
+        let (mut state, only_tab) = MultiplexerState::new();
+        let source_id = state.find_workspace_for_tab(&only_tab).unwrap();
+
+        let error = state
+            .move_tab(&only_tab, &source_id, "missing-destination")
+            .unwrap_err();
+
+        assert_eq!(error, "Cannot move the last tab from a workspace");
+        assert_eq!(
+            state.find_workspace_for_tab(&only_tab).as_deref(),
+            Some(source_id.as_str())
+        );
+    }
+
+    #[test]
+    fn changed_workspace_rejects_prepared_close_without_recording_restore_group() {
+        let (mut state, first_tab) = MultiplexerState::new();
+        let workspace_id = state.find_workspace_for_tab(&first_tab).unwrap();
+        let prepared = state.reserve_workspace_close(&workspace_id).unwrap();
+        state.workspace_close_reservations.remove(&workspace_id);
+        let added_tab = state.create_tab(&workspace_id).unwrap();
+
+        let error = state.close_prepared_workspace(prepared).unwrap_err();
+
+        assert!(error.contains("Workspace changed while closing"));
+        assert!(state.get_workspace(&workspace_id).is_some());
+        assert!(state.get_tab(&first_tab).is_some());
+        assert!(state.get_tab(&added_tab).is_some());
+        assert!(state.recent_closed_view().is_empty());
     }
 }
