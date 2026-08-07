@@ -5,6 +5,12 @@ use crate::multiplexer::state::WorkspaceInfo;
 use crate::multiplexer::types::ClosedTab;
 use crate::service::session_persist::{self, SessionPersistUrgency};
 
+enum WorkspaceCloseCaller<'a> {
+    LocalTab(&'a str),
+    AuthenticatedMeshPeer(&'a str),
+    Unattributed,
+}
+
 impl ServiceContext {
     pub fn list_workspaces(&self) -> Vec<WorkspaceInfo> {
         self.mux.read().list_workspaces()
@@ -102,20 +108,55 @@ impl ServiceContext {
 
     /// Close a workspace on behalf of `caller_tab_id`. Refuses when a
     /// coordinator (Orchestrator/plan owner/Planner) targets the workspace it
-    /// runs in; closing any OTHER workspace is unaffected. Fail-safe: an absent
+    /// runs in; closing any OTHER workspace is unaffected. An absent or unknown
     /// caller against a workspace that hosts a coordinator is refused.
     pub fn close_workspace_guarded(
         &self,
         caller_tab_id: Option<&str>,
         workspace_id: &str,
     ) -> Result<(), String> {
-        let refuse = match caller_tab_id {
-            Some(caller) => {
-                let owns_it =
-                    self.mux.read().find_workspace_for_tab(caller).as_deref() == Some(workspace_id);
-                owns_it && self.is_self_close_protected(caller)
+        let caller = caller_tab_id
+            .map(WorkspaceCloseCaller::LocalTab)
+            .unwrap_or(WorkspaceCloseCaller::Unattributed);
+        self.close_workspace_guarded_for(caller, workspace_id)
+    }
+
+    /// The relay owns peer authentication and workspace access checks before
+    /// this external-caller authority can be used.
+    pub(crate) fn close_workspace_from_authenticated_mesh_peer(
+        &self,
+        peer_id: &str,
+        workspace_id: &str,
+    ) -> Result<(), String> {
+        if peer_id.trim().is_empty() {
+            return Err("authenticated mesh peer id is required".to_string());
+        }
+        self.close_workspace_guarded_for(
+            WorkspaceCloseCaller::AuthenticatedMeshPeer(peer_id),
+            workspace_id,
+        )
+    }
+
+    fn close_workspace_guarded_for(
+        &self,
+        caller: WorkspaceCloseCaller<'_>,
+        workspace_id: &str,
+    ) -> Result<(), String> {
+        let refuse = match caller {
+            WorkspaceCloseCaller::LocalTab(caller) => {
+                let caller_workspace = { self.mux.read().find_workspace_for_tab(caller) };
+                match caller_workspace {
+                    Some(caller_workspace) => {
+                        caller_workspace == workspace_id && self.is_self_close_protected(caller)
+                    }
+                    None => self.workspace_has_protected_tab(workspace_id),
+                }
             }
-            None => self.workspace_has_protected_tab(workspace_id),
+            WorkspaceCloseCaller::AuthenticatedMeshPeer(peer_id) => {
+                log::info!("workspace close authorized for mesh peer {peer_id}");
+                false
+            }
+            WorkspaceCloseCaller::Unattributed => self.workspace_has_protected_tab(workspace_id),
         };
         if refuse {
             return Err(format!(
