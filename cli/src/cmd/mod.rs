@@ -65,3 +65,4 @@ pub mod update;
 pub mod usage;
 pub mod web;
 pub mod worker;
+mod workspace_map;

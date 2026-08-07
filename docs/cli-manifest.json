@@ -11692,7 +11692,7 @@
         },
         {
           "name": "current",
-          "about": "Print the current (focused) workspace ID",
+          "about": "Print this tab's workspace ID, falling back to the focused workspace outside a tab",
           "aliases": [],
           "args": [],
           "subcommands": []
@@ -11715,7 +11715,7 @@
         },
         {
           "name": "list",
-          "about": "List all workspaces",
+          "about": "Show a compact workspace → Team/Plan → Tab overview. JSON stays workspace-only",
           "aliases": [],
           "args": [],
           "subcommands": []

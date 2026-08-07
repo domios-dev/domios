@@ -15,6 +15,11 @@ daemon injects its own API authentication before route dispatch. Mesh commands
 also enter through this socket, while the daemon owns peer signing, endpoint
 selection, and remote transport.
 
+The human `codeterm workspace list` output is a compact topology view of every
+workspace, including empty ones, with its Teams, active Plan ids, and live tabs.
+Use `codeterm tab inspect <id>` for one tab's full record. The
+`workspace list --json` payload remains the workspace-only machine contract.
+
 ## REST API
 
 Base URL: `http://<host>:7685/api`
@@ -237,4 +242,4 @@ in `safety_nudges` and `_hints`. The operational recovery and lane rules are in
 Related documents: `codeterm docs API-TABS`, `codeterm docs API-INTEGRATIONS`,
 `codeterm docs API-MEMORY`, `codeterm docs API-AGENTS`,
 `codeterm docs API-TRANSPORT`, and `codeterm docs API-CLI`.
-<!-- revision: 113 -->
+<!-- revision: 114 -->
