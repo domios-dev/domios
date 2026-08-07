@@ -28,9 +28,10 @@ All in-binary prompt sources live in `src-tauri/prompts/`. Their loader constant
 |---|---|---|---|---|
 | `general_agent.md` | `GENERAL_AGENT_TEMPLATE` | GA system prompt | `{version}` `{platform}` `{hostname}` `{provider_name}` `{general_dir}` `{secrets_dir}` `{skills_dir}` `{identity}` `{soul}` `{wake_up}` `{codeterm_cli}` | `service/general_agent/instructions.rs` — substituted, written to `AGENT.md` on every GA start |
 | `bootstrap_instructions.md` | `BOOTSTRAP_INSTRUCTIONS_TEMPLATE` | First-run onboarding | — | `service/general_agent/instructions.rs` — written to `bootstrap.md` once, deleted after GA completes onboarding |
-| `agent_codeterm_primer.md` | `AGENT_CODETERM_PRIMER` | Spawned-agent system primer, including the task test/QA lifecycle boundary | — | `service/orchestrator/launch.rs` — prepended once before assignment and role contract for PTY and ChatBackend launches |
-| `worker_codeterm_context.md` | `WORKER_CODETERM_CONTEXT` | Worker CodeTerm context | — | `service/orchestrator/launch.rs` — injected once into Worker launches before assignment work |
-| `rich_rendering_guidance.md` | `RICH_RENDERING_GUIDANCE` | Shared rendering capability | — | `service/orchestrator/launch.rs` — included for capable spawned agents |
+| `agent_codeterm_primer.md` | `AGENT_CODETERM_PRIMER` | Spawned-agent system primer, including the task test/QA lifecycle boundary | — | `service/orchestrator/prompt_compose.rs` — prepended once before assignment and role contract for PTY and ChatBackend launches |
+| `worker_codeterm_context.md` | `WORKER_CODETERM_CONTEXT` | Worker CodeTerm context | — | `service/orchestrator/prompt_compose.rs` — injected once into Worker launches before assignment work |
+| `rich_rendering_guidance.md` | `RICH_RENDERING_GUIDANCE` | Shared rendering capability | — | `service/orchestrator/prompt_compose.rs` — included for capable spawned agents |
+| `agent_pad_rule.md` | `AGENT_PAD_RULE` | Shared AgentPad contract — the one semantic source | — | `service/orchestrator/prompt_compose.rs` for every spawned class; `service/general_agent/instructions.rs` (`general_cli_reference`) for the GA; `commands/skills.rs` renders it into the `codeterm` skill via `{agent_pad_rule}` |
 | `worker_suffix.md` | `WORKER_SUFFIX` | Role suffix | — | `service/orchestrator.rs` and `service/spawn.rs` — appended when spawned with `--role Worker` |
 | `testing_discipline.md` | `TESTING_DISCIPLINE` | Role suffix fragment | — | `service_plan/prompts_plan.rs` — prepended to Worker tasks before `worker_suffix.md` |
 | `qa_pipeline_discipline.md` | `QA_PIPELINE_DISCIPLINE` | Role suffix fragment | — | `service_plan/prompts_plan.rs` — prepended to Worker tasks before `worker_suffix.md` |
@@ -47,7 +48,7 @@ All in-binary prompt sources live in `src-tauri/prompts/`. Their loader constant
 | `cron_skill_hint.md` | `CRON_SKILL_HINT` | Cron skill instruction | `{skill_path}` `{skill_slug}` | `commands/skills.rs` — points a cron agent at the resolved skill |
 | `cron_skill_missing.md` | `CRON_SKILL_MISSING` | Cron skill failure instruction | `{skill_slug}` | `commands/skills.rs` — provides a bounded failure handoff when the requested skill is absent |
 | `codeterm_rule.md` | `CODETERM_RULE` | Framework rule | — | App loader: `service/general_agent/instructions.rs`; plugin loader: `codeterm-plugin/src/agent_claude/provider/integration.rs` writes `~/.claude/rules/codeterm.md` |
-| `codeterm_cli.md` | `CODETERM_CLI` | Framework rule | — | `service/general_agent/instructions.rs` — injected into the GA prompt via `{codeterm_cli}`; also mirrored into the codeterm skill |
+| `codeterm_cli.md` | `CODETERM_CLI` | Framework rule | — | `service/general_agent/instructions.rs` — injected into the GA prompt via `{codeterm_cli}`; `commands/skills.rs` renders the same constant into the `codeterm` skill through the same placeholder |
 | `bridge_mem.md` | `BRIDGE_MEM` | Memory protocol rule | — | `service/sync_watcher.rs:18` installs per provider; inlined into Codex `AGENTS.md` |
 | `worker_task_preamble.md` | `WORKER_TASK_PREAMBLE` | Memory worker wrapper | `{intent}` `{worker_id}` `{task}` | `mem/workers.rs` `build_worker_task()` — wraps every headless memory worker task |
 | `plugin_agent_task_preamble.md` | `PLUGIN_AGENT_TASK_PREAMBLE` | Plugin agent wrapper | `{task}` | `service/plugin_host.rs` — wraps plugin-spawned agent tasks before launch |
@@ -68,6 +69,28 @@ Substitution is plain `String::replace()` — there is no template engine. This 
 - **Single-pass substitution.** If a placeholder value itself contains another placeholder string (e.g. `{body}` value has `{id}` inside it), the inner one will not be re-expanded — substitutions run in a fixed order (id → title → body in `mem_extraction.md`), and only the template's literal placeholders match.
 - **`cron_complete_suffix.md` is the only file using positional `{}`.** Don't add other `{}` sequences to that file.
 - **Don't reuse a placeholder name across files** unless the meaning is identical — it makes refactors error-prone.
+
+### One fragment, every class: the AgentPad rule
+
+`agent_pad_rule.md` is the single semantic source for the pad contract. It has
+three carriers and no copies:
+
+- **Spawned agents** — `service/orchestrator/prompt_compose.rs` composes it into
+  every launch prompt: solo, Orchestrator, Planner, watcher, and Worker, with or
+  without an assignment.
+- **General Agent** — `general_cli_reference()` appends it to the CLI reference
+  unconditionally, so a moved section heading cannot drop it.
+- **`codeterm` skill** — `commands/skills.rs` substitutes it into
+  `skills/codeterm/SKILL.md` through the `{agent_pad_rule}` placeholder at seed
+  time. That is the carrier for any launch class delivered as a bare assignment
+  rather than a composed system prompt.
+
+Delivery is asserted per recipient by constant identity, never by wording:
+`prompt_compose::tests` proves exactly-once for each launch class,
+`skills_seed_tests::seed_renders_agent_pad_rule_from_constant` proves the
+skill round-trip, and the GA instruction-file test proves it in the written
+`AGENT.md`/`AGENTS.md`. `prompts.rs::agent_pad_rule_has_exactly_one_source`
+keeps every other prompt surface from growing a second copy.
 
 ### CLI grammar in prompts
 
@@ -112,8 +135,8 @@ it speaks with no payload. Occasions:
 
 | Occasion | Injection point | Fragments | Declared fallback |
 |---|---|---|---|
-| `launch_assignment` | `service/orchestrator/launch.rs` | contract (`builtin`/`inherited_base` + `disk_overlay`) | the assignment alone |
-| `worker_launch_identity` | `service/orchestrator/launch.rs` | `task_overlay` only | `You are a CodeTerm Worker.` |
+| `launch_assignment` | `service/orchestrator/prompt_compose.rs` | contract (`builtin`/`inherited_base` + `disk_overlay`) | the assignment alone |
+| `worker_launch_identity` | `service/orchestrator/prompt_compose.rs` | `task_overlay` only | `You are a CodeTerm Worker.` |
 | `manager_bootstrap` | `service/role_identity.rs` | contract | `planner_suffix.md` |
 
 Every occasion declares a fallback, and an unmatched `(occasion, kind)` pair
@@ -174,7 +197,7 @@ Orchestrator oracle and falls back to `test_plan` only when omitted.
         ▼
 owning loader module (pub const &str)
         │
-        ├──► app prompts.rs ─► service/orchestrator/launch.rs (rendered role suffixes)
+        ├──► app prompts.rs ─► service/orchestrator/prompt_compose.rs (rendered role suffixes)
         │                    └─► service/plugin_host.rs (plugin-agent wrapper)
         ├──► codeterm-plan/prompts_plan.rs ─► worker task rendering
         ├──► codeterm-mem/prompt_text.rs ─► extraction, dreaming, and reranking
@@ -182,7 +205,7 @@ owning loader module (pub const &str)
         └──► codeterm-plugin/prompts.rs ─► agent_claude/provider/integration.rs
 ```
 
-`codeterm_rule.md` deliberately has two `include_str!` loaders: the app copy feeds `service/general_agent/instructions.rs`, while the `codeterm-plugin` copy feeds provider bridge installation. The active role and plugin-agent injection paths are `service/orchestrator/launch.rs` and `service/plugin_host.rs`; the loader modules only own compilation and rendering.
+`codeterm_rule.md` deliberately has two `include_str!` loaders: the app copy feeds `service/general_agent/instructions.rs`, while the `codeterm-plugin` copy feeds provider bridge installation. The active role and plugin-agent injection paths are `service/orchestrator/prompt_compose.rs` and `service/plugin_host.rs`; the loader modules only own compilation and rendering.
 
 ## Editing workflow
 
@@ -237,4 +260,4 @@ Behavioral prompt changes are gated by `evals/cli-agent` (baseline vs after)
 with sandboxes OUTSIDE the repo — in-repo sandboxes feed agents the repo's
 checked-in AGENTS.md instead of the generated one and invalidate the run.
 
-<!-- revision: 26 -->
+<!-- revision: 27 -->
