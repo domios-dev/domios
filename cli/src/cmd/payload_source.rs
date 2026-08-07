@@ -30,6 +30,16 @@ pub fn current_pad() -> Result<PathBuf, String> {
     Ok(canonical)
 }
 
+/// Display boundary only. Containment compares canonical paths component-wise,
+/// so a stripped verbatim prefix must never reach `collect` or `current_pad`.
+pub fn display_pad_path(path: &Path) -> String {
+    let text = path.to_string_lossy();
+    if let Some(share) = text.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{share}");
+    }
+    text.strip_prefix(r"\\?\").unwrap_or(&text).to_string()
+}
+
 pub fn read_from_pad(relative: &str) -> Result<String, String> {
     read_from_pad_root(&current_pad()?, relative)
 }
@@ -142,6 +152,34 @@ mod tests {
             .contains("focused-tab fallback is not allowed"));
         if let Some(value) = old {
             std::env::set_var("CODETERM_TAB_ID", value);
+        }
+    }
+
+    #[test]
+    fn pad_enumeration_keeps_the_canonical_root_display_normalization_would_break() {
+        let temp = tempfile::tempdir().unwrap();
+        let pad = temp.path().join("containment-full-tab-id");
+        fs::create_dir(&pad).unwrap();
+        fs::create_dir(pad.join("nested")).unwrap();
+        fs::write(pad.join("nested/report.md"), "body").unwrap();
+        let canonical = pad.canonicalize().unwrap();
+
+        let mut files = Vec::new();
+        collect(&canonical, &canonical, &mut files).unwrap();
+        assert_eq!(files, vec![PathBuf::from("nested").join("report.md")]);
+
+        let displayed = PathBuf::from(display_pad_path(&canonical));
+        let mut from_displayed_root = Vec::new();
+        let result = collect(&displayed, &canonical, &mut from_displayed_root);
+        if cfg!(windows) {
+            assert_eq!(
+                result.unwrap_err(),
+                "AgentPad entry escapes the current pad",
+                "the display form is not a containment root on Windows"
+            );
+        } else {
+            assert_eq!(displayed, canonical);
+            result.unwrap();
         }
     }
 

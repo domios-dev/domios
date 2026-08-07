@@ -181,6 +181,23 @@ impl MultiplexerState {
         self.teams.get(id)
     }
 
+    /// Where a Team currently lives, derived from its member tabs and preferring
+    /// its anchor. `Team.workspace_id` is mint-time provenance, so it never
+    /// follows a tab moved to another workspace.
+    pub fn team_workspace(&self, team_id: &str) -> Option<String> {
+        self.teams.get(team_id)?;
+        let mut members: Vec<(bool, &str)> = self
+            .tabs
+            .values()
+            .filter(|tab| tab.team_id.as_deref() == Some(team_id))
+            .map(|tab| (!tab.anchors_team(), tab.id.as_str()))
+            .collect();
+        members.sort_unstable();
+        members
+            .into_iter()
+            .find_map(|(_, tab_id)| self.find_workspace_for_tab(tab_id))
+    }
+
     /// Remove a team by id, returning it if present.
     pub fn remove_team(&mut self, id: &str) -> Option<Team> {
         self.teams.remove(id)
