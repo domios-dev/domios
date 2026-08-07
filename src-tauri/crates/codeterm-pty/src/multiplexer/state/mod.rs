@@ -19,8 +19,8 @@ mod tab_runtime;
 mod workspace;
 
 pub use closed::{
-    ClosedGroup, ClosedTabView, ClosedTabsStore, GroupKind, CLOSED_GROUP_CAP, RECENTLY_CLOSED_CAP,
-    RECENTLY_CLOSED_VIEW_LIMIT,
+    ClosedGroup, ClosedTabView, ClosedTabsStore, GroupKind, PreparedWorkspaceClose,
+    TabCloseReservation, CLOSED_GROUP_CAP, RECENTLY_CLOSED_CAP, RECENTLY_CLOSED_VIEW_LIMIT,
 };
 
 #[cfg(test)]
@@ -75,6 +75,7 @@ pub struct MultiplexerState {
     /// across an await. Defaults to in-memory; production swaps in a file-backed
     /// store at startup via [`MultiplexerState::attach_closed_store`].
     pub(super) closed_store: ClosedTabsStore,
+    workspace_close_reservations: HashMap<String, String>,
 }
 
 pub struct TeamCloseTransaction {
@@ -149,6 +150,7 @@ impl MultiplexerState {
                 teams: self.teams.clone(),
                 generation: AtomicU64::new(self.generation.load(Ordering::Relaxed)),
                 closed_store: ClosedTabsStore::in_memory(),
+                workspace_close_reservations: self.workspace_close_reservations.clone(),
             },
         }
     }
@@ -165,6 +167,7 @@ impl MultiplexerState {
             teams: HashMap::new(),
             generation: AtomicU64::new(0),
             closed_store: ClosedTabsStore::in_memory(),
+            workspace_close_reservations: HashMap::new(),
         }
     }
 
@@ -304,6 +307,7 @@ impl MultiplexerState {
             teams: HashMap::new(),
             generation: AtomicU64::new(0),
             closed_store: ClosedTabsStore::in_memory(),
+            workspace_close_reservations: HashMap::new(),
         };
 
         (state, tab_id)

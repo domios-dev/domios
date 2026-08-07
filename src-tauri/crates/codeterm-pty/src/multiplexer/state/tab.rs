@@ -33,6 +33,7 @@ impl MultiplexerState {
     }
 
     pub fn create_tab(&mut self, workspace_id: &str) -> Result<String, String> {
+        self.ensure_workspace_membership_mutable(workspace_id)?;
         let workspace_idx = self
             .workspaces
             .iter()
@@ -81,6 +82,12 @@ impl MultiplexerState {
     }
 
     pub fn rollback_spawn_tab(&mut self, workspace_id: &str, tab_id: &str) {
+        if self
+            .ensure_workspace_membership_mutable(workspace_id)
+            .is_err()
+        {
+            return;
+        }
         if let Some(workspace) = self
             .workspaces
             .iter_mut()
