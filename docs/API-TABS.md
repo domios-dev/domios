@@ -120,7 +120,7 @@ Response: `{"ok": true, "changed": true}` when the persisted id changed, `{"ok":
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
 | GET | `/api/notifications` | `?unread=true` | List notifications |
-| POST | `/api/notifications` | `{title, body?, level?}` | Create notification (+ OS toast if unfocused) |
+| POST | `/api/notifications` | `{title, body?, level?, actions?, sticky?, tab_id?}` | Create notification (+ OS toast if unfocused). Navigation provenance is daemon-resolved: `X-CodeTerm-Tab-Id` outranks a body `tab_id`, an id naming no live tab is dropped (the notification still lands, without a Show Tab target), and `tab_title`/`workspace_id` come from the multiplexer. Mesh-relayed calls lose every tab claim and carry the signed peer name instead. |
 | POST | `/api/notifications/clear` | — | Clear all |
 
 #### Webhooks

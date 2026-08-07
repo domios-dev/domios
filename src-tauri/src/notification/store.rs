@@ -8,6 +8,10 @@ pub struct Notification {
     pub id: String,
     pub tab_id: Option<String>,
     pub workspace_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tab_title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peer_name: Option<String>,
     pub title: String,
     pub body: Option<String>,
     pub level: NotificationLevel,
@@ -17,6 +21,16 @@ pub struct Notification {
     pub actions: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sticky: Option<bool>,
+}
+
+/// Daemon-owned origin of a notification. Every field is resolved against live
+/// daemon state; nothing here may be stored straight from a caller payload.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct NotificationProvenance {
+    pub tab_id: Option<String>,
+    pub tab_title: Option<String>,
+    pub workspace_id: Option<String>,
+    pub peer_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -56,7 +70,18 @@ impl NotificationStore {
         tab_id: Option<String>,
         workspace_id: Option<String>,
     ) -> String {
-        self.add_ext(title, body, level, tab_id, workspace_id, None, None)
+        self.add_ext(
+            title,
+            body,
+            level,
+            NotificationProvenance {
+                tab_id,
+                workspace_id,
+                ..Default::default()
+            },
+            None,
+            None,
+        )
     }
 
     pub fn add_ext(
@@ -64,8 +89,7 @@ impl NotificationStore {
         title: String,
         body: Option<String>,
         level: NotificationLevel,
-        tab_id: Option<String>,
-        workspace_id: Option<String>,
+        provenance: NotificationProvenance,
         actions: Option<serde_json::Value>,
         sticky: Option<bool>,
     ) -> String {
@@ -77,8 +101,10 @@ impl NotificationStore {
 
         let notification = Notification {
             id: id.clone(),
-            tab_id,
-            workspace_id,
+            tab_id: provenance.tab_id,
+            workspace_id: provenance.workspace_id,
+            tab_title: provenance.tab_title,
+            peer_name: provenance.peer_name,
             title,
             body,
             level,
@@ -103,8 +129,7 @@ impl NotificationStore {
         title: String,
         body: String,
         actions: serde_json::Value,
-        tab_id: String,
-        workspace_id: Option<String>,
+        provenance: NotificationProvenance,
     ) -> DedupAdmission {
         if let Some(id) = self.provider_updates.get(&prompt_id) {
             return DedupAdmission::Duplicate(id.clone());
@@ -113,8 +138,7 @@ impl NotificationStore {
             title,
             Some(body),
             NotificationLevel::Info,
-            Some(tab_id),
-            workspace_id,
+            provenance,
             Some(actions),
             Some(true),
         );
@@ -268,21 +292,25 @@ mod tests {
     fn provider_update_notification_is_actionable_deduplicated_and_resolvable() {
         let mut store = NotificationStore::new(100);
         let actions = serde_json::json!([{"label":"Update","type":"invoke"}]);
+        let provenance = NotificationProvenance {
+            tab_id: Some("tab-1".into()),
+            tab_title: Some("Build".into()),
+            workspace_id: Some("workspace-1".into()),
+            peer_name: None,
+        };
         let first = store.add_provider_update(
             "prompt-1".into(),
             "Update available".into(),
             "Install separately".into(),
             actions.clone(),
-            "tab-1".into(),
-            Some("workspace-1".into()),
+            provenance.clone(),
         );
         let second = store.add_provider_update(
             "prompt-1".into(),
             "Duplicate".into(),
             "Duplicate".into(),
             actions.clone(),
-            "tab-1".into(),
-            Some("workspace-1".into()),
+            provenance,
         );
         let id = match first {
             DedupAdmission::Added(id) => id,
