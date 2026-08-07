@@ -1,3 +1,4 @@
+pub mod push;
 pub mod store;
 
 use std::sync::Arc;
@@ -26,7 +27,18 @@ pub fn notify(
         None,
         None,
         crate::service::notification::NotificationOrigin::claimed(tab_id),
+        crate::service::notification::PushIntent::default(),
     ))
+}
+
+/// Whether the Telegram push opt-in may be offered in settings at all.
+#[tauri::command]
+pub fn telegram_push_gate(
+    svc: State<'_, crate::service::ServiceState>,
+) -> Result<serde_json::Value, String> {
+    Ok(serde_json::json!({
+        "control_available": svc.telegram_push_control_available(),
+    }))
 }
 
 /// List notifications, optionally filtered to unread only.

@@ -423,11 +423,28 @@ fn api_map_still_builds_identical_rest_bodies() {
     assert_eq!(body["title"], serde_json::json!("hello"));
     assert_eq!(body["level"], serde_json::json!("info"));
     assert_eq!(body["body"], serde_json::Value::Null);
+    assert_eq!(body["category"], serde_json::Value::Null);
+    assert_eq!(body["event_key"], serde_json::Value::Null);
     assert_eq!(
         body.as_object().map(|map| map.len()),
-        Some(3),
+        Some(5),
         "notify send body gained or lost a field"
     );
+
+    let (_, _, categorised) = cli_command_to_api(&parse(&[
+        "codeterm",
+        "notify",
+        "send",
+        "hello",
+        "--category",
+        "blocker",
+        "--event-key",
+        "approval-7",
+    ]));
+    let categorised: serde_json::Value =
+        serde_json::from_str(&categorised.expect("notify send must carry a body")).unwrap();
+    assert_eq!(categorised["category"], serde_json::json!("blocker"));
+    assert_eq!(categorised["event_key"], serde_json::json!("approval-7"));
 
     let (method, path, body) = cli_command_to_api(&parse(&[
         "codeterm",

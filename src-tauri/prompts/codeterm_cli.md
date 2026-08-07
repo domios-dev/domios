@@ -40,7 +40,7 @@ Env vars set CONDITIONALLY, only when the tab actually has that identity — tes
 | Past chat sessions | `sessions search/get/resume` (resume handles cwd — never hand-craft `--resume`) | — |
 | Services/daemons registry | `service --help` | `docs MESH` |
 | Config keys | `config get <key>` (dot-notation) or bare `config get` to dump the whole redacted config; `config set` (JSON values) | `docs CONFIG` |
-| Desktop notifications | `notify send "title" [--body ..] [--level info\|warning\|error]` is canonical; `notify list` / `notify clear`. `send` is required — there is no bare `notify "title"` | — |
+| Desktop notifications | `notify send "title" [--body ..] [--level info\|warning\|error] [--category milestone\|blocker\|failure] [--event-key ..]` is canonical; `notify list` / `notify clear`. `send` is required — there is no bare `notify "title"`. `--category` takes only those three values and has no progress variant | `docs CONFIG` |
 | Updates | `update check`, `update install --auto` | — |
 | Plugins/providers | `plugin list/install/update/update-system` | `codeterm docs API-CLI` |
 | Cross-machine payload handoff | `paste put`, then `paste get <id>` / `paste rm <id>` (id may be bare `fpu2zp` or `paste:fpu2zp` — both resolve); `--pop` for one-shot (in-memory, TTL) — not `mem save` | — |

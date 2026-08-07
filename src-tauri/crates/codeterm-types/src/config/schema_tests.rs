@@ -1,4 +1,45 @@
-use super::{IntegrationsConfig, MemoryConfig, OrchestrationConfig, UiConfig, UsageConfig};
+use super::{
+    IntegrationsConfig, MemoryConfig, NotificationConfig, OrchestrationConfig, UiConfig,
+    UsageConfig,
+};
+
+#[test]
+fn telegram_push_is_opt_out_on_a_fresh_install() {
+    let cfg = NotificationConfig::default();
+    assert!(
+        !cfg.telegram.enabled,
+        "a fresh install must behave exactly as before"
+    );
+    assert!(
+        cfg.telegram.recipients.is_empty(),
+        "no audience is configured by default, so nobody receives anything"
+    );
+    assert!(cfg.telegram.per_scope_limit > 0);
+
+    let from_empty_toml: NotificationConfig = toml::from_str("").unwrap();
+    assert!(!from_empty_toml.telegram.enabled);
+    assert!(from_empty_toml.telegram.recipients.is_empty());
+}
+
+#[test]
+fn telegram_push_recipients_accept_bare_and_quoted_chat_ids() {
+    let toml = r#"
+        [telegram]
+        enabled = true
+        recipients = [100000001, "789012345"]
+    "#;
+    let cfg: NotificationConfig = toml::from_str(toml).unwrap();
+    assert!(cfg.telegram.enabled);
+    assert_eq!(
+        cfg.telegram.recipients,
+        vec!["100000001".to_string(), "789012345".to_string()]
+    );
+    assert_eq!(
+        cfg.telegram.per_scope_limit,
+        NotificationConfig::default().telegram.per_scope_limit,
+        "an omitted ceiling falls back to the default rather than to zero"
+    );
+}
 
 #[test]
 fn ui_config_extra_keys_round_trip_over_json() {
