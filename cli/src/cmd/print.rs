@@ -75,13 +75,12 @@ pub(crate) fn write_cli_error(
     out: &mut impl Write,
     err: &mut impl Write,
 ) {
+    if json {
+        let _ = writeln!(out, "{}", error_envelope(&error.message, error.code));
+        return;
+    }
     let _ = out.flush();
-    let rendered = if json {
-        error_envelope(&error.message, error.code).to_string()
-    } else {
-        format!("Error: {}", error.message)
-    };
-    let _ = writeln!(err, "{rendered}");
+    let _ = writeln!(err, "Error: {}", error.message);
 }
 
 const ENTITY_ID_FIELDS: &[&str] = &[
@@ -407,12 +406,12 @@ mod tests {
     }
 
     #[test]
-    fn json_error_envelope_goes_to_stderr_and_leaves_stdout_empty() {
+    fn json_error_envelope_goes_to_stdout_and_leaves_stderr_empty() {
         let (out, err) = rendered(true, &CliError::from(tab_not_found()));
 
-        assert!(out.is_empty(), "stdout must stay parseable: {out}");
+        assert!(err.is_empty(), "--json puts the whole failure on stdout: {err}");
         let envelope: serde_json::Value =
-            serde_json::from_str(&err).expect("stderr carries exactly one JSON envelope");
+            serde_json::from_str(&out).expect("stdout carries exactly one JSON envelope");
         assert_eq!(envelope["ok"], serde_json::Value::Bool(false));
         assert_eq!(envelope["kind"], "error");
         assert_eq!(envelope["code"], -32603);
@@ -482,8 +481,8 @@ mod tests {
     fn locally_validated_error_still_emits_the_envelope_with_a_null_code() {
         let (out, err) = rendered(true, &CliError::new("invalid remote tab id"));
 
-        assert!(out.is_empty(), "stdout must stay parseable: {out}");
-        let envelope: serde_json::Value = serde_json::from_str(&err).expect("one JSON envelope");
+        assert!(err.is_empty(), "--json puts the whole failure on stdout: {err}");
+        let envelope: serde_json::Value = serde_json::from_str(&out).expect("one JSON envelope");
         assert_eq!(envelope["ok"], serde_json::Value::Bool(false));
         assert_eq!(envelope["code"], serde_json::Value::Null);
         assert_eq!(envelope["error"], "invalid remote tab id");
