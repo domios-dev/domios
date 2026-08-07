@@ -232,6 +232,7 @@ fn optional_overview_call(
     }
 }
 
+#[cfg(test)]
 pub(crate) fn workspace_current_id<'a>(
     workspaces: &'a [serde_json::Value],
     caller_tab_id: Option<&str>,

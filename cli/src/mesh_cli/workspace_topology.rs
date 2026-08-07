@@ -238,7 +238,7 @@ mod tests {
     }
 
     #[test]
-    fn remote_topology_marks_focus_without_claiming_local_caller_identity() {
+    fn remote_topology_marks_active_without_claiming_local_caller_identity() {
         let rendered = crate::cmd::render_workspace_map(
             &json!([{
                 "id":"ws_remote",
@@ -253,7 +253,7 @@ mod tests {
             None,
         );
 
-        assert!(rendered.contains("(focused)"));
+        assert!(rendered.contains("(active)"));
         assert!(!rendered.contains("(self)"));
     }
 }
