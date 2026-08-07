@@ -66,3 +66,21 @@ pub mod usage;
 pub mod web;
 pub mod worker;
 mod workspace_map;
+
+pub(crate) fn render_workspace_map(
+    workspaces: &serde_json::Value,
+    tabs: &serde_json::Value,
+    teams: &serde_json::Value,
+    plans: &serde_json::Value,
+    caller_workspace_id: Option<&str>,
+    caller_tab_id: Option<&str>,
+) -> String {
+    workspace_map::render(
+        workspaces,
+        tabs,
+        teams,
+        plans,
+        caller_workspace_id,
+        caller_tab_id,
+    )
+}
