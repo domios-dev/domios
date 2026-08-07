@@ -11,7 +11,7 @@ const TASK_LOCAL_ONLY: &str = "task management is local-only — run it on the t
 /// Where a command is handled before the socket dispatch match sees it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Local {
-    /// Handled before the `--mesh` branch, so `--mesh` is ignored for it.
+    /// Handled directly after the `--mesh` branch and before socket discovery.
     PreMesh,
     /// Handled after the `--mesh` branch but before socket discovery.
     PreSocket,
@@ -91,8 +91,6 @@ pub(crate) fn transport_for(command: &Commands) -> Transport {
         Commands::Pad { .. } => {
             socket_unsupported("pad is caller-local and cannot target a mesh peer")
         }
-        // Handled before the `--mesh` branch, so `plugin --mesh` runs locally
-        // and never reaches the verdict recorded here.
         Commands::Plugin { .. } => Transport {
             local: Local::PreMesh,
             mesh_relay: MeshRelay::Fallthrough,
@@ -154,16 +152,12 @@ pub(crate) fn transport_for(command: &Commands) -> Transport {
         }
         Commands::Sessions { .. } => socket_rest(),
         Commands::Usage { .. } => socket_rest(),
-        Commands::System { .. } => Transport {
-            local: Local::PreSocket,
-            mesh_relay: MeshRelay::Fallthrough,
-            api_verdict: ApiVerdict::Rest,
-        },
-        Commands::Docs { .. } => Transport {
-            local: Local::PreSocket,
-            mesh_relay: MeshRelay::Fallthrough,
-            api_verdict: ApiVerdict::Rest,
-        },
+        Commands::System { .. } => pre_socket_unsupported(
+            "system configuration is local-only — run it on the target machine",
+        ),
+        Commands::Docs { .. } => pre_socket_unsupported(
+            "docs are embedded in this binary — run the command on the target machine",
+        ),
         Commands::Debug { .. } => Transport {
             local: Local::Socket,
             mesh_relay: MeshRelay::Fallthrough,
@@ -202,4 +196,8 @@ fn mem_local(action: &MemAction) -> Local {
 
 pub(crate) fn is_socket_relayed(command: &Commands) -> bool {
     transport_for(command).mesh_relay == MeshRelay::SocketRpc
+}
+
+pub(crate) fn should_dispatch_direct_local(command: &Commands, mesh_target: Option<&str>) -> bool {
+    mesh_target.is_none() && transport_for(command).local == Local::PreMesh
 }
