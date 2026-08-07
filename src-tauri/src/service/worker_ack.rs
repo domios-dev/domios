@@ -369,40 +369,27 @@ impl ServiceContext {
         tab_id: &str,
         spawn_command: String,
     ) -> Result<bool, String> {
-        let matches = self
-            .plan_store
-            .list_full()
-            .into_iter()
-            .filter(|plan| plan.status == crate::plan::PlanStatus::Active)
-            .flat_map(|plan| {
-                let plan_id = plan.id.clone();
-                plan.tasks
-                    .into_iter()
-                    .filter(|task| {
-                        matches!(
-                            task.status,
-                            crate::plan::TaskStatus::Pending | crate::plan::TaskStatus::InProgress
-                        )
-                    })
-                    .filter_map(move |task| {
-                        task.execution_attempts
-                            .iter()
-                            .rfind(|attempt| {
-                                attempt.executor_tab_id == tab_id && attempt.closed_at.is_none()
-                            })
-                            .map(|attempt| (plan_id.clone(), task.id, attempt.clone()))
-                    })
+        use crate::service::plan::{ambiguous_subject_cause, unresolved_subject_cause};
+        let bound = self.plan_store.live_task_attempts_for_tab(tab_id);
+        if bound.is_empty() {
+            return Ok(false);
+        }
+        let armable = bound
+            .iter()
+            .filter(|candidate| {
+                candidate.plan_active
+                    && matches!(
+                        candidate.task_status,
+                        crate::plan::TaskStatus::Pending | crate::plan::TaskStatus::InProgress
+                    )
             })
             .collect::<Vec<_>>();
-        let [(plan_id, task_id, attempt)] = matches.as_slice() else {
-            if matches.is_empty() {
-                return Ok(false);
-            }
-            return Err(format!(
-                "expected one live task attempt for tab {tab_id}, found {}",
-                matches.len()
-            ));
+        let selected = match armable.len() {
+            1 => armable[0],
+            0 => return Err(unresolved_subject_cause(tab_id, &bound)),
+            _ => return Err(ambiguous_subject_cause(tab_id, armable.iter().copied())),
         };
+        let (plan_id, task_id, attempt) = (&selected.plan_id, &selected.task_id, &selected.attempt);
         let parent_tab_id = attempt
             .orchestrator_tab_id
             .as_deref()
