@@ -223,3 +223,242 @@ mod strides_render_tests {
         assert!(block.contains("tab_abcdef"));
     }
 }
+
+mod error_contract_tests {
+    use crate::args::inbox::InboxAction;
+    use crate::args::task::{CanvasAction, TaskAction};
+    use crate::client::{RpcClient, RpcError, SocketCallError};
+    use crate::cmd::print::{CliError, CLI_ERROR_EXIT_CODE};
+    use crate::cmd::task::{run_canvas, run_inbox, run_task, write_task_error, HUMAN_ERROR_PREFIX};
+    use serde_json::Value;
+
+    /// Every JSON-RPC code the daemon uses starts with this; asserting its
+    /// absence is structural, unlike pinning a message phrase.
+    const RPC_CODE_MARKER: &str = "-32";
+    const DAEMON_MESSAGE: &str = "task 'zzzzzzzz' not found";
+
+    #[derive(Default)]
+    struct FailingRpc {
+        calls: Vec<String>,
+        remote: bool,
+    }
+
+    impl FailingRpc {
+        fn local() -> Self {
+            Self::default()
+        }
+
+        fn remote() -> Self {
+            Self {
+                remote: true,
+                ..Self::default()
+            }
+        }
+    }
+
+    impl RpcClient for FailingRpc {
+        fn call_detailed(
+            &mut self,
+            method: &str,
+            _params: Option<Value>,
+        ) -> Result<Value, SocketCallError> {
+            self.calls.push(method.to_string());
+            Err(SocketCallError::Rpc(RpcError {
+                code: -32602,
+                message: DAEMON_MESSAGE.into(),
+                data: None,
+            }))
+        }
+
+        fn is_remote(&self) -> bool {
+            self.remote
+        }
+    }
+
+    fn rendered(json: bool, message: &str) -> (String, String, i32) {
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+        let code = write_task_error(json, &CliError::new(message), &mut out, &mut err);
+        (
+            String::from_utf8(out).expect("stdout is utf8"),
+            String::from_utf8(err).expect("stderr is utf8"),
+            code,
+        )
+    }
+
+    fn show_error(client: &mut FailingRpc) -> String {
+        run_task(
+            client,
+            false,
+            TaskAction::Show {
+                task_id: "task_zzzzzzzz".into(),
+                siblings: false,
+                all: false,
+            },
+        )
+        .err()
+        .expect("task show surfaces the daemon rejection")
+    }
+
+    #[test]
+    fn human_failure_writes_nothing_to_stdout() {
+        let (out, err, _) = rendered(false, DAEMON_MESSAGE);
+
+        assert!(out.is_empty(), "stdout must stay parseable: {out}");
+        assert_eq!(err, format!("{HUMAN_ERROR_PREFIX}{DAEMON_MESSAGE}\n"));
+    }
+
+    #[test]
+    fn json_failure_puts_a_structural_envelope_on_stdout() {
+        let (out, err, _) = rendered(true, DAEMON_MESSAGE);
+
+        assert!(err.is_empty(), "the envelope is the whole report: {err}");
+        let envelope: serde_json::Value =
+            serde_json::from_str(&out).expect("stdout carries exactly one JSON envelope");
+        assert_eq!(envelope["ok"], serde_json::Value::Bool(false));
+        assert_eq!(envelope["kind"], "error");
+        assert_eq!(envelope["error"], DAEMON_MESSAGE);
+    }
+
+    #[test]
+    fn exit_code_is_non_zero_and_cannot_drift_between_modes() {
+        let (_, _, json_code) = rendered(true, DAEMON_MESSAGE);
+        let (_, _, human_code) = rendered(false, DAEMON_MESSAGE);
+
+        assert_eq!(json_code, human_code);
+        assert_ne!(json_code, 0);
+        assert_eq!(json_code, CLI_ERROR_EXIT_CODE);
+    }
+
+    #[test]
+    fn task_show_rejection_reaches_the_contract_without_the_raw_rpc_code() {
+        let mut client = FailingRpc::local();
+        let message = show_error(&mut client);
+
+        assert_eq!(client.calls, ["task.show"]);
+        assert!(message.contains(DAEMON_MESSAGE), "{message}");
+        assert!(!message.contains(RPC_CODE_MARKER), "{message}");
+
+        let (out, err, _) = rendered(false, &message);
+        assert!(out.is_empty(), "{out}");
+        assert!(!err.contains(RPC_CODE_MARKER), "{err}");
+    }
+
+    #[test]
+    fn task_list_rejection_reaches_the_contract() {
+        let mut client = FailingRpc::local();
+        let message = run_task(
+            &mut client,
+            false,
+            TaskAction::List {
+                active: false,
+                all: true,
+                mine: false,
+                unassigned: false,
+                workspace: false,
+                plan: None,
+                status: None,
+            },
+        )
+        .err()
+        .expect("task list surfaces the daemon rejection");
+
+        assert_eq!(client.calls, ["task.list"]);
+        let (out, _, _) = rendered(false, &message);
+        assert!(out.is_empty(), "{out}");
+    }
+
+    #[test]
+    fn locally_rejected_task_take_never_reaches_the_daemon_and_still_exits_one() {
+        let mut client = FailingRpc::remote();
+        let message = run_task(
+            &mut client,
+            false,
+            TaskAction::Take {
+                task_id: "task_1".into(),
+            },
+        )
+        .err()
+        .expect("task take over mesh is rejected before any RPC");
+
+        assert!(client.calls.is_empty(), "{:?}", client.calls);
+        let (out, err, code) = rendered(true, &message);
+        assert!(err.is_empty(), "{err}");
+        assert_eq!(code, CLI_ERROR_EXIT_CODE);
+        let envelope: serde_json::Value = serde_json::from_str(&out).expect("one JSON envelope");
+        assert_eq!(envelope["ok"], serde_json::Value::Bool(false));
+        assert_eq!(envelope["code"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn inbox_add_rejection_reaches_the_contract() {
+        let mut client = FailingRpc::local();
+        let message = run_inbox(&mut client, inbox_add(None))
+            .err()
+            .expect("inbox add surfaces the daemon rejection");
+
+        assert_eq!(client.calls, ["task.add"]);
+        let (out, err, _) = rendered(false, &message);
+        assert!(out.is_empty(), "{out}");
+        assert!(err.starts_with(HUMAN_ERROR_PREFIX), "{err}");
+    }
+
+    #[test]
+    fn inbox_add_unreadable_body_file_is_rejected_before_any_rpc() {
+        let mut client = FailingRpc::local();
+        let missing = std::env::temp_dir()
+            .join("codeterm-absent-inbox-dir")
+            .join("body.md");
+        assert!(!missing.exists(), "the fixture must name an absent path");
+        let message = run_inbox(&mut client, inbox_add(Some(missing.display().to_string())))
+            .err()
+            .expect("an unreadable --body-file is rejected locally");
+
+        assert!(client.calls.is_empty(), "{:?}", client.calls);
+        let (out, _, code) = rendered(false, &message);
+        assert!(out.is_empty(), "{out}");
+        assert_eq!(code, CLI_ERROR_EXIT_CODE);
+    }
+
+    #[test]
+    fn canvas_focus_rejection_reaches_the_contract() {
+        let mut client = FailingRpc::local();
+        let message = run_canvas(
+            &mut client,
+            CanvasAction::Focus {
+                task: Some("task_1".into()),
+                tab: None,
+                plan: None,
+            },
+        )
+        .err()
+        .expect("canvas focus surfaces the daemon rejection");
+
+        assert_eq!(client.calls, ["canvas.focus"]);
+        let (out, err, _) = rendered(true, &message);
+        assert!(err.is_empty(), "{err}");
+        let envelope: serde_json::Value = serde_json::from_str(&out).expect("one JSON envelope");
+        assert_eq!(envelope["ok"], serde_json::Value::Bool(false));
+    }
+
+    fn inbox_add(body_file: Option<String>) -> InboxAction {
+        InboxAction::Add {
+            name: "probe".into(),
+            kind: None,
+            model: None,
+            why: None,
+            why_file: None,
+            criterion: Vec::new(),
+            test_plan: None,
+            qa_plan: None,
+            qa_plan_file: None,
+            correctness: None,
+            body: None,
+            body_file,
+            intent: None,
+            intent_file: None,
+            execution_intent: None,
+            assign_tab: None,
+        }
+    }
+}
