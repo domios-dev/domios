@@ -445,15 +445,10 @@ fn remote_chat_path_percent_encodes_unicode_selector() {
     );
 }
 
-fn json_error_envelope(message: String) -> serde_json::Value {
+fn json_error_envelope(error: &crate::cmd::print::CliError) -> serde_json::Value {
     let mut out = Vec::new();
     let mut err = Vec::new();
-    crate::cmd::print::write_cli_error(
-        true,
-        &crate::cmd::print::CliError::new(message),
-        &mut out,
-        &mut err,
-    );
+    crate::cmd::print::write_cli_error(true, error, &mut out, &mut err);
     assert!(err.is_empty(), "--json puts the whole failure on stdout");
     serde_json::from_slice(&out).expect("stdout carries exactly one JSON envelope")
 }
@@ -465,7 +460,7 @@ fn invalid_remote_tab_selector_emits_the_envelope_with_no_rpc_code() {
     })
     .expect_err("a mesh: selector without /<tab> is rejected before any RPC");
 
-    let envelope = json_error_envelope(message);
+    let envelope = json_error_envelope(&crate::cmd::print::CliError::new(message));
 
     assert_eq!(envelope["ok"], serde_json::Value::Bool(false));
     assert_eq!(envelope["kind"], "error");
@@ -481,10 +476,119 @@ fn mixed_local_and_remote_inspection_emits_the_envelope_with_no_rpc_code() {
     let message = remote_inspect_target(&["mesh:peer/tab_a".into(), "local_tab".into()])
         .expect_err("mixing local and remote inspection targets is rejected locally");
 
-    let envelope = json_error_envelope(message);
+    let envelope = json_error_envelope(&crate::cmd::print::CliError::new(message));
 
     assert_eq!(envelope["ok"], serde_json::Value::Bool(false));
     assert_eq!(envelope["code"], serde_json::Value::Null);
+    assert!(!envelope["error"]
+        .as_str()
+        .expect("error is a string")
+        .contains("-32"));
+}
+
+struct StubRpc {
+    method: Option<String>,
+    params: Option<serde_json::Value>,
+    failure: Option<crate::client::SocketCallError>,
+}
+
+impl StubRpc {
+    fn failing(code: i32, message: &str) -> Self {
+        Self {
+            method: None,
+            params: None,
+            failure: Some(crate::client::SocketCallError::Rpc(crate::client::RpcError {
+                code,
+                message: message.into(),
+                data: None,
+            })),
+        }
+    }
+}
+
+impl crate::client::RpcClient for StubRpc {
+    fn call_detailed(
+        &mut self,
+        method: &str,
+        params: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value, crate::client::SocketCallError> {
+        self.method = Some(method.to_string());
+        self.params = params;
+        Err(self.failure.take().expect("stub answers exactly one call"))
+    }
+}
+
+fn assert_converted(
+    stub: &StubRpc,
+    error: &crate::cmd::print::CliError,
+    method: &str,
+    params: &serde_json::Value,
+) {
+    assert_eq!(stub.method.as_deref(), Some(method));
+    assert_eq!(stub.params.as_ref(), Some(params));
+    assert_eq!(error.code, Some(-32603));
+    assert!(!error.message.contains("-32"), "{}", error.message);
+}
+
+#[test]
+fn focus_failure_moves_the_rpc_code_out_of_the_message() {
+    let mut stub = StubRpc::failing(-32603, "Tab not found");
+
+    let error = focus_tab(&mut stub, "zzzzzzzz").expect_err("the stub answers with a failure");
+
+    assert_converted(&stub, &error, "tab.focus", &json!({ "tab_id": "zzzzzzzz" }));
+}
+
+#[test]
+fn close_failure_moves_the_rpc_code_out_of_the_message() {
+    let mut stub = StubRpc::failing(-32603, "Tab not found");
+    let params = json!({ "tab_id": "zzzzzzzz", "caller_tab_id": "caller01" });
+
+    let error = close_tab(&mut stub, params.clone()).expect_err("the stub answers with a failure");
+
+    assert_converted(&stub, &error, "tab.close", &params);
+}
+
+#[test]
+fn rename_failure_moves_the_rpc_code_out_of_the_message() {
+    let mut stub = StubRpc::failing(-32603, "Tab not found");
+
+    let error =
+        rename_tab(&mut stub, "zzzzzzzz", "new title").expect_err("the stub answers with a failure");
+
+    assert_converted(
+        &stub,
+        &error,
+        "tab.rename",
+        &json!({ "tab_id": "zzzzzzzz", "title": "new title" }),
+    );
+}
+
+#[test]
+fn describe_failure_moves_the_rpc_code_out_of_the_message() {
+    let mut stub = StubRpc::failing(-32603, "Tab not found");
+
+    let error = describe_tab(&mut stub, "zzzzzzzz", "a summary")
+        .expect_err("the stub answers with a failure");
+
+    assert_converted(
+        &stub,
+        &error,
+        "tab.describe",
+        &json!({ "tab_id": "zzzzzzzz", "description": "a summary" }),
+    );
+}
+
+#[test]
+fn a_converted_tab_failure_renders_as_the_envelope_on_stdout() {
+    let mut stub = StubRpc::failing(-32603, "Tab not found");
+    let error = focus_tab(&mut stub, "zzzzzzzz").expect_err("the stub answers with a failure");
+
+    let envelope = json_error_envelope(&error);
+
+    assert_eq!(envelope["ok"], serde_json::Value::Bool(false));
+    assert_eq!(envelope["kind"], "error");
+    assert_eq!(envelope["code"], -32603);
     assert!(!envelope["error"]
         .as_str()
         .expect("error is a string")

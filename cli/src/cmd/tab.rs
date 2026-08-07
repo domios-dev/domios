@@ -1,8 +1,9 @@
 use super::tab_restart::handle_shell_restart;
-use crate::client::SocketClient;
+use crate::client::{RpcClient, SocketClient};
 use crate::cmd::agent::normalize_tab_description;
 use crate::cmd::print::{
-    exit_with_cli_error, handle_result, print_json, tab_list_json_envelope, CliError,
+    exit_with_cli_error, handle_cli_result, handle_result, print_json, tab_list_json_envelope,
+    CliError,
 };
 use crate::{build_local_api, read_api_config, resolve_tab, TabAction};
 
@@ -227,8 +228,8 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                 handle_result(json, Ok(relay_tab_json(&peer, "POST", &path, None)));
                 return;
             }
-            let result = client.call("tab.focus", Some(serde_json::json!({ "tab_id": id })));
-            handle_result(json, result);
+            let result = focus_tab(client, id);
+            handle_cli_result(json, result);
         }
         TabAction::Close { id, tab } => {
             let id = crate::args::misc::required_tab_selector(&id, &tab, "close").unwrap_or_else(
@@ -244,8 +245,8 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             }
             let mut params = serde_json::json!({ "tab_id": id });
             crate::cmd::plan::maybe_inject_caller_tab(&mut params);
-            let result = client.call("tab.close", Some(params));
-            handle_result(json, result);
+            let result = close_tab(client, params);
+            handle_cli_result(json, result);
         }
         TabAction::Restart { tab, cwd, cmd } => {
             handle_shell_restart(client, json, tab, cwd, cmd);
@@ -269,11 +270,8 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                 exit_with_cli_error(json, &CliError::new(INVALID_REMOTE_TAB_ID));
             }
             let tab_id = resolve_tab(client, tab);
-            let result = client.call(
-                "tab.rename",
-                Some(serde_json::json!({ "tab_id": tab_id, "title": title })),
-            );
-            handle_result(json, result);
+            let result = rename_tab(client, &tab_id, &title);
+            handle_cli_result(json, result);
         }
         TabAction::Describe { tab, summary } => {
             let description = match normalize_tab_description(&summary) {
@@ -297,11 +295,8 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                 _ => {}
             }
             let tab_id = resolve_tab(client, tab);
-            let result = client.call(
-                "tab.describe",
-                Some(serde_json::json!({ "tab_id": tab_id, "description": description })),
-            );
-            handle_result(json, result);
+            let result = describe_tab(client, &tab_id, &description);
+            handle_cli_result(json, result);
         }
         TabAction::GetText { tab, formatted } => {
             if let Some((peer, remote_tab)) = tab.as_deref().and_then(parse_remote_tab_id) {
@@ -590,6 +585,51 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
         }
         TabAction::Capture { action } => handle_tab_capture(client, json, action),
     }
+}
+
+fn tab_rpc(
+    client: &mut dyn RpcClient,
+    method: &str,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, CliError> {
+    client
+        .call_detailed(method, Some(params))
+        .map_err(CliError::from)
+}
+
+fn focus_tab(client: &mut dyn RpcClient, id: &str) -> Result<serde_json::Value, CliError> {
+    tab_rpc(client, "tab.focus", serde_json::json!({ "tab_id": id }))
+}
+
+fn close_tab(
+    client: &mut dyn RpcClient,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, CliError> {
+    tab_rpc(client, "tab.close", params)
+}
+
+fn rename_tab(
+    client: &mut dyn RpcClient,
+    tab_id: &str,
+    title: &str,
+) -> Result<serde_json::Value, CliError> {
+    tab_rpc(
+        client,
+        "tab.rename",
+        serde_json::json!({ "tab_id": tab_id, "title": title }),
+    )
+}
+
+fn describe_tab(
+    client: &mut dyn RpcClient,
+    tab_id: &str,
+    description: &str,
+) -> Result<serde_json::Value, CliError> {
+    tab_rpc(
+        client,
+        "tab.describe",
+        serde_json::json!({ "tab_id": tab_id, "description": description }),
+    )
 }
 
 fn tab_list_params(
