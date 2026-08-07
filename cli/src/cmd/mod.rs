@@ -61,6 +61,7 @@ pub mod task;
 pub mod task_list_render;
 pub mod team;
 pub mod test_plan;
+pub mod theme;
 pub mod update;
 pub mod usage;
 pub mod web;
