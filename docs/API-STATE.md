@@ -97,6 +97,8 @@ Provider-agnostic: every registered `AgentProvider` contributes its own session 
 
 **GET /api/sessions/search** — whitespace-splits `q` into terms; every term must appear (case-insensitively) in at least one non-meta message of a session for it to match. Hits are sorted most-recently-modified first. `provider=all` (default) walks every registered provider; pass an id (`claude`, `codex`) to scope. `limit` defaults to 10, `max_snippets` to 3. Snippets carry ~80 chars of context before and ~120 after the first matching position, sliced on UTF-8 char boundaries so non-ASCII queries don't panic.
 
+The scan is bounded, not exhaustive. Session metadata is enumerated first and ordered by recency; files are parsed in that order and the walk stops as soon as `limit` hits are collected, so a common query reads a handful of sessions rather than the whole corpus. Any single session file larger than 8 MiB is skipped rather than loaded — real corpora hold multi-gigabyte rollouts, and parsing one to answer a text query is unbounded work. Content in a skipped session is therefore not searchable; `sessions get`/`resume` still resolve it, since those read metadata only. The walk runs on the blocking pool, so it never occupies the async runtime.
+
 Response shape:
 ```json
 {
@@ -198,4 +200,4 @@ The HTTP response returns immediately (`{"status": "updating", "version": "..."}
 
 Service registration, health, and activity: `codeterm docs API-SERVICES`. Bridge and cron integrations: `codeterm docs API-INTEGRATIONS`.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->

@@ -17,6 +17,7 @@ pub mod prompt;
 pub mod provider;
 pub mod recovered_seat_auth;
 pub mod registry;
+pub mod registry_search;
 pub mod reports;
 pub mod run_watcher;
 pub mod semantic_marker;
