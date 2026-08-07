@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 38 -->
+<!-- revision: 39 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -10,8 +10,8 @@ workspace and tab maps, then inspect one selected record. Whole-list JSON is for
 checked-in automation rather than interactive discovery.
 
 `workspace current` prints a bare id for shell use. Its point-query `--json`
-form also identifies `caller-tab` or `focus-fallback` as the source. When neither
-the caller nor an active workspace resolves, it prints nothing and succeeds.
+form identifies `explicit`, `caller-tab`, `workspace-env`, or `focus-fallback`
+as the source. When no identity resolves, it exits 1 with empty stdout.
 
 **Planning?** Read `codeterm docs ORCHESTRATION` first (GOAL ⟶ Spec ⊥ Plan ⟶ Tasks ⟶ Strides; author GOAL-first, Spec=WHAT, Plan=HOW built from the spec, M:N section links). Don't cram requirements into plan sections; the Spec holds WHAT.
 
@@ -44,7 +44,7 @@ Agent hierarchy management
 Acknowledge receipt and ownership of the assigned task
 
 - `--plan` — Plan id (default: $CODETERM_PLAN_ID)
-- `--tab` — Tab ID (default: $CODETERM_TAB_ID or focused tab)
+- `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 - `--task` — Task id (default: $CODETERM_TASK_ID)
 
 #### `codeterm agent allow-spawn`
@@ -52,33 +52,33 @@ Acknowledge receipt and ownership of the assigned task
 Toggle whether a tab can spawn children
 
 - `--enable` — Enable or disable spawning
-- `--tab` — Tab ID (default: current focused tab)
+- `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
 #### `codeterm agent compact`
 
 Compact agent context (sends /compact to Claude)
 
-- `--tab` — Tab ID (default: $CODETERM_TAB_ID or focused tab)
+- `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
 #### `codeterm agent ledger`
 
 List an orchestrator's workers from the durable ledger (survives daemon restart): branch / model / status / last-seen, one row per worker
 
-- `--tab` — Orchestrator tab ID (default: current focused tab)
+- `--tab` — Orchestrator tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
 #### `codeterm agent link`
 
 Link a tab as worker under a parent
 
 - `--parent-tab` — Parent tab ID (orchestrator)
-- `--tab` — Tab ID to link (default: current focused tab)
+- `--tab` — Tab ID to link (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
 #### `codeterm agent model`
 
 Switch agent model. Claude only — Codex /model is an interactive picker, respawn with `agent spawn codex --model X` instead
 
 - `<name>` — Model name (Claude: sonnet, haiku, opus). Run `agent models claude` to list
-- `--tab` — Tab ID (default: $CODETERM_TAB_ID or focused tab)
+- `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
 #### `codeterm agent models`
 
@@ -107,7 +107,7 @@ Send a report to your parent in the hierarchy
 - `--sha` — Commit SHA produced
 - `--skipped` — Anything deliberately skipped
 - `--status` — Task outcome: in_review | blocked | partial | done
-- `--tab` — Tab ID (default: $CODETERM_TAB_ID or focused tab)
+- `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 - `--task` — Task id to append this report to (if available)
 - `--test-cmd` — Test command that was run
 - `--test-result` — Result of the test command (e.g. "42 passed")
@@ -119,13 +119,13 @@ Restart agent (graceful exit; resumes only when the tab has a valid provider ses
 
 - `--force` — Skip the graceful exit and force-kill instead. Use only when the agent is hung
 - `--grace-secs` — Wait this long for graceful exit before force-killing (seconds)
-- `--tab` — Tab ID (default: $CODETERM_TAB_ID or focused tab)
+- `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
 #### `codeterm agent set-orchestrator`
 
 Mark a tab as orchestrator (top-level, can spawn workers)
 
-- `--tab` — Tab ID (default: current focused tab)
+- `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
 #### `codeterm agent spawn`
 
@@ -163,7 +163,7 @@ Spawn a new agent; roleless unless --role is provided.
 
 Remove a tab's role (also orphans children)
 
-- `--tab` — Tab ID (default: current focused tab)
+- `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
 #### `codeterm bridge`
 
@@ -358,7 +358,7 @@ Queue a delayed message
 - `--from-file` — Read text from a file instead of the positional arg
 - `--from-pad` — Read text from a relative file in the current agent tab's pad
 - `--stdin` — Read text from stdin
-- `--tab` — Target tab ID (default: $CODETERM_TAB_ID or focused tab)
+- `--tab` — Target tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 - `<text>` — Text to queue (positional, or omit and use --from-file/--stdin)
 
 #### `codeterm delayed delete`
@@ -383,7 +383,7 @@ Edit a queued or failed delayed message
 
 List delayed messages for a tab
 
-- `--tab` — Target tab ID (default: $CODETERM_TAB_ID or focused tab)
+- `--tab` — Target tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
 #### `codeterm delayed send-now`
 
@@ -2462,7 +2462,7 @@ Send text to a tab (default: current tab)
 - `--from-pad` — Read text from a relative file in the current agent tab's pad
 - `--require-agent` — Refuse unless the target tab has an agent attached. Guards task dispatch so prose never lands in a raw shell (issue #8)
 - `--stdin` — Read text from stdin. Pair with a single-quoted heredoc to bypass the shell entirely: codeterm send --tab X --stdin <<'EOF' any `backticks`, $vars, etc — zero interpolation EOF
-- `--tab` — Target tab ID (default: $CODETERM_TAB_ID or focused tab)
+- `--tab` — Target tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 - `<text>` — Text to send (positional, or omit and use --from-file/--stdin)
 - `--to-shell` — Override the raw-shell prose guard and deliver text verbatim to a shell tab (the shell will execute it). Alias: --force
 
@@ -2697,20 +2697,20 @@ Dev-only: tee a tab's raw PTY output into an asciicast v2 `.cast` file
 Arm capture: tee raw PTY output (ANSI intact) + timestamps to `--out`
 
 - `--out` — Path of the `.cast` file to write
-- `--tab` — Target tab ID (default: $CODETERM_TAB_ID or focused tab)
+- `--tab` — Target tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
 #### `codeterm tab capture stop`
 
 Disarm capture: flush/close the `.cast` and write a sibling `screen.txt`
 
-- `--tab` — Target tab ID (default: $CODETERM_TAB_ID or focused tab)
+- `--tab` — Target tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
 #### `codeterm tab chat`
 
 Read a tab's parsed chat transcript (text/thinking/tool calls/results)
 
 - `--since` — Only return messages from this index onward
-- `--tab` — Target tab ID (default: $CODETERM_TAB_ID or focused tab)
+- `--tab` — Target tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
 #### `codeterm tab close`
 
@@ -2730,14 +2730,14 @@ Print the current focused tab ID — no JSON parsing needed
 Set a short tab description (empty clears it)
 
 - `<summary>` — Short summary, max 200 chars
-- `--tab` — Tab ID to describe (default: current focused tab)
+- `--tab` — Tab ID to describe (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
 #### `codeterm tab exec`
 
 Execute a command in a tab and return output
 
 - `<command>` — Command to execute
-- `--tab` — Tab ID (default: current focused tab)
+- `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 - `--timeout` — Timeout in milliseconds
 
 #### `codeterm tab focus`
@@ -2752,7 +2752,7 @@ Focus a tab by ID
 Get visible terminal text of a tab (what the user sees)
 
 - `--formatted` — Include raw ANSI escape codes (colors, cursor state) instead of plain text
-- `--tab` — Tab ID (default: current focused tab)
+- `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
 #### `codeterm tab inspect`
 
@@ -2787,7 +2787,7 @@ Plain shell tab. For an AI tab use `codeterm agent spawn` instead
 
 Rename a tab (default: current tab)
 
-- `--tab` — Tab ID to rename (default: current focused tab)
+- `--tab` — Tab ID to rename (default: $CODETERM_TAB_ID; no focused-tab fallback)
 - `<title>` — New title
 
 #### `codeterm tab restart`
@@ -2808,13 +2808,13 @@ Fuzzy search tabs by id-prefix, tab title, friendly session name, agent type, or
 
 Show agent status for a tab (type, provider session, prompt)
 
-- `--tab` — Tab ID (default: current focused tab)
+- `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
 #### `codeterm tab stop`
 
 Interrupt the agent's current generation (NOT a clean exit). Sends the provider's declared stop_keystroke — Esc for Claude/Codex/OpenCode, Ctrl+C for Cursor. Plain shells get a 200 with {stopped:false} (no key). Designed for mesh/CLI/bot drivers — type `/stop` in a Telegram bridge and have it map straight here
 
-- `--tab` — Tab ID (default: current focused tab)
+- `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
 #### `codeterm task`
 
@@ -3009,7 +3009,9 @@ Create a new workspace. With --cwd, reuses an existing workspace at that cwd
 
 #### `codeterm workspace current`
 
-Print this tab's workspace ID, or the focused workspace outside a tab
+Print this tab's workspace ID. Resolution order: --workspace, then $CODETERM_TAB_ID, then $CODETERM_WORKSPACE_ID, then the active workspace. Exits 1 with empty stdout when no identity resolves
+
+- `--workspace` — Workspace id to report, validated against the daemon's workspace list
 
 #### `codeterm workspace focus`
 
