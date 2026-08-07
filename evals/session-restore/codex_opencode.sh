@@ -70,7 +70,7 @@ done
 get_sid() {
   dc --json tab list 2>/dev/null | python3 -c "
 import sys,json
-tabs=json.load(sys.stdin)
+tabs=json.load(sys.stdin)['tabs']
 for p in tabs:
     if p.get('id','').startswith('$1'):
         print(p.get('agent_session_id','-'))
@@ -136,7 +136,7 @@ dc send "codex --help" --tab "$P_TYPED" >/dev/null 2>&1 || true
 sleep 2
 TYPED_AT=$(dc --json tab list 2>/dev/null | python3 -c "
 import sys,json
-tabs=json.load(sys.stdin)
+tabs=json.load(sys.stdin)['tabs']
 for p in tabs:
     if p.get('id','').startswith('$P_TYPED'):
         print(p.get('agent_type','-'))

@@ -36,7 +36,7 @@ wait_pty() {
     local pty
     pty="$(dc tab list --json | python3 -c 'import json,sys
 tab=sys.argv[1]
-for p in json.load(sys.stdin):
+for p in json.load(sys.stdin)["tabs"]:
     if p.get("id")==tab:
         print(p.get("pty_id") or "")
         break' "$tab")"
