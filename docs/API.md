@@ -14,8 +14,12 @@ Mesh commands use the same socket while the daemon owns signing and transport.
 Human `codeterm workspace list` shows authoritative tab counts, cwd, state,
 Teams, active Plans, and tabs in stable creation order. Inspect one tab with
 `codeterm tab inspect <id>`; whole-list JSON remains automation-only.
-`workspace current --json` returns `{ "id", "source" }`; without a caller tab or
-focus fallback, it prints nothing and succeeds.
+`workspace current --json` returns `{ "id", "source" }`, where `source` is
+`explicit`, `caller-tab`, `workspace-env`, or `focus-fallback`. Resolution is
+never positional: `--workspace`, then `$CODETERM_TAB_ID` joined through workspace
+membership, then a validated `$CODETERM_WORKSPACE_ID`, then the active workspace.
+When no rung resolves, stdout stays empty and the command exits 1 (`--json` puts
+the error envelope on stdout).
 
 ## REST API
 

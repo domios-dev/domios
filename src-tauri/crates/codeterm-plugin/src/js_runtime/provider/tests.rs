@@ -199,6 +199,45 @@ fn parse_session_messages_delegates_to_js() {
     assert_eq!(msgs[1].text, "world");
 }
 
+/// The session file is streamed to the plugin in line-aligned chunks instead of
+/// one `read_to_string`. A fixture larger than `SESSION_PARSE_CHUNK_BYTES` forces
+/// more than one QuickJS call; every line must still arrive exactly once, in
+/// order, and no line may be split across a chunk boundary.
+#[test]
+fn parse_session_messages_streams_multi_chunk_files_without_splitting_lines() {
+    let js = r#"
+            module.exports.default = {
+                parseSessionMessages(text) {
+                    return text.split('\n').filter(Boolean).map(l => ({
+                        role: 'user', text: l, isMeta: false
+                    }));
+                }
+            };
+        "#;
+    let p = load(MIN_MANIFEST, js);
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    // Each line is ~1 KiB, so 6000 lines clears the 4 MiB chunk budget twice.
+    let filler = "x".repeat(1000);
+    let mut body = String::new();
+    for i in 0..6000 {
+        body.push_str(&format!("line-{i}-{filler}\n"));
+    }
+    assert!(body.len() > 4 * 1024 * 1024, "fixture must span >1 chunk");
+    std::fs::write(tmp.path(), &body).unwrap();
+
+    let msgs = p.parse_session_messages(tmp.path());
+    assert_eq!(msgs.len(), 6000, "every line survives chunking exactly once");
+    assert_eq!(msgs[0].text, format!("line-0-{filler}"));
+    assert_eq!(msgs[5999].text, format!("line-5999-{filler}"));
+    for (i, m) in msgs.iter().enumerate() {
+        assert!(
+            m.text.starts_with(&format!("line-{i}-")),
+            "line {i} was reordered or split: {}",
+            &m.text[..m.text.len().min(24)]
+        );
+    }
+}
+
 #[test]
 fn extract_session_name_passes_through() {
     let js = r#"

@@ -174,7 +174,7 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
         },
         Commands::Workspace { action } => match action {
             crate::WorkspaceAction::List => ("GET".into(), "/api/workspaces".into(), None),
-            crate::WorkspaceAction::Current => unsupported(
+            crate::WorkspaceAction::Current { .. } => unsupported(
                 "workspace current is caller-local — use workspace list on the peer",
             ),
             crate::WorkspaceAction::Create { name, cwd } => {

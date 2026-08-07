@@ -12,7 +12,7 @@ use tauri::AppHandle;
 pub(super) fn plan_rpc_err(e: PlanError) -> JsonRpcError {
     let data = e.to_json();
     JsonRpcError {
-        code: -32603,
+        code: e.rpc_code(),
         message: e.to_string(),
         data: Some(data),
     }

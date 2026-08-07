@@ -21,7 +21,7 @@ pub(super) fn push_competition_findings(
         path: path.display().to_string(),
         task_id: Some(task_id),
         detail: "competitive task has only one live competition attempt".into(),
-        fix: "spawn grouped attempts through the plan.task.compete RPC/API route, or record the abandoned competitor".into(),
+        fix: "spawn grouped attempts through the plan.task.compete route, or record the abandoned competitor".into(),
     });
 }
 

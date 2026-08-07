@@ -4,7 +4,9 @@ CodeTerm ships skills that teach Claude Code how to control the terminal.
 
 ## Installation
 
-Copy skills to your Claude Code skills directory:
+CodeTerm installs the `codeterm` skill itself on every start — a manual copy is
+only for a checkout you are not running. See *Seeding, rendering and mirroring*
+below for what the app does.
 
 ```bash
 cp -r skills/codeterm ~/.claude/skills/
@@ -14,6 +16,45 @@ Or symlink:
 ```bash
 ln -s /path/to/codeterm/skills/codeterm ~/.claude/skills/codeterm
 ```
+
+## Seeding, rendering and mirroring
+
+`commands/skills.rs` owns three steps, all on startup:
+
+1. **Seed** — bundled `skills/<id>/` → the canonical dir
+   (`<data_dir>/skills/<id>/`), whole directory, `references/` included.
+2. **Render** — the `codeterm` skill declares placeholders filled from the
+   in-binary prompt constants, so the skill and the General Agent prompt share
+   one source instead of two drifting copies:
+
+   | Placeholder | Source constant | Prompt file |
+   |---|---|---|
+   | `{codeterm_cli}` | `CODETERM_CLI` | `src-tauri/prompts/codeterm_cli.md` |
+   | `{agent_pad_rule}` | `AGENT_PAD_RULE` | `src-tauri/prompts/agent_pad_rule.md` |
+
+   Adding a fragment to the skill means adding a placeholder plus a render-map
+   entry — never pasting the text into `SKILL.md`. Rendering happens on copy, so
+   the canonical and provider copies are post-render.
+3. **Mirror** — canonical `codeterm` → `~/.claude/skills/` and
+   `~/.agents/skills/`. Provider dirs hold exactly `{codeterm}`; every other
+   entry is pruned. All other skills stay canonical-only and are discovered
+   through `codeterm mem search`.
+
+**The install gate is content, directory-scoped and render-aware.** Both the seed
+and the mirror copy when the destination is missing or differs from the *rendered*
+source anywhere in the skill directory — an edited `references/` file counts, and a
+changed prompt constant reinstalls at the same revision. Comparing raw bundled
+bytes would be permanently unequal (source pre-render, destination post-render),
+which silently degrades the gate to always-true.
+
+`<!-- revision: N -->` at the bottom of `SKILL.md` is a **never-downgrade guard
+only**: a destination declaring a strictly newer revision is left alone. It is not
+the copy decision, so bumping it is not how you ship an edit — though you should
+still bump it when you change the file.
+
+Every agent's own pad rule (write payloads to the pad, pass `--from-pad`) reaches
+spawned agents through their launch prompt and reaches skill readers through
+`{agent_pad_rule}`; `docs/PROMPTS.md` maps all three carriers.
 
 ## Available Skills
 
@@ -73,8 +114,12 @@ working directories, empty/protected state, Teams and active Plan ids, then live
 tabs in stable creation order. Reserve `workspace list --json` for checked-in
 automation that specifically needs the workspace-only payload.
 `workspace current` prints a bare id for shell use. Its point-query `--json`
-form adds `source: caller-tab|focus-fallback` when automation must distinguish
-the caller's workspace from the globally active fallback.
+form adds `source: explicit|caller-tab|workspace-env|focus-fallback` when
+automation must distinguish the caller's own workspace from the globally active
+fallback. Resolution is never positional: `--workspace`, then `$CODETERM_TAB_ID`
+joined through workspace membership, then a validated `$CODETERM_WORKSPACE_ID`,
+then the active workspace. A caller with no identity at all gets an empty stdout
+and exit 1, so a script must not treat an empty result as success.
 
 ## Integrations
 
@@ -124,4 +169,4 @@ Dot-notation for nested keys. Values are JSON (true, false, 42, "string", ["arra
 
 Agent hierarchy and session integration: `codeterm docs AGENT-CONTROL`.
 
-<!-- revision: 46 -->
+<!-- revision: 47 -->

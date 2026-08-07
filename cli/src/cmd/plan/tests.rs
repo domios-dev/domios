@@ -497,3 +497,109 @@ fn render_plan_markdown_omits_empty_goal_and_task_quality_fields() {
     assert!(!rendered.contains("test plan:"));
     assert!(!rendered.contains("correctness:"));
 }
+
+/// `task.drop` calls `task.show` first, so the scripted response count decides
+/// which failure site the fixture reaches; the call list is what proves it.
+mod plan_rpc {
+    use crate::client::{RpcClient, RpcError, SocketCallError};
+    use crate::cmd::plan::{call_plan_rpc, call_plan_rpc_detailed};
+    use serde_json::{json, Value};
+    use std::collections::VecDeque;
+
+    struct Probe {
+        calls: Vec<String>,
+        responses: VecDeque<Result<Value, SocketCallError>>,
+    }
+
+    impl Probe {
+        fn scripted<const N: usize>(responses: [Result<Value, SocketCallError>; N]) -> Self {
+            Self {
+                calls: vec![],
+                responses: VecDeque::from(responses),
+            }
+        }
+    }
+
+    impl RpcClient for Probe {
+        fn call_detailed(
+            &mut self,
+            method: &str,
+            _params: Option<Value>,
+        ) -> Result<Value, SocketCallError> {
+            self.calls.push(method.to_string());
+            self.responses
+                .pop_front()
+                .expect("the probe scripts every call the core makes")
+        }
+    }
+
+    fn not_found() -> Result<Value, SocketCallError> {
+        Err(SocketCallError::Rpc(RpcError {
+            code: -32001,
+            message: "task not found".into(),
+            data: None,
+        }))
+    }
+
+    fn resolved_owner_epoch() -> Result<Value, SocketCallError> {
+        Ok(json!({ "task": { "interruption": { "owner_epoch": 7 } } }))
+    }
+
+    fn drop_params() -> Value {
+        json!({ "task_id": "task_1" })
+    }
+
+    #[test]
+    fn plan_rpc_pre_lookup_failure_carries_the_daemon_code() {
+        let mut client = Probe::scripted([not_found()]);
+
+        let error = call_plan_rpc_detailed(&mut client, "task.drop", drop_params())
+            .expect_err("the owner_epoch pre-lookup must fail");
+
+        assert_eq!(
+            client.calls,
+            ["task.show"],
+            "only the pre-lookup ran; the mutation site was never reached"
+        );
+        assert_eq!(error.code, Some(-32001));
+        assert!(!error.message.contains("-32"), "{}", error.message);
+    }
+
+    #[test]
+    fn plan_rpc_mutation_failure_carries_the_daemon_code() {
+        let mut client = Probe::scripted([resolved_owner_epoch(), not_found()]);
+
+        let error = call_plan_rpc_detailed(&mut client, "task.drop", drop_params())
+            .expect_err("the mutation must fail");
+
+        assert_eq!(
+            client.calls,
+            ["task.show", "task.drop"],
+            "the pre-lookup resolved, so this failure is the mutation site"
+        );
+        assert_eq!(error.code, Some(-32001));
+    }
+
+    #[test]
+    fn plan_rpc_string_facade_still_yields_the_rendered_message_alone() {
+        let mut client = Probe::scripted([not_found()]);
+
+        let message = call_plan_rpc(&mut client, "task.drop", drop_params())
+            .expect_err("the facade keeps returning a String");
+
+        assert_eq!(message, "task not found");
+    }
+
+    #[test]
+    fn plan_rpc_transport_failure_has_no_code_to_carry() {
+        let mut client =
+            Probe::scripted([Err(SocketCallError::Transport("socket is gone".into()))]);
+
+        let error = call_plan_rpc_detailed(&mut client, "plan.get", json!({ "plan_id": "pl_1" }))
+            .expect_err("transport failures still fail");
+
+        assert_eq!(client.calls, ["plan.get"]);
+        assert_eq!(error.code, None);
+        assert_eq!(error.message, "socket is gone");
+    }
+}

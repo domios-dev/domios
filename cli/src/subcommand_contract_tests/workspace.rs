@@ -131,7 +131,7 @@ fn workspace_current_resolution_reports_caller_source() {
 
     let resolved = cmd::local_io::workspace_current_resolution(
         workspaces.as_array().unwrap(),
-        Some("self_tab"),
+        cmd::local_io::WorkspaceIdentity::caller_tab(Some("self_tab")),
     )
     .unwrap();
 
@@ -146,8 +146,11 @@ fn workspace_current_resolution_reports_focus_fallback_source() {
         {"id":"focused","is_active":true,"tab_ids":[]}
     ]);
 
-    let resolved =
-        cmd::local_io::workspace_current_resolution(workspaces.as_array().unwrap(), None).unwrap();
+    let resolved = cmd::local_io::workspace_current_resolution(
+        workspaces.as_array().unwrap(),
+        cmd::local_io::WorkspaceIdentity::caller_tab(None),
+    )
+    .unwrap();
 
     assert_eq!(resolved.id, "focused");
     assert_eq!(resolved.source.as_str(), "focus-fallback");

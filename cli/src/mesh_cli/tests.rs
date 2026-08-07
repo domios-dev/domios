@@ -691,7 +691,7 @@ fn workspace_move_tab_over_mesh_uses_the_mutation_route() {
 #[test]
 fn workspace_current_over_mesh_refuses_instead_of_listing() {
     let command = Commands::Workspace {
-        action: crate::WorkspaceAction::Current,
+        action: crate::WorkspaceAction::Current { workspace: None },
     };
 
     let (method, reason, body) = cli_command_to_api(&command);
