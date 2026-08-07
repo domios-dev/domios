@@ -5177,6 +5177,30 @@
               "aliases": []
             },
             {
+              "name": "category",
+              "positional": false,
+              "required": false,
+              "value_name": "CATEGORY",
+              "possible_values": [
+                "milestone",
+                "blocker",
+                "failure"
+              ],
+              "default": null,
+              "help": "Opt-in push category. Omit for a local-only notification",
+              "aliases": []
+            },
+            {
+              "name": "event-key",
+              "positional": false,
+              "required": false,
+              "value_name": "EVENT_KEY",
+              "possible_values": [],
+              "default": null,
+              "help": "Stable identity for coalescing. Derived from the title when omitted",
+              "aliases": []
+            },
+            {
               "name": "level",
               "positional": false,
               "required": false,

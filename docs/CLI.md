@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 39 -->
+<!-- revision: 40 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -1184,6 +1184,8 @@ List notifications
 Send a notification
 
 - `--body` — Notification body
+- `--category` — Opt-in push category. Omit for a local-only notification
+- `--event-key` — Stable identity for coalescing. Derived from the title when omitted
 - `--level` — Notification level: info, warning, error
 - `<title>` — Notification title
 
