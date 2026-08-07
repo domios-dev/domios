@@ -228,8 +228,8 @@ mod error_contract_tests {
     use crate::args::inbox::InboxAction;
     use crate::args::task::{CanvasAction, TaskAction};
     use crate::client::{RpcClient, RpcError, SocketCallError};
-    use crate::cmd::print::{CliError, CLI_ERROR_EXIT_CODE};
-    use crate::cmd::task::{run_canvas, run_inbox, run_task, write_task_error, HUMAN_ERROR_PREFIX};
+    use crate::cmd::print::{write_cli_error, CliError, CLI_ERROR_EXIT_CODE};
+    use crate::cmd::task::{run_canvas, run_inbox, run_task};
     use serde_json::Value;
 
     /// Every JSON-RPC code the daemon uses starts with this; asserting its
@@ -275,14 +275,13 @@ mod error_contract_tests {
         }
     }
 
-    fn rendered(json: bool, message: &str) -> (String, String, i32) {
+    fn rendered(json: bool, message: &str) -> (String, String) {
         let mut out = Vec::new();
         let mut err = Vec::new();
-        let code = write_task_error(json, &CliError::new(message), &mut out, &mut err);
+        write_cli_error(json, &CliError::new(message), &mut out, &mut err);
         (
             String::from_utf8(out).expect("stdout is utf8"),
             String::from_utf8(err).expect("stderr is utf8"),
-            code,
         )
     }
 
@@ -302,15 +301,16 @@ mod error_contract_tests {
 
     #[test]
     fn human_failure_writes_nothing_to_stdout() {
-        let (out, err, _) = rendered(false, DAEMON_MESSAGE);
+        let (out, err) = rendered(false, DAEMON_MESSAGE);
 
         assert!(out.is_empty(), "stdout must stay parseable: {out}");
-        assert_eq!(err, format!("{HUMAN_ERROR_PREFIX}{DAEMON_MESSAGE}\n"));
+        assert_eq!(err.lines().count(), 1, "one failure is one line: {err}");
+        assert!(err.ends_with(&format!("{DAEMON_MESSAGE}\n")), "{err}");
     }
 
     #[test]
     fn json_failure_puts_a_structural_envelope_on_stdout() {
-        let (out, err, _) = rendered(true, DAEMON_MESSAGE);
+        let (out, err) = rendered(true, DAEMON_MESSAGE);
 
         assert!(err.is_empty(), "the envelope is the whole report: {err}");
         let envelope: serde_json::Value =
@@ -320,14 +320,16 @@ mod error_contract_tests {
         assert_eq!(envelope["error"], DAEMON_MESSAGE);
     }
 
+    /// Exit-code parity itself is owned by `print.rs`, whose `cli_error_exit_code`
+    /// is private; what this lane can still pin is that neither mode goes silent.
     #[test]
-    fn exit_code_is_non_zero_and_cannot_drift_between_modes() {
-        let (_, _, json_code) = rendered(true, DAEMON_MESSAGE);
-        let (_, _, human_code) = rendered(false, DAEMON_MESSAGE);
+    fn both_modes_report_on_exactly_one_stream_and_exit_non_zero() {
+        let (json_out, json_err) = rendered(true, DAEMON_MESSAGE);
+        let (human_out, human_err) = rendered(false, DAEMON_MESSAGE);
 
-        assert_eq!(json_code, human_code);
-        assert_ne!(json_code, 0);
-        assert_eq!(json_code, CLI_ERROR_EXIT_CODE);
+        assert!(!json_out.is_empty() && json_err.is_empty(), "{json_err}");
+        assert!(human_out.is_empty() && !human_err.is_empty(), "{human_out}");
+        assert_ne!(CLI_ERROR_EXIT_CODE, 0);
     }
 
     #[test]
@@ -339,7 +341,7 @@ mod error_contract_tests {
         assert!(message.contains(DAEMON_MESSAGE), "{message}");
         assert!(!message.contains(RPC_CODE_MARKER), "{message}");
 
-        let (out, err, _) = rendered(false, &message);
+        let (out, err) = rendered(false, &message);
         assert!(out.is_empty(), "{out}");
         assert!(!err.contains(RPC_CODE_MARKER), "{err}");
     }
@@ -364,7 +366,7 @@ mod error_contract_tests {
         .expect("task list surfaces the daemon rejection");
 
         assert_eq!(client.calls, ["task.list"]);
-        let (out, _, _) = rendered(false, &message);
+        let (out, _) = rendered(false, &message);
         assert!(out.is_empty(), "{out}");
     }
 
@@ -382,9 +384,8 @@ mod error_contract_tests {
         .expect("task take over mesh is rejected before any RPC");
 
         assert!(client.calls.is_empty(), "{:?}", client.calls);
-        let (out, err, code) = rendered(true, &message);
+        let (out, err) = rendered(true, &message);
         assert!(err.is_empty(), "{err}");
-        assert_eq!(code, CLI_ERROR_EXIT_CODE);
         let envelope: serde_json::Value = serde_json::from_str(&out).expect("one JSON envelope");
         assert_eq!(envelope["ok"], serde_json::Value::Bool(false));
         assert_eq!(envelope["code"], serde_json::Value::Null);
@@ -398,9 +399,10 @@ mod error_contract_tests {
             .expect("inbox add surfaces the daemon rejection");
 
         assert_eq!(client.calls, ["task.add"]);
-        let (out, err, _) = rendered(false, &message);
+        let (out, err) = rendered(false, &message);
         assert!(out.is_empty(), "{out}");
-        assert!(err.starts_with(HUMAN_ERROR_PREFIX), "{err}");
+        assert_eq!(err.lines().count(), 1, "{err}");
+        assert!(err.ends_with(&format!("{DAEMON_MESSAGE}\n")), "{err}");
     }
 
     #[test]
@@ -415,9 +417,9 @@ mod error_contract_tests {
             .expect("an unreadable --body-file is rejected locally");
 
         assert!(client.calls.is_empty(), "{:?}", client.calls);
-        let (out, _, code) = rendered(false, &message);
+        let (out, err) = rendered(false, &message);
         assert!(out.is_empty(), "{out}");
-        assert_eq!(code, CLI_ERROR_EXIT_CODE);
+        assert_eq!(err.lines().count(), 1, "{err}");
     }
 
     #[test]
@@ -435,7 +437,7 @@ mod error_contract_tests {
         .expect("canvas focus surfaces the daemon rejection");
 
         assert_eq!(client.calls, ["canvas.focus"]);
-        let (out, err, _) = rendered(true, &message);
+        let (out, err) = rendered(true, &message);
         assert!(err.is_empty(), "{err}");
         let envelope: serde_json::Value = serde_json::from_str(&out).expect("one JSON envelope");
         assert_eq!(envelope["ok"], serde_json::Value::Bool(false));
