@@ -279,3 +279,14 @@ fn rest_respawn_persists_spawned_attempt_title_and_session() {
     assert_eq!(attempt.executor_title.as_deref(), Some("Exact User Title"));
     assert_eq!(attempt.session_id.as_deref(), Some("rest-session"));
 }
+
+// The ack-deadline hint is offered to an Orchestrator as a runnable recovery
+// command, and `plan task respawn` refuses to parse without the source attempt.
+#[test]
+fn respawn_hint_carries_the_source_attempt_flag() {
+    let hint = respawn_spawn_command("pl_1", "task_2", "attempt_3");
+    assert!(
+        hint.contains(&format!("{RESPAWN_ATTEMPT_FLAG} attempt_3")),
+        "respawn hint omits the required attempt selector: {hint}"
+    );
+}

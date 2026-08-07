@@ -514,3 +514,40 @@ fn relay_asset_whitelist_is_ui_scoped() {
     assert!(!is_relay_asset_path("tabs/abc/ui/x"));
     assert!(!is_relay_asset_path("plugins/git/ui/../../../etc/passwd"));
 }
+
+mod notification_provenance {
+    use super::*;
+
+    #[test]
+    fn relayed_notification_cannot_claim_a_local_tab() {
+        let mut body = serde_json::json!({
+            "title": "Remote build finished",
+            "body": "artifacts ready",
+            "tab_id": "foreign-tab",
+            "workspace_id": "foreign-workspace",
+            "source_peer": "IMPERSONATED",
+        });
+
+        tag_relay_notification_source(&mut body, "POST", "/api/notifications", "BLACKSTAR");
+
+        assert!(body.get("tab_id").is_none());
+        assert!(body.get("workspace_id").is_none());
+        assert_eq!(body["source_peer"], "BLACKSTAR");
+        assert_eq!(body["title"], "Remote build finished");
+        assert_eq!(body["body"], "artifacts ready");
+    }
+
+    #[test]
+    fn only_notification_creation_is_rewritten() {
+        let claim = serde_json::json!({"tab_id": "local-tab", "title": "kept"});
+        for (method, path) in [
+            ("GET", "/api/notifications"),
+            ("POST", "/api/notifications/clear"),
+            ("POST", "/api/tabs/local-tab/send"),
+        ] {
+            let mut body = claim.clone();
+            tag_relay_notification_source(&mut body, method, path, "BLACKSTAR");
+            assert_eq!(body, claim, "{method} {path}");
+        }
+    }
+}

@@ -727,7 +727,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             handle_result(json, result);
         }
         AgentAction::Ack { tab, plan, task } => {
-            let tab_id = resolve_tab(client, tab);
+            let tab_id = super::local_io::resolve_caller_tab(tab, "agent ack");
             let plan_id = env_default(plan, "CODETERM_PLAN_ID");
             let task_id = env_default(task, "CODETERM_TASK_ID");
             let mut body = serde_json::json!({ "tab_id": tab_id });

@@ -34,7 +34,7 @@ pub(super) fn handles(method: &str) -> bool {
 
 fn plan_rpc_err(e: PlanError) -> JsonRpcError {
     JsonRpcError {
-        code: -32603,
+        code: e.rpc_code(),
         message: e.to_string(),
         data: Some(e.to_json()),
     }
