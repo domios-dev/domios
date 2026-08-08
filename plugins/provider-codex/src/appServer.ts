@@ -179,7 +179,9 @@ function keyMatchesManagedLabel(key: string, hooksPath: string, label: string): 
 
 function isCodetermManagedHookCommand(command: string | null): boolean {
   const c = String(command || "");
-  return c.indexOf("/hook/session_start") !== -1 || c.indexOf("codeterm-session-start.ps1") !== -1;
+  return c.indexOf("/hook/session_start") !== -1
+    || c.indexOf("/hook/stop") !== -1
+    || c.indexOf("codeterm-session-start.ps1") !== -1;
 }
 
 function managedListings(listings: HookListing[], hooksPath: string, labels: string[]): HookListing[] {

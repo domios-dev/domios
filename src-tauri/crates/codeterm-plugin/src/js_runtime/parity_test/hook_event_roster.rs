@@ -156,14 +156,21 @@ fn default_hook_event_roster_matches_bundled_manifests() {
     if require_plugins().is_none() {
         return;
     }
-    // JS-only hooked providers default to the SessionStart-only roster.
-    for id in ["codex", "opencode"] {
-        assert_eq!(
-            load_js(id).hook_event_roster(),
-            session_start_hook_roster(),
-            "{id}: default roster is the SessionStart binding event"
-        );
-    }
+    // codex declares SessionStart + Stop as manifest data (DN-3 stage 2).
+    assert_eq!(
+        load_js("codex").hook_event_roster(),
+        vec![
+            roster_binding("SessionStart", HookIngestionRoute::SessionStart),
+            roster_binding("Stop", HookIngestionRoute::Stop),
+        ],
+        "codex: declared roster is SessionStart + Stop"
+    );
+    // A JS-only hooked provider without a declaration defaults to SessionStart.
+    assert_eq!(
+        load_js("opencode").hook_event_roster(),
+        session_start_hook_roster(),
+        "opencode: default roster is the SessionStart binding event"
+    );
     // A hookless provider registers nothing.
     assert!(load_js("cursor").hook_event_roster().is_empty());
 

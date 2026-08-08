@@ -372,14 +372,17 @@ const plugin: PluginModule = {
   checkIntegration(): unknown {
     const path = codexHooksPath();
     if (!path || !host.fs.fileExists(path)) {
-      return { hooks_file_exists: false, hooks_installed: false, session_start_hook: false, hook_trust_state: "missing", hook_trust_enabled: null, target: path || "~/.codex/hooks.json", backup_exists: !!path && host.fs.fileExists(path + ".codeterm-backup"), proposed_changes: ["SessionStart hook", "hook trust"] };
+      return { hooks_file_exists: false, hooks_installed: false, session_start_hook: false, stop_hook: false, hook_trust_state: "missing", hook_trust_enabled: null, target: path || "~/.codex/hooks.json", backup_exists: !!path && host.fs.fileExists(path + ".codeterm-backup"), proposed_changes: ["SessionStart hook", "Stop hook", "hook trust"] };
     }
     const json = host.fs.readJson<CodexHooks>(path);
     if (!json) {
-      return { hooks_file_exists: true, hooks_installed: false, session_start_hook: false, hook_trust_state: "missing", hook_trust_enabled: null };
+      return { hooks_file_exists: true, hooks_installed: false, session_start_hook: false, stop_hook: false, hook_trust_state: "missing", hook_trust_enabled: null };
     }
     const arr = json.hooks && json.hooks.SessionStart;
+    const stopArr = json.hooks && json.hooks.Stop;
     const installed = Array.isArray(arr) && arr.some(isCodetermCodexHook);
+    const stopInstalled = Array.isArray(stopArr) && stopArr.some(isCodetermCodexHook)
+      && (host.platform() !== "windows" || stopArr.some(hasCodetermCodexWindowsCommand));
     const winScript = codexWindowsHookScriptPath();
     const winScriptText = winScript && host.fs.fileExists(winScript)
       ? String(host.fs.readFile(winScript) || "")
@@ -408,13 +411,14 @@ const plugin: PluginModule = {
     const trustOk = trustState !== "disabled";
     return {
       hooks_file_exists: true,
-      hooks_installed: current && trustOk,
+      hooks_installed: current && stopInstalled && trustOk,
       session_start_hook: current && trustOk,
+      stop_hook: stopInstalled && trustOk,
       hook_trust_state: trustState,
       hook_trust_enabled: trustState === "enabled" ? true : (trustState === "disabled" ? false : null),
       target: path,
       backup_exists: host.fs.fileExists(path + ".codeterm-backup"),
-      proposed_changes: ["SessionStart hook", "hook trust"],
+      proposed_changes: ["SessionStart hook", "Stop hook", "hook trust"],
     };
   },
 
@@ -451,6 +455,9 @@ const plugin: PluginModule = {
     }
     if (json.hooks?.SessionStart !== undefined && !Array.isArray(json.hooks.SessionStart)) {
       return { ok: false, error: "hooks.SessionStart is not an array" };
+    }
+    if (json.hooks?.Stop !== undefined && !Array.isArray(json.hooks.Stop)) {
+      return { ok: false, error: "hooks.Stop is not an array" };
     }
     const configPath = codexConfigPath();
     const configExisted = !!configPath && host.fs.fileExists(configPath);
@@ -505,38 +512,50 @@ const plugin: PluginModule = {
       return fail("could not write recoverable backup for " + scriptPath);
     }
     if (!json.hooks) json.hooks = {};
-    if (json.hooks.SessionStart !== undefined && !Array.isArray(json.hooks.SessionStart)) {
-      return { ok: false, error: "hooks.SessionStart is not an array" };
+    for (const event of ["SessionStart", "Stop"] as const) {
+      const existing = json.hooks[event];
+      if (existing !== undefined && !Array.isArray(existing)) {
+        return { ok: false, error: "hooks." + event + " is not an array" };
+      }
+      json.hooks[event] = (existing || []).filter((entry) => !isCodetermCodexHook(entry));
     }
-    if (!json.hooks.SessionStart) json.hooks.SessionStart = [];
-    json.hooks.SessionStart = json.hooks.SessionStart.filter((entry) => !isCodetermCodexHook(entry));
 
     const nullDev = host.platform() === "windows" ? "NUL" : "/dev/null";
     const port = apiPort | 0;
     const authH = '-H "Authorization: Bearer ${CODETERM_API_TOKEN}"';
     const nonceH = '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}"';
     const guard = 'if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ]; then ';
-    const cmd = guard + 'curl -s -X POST "$CODETERM_API_URL'
-      + "/api/tabs/$CODETERM_TAB_ID/hook/session_start\" "
+    const hookCmd = (route: string) => guard + 'curl -s -X POST "$CODETERM_API_URL'
+      + "/api/tabs/$CODETERM_TAB_ID/hook/" + route + '" '
       + "-H 'Content-Type: application/json' "
       + "-H 'X-CodeTerm-Agent-Provider: codex' "
       + nonceH + " "
       + authH
       + " --data-binary @- > " + nullDev + " 2>&1 || true; fi";
-    const commandWindows = scriptPath
-      ? 'powershell -NoProfile -ExecutionPolicy Bypass -File "' + scriptPath + '"'
-      : cmd;
+    // One shared Windows script posting the event name — never one script per event.
+    const winCmd = (route: string) => scriptPath
+      ? 'powershell -NoProfile -ExecutionPolicy Bypass -File "' + scriptPath + '" -HookEvent ' + route
+      : hookCmd(route);
 
     if (scriptPath && !host.fs.writeFile(scriptPath, codexWindowsHookScript(port))) {
       return fail("writeFile failed for " + scriptPath);
     }
 
-    json.hooks.SessionStart.push({
+    json.hooks.SessionStart!.push({
       matcher: "startup|resume|clear|compact",
       hooks: [{
         type: "command",
-        command: cmd,
-        commandWindows: commandWindows,
+        command: hookCmd("session_start"),
+        commandWindows: winCmd("session_start"),
+        timeout: 5,
+        _source: CODETERM_CODEX_HOOK_MARKER,
+      }],
+    });
+    json.hooks.Stop!.push({
+      hooks: [{
+        type: "command",
+        command: hookCmd("stop"),
+        commandWindows: winCmd("stop"),
         timeout: 5,
         _source: CODETERM_CODEX_HOOK_MARKER,
       }],
@@ -551,7 +570,7 @@ const plugin: PluginModule = {
           return fail("could not record owned Codex hook trust expansion");
         }
       }
-      host.log("info", "[codex-plugin] SessionStart hook installed at " + path);
+      host.log("info", "[codex-plugin] SessionStart + Stop hooks installed at " + path);
       return { ok: true, hook_trust_state: trust.state };
     }
     return fail("writeJson failed for " + path);
@@ -584,6 +603,9 @@ const plugin: PluginModule = {
       }
       if (Array.isArray(json.hooks.SessionStart)) {
         json.hooks.SessionStart = json.hooks.SessionStart.filter((entry) => !isCodetermCodexHook(entry));
+      }
+      if (Array.isArray(json.hooks.Stop)) {
+        json.hooks.Stop = json.hooks.Stop.filter((entry) => !isCodetermCodexHook(entry));
       }
       hooksOk = host.fs.writeJson(path, json);
     }
@@ -815,7 +837,7 @@ function nestedApplyPatch(raw: string): string | null {
   }
 }
 interface CodexHookEntry { matcher?: string; hooks?: CodexHookCmd[] }
-interface CodexHooks { hooks?: { SessionStart?: CodexHookEntry[] } }
+interface CodexHooks { hooks?: { SessionStart?: CodexHookEntry[]; Stop?: CodexHookEntry[] } }
 
 function canonicalToolFields(name: string, input: Record<string, unknown>): Record<string, unknown> {
   const raw = typeof input.raw === "string" ? input.raw : "";
@@ -900,6 +922,7 @@ function codexWindowsHookScript(_apiPort: number): string {
   return [
     "# " + CODETERM_CODEX_HOOK_MARKER,
     "# " + CODETERM_CODEX_PROFILE_CLEANUP_MARKER,
+    'param([string]$HookEvent = "session_start")',
     '$ErrorActionPreference = "SilentlyContinue"',
     "$tab = $env:CODETERM_TAB_ID",
     "if ([string]::IsNullOrWhiteSpace($tab) -or [string]::IsNullOrWhiteSpace($env:CODETERM_API_URL) -or [string]::IsNullOrWhiteSpace($env:CODETERM_API_TOKEN)) { exit 0 }",
@@ -913,10 +936,12 @@ function codexWindowsHookScript(_apiPort: number): string {
     "}",
     '$headers["Authorization"] = "Bearer $($env:CODETERM_API_TOKEN)"',
     "$body = [Console]::In.ReadToEnd()",
-    'Invoke-RestMethod -Method Post -Uri "$base/api/tabs/$tab/hook/session_start" -Headers $headers -Body $body -TimeoutSec 5 | Out-Null',
-    "$profileSuffix = $tab -replace '[^A-Za-z0-9_-]', '-'",
-    '$profilePath = Join-Path $env:USERPROFILE (".codex\\codeterm-$profileSuffix.config.toml")',
-    "Remove-Item -LiteralPath $profilePath -Force -ErrorAction SilentlyContinue",
+    'Invoke-RestMethod -Method Post -Uri "$base/api/tabs/$tab/hook/$HookEvent" -Headers $headers -Body $body -TimeoutSec 5 | Out-Null',
+    'if ($HookEvent -eq "session_start") {',
+    "  $profileSuffix = $tab -replace '[^A-Za-z0-9_-]', '-'",
+    '  $profilePath = Join-Path $env:USERPROFILE (".codex\\codeterm-$profileSuffix.config.toml")',
+    "  Remove-Item -LiteralPath $profilePath -Force -ErrorAction SilentlyContinue",
+    "}",
     "exit 0",
     "",
   ].join("\n");
@@ -931,7 +956,7 @@ function isCodetermCodexHook(entry: CodexHookEntry): boolean {
     if (hook._source === CODETERM_CODEX_HOOK_MARKER) return true;
     const cmd = String(hook.command || "");
     if (
-      cmd.indexOf("/hook/session_start") !== -1 &&
+      (cmd.indexOf("/hook/session_start") !== -1 || cmd.indexOf("/hook/stop") !== -1) &&
       cmd.indexOf("X-CodeTerm-Agent-Provider: codex") !== -1
     ) {
       return true;
