@@ -19,11 +19,19 @@ use serde::{Deserialize, Serialize};
 
 pub use capabilities::{Capabilities, ChatBackendCap, ChatPreprocessorCap};
 pub use config::{
+<<<<<<< HEAD
     resolve_hook_event_roster, CommandsConfig, CwdEncoding, IntegrationConfig, IntegrationKind,
     NetworkPermission, PermissionsConfig, RuleConfig, SerdeBusySubmit, SerdeHookEventBinding,
     SerdeModelInfo, SerdeProviderReadinessStrategy, SerdeReadinessStrategy,
     SerdeReasoningEffortInfo, SerdeSessionIdInjection, SerdeSystemPromptDelivery, SerdeTaskDelivery,
     SerdeVerifySubmit, SessionsConfig, SkillsConfig, SpawnConfig, SubprocessPermission, UsageConfig,
+=======
+    CommandsConfig, CwdEncoding, IntegrationConfig, IntegrationKind, NetworkPermission,
+    PermissionsConfig, RuleConfig, SerdeBusySubmit, SerdeModelInfo, SerdeProviderReadinessStrategy,
+    SerdeReadinessStrategy, SerdeReasoningEffortInfo, SerdeSessionIdInjection,
+    SerdeSystemPromptDelivery, SerdeTaskDelivery, SerdeVerifySubmit, SessionsConfig, SkillsConfig,
+    SpawnConfig, SubprocessPermission, TrustGrantConfig, UsageConfig,
+>>>>>>> lane/110-s2-trust-grant
 };
 pub use methods::manifest_settings_sections;
 

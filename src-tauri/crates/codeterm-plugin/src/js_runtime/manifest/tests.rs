@@ -99,6 +99,60 @@ fn parse_full_manifest() {
 }
 
 #[test]
+fn integration_trust_grant_manifest_mapping() {
+    let json = r#"{
+            "id": "demo",
+            "version": "0.1.0",
+            "displayName": "Demo CLI",
+            "spawn": {
+                "readinessStrategy": { "kind": "fixed_delay", "durationMs": 0 },
+                "taskDelivery": "pty_input",
+                "verifySubmit": { "kind": "none" }
+            },
+            "integration": {
+                "kind": "provider_managed",
+                "settingsPath": "~/.demo/hooks.json",
+                "trust_grant": { "managedKeys": ["session_start"] }
+            }
+        }"#;
+    let m: PluginManifest = serde_json::from_str(json).expect("parse");
+    let grant = m
+        .integration
+        .as_ref()
+        .and_then(|integration| integration.trust_grant.as_ref())
+        .expect("trust_grant declaration must map");
+    assert_eq!(grant.managed_keys, vec!["session_start".to_string()]);
+
+    let camel = json.replace("trust_grant", "trustGrant");
+    let m: PluginManifest = serde_json::from_str(&camel).expect("parse camelCase alias");
+    assert!(m
+        .integration
+        .expect("integration")
+        .trust_grant
+        .is_some_and(|grant| grant.managed_keys == vec!["session_start".to_string()]));
+}
+
+#[test]
+fn integration_trust_grant_absent_by_default() {
+    let json = r#"{
+            "id": "demo",
+            "version": "0.1.0",
+            "displayName": "Demo CLI",
+            "spawn": {
+                "readinessStrategy": { "kind": "fixed_delay", "durationMs": 0 },
+                "taskDelivery": "pty_input",
+                "verifySubmit": { "kind": "none" }
+            },
+            "integration": {
+                "kind": "provider_managed",
+                "settingsPath": "~/.demo/hooks.json"
+            }
+        }"#;
+    let m: PluginManifest = serde_json::from_str(json).expect("parse");
+    assert!(m.integration.expect("integration").trust_grant.is_none());
+}
+
+#[test]
 fn retired_task_input_delay_is_rejected() {
     let retired_field = ["taskInput", "W", "armup", "Ms"].concat();
     let mut manifest = serde_json::json!({

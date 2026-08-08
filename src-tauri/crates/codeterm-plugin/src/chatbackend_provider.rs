@@ -167,6 +167,7 @@ pub trait ChatBackendProvider: Send + Sync {
             fresh_context_command: None,
             compact_command: None,
             self_update: None,
+            integration_trust_grant: None,
             supports_stop: false,
             supports_chat_ui: true,
             supports_structured_prompts: false,

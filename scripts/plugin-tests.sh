@@ -15,6 +15,7 @@ case "${1:-all}" in
       plugins/provider-claude/tests/plugin.test.ts
       plugins/provider-claude/tests/classify-tab-state.test.ts
       plugins/provider-codex/tests/plugin.test.ts
+      plugins/provider-codex/tests/trust-grant.test.ts
       plugins/provider-codex/tests/provider-helper-parity.test.ts
       plugins/provider-codex/tests/classify-tab-state.test.ts
       plugins/provider-opencode/tests/plugin.test.ts
@@ -43,6 +44,7 @@ case "${1:-all}" in
   provider-codex)
     tests=(
       plugins/provider-codex/tests/plugin.test.ts
+      plugins/provider-codex/tests/trust-grant.test.ts
       plugins/provider-codex/tests/provider-helper-parity.test.ts
       plugins/provider-codex/tests/classify-tab-state.test.ts
     )

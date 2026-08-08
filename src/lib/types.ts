@@ -840,6 +840,10 @@ export interface ProviderDescriptor {
     restartRequired: boolean;
     completionSignal?: "provider_classification" | null;
   } | null;
+  /// Optional `integration.trust_grant` capability: core invokes the
+  /// provider-owned hook-trust grant once per integration install, scoped to
+  /// these managed key(s). Informational on the wire.
+  integration_trust_grant?: { managedKeys: string[] } | null;
 }
 
 /** Input for `createOrchestrationPair` — camelCase for ergonomic call sites;
