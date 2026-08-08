@@ -130,7 +130,7 @@ that calls the corresponding `plugin.js` export. The exports a plugin provides:
 | `secretBackend`| `secretStatus`, `secretUnlock`, `secretGet`, `secretSet`, … | provider-specific |
 | `transcriber`  | `transcribe(path, lang?)` | `{ text }` or `{ error }` |
 | `chatBackend`  | `openSession(ctx)`, `sendMessage`, `pump?`, `poll`, `closeSession`, `listModels?`, `listPresets?` | an **open agent shell** — see below |
-| `agentProvider`| `detectFromTitle`, `parseSessionDelta`, `buildLaunchCommand`, `checkIntegration`, `installIntegration`, … | see `plugins/provider-*/src/plugin.ts` |
+| `agentProvider`| `detectFromTitle`, `parseSessionDelta`, `buildLaunchCommand`, `checkIntegration`, `installIntegration`, … | full manifest schema + export/fallback tables: [contributing/providers.md](contributing/providers.md) |
 
 `ctx` for bubble/glance carries the Tab's `cwd`. `action: "openTabl:view:<id>"` opens
 the plugin's own iframe view; `"openTabl:<name>"` opens a built-in tabl.
@@ -559,8 +559,10 @@ file/multipart capability — there is no long-lived-daemon host API to lean on.
 
 - `npx tsx plugins/<id>/plugin.test.cjs` — pure parser/logic tests (mock `host`).
 - `bash scripts/plugin-tests.sh` — aggregate runner for all plugin suites.
-- `src-tauri/src/plugin/js_runtime/parity_test.rs` — for any `AgentProvider` method a JS
-  drop-in implements, asserts the native and JS paths agree on shared fixtures.
+- `src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test.rs` — for any `AgentProvider`
+  method a JS drop-in implements, asserts the native and JS paths agree on shared fixtures
+  (bundled drop-ins only — what JS-only authors owe instead is in
+  [contributing/providers.md](contributing/providers.md)).
 - Live: `curl --noproxy '*' -H "Authorization: Bearer <token>" \
   http://127.0.0.1:7686/api/plugins/snapshot` lists plugins + capabilities + load errors;
   `POST /api/plugins/{bubble,glance,view-call}` exercises the capabilities.
@@ -649,4 +651,4 @@ share these consent, backup, merge, uninstall, and restore semantics.
      release the app first/together** (see "App + plugin ship together"). Test
      path: install the new app, then `codeterm plugin install <id>`.
 
-<!-- revision: 17 -->
+<!-- revision: 18 -->
