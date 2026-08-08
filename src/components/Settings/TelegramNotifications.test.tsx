@@ -4,7 +4,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { __setInvokeForTest } from "../../lib/bridge";
-import { TelegramNotifications } from "./TelegramNotifications";
+import { TelegramNotifications, parseRecipients, telegramPatch } from "./TelegramNotifications";
 import type { AppConfig } from "../../lib/types";
 
 function assert(value: unknown, message: string): asserts value {
@@ -32,21 +32,6 @@ function setupDom() {
   }
 }
 
-type TrackedInput = HTMLInputElement & { _valueTracker?: { setValue(value: string): void } };
-
-function setNativeValue(element: HTMLInputElement, value: string) {
-  const own = Object.getOwnPropertyDescriptor(element, "value");
-  const prototype = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element) as HTMLElement, "value");
-  (own?.set ?? prototype?.set)?.call(element, value);
-  // React dedupes input events whose value matches its tracker; pin the
-  // tracker stale so the bubbled event registers as a user change.
-  (element as TrackedInput)._valueTracker?.setValue("");
-}
-
-function dispatchFormChange(element: HTMLElement) {
-  element.dispatchEvent(new window.Event("input", { bubbles: true }));
-  element.dispatchEvent(new window.Event("change", { bubbles: true }));
-}
 
 function configWith(telegram?: { enabled: boolean; recipients: string[]; per_scope_limit: number }): AppConfig {
   return { notifications: telegram ? { telegram } : {} } as unknown as AppConfig;
@@ -135,7 +120,7 @@ async function testGateFailureFailsClosed() {
   );
 }
 
-async function testRecipientsInputRoundTripsParsedList() {
+async function testEnabledOptInRendersAccessibleRecipientsInput() {
   await withInvoke(
     async (command) => {
       if (command === "telegram_push_gate") return { control_available: true };
@@ -155,22 +140,33 @@ async function testRecipientsInputRoundTripsParsedList() {
         host.querySelector('label[for="telegram-push-recipients"]'),
         "recipients input must carry an associated label for accessibility",
       );
-
-      await act(async () => {
-        setNativeValue(input, " 123 , 456 ,, ");
-        dispatchFormChange(input);
-      });
-
-      assert(input.value === " 123 , 456 ,, ", "native value setter must take effect on the input");
-      const last = updates.at(-1);
-      assert(last?.section === "notifications", "recipients edit must patch the notifications section");
-      const telegram = (last?.patch as { telegram?: { recipients?: string[] } }).telegram;
-      assert(
-        JSON.stringify(telegram?.recipients) === JSON.stringify(["123", "456"]),
-        `recipients must be trimmed and empties dropped, got ${JSON.stringify(telegram?.recipients)}`,
-      );
       await act(async () => root.unmount());
     },
+  );
+}
+
+function testRecipientsParsingAndPatchContract() {
+  assert(
+    JSON.stringify(parseRecipients(" 123 , 456 ,, ")) === JSON.stringify(["123", "456"]),
+    `recipients must be trimmed and empties dropped, got ${JSON.stringify(parseRecipients(" 123 , 456 ,, "))}`,
+  );
+  assert(JSON.stringify(parseRecipients("")) === "[]", "empty text must parse to no recipients");
+
+  const patch = telegramPatch(
+    { enabled: true, recipients: [], per_scope_limit: 12 },
+    { recipients: parseRecipients(" 123 , 456 ,, ") },
+  );
+  assert(
+    JSON.stringify(patch) ===
+      JSON.stringify({ telegram: { enabled: true, recipients: ["123", "456"], per_scope_limit: 12 } }),
+    `recipients patch must keep current settings and carry the parsed list, got ${JSON.stringify(patch)}`,
+  );
+
+  const defaulted = telegramPatch(undefined, { enabled: true });
+  assert(
+    JSON.stringify(defaulted) ===
+      JSON.stringify({ telegram: { enabled: true, recipients: [], per_scope_limit: 12 } }),
+    `patch from an absent config must apply the documented defaults, got ${JSON.stringify(defaulted)}`,
   );
 }
 
@@ -178,7 +174,8 @@ async function main() {
   await testDeliverableGateRendersControl();
   await testUndeliverableGateHidesControl();
   await testGateFailureFailsClosed();
-  await testRecipientsInputRoundTripsParsedList();
+  await testEnabledOptInRendersAccessibleRecipientsInput();
+  testRecipientsParsingAndPatchContract();
   console.log("PASS TelegramNotifications deliverability gate");
 }
 

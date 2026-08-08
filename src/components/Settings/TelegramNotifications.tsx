@@ -1,7 +1,28 @@
 import { useEffect, useState } from "react";
 import { invoke } from "../../lib/bridge";
-import type { AppConfig } from "../../lib/types";
+import type { AppConfig, TelegramNotifyConfig } from "../../lib/types";
 import { Toggle } from "./shared";
+
+export function parseRecipients(text: string): string[] {
+  return text
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+export function telegramPatch(
+  current: TelegramNotifyConfig | undefined,
+  next: Partial<TelegramNotifyConfig>,
+): { telegram: TelegramNotifyConfig } {
+  return {
+    telegram: {
+      enabled: current?.enabled ?? false,
+      recipients: current?.recipients ?? [],
+      per_scope_limit: current?.per_scope_limit ?? 12,
+      ...next,
+    },
+  };
+}
 
 /**
  * Opt-in Telegram push for agent notifications.
@@ -38,15 +59,8 @@ export function TelegramNotifications({
 
   if (!controlAvailable) return null;
 
-  const patch = (next: Partial<NonNullable<typeof telegram>>) =>
-    onUpdate("notifications", {
-      telegram: {
-        enabled: telegram?.enabled ?? false,
-        recipients: telegram?.recipients ?? [],
-        per_scope_limit: telegram?.per_scope_limit ?? 12,
-        ...next,
-      },
-    });
+  const patch = (next: Partial<TelegramNotifyConfig>) =>
+    onUpdate("notifications", telegramPatch(telegram, next));
 
   return (
     <div className="flex flex-col gap-2" data-testid="settings-telegram-notifications">
@@ -71,12 +85,7 @@ export function TelegramNotifications({
               value={recipientsText}
               onChange={(event) => {
                 setRecipientsText(event.target.value);
-                patch({
-                  recipients: event.target.value
-                    .split(",")
-                    .map((entry) => entry.trim())
-                    .filter(Boolean),
-                });
+                patch({ recipients: parseRecipients(event.target.value) });
               }}
               placeholder="e.g. 123456789"
               className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none font-mono"
