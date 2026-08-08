@@ -4,6 +4,8 @@ export const WEB_UNSUPPORTED: Record<string, string> = {
     "Native crash recovery state is sourced from the desktop supervisor",
   get_tab_history_raw:
     "Native xterm scrollback replay on remount; web uses read_pty tail instead",
+  load_scrollback_tail:
+    "Daemon-restart sidecar replay is a native desktop restore; web tabs replay via read_pty/stream tails",
   materialize_dropped_files:
     "Native Tauri webview file-drop paths must be materialized on the host",
   read_clipboard_files:
