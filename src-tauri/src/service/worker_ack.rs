@@ -244,6 +244,7 @@ impl ServiceContext {
         task_id: &str,
         attempt_id: &str,
         spawn_command: String,
+        startup_allowance: Duration,
     ) {
         let acknowledged = self.plan_store.get(plan_id).is_some_and(|plan| {
             plan.tasks
@@ -265,7 +266,9 @@ impl ServiceContext {
         let task_id = task_id.to_string();
         let attempt_id = attempt_id.to_string();
         std::thread::spawn(move || {
-            match receiver.recv_timeout(WORKER_ACK_TIMEOUT) {
+            // A queued lane setup command runs before the agent boots; the
+            // first ack deadline stretches by that bound, never the final one.
+            match receiver.recv_timeout(WORKER_ACK_TIMEOUT + startup_allowance) {
                 Ok(WorkerAckSignal::Acknowledged) | Ok(WorkerAckSignal::Superseded) => return,
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
@@ -416,6 +419,7 @@ impl ServiceContext {
             task_id,
             &attempt.id,
             spawn_command,
+            Duration::ZERO,
         );
         Ok(true)
     }

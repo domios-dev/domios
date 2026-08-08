@@ -5,6 +5,10 @@ use super::orchestrator::SpawnAgentParams;
 use super::ServiceContext;
 use crate::process_util;
 
+#[path = "worker_lane_bootstrap.rs"]
+mod bootstrap;
+pub(crate) use bootstrap::{compose_launch_with_setup, LaneBootstrap};
+
 fn is_worker_spawn(role: Option<&str>, _role_profile: Option<&str>) -> bool {
     role == Some("Worker")
 }
@@ -83,6 +87,7 @@ pub(crate) struct ProvisionedWorkerLane {
     pub(crate) cwd: String,
     branch: String,
     base: String,
+    pub(crate) bootstrap: LaneBootstrap,
 }
 
 impl ProvisionedWorkerLane {
@@ -140,6 +145,7 @@ impl ServiceContext {
         let lane = provision_lane(&cwd, lane_label)?;
         params.cwd = Some(lane.cwd.clone());
         params.provisioned_cwd = Some(lane.cwd.clone());
+        params.lane_setup_command = lane.bootstrap.setup_command.clone();
         Ok(Some(lane))
     }
 
@@ -227,11 +233,13 @@ fn provision_lane(project_cwd: &str, lane_label: &str) -> Result<ProvisionedWork
         let _ = run_git(&project_cwd, ["branch", "-D", &branch]);
         return Err(error);
     }
+    let lane_bootstrap = bootstrap::bootstrap_lane(&project_cwd, &lane_cwd);
     Ok(ProvisionedWorkerLane {
         canonical_cwd: project_cwd,
         cwd: lane_cwd,
         branch,
         base,
+        bootstrap: lane_bootstrap,
     })
 }
 
