@@ -87,7 +87,12 @@
   },
   "integration": {
     "kind": "provider_managed",
-    "settingsPath": "~/.codex/hooks.json"
+    "settingsPath": "~/.codex/hooks.json",
+    "trust_grant": {
+      "managedKeys": [
+        "session_start"
+      ]
+    }
   },
   "commands": {
     "compact": "/compact",
@@ -111,6 +116,11 @@
     "network": {
       "allow": [
         "chatgpt.com"
+      ]
+    },
+    "subprocess": {
+      "allow": [
+        "codex"
       ]
     }
   }

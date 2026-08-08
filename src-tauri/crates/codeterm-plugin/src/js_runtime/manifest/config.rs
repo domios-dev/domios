@@ -293,6 +293,17 @@ pub struct IntegrationConfig {
     pub kind: IntegrationKind,
     /// Where the integration is stored (e.g. `~/.claude/settings.json`).
     pub settings_path: String,
+    /// Optional `integration.trust_grant` capability declaration: managed hook
+    /// key(s) core passes to the plugin's `grantIntegrationTrust` per install.
+    #[serde(default, rename = "trust_grant", alias = "trustGrant")]
+    pub trust_grant: Option<TrustGrantConfig>,
+}
+
+/// Manifest mirror of `crate::provider::IntegrationTrustGrantCapability`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct TrustGrantConfig {
+    pub managed_keys: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
