@@ -3,18 +3,12 @@ import { flushSync } from "react-dom";
 import { createPortal } from "react-dom";
 import { listen } from "../../lib/bridge";
 import { resetWebEvents } from "../../lib/webEvents";
-import {
-  formatLastActiveBadge,
-  pickResumePeer,
-  rankPeersByLastActive,
-} from "../../lib/peerRanking";
+import { formatLastActiveBadge, rankPeersByLastActive } from "../../lib/peerRanking";
 import {
   clearRelayTarget,
-  dismissResumePrompt,
   localJson,
   relayPeerUsable,
   relayTarget,
-  resumePromptDismissed,
   setRelayTarget,
   selfHost,
   invalidateWebRequestContext,
@@ -40,8 +34,6 @@ interface PairedPeer {
 interface MeshPeers {
   paired: PairedPeer[];
   local_instance_name: string;
-  local_last_active_ms?: number | null;
-  local_dev?: boolean;
 }
 
 /**
@@ -55,7 +47,6 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
   const [peers, setPeers] = useState<PairedPeer[]>([]);
   const [localName, setLocalName] = useState("CodeTerm");
   const [open, setOpen] = useState(false);
-  const [resumePeer, setResumePeer] = useState<PairedPeer | null>(null);
   const [displayTarget, setDisplayTarget] = useState(relayTarget);
   const [switchingTo, setSwitchingTo] = useState<string | null>(null);
   const [switchFailed, setSwitchFailed] = useState(false);
@@ -69,12 +60,6 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
       const paired = res.paired ?? [];
       setLocalName(res.local_instance_name);
       setPeers(rankPeersByLastActive(paired));
-      setResumePeer(
-        pickResumePeer(paired.filter(relayPeerUsable), res.local_last_active_ms ?? null, !!res.local_dev, {
-          hasRelayTarget: !!relayTarget(),
-          dismissedThisSession: resumePromptDismissed(),
-        }),
-      );
     } catch {
       // Peer list is a convenience — keep the last known list on errors.
     }
@@ -165,52 +150,14 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
       }
       invalidateWebRequestContext();
       setOpen(false);
-      setResumePeer(null);
       resetWebEvents();
       window.dispatchEvent(new CustomEvent("codeterm-peer-switch-rebind", { detail: { switchId } }));
     },
     [localName],
   );
 
-  const stayHere = useCallback(() => {
-    dismissResumePrompt();
-    setResumePeer(null);
-  }, []);
-
   return (
     <div ref={rootRef} className="relative" data-testid="peer-picker">
-      {resumePeer && (
-        <div
-          data-testid="resume-prompt"
-          className="absolute left-0 top-full mt-1 z-50 min-w-[260px] rounded border border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)] shadow-lg p-3 text-xs text-[var(--ct-fg)]"
-        >
-          <div className="mb-2">
-            You were last active on{" "}
-            <span className="font-medium">{resumePeer.instance_name}</span>
-            {formatLastActiveBadge(resumePeer.last_active_ms)
-              ? ` (${formatLastActiveBadge(resumePeer.last_active_ms)})`
-              : ""}
-          </div>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              data-testid="resume-prompt-accept"
-              className="flex-1 min-h-[36px] rounded bg-[var(--ct-accent,#58a6ff)] text-white hover:opacity-90"
-              onClick={() => switchTo(resumePeer)}
-            >
-              Resume
-            </button>
-            <button
-              type="button"
-              data-testid="resume-prompt-dismiss"
-              className="flex-1 min-h-[36px] rounded border border-[var(--ct-border)] hover:bg-[var(--ct-hover)]"
-              onClick={stayHere}
-            >
-              Stay here
-            </button>
-          </div>
-        </div>
-      )}
       <button
         type="button"
         data-testid="peer-picker-button"
