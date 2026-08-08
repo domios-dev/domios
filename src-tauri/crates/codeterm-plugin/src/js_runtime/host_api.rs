@@ -53,6 +53,9 @@ pub(super) struct PluginSandbox {
     unrestricted: bool,
     read_roots: Vec<PathBuf>,
     write_roots: Vec<PathBuf>,
+    /// Read-roots granted at runtime for tab cwds the HOST hands the plugin
+    /// (bubble/glance ctx). Never fed from plugin-authored values (view args).
+    granted_read_roots: parking_lot::Mutex<Vec<PathBuf>>,
     /// Plugin id — namespaces the per-plugin secret bucket, so `host.secret*` is isolated.
     plugin_id: String,
     /// `host.exec` binary allowlist (host_api v2). Empty unless declared.
@@ -81,6 +84,7 @@ impl PluginSandbox {
             unrestricted: true,
             read_roots: Vec::new(),
             write_roots: Vec::new(),
+            granted_read_roots: parking_lot::Mutex::new(Vec::new()),
             plugin_id: String::new(),
             exec_allow: Vec::new(),
             net_allow: Vec::new(),
@@ -98,6 +102,7 @@ impl PluginSandbox {
             unrestricted: false,
             read_roots,
             write_roots,
+            granted_read_roots: parking_lot::Mutex::new(Vec::new()),
             plugin_id: String::new(),
             exec_allow: Vec::new(),
             net_allow: Vec::new(),
@@ -220,8 +225,33 @@ impl PluginSandbox {
         })
     }
 
+    /// Oldest grant is evicted past this; a tab rarely visits this many cwds.
+    const MAX_GRANTED_CWD_ROOTS: usize = 32;
+
+    /// Record a host-supplied tab cwd so reads under it pass `can_read`.
+    /// Callers must only pass paths the host itself assembled (bubble/glance
+    /// ctx) — never plugin-authored values, or the sandbox self-widens.
+    pub(super) fn grant_cwd_read_root(&self, cwd: &str) {
+        if self.unrestricted || !Path::new(cwd).is_absolute() {
+            return;
+        }
+        let path = PathBuf::from(cwd);
+        let mut roots = self.granted_read_roots.lock();
+        if let Some(pos) = roots.iter().position(|p| p == &path) {
+            let refreshed = roots.remove(pos);
+            roots.push(refreshed);
+            return;
+        }
+        roots.push(path);
+        if roots.len() > Self::MAX_GRANTED_CWD_ROOTS {
+            roots.remove(0);
+        }
+    }
+
     fn can_read(&self, path: &str) -> bool {
-        self.unrestricted || Self::path_under(&self.read_roots, path)
+        self.unrestricted
+            || Self::path_under(&self.read_roots, path)
+            || Self::path_under(&self.granted_read_roots.lock(), path)
     }
 
     fn can_write(&self, path: &str) -> bool {
@@ -361,6 +391,14 @@ pub(super) fn install(
             return None;
         }
         read_dir_json(&path)
+    });
+    let sb = sandbox.clone();
+    bind!("listChildDirsJson", move |path: String| -> Option<String> {
+        if !sb.can_read(&path) {
+            log::warn!("[plugin] denied listChildDirs outside sandbox: {path}");
+            return None;
+        }
+        list_child_dirs_json(&path)
     });
     let sb = sandbox.clone();
     bind!("walkDirJson", move |path: String,
@@ -597,6 +635,18 @@ fn read_dir_json(path: &str) -> Option<String> {
         ));
     }
     serde_json::to_string(&out).ok()
+}
+
+/// Immediate child DIRECTORY names only — no files, no recursion, no metadata.
+fn list_child_dirs_json(path: &str) -> Option<String> {
+    let entries = std::fs::read_dir(path).ok()?;
+    let mut names: Vec<String> = entries
+        .flatten()
+        .filter(|e| e.file_type().map(|ft| ft.is_dir()).unwrap_or(false))
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    serde_json::to_string(&names).ok()
 }
 
 fn walk_dir_json(path: &str, max_depth: usize) -> Option<String> {
