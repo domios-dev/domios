@@ -27,7 +27,9 @@ pub(crate) fn write_session_snapshot(app: &tauri::AppHandle, mux: &MuxState) -> 
         let store = session.lock();
         store.save(&snapshot)
     };
-    save_result.map_err(|e| format!("save session: {}", e))
+    save_result.map_err(|e| format!("save session: {}", e))?;
+    crate::session::scrollback_sync::sync_scrollback_sidecars(app);
+    Ok(())
 }
 
 pub(crate) fn persist_session_after_mutation(

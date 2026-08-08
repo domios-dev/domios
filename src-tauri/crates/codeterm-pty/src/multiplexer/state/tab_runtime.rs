@@ -86,6 +86,10 @@ impl MultiplexerState {
         self.tabs.get(id)
     }
 
+    pub fn all_tabs(&self) -> impl Iterator<Item = &Tab> {
+        self.tabs.values()
+    }
+
     /// `(tab_id, pty_id)` for every tab currently backed by a PTY. Cheap
     /// id-only clone for the multiplexed web output stream's per-tick sweep —
     /// avoids the heavy full `snapshot()` on the hot path.

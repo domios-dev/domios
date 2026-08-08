@@ -1,6 +1,10 @@
 pub mod lifecycle {
     pub use codeterm_pty::session::lifecycle::*;
 }
+pub mod scrollback {
+    pub use codeterm_pty::session::scrollback::*;
+}
+pub(crate) mod scrollback_sync;
 pub mod store;
 
 use std::sync::Arc;
@@ -14,11 +18,37 @@ pub type SessionState = Arc<Mutex<SessionStore>>;
 
 #[tauri::command]
 pub fn save_session(
+    app: tauri::AppHandle,
     mux: tauri::State<'_, MuxState>,
     session: tauri::State<'_, SessionState>,
 ) -> Result<(), String> {
     let snapshot = mux.write().to_session_snapshot();
-    session.lock().save(&snapshot)
+    let saved = session.lock().save(&snapshot);
+    if saved.is_ok() {
+        scrollback_sync::sync_scrollback_sidecars(&app);
+    }
+    saved
+}
+
+/// Bounded display-buffer tail for a restored plain-shell tab. Agent tabs get
+/// `None` — provider resume owns their restoration, never a sidecar replay.
+#[tauri::command]
+pub fn load_scrollback_tail(
+    mux: tauri::State<'_, MuxState>,
+    session: tauri::State<'_, SessionState>,
+    tab_id: String,
+) -> Option<Vec<u8>> {
+    let eligible = {
+        let state = mux.read();
+        state
+            .get_tab(&tab_id)
+            .map(crate::pty::scrollback_capture::scrollback_eligible)
+            .unwrap_or(false)
+    };
+    if !eligible {
+        return None;
+    }
+    session.lock().load_scrollback_tail(&tab_id)
 }
 
 #[tauri::command]
