@@ -77,13 +77,13 @@ impl AgentProvider for HookProvider {
 }
 
 struct RosterProvider {
-    id: &'static str,
+    id: String,
     roster: Vec<HookEventBinding>,
 }
 
 impl AgentProvider for RosterProvider {
     fn id(&self) -> &str {
-        self.id
+        &self.id
     }
 
     fn display_name(&self) -> &str {
@@ -148,14 +148,14 @@ fn binding(event: &str, route: HookIngestionRoute) -> HookEventBinding {
 fn hook_event_roster_registration_equals_declared_set() {
     let registry = AgentRegistry::new();
     registry.register_provider(Box::new(RosterProvider {
-        id: "fixture-hooks",
+        id: "fixture-hooks".into(),
         roster: vec![
             binding("Notification", HookIngestionRoute::Permission),
             binding("SessionStart", HookIngestionRoute::SessionStart),
         ],
     }));
     registry.register_provider(Box::new(RosterProvider {
-        id: "fixture-rosterless",
+        id: "fixture-rosterless".into(),
         roster: vec![],
     }));
 
@@ -180,7 +180,7 @@ fn hook_event_roster_attributes_ingestion_to_non_claude_descriptor() {
     mux.write().get_tab_mut(&tab_id).unwrap().cwd = Some("/tmp/project".into());
     let registry = AgentRegistry::new();
     registry.register_provider(Box::new(RosterProvider {
-        id: "fixture-hooks",
+        id: "fixture-hooks".into(),
         roster: vec![
             binding("Notification", HookIngestionRoute::Permission),
             binding("SessionStart", HookIngestionRoute::SessionStart),
@@ -204,7 +204,7 @@ fn hook_event_roster_attributes_ingestion_to_non_claude_descriptor() {
 
     // Contested route → no guess.
     registry.register_provider(Box::new(RosterProvider {
-        id: "fixture-rival",
+        id: "fixture-rival".into(),
         roster: vec![binding("Notification", HookIngestionRoute::Permission)],
     }));
     assert_eq!(
@@ -297,6 +297,78 @@ fn default_hook_event_roster_registration_matches_today() {
     assert_eq!(
         sole_hook_route_declarer(&registry, HookIngestionRoute::SessionStart),
         None
+    );
+}
+
+#[test]
+fn codex_stop_report_nonce_gate_verdicts() {
+    // The completion-via-report gate: only an exact launch-nonce match is a
+    // verified report; any carried nonce that can't be verified is foreign;
+    // a nonce-less post stays on the legacy inference-tolerant path.
+    assert_eq!(
+        stop_report_verdict(Some("nonce-1"), Some("nonce-1")),
+        StopReportVerdict::Verified
+    );
+    assert_eq!(
+        stop_report_verdict(Some("nonce-1"), Some("nonce-2")),
+        StopReportVerdict::Foreign
+    );
+    assert_eq!(
+        stop_report_verdict(None, Some("nonce-1")),
+        StopReportVerdict::Foreign
+    );
+    assert_eq!(
+        stop_report_verdict(Some("nonce-1"), None),
+        StopReportVerdict::Legacy
+    );
+    assert_eq!(stop_report_verdict(None, None), StopReportVerdict::Legacy);
+}
+
+#[test]
+fn codex_stop_bundled_roster_declares_session_start_and_stop_and_registration_follows() {
+    // Round-trip through the S1 mechanism: the shipped manifest's declared
+    // roster (as data — provider id and bindings both read from the file)
+    // resolves against the closed route set and registration equals it.
+    let manifest_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../plugins/provider-codex/plugin.json"
+    );
+    let manifest: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(manifest_path).expect("bundled manifest"))
+            .expect("manifest parses");
+    let provider_id = manifest["id"].as_str().expect("manifest id").to_string();
+    let roster: Vec<HookEventBinding> = manifest["spawn"]["hookEventRoster"]
+        .as_array()
+        .expect("declared hook event roster")
+        .iter()
+        .map(|entry| HookEventBinding {
+            event: entry["event"].as_str().expect("event name").into(),
+            route: HookIngestionRoute::parse(entry["route"].as_str().expect("route name"))
+                .expect("route resolves against the closed ingestion set"),
+        })
+        .collect();
+    assert_eq!(
+        roster
+            .iter()
+            .map(|b| (b.event.as_str(), b.route))
+            .collect::<Vec<_>>(),
+        [
+            ("SessionStart", HookIngestionRoute::SessionStart),
+            ("Stop", HookIngestionRoute::Stop),
+        ],
+        "the declared roster is SessionStart + Stop, in declaration order"
+    );
+
+    let registry = AgentRegistry::new();
+    registry.register_provider(Box::new(RosterProvider {
+        id: provider_id.clone(),
+        roster: roster.clone(),
+    }));
+    let table = registered_hook_routes(&registry);
+    assert_eq!(
+        table,
+        BTreeMap::from([(provider_id, roster)]),
+        "registration must equal exactly the declared roster"
     );
 }
 
