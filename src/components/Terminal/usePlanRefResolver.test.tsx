@@ -24,7 +24,41 @@ function setupDom() {
   Object.defineProperty(globalThis, "AbortController", { value: window.AbortController, configurable: true });
 }
 
-test("plan-changed invalidates cache and refetches unchanged refs", async () => {
+interface ResolvedBody {
+  refs: Array<{
+    plan_id: string;
+    target_id: string;
+    target_kind: string;
+    state: string;
+    title: string;
+    plan_title: string;
+  }>;
+}
+
+function refBody(title: string, state = "resolved"): ResolvedBody {
+  return {
+    refs: [{
+      plan_id: "pl_test",
+      target_id: "task_test",
+      target_kind: "task",
+      state,
+      title,
+      plan_title: "Plan",
+    }],
+  };
+}
+
+interface Harness {
+  fetchCalls: string[];
+  snapshots: Array<{ title?: string; state?: string }>;
+  dispatchPlanChanged: () => Promise<void>;
+  chipStates: () => string[];
+  teardown: () => Promise<void>;
+}
+
+/** Mounts one chip-shaped probe over the hook; a missing map entry is exactly
+ *  what TabSessionChat renders as the "loading" chip state. */
+async function mountResolver(responses: ResolvedBody[]): Promise<Harness> {
   setupDom();
   const listeners = new Map<string, Array<(e: { payload: unknown }) => void>>();
   __setListenForTest(async (event, handler) => {
@@ -34,34 +68,13 @@ test("plan-changed invalidates cache and refetches unchanged refs", async () => 
     return () => {};
   });
 
-  const responses = [
-    {
-      refs: [{
-        plan_id: "pl_test",
-        target_id: "task_test",
-        target_kind: "task",
-        state: "resolved",
-        title: "Old title",
-        plan_title: "Plan",
-      }],
-    },
-    {
-      refs: [{
-        plan_id: "pl_test",
-        target_id: "task_test",
-        target_kind: "task",
-        state: "stale",
-        title: "New title",
-        plan_title: "Plan",
-      }],
-    },
-  ];
   const fetchCalls: string[] = [];
+  const queue = [...responses];
   Object.defineProperty(globalThis, "fetch", {
     configurable: true,
     value: async (_url: string, init?: RequestInit) => {
       fetchCalls.push(String(init?.body ?? ""));
-      const body = responses.shift() ?? { refs: [] };
+      const body = queue.shift() ?? { refs: [] };
       return {
         ok: true,
         json: async () => body,
@@ -89,23 +102,71 @@ test("plan-changed invalidates cache and refetches unchanged refs", async () => 
   await act(async () => {
     await Promise.resolve();
   });
-  const initialFetchCount = fetchCalls.length;
-  assert(initialFetchCount === 1, `expected initial fetch, got ${initialFetchCount}`);
-  assert(snapshots.some((s) => s.title === "Old title" && s.state === "resolved"), "first response applied");
 
-  await act(async () => {
-    for (const handler of listeners.get("plan-changed") ?? []) handler({ payload: { plan_id: "pl_test" } });
-    await Promise.resolve();
-  });
-  const refetchCount = fetchCalls.length;
-  assert(refetchCount === 2, `expected refetch after invalidation, got ${refetchCount}`);
-  assert(snapshots.some((s) => s.title === "New title" && s.state === "stale"), "post-invalidation response applied");
+  return {
+    fetchCalls,
+    snapshots,
+    dispatchPlanChanged: async () => {
+      await act(async () => {
+        for (const handler of listeners.get("plan-changed") ?? []) handler({ payload: { plan_id: "pl_test" } });
+        await Promise.resolve();
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+    },
+    // Consecutive-collapsed chip states: the sequence of distinct views the
+    // chip actually transitioned through, "loading" when unresolved.
+    chipStates: () => snapshots
+      .map((s) => (s.state == null ? "loading" : `${s.state}:${s.title}`))
+      .filter((state, index, all) => index === 0 || state !== all[index - 1]),
+    teardown: async () => {
+      await act(async () => {
+        root.unmount();
+      });
+      host.remove();
+      __setListenForTest(null);
+    },
+  };
+}
 
-  await act(async () => {
-    root.unmount();
-  });
-  host.remove();
-  __setListenForTest(null);
+test("a never-resolved ref surfaces loading once, then resolves on first fetch", async () => {
+  const harness = await mountResolver([refBody("First title")]);
+  assert(harness.fetchCalls.length === 1, `expected one initial fetch, got ${harness.fetchCalls.length}`);
+  const states = harness.chipStates();
+  assert(
+    JSON.stringify(states) === JSON.stringify(["loading", "resolved:First title"]),
+    `first resolution transitioned through ${JSON.stringify(states)}`,
+  );
+  await harness.teardown();
+});
+
+test("plan-changed with unchanged data revalidates with zero transitions on a resolved chip", async () => {
+  const harness = await mountResolver([refBody("Stable title"), refBody("Stable title")]);
+  await harness.dispatchPlanChanged();
+  assert(harness.fetchCalls.length === 2, `expected a background refetch, got ${harness.fetchCalls.length} fetches`);
+  const states = harness.chipStates();
+  assert(
+    JSON.stringify(states) === JSON.stringify(["loading", "resolved:Stable title"]),
+    `an unchanged revalidation transitioned the chip: ${JSON.stringify(states)}`,
+  );
+  await harness.teardown();
+});
+
+test("plan-changed with a renamed task updates the chip without an intermediate loading state", async () => {
+  const harness = await mountResolver([refBody("Old title"), refBody("New title")]);
+  await harness.dispatchPlanChanged();
+  assert(harness.fetchCalls.length === 2, `expected a background refetch, got ${harness.fetchCalls.length} fetches`);
+  const states = harness.chipStates();
+  assert(
+    JSON.stringify(states) === JSON.stringify(["loading", "resolved:Old title", "resolved:New title"]),
+    `a rename transitioned the chip through ${JSON.stringify(states)}`,
+  );
+  assert(
+    !states.slice(1).includes("loading"),
+    "a resolved chip passed back through loading during revalidation",
+  );
+  await harness.teardown();
 });
 
 let passed = 0;

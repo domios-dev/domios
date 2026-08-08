@@ -37,6 +37,40 @@ function toRequest(ref: PlanRefDescriptor): PlanRefRequest {
   };
 }
 
+const RESOLUTION_FIELDS = [
+  "state",
+  "title",
+  "plan_title",
+  "task_title",
+  "section_title",
+  "file_path",
+  "canonical_project_path",
+  "status",
+  "owner_tab_id",
+  "owner_session_id",
+] as const;
+
+function sameResolution(prev: ResolvedPlanRef, next: ResolvedPlanRef): boolean {
+  return RESOLUTION_FIELDS.every((field) => prev[field] === next[field]);
+}
+
+function toView(item: ResolvedPlanRef): ResolvedPlanRefView {
+  const key = keyOf({
+    planId: item.plan_id,
+    targetId: item.target_id,
+    targetKind: item.target_kind,
+  });
+  return {
+    ...item,
+    key,
+    request: {
+      plan_id: item.plan_id,
+      target_id: item.target_id,
+      target_kind: item.target_kind,
+    },
+  };
+}
+
 export function usePlanRefResolver(
   api: ApiConfig,
   refs: readonly PlanRefDescriptor[],
@@ -45,6 +79,7 @@ export function usePlanRefResolver(
   const [invalidationGeneration, setInvalidationGeneration] = useState(0);
   const [unreachable, setUnreachable] = useState(false);
   const cacheRef = useRef(new Map<string, ResolvedPlanRefView>());
+  const fetchedGenerationRef = useRef(0);
   const orderedRefs = useMemo(() => {
     const seen = new Set<string>();
     const next: PlanRefDescriptor[] = [];
@@ -57,37 +92,43 @@ export function usePlanRefResolver(
     return next;
   }, [refs]);
 
+  // Stale-while-revalidate: an invalidation refetches every visible ref in the
+  // background while the cache keeps serving, and only entries whose resolved
+  // content actually changed replace rendered state — a resolved chip never
+  // passes back through "loading" for an unchanged value.
   useEffect(() => {
     let active = true;
     if (!api.enabled) return;
-    const missing = orderedRefs.filter((ref) => !cacheRef.current.has(keyOf(ref)));
-    if (missing.length === 0) return;
+    const generation = invalidationGeneration;
+    const revalidate = fetchedGenerationRef.current !== generation;
+    const targets = revalidate
+      ? orderedRefs
+      : orderedRefs.filter((ref) => !cacheRef.current.has(keyOf(ref)));
+    if (targets.length === 0) {
+      fetchedGenerationRef.current = generation;
+      return;
+    }
     const ctrl = new AbortController();
-    void resolvePlanRefs(api, missing.map(toRequest), ctrl.signal)
+    void resolvePlanRefs(api, targets.map(toRequest), ctrl.signal)
       .then((resolved) => {
         if (!active) return;
+        fetchedGenerationRef.current = generation;
+        if (revalidate) {
+          const visible = new Set(orderedRefs.map(keyOf));
+          for (const key of [...cacheRef.current.keys()]) {
+            if (!visible.has(key)) cacheRef.current.delete(key);
+          }
+        }
+        let changed = false;
         for (const item of resolved) {
-          const request: PlanRefRequest = {
-            plan_id: item.plan_id,
-            target_id: item.target_id,
-            target_kind: item.target_kind,
-          };
-          cacheRef.current.set(keyOf({
-            planId: item.plan_id,
-            targetId: item.target_id,
-            targetKind: item.target_kind,
-          }), {
-            ...item,
-            key: keyOf({
-              planId: item.plan_id,
-              targetId: item.target_id,
-              targetKind: item.target_kind,
-            }),
-            request,
-          });
+          const view = toView(item);
+          const prev = cacheRef.current.get(view.key);
+          if (prev && sameResolution(prev, item)) continue;
+          cacheRef.current.set(view.key, view);
+          changed = true;
         }
         setUnreachable(false);
-        setVersion((n) => n + 1);
+        if (changed) setVersion((n) => n + 1);
       })
       .catch((error) => {
         if (!active || ctrl.signal.aborted || (error instanceof Error && error.name === "AbortError")) return;
@@ -105,11 +146,7 @@ export function usePlanRefResolver(
     let offChanged: (() => void) | null = null;
     let offLoaded: (() => void) | null = null;
     const invalidate = () => {
-      cacheRef.current.clear();
-      if (active) {
-        setInvalidationGeneration((n) => n + 1);
-        setVersion((n) => n + 1);
-      }
+      if (active) setInvalidationGeneration((n) => n + 1);
     };
     void listen("plan-changed", invalidate).then((fn) => {
       if (!active) fn();
