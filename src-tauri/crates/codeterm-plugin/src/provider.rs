@@ -195,6 +195,10 @@ pub struct SessionMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
     pub file_path: String,
+    /// Hook-reported transcript path (provider-owned evidence, see
+    /// `crate::session_evidence`); absent ⇒ readers reconstruct from the id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transcript_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_ts: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -244,39 +248,6 @@ pub struct ReasoningEffortInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 }
-
-/// Structured rejection when a requested reasoning effort is not supported by a
-/// provider. Carries the exact supported set so callers surface an honest error
-/// instead of silently downgrading. Serializable for API/CLI/report payloads.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub struct ReasoningEffortRejection {
-    pub provider: String,
-    pub requested: String,
-    pub supported: Vec<String>,
-}
-
-impl std::fmt::Display for ReasoningEffortRejection {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.supported.is_empty() {
-            write!(
-                f,
-                "provider '{}' does not support reasoning-effort selection (requested '{}')",
-                self.provider, self.requested
-            )
-        } else {
-            write!(
-                f,
-                "provider '{}' does not support reasoning effort '{}'; supported: {}",
-                self.provider,
-                self.requested,
-                self.supported.join(", ")
-            )
-        }
-    }
-}
-
-impl std::error::Error for ReasoningEffortRejection {}
 
 /// Severity flavor for `SettingField::Info` notes.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
