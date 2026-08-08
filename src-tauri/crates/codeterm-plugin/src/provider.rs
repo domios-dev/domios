@@ -667,6 +667,17 @@ pub trait AgentProvider: Send + Sync {
         false
     }
 
+    /// Declared hook event roster: (event name → ingestion route) pairs core
+    /// registers verbatim — an undeclared event routes nowhere. Default:
+    /// hooked providers post the SessionStart binding event; hookless none.
+    fn hook_event_roster(&self) -> Vec<HookEventBinding> {
+        if self.has_hooks() {
+            session_start_hook_roster()
+        } else {
+            Vec::new()
+        }
+    }
+
     /// Build raw bytes to navigate to and confirm a prompt option.
     /// `option_index` is 0-based (0 = first option). `screen` is the cleaned
     /// terminal text the prompt is on — providers whose highlight isn't the top

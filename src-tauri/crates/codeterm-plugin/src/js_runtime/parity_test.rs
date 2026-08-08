@@ -1039,6 +1039,10 @@ fn permission_bypass_descriptor_matches_provider_capability() {
     }
 }
 
+// Hook event roster parity + fail-closed registration (DN-3 stage 1).
+
+mod hook_event_roster;
+
 /// #16 parity (discipline rule #2): a capability method a provider doesn't
 /// implement must SKIP-not-recurse and return the SAME sane default on BOTH the
 /// native and JS runtimes when there is no native fallback to delegate to. The

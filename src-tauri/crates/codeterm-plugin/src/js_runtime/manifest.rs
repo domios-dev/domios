@@ -19,11 +19,11 @@ use serde::{Deserialize, Serialize};
 
 pub use capabilities::{Capabilities, ChatBackendCap, ChatPreprocessorCap};
 pub use config::{
-    CommandsConfig, CwdEncoding, IntegrationConfig, IntegrationKind, NetworkPermission,
-    PermissionsConfig, RuleConfig, SerdeBusySubmit, SerdeModelInfo, SerdeProviderReadinessStrategy,
-    SerdeReadinessStrategy, SerdeReasoningEffortInfo, SerdeSessionIdInjection,
-    SerdeSystemPromptDelivery, SerdeTaskDelivery, SerdeVerifySubmit, SessionsConfig, SkillsConfig,
-    SpawnConfig, SubprocessPermission, UsageConfig,
+    resolve_hook_event_roster, CommandsConfig, CwdEncoding, IntegrationConfig, IntegrationKind,
+    NetworkPermission, PermissionsConfig, RuleConfig, SerdeBusySubmit, SerdeHookEventBinding,
+    SerdeModelInfo, SerdeProviderReadinessStrategy, SerdeReadinessStrategy,
+    SerdeReasoningEffortInfo, SerdeSessionIdInjection, SerdeSystemPromptDelivery, SerdeTaskDelivery,
+    SerdeVerifySubmit, SessionsConfig, SkillsConfig, SpawnConfig, SubprocessPermission, UsageConfig,
 };
 pub use methods::manifest_settings_sections;
 
