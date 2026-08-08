@@ -183,6 +183,7 @@ yet.
 | Symptom | Cause | Fix |
 |---|---|---|
 | PR CI fails during `pnpm install` with `ERR_PNPM_OUTDATED_LOCKFILE` | A workspace manifest changed without regenerating the root lockfile, so CI's implicit frozen-lockfile check rejects it before tests run | Run `pnpm install --no-frozen-lockfile`, commit `pnpm-lock.yaml`, then verify locally with `pnpm install --frozen-lockfile` before rerunning CI |
+| Release frontend preflight fails with TS2722 on `this.buildResumeCommand(...)` inside a provider's context-aware resume method | The shared plugin interface declares the legacy resume capability as optional even when that provider implements both methods in the same object | Assert the provider-local method's presence at the call site, regenerate the provider bundle, and rerun `build.ps1 frontend`; do not weaken the shared optional capability contract. |
 | Linux Rust PR job fails at `fmt` before compilation | A broad Rust rename/refactor was committed without applying both workspace formatters | Run `cargo fmt --manifest-path src-tauri/Cargo.toml` and `cargo fmt --manifest-path cli/Cargo.toml`, commit the mechanical formatting, then require both commands with `-- --check` before rerunning CI |
 | TS PR job reaches Biome, then parses suspended Playwright files or a generated plugin bundle | The global Biome include set accidentally covers surfaces excluded from active gates | Keep `tests/playwright/**` and generated plugin UI bundles outside `biome.json`'s active include set; do not repair or run the suspended suite as a release side effect |
 | Linux Rust PR job fails in clippy after local `build.ps1 check` passed | The build check compiles but does not run the stricter repository clippy gate | Run `bash scripts/clippy-gate.sh` on the release head and fix the reported owning code rather than adding a new lint allow |
@@ -327,4 +328,4 @@ The minisign updater key (`~/.tauri/codeterm.key`, empty password; its public ha
 the `github-release` skill lists the exact ids and restore paths. A builder without the minisign
 key produces artifacts the updater can't verify.
 
-<!-- revision: 23 -->
+<!-- revision: 24 -->
