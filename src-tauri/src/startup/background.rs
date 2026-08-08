@@ -21,8 +21,11 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                 app_handle.try_state::<SessionState>(),
             ) {
                 let snapshot = mux.write().to_session_snapshot();
-                if let Err(e) = session.lock().save(&snapshot) {
+                let saved = session.lock().save(&snapshot);
+                if let Err(e) = saved {
                     log::warn!("Auto-save failed: {}", e);
+                } else {
+                    crate::session::scrollback_sync::sync_scrollback_sidecars(&app_handle);
                 }
             }
         });

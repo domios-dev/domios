@@ -13,6 +13,9 @@ pub mod manager {
 pub mod screen_state {
     pub use codeterm_pty::pty::screen_state::*;
 }
+pub mod scrollback_capture {
+    pub use codeterm_pty::pty::scrollback_capture::*;
+}
 pub mod shell_integration {
     pub use codeterm_pty::pty::shell_integration::*;
 }
