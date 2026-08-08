@@ -26,9 +26,8 @@ import { TabTaskStrip } from "./TabTaskStrip";
 import { COMPOSER_MIN_HEIGHT, applyComposerAutosize } from "./composerAutosize";
 import {
   beginComposition,
-  compositionRenderValue,
+  compositionDefersAutosize,
   createCompositionGate,
-  deferCompositionChange,
   endComposition,
   isImeKeyEvent,
 } from "./composerComposition";
@@ -386,9 +385,10 @@ function ChatComposerImpl({
   useLayoutEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
+    if (compositionDefersAutosize(compositionGate)) return;
     applyComposerAutosize(el, shellRef.current);
     recordComposerPaint();
-  }, [input]);
+  }, [input, compositionGate]);
 
   useEffect(() => {
     if (modelSuggestionDismissedFor && modelSuggestionDismissedFor !== firstLine) {
@@ -846,12 +846,8 @@ function ChatComposerImpl({
             data-tab-id={tabId}
             aria-label="Message composer"
             ref={textareaRef}
-            value={compositionRenderValue(compositionGate, input)}
-            onChange={(e) => {
-              const nativeIsComposing = (e.nativeEvent as InputEvent).isComposing === true;
-              if (deferCompositionChange(compositionGate, nativeIsComposing, e.target.value)) return;
-              setInput(e.target.value);
-            }}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
             onBeforeInput={(e) => {
               recordComposerBeforeInput(e.nativeEvent.inputType || "beforeinput");
             }}
@@ -947,12 +943,16 @@ function ChatComposerImpl({
                 void send();
               }
             }}
-            onCompositionStart={(e) => {
-              beginComposition(compositionGate, e.currentTarget.value);
+            onCompositionStart={() => {
+              beginComposition(compositionGate);
               if (typeof window !== "undefined") window.__composerPerf?.compositionEvents.push("start");
             }}
             onCompositionEnd={(e) => {
-              setInput(endComposition(compositionGate, e.currentTarget.value));
+              endComposition(compositionGate);
+              // Commit the finished draft once and run the autosize the gate
+              // deferred; both are no-ops when state already mirrors the DOM.
+              setInput(e.currentTarget.value);
+              applyComposerAutosize(e.currentTarget, shellRef.current);
               if (typeof window !== "undefined") window.__composerPerf?.compositionEvents.push("end");
             }}
             onPaste={(e) => void handlePasteEvent(e.nativeEvent)}
