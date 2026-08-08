@@ -3,11 +3,12 @@
 // and Enter during an active composition must commit, never send — engines order
 // compositionstart/update/end differently (WebKit delivers the committing Enter
 // AFTER compositionend with isComposing=false, keyCode 229).
-// ORACLE: the textarea DOM value, render counts, forced mid-composition re-renders,
-// and the chat_send_text payload captured at the bridge seam — never UI prose.
-// Event-sequence driven only: no timer-scheduled coordination anywhere in this file.
+// ORACLE: the textarea DOM value across every event step and forced re-renders,
+// plus the chat_send_text payload captured at the bridge seam — never UI prose.
+// Event-sequence driven only: no timer-scheduled coordination anywhere here.
+// The harness import must stay first: react-dom freezes DOM detection at import.
+import "./ChatComposer.composition.harness";
 import { act } from "react";
-import { Window } from "happy-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
 import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
@@ -31,39 +32,6 @@ async function flush(): Promise<void> {
   await act(async () => {
     await new Promise<void>((resolve) => setImmediate(resolve));
   });
-}
-
-function setupDom(): Window {
-  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  const window = new Window({ url: "http://localhost/" });
-  Object.defineProperty(globalThis, "window", { value: window, configurable: true });
-  Object.defineProperty(globalThis, "document", { value: window.document, configurable: true });
-  Object.defineProperty(globalThis, "navigator", { value: window.navigator, configurable: true });
-  Object.defineProperty(globalThis, "HTMLElement", { value: window.HTMLElement, configurable: true });
-  Object.defineProperty(globalThis, "HTMLButtonElement", { value: window.HTMLButtonElement, configurable: true });
-  Object.defineProperty(globalThis, "HTMLTextAreaElement", { value: window.HTMLTextAreaElement, configurable: true });
-  Object.defineProperty(globalThis, "SVGElement", { value: window.SVGElement, configurable: true });
-  Object.defineProperty(globalThis, "Element", { value: window.Element, configurable: true });
-  Object.defineProperty(globalThis, "Node", { value: window.Node, configurable: true });
-  Object.defineProperty(globalThis, "Event", { value: window.Event, configurable: true });
-  Object.defineProperty(globalThis, "CustomEvent", { value: window.CustomEvent, configurable: true });
-  Object.defineProperty(globalThis, "KeyboardEvent", { value: window.KeyboardEvent, configurable: true });
-  Object.defineProperty(globalThis, "InputEvent", { value: window.InputEvent, configurable: true });
-  Object.defineProperty(globalThis, "requestAnimationFrame", {
-    configurable: true,
-    value: (callback: FrameRequestCallback) => {
-      callback(0);
-      return 0;
-    },
-  });
-  Object.defineProperty(globalThis, "cancelAnimationFrame", { configurable: true, value: () => {} });
-  class StubResizeObserver {
-    observe(): void {}
-    unobserve(): void {}
-    disconnect(): void {}
-  }
-  Object.defineProperty(globalThis, "ResizeObserver", { configurable: true, value: StubResizeObserver });
-  return window;
 }
 
 function emptyMuxState(): ExtendedState {
@@ -186,7 +154,7 @@ function compositionEvent(type: "compositionstart" | "compositionupdate" | "comp
   return event;
 }
 
-function inputEvent(opts: { isComposing: boolean; data?: string; inputType?: string }): Event {
+function inputEvent(opts: { isComposing: boolean; data?: string | null; inputType?: string }): Event {
   const event = new window.Event("input", { bubbles: true });
   Object.defineProperty(event, "isComposing", { value: opts.isComposing });
   Object.defineProperty(event, "inputType", {
@@ -220,10 +188,19 @@ async function forceUnrelatedRerender(h: Harness, tabId: string): Promise<void> 
 
 interface EngineProfile {
   name: string;
-  /** Drive the composition typing phase with real per-engine event ordering. */
+  /** Drive the composition typing phase with real per-engine event ordering.
+   *  Asserts the DOM preview survives every step (React must never write a
+   *  stale draft over an active composition — the WebKitGTK re-insert trigger). */
   compose(h: Harness, base: string, prefixes: string[]): Promise<void>;
   /** Deliver the engine's committing-Enter sequence, closing the composition. */
   commitEnter(h: Harness, base: string, final: string): Promise<void>;
+}
+
+async function assertPreview(h: Harness, expected: string, step: string): Promise<void> {
+  assert(
+    h.el.value === expected,
+    `${step}: DOM preview must hold ${JSON.stringify(expected)}, got ${JSON.stringify(h.el.value)}`,
+  );
 }
 
 const webview2: EngineProfile = {
@@ -238,6 +215,7 @@ const webview2: EngineProfile = {
       await fire(h.el, compositionEvent("compositionupdate", prefixes[i]));
       setDomValue(h.el, base + prefixes[i]);
       await fire(h.el, inputEvent({ isComposing: true, data: prefixes[i] }));
+      await assertPreview(h, base + prefixes[i], `${this.name} update ${i + 1}`);
     }
   },
   async commitEnter(h, base, final) {
@@ -259,6 +237,7 @@ const wkwebview: EngineProfile = {
       await fire(h.el, compositionEvent("compositionupdate", prefixes[i]));
       setDomValue(h.el, base + prefixes[i]);
       await fire(h.el, inputEvent({ isComposing: true, data: prefixes[i] }));
+      await assertPreview(h, base + prefixes[i], `${this.name} update ${i + 1}`);
     }
   },
   async commitEnter(h, base, final) {
@@ -281,6 +260,7 @@ const webkitgtk: EngineProfile = {
       setDomValue(h.el, base + prefixes[i]);
       await fire(h.el, inputEvent({ isComposing: true, data: prefixes[i] }));
       await fire(h.el, inputEvent({ isComposing: true, data: prefixes[i] }));
+      await assertPreview(h, base + prefixes[i], `${this.name} update ${i + 1}`);
     }
   },
   async commitEnter(h, base, final) {
@@ -300,34 +280,25 @@ for (const profile of PROFILES) {
     const tabId = `tab-${profile.name.replace(/[^a-z0-9]/gi, "-")}`;
     const h = await renderComposer(tabId);
     try {
-      const rendersBeforeCompose = h.renders();
-
       await profile.compose(h, "", PREFIXES);
-      assert(h.el.value === FINAL, `DOM carries the composition preview (got ${JSON.stringify(h.el.value)})`);
-      assert(
-        h.renders() === rendersBeforeCompose,
-        "no buffer emission mid-composition: intermediate updates must not re-render the controlled value",
-      );
+      await assertPreview(h, FINAL, "after typing phase");
       assert(h.sendCalls.length === 0, "nothing sent during the typing phase");
 
       const rendersBeforeRerender = h.renders();
       await forceUnrelatedRerender(h, tabId);
       assert(h.renders() > rendersBeforeRerender, "the unrelated re-render actually happened");
-      assert(
-        h.el.value === FINAL,
-        "a re-render during active composition must not clobber the preview with the stale draft",
-      );
+      await assertPreview(h, FINAL, "after unrelated re-render mid-composition");
 
       await profile.commitEnter(h, "", FINAL);
       assert(h.sendCalls.length === 0, "Enter during/committing the composition commits — it never sends");
-      assert(h.el.value === FINAL, "committed text is in the buffer after compositionend");
+      await assertPreview(h, FINAL, "after the commit sequence");
 
       await fire(h.el, keydownEvent({ key: "Enter", keyCode: 13, isComposing: false }));
       await flush();
       assert(h.sendCalls.length === 1, "plain Enter after the composition closed sends exactly once");
       assert(
         h.sendCalls[0].text === FINAL,
-        `payload is the composed text exactly once, byte-identical (got ${JSON.stringify(h.sendCalls[0].text)})`,
+        `payload carries the composed text exactly once, byte-identical — no cumulative prefixes (got ${JSON.stringify(h.sendCalls[0].text)})`,
       );
     } finally {
       await teardown(h);
@@ -339,12 +310,13 @@ test("Escape-cancel: a canceled composition emits nothing", async () => {
   const h = await renderComposer("tab-escape-cancel");
   try {
     await wkwebview.compose(h, "", ["ы"]);
-    assert(h.el.value === "ы", "preview present before cancel");
+    await assertPreview(h, "ы", "preview before cancel");
 
     await fire(h.el, keydownEvent({ key: "Escape", keyCode: 229, isComposing: true }));
     setDomValue(h.el, "");
+    await fire(h.el, inputEvent({ isComposing: true, inputType: "deleteCompositionText", data: null }));
     await fire(h.el, compositionEvent("compositionend", ""));
-    assert(h.el.value === "", "engine removed the preview on cancel");
+    await assertPreview(h, "", "engine removed the preview on cancel");
     assert(h.sendCalls.length === 0, "cancel sent nothing");
 
     await fire(h.el, keydownEvent({ key: "Enter", keyCode: 13, isComposing: false }));
@@ -404,7 +376,6 @@ test("Shift+Enter after a composition inserts a newline, never sends", async () 
 });
 
 async function main() {
-  const window = setupDom();
   let failures = 0;
   try {
     for (const [name, fn] of tests) {
@@ -418,7 +389,7 @@ async function main() {
       }
     }
   } finally {
-    await window.happyDOM.abort();
+    await (window as unknown as { happyDOM: { abort(): Promise<void> } }).happyDOM.abort();
   }
   if (failures > 0) {
     console.error(`ChatComposer composition tests: ${failures} failed`);
