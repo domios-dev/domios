@@ -13,6 +13,7 @@ import {
   type TabStateClassification,
   type TabStateSnapshot,
 } from "./tabState";
+import { grantCodexHookTrust } from "./appServer";
 
 const CODETERM_CODEX_HOOK_MARKER = "codeterm-codex-session-binding-v1";
 const CODETERM_CODEX_PROFILE_CLEANUP_MARKER = "codeterm-profile-cleanup-v1";
@@ -556,6 +557,22 @@ const plugin: PluginModule = {
     return fail("writeJson failed for " + path);
   },
 
+  // integration.trust_grant capability: core invokes this once per install
+  // with the manifest-declared managed hook key(s). Codex is the only hash
+  // authority — the grant lane never computes a trust hash CodeTerm-side.
+  grantIntegrationTrust(managedKeys: string[]): unknown {
+    const hooksPath = codexHooksPath();
+    if (!hooksPath) {
+      return { granted: false, wrote: false, degraded: true, verify_failed: false, reason: "could not resolve ~/.codex/hooks.json" };
+    }
+    return grantCodexHookTrust({
+      hooksPath: hooksPath,
+      configPath: codexConfigPath(),
+      managedLabels: Array.isArray(managedKeys) ? managedKeys.map(String) : [],
+      listCwd: host.homeDir() || ".",
+    });
+  },
+
   uninstallIntegration(): unknown {
     const path = codexHooksPath();
     if (!path) return { ok: true };
@@ -928,7 +945,7 @@ function isOwnedCodexWindowsHookScript(path: string): boolean {
   return typeof text === "string" && text === codexWindowsHookScript(0);
 }
 
-function codexHookTrustState(hooksPath: string): "enabled" | "disabled" | "missing" | "unknown" {
+function codexHookTrustState(hooksPath: string): "enabled" | "disabled" | "missing" | "unknown" | "trusted" {
   const cfg = codexConfigPath();
   if (!cfg || !host.fs.fileExists(cfg)) return "missing";
   const text = String(host.fs.readFile(cfg) || "");
@@ -936,13 +953,16 @@ function codexHookTrustState(hooksPath: string): "enabled" | "disabled" | "missi
   const block = findCodexHookTrustBlock(text, hooksPath);
   if (block == null) return "missing";
   const m = block.match(/(?:^|\n)\s*enabled\s*=\s*(true|false)\s*(?:\n|$)/);
-  if (!m) return "unknown";
-  return m[1] === "true" ? "enabled" : "disabled";
+  if (m) return m[1] === "true" ? "enabled" : "disabled";
+  // Codex >=0.129 per-hook trust: app-server config/batchWrite stores a
+  // Codex-computed trusted_hash without an enabled key.
+  if (/(?:^|\n)\s*trusted_hash\s*=/.test(block)) return "trusted";
+  return "unknown";
 }
 
 function enableExistingCodexHookTrust(
   hooksPath: string,
-): { state: "enabled" | "missing" | "unknown"; changed: boolean; write_failed: boolean } {
+): { state: "enabled" | "missing" | "unknown" | "trusted"; changed: boolean; write_failed: boolean } {
   const cfg = codexConfigPath();
   if (!cfg || !host.fs.fileExists(cfg)) return { state: "missing", changed: false, write_failed: false };
   const text = String(host.fs.readFile(cfg) || "");
@@ -951,7 +971,8 @@ function enableExistingCodexHookTrust(
   if (!span) return { state: "missing", changed: false, write_failed: false };
   const block = text.substring(span.start, span.end);
   if (!/(?:^|\n)\s*enabled\s*=\s*false\s*(?:\n|$)/.test(block)) {
-    const state = codexHookTrustState(hooksPath) === "enabled" ? "enabled" : "unknown";
+    const current = codexHookTrustState(hooksPath);
+    const state = current === "enabled" || current === "trusted" ? current : "unknown";
     return { state, changed: false, write_failed: false };
   }
   const nextBlock = block.replace(/(^|\n)(\s*enabled\s*=\s*)false(\s*(?:\n|$))/, "$1$2true$3");

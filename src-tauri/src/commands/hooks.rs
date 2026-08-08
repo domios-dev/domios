@@ -73,7 +73,13 @@ pub fn install_provider_integration(
         || {
             svc.agent_registry
                 .with_provider(&provider_id, |provider| {
-                    provider.install_integration(port, &options)
+                    let grant = crate::agent::provider::install_integration_with_trust_grant(
+                        provider, port, &options,
+                    )?;
+                    if let Some(outcome) = grant {
+                        log::info!("[provider {provider_id}] integration trust grant: {outcome}");
+                    }
+                    Ok(())
                 })
                 .ok_or_else(|| format!("Unknown provider: {provider_id}"))?
         },
