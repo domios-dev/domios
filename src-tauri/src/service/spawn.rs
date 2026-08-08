@@ -984,6 +984,20 @@ impl ServiceContext {
         self.agent_run_pty_map
             .lock()
             .insert(tab_id.clone(), pty_id.clone());
+        let assignment = agent.task.as_ref().map(|task| {
+            if let Some(ref preamble) = agent.task_preamble {
+                format!("{preamble}{task}")
+            } else {
+                task.clone()
+            }
+        });
+        let wrapped_task = crate::service::orchestrator::provider_launch_task(
+            &self.agent_registry,
+            &agent.provider,
+            assignment.as_deref(),
+            agent.role.as_deref(),
+            agent.role_profile.as_deref(),
+        );
         // later (after the cron registry links tab→run).
         if let Some(ref worker_id) = agent.worker_id {
             // while. Pick by intent: any worker whose intent starts with "dreaming:" gets the dreaming-specific timeout.
@@ -1015,6 +1029,7 @@ impl ServiceContext {
                     worker_id: worker_id.clone(),
                 },
                 timeout,
+                wrapped_task.clone(),
             );
         }
         self.emit_state_changed();
@@ -1026,21 +1041,6 @@ impl ServiceContext {
                     .with_provider(&agent.provider, |p| p.model_launch_args(m))
             })
             .unwrap_or_default();
-
-        let assignment = agent.task.as_ref().map(|t| {
-            if let Some(ref preamble) = agent.task_preamble {
-                format!("{}{}", preamble, t)
-            } else {
-                t.clone()
-            }
-        });
-        let wrapped_task = crate::service::orchestrator::provider_launch_task(
-            &self.agent_registry,
-            &agent.provider,
-            assignment.as_deref(),
-            agent.role.as_deref(),
-            agent.role_profile.as_deref(),
-        );
 
         let svc_outer = std::sync::Arc::new(self.clone());
         let tab_id_outer = tab_id.clone();
