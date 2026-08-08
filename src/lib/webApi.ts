@@ -26,7 +26,6 @@ function publishGatewayState(available: boolean): void {
 const TOKEN_PREFIX = "codeterm-web-token:";
 const RELAY_PEER_KEY = "codeterm-web-relay-peer";
 const RELAY_NAME_KEY = "codeterm-web-relay-peer-name";
-const RESUME_DISMISS_KEY = "codeterm-resume-dismiss";
 
 function relayKey(base: string): string {
   return `${base}:${selfHost()}`;
@@ -121,14 +120,6 @@ export function setRelayTarget(id: string, name: string): void {
 export function clearRelayTarget(): void {
   localStorage.removeItem(relayKey(RELAY_PEER_KEY));
   localStorage.removeItem(relayKey(RELAY_NAME_KEY));
-}
-
-export function resumePromptDismissed(): boolean {
-  return sessionStorage.getItem(relayKey(RESUME_DISMISS_KEY)) === "1";
-}
-
-export function dismissResumePrompt(): void {
-  sessionStorage.setItem(relayKey(RESUME_DISMISS_KEY), "1");
 }
 
 /** Local-daemon address shape (the desktop app's `config.api`). */
