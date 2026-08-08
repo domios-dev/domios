@@ -195,7 +195,7 @@ const plugin: PluginModule = {
   buildResumeCommandWithContext(params: ResumeParams): string {
     const p = params || ({} as ResumeParams);
     const platform = host.platform();
-    const parts = [this.buildResumeCommand(p.sessionId, p.skipPermissions)];
+    const parts = [this.buildResumeCommand!(p.sessionId, p.skipPermissions)];
     if (p.args && p.args.length > 0) {
       for (let i = 0; i < p.args.length; i++) parts.push(String(p.args[i]));
     }
