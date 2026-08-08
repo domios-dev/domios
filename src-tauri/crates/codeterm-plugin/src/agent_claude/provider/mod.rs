@@ -226,6 +226,10 @@ impl AgentProvider for ClaudeProvider {
         true
     }
 
+    fn hook_event_roster(&self) -> Vec<crate::provider::HookEventBinding> {
+        integration::hook_event_roster()
+    }
+
     /// Claude TUI supports vim j/k navigation — simpler and more reliable than arrow keys.
     fn build_prompt_response(&self, option_index: usize, screen: &str) -> Vec<Vec<u8>> {
         let current = highlighted_option_index(screen).unwrap_or(0);

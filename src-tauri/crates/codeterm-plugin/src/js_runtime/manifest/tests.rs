@@ -354,3 +354,66 @@ fn busy_submit_conversion() {
         BusySubmitStrategy::Key("tab".into())
     );
 }
+
+#[test]
+fn hook_event_roster_parses_and_resolves_declared_routes() {
+    use crate::provider::{HookEventBinding, HookIngestionRoute};
+
+    let json = r#"{
+            "id": "roster-demo",
+            "version": "0.1.0",
+            "displayName": "Roster Demo",
+            "spawn": {
+                "readinessStrategy": { "kind": "fixed_delay", "durationMs": 0 },
+                "taskDelivery": "pty_input",
+                "verifySubmit": { "kind": "none" },
+                "hasHooks": true,
+                "hookEventRoster": [
+                    { "event": "Stop", "route": "stop" },
+                    { "event": "SessionStart", "route": "session_start" },
+                    { "event": "PreCompact", "route": "mem_flush" },
+                    { "event": "Notification", "route": "permission" }
+                ]
+            }
+        }"#;
+    let manifest: PluginManifest = serde_json::from_str(json).expect("parse");
+    let declared = manifest.spawn.hook_event_roster.expect("roster declared");
+    let resolved = resolve_hook_event_roster(&declared).expect("all routes known");
+    assert_eq!(
+        resolved,
+        vec![
+            HookEventBinding {
+                event: "Stop".into(),
+                route: HookIngestionRoute::Stop,
+            },
+            HookEventBinding {
+                event: "SessionStart".into(),
+                route: HookIngestionRoute::SessionStart,
+            },
+            HookEventBinding {
+                event: "PreCompact".into(),
+                route: HookIngestionRoute::MemFlush,
+            },
+            HookEventBinding {
+                event: "Notification".into(),
+                route: HookIngestionRoute::Permission,
+            },
+        ]
+    );
+}
+
+#[test]
+fn hook_event_roster_resolution_rejects_unknown_route() {
+    let declared = vec![
+        SerdeHookEventBinding {
+            event: "Stop".into(),
+            route: "stop".into(),
+        },
+        SerdeHookEventBinding {
+            event: "Warp".into(),
+            route: "warp_core".into(),
+        },
+    ];
+    let error = resolve_hook_event_roster(&declared).expect_err("unknown route fails the roster");
+    assert!(error.contains("Warp") && error.contains("warp_core"), "{error}");
+}
