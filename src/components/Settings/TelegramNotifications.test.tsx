@@ -32,10 +32,15 @@ function setupDom() {
   }
 }
 
+type TrackedInput = HTMLInputElement & { _valueTracker?: { setValue(value: string): void } };
+
 function setNativeValue(element: HTMLInputElement, value: string) {
-  const prototype = Object.getPrototypeOf(element) as HTMLElement;
-  const descriptor = Object.getOwnPropertyDescriptor(prototype, "value");
-  descriptor?.set?.call(element, value);
+  const own = Object.getOwnPropertyDescriptor(element, "value");
+  const prototype = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element) as HTMLElement, "value");
+  (own?.set ?? prototype?.set)?.call(element, value);
+  // React dedupes input events whose value matches its tracker; pin the
+  // tracker stale so the bubbled event registers as a user change.
+  (element as TrackedInput)._valueTracker?.setValue("");
 }
 
 function dispatchFormChange(element: HTMLElement) {
