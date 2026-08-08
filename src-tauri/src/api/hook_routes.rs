@@ -3,8 +3,11 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Json,
 };
+use std::collections::BTreeMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::agent::provider::{HookEventBinding, HookIngestionRoute};
+use crate::agent::registry::AgentRegistry;
 use crate::api::routes::{resolve_tab, AppState};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -21,6 +24,30 @@ fn epoch_ms() -> u64 {
         .unwrap_or(0)
 }
 
+/// The hook route table core registers: each provider's declared roster,
+/// verbatim. Nothing undeclared appears here, so nothing undeclared routes.
+fn registered_hook_routes(registry: &AgentRegistry) -> BTreeMap<String, Vec<HookEventBinding>> {
+    registry
+        .provider_ids()
+        .into_iter()
+        .filter_map(|id| {
+            let roster = registry.with_provider(&id, |p| p.hook_event_roster())?;
+            (!roster.is_empty()).then_some((id, roster))
+        })
+        .collect()
+}
+
+/// Sole provider whose roster declares `route` — the owning descriptor hook
+/// ingestion may attribute to. Unclaimed or contested routes yield None.
+fn sole_hook_route_declarer(registry: &AgentRegistry, route: HookIngestionRoute) -> Option<String> {
+    let mut declarers = registered_hook_routes(registry)
+        .into_iter()
+        .filter(|(_, roster)| roster.iter().any(|binding| binding.route == route))
+        .map(|(id, _)| id);
+    let sole = declarers.next()?;
+    declarers.next().is_none().then_some(sole)
+}
+
 /// Ensure agent state is set when a hook fires.
 /// Hooks are authoritative — if a hook calls us, an agent IS running.
 /// This fixes detection on restored tabs, Windows (PowerShell doesn't reset title), etc.
@@ -34,19 +61,22 @@ fn ensure_agent_state(state: &AppState, tab_id: &str) {
         };
         tab.agent_type.clone()
     };
-
-    let agent_changed = agent_type.is_none();
-    if agent_changed {
-        // its own hook endpoints.
-        state
-            .svc
-            .set_and_lock_tab_agent_type(tab_id, "claude".to_string());
-        log::info!("[hook] set agent_type=claude for Tab {}", tab_id);
+    if agent_type.is_some() {
+        return;
     }
 
-    if agent_changed {
-        state.svc.emit_state_changed();
-    }
+    let Some(owner) =
+        sole_hook_route_declarer(&state.svc.agent_registry, HookIngestionRoute::Permission)
+    else {
+        log::warn!(
+            "[hook] Tab {} fired the permission route without a sole declaring provider; agent_type left unset",
+            tab_id
+        );
+        return;
+    };
+    state.svc.set_and_lock_tab_agent_type(tab_id, owner.clone());
+    log::info!("[hook] set agent_type={} for Tab {}", owner, tab_id);
+    state.svc.emit_state_changed();
 }
 
 /// Hook endpoint: agent reports it needs permission.
@@ -280,9 +310,17 @@ pub async fn hook_session_start(
             .write()
             .get_tab(&tab_id)
             .and_then(|p| p.agent_type.clone());
+        // Identity ladder: report > tab > the route's sole declaring descriptor
+        // > configured default. Never a provider-id literal.
         provider_id
             .or(existing)
-            .unwrap_or_else(|| "claude".to_string())
+            .or_else(|| {
+                sole_hook_route_declarer(
+                    &state.svc.agent_registry,
+                    HookIngestionRoute::SessionStart,
+                )
+            })
+            .unwrap_or_else(crate::config::default_agent_provider)
     };
 
     let claim = bind_reported_session(

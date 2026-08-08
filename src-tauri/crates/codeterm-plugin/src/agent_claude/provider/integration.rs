@@ -9,7 +9,7 @@
 //! provider doesn't require touching `commands/`.
 
 use crate::prompts::CODETERM_RULE;
-use crate::provider::IntegrationInstallOptions;
+use crate::provider::{HookEventBinding, HookIngestionRoute, IntegrationInstallOptions};
 use serde_json::Value as Json;
 
 // v3 resolves the callback from the launched Tab's environment, so prod and
@@ -212,6 +212,29 @@ pub fn check_integration() -> Json {
     })
 }
 
+/// Claude's declared hook event roster — its four installed events as data.
+/// Install/uninstall and core route registration all consume this declaration.
+pub fn hook_event_roster() -> Vec<HookEventBinding> {
+    vec![
+        HookEventBinding {
+            event: "Notification".into(),
+            route: HookIngestionRoute::Permission,
+        },
+        HookEventBinding {
+            event: "Stop".into(),
+            route: HookIngestionRoute::Stop,
+        },
+        HookEventBinding {
+            event: "PreCompact".into(),
+            route: HookIngestionRoute::MemFlush,
+        },
+        HookEventBinding {
+            event: "SessionStart".into(),
+            route: HookIngestionRoute::SessionStart,
+        },
+    ]
+}
+
 fn hook_command(path: &str, body: &str, extra_headers: &str, stdin: bool) -> String {
     let payload = if stdin {
         "--data-binary @-".to_string()
@@ -221,6 +244,56 @@ fn hook_command(path: &str, body: &str, extra_headers: &str, stdin: bool) -> Str
     format!(
         "if [ -n \"${{CODETERM_API_URL:-}}\" ] && [ -n \"${{CODETERM_API_TOKEN:-}}\" ] && [ -n \"${{CODETERM_TAB_ID:-}}\" ]; then curl -s -o /dev/null -X POST \"$CODETERM_API_URL{path}\" -H 'Content-Type: application/json' -H \"Authorization: Bearer $CODETERM_API_TOKEN\" {extra_headers} {payload} || true; fi"
     )
+}
+
+/// The settings.json hook entry a declared route installs — the handler side
+/// of the roster. Every `HookIngestionRoute` variant must be covered here.
+fn hook_entry(route: HookIngestionRoute) -> Json {
+    let nonce_h = "-H \"X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}\"";
+    match route {
+        HookIngestionRoute::Permission => serde_json::json!({
+            "matcher": "permission_prompt",
+            "hooks": [{
+                "type": "command",
+                "command": hook_command(
+                    "/api/tabs/$CODETERM_TAB_ID/hook/permission", "{}", "", false),
+                "timeout": 5000,
+                "_source": CODETERM_HOOK_MARKER
+            }]
+        }),
+        HookIngestionRoute::Stop => serde_json::json!({
+            "matcher": "",
+            "hooks": [{
+                "type": "command",
+                "command": hook_command("/api/tabs/$CODETERM_TAB_ID/hook/stop", "{}", "", false),
+                "timeout": 5000,
+                "_source": CODETERM_HOOK_MARKER
+            }]
+        }),
+        HookIngestionRoute::MemFlush => serde_json::json!({
+            "matcher": "",
+            "hooks": [{
+                "type": "command",
+                "command": hook_command(
+                    "/api/mem/flush",
+                    "{\"tab\":\"'\"$CODETERM_TAB_ID\"'\",\"title\":\"pre-compact\"}",
+                    "",
+                    false),
+                "timeout": 10000,
+                "_source": CODETERM_HOOK_MARKER
+            }]
+        }),
+        HookIngestionRoute::SessionStart => serde_json::json!({
+            "matcher": "",
+            "hooks": [{
+                "type": "command",
+                "command": hook_command(
+                    "/api/tabs/$CODETERM_TAB_ID/hook/session_start", "", nonce_h, true),
+                "timeout": 5000,
+                "_source": CODETERM_HOOK_MARKER
+            }]
+        }),
+    }
 }
 
 pub(crate) fn install_integration_at(
@@ -248,108 +321,44 @@ pub(crate) fn install_integration_at(
         return Err("settings.json must contain a JSON object".into());
     }
 
-    let nonce_h = "-H \"X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}\"";
-    let notify_cmd = hook_command(
-        "/api/tabs/$CODETERM_TAB_ID/hook/permission",
-        "{}",
-        "",
-        false,
-    );
-    let stop_cmd = hook_command("/api/tabs/$CODETERM_TAB_ID/hook/stop", "{}", "", false);
-    let precompact_cmd = hook_command(
-        "/api/mem/flush",
-        "{\"tab\":\"'\"$CODETERM_TAB_ID\"'\",\"title\":\"pre-compact\"}",
-        "",
-        false,
-    );
-    let session_start_cmd = hook_command(
-        "/api/tabs/$CODETERM_TAB_ID/hook/session_start",
-        "",
-        nonce_h,
-        true,
-    );
-
     if json.get("hooks").is_none() {
         json["hooks"] = serde_json::json!({});
     }
-
-    let notif_hook = serde_json::json!({
-        "matcher": "permission_prompt",
-        "hooks": [{
-            "type": "command",
-            "command": notify_cmd,
-            "timeout": 5000,
-            "_source": CODETERM_HOOK_MARKER
-        }]
-    });
-    let stop_hook = serde_json::json!({
-        "matcher": "",
-        "hooks": [{
-            "type": "command",
-            "command": stop_cmd,
-            "timeout": 5000,
-            "_source": CODETERM_HOOK_MARKER
-        }]
-    });
-    let precompact_hook = serde_json::json!({
-        "matcher": "",
-        "hooks": [{
-            "type": "command",
-            "command": precompact_cmd,
-            "timeout": 10000,
-            "_source": CODETERM_HOOK_MARKER
-        }]
-    });
-    let session_start_hook = serde_json::json!({
-        "matcher": "",
-        "hooks": [{
-            "type": "command",
-            "command": session_start_cmd,
-            "timeout": 5000,
-            "_source": CODETERM_HOOK_MARKER
-        }]
-    });
 
     let hooks = json["hooks"]
         .as_object_mut()
         .ok_or("hooks is not an object")?;
 
-    for key in &["Notification", "Stop", "PreCompact", "SessionStart"] {
-        if hooks.get(*key).is_some_and(|value| !value.is_array()) {
-            return Err(format!("hooks.{key} is not an array"));
+    let roster = hook_event_roster();
+    for binding in &roster {
+        if hooks
+            .get(binding.event.as_str())
+            .is_some_and(|value| !value.is_array())
+        {
+            return Err(format!("hooks.{} is not an array", binding.event));
         }
-        if let Some(arr) = hooks.get_mut(*key).and_then(|v| v.as_array_mut()) {
+        if let Some(arr) = hooks
+            .get_mut(binding.event.as_str())
+            .and_then(|v| v.as_array_mut())
+        {
             arr.retain(|h| !is_codeterm_hook(h));
         }
     }
 
-    if !hooks.contains_key("Notification") {
-        hooks.insert("Notification".into(), serde_json::json!([]));
-    }
-    hooks["Notification"]
-        .as_array_mut()
-        .unwrap()
-        .push(notif_hook);
-    if !hooks.contains_key("Stop") {
-        hooks.insert("Stop".into(), serde_json::json!([]));
-    }
-    hooks["Stop"].as_array_mut().unwrap().push(stop_hook);
-    if options.precompact_memory_export {
-        if !hooks.contains_key("PreCompact") {
-            hooks.insert("PreCompact".into(), serde_json::json!([]));
+    for binding in &roster {
+        if matches!(binding.route, HookIngestionRoute::MemFlush)
+            && !options.precompact_memory_export
+        {
+            continue;
         }
-        hooks["PreCompact"]
+        let entry = hook_entry(binding.route);
+        hooks
+            .entry(binding.event.clone())
+            .or_insert_with(|| serde_json::json!([]))
             .as_array_mut()
-            .unwrap()
-            .push(precompact_hook);
+            .ok_or_else(|| format!("hooks.{} is not an array", binding.event))?
+            .push(entry);
     }
-    if !hooks.contains_key("SessionStart") {
-        hooks.insert("SessionStart".into(), serde_json::json!([]));
-    }
-    hooks["SessionStart"]
-        .as_array_mut()
-        .unwrap()
-        .push(session_start_hook);
 
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -394,13 +403,20 @@ pub(crate) fn uninstall_integration_at(path: &std::path::Path) -> Result<(), Str
     let hooks = hooks_value
         .as_object_mut()
         .ok_or("hooks is not an object")?;
-    for key in &["Notification", "Stop", "PreCompact", "SessionStart"] {
-        if hooks.get(*key).is_some_and(|value| !value.is_array()) {
-            return Err(format!("hooks.{key} is not an array"));
+    let roster = hook_event_roster();
+    for binding in &roster {
+        if hooks
+            .get(binding.event.as_str())
+            .is_some_and(|value| !value.is_array())
+        {
+            return Err(format!("hooks.{} is not an array", binding.event));
         }
     }
-    for key in &["Notification", "Stop", "PreCompact", "SessionStart"] {
-        if let Some(arr) = hooks.get_mut(*key).and_then(|value| value.as_array_mut()) {
+    for binding in &roster {
+        if let Some(arr) = hooks
+            .get_mut(binding.event.as_str())
+            .and_then(|value| value.as_array_mut())
+        {
             arr.retain(|hook| !is_codeterm_hook(hook));
         }
     }
@@ -590,6 +606,62 @@ mod tests {
         assert!(!first.contains("CODETERM_API_PORT"));
         assert!(!first.contains("localhost:768"));
         assert!(!first.contains("> NUL"));
+    }
+
+    #[test]
+    fn hook_event_roster_declares_the_four_current_events() {
+        use crate::provider::HookIngestionRoute;
+
+        let declared: Vec<(String, HookIngestionRoute)> = hook_event_roster()
+            .into_iter()
+            .map(|binding| (binding.event, binding.route))
+            .collect();
+        assert_eq!(
+            declared,
+            vec![
+                ("Notification".to_string(), HookIngestionRoute::Permission),
+                ("Stop".to_string(), HookIngestionRoute::Stop),
+                ("PreCompact".to_string(), HookIngestionRoute::MemFlush),
+                ("SessionStart".to_string(), HookIngestionRoute::SessionStart),
+            ]
+        );
+    }
+
+    #[test]
+    fn install_writes_exactly_the_declared_hook_event_roster() {
+        use std::collections::BTreeSet;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        install_integration_at(&path, &integration_options(true)).unwrap();
+        let installed: Json =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let hooks = installed.get("hooks").and_then(|h| h.as_object()).unwrap();
+
+        let declared: BTreeSet<String> =
+            hook_event_roster().into_iter().map(|b| b.event).collect();
+        let written: BTreeSet<String> = hooks.keys().cloned().collect();
+        assert_eq!(written, declared, "installed events must equal the roster");
+        for event in &declared {
+            let entries = hooks[event].as_array().unwrap();
+            assert_eq!(entries.len(), 1, "{event}: exactly one installed entry");
+            assert!(is_codeterm_hook(&entries[0]), "{event}: codeterm-owned");
+        }
+
+        let without_precompact = dir.path().join("settings-no-precompact.json");
+        install_integration_at(&without_precompact, &integration_options(false)).unwrap();
+        let installed: Json =
+            serde_json::from_str(&std::fs::read_to_string(&without_precompact).unwrap()).unwrap();
+        let written: BTreeSet<String> = installed
+            .get("hooks")
+            .and_then(|h| h.as_object())
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect();
+        let mut expected = declared;
+        expected.remove("PreCompact");
+        assert_eq!(written, expected);
     }
 
     #[test]
