@@ -295,7 +295,7 @@ for (const profile of PROFILES) {
 
       await fire(h.el, keydownEvent({ key: "Enter", keyCode: 13, isComposing: false }));
       await flush();
-      assert(h.sendCalls.length === 1, "plain Enter after the composition closed sends exactly once");
+      assert((h.sendCalls.length as number) === 1, "plain Enter after the composition closed sends exactly once");
       assert(
         h.sendCalls[0].text === FINAL,
         `payload carries the composed text exactly once, byte-identical — no cumulative prefixes (got ${JSON.stringify(h.sendCalls[0].text)})`,
@@ -327,7 +327,7 @@ test("Escape-cancel: a canceled composition emits nothing", async () => {
     await fire(h.el, inputEvent({ isComposing: false }));
     await fire(h.el, keydownEvent({ key: "Enter", keyCode: 13, isComposing: false }));
     await flush();
-    assert(h.sendCalls.length === 1, "post-cancel ASCII draft sends");
+    assert((h.sendCalls.length as number) === 1, "post-cancel ASCII draft sends");
     assert(
       h.sendCalls[0].text === "ok",
       `canceled composition contributed zero bytes to the buffer (got ${JSON.stringify(h.sendCalls[0].text)})`,
