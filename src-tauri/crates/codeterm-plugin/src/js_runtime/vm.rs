@@ -74,6 +74,8 @@ const PLUGIN_PREAMBLE: &str = r#"
     },
   };
   host.manifest = function () { return parseJson(host.manifestJson()); };
+  // null = denied/unreadable; [] = readable but no child dirs.
+  host.listChildDirs = function (p) { return parseJson(host.listChildDirsJson(p)); };
 
   // sync per step). Not Promise-wrapped: QuickJS can't drain a Promise in a sync `call_json` dispatch.
   host.mem = {
@@ -356,6 +358,11 @@ impl PluginVm {
         self.inner.lock().sandbox.agent_commands_allowed()
     }
 
+    /// Record a host-supplied tab cwd as a sandbox read-root (no-op when unrestricted).
+    pub fn grant_cwd_read_root(&self, cwd: &str) {
+        self.inner.lock().sandbox.grant_cwd_read_root(cwd);
+    }
+
     /// Re-stamp the plugin's settings into the existing sandbox without rebuilding the
     /// VM, so a config-only reload preserves in-memory state (open chatBackend sessions).
     pub fn reload_settings(&self, settings_json: String) {
@@ -408,6 +415,14 @@ impl Drop for PluginVm {
     fn drop(&mut self) {
         super::host_net::drop_plugin_jobs(&self.plugin_id);
         super::host_exec::drop_plugin_jobs(&self.plugin_id);
+    }
+}
+
+/// Record a host-composed `ctx.cwd` as a read-root grant on the plugin's
+/// sandbox. Callers must only pass ctx objects the host itself assembled.
+pub(super) fn grant_ctx_cwd(vm: &PluginVm, ctx: &serde_json::Value) {
+    if let Some(cwd) = ctx.get("cwd").and_then(|v| v.as_str()) {
+        vm.grant_cwd_read_root(cwd);
     }
 }
 
