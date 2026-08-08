@@ -82,13 +82,16 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
       port: stub.port,
     });
     peerId = added.instance_id;
-    stub.instanceId = peerId;
+    // The stub must present its own UUID identity, never the daemon's
+    // manual-<uuid> placeholder: pairing rejects non-UUID identities and
+    // remaps the placeholder to the peer's real id on connect confirmation.
     await api.post("/mesh/connect", { instance_id: peerId });
     await stub.waitForPairAccept();
     await pollUntil(async () => {
       const peers = await api.get<{ paired: { instance_id: string }[] }>("/mesh/peers");
-      return peers.paired.some((p) => p.instance_id === peerId);
+      return peers.paired.some((p) => p.instance_id === stub.instanceId);
     }, 20_000, 500, "stub peer pairs for web switching");
+    peerId = stub.instanceId;
 
     const page = await newWebPage(webBrowser);
     await page.goto(WEB_URL, { waitUntil: "domcontentloaded" });
