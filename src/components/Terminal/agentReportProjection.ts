@@ -1,5 +1,6 @@
 import { useCallback, useSyncExternalStore } from "react";
 import { listen } from "../../lib/bridge";
+import { normalizeEpochMs } from "./outboundReportPlacement";
 
 export const AGENT_REPORT_EVENT = "agent-report";
 
@@ -50,6 +51,7 @@ export interface ProjectedAgentReport {
   branch: string | null;
   sha: string | null;
   taskOutcome: AgentReportTaskOutcome | null;
+  /** Epoch milliseconds — normalized once at ingest, comparable to Date.parse. */
   timestamp: number | null;
 }
 
@@ -132,7 +134,7 @@ export function ingestAgentReport(payload: AgentReportEventPayload): boolean {
     branch: text(payload.report.branch),
     sha: text(payload.report.sha),
     taskOutcome: outcome,
-    timestamp: typeof payload.report.timestamp === "number" ? payload.report.timestamp : null,
+    timestamp: normalizeEpochMs(payload.report.timestamp),
   });
   while (records.size > MAX_PROJECTED_REPORTS) {
     const oldest = records.keys().next().value;
