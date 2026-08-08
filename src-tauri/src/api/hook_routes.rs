@@ -212,14 +212,57 @@ pub async fn hook_permission(
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
-/// Hook endpoint: agent stopped (task complete).
-/// Called by Claude Code hook (Stop matcher).
+/// Verdict for a provider-reported Stop POST. A carried nonce must equal the
+/// tab's own launch nonce (completion-via-report); a nonce-less POST stays on
+/// the legacy inference-tolerant path; anything else is a foreign reporter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StopReportVerdict {
+    Verified,
+    Legacy,
+    Foreign,
+}
+
+fn stop_report_verdict(
+    launch_nonce: Option<&str>,
+    report_nonce: Option<&str>,
+) -> StopReportVerdict {
+    match (launch_nonce, report_nonce) {
+        (Some(expected), Some(got)) if got == expected => StopReportVerdict::Verified,
+        (_, Some(_)) => StopReportVerdict::Foreign,
+        (_, None) => StopReportVerdict::Legacy,
+    }
+}
+
+/// Hook endpoint: agent stopped (task complete). Called by the Stop hook of
+/// whichever provider declares the stop route in its roster.
 pub async fn hook_stop(
     AxumState(state): AxumState<AppState>,
     Path(raw_tab_id): Path<String>,
+    headers: HeaderMap,
+    body: Option<Json<serde_json::Value>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let tab_id = resolve_tab(&state, &raw_tab_id).map_err(|(s, m)| (s, m.to_string()))?;
     log::debug!("[hook_stop] fired for Tab {}", tab_id);
+    let body = body.map(|Json(v)| v).unwrap_or(serde_json::Value::Null);
+    let report_nonce = body
+        .get("binding_nonce")
+        .and_then(|v| v.as_str())
+        .or_else(|| header_str(&headers, "x-codeterm-binding-nonce"))
+        .map(|s| s.to_string());
+    let launch_nonce = state
+        .svc
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .and_then(|tab| tab.session_binding_nonce.clone());
+    let verdict = stop_report_verdict(launch_nonce.as_deref(), report_nonce.as_deref());
+    if verdict == StopReportVerdict::Foreign {
+        log::warn!(
+            "[hook_stop] rejecting stop for Tab {}: binding nonce mismatch",
+            tab_id
+        );
+        return Err((StatusCode::CONFLICT, "binding nonce mismatch".to_string()));
+    }
     let title = state
         .svc
         .mux
@@ -247,11 +290,21 @@ pub async fn hook_stop(
     }
     state.svc.emit_state_changed();
 
-    // Hidden worker/cron runs (now ordinary interactive claude) finish on Stop if they didn't explicitly report. No-op for visible tabs / already-reported runs.
-    state
-        .svc
-        .run_watcher
-        .complete_via_stop_hook(&state.svc, &tab_id);
+    // Hidden worker/cron runs finish on Stop if they didn't explicitly report.
+    // A nonce-verified report is the completion-via-report path; a nonce-less
+    // legacy post keeps today's tab-keyed behavior. No-op for visible tabs.
+    match (verdict, report_nonce.as_deref()) {
+        (StopReportVerdict::Verified, Some(nonce)) => {
+            state
+                .svc
+                .run_watcher
+                .complete_via_stop_report(&state.svc, &tab_id, nonce)
+        }
+        _ => state
+            .svc
+            .run_watcher
+            .complete_via_stop_hook(&state.svc, &tab_id),
+    }
     state.svc.complete_worker_turn_without_report(
         &tab_id,
         crate::service::WorkerTurnSignal::ProviderStop,
