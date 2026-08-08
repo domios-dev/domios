@@ -6,8 +6,8 @@
 import { test, expect } from "../../helpers/fixtures";
 
 function visibleTabs(ws: any, tabs: Record<string, any>) {
-  return ws.tabs.filter((tab: any) => {
-    const tab = tabs[tab.tab_id];
+  return ws.tabs.filter((entry: any) => {
+    const tab = tabs[entry.tab_id];
     return tab && tab.hidden !== true && tab.show_in_tabbar !== false;
   });
 }
