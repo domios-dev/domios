@@ -218,8 +218,8 @@ fn codex_manifest_declares_trust_grant_capability() {
     assert_eq!(
         codex.integration_trust_grant_capability(),
         Some(IntegrationTrustGrantCapability {
-            managed_keys: vec!["session_start".into()],
+            managed_keys: vec!["session_start".into(), "stop".into()],
         }),
-        "bundled codex manifest must declare the trust grant scoped to its managed hook key"
+        "bundled codex manifest must declare the trust grant scoped to its managed hook keys"
     );
 }
