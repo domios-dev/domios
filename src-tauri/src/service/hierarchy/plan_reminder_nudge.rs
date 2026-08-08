@@ -1021,6 +1021,40 @@ mod tests {
     }
 
     #[test]
+    fn all_paused_backlog_stays_active_without_reminders_until_new_work_arrives() {
+        let mut backlog = plan(
+            "pl_backlog",
+            "backlog-owner",
+            PlanMode::Execution,
+            vec![
+                task("paused-1", TaskStatus::Paused, Some("worker-1")),
+                task("paused-2", TaskStatus::Paused, Some("worker-2")),
+                task("paused-3", TaskStatus::Paused, None),
+                task("paused-4", TaskStatus::Paused, Some("worker-4")),
+            ],
+        );
+
+        assert_eq!(backlog.status, PlanStatus::Active);
+        assert_eq!(backlog.mode, PlanMode::Execution);
+        assert!(!is_plan_complete(&backlog));
+        assert!(timed_plan_reminder_targets(&[backlog.clone()]).is_empty());
+
+        backlog
+            .tasks
+            .push(task("new-work", TaskStatus::Pending, None));
+
+        assert_eq!(
+            timed_plan_reminder_targets(&[backlog]),
+            vec![TimedPlanReminderTarget {
+                tab_id: "backlog-owner".into(),
+                target: PlanReminderTarget::Owner {
+                    plan_id: "pl_backlog".into(),
+                },
+            }]
+        );
+    }
+
+    #[test]
     fn time_targets_prioritize_owner_over_worker_for_same_tab() {
         let plans = vec![plan(
             "pl_1",
