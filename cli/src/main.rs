@@ -2,6 +2,7 @@ mod client;
 mod cmd;
 mod local_api;
 mod mesh_cli;
+mod protocol;
 mod stdout;
 mod transport;
 

@@ -104,8 +104,33 @@ curl http://host:7685/api/network
 ### Protocol
 Newline-delimited JSON:
 ```json
-{"jsonrpc":"2.0","id":1,"method":"system.identify","params":null}
+{"jsonrpc":"2.0","id":1,"method":"system.identify","params":null,"protocol_version":1}
 ```
+
+#### Protocol version skew
+
+Every request envelope carries the control-plane `protocol_version` integer
+(one value, embedded in both `cli/src/protocol.rs` and
+`src-tauri/src/socket/server/protocol.rs`). Dispatch compares it before
+routing: a client presenting an older integer — or none at all, which is
+treated as the oldest protocol, never crashed on — receives one typed error
+instead of method-level parse noise:
+
+```json
+{"code": -32002,
+ "message": "client protocol v0, server requires >=1 — run ./build.sh cli",
+ "data": {"type": "version_skew", "client_protocol": 0, "server_protocol": 1,
+          "recovery": "./build.sh cli"}}
+```
+
+`recovery` is `./build.sh cli` on dev builds and `codeterm update install --auto`
+on release builds. The CLI prints the daemon-composed message verbatim.
+Same-version requests take the unchanged dispatch path with zero added
+round-trips. `POST /api/mesh/rpc` accepts the same `protocol_version` field and
+returns the same typed error; the mesh relay forwards it untranslated, so a
+mismatched peer fails with the same actionable one-liner. A newer client
+against an older daemon is not refused by this gate; a method the old daemon
+lacks still fails as `-32601`, which the CLI enriches with both app versions.
 
 ### Methods
 
@@ -222,4 +247,4 @@ Newline-delimited JSON:
 
 For `team.rename` and `team.close`, omitted `caller_tab_id` is the trusted direct-user path on the local socket. `team.adopt_plan` requires a non-empty caller belonging to the destination Team as its Orchestrator or planner-profile Manager; missing callers, Workers, and foreign tabs are rejected before mutation. Adoption preserves the structured `team_already_has_active_plan` conflict when the Team already owns another active plan. Events are emitted only after persistence succeeds.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->

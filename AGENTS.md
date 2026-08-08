@@ -317,7 +317,7 @@ Prefer cached SCIP indexes for definitions, references, and implementation graph
 
 Issue and commit titles use `<scope>: description` (`fix`, `feat`, `mem`, `mesh`, `research`, `docs`, `build`), never bracket tags. Release work must load `.agents/skills/github-release/SKILL.md`; build-farm details live in `.codeterm/build-machine/README.md`; the human-readable runbook (preflight, trigger tag, artifact matrix, troubleshooting) is `docs/RELEASE.md`. Never direct-push `master`, move published tags, or release from an unverified head.
 
-**CLI contract changes require a consumer audit.** Review and update affected docs, prompts, skills, cards/examples, and contract tests; never change Clap syntax, output, or behavior in isolation.
+**CLI contract changes require a consumer audit.** Review and update affected docs, prompts, skills, cards/examples, and contract tests; never change Clap syntax, output, or behavior in isolation. A breaking wire-contract change also bumps the control-plane protocol integer on both sides (`cli/src/protocol.rs` + `src-tauri/src/socket/server/protocol.rs`) — checklist: `docs/contributing/cli.md`.
 
 PRs that target a non-default integration branch declare each fixed source-repo issue with one exact line: `Repository-Issue: rollacode/codeterm#N`. Do not use `Closes`/`Fixes` there: GitHub ignores closing keywords outside the default branch. Before opening the final `develop` → `master` PR, render those declarations with `python3 scripts/release_issue_contract.py repository-closes --body-file <release-pr-body.md>` and put the resulting `Closes #N` lines in the final PR body. Public `codeterm-releases` issues remain separate `Public-Issue:` metadata and close only after verified artifact publication; see `docs/RELEASE.md`.
 
@@ -340,4 +340,4 @@ Bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
 - `docs/spikes/llm-codemap-eval.md` — code-map bake-off; why SCIP is the adopted code-navigation index
 - `docs/contributing/` — agents, style, architecture, per-feature testing recipes
 
-<!-- revision: 30 -->
+<!-- revision: 31 -->
