@@ -101,9 +101,7 @@ impl MultiplexerState {
                 .get(tab_id)
                 .ok_or_else(|| format!("Tab {} not found", tab_id))?;
             if existing.parent_tab_id.is_some() {
-                return Err(format!(
-                    "Cannot become {label} — already in a hierarchy"
-                ));
+                return Err(format!("Cannot become {label} — already in a hierarchy"));
             }
             let tab = self
                 .tabs

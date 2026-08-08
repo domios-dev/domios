@@ -37,21 +37,25 @@ if (diff.stdout.trim()) {
   process.exit(1);
 }
 
-const status = spawnSync("git", ["status", "--porcelain", "--", ...bundlePaths], {
+const untracked = spawnSync(
+  "git",
+  ["ls-files", "--others", "--exclude-standard", "--", ...bundlePaths],
+  {
   cwd: repo,
   encoding: "utf8",
-});
+  },
+);
 
-if (status.status !== 0) {
-  process.stderr.write(status.stderr || "git status failed\n");
-  process.exit(status.status ?? 1);
+if (untracked.status !== 0) {
+  process.stderr.write(untracked.stderr || "git ls-files failed\n");
+  process.exit(untracked.status ?? 1);
 }
 
-if (status.stdout.trim()) {
+if (untracked.stdout.trim()) {
   process.stderr.write(
-    "\nPlugin bundles have uncommitted or untracked generated files. Commit the generated bundle output.\n\n",
+    "\nPlugin bundles have untracked generated files. Commit the generated bundle output.\n\n",
   );
-  process.stdout.write(status.stdout);
+  process.stdout.write(untracked.stdout);
   process.exit(1);
 }
 

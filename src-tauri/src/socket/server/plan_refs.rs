@@ -278,8 +278,12 @@ mod tests {
     #[test]
     fn unknown_task_ref_is_not_found_not_invalid_params() {
         let dir = tempfile::tempdir().unwrap();
-        let (store, plan_id) =
-            store_with_plan(dir.path(), "owner_task_ref", "Owner plan", PlanMode::Execution);
+        let (store, plan_id) = store_with_plan(
+            dir.path(),
+            "owner_task_ref",
+            "Owner plan",
+            PlanMode::Execution,
+        );
         let task_id = add_task(&store, &plan_id, "real", "real");
 
         let params = json!({ "plan_id": plan_id, "task_id": format!("{task_id}_nope") });
@@ -293,8 +297,7 @@ mod tests {
     #[test]
     fn ambiguous_plan_ref_stays_invalid_params() {
         let dir = tempfile::tempdir().unwrap();
-        let (store, first) =
-            store_with_plan(dir.path(), "owner_a", "First", PlanMode::Execution);
+        let (store, first) = store_with_plan(dir.path(), "owner_a", "First", PlanMode::Execution);
         let second = store
             .create_plan_for_team(
                 "Second".into(),

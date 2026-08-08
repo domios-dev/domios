@@ -284,7 +284,8 @@ impl NotificationStore {
     /// Close every coalescing boundary owned by a closing tab. Tab ids are not
     /// reused, so dropping the counter cannot reset a live scope's ceiling.
     pub fn close_push_scope(&mut self, scope: &str) {
-        self.push_slots.retain(|(slot_scope, _), _| slot_scope != scope);
+        self.push_slots
+            .retain(|(slot_scope, _), _| slot_scope != scope);
         self.push_counts.remove(scope);
     }
 

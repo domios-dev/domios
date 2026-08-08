@@ -35,16 +35,9 @@ where
         "remote Tabs",
         &mut warnings,
     );
-    let teams = optional_source(
-        rpc("team.list", None),
-        "remote Teams",
-        &mut warnings,
-    );
+    let teams = optional_source(rpc("team.list", None), "remote Teams", &mut warnings);
     let plans = optional_source(
-        rpc(
-            "plan.list",
-            Some(serde_json::json!({ "status": "active" })),
-        ),
+        rpc("plan.list", Some(serde_json::json!({ "status": "active" }))),
         "remote Plans",
         &mut warnings,
     );
@@ -86,9 +79,7 @@ pub(super) fn print_remote_workspace_topology(target: &str) {
         super::relay::mesh_relay_invoke_result(target, method, path, None)
             .map_err(|failure| failure.to_string())
     };
-    let mut rpc = |method: &str, params: Option<serde_json::Value>| {
-        rpc_client.call(method, params)
-    };
+    let mut rpc = |method: &str, params: Option<serde_json::Value>| rpc_client.call(method, params);
     let (data, warnings) = match fetch_workspace_topology(&mut rest, &mut rpc) {
         Ok(result) => result,
         Err(error) => {
@@ -185,7 +176,10 @@ mod tests {
             None,
         );
         for expected in ["ws_remote", "tab_remote", "team_remote", "pl_remote"] {
-            assert!(rendered.contains(expected), "missing {expected}: {rendered}");
+            assert!(
+                rendered.contains(expected),
+                "missing {expected}: {rendered}"
+            );
         }
     }
 

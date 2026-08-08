@@ -78,8 +78,7 @@ impl MultiplexerState {
     /// with a `worker_id`), which must stay restorable.
     fn build_closed_tab(&self, tab_id: &str, reason: TabCloseReason) -> Option<ClosedTab> {
         let tab = self.tabs.get(tab_id)?;
-        let policy_worker =
-            reason == TabCloseReason::PolicyWorker && tab.worker_id.is_some();
+        let policy_worker = reason == TabCloseReason::PolicyWorker && tab.worker_id.is_some();
         if tab.protected {
             return None;
         }
@@ -230,10 +229,7 @@ impl MultiplexerState {
         self.ensure_workspace_membership_mutable(&workspace_id)
     }
 
-    pub(super) fn workspace_close_is_reserved_by(
-        &self,
-        prepared: &PreparedWorkspaceClose,
-    ) -> bool {
+    pub(super) fn workspace_close_is_reserved_by(&self, prepared: &PreparedWorkspaceClose) -> bool {
         self.workspace_close_reservations
             .get(&prepared.workspace_id)
             == Some(&prepared.reservation_id)
@@ -262,10 +258,7 @@ impl MultiplexerState {
         }
     }
 
-    pub(super) fn record_prepared_workspace_close(
-        &mut self,
-        prepared: &PreparedWorkspaceClose,
-    ) {
+    pub(super) fn record_prepared_workspace_close(&mut self, prepared: &PreparedWorkspaceClose) {
         let Some(group) = prepared.group.as_ref() else {
             return;
         };

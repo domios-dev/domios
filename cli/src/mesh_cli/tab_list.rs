@@ -14,7 +14,12 @@ pub(super) enum TabListRendering {
 
 /// `None` means the command is not a tab list and stays on the generic relay.
 pub(super) fn rendering_for(cli: &Cli) -> Option<TabListRendering> {
-    if !matches!(cli.command, Commands::Tab { action: TabAction::List { .. } }) {
+    if !matches!(
+        cli.command,
+        Commands::Tab {
+            action: TabAction::List { .. }
+        }
+    ) {
         return None;
     }
     Some(if cli.json {

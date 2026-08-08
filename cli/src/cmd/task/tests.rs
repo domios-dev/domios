@@ -395,8 +395,7 @@ mod error_contract_tests {
     fn inbox_add_rejection_reaches_the_contract() {
         let mut client = FailingRpc::local();
         let message = run_inbox(&mut client, inbox_add(None))
-            .err()
-            .expect("inbox add surfaces the daemon rejection");
+            .expect_err("inbox add surfaces the daemon rejection");
 
         assert_eq!(client.calls, ["task.add"]);
         let (out, err) = rendered(false, &message);
@@ -413,8 +412,7 @@ mod error_contract_tests {
             .join("body.md");
         assert!(!missing.exists(), "the fixture must name an absent path");
         let message = run_inbox(&mut client, inbox_add(Some(missing.display().to_string())))
-            .err()
-            .expect("an unreadable --body-file is rejected locally");
+            .expect_err("an unreadable --body-file is rejected locally");
 
         assert!(client.calls.is_empty(), "{:?}", client.calls);
         let (out, err) = rendered(false, &message);
@@ -433,8 +431,7 @@ mod error_contract_tests {
                 plan: None,
             },
         )
-        .err()
-        .expect("canvas focus surfaces the daemon rejection");
+        .expect_err("canvas focus surfaces the daemon rejection");
 
         assert_eq!(client.calls, ["canvas.focus"]);
         let (out, err) = rendered(true, &message);

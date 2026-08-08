@@ -47,7 +47,10 @@ mod tests {
     fn pad_path_hides_the_verbatim_prefix_in_both_output_modes() {
         let verbatim = PathBuf::from(r"\\?\D:\Developer\codeterm\pads\tab_1");
         let expected = r"D:\Developer\codeterm\pads\tab_1";
-        assert_eq!(pad_path_value(&verbatim, false), serde_json::json!(expected));
+        assert_eq!(
+            pad_path_value(&verbatim, false),
+            serde_json::json!(expected)
+        );
         assert_eq!(
             pad_path_value(&verbatim, true),
             serde_json::json!({ "path": expected })
@@ -58,7 +61,10 @@ mod tests {
     fn pad_path_restores_the_unc_share_form() {
         let verbatim = PathBuf::from(r"\\?\UNC\server\share\pads\tab_1");
         let expected = r"\\server\share\pads\tab_1";
-        assert_eq!(pad_path_value(&verbatim, false), serde_json::json!(expected));
+        assert_eq!(
+            pad_path_value(&verbatim, false),
+            serde_json::json!(expected)
+        );
         assert_eq!(
             pad_path_value(&verbatim, true),
             serde_json::json!({ "path": expected })

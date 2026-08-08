@@ -8,7 +8,7 @@
 #   ./build.sh check     — integration-owner cargo check
 #   ./build.sh frontend  — production frontend typecheck + bundle
 #   ./build.sh release-inputs — build target-aware frontend/CLI/embed bundle inputs
-#   ./build.sh release-preflight — refresh and verify release Cargo lockfiles
+#   ./build.sh release-preflight — run local PR checks and verify release inputs
 #   ./build.sh worktree-check — explicit isolated, nonincremental lane check
 #   ./build.sh build     — production build
 #   ./build.sh install-local — incremental production build + self-install, then resume the calling tab
@@ -1435,10 +1435,24 @@ EOF
     enter_build_gateway "$CMD ${*:2}"
     prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
+    ensure_deps
     ct_configure_sccache
+    cargo fmt --manifest-path src-tauri/Cargo.toml --all --check
+    cargo fmt --manifest-path cli/Cargo.toml --all --check
+    bash scripts/check-file-sizes.sh --fail
+    node scripts/check-plugin-bundles.mjs
+    node scripts/check-release-locks.mjs
+    node scripts/sync-plugin-versions.mjs --check
     cargo check --manifest-path src-tauri/Cargo.toml
     cargo check --manifest-path cli/Cargo.toml
-    node scripts/check-release-locks.mjs
+    bash scripts/clippy-gate.sh
+    run_workspace_lib_tests
+    scripts/test-capped.sh --manifest-path cli/Cargo.toml
+    node node_modules/typescript/bin/tsc --noEmit
+    node node_modules/knip/bin/knip.js --workspace @codeterm/chat-core --exports
+    node scripts/run-ts-unit-tests.mjs
+    node scripts/run-plugin-tests.mjs
+    node node_modules/@biomejs/biome/bin/biome check .
     ;;
   test)
     enter_build_gateway "$CMD ${*:2}"

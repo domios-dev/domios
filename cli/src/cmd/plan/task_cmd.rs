@@ -253,9 +253,7 @@ fn render_empty_reason(reason: &Value) -> Option<String> {
             "{} task(s) exist but none is active. Use --all or --status.",
             reason.get("hidden").and_then(Value::as_u64).unwrap_or(0)
         )),
-        EMPTY_REASON_NO_MATCH_FOR_FILTERS => {
-            Some("No task matched the supplied filters.".into())
-        }
+        EMPTY_REASON_NO_MATCH_FOR_FILTERS => Some("No task matched the supplied filters.".into()),
         _ => None,
     }
 }

@@ -70,7 +70,10 @@ fn only_the_exact_workspace_close_route_gets_typed_provenance() {
     for (method, path) in [
         (Method::GET, "/api/workspaces/ws_remote/close"),
         (Method::POST, "/api/workspaces/ws_remote/close/extra"),
-        (Method::POST, "/api/workspaces/ws_remote/close?caller_tab_id=x"),
+        (
+            Method::POST,
+            "/api/workspaces/ws_remote/close?caller_tab_id=x",
+        ),
         (Method::POST, "/api/workspaces/ws_remote/tabs/tab_1/close"),
     ] {
         assert_eq!(

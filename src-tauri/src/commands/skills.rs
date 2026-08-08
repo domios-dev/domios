@@ -481,7 +481,10 @@ mod mirror_tests {
         );
 
         write_skill(&dst_dir, "a\n<!-- revision: 5 -->");
-        assert!(!should_mirror_skill(&src_dir, &dst_dir), "identical -> skip");
+        assert!(
+            !should_mirror_skill(&src_dir, &dst_dir),
+            "identical -> skip"
+        );
 
         write_skill(&dst_dir, "OLD\n<!-- revision: 5 -->");
         assert!(

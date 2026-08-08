@@ -1,7 +1,7 @@
 use super::super::lane_safety::{isolated_lane_update_command, preflight_checkout_occupancy};
 use crate::plan::{ExecutionIntent, OrchestratorRef, TaskExecutionAttempt};
-use crate::service::LaneProtection;
 use crate::service::plan::{NewTask, PlanStore};
+use crate::service::LaneProtection;
 
 fn plan_with_attempt(
     closed_at: Option<u64>,
@@ -131,8 +131,13 @@ fn read_only_dispatch_is_not_blocked_by_an_occupied_checkout() {
         occupying_task_id
     );
 
-    preflight_checkout_occupancy(&plan, &dispatched_task_id, &checkout, LaneProtection::Waived)
-        .unwrap();
+    preflight_checkout_occupancy(
+        &plan,
+        &dispatched_task_id,
+        &checkout,
+        LaneProtection::Waived,
+    )
+    .unwrap();
 }
 
 /// The waiver is derived from the dispatch-time intent only; the task-level

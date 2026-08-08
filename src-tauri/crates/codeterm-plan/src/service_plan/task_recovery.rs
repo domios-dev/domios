@@ -40,9 +40,7 @@ where
 }
 
 fn recovered_status(outcome: &Option<TaskStatus>, current: &TaskStatus) -> Option<TaskStatus> {
-    outcome
-        .clone()
-        .filter(|_| *current != TaskStatus::InReview)
+    outcome.clone().filter(|_| *current != TaskStatus::InReview)
 }
 
 fn owner_is_stale(task: &Task, live_tab: impl Fn(&str) -> bool) -> bool {

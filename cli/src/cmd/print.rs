@@ -114,7 +114,10 @@ pub const TAB_LIST_JSON_KEY: &str = "tabs";
 
 pub fn tab_list_json_envelope(tabs: Vec<serde_json::Value>) -> serde_json::Value {
     let mut envelope = serde_json::Map::new();
-    envelope.insert(TAB_LIST_JSON_KEY.to_string(), serde_json::Value::Array(tabs));
+    envelope.insert(
+        TAB_LIST_JSON_KEY.to_string(),
+        serde_json::Value::Array(tabs),
+    );
     serde_json::Value::Object(envelope)
 }
 
@@ -404,7 +407,10 @@ mod tests {
     fn json_error_envelope_goes_to_stdout_and_leaves_stderr_empty() {
         let (out, err) = rendered(true, &CliError::from(tab_not_found()));
 
-        assert!(err.is_empty(), "--json puts the whole failure on stdout: {err}");
+        assert!(
+            err.is_empty(),
+            "--json puts the whole failure on stdout: {err}"
+        );
         let envelope: serde_json::Value =
             serde_json::from_str(&out).expect("stdout carries exactly one JSON envelope");
         assert_eq!(envelope["ok"], serde_json::Value::Bool(false));
@@ -434,7 +440,10 @@ mod tests {
 
         let (out, err) = rendered(true, &CliError::new("plan not found"));
 
-        assert!(err.is_empty(), "--json puts the whole failure on stdout: {err}");
+        assert!(
+            err.is_empty(),
+            "--json puts the whole failure on stdout: {err}"
+        );
         let envelope: serde_json::Value =
             serde_json::from_str(&out).expect("stdout carries exactly one JSON envelope");
         assert_eq!(envelope["ok"], serde_json::Value::Bool(false));
@@ -448,7 +457,10 @@ mod tests {
 
         assert!(out.is_empty(), "stdout must stay parseable: {out}");
         assert!(!err.contains(RPC_CODE_MARKER), "{err}");
-        assert!(err.contains("one or more requested Tabs were not found"), "{err}");
+        assert!(
+            err.contains("one or more requested Tabs were not found"),
+            "{err}"
+        );
     }
 
     #[test]
@@ -463,7 +475,11 @@ mod tests {
         let error = CliError::from(tab_not_found());
 
         assert_eq!(error.code, Some(-32603));
-        assert!(!error.message.contains(RPC_CODE_MARKER), "{}", error.message);
+        assert!(
+            !error.message.contains(RPC_CODE_MARKER),
+            "{}",
+            error.message
+        );
     }
 
     /// `RpcClient::call` stringifies through `Display`, which is where the code
@@ -506,7 +522,10 @@ mod tests {
     fn locally_validated_error_still_emits_the_envelope_with_a_null_code() {
         let (out, err) = rendered(true, &CliError::new("invalid remote tab id"));
 
-        assert!(err.is_empty(), "--json puts the whole failure on stdout: {err}");
+        assert!(
+            err.is_empty(),
+            "--json puts the whole failure on stdout: {err}"
+        );
         let envelope: serde_json::Value = serde_json::from_str(&out).expect("one JSON envelope");
         assert_eq!(envelope["ok"], serde_json::Value::Bool(false));
         assert_eq!(envelope["code"], serde_json::Value::Null);

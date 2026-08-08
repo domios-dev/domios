@@ -426,8 +426,7 @@ mod tests {
 
     #[test]
     fn places_live_team_with_its_tabs_instead_of_stale_registered_workspace() {
-        let workspaces =
-            json!([{"id":"ws_live","name":"live","tab_count":1,"tab_ids":["orch"]}]);
+        let workspaces = json!([{"id":"ws_live","name":"live","tab_count":1,"tab_ids":["orch"]}]);
         let tabs =
             json!([{"id":"orch","title":"audit","workspace_id":"ws_live","team_id":"team_cli"}]);
         let teams =
@@ -454,7 +453,9 @@ mod tests {
         let output = render(
             &json!([]),
             Some(&json!([])),
-            Some(&json!({"teams":[{"id":"team_lost","workspace_id":"ws_gone","lifecycle":"forming"}]})),
+            Some(
+                &json!({"teams":[{"id":"team_lost","workspace_id":"ws_gone","lifecycle":"forming"}]}),
+            ),
             Some(&json!({"plans":[]})),
             None,
             None,
@@ -500,8 +501,7 @@ mod tests {
 
     #[test]
     fn auxiliary_failures_keep_the_workspace_and_tab_spine() {
-        let workspaces =
-            json!([{"id":"ws","name":"one","tab_count":1,"tab_ids":["tab"]}]);
+        let workspaces = json!([{"id":"ws","name":"one","tab_count":1,"tab_ids":["tab"]}]);
         let tabs = json!([{"id":"tab","title":"work","workspace_id":"ws","team_id":"team"}]);
 
         let output = render(&workspaces, Some(&tabs), None, None, None, None);
@@ -542,8 +542,7 @@ mod tests {
 
     #[test]
     fn fixed_input_renders_deterministically() {
-        let workspaces =
-            json!([{"id":"ws","name":"one","tab_count":1,"tab_ids":["tab"]}]);
+        let workspaces = json!([{"id":"ws","name":"one","tab_count":1,"tab_ids":["tab"]}]);
         let tabs = json!([{"id":"tab","title":"work","workspace_id":"ws"}]);
         let teams = json!({"teams":[]});
         let plans = json!({"plans":[]});

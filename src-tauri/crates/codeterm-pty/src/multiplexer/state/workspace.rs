@@ -100,10 +100,7 @@ impl MultiplexerState {
         if !self.workspace_close_is_reserved_by(&prepared) {
             return Err(format!("Workspace close reservation lost: {id}"));
         }
-        let idx = self
-            .workspaces
-            .iter()
-            .position(|w| w.id == id);
+        let idx = self.workspaces.iter().position(|w| w.id == id);
         let Some(idx) = idx else {
             self.release_workspace_close_reservation(&prepared);
             return Err(format!("Workspace not found: {id}"));

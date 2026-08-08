@@ -169,12 +169,7 @@ pub fn compact_records(records: &[JournalRecord]) -> Vec<JournalRecord> {
     let checkpoints = sealed_checkpoints(records);
     let covered: HashMap<&str, JournalSeq> = checkpoints
         .iter()
-        .map(|checkpoint| {
-            (
-                checkpoint.key.tab_id.as_str(),
-                checkpoint.committed_through,
-            )
-        })
+        .map(|checkpoint| (checkpoint.key.tab_id.as_str(), checkpoint.committed_through))
         .collect();
 
     let closed = closed_tabs(records);

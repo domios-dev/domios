@@ -57,7 +57,9 @@ pub enum LifecycleTransition {
     /// A fresh lifecycle operation begins. Carries no authority by itself.
     EpochOpened,
     /// Provider identity accepted for this operation.
-    ProviderIdentityCommitted { provider: String },
+    ProviderIdentityCommitted {
+        provider: String,
+    },
     /// Provider session bound and proven by the echoed launch nonce.
     SessionBound {
         session_id: String,
@@ -83,7 +85,9 @@ pub enum LifecycleTransition {
     LaunchReady,
     RestartRequested,
     /// Authority withdrawn; the operation can never seal afterwards.
-    RolledBack { reason: String },
+    RolledBack {
+        reason: String,
+    },
     Closed,
 }
 

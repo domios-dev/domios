@@ -44,10 +44,9 @@ fn partial_launch_residue_leaf(role: &str) -> SplitNodeSnapshot {
 #[test]
 fn partial_launch_residue_never_restores_as_a_live_orchestrator() {
     for role in ["Orchestrator", "Conductor", "Manager", "Worker"] {
-        let restored =
-            MultiplexerState::from_session_snapshot(&snapshot_with(partial_launch_residue_leaf(
-                role,
-            )));
+        let restored = MultiplexerState::from_session_snapshot(&snapshot_with(
+            partial_launch_residue_leaf(role),
+        ));
         let tab = restored.get_tab("db79d2da").expect("residue tab survives");
 
         assert_eq!(tab.role, None, "{role}: no provider identity, no role");
@@ -118,7 +117,10 @@ fn a_complete_agent_tab_keeps_its_restored_role_and_team() {
     let restored = MultiplexerState::from_session_snapshot(&snapshot_with(leaf));
     let tab = restored.get_tab("db79d2da").expect("agent tab");
 
-    assert_eq!(tab.role, Some(crate::multiplexer::types::AgentRole::Manager));
+    assert_eq!(
+        tab.role,
+        Some(crate::multiplexer::types::AgentRole::Manager)
+    );
     assert_eq!(tab.role_profile.as_deref(), Some("orchestrator"));
     assert_eq!(tab.team_id.as_deref(), Some("team_residue"));
     assert!(tab.can_spawn);

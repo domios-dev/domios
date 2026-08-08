@@ -344,8 +344,7 @@ pub(crate) fn workspace_current_notices(
     if identity.explicit.is_some() {
         return notices;
     }
-    let used_caller_tab =
-        matches!(resolved, Ok(resolution) if resolution.source == WorkspaceResolutionSource::CallerTab);
+    let used_caller_tab = matches!(resolved, Ok(resolution) if resolution.source == WorkspaceResolutionSource::CallerTab);
     if let Some(env) = trimmed(identity.workspace_env) {
         if !used_caller_tab && workspace_by_id(workspaces, env).is_none() {
             notices.push(format!(
@@ -545,7 +544,10 @@ mod tests {
             .expect("the ack arm ends at the next action")
             .0;
 
-        assert!(arm.contains("resolve_caller_tab(tab, \"agent ack\")"), "{arm}");
+        assert!(
+            arm.contains("resolve_caller_tab(tab, \"agent ack\")"),
+            "{arm}"
+        );
         assert!(
             !arm.contains("resolve_tab("),
             "ack must not resolve through the client-based wrapper: {arm}"

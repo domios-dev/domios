@@ -700,7 +700,10 @@ impl Tab {
     }
 
     pub fn has_team_authority(&self) -> bool {
-        codeterm_types::agent::role_kind::has_team_authority(self.role, self.role_profile.as_deref())
+        codeterm_types::agent::role_kind::has_team_authority(
+            self.role,
+            self.role_profile.as_deref(),
+        )
     }
 
     pub fn has_team_orchestrator_authority(&self) -> bool {
@@ -716,11 +719,10 @@ impl Tab {
         let session_id = self.agent_session_id.clone();
         self.prior_session_binding_nonces
             .retain(|entry| entry.nonce != current);
-        self.prior_session_binding_nonces
-            .push(PriorBindingNonce {
-                session_id,
-                nonce: current,
-            });
+        self.prior_session_binding_nonces.push(PriorBindingNonce {
+            session_id,
+            nonce: current,
+        });
         let overflow = self
             .prior_session_binding_nonces
             .len()
