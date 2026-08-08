@@ -59,6 +59,23 @@ fn preflight_review_capacity(plan: &crate::plan::Plan, task: &Task) -> Result<()
     crate::service::plan::review_gate::validate_dispatch_review_capacity(plan, task)
 }
 
+fn preflight_dispatch_task_status(plan_id: &str, task: &Task) -> Result<(), JsonRpcError> {
+    if task.status != crate::plan::TaskStatus::Paused {
+        return Ok(());
+    }
+    let fix = format!("codeterm plan task resume {plan_id} {}", task.id);
+    Err(JsonRpcError {
+        code: -32602,
+        message: format!("task '{}' is paused\nfix: {fix}", task.id),
+        data: Some(json!({
+            "type": "invalid_task_dispatch",
+            "stage": "task_status",
+            "reason": "task is paused",
+            "fix": fix,
+        })),
+    })
+}
+
 fn verify_dispatched_task_binding(
     store: &crate::service::plan::PlanStore,
     plan_id: &str,
@@ -638,6 +655,7 @@ pub(super) fn dispatch(
     let detail = store
         .show_task(&task_id)
         .ok_or_else(|| plan_rpc_err(PlanError::TaskNotFound))?;
+    preflight_dispatch_task_status(&plan_id, &detail.task)?;
 
     // Frontier policy: a non-blocker cannot spawn while regression gates are
     // pending. Decide BEFORE any tab is created so a block leaves no orphan.
