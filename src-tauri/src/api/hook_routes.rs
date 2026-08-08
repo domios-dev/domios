@@ -376,6 +376,21 @@ pub async fn hook_session_start(
 
     // while it runs — not only after completion.
     propagate_run_session(&state, &tab_id, &sid);
+    if let Some(reported_transcript) = reported_transcript_path(&body) {
+        let evidence_sid = sid.clone();
+        let persisted = tokio::task::spawn_blocking(move || {
+            codeterm_plugin::session_evidence::record(&evidence_sid, &reported_transcript)
+        })
+        .await
+        .unwrap_or(false);
+        if !persisted {
+            log::warn!(
+                "[hook_session_start] tab={} could not persist reported transcript_path for {}",
+                tab_id,
+                sid
+            );
+        }
+    }
     let transcript_progress =
         durable_transcript_progress(&state, &tab_id, &provider_id, &sid).await;
     state
@@ -525,6 +540,13 @@ fn session_start_string(body: &serde_json::Value, path: &[&str]) -> Option<Strin
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(String::from)
+}
+
+/// Provider-reported transcript path riding the SessionStart body. Persisted
+/// only after the report was accepted for this tab's own session above.
+fn reported_transcript_path(body: &serde_json::Value) -> Option<String> {
+    session_start_string(body, &["transcript_path"])
+        .or_else(|| session_start_string(body, &["payload", "transcript_path"]))
 }
 
 /// Push the just-bound session id (+cwd) onto whatever hidden run owns this tab

@@ -210,7 +210,14 @@ const plugin: PluginModule = {
       const f = files[i];
       if (!f.isFile || !endsWith(f.name, ".jsonl")) continue;
       const stem = f.name.substring(0, f.name.length - 6);
-      if (stem === sessionId || extractSessionUuid(stem) === sessionId) {
+      // The rollout's own session_meta id is provider-owned evidence and wins
+      // over filename reconstruction; files without one keep stem matching.
+      const meta = readSessionMeta(f.path);
+      const storedId = meta && meta.sessionId;
+      const matched = storedId
+        ? storedId === sessionId
+        : stem === sessionId || extractSessionUuid(stem) === sessionId;
+      if (matched) {
         hit = f.path;
         break;
       }

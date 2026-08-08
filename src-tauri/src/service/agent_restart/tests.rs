@@ -55,6 +55,88 @@ fn rate_limit_resets_after_window() {
     assert!(check(&tracker, "tab-1").is_ok());
 }
 
+fn guard_snapshot(session_id: Option<&str>) -> TabRestartSnapshot {
+    TabRestartSnapshot {
+        tab_id: "tab-guard".into(),
+        pty_id: "pty-guard".into(),
+        provider: "claude".into(),
+        session_id: session_id.map(str::to_string),
+        cwd: Some("/tmp/project".into()),
+        auto_approve: false,
+        role: None,
+        role_profile: None,
+    }
+}
+
+#[test]
+fn resume_guard_declares_failure_on_missing_evidenced_transcript_path() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut env = codeterm_util::test_env::EnvGuard::lock();
+    env.set(
+        codeterm_plugin::session_evidence::EVIDENCE_DIR_ENV,
+        tmp.path().join("store"),
+    );
+
+    let sid = "guard-sid-evidenced-missing";
+    let gone = tmp.path().join("moved-away.jsonl");
+    assert!(codeterm_plugin::session_evidence::record(
+        sid,
+        gone.to_str().unwrap()
+    ));
+    // The evidenced transcript never exists on disk — the guard must convert
+    // that into a declared failure instead of letting a command be built.
+    let reason = evidenced_transcript_block(&guard_snapshot(Some(sid)))
+        .expect("evidenced-but-missing transcript must block the resume");
+    assert!(
+        reason.contains("resume unavailable: transcript missing"),
+        "declared failure names the condition: {reason}"
+    );
+    assert!(
+        reason.contains("relaunch fresh"),
+        "declared failure carries the fresh-launch offer: {reason}"
+    );
+}
+
+#[test]
+fn resume_guard_passes_when_evidenced_transcript_path_exists() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut env = codeterm_util::test_env::EnvGuard::lock();
+    env.set(
+        codeterm_plugin::session_evidence::EVIDENCE_DIR_ENV,
+        tmp.path().join("store"),
+    );
+
+    let sid = "guard-sid-evidenced-present";
+    let alive = tmp.path().join("alive-transcript.jsonl");
+    std::fs::write(&alive, "{}\n").unwrap();
+    assert!(codeterm_plugin::session_evidence::record(
+        sid,
+        alive.to_str().unwrap()
+    ));
+    assert_eq!(
+        evidenced_transcript_block(&guard_snapshot(Some(sid))),
+        None,
+        "an existing evidenced transcript lets the resume proceed"
+    );
+}
+
+#[test]
+fn resume_guard_without_transcript_path_evidence_keeps_todays_behavior() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut env = codeterm_util::test_env::EnvGuard::lock();
+    env.set(
+        codeterm_plugin::session_evidence::EVIDENCE_DIR_ENV,
+        tmp.path().join("empty-store"),
+    );
+
+    // No evidence recorded ⇒ the guard must not fire, for a bound session or none.
+    assert_eq!(
+        evidenced_transcript_block(&guard_snapshot(Some("unevidenced-sid"))),
+        None
+    );
+    assert_eq!(evidenced_transcript_block(&guard_snapshot(None)), None);
+}
+
 fn registry_with_claude() -> crate::agent::registry::AgentRegistry {
     let registry = crate::agent::registry::AgentRegistry::new();
     registry.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));

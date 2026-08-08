@@ -23,6 +23,8 @@ struct SerdeSessionMetadata {
     summary: Option<String>,
     file_path: String,
     #[serde(default)]
+    transcript_path: Option<String>,
+    #[serde(default)]
     created_ts: Option<i64>,
     #[serde(default)]
     modified_ts: Option<i64>,
@@ -64,6 +66,7 @@ impl SerdeSessionMetadata {
             title: self.title,
             summary: self.summary,
             file_path: self.file_path,
+            transcript_path: self.transcript_path,
             created_ts: self.created_ts,
             modified_ts: self.modified_ts,
         }
@@ -499,6 +502,10 @@ impl AgentProvider for JsProvider {
     }
 
     fn session_file_path(&self, cwd: &str, session_id: &str) -> Option<PathBuf> {
+        // Hook-reported evidence wins over any reconstruction; absence falls through.
+        if let Some(stored) = crate::session_evidence::stored_transcript_path(session_id) {
+            return Some(stored);
+        }
         if let Some(p) =
             self.try_call::<Option<String>>("sessionFilePath", &[json!(cwd), json!(session_id)])
         {
@@ -688,6 +695,8 @@ impl AgentProvider for JsProvider {
                     title,
                     summary,
                     file_path: file_path_buf.to_string_lossy().to_string(),
+                    transcript_path: crate::session_evidence::stored_transcript_path(stem)
+                        .map(|p| p.to_string_lossy().to_string()),
                     created_ts,
                     modified_ts,
                 });
@@ -730,6 +739,10 @@ impl AgentProvider for JsProvider {
     }
 
     fn session_jsonl_path(&self, cwd: &str, session_id: &str) -> Option<std::path::PathBuf> {
+        // Hook-reported evidence wins over any reconstruction; absence falls through.
+        if let Some(stored) = crate::session_evidence::stored_transcript_path(session_id) {
+            return Some(stored);
+        }
         if !self.has_js("sessionJsonlPath") {
             return self
                 .native()

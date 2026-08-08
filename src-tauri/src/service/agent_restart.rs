@@ -137,6 +137,9 @@ impl ServiceContext {
             return outcome;
         }
         let snap = self.snapshot_tab_for_restart(tab_id)?;
+        if let Some(reason) = evidenced_transcript_block(&snap) {
+            return Err(AgentRestartError::BadRequest(reason).into());
+        }
 
         self.check_and_record_restart(&snap.tab_id)?;
         self.record_lifecycle(
@@ -241,6 +244,9 @@ impl ServiceContext {
         let Some(target) = self.general_agent_restart_snapshot(tab_id) else {
             return Ok(None);
         };
+        if let Some(reason) = evidenced_transcript_block(&target) {
+            return Err(AgentRestartError::BadRequest(reason));
+        }
         self.check_and_record_restart(&target.tab_id)?;
 
         let claimed =
@@ -571,6 +577,23 @@ impl ServiceContext {
             != Some(snap.pty_id.as_str());
         tab_released && self.pty.lock().get_session(&snap.pty_id).is_none()
     }
+}
+
+/// Resume provenance gate: fires ONLY when hook-reported transcript evidence
+/// exists for the snapshot's session. Evidenced-but-missing ⇒ declared failure
+/// before any command is emitted; no evidence ⇒ None, today's behavior.
+fn evidenced_transcript_block(snap: &TabRestartSnapshot) -> Option<String> {
+    let session_id = snap.session_id.as_deref()?;
+    let stored = codeterm_plugin::session_evidence::stored_transcript_path(session_id)?;
+    if codeterm_plugin::session_evidence::transcript_exists(&stored) {
+        return None;
+    }
+    Some(format!(
+        "resume unavailable: transcript missing for session {} (evidenced path {}); \
+         relaunch fresh to start a new session in this tab",
+        session_id,
+        stored.display()
+    ))
 }
 
 /// Build the shell command that launches the agent inside the replacement PTY.
