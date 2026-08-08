@@ -12,6 +12,12 @@ The CLI's local socket dispatches internal `api.request` JSON-RPC through Axum
 without TCP. Unix peer credentials or the Windows process-token SID restrict it
 to the daemon's OS user; the daemon owns authentication, signing, and transport.
 
+Every socket and mesh RPC request envelope carries the control-plane
+`protocol_version` integer. Dispatch refuses an older (or versionless) client
+with typed error `-32002` carrying both versions and the recovery command, and
+the CLI prints that message verbatim; the mesh relay forwards it untranslated.
+See `codeterm docs API-TRANSPORT` for the wire shape.
+
 Human `codeterm workspace list` shows authoritative tab counts, cwd, state, Teams,
 active Plans, and tabs in stable creation order. Inspect one tab with `codeterm tab
 inspect <id>`; whole-list JSON remains automation-only.
@@ -237,4 +243,4 @@ competition provisions one lane per competitor. Advisory findings ride successfu
 results in `safety_nudges` and `_hints`. See `codeterm docs ORCHESTRATION`.
 Related: `codeterm docs API-TABS`, `API-INTEGRATIONS`, `API-MEMORY`, `API-AGENTS`,
 `API-TRANSPORT`, and `API-CLI`.
-<!-- revision: 119 -->
+<!-- revision: 120 -->
