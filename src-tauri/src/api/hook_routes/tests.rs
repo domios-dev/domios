@@ -30,7 +30,7 @@ impl AgentProvider for HookProvider {
     }
 
     fn display_name(&self) -> &str {
-        self.id
+        &self.id
     }
 
     fn build_launch_command(&self, _: &AgentLaunchParams) -> String {
@@ -87,7 +87,7 @@ impl AgentProvider for RosterProvider {
     }
 
     fn display_name(&self) -> &str {
-        self.id
+        &self.id
     }
 
     fn build_launch_command(&self, _: &AgentLaunchParams) -> String {
@@ -986,7 +986,7 @@ impl AgentProvider for LockProbeProvider {
         self.id
     }
     fn display_name(&self) -> &str {
-        self.id
+        &self.id
     }
     fn build_launch_command(&self, _: &AgentLaunchParams) -> String {
         self.id.to_string()
