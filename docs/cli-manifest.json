@@ -11455,6 +11455,24 @@
             }
           ],
           "subcommands": []
+        },
+        {
+          "name": "validate",
+          "about": "Validate a plugin directory without installing it: strict manifest parse (the daemon's deny-unknown-fields PluginManifest), a real QuickJS load of the entry script, then a report of which AgentProvider exports plugin.js implements and which fallbacks serve the rest. Exits non-zero on the first failure, naming it",
+          "aliases": [],
+          "args": [
+            {
+              "name": "dir",
+              "positional": true,
+              "required": true,
+              "value_name": "DIR",
+              "possible_values": [],
+              "default": null,
+              "help": "Path to the plugin directory (the folder containing plugin.json)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
         }
       ]
     },

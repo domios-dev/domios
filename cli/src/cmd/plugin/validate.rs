@@ -56,6 +56,7 @@ const AGENT_PROVIDER_EXPORTS: &[(&str, &str)] = &[
     ("uninstallBridgeRule", "manifest rule.* file removal"),
 ];
 
+#[derive(Debug)]
 pub struct ValidationReport {
     pub id: String,
     pub version: String,
