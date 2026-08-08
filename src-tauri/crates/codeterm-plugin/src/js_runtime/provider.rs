@@ -232,6 +232,18 @@ impl JsProvider {
         self.registry.as_ref()?.native_fallback(&self.manifest.id)
     }
 
+    /// Manifest-declared hook roster resolved against the closed route set.
+    /// `None` = nothing declared; `Err` = declared but invalid (fails closed).
+    fn declared_hook_event_roster(
+        &self,
+    ) -> Option<Result<Vec<provider::HookEventBinding>, String>> {
+        self.manifest
+            .spawn
+            .hook_event_roster
+            .as_deref()
+            .map(super::resolve_hook_event_roster)
+    }
+
     pub fn manifest(&self) -> &PluginManifest {
         &self.manifest
     }
@@ -875,6 +887,24 @@ impl AgentProvider for JsProvider {
         self.manifest.spawn.has_hooks
     }
 
+    fn hook_event_roster(&self) -> Vec<provider::HookEventBinding> {
+        match self.declared_hook_event_roster() {
+            Some(Ok(roster)) => roster,
+            Some(Err(error)) => {
+                log::warn!(
+                    "[plugin:{}] {error}; registering no hook routes",
+                    self.manifest.id
+                );
+                Vec::new()
+            }
+            None => match self.native() {
+                Some(native) => native.hook_event_roster(),
+                None if self.manifest.spawn.has_hooks => provider::session_start_hook_roster(),
+                None => Vec::new(),
+            },
+        }
+    }
+
     fn supports_structured_prompts(&self) -> bool {
         self.manifest.spawn.supports_structured_prompts
             || self
@@ -1097,6 +1127,13 @@ impl AgentProvider for JsProvider {
     }
 
     fn check_integration(&self) -> serde_json::Value {
+        if let Some(Err(error)) = self.declared_hook_event_roster() {
+            return serde_json::json!({
+                "status": "error",
+                "hooks_installed": false,
+                "hook_event_roster_error": error,
+            });
+        }
         self.try_call::<serde_json::Value>("checkIntegration", &[])
             .unwrap_or_else(|| serde_json::json!({ "status": "ok" }))
     }
@@ -1110,6 +1147,9 @@ impl AgentProvider for JsProvider {
             return Err(
                 "provider integration installation requires explicit local-user consent".into(),
             );
+        }
+        if let Some(Err(error)) = self.declared_hook_event_roster() {
+            return Err(error);
         }
         self.try_call_result("installIntegration", &[json!(api_port), json!(options)])
             .unwrap_or(Ok(()))

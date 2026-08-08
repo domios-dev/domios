@@ -63,3 +63,39 @@ pub struct ProviderAllowanceCapability {
     pub default_reserve_pct: f32,
     pub telemetry_max_age_ms: u64,
 }
+
+/// Core hook-ingestion endpoints a declared hook event may target. Closed
+/// set: a roster naming any other route fails registration at install.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HookIngestionRoute {
+    Permission,
+    Stop,
+    SessionStart,
+    MemFlush,
+}
+
+impl HookIngestionRoute {
+    /// Resolve a declared route name against the closed set.
+    pub fn parse(name: &str) -> Option<Self> {
+        serde_json::from_value(serde_json::Value::String(name.to_string())).ok()
+    }
+}
+
+/// One declared hook event: the provider-side event name and the core
+/// ingestion route its POSTs land on.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "snake_case")]
+pub struct HookEventBinding {
+    pub event: String,
+    pub route: HookIngestionRoute,
+}
+
+/// The minimal roster every hooked provider posts today: SessionStart is the
+/// session-binding event a hook install carries even when nothing else is wired.
+pub fn session_start_hook_roster() -> Vec<HookEventBinding> {
+    vec![HookEventBinding {
+        event: "SessionStart".into(),
+        route: HookIngestionRoute::SessionStart,
+    }]
+}

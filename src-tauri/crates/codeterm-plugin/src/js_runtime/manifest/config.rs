@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::provider::{
-    BusySubmitStrategy, ModelInfo, ProviderReadinessStrategy, ReadinessStrategy,
-    ReasoningEffortInfo, SessionIdInjection, SystemPromptDelivery, TaskDelivery,
-    VerifySubmitStrategy,
+    BusySubmitStrategy, HookEventBinding, HookIngestionRoute, ModelInfo,
+    ProviderReadinessStrategy, ReadinessStrategy, ReasoningEffortInfo, SessionIdInjection,
+    SystemPromptDelivery, TaskDelivery, VerifySubmitStrategy,
 };
 
 /// Hosts/origins a plugin may reach via `host.fetch`.
@@ -44,6 +44,10 @@ pub struct SpawnConfig {
     pub supports_lazy_skills: bool,
     #[serde(default)]
     pub has_hooks: bool,
+    /// Declared hook event roster (event name → core ingestion route).
+    /// Absent ⇒ default roster: native fallback's declaration, else SessionStart-only when hooked.
+    #[serde(default)]
+    pub hook_event_roster: Option<Vec<SerdeHookEventBinding>>,
     /// Plugin exports `parseInteractiveEvents` — host calls it to extract
     /// interactive prompts. When false the native fallback handles it.
     #[serde(default)]
@@ -251,6 +255,38 @@ impl From<SerdeSessionIdInjection> for SessionIdInjection {
             SerdeSessionIdInjection::FreshAndFork => Self::FreshAndFork,
         }
     }
+}
+
+/// One declared hook event in `spawn.hookEventRoster`. `route` resolves
+/// against the closed core ingestion set; unknown names fail closed at install.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct SerdeHookEventBinding {
+    pub event: String,
+    pub route: String,
+}
+
+/// Resolve a manifest-declared roster against the closed ingestion-route set.
+/// Any unknown route fails the whole roster — never a silent partial drop.
+pub fn resolve_hook_event_roster(
+    entries: &[SerdeHookEventBinding],
+) -> Result<Vec<HookEventBinding>, String> {
+    entries
+        .iter()
+        .map(|entry| {
+            HookIngestionRoute::parse(&entry.route)
+                .map(|route| HookEventBinding {
+                    event: entry.event.clone(),
+                    route,
+                })
+                .ok_or_else(|| {
+                    format!(
+                        "hook event '{}' declares unknown ingestion route '{}'",
+                        entry.event, entry.route
+                    )
+                })
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

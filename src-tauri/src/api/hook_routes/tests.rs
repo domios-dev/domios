@@ -5,7 +5,10 @@ use std::sync::{Arc, Weak};
 use std::time::Duration;
 
 use super::*;
-use crate::agent::provider::{AgentLaunchParams, AgentProvider, ReadinessStrategy, TaskDelivery};
+use crate::agent::provider::{
+    AgentLaunchParams, AgentProvider, HookEventBinding, HookIngestionRoute, ReadinessStrategy,
+    TaskDelivery,
+};
 use crate::agent::registry::AgentRegistry;
 use crate::multiplexer::commands::MuxState;
 use crate::multiplexer::state::MultiplexerState;
@@ -71,6 +74,230 @@ impl AgentProvider for HookProvider {
     fn has_hooks(&self) -> bool {
         true
     }
+}
+
+struct RosterProvider {
+    id: &'static str,
+    roster: Vec<HookEventBinding>,
+}
+
+impl AgentProvider for RosterProvider {
+    fn id(&self) -> &str {
+        self.id
+    }
+
+    fn display_name(&self) -> &str {
+        self.id
+    }
+
+    fn build_launch_command(&self, _: &AgentLaunchParams) -> String {
+        self.id.to_string()
+    }
+
+    fn readiness_strategy(&self) -> ReadinessStrategy {
+        ReadinessStrategy::FixedDelay {
+            duration: Duration::ZERO,
+        }
+    }
+
+    fn task_delivery(&self) -> TaskDelivery {
+        TaskDelivery::PtyInput
+    }
+
+    fn detect_from_title(&self, _: &str) -> bool {
+        false
+    }
+
+    fn detect_from_output(&self, _: &str) -> bool {
+        false
+    }
+
+    fn session_file_path(&self, _: &str, _: &str) -> Option<PathBuf> {
+        None
+    }
+
+    fn detect_session_id(&self, _: &str, _: &[String], _: Option<Duration>) -> Option<String> {
+        None
+    }
+
+    fn session_exists(&self, _: &str, _: &str) -> bool {
+        true
+    }
+
+    fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
+        None
+    }
+
+    fn has_hooks(&self) -> bool {
+        true
+    }
+
+    fn hook_event_roster(&self) -> Vec<HookEventBinding> {
+        self.roster.clone()
+    }
+}
+
+fn binding(event: &str, route: HookIngestionRoute) -> HookEventBinding {
+    HookEventBinding {
+        event: event.into(),
+        route,
+    }
+}
+
+#[test]
+fn hook_event_roster_registration_equals_declared_set() {
+    let registry = AgentRegistry::new();
+    registry.register_provider(Box::new(RosterProvider {
+        id: "fixture-hooks",
+        roster: vec![
+            binding("Notification", HookIngestionRoute::Permission),
+            binding("SessionStart", HookIngestionRoute::SessionStart),
+        ],
+    }));
+    registry.register_provider(Box::new(RosterProvider {
+        id: "fixture-rosterless",
+        roster: vec![],
+    }));
+
+    let table = registered_hook_routes(&registry);
+    let mut expected = std::collections::BTreeMap::new();
+    expected.insert(
+        "fixture-hooks".to_string(),
+        vec![
+            binding("Notification", HookIngestionRoute::Permission),
+            binding("SessionStart", HookIngestionRoute::SessionStart),
+        ],
+    );
+    assert_eq!(
+        table, expected,
+        "route table must equal exactly the declared set — no undeclared routes"
+    );
+}
+
+#[test]
+fn hook_event_roster_attributes_ingestion_to_non_claude_descriptor() {
+    let (mux, tab_id) = shared_mux();
+    mux.write().get_tab_mut(&tab_id).unwrap().cwd = Some("/tmp/project".into());
+    let registry = AgentRegistry::new();
+    registry.register_provider(Box::new(RosterProvider {
+        id: "fixture-hooks",
+        roster: vec![
+            binding("Notification", HookIngestionRoute::Permission),
+            binding("SessionStart", HookIngestionRoute::SessionStart),
+        ],
+    }));
+
+    // The permission route's owning descriptor is the fixture, never a literal.
+    assert_eq!(
+        sole_hook_route_declarer(&registry, HookIngestionRoute::Permission).as_deref(),
+        Some("fixture-hooks")
+    );
+
+    // Round-trip: descriptor-resolved identity is what ingestion records.
+    let provider_id = sole_hook_route_declarer(&registry, HookIngestionRoute::SessionStart)
+        .expect("sole declarer resolves");
+    bind_reported_session(&mux, &registry, &tab_id, &provider_id, "sid-a", None).unwrap();
+    assert_eq!(
+        mux.read().get_tab(&tab_id).unwrap().agent_type.as_deref(),
+        Some("fixture-hooks")
+    );
+
+    // Contested route → no guess.
+    registry.register_provider(Box::new(RosterProvider {
+        id: "fixture-rival",
+        roster: vec![binding("Notification", HookIngestionRoute::Permission)],
+    }));
+    assert_eq!(
+        sole_hook_route_declarer(&registry, HookIngestionRoute::Permission),
+        None
+    );
+}
+
+#[test]
+fn default_hook_event_roster_registration_matches_today() {
+    use crate::agent::provider::session_start_hook_roster;
+    use crate::plugin::agent_claude::ClaudeProvider;
+
+    struct HooklessProvider;
+    impl AgentProvider for HooklessProvider {
+        fn id(&self) -> &str {
+            "cursor-like"
+        }
+        fn display_name(&self) -> &str {
+            "cursor-like"
+        }
+        fn build_launch_command(&self, _: &AgentLaunchParams) -> String {
+            String::new()
+        }
+        fn readiness_strategy(&self) -> ReadinessStrategy {
+            ReadinessStrategy::FixedDelay {
+                duration: Duration::ZERO,
+            }
+        }
+        fn task_delivery(&self) -> TaskDelivery {
+            TaskDelivery::PtyInput
+        }
+        fn detect_from_title(&self, _: &str) -> bool {
+            false
+        }
+        fn detect_from_output(&self, _: &str) -> bool {
+            false
+        }
+        fn session_file_path(&self, _: &str, _: &str) -> Option<PathBuf> {
+            None
+        }
+        fn detect_session_id(&self, _: &str, _: &[String], _: Option<Duration>) -> Option<String> {
+            None
+        }
+        fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
+            None
+        }
+    }
+
+    let registry = AgentRegistry::new();
+    registry.register_provider(Box::new(ClaudeProvider::new()));
+    // Trait-default stand-in for today's hooked JS providers (codex/opencode).
+    registry.register_provider(Box::new(HookProvider {
+        id: "codex",
+        sessions: HashSet::new(),
+    }));
+    registry.register_provider(Box::new(HooklessProvider));
+
+    let table = registered_hook_routes(&registry);
+    assert_eq!(
+        table.keys().map(|id| id.as_str()).collect::<Vec<_>>(),
+        ["claude", "codex"],
+        "hookless providers register nothing"
+    );
+    assert_eq!(
+        table["claude"]
+            .iter()
+            .map(|b| (b.event.as_str(), b.route))
+            .collect::<Vec<_>>(),
+        [
+            ("Notification", HookIngestionRoute::Permission),
+            ("Stop", HookIngestionRoute::Stop),
+            ("PreCompact", HookIngestionRoute::MemFlush),
+            ("SessionStart", HookIngestionRoute::SessionStart),
+        ],
+        "claude registers its current four events"
+    );
+    assert_eq!(
+        table["codex"],
+        session_start_hook_roster(),
+        "hooked providers without a declared roster register SessionStart only"
+    );
+
+    // Attribution identical to today: claude solely owns the permission route;
+    // session_start is contested so identity falls through to the config default.
+    assert_eq!(
+        sole_hook_route_declarer(&registry, HookIngestionRoute::Permission).as_deref(),
+        Some("claude")
+    );
+    assert_eq!(
+        sole_hook_route_declarer(&registry, HookIngestionRoute::SessionStart),
+        None
+    );
 }
 
 fn registry(ids: &[&'static str]) -> AgentRegistry {
