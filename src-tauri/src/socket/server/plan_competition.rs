@@ -569,6 +569,7 @@ pub(super) fn compete(
                         &task_id,
                         &attempt_id,
                         format!("codeterm plan task compete {plan_id} {task_id}"),
+                        std::time::Duration::ZERO,
                     );
                     emit_plan_changed(&app_for_ready, &plan_id);
                     super::plan_task_dispatch::publish_startup_report(

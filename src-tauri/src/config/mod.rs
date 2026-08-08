@@ -1,4 +1,5 @@
 mod agent_access;
+pub mod lane;
 pub mod schema;
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
