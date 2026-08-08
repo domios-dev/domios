@@ -24,6 +24,14 @@ import type { ModelInfo, PendingPrompt } from "../../lib/types";
 import { ModelSuggestionPicker } from "./ModelSuggestionPicker";
 import { TabTaskStrip } from "./TabTaskStrip";
 import { COMPOSER_MIN_HEIGHT, applyComposerAutosize } from "./composerAutosize";
+import {
+  beginComposition,
+  compositionRenderValue,
+  createCompositionGate,
+  deferCompositionChange,
+  endComposition,
+  isImeKeyEvent,
+} from "./composerComposition";
 import { sendTrackedChatMessage, type ChatSendStatus } from "./chatSendStatus";
 
 const AUDIO_ATTACHMENT_RE = /\.(webm|ogg|oga|opus|mp3|wav|m4a|aac|mp4|flac)$/i;
@@ -315,6 +323,7 @@ function ChatComposerImpl({
     [providerDescriptor],
   );
   const touchMode = useTouchOptimizedUi();
+  const compositionGate = useRef(createCompositionGate()).current;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
   const lastSendRef = useRef<{ text: string; at: number }>({ text: "", at: 0 });
@@ -837,14 +846,18 @@ function ChatComposerImpl({
             data-tab-id={tabId}
             aria-label="Message composer"
             ref={textareaRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
+            value={compositionRenderValue(compositionGate, input)}
+            onChange={(e) => {
+              const nativeIsComposing = (e.nativeEvent as InputEvent).isComposing === true;
+              if (deferCompositionChange(compositionGate, nativeIsComposing, e.target.value)) return;
+              setInput(e.target.value);
+            }}
             onBeforeInput={(e) => {
               recordComposerBeforeInput(e.nativeEvent.inputType || "beforeinput");
             }}
             onKeyDown={(e) => {
               recordComposerIgnoredKey(e.key);
-              if (e.nativeEvent.isComposing) return;
+              if (isImeKeyEvent(compositionGate, e.nativeEvent.isComposing, e.nativeEvent.keyCode)) return;
               if (touchMode && e.key === "Enter" && !e.shiftKey) {
                 setPickerOpen(false);
                 setModelPickerOpen(false);
@@ -934,10 +947,12 @@ function ChatComposerImpl({
                 void send();
               }
             }}
-            onCompositionStart={() => {
+            onCompositionStart={(e) => {
+              beginComposition(compositionGate, e.currentTarget.value);
               if (typeof window !== "undefined") window.__composerPerf?.compositionEvents.push("start");
             }}
-            onCompositionEnd={() => {
+            onCompositionEnd={(e) => {
+              setInput(endComposition(compositionGate, e.currentTarget.value));
               if (typeof window !== "undefined") window.__composerPerf?.compositionEvents.push("end");
             }}
             onPaste={(e) => void handlePasteEvent(e.nativeEvent)}
