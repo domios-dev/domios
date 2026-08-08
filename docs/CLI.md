@@ -2453,6 +2453,12 @@ Update bundled system provider plugins from the official plugin channel
 
 - `<id>`
 
+#### `codeterm plugin validate`
+
+Validate a plugin directory without installing it: strict manifest parse (the daemon's deny-unknown-fields PluginManifest), a real QuickJS load of the entry script, then a report of which AgentProvider exports plugin.js implements and which fallbacks serve the rest. Exits non-zero on the first failure, naming it
+
+- `<dir>` — Path to the plugin directory (the folder containing plugin.json)
+
 #### `codeterm send`
 
 Send text to a tab (default: current tab)
