@@ -4,6 +4,8 @@
 //! handles the one path the crate can't — the `plugin <id> <verb>` passthrough,
 //! which routes over the daemon socket.
 
+mod validate;
+
 use crate::args::plugin::{PluginAction, PluginChannelAction};
 use codeterm_plugins::{PluginAction as Action, PluginChannelAction as ChannelAction, PluginCtx};
 
@@ -19,6 +21,10 @@ fn plugin_ctx() -> PluginCtx {
 pub fn handle_plugin(json: bool, action: PluginAction) {
     let ctx = plugin_ctx();
     let result = match action {
+        PluginAction::Validate { dir } => {
+            validate::run(json, std::path::Path::new(&dir));
+            return;
+        }
         PluginAction::Pass(parts) => {
             let r = pass_command(parts.clone());
             if let Err(e) = &r {
@@ -85,6 +91,8 @@ fn convert_action(action: PluginAction) -> Action {
             revoke,
         },
         PluginAction::Pass(parts) => Action::Pass(parts),
+        // Handled locally in handle_plugin — no codeterm-plugins counterpart.
+        PluginAction::Validate { .. } => unreachable!("validate never reaches the plugins crate"),
     }
 }
 
