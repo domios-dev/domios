@@ -472,6 +472,35 @@ fn explicit_canonical_cwd_is_an_orchestrator_checkout_choice() {
 }
 
 #[test]
+fn lane_bootstrap_record_survives_isolated_dispatch_and_clears_on_canonical() {
+    let (_root, project) = git_project();
+    let original = TaskLaneMetadata {
+        bootstrap_links: vec!["node_modules (symlink)".into()],
+        bootstrap_warnings: vec!["shared dir 'target' skipped: no link support".into()],
+        ..Default::default()
+    };
+
+    let lane = provision_lane_for_test(project.to_str().unwrap(), "bootstrap-record").unwrap();
+    let isolated = lane_metadata_for_dispatch(&original, &lane.verify().unwrap());
+    assert_eq!(isolated.bootstrap_links, original.bootstrap_links);
+    assert_eq!(isolated.bootstrap_warnings, original.bootstrap_warnings);
+    lane.cleanup().unwrap();
+
+    let canonical = resolve_dispatch_lane(
+        Some(project.to_str().unwrap()),
+        project.to_str().unwrap(),
+        &TaskLaneMetadata::default(),
+        LaneProtection::Enforced,
+    )
+    .unwrap()
+    .existing
+    .expect("canonical provenance");
+    let shared = lane_metadata_for_dispatch(&original, &canonical);
+    assert!(shared.bootstrap_links.is_empty());
+    assert!(shared.bootstrap_warnings.is_empty());
+}
+
+#[test]
 fn explicit_cwd_conflicting_with_recorded_lane_is_rejected_before_provisioning() {
     let (_root, project) = git_project();
     let lane = provision_lane_for_test(project.to_str().unwrap(), "recorded").unwrap();
