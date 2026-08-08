@@ -82,9 +82,8 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
       port: stub.port,
     });
     peerId = added.instance_id;
-    // The stub must present its own UUID identity, never the daemon's
-    // manual-<uuid> placeholder: pairing rejects non-UUID identities and
-    // remaps the placeholder to the peer's real id on connect confirmation.
+    // Pairing rejects non-UUID identities and remaps the daemon's manual-<uuid>
+    // placeholder to the peer's real id — the stub must present its own UUID.
     await api.post("/mesh/connect", { instance_id: peerId });
     await stub.waitForPairAccept();
     await pollUntil(async () => {
