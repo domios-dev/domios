@@ -29,9 +29,11 @@ impl BubbleProvider for JsBubbleProvider {
     }
 
     async fn bubble(&self, ctx: Value) -> Result<Option<BubbleData>, BubbleError> {
-        // VM lock + JS execution are synchronous — keep them off the async runtime.
+        // VM lock + JS execution are synchronous — keep them off the async runtime
+        // (the grant contends on the same VM lock, so it hops too).
         let vm = self.vm.clone();
         tokio::task::spawn_blocking(move || {
+            super::vm::grant_ctx_cwd(&vm, &ctx);
             call_json::<Option<BubbleData>>(&vm, "statusBubble", &[ctx])
         })
         .await
@@ -65,5 +67,55 @@ mod tests {
         let vm = vm_with(r#"module.exports.default = { statusBubble() { return null; } }"#);
         let b = JsBubbleProvider::new(vm, "test-bubble");
         assert!(b.bubble(serde_json::json!({})).await.unwrap().is_none());
+    }
+
+    const CONFINED_SRC: &str = r#"module.exports.default = {
+        statusBubble(ctx) {
+            var names = host.listChildDirs(ctx.cwd || ctx.probe);
+            return { label: names === null ? "denied" : names.join(",") };
+        }
+    }"#;
+
+    fn confined_vm() -> Arc<PluginVm> {
+        use crate::js_runtime::host_api::PluginSandbox;
+        Arc::new(
+            PluginVm::from_source_sandboxed(
+                "confined-bubble",
+                CONFINED_SRC.to_string(),
+                None,
+                Arc::new(PluginSandbox::restricted(vec![], vec![])),
+            )
+            .expect("vm"),
+        )
+    }
+
+    /// The host-assembled bubble ctx carries the tab cwd; dispatching the call
+    /// must record it as a sandbox read-root so discovery under it works.
+    #[tokio::test]
+    async fn host_ctx_cwd_becomes_sandbox_read_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join("repo").join(".git")).unwrap();
+        let b = JsBubbleProvider::new(confined_vm(), "confined-bubble");
+        let pill = b
+            .bubble(serde_json::json!({ "cwd": tmp.path().to_string_lossy() }))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(pill.label, "repo");
+    }
+
+    /// NEGATIVE CONTROL: a ctx without `cwd` mints no grant — the same listing
+    /// against the same path is denied on a fresh sandbox.
+    #[tokio::test]
+    async fn ctx_without_cwd_grants_nothing() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join("repo").join(".git")).unwrap();
+        let b = JsBubbleProvider::new(confined_vm(), "confined-bubble");
+        let pill = b
+            .bubble(serde_json::json!({ "probe": tmp.path().to_string_lossy() }))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(pill.label, "denied");
     }
 }
