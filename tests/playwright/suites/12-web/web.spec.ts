@@ -91,6 +91,9 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
       return peers.paired.some((p) => p.instance_id === stub.instanceId);
     }, 20_000, 500, "stub peer pairs for web switching");
     peerId = stub.instanceId;
+    // The version-skew guard disables peers that have not announced the
+    // current relay protocol version.
+    await stub.announce();
 
     const page = await newWebPage(webBrowser);
     await page.goto(WEB_URL, { waitUntil: "domcontentloaded" });
