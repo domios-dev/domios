@@ -214,7 +214,7 @@ pub enum SplitNodeSnapshot {
 const MAX_BACKUPS: usize = 200;
 
 pub struct SessionStore {
-    session_dir: PathBuf,
+    pub(crate) session_dir: PathBuf,
 }
 
 impl SessionStore {

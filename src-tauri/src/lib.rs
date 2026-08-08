@@ -316,6 +316,7 @@ pub fn run() {
             session::save_session_named,
             session::list_saved_sessions,
             session::load_session,
+            session::load_scrollback_tail,
             commands::cron_list,
             commands::cron_get,
             commands::cron_create,
@@ -1025,9 +1026,11 @@ pub fn run() {
                     app.try_state::<SessionState>(),
                 ) {
                     let snapshot = mux.write().to_session_snapshot();
-                    if let Err(e) = session.lock().save(&snapshot) {
+                    let saved = session.lock().save(&snapshot);
+                    if let Err(e) = saved {
                         log::error!("Failed to save session: {}", e);
                     } else {
+                        session::scrollback_sync::sync_scrollback_sidecars(&app);
                         log::info!("Session saved (close-to-tray)");
                     }
                 }
@@ -1085,8 +1088,11 @@ fn graceful_exit_cleanup(app: &tauri::AppHandle) {
         (app.try_state::<MuxState>(), app.try_state::<SessionState>())
     {
         let snapshot = mux.write().to_session_snapshot();
-        if let Err(e) = session.lock().save(&snapshot) {
+        let saved = session.lock().save(&snapshot);
+        if let Err(e) = saved {
             log::error!("[shutdown] session save failed: {}", e);
+        } else {
+            session::scrollback_sync::sync_scrollback_sidecars(app);
         }
     }
 
