@@ -12,6 +12,14 @@ When you add/rename/remove a command or flag:
    tab messaging behavior, also check `docs/SKILLS.md`.
 4. `cargo test -p codeterm-cli cmd::manifest` must be green.
 5. If you added a chat-card template, it is checked by chat-ui `recognize.test.ts`.
+6. If the change breaks the CLI↔daemon wire contract (a removed/renamed method
+   or required param, a changed field meaning), bump `PROTOCOL_VERSION` in
+   **both** `cli/src/protocol.rs` and
+   `src-tauri/src/socket/server/protocol.rs` — one value, two embeddings, in
+   the same commit. That is what turns a stale binary into the typed
+   version-skew error (`-32002`, both versions + recovery command) instead of
+   parse noise. Additive changes (new methods, new optional fields) do not
+   bump it.
 
 CI (`.github/workflows/cli-source-of-truth.yml`) runs all of the above.
 
@@ -79,4 +87,4 @@ must run without the daemon (filesystem-local: `plugin`, `docs`, `system`,
 socket discovery — but they are still real clap variants, so they appear in the
 manifest and docs. Do not reintroduce a separate hand-rolled arg parser.
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->
