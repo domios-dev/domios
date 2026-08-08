@@ -20,13 +20,27 @@ function setupDom() {
     "navigator",
     "HTMLElement",
     "HTMLInputElement",
+    "HTMLTextAreaElement",
+    "HTMLSelectElement",
     "HTMLButtonElement",
+    "SVGElement",
     "Element",
     "Node",
     "Event",
   ]) {
     Object.defineProperty(globalThis, key, { value: window[key as keyof Window], configurable: true });
   }
+}
+
+function setNativeValue(element: HTMLInputElement, value: string) {
+  const prototype = Object.getPrototypeOf(element) as HTMLElement;
+  const descriptor = Object.getOwnPropertyDescriptor(prototype, "value");
+  descriptor?.set?.call(element, value);
+}
+
+function dispatchFormChange(element: HTMLElement) {
+  element.dispatchEvent(new window.Event("input", { bubbles: true }));
+  element.dispatchEvent(new window.Event("change", { bubbles: true }));
 }
 
 function configWith(telegram?: { enabled: boolean; recipients: string[]; per_scope_limit: number }): AppConfig {
@@ -137,13 +151,12 @@ async function testRecipientsInputRoundTripsParsedList() {
         "recipients input must carry an associated label for accessibility",
       );
 
-      const prototype = Object.getPrototypeOf(input) as HTMLElement;
-      Object.getOwnPropertyDescriptor(prototype, "value")?.set?.call(input, " 123 , 456 ,, ");
       await act(async () => {
-        input.dispatchEvent(new window.Event("input", { bubbles: true }));
-        input.dispatchEvent(new window.Event("change", { bubbles: true }));
+        setNativeValue(input, " 123 , 456 ,, ");
+        dispatchFormChange(input);
       });
 
+      assert(input.value === " 123 , 456 ,, ", "native value setter must take effect on the input");
       const last = updates.at(-1);
       assert(last?.section === "notifications", "recipients edit must patch the notifications section");
       const telegram = (last?.patch as { telegram?: { recipients?: string[] } }).telegram;
