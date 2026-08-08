@@ -933,6 +933,238 @@ function scoreAuthPrompt(screen) {
   return score > 1 ? 1 : score;
 }
 
+// plugins/provider-codex/src/appServer.ts
+var APP_SERVER_EXIT_DEADLINE_MS = 2e4;
+var JSON_RPC_METHOD_NOT_FOUND = -32601;
+function stderrIndicatesMissingAppServer(stderr) {
+  return /unrecognized subcommand|unknown subcommand|invalid subcommand|unexpected argument/i.test(stderr);
+}
+function isMethodNotFound(error) {
+  return error.code === JSON_RPC_METHOD_NOT_FOUND || /method not found/i.test(String(error.message || ""));
+}
+function runAppServerSession(requests) {
+  const lines = [
+    JSON.stringify({
+      method: "initialize",
+      id: 1,
+      params: { clientInfo: { name: "codeterm", title: "CodeTerm", version: "0.0.0" } }
+    }),
+    JSON.stringify({ method: "initialized" })
+  ];
+  for (let i = 0; i < requests.length; i++) {
+    const req = { method: requests[i].method, id: requests[i].id };
+    if (requests[i].params !== void 0) req.params = requests[i].params;
+    lines.push(JSON.stringify(req));
+  }
+  let raw;
+  try {
+    raw = host.exec(JSON.stringify({
+      bin: "codex",
+      args: ["app-server"],
+      stdin: lines.join("\n") + "\n",
+      timeoutMs: APP_SERVER_EXIT_DEADLINE_MS
+    }));
+  } catch (e) {
+    return { kind: "failed", reason: "host.exec threw: " + String(e) };
+  }
+  let result;
+  try {
+    result = JSON.parse(raw);
+  } catch (_) {
+    return { kind: "failed", reason: "host.exec returned invalid JSON" };
+  }
+  const stderr = String(result.stderr || "");
+  if (typeof result.error === "string" && result.error) {
+    if (result.error.indexOf("spawn ") === 0) {
+      return { kind: "unavailable", reason: "codex binary unavailable: " + result.error };
+    }
+    return { kind: "failed", reason: result.error };
+  }
+  const responses = {};
+  const outLines = String(result.stdout || "").split("\n");
+  for (let i = 0; i < outLines.length; i++) {
+    const line = outLines[i].trim();
+    if (!line) continue;
+    let message;
+    try {
+      message = JSON.parse(line);
+    } catch (_) {
+      continue;
+    }
+    if (typeof message.id === "number") {
+      responses[message.id] = { result: message.result, error: message.error };
+    }
+  }
+  const init = responses[1];
+  if (!init) {
+    if (stderrIndicatesMissingAppServer(stderr)) {
+      return { kind: "unavailable", reason: "codex CLI does not support app-server: " + stderr.slice(0, 400) };
+    }
+    return { kind: "failed", reason: "codex app-server exited before responding" + (stderr ? ": " + stderr.slice(0, 400) : "") };
+  }
+  if (init.error) {
+    if (isMethodNotFound(init.error)) {
+      return { kind: "unavailable", reason: "codex app-server does not support initialize" };
+    }
+    return { kind: "failed", reason: "initialize failed: " + String(init.error.message || "unknown error") };
+  }
+  return { kind: "ok", responses };
+}
+function requestOutcome(session, id, method) {
+  if (session.kind !== "ok") return session;
+  const response = session.responses[id];
+  if (!response) return { kind: "failed", reason: "codex app-server returned no response for " + method };
+  if (response.error) {
+    if (isMethodNotFound(response.error)) {
+      return { kind: "unavailable", reason: "codex app-server does not support " + method };
+    }
+    return { kind: "failed", reason: method + " failed: " + String(response.error.message || "unknown error") };
+  }
+  return { kind: "ok", result: response.result };
+}
+function collectHookListings(result) {
+  const data = result && typeof result === "object" && Array.isArray(result.data) ? result.data : [];
+  const listings = [];
+  const seen = {};
+  for (let i = 0; i < data.length; i++) {
+    const hooks = data[i] && Array.isArray(data[i].hooks) ? data[i].hooks : [];
+    for (let j = 0; j < hooks.length; j++) {
+      const hook = hooks[j];
+      if (!hook || typeof hook.key !== "string" || typeof hook.currentHash !== "string" || typeof hook.trustStatus !== "string") {
+        continue;
+      }
+      if (seen[hook.key]) continue;
+      seen[hook.key] = true;
+      listings.push({
+        key: hook.key,
+        command: typeof hook.command === "string" ? hook.command : null,
+        currentHash: hook.currentHash,
+        trustStatus: hook.trustStatus
+      });
+    }
+  }
+  return listings;
+}
+function slashNormalize(value) {
+  return value.split("\\").join("/");
+}
+function keyMatchesManagedLabel(key, hooksPath, label) {
+  return slashNormalize(key).indexOf(slashNormalize(hooksPath) + ":" + label + ":") === 0;
+}
+function isCodetermManagedHookCommand(command) {
+  const c = String(command || "");
+  return c.indexOf("/hook/session_start") !== -1 || c.indexOf("codeterm-session-start.ps1") !== -1;
+}
+function managedListings(listings, hooksPath, labels) {
+  const out = [];
+  for (let i = 0; i < listings.length; i++) {
+    const listing = listings[i];
+    if (!isCodetermManagedHookCommand(listing.command)) continue;
+    for (let j = 0; j < labels.length; j++) {
+      if (keyMatchesManagedLabel(listing.key, hooksPath, labels[j])) {
+        out.push(listing);
+        break;
+      }
+    }
+  }
+  return out;
+}
+function snapshotConfig(path) {
+  const existed = host.fs.fileExists(path);
+  const bytes = existed ? host.fs.readFile(path) : "";
+  return typeof bytes === "string" ? { path, existed, bytes } : null;
+}
+function restoreConfig(snapshot) {
+  if (snapshot.existed) return host.fs.writeFile(snapshot.path, snapshot.bytes);
+  return !host.fs.fileExists(snapshot.path) || host.fs.removeFile(snapshot.path);
+}
+function outcome(partial) {
+  return {
+    granted: false,
+    wrote: false,
+    degraded: false,
+    verify_failed: false,
+    ...partial
+  };
+}
+function grantCodexHookTrust(opts) {
+  if (!opts.managedLabels.length) {
+    return outcome({ degraded: true, reason: "no managed hook keys declared" });
+  }
+  if (!opts.configPath) {
+    return outcome({ degraded: true, reason: "could not resolve Codex config path" });
+  }
+  const listSession = runAppServerSession([
+    { method: "hooks/list", id: 2, params: { cwds: [opts.listCwd] } }
+  ]);
+  const listResult = requestOutcome(listSession, 2, "hooks/list");
+  if (listResult.kind === "unavailable") return outcome({ degraded: true, reason: listResult.reason });
+  if (listResult.kind === "failed") return outcome({ reason: listResult.reason });
+  const managed = managedListings(collectHookListings(listResult.result), opts.hooksPath, opts.managedLabels);
+  if (managed.length !== opts.managedLabels.length) {
+    return outcome({
+      verify_failed: true,
+      reason: "hooks/list reported " + managed.length + " managed entries, expected " + opts.managedLabels.length
+    });
+  }
+  const needingTrust = [];
+  for (let i = 0; i < managed.length; i++) {
+    if (managed[i].trustStatus !== "trusted") needingTrust.push(managed[i]);
+  }
+  if (!needingTrust.length) {
+    return outcome({
+      granted: true,
+      entries: managed.map((listing) => ({ key: listing.key, hash: listing.currentHash }))
+    });
+  }
+  const snapshot = snapshotConfig(opts.configPath);
+  if (!snapshot) {
+    return outcome({ reason: "could not snapshot Codex config before granting trust" });
+  }
+  const value = {};
+  for (let i = 0; i < needingTrust.length; i++) {
+    value[needingTrust[i].key] = { trusted_hash: needingTrust[i].currentHash };
+  }
+  const writeSession = runAppServerSession([
+    {
+      method: "config/batchWrite",
+      id: 2,
+      params: { edits: [{ keyPath: "hooks.state", value, mergeStrategy: "upsert" }], reloadUserConfig: true }
+    },
+    { method: "hooks/list", id: 3, params: { cwds: [opts.listCwd] } }
+  ]);
+  const failedWrite = (reason, verifyFailed) => {
+    const restored = restoreConfig(snapshot);
+    return outcome({ wrote: true, verify_failed: verifyFailed, restored, reason });
+  };
+  const writeResult = requestOutcome(writeSession, 2, "config/batchWrite");
+  if (writeResult.kind !== "ok") return failedWrite(writeResult.reason, false);
+  const verifyResult = requestOutcome(writeSession, 3, "hooks/list");
+  if (verifyResult.kind !== "ok") return failedWrite(verifyResult.reason, true);
+  const verified = managedListings(collectHookListings(verifyResult.result), opts.hooksPath, opts.managedLabels);
+  if (verified.length !== opts.managedLabels.length) {
+    return failedWrite("post-grant verify reported " + verified.length + " managed entries", true);
+  }
+  const expectedHashes = {};
+  for (let i = 0; i < managed.length; i++) {
+    expectedHashes[managed[i].key] = managed[i].currentHash;
+  }
+  for (let i = 0; i < verified.length; i++) {
+    const listing = verified[i];
+    if (listing.trustStatus !== "trusted") {
+      return failedWrite("post-grant verify left " + listing.key + " " + listing.trustStatus, true);
+    }
+    if (expectedHashes[listing.key] !== listing.currentHash) {
+      return failedWrite("post-grant verify reported a different hash for " + listing.key, true);
+    }
+  }
+  return outcome({
+    granted: true,
+    wrote: true,
+    entries: verified.map((listing) => ({ key: listing.key, hash: listing.currentHash }))
+  });
+}
+
 // plugins/provider-codex/src/plugin.ts
 var CODETERM_CODEX_HOOK_MARKER = "codeterm-codex-session-binding-v1";
 var CODETERM_CODEX_PROFILE_CLEANUP_MARKER = "codeterm-profile-cleanup-v1";
@@ -1402,6 +1634,21 @@ var plugin = {
     }
     return fail("writeJson failed for " + path);
   },
+  // integration.trust_grant capability: core invokes this once per install
+  // with the manifest-declared managed hook key(s). Codex is the only hash
+  // authority — the grant lane never computes a trust hash CodeTerm-side.
+  grantIntegrationTrust(managedKeys) {
+    const hooksPath = codexHooksPath();
+    if (!hooksPath) {
+      return { granted: false, wrote: false, degraded: true, verify_failed: false, reason: "could not resolve ~/.codex/hooks.json" };
+    }
+    return grantCodexHookTrust({
+      hooksPath,
+      configPath: codexConfigPath(),
+      managedLabels: Array.isArray(managedKeys) ? managedKeys.map(String) : [],
+      listCwd: host.homeDir() || "."
+    });
+  },
   uninstallIntegration() {
     const path = codexHooksPath();
     if (!path) return { ok: true };
@@ -1719,8 +1966,9 @@ function codexHookTrustState(hooksPath) {
   const block = findCodexHookTrustBlock(text, hooksPath);
   if (block == null) return "missing";
   const m = block.match(/(?:^|\n)\s*enabled\s*=\s*(true|false)\s*(?:\n|$)/);
-  if (!m) return "unknown";
-  return m[1] === "true" ? "enabled" : "disabled";
+  if (m) return m[1] === "true" ? "enabled" : "disabled";
+  if (/(?:^|\n)\s*trusted_hash\s*=/.test(block)) return "trusted";
+  return "unknown";
 }
 function enableExistingCodexHookTrust(hooksPath) {
   const cfg = codexConfigPath();
@@ -1731,7 +1979,8 @@ function enableExistingCodexHookTrust(hooksPath) {
   if (!span) return { state: "missing", changed: false, write_failed: false };
   const block = text.substring(span.start, span.end);
   if (!/(?:^|\n)\s*enabled\s*=\s*false\s*(?:\n|$)/.test(block)) {
-    const state = codexHookTrustState(hooksPath) === "enabled" ? "enabled" : "unknown";
+    const current = codexHookTrustState(hooksPath);
+    const state = current === "enabled" || current === "trusted" ? current : "unknown";
     return { state, changed: false, write_failed: false };
   }
   const nextBlock = block.replace(/(^|\n)(\s*enabled\s*=\s*)false(\s*(?:\n|$))/, "$1$2true$3");
