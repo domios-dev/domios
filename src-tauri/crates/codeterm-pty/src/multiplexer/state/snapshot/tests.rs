@@ -190,9 +190,7 @@ fn manager_close_survives_snapshot_restore_without_resurrection() {
 
     let (mut state, root_id) = MultiplexerState::new();
     let workspace_id = state.list_workspaces()[0].id.clone();
-    state
-        .set_orchestrator_role(&root_id)
-        .unwrap();
+    state.set_orchestrator_role(&root_id).unwrap();
     let team_id = state
         .resolve_or_mint_team_for_parent(&root_id)
         .unwrap()
@@ -242,7 +240,9 @@ fn a_profileless_manager_is_refused_before_it_can_reach_a_snapshot() {
         .unwrap_err();
 
     assert!(error.contains("role_profile"), "{error}");
-    let manager = state.get_tab(&manager_id).expect("tab survives the refusal");
+    let manager = state
+        .get_tab(&manager_id)
+        .expect("tab survives the refusal");
     assert_eq!(manager.role, None);
     assert_eq!(manager.team_id, None);
     assert!(!manager.can_spawn);
@@ -665,7 +665,10 @@ fn remote_ownership_round_trips_through_snapshot() {
     state.get_tab_mut(&tab_id).unwrap().ownership = Some(ownership.clone());
 
     let restored = MultiplexerState::from_session_snapshot(&state.to_session_snapshot());
-    assert_eq!(restored.get_tab(&tab_id).unwrap().ownership, Some(ownership));
+    assert_eq!(
+        restored.get_tab(&tab_id).unwrap().ownership,
+        Some(ownership)
+    );
 }
 
 #[test]

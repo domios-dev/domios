@@ -312,13 +312,11 @@ impl MultiplexerState {
 
             // Literal legacy migration: `Orchestrator`/`Conductor` rows carried
             // no profile, so their anchoring kind is re-materialized here.
-            let restored_role = codeterm_types::agent::restore_role(
-                role.as_deref(),
-                role_profile.as_deref(),
-            )
-            // Residue from a partial launch would restore as a role-bearing
-            // shell; a title is not evidence, so no provider is ever guessed.
-            .filter(|_| agent_type.is_some() || chatbackend_plugin_id.is_some());
+            let restored_role =
+                codeterm_types::agent::restore_role(role.as_deref(), role_profile.as_deref())
+                    // Residue from a partial launch would restore as a role-bearing
+                    // shell; a title is not evidence, so no provider is ever guessed.
+                    .filter(|_| agent_type.is_some() || chatbackend_plugin_id.is_some());
             // A tab that never claimed a role is not residue; only a claim that
             // failed the identity proof rolls its recorded placement back.
             let unproven_role_claim = role.is_some() && restored_role.is_none();

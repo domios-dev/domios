@@ -101,6 +101,12 @@ finish planning before generating execution tasks:\n\
   codeterm plan approve {plan_id}\n\
 then retry the task add. If you intentionally need a draft task, pass `--force`."
         )),
+        "task_dispatch_requires_approval" => Some(format!(
+            "✗ this plan is not approved for dispatch.\nfix: inspect and approve it before dispatching:\n  codeterm plan state {plan_id}\n  codeterm plan doctor {plan_id} --kind quality\n  codeterm plan approve {plan_id}"
+        )),
+        "active_plan_requires_team" => Some(format!(
+            "✗ active plan '{plan_id}' requires a live Team.\nfix: codeterm team adopt-plan <team-id> {plan_id}"
+        )),
         "heartbeat_requires_execution" => Some(format!(
             "✗ heartbeat is derived automatically from execution state.\n\
 Use spec/plan sections for plan rules or mem for durable preferences:\n\
@@ -163,6 +169,15 @@ Use spec/plan sections for plan rules or mem for durable preferences:\n\
                 .unwrap_or("<dependency-task-id>"),
             task_id.unwrap_or("<task_id>")
         )),
+        "dependency_task_referenced" => Some(format!(
+            "✗ task '{}' is still referenced by dependent tasks.\nfix: inspect the dependency graph before removing it:\n  codeterm task show {}",
+            data.get("task_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("<task_id>"),
+            data.get("task_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("<task_id>")
+        )),
         "dependency_self_reference" => Some(format!(
             "✗ a task cannot depend on itself.\nfix: remove the self-dependency or choose another task:\n  codeterm plan task update {plan_id} {} --clear-dependencies true",
             task_id.unwrap_or("<task_id>")
@@ -171,6 +186,34 @@ Use spec/plan sections for plan rules or mem for durable preferences:\n\
             "✗ task dependency would create a cycle.\nfix: inspect the task dependency graph, then remove or reorder the edge:\n  codeterm task show {}\n  codeterm plan task update {plan_id} {} --depends-on <acyclic-task-id>",
             task_id.unwrap_or("<task_id>"),
             task_id.unwrap_or("<task_id>")
+        )),
+        "team_already_has_active_plan" => Some(format!(
+            "✗ team '{}' already owns active plan '{}'.\nfix: use another Team, or archive/complete the existing plan first.",
+            data.get("team_id").and_then(|v| v.as_str()).unwrap_or("<team-id>"),
+            data.get("existing_plan_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("<plan-id>")
+        )),
+        "plan_already_bound_to_team" => Some(format!(
+            "✗ plan '{plan_id}' is already bound to team '{}'.\nfix: use that Team; a plan binds to exactly one Team.",
+            data.get("team_id").and_then(|v| v.as_str()).unwrap_or("<team-id>")
+        )),
+        "plan_activation_requires_unarchive" => Some(format!(
+            "✗ plan '{plan_id}' is archived.\nfix: codeterm plan unarchive {plan_id}"
+        )),
+        "plan_skill_already_exists" => Some(format!(
+            "✗ plan skill '{}' already exists.\nfix: edit or show the existing skill instead of creating it again.",
+            data.get("slug").and_then(|v| v.as_str()).unwrap_or("<slug>")
+        )),
+        "invalid_plan_skill_slug" => Some(
+            "✗ plan skill slug is empty after normalization.\nfix: choose a slug containing letters or digits."
+                .into(),
+        ),
+        "invalid_external_ref" => Some(format!(
+            "✗ invalid external reference: {}",
+            data.get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or("inspect the supplied reference")
         )),
         "regression_gate_blocked" => Some(render_regression_gate_blocked(data, plan_id, task_id)),
         "checkout_occupied" => render_checkout_occupied(data),

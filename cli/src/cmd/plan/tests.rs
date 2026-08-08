@@ -300,7 +300,8 @@ fn renders_readback_mismatch_without_blind_retry() {
 
 #[test]
 fn all_backend_plan_error_types_have_cli_renderers() {
-    let source = include_str!("../../../../src-tauri/crates/codeterm-plan/src/service_plan/types.rs");
+    let source =
+        include_str!("../../../../src-tauri/crates/codeterm-plan/src/service_plan/types.rs");
     let mut types = source
         .lines()
         .filter_map(extract_plan_error_type)
@@ -336,6 +337,16 @@ fn all_backend_plan_error_types_have_cli_renderers() {
             "renderer for PlanError type '{kind}' fell back to raw RPC: {msg}"
         );
     }
+}
+
+#[test]
+fn active_plan_requires_team_renderer_names_the_adoption_command() {
+    let msg = render_plan_error(
+        &json!({ "type": "active_plan_requires_team" }),
+        &json!({ "plan_id": "plan_1" }),
+    )
+    .expect("active_plan_requires_team renderer");
+    assert!(msg.contains("codeterm team adopt-plan <team-id> plan_1"));
 }
 
 #[test]

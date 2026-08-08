@@ -20,10 +20,7 @@ fn key(tab_id: &str, epoch: u64, operation: &str) -> LifecycleKey {
 /// A launch that committed everything and sealed.
 fn commit_full_launch(journal: &TabLifecycleJournal, key: &LifecycleKey, session_id: &str) {
     journal
-        .append(
-            key.clone(),
-            LifecycleTransition::EpochOpened,
-        )
+        .append(key.clone(), LifecycleTransition::EpochOpened)
         .unwrap();
     journal
         .append(
@@ -121,7 +118,12 @@ fn leaf(tab_id: &str) -> SplitNodeSnapshot {
 }
 
 /// A tab that reached the end of a launch with every field committed.
-fn committed_leaf(tab_id: &str, epoch: u64, operation: &str, session_id: &str) -> SplitNodeSnapshot {
+fn committed_leaf(
+    tab_id: &str,
+    epoch: u64,
+    operation: &str,
+    session_id: &str,
+) -> SplitNodeSnapshot {
     let mut node = leaf(tab_id);
     if let SplitNodeSnapshot::Leaf {
         agent_type,
@@ -329,7 +331,10 @@ fn half_a_lineage_proves_nothing() {
         verdict_for(&outcomes, "tab-a"),
         RecoveryVerdict::Stripped(RecoveryRefusal::PartialLineage)
     );
-    let SplitNodeSnapshot::Leaf { role, agent_type, .. } = authority_of(&snapshot, "tab-a") else {
+    let SplitNodeSnapshot::Leaf {
+        role, agent_type, ..
+    } = authority_of(&snapshot, "tab-a")
+    else {
         panic!("expected leaf");
     };
     assert_eq!(role, None);
@@ -352,7 +357,10 @@ fn a_covered_tab_whose_journal_was_rebuilt_is_stripped() {
         RecoveryVerdict::Stripped(RecoveryRefusal::NoCommittedCheckpoint),
         "deleting the journal must not buy an exemption"
     );
-    let SplitNodeSnapshot::Leaf { role, agent_type, .. } = authority_of(&snapshot, "tab-a") else {
+    let SplitNodeSnapshot::Leaf {
+        role, agent_type, ..
+    } = authority_of(&snapshot, "tab-a")
+    else {
         panic!("expected leaf");
     };
     assert_eq!(role, None);
@@ -431,10 +439,7 @@ fn partial_launch_residue_fails_closed() {
     let (journal, _dir) = new_journal();
     let key = key("db79d2da", 1, "op-partial");
     journal
-        .append(
-            key.clone(),
-            LifecycleTransition::EpochOpened,
-        )
+        .append(key.clone(), LifecycleTransition::EpochOpened)
         .unwrap();
 
     let mut snapshot = snapshot(vec![partial_launch_leaf("db79d2da")]);
@@ -553,7 +558,10 @@ fn restart_restores_only_the_snapshot_of_its_own_epoch() {
 
     let mut current = snapshot(vec![committed_leaf("tab-a", 2, "op-b", "session-b")]);
     assert!(matches!(
-        verdict_for(&gate_session_snapshot(&mut current, &journal.load()), "tab-a"),
+        verdict_for(
+            &gate_session_snapshot(&mut current, &journal.load()),
+            "tab-a"
+        ),
         RecoveryVerdict::Restored(_)
     ));
 
@@ -661,7 +669,12 @@ fn a_newer_tabs_checkpoint_never_authorizes_another_tab() {
     let (journal, _dir) = new_journal();
     commit_full_launch(&journal, &key("tab-other", 1, "op-other"), "session-other");
 
-    let mut snapshot = snapshot(vec![committed_leaf("db79d2da", 1, "op-other", "session-other")]);
+    let mut snapshot = snapshot(vec![committed_leaf(
+        "db79d2da",
+        1,
+        "op-other",
+        "session-other",
+    )]);
     let outcomes = gate_session_snapshot(&mut snapshot, &journal.load());
     assert_eq!(
         verdict_for(&outcomes, "db79d2da"),
@@ -766,14 +779,14 @@ fn compaction_is_equivalent_for_recovery() {
     commit_full_launch(&journal, &key("tab-a", 1, "op-a"), "session-a");
     commit_full_launch(&journal, &key("tab-a", 2, "op-b"), "session-b");
     journal
-        .append(
-            key("tab-a", 3, "op-c"),
-            LifecycleTransition::EpochOpened,
-        )
+        .append(key("tab-a", 3, "op-c"), LifecycleTransition::EpochOpened)
         .unwrap();
 
     let mut before = snapshot(vec![committed_leaf("tab-a", 2, "op-b", "session-b")]);
-    let before_verdict = verdict_for(&gate_session_snapshot(&mut before, &journal.load()), "tab-a");
+    let before_verdict = verdict_for(
+        &gate_session_snapshot(&mut before, &journal.load()),
+        "tab-a",
+    );
     journal.compact().unwrap();
     let mut after = snapshot(vec![committed_leaf("tab-a", 2, "op-b", "session-b")]);
     let after_verdict = verdict_for(&gate_session_snapshot(&mut after, &journal.load()), "tab-a");
@@ -790,10 +803,7 @@ fn appends_continue_the_sequence_after_compaction() {
     journal.compact().unwrap();
 
     let seq = journal
-        .append(
-            key("tab-a", 2, "op-b"),
-            LifecycleTransition::EpochOpened,
-        )
+        .append(key("tab-a", 2, "op-b"), LifecycleTransition::EpochOpened)
         .unwrap();
 
     assert!(seq > highest);

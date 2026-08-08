@@ -130,7 +130,11 @@ fn a_filter_miss_from_a_linked_worktree_is_not_a_project_mismatch() {
     });
     let listed = fixture.store.list_tasks_with_reason(filter);
 
-    assert_eq!(unfiltered.tasks.len(), 1, "the status filter is the only cut");
+    assert_eq!(
+        unfiltered.tasks.len(),
+        1,
+        "the status filter is the only cut"
+    );
     assert!(listed.tasks.is_empty());
     assert_eq!(
         listed.empty_reason,

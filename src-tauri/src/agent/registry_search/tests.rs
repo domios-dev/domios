@@ -211,10 +211,7 @@ fn oversized_session_file_is_skipped_not_loaded() {
     );
 
     let p = probe(
-        vec![
-            session("big", &big, 300),
-            session("small", &small, 200),
-        ],
+        vec![session("big", &big, 300), session("small", &small, 200)],
         vec![
             (big.as_str(), vec![("user", "needle in the big file")]),
             (small.as_str(), vec![("user", "needle in the small file")]),
@@ -227,7 +224,11 @@ fn oversized_session_file_is_skipped_not_loaded() {
     });
     assert_eq!(hits.len(), 1, "only the under-cap session may match");
     assert_eq!(hits[0].meta.session_id, "small");
-    assert_eq!(p.paths(), vec![small.clone()], "oversized file never parsed");
+    assert_eq!(
+        p.paths(),
+        vec![small.clone()],
+        "oversized file never parsed"
+    );
 
     // Without the cap both files match — proving the cap alone drove the skip.
     p.reset();

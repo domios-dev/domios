@@ -341,7 +341,6 @@ impl AgentRegistry {
         }
         None
     }
-
 }
 
 impl Default for AgentRegistry {

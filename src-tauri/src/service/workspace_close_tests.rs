@@ -26,6 +26,10 @@ fn protected_workspace() -> (ServiceFixture, String, String) {
 }
 
 #[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
 fn unattributed_close_refuses_a_protected_workspace() {
     let (fixture, workspace_id, _) = protected_workspace();
 
@@ -35,10 +39,19 @@ fn unattributed_close_refuses_a_protected_workspace() {
         .unwrap_err();
 
     assert!(error.starts_with(crate::service::tab::SELF_CLOSE_REFUSAL_PREFIX));
-    assert!(fixture.service.mux.read().get_workspace(&workspace_id).is_some());
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_workspace(&workspace_id)
+        .is_some());
 }
 
 #[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
 fn unknown_local_tab_header_cannot_bypass_workspace_close_protection() {
     let (fixture, workspace_id, _) = protected_workspace();
 
@@ -48,10 +61,19 @@ fn unknown_local_tab_header_cannot_bypass_workspace_close_protection() {
         .unwrap_err();
 
     assert!(error.starts_with(crate::service::tab::SELF_CLOSE_REFUSAL_PREFIX));
-    assert!(fixture.service.mux.read().get_workspace(&workspace_id).is_some());
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_workspace(&workspace_id)
+        .is_some());
 }
 
 #[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
 fn coordinator_local_tab_cannot_close_its_own_workspace() {
     let (fixture, workspace_id, coordinator) = protected_workspace();
 
@@ -61,10 +83,19 @@ fn coordinator_local_tab_cannot_close_its_own_workspace() {
         .unwrap_err();
 
     assert!(error.starts_with(crate::service::tab::SELF_CLOSE_REFUSAL_PREFIX));
-    assert!(fixture.service.mux.read().get_workspace(&workspace_id).is_some());
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_workspace(&workspace_id)
+        .is_some());
 }
 
 #[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
 fn authenticated_mesh_peer_may_close_a_protected_workspace() {
     let (fixture, workspace_id, _) = protected_workspace();
 
@@ -73,10 +104,19 @@ fn authenticated_mesh_peer_may_close_a_protected_workspace() {
         .close_workspace_from_authenticated_mesh_peer("paired-peer", &workspace_id)
         .unwrap();
 
-    assert!(fixture.service.mux.read().get_workspace(&workspace_id).is_none());
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_workspace(&workspace_id)
+        .is_none());
 }
 
 #[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
 fn empty_mesh_peer_provenance_is_rejected() {
     let (fixture, workspace_id, _) = protected_workspace();
 
@@ -86,10 +126,19 @@ fn empty_mesh_peer_provenance_is_rejected() {
         .unwrap_err();
 
     assert!(error.contains("peer id"));
-    assert!(fixture.service.mux.read().get_workspace(&workspace_id).is_some());
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_workspace(&workspace_id)
+        .is_some());
 }
 
 #[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
 fn workspace_close_tears_down_prompt_state_for_every_tab() {
     let (mut mux, first_tab) = MultiplexerState::new();
     let workspace_id = mux.find_workspace_for_tab(&first_tab).unwrap();
@@ -119,6 +168,10 @@ fn workspace_close_tears_down_prompt_state_for_every_tab() {
 }
 
 #[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
 fn workspace_close_keeps_one_workspace_restore_group() {
     let (mut mux, first_tab) = MultiplexerState::new();
     let workspace_id = mux.find_workspace_for_tab(&first_tab).unwrap();
@@ -136,6 +189,10 @@ fn workspace_close_keeps_one_workspace_restore_group() {
 }
 
 #[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
 fn workspace_close_retires_task_bindings_for_member_tabs() {
     let (mut mux, owner) = MultiplexerState::new();
     let workspace_id = mux.find_workspace_for_tab(&owner).unwrap();
@@ -188,6 +245,10 @@ fn workspace_close_retires_task_bindings_for_member_tabs() {
 }
 
 #[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
 fn workspace_close_reservation_blocks_membership_before_lifecycle_cleanup() {
     let (mut mux, tab_id) = MultiplexerState::new();
     let workspace_id = mux.find_workspace_for_tab(&tab_id).unwrap();
@@ -217,15 +278,15 @@ fn workspace_close_reservation_blocks_membership_before_lifecycle_cleanup() {
         Some("operation-before-close")
     );
     drop(mux);
-    fixture
-        .service
-        .mux
-        .write()
-        .abort_workspace_close(&prepared);
+    fixture.service.mux.write().abort_workspace_close(&prepared);
     assert!(fixture.service.create_tab(&workspace_id).is_ok());
 }
 
 #[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
 fn workspace_close_finishes_after_a_pre_teardown_error() {
     let (mut mux, first_tab) = MultiplexerState::new();
     let workspace_id = mux.find_workspace_for_tab(&first_tab).unwrap();

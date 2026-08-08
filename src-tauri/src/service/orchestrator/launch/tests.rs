@@ -3,7 +3,6 @@ use super::{
     take_reader_termination, worker_brief_delivery_incident, AgentRegistry, LaunchFailure,
     LaunchGeneration, LaunchRegistry, ProviderSessionBinding,
 };
-use crate::service::orchestrator::prompt_compose::spawn_onboarding_task;
 use crate::chatbackend::{ChatBackendError, ChatBackendProvider, ChatBackendRegistry};
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{
@@ -12,6 +11,7 @@ use crate::multiplexer::types::{
 use crate::service::boot_stage::BootStageSink;
 use crate::service::inject_verify::InjectionResult;
 use crate::service::launch_delivery::{LaunchConsumptionOutcome, LaunchDeliveryGate};
+use crate::service::orchestrator::prompt_compose::spawn_onboarding_task;
 use crate::service::orchestrator::types::SpawnAgentParams;
 use crate::service::pty_io::tab_identity_env;
 use crate::service::spawn::{SpawnTabSpec, TabCommand};
@@ -491,7 +491,8 @@ fn retain_class_resume_carries_the_composed_prompt_zero_times() {
 
     let registry = AgentRegistry::new();
     registry.register_provider(Box::new(MockProvider::with_system_prompt_flag(
-        "retaining", "--system",
+        "retaining",
+        "--system",
     )));
     let command = build_agent_command(
         "retaining",

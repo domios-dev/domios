@@ -59,7 +59,11 @@ fn team_workspace_prefers_the_anchor_over_a_member_left_behind() {
     let mut moved = moved_team();
     let team_id = moved.team_id.clone();
     moved.mux.get_tab_mut(&moved.stay_behind).unwrap().team_id = Some(team_id);
-    assert!(!moved.mux.get_tab(&moved.stay_behind).unwrap().anchors_team());
+    assert!(!moved
+        .mux
+        .get_tab(&moved.stay_behind)
+        .unwrap()
+        .anchors_team());
 
     assert_eq!(
         moved.mux.team_workspace(&moved.team_id).as_deref(),

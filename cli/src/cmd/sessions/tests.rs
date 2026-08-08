@@ -47,8 +47,7 @@ fn failure_verdict_is_identical_for_every_body_shape_at_the_same_status() {
 #[test]
 fn failure_message_names_the_backend_status_and_body() {
     let body = serde_json::json!({"error": "no such session"});
-    let BackendOutcome::Failure(message) =
-        classify_backend_response(StatusCode::NOT_FOUND, &body)
+    let BackendOutcome::Failure(message) = classify_backend_response(StatusCode::NOT_FOUND, &body)
     else {
         panic!("404 must classify as a failure");
     };

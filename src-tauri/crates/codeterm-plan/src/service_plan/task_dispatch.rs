@@ -740,9 +740,12 @@ impl PlanStore {
                 .is_some();
             if acknowledged && plan.tasks[task_index].status != crate::plan::TaskStatus::InProgress
             {
-                let competitive = plan.tasks[task_index].execution_attempts.iter().any(|attempt| {
-                    attempt.id == attempt_id && attempt.competition_group_id.is_some()
-                });
+                let competitive = plan.tasks[task_index]
+                    .execution_attempts
+                    .iter()
+                    .any(|attempt| {
+                        attempt.id == attempt_id && attempt.competition_group_id.is_some()
+                    });
                 progression_authority(plan, task_index, competitive, attempt_id)?;
             }
             let task = &mut plan.tasks[task_index];

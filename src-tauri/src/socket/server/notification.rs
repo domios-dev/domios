@@ -47,8 +47,15 @@ pub(super) fn dispatch(
                 message: message.to_string(),
                 data: None,
             })?;
-            let id = svc
-                .create_notification_ext(title, body, Some(level_str), None, None, origin, intent);
+            let id = svc.create_notification_ext(
+                title,
+                body,
+                Some(level_str),
+                None,
+                None,
+                origin,
+                intent,
+            );
 
             Ok(serde_json::json!({"id": id}))
         }

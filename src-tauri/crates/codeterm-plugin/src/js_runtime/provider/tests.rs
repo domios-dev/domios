@@ -226,7 +226,11 @@ fn parse_session_messages_streams_multi_chunk_files_without_splitting_lines() {
     std::fs::write(tmp.path(), &body).unwrap();
 
     let msgs = p.parse_session_messages(tmp.path());
-    assert_eq!(msgs.len(), 6000, "every line survives chunking exactly once");
+    assert_eq!(
+        msgs.len(),
+        6000,
+        "every line survives chunking exactly once"
+    );
     assert_eq!(msgs[0].text, format!("line-0-{filler}"));
     assert_eq!(msgs[5999].text, format!("line-5999-{filler}"));
     for (i, m) in msgs.iter().enumerate() {

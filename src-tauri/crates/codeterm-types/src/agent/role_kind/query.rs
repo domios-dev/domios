@@ -8,7 +8,11 @@ pub fn kind_id(role: Option<AgentRole>, role_profile: Option<&str>) -> Option<&s
     let profile = role_profile.map(str::trim).filter(|kind| !kind.is_empty());
     match role? {
         AgentRole::Manager => profile,
-        AgentRole::Worker => Some(profile.filter(is_worker_subtype).unwrap_or(builtins::WORKER)),
+        AgentRole::Worker => Some(
+            profile
+                .filter(is_worker_subtype)
+                .unwrap_or(builtins::WORKER),
+        ),
     }
 }
 

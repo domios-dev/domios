@@ -44,9 +44,7 @@ fn close_tab_detaches_children_without_closing_them() {
     let (mut state, orchestrator_id) = MultiplexerState::new();
     let workspace_id = state.list_workspaces()[0].id.clone();
     let orchestrator_tab = state.find_tab_for_tab(&orchestrator_id).unwrap();
-    state
-        .set_orchestrator_role(&orchestrator_id)
-        .unwrap();
+    state.set_orchestrator_role(&orchestrator_id).unwrap();
     let worker_id = state.create_tab(&workspace_id).unwrap();
     state
         .set_tab_role(&worker_id, AgentRole::Worker, Some(&orchestrator_id))
@@ -457,13 +455,24 @@ fn reopen_policy_closed_worker_restores_binding() {
 
     let new_tab = state.reopen_closed_tab(&wsid, None).unwrap();
     let tab = state.get_tab(&new_tab).expect("worker reopened");
-    assert_eq!(tab.worker_id.as_deref(), Some("wk-7"), "task binding resumes");
+    assert_eq!(
+        tab.worker_id.as_deref(),
+        Some("wk-7"),
+        "task binding resumes"
+    );
     assert_eq!(tab.agent_type.as_deref(), Some("claude"));
     assert!(tab.agent_type_locked, "provider re-locked for resume");
     assert_eq!(tab.agent_session_id.as_deref(), Some("sess-9"));
-    assert_eq!(tab.cwd.as_deref(), Some("/tmp/lane-worktree"), "lane resumes");
+    assert_eq!(
+        tab.cwd.as_deref(),
+        Some("/tmp/lane-worktree"),
+        "lane resumes"
+    );
     assert!(tab.restored_from_snapshot, "drives lazy reopen/resume");
-    assert!(state.list_recently_closed(&wsid).is_empty(), "entry consumed");
+    assert!(
+        state.list_recently_closed(&wsid).is_empty(),
+        "entry consumed"
+    );
 }
 
 // ── cascade grouping ─────────────────────────────────────────────────

@@ -66,8 +66,9 @@ impl LaneProtection {
     pub(crate) fn for_dispatch_intent(intent: &crate::plan::ExecutionIntent) -> Self {
         match intent {
             crate::plan::ExecutionIntent::ReadOnly => Self::Waived,
-            crate::plan::ExecutionIntent::Mutating
-            | crate::plan::ExecutionIntent::Unspecified => Self::Enforced,
+            crate::plan::ExecutionIntent::Mutating | crate::plan::ExecutionIntent::Unspecified => {
+                Self::Enforced
+            }
         }
     }
 

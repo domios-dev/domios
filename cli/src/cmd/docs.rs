@@ -137,6 +137,11 @@ pub(crate) const DOCS: &[EmbeddedDoc] = &[
         "../../../docs/PROMPTS.md"
     ),
     doc!(
+        "PROMPT-TIERS",
+        "Prompt progressive-disclosure tiers",
+        "../../../docs/PROMPT-TIERS.md"
+    ),
+    doc!(
         "SKILLS",
         "CodeTerm skills and agent integration",
         "../../../docs/SKILLS.md"

@@ -47,7 +47,10 @@ fn rank_ids(needle: &str, tabs: &[serde_json::Value]) -> Vec<String> {
 }
 
 fn string_field<'a>(value: &'a serde_json::Value, key: &str) -> &'a str {
-    value.get(key).and_then(|field| field.as_str()).unwrap_or("")
+    value
+        .get(key)
+        .and_then(|field| field.as_str())
+        .unwrap_or("")
 }
 
 #[test]
@@ -501,11 +504,13 @@ impl StubRpc {
         Self {
             method: None,
             params: None,
-            failure: Some(crate::client::SocketCallError::Rpc(crate::client::RpcError {
-                code,
-                message: message.into(),
-                data: None,
-            })),
+            failure: Some(crate::client::SocketCallError::Rpc(
+                crate::client::RpcError {
+                    code,
+                    message: message.into(),
+                    data: None,
+                },
+            )),
         }
     }
 }
@@ -557,8 +562,8 @@ fn close_failure_moves_the_rpc_code_out_of_the_message() {
 fn rename_failure_moves_the_rpc_code_out_of_the_message() {
     let mut stub = StubRpc::failing(-32603, "Tab not found");
 
-    let error =
-        rename_tab(&mut stub, "zzzzzzzz", "new title").expect_err("the stub answers with a failure");
+    let error = rename_tab(&mut stub, "zzzzzzzz", "new title")
+        .expect_err("the stub answers with a failure");
 
     assert_converted(
         &stub,

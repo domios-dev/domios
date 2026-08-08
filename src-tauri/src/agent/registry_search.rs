@@ -82,8 +82,7 @@ impl AgentRegistry {
             if exceeds_byte_cap(&meta.file_path, byte_cap) {
                 continue;
             }
-            let matched =
-                match_session(provider.as_ref(), meta, &lowered_terms, max_snippets);
+            let matched = match_session(provider.as_ref(), meta, &lowered_terms, max_snippets);
             if let Some(hit) = matched {
                 hits.push(hit);
             }
@@ -160,7 +159,7 @@ fn match_session(
             });
         }
     }
-    (!snippets.is_empty()).then(|| SessionSearchHit {
+    (!snippets.is_empty()).then_some(SessionSearchHit {
         meta,
         snippets,
         match_count: matched_msgs,

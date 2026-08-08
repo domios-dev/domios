@@ -1010,7 +1010,10 @@ fn mesh_tab_list_json_is_formatted_locally_instead_of_relayed_verbatim() {
 
     let json_mode = mesh_cli(true, tab_list_command());
     assert!(json_mode.json, "fixture must reach the --json branch");
-    assert_eq!(rendering_for(&json_mode), Some(TabListRendering::JsonEnvelope));
+    assert_eq!(
+        rendering_for(&json_mode),
+        Some(TabListRendering::JsonEnvelope)
+    );
 
     let human = mesh_cli(false, tab_list_command());
     assert_eq!(rendering_for(&human), Some(TabListRendering::Tree));
@@ -1042,7 +1045,9 @@ fn mesh_tab_list_json_emits_the_same_envelope_as_the_local_path() {
     ]);
 
     let over_mesh = uniform_id_value(&super::tab_list::json_envelope(&rest_body));
-    let local = uniform_id_value(&tab_list_json_envelope(rest_body.as_array().unwrap().clone()));
+    let local = uniform_id_value(&tab_list_json_envelope(
+        rest_body.as_array().unwrap().clone(),
+    ));
 
     assert_eq!(
         over_mesh, local,

@@ -274,7 +274,10 @@ fn resume_with_context_reapplies_the_prompt_on_both_paths() {
             "{label}"
         );
         assert!(command.contains("--model parity-model"), "{label}");
-        assert!(!command.contains(prompt), "{label} must not inline the prompt");
+        assert!(
+            !command.contains(prompt),
+            "{label} must not inline the prompt"
+        );
         let path = command
             .rsplit_once("--append-system-prompt-file ")
             .expect("declared flag carries a path")

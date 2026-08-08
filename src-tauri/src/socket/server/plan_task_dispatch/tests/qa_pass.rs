@@ -1,10 +1,10 @@
 use super::super::preflight_checkout_occupancy;
 use crate::plan::{AgentRef, OrchestratorRef, TaskLaneMetadata, TaskStatus};
-use crate::service::LaneProtection;
 use crate::service::plan::task_attempts::{
     BoundWorkerReport, TaskCompeteRequest, TaskRespawnRequest,
 };
 use crate::service::plan::{NewTask, PlanError, PlanStore};
+use crate::service::LaneProtection;
 use codeterm_types::agent::ReportStatus;
 
 fn reported_task() -> (tempfile::TempDir, PlanStore, String, String, String) {

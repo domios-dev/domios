@@ -763,9 +763,7 @@ mod tests {
 
         let (store, _dir) = fresh_store();
         let (mut state, parent) = MultiplexerState::new();
-        state
-            .set_orchestrator_role(&parent)
-            .unwrap();
+        state.set_orchestrator_role(&parent).unwrap();
         let parent_tab = state.get_tab_mut(&parent).unwrap();
         parent_tab.agent_type = Some("claude".into());
         parent_tab.agent_session_id = Some("session-orchestrator".into());

@@ -13,7 +13,10 @@ enum ThemeOutcome {
 enum LeafOutput {
     Human(Vec<String>),
     Json(Value),
-    Failure { earned: Vec<String>, message: String },
+    Failure {
+        earned: Vec<String>,
+        message: String,
+    },
 }
 
 pub fn handle_theme(json: bool, action: ThemeAction) {
@@ -314,7 +317,10 @@ mod tests {
 
     #[test]
     fn a_2xx_body_shaped_like_an_error_is_still_a_success() {
-        let output = list_output(false, ThemeOutcome::Ok(json!({"ok": false, "error": "boom"})));
+        let output = list_output(
+            false,
+            ThemeOutcome::Ok(json!({"ok": false, "error": "boom"})),
+        );
         assert_eq!(output, LeafOutput::Human(Vec::new()));
     }
 
@@ -379,19 +385,29 @@ mod tests {
     fn save_without_apply_reports_the_backend_path_and_never_calls_the_apply_leg() {
         let saved = json!({"path": "/cfg/themes/dark.toml"});
         let calls = Cell::new(0);
-        let human = save_output(false, "dark", false, ThemeOutcome::Ok(saved.clone()), || {
-            calls.set(calls.get() + 1);
-            ThemeOutcome::Ok(Value::Null)
-        });
+        let human = save_output(
+            false,
+            "dark",
+            false,
+            ThemeOutcome::Ok(saved.clone()),
+            || {
+                calls.set(calls.get() + 1);
+                ThemeOutcome::Ok(Value::Null)
+            },
+        );
         assert_eq!(calls.get(), 0);
         assert_eq!(
             human,
             LeafOutput::Human(vec!["Theme saved: /cfg/themes/dark.toml".to_string()])
         );
 
-        let LeafOutput::Json(envelope) =
-            save_output(true, "dark", false, ThemeOutcome::Ok(saved.clone()), never_applies)
-        else {
+        let LeafOutput::Json(envelope) = save_output(
+            true,
+            "dark",
+            false,
+            ThemeOutcome::Ok(saved.clone()),
+            never_applies,
+        ) else {
             panic!("--json must emit a document");
         };
         assert_eq!(envelope["ok"], Value::Bool(true));
@@ -451,7 +467,10 @@ mod tests {
         else {
             panic!("a failing apply leg must fail the command");
         };
-        assert_eq!(earned, vec!["Theme saved: /cfg/themes/dark.toml".to_string()]);
+        assert_eq!(
+            earned,
+            vec!["Theme saved: /cfg/themes/dark.toml".to_string()]
+        );
         assert!(message.contains("/cfg/themes/dark.toml"));
 
         let LeafOutput::Failure { earned, .. } =
@@ -467,7 +486,13 @@ mod tests {
     #[test]
     fn save_falls_back_to_the_theme_id_when_the_backend_omits_a_path() {
         assert_eq!(
-            save_output(false, "dark", false, ThemeOutcome::Ok(json!({})), never_applies),
+            save_output(
+                false,
+                "dark",
+                false,
+                ThemeOutcome::Ok(json!({})),
+                never_applies
+            ),
             LeafOutput::Human(vec!["Theme saved: dark".to_string()])
         );
     }

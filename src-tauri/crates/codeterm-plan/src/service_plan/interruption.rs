@@ -274,7 +274,9 @@ impl PlanStore {
             if task.status_label.as_deref() != Some(PROVIDER_EXHAUSTED_LABEL)
                 || task.interruption.owner_epoch != owner_epoch
             {
-                return Err(PlanError::Io("provider-exhaustion pause ownership changed".into()));
+                return Err(PlanError::Io(
+                    "provider-exhaustion pause ownership changed".into(),
+                ));
             }
             let attempt = task
                 .execution_attempts
@@ -311,7 +313,9 @@ impl PlanStore {
                 .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
                 .ok_or(PlanError::TaskNotFound)?;
             if task.status_label.as_deref() != Some(PROVIDER_EXHAUSTED_LABEL) {
-                return Err(PlanError::Io("task is not provider-exhaustion paused".into()));
+                return Err(PlanError::Io(
+                    "task is not provider-exhaustion paused".into(),
+                ));
             }
             if task.interruption.owner_epoch != owner_epoch
                 || task.interruption.owner_tab_id.as_deref() != Some(owner_tab_id)

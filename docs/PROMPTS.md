@@ -2,7 +2,6 @@
 How CodeTerm ships instructions to LLM agents: where prompt files live, how they are compiled and injected, and how to edit them safely.
 
 ## Overview
-
 Every system-level prompt in CodeTerm is compiled into the binary via `include_str!()`. There is no runtime prompt store and no hot-reload — **editing a prompt requires a rebuild**. Prompt fragments live under `src-tauri/prompts/`; the complete Orchestrator and Planner manuals remain canonical in `docs/ORCHESTRATION.md` and `docs/PLANNER.md` and are embedded into their startup contracts. Loaders are split by ownership: the app catalog is `src-tauri/src/prompts.rs`, plan worker fragments are in `codeterm-plan`, memory prompts and private seed constants are in `codeterm-mem`, and the provider bridge rule is also loaded by `codeterm-plugin`.
 
 **One in-binary prompt location.** Every prompt the project owns and ships with CodeTerm lives here:
@@ -21,7 +20,6 @@ Prompts reach the model through these pathways:
 6. **Direct API calls** — `mem_rerank.md` is sent via raw HTTPS to `api.anthropic.com` / OpenAI from `mem/rerank.rs`. The only place in the codebase that talks to a model API without going through the agent provider abstraction.
 
 ## Prompt files
-
 All in-binary prompt sources live in `src-tauri/prompts/`. Their loader constants are split across `src-tauri/src/prompts.rs`, `codeterm-plan/src/service_plan/prompts_plan.rs`, `codeterm-mem/src/prompt_text.rs`, `codeterm-mem/src/seed.rs`, and `codeterm-plugin/src/prompts.rs` according to ownership. Seed constants are private; they are not part of a shared prompt catalog.
 
 | File | Const | Category | Placeholders | Injection point |
@@ -62,7 +60,6 @@ All in-binary prompt sources live in `src-tauri/prompts/`. Their loader constant
 | `seed/skill_codeterm.md` | `SKILL_CODETERM` | Fresh-install seed | — | private `codeterm-mem/src/seed.rs` constant |
 
 ### Placeholder rules
-
 Substitution is plain `String::replace()` — there is no template engine. This means:
 
 - **Placeholder names must stay in sync with Rust.** Rename `{soul}` in `general_agent.md` without touching `service/general_agent.rs`, and the literal text `{soul}` ends up in the model's prompt. There is no compile-time check.
@@ -71,7 +68,6 @@ Substitution is plain `String::replace()` — there is no template engine. This 
 - **Don't reuse a placeholder name across files** unless the meaning is identical — it makes refactors error-prone.
 
 ### One fragment, every class: the AgentPad rule
-
 `agent_pad_rule.md` is the single semantic source for the pad contract. It has
 three carriers and no copies:
 
@@ -100,7 +96,6 @@ against `docs/cli-manifest.json`, so a rename cannot leave dead guidance. It val
 references, never prompt wording.
 
 ## Memory worker prompts
-
 Four of the prompts above (`worker_task_preamble`, `mem_extraction`, `dreaming_rem`, `mem_rerank`) are owned by the memory subsystem and used at runtime, but they are still plain `.md` files like everything else — no inline string literals. Quick map:
 
 - **`worker_task_preamble.md`** — wrapper applied by `workers::build_worker_task()` to every headless memory worker. Sets the "you are a Graph Worker" framing, tells the worker how to call back via `codeterm mem worker progress|report`, then injects the inner `{task}`.
@@ -239,25 +234,7 @@ owning loader module (pub const &str)
 - `docs/GENERAL_AGENT.md` — GA lifecycle and behavior spec (what `general_agent.md` is trying to produce)
 - `docs/MEMORY.md` — memory system including the behavioral protocol from `bridge_mem.md`
 - `docs/API.md` — "Agent Prompts" section lists the same files from an API-consumer angle
+- `docs/PROMPT-TIERS.md` — progressive-disclosure tiers and their evaluation boundary
 - `.claude/skills/prompt-evaluator/SKILL.md` — the harness it drives
 
-
-## Prompt tiers — progressive disclosure
-
-System-prompt content is tiered; keep it that way when editing:
-
-- **Tier 0 (always in context):** hard invariants not discoverable via help
-  (routing, no-echo, chat_backend-no-shell, CLI-first discovery habit) plus a
-  capability map — one line per domain pointing at its tier-1 entry.
-  `codeterm_cli.md` budget: ~900 words. Mem and mesh keep compact protocol
-  blocks by explicit decision (high-frequency, behavior-critical).
-- **Tier 1 (agent discovers):** `codeterm <cmd> --help` (clap long_help) and
-  the matching complete document. Nothing may live inline that tier 1 already answers;
-  when adding a rule, put the rationale in docs and one imperative line here.
-- **Tier 2:** situational playbooks (TELEGRAM-SETUP, SECRETS, ...).
-
-Behavioral prompt changes are gated by `evals/cli-agent` (baseline vs after)
-with sandboxes OUTSIDE the repo — in-repo sandboxes feed agents the repo's
-checked-in AGENTS.md instead of the generated one and invalidate the run.
-
-<!-- revision: 27 -->
+<!-- revision: 28 -->

@@ -4,32 +4,30 @@ CodeTerm exposes authenticated REST, local socket JSON-RPC, and the `codeterm` C
 
 ### Architecture: Unified Service Layer
 
-All multiplexer operations are implemented in one **ServiceContext** (`src-tauri/src/service.rs`). REST routes and Tauri IPC delegate to it, preserving PTY cleanup, events, hierarchy validation, and semantics across entry points.
+All multiplexer operations are implemented in one **ServiceContext**
+(`src-tauri/src/service/mod.rs`). REST routes and Tauri IPC delegate to it,
+preserving PTY cleanup, events, hierarchy validation, and semantics.
 
-The CLI's local socket dispatches internal `api.request` JSON-RPC calls through
-the Axum router without TCP. Unix peer credentials or the Windows process-token
-SID restrict it to the daemon's OS user; the daemon injects API authentication.
-Mesh commands use the same socket while the daemon owns signing and transport.
+The CLI's local socket dispatches internal `api.request` JSON-RPC through Axum
+without TCP. Unix peer credentials or the Windows process-token SID restrict it
+to the daemon's OS user; the daemon owns authentication, signing, and transport.
 
-Human `codeterm workspace list` shows authoritative tab counts, cwd, state,
-Teams, active Plans, and tabs in stable creation order. Inspect one tab with
-`codeterm tab inspect <id>`; whole-list JSON remains automation-only.
+Human `codeterm workspace list` shows authoritative tab counts, cwd, state, Teams,
+active Plans, and tabs in stable creation order. Inspect one tab with `codeterm tab
+inspect <id>`; whole-list JSON remains automation-only.
 `workspace current --json` returns `{ "id", "source" }`, where `source` is
-`explicit`, `caller-tab`, `workspace-env`, or `focus-fallback`. Resolution is
-never positional: `--workspace`, then `$CODETERM_TAB_ID` joined through workspace
-membership, then a validated `$CODETERM_WORKSPACE_ID`, then the active workspace.
-When no rung resolves, stdout stays empty and the command exits 1 (`--json` puts
-the error envelope on stdout).
+`explicit`, `caller-tab`, `workspace-env`, or `focus-fallback`. Resolution is never
+positional: `--workspace`, `$CODETERM_TAB_ID` joined through workspace membership,
+a validated `$CODETERM_WORKSPACE_ID`, then the active workspace. When no rung
+resolves, stdout stays empty and the command exits 1 (`--json` puts the error
+envelope on stdout).
 
 ## REST API
 
 Base URL: `http://<host>:7685/api`
-
-**Public vs internal REST surfaces.** This reference documents agent-facing and
-operator-facing REST routes. Browser mirror plumbing, debug-clock endpoints,
-upload/PTY mirror routes, and other web-only internals are intentionally not part
-of the public contract; see `src-tauri/src/api/web_routes.rs` and the route
-registration in `src-tauri/src/api/routes.rs` when auditing those surfaces.
+**Public vs internal REST surfaces.** This reference documents agent-facing and operator-facing
+REST routes. Browser mirror plumbing, debug-clock endpoints, upload/PTY mirror routes, and other
+web-only internals live in `src-tauri/src/api/web_routes.rs` and `src-tauri/src/api/routes.rs`.
 
 ### Authentication
 CodeTerm generates and persists a Bearer token on first load. Control endpoints
@@ -45,9 +43,8 @@ cors = false
 ```
 Then: `Authorization: Bearer your-secret-token`
 
-Non-loopback binds require an explicitly configured host and a non-empty token;
-remote requests are accepted only while Mesh is enabled. Turning Mesh off blocks
-all remote HTTP access while preserving localhost access. CORS is allowlist-only:
+Non-loopback binds require an explicit host and non-empty token; remote requests work only while
+Mesh is enabled. Turning Mesh off blocks remote HTTP while preserving localhost. CORS is allowlist-only:
 
 ```toml
 [api]
@@ -57,15 +54,12 @@ cors = true
 cors_allow_origins = ["https://console.example"]
 ```
 
-Authenticated config readback includes `api_listener.active`,
-`api_listener.configured`, and `api_listener.restart_required`, covering enabled
-state, address, CORS/origins, and configured authentication. Exact API config
-queries include this listener truth, so writes cannot masquerade as runtime
-rebinds. `localhost`, `::1`, and `[::1]` canonicalize to valid socket/callback
-URL forms; rebind/recovery retains the generation behavior below.
+Authenticated config readback includes `api_listener.active`, `api_listener.configured`, and
+`api_listener.restart_required`, covering enabled state, address, CORS/origins, and authentication.
+Exact queries include listener truth, so writes cannot masquerade as runtime rebinds. Loopback
+hosts canonicalize to valid socket/callback URL forms; rebind/recovery retains generation below.
 
-An empty CORS allowlist permits no cross-origin browser requests and never
-disables the API listener. `*` and malformed origins are rejected.
+An empty CORS allowlist permits no cross-origin requests and never disables the listener; `*` and malformed origins are rejected.
 
 ### Endpoints
 
@@ -243,4 +237,4 @@ competition provisions one lane per competitor. Advisory findings ride successfu
 results in `safety_nudges` and `_hints`. See `codeterm docs ORCHESTRATION`.
 Related: `codeterm docs API-TABS`, `API-INTEGRATIONS`, `API-MEMORY`, `API-AGENTS`,
 `API-TRANSPORT`, and `API-CLI`.
-<!-- revision: 118 -->
+<!-- revision: 119 -->

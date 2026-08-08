@@ -1,6 +1,5 @@
 //! Tests for the PTY spawn/kill commands and restored-snapshot launch input.
 
-
 mod kill_pty_tests {
     use std::collections::HashMap;
 
@@ -57,7 +56,6 @@ mod kill_pty_tests {
         ));
     }
 }
-
 
 mod restored_fresh_launch_tests {
     use super::super::restored_fresh_launch_input;
