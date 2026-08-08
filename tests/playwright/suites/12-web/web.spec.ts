@@ -27,7 +27,7 @@ async function passTokenGate(page: Page): Promise<void> {
     .waitFor({ timeout: 20_000 });
 }
 
-test("@smoke / serves the SPA; token gate authenticates; self is the default host", async ({ webBrowser }) => {
+test("@smoke / serves the SPA; token gate authenticates; self is the default host", async ({ api, webBrowser }) => {
   const page = await newWebPage(webBrowser);
   await page.goto(WEB_URL, { waitUntil: "domcontentloaded" });
   await passTokenGate(page);
@@ -36,9 +36,11 @@ test("@smoke / serves the SPA; token gate authenticates; self is the default hos
   const host = await page.evaluate(() => sessionStorage.getItem("codeterm-web-host"));
   expect(host).toBeNull();
 
-  // The peer picker is mounted top-left and shows "this host".
+  // The picker labels the current host with the daemon-reported local
+  // instance name (GET /api/mesh/peers), proving the default target is self.
+  const mesh = await api.get<{ local_instance_name: string }>("/mesh/peers");
   await expect(page.locator('[data-testid="peer-picker-button"]')).toBeVisible();
-  await expect(page.locator('[data-testid="peer-picker-button"]')).toContainText("this host");
+  await expect(page.locator('[data-testid="peer-picker-button"]')).toContainText(mesh.local_instance_name);
   await page.context().close();
 });
 
