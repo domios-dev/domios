@@ -55,3 +55,11 @@ export function messageTimeMs(timestamp: string | undefined | null): number | nu
   const parsed = Date.parse(timestamp);
   return Number.isNaN(parsed) ? null : parsed;
 }
+
+/** Daemon report events stamp epoch-seconds while transcript stamps parse to
+ *  epoch-ms; sub-1e11 values are seconds (that floor is year 5138 in seconds
+ *  but 1973 in ms), so normalize once at ingest — never at comparison sites. */
+export function normalizeEpochMs(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  return value < 1e11 ? value * 1000 : value;
+}
