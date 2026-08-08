@@ -163,6 +163,13 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
         report_target_tab_id,
         &run_id,
     );
+    let resume_system_prompt = crate::service::provider_launch_task(
+        &service.agent_registry,
+        agent,
+        Some(&task_text),
+        role,
+        None,
+    );
 
     // (shared default). Resolved against `agent`'s own catalog so a cron job
     // fired without a stored model still gets a model that provider accepts.
@@ -268,6 +275,7 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
                         run_id: run_id.clone(),
                     },
                     timeout,
+                    resume_system_prompt.clone(),
                 );
             }
 

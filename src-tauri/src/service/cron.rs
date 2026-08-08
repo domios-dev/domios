@@ -223,6 +223,13 @@ impl ServiceContext {
             report_target_tab_id.as_deref(),
             &run_id,
         );
+        let resume_system_prompt = crate::service::orchestrator::provider_launch_task(
+            &self.agent_registry,
+            &agent,
+            Some(&task_text),
+            role.as_deref(),
+            None,
+        );
 
         let model = model.or_else(|| {
             let mem_cfg = crate::config::memory_config();
@@ -288,6 +295,7 @@ impl ServiceContext {
                             run_id: run_id.clone(),
                         },
                         timeout,
+                        resume_system_prompt.clone(),
                     );
                 }
             }

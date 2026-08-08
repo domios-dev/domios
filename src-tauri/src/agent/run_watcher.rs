@@ -57,6 +57,7 @@ struct RunState {
     nudge_count: AtomicU32,
     restart_count: AtomicU32,
     last_restart_at: Mutex<Instant>,
+    resume_system_prompt: Option<String>,
 }
 
 pub struct RunWatcherRegistry {
@@ -83,6 +84,7 @@ impl RunWatcherRegistry {
         tab_id: String,
         kind: AgentRunKind,
         timeout_secs: u64,
+        resume_system_prompt: Option<String>,
     ) {
         let state = Arc::new(RunState {
             pty_id: pty_id.clone(),
@@ -98,6 +100,7 @@ impl RunWatcherRegistry {
             nudge_count: AtomicU32::new(0),
             restart_count: AtomicU32::new(0),
             last_restart_at: Mutex::new(Instant::now()),
+            resume_system_prompt,
         });
         self.runs.lock().insert(pty_id, state.clone());
         // Use tauri's runtime handle so this works even when register() is called from outside a tokio reactor (e.g. main thread spawn paths).
@@ -321,7 +324,12 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
                 MAX_RESTARTS,
                 state.tab_id
             );
-            resume_hidden_run(&svc, &state.tab_id, &state.pty_id);
+            resume_hidden_run(
+                &svc,
+                &state.tab_id,
+                &state.pty_id,
+                state.resume_system_prompt.as_deref(),
+            );
             continue;
         }
 
@@ -484,7 +492,12 @@ fn screen_is_bare_shell(text: &str) -> bool {
 /// Re-launch the agent in its existing tab via `--resume <session_id>` so a
 /// crashed unattended run continues where it left off. No-op if the session id
 /// isn't known yet (let idle / timeout handle that case).
-fn resume_hidden_run(svc: &ServiceContext, tab_id: &str, pty_id: &str) {
+fn resume_hidden_run(
+    svc: &ServiceContext,
+    tab_id: &str,
+    pty_id: &str,
+    system_prompt: Option<&str>,
+) {
     let (provider, session_id) = {
         let mux = svc.mux.read();
         let tab = mux.get_tab(tab_id);
@@ -513,7 +526,13 @@ fn resume_hidden_run(svc: &ServiceContext, tab_id: &str, pty_id: &str) {
     if let Some(tab) = svc.mux.write().get_tab_mut(tab_id) {
         tab.auto_approve = full_access;
     }
-    let cmd = hidden_recovery_resume_command(&svc.agent_registry, &provider, &sid, full_access);
+    let cmd = hidden_recovery_resume_command(
+        &svc.agent_registry,
+        &provider,
+        &sid,
+        full_access,
+        system_prompt,
+    );
     let Some(cmd) = cmd else {
         log::warn!("[run-watcher] provider {} has no resume command", provider);
         return;
@@ -528,10 +547,16 @@ fn hidden_recovery_resume_command(
     provider: &str,
     session_id: &str,
     full_access: bool,
+    system_prompt: Option<&str>,
 ) -> Option<String> {
     registry
         .with_provider(provider, |p| {
-            p.build_resume_command(session_id, full_access)
+            p.build_resume_command_with_context(&crate::agent::provider::AgentResumeParams {
+                session_id: session_id.to_string(),
+                skip_permissions: full_access,
+                system_prompt: system_prompt.map(str::to_string),
+                args: Vec::new(),
+            })
         })
         .flatten()
 }
@@ -895,12 +920,34 @@ mod tests {
         let registry = crate::agent::registry::AgentRegistry::new();
         registry.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
 
-        let full_access = hidden_recovery_resume_command(&registry, "claude", "session-1", true)
-            .expect("resume command");
-        let restricted = hidden_recovery_resume_command(&registry, "claude", "session-1", false)
-            .expect("resume command");
+        let full_access =
+            hidden_recovery_resume_command(&registry, "claude", "session-1", true, None)
+                .expect("resume command");
+        let restricted =
+            hidden_recovery_resume_command(&registry, "claude", "session-1", false, None)
+                .expect("resume command");
 
         assert!(full_access.contains("--dangerously-skip-permissions"));
         assert!(!restricted.contains("--dangerously-skip-permissions"));
+    }
+
+    #[test]
+    fn hidden_agent_crash_recovery_reapplies_the_registered_launch_context() {
+        let registry = crate::agent::registry::AgentRegistry::new();
+        registry.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
+        let context = "opaque-relaunch-context-3d9c";
+
+        let command =
+            hidden_recovery_resume_command(&registry, "claude", "session-1", false, Some(context))
+                .expect("resume command with context");
+        let path = command
+            .split("--append-system-prompt-file ")
+            .nth(1)
+            .expect("system prompt file flag")
+            .trim()
+            .trim_matches('\'');
+        let written = std::fs::read_to_string(path).expect("written relaunch context");
+
+        assert_eq!(written.trim_start_matches('\u{feff}'), context);
     }
 }
