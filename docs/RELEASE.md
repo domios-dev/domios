@@ -329,6 +329,17 @@ Don't skip this — a stale `develop` makes the next release start from a missin
 - **macOS Rust tests panic that `EventLoop` must be created on the main thread** when a test
   forgot the non-Windows guard required by the shared `ServiceContext` desktop fixture. Add the
   same `cfg_attr` used by its other consumers; do not treat elapsed time or retries as readiness.
+- **`workspace_close_tests` protection now runs on Windows only.** All ten guarded-workspace-close
+  tests carry the `cfg_attr(not(windows), ignore = "...interactive desktop runtime")` guard above,
+  so a macOS/Linux `verify`/`release-preflight`/`test` run silently skips them — a real coverage
+  reduction, not just portability noise. Treat a Windows local run (or the Windows CI leg) as the
+  only authoritative signal for this protection until the shared `ServiceContext` fixture stops
+  requiring a main-thread `EventLoop`; do not paper over it with a second non-Windows fixture.
+- **`workspace arm count is frozen` fails in `subcommand_contract_tests::context`** when a
+  `WorkspaceAction` variant is added or removed without updating the pinned arm count. Update the
+  frozen count deliberately alongside the new/removed arm's caller-context assertion — the test
+  also re-checks that only `workspace.close` carries caller context; do not bump the count as a
+  reflex without re-confirming that invariant still holds.
 - **`registered_documents_have_one_title_and_fit_the_reading_boundary` fails** when an embedded
   CLI document grows beyond 240 lines. Tighten the document without dropping contract details;
   do not raise the reading boundary to hide growth.
@@ -357,4 +368,4 @@ The minisign updater key (`~/.tauri/codeterm.key`, empty password; its public ha
 the `github-release` skill lists the exact ids and restore paths. A builder without the minisign
 key produces artifacts the updater can't verify.
 
-<!-- revision: 25 -->
+<!-- revision: 26 -->
