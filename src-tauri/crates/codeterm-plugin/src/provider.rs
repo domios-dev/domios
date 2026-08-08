@@ -397,6 +397,10 @@ pub struct ProviderDescriptor {
     pub compact_command: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub self_update: Option<ProviderSelfUpdateCapability>,
+    /// Optional `integration.trust_grant` capability. Absent ⇒ integration
+    /// install needs no provider-owned trust grant step.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub integration_trust_grant: Option<IntegrationTrustGrantCapability>,
     /// `true` when this provider declares a stop_keystroke — UI shows
     /// a Stop button on the tab that POSTs to `/api/tabs/:id/stop`.
     #[serde(default)]
@@ -439,7 +443,7 @@ pub struct ProviderDescriptor {
 }
 
 /// Current `ProviderDescriptor` schema version. Bump on breaking change.
-pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 13;
+pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 14;
 
 /// Trait for agent backend providers (Claude, Codex, Aider, etc.)
 #[async_trait]
@@ -951,6 +955,18 @@ pub trait AgentProvider: Send + Sync {
         Err("provider integration has no recoverable backup".into())
     }
 
+    /// Optional `integration.trust_grant` declaration; default `None` — the
+    /// provider's hooks need no trust grant.
+    fn integration_trust_grant_capability(&self) -> Option<IntegrationTrustGrantCapability> {
+        None
+    }
+
+    /// Provider-owned hook-trust grant scoped to the declared managed key(s).
+    /// The provider CLI is the only hash authority; failure degrades honestly.
+    fn grant_integration_trust(&self, _managed_keys: &[String]) -> serde_json::Value {
+        serde_json::json!({ "granted": false, "degraded": true, "reason": "provider declares no trust grant capability" })
+    }
+
     /// Startup checks are read-only; global provider config is never repaired implicitly.
     fn ensure_integration_on_startup(&self, _api_port: u16) {}
 
@@ -1064,6 +1080,7 @@ pub trait AgentProvider: Send + Sync {
             fresh_context_command: self.fresh_context_command().map(|s| s.to_string()),
             compact_command: self.compact_command().map(|s| s.to_string()),
             self_update: self.provider_self_update_capability(),
+            integration_trust_grant: self.integration_trust_grant_capability(),
             supports_stop: self.stop_keystroke().is_some(),
             supports_chat_ui: self.supports_chat_ui(),
             supports_structured_prompts: self.supports_structured_prompts(),

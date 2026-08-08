@@ -99,3 +99,25 @@ pub fn session_start_hook_roster() -> Vec<HookEventBinding> {
         route: HookIngestionRoute::SessionStart,
     }]
 }
+
+/// Optional `integration.trust_grant` capability: after integration install,
+/// core invokes the provider-owned grant exactly once with these managed hook
+/// key(s). The provider's own CLI is the only trust-hash authority.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct IntegrationTrustGrantCapability {
+    pub managed_keys: Vec<String>,
+}
+
+/// Core's install seam: install, then invoke a declared trust grant exactly
+/// once with the declared managed key(s). `Ok(None)` ⇒ no capability declared.
+pub fn install_integration_with_trust_grant(
+    provider: &dyn super::AgentProvider,
+    api_port: u16,
+    options: &super::IntegrationInstallOptions,
+) -> Result<Option<serde_json::Value>, String> {
+    provider.install_integration(api_port, options)?;
+    Ok(provider
+        .integration_trust_grant_capability()
+        .map(|capability| provider.grant_integration_trust(&capability.managed_keys)))
+}

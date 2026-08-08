@@ -1165,6 +1165,30 @@ impl AgentProvider for JsProvider {
             .unwrap_or_else(|| Err("provider integration has no recoverable backup".into()))
     }
 
+    fn integration_trust_grant_capability(
+        &self,
+    ) -> Option<crate::provider::IntegrationTrustGrantCapability> {
+        self.manifest
+            .integration
+            .as_ref()?
+            .trust_grant
+            .as_ref()
+            .map(|grant| crate::provider::IntegrationTrustGrantCapability {
+                managed_keys: grant.managed_keys.clone(),
+            })
+    }
+
+    fn grant_integration_trust(&self, managed_keys: &[String]) -> serde_json::Value {
+        self.try_call::<serde_json::Value>("grantIntegrationTrust", &[json!(managed_keys)])
+            .unwrap_or_else(|| {
+                serde_json::json!({
+                    "granted": false,
+                    "degraded": true,
+                    "reason": "plugin exports no grantIntegrationTrust"
+                })
+            })
+    }
+
     fn ensure_integration_on_startup(&self, api_port: u16) {
         let _ = api_port;
         let _ = self.check_integration();

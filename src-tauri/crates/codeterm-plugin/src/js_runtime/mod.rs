@@ -40,6 +40,6 @@ pub use manifest::{
     IntegrationConfig, IntegrationKind, PermissionsConfig, PluginManifest, RuleConfig,
     SerdeHookEventBinding, SerdeModelInfo, SerdeProviderReadinessStrategy, SerdeReadinessStrategy,
     SerdeSessionIdInjection, SerdeTaskDelivery, SerdeVerifySubmit, SessionsConfig, SkillsConfig,
-    SpawnConfig, UsageConfig,
+    SpawnConfig, TrustGrantConfig, UsageConfig,
 };
 pub use vm::{call_json, has_method, PluginVm, VmError};
