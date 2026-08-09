@@ -6,9 +6,11 @@ use std::time::Duration;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+mod command_template;
 mod prompt_parse;
 mod wire;
 
+use command_template::{launch_command_from_template, resume_command_from_template};
 use wire::{
     encode_cwd_dashed, launch_params_to_json, result_from_js, session_description_head,
     SerdeSessionMessage, SerdeSessionMetadata, VmUsageParser, SESSION_PARSE_CHUNK_BYTES,
@@ -205,6 +207,11 @@ impl AgentProvider for JsProvider {
     }
 
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String {
+        if !self.has_js("buildLaunchCommand") {
+            if let Some(command) = launch_command_from_template(&self.manifest, params) {
+                return command;
+            }
+        }
         self.try_call::<String>("buildLaunchCommand", &[launch_params_to_json(params)])
             .unwrap_or_default()
     }
@@ -742,6 +749,13 @@ impl AgentProvider for JsProvider {
     }
 
     fn build_resume_command(&self, session_id: &str, skip_permissions: bool) -> Option<String> {
+        if !self.has_js("buildResumeCommand") {
+            if let Some(command) =
+                resume_command_from_template(&self.manifest, session_id, skip_permissions)
+            {
+                return Some(command);
+            }
+        }
         self.try_call::<Option<String>>(
             "buildResumeCommand",
             &[json!(session_id), json!(skip_permissions)],
