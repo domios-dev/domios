@@ -1072,10 +1072,8 @@ description = "Maximum reasoning depth."
 /// provider — they are two reads of the same capability and a split would show
 /// a Stop button that sends nothing (or hide one that works). This is the
 /// drift class that hid the R1 native-Claude bug; here it guards the JS path.
-/// NOTE: all four bundled manifests currently declare Esc as the stop key — see
-/// the loop report for the cursor doc/manifest discrepancy (trait doc says
-/// cursor-agent listens for Ctrl+C) which needs live-CLI verification, not a
-/// blind patch, so this test asserts the invariant rather than the raw byte.
+/// NOTE: all four bundled manifests declare Esc as the stop key; the byte is a
+/// manifest choice, so this test asserts the invariant rather than the raw byte.
 #[test]
 fn supports_stop_matches_stop_keystroke() {
     if require_plugins().is_none() {

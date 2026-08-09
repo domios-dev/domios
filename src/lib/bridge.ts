@@ -31,6 +31,7 @@ export { IS_WEB };
 export interface ProviderIntegrationHealth {
   hooks_installed?: boolean;
   precompact_hook?: boolean;
+  stop_hook?: boolean;
   session_start_hook?: boolean;
   plugin_installed?: boolean;
   plugin_file_current?: boolean;
