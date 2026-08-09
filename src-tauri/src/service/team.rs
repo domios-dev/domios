@@ -126,6 +126,10 @@ impl ServiceContext {
         let result = match result {
             Ok(result) => result,
             Err(error) => {
+                // commit's invalid-hierarchy branch closes the provisional member
+                // inside the mux-level fn; persist that authorized reduction here,
+                // the nearest point with a ServiceContext.
+                crate::service::session_persist::persist_session_after_close(self);
                 if let Some(lane) = lane.take() {
                     let _ = tauri::async_runtime::spawn_blocking(move || lane.cleanup()).await;
                 }

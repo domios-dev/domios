@@ -304,7 +304,7 @@ impl ServiceContext {
             self.set_tab_agent_type(&tab_id, Some(at.to_string()));
         }
         let pad = self.ensure_agent_pad(&tab_id).inspect_err(|_| {
-            self.mux.write().rollback_spawn_tab(&ws_id, &tab_id);
+            self.rollback_provisional_tab(&ws_id, &tab_id);
             self.emit_state_changed();
         })?;
         let _ = self.focus_tab(&tab_id);
@@ -322,7 +322,7 @@ impl ServiceContext {
                 },
             ),
             || {
-                self.mux.write().rollback_spawn_tab(&ws_id, &tab_id);
+                self.rollback_provisional_tab(&ws_id, &tab_id);
                 let _ = self.revoke_agent_pad(&tab_id);
                 self.emit_state_changed();
             },

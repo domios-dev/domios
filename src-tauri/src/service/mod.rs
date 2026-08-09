@@ -69,6 +69,8 @@ pub mod smart_add;
 pub mod spawn;
 mod spawn_chatbackend;
 mod spawn_cli;
+mod spawn_rollback;
+mod spawn_shell;
 mod spawn_factory;
 mod spawn_params;
 mod spawn_plan_task;
