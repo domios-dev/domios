@@ -57,6 +57,65 @@ mod kill_pty_tests {
     }
 }
 
+mod payload_preflight_tests {
+    use super::super::deliver_composed_text;
+    use crate::service::delivery_error::{
+        preflight_payload_size, SendOrigin, PROGRAMMATIC_SEND_MAX_BYTES,
+    };
+
+    /// Runs the seam with spy closures; returns (result, submit lengths seen,
+    /// insert lengths seen) so refusal proves zero delivery-path invocation.
+    fn run_spied(origin: SendOrigin, data: &str) -> (Result<(), String>, Vec<usize>, Vec<usize>) {
+        let mut sends = Vec::new();
+        let mut inserts = Vec::new();
+        let result = deliver_composed_text(
+            origin,
+            "pty-1",
+            data,
+            |text| {
+                sends.push(text.len());
+                Ok(())
+            },
+            |text| {
+                inserts.push(text.len());
+                Ok(())
+            },
+        );
+        (result, sends, inserts)
+    }
+
+    #[test]
+    fn command_path_payload_preflight_refuses_over_bound_programmatic_without_delivery() {
+        let payload = "a".repeat(PROGRAMMATIC_SEND_MAX_BYTES + 1);
+        let (result, sends, inserts) = run_spied(SendOrigin::Programmatic, &payload);
+        // Round-trip through the same typed constructor — never quoted prose.
+        let expected =
+            preflight_payload_size("pty-1", SendOrigin::Programmatic, payload.len()).unwrap_err();
+        assert_eq!(result.unwrap_err(), expected.ledger_message());
+        assert!(sends.is_empty(), "refused send must never reach delivery");
+        assert!(inserts.is_empty());
+    }
+
+    #[test]
+    fn command_path_payload_preflight_passes_at_bound_programmatic_send() {
+        // Trailing \r counts toward the bound and still routes to submit.
+        let payload = format!("{}\r", "a".repeat(PROGRAMMATIC_SEND_MAX_BYTES - 1));
+        let (result, sends, inserts) = run_spied(SendOrigin::Programmatic, &payload);
+        result.unwrap();
+        assert_eq!(sends, [PROGRAMMATIC_SEND_MAX_BYTES - 1]);
+        assert!(inserts.is_empty());
+    }
+
+    #[test]
+    fn command_path_payload_preflight_exempts_user_origin_over_bound_send() {
+        let payload = "a".repeat(PROGRAMMATIC_SEND_MAX_BYTES + 1);
+        let (result, sends, inserts) = run_spied(SendOrigin::User, &payload);
+        result.unwrap();
+        assert!(sends.is_empty());
+        assert_eq!(inserts, [PROGRAMMATIC_SEND_MAX_BYTES + 1]);
+    }
+}
+
 mod restored_fresh_launch_tests {
     use super::super::restored_fresh_launch_input;
 

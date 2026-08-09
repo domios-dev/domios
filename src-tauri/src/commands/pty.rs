@@ -872,16 +872,38 @@ pub async fn write_pty_string(
         // Bracketed paste with sacrificial space on Windows — see build_spawn_dispatch.
         let svc = svc.inner().clone();
         tokio::task::spawn_blocking(move || {
-            let text_stripped = data.trim_end_matches('\r');
-            let enter = text_stripped.len() != data.len();
-            if enter {
-                svc.send_text_to_pty(&pty_id, text_stripped)
-            } else {
-                svc.insert_text_to_pty(&pty_id, text_stripped)
-            }
+            // Tauri command = the user's terminal surface, exempt from the 16MB
+            // programmatic payload bound the seam enforces.
+            deliver_composed_text(
+                crate::service::delivery_error::SendOrigin::User,
+                &pty_id,
+                &data,
+                |text| svc.send_text_to_pty(&pty_id, text),
+                |text| svc.insert_text_to_pty(&pty_id, text),
+            )
         })
         .await
         .map_err(|e| format!("send task failed: {e}"))?
+    }
+}
+
+/// Composed-text seam for the non-raw write command. The payload-size preflight
+/// refuses an over-bound programmatic send before either delivery closure runs.
+fn deliver_composed_text(
+    origin: crate::service::delivery_error::SendOrigin,
+    pty_id: &str,
+    data: &str,
+    send: impl FnOnce(&str) -> Result<(), String>,
+    insert: impl FnOnce(&str) -> Result<(), String>,
+) -> Result<(), String> {
+    crate::service::delivery_error::preflight_payload_size(pty_id, origin, data.len())
+        .map_err(|e| e.ledger_message())?;
+    let text_stripped = data.trim_end_matches('\r');
+    let enter = text_stripped.len() != data.len();
+    if enter {
+        send(text_stripped)
+    } else {
+        insert(text_stripped)
     }
 }
 
