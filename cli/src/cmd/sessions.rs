@@ -1,3 +1,4 @@
+use crate::args::sessions::BackupsAction;
 use crate::SessionsAction;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -274,6 +275,9 @@ pub fn handle_sessions(
                 Err(e) => fail_transport(json_mode, &e),
             }
         }
+        SessionsAction::Backups { action } => {
+            handle_backups(json_mode, action, http, base, token);
+        }
         SessionsAction::Get { session_id } => {
             let url = format!("{}/api/sessions/{}", base, urlencoding::encode(&session_id));
             let mut req = http.get(&url);
@@ -307,6 +311,109 @@ pub fn handle_sessions(
                     println!("  modified: {}", format_unix_ts(modified));
                 }
                 Err(e) => fail_transport(json_mode, &e),
+            }
+        }
+    }
+}
+
+fn handle_backups(
+    json_mode: bool,
+    action: BackupsAction,
+    http: &crate::local_api::LocalApiClient,
+    base: &str,
+    token: Option<&str>,
+) {
+    match action {
+        BackupsAction::List { limit } => {
+            let url = format!("{}/api/session/backups", base);
+            let mut req = http.get(&url);
+            if let Some(t) = token {
+                req = req.header("Authorization", format!("Bearer {}", t));
+            }
+            let resp = match req.send() {
+                Ok(r) => r,
+                Err(e) => fail_transport(json_mode, &e),
+            };
+            let status = resp.status();
+            let val: serde_json::Value = resp.json().unwrap_or_default();
+            if let BackendOutcome::Failure(machine) = classify_backend_response(status, &val) {
+                fail(json_mode, &format!("Error: {machine}"), &machine);
+            }
+            let backups: Vec<serde_json::Value> = val
+                .get("backups")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .take(limit)
+                .collect();
+            if json_mode {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({ "backups": backups }))
+                        .unwrap_or_default()
+                );
+                return;
+            }
+            if backups.is_empty() {
+                println!("No session backups on disk yet.");
+                return;
+            }
+            println!("{} session backup(s), newest first:\n", backups.len());
+            println!("{:<14} {:<18} {:>10} {:>6}", "NAME", "SAVED (UTC)", "WORKSPACES", "TABS");
+            for b in &backups {
+                let name = b.get("name").and_then(|v| v.as_str()).unwrap_or("?");
+                let saved = b.get("saved_at_secs").and_then(|v| v.as_i64()).unwrap_or(0);
+                let ws = b.get("workspaces").and_then(|v| v.as_u64()).unwrap_or(0);
+                let tabs = b.get("tabs").and_then(|v| v.as_u64()).unwrap_or(0);
+                println!(
+                    "{:<14} {:<18} {:>10} {:>6}",
+                    name,
+                    format_unix_ts(saved),
+                    ws,
+                    tabs
+                );
+            }
+            println!("\nRestore one (additive, replaces nothing): codeterm sessions backups restore <NAME>");
+        }
+        BackupsAction::Restore { name } => {
+            let url = format!(
+                "{}/api/session/backups/{}/restore",
+                base,
+                urlencoding::encode(&name)
+            );
+            let mut req = http.post(&url);
+            if let Some(t) = token {
+                req = req.header("Authorization", format!("Bearer {}", t));
+            }
+            let resp = match req.send() {
+                Ok(r) => r,
+                Err(e) => fail_transport(json_mode, &e),
+            };
+            let status = resp.status();
+            let val: serde_json::Value = resp.json().unwrap_or_default();
+            if let BackendOutcome::Failure(machine) = classify_backend_response(status, &val) {
+                fail(json_mode, &format!("Error: {machine}"), &machine);
+            }
+            if json_mode {
+                println!("{}", serde_json::to_string_pretty(&val).unwrap_or_default());
+                return;
+            }
+            let ws = val
+                .get("workspaces_added")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            let tabs = val.get("tabs_added").and_then(|v| v.as_u64()).unwrap_or(0);
+            let present = val
+                .get("tabs_already_present")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            println!("Restored backup {} into the live desk (additive):", name);
+            println!("  workspaces recreated: {}", ws);
+            println!("  tabs recreated:       {}", tabs);
+            println!("  already present:      {} (left untouched)", present);
+            if ws == 0 && tabs == 0 {
+                println!("Nothing was missing — the live desk already covers this backup.");
             }
         }
     }
