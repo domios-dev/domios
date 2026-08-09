@@ -56,7 +56,8 @@ impl SessionStore {
         let _ = fs::remove_file(self.scrollback_path(tab_id));
     }
 
-    /// Remove sidecars whose tab is no longer a live scrollback-eligible tab.
+    /// Remove sidecars whose tab is no longer a live scrollback-eligible tab,
+    /// including crash-orphaned `.scrollback.tmp` files for dead tabs.
     pub fn prune_scrollback_tails(&self, live_tab_ids: &HashSet<String>) {
         let keep: HashSet<String> = live_tab_ids.iter().map(|id| sidecar_file_name(id)).collect();
         let Ok(entries) = fs::read_dir(self.scrollback_dir()) else {
@@ -64,7 +65,8 @@ impl SessionStore {
         };
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().to_string();
-            if name.ends_with(SIDECAR_SUFFIX) && !keep.contains(&name) {
+            let sidecar_name = name.strip_suffix(".tmp").unwrap_or(&name);
+            if sidecar_name.ends_with(SIDECAR_SUFFIX) && !keep.contains(sidecar_name) {
                 let _ = fs::remove_file(entry.path());
             }
         }
@@ -141,6 +143,30 @@ mod tests {
 
         store.delete_scrollback_tail("tab-a");
         assert!(store.load_scrollback_tail("tab-a").is_none());
+    }
+
+    #[test]
+    fn scrollback_prune_removes_orphaned_tmp_files() {
+        let (store, _dir) = fresh_store();
+        store.save_scrollback_tail("tab-a", b"aaa", 64).unwrap();
+        let dir = store.scrollback_dir();
+        fs::write(dir.join("tab-gone.scrollback.tmp"), b"orphan").unwrap();
+        fs::write(dir.join("tab-a.scrollback.tmp"), b"mid-write").unwrap();
+        fs::write(dir.join("unrelated.txt"), b"keep").unwrap();
+
+        let live: HashSet<String> = ["tab-a".to_string()].into_iter().collect();
+        store.prune_scrollback_tails(&live);
+
+        assert!(
+            !dir.join("tab-gone.scrollback.tmp").exists(),
+            "orphaned tmp for a dead tab removed"
+        );
+        assert!(
+            dir.join("tab-a.scrollback.tmp").exists(),
+            "tmp belonging to a live tab kept"
+        );
+        assert!(dir.join("unrelated.txt").exists(), "non-sidecar files untouched");
+        assert_eq!(store.load_scrollback_tail("tab-a").unwrap(), b"aaa");
     }
 
     #[test]

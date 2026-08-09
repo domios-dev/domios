@@ -132,6 +132,14 @@ mismatched peer fails with the same actionable one-liner. A newer client
 against an older daemon is not refused by this gate; a method the old daemon
 lacks still fails as `-32601`, which the CLI enriches with both app versions.
 
+**1.10.0 release note:** pre-1.10 CLIs and mesh peers send no
+`protocol_version`, so the moment a 1.10 daemon starts, every pre-1.10
+`codeterm` binary — including a mesh peer's relayed `agent report` — is
+hard-refused with this typed version-skew error on every socket and mesh
+dispatch until it is updated. There is no grace mode: update the CLIs on all
+mesh peers together with the daemon (the error's `recovery` field carries the
+exact command).
+
 ### Methods
 
 | Method | Params | Description |
@@ -247,4 +255,4 @@ lacks still fails as `-32601`, which the CLI enriches with both app versions.
 
 For `team.rename` and `team.close`, omitted `caller_tab_id` is the trusted direct-user path on the local socket. `team.adopt_plan` requires a non-empty caller belonging to the destination Team as its Orchestrator or planner-profile Manager; missing callers, Workers, and foreign tabs are rejected before mutation. Adoption preserves the structured `team_already_has_active_plan` conflict when the Team already owns another active plan. Events are emitted only after persistence succeeds.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->
