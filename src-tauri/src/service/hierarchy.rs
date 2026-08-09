@@ -5,12 +5,14 @@ mod planner_binding;
 mod planner_delivery;
 mod report_event;
 mod report_persistence;
+mod report_plan_ctx;
 mod status;
 mod team_plan_creation;
 mod worker_handoff;
 pub(crate) use worker_handoff::WorkerTurnSignal;
 
 pub(crate) use planner_binding::clear_planner_bindings_for_lifecycle_exit;
+pub(crate) use report_plan_ctx::resolve_plan_ctx;
 pub use status::TabStatusInfo;
 pub(crate) use team_plan_creation::{TeamPlanCaller, TeamPlanCreationError};
 
@@ -378,7 +380,8 @@ impl ServiceContext {
     /// NEVER routes back to the reporter's own tab; errors when none resolve.
     ///
     /// Plan/task resolution order:
-    /// 1. Explicit `plan_id`/`task_id` from the caller — validated against live store.
+    /// 1. Explicit `plan_id`/`task_id` from the caller — the plan is validated
+    ///    against the live store and the task against the caller's hold on it.
     /// 2. If provided ids are stale (plan not found) — falls back to tab assignment.
     /// 3. Daemon-side tab assignment lookup (`task_bindings_with_name_for_tab`).
     /// 4. Ambiguous (>1 assignment) — errors with candidate list.
@@ -1095,60 +1098,6 @@ fn resolve_peer_client_by_name(
         .find(|(_, p)| p.instance_name.eq_ignore_ascii_case(name))
         .map(|(id, _)| id.clone())?;
     mesh.client_for(&id)
-}
-
-/// Resolve the effective (plan_id, task_id) for a report, following the priority chain:
-/// 1. Provided `plan_id_hint` validated against live store.
-/// 2. If stale (plan not found), falls back to daemon-side tab assignment.
-/// 3. If no `plan_id_hint`, tries tab assignment directly.
-/// 4. Ambiguous (>1 assignment) — errors with candidate list.
-/// 5. No assignment — returns (None, None) so the report proceeds without a milestone.
-pub(crate) fn resolve_plan_ctx(
-    plan_store: &crate::service::plan::PlanStore,
-    tab_id: &str,
-    plan_id_hint: Option<&str>,
-    task_id_hint: Option<&str>,
-    notices: &mut Vec<String>,
-) -> Result<(Option<String>, Option<String>), String> {
-    let valid_plan = plan_id_hint
-        .filter(|s| !s.trim().is_empty())
-        .and_then(|id| {
-            if plan_store.get(id).is_some() {
-                Some(id.to_string())
-            } else {
-                notices.push(format!(
-                    "plan '{}' not found in active plans — ignoring, checking tab assignment",
-                    id
-                ));
-                None
-            }
-        });
-
-    if valid_plan.is_some() {
-        return Ok((valid_plan, task_id_hint.map(str::to_string)));
-    }
-
-    let bindings = plan_store.task_bindings_with_name_for_tab(tab_id);
-    match bindings.len() {
-        0 => Ok((None, None)),
-        1 => {
-            let (p, t, _name) = bindings.into_iter().next().unwrap();
-            Ok((Some(p), Some(t)))
-        }
-        _ => {
-            let list = bindings
-                .iter()
-                .map(|(p, t, n)| format!("  {t} «{n}» in plan {p}"))
-                .collect::<Vec<_>>()
-                .join("\n");
-            Err(format!(
-                "ambiguous: tab {} is assigned to {} tasks — pass --plan and --task to disambiguate:\n{}",
-                tab_id,
-                bindings.len(),
-                list
-            ))
-        }
-    }
 }
 
 /// Whether a dying leaf tab needs a synthetic death report, and to whom.
