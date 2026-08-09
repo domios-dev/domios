@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 40 -->
+<!-- revision: 41 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -2534,6 +2534,22 @@ Show or rotate the push token for a service
 #### `codeterm sessions`
 
 Past agent sessions — search conversations across all providers
+
+#### `codeterm sessions backups`
+
+Full-desk session backups (workspaces + tabs). List the rotated snapshots and recover a reduced/wiped desk from one without hand-editing JSON
+
+#### `codeterm sessions backups list`
+
+List desk snapshot backups, newest first, with workspace/tab counts
+
+- `--limit` — Max backups shown
+
+#### `codeterm sessions backups restore`
+
+Restore a backup into the live desk. Strictly additive — it replaces NOTHING: existing workspaces and tabs are untouched, only workspaces and tabs missing from the live desk are recreated from the backup
+
+- `<name>` — Backup name from `sessions backups list` (unix timestamp)
 
 #### `codeterm sessions get`
 
