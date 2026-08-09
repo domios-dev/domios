@@ -32,7 +32,6 @@ pub async fn pty_spawn(
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let pty_id = crate::commands::spawn_pty_core(
         &state.svc,
-        &state.config,
         body.command,
         body.cwd,
         body.cols,
