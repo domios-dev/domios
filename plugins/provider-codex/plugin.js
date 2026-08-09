@@ -1138,7 +1138,7 @@ function grantCodexHookTrust(opts) {
     return outcome({ wrote: true, verify_failed: verifyFailed, restored, reason });
   };
   const writeResult = requestOutcome(writeSession, 2, "config/batchWrite");
-  if (writeResult.kind !== "ok") return failedWrite(writeResult.reason, false);
+  if (writeResult.kind !== "ok") return outcome({ reason: writeResult.reason });
   const verifyResult = requestOutcome(writeSession, 3, "hooks/list");
   if (verifyResult.kind !== "ok") return failedWrite(verifyResult.reason, true);
   const verified = managedListings(collectHookListings(verifyResult.result), opts.hooksPath, opts.managedLabels);
