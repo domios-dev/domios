@@ -10,6 +10,7 @@ use clap::{CommandFactory, Parser};
 
 mod context;
 mod transport;
+mod workspace;
 
 #[derive(Parser)]
 struct MemOnly {
@@ -363,7 +364,7 @@ fn notify_send_is_canonical_and_bare_title_is_rejected() {
     assert!(matches!(
         send.command,
         Commands::Notify {
-            action: NotifyAction::Send { ref title, ref level, body: None }
+            action: NotifyAction::Send { ref title, ref level, body: None, .. }
         } if title == "Done" && level == "info"
     ));
     // The intuitive bare form must stay a hard error, not silently do the wrong thing.
@@ -371,6 +372,50 @@ fn notify_send_is_canonical_and_bare_title_is_rejected() {
         Cli::try_parse_from(["codeterm", "notify", "Done"]).is_err(),
         "bare `notify \"title\"` must be rejected — `notify send` is canonical"
     );
+}
+
+// The push category is a closed value_enum: an invented category must fail at
+// parse time rather than reach the daemon as a runtime string.
+#[test]
+fn notify_category_is_closed_and_progress_is_unexpressible() {
+    use crate::args::misc::NotifyCategory;
+
+    for (flag, expected) in [
+        ("milestone", NotifyCategory::Milestone),
+        ("blocker", NotifyCategory::Blocker),
+        ("failure", NotifyCategory::Failure),
+    ] {
+        let parsed =
+            Cli::try_parse_from(["codeterm", "notify", "send", "Done", "--category", flag])
+                .unwrap_or_else(|e| panic!("--category {flag} must parse: {e}"));
+        assert!(matches!(
+            parsed.command,
+            Commands::Notify {
+                action: NotifyAction::Send { category: Some(c), .. }
+            } if c == expected
+        ));
+    }
+
+    for rejected in ["progress", "update", "info", "milestones"] {
+        assert!(
+            Cli::try_parse_from(["codeterm", "notify", "send", "Done", "--category", rejected])
+                .is_err(),
+            "--category {rejected} must be a parse error, not a pass-through string"
+        );
+    }
+
+    let uncategorised = Cli::try_parse_from(["codeterm", "notify", "send", "Done"])
+        .expect("category stays optional");
+    assert!(matches!(
+        uncategorised.command,
+        Commands::Notify {
+            action: NotifyAction::Send {
+                category: None,
+                event_key: None,
+                ..
+            }
+        }
+    ));
 }
 
 // Form 3 — config get. ACCEPT: key is optional; absent means "dump all".
@@ -1013,84 +1058,4 @@ fn send_stdin_conflicts_with_positional_text() {
         Ok(_) => panic!("--stdin and positional text must conflict"),
         Err(err) => assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict),
     }
-}
-
-#[test]
-fn workspace_reuse_notice_mentions_actual_and_requested_names() {
-    let value = serde_json::json!({
-        "id": "abcd1234",
-        "name": "Real Workspace",
-        "existing": true
-    });
-    assert_eq!(
-            cmd::local_io::workspace_reuse_notice(&value, "Requested Workspace").as_deref(),
-            Some("reused existing workspace abcd1234 'Real Workspace' (same cwd); requested name 'Requested Workspace' ignored")
-        );
-}
-
-#[test]
-fn workspace_reuse_notice_absent_for_new_or_unmarked_workspace() {
-    let created = serde_json::json!({
-        "id": "abcd1234",
-        "name": "Requested Workspace",
-        "existing": false
-    });
-    let unmarked = serde_json::json!({
-        "id": "abcd1234",
-        "name": "Requested Workspace"
-    });
-    assert!(cmd::local_io::workspace_reuse_notice(&created, "Requested Workspace").is_none());
-    assert!(cmd::local_io::workspace_reuse_notice(&unmarked, "Requested Workspace").is_none());
-}
-
-#[test]
-fn workspace_reuse_human_output_goes_to_stderr_only() {
-    let value = serde_json::json!({
-        "id": "abcd1234",
-        "name": "Real Workspace",
-        "existing": true
-    });
-    let mut stdout = Vec::new();
-    let mut stderr = Vec::new();
-
-    assert!(cmd::local_io::write_workspace_create_reuse_output(
-        &value,
-        "Requested Workspace",
-        false,
-        &mut stdout,
-        &mut stderr
-    )
-    .unwrap());
-
-    assert!(stdout.is_empty());
-    assert_eq!(
-            String::from_utf8(stderr).unwrap(),
-            "reused existing workspace abcd1234 'Real Workspace' (same cwd); requested name 'Requested Workspace' ignored\n"
-        );
-}
-
-#[test]
-fn workspace_reuse_json_output_stays_on_stdout_only() {
-    let value = serde_json::json!({
-        "existing": true,
-        "id": "abcd1234",
-        "name": "Real Workspace"
-    });
-    let mut stdout = Vec::new();
-    let mut stderr = Vec::new();
-
-    assert!(cmd::local_io::write_workspace_create_reuse_output(
-        &value,
-        "Requested Workspace",
-        true,
-        &mut stdout,
-        &mut stderr
-    )
-    .unwrap());
-
-    assert!(stderr.is_empty());
-    assert_eq!(
-        String::from_utf8(stdout).unwrap(),
-        format!("{}\n", serde_json::to_string_pretty(&value).unwrap())
-    );
 }

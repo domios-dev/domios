@@ -10,7 +10,7 @@ use crate::{Cli, Commands};
 const TEAM_LOCAL_ONLY: &str = "team management is local-only — run it on the target machine";
 const TASK_LOCAL_ONLY: &str = "task management is local-only — run it on the target machine";
 
-/// Frozen at 16b1bd46c before any transport edit; one row per `Commands` variant.
+/// One row per `Commands` variant, updated only with an intentional transport change.
 /// Column 0 is the clap name, so coverage can be compared against the parser.
 const FROZEN: &[(&str, &[&str], Local, MeshRelay, ApiVerdict)] = &[
     (
@@ -257,14 +257,18 @@ const FROZEN: &[(&str, &[&str], Local, MeshRelay, ApiVerdict)] = &[
         &["codeterm", "system", "autostart-status"],
         Local::PreSocket,
         MeshRelay::Fallthrough,
-        ApiVerdict::Rest,
+        ApiVerdict::Unsupported(
+            "system configuration is local-only — run it on the target machine",
+        ),
     ),
     (
         "docs",
         &["codeterm", "docs"],
         Local::PreSocket,
         MeshRelay::Fallthrough,
-        ApiVerdict::Rest,
+        ApiVerdict::Unsupported(
+            "docs are embedded in this binary — run the command on the target machine",
+        ),
     ),
     (
         "debug",
@@ -334,7 +338,7 @@ fn every_command_declares_transport_exactly_once() {
 }
 
 #[test]
-fn transport_table_matches_pre_change_behaviour() {
+fn transport_table_matches_declared_behaviour() {
     for (name, argv, local, mesh_relay, api_verdict) in FROZEN {
         let declared = transport_for(&parse(argv));
         assert_eq!(declared.local, *local, "`{name}` local handling drifted");
@@ -370,7 +374,7 @@ fn mesh_unsupported_reasons_are_preserved() {
         assert!(body.is_none(), "`{name}` refusal must carry no body");
         checked += 1;
     }
-    assert_eq!(checked, 14, "unsupported command count changed");
+    assert_eq!(checked, 16, "unsupported command count changed");
 }
 
 #[test]
@@ -388,12 +392,6 @@ fn api_map_still_builds_identical_rest_bodies() {
             "GET",
             "/api/usage/latest?provider=claude",
         ),
-        (
-            &["codeterm", "system", "autostart-status"],
-            "GET",
-            "/api/identify",
-        ),
-        (&["codeterm", "docs"], "GET", "/api/identify"),
         (&["codeterm", "notify", "list"], "GET", "/api/notifications"),
         (
             &["codeterm", "notify", "list", "--unread"],
@@ -425,11 +423,28 @@ fn api_map_still_builds_identical_rest_bodies() {
     assert_eq!(body["title"], serde_json::json!("hello"));
     assert_eq!(body["level"], serde_json::json!("info"));
     assert_eq!(body["body"], serde_json::Value::Null);
+    assert_eq!(body["category"], serde_json::Value::Null);
+    assert_eq!(body["event_key"], serde_json::Value::Null);
     assert_eq!(
         body.as_object().map(|map| map.len()),
-        Some(3),
+        Some(5),
         "notify send body gained or lost a field"
     );
+
+    let (_, _, categorised) = cli_command_to_api(&parse(&[
+        "codeterm",
+        "notify",
+        "send",
+        "hello",
+        "--category",
+        "blocker",
+        "--event-key",
+        "approval-7",
+    ]));
+    let categorised: serde_json::Value =
+        serde_json::from_str(&categorised.expect("notify send must carry a body")).unwrap();
+    assert_eq!(categorised["category"], serde_json::json!("blocker"));
+    assert_eq!(categorised["event_key"], serde_json::json!("approval-7"));
 
     let (method, path, body) = cli_command_to_api(&parse(&[
         "codeterm",

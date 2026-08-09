@@ -13,6 +13,11 @@ use client::{discover_socket, discover_socket_resolution, SocketClient};
 
 pub use mesh_cli::{MeshAction, MeshPeerAction};
 
+/// Resolve tab ID: explicit arg > $CODETERM_TAB_ID env var > refuse.
+///
+/// When running inside CodeTerm, $CODETERM_TAB_ID is set automatically by the PTY.
+/// There is no focused-tab fallback: a caller that can prove neither is refused,
+/// so a command can never act on a tab the caller does not own.
 pub fn resolve_tab(client: &mut SocketClient, id: Option<String>) -> String {
     cmd::local_io::resolve_tab(client, id)
 }
@@ -115,11 +120,6 @@ pub use args::team::TeamAction;
 pub use args::update::UpdateAction;
 pub use args::usage::UsageAction;
 
-/// Resolve tab ID: explicit arg > $CODETERM_TAB_ID env var > focused tab from server.
-///
-/// When running inside CodeTerm, $CODETERM_TAB_ID is set automatically by the PTY.
-/// This ensures commands like `tab split` always target the caller's tab,
-/// not whatever tab the user happens to have focused.
 fn main() {
     stdout::run(main_impl);
 }
@@ -161,16 +161,6 @@ fn main_impl() {
         }
     }
 
-    // `plugin` is filesystem-local (no daemon) — the table declares it the one
-    // command handled before the `--mesh` branch, so `--mesh` is ignored for it.
-    if transport::transport_for(&cli.command).local == transport::Local::PreMesh {
-        match cli.command {
-            Commands::Plugin { action } => cmd::plugin::handle_plugin(cli.json, action),
-            _ => unreachable!(),
-        }
-        return;
-    }
-
     if let Some(mesh_target) = cli.mesh.clone() {
         // Secrets are local-only — refuse to proxy them across the mesh. Cross-mesh secret access needs a trust model we haven't designed yet.
         if matches!(
@@ -197,6 +187,14 @@ fn main_impl() {
             std::process::exit(6);
         }
         mesh_cli::run_via_mesh(cli, &mesh_target);
+        return;
+    }
+
+    if transport::should_dispatch_direct_local(&cli.command, cli.mesh.as_deref()) {
+        match cli.command {
+            Commands::Plugin { action } => cmd::plugin::handle_plugin(cli.json, action),
+            _ => unreachable!(),
+        }
         return;
     }
 
@@ -320,10 +318,22 @@ fn main_impl() {
         }
 
         Commands::Notify { action } => match action {
-            NotifyAction::Send { title, body, level } => {
+            NotifyAction::Send {
+                title,
+                body,
+                level,
+                category,
+                event_key,
+            } => {
                 let mut params = serde_json::json!({ "title": title, "level": level });
                 if let Some(b) = body {
                     params["body"] = serde_json::Value::String(b);
+                }
+                if let Some(c) = category {
+                    params["category"] = serde_json::Value::String(c.as_str().to_string());
+                }
+                if let Some(k) = event_key {
+                    params["event_key"] = serde_json::Value::String(k);
                 }
                 client.call("notification.create", Some(params))
             }
@@ -429,101 +439,8 @@ fn main_impl() {
         }
 
         Commands::Theme { action } => {
-            let (base, _) = read_api_config();
-            let http = build_local_api().unwrap_or_else(|error| {
-                eprintln!("Error: failed to connect to local API: {error}");
-                std::process::exit(1);
-            });
-            match action {
-                ThemeAction::List => match http.get(format!("{}/api/themes", base)).send() {
-                    Ok(resp) => {
-                        let val: serde_json::Value = resp.json().unwrap_or_default();
-                        if let Some(themes) = val.get("themes").and_then(|v| v.as_array()) {
-                            for t in themes {
-                                println!("{}", t.as_str().unwrap_or("?"));
-                            }
-                        }
-                        return;
-                    }
-                    Err(e) => {
-                        eprintln!("Error: {}", e);
-                        std::process::exit(1);
-                    }
-                },
-                ThemeAction::Apply { name } => {
-                    match http
-                        .post(format!("{}/api/themes/apply", base))
-                        .json(&serde_json::json!({ "name": name }))
-                        .send()
-                    {
-                        Ok(_) => {
-                            println!("Theme applied: {}", name);
-                            return;
-                        }
-                        Err(e) => {
-                            eprintln!("Error: {}", e);
-                            std::process::exit(1);
-                        }
-                    }
-                }
-                ThemeAction::Save { id, file, apply } => {
-                    let toml = match std::fs::read_to_string(&file) {
-                        Ok(c) => c,
-                        Err(e) => {
-                            eprintln!("Error reading {}: {}", file, e);
-                            std::process::exit(1);
-                        }
-                    };
-                    match http
-                        .post(format!("{}/api/themes", base))
-                        .json(&serde_json::json!({ "id": id, "toml": toml }))
-                        .send()
-                    {
-                        Ok(resp) => {
-                            let val: serde_json::Value = resp.json().unwrap_or_default();
-                            if let Some(path) = val.get("path").and_then(|v| v.as_str()) {
-                                println!("Theme saved: {}", path);
-                            } else {
-                                println!("Theme saved: {}", id);
-                            }
-                            if apply {
-                                match http
-                                    .post(format!("{}/api/themes/apply", base))
-                                    .json(&serde_json::json!({ "name": id }))
-                                    .send()
-                                {
-                                    Ok(_) => println!("Theme applied: {}", id),
-                                    Err(e) => eprintln!("Theme saved but failed to apply: {}", e),
-                                }
-                            }
-                            return;
-                        }
-                        Err(e) => {
-                            eprintln!("Error: {}", e);
-                            std::process::exit(1);
-                        }
-                    }
-                }
-                ThemeAction::Delete { id } => {
-                    match http.delete(format!("{}/api/themes/{}", base, id)).send() {
-                        Ok(_) => {
-                            println!("Theme deleted: {}", id);
-                            return;
-                        }
-                        Err(e) => {
-                            eprintln!("Error: {}", e);
-                            std::process::exit(1);
-                        }
-                    }
-                }
-                ThemeAction::Dir => {
-                    let dir = dirs::config_dir()
-                        .map(|d| d.join("codeterm").join("themes"))
-                        .unwrap_or_default();
-                    println!("{}", dir.display());
-                    return;
-                }
-            }
+            cmd::theme::handle_theme(cli.json, action);
+            return;
         }
 
         Commands::Cron { action } => {
@@ -671,7 +588,7 @@ fn hydrate_tab_task_binding_env(args: &[String]) {
     }
 }
 
-fn nonempty_env(name: &str) -> Option<String> {
+pub(crate) fn nonempty_env(name: &str) -> Option<String> {
     std::env::var(name)
         .ok()
         .map(|value| value.trim().to_string())

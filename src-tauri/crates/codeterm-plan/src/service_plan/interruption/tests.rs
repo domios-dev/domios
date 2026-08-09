@@ -44,21 +44,13 @@ fn mutating_dispatch_at_healthy_allowance_passes_but_exhausted_refuses() {
 fn stale_allowance_warns_at_the_host_boundary_but_does_not_block_mutation() {
     let stale = allowance(90.0, 1);
     assert!(stale.is_stale(102));
-    assert!(provider_allowance_preflight(
-        &ExecutionIntent::Mutating,
-        Some(&stale),
-        102,
-    )
-    .is_ok());
+    assert!(provider_allowance_preflight(&ExecutionIntent::Mutating, Some(&stale), 102,).is_ok());
 
     let mut zero_reserve = allowance(0.0, 1);
     zero_reserve.reserve_pct = 0.0;
-    assert!(provider_allowance_preflight(
-        &ExecutionIntent::Mutating,
-        Some(&zero_reserve),
-        102,
-    )
-    .is_ok());
+    assert!(
+        provider_allowance_preflight(&ExecutionIntent::Mutating, Some(&zero_reserve), 102,).is_ok()
+    );
 }
 
 fn bound_store() -> (tempfile::TempDir, PlanStore, String, String, String) {

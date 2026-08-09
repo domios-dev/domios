@@ -89,13 +89,7 @@ fn plan_owner_recovers_tab_gone_task_despite_stale_epoch() {
     assert_eq!(before.interruption.owner_tab_id.as_deref(), Some(GONE_TAB));
 
     let retirement = store
-        .retire_stale_task_owner(
-            &plan_id,
-            &task_id,
-            Some(TaskStatus::Pending),
-            |_| false,
-            10,
-        )
+        .retire_stale_task_owner(&plan_id, &task_id, Some(TaskStatus::Pending), |_| false, 10)
         .expect("a live Plan owner must recover a tab-gone task");
 
     assert!(retirement.applied);
@@ -229,7 +223,9 @@ fn a_second_authority_pass_is_a_no_op_and_never_bumps_the_epoch_twice() {
 #[test]
 fn tab_close_retires_the_attempt_so_a_late_commit_cannot_resurrect_it() {
     let (_dir, store, plan_id, task_id, attempt_id) = tab_gone_task();
-    assert!(store.flag_tab_gone(&plan_id, &task_id, GONE_TAB, 10).unwrap());
+    assert!(store
+        .flag_tab_gone(&plan_id, &task_id, GONE_TAB, 10)
+        .unwrap());
 
     let after = task_of(&store, &plan_id, &task_id);
     let attempt = after

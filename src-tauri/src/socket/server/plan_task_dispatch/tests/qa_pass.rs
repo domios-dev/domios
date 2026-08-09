@@ -4,6 +4,7 @@ use crate::service::plan::task_attempts::{
     BoundWorkerReport, TaskCompeteRequest, TaskRespawnRequest,
 };
 use crate::service::plan::{NewTask, PlanError, PlanStore};
+use crate::service::LaneProtection;
 use codeterm_types::agent::ReportStatus;
 
 fn reported_task() -> (tempfile::TempDir, PlanStore, String, String, String) {
@@ -85,7 +86,13 @@ fn qa_pass_atomically_closes_attempt_checkout_binding_and_task() {
         .unwrap();
     let attempt_id = claimed_task.execution_attempts[0].id.clone();
     assert_eq!(claimed_task.execution_attempts[0].reviewed_at, Some(6));
-    preflight_checkout_occupancy(&claimed_plan, "probe-task", &checkout).unwrap_err();
+    preflight_checkout_occupancy(
+        &claimed_plan,
+        "probe-task",
+        &checkout,
+        LaneProtection::Enforced,
+    )
+    .unwrap_err();
 
     store
         .pass_qa(
@@ -115,7 +122,13 @@ fn qa_pass_atomically_closes_attempt_checkout_binding_and_task() {
     );
     assert_eq!(accepted_attempt.judged_at, Some(10));
     assert_eq!(accepted_attempt.closed_at, Some(10));
-    preflight_checkout_occupancy(&accepted_plan, "probe-task", &checkout).unwrap();
+    preflight_checkout_occupancy(
+        &accepted_plan,
+        "probe-task",
+        &checkout,
+        LaneProtection::Enforced,
+    )
+    .unwrap();
     assert_eq!(accepted_task.assigned_tab_id, None);
     assert_eq!(accepted_task.lane.tab_id, None);
     assert_eq!(accepted_task.status, TaskStatus::Done);
@@ -164,7 +177,13 @@ fn qa_pass_failure_preserves_attempt_checkout_binding_and_task() {
         .find(|task| task.id == task_id)
         .unwrap();
     assert_eq!(after, &before);
-    preflight_checkout_occupancy(&after_plan, "probe-task", &checkout).unwrap_err();
+    preflight_checkout_occupancy(
+        &after_plan,
+        "probe-task",
+        &checkout,
+        LaneProtection::Enforced,
+    )
+    .unwrap_err();
 }
 
 #[test]

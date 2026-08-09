@@ -1200,6 +1200,24 @@ var plugin = {
     parts.push(host.shell.quoteFor(sessionId, host.platform()));
     return parts.join(" ");
   },
+  // `--resume` restores the transcript but not the launch-time system prompt,
+  // so it is re-applied through the same declared flag buildLaunchCommand uses.
+  buildResumeCommandWithContext(params) {
+    const p = params || {};
+    const parts = [this.buildResumeCommand(p.sessionId, p.skipPermissions)];
+    if (p.args && p.args.length > 0) {
+      for (let i = 0; i < p.args.length; i++) parts.push(String(p.args[i]));
+    }
+    const systemPrompt = p.systemPrompt;
+    if (systemPrompt && systemPrompt.trim()) {
+      const visiblePath = writeTaskTempFile(systemPrompt);
+      if (visiblePath) {
+        parts.push("--append-system-prompt-file");
+        parts.push(host.shell.quoteFor(String(visiblePath), host.platform()));
+      }
+    }
+    return parts.join(" ");
+  },
   // Tail session JSONL to find latest model (`message.model` or `Set model to ...`).
   detectSessionModel(cwd, sessionId) {
     const path = claudeSessionFilePath(cwd, sessionId);

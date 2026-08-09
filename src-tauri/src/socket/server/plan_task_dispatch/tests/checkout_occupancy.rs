@@ -1,6 +1,7 @@
-use super::super::lane_safety::preflight_checkout_occupancy;
-use crate::plan::{OrchestratorRef, TaskExecutionAttempt};
+use super::super::lane_safety::{isolated_lane_update_command, preflight_checkout_occupancy};
+use crate::plan::{ExecutionIntent, OrchestratorRef, TaskExecutionAttempt};
 use crate::service::plan::{NewTask, PlanStore};
+use crate::service::LaneProtection;
 
 fn plan_with_attempt(
     closed_at: Option<u64>,
@@ -64,7 +65,13 @@ fn dispatch_refuses_occupied_checkout() {
         codeterm_paths::normalize_cwd(&plan.canonical_project_path),
         codeterm_paths::normalize_cwd(&checkout)
     );
-    let error = preflight_checkout_occupancy(&plan, &dispatched_task_id, &checkout).unwrap_err();
+    let error = preflight_checkout_occupancy(
+        &plan,
+        &dispatched_task_id,
+        &checkout,
+        LaneProtection::Enforced,
+    )
+    .unwrap_err();
 
     assert_eq!(error.code, -32011);
     assert!(
@@ -90,18 +97,10 @@ fn dispatch_refuses_occupied_checkout() {
     assert_eq!(data["occupying_attempt_id"], "attempt_live");
     assert_eq!(data["checkout_path"], checkout);
     let update_command = data["update_command"].as_str().unwrap();
-    assert!(!update_command.contains("<isolated-"), "{update_command}");
-    assert!(!update_command.contains("<base-ref>"), "{update_command}");
-    #[cfg(windows)]
     assert_eq!(
         update_command,
-        format!(
-            "codeterm plan task update {} {} --worktree (Read-Host 'Existing isolated worktree path') --branch (Read-Host 'Existing isolated branch') --base (Read-Host 'Base ref')",
-            plan.id, dispatched_task_id
-        )
+        isolated_lane_update_command(&plan.id, &dispatched_task_id)
     );
-    #[cfg(not(windows))]
-    assert!(update_command.contains("IFS= read -r value </dev/tty"));
     assert_eq!(
         data["dispatch_command"],
         format!(
@@ -109,6 +108,66 @@ fn dispatch_refuses_occupied_checkout() {
             plan.id, dispatched_task_id
         )
     );
+}
+
+/// Occupancy exists to keep a second WRITER out of a live checkout. The paired
+/// Enforced call is what proves the fixture reaches the occupancy branch at all:
+/// without it an unconditionally-Ok implementation would pass this test.
+#[test]
+fn read_only_dispatch_is_not_blocked_by_an_occupied_checkout() {
+    let (root, plan, occupying_task_id, dispatched_task_id) = plan_with_attempt(None, None);
+    let checkout = root.path().display().to_string();
+
+    let error = preflight_checkout_occupancy(
+        &plan,
+        &dispatched_task_id,
+        &checkout,
+        LaneProtection::Enforced,
+    )
+    .unwrap_err();
+    assert_eq!(error.code, -32011);
+    assert_eq!(
+        error.data.as_ref().unwrap()["occupying_task_id"],
+        occupying_task_id
+    );
+
+    preflight_checkout_occupancy(
+        &plan,
+        &dispatched_task_id,
+        &checkout,
+        LaneProtection::Waived,
+    )
+    .unwrap();
+}
+
+/// The waiver is derived from the dispatch-time intent only; the task-level
+/// `TaskExecutionIntent` has no conversion into `LaneProtection`.
+#[test]
+fn only_a_read_only_dispatch_intent_waives_the_occupancy_guard() {
+    assert_eq!(
+        LaneProtection::for_dispatch_intent(&ExecutionIntent::ReadOnly),
+        LaneProtection::Waived
+    );
+    assert_eq!(
+        LaneProtection::for_dispatch_intent(&ExecutionIntent::Mutating),
+        LaneProtection::Enforced
+    );
+    assert_eq!(
+        LaneProtection::for_dispatch_intent(&ExecutionIntent::Unspecified),
+        LaneProtection::Enforced
+    );
+}
+
+#[test]
+fn remediation_command_is_non_interactive() {
+    let command = isolated_lane_update_command("pl_fixture", "task_fixture");
+
+    assert!(command.contains("pl_fixture"), "{command}");
+    assert!(command.contains("task_fixture"), "{command}");
+    assert!(!command.contains("Read-Host"), "{command}");
+    assert!(!command.contains("/dev/tty"), "{command}");
+    assert!(!command.contains("read -r"), "{command}");
+    assert!(!command.contains('$'), "{command}");
 }
 
 #[test]
@@ -119,7 +178,13 @@ fn free_checkout_does_not_conflict() {
         .for_each(|task| task.execution_attempts.clear());
     let checkout = root.path().display().to_string();
 
-    preflight_checkout_occupancy(&plan, &dispatched_task_id, &checkout).unwrap();
+    preflight_checkout_occupancy(
+        &plan,
+        &dispatched_task_id,
+        &checkout,
+        LaneProtection::Enforced,
+    )
+    .unwrap();
 }
 
 #[test]
@@ -140,7 +205,13 @@ fn closed_attempt_history_does_not_occupy_checkout() {
     }
     let checkout = root.path().display().to_string();
 
-    preflight_checkout_occupancy(&plan, &dispatched_task_id, &checkout).unwrap();
+    preflight_checkout_occupancy(
+        &plan,
+        &dispatched_task_id,
+        &checkout,
+        LaneProtection::Enforced,
+    )
+    .unwrap();
 }
 
 #[test]
@@ -150,5 +221,11 @@ fn distinct_explicit_checkout_does_not_conflict() {
     let distinct = root.path().join("lane-b").display().to_string();
     let (_store_root, plan, _, dispatched_task_id) = plan_with_attempt(None, Some(occupied));
 
-    preflight_checkout_occupancy(&plan, &dispatched_task_id, &distinct).unwrap();
+    preflight_checkout_occupancy(
+        &plan,
+        &dispatched_task_id,
+        &distinct,
+        LaneProtection::Enforced,
+    )
+    .unwrap();
 }

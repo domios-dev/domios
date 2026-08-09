@@ -156,7 +156,10 @@ fn whitespace_padded_marker_is_not_host_injected() {
 
 #[test]
 fn plain_content_has_no_authentic_marker() {
-    assert_eq!(provenance("just a normal message"), Provenance::StreamContent);
+    assert_eq!(
+        provenance("just a normal message"),
+        Provenance::StreamContent
+    );
     assert!(parse_host_injected("just a normal message").is_none());
 }
 

@@ -74,7 +74,7 @@ done < <(
     find "$ROOT" \( -type d \( \
         -name target -o -name node_modules -o -name dist -o -name build -o \
         -name gen -o -name references -o -name vendor -o -name pty-fork -o \
-        -name .git -o -name .claude \
+        -name .git -o -name .claude -o -path "$ROOT/refs" \
     \) -prune \) -o \( -type f \( \
         -name '*.rs' -o \
         -name '*.ts' -o \

@@ -83,6 +83,34 @@ fn epoch_ms() -> u64 {
 }
 
 impl ServiceContext {
+    pub(crate) fn prepare_tab_close(&self, tab_id: &str) -> Result<(), String> {
+        self.chat_registry.shutdown_tab(tab_id);
+
+        if let Some((plugin_id, session_id)) = self.tab_chat_backing(tab_id) {
+            let _ = self.chatbackend_close(&plugin_id, &session_id);
+        }
+
+        self.record_lifecycle_end(
+            tab_id,
+            crate::session::lifecycle::LifecycleTransition::Closed,
+        );
+        self.discard_pending_delivery(tab_id)
+            .map_err(|error| format!("pending delivery discard failed: {error}"))?;
+        self.invalidate_guarded_agent_input(tab_id);
+        self.release_worker_persona_for_tab(tab_id);
+        Ok(())
+    }
+
+    pub(crate) fn finish_tab_close(&self, tab_id: &str) -> Result<(), String> {
+        let pad_result = self.revoke_agent_pad(tab_id);
+        self.clear_dead_planner_binding(tab_id);
+        self.flag_bound_tasks_for_gone_tab(tab_id, epoch_ms());
+        self.prompt_detector.lock().remove_tab(tab_id);
+        crate::service::structured_prompt::clear_tab(tab_id);
+        self.remote_workers.forget_orchestrator(tab_id);
+        pad_result
+    }
+
     /// True when `tab_id` is a coordinator (Orchestrator role, plan owner, or
     /// bound Planner) and so must not close itself. Keys off caller identity in
     /// the mux + plan graph, never a display name.
@@ -154,32 +182,27 @@ impl ServiceContext {
         tab_id: &str,
         reason: TabCloseReason,
     ) -> Result<(), String> {
-        // iteration; once close_tab drops the entry, future polls would see Provider::None and bail anyway, but explicit stop joins the thread cleanly and frees the JSONL handle.
-        self.chat_registry.shutdown_tab(tab_id);
-
-        if let Some((plugin_id, session_id)) = self.tab_chat_backing(tab_id) {
-            let _ = self.chatbackend_close(&plugin_id, &session_id);
+        let (pre_focus, reservation) = {
+            let mut mux = self.mux.write();
+            (
+                mux.get_focused_tab_id().map(str::to_string),
+                mux.reserve_tab_close(tab_id)?,
+            )
+        };
+        if let Err(error) = self.prepare_tab_close(tab_id) {
+            self.mux.write().abort_tab_close(&reservation);
+            return Err(error);
         }
-
-        self.record_lifecycle_end(
-            tab_id,
-            crate::session::lifecycle::LifecycleTransition::Closed,
-        );
-        self.discard_pending_delivery(tab_id)
-            .map_err(|error| format!("pending delivery discard failed: {error}"))?;
-        self.invalidate_guarded_agent_input(tab_id);
-        self.release_worker_persona_for_tab(tab_id);
-        let pre_focus = self.mux.read().get_focused_tab_id().map(str::to_string);
-        let pty_ids = self.mux.write().close_tab_with_reason(tab_id, reason)?;
+        let pty_ids = self
+            .mux
+            .write()
+            .close_reserved_tab_with_reason(reservation, reason)?;
         let post_focus = self.mux.read().get_focused_tab_id().map(str::to_string);
         self.kill_ptys(&pty_ids);
-        self.revoke_agent_pad(tab_id)?;
-        self.clear_dead_planner_binding(tab_id);
-        self.flag_bound_tasks_for_gone_tab(tab_id, epoch_ms());
-        self.prompt_detector.lock().remove_tab(tab_id);
-        crate::service::structured_prompt::clear_tab(tab_id);
-        // Drop any remote-worker ghosts that reported to this (now-closed) tab.
-        self.remote_workers.forget_orchestrator(tab_id);
+        self.finish_tab_close(tab_id)?;
+        self.notif
+            .lock()
+            .close_push_scope(&crate::notification::push::tab_scope(tab_id));
         self.emit_state_changed();
         if pre_focus != post_focus {
             if let Some(new) = post_focus {

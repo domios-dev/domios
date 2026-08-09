@@ -1,17 +1,18 @@
 # CodeTerm CLI reference
 
-<!-- Validated against the clap tree by `prompt_cli_commands_exist`
-     (cli/src/cmd/manifest.rs). Do not document commands or flags that don't
-     exist. Full generated reference: docs/CLI.md. -->
+<!-- Do not document commands or flags that don't exist. Full generated
+     reference: docs/CLI.md; the validation contract is docs/contributing/cli.md. -->
 
 You are inside CodeTerm, an AI-first terminal multiplexer. CLI binary: `codeterm`. Detail is discoverable: run `codeterm <cmd> --help` for flags. Use codeterm docs <NAME>; it returns the complete document. Use codeterm docs or codeterm docs --help to discover available names. This section carries only invariants and the capability map.
 
-Env vars (set in every tab): `$CODETERM_TAB_ID` (your internal tab id), `$CODETERM_PARENT_TAB_ID`, `$CODETERM_WORKSPACE_ID`, `$CODETERM_SOCKET_PATH`, `$CODETERM=1`.
+Env vars ALWAYS set in every tab: `$CODETERM=1`, `$CODETERM_TAB_ID` (your internal tab id), `$CODETERM_SOCKET_PATH`, `$CODETERM_API_URL`, `$CODETERM_API_PORT`, `$CODETERM_SESSION_BINDING_NONCE`.
+
+Env vars set CONDITIONALLY, only when the tab actually has that identity — test before you use one: `$CODETERM_PARENT_TAB_ID` (set for a tab with a parent; a root Orchestrator legitimately has none), `$CODETERM_ROLE`, `$CODETERM_TEAM_ID`, `$CODETERM_WORKER_ID`, `$CODETERM_PLAN_ID`, `$CODETERM_TASK_ID`, `$CODETERM_ATTEMPT_ID`, `$CODETERM_LANE_BASE` (task-bound launches), `$CODETERM_PAD_DIR`, `$CODETERM_API_TOKEN`. `codeterm plan record --help` and `codeterm agent report --help` render the ones they default from as `[env: …]`. There is NO `$CODETERM_WORKSPACE_ID` in a shell tab — resolve the workspace with `codeterm workspace list` or `codeterm tab list`.
 
 ## Hard invariants
 
 - DISCOVERY HABIT: CLI FIRST, ALWAYS. For anything CodeTerm-related, run `codeterm <cmd> --help` and read the owning document BEFORE curling APIs, grepping source, or reading repo/doc files. If a `codeterm` verb exists for it, the verb is the answer — never raw `curl /api/...`, never spelunking `~/.codeterm*` internals.
-- INTERACTIVE TAB DISCOVERY STAYS COMPACT. Use plain `codeterm tab list` and preserve the row marked `(self)`. Never write or run `tab list --json` interactively. Inspect only a selected tab with `codeterm tab inspect <id>`; add `--lifecycle` only when its journal or recovery verdict is needed. Whole-list JSON is for checked-in automation only.
+- INTERACTIVE DISCOVERY STAYS HUMAN-READABLE. Use plain `codeterm workspace list` for the top-down workspace → Team/Plan → Tab map, including empty workspaces. Use `codeterm tab list` for the current workspace and preserve `(self)`. Inspect one selected tab with `codeterm tab inspect <id>`; add `--lifecycle` only for its journal or recovery verdict. Never request whole-list JSON merely to orient yourself; it is an automation contract.
 - ROUTING: THE PREFIX IS THE RETURN ADDRESS. Reply on the channel named by the `-=-codeterm:...-=-` marker (see `codeterm docs ROUTING`). The CLI command IS the reply — never echo the same content in your tab afterward.
 - `chat_backend` TABS HAVE NO SHELL. Check `backing.kind` in `tab list` before instructing a tab to run commands; send chat text instead.
 - DELAYED SEND IS NOT THE DEFAULT. `codeterm send` is immediate; `--delay`/`--at` are delay-only scheduling tools for user-requested future delivery.
@@ -39,7 +40,7 @@ Env vars (set in every tab): `$CODETERM_TAB_ID` (your internal tab id), `$CODETE
 | Past chat sessions | `sessions search/get/resume` (resume handles cwd — never hand-craft `--resume`) | — |
 | Services/daemons registry | `service --help` | `docs MESH` |
 | Config keys | `config get <key>` (dot-notation) or bare `config get` to dump the whole redacted config; `config set` (JSON values) | `docs CONFIG` |
-| Desktop notifications | `notify send "title" [--body ..] [--level info\|warning\|error]` is canonical; `notify list` / `notify clear`. `send` is required — there is no bare `notify "title"` | — |
+| Desktop notifications | `notify send "title" [--body ..] [--level info\|warning\|error] [--category milestone\|blocker\|failure] [--event-key ..]` is canonical; `notify list` / `notify clear`. `send` is required — there is no bare `notify "title"`. `--category` takes only those three values and has no progress variant | `docs CONFIG` |
 | Updates | `update check`, `update install --auto` | — |
 | Plugins/providers | `plugin list/install/update/update-system` | `codeterm docs API-CLI` |
 | Cross-machine payload handoff | `paste put`, then `paste get <id>` / `paste rm <id>` (id may be bare `fpu2zp` or `paste:fpu2zp` — both resolve); `--pop` for one-shot (in-memory, TTL) — not `mem save` | — |

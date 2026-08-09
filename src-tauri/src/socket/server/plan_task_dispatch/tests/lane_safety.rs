@@ -1,5 +1,6 @@
 use crate::plan::{ExecutionIntent, OrchestratorRef, TaskLaneMetadata};
 use crate::service::plan::{NewTask, PlanStore};
+use crate::service::LaneProtection;
 
 use super::super::lane_safety::{
     atomic_lane_commitment, dispatch_safety_nudges, refuse_unsafe_mutating_write,
@@ -114,6 +115,54 @@ fn read_only_dispatch_is_unobstructed() {
         refuse_unsafe_mutating_write(&plan, &mine, &canonical, intent.clone()).unwrap();
         refuse_unsafe_mutating_write(&plan, &mine, &foreign, intent).unwrap();
     }
+}
+
+/// A detached lane is the only shape that reaches the branch requirement: an
+/// attached one satisfies it and the check never runs. The Enforced call proves
+/// the fixture is detached, the Waived call proves read-only clears the gate.
+#[test]
+fn read_only_lane_on_a_detached_head_is_dispatchable() {
+    let (_root, project) = super::git_project();
+    let lane = project.parent().unwrap().join("detached-lane");
+    super::git(
+        &project,
+        &[
+            "worktree",
+            "add",
+            "--detach",
+            lane.to_str().unwrap(),
+            "HEAD",
+        ],
+    );
+    let canonical = project.to_str().unwrap();
+    let lane_cwd = lane.to_str().unwrap();
+
+    let error = super::resolve_dispatch_lane(
+        Some(lane_cwd),
+        canonical,
+        &TaskLaneMetadata::default(),
+        LaneProtection::Enforced,
+    )
+    .unwrap_err();
+    assert_eq!(error.code, -32602);
+    assert_eq!(error.data.as_ref().unwrap()["stage"], "cwd_validation");
+    assert!(error.message.contains("detached HEAD"), "{}", error.message);
+
+    let resolved = super::resolve_dispatch_lane(
+        Some(lane_cwd),
+        canonical,
+        &TaskLaneMetadata::default(),
+        LaneProtection::Waived,
+    )
+    .unwrap();
+    let provenance = resolved.existing.expect("read-only lane provenance");
+    assert!(provenance.branch.is_empty());
+    assert_eq!(
+        std::fs::canonicalize(&resolved.spawn_cwd).unwrap(),
+        std::fs::canonicalize(&lane).unwrap()
+    );
+    // Ancestry still resolves, measured against the commit the lane holds.
+    assert!(!provenance.base.is_empty());
 }
 
 #[test]

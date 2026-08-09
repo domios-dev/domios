@@ -1,5 +1,251 @@
 use super::*;
 
+/// A Worker tab that reached `awaiting_worker_ack`: one live, session-bound
+/// attempt whose task is still pending, which is the state `agent ack` meets.
+fn dispatched_worker_task(
+    store: &PlanStore,
+    project: &str,
+    team_id: &str,
+    tab_id: &str,
+    base: u64,
+) -> (String, String, String) {
+    let plan = store
+        .create_plan_for_team(
+            format!("{team_id} dispatch"),
+            project.to_string(),
+            OrchestratorRef::from_tab("orch"),
+            team_id.to_string(),
+            vec![],
+            base,
+        )
+        .unwrap();
+    let mut approved = store.get(&plan.id).unwrap();
+    approved.mode = PlanMode::Approved;
+    store.save(&mut approved, base + 1).unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: format!("{team_id} worker"),
+                ..Default::default()
+            },
+            base + 2,
+        )
+        .unwrap();
+    let lane = store.show_task(&task_id).unwrap().task.lane;
+    let attempt_id = store
+        .begin_task_dispatch(&plan.id, &task_id, tab_id, "Ada", lane.clone(), base + 3)
+        .unwrap();
+    store
+        .finish_task_dispatch(
+            &plan.id,
+            &task_id,
+            tab_id,
+            &attempt_id,
+            &format!("session-{tab_id}"),
+            &format!("nonce-{tab_id}"),
+            lane,
+            base + 4,
+        )
+        .unwrap();
+    (plan.id, task_id, attempt_id)
+}
+
+#[test]
+fn stale_subject_env_still_acknowledges_the_tab_bound_attempt() {
+    let root = tempfile::tempdir().unwrap();
+    let project = root.path().display().to_string();
+    let store = PlanStore::new_for_test(root.path());
+    let (plan_id, task_id, attempt_id) =
+        dispatched_worker_task(&store, &project, "current", "tab-worker", 1);
+    // The stale subject must name a REAL other task: an id that exists nowhere
+    // would be rejected as absent and never prove the subject is only a hint.
+    let (stale_plan_id, stale_task_id, _) =
+        dispatched_worker_task(&store, &project, "stale", "tab-other", 100);
+    assert_ne!(stale_plan_id, plan_id);
+    assert_ne!(stale_task_id, task_id);
+
+    let acknowledged = store
+        .acknowledge_live_task_attempt_for_tab(
+            "tab-worker",
+            Some(&stale_plan_id),
+            Some(&stale_task_id),
+            200,
+        )
+        .unwrap();
+
+    assert_eq!(acknowledged.plan_id, plan_id);
+    assert_eq!(acknowledged.task_id, task_id);
+    assert_eq!(acknowledged.attempt.id, attempt_id);
+    assert_eq!(acknowledged.attempt.acknowledged_at, Some(200));
+    assert_eq!(
+        store.show_task(&task_id).unwrap().task.status,
+        TaskStatus::InProgress
+    );
+    // The subject named by the stale environment is untouched.
+    let stale = store.show_task(&stale_task_id).unwrap().task;
+    assert_eq!(stale.status, TaskStatus::Pending);
+    assert_eq!(stale.execution_attempts[0].acknowledged_at, None);
+}
+
+#[test]
+fn respawned_worker_acknowledges_its_live_in_progress_attempt() {
+    let root = tempfile::tempdir().unwrap();
+    let project = root.path().display().to_string();
+    let store = PlanStore::new_for_test(root.path());
+    let (plan_id, task_id, first_attempt_id) =
+        dispatched_worker_task(&store, &project, "respawn", "tab-first", 1);
+    store
+        .acknowledge_live_task_attempt_for_tab("tab-first", None, None, 10)
+        .unwrap();
+    // Retirement is the fence the respawn must survive rather than bypass.
+    let retirement = store
+        .retire_stale_task_owner(&plan_id, &task_id, None, |_| false, 11)
+        .unwrap();
+    assert_eq!(retirement.retired_attempt_ids, vec![first_attempt_id]);
+
+    let lane = store.show_task(&task_id).unwrap().task.lane;
+    let respawn_attempt_id = store
+        .begin_task_dispatch(&plan_id, &task_id, "tab-respawn", "Ada", lane.clone(), 12)
+        .unwrap();
+    store
+        .finish_task_dispatch(
+            &plan_id,
+            &task_id,
+            "tab-respawn",
+            &respawn_attempt_id,
+            "session-respawn",
+            "nonce-respawn",
+            lane,
+            13,
+        )
+        .unwrap();
+    // Proven, not assumed: the respawn meets ack while the task is in_progress.
+    let before_ack = store.show_task(&task_id).unwrap().task;
+    assert_eq!(before_ack.status, TaskStatus::InProgress);
+    assert_eq!(
+        before_ack.status_label.as_deref(),
+        Some("awaiting_worker_ack")
+    );
+
+    let acknowledged = store
+        .acknowledge_live_task_attempt_for_tab("tab-respawn", None, None, 14)
+        .unwrap();
+
+    assert_eq!(acknowledged.attempt.id, respawn_attempt_id);
+    assert_eq!(acknowledged.attempt.acknowledged_at, Some(14));
+    let after = store.show_task(&task_id).unwrap().task;
+    assert_eq!(after.status, TaskStatus::InProgress);
+    assert_eq!(after.status_label.as_deref(), Some("acknowledged"));
+    assert_eq!(after.assigned_tab_id.as_deref(), Some("tab-respawn"));
+}
+
+#[test]
+fn retired_attempt_stays_fenced_from_dispatch_ready_and_ack() {
+    let root = tempfile::tempdir().unwrap();
+    let project = root.path().display().to_string();
+    let store = PlanStore::new_for_test(root.path());
+    let (plan_id, task_id, retired_attempt_id) =
+        dispatched_worker_task(&store, &project, "fence", "tab-worker", 1);
+    store
+        .acknowledge_live_task_attempt_for_tab("tab-worker", None, None, 10)
+        .unwrap();
+    store
+        .retire_stale_task_owner(&plan_id, &task_id, None, |_| false, 11)
+        .unwrap();
+    // The same tab respawns, so the late calls clear the assigned-tab rung and
+    // reach the retirement fence itself.
+    let lane = store.show_task(&task_id).unwrap().task.lane;
+    let live_attempt_id = store
+        .begin_task_dispatch(&plan_id, &task_id, "tab-worker", "Ada", lane.clone(), 12)
+        .unwrap();
+    assert_ne!(live_attempt_id, retired_attempt_id);
+    assert_eq!(
+        store
+            .show_task(&task_id)
+            .unwrap()
+            .task
+            .assigned_tab_id
+            .as_deref(),
+        Some("tab-worker")
+    );
+
+    assert!(store
+        .finish_task_dispatch(
+            &plan_id,
+            &task_id,
+            "tab-worker",
+            &retired_attempt_id,
+            "session-late",
+            "nonce-late",
+            lane,
+            13,
+        )
+        .is_err());
+    assert!(store
+        .acknowledge_task_attempt(&plan_id, &task_id, "tab-worker", &retired_attempt_id, 14)
+        .is_err());
+    assert!(!store.worker_startup_attempt_owns(
+        &plan_id,
+        &task_id,
+        "tab-worker",
+        &retired_attempt_id,
+        None,
+    ));
+
+    let after = store.show_task(&task_id).unwrap().task;
+    let retired = after
+        .execution_attempts
+        .iter()
+        .find(|attempt| attempt.id == retired_attempt_id)
+        .unwrap();
+    assert!(retired.retired_at.is_some());
+    assert_eq!(retired.session_id.as_deref(), Some("session-tab-worker"));
+    let live = after
+        .execution_attempts
+        .iter()
+        .find(|attempt| attempt.id == live_attempt_id)
+        .unwrap();
+    assert_eq!(live.acknowledged_at, None);
+    assert_eq!(live.session_id, None);
+}
+
+#[test]
+fn acknowledge_failure_names_the_paused_task_not_the_tab() {
+    let root = tempfile::tempdir().unwrap();
+    let project = root.path().display().to_string();
+    let store = PlanStore::new_for_test(root.path());
+    let (plan_id, task_id, _) = dispatched_worker_task(&store, &project, "paused", "tab-worker", 1);
+    let mut paused_plan = store.get(&plan_id).unwrap();
+    let paused = paused_plan
+        .tasks
+        .iter_mut()
+        .find(|task| task.id == task_id)
+        .unwrap();
+    paused.status = TaskStatus::Paused;
+    paused.status_label = Some("operator pause".into());
+    store.save(&mut paused_plan, 10).unwrap();
+
+    let error = store
+        .acknowledge_live_task_attempt_for_tab("tab-worker", None, None, 11)
+        .unwrap_err()
+        .to_string();
+
+    assert!(
+        error.contains(crate::service::plan::ACK_CAUSE_TASK_NOT_OPEN),
+        "{error}"
+    );
+    assert!(
+        !error.contains(crate::service::plan::ACK_CAUSE_NO_LIVE_ATTEMPT),
+        "{error}"
+    );
+    assert!(error.contains(task_id.as_str()), "{error}");
+    assert_eq!(
+        store.show_task(&task_id).unwrap().task.execution_attempts[0].acknowledged_at,
+        None
+    );
+}
+
 #[test]
 fn atomic_dispatch_carries_assigned_authority_into_pty_launch() {
     let lane = TaskLaneMetadata {
@@ -62,6 +308,7 @@ fn worker_ack_transitions_exact_pending_task_to_in_progress() {
         None,
         project.to_str().unwrap(),
         &TaskLaneMetadata::default(),
+        LaneProtection::Enforced,
     )
     .unwrap();
     let provision_count = Cell::new(1);

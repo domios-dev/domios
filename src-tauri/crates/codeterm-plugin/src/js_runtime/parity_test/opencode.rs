@@ -48,6 +48,45 @@ fn build_resume_command_shape() {
     assert!(cmd.contains(SES_ID), "{cmd}");
 }
 
+/// OpenCode's `session_config` channel is a shell prologue that stages the
+/// prompt file and exports `OPENCODE_CONFIG_CONTENT`. A resume drops it, so it
+/// declares re-application and rebuilds the same channel around the resume.
+#[test]
+fn resume_with_context_restages_the_session_config() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let j = opencode();
+    let prompt = "## Composed identity\nopencode-sentinel-6b40";
+    let command = j
+        .build_resume_command_with_context(&crate::provider::AgentResumeParams {
+            session_id: SES_ID.into(),
+            skip_permissions: false,
+            system_prompt: Some(prompt.into()),
+            args: vec!["--model".into(), "parity-model".into()],
+        })
+        .expect("opencode resume command");
+
+    assert_eq!(command.matches("--session").count(), 1, "{command}");
+    assert_eq!(
+        command.matches("OPENCODE_CONFIG_CONTENT").count(),
+        1,
+        "{command}"
+    );
+    assert!(command.contains("--model parity-model"), "{command}");
+    assert!(
+        !command.contains(prompt),
+        "prompt travels in the staged file, not the command: {command}"
+    );
+    let staged = command
+        .split_whitespace()
+        .find(|token| token.contains(".ct-task"))
+        .expect("staged prompt file")
+        .trim_matches(['\'', '"']);
+    let delivered = std::fs::read_to_string(staged).expect("staged prompt file");
+    assert_eq!(delivered.matches(prompt).count(), 1);
+}
+
 #[test]
 fn uses_structured_chat_is_true() {
     if require_plugins().is_none() {

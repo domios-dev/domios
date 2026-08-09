@@ -190,6 +190,13 @@ impl AgentProvider for ClaudeProvider {
         launch::build_resume_command(session_id, skip_permissions)
     }
 
+    fn build_resume_command_with_context(
+        &self,
+        params: &crate::provider::AgentResumeParams,
+    ) -> Option<String> {
+        launch::build_resume_command_with_context(params)
+    }
+
     fn read_usage(&self, cwd: &str, session_id: &str) -> Option<UsageSnapshot> {
         usage::read(cwd, session_id)
     }

@@ -879,8 +879,7 @@ fn plan_file_manifest_lists_milestone_and_canvas_body_paths() {
     .to_string_lossy()
     .replace(std::path::MAIN_SEPARATOR, "/");
     assert!(manifest.entries.iter().any(|entry| {
-        entry.kind == "stride_log"
-            && entry.path == format!("{root}/tasks/build/strides.jsonl")
+        entry.kind == "stride_log" && entry.path == format!("{root}/tasks/build/strides.jsonl")
     }));
     assert!(manifest.entries.iter().any(|entry| {
         entry.kind == "milestone"

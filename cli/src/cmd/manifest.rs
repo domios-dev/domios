@@ -2,7 +2,7 @@
 //! consumed by docs/CLI.md, the prompt doctor, and the chat-card templates.
 //! Regenerate committed artifacts with `codeterm cli-manifest --write`.
 
-use clap::{Command, CommandFactory};
+use clap::{Arg, ArgAction, Command, CommandFactory};
 use serde::Serialize;
 
 use crate::args::cli::Cli;
@@ -11,7 +11,9 @@ use crate::args::cli::Cli;
 pub struct ManifestArg {
     pub name: String,
     pub positional: bool,
+    pub required: bool,
     pub value_name: Option<String>,
+    pub possible_values: Vec<String>,
     pub default: Option<String>,
     pub help: Option<String>,
     pub aliases: Vec<String>,
@@ -31,10 +33,31 @@ pub fn build() -> ManifestCommand {
     walk(&Cli::command())
 }
 
+// Clap's own `--help`/`--version` are identified by the action it injects, not
+// by an id a real user-facing flag is free to reuse (`mem restore --version`).
+fn is_clap_builtin(arg: &Arg) -> bool {
+    matches!(
+        arg.get_action(),
+        ArgAction::Help | ArgAction::HelpShort | ArgAction::HelpLong | ArgAction::Version
+    )
+}
+
+// A no-value flag still carries clap's bool parser, so an unfiltered domain
+// would advertise a `true|false` argument the flag refuses to accept.
+fn possible_values(arg: &Arg) -> Vec<String> {
+    if !arg.get_action().takes_values() {
+        return Vec::new();
+    }
+    arg.get_possible_values()
+        .into_iter()
+        .map(|value| value.get_name().to_string())
+        .collect()
+}
+
 fn walk(cmd: &Command) -> ManifestCommand {
     let mut args: Vec<ManifestArg> = cmd
         .get_arguments()
-        .filter(|a| a.get_id() != "help" && a.get_id() != "version")
+        .filter(|a| !is_clap_builtin(a))
         .map(|a| ManifestArg {
             name: if a.is_positional() {
                 a.get_id().to_string()
@@ -44,10 +67,12 @@ fn walk(cmd: &Command) -> ManifestCommand {
                     .unwrap_or_else(|| a.get_id().to_string())
             },
             positional: a.is_positional(),
+            required: a.is_required_set(),
             value_name: a
                 .get_value_names()
                 .and_then(|v| v.first())
                 .map(|s| s.to_string()),
+            possible_values: possible_values(a),
             default: a
                 .get_default_values()
                 .first()
@@ -120,6 +145,9 @@ pub fn to_command_paths() -> String {
 pub fn to_markdown() -> String {
     let root = build();
     let mut out = String::new();
+    // The root's own globals (`--json`, `--mesh`) belong to every command, so
+    // the reference is incomplete without them.
+    render_signature(&root, std::slice::from_ref(&root.name), &mut out);
     for cmd in &root.subcommands {
         render_md(cmd, std::slice::from_ref(&root.name), &mut out);
     }
@@ -129,6 +157,13 @@ pub fn to_markdown() -> String {
 fn render_md(cmd: &ManifestCommand, path: &[String], out: &mut String) {
     let mut full = path.to_vec();
     full.push(cmd.name.clone());
+    render_signature(cmd, &full, out);
+    for sub in &cmd.subcommands {
+        render_md(sub, &full, out);
+    }
+}
+
+fn render_signature(cmd: &ManifestCommand, full: &[String], out: &mut String) {
     out.push_str(&format!("#### `{}`\n\n", full.join(" ")));
     if let Some(about) = &cmd.about {
         out.push_str(&format!("{about}\n\n"));
@@ -150,9 +185,6 @@ fn render_md(cmd: &ManifestCommand, path: &[String], out: &mut String) {
     }
     if !cmd.args.is_empty() {
         out.push('\n');
-    }
-    for sub in &cmd.subcommands {
-        render_md(sub, &full, out);
     }
 }
 
@@ -193,6 +225,8 @@ pub fn handle(write: bool, markdown: bool) {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use super::*;
 
     fn normalize_newlines(s: &str) -> String {
@@ -324,49 +358,19 @@ mod tests {
         }
     }
 
-    fn resolve<'a>(root: &'a ManifestCommand, path: &[&str]) -> Option<&'a ManifestCommand> {
-        let mut cur = root;
-        for seg in path {
-            cur = cur
-                .subcommands
-                .iter()
-                .find(|c| c.name == *seg || c.aliases.iter().any(|a| a == seg))?;
-        }
-        Some(cur)
-    }
-
+    // Walks every token: trimming to the longest resolvable prefix passed
+    // anything under a real namespace, like `codeterm workspace <anything>`.
     #[test]
     fn prompt_cli_commands_exist() {
-        let root = build();
+        let root = Cli::command();
         let text = std::fs::read_to_string(PROMPT_PATH).expect("read codeterm_cli.md");
         let mut bad: Vec<String> = Vec::new();
-        for raw in text.lines() {
-            let line = raw.trim().trim_start_matches('`').trim_start_matches("$ ");
-            let Some(rest) = line.strip_prefix("codeterm ") else {
+        for (idx, line) in text.lines().enumerate() {
+            let Some(rest) = prescription(line, "codeterm") else {
                 continue;
             };
-            // not a subcommand — valid, skip.
-            if rest.trim_start().starts_with('-') {
-                continue;
-            }
-            // Collect leading bare-word tokens as the candidate subcommand path.
-            let mut path: Vec<&str> = Vec::new();
-            for tok in rest.split_whitespace() {
-                if tok.starts_with('-') || tok.starts_with('"') || tok.contains('=') {
-                    break;
-                }
-                if tok.starts_with('<') || tok.chars().all(|c| c.is_ascii_uppercase() || c == '_') {
-                    break; // argument placeholder (UPPERCASE / <...>)
-                }
-                path.push(tok);
-            }
-            // Trim back to the longest resolvable prefix.
-            while !path.is_empty() && resolve(&root, &path).is_none() {
-                path.pop();
-            }
-            if path.is_empty() {
-                bad.push(format!("unrecognized: {line}"));
-            }
+            let origin = format!("codeterm_cli.md:{}", idx + 1);
+            check_prescription(&root, &[], rest, &origin, &mut bad);
         }
         assert!(
             bad.is_empty(),
@@ -420,6 +424,31 @@ mod tests {
         flags
     }
 
+    // The runnable head of a prescription. A `$(...)` span carries another
+    // program's flags, and `—`/`·`/`#` open the prose that explains the command.
+    fn runnable_tokens(rest: &str) -> Vec<String> {
+        let mut flat = String::new();
+        let mut depth = 0usize;
+        let mut chars = rest.chars().peekable();
+        while let Some(ch) = chars.next() {
+            if depth == 0 && ch == '$' && chars.peek() == Some(&'(') {
+                chars.next();
+                depth = 1;
+                continue;
+            }
+            match (depth, ch) {
+                (0, _) => flat.push(ch),
+                (_, '(') => depth += 1,
+                (_, ')') => depth -= 1,
+                _ => {}
+            }
+        }
+        flat.split_whitespace()
+            .take_while(|tok| !matches!(*tok, "—" | "·" | "//") && !tok.starts_with('#'))
+            .map(str::to_string)
+            .collect()
+    }
+
     fn check_prescription(
         root: &Command,
         base: &[String],
@@ -443,8 +472,9 @@ mod tests {
             }
         };
 
-        let mut toks = rest.split_whitespace().peekable();
-        while let Some(tok) = toks.peek().copied() {
+        let toks = runnable_tokens(rest);
+        let mut cursor = 0;
+        while let Some(tok) = toks.get(cursor).map(String::as_str) {
             let cur = chain[chain.len() - 1];
             if cur.get_subcommands().next().is_none() || !is_subcommand_token(tok) {
                 break;
@@ -465,14 +495,11 @@ mod tests {
             let Some(next) = next else { break };
             walked.push(tok.to_string());
             chain.push(next);
-            toks.next();
+            cursor += 1;
         }
 
         let flags = known_flags(&chain);
-        for tok in toks {
-            if tok.starts_with('#') {
-                break;
-            }
+        for tok in &toks[cursor..] {
             let Some(flag) = tok.strip_prefix("--") else {
                 continue;
             };
@@ -538,8 +565,62 @@ mod tests {
         }
     }
 
-    // The consistency oracle for everything the CLI ships as instruction: an
-    // agent follows a prescribed command literally, so one that cannot run is a
+    // Instruction surfaces not embedded in `DOCS`, and so otherwise unvalidated.
+    const PRESCRIPTION_CORPUS: &[&str] = &["skills", "src-tauri/prompts", "docs/CLI.md"];
+
+    fn markdown_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                markdown_files(&path, out);
+            } else if path.extension().is_some_and(|ext| ext == "md") {
+                out.push(path);
+            }
+        }
+    }
+
+    fn corpus_origin(path: &std::path::Path, rel_root: &str) -> String {
+        let root = repo_path(rel_root);
+        let tail = path.strip_prefix(&root).unwrap_or(path);
+        let tail = tail.to_string_lossy().replace('\\', "/");
+        if tail.is_empty() {
+            rel_root.to_string()
+        } else {
+            format!("{rel_root}/{tail}")
+        }
+    }
+
+    fn prescription_corpus() -> Vec<(std::path::PathBuf, String)> {
+        let mut sources = Vec::new();
+        for &rel in PRESCRIPTION_CORPUS {
+            let path = repo_path(rel);
+            assert!(
+                path.exists(),
+                "prescription corpus entry `{rel}` does not exist — a corpus that resolves to nothing validates nothing"
+            );
+            if path.is_dir() {
+                let mut found = Vec::new();
+                markdown_files(&path, &mut found);
+                assert!(
+                    !found.is_empty(),
+                    "prescription corpus entry `{rel}` contains no markdown"
+                );
+                found.sort();
+                sources.extend(found.into_iter().map(|p| {
+                    let origin = corpus_origin(&p, rel);
+                    (p, origin)
+                }));
+            } else {
+                sources.push((path, rel.to_string()));
+            }
+        }
+        sources
+    }
+
+    // An agent follows a prescribed command literally; one that cannot run is a
     // failed tool call, not a typo.
     #[test]
     fn shipped_prescriptions_are_runnable() {
@@ -556,12 +637,141 @@ mod tests {
             }
         }
 
+        for (path, label) in prescription_corpus() {
+            let text = std::fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+            for (idx, line) in text.lines().enumerate() {
+                let Some(rest) = prescription(line, "codeterm") else {
+                    continue;
+                };
+                let origin = format!("{label}:{}", idx + 1);
+                check_prescription(&root, &[], rest, &origin, &mut bad);
+            }
+        }
+
         check_help_text(&root, &root, &[], &mut bad);
 
         assert!(
             bad.is_empty(),
             "shipped text prescribes actions the CLI cannot perform:\n{}",
             bad.join("\n")
+        );
+    }
+
+    // Each entry states why the document is not served by `codeterm docs`; a
+    // wildcard would let an unlisted doc silently default to unvalidated.
+    const DOCS_EXCLUDED_FROM_EMBEDDING: &[(&str, &str)] = &[
+        (
+            "ARCHITECTURE.md",
+            "contributor architecture map; agent-facing runtime behavior ships in API and ORCHESTRATION",
+        ),
+        (
+            "BUILD.md",
+            "repository build procedure, held non-user-facing by `repository_build_docs_are_not_user_facing`",
+        ),
+        (
+            "BUILD-REFERENCE.md",
+            "same non-user-facing build contract as BUILD.md",
+        ),
+        (
+            "CLI.md",
+            "generated command reference; agents discover flags with `codeterm <cmd> --help`",
+        ),
+        (
+            "GENERAL_AGENT.md",
+            "design record for the General-Agent prompt, addressed to contributors editing it",
+        ),
+        (
+            "MARKER-PROVENANCE.md",
+            "provenance rationale; the rule agents must follow ships in ROUTING",
+        ),
+        (
+            "MODELS.md",
+            "provider/model catalogue; agents discover models with `codeterm agent models`",
+        ),
+        (
+            "PLUGINS.md",
+            "plugin publishing map for maintainers, well past the embedded reading boundary",
+        ),
+        (
+            "RELEASE.md",
+            "human release runbook; agents never drive a release themselves",
+        ),
+        (
+            "RESILIENCE.md",
+            "daemon-operator troubleshooting for a human reading host logs",
+        ),
+        (
+            "SECURITY-AUDIT-2026-06.md",
+            "dated audit record — a historical surface, correct as written on its date",
+        ),
+        (
+            "WEB_ACCESS.md",
+            "web-access configuration owned by the machine's maintainer",
+        ),
+        (
+            "build_machine_setup.md",
+            "build-farm host setup performed by a physical machine operator",
+        ),
+        (
+            "crash-recovery-supervisor.md",
+            "OS-wrapper supervisor contract; installed via `codeterm system enable-autostart`",
+        ),
+    ];
+
+    #[test]
+    fn every_docs_md_is_embedded_or_explicitly_excluded() {
+        let embedded: HashSet<&str> = crate::cmd::docs::DOCS
+            .iter()
+            .filter_map(|document| crate::cmd::docs::docs_dir_file(document.source))
+            .collect();
+        assert!(
+            !embedded.is_empty(),
+            "no DOCS entry resolves to a docs/*.md source — the coverage check would pass vacuously"
+        );
+
+        let excluded: HashSet<&str> = DOCS_EXCLUDED_FROM_EMBEDDING
+            .iter()
+            .map(|(file, _)| *file)
+            .collect();
+        for &(file, reason) in DOCS_EXCLUDED_FROM_EMBEDDING {
+            assert!(
+                !reason.trim().is_empty(),
+                "{file} is excluded without a reason"
+            );
+            assert!(
+                !embedded.contains(file),
+                "{file} is both embedded and on the exclusion list"
+            );
+            assert!(
+                repo_path("docs").join(file).is_file(),
+                "exclusion list names {file}, which no longer exists"
+            );
+        }
+
+        let mut unclassified: Vec<String> = Vec::new();
+        for entry in std::fs::read_dir(repo_path("docs"))
+            .expect("read docs/")
+            .flatten()
+        {
+            let path = entry.path();
+            if path.is_dir() || path.extension().is_none_or(|ext| ext != "md") {
+                continue;
+            }
+            let file = path
+                .file_name()
+                .expect("docs entry has a file name")
+                .to_string_lossy()
+                .to_string();
+            if !embedded.contains(file.as_str()) && !excluded.contains(file.as_str()) {
+                unclassified.push(file);
+            }
+        }
+        unclassified.sort();
+        assert!(
+            unclassified.is_empty(),
+            "docs/*.md must be embedded in cmd::docs::DOCS or named in DOCS_EXCLUDED_FROM_EMBEDDING with a reason:\n{}",
+            unclassified.join("\n")
         );
     }
 
@@ -706,6 +916,80 @@ mod tests {
         // Teams are minted with the plan or via `team pair`; there is no `team create`.
         assert!(subcommand(&root, &["team", "pair"]).is_some());
         assert!(subcommand(&root, &["team", "create"]).is_none());
+    }
+
+    fn manifest_command<'a>(root: &'a ManifestCommand, path: &[&str]) -> &'a ManifestCommand {
+        let mut cur = root;
+        for seg in path {
+            cur = cur
+                .subcommands
+                .iter()
+                .find(|c| c.name == *seg)
+                .unwrap_or_else(|| panic!("manifest has no `{}`", path.join(" ")));
+        }
+        cur
+    }
+
+    fn manifest_arg<'a>(cmd: &'a ManifestCommand, name: &str) -> &'a ManifestArg {
+        cmd.args
+            .iter()
+            .find(|a| a.name == name)
+            .unwrap_or_else(|| panic!("`{}` has no arg `{name}`", cmd.name))
+    }
+
+    // The bool *type* is shared by no-value switches and genuine bool-valued
+    // options; only the action separates them, so a domain filter keyed on
+    // anything else fails one half of this pair.
+    #[test]
+    fn possible_values_follow_the_action_not_the_value_type() {
+        let root = build();
+        let bool_domain = vec!["true".to_string(), "false".to_string()];
+
+        let switch = manifest_arg(
+            manifest_command(&root, &["agent", "report"]),
+            "acknowledge-dirty",
+        );
+        assert!(
+            switch.possible_values.is_empty(),
+            "`agent report --acknowledge-dirty` accepts no value; it must advertise no domain"
+        );
+
+        for (path, name) in [
+            (["plan", "loop", "record"].as_slice(), "stop"),
+            (["service", "list"].as_slice(), "enabled"),
+        ] {
+            let valued = manifest_arg(manifest_command(&root, path), name);
+            assert_eq!(
+                valued.possible_values,
+                bool_domain,
+                "`{} --{name}` takes a bool value; its domain must survive the filter",
+                path.join(" ")
+            );
+        }
+    }
+
+    // The daemon prints a respawn command for a stalled Worker; the flag it must
+    // carry is required here, so dropping it emits an unrunnable hint.
+    #[test]
+    fn plan_task_respawn_requires_the_attempt_flag() {
+        let root = build();
+        let respawn = manifest_command(&root, &["plan", "task", "respawn"]);
+        assert!(
+            manifest_arg(respawn, "attempt").required,
+            "plan task respawn --attempt stopped being required"
+        );
+    }
+
+    #[test]
+    fn root_globals_render_in_the_markdown_reference() {
+        let markdown = to_markdown();
+        assert!(markdown.starts_with("#### `codeterm`\n"));
+        for global in ["- `--json`", "- `--mesh`"] {
+            assert!(
+                markdown.contains(global),
+                "root global {global} is missing from the command reference"
+            );
+        }
     }
 
     #[test]

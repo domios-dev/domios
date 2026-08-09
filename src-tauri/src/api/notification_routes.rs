@@ -31,7 +31,29 @@ pub(crate) struct CreateNotifBody {
     actions: Option<serde_json::Value>,
     sticky: Option<bool>,
     tab_id: Option<String>,
-    workspace_id: Option<String>,
+    /// Stamped by the Mesh relay from the signed sender; suppresses any tab claim.
+    source_peer: Option<String>,
+    category: Option<String>,
+    event_key: Option<String>,
+}
+
+/// An unknown category is rejected here rather than degrading to a runtime
+/// string, so `progress` can never be expressed on any transport.
+pub(crate) fn parse_push_intent(
+    category: Option<&str>,
+    event_key: Option<String>,
+) -> Result<crate::service::notification::PushIntent, &'static str> {
+    let category = match category.map(str::trim).filter(|c| !c.is_empty()) {
+        None => None,
+        Some(raw) => Some(
+            crate::notification::push::PushCategory::parse(raw)
+                .ok_or("Unknown notification category: expected milestone, blocker or failure")?,
+        ),
+    };
+    Ok(crate::service::notification::PushIntent {
+        category,
+        event_key,
+    })
 }
 
 pub async fn create_notification(
@@ -40,16 +62,33 @@ pub async fn create_notification(
     Json(body): Json<CreateNotifBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
+    let origin = crate::service::notification::NotificationOrigin {
+        caller_tab_id: crate::api::tab_routes::caller_tab_header(&headers),
+        claimed_tab_id: body.tab_id,
+        peer_name: body.source_peer,
+    };
+    let intent = parse_push_intent(body.category.as_deref(), body.event_key)
+        .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
     let id = state.svc.create_notification_ext(
         body.title,
         body.body,
         body.level.as_deref(),
         body.actions,
         body.sticky,
-        body.tab_id,
-        body.workspace_id,
+        origin,
+        intent,
     );
     Ok(Json(serde_json::json!({"id": id})))
+}
+
+pub async fn telegram_push_gate(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    Ok(Json(serde_json::json!({
+        "control_available": state.svc.telegram_push_control_available(),
+    })))
 }
 
 pub async fn clear_notifications(

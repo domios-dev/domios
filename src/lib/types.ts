@@ -272,6 +272,9 @@ export interface WorkspaceInfo {
   is_active: boolean;
   cwd: string | null;
   protected?: boolean;
+  tab_ids: string[];
+  /** Set only when create_workspace deduped by cwd instead of creating one. */
+  existing?: boolean;
 }
 
 export interface TabInfo {
@@ -474,6 +477,15 @@ export interface NotificationConfig {
   desktop: boolean;
   sound: boolean;
   toast_duration: number;
+  telegram: TelegramNotifyConfig;
+}
+
+/** Opt-in push audience. Deliberately not `integrations.telegram_allowed_users`,
+ *  which is an inbound admission list rather than an audience. */
+export interface TelegramNotifyConfig {
+  enabled: boolean;
+  recipients: string[];
+  per_scope_limit: number;
 }
 
 export interface KeybindingsConfig {

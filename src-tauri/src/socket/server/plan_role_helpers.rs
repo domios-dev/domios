@@ -17,7 +17,7 @@ pub(super) fn planner_role_for_tab(svc: &ServiceState, tab_id: &str) -> Option<&
 
 fn plan_rpc_err(e: PlanError) -> JsonRpcError {
     JsonRpcError {
-        code: -32603,
+        code: e.rpc_code(),
         message: e.to_string(),
         data: Some(e.to_json()),
     }

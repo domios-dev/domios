@@ -68,13 +68,19 @@ re-cut from the new merge commit — a full wasted build cycle across all three 
 VER=X.Y.Z
 npm run sync:versions -- "$VER"
 ./build.sh check                      # refreshes Cargo.lock
-./build.sh release-preflight           # refreshes and verifies both Cargo lockfiles
-npm run check:versions
+./build.sh release-preflight           # host-local PR matrix + both Cargo lockfiles
 git add package.json src-tauri/Cargo.toml src-tauri/Cargo.lock \
   src-tauri/tauri.conf.json cli/Cargo.toml cli/Cargo.lock plugins packages scripts
 git commit -m "release: v$VER"
 git push origin develop
 ```
+
+`release-preflight` runs formatting, both Rust workspaces, app and CLI tests,
+Clippy, TypeScript build/unit/plugin/lint gates, generated-bundle freshness, and
+the CI file-size policy. It catches every host-independent PR gate before the PR is
+opened; platform-native CI remains authoritative for macOS/Linux runtime behavior.
+Cheap deterministic policy and freshness checks run first so a stale artifact or
+oversized local source cannot waste a full test cycle.
 
 Then start dev from the main checkout and visually confirm the app, clean old lane worktrees
 (`../codeterm-worktrees/`), and open the PR `develop` → `master`. Collect the exact
@@ -183,6 +189,7 @@ yet.
 | Symptom | Cause | Fix |
 |---|---|---|
 | PR CI fails during `pnpm install` with `ERR_PNPM_OUTDATED_LOCKFILE` | A workspace manifest changed without regenerating the root lockfile, so CI's implicit frozen-lockfile check rejects it before tests run | Run `pnpm install --no-frozen-lockfile`, commit `pnpm-lock.yaml`, then verify locally with `pnpm install --frozen-lockfile` before rerunning CI |
+| Release frontend preflight fails with TS2722 on `this.buildResumeCommand(...)` inside a provider's context-aware resume method | The shared plugin interface declares the legacy resume capability as optional even when that provider implements both methods in the same object | Assert the provider-local method's presence at the call site, regenerate the provider bundle, and rerun `build.ps1 frontend`; do not weaken the shared optional capability contract. |
 | Linux Rust PR job fails at `fmt` before compilation | A broad Rust rename/refactor was committed without applying both workspace formatters | Run `cargo fmt --manifest-path src-tauri/Cargo.toml` and `cargo fmt --manifest-path cli/Cargo.toml`, commit the mechanical formatting, then require both commands with `-- --check` before rerunning CI |
 | TS PR job reaches Biome, then parses suspended Playwright files or a generated plugin bundle | The global Biome include set accidentally covers surfaces excluded from active gates | Keep `tests/playwright/**` and generated plugin UI bundles outside `biome.json`'s active include set; do not repair or run the suspended suite as a release side effect |
 | Linux Rust PR job fails in clippy after local `build.ps1 check` passed | The build check compiles but does not run the stricter repository clippy gate | Run `bash scripts/clippy-gate.sh` on the release head and fix the reported owning code rather than adding a new lint allow |
@@ -319,6 +326,40 @@ Don't skip this — a stale `develop` makes the next release start from a missin
   the updater runs anonymously.
 - **If source release assets are valid but the mirror failed**, download from `rollacode/codeterm`,
   regenerate `latest.json` with public mirror URLs, upload with `--clobber`, then publish.
+- **macOS Rust tests panic that `EventLoop` must be created on the main thread** when a test
+  forgot the non-Windows guard required by the shared `ServiceContext` desktop fixture. Add the
+  same `cfg_attr` used by its other consumers; do not treat elapsed time or retries as readiness.
+- **`workspace_close_tests` protection now runs on Windows only.** All ten guarded-workspace-close
+  tests carry the `cfg_attr(not(windows), ignore = "...interactive desktop runtime")` guard above,
+  so a macOS/Linux `verify`/`release-preflight`/`test` run silently skips them — a real coverage
+  reduction, not just portability noise. Treat a Windows local run (or the Windows CI leg) as the
+  only authoritative signal for this protection until the shared `ServiceContext` fixture stops
+  requiring a main-thread `EventLoop`; do not paper over it with a second non-Windows fixture.
+- **`workspace arm count is frozen` fails in `subcommand_contract_tests::context`** when a
+  `WorkspaceAction` variant is added or removed without updating the pinned arm count. Update the
+  frozen count deliberately alongside the new/removed arm's caller-context assertion — the test
+  also re-checks that only `workspace.close` carries caller context; do not bump the count as a
+  reflex without re-confirming that invariant still holds.
+- **`registered_documents_have_one_title_and_fit_the_reading_boundary` fails** when an embedded
+  CLI document grows beyond 240 lines. Tighten the document without dropping contract details;
+  do not raise the reading boundary to hide growth.
+- **`all_backend_plan_error_types_have_cli_renderers` names a missing error kind** when the daemon
+  adds structured plan data without an actionable CLI branch. Add the renderer and a focused
+  mechanism test; do not fall back to a raw RPC sentence.
+- **Clippy fails after `check` passes** when a source-only lane introduces valid but non-idiomatic
+  Rust. Run the release preflight's `-D warnings` gate and apply the suggested semantic-preserving
+  rewrite; never suppress the lint to advance a release.
+- **A Windows preflight says `tsc` or `node` is not recognized inside a package script** when the
+  package-manager child shell loses the Node path inherited by Git Bash. Release gates invoke
+  checked-in Node entry points directly; do not weaken or skip the TypeScript matrix.
+- **Plugin freshness reports modified bundles but `git diff` is empty** when `core.autocrlf=true`
+  leaves clean tracked files with worktree-only stat dirt. The gate uses normalized diff for
+  tracked content and `git ls-files --others` for new bundles; raw status is not evidence of drift.
+- **Local policy/lint gates report files inside a `refs/` research clone** when preflight walks
+  the whole checkout. Source scanners and Biome exclude the root research area; only
+  CodeTerm-owned source is governed by repository policy.
+- **`webForks.test.ts` reports matching unlisted and stale sites one line apart** after nearby
+  bridge edits. Re-audit each fork classification, then update only the verified line inventory.
 
 ## Secrets (per builder machine)
 
@@ -327,4 +368,4 @@ The minisign updater key (`~/.tauri/codeterm.key`, empty password; its public ha
 the `github-release` skill lists the exact ids and restore paths. A builder without the minisign
 key produces artifacts the updater can't verify.
 
-<!-- revision: 23 -->
+<!-- revision: 26 -->

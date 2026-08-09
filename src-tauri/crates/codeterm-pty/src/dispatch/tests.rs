@@ -74,10 +74,8 @@ fn test_command_deserialize_tab_list() {
 
 #[test]
 fn tab_inspect_defaults_to_present_state_only() {
-    let cmd: Command = serde_json::from_str(
-        r#"{"cmd":"tab_inspect","tab_ids":["tab-1"]}"#,
-    )
-    .unwrap();
+    let cmd: Command =
+        serde_json::from_str(r#"{"cmd":"tab_inspect","tab_ids":["tab-1"]}"#).unwrap();
     assert!(matches!(
         cmd,
         Command::TabInspect {
@@ -98,15 +96,13 @@ fn test_command_result_into_json() {
 
 #[test]
 fn tab_close_deserialize() {
-    let cmd: Command =
-        serde_json::from_str(r#"{"cmd": "tab_close", "tab_id": "abc"}"#).unwrap();
+    let cmd: Command = serde_json::from_str(r#"{"cmd": "tab_close", "tab_id": "abc"}"#).unwrap();
     assert!(matches!(cmd, Command::TabClose { .. }));
 }
 
 #[test]
 fn tab_focus_deserialize() {
-    let cmd: Command =
-        serde_json::from_str(r#"{"cmd": "tab_focus", "tab_id": "abc"}"#).unwrap();
+    let cmd: Command = serde_json::from_str(r#"{"cmd": "tab_focus", "tab_id": "abc"}"#).unwrap();
     assert!(matches!(cmd, Command::TabFocus { .. }));
 }
 
@@ -375,13 +371,8 @@ fn tab_summary_is_workspace_scoped_and_excludes_full_payload_fields() {
     let record = state.get_tab_mut(&initial_tab).expect("default Tab");
     record.session_binding_nonce = Some("nonce-recorded".into());
     record.reported_session_binding_nonce = Some("nonce-reported".into());
-    let summaries = build_tab_summary_json(
-        &state.snapshot(),
-        Some(&workspace.id),
-        None,
-        false,
-        false,
-    );
+    let summaries =
+        build_tab_summary_json(&state.snapshot(), Some(&workspace.id), None, false, false);
     assert_eq!(summaries[0]["session_binding_nonce"], "nonce-recorded");
     assert_eq!(
         summaries[0]["reported_session_binding_nonce"],

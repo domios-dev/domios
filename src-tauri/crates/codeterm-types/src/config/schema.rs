@@ -243,6 +243,7 @@ pub struct NotificationConfig {
     pub desktop: bool,
     pub sound: bool,
     pub toast_duration: u32,
+    pub telegram: TelegramNotifyConfig,
 }
 
 impl Default for NotificationConfig {
@@ -251,6 +252,34 @@ impl Default for NotificationConfig {
             desktop: true,
             sound: false,
             toast_duration: 5,
+            telegram: TelegramNotifyConfig::default(),
+        }
+    }
+}
+
+fn default_per_scope_limit() -> u32 {
+    12
+}
+
+/// Opt-in push channel. `recipients` is an audience and is deliberately not
+/// `integrations.telegram_allowed_users`, which is an inbound admission list.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TelegramNotifyConfig {
+    pub enabled: bool,
+    #[serde(deserialize_with = "deserialize_user_id_list")]
+    pub recipients: Vec<String>,
+    /// Lifetime push ceiling per originating tab. A count, never a rate.
+    #[serde(default = "default_per_scope_limit")]
+    pub per_scope_limit: u32,
+}
+
+impl Default for TelegramNotifyConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            recipients: Vec::new(),
+            per_scope_limit: default_per_scope_limit(),
         }
     }
 }

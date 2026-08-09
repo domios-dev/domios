@@ -1,6 +1,14 @@
+mod worker_ack_subject;
+
 use super::lane_metadata::normalize_lane_metadata;
 use super::readback::pending_after_verified;
 use super::{PlanError, PlanStore};
+
+pub use worker_ack_subject::{
+    ambiguous_subject_cause, unresolved_subject_cause, LiveTabAttempt,
+    ACK_CAUSE_AMBIGUOUS_ATTEMPTS, ACK_CAUSE_NO_LIVE_ATTEMPT, ACK_CAUSE_PLAN_NOT_ACTIVE,
+    ACK_CAUSE_TASK_NOT_OPEN,
+};
 
 fn startup_attempt<'a>(
     task: &'a crate::plan::Task,
@@ -66,9 +74,13 @@ fn progression_authority(
     }
 }
 
-fn startup_status_allows(task: &crate::plan::Task, competitive: bool) -> bool {
-    task.status == crate::plan::TaskStatus::Pending
-        || (competitive && task.status == crate::plan::TaskStatus::InProgress)
+/// A validated startup attempt is already proven to be the task's live executor,
+/// so an in-progress task is that owner respawning, never a foreign claim.
+fn startup_status_allows(task: &crate::plan::Task) -> bool {
+    matches!(
+        task.status,
+        crate::plan::TaskStatus::Pending | crate::plan::TaskStatus::InProgress
+    )
 }
 
 impl PlanStore {
@@ -85,11 +97,10 @@ impl PlanStore {
                 .iter()
                 .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
                 .and_then(|task| {
-                    startup_attempt(task, tab_id, attempt_id)
-                        .map(|(attempt, competitive)| (task, attempt, competitive))
+                    startup_attempt(task, tab_id, attempt_id).map(|(attempt, _)| (task, attempt))
                 })
-                .is_some_and(|(task, attempt, competitive)| {
-                    startup_status_allows(task, competitive)
+                .is_some_and(|(task, attempt)| {
+                    startup_status_allows(task)
                         && attempt.acknowledged_at.is_none()
                         && session_id.is_none_or(|session_id| {
                             attempt.session_id.as_deref() == Some(session_id)
@@ -109,8 +120,8 @@ impl PlanStore {
     ) -> Result<bool, PlanError> {
         let current = self.read_task_for_verification(plan_id, task_id)?;
         let authority = startup_attempt(&current, tab_id, attempt_id);
-        let owns_startup = authority.is_some_and(|(attempt, competitive)| {
-            startup_status_allows(&current, competitive) && attempt.acknowledged_at.is_none()
+        let owns_startup = authority.is_some_and(|(attempt, _)| {
+            startup_status_allows(&current) && attempt.acknowledged_at.is_none()
         });
         if !owns_startup {
             return Ok(false);
@@ -124,8 +135,8 @@ impl PlanStore {
                 return Ok(false);
             };
             let authority = startup_attempt(task, tab_id, attempt_id);
-            let owns_startup = authority.is_some_and(|(attempt, competitive)| {
-                startup_status_allows(task, competitive) && attempt.acknowledged_at.is_none()
+            let owns_startup = authority.is_some_and(|(attempt, _)| {
+                startup_status_allows(task) && attempt.acknowledged_at.is_none()
             });
             if !owns_startup {
                 return Ok(false);
@@ -545,10 +556,10 @@ impl PlanStore {
                 attempt,
             });
         }
-        if !startup_status_allows(&current_task, competitive) {
+        if !startup_status_allows(&current_task) {
             return Err(Self::task_readback_error(
                 "task_dispatch_ack",
-                "only a pending startup assignment can be acknowledged",
+                "only a live startup assignment can be acknowledged",
             ));
         }
         let mut acknowledged = None;
@@ -565,7 +576,7 @@ impl PlanStore {
                 .ok_or(PlanError::TaskNotFound)?;
             let authority = startup_attempt(&plan.tasks[task_index], tab_id, attempt_id);
             let competitive = authority.is_some_and(|(_, competitive)| competitive);
-            if authority.is_none() || !startup_status_allows(&plan.tasks[task_index], competitive) {
+            if authority.is_none() || !startup_status_allows(&plan.tasks[task_index]) {
                 return Err(Self::task_readback_error(
                     "task_dispatch_ack",
                     "attempt no longer owns the acknowledging tab",
@@ -627,48 +638,80 @@ impl PlanStore {
         })
     }
 
+    /// Every live attempt this tab executes, whatever the plan or task state.
+    /// Callers apply their own acceptance rule and report what they rejected.
+    pub fn live_task_attempts_for_tab(&self, tab_id: &str) -> Vec<LiveTabAttempt> {
+        self.list_full()
+            .into_iter()
+            .flat_map(|plan| {
+                let plan_id = plan.id.clone();
+                let plan_active = plan.status == crate::plan::PlanStatus::Active;
+                plan.tasks.into_iter().filter_map(move |task| {
+                    task.execution_attempts
+                        .iter()
+                        .rfind(|attempt| {
+                            attempt.executor_tab_id == tab_id && attempt.closed_at.is_none()
+                        })
+                        .map(|attempt| LiveTabAttempt {
+                            plan_id: plan_id.clone(),
+                            task_id: task.id.clone(),
+                            task_handle: task.handle.clone(),
+                            plan_active,
+                            task_status: task.status.clone(),
+                            attempt: attempt.clone(),
+                        })
+                })
+            })
+            .collect()
+    }
+
+    /// The tab binding selects the subject; `plan_hint`/`task_hint` come from the
+    /// Worker's environment and only break a tie, so a stale pair cannot fence a
+    /// Worker out of acknowledging the attempt it actually owns.
     pub fn acknowledge_live_task_attempt_for_tab(
         &self,
         tab_id: &str,
-        plan_id: Option<&str>,
-        task_id: Option<&str>,
+        plan_hint: Option<&str>,
+        task_hint: Option<&str>,
         now_ms: u64,
     ) -> Result<super::task_attempts::TaskAttemptCreated, PlanError> {
-        let matches = self
-            .list_full()
-            .into_iter()
-            .filter(|plan| plan.status == crate::plan::PlanStatus::Active)
-            .filter(|plan| plan_id.is_none_or(|expected| plan.id == expected))
-            .flat_map(|plan| {
-                let plan_id = plan.id.clone();
-                plan.tasks
-                    .into_iter()
-                    .filter(move |task| {
-                        task.status.counts_as_open_work()
-                            && task_id.is_none_or(|expected| {
-                                task.id == expected || task.handle.as_deref() == Some(expected)
-                            })
-                    })
-                    .filter_map(move |task| {
-                        task.execution_attempts
-                            .iter()
-                            .rfind(|attempt| {
-                                attempt.executor_tab_id == tab_id && attempt.closed_at.is_none()
-                            })
-                            .map(|attempt| (plan_id.clone(), task.id, attempt.id.clone()))
-                    })
+        let bound = self.live_task_attempts_for_tab(tab_id);
+        let acknowledgeable = bound
+            .iter()
+            .filter(|candidate| {
+                candidate.plan_active && candidate.task_status.counts_as_open_work()
             })
             .collect::<Vec<_>>();
-        let [(plan_id, task_id, attempt_id)] = matches.as_slice() else {
-            return Err(Self::task_readback_error(
-                "task_dispatch_ack",
-                format!(
-                    "expected one live task attempt for tab {tab_id}, found {}",
-                    matches.len()
-                ),
-            ));
+        let selected = match acknowledgeable.len() {
+            1 => acknowledgeable[0],
+            0 => {
+                return Err(Self::task_readback_error(
+                    "task_dispatch_ack",
+                    unresolved_subject_cause(tab_id, &bound),
+                ))
+            }
+            _ => {
+                let hinted = acknowledgeable
+                    .iter()
+                    .copied()
+                    .filter(|candidate| candidate.matches_subject_hint(plan_hint, task_hint))
+                    .collect::<Vec<_>>();
+                if hinted.len() != 1 {
+                    return Err(Self::task_readback_error(
+                        "task_dispatch_ack",
+                        ambiguous_subject_cause(tab_id, acknowledgeable.iter().copied()),
+                    ));
+                }
+                hinted[0]
+            }
         };
-        self.acknowledge_task_attempt(plan_id, task_id, tab_id, attempt_id, now_ms)
+        self.acknowledge_task_attempt(
+            &selected.plan_id,
+            &selected.task_id,
+            tab_id,
+            &selected.attempt.id,
+            now_ms,
+        )
     }
 
     pub fn mark_task_attempt_runtime_ready(
@@ -697,9 +740,12 @@ impl PlanStore {
                 .is_some();
             if acknowledged && plan.tasks[task_index].status != crate::plan::TaskStatus::InProgress
             {
-                let competitive = plan.tasks[task_index].execution_attempts.iter().any(|attempt| {
-                    attempt.id == attempt_id && attempt.competition_group_id.is_some()
-                });
+                let competitive = plan.tasks[task_index]
+                    .execution_attempts
+                    .iter()
+                    .any(|attempt| {
+                        attempt.id == attempt_id && attempt.competition_group_id.is_some()
+                    });
                 progression_authority(plan, task_index, competitive, attempt_id)?;
             }
             let task = &mut plan.tasks[task_index];

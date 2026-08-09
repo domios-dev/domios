@@ -19,8 +19,8 @@ mod tab_runtime;
 mod workspace;
 
 pub use closed::{
-    ClosedGroup, ClosedTabView, ClosedTabsStore, GroupKind, CLOSED_GROUP_CAP, RECENTLY_CLOSED_CAP,
-    RECENTLY_CLOSED_VIEW_LIMIT,
+    ClosedGroup, ClosedTabView, ClosedTabsStore, GroupKind, PreparedWorkspaceClose,
+    TabCloseReservation, CLOSED_GROUP_CAP, RECENTLY_CLOSED_CAP, RECENTLY_CLOSED_VIEW_LIMIT,
 };
 
 #[cfg(test)]
@@ -75,6 +75,7 @@ pub struct MultiplexerState {
     /// across an await. Defaults to in-memory; production swaps in a file-backed
     /// store at startup via [`MultiplexerState::attach_closed_store`].
     pub(super) closed_store: ClosedTabsStore,
+    workspace_close_reservations: HashMap<String, String>,
 }
 
 pub struct TeamCloseTransaction {
@@ -149,6 +150,7 @@ impl MultiplexerState {
                 teams: self.teams.clone(),
                 generation: AtomicU64::new(self.generation.load(Ordering::Relaxed)),
                 closed_store: ClosedTabsStore::in_memory(),
+                workspace_close_reservations: self.workspace_close_reservations.clone(),
             },
         }
     }
@@ -165,6 +167,7 @@ impl MultiplexerState {
             teams: HashMap::new(),
             generation: AtomicU64::new(0),
             closed_store: ClosedTabsStore::in_memory(),
+            workspace_close_reservations: HashMap::new(),
         }
     }
 
@@ -176,6 +179,23 @@ impl MultiplexerState {
     /// Look up a team by id.
     pub fn get_team(&self, id: &str) -> Option<&Team> {
         self.teams.get(id)
+    }
+
+    /// Where a Team currently lives, derived from its member tabs and preferring
+    /// its anchor. `Team.workspace_id` is mint-time provenance, so it never
+    /// follows a tab moved to another workspace.
+    pub fn team_workspace(&self, team_id: &str) -> Option<String> {
+        self.teams.get(team_id)?;
+        let mut members: Vec<(bool, &str)> = self
+            .tabs
+            .values()
+            .filter(|tab| tab.team_id.as_deref() == Some(team_id))
+            .map(|tab| (!tab.anchors_team(), tab.id.as_str()))
+            .collect();
+        members.sort_unstable();
+        members
+            .into_iter()
+            .find_map(|(_, tab_id)| self.find_workspace_for_tab(tab_id))
     }
 
     /// Remove a team by id, returning it if present.
@@ -304,6 +324,7 @@ impl MultiplexerState {
             teams: HashMap::new(),
             generation: AtomicU64::new(0),
             closed_store: ClosedTabsStore::in_memory(),
+            workspace_close_reservations: HashMap::new(),
         };
 
         (state, tab_id)

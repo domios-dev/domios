@@ -10,11 +10,50 @@ When you add/rename/remove a command or flag:
 3. If agent-facing behavior changed, update the wording in
    `src-tauri/prompts/codeterm_cli.md` (it is validated, not generated). For
    tab messaging behavior, also check `docs/SKILLS.md`.
-4. `cargo test -p codeterm-cli cmd::manifest` must be green
-   (`cli_manifest_is_fresh`, `docs_cli_md_is_fresh`, `prompt_cli_commands_exist`).
+4. `cargo test -p codeterm-cli cmd::manifest` must be green.
 5. If you added a chat-card template, it is checked by chat-ui `recognize.test.ts`.
 
 CI (`.github/workflows/cli-source-of-truth.yml`) runs all of the above.
+
+## What the CLI gate does and does not cover
+
+`cmd::manifest` holds the whole gate. Know which test owns what:
+
+- `cli_manifest_is_fresh`, `docs_cli_md_is_fresh`, `chat_ui_command_paths_are_fresh` —
+  the three generated artifacts match the live clap tree.
+- `shipped_prescriptions_are_runnable` — the strict oracle. Every line a shipped
+  surface offers as a runnable `codeterm …` command resolves to a real
+  subcommand chain, and every `--long` on it is an option of that leaf or an
+  inherited global. Corpus: the embedded `DOCS`, `skills/**`,
+  `src-tauri/prompts/**`, `docs/CLI.md`, and all clap help text.
+- `every_docs_md_is_embedded_or_explicitly_excluded` — a new `docs/*.md` must
+  either join `cmd::docs::DOCS` or be named in `DOCS_EXCLUDED_FROM_EMBEDDING`
+  with a reason. Coverage is a decision, never a default.
+- `prompt_cli_commands_exist` — subcommand existence only, over
+  `codeterm_cli.md` alone. It trims to the longest resolvable prefix, so it does
+  **not** validate flags.
+
+**No validator in this repository has any output-shape coverage.** The gate
+proves the CLI *accepts* what shipped text prescribes; nothing here asserts what
+a command *prints*, its exit code, or its JSON schema. Renaming an output field
+or dropping a printed line passes every test above. Cover those yourself.
+
+Two structural blind spots, so you do not mistake green for complete:
+
+- A command named mid-sentence is invisible. The oracle only reads lines whose
+  runnable head is `codeterm …`, so ``… shows up in `codeterm mem worker list` ``
+  inside a paragraph is never checked.
+- Prescriptions stop at `—`, `·`, `//`, `#`, and inside `$(…)`. That is
+  deliberate — those open prose or another program's flags — but anything after
+  them is unvalidated.
+
+## Historical surfaces are not drift
+
+`docs/specs/**` and `docs/release/<version>-*.md` are dated design and release
+records: they describe the CLI as it stood on their date. Divergence from today's
+clap tree is expected and is **not** a defect. Do not rewrite them to match the
+current tree, and do not add them to any validation corpus. If a spec's design
+is still live, restate it in a maintained doc and link there.
 
 ## Error & hint hygiene
 
@@ -40,4 +79,4 @@ must run without the daemon (filesystem-local: `plugin`, `docs`, `system`,
 socket discovery — but they are still real clap variants, so they appear in the
 manifest and docs. Do not reintroduce a separate hand-rolled arg parser.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->

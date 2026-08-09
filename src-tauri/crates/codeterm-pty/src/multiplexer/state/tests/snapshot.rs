@@ -9,9 +9,7 @@ fn test_session_snapshot_roundtrip() {
         tab.cwd = Some("/test/path".to_string());
         tab.agent_type = Some("claude".to_string());
     }
-    state
-        .set_orchestrator_role(&tab_id)
-        .unwrap();
+    state.set_orchestrator_role(&tab_id).unwrap();
 
     let _ws2 = state.create_workspace("Second".to_string(), None);
 
@@ -142,7 +140,10 @@ fn test_session_snapshot_never_derives_agent_type_from_title() {
 
         let restored = MultiplexerState::from_session_snapshot(&snap);
         let tab = restored.get_tab("tab-1").unwrap();
-        assert_eq!(tab.agent_type, None, "title {title:?} must not grant identity");
+        assert_eq!(
+            tab.agent_type, None,
+            "title {title:?} must not grant identity"
+        );
     }
 }
 
@@ -294,9 +295,7 @@ fn test_session_snapshot_legacy_agent_type_treated_as_locked() {
 fn test_session_snapshot_preserves_hierarchy() {
     let (mut state, cond_id) = MultiplexerState::new();
     let ws_id = state.list_workspaces()[0].id.clone();
-    state
-        .set_orchestrator_role(&cond_id)
-        .unwrap();
+    state.set_orchestrator_role(&cond_id).unwrap();
     let worker_id = state.create_tab(&ws_id).unwrap();
     state
         .set_tab_role(&worker_id, AgentRole::Worker, Some(&cond_id))

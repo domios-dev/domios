@@ -217,10 +217,7 @@ fn plan_file_manifest_lists_index_and_body_paths() {
     )
     .to_string_lossy()
     .replace(std::path::MAIN_SEPARATOR, "/");
-    assert_eq!(
-        manifest.index_path,
-        format!("{root}/INDEX.md")
-    );
+    assert_eq!(manifest.index_path, format!("{root}/INDEX.md"));
     assert!(manifest.entries.iter().any(|entry| {
         entry.kind == "section"
             && entry.title == "spec (Spec)"

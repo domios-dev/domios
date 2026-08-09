@@ -617,6 +617,91 @@ fn tab_list_and_inspect_relay_compact_scope_and_explicit_detail_ids() {
 }
 
 #[test]
+fn plugin_with_mesh_never_reaches_direct_local_dispatch() {
+    let command = Commands::Plugin {
+        action: crate::PluginAction::List,
+    };
+
+    assert!(crate::transport::should_dispatch_direct_local(
+        &command, None
+    ));
+    assert!(!crate::transport::should_dispatch_direct_local(
+        &command,
+        Some("peer")
+    ));
+    let (method, reason, body) = cli_command_to_api(&command);
+    assert_eq!(method, super::api_map::UNSUPPORTED_OVER_MESH);
+    assert!(reason.contains("local-only"));
+    assert!(body.is_none());
+}
+
+#[test]
+fn system_and_docs_refuse_instead_of_identifying_the_peer() {
+    let commands = [
+        Commands::System {
+            action: crate::SystemAction::AutostartStatus,
+        },
+        Commands::Docs { name: None },
+    ];
+
+    for command in commands {
+        let (method, reason, body) = cli_command_to_api(&command);
+        assert_eq!(method, super::api_map::UNSUPPORTED_OVER_MESH);
+        assert!(!reason.contains("/api/identify"));
+        assert!(body.is_none());
+    }
+}
+
+#[test]
+fn workspace_create_over_mesh_preserves_cwd() {
+    let command = Commands::Workspace {
+        action: crate::WorkspaceAction::Create {
+            name: "remote".into(),
+            cwd: Some("D:/Developer/project".into()),
+        },
+    };
+
+    let (method, path, body) = cli_command_to_api(&command);
+    let body: serde_json::Value = serde_json::from_str(&body.expect("body")).unwrap();
+
+    assert_eq!(method, "POST");
+    assert_eq!(path, "/api/workspaces");
+    assert_eq!(body["name"], "remote");
+    assert_eq!(body["cwd"], "D:/Developer/project");
+}
+
+#[test]
+fn workspace_move_tab_over_mesh_uses_the_mutation_route() {
+    let command = Commands::Workspace {
+        action: crate::WorkspaceAction::MoveTab {
+            tab_id: "tab_1".into(),
+            from: "ws_from".into(),
+            to: "ws_to".into(),
+        },
+    };
+
+    let (method, path, body) = cli_command_to_api(&command);
+    let body: serde_json::Value = serde_json::from_str(&body.expect("body")).unwrap();
+
+    assert_eq!(method, "POST");
+    assert_eq!(path, "/api/workspaces/ws_from/tabs/tab_1/move");
+    assert_eq!(body["to_workspace_id"], "ws_to");
+}
+
+#[test]
+fn workspace_current_over_mesh_refuses_instead_of_listing() {
+    let command = Commands::Workspace {
+        action: crate::WorkspaceAction::Current { workspace: None },
+    };
+
+    let (method, reason, body) = cli_command_to_api(&command);
+
+    assert_eq!(method, super::api_map::UNSUPPORTED_OVER_MESH);
+    assert!(reason.contains("caller-local"));
+    assert!(body.is_none());
+}
+
+#[test]
 fn remote_worker_forget_body_matches_registry_delete_contract() {
     let body = super::relay::remote_worker_forget_body("ROG", "tab_1");
     assert_eq!(body["peer"], "ROG");
@@ -897,4 +982,101 @@ fn web_link_is_local_only_over_mesh() {
     let (m, p, _) = cli_command_to_api(&cmd);
     assert_eq!(m, super::api_map::UNSUPPORTED_OVER_MESH);
     assert!(p.contains("local-only"));
+}
+
+fn mesh_cli(json: bool, command: Commands) -> crate::Cli {
+    crate::Cli {
+        json,
+        mesh: Some("BLACKSTAR".into()),
+        command,
+    }
+}
+
+fn tab_list_command() -> Commands {
+    Commands::Tab {
+        action: TabAction::List {
+            workspace: None,
+            all_workspaces: false,
+            agents: false,
+        },
+    }
+}
+
+/// The `--json` rung is the one under test: it skips the human-tree guard, and
+/// used to fall through to the verbatim generic relay (the peer's bare array).
+#[test]
+fn mesh_tab_list_json_is_formatted_locally_instead_of_relayed_verbatim() {
+    use super::tab_list::{rendering_for, TabListRendering};
+
+    let json_mode = mesh_cli(true, tab_list_command());
+    assert!(json_mode.json, "fixture must reach the --json branch");
+    assert_eq!(
+        rendering_for(&json_mode),
+        Some(TabListRendering::JsonEnvelope)
+    );
+
+    let human = mesh_cli(false, tab_list_command());
+    assert_eq!(rendering_for(&human), Some(TabListRendering::Tree));
+
+    let inspect = mesh_cli(
+        true,
+        Commands::Tab {
+            action: TabAction::Inspect {
+                tabs: vec![],
+                tab: vec!["tab_1".into()],
+                lifecycle: false,
+            },
+        },
+    );
+    assert_eq!(
+        rendering_for(&inspect),
+        None,
+        "only tab list is formatted locally; everything else stays on the relay"
+    );
+}
+
+#[test]
+fn mesh_tab_list_json_emits_the_same_envelope_as_the_local_path() {
+    use crate::cmd::print::{tab_list_json_envelope, uniform_id_value, TAB_LIST_JSON_KEY};
+
+    let rest_body = serde_json::json!([
+        {"id": "tab_1", "title": "one"},
+        {"id": "tab_2", "title": "two"},
+    ]);
+
+    let over_mesh = uniform_id_value(&super::tab_list::json_envelope(&rest_body));
+    let local = uniform_id_value(&tab_list_json_envelope(
+        rest_body.as_array().unwrap().clone(),
+    ));
+
+    assert_eq!(
+        over_mesh, local,
+        "one command must not return two JSON shapes depending on transport"
+    );
+    let tabs = over_mesh[TAB_LIST_JSON_KEY]
+        .as_array()
+        .expect("the printed envelope carries the tabs array");
+    assert_eq!(tabs.len(), 2);
+}
+
+/// Normalizing at the CLI boundary must not migrate the REST contract: the
+/// relayed `GET /api/tabs` body stays the bare array its consumers read.
+#[test]
+fn mesh_tab_list_json_leaves_the_relayed_rest_body_a_bare_array() {
+    use crate::cmd::print::TAB_LIST_JSON_KEY;
+
+    let rest_body = serde_json::json!([{"id": "tab_1", "title": "one"}]);
+    let printed = super::tab_list::json_envelope(&rest_body);
+
+    assert!(
+        rest_body.is_array(),
+        "GET /api/tabs keeps its bare-array response: {rest_body}"
+    );
+    assert!(rest_body.get(TAB_LIST_JSON_KEY).is_none());
+    assert_eq!(printed[TAB_LIST_JSON_KEY], rest_body);
+    assert_eq!(
+        super::tab_list::json_envelope(&serde_json::Value::Null)[TAB_LIST_JSON_KEY],
+        serde_json::json!([]),
+        "an absent peer body still carries the tabs key"
+    );
 }

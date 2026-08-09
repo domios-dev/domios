@@ -34,6 +34,7 @@ pub(crate) mod launch_diagnostics;
 pub mod message_gateway;
 pub mod messenger;
 pub mod notification;
+mod notification_push;
 mod orchestration_pair;
 mod orchestrator;
 pub(crate) use orchestrator::{build_agent_command, provider_launch_task};
@@ -105,7 +106,8 @@ mod worker_lane;
 #[cfg(test)]
 pub(crate) use worker_lane::provision_lane_for_test;
 pub(crate) use worker_lane::{
-    provision_isolated_lane, verify_worker_lane, ProvisionedWorkerLane, WorkerLaneProvenance,
+    provision_isolated_lane, verify_worker_lane, LaneProtection, ProvisionedWorkerLane,
+    WorkerLaneProvenance,
 };
 mod worker_persona;
 mod workspace;

@@ -245,7 +245,7 @@ curl http://localhost:7685/api/tabs/{id}/output/stream
 
 ```bash
 # Workspace management
-codeterm workspace list
+codeterm workspace list                 # human-readable workspace → Team/Plan → Tab map
 codeterm workspace create "Project"
 
 # Terminal control

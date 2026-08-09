@@ -74,6 +74,28 @@ pub(super) fn build_resume_command(session_id: &str, skip_permissions: bool) -> 
     Some(parts.join(" "))
 }
 
+/// `--resume` starts the stored session without the launch-time
+/// `--append-system-prompt-file`, so the composed prompt is re-applied through
+/// that same declared flag rather than a second channel.
+pub(super) fn build_resume_command_with_context(
+    params: &crate::provider::AgentResumeParams,
+) -> Option<String> {
+    let base = build_resume_command(&params.session_id, params.skip_permissions)?;
+    let mut command = crate::provider::append_launch_args(base, &params.args);
+    if let Some(prompt) = params
+        .system_prompt
+        .as_deref()
+        .filter(|text| !text.trim().is_empty())
+    {
+        let path = ShellSyntax::task_file_path(prompt);
+        command = format!(
+            "{command} --append-system-prompt-file {}",
+            ShellSyntax::quote(&path)
+        );
+    }
+    Some(command)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

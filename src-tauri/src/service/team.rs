@@ -153,10 +153,13 @@ impl ServiceContext {
             let team = mux
                 .get_team(team_id)
                 .ok_or_else(|| format!("Team {team_id} not found"))?;
+            let workspace_id = mux
+                .team_workspace(team_id)
+                .ok_or_else(|| format!("Team {team_id} has no live workspace"))?;
             let project = mux
-                .get_workspace(&team.workspace_id)
+                .get_workspace(&workspace_id)
                 .map(|workspace| workspace.name.clone())
-                .unwrap_or_else(|| team.workspace_id.clone());
+                .unwrap_or(workspace_id);
             (
                 team.name.clone().unwrap_or_else(|| "Unnamed Team".into()),
                 project,
@@ -901,3 +904,6 @@ fn authorize_team_mutation(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod workspace_tests;

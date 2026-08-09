@@ -1,7 +1,7 @@
 use super::{
     build_agent_command, command_with_binding_nonce_for_shell, replacement_pty_candidate,
-    spawn_onboarding_task, take_reader_termination, worker_brief_delivery_incident, AgentRegistry,
-    LaunchFailure, LaunchGeneration, LaunchRegistry, ProviderSessionBinding,
+    take_reader_termination, worker_brief_delivery_incident, AgentRegistry, LaunchFailure,
+    LaunchGeneration, LaunchRegistry, ProviderSessionBinding,
 };
 use crate::chatbackend::{ChatBackendError, ChatBackendProvider, ChatBackendRegistry};
 use crate::multiplexer::state::MultiplexerState;
@@ -11,6 +11,7 @@ use crate::multiplexer::types::{
 use crate::service::boot_stage::BootStageSink;
 use crate::service::inject_verify::InjectionResult;
 use crate::service::launch_delivery::{LaunchConsumptionOutcome, LaunchDeliveryGate};
+use crate::service::orchestrator::prompt_compose::spawn_onboarding_task;
 use crate::service::orchestrator::types::SpawnAgentParams;
 use crate::service::pty_io::tab_identity_env;
 use crate::service::spawn::{SpawnTabSpec, TabCommand};
@@ -301,14 +302,6 @@ fn production_driver_uses_typed_terminal_causes() {
 }
 
 #[test]
-fn plain_orchestrator_no_task_spawn_receives_the_system_contract() {
-    let prompt =
-        spawn_onboarding_task(&orchestrator_params(None)).expect("orchestrator system prompt");
-    assert!(prompt.starts_with(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
-    assert!(prompt.contains(crate::prompts::orchestrator_suffix().trim()));
-}
-
-#[test]
 fn plain_orchestrator_no_task_attaches_nothing() {
     let spec = SpawnTabSpec::from_agent_params(orchestrator_params(None));
     assert_eq!(spec.parent_tab_id, None);
@@ -432,19 +425,6 @@ fn provider_binding_with_a_wrong_nonce_is_ignored() {
 }
 
 #[test]
-fn explicit_orchestrator_task_is_submitted_exactly_once() {
-    let prompt = spawn_onboarding_task(&orchestrator_params(Some("inspect launch")))
-        .expect("orchestrator system prompt");
-    assert_eq!(prompt.matches("inspect launch").count(), 1);
-    assert_eq!(
-        prompt
-            .matches(crate::prompts::AGENT_CODETERM_PRIMER.trim())
-            .count(),
-        1
-    );
-}
-
-#[test]
 fn system_capable_pty_launch_carries_manager_bootstrap_without_fallback_content() {
     let registry = AgentRegistry::new();
     registry.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
@@ -460,17 +440,95 @@ fn system_capable_pty_launch_carries_manager_bootstrap_without_fallback_content(
     assert!(!command.contains(content));
 }
 
-#[test]
-fn planner_onboarding_remains_work_when_a_task_is_provided() {
-    let params = SpawnAgentParams {
-        task: Some("plan this".into()),
-        role: Some("Manager".into()),
-        role_profile: Some("planner".into()),
+/// A composed launch prompt the test itself supplies, so every occurrence
+/// counted below came from the resume path rather than a shipped constant.
+const RESUME_COMPOSED_PROMPT: &str = "## CodeTerm resume identity\nsentinel-4f2a";
+
+fn resume_params(provider: &str) -> SpawnAgentParams {
+    SpawnAgentParams {
+        agent: Some(provider.into()),
+        resume_session_id: Some("session-77".into()),
+        model: Some("fixture-model".into()),
+        role: Some("Worker".into()),
         ..Default::default()
-    };
-    assert!(spawn_onboarding_task(&params)
-        .unwrap()
-        .contains(&crate::prompts::planner_suffix()));
+    }
+}
+
+/// Claude's `--resume` drops the launch-time system prompt, so it declares
+/// re-application. The prompt travels in the file the declared flag names —
+/// counting occurrences in the file is what proves it arrives exactly once.
+#[test]
+fn reapply_class_resume_carries_the_composed_prompt_exactly_once() {
+    let registry = AgentRegistry::new();
+    registry.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
+    let command = build_agent_command(
+        "claude",
+        &resume_params("claude"),
+        Some(RESUME_COMPOSED_PROMPT),
+        None,
+        &registry,
+    );
+
+    assert_eq!(command.matches("--resume").count(), 1);
+    assert_eq!(command.matches("--append-system-prompt-file").count(), 1);
+    let path = command
+        .rsplit_once("--append-system-prompt-file ")
+        .expect("declared flag carries a path")
+        .1
+        .trim()
+        .trim_matches(['\'', '"']);
+    let delivered = std::fs::read_to_string(path).expect("prompt file the resume command names");
+    assert_eq!(delivered.matches(RESUME_COMPOSED_PROMPT).count(), 1);
+}
+
+/// The discriminator: same composed content, same reachable resume branch,
+/// but the provider declares nothing — so re-application must not happen.
+/// A CliFlag descriptor means the host DOES hold system-prompt content here,
+/// which is what makes the zero meaningful rather than vacuous.
+#[test]
+fn retain_class_resume_carries_the_composed_prompt_zero_times() {
+    use crate::agent::test_provider::MockProvider;
+
+    let registry = AgentRegistry::new();
+    registry.register_provider(Box::new(MockProvider::with_system_prompt_flag(
+        "retaining",
+        "--system",
+    )));
+    let command = build_agent_command(
+        "retaining",
+        &resume_params("retaining"),
+        Some(RESUME_COMPOSED_PROMPT),
+        None,
+        &registry,
+    );
+
+    assert!(command.contains("--resume session-77"));
+    assert_eq!(command.matches(RESUME_COMPOSED_PROMPT).count(), 0);
+    assert_eq!(command.matches("--system").count(), 0);
+    assert!(command.contains("--model fixture-model"));
+}
+
+/// An undeclared provider keeps today's behaviour exactly: a bare resume plus
+/// the launch args, and no prompt content of any kind.
+#[test]
+fn undeclared_provider_resume_keeps_todays_behaviour() {
+    let registry = AgentRegistry::new();
+    registry.register_provider(Box::new(crate::agent::test_provider::MockProvider::new(
+        "undeclared",
+    )));
+    let command = build_agent_command(
+        "undeclared",
+        &resume_params("undeclared"),
+        Some(RESUME_COMPOSED_PROMPT),
+        None,
+        &registry,
+    );
+
+    assert_eq!(command.matches(RESUME_COMPOSED_PROMPT).count(), 0);
+    assert_eq!(
+        command, "undeclared-cli --resume session-77 --model fixture-model",
+        "undeclared resume is the base command plus launch args, nothing else"
+    );
 }
 
 struct SpawnableChatBackend;
@@ -524,66 +582,5 @@ fn transport_capability_paths_receive_the_primer_for_plain_orchestrator() {
             assert_eq!(role.as_deref(), Some("Orchestrator"));
         }
         other => panic!("expected chatBackend route, got {other:?}"),
-    }
-}
-
-/// The delivery half of the AgentPad invariant. The pre-existing prompt test
-/// only forbade duplication, so a recipient that never received the rule was
-/// invisible — which is exactly how spawned agents went without it.
-#[test]
-fn every_spawned_recipient_receives_the_agent_pad_rule_exactly_once() {
-    let rule = crate::prompts::AGENT_PAD_RULE.trim();
-
-    for (recipient, composed) in [
-        ("spawned non-worker", super::agent_system_prompt(None)),
-        (
-            "spawned worker",
-            super::worker_agent_system_prompt(None, None),
-        ),
-        (
-            "spawned non-worker with assignment",
-            super::agent_system_prompt(Some("do the thing")),
-        ),
-        (
-            "spawned worker with assignment",
-            super::worker_agent_system_prompt(Some("do the thing"), None),
-        ),
-    ] {
-        assert_eq!(
-            composed.matches(rule).count(),
-            1,
-            "{recipient} must receive the AgentPad rule exactly once"
-        );
-    }
-}
-
-/// A Worker is the recipient that had neither the rule nor the pointer to the
-/// skill carrying the full reference. Both arrive as whole constants.
-#[test]
-fn spawned_worker_receives_the_codeterm_primer() {
-    let composed = super::worker_agent_system_prompt(Some("do the thing"), None);
-    assert!(composed.contains(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
-    assert!(composed.contains(crate::prompts::WORKER_CODETERM_CONTEXT.trim()));
-}
-
-/// Rich-rendering guidance is a delivery fact. Two tests in prompts.rs were named
-/// for the primer and the worker context but asserted phrases inside
-/// RICH_RENDERING_GUIDANCE itself, so they proved nothing about either recipient.
-#[test]
-fn every_spawned_recipient_receives_rich_rendering_guidance() {
-    let guidance = crate::prompts::RICH_RENDERING_GUIDANCE.trim();
-
-    for (recipient, composed) in [
-        ("spawned non-worker", super::agent_system_prompt(None)),
-        (
-            "spawned worker",
-            super::worker_agent_system_prompt(None, None),
-        ),
-    ] {
-        assert_eq!(
-            composed.matches(guidance).count(),
-            1,
-            "{recipient} must receive the rich-rendering guidance exactly once"
-        );
     }
 }

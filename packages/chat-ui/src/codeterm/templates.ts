@@ -286,7 +286,7 @@ export function describeAction(inv: CodetermInvocation, result?: string, resolve
   }
   if (path === "plan record") {
     const task = firstRef(TASK_RE, inv, result);
-    return { lead: "decision", object: task ? "on task" : firstRef(PLAN_RE, inv, result) ?? "plan", chips: [], detail: firstMeaningful(inv) ?? flagText(inv, "step") };
+    return { lead: "decision", object: task ? "on task" : firstRef(PLAN_RE, inv, result) ?? "plan", chips: [], detail: flagText(inv, "step", "name") };
   }
   if (path === "plan retrospective") return { lead: "retro", object: firstRef(PLAN_RE, inv, result) ?? "plan", chips: [], detail: flagText(inv, "body") ?? firstMeaningful(inv) };
   if (path === "plan state") return { lead: "state", object: firstRef(PLAN_RE, inv, result) ?? "plan", chips: [] };
@@ -476,19 +476,19 @@ const planTaskTemplate: TemplateFn = (inv, result) => {
     return { icon: "🔄", title: status ? `Task status → ${status}` : "Task updated", link };
   }
   if (action === "add") {
-    const name = strFlag(inv, "title");
+    const name = strFlag(inv, "name");
     return { icon: "🗂", title: name ? `Task created: ${name}` : "Task created", link };
   }
   return { icon: "🗂", title: `Plan task ${action ?? ""}`.trim(), link };
 };
 
 const planRecordTemplate: TemplateFn = (inv, result) => {
-  const kind = strFlag(inv, "kind");
-  const note = inv.positionals[0] ?? strFlag(inv, "note");
+  const status = strFlag(inv, "status");
+  const note = flagText(inv, "step", "name");
   const firstLine = note ? note.split("\n")[0] : undefined;
   return {
     icon: "📝",
-    title: kind ? `Plan updated: ${kind}` : "Plan updated",
+    title: status ? `Progress recorded → ${status}` : "Progress recorded",
     detail: firstLine,
     link: planLink(inv, result),
   };

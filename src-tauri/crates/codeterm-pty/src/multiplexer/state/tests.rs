@@ -377,9 +377,7 @@ fn test_get_tab_mut() {
 #[test]
 fn test_set_orchestrator_role() {
     let (mut state, tab_id) = MultiplexerState::new();
-    state
-        .set_orchestrator_role(&tab_id)
-        .unwrap();
+    state.set_orchestrator_role(&tab_id).unwrap();
     let tab = state.get_tab(&tab_id).unwrap();
     assert_eq!(tab.role, Some(AgentRole::Manager));
     assert!(tab.anchors_team(), "orchestrator kind anchors its Team");
@@ -391,16 +389,19 @@ fn test_set_orchestrator_role() {
 #[test]
 fn test_orchestrator_cannot_have_parent() {
     let (mut state, tab_id) = MultiplexerState::new();
-    let result = state.set_tab_role_kind(&tab_id, AgentRole::Manager, Some("orchestrator"), Some("fake"));
+    let result = state.set_tab_role_kind(
+        &tab_id,
+        AgentRole::Manager,
+        Some("orchestrator"),
+        Some("fake"),
+    );
     assert!(result.is_err());
 }
 
 #[test]
 fn test_worker_requires_orchestrator_parent() {
     let (mut state, orch_id) = MultiplexerState::new();
-    state
-        .set_orchestrator_role(&orch_id)
-        .unwrap();
+    state.set_orchestrator_role(&orch_id).unwrap();
     let worker_id = state
         .create_tab(&state.list_workspaces()[0].id.clone())
         .unwrap();
@@ -418,9 +419,7 @@ fn test_worker_requires_orchestrator_parent() {
 #[test]
 fn test_worker_parent_must_not_be_worker() {
     let (mut state, orch_id) = MultiplexerState::new();
-    state
-        .set_orchestrator_role(&orch_id)
-        .unwrap();
+    state.set_orchestrator_role(&orch_id).unwrap();
     let worker_parent = state
         .create_tab(&state.list_workspaces()[0].id.clone())
         .unwrap();
@@ -437,9 +436,7 @@ fn test_worker_parent_must_not_be_worker() {
 #[test]
 fn test_worker_parent_must_allow_spawn() {
     let (mut state, orch_id) = MultiplexerState::new();
-    state
-        .set_orchestrator_role(&orch_id)
-        .unwrap();
+    state.set_orchestrator_role(&orch_id).unwrap();
     state.set_can_spawn(&orch_id, false).unwrap();
 
     let worker_id = state
@@ -453,9 +450,7 @@ fn test_worker_parent_must_allow_spawn() {
 fn worker_under_orchestrator_is_depth_2_and_cannot_parent() {
     // 2-level hierarchy: a Worker sits directly under the Orchestrator, and there is no third level — a Worker can't parent another Worker.
     let (mut state, orch_id) = MultiplexerState::new();
-    state
-        .set_orchestrator_role(&orch_id)
-        .unwrap();
+    state.set_orchestrator_role(&orch_id).unwrap();
 
     let worker_id = state
         .create_tab(&state.list_workspaces()[0].id.clone())
@@ -482,9 +477,7 @@ fn worker_under_orchestrator_is_depth_2_and_cannot_parent() {
 #[test]
 fn test_get_children_ids() {
     let (mut state, orch_id) = MultiplexerState::new();
-    state
-        .set_orchestrator_role(&orch_id)
-        .unwrap();
+    state.set_orchestrator_role(&orch_id).unwrap();
     let w1 = state
         .create_tab(&state.list_workspaces()[0].id.clone())
         .unwrap();
@@ -507,9 +500,7 @@ fn test_get_children_ids() {
 #[test]
 fn test_clear_role_orphans_children() {
     let (mut state, orch_id) = MultiplexerState::new();
-    state
-        .set_orchestrator_role(&orch_id)
-        .unwrap();
+    state.set_orchestrator_role(&orch_id).unwrap();
     let worker_id = state
         .create_tab(&state.list_workspaces()[0].id.clone())
         .unwrap();
@@ -533,12 +524,15 @@ fn test_clear_role_orphans_children() {
 fn manager_close_keeps_children_alive() {
     let (mut state, root_id) = MultiplexerState::new();
     let ws_id = state.list_workspaces()[0].id.clone();
-    state
-        .set_orchestrator_role(&root_id)
-        .unwrap();
+    state.set_orchestrator_role(&root_id).unwrap();
     let manager_id = state.create_tab(&ws_id).unwrap();
     state
-        .set_tab_role_kind(&manager_id, AgentRole::Manager, Some("planner"), Some(&root_id))
+        .set_tab_role_kind(
+            &manager_id,
+            AgentRole::Manager,
+            Some("planner"),
+            Some(&root_id),
+        )
         .unwrap();
     state.link_pty(&manager_id, "pty-manager".to_string());
 
@@ -570,9 +564,7 @@ fn manager_close_keeps_children_alive() {
 fn manager_close_preserves_team_registry_and_chat_backend_child() {
     let (mut state, root_id) = MultiplexerState::new();
     let ws_id = state.list_workspaces()[0].id.clone();
-    state
-        .set_orchestrator_role(&root_id)
-        .unwrap();
+    state.set_orchestrator_role(&root_id).unwrap();
     let team_id = state
         .resolve_or_mint_team_for_parent(&root_id)
         .unwrap()
@@ -580,7 +572,12 @@ fn manager_close_preserves_team_registry_and_chat_backend_child() {
     let team_before = state.get_team(&team_id).cloned().unwrap();
     let manager_id = state.create_tab(&ws_id).unwrap();
     state
-        .set_tab_role_kind(&manager_id, AgentRole::Manager, Some("planner"), Some(&root_id))
+        .set_tab_role_kind(
+            &manager_id,
+            AgentRole::Manager,
+            Some("planner"),
+            Some(&root_id),
+        )
         .unwrap();
     let chat_id = state.create_tab(&ws_id).unwrap();
     state
@@ -604,12 +601,15 @@ fn manager_close_preserves_team_registry_and_chat_backend_child() {
 fn multi_manager_close_detaches_only_the_closed_managers_children() {
     let (mut state, root_id) = MultiplexerState::new();
     let ws_id = state.list_workspaces()[0].id.clone();
-    state
-        .set_orchestrator_role(&root_id)
-        .unwrap();
+    state.set_orchestrator_role(&root_id).unwrap();
     let first_manager = state.create_tab(&ws_id).unwrap();
     state
-        .set_tab_role_kind(&first_manager, AgentRole::Manager, Some("planner"), Some(&root_id))
+        .set_tab_role_kind(
+            &first_manager,
+            AgentRole::Manager,
+            Some("planner"),
+            Some(&root_id),
+        )
         .unwrap();
     let second_manager = state.create_tab(&ws_id).unwrap();
     state
@@ -636,9 +636,7 @@ fn multi_manager_close_detaches_only_the_closed_managers_children() {
 fn last_manager_close_keeps_team_and_members() {
     let (mut state, root_id) = MultiplexerState::new();
     let ws_id = state.list_workspaces()[0].id.clone();
-    state
-        .set_orchestrator_role(&root_id)
-        .unwrap();
+    state.set_orchestrator_role(&root_id).unwrap();
     let team_id = state
         .resolve_or_mint_team_for_parent(&root_id)
         .unwrap()
@@ -659,9 +657,7 @@ fn last_manager_close_keeps_team_and_members() {
 fn explicit_close_team_still_cascades() {
     let (mut state, root_id) = MultiplexerState::new();
     let workspace_id = state.list_workspaces()[0].id.clone();
-    state
-        .set_orchestrator_role(&root_id)
-        .unwrap();
+    state.set_orchestrator_role(&root_id).unwrap();
     state.link_pty(&root_id, "pty-root".into());
     let worker_id = state.create_tab(&workspace_id).unwrap();
     state
@@ -688,9 +684,7 @@ fn test_set_can_spawn_requires_role() {
 #[test]
 fn test_set_can_spawn_on_orchestrator() {
     let (mut state, tab_id) = MultiplexerState::new();
-    state
-        .set_orchestrator_role(&tab_id)
-        .unwrap();
+    state.set_orchestrator_role(&tab_id).unwrap();
     assert!(state.get_tab(&tab_id).unwrap().can_spawn);
 
     state.set_can_spawn(&tab_id, false).unwrap();

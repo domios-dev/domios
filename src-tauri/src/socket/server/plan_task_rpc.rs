@@ -215,7 +215,7 @@ pub(super) fn dispatch(
                     .and_then(|v| v.as_str())
                     .map(str::to_string)
             };
-            let tasks = store.list_tasks(TaskListFilter {
+            let listed = store.list_tasks_with_reason(TaskListFilter {
                 project_path: p
                     .and_then(|x| x.get("project"))
                     .and_then(|v| v.as_str())
@@ -236,7 +236,7 @@ pub(super) fn dispatch(
                 plan_id,
                 status,
             });
-            Ok(json!({ "tasks": tasks }))
+            Ok(json!(listed))
         }
 
         "task.show" => {
@@ -811,11 +811,15 @@ pub(super) fn dispatch(
             } else {
                 plan.canonical_project_path.clone()
             };
+            let lane_protection = crate::service::LaneProtection::for_dispatch_intent(
+                &task.interruption.execution_intent,
+            );
             let provenance = verify_worker_lane(
                 &canonical_cwd,
                 &draft.cwd,
                 task.lane.branch.as_deref(),
                 task.lane.base.as_deref(),
+                lane_protection,
             )
             .map_err(|error| JsonRpcError {
                 code: -32603,
@@ -894,6 +898,7 @@ pub(super) fn dispatch(
                 lane_for_commit: task.lane.clone(),
                 provenance: Some(provenance),
                 provisioned_lane: None,
+                lane_protection,
                 spawn_command: format!(
                     "codeterm plan task respawn {id} {tid} --attempt {}",
                     draft.source_attempt.id

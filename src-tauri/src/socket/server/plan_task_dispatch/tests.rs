@@ -1,10 +1,11 @@
 use super::{
     apply_dispatch_starting_contract, await_agent_ready, build_brief, build_brief_with_personality,
     checkout_required, complete_dispatch_transaction, dispatch_ready_event,
-    dispatch_worker_identity, lane_metadata_for_dispatch, preflight_review_capacity,
-    regression_blocked_error, resolve_dispatch_lane, resolve_dispatch_routing,
-    rollback_failed_dispatch, task_launch_authority_for_dispatch, unqualified_model_error,
-    verify_dispatched_task_binding, worker_ack_timeout_event, DispatchEvidence,
+    dispatch_worker_identity, lane_metadata_for_dispatch, preflight_dispatch_task_status,
+    preflight_review_capacity, regression_blocked_error, resolve_dispatch_lane,
+    resolve_dispatch_routing, rollback_failed_dispatch, task_launch_authority_for_dispatch,
+    unqualified_model_error, verify_dispatched_task_binding, worker_ack_timeout_event,
+    DispatchEvidence,
 };
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::AgentRole;
@@ -16,7 +17,8 @@ use crate::service::plan::milestone_gates::RegressionGate;
 use crate::service::plan::task_queries::TaskSection;
 use crate::service::plan::{NewTask, PlanStore};
 use crate::service::{
-    provision_lane_for_test, SpawnIdentityProvenance, SpawnResult, WorkerLaneProvenance,
+    provision_lane_for_test, LaneProtection, SpawnIdentityProvenance, SpawnResult,
+    WorkerLaneProvenance,
 };
 use serde_json::json;
 use std::cell::{Cell, RefCell};
@@ -91,6 +93,23 @@ fn repository_lane_guards_remain_required_for_code_mutation() {
         "status": "pending"
     }));
     assert!(task.execution_intent.requires_repository());
+}
+
+#[test]
+fn paused_task_dispatch_refuses_before_spawn_with_the_resume_command() {
+    let paused = task(json!({
+        "id": "task_paused",
+        "name": "waiting for user",
+        "type": "task",
+        "status": "paused"
+    }));
+
+    let error = preflight_dispatch_task_status("plan_1", &paused).unwrap_err();
+    let data = error.data.expect("structured paused-task refusal");
+
+    assert_eq!(error.code, -32602);
+    assert_eq!(data["stage"], "task_status");
+    assert_eq!(data["fix"], "codeterm plan task resume plan_1 task_paused");
 }
 
 #[test]
@@ -437,6 +456,7 @@ fn explicit_canonical_cwd_is_an_orchestrator_checkout_choice() {
         Some(project.to_str().unwrap()),
         project.to_str().unwrap(),
         &TaskLaneMetadata::default(),
+        LaneProtection::Enforced,
     )
     .unwrap();
     let provenance = resolved.existing.expect("canonical provenance");
@@ -468,6 +488,7 @@ fn explicit_cwd_conflicting_with_recorded_lane_is_rejected_before_provisioning()
         Some(other.to_str().unwrap()),
         project.to_str().unwrap(),
         &lane_metadata,
+        LaneProtection::Enforced,
     )
     .unwrap_err();
     assert_eq!(error.code, -32602);

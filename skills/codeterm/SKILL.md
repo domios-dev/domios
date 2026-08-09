@@ -21,6 +21,10 @@ Short, task-shaped title based on the user's first message.
 
 ---
 
+{agent_pad_rule}
+
+---
+
 ## Spawning open agent shells (only if one is installed)
 
 Besides PTY agents (claude/codex/...), `agent spawn` can open an **open agent
@@ -51,4 +55,4 @@ Specialized reference docs alongside this skill:
 
 The always-on protocol (English-in-mem, search-before-answering, "remember" → save now, no fabrication, no guessed ids) lives in `~/.claude/rules/codeterm.md` and fires regardless of which skill is loaded. Don't replay it here.
 
-<!-- revision: 53 -->
+<!-- revision: 56 -->

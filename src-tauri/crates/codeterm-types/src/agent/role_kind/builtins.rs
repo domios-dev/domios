@@ -21,7 +21,9 @@ pub fn all() -> &'static [RoleKindDescriptor] {
 }
 
 pub fn lookup(kind_id: &str) -> Option<&'static RoleKindDescriptor> {
-    BUILTINS.iter().find(|descriptor| descriptor.id() == kind_id)
+    BUILTINS
+        .iter()
+        .find(|descriptor| descriptor.id() == kind_id)
 }
 
 pub fn is_builtin(kind_id: &str) -> bool {
