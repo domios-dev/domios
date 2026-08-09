@@ -294,9 +294,14 @@ fn reducing_save_is_refused_quarantined_and_last_json_stays_intact() {
         .unwrap();
 
     let reduced = desk(&[("ws_a", &["t1"])]);
-    let err = store.save(&reduced).expect_err("reducing save must refuse");
-    assert!(err.contains("1 workspace(s)"), "counts in error: {err}");
-    assert!(err.contains("2 tab(s)"), "counts in error: {err}");
+    let outcome = store
+        .save(&reduced)
+        .expect("a refusal is protection, never an Err");
+    let SaveOutcome::RefusedReduction(refusal) = outcome else {
+        panic!("reducing save must refuse, got {outcome:?}");
+    };
+    assert_eq!(refusal.dropped_workspaces, 1);
+    assert_eq!(refusal.dropped_tabs, 2);
 
     let persisted = store.load_last().unwrap().expect("last.json intact");
     assert_eq!(persisted.workspaces.len(), 2, "full desk still authoritative");
@@ -323,9 +328,10 @@ fn user_close_intent_allows_reducing_save() {
         .save(&desk(&[("ws_a", &["t1", "t2"]), ("ws_b", &["t3"])]))
         .unwrap();
 
-    store
+    let outcome = store
         .save_with_intent(&desk(&[("ws_a", &["t1"])]), SaveIntent::UserClose)
         .expect("user close may reduce");
+    assert!(matches!(outcome, SaveOutcome::Saved));
     let persisted = store.load_last().unwrap().unwrap();
     assert_eq!(persisted.workspaces.len(), 1);
     assert!(quarantine_files(&store).is_empty(), "no quarantine on intent");
@@ -335,11 +341,12 @@ fn user_close_intent_allows_reducing_save() {
 fn tab_drop_without_workspace_drop_is_refused() {
     let (store, _dir) = fresh_store();
     store.save(&desk(&[("ws_a", &["t1", "t2"])])).unwrap();
-    let err = store
-        .save(&desk(&[("ws_a", &["t1"])]))
-        .expect_err("tab drop must refuse");
-    assert!(err.contains("0 workspace(s)"), "{err}");
-    assert!(err.contains("1 tab(s)"), "{err}");
+    let outcome = store.save(&desk(&[("ws_a", &["t1"])])).unwrap();
+    let SaveOutcome::RefusedReduction(refusal) = outcome else {
+        panic!("tab drop must refuse, got {outcome:?}");
+    };
+    assert_eq!(refusal.dropped_workspaces, 0);
+    assert_eq!(refusal.dropped_tabs, 1);
 }
 
 #[test]
@@ -348,18 +355,20 @@ fn tab_moved_across_workspaces_is_not_a_reduction() {
     store
         .save(&desk(&[("ws_a", &["t1"]), ("ws_b", &["t2"])]))
         .unwrap();
-    store
+    let outcome = store
         .save(&desk(&[("ws_a", &[]), ("ws_b", &["t2", "t1"])]))
         .expect("a move keeps every id alive");
+    assert!(matches!(outcome, SaveOutcome::Saved));
 }
 
 #[test]
 fn additive_save_is_allowed_without_intent() {
     let (store, _dir) = fresh_store();
     store.save(&desk(&[("ws_a", &["t1"])])).unwrap();
-    store
+    let outcome = store
         .save(&desk(&[("ws_a", &["t1", "t2"]), ("ws_b", &["t3"])]))
         .expect("growth needs no intent");
+    assert!(matches!(outcome, SaveOutcome::Saved));
 }
 
 #[test]
