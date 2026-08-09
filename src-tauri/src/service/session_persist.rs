@@ -44,14 +44,15 @@ pub(crate) fn write_session_snapshot_with_intent(
     save_result.map_err(|e| format!("save session: {}", e))
 }
 
-/// Prompt save after an explicit close verb — the one path allowed to shrink
-/// the persisted desk. The close already happened; a failed save must not
-/// retroactively fail the verb, so callers log instead of propagating.
+/// Prompt save after a deliberate removal (close verb, policy close, cleanup)
+/// — the paths allowed to shrink the persisted desk. The removal already
+/// happened; a failed save must not retroactively fail the verb, so callers
+/// log instead of propagating.
 pub(crate) fn persist_session_after_close(svc: &super::ServiceContext) {
     if let Err(error) = write_session_snapshot_with_intent(
         &svc.app_handle,
         &svc.mux,
-        SaveIntent::UserClose,
+        SaveIntent::AuthorizedReduction,
     ) {
         log::warn!("[session-persist] post-close save failed: {}", error);
     }
