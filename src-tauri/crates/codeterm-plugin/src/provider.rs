@@ -853,8 +853,8 @@ pub trait AgentProvider: Send + Sync {
     }
 
     /// Raw key bytes the host writes into the PTY to interrupt the
-    /// agent's current generation without exiting. Most TUIs accept
-    /// Esc (`""`); cursor-agent listens for Ctrl+C (`""`).
+    /// agent's current generation without exiting — the provider's
+    /// declared stopKey (Esc for all bundled providers).
     /// Returning `None` means the provider has no in-tab stop hook
     /// and the UI should hide the Stop affordance for that tab.
     fn stop_keystroke(&self) -> Option<&str> {
