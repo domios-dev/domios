@@ -17,7 +17,8 @@ pub async fn graceful_shutdown(
 ) -> Result<Vec<String>, String> {
     log::info!("[updater] graceful_shutdown: starting");
 
-    // Stop the liveness watchdog treating the imminent API-down as a crash.
+    // Arms the watchdog's clean-quit signal AND role-based tab-prune suppression
+    // before any PTY can die, so teardown EOFs never read as agent crashes.
     crate::crash::shutdown::mark_shutting_down_for(crate::crash::lifecycle::ShutdownReason::Update);
 
     let svc = app
@@ -34,11 +35,10 @@ pub async fn graceful_shutdown(
         swept.len()
     );
 
-    crate::crash::shutdown::mark_update_teardown_started();
-    let reaped = reap_owned_ptys(&svc).await?;
+    let (desk, reaped) = capture_desk_before(&svc, reap_owned_ptys(&svc)).await?;
     let conpty_hosts = super::conpty_cleanup::cleanup_before_installer().await?;
 
-    persist_session(app, &svc)?;
+    persist_desk(app, &desk)?;
 
     if let Err(e) = svc.mem.checkpoint_and_close() {
         log::warn!("[updater] mem WAL checkpoint failed: {}", e);
@@ -119,6 +119,40 @@ pub(crate) fn persist_session(app: &tauri::AppHandle, svc: &ServiceState) -> Res
     result
 }
 
+/// Snapshot the desk before polling `teardown` (futures are lazy), so teardown-time
+/// tab mutations can never shrink what later gets persisted.
+async fn capture_desk_before<T>(
+    svc: &crate::service::ServiceContext,
+    teardown: impl std::future::Future<Output = Result<T, String>>,
+) -> Result<(crate::session::SessionSnapshot, T), String> {
+    let desk = svc.mux.read().to_session_snapshot();
+    let result = teardown.await?;
+    Ok((desk, result))
+}
+
+/// Write the pre-teardown capture verbatim — never re-reads the live mux.
+fn persist_desk(
+    app: &tauri::AppHandle,
+    desk: &crate::session::SessionSnapshot,
+) -> Result<(), String> {
+    let session = app
+        .try_state::<crate::session::SessionState>()
+        .ok_or_else(|| "SessionState not registered".to_string())?
+        .inner()
+        .clone();
+    let result = {
+        let store = session.lock();
+        store.save(desk)
+    };
+    if result.is_ok() {
+        log::info!(
+            "[updater] pre-teardown desk snapshot saved ({} workspaces)",
+            desk.workspaces.len()
+        );
+    }
+    result.map_err(|e| format!("save session: {}", e))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -134,6 +168,58 @@ mod tests {
         assert_eq!(
             select_owned_pty_tabs(tabs.into_iter()),
             vec!["initiating-agent", "worker", "plain-shell"]
+        );
+    }
+
+    fn snapshot_tab_ids(snapshot: &crate::session::SessionSnapshot) -> Vec<String> {
+        snapshot
+            .workspaces
+            .iter()
+            .flat_map(|ws| ws.tabs.iter().map(|t| t.id.clone()))
+            .collect()
+    }
+
+    #[test]
+    #[cfg_attr(
+        not(windows),
+        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+    )]
+    fn recorded_desk_keeps_tabs_removed_during_teardown() {
+        use crate::multiplexer::state::MultiplexerState;
+        use crate::multiplexer::types::{AgentRole, TabCloseReason};
+
+        let (mut mux, orch) = MultiplexerState::new();
+        let workspace_id = mux.find_workspace_for_tab(&orch).unwrap();
+        let worker = mux.create_tab(&workspace_id).unwrap();
+        mux.set_tab_role(&worker, AgentRole::Worker, Some(&orch))
+            .unwrap();
+        let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+        let session: crate::session::SessionState = std::sync::Arc::new(parking_lot::Mutex::new(
+            crate::session::SessionStore::for_test_dir(fixture.temp.path().to_path_buf()),
+        ));
+        assert!(fixture._app.handle().manage(session.clone()));
+
+        let svc = &fixture.service;
+        let teardown = async {
+            let reservation = svc.mux.write().reserve_tab_close(&worker)?;
+            svc.mux
+                .write()
+                .close_reserved_tab_with_reason(reservation, TabCloseReason::User)
+                .map(|_| ())
+        };
+        let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        let (desk, ()) = rt.block_on(capture_desk_before(svc, teardown)).unwrap();
+
+        assert!(
+            !snapshot_tab_ids(&svc.mux.read().to_session_snapshot()).contains(&worker),
+            "teardown must have removed the worker tab from the live desk"
+        );
+
+        persist_desk(fixture._app.handle(), &desk).unwrap();
+        let recorded = session.lock().load_last().unwrap().expect("desk on disk");
+        assert!(
+            snapshot_tab_ids(&recorded).contains(&worker),
+            "recorded desk must keep the pre-teardown tab set"
         );
     }
 

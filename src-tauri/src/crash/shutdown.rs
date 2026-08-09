@@ -1,34 +1,60 @@
 //! Graceful-shutdown coordination + clean-exit sentinel, so the liveness watchdog
 //! doesn't read a clean quit (which takes the REST API down) as a crash.
-//! `SHUTTING_DOWN` is the source of truth every exit route sets; the `.clean_exit`
+//! `SHUTDOWN_CAUSE` is the source of truth every exit route sets; the `.clean_exit`
 //! sentinel is the mtime backstop catching a report written racily right at exit.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU8, Ordering};
 
-static SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
-static UPDATE_SHUTDOWN: AtomicBool = AtomicBool::new(false);
+use crate::crash::lifecycle::ShutdownReason;
+
+const NOT_SHUTTING_DOWN: u8 = 0;
+
+static SHUTDOWN_CAUSE: AtomicU8 = AtomicU8::new(NOT_SHUTTING_DOWN);
+
+fn encode(reason: ShutdownReason) -> u8 {
+    match reason {
+        ShutdownReason::UserExit => 1,
+        ShutdownReason::Update => 2,
+        ShutdownReason::Restart => 3,
+        ShutdownReason::Signal => 4,
+    }
+}
+
+fn decode(value: u8) -> Option<ShutdownReason> {
+    match value {
+        1 => Some(ShutdownReason::UserExit),
+        2 => Some(ShutdownReason::Update),
+        3 => Some(ShutdownReason::Restart),
+        4 => Some(ShutdownReason::Signal),
+        _ => None,
+    }
+}
 
 /// True once a graceful-exit route has run; real crashes happen while it's `false`, so they're never suppressed.
 pub fn is_shutting_down() -> bool {
-    SHUTTING_DOWN.load(Ordering::SeqCst)
+    SHUTDOWN_CAUSE.load(Ordering::SeqCst) != NOT_SHUTTING_DOWN
 }
 
-pub fn is_update_shutdown() -> bool {
-    UPDATE_SHUTDOWN.load(Ordering::SeqCst)
-}
-
-pub fn mark_update_teardown_started() {
-    UPDATE_SHUTDOWN.store(true, Ordering::SeqCst);
+/// The cause recorded by the first graceful-exit route that fired, if any.
+pub fn active_shutdown() -> Option<ShutdownReason> {
+    decode(SHUTDOWN_CAUSE.load(Ordering::SeqCst))
 }
 
 /// Mark the process as gracefully shutting down and drop the clean-exit
 /// sentinel. Idempotent — safe to call from every exit route.
 pub fn mark_shutting_down() {
-    mark_shutting_down_for(crate::crash::lifecycle::ShutdownReason::UserExit);
+    mark_shutting_down_for(ShutdownReason::UserExit);
 }
 
-pub fn mark_shutting_down_for(reason: crate::crash::lifecycle::ShutdownReason) {
-    let first_request = !SHUTTING_DOWN.swap(true, Ordering::SeqCst);
+pub fn mark_shutting_down_for(reason: ShutdownReason) {
+    let first_request = SHUTDOWN_CAUSE
+        .compare_exchange(
+            NOT_SHUTTING_DOWN,
+            encode(reason),
+            Ordering::SeqCst,
+            Ordering::SeqCst,
+        )
+        .is_ok();
     if first_request {
         crate::crash::record_clean_shutdown(reason);
     }
@@ -96,10 +122,29 @@ where
                     _ = term.recv() => log::info!("[shutdown] SIGTERM received; graceful exit"),
                     _ = int.recv() => log::info!("[shutdown] SIGINT received; graceful exit"),
                 }
-                mark_shutting_down_for(crate::crash::lifecycle::ShutdownReason::Signal);
+                mark_shutting_down_for(ShutdownReason::Signal);
                 cleanup();
                 std::process::exit(0);
             });
         })
         .expect("failed to spawn shutdown signal-handler thread");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_graceful_route_reason_reads_back_as_an_armed_shutdown() {
+        for reason in [
+            ShutdownReason::UserExit,
+            ShutdownReason::Update,
+            ShutdownReason::Restart,
+            ShutdownReason::Signal,
+        ] {
+            let encoded = encode(reason);
+            assert_ne!(encoded, NOT_SHUTTING_DOWN);
+            assert_eq!(decode(encoded), Some(reason));
+        }
+    }
 }
