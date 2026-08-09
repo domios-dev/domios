@@ -240,6 +240,107 @@ fn emit_send_refusal(json: bool, msg: &str) -> ! {
     clippy::too_many_arguments,
     reason = "CLI command preserves send text option surface."
 )]
+/// Split a `--tab` value into targets: comma-separated, trimmed, deduped in
+/// first-seen order. A value without a comma yields exactly one target, so the
+/// single-tab path stays untouched.
+pub fn parse_tab_targets(spec: &str) -> Result<Vec<String>, String> {
+    let mut targets: Vec<String> = Vec::new();
+    for raw in spec.split(',') {
+        let id = raw.trim();
+        if id.is_empty() {
+            return Err(format!(
+                "--tab has an empty entry in '{spec}': list ids as a,b,c without blanks"
+            ));
+        }
+        if !targets.iter().any(|seen| seen == id) {
+            targets.push(id.to_string());
+        }
+    }
+    Ok(targets)
+}
+
+/// Deliver one already-resolved payload to several tabs: the single-tab call
+/// repeated per target, never a new delivery route. Reports every target and
+/// fails loudly if any of them did.
+fn send_text_to_targets(
+    client: &mut SocketClient,
+    json: bool,
+    targets: &[String],
+    resolved_text: &str,
+    actions: Option<Vec<SendActionSpec>>,
+    require_agent: bool,
+    to_shell: bool,
+) {
+    let mut failures: Vec<(String, String)> = Vec::new();
+    let mut delivered: Vec<String> = Vec::new();
+    let source_tab = std::env::var("CODETERM_TAB_ID").ok().filter(|t| !t.is_empty());
+    for tab_id in targets {
+        if !resolved_text.trim().is_empty() {
+            let kind = probe_tab_kind(client, tab_id);
+            if let SendEligibility::Refuse(msg) =
+                decide_send_eligibility(kind, resolved_text, require_agent, to_shell)
+            {
+                failures.push((tab_id.clone(), msg));
+                continue;
+            }
+        }
+        let result = match actions.clone() {
+            Some(actions) => send_actions_via_socket(json, tab_id, resolved_text, actions),
+            None => {
+                let mut params = serde_json::json!({
+                    "tab_id": tab_id,
+                    "text": resolved_text,
+                });
+                if let Some(ref my_tab) = source_tab {
+                    if my_tab != tab_id {
+                        params["source_tab"] = serde_json::json!(my_tab);
+                    }
+                }
+                client.call("tab.send_text", Some(params))
+            }
+        };
+        match result {
+            Ok(value) => match analyze_send_text_response(&value) {
+                SendTextOutcome::Error { msg, .. } => failures.push((tab_id.clone(), msg)),
+                _ => delivered.push(tab_id.clone()),
+            },
+            Err(e) => failures.push((tab_id.clone(), e)),
+        }
+    }
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "ok": failures.is_empty(),
+                "delivered": delivered,
+                "failed": failures
+                    .iter()
+                    .map(|(tab, err)| serde_json::json!({ "tab": tab, "error": err }))
+                    .collect::<Vec<_>>(),
+            }))
+            .unwrap()
+        );
+    } else {
+        for tab_id in &delivered {
+            println!("OK (sent) {tab_id}");
+        }
+        for (tab_id, err) in &failures {
+            eprintln!("Error {tab_id}: {err}");
+        }
+        println!(
+            "{} of {} target(s) delivered",
+            delivered.len(),
+            targets.len()
+        );
+        if failures.is_empty() {
+            println!("{}", resolved_text_echo(resolved_text));
+        }
+    }
+    if !failures.is_empty() {
+        std::process::exit(2);
+    }
+}
+
 pub fn handle_send_text(
     client: &mut SocketClient,
     json: bool,
@@ -285,9 +386,38 @@ pub fn handle_send_text(
         );
         return;
     }
+    let multi_targets = match tab.as_deref() {
+        Some(spec) if spec.contains(',') => match parse_tab_targets(spec) {
+            Ok(targets) => {
+                if let Some(composite) = targets.iter().find(|t| parse_remote_tab_id(t).is_some()) {
+                    emit_send_refusal(
+                        json,
+                        &format!(
+                            "--tab list contains the mesh target '{composite}': run multi-tab send on the owning peer, one peer per call"
+                        ),
+                    );
+                }
+                Some(targets)
+            }
+            Err(msg) => emit_send_refusal(json, &msg),
+        },
+        _ => None,
+    };
     let mut stdin = std::io::stdin();
     let (resolved_text, parsed_actions) =
         resolve_and_validate_send(text, from_file, from_pad, from_stdin, actions, &mut stdin);
+    if let Some(targets) = multi_targets {
+        send_text_to_targets(
+            client,
+            json,
+            &targets,
+            &resolved_text,
+            parsed_actions,
+            require_agent,
+            to_shell,
+        );
+        return;
+    }
     let tab_id = resolve_tab(client, tab);
     if !resolved_text.trim().is_empty() {
         let kind = probe_tab_kind(client, &tab_id);
@@ -732,7 +862,8 @@ mod tests {
     use super::{
         analyze_send_text_response, classify_tab_kind, decide_send_eligibility,
         guard_against_shell_mangle, is_task_shaped_payload, key_action_bytes, parse_actions_spec,
-        redact_resolved_send_text, resolve_send_text_input, resolved_text_echo, SendActionSpec,
+        parse_tab_targets, redact_resolved_send_text, resolve_send_text_input, resolved_text_echo,
+        SendActionSpec,
         SendEligibility, SendTextOutcome, TabKind,
     };
 
@@ -1033,5 +1164,34 @@ mod tests {
                 .expect("multiline inline payload is nudged");
         assert!(hint.contains("--task-file <path>"));
         assert!(!hint.contains("--from-pad"));
+    }
+
+    #[test]
+    fn multi_tab_send_parses_trims_and_dedupes_in_order() {
+        assert_eq!(
+            parse_tab_targets(" a , b ,a, c ").expect("list parses"),
+            vec!["a".to_string(), "b".to_string(), "c".to_string()],
+            "entries trim, duplicates collapse, first-seen order survives"
+        );
+    }
+
+    #[test]
+    fn multi_tab_send_single_id_yields_exactly_one_target() {
+        assert_eq!(
+            parse_tab_targets("solo").expect("single id parses"),
+            vec!["solo".to_string()],
+            "a comma-less value must stay a one-target list so the single-tab path is unchanged"
+        );
+    }
+
+    #[test]
+    fn multi_tab_send_rejects_empty_entries() {
+        for spec in ["a,,b", "a,", ",b", " , "] {
+            let err = parse_tab_targets(spec).expect_err("empty entry must be refused");
+            assert!(
+                err.contains("empty entry"),
+                "refusal names the defect for {spec}: {err}"
+            );
+        }
     }
 }
