@@ -8,7 +8,7 @@ use super::{resolve_plan_ctx, STALE_TASK_HINT_REFUSAL};
 use crate::agent::reports::{ReportDetails, ReportStatus};
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::AgentRole;
-use crate::plan::{OrchestratorRef, Plan, Task, TaskStatus};
+use crate::plan::{AgentRef, OrchestratorRef, Plan, Task, TaskStatus};
 use crate::service::plan::{NewTask, PlanStore};
 use crate::service::test_fixture::ServiceFixture;
 use crate::service::AuthenticatedPlanCaller;
@@ -218,8 +218,20 @@ impl ReportHarness {
             .unwrap()
     }
 
-    /// Everything a transition moves, minus the volatile ids and clock the
-    /// fixture cannot hold still: status, then each milestone in order.
+    /// Attribution as a comparable fact rather than a literal id: two fixtures
+    /// mint different tab ids, but "attributed to my own caller" is the property
+    /// under test. A milestone credited to any other tab, or to none, stays
+    /// distinguishable — that is the wrong-tab write this must still catch.
+    fn attribution(&self, from: &AgentRef) -> String {
+        match from.tab_id.as_deref() {
+            Some(tab) if tab == self.caller => "self".into(),
+            Some(tab) => format!("other:{tab}"),
+            None => "unattributed".into(),
+        }
+    }
+
+    /// Everything a transition moves, minus the wall clock and the minted ids
+    /// the fixture cannot hold still: status, then each milestone in order.
     fn shape(&self, task_id: &str) -> String {
         let task = self.task(task_id);
         let milestones = task
@@ -230,7 +242,7 @@ impl ReportHarness {
                     "{}|{}|{}",
                     item.kind,
                     item.text,
-                    item.from.tab_id.as_deref().unwrap_or("")
+                    self.attribution(&item.from)
                 )
             })
             .collect::<Vec<_>>()
@@ -394,6 +406,16 @@ fn stale_task_report_correct_binding_matches_the_absent_hint_shape() {
             None,
         )
         .unwrap();
+
+    // Anchor the normalized attribution to a real id, so "self" cannot become a
+    // label both fixtures agree on while the write went to the wrong tab.
+    for h in [&hinted, &implicit] {
+        assert_eq!(
+            h.task(&h.held).milestones[0].from.tab_id.as_deref(),
+            Some(h.caller.as_str()),
+            "the transition must be attributed to the reporting tab itself"
+        );
+    }
 
     assert_eq!(
         hinted.shape(&hinted.held),
