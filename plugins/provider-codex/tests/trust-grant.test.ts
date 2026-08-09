@@ -78,6 +78,8 @@ interface StubOptions {
   reListHash?: string;
   /** Simulate an old CLI without the app-server subcommand. */
   rpcsAbsent?: boolean;
+  /** Simulate a partially-capable CLI: hooks/list present, config/batchWrite absent. */
+  batchWriteAbsent?: boolean;
 }
 
 interface StubState {
@@ -126,7 +128,7 @@ function makeAppServerStubExec(opts: StubOptions): { exec: (optsJson: string) =>
             }],
           },
         }));
-      } else if (req.method === "config/batchWrite") {
+      } else if (req.method === "config/batchWrite" && !opts.batchWriteAbsent) {
         const edit = req.params.edits[0];
         state.batchWriteValues.push(edit.value);
         let config = opts.files.get(CONFIG_PATH) ?? "";
@@ -243,6 +245,32 @@ console.log("\n--- trust_grant: re-verify failure restores config from snapshot 
   eq(files.get(CONFIG_PATH), snapshotBytes, "trust_grant re-verify failure restores exact pre-grant config bytes");
   const check = p.checkIntegration();
   assert(check.hook_trust_state !== "trusted", "trust_grant re-verify failure never fabricates trusted state");
+}
+
+console.log("\n--- trust_grant: unconfirmed batchWrite negative control (no restore, no clobber) ---\n");
+
+{
+  const files = new Map<string, string>([
+    [HOOKS_PATH, "{}"],
+    [CONFIG_PATH, "# pre-grant config\n"],
+  ]);
+  const reportedHash = "sha256:codex-stub-" + Math.random().toString(36).slice(2);
+  const stub = makeAppServerStubExec({ files, reportedHash, batchWriteAbsent: true });
+  const userEdit = "# user edit landed between snapshot and the write session\n";
+  const exec = (optsJson: string): string => {
+    if (String(JSON.parse(optsJson).stdin || "").includes("config/batchWrite")) {
+      files.set(CONFIG_PATH, userEdit);
+    }
+    return stub.exec(optsJson);
+  };
+  const p = loadCodexWithHost({ ...fsHost(files), exec });
+
+  const result = p.grantIntegrationTrust(["session_start"]);
+  assert(result.granted === false, "trust_grant unconfirmed batchWrite reports the grant failed", JSON.stringify(result));
+  assert(result.wrote === false, "trust_grant unconfirmed batchWrite derives wrote=false from the actual outcome");
+  assert(result.restored === undefined, "trust_grant unconfirmed batchWrite never attempts a restore");
+  eq(stub.state.batchWriteValues.length, 0, "trust_grant unconfirmed batchWrite applied no edit");
+  eq(files.get(CONFIG_PATH), userEdit, "trust_grant unconfirmed batchWrite leaves the concurrent user edit intact");
 }
 
 console.log("\n--- trust_grant: trusted state reads back after a successful grant ---\n");
