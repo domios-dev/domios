@@ -50,4 +50,28 @@ pub enum SessionsAction {
     /// Read-only probe — use before `sessions resume` to verify the session
     /// is still on disk.
     Get { session_id: String },
+    /// Full-desk session backups (workspaces + tabs). List the rotated
+    /// snapshots and recover a reduced/wiped desk from one without
+    /// hand-editing JSON.
+    Backups {
+        #[command(subcommand)]
+        action: BackupsAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum BackupsAction {
+    /// List desk snapshot backups, newest first, with workspace/tab counts.
+    List {
+        /// Max backups shown.
+        #[arg(long, default_value = "20")]
+        limit: usize,
+    },
+    /// Restore a backup into the live desk. Strictly additive — it replaces
+    /// NOTHING: existing workspaces and tabs are untouched, only workspaces
+    /// and tabs missing from the live desk are recreated from the backup.
+    Restore {
+        /// Backup name from `sessions backups list` (unix timestamp).
+        name: String,
+    },
 }

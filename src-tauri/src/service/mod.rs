@@ -62,6 +62,7 @@ mod restored_binding;
 mod role_identity;
 pub(crate) mod role_preset;
 mod role_profile;
+mod session_backup;
 pub mod session_persist;
 mod shell_restart;
 pub mod smart_add;

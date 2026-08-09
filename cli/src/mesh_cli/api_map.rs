@@ -730,6 +730,16 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 format!("/api/sessions/{}", urlencoding::encode(session_id)),
                 None,
             ),
+            crate::SessionsAction::Backups { action } => match action {
+                crate::args::sessions::BackupsAction::List { .. } => {
+                    ("GET".into(), "/api/session/backups".into(), None)
+                }
+                crate::args::sessions::BackupsAction::Restore { name } => (
+                    "POST".into(),
+                    format!("/api/session/backups/{}/restore", urlencoding::encode(name)),
+                    None,
+                ),
+            },
         },
         Commands::Keepawake { action } => match action {
             Some(crate::KeepAwakeAction::Stop) => {

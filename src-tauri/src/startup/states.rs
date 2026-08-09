@@ -333,8 +333,8 @@ pub(crate) fn init_states() -> AppStates {
     // On failure keep the in-memory default (history just won't persist).
     match crate::multiplexer::state::ClosedTabsStore::open(&crate::paths::data_dir()) {
         Ok(store) => mux_state_inner.attach_closed_store(store),
-        Err(e) => log::warn!(
-            "[closed-history] open failed: {} — history will not persist",
+        Err(e) => log::error!(
+            "[closed-history] open failed: {} — degrading to in-memory, reopen history will NOT survive restart",
             e
         ),
     }
