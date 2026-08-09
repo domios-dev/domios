@@ -12,11 +12,12 @@ mod inject;
 mod lifecycle;
 mod send;
 pub(crate) mod submit_transaction;
+mod tab_env;
 
 pub(crate) use actions::{await_action_deadline, execute_ordered_actions, OrderedPtyAction};
 pub(crate) use lifecycle::claim_restored_pty_boot;
 #[cfg(test)]
-pub(crate) use lifecycle::tab_identity_env;
+pub(crate) use tab_env::tab_identity_env;
 pub(crate) use send::build_spawn_dispatch;
 pub(crate) use send::provider_or_generic_tui;
 pub(crate) use send::sanitize_agent_prompt_input;
