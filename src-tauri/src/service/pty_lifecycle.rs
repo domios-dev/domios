@@ -279,6 +279,15 @@ fn drain_feed_batch(rx: &mut tokio::sync::mpsc::Receiver<Vec<u8>>, data: &mut Ve
 
 /// Mark PTY as dead and emit events — mirrors the Err branch in read_pty.
 fn handle_pty_death(svc: &ServiceState, pty_id: &str, generation: u64) {
+    handle_pty_death_with_cause(svc, pty_id, generation, crate::crash::shutdown::active_shutdown());
+}
+
+fn handle_pty_death_with_cause(
+    svc: &super::ServiceContext,
+    pty_id: &str,
+    generation: u64,
+    shutdown: Option<crate::crash::lifecycle::ShutdownReason>,
+) {
     if !handle_pty_screen_death(&svc.pty, &svc.screen_state, pty_id, generation) {
         log::debug!(
             "[backend-reader] ignoring stale EOF for pty {} generation {}",
@@ -297,9 +306,10 @@ fn handle_pty_death(svc: &ServiceState, pty_id: &str, generation: u64) {
     };
     svc.shell_caps.lock().remove(pty_id);
 
-    if preserve_tab_authority(crate::crash::shutdown::is_update_shutdown()) {
+    if preserve_tab_authority(shutdown) {
         log::info!(
-            "[backend-reader] preserving Tab authority during update teardown: {}",
+            "[backend-reader] preserving Tab authority during shutdown ({:?}): {}",
+            shutdown,
             tab_id.as_deref().unwrap_or("unknown")
         );
         return;
@@ -396,8 +406,10 @@ fn handle_pty_death(svc: &ServiceState, pty_id: &str, generation: u64) {
     }
 }
 
-fn preserve_tab_authority(update_shutdown: bool) -> bool {
-    update_shutdown
+/// Any armed graceful shutdown suppresses role-based pruning: the PTY died because
+/// the app is going down, not because the agent crashed mid-session.
+fn preserve_tab_authority(shutdown: Option<crate::crash::lifecycle::ShutdownReason>) -> bool {
+    shutdown.is_some()
 }
 
 struct BackendReaderLease(std::sync::Arc<crate::pty::manager::PtySession>);
@@ -451,6 +463,8 @@ fn terminal_query_replies(data: &[u8], _headless: bool) -> Vec<&'static [u8]> {
 
 #[cfg(test)]
 mod tests {
+    use crate::crash::lifecycle::ShutdownReason;
+    use crate::multiplexer::types::AgentRole;
     use crate::pty::manager::PtyManager;
     use codeterm_pty::pty::screen_state::ScreenState;
     use codeterm_util::lock_hold::TimedMutex;
@@ -460,8 +474,15 @@ mod tests {
 
     #[test]
     fn update_owned_eof_preserves_tab_authority() {
-        assert!(super::preserve_tab_authority(true));
-        assert!(!super::preserve_tab_authority(false));
+        for cause in [
+            ShutdownReason::Update,
+            ShutdownReason::Signal,
+            ShutdownReason::UserExit,
+            ShutdownReason::Restart,
+        ] {
+            assert!(super::preserve_tab_authority(Some(cause)));
+        }
+        assert!(!super::preserve_tab_authority(None));
     }
 
     fn pty_state() -> crate::PtyState {
@@ -638,5 +659,106 @@ mod tests {
             .session_generation_matches("pty-1", replacement_generation));
         assert!(screen_state.lock().get_screen_text("pty-1").is_some());
         pty.lock().kill("pty-1").expect("cleanup PTY");
+    }
+
+    const ROLE_PTY: &str = "pty-role";
+
+    fn role_pty_fixture(
+        role: AgentRole,
+    ) -> (crate::service::test_fixture::ServiceFixture, String, u64) {
+        let (mut mux, orch) = crate::multiplexer::state::MultiplexerState::new();
+        let workspace_id = mux.find_workspace_for_tab(&orch).unwrap();
+        let tab = mux.create_tab(&workspace_id).unwrap();
+        match role {
+            AgentRole::Manager => {
+                mux.set_tab_role_kind(&tab, AgentRole::Manager, Some("planner"), Some(&orch))
+                    .expect("attach manager");
+            }
+            _ => {
+                mux.set_tab_role(&tab, role, Some(&orch))
+                    .expect("attach role tab");
+            }
+        }
+        mux.get_tab_mut(&tab).unwrap().pty_id = Some(ROLE_PTY.to_string());
+        let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+        let generation = {
+            let (_, session) = fixture
+                .service
+                .pty
+                .lock()
+                .spawn_with_id(Some(ROLE_PTY.to_string()), None, None, 80, 24, HashMap::new())
+                .expect("spawn test PTY");
+            session.generation
+        };
+        assert!(fixture
+            .service
+            .screen_state
+            .lock()
+            .bind_pty_generation(ROLE_PTY, generation));
+        (fixture, tab, generation)
+    }
+
+    fn assert_shutdown_death_preserves_role_tabs(cause: ShutdownReason) {
+        for role in [AgentRole::Worker, AgentRole::Manager] {
+            let (fixture, tab, generation) = role_pty_fixture(role);
+            super::handle_pty_death_with_cause(&fixture.service, ROLE_PTY, generation, Some(cause));
+            assert!(
+                fixture.service.mux.read().get_tab(&tab).is_some(),
+                "{role:?} tab must survive a {cause:?} shutdown PTY death"
+            );
+            fixture.service.pty.lock().kill(ROLE_PTY).expect("cleanup PTY");
+        }
+    }
+
+    #[test]
+    #[cfg_attr(
+        not(windows),
+        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+    )]
+    fn updater_shutdown_pty_death_does_not_prune_role_tabs() {
+        assert_shutdown_death_preserves_role_tabs(ShutdownReason::Update);
+    }
+
+    #[test]
+    #[cfg_attr(
+        not(windows),
+        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+    )]
+    fn signal_shutdown_pty_death_does_not_prune_role_tabs() {
+        assert_shutdown_death_preserves_role_tabs(ShutdownReason::Signal);
+    }
+
+    #[test]
+    #[cfg_attr(
+        not(windows),
+        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+    )]
+    fn window_exit_shutdown_pty_death_does_not_prune_role_tabs() {
+        assert_shutdown_death_preserves_role_tabs(ShutdownReason::UserExit);
+    }
+
+    #[test]
+    #[cfg_attr(
+        not(windows),
+        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+    )]
+    fn restart_shutdown_pty_death_does_not_prune_role_tabs() {
+        assert_shutdown_death_preserves_role_tabs(ShutdownReason::Restart);
+    }
+
+    #[test]
+    #[cfg_attr(
+        not(windows),
+        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+    )]
+    fn in_session_agent_death_without_shutdown_still_prunes_role_tabs() {
+        for role in [AgentRole::Worker, AgentRole::Manager] {
+            let (fixture, tab, generation) = role_pty_fixture(role);
+            super::handle_pty_death_with_cause(&fixture.service, ROLE_PTY, generation, None);
+            assert!(
+                fixture.service.mux.read().get_tab(&tab).is_none(),
+                "{role:?} tab must still be pruned when the agent dies in-session"
+            );
+        }
     }
 }
