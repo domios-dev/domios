@@ -1,5 +1,4 @@
-//! Shell-tab spawning (visible Team terminals and hidden utility shells),
-//! split from spawn.rs by responsibility.
+//! Shell-tab spawning: visible Team terminals and hidden utility shells.
 
 use super::spawn::{resolve_spawn_workspace_id, SpawnTabSpec, TabHandle};
 use super::ServiceContext;
