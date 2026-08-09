@@ -36,10 +36,11 @@ pub use loader::{default_roots, load_one, scan_roots, LoadOutcome};
 pub use provider::JsProvider;
 
 pub use manifest::{
-    manifest_settings_sections, resolve_hook_event_roster, CommandsConfig, CwdEncoding,
-    IntegrationConfig, IntegrationKind, PermissionsConfig, PluginManifest, RuleConfig,
-    SerdeHookEventBinding, SerdeModelInfo, SerdeProviderReadinessStrategy, SerdeReadinessStrategy,
-    SerdeSessionIdInjection, SerdeTaskDelivery, SerdeVerifySubmit, SessionsConfig, SkillsConfig,
-    SpawnConfig, TrustGrantConfig, UsageConfig,
+    manifest_settings_sections, resolve_hook_event_roster, substitute_template,
+    unknown_template_placeholder, CommandsConfig, CwdEncoding, IntegrationConfig, IntegrationKind,
+    PermissionsConfig, PluginManifest, RuleConfig, SerdeHookEventBinding, SerdeModelInfo,
+    SerdeProviderReadinessStrategy, SerdeReadinessStrategy, SerdeSessionIdInjection,
+    SerdeTaskDelivery, SerdeVerifySubmit, SessionsConfig, SkillsConfig, SpawnConfig,
+    TrustGrantConfig, UsageConfig, LAUNCH_TEMPLATE_PLACEHOLDERS, RESUME_TEMPLATE_PLACEHOLDERS,
 };
 pub use vm::{call_json, has_method, PluginVm, VmError};

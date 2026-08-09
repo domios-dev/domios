@@ -402,6 +402,63 @@ pub struct CommandsConfig {
     /// scriptable reasoning-effort launch flag even if it lists effort levels.
     #[serde(default)]
     pub reasoning_effort_launch_args_format: Vec<String>,
+    /// `launchArgsFormat`: full launch command template, used only when the
+    /// plugin exports no `buildLaunchCommand`. See LAUNCH_TEMPLATE_PLACEHOLDERS.
+    #[serde(default)]
+    pub launch_args_format: Option<String>,
+    /// `resumeArgsFormat`: resume counterpart for a missing
+    /// `buildResumeCommand`. See RESUME_TEMPLATE_PLACEHOLDERS.
+    #[serde(default)]
+    pub resume_args_format: Option<String>,
+}
+
+/// Closed placeholder set for `launchArgsFormat`. `{skipPermissions}` expands
+/// to the manifest's `autoApproveFlags`; model/effort flags arrive via `{args}`.
+pub const LAUNCH_TEMPLATE_PLACEHOLDERS: &[&str] =
+    &["task", "args", "skipPermissions", "sessionId"];
+
+/// Closed placeholder set for `resumeArgsFormat`.
+pub const RESUME_TEMPLATE_PLACEHOLDERS: &[&str] = &["sessionId", "skipPermissions"];
+
+/// First `{name}` in `template` outside `allowed`, or an unterminated `{`.
+/// `None` means every placeholder resolves.
+pub fn unknown_template_placeholder(template: &str, allowed: &[&str]) -> Option<String> {
+    let mut rest = template;
+    while let Some(open) = rest.find('{') {
+        let tail = &rest[open + 1..];
+        let Some(close) = tail.find('}') else {
+            return Some(rest[open..].to_string());
+        };
+        let name = &tail[..close];
+        if !allowed.contains(&name) {
+            return Some(name.to_string());
+        }
+        rest = &tail[close + 1..];
+    }
+    None
+}
+
+/// Single-pass `{name}` → value substitution — no conditionals, no quoting,
+/// and substituted values are never re-scanned for further placeholders.
+pub fn substitute_template(template: &str, values: &[(&str, &str)]) -> String {
+    let mut out = String::with_capacity(template.len());
+    let mut rest = template;
+    while let Some(open) = rest.find('{') {
+        out.push_str(&rest[..open]);
+        let tail = &rest[open + 1..];
+        let Some(close) = tail.find('}') else {
+            out.push_str(&rest[open..]);
+            return out;
+        };
+        let name = &tail[..close];
+        match values.iter().find(|(key, _)| *key == name) {
+            Some((_, value)) => out.push_str(value),
+            None => out.push_str(&rest[open..open + close + 2]),
+        }
+        rest = &tail[close + 1..];
+    }
+    out.push_str(rest);
+    out
 }
 
 /// CamelCase-friendly mirror of `ModelInfo` for plugin.json authors.
