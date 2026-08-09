@@ -159,17 +159,24 @@ fn persist_desk(
         .ok_or_else(|| "SessionState not registered".to_string())?
         .inner()
         .clone();
-    let result = {
-        let store = session.lock();
-        store.save(desk)
-    };
-    if result.is_ok() {
+    let store = session.lock();
+    persist_desk_into(&store, desk)
+}
+
+/// The capture-then-persist seam: a refused reduction keeps the fuller disk desk
+/// and still lets teardown finish; only an unknown-disk failure aborts it.
+fn persist_desk_into(
+    store: &crate::session::store::SessionStore,
+    desk: &crate::session::SessionSnapshot,
+) -> Result<(), String> {
+    let result = store.save(desk);
+    if matches!(result, Ok(crate::session::store::SaveOutcome::Saved)) {
         log::info!(
             "[updater] pre-teardown desk snapshot saved ({} workspaces)",
             desk.workspaces.len()
         );
     }
-    result.map_err(|e| format!("save session: {}", e))
+    shutdown_save_disposition(result.map_err(|e| format!("save session: {}", e)))
 }
 
 #[cfg(test)]
@@ -282,6 +289,50 @@ mod tests {
             persisted.workspaces.len(),
             3,
             "the fuller desk stays on disk for the next boot"
+        );
+    }
+
+    #[test]
+    fn captured_desk_persist_survives_a_refusal_and_aborts_on_real_failure() {
+        use crate::session::store::{SessionStore, WorkspaceSnapshot};
+
+        fn desk(workspace_ids: &[&str]) -> crate::session::SessionSnapshot {
+            crate::session::store::SessionSnapshot {
+                version: "test".into(),
+                timestamp: 0,
+                active_workspace_id: None,
+                teams: vec![],
+                workspaces: workspace_ids
+                    .iter()
+                    .map(|id| WorkspaceSnapshot {
+                        id: (*id).into(),
+                        name: (*id).into(),
+                        tabs: vec![],
+                        active_tab_id: None,
+                        cwd: None,
+                        protected: false,
+                        sort_order: 0,
+                    })
+                    .collect(),
+            }
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let store = SessionStore::for_test_dir(dir.path().to_path_buf());
+        store.save(&desk(&["ws_a", "ws_b"])).unwrap();
+
+        // A capture that lost tabs must not abort teardown, and must not shrink disk.
+        assert!(persist_desk_into(&store, &desk(&["ws_a"])).is_ok());
+        assert_eq!(store.load_last().unwrap().unwrap().workspaces.len(), 2);
+
+        // An additive capture is written through.
+        assert!(persist_desk_into(&store, &desk(&["ws_a", "ws_b", "ws_c"])).is_ok());
+        assert_eq!(store.load_last().unwrap().unwrap().workspaces.len(), 3);
+
+        std::fs::create_dir_all(dir.path().join("last.json.tmp")).unwrap();
+        assert!(
+            persist_desk_into(&store, &desk(&["ws_a", "ws_b", "ws_c", "ws_d"])).is_err(),
+            "an unknown-disk failure must still abort teardown"
         );
     }
 
