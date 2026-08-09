@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::io::Read;
 use tauri::AppHandle;
 
@@ -64,7 +63,6 @@ impl RestoredFreshLaunchInput {
 
 #[tauri::command]
 pub async fn spawn_pty(
-    config_state: tauri::State<'_, crate::config::ConfigState>,
     svc: tauri::State<'_, ServiceState>,
     command: Option<String>,
     cwd: Option<String>,
@@ -73,23 +71,12 @@ pub async fn spawn_pty(
     predicted_id: Option<String>,
     tab_id: Option<String>,
 ) -> Result<String, String> {
-    spawn_pty_core(
-        &svc,
-        &config_state,
-        command,
-        cwd,
-        cols,
-        rows,
-        predicted_id,
-        tab_id,
-    )
-    .await
+    spawn_pty_core(&svc, command, cwd, cols, rows, predicted_id, tab_id).await
 }
 
 /// Shared by the Tauri command and the web mirror's POST /api/pty/spawn.
 pub async fn spawn_pty_core(
     svc: &ServiceState,
-    config_state: &crate::config::ConfigState,
     command: Option<String>,
     cwd: Option<String>,
     cols: u16,
@@ -155,54 +142,14 @@ pub async fn spawn_pty_core(
         }
     }
 
-    let mut env_vars: HashMap<String, String> = HashMap::new();
-    if let Some(ref pid) = tab_id {
-        env_vars.insert("CODETERM_TAB_ID".to_string(), pid.clone());
-        // Binding nonce so the agent's session_start hook can claim this tab (parity with tab_env).
-        env_vars.insert(
-            "CODETERM_SESSION_BINDING_NONCE".to_string(),
-            svc.ensure_session_binding_nonce(pid),
-        );
-        // Per-session shell-integration nonce — the injected shell script stamps it onto OSC 633;E.
-        env_vars.insert(
-            "CODETERM_SHELL_NONCE".to_string(),
-            svc.ensure_shell_integration_nonce(pid),
-        );
-        let mux = mux_state.read();
-        if let Some(tab) = mux.get_tab(pid) {
-            if let Some(ref role) = tab.role {
-                env_vars.insert("CODETERM_ROLE".to_string(), format!("{:?}", role));
-            }
-            if let Some(ref parent) = tab.parent_tab_id {
-                env_vars.insert("CODETERM_PARENT_TAB_ID".to_string(), parent.clone());
-            }
-            if let Some(ref wid) = tab.worker_id {
-                env_vars.insert("CODETERM_WORKER_ID".to_string(), wid.clone());
-            }
-        }
-        drop(mux);
-    }
-    env_vars.insert(
-        "CODETERM_SOCKET_PATH".to_string(),
-        crate::socket::server::socket_display_path(),
-    );
-    env_vars.insert(
-        "CODETERM_VERSION".to_string(),
-        env!("CARGO_PKG_VERSION").to_string(),
-    );
-    // URL/port/token for REST callbacks — derived strictly from this instance's
-    // config, never inherited process env. Setting CODETERM_API_URL explicitly is
-    // what stops a prod-inherited URL (7685) from leaking into the tab and 401ing
-    // this instance's bearer against prod.
-    let api_cfg = config_state.lock().api.clone();
-    let (api_url, api_port) = crate::config::api_callback_url(&api_cfg);
-    env_vars.insert("CODETERM_API_URL".into(), api_url);
-    env_vars.insert("CODETERM_API_PORT".into(), api_port);
-    if let Some(ref tok) = api_cfg.token {
-        if !tok.is_empty() {
-            env_vars.insert("CODETERM_API_TOKEN".into(), tok.clone());
-        }
-    }
+    // One stamper for every launch path: a restored tab must not come back
+    // identity-poorer than the same record launched by the daemon.
+    let env_svc = svc.clone();
+    let env_tab_id = tab_id.clone();
+    let env_vars =
+        tokio::task::spawn_blocking(move || env_svc.frontend_pty_env(env_tab_id.as_deref()))
+            .await
+            .map_err(|error| format!("spawn_pty env join error: {error}"))?;
 
     let t0 = std::time::Instant::now();
     let spawn_gate = state.lock().spawn_gate();
