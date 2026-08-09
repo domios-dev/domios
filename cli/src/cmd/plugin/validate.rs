@@ -4,16 +4,22 @@
 
 use std::path::Path;
 
-use codeterm_plugin::js_runtime::{has_method, load_one, JsProvider, PluginManifest};
+use codeterm_plugin::js_runtime::{
+    has_method, load_one, unknown_template_placeholder, JsProvider, PluginManifest,
+    LAUNCH_TEMPLATE_PLACEHOLDERS, RESUME_TEMPLATE_PLACEHOLDERS,
+};
 
 /// AgentProvider exports the JS bridge probes, paired with what serves the
 /// method when the export is absent (the JsProvider fallback chain).
 const AGENT_PROVIDER_EXPORTS: &[(&str, &str)] = &[
     (
         "buildLaunchCommand",
-        "NONE — launch command resolves empty; only a bundled drop-in falls back to its displaced native provider",
+        "manifest commands.launchArgsFormat template when declared; else the launch command resolves empty (only a bundled drop-in falls back to its displaced native provider)",
     ),
-    ("buildResumeCommand", "none — session resume unavailable"),
+    (
+        "buildResumeCommand",
+        "manifest commands.resumeArgsFormat template when declared; else session resume unavailable",
+    ),
     ("buildResumeCommandWithContext", "plain buildResumeCommand + args"),
     ("starterPromptText", "host-owned starter-prompt text"),
     ("detectFromTitle", "always false (no title detection)"),
@@ -63,7 +69,18 @@ pub struct ValidationReport {
     pub capabilities: Vec<&'static str>,
     /// (export name, implemented in plugin.js, fallback description).
     pub exports: Vec<(&'static str, bool, &'static str)>,
+    /// What actually serves launch/resume: "JS export", "manifest template", or "none".
+    pub launch_source: &'static str,
+    pub resume_source: &'static str,
     pub warnings: Vec<String>,
+}
+
+fn command_source(has_export: bool, has_template: bool) -> &'static str {
+    match (has_export, has_template) {
+        (true, _) => "JS export",
+        (false, true) => "manifest template",
+        (false, false) => "none",
+    }
 }
 
 pub fn run(json: bool, dir: &Path) {
@@ -90,21 +107,58 @@ pub fn validate_dir(dir: &Path) -> Result<ValidationReport, String> {
     // Strict parse first so a manifest typo fails naming the key, before any VM work.
     let manifest =
         PluginManifest::load(&manifest_path).map_err(|e| format!("manifest: {e}"))?;
+    validate_command_templates(&manifest)?;
     // The daemon's real load path: entry existence, hostApi conformance, QuickJS eval.
     let provider = load_one(&manifest_path).map_err(|e| format!("load: {e}"))?;
     Ok(build_report(&manifest, &provider))
 }
 
+/// A template placeholder outside the closed set can never substitute — fail
+/// loudly here naming it, instead of letting braces leak into a command.
+fn validate_command_templates(manifest: &PluginManifest) -> Result<(), String> {
+    let checks = [
+        (
+            "commands.launchArgsFormat",
+            manifest.commands.launch_args_format.as_deref(),
+            LAUNCH_TEMPLATE_PLACEHOLDERS,
+        ),
+        (
+            "commands.resumeArgsFormat",
+            manifest.commands.resume_args_format.as_deref(),
+            RESUME_TEMPLATE_PLACEHOLDERS,
+        ),
+    ];
+    for (field, template, allowed) in checks {
+        let Some(template) = template else { continue };
+        if let Some(name) = unknown_template_placeholder(template, allowed) {
+            return Err(format!(
+                "template: {field} contains unknown placeholder '{name}' (allowed: {})",
+                allowed.join(", ")
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn build_report(manifest: &PluginManifest, provider: &JsProvider) -> ValidationReport {
     let mut exports = Vec::new();
     let mut warnings = Vec::new();
+    let launch_source = command_source(
+        has_method(provider.vm(), "buildLaunchCommand"),
+        manifest.commands.launch_args_format.is_some(),
+    );
+    let resume_source = command_source(
+        has_method(provider.vm(), "buildResumeCommand"),
+        manifest.commands.resume_args_format.is_some(),
+    );
     if manifest.capabilities.agent_provider {
         for (name, fallback) in AGENT_PROVIDER_EXPORTS {
             exports.push((*name, has_method(provider.vm(), name), *fallback));
         }
-        if !has_method(provider.vm(), "buildLaunchCommand") {
+        if launch_source == "none" {
             warnings.push(
-                "buildLaunchCommand is not exported — the launch command resolves empty, so a \
+                "buildLaunchCommand is neither exported nor declared as \
+                 commands.launchArgsFormat — the launch command resolves empty, so a \
                  third-party provider cannot spawn (only bundled drop-ins fall back to a \
                  displaced native provider)"
                     .to_string(),
@@ -116,6 +170,8 @@ fn build_report(manifest: &PluginManifest, provider: &JsProvider) -> ValidationR
         version: manifest.version.clone(),
         capabilities: enabled_capabilities(manifest),
         exports,
+        launch_source,
+        resume_source,
         warnings,
     }
 }
@@ -157,6 +213,8 @@ impl ValidationReport {
         out.push_str("manifest: OK (strict daemon parse)\n");
         out.push_str("load: OK (QuickJS eval)\n");
         out.push_str(&format!("capabilities: {}\n", self.capabilities.join(", ")));
+        out.push_str(&format!("launch: {}\n", self.launch_source));
+        out.push_str(&format!("resume: {}\n", self.resume_source));
         if !self.exports.is_empty() {
             out.push_str("agentProvider exports:\n");
             for (name, found, fallback) in &self.exports {
@@ -195,6 +253,7 @@ impl ValidationReport {
             "manifest": "ok",
             "load": "ok",
             "capabilities": self.capabilities,
+            "commandSources": { "launch": self.launch_source, "resume": self.resume_source },
             "exports": { "js": js, "fallback": fallback },
             "warnings": self.warnings,
         })
@@ -312,6 +371,98 @@ mod tests {
         let report = validate_dir(&dir).expect("loadable plugin passes even without launch");
         assert_eq!(report.warnings.len(), 1);
         assert!(report.warnings[0].contains("buildLaunchCommand"));
+    }
+
+    /// Manifest with launch/resume templates declared in commands.*.
+    fn templated_manifest(id: &str, launch: &str, resume: &str) -> String {
+        valid_manifest(id).replace(
+            r#""entry": "plugin.js""#,
+            &format!(
+                r#""commands": {{ "launchArgsFormat": "{launch}", "resumeArgsFormat": "{resume}" }},
+                "entry": "plugin.js""#
+            ),
+        )
+    }
+
+    #[test]
+    fn plugin_validate_manifest_launch_template_reports_template_source() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("templated");
+        write(
+            &dir.join("plugin.json"),
+            &templated_manifest(
+                "templated",
+                "fixture-bin {skipPermissions} {args}",
+                "fixture-bin --continue {sessionId}",
+            ),
+        );
+        write(&dir.join("plugin.js"), "module.exports.default = {};");
+        let report = validate_dir(&dir).expect("templated manifest-only plugin passes");
+        assert_eq!(report.launch_source, "manifest template");
+        assert_eq!(report.resume_source, "manifest template");
+        assert!(
+            report.warnings.is_empty(),
+            "a declared launch template must silence the cannot-spawn warning: {:?}",
+            report.warnings
+        );
+    }
+
+    #[test]
+    fn plugin_validate_manifest_launch_template_js_export_wins_in_report() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("export-wins");
+        write(
+            &dir.join("plugin.json"),
+            &templated_manifest(
+                "export-wins",
+                "fixture-bin {args}",
+                "fixture-bin --continue {sessionId}",
+            ),
+        );
+        write(
+            &dir.join("plugin.js"),
+            r#"module.exports.default = {
+                buildLaunchCommand() { return "export-wins"; },
+                buildResumeCommand(sid) { return "export-wins --resume " + sid; }
+            };"#,
+        );
+        let report = validate_dir(&dir).expect("plugin with exports passes");
+        assert_eq!(report.launch_source, "JS export");
+        assert_eq!(report.resume_source, "JS export");
+    }
+
+    #[test]
+    fn plugin_validate_manifest_launch_template_unknown_placeholder_names_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("bad-placeholder");
+        write(
+            &dir.join("plugin.json"),
+            &templated_manifest(
+                "bad-placeholder",
+                "fixture-bin {taks}",
+                "fixture-bin --continue {sessionId}",
+            ),
+        );
+        write(&dir.join("plugin.js"), "module.exports.default = {};");
+        let err = validate_dir(&dir).expect_err("unknown placeholder must fail validation");
+        assert!(err.starts_with("template:"), "fails in the template phase: {err}");
+        assert!(err.contains("taks"), "error names the offending placeholder: {err}");
+        assert!(
+            err.contains("launchArgsFormat"),
+            "error names the offending field: {err}"
+        );
+    }
+
+    #[test]
+    fn plugin_validate_manifest_launch_template_absent_reports_none_source() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("nolaunch-src");
+        write(&dir.join("plugin.json"), &valid_manifest("nolaunch-src"));
+        write(&dir.join("plugin.js"), "module.exports.default = {};");
+        let report = validate_dir(&dir).expect("plugin without launch surface still passes");
+        assert_eq!(report.launch_source, "none");
+        assert_eq!(report.resume_source, "none");
+        assert_eq!(report.warnings.len(), 1);
     }
 
     #[test]

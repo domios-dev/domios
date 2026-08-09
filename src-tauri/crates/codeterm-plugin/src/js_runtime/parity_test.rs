@@ -1118,5 +1118,6 @@ mod no_native_fallback_recursion;
 
 mod codex;
 mod cursor;
+mod manifest_launch_template;
 mod opencode;
 mod trust_grant;
