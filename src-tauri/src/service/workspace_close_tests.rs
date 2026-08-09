@@ -395,3 +395,70 @@ fn close_team_via_service_persists_the_reduced_desk() {
         "closed Team is gone from the snapshot"
     );
 }
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
+fn chatbackend_launch_failure_rolls_back_and_persists_the_reduced_desk() {
+    use crate::service::spawn::{SpawnTabSpec, TabCommand};
+    use crate::session::store::SessionStore;
+    use tauri::Manager;
+
+    let (mux, seed_tab) = MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    let sessions_dir = fixture.temp.path().join("sessions");
+    let session: crate::session::SessionState = std::sync::Arc::new(parking_lot::Mutex::new(
+        SessionStore::for_test_dir(sessions_dir.clone()),
+    ));
+    fixture._app.manage(session.clone());
+
+    crate::service::session_persist::write_session_snapshot(
+        &fixture.service.app_handle,
+        &fixture.service.mux,
+    )
+    .unwrap();
+    // Only the rollback path's own save can bring last.json back; a rollback
+    // that skips persistence leaves the file missing and fails the test.
+    std::fs::remove_file(sessions_dir.join("last.json")).unwrap();
+    let tabs_before = fixture.service.mux.read().snapshot().tabs.len();
+
+    // Genuine failure injection through the REAL spawn path: the tab is
+    // created first, then the unknown plugin fails the chatbackend launch.
+    let spec = SpawnTabSpec {
+        command: TabCommand::ChatBackend {
+            plugin_id: "no-such-plugin".into(),
+            config: serde_json::Value::Null,
+            role: None,
+            role_profile: None,
+            can_spawn: None,
+            watcher: None,
+        },
+        ..Default::default()
+    };
+    fixture
+        .service
+        .spawn_chatbackend_impl_with_state_change(spec, true)
+        .expect_err("unknown plugin must fail the launch");
+
+    assert_eq!(
+        fixture.service.mux.read().snapshot().tabs.len(),
+        tabs_before,
+        "provisional tab rolled back from the live desk"
+    );
+    let persisted = std::fs::read_to_string(sessions_dir.join("last.json"))
+        .expect("the rollback path must persist the authorized reduction");
+    let snapshot: crate::session::store::SessionSnapshot =
+        serde_json::from_str(&persisted).unwrap();
+    let persisted_ids: Vec<String> = snapshot
+        .workspaces
+        .iter()
+        .flat_map(|ws| ws.tabs.iter().map(|tab| tab.id.clone()))
+        .collect();
+    assert_eq!(
+        persisted_ids,
+        vec![seed_tab],
+        "persisted desk holds exactly the pre-spawn tabs — no provisional tab, nothing lost"
+    );
+}
