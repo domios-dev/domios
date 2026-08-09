@@ -10,7 +10,7 @@ const MAX_BACKOFF_SECS: u64 = 30;
 const FAST_FAIL_SECS: i64 = 30;
 static RECOVERY_HEAL_PENDING: AtomicBool = AtomicBool::new(false);
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ShutdownReason {
     UserExit,
