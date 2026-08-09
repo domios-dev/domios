@@ -1,12 +1,8 @@
-//! The single owner of provisional-tab rollback. Every spawn-flow failure
-//! that removes a tab it created MUST route through one of these helpers:
-//! a concurrent or debounced save can persist the provisional tab before the
-//! rollback runs, and an unpersisted removal would later read as an
-//! unexplained reduction (refused save + resurrection on restart).
+//! Single owner of provisional-tab rollback: removal + authorized-reduction persist together.
 
 impl super::ServiceContext {
-    /// Roll back a provisional spawn tab (no closed-history record) and
-    /// persist the removal as an authorized reduction.
+    /// Roll back a provisional spawn tab (no closed-history record) and persist:
+    /// a concurrent/debounced save may already have captured it in last.json.
     pub(crate) fn rollback_provisional_tab(&self, ws_id: &str, tab_id: &str) {
         self.mux.write().rollback_spawn_tab(ws_id, tab_id);
         super::session_persist::persist_session_after_close(self);
