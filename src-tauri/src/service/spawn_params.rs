@@ -245,11 +245,11 @@ impl ServiceContext {
                 provider_id
             )),
             crate::agent::registry::ProviderStartupStatus::Unknown => {
-                let available = self.available_agent_or_shell_ids().join(", ");
-                Err(format!(
-                    "Unknown agent provider: '{}'. Available: [{}]",
-                    provider_id, available
-                ))
+                Err(super::spawn_capability::classify_unavailable_agent_provider(
+                    provider_id,
+                    self.available_agent_or_shell_ids(),
+                )
+                .into())
             }
         }
     }
