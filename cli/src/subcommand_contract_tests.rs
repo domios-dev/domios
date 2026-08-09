@@ -9,6 +9,7 @@ use crate::args::task::TaskAction;
 use clap::{CommandFactory, Parser};
 
 mod context;
+mod sessions;
 mod transport;
 mod workspace;
 

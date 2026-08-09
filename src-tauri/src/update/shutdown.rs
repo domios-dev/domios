@@ -109,14 +109,33 @@ async fn reap_owned_ptys(svc: &ServiceState) -> Result<usize, String> {
 
 pub(crate) fn persist_session(app: &tauri::AppHandle, svc: &ServiceState) -> Result<(), String> {
     let result = crate::service::session_persist::write_session_snapshot(app, &svc.mux);
-    if result.is_ok() {
+    if matches!(result, Ok(crate::session::store::SaveOutcome::Saved)) {
         let snapshot = svc.mux.read().to_session_snapshot();
         log::info!(
             "[updater] session snapshot saved ({} workspaces)",
             snapshot.workspaces.len()
         );
     }
-    result
+    shutdown_save_disposition(result)
+}
+
+/// A refused reducing save at shutdown is the guard SUCCEEDING: the fuller
+/// desk on disk stays authoritative and the next boot restores it, so the
+/// update proceeds. Only a genuine persist failure — where the state of the
+/// disk is unknown — may abort the teardown.
+fn shutdown_save_disposition(
+    result: Result<crate::session::store::SaveOutcome, String>,
+) -> Result<(), String> {
+    match result {
+        Ok(crate::session::store::SaveOutcome::Saved) => Ok(()),
+        Ok(crate::session::store::SaveOutcome::RefusedReduction(refusal)) => {
+            log::error!(
+                "[updater] shutdown snapshot {refusal}; proceeding — next boot restores the fuller persisted desk"
+            );
+            Ok(())
+        }
+        Err(error) => Err(error),
+    }
 }
 
 /// Snapshot the desk before polling `teardown` (futures are lazy), so teardown-time
@@ -220,6 +239,72 @@ mod tests {
         assert!(
             snapshot_tab_ids(&recorded).contains(&worker),
             "recorded desk must keep the pre-teardown tab set"
+        );
+    }
+
+    #[test]
+    fn reducing_snapshot_at_shutdown_proceeds_and_keeps_fuller_desk_on_disk() {
+        use crate::session::store::{SessionStore, WorkspaceSnapshot};
+
+        fn desk(workspace_ids: &[&str]) -> crate::session::store::SessionSnapshot {
+            crate::session::store::SessionSnapshot {
+                version: "test".into(),
+                timestamp: 0,
+                active_workspace_id: None,
+                teams: vec![],
+                workspaces: workspace_ids
+                    .iter()
+                    .map(|id| WorkspaceSnapshot {
+                        id: (*id).into(),
+                        name: (*id).into(),
+                        tabs: vec![],
+                        active_tab_id: None,
+                        cwd: None,
+                        protected: false,
+                        sort_order: 0,
+                    })
+                    .collect(),
+            }
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let store = SessionStore::for_test_dir(dir.path().to_path_buf());
+        store.save(&desk(&["ws_a", "ws_b", "ws_c"])).unwrap();
+
+        // The wipe scenario: shutdown persists a strict subset of the desk.
+        let outcome = store.save(&desk(&["ws_a"])).unwrap();
+        assert!(
+            shutdown_save_disposition(Ok(outcome)).is_ok(),
+            "a refused reduction must not abort the shutdown/update path"
+        );
+        let persisted = store.load_last().unwrap().expect("last.json readable");
+        assert_eq!(
+            persisted.workspaces.len(),
+            3,
+            "the fuller desk stays on disk for the next boot"
+        );
+    }
+
+    #[test]
+    fn genuine_persist_failure_at_shutdown_still_aborts() {
+        use crate::session::store::SessionStore;
+
+        let dir = tempfile::tempdir().unwrap();
+        let store = SessionStore::for_test_dir(dir.path().to_path_buf());
+        // A directory squatting on the tmp path makes the atomic write fail for
+        // real — disk state is unknown, so the teardown must not proceed.
+        std::fs::create_dir_all(dir.path().join("last.json.tmp")).unwrap();
+        let result = store.save(&crate::session::store::SessionSnapshot {
+            version: "test".into(),
+            timestamp: 0,
+            active_workspace_id: None,
+            teams: vec![],
+            workspaces: vec![],
+        });
+        let err = result.expect_err("write into a directory path must fail");
+        assert!(
+            shutdown_save_disposition(Err(err)).is_err(),
+            "an unknown-disk-state failure keeps the cancel semantics"
         );
     }
 

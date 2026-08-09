@@ -333,12 +333,24 @@ pub(crate) fn init_states() -> AppStates {
     // On failure keep the in-memory default (history just won't persist).
     match crate::multiplexer::state::ClosedTabsStore::open(&crate::paths::data_dir()) {
         Ok(store) => mux_state_inner.attach_closed_store(store),
-        Err(e) => log::warn!(
-            "[closed-history] open failed: {} — history will not persist",
+        Err(e) => log::error!(
+            "[closed-history] open failed: {} — degrading to in-memory, reopen history will NOT survive restart",
             e
         ),
     }
     let ghost_count = service::general_agent::purge_snapshot_ghosts(&mut mux_state_inner);
+    if ghost_count > 0 {
+        // The purge is a deliberate close (ghosts land in Recently Closed), so
+        // re-sync the persisted desk with explicit intent instead of tripping
+        // the non-reducing guard on the first ordinary save after boot.
+        let resync = session_state.lock().save_with_intent(
+            &mux_state_inner.to_session_snapshot(),
+            crate::session::store::SaveIntent::UserClose,
+        );
+        if let Err(error) = resync {
+            log::warn!("[restore] ghost-purge desk resync failed: {error}");
+        }
+    }
     let restored_agent_tabs = mux_state_inner
         .snapshot()
         .tabs
