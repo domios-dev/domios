@@ -42,14 +42,24 @@ pub fn session_path(plugin_id: &str, session_id: &str) -> PathBuf {
     session_dir(plugin_id).join(format!("{}.jsonl", sanitize(session_id)))
 }
 
+/// Sidecar path for the host-composed context decision record. Shares
+/// `session_dir` and `sanitize`, so a plugin-chosen id still cannot escape it.
+pub fn context_sidecar_path(plugin_id: &str, session_id: &str) -> PathBuf {
+    session_dir(plugin_id).join(format!("{}.context.jsonl", sanitize(session_id)))
+}
+
 /// Read the persisted transcript (durable truth), skipping the `_meta` header.
 /// Missing / unreadable file ⇒ empty. Unparseable lines (e.g. a half-written
 /// final line after a crash) are skipped, never fatal.
 pub fn read_messages(path: &Path) -> Vec<ChatMsg> {
-    let Ok(content) = std::fs::read_to_string(path) else {
-        return Vec::new();
-    };
-    content
+    try_read_messages(path).unwrap_or_default()
+}
+
+/// Like [`read_messages`], but keeps the read error so a caller that must not
+/// degrade silently can tell "no transcript yet" from "transcript unreadable".
+pub fn try_read_messages(path: &Path) -> std::io::Result<Vec<ChatMsg>> {
+    let content = std::fs::read_to_string(path)?;
+    Ok(content
         .lines()
         .filter_map(|line| {
             let line = line.trim();
@@ -58,7 +68,7 @@ pub fn read_messages(path: &Path) -> Vec<ChatMsg> {
             }
             serde_json::from_str::<ChatMsg>(line).ok()
         })
-        .collect()
+        .collect())
 }
 
 /// Read the persisted openSession config from the `_meta` header line.

@@ -104,6 +104,13 @@ pub trait ChatBackendProvider: Send + Sync {
         ContextOwner::Plugin
     }
 
+    /// Whether this backend actually implements [`send_turn`](Self::send_turn).
+    /// Declaring host ownership without it is refused at session open rather
+    /// than downgraded to `send_message` at send time.
+    fn supports_send_turn(&self) -> bool {
+        false
+    }
+
     /// Deliver one host-composed turn. Optional — a backend that does not own
     /// host context refuses, so it can never be silently routed into this path.
     fn send_turn(&self, session_id: &str, turn: HostTurn) -> Result<(), ChatBackendError> {
