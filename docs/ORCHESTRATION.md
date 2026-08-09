@@ -82,11 +82,27 @@ competition is unchanged.
 
 When a Worker's tab is gone, its owner epoch is stale by definition — so the
 epoch is not allowed to block recovery. The **live authenticated Plan owner**
-may `cancel`, `pend`, reassign, or respawn such a task. That recovery retires
+may `cancel`, `pend`, reassign, respawn, **dispatch, pause, or resume** such a
+task — every verb that actually meets the tab-gone state. That recovery retires
 the stale attempt in the *same* transition that clears the dead owner identity,
 so no half-applied state is observable and a `dispatch_ready` arriving later for
 the retired attempt is rejected instead of resurrecting ownership. The widening
 is for the Plan owner only: a non-owner, non-epoch caller is still refused.
+
+Plan ownership itself is proven against the caller's **live tab binding** —
+tab present, agent session live, binding nonce both stored and reported back,
+and that tab recorded as the plan's owner with Team-Orchestrator authority. It
+is never proven from the owner record's `session_id`, which only the agent
+restart path refreshes; an Orchestrator whose session moved by restore,
+compaction, or provider relaunch stays its own plan's owner.
+
+Both Plan-owner paths are gated on **closed verb allowlists**: recovery verbs
+are a subset of the verbs where the Plan owner has authority over a task it does
+not itself hold. A verb that asserts the *caller's own* task binding — a Worker
+report — is on neither list, so it is validated only against that binding and
+can never ride the recovery hatch to transition a task the caller is not bound
+to. Refusals carry a stable `data.type` discriminant naming the state that
+blocked them, so a tab-gone task is never reported as a stale epoch.
 
 Archiving a plan with no retrospective **succeeds** and emits the advisory
 `plan.retrospective_unrecorded`, recording durable incident evidence on the plan.
@@ -237,4 +253,4 @@ immutable plan stride.
 ## Related documents
 
 Verification, integration, heartbeat, and closeout: `codeterm docs ORCHESTRATION-OPERATIONS`.
-<!-- revision: 63 -->
+<!-- revision: 64 -->
