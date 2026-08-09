@@ -282,19 +282,31 @@ fn handle_pty_death(svc: &ServiceState, pty_id: &str, generation: u64) {
     handle_pty_death_with_cause(svc, pty_id, generation, crate::crash::shutdown::active_shutdown());
 }
 
+/// Typed result of a PTY-death sweep so suppression, branch refusal, and a
+/// completed prune are distinguishable instead of collapsing into silence.
+#[derive(Debug, PartialEq, Eq)]
+enum PtyDeathOutcome {
+    StaleEof,
+    PreservedForShutdown,
+    NoOwningTab,
+    NotRoleBearing,
+    Pruned,
+    PruneRefused(String),
+}
+
 fn handle_pty_death_with_cause(
     svc: &super::ServiceContext,
     pty_id: &str,
     generation: u64,
     shutdown: Option<crate::crash::lifecycle::ShutdownReason>,
-) {
+) -> PtyDeathOutcome {
     if !handle_pty_screen_death(&svc.pty, &svc.screen_state, pty_id, generation) {
         log::debug!(
             "[backend-reader] ignoring stale EOF for pty {} generation {}",
             &pty_id[..pty_id.len().min(8)],
             generation
         );
-        return;
+        return PtyDeathOutcome::StaleEof;
     }
     crate::service::orchestrator::record_reader_termination(svc, pty_id);
     let tab_id = svc.mux.read().tab_id_for_pty(pty_id);
@@ -312,10 +324,13 @@ fn handle_pty_death_with_cause(
             shutdown,
             tab_id.as_deref().unwrap_or("unknown")
         );
-        return;
+        return PtyDeathOutcome::PreservedForShutdown;
     }
 
-    if let Some(ref pid) = tab_id {
+    let Some(ref pid) = tab_id else {
+        return PtyDeathOutcome::NoOwningTab;
+    };
+    {
         svc.clear_tab_agent_identity_for_lifecycle_exit(pid);
         svc.flag_bound_tasks_for_gone_tab(pid, epoch_ms());
         let prev = svc.reconciled_tab_status_for_id(pid, raw_prev);
@@ -392,17 +407,20 @@ fn handle_pty_death_with_cause(
                 _ => None,
             })
             .map(str::to_string);
-        if let Some(role_label) = leaf_role {
-            if let Err(e) = svc.close_tab(pid) {
-                log::warn!(
-                    "[{}-death] prune of dead {} {} failed: {}",
-                    role_label,
-                    role_label,
-                    pid,
-                    e
-                );
-            }
+        let Some(role_label) = leaf_role else {
+            return PtyDeathOutcome::NotRoleBearing;
+        };
+        if let Err(e) = svc.close_tab(pid) {
+            log::warn!(
+                "[{}-death] prune of dead {} {} failed: {}",
+                role_label,
+                role_label,
+                pid,
+                e
+            );
+            return PtyDeathOutcome::PruneRefused(e);
         }
+        PtyDeathOutcome::Pruned
     }
 }
 
@@ -679,7 +697,10 @@ mod tests {
                     .expect("attach role tab");
             }
         }
-        mux.get_tab_mut(&tab).unwrap().pty_id = Some(ROLE_PTY.to_string());
+        // Bind through the real API so `pty_to_tab` resolves the death to this tab —
+        // a raw `tab.pty_id` write leaves the index empty and the sweep finds no owner.
+        assert_eq!(mux.link_pty(&tab, ROLE_PTY.to_string()), None);
+        assert_eq!(mux.tab_id_for_pty(ROLE_PTY), Some(tab.clone()));
         let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
         let generation = {
             let (_, session) = fixture
@@ -701,7 +722,17 @@ mod tests {
     fn assert_shutdown_death_preserves_role_tabs(cause: ShutdownReason) {
         for role in [AgentRole::Worker, AgentRole::Manager] {
             let (fixture, tab, generation) = role_pty_fixture(role);
-            super::handle_pty_death_with_cause(&fixture.service, ROLE_PTY, generation, Some(cause));
+            let outcome = super::handle_pty_death_with_cause(
+                &fixture.service,
+                ROLE_PTY,
+                generation,
+                Some(cause),
+            );
+            assert_eq!(
+                outcome,
+                super::PtyDeathOutcome::PreservedForShutdown,
+                "{role:?} death during {cause:?} shutdown must take the suppression branch"
+            );
             assert!(
                 fixture.service.mux.read().get_tab(&tab).is_some(),
                 "{role:?} tab must survive a {cause:?} shutdown PTY death"
@@ -754,7 +785,13 @@ mod tests {
     fn in_session_agent_death_without_shutdown_still_prunes_role_tabs() {
         for role in [AgentRole::Worker, AgentRole::Manager] {
             let (fixture, tab, generation) = role_pty_fixture(role);
-            super::handle_pty_death_with_cause(&fixture.service, ROLE_PTY, generation, None);
+            let outcome =
+                super::handle_pty_death_with_cause(&fixture.service, ROLE_PTY, generation, None);
+            assert_eq!(
+                outcome,
+                super::PtyDeathOutcome::Pruned,
+                "{role:?} death with no shutdown armed must reach and complete the prune branch"
+            );
             assert!(
                 fixture.service.mux.read().get_tab(&tab).is_none(),
                 "{role:?} tab must still be pruned when the agent dies in-session"
