@@ -272,12 +272,9 @@ verbatim, and the descriptor's `supports_stop` is derived from its presence
 `parity_test.rs::supports_stop_matches_stop_keystroke`). All four bundled
 provider manifests — claude, codex, opencode, **and cursor** — declare Esc
 (`"\u001b"`). Cursor has no native Rust provider, so its manifest is the sole
-operative source: no code path sends Ctrl+C to any bundled provider.
-
-(Prose in the `AgentProvider` trait doc and the CLI help still claims
-cursor-agent listens for Ctrl+C; that claim has no recorded live verification
-and is contradicted by what the code actually sends. Tracked as a follow-up —
-do not copy it.)
+operative source: no code path sends Ctrl+C to any bundled provider. The
+`AgentProvider` trait doc and the CLI help state the mechanism — the
+provider's declared stopKey — not a per-provider key table.
 
 ## Fixture capture — the codex pattern
 
@@ -322,4 +319,4 @@ The honest seam, in three parts:
 No machinery bridges these tiers (no Rust-free parity runner, no WASM QuickJS
 harness); the promotion-time boundary is the cheap, honest seam.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->
