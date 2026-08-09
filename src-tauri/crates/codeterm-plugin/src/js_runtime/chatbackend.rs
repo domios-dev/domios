@@ -226,6 +226,10 @@ impl ChatBackendProvider for JsChatBackend {
         self.context_owner
     }
 
+    fn supports_send_turn(&self) -> bool {
+        super::vm::has_method(&self.vm, "sendTurn")
+    }
+
     fn send_turn(&self, session_id: &str, turn: HostTurn) -> Result<(), ChatBackendError> {
         let _guard = self.exec_env_scope(session_id);
         let turn = serde_json::to_value(&turn)
