@@ -224,6 +224,9 @@ impl ServiceContext {
                 now_ms(),
             )?
         };
+        // Persist the authorized reduction before any fallible cleanup can
+        // early-return and leave last.json still holding the member tabs.
+        crate::service::session_persist::persist_session_after_close(self);
         for plan_id in changed_plan_ids {
             self.emit_plan_changed(&plan_id);
         }

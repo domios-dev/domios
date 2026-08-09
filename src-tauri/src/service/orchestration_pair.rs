@@ -505,6 +505,9 @@ impl ServiceContext {
                     let _ = mux.close_tab(&reserved.planner_tab_id);
                     release_minted_pair_team(&mut mux, &reserved);
                 }
+                // A concurrent save during the async spawn may have persisted
+                // the reserved planner; record its rollback as authorized.
+                crate::service::session_persist::persist_session_after_close(self);
                 self.emit_state_changed();
                 return Err(format!(
                     "Failed to spawn Orchestrator ({error}); no plan was created. Retry with: {pair_fix_command}"

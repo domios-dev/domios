@@ -339,18 +339,6 @@ pub(crate) fn init_states() -> AppStates {
         ),
     }
     let ghost_count = service::general_agent::purge_snapshot_ghosts(&mut mux_state_inner);
-    if ghost_count > 0 {
-        // The purge is a deliberate close (ghosts land in Recently Closed), so
-        // re-sync the persisted desk with explicit intent instead of tripping
-        // the non-reducing guard on the first ordinary save after boot.
-        let resync = session_state.lock().save_with_intent(
-            &mux_state_inner.to_session_snapshot(),
-            crate::session::store::SaveIntent::UserClose,
-        );
-        if let Err(error) = resync {
-            log::warn!("[restore] ghost-purge desk resync failed: {error}");
-        }
-    }
     let restored_agent_tabs = mux_state_inner
         .snapshot()
         .tabs
@@ -394,6 +382,7 @@ pub(crate) fn init_states() -> AppStates {
         let restored_pane_ids = restored_agent_pane_ids(&mux_state_inner);
         crate::crash::restore_report::record(&agent_panes_at_shutdown, &restored_pane_ids);
     }
+    let mut duplicate_generals_closed = 0usize;
     if general_config.enabled {
         service::general_agent::ensure_directories();
         let mut general_config = general_config;
@@ -411,9 +400,21 @@ pub(crate) fn init_states() -> AppStates {
         }
         if general_config.first_run_complete {
             service::general_agent::generate_instructions(&general_config.agent_provider, None);
-            service::general_agent::ensure_general_workspace(&mut mux_state_inner, false);
+            duplicate_generals_closed =
+                service::general_agent::ensure_general_workspace(&mut mux_state_inner, false);
         } else {
             service::general_agent::ensure_first_run_tab(&mut mux_state_inner);
+        }
+    }
+    if ghost_count + duplicate_generals_closed > 0 {
+        // Deliberate boot cleanups re-sync with intent; kept conditional so an
+        // unexplained load-time loss still hits the non-reducing guard.
+        let resync = session_state.lock().save_with_intent(
+            &mux_state_inner.to_session_snapshot(),
+            crate::session::store::SaveIntent::AuthorizedReduction,
+        );
+        if let Err(error) = resync {
+            log::warn!("[restore] boot cleanup desk resync failed: {error}");
         }
     }
 

@@ -322,15 +322,15 @@ fn reducing_save_is_refused_quarantined_and_last_json_stays_intact() {
 }
 
 #[test]
-fn user_close_intent_allows_reducing_save() {
+fn authorized_reduction_intent_allows_reducing_save() {
     let (store, _dir) = fresh_store();
     store
         .save(&desk(&[("ws_a", &["t1", "t2"]), ("ws_b", &["t3"])]))
         .unwrap();
 
     let outcome = store
-        .save_with_intent(&desk(&[("ws_a", &["t1"])]), SaveIntent::UserClose)
-        .expect("user close may reduce");
+        .save_with_intent(&desk(&[("ws_a", &["t1"])]), SaveIntent::AuthorizedReduction)
+        .expect("an authorized reduction may shrink the desk");
     assert!(matches!(outcome, SaveOutcome::Saved));
     let persisted = store.load_last().unwrap().unwrap();
     assert_eq!(persisted.workspaces.len(), 1);
