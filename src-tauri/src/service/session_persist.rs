@@ -5,6 +5,7 @@ use std::time::Duration;
 use tauri::Manager;
 
 use crate::multiplexer::commands::MuxState;
+use crate::session::store::SaveIntent;
 use crate::session::SessionState;
 
 /// Focus/order mutations coalesce to this window; renames flush immediately.
@@ -17,6 +18,14 @@ pub(crate) enum SessionPersistUrgency {
 }
 
 pub(crate) fn write_session_snapshot(app: &tauri::AppHandle, mux: &MuxState) -> Result<(), String> {
+    write_session_snapshot_with_intent(app, mux, SaveIntent::PreserveDesk)
+}
+
+pub(crate) fn write_session_snapshot_with_intent(
+    app: &tauri::AppHandle,
+    mux: &MuxState,
+    intent: SaveIntent,
+) -> Result<(), String> {
     let session = app
         .try_state::<SessionState>()
         .ok_or_else(|| "SessionState not registered".to_string())?
@@ -25,9 +34,22 @@ pub(crate) fn write_session_snapshot(app: &tauri::AppHandle, mux: &MuxState) -> 
     let snapshot = mux.read().to_session_snapshot();
     let save_result = {
         let store = session.lock();
-        store.save(&snapshot)
+        store.save_with_intent(&snapshot, intent)
     };
     save_result.map_err(|e| format!("save session: {}", e))
+}
+
+/// Prompt save after an explicit close verb — the one path allowed to shrink
+/// the persisted desk. The close already happened; a failed save must not
+/// retroactively fail the verb, so callers log instead of propagating.
+pub(crate) fn persist_session_after_close(svc: &super::ServiceContext) {
+    if let Err(error) = write_session_snapshot_with_intent(
+        &svc.app_handle,
+        &svc.mux,
+        SaveIntent::UserClose,
+    ) {
+        log::warn!("[session-persist] post-close save failed: {}", error);
+    }
 }
 
 pub(crate) fn persist_session_after_mutation(
