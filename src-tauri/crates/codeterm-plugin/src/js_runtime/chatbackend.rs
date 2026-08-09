@@ -12,9 +12,10 @@ use serde_json::json;
 use super::vm::{call_json, PluginVm, VmError};
 use super::PluginManifest;
 use crate::chatbackend_provider::{
-    ChatBackendError, ChatBackendProvider, ChatSessionInfo, PresetInfo,
+    ChatBackendError, ChatBackendProvider, ChatSessionInfo, HostTurn, PresetInfo,
+    CONTEXT_OWNER_UNSUPPORTED,
 };
-use crate::provider::ModelInfo;
+use crate::provider::{ContextOwner, ModelInfo};
 use codeterm_types::agent::chat_types::{ChatMsg, StructuredChat};
 
 pub struct JsChatBackend {
@@ -28,6 +29,7 @@ pub struct JsChatBackend {
     spawnable: bool,
     watcher_capable: bool,
     session_config: bool,
+    context_owner: ContextOwner,
     session_exec_env: parking_lot::Mutex<HashMap<String, HashMap<String, String>>>,
 }
 
@@ -44,6 +46,7 @@ impl JsChatBackend {
             spawnable: false,
             watcher_capable: false,
             session_config: false,
+            context_owner: ContextOwner::Plugin,
             session_exec_env: parking_lot::Mutex::new(HashMap::new()),
         }
     }
@@ -59,6 +62,7 @@ impl JsChatBackend {
             spawnable: manifest.capabilities.chat_backend_spawnable(),
             watcher_capable: manifest.capabilities.chat_backend_watcher_capable(),
             session_config: manifest.capabilities.chat_backend.session_config(),
+            context_owner: manifest.capabilities.chat_backend.context_owner(),
             session_exec_env: parking_lot::Mutex::new(HashMap::new()),
         }
     }
@@ -216,6 +220,26 @@ impl ChatBackendProvider for JsChatBackend {
         call_json::<serde_json::Value>(&self.vm, "sendMessage", &[json!(session_id), json!(text)])
             .map_err(|e| map_err("sendMessage", e))?;
         Ok(())
+    }
+
+    fn context_owner(&self) -> ContextOwner {
+        self.context_owner
+    }
+
+    fn send_turn(&self, session_id: &str, turn: HostTurn) -> Result<(), ChatBackendError> {
+        let _guard = self.exec_env_scope(session_id);
+        let turn = serde_json::to_value(&turn)
+            .map_err(|e| ChatBackendError::Call(format!("sendTurn payload failed: {e}")))?;
+        match call_json::<serde_json::Value>(&self.vm, "sendTurn", &[json!(session_id), turn]) {
+            Ok(_) => Ok(()),
+            Err(VmError::MissingFunction(_)) => {
+                Err(ChatBackendError::Call(CONTEXT_OWNER_UNSUPPORTED.into()))
+            }
+            Err(VmError::Script(msg)) if msg.contains("not a function") => {
+                Err(ChatBackendError::Call(CONTEXT_OWNER_UNSUPPORTED.into()))
+            }
+            Err(e) => Err(map_err("sendTurn", e)),
+        }
     }
 
     fn pump(&self, session_id: &str) -> Result<(), ChatBackendError> {
@@ -659,6 +683,81 @@ mod tests {
         assert!(err
             .to_string()
             .contains("this chatBackend does not support watcher mode"));
+    }
+
+    #[test]
+    fn send_turn_forwards_session_and_composed_turn() {
+        let vm = vm_with(
+            r#"let last = "";
+               module.exports.default = {
+                 sendTurn(sid, turn) { last = JSON.stringify({ sid, turn }); },
+                 poll() { return [{ id: "1", type: "assistant", content: last }]; }
+               }"#,
+        );
+        let b = JsChatBackend::new(vm, "local-shell");
+        let turn = HostTurn {
+            system: "role brief".into(),
+            groups: vec![crate::chatbackend_provider::TurnGroup {
+                entries: vec![ChatMsg {
+                    id: "entry-1".into(),
+                    kind: "user".into(),
+                    content: "hello".into(),
+                    ..ChatMsg::default()
+                }],
+            }],
+        };
+
+        b.send_turn("turn-1", turn.clone()).unwrap();
+        let msgs = b.poll("turn-1", None).unwrap().messages;
+        let forwarded: serde_json::Value = serde_json::from_str(&msgs[0].content).unwrap();
+
+        assert_eq!(
+            forwarded,
+            json!({ "sid": "turn-1", "turn": serde_json::to_value(&turn).unwrap() }),
+            "the adapter must hand the composed turn over unmodified"
+        );
+    }
+
+    #[test]
+    fn send_turn_missing_export_errors_unsupported() {
+        let vm = vm_with(r#"module.exports.default = { poll() { return []; } }"#);
+        let b = JsChatBackend::new(vm, "local-shell");
+        let err = b.send_turn("s1", HostTurn::default()).unwrap_err();
+
+        assert!(err.to_string().contains(CONTEXT_OWNER_UNSUPPORTED));
+    }
+
+    #[test]
+    fn context_owner_comes_from_manifest_key() {
+        let manifest: PluginManifest = serde_json::from_str(
+            r#"{
+                "id": "context-owner-fixture",
+                "version": "0.1.0",
+                "displayName": "Context Owner Fixture",
+                "capabilities": { "chatBackend": { "contextOwner": "host" } }
+            }"#,
+        )
+        .unwrap();
+        let b = JsChatBackend::from_manifest(vm_with("module.exports.default = {}"), &manifest);
+
+        assert_eq!(b.context_owner(), ContextOwner::Host);
+        assert_eq!(b.describe().context_owner, ContextOwner::Host);
+    }
+
+    #[test]
+    fn context_owner_absent_manifest_key_is_plugin() {
+        let manifest: PluginManifest = serde_json::from_str(
+            r#"{
+                "id": "context-owner-absent-fixture",
+                "version": "0.1.0",
+                "displayName": "Context Owner Absent Fixture",
+                "capabilities": { "chatBackend": { "spawnable": true } }
+            }"#,
+        )
+        .unwrap();
+        let b = JsChatBackend::from_manifest(vm_with("module.exports.default = {}"), &manifest);
+
+        assert_eq!(b.context_owner(), ContextOwner::Plugin);
     }
 
     #[test]

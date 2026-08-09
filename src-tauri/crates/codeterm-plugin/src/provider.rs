@@ -411,6 +411,11 @@ pub struct ProviderDescriptor {
     pub presets: Vec<crate::chatbackend_provider::PresetInfo>,
     /// How a system prompt reaches the provider.
     pub system_prompt_delivery: SystemPromptDelivery,
+    /// Who composes this provider's conversational context. Skipped on the wire
+    /// while `Plugin`, so a provider that never declares it serializes exactly
+    /// as it did before the field existed.
+    #[serde(default, skip_serializing_if = "ContextOwner::is_plugin")]
+    pub context_owner: ContextOwner,
 }
 
 /// Current `ProviderDescriptor` schema version. Bump on breaking change.
@@ -1061,6 +1066,7 @@ pub trait AgentProvider: Send + Sync {
             behavior_config: self.behavior_config(),
             presets: Vec::new(),
             system_prompt_delivery: self.system_prompt_delivery(),
+            context_owner: ContextOwner::Plugin,
         }
     }
 
