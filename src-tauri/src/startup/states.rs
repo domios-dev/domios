@@ -339,6 +339,18 @@ pub(crate) fn init_states() -> AppStates {
         ),
     }
     let ghost_count = service::general_agent::purge_snapshot_ghosts(&mut mux_state_inner);
+    if ghost_count > 0 {
+        // The purge is a deliberate close (ghosts land in Recently Closed), so
+        // re-sync the persisted desk with explicit intent instead of tripping
+        // the non-reducing guard on the first ordinary save after boot.
+        let resync = session_state.lock().save_with_intent(
+            &mux_state_inner.to_session_snapshot(),
+            crate::session::store::SaveIntent::UserClose,
+        );
+        if let Err(error) = resync {
+            log::warn!("[restore] ghost-purge desk resync failed: {error}");
+        }
+    }
     let restored_agent_tabs = mux_state_inner
         .snapshot()
         .tabs

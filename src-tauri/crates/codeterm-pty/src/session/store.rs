@@ -223,6 +223,34 @@ pub enum SaveIntent {
     UserClose,
 }
 
+/// A refused reducing save. The fuller desk on disk stayed authoritative —
+/// this is the guard succeeding, not the save failing.
+#[derive(Debug, Clone)]
+pub struct ReductionRefusal {
+    pub dropped_workspaces: usize,
+    pub dropped_tabs: usize,
+    pub quarantine: String,
+}
+
+impl std::fmt::Display for ReductionRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "refused reducing session save without user-close intent: would drop \
+             {} workspace(s) and {} tab(s); rejected snapshot kept at {}",
+            self.dropped_workspaces, self.dropped_tabs, self.quarantine
+        )
+    }
+}
+
+/// How a save ended. `Err` is reserved for genuine failures (I/O,
+/// serialization) where the state of the disk is unknown.
+#[derive(Debug, Clone)]
+pub enum SaveOutcome {
+    Saved,
+    RefusedReduction(ReductionRefusal),
+}
+
 /// One entry of `backups/` — a previously persisted full-desk snapshot.
 #[derive(Debug, Clone, Serialize)]
 pub struct SessionBackupInfo {
@@ -249,7 +277,7 @@ impl SessionStore {
         Self { session_dir: dir }
     }
 
-    pub fn save(&self, snapshot: &SessionSnapshot) -> Result<(), String> {
+    pub fn save(&self, snapshot: &SessionSnapshot) -> Result<SaveOutcome, String> {
         self.save_with_intent(snapshot, SaveIntent::PreserveDesk)
     }
 
@@ -257,9 +285,11 @@ impl SessionStore {
         &self,
         snapshot: &SessionSnapshot,
         intent: SaveIntent,
-    ) -> Result<(), String> {
+    ) -> Result<SaveOutcome, String> {
         if intent == SaveIntent::PreserveDesk {
-            self.refuse_reducing_snapshot(snapshot)?;
+            if let Some(refusal) = self.detect_reducing_snapshot(snapshot) {
+                return Ok(SaveOutcome::RefusedReduction(refusal));
+            }
         }
         self.merge_agent_session_identities(snapshot)?;
         let path = self.session_dir.join("last.json");
@@ -271,20 +301,22 @@ impl SessionStore {
         // Atomic write: tmp file then rename. fs::write directly into last.json is NOT crash-safe — a kill mid-write (Windows reboot, OOM, BSOD)
         // truncates the live file and the next boot loses every workspace.
         fs::write(&tmp, json.as_bytes()).map_err(|e| format!("write {}: {}", tmp.display(), e))?;
-        fs::rename(&tmp, &path).map_err(|e| format!("rename → {}: {}", path.display(), e))
+        fs::rename(&tmp, &path).map_err(|e| format!("rename → {}: {}", path.display(), e))?;
+        Ok(SaveOutcome::Saved)
     }
 
-    /// Err when `snapshot` drops workspaces/tabs vs the persisted `last.json`.
-    /// The rejected snapshot is quarantined next to it for forensics.
-    fn refuse_reducing_snapshot(&self, snapshot: &SessionSnapshot) -> Result<(), String> {
+    /// Some(refusal) when `snapshot` drops workspaces/tabs vs the persisted
+    /// `last.json`; the rejected snapshot is quarantined next to it and the
+    /// refusal logged at error before returning.
+    fn detect_reducing_snapshot(&self, snapshot: &SessionSnapshot) -> Option<ReductionRefusal> {
         let path = self.session_dir.join("last.json");
         let Ok(json) = fs::read_to_string(&path) else {
-            return Ok(());
+            return None;
         };
         // A corrupt persisted snapshot can't anchor a comparison; the new save
         // is strictly better than an unreadable file.
         let Ok(persisted) = parse_session_snapshot(&json, &path) else {
-            return Ok(());
+            return None;
         };
 
         let new_workspace_ids: std::collections::HashSet<&str> = snapshot
@@ -310,18 +342,16 @@ impl SessionStore {
             .filter(|tab| !new_tab_ids.contains(tab.id.as_str()))
             .count();
         if dropped_workspaces == 0 && dropped_tabs == 0 {
-            return Ok(());
+            return None;
         }
 
-        let quarantine = self.quarantine_reduced_snapshot(snapshot);
-        let message = format!(
-            "REFUSED reducing session save without user-close intent: would drop \
-             {dropped_workspaces} workspace(s) and {dropped_tabs} tab(s) vs {}; \
-             rejected snapshot kept at {quarantine}",
-            path.display()
-        );
-        log::error!("[session] {message}");
-        Err(message)
+        let refusal = ReductionRefusal {
+            dropped_workspaces,
+            dropped_tabs,
+            quarantine: self.quarantine_reduced_snapshot(snapshot),
+        };
+        log::error!("[session] REFUSED: {refusal} (persisted desk {} stays authoritative)", path.display());
+        Some(refusal)
     }
 
     fn quarantine_reduced_snapshot(&self, snapshot: &SessionSnapshot) -> String {
