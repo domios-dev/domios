@@ -33,10 +33,12 @@ pub fn apply_general_chat_view_default(
 /// Ensure General workspace + tab exist in MultiplexerState.
 /// Called BEFORE mux is wrapped in Arc<Mutex<>> — no locking needed.
 /// This avoids the deadlock that occurs when creating workspace from a background thread.
+/// Returns how many duplicate protected workspaces were closed — a deliberate
+/// reduction the caller must persist with authorized-reduction intent.
 pub fn ensure_general_workspace(
     mux: &mut crate::multiplexer::state::MultiplexerState,
     default_chat_view: bool,
-) {
+) -> usize {
     let general_cwd = general_dir().to_string_lossy().to_string();
 
     let protected_ws: Vec<_> = mux
@@ -46,10 +48,13 @@ pub fn ensure_general_workspace(
         .cloned()
         .collect();
 
+    let mut duplicates_closed = 0usize;
     if protected_ws.len() > 1 {
         for ws in &protected_ws[1..] {
             mux.set_workspace_protected(&ws.id, false);
-            let _ = mux.close_workspace(&ws.id);
+            if mux.close_workspace(&ws.id).is_ok() {
+                duplicates_closed += 1;
+            }
             log::info!(
                 "[general-agent] Cleaned up duplicate protected workspace {}",
                 ws.id
@@ -109,7 +114,7 @@ pub fn ensure_general_workspace(
                 pid
             );
         }
-        return;
+        return duplicates_closed;
     }
 
     let ws_info = mux.create_workspace(
@@ -144,6 +149,7 @@ pub fn ensure_general_workspace(
             log::error!("[general-agent] Failed to create General tab: {}", e);
         }
     }
+    duplicates_closed
 }
 
 #[cfg(test)]

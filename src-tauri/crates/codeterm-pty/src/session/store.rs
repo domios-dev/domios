@@ -215,12 +215,13 @@ const MAX_BACKUPS: usize = 200;
 const MAX_REDUCED_QUARANTINE: usize = 20;
 
 /// Whether a snapshot that drops workspaces/tabs vs the persisted state may be
-/// written. Only an explicit close verb may reduce; every other save path must
-/// refuse, so a wrongly-pruned in-memory state can never destroy the desk on disk.
+/// written. Only a deliberate removal (user/policy close verb, startup cleanup
+/// of known-ephemeral tabs) may reduce; every other save path must refuse, so
+/// a wrongly-pruned in-memory state can never destroy the desk on disk.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SaveIntent {
     PreserveDesk,
-    UserClose,
+    AuthorizedReduction,
 }
 
 /// A refused reducing save. The fuller desk on disk stayed authoritative —
@@ -236,7 +237,7 @@ impl std::fmt::Display for ReductionRefusal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "refused reducing session save without user-close intent: would drop \
+            "refused reducing session save without authorized-reduction intent: would drop \
              {} workspace(s) and {} tab(s); rejected snapshot kept at {}",
             self.dropped_workspaces, self.dropped_tabs, self.quarantine
         )

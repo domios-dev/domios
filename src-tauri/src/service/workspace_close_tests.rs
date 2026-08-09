@@ -325,3 +325,140 @@ fn workspace_close_finishes_after_a_pre_teardown_error() {
     assert_eq!(view.len(), 2);
     assert_eq!(view[0].group_id, view[1].group_id);
 }
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
+fn close_team_via_service_persists_the_reduced_desk() {
+    use crate::service::TeamMutationCaller;
+    use crate::session::store::SessionStore;
+    use tauri::Manager;
+
+    let (mut mux, orchestrator) = MultiplexerState::new();
+    let team_id = mux
+        .resolve_or_mint_team_for_parent(&orchestrator)
+        .unwrap()
+        .team_id;
+    let workspace_id = mux.find_workspace_for_tab(&orchestrator).unwrap();
+    let worker = mux.create_tab(&workspace_id).unwrap();
+    mux.set_tab_role(
+        &worker,
+        crate::multiplexer::types::AgentRole::Worker,
+        Some(&orchestrator),
+    )
+    .unwrap();
+    let bystander = mux.create_tab(&workspace_id).unwrap();
+
+    let fixture = ServiceFixture::new(mux);
+    let session: crate::session::SessionState = std::sync::Arc::new(parking_lot::Mutex::new(
+        SessionStore::for_test_dir(fixture.temp.path().join("sessions")),
+    ));
+    fixture._app.manage(session.clone());
+
+    crate::service::session_persist::write_session_snapshot(
+        &fixture.service.app_handle,
+        &fixture.service.mux,
+    )
+    .unwrap();
+    let persisted_ids = |snapshot: &crate::session::store::SessionSnapshot| -> Vec<String> {
+        snapshot
+            .workspaces
+            .iter()
+            .flat_map(|ws| ws.tabs.iter().map(|tab| tab.id.clone()))
+            .collect()
+    };
+    let before = session.lock().load_last().unwrap().expect("desk persisted");
+    let before_ids = persisted_ids(&before);
+    assert!(before_ids.contains(&orchestrator), "team desk on disk first");
+    assert!(before_ids.contains(&worker));
+
+    // The REAL service boundary, not the close_team_with_state_change helper.
+    fixture
+        .service
+        .close_team(&team_id, TeamMutationCaller::Human)
+        .unwrap();
+
+    let after = session.lock().load_last().unwrap().expect("desk re-persisted");
+    let after_ids = persisted_ids(&after);
+    assert!(
+        !after_ids.contains(&orchestrator) && !after_ids.contains(&worker),
+        "closed Team members must not survive in last.json to resurrect on restart"
+    );
+    assert!(
+        after_ids.contains(&bystander),
+        "non-member tab stays persisted"
+    );
+    assert!(
+        after.teams.iter().all(|team| team.id != team_id),
+        "closed Team is gone from the snapshot"
+    );
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
+fn chatbackend_launch_failure_rolls_back_and_persists_the_reduced_desk() {
+    use crate::service::spawn::{SpawnTabSpec, TabCommand};
+    use crate::session::store::SessionStore;
+    use tauri::Manager;
+
+    let (mux, seed_tab) = MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    let sessions_dir = fixture.temp.path().join("sessions");
+    let session: crate::session::SessionState = std::sync::Arc::new(parking_lot::Mutex::new(
+        SessionStore::for_test_dir(sessions_dir.clone()),
+    ));
+    fixture._app.manage(session.clone());
+
+    crate::service::session_persist::write_session_snapshot(
+        &fixture.service.app_handle,
+        &fixture.service.mux,
+    )
+    .unwrap();
+    // Only the rollback path's own save can bring last.json back; a rollback
+    // that skips persistence leaves the file missing and fails the test.
+    std::fs::remove_file(sessions_dir.join("last.json")).unwrap();
+    let tabs_before = fixture.service.mux.read().snapshot().tabs.len();
+
+    // Genuine failure injection through the REAL spawn path: the tab is
+    // created first, then the unknown plugin fails the chatbackend launch.
+    let spec = SpawnTabSpec {
+        command: TabCommand::ChatBackend {
+            plugin_id: "no-such-plugin".into(),
+            config: serde_json::Value::Null,
+            role: None,
+            role_profile: None,
+            can_spawn: None,
+            watcher: None,
+        },
+        ..Default::default()
+    };
+    fixture
+        .service
+        .spawn_chatbackend_impl_with_state_change(spec, true)
+        .expect_err("unknown plugin must fail the launch");
+
+    assert_eq!(
+        fixture.service.mux.read().snapshot().tabs.len(),
+        tabs_before,
+        "provisional tab rolled back from the live desk"
+    );
+    let persisted = std::fs::read_to_string(sessions_dir.join("last.json"))
+        .expect("the rollback path must persist the authorized reduction");
+    let snapshot: crate::session::store::SessionSnapshot =
+        serde_json::from_str(&persisted).unwrap();
+    let persisted_ids: Vec<String> = snapshot
+        .workspaces
+        .iter()
+        .flat_map(|ws| ws.tabs.iter().map(|tab| tab.id.clone()))
+        .collect();
+    assert_eq!(
+        persisted_ids,
+        vec![seed_tab],
+        "persisted desk holds exactly the pre-spawn tabs — no provisional tab, nothing lost"
+    );
+}
