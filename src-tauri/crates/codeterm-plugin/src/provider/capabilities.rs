@@ -33,6 +33,29 @@ pub enum SystemPromptDelivery {
     External,
 }
 
+/// Who composes the conversational context a backend sends: the provider itself
+/// (native, today's behaviour everywhere) or the host, which hands over a turn
+/// it composed and recorded.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ContextOwner {
+    #[default]
+    Plugin,
+    Host,
+}
+
+impl ContextOwner {
+    /// Resolve a declared value against the closed set. `None` ⇒ the caller
+    /// fails the parse; an unknown string must never resolve to `Plugin`.
+    pub fn parse(name: &str) -> Option<Self> {
+        serde_json::from_value(serde_json::Value::String(name.to_string())).ok()
+    }
+
+    pub fn is_plugin(&self) -> bool {
+        matches!(self, Self::Plugin)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderSelfUpdateCapability {

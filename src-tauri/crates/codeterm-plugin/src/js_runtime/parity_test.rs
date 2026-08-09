@@ -1117,6 +1117,7 @@ mod hook_event_roster;
 mod no_native_fallback_recursion;
 
 mod codex;
+mod context_owner;
 mod cursor;
 mod manifest_launch_template;
 mod opencode;
