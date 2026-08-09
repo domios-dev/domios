@@ -63,6 +63,7 @@ fn entry(id: &str, kind: &str, content: &str) -> ChatMsg {
 struct ContextOwnerNativeStub {
     id: &'static str,
     owner: ContextOwner,
+    implements_send_turn: bool,
     received: Mutex<Vec<(String, HostTurn)>>,
 }
 
@@ -71,7 +72,15 @@ impl ContextOwnerNativeStub {
         Self {
             id,
             owner,
+            implements_send_turn: true,
             received: Mutex::new(Vec::new()),
+        }
+    }
+
+    fn without_send_turn(id: &'static str) -> Self {
+        Self {
+            implements_send_turn: false,
+            ..Self::new(id, ContextOwner::Host)
         }
     }
 }
@@ -83,6 +92,10 @@ impl ChatBackendProvider for ContextOwnerNativeStub {
 
     fn context_owner(&self) -> ContextOwner {
         self.owner
+    }
+
+    fn supports_send_turn(&self) -> bool {
+        self.implements_send_turn
     }
 
     fn send_turn(&self, session_id: &str, turn: HostTurn) -> Result<(), ChatBackendError> {
@@ -205,6 +218,46 @@ fn chatbackend_send_turn_native_js_parity() {
         js_recorded["turn"]["system"], "fixture role brief",
         "the role brief travels in its own field, outside the sliced collection"
     );
+}
+
+/// The probe the open-time refusal reads: both runtimes must agree on whether a
+/// backend declaring host ownership actually implements the host-turn entry
+/// point, so neither can be opened and then silently downgraded at send time.
+#[test]
+fn chatbackend_send_turn_export_probe_native_js_parity() {
+    let manifest = r#"{
+        "id":"context-owner-probe-fixture",
+        "version":"0.1.0",
+        "displayName":"Send Turn Probe Fixture",
+        "capabilities":{"chatBackend":{"contextOwner":"host"}}
+    }"#;
+
+    let exporting = js_chat_backend(
+        "context-owner-probe-fixture",
+        manifest,
+        "module.exports.default = { sendTurn(sid, turn) {} };",
+    );
+    let exporting_native =
+        ContextOwnerNativeStub::new("context-owner-probe-fixture", ContextOwner::Host);
+    assert_eq!(
+        exporting.supports_send_turn(),
+        exporting_native.supports_send_turn(),
+        "an implemented host-turn entry point reads the same on both runtimes"
+    );
+    assert!(exporting.supports_send_turn());
+
+    let missing = js_chat_backend(
+        "context-owner-probe-fixture",
+        manifest,
+        "module.exports.default = {};",
+    );
+    let missing_native = ContextOwnerNativeStub::without_send_turn("context-owner-probe-fixture");
+    assert_eq!(
+        missing.supports_send_turn(),
+        missing_native.supports_send_turn(),
+        "a missing host-turn entry point reads the same on both runtimes"
+    );
+    assert!(!missing.supports_send_turn());
 }
 
 /// The field exists on every descriptor, so the control asserts it costs a PTY
