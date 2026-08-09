@@ -62,11 +62,21 @@ pub fn record(session_id: &str, reported_path: &str) -> bool {
 
 /// The stored transcript path for `session_id`, if evidence was ever recorded.
 /// `None` means "no evidence" — callers must fall back to reconstruction.
+/// A record whose evidenced file no longer exists is deleted on read
+/// (self-pruning), so subsequent reads fall back to reconstruction.
 pub fn stored_transcript_path(session_id: &str) -> Option<PathBuf> {
-    let text = std::fs::read_to_string(record_path(session_id)?).ok()?;
+    let record = record_path(session_id)?;
+    let text = std::fs::read_to_string(&record).ok()?;
     let value: serde_json::Value = serde_json::from_str(&text).ok()?;
     let stored = value.get("transcript_path")?.as_str()?.trim();
-    (!stored.is_empty()).then(|| PathBuf::from(stored))
+    if stored.is_empty() {
+        return None;
+    }
+    let path = PathBuf::from(stored);
+    if !transcript_exists(&path) {
+        let _ = std::fs::remove_file(&record);
+    }
+    Some(path)
 }
 
 /// Existence check for an evidenced transcript. Storage is forward-slashed and
@@ -124,6 +134,33 @@ mod tests {
         let mut env = EnvGuard::lock();
         env.set(EVIDENCE_DIR_ENV, tmp.path().join("empty-store"));
         assert_eq!(stored_transcript_path("never-recorded-sid"), None);
+    }
+
+    #[test]
+    fn transcript_path_dead_evidence_record_self_prunes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut env = EnvGuard::lock();
+        env.set(EVIDENCE_DIR_ENV, tmp.path().join("store"));
+
+        let live = tmp.path().join("live.jsonl");
+        std::fs::write(&live, "{}\n").unwrap();
+        assert!(record("live-sid", &live.to_string_lossy()));
+        assert!(stored_transcript_path("live-sid").is_some());
+        assert!(
+            stored_transcript_path("live-sid").is_some(),
+            "live evidence survives repeated reads",
+        );
+
+        assert!(record("dead-sid", &tmp.path().join("gone.jsonl").to_string_lossy()));
+        assert!(
+            stored_transcript_path("dead-sid").is_some(),
+            "first read still reports the dead evidenced path",
+        );
+        assert_eq!(
+            stored_transcript_path("dead-sid"),
+            None,
+            "dead record pruned on read; next read falls back to reconstruction",
+        );
     }
 
     #[test]

@@ -8,7 +8,8 @@
 
 export interface CodexTrustGrantOutcome {
   granted: boolean;
-  /** True when a config/batchWrite was issued (false: already trusted). */
+  /** True when config/batchWrite confirmed an applied edit (false: already
+   *  trusted, or the write never confirmed). */
   wrote: boolean;
   /** True when the app-server RPC surface is unavailable (old CLI) — the
    *  enable-only install behavior stands and hook_trust_state stays honest. */
@@ -297,7 +298,9 @@ export function grantCodexHookTrust(opts: {
     return outcome({ wrote: true, verify_failed: verifyFailed, restored, reason });
   };
   const writeResult = requestOutcome(writeSession, 2, "config/batchWrite");
-  if (writeResult.kind !== "ok") return failedWrite(writeResult.reason, false);
+  // An unconfirmed batchWrite wrote nothing — restoring the snapshot here
+  // would clobber a concurrent user edit made since snapshotConfig.
+  if (writeResult.kind !== "ok") return outcome({ reason: writeResult.reason });
   const verifyResult = requestOutcome(writeSession, 3, "hooks/list");
   if (verifyResult.kind !== "ok") return failedWrite(verifyResult.reason, true);
 
