@@ -57,7 +57,8 @@ fn progresses(plan: &Plan, task_id: &str, attempt_id: &str) -> Result<(), PlanEr
 
 #[test]
 fn exact_live_competitive_attempt_is_the_progression_authority_without_a_task_tab() {
-    let (_dir, plan, task_id) = competitive_task(vec![attempt("a", "group"), attempt("b", "group")]);
+    let (_dir, plan, task_id) =
+        competitive_task(vec![attempt("a", "group"), attempt("b", "group")]);
     let task = plan.tasks.iter().find(|task| task.id == task_id).unwrap();
 
     assert_eq!(task.assigned_tab_id, None);

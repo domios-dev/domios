@@ -113,9 +113,14 @@ pub use state::{
     TaskPresentation,
 };
 pub use store_watch::WatchOutcome;
+pub use task_dispatch::{
+    ambiguous_subject_cause, unresolved_subject_cause, LiveTabAttempt,
+    ACK_CAUSE_AMBIGUOUS_ATTEMPTS, ACK_CAUSE_NO_LIVE_ATTEMPT, ACK_CAUSE_PLAN_NOT_ACTIVE,
+    ACK_CAUSE_TASK_NOT_OPEN,
+};
 pub use types::{
     IndexEntry, NewTask, OpenSubtask, PlanError, PlanIncident, ReconcileFixResult, SpecIndexEntry,
-    TaskLaneUpdate,
+    TaskLaneUpdate, RPC_INTERNAL_ERROR, RPC_NOT_FOUND,
 };
 
 pub struct PlanStore {

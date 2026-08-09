@@ -6,11 +6,16 @@ use serde_json::Value;
 use crate::service::plan::resolve::ResolveError;
 use crate::service::plan::PlanStore;
 
+use super::error_codes::{INVALID_PARAMS, NOT_FOUND};
 use super::{get_string_param, JsonRpcError};
 
 fn resolve_err(e: ResolveError) -> JsonRpcError {
+    let code = match &e {
+        ResolveError::NotFound { .. } => NOT_FOUND,
+        ResolveError::Ambiguous { .. } => INVALID_PARAMS,
+    };
     JsonRpcError {
-        code: -32602,
+        code,
         message: e.to_string(),
         data: Some(e.to_json()),
     }
@@ -48,16 +53,24 @@ pub(super) fn resolve_plan(
         return Ok(plan_id);
     }
 
-    let message = if caller_tab.is_empty() {
-        "plan_id is required: pass it as an explicit positional arg".to_string()
+    let (code, message, kind) = if caller_tab.is_empty() {
+        (
+            INVALID_PARAMS,
+            "plan_id is required: pass it as an explicit positional arg".to_string(),
+            "plan_id_required",
+        )
     } else {
-        format!("no active plan bound to Tab '{caller_tab}'; pass the plan id explicitly",)
+        (
+            NOT_FOUND,
+            format!("no active plan bound to Tab '{caller_tab}'; pass the plan id explicitly"),
+            "plan_binding_not_found",
+        )
     };
     Err(JsonRpcError {
-        code: -32602,
+        code,
         message,
         data: Some(serde_json::json!({
-            "type": "plan_binding_not_found",
+            "type": kind,
             "tab_id": caller_tab,
         })),
     })
@@ -105,6 +118,7 @@ pub(super) fn task_binding(
 
 #[cfg(test)]
 mod tests {
+    use super::{INVALID_PARAMS, NOT_FOUND};
     use crate::plan::{OrchestratorRef, PlanMode};
     use crate::service::plan::PlanStore;
     use serde_json::json;
@@ -225,7 +239,7 @@ mod tests {
         );
         let params = json!({ "caller_tab_id": "unbound-tab" });
         let err = super::resolve_plan(&store, &Some(params)).unwrap_err();
-        assert_eq!(err.code, -32602);
+        assert_eq!(err.code, NOT_FOUND);
         assert!(err.message.contains("pass the plan id explicitly"));
         assert_eq!(
             err.data,
@@ -234,6 +248,96 @@ mod tests {
                 "tab_id": "unbound-tab"
             }))
         );
+    }
+
+    #[test]
+    fn missing_plan_id_without_a_caller_tab_stays_invalid_params() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, _) =
+            store_with_plan(dir.path(), "owner_none", "Owner plan", PlanMode::Execution);
+
+        let err = super::resolve_plan(&store, &Some(json!({}))).unwrap_err();
+        assert_eq!(err.code, INVALID_PARAMS);
+        assert_eq!(err.data.unwrap()["type"], "plan_id_required");
+    }
+
+    #[test]
+    fn unknown_plan_ref_is_not_found_not_invalid_params() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, plan_id) =
+            store_with_plan(dir.path(), "owner_ref", "Owner plan", PlanMode::Execution);
+
+        let params = json!({ "plan_id": format!("{plan_id}_nope") });
+        let err = super::resolve_plan(&store, &Some(params)).unwrap_err();
+        assert_eq!(err.code, NOT_FOUND);
+        let data = err.data.unwrap();
+        assert_eq!(data["type"], "ref_not_found");
+        assert_eq!(data["kind"], "plan");
+    }
+
+    #[test]
+    fn unknown_task_ref_is_not_found_not_invalid_params() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, plan_id) = store_with_plan(
+            dir.path(),
+            "owner_task_ref",
+            "Owner plan",
+            PlanMode::Execution,
+        );
+        let task_id = add_task(&store, &plan_id, "real", "real");
+
+        let params = json!({ "plan_id": plan_id, "task_id": format!("{task_id}_nope") });
+        let err = super::resolve_task(&store, &Some(params)).unwrap_err();
+        assert_eq!(err.code, NOT_FOUND);
+        let data = err.data.unwrap();
+        assert_eq!(data["type"], "ref_not_found");
+        assert_eq!(data["kind"], "task");
+    }
+
+    #[test]
+    fn ambiguous_plan_ref_stays_invalid_params() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, first) = store_with_plan(dir.path(), "owner_a", "First", PlanMode::Execution);
+        let second = store
+            .create_plan_for_team(
+                "Second".into(),
+                dir.path().display().to_string(),
+                OrchestratorRef::from_tab("owner_b"),
+                "team-owner-b".into(),
+                vec![],
+                1,
+            )
+            .unwrap()
+            .id;
+        let shared: String = first
+            .chars()
+            .zip(second.chars())
+            .take_while(|(a, b)| a == b)
+            .map(|(a, _)| a)
+            .collect();
+        assert!(!shared.is_empty(), "minted ids must share a typed prefix");
+
+        let err = super::resolve_plan(&store, &Some(json!({ "plan_id": shared }))).unwrap_err();
+        assert_eq!(err.code, INVALID_PARAMS);
+        assert_eq!(err.data.unwrap()["type"], "ref_ambiguous");
+    }
+
+    #[test]
+    fn not_found_and_invalid_params_never_collapse_into_one_code() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, plan_id) =
+            store_with_plan(dir.path(), "owner_split", "Owner plan", PlanMode::Execution);
+
+        let missing = super::resolve_plan(
+            &store,
+            &Some(json!({ "plan_id": format!("{plan_id}_nope") })),
+        )
+        .unwrap_err();
+        let malformed = super::resolve_plan(&store, &Some(json!({}))).unwrap_err();
+
+        assert_eq!(missing.code, NOT_FOUND);
+        assert_eq!(malformed.code, INVALID_PARAMS);
+        assert_ne!(missing.code, malformed.code);
     }
 
     #[test]

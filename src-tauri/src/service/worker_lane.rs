@@ -53,6 +53,30 @@ fn normalize_path(path: &str) -> PathBuf {
     std::fs::canonicalize(path).unwrap_or_else(|_| PathBuf::from(path))
 }
 
+/// Whether the guards that exist to protect mutating work apply to this lane
+/// check. Constructible only from the dispatch-time intent, so the task-level
+/// `TaskExecutionIntent` cannot be selected at these call sites by mistake.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum LaneProtection {
+    Enforced,
+    Waived,
+}
+
+impl LaneProtection {
+    pub(crate) fn for_dispatch_intent(intent: &crate::plan::ExecutionIntent) -> Self {
+        match intent {
+            crate::plan::ExecutionIntent::ReadOnly => Self::Waived,
+            crate::plan::ExecutionIntent::Mutating | crate::plan::ExecutionIntent::Unspecified => {
+                Self::Enforced
+            }
+        }
+    }
+
+    pub(crate) fn is_waived(self) -> bool {
+        matches!(self, Self::Waived)
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct ProvisionedWorkerLane {
     canonical_cwd: String,
@@ -68,6 +92,7 @@ impl ProvisionedWorkerLane {
             &self.cwd,
             Some(&self.branch),
             Some(&self.base),
+            LaneProtection::Enforced,
         )
     }
 
@@ -215,6 +240,7 @@ pub(crate) fn verify_worker_lane(
     worktree_path: &str,
     expected_branch: Option<&str>,
     expected_base: Option<&str>,
+    protection: LaneProtection,
 ) -> Result<WorkerLaneProvenance, String> {
     let canonical = canonical_path(canonical_cwd)?;
     let worktree = canonical_path(worktree_path)?;
@@ -233,7 +259,7 @@ pub(crate) fn verify_worker_lane(
         ));
     }
     let branch = git_value(worktree_path, ["branch", "--show-current"])?;
-    if branch.is_empty() {
+    if branch.is_empty() && !protection.is_waived() {
         return Err("worker lane is on a detached HEAD".into());
     }
     if expected_branch.is_some_and(|expected| expected != branch) {
@@ -243,6 +269,13 @@ pub(crate) fn verify_worker_lane(
             branch
         ));
     }
+    // A waived lane may be detached, so ancestry is measured against the commit
+    // the lane actually holds rather than a branch name that does not exist.
+    let head_ref = if branch.is_empty() {
+        git_value(worktree_path, ["rev-parse", "HEAD"])?
+    } else {
+        branch.clone()
+    };
     let base = match expected_base
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -252,17 +285,17 @@ pub(crate) fn verify_worker_lane(
             let resolved = git_value(canonical_cwd, ["rev-parse", "--verify", &commit_ref])?;
             run_git(
                 canonical_cwd,
-                ["merge-base", "--is-ancestor", &resolved, &branch],
+                ["merge-base", "--is-ancestor", &resolved, &head_ref],
             )
             .map_err(|_| {
                 format!(
-                    "worker lane base '{}' is not an ancestor of branch '{}'",
-                    expected, branch
+                    "worker lane base '{}' is not an ancestor of '{}'",
+                    expected, head_ref
                 )
             })?;
             resolved
         }
-        None => git_value(canonical_cwd, ["merge-base", "HEAD", &branch])?,
+        None => git_value(canonical_cwd, ["merge-base", "HEAD", &head_ref])?,
     };
     Ok(WorkerLaneProvenance {
         canonical_cwd: canonical.display().to_string(),
@@ -419,6 +452,7 @@ mod tests {
             &lane.cwd,
             Some("lane/wrong"),
             Some(&provenance.base),
+            LaneProtection::Enforced,
         )
         .unwrap_err();
         assert!(error.contains("branch mismatch"));

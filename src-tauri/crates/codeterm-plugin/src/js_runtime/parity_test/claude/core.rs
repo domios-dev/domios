@@ -171,6 +171,39 @@ fn agent_state_status_reconciliation_capability_parity() {
     );
 }
 
+/// The JS path streams a session file to QuickJS in line-aligned chunks instead
+/// of one whole-file read. A fixture larger than one chunk is the only shape
+/// that exercises the seam, so parity is asserted there too — a chunk cut
+/// mid-line would silently drop or duplicate messages on the JS side only.
+#[test]
+fn parse_session_messages_parity_across_chunk_boundary() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (n, j) = pair();
+    // ~1 KiB per line × 6000 lines clears the 4 MiB per-call chunk budget.
+    let filler = "y".repeat(1000);
+    let mut jsonl = String::new();
+    for i in 0..6000 {
+        jsonl.push_str(&format!(
+            "{{\"type\":\"user\",\"isMeta\":false,\"message\":{{\"role\":\"user\",\"content\":\"msg-{i}-{filler}\"}}}}\n"
+        ));
+    }
+    assert!(jsonl.len() > 4 * 1024 * 1024, "fixture must span >1 chunk");
+
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(tmp.path(), &jsonl).unwrap();
+
+    let nm = n.parse_session_messages(tmp.path());
+    let jm = j.parse_session_messages(tmp.path());
+    assert_eq!(nm.len(), 6000, "native must see every line");
+    assert_eq!(jm.len(), nm.len(), "chunked JS read must not lose messages");
+    for (i, (a, b)) in nm.iter().zip(jm.iter()).enumerate() {
+        assert_eq!(a.text, b.text, "text @ {i}");
+        assert_eq!(a.role, b.role, "role @ {i}");
+    }
+}
+
 #[test]
 fn parse_session_messages_parity_on_jsonl_fixture() {
     if require_plugins().is_none() {
@@ -208,6 +241,52 @@ fn resume_command_matches_native_provider() {
         n.build_resume_command("abc-def-123-456", true),
         j.build_resume_command("abc-def-123-456", true)
     );
+}
+
+/// Native and JS must agree on the resume re-application capability. The
+/// temp-file path differs per call, so parity is asserted on the declared
+/// mechanism and on what the named file actually holds.
+#[test]
+fn resume_with_context_reapplies_the_prompt_on_both_paths() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (n, j) = pair();
+    let prompt = "## Composed identity\nparity-sentinel-91c3";
+    let params = crate::provider::AgentResumeParams {
+        session_id: "abc-def-123-456".into(),
+        skip_permissions: true,
+        system_prompt: Some(prompt.into()),
+        args: vec!["--model".into(), "parity-model".into()],
+    };
+
+    for (label, command) in [
+        (
+            "native",
+            n.build_resume_command_with_context(&params).unwrap(),
+        ),
+        ("js", j.build_resume_command_with_context(&params).unwrap()),
+    ] {
+        assert_eq!(command.matches("--resume").count(), 1, "{label}");
+        assert_eq!(
+            command.matches("--append-system-prompt-file").count(),
+            1,
+            "{label}"
+        );
+        assert!(command.contains("--model parity-model"), "{label}");
+        assert!(
+            !command.contains(prompt),
+            "{label} must not inline the prompt"
+        );
+        let path = command
+            .rsplit_once("--append-system-prompt-file ")
+            .expect("declared flag carries a path")
+            .1
+            .trim()
+            .trim_matches(['\'', '"']);
+        let delivered = std::fs::read_to_string(path).expect("prompt file");
+        assert_eq!(delivered.matches(prompt).count(), 1, "{label}");
+    }
 }
 
 #[test]

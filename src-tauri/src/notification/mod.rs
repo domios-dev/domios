@@ -1,3 +1,4 @@
+pub mod push;
 pub mod store;
 
 use std::sync::Arc;
@@ -18,7 +19,6 @@ pub fn notify(
     body: Option<String>,
     level: Option<String>,
     tab_id: Option<String>,
-    workspace_id: Option<String>,
 ) -> Result<String, String> {
     Ok(svc.create_notification_ext(
         title,
@@ -26,9 +26,19 @@ pub fn notify(
         level.as_deref(),
         None,
         None,
-        tab_id,
-        workspace_id,
+        crate::service::notification::NotificationOrigin::claimed(tab_id),
+        crate::service::notification::PushIntent::default(),
     ))
+}
+
+/// Whether the Telegram push opt-in may be offered in settings at all.
+#[tauri::command]
+pub fn telegram_push_gate(
+    svc: State<'_, crate::service::ServiceState>,
+) -> Result<serde_json::Value, String> {
+    Ok(serde_json::json!({
+        "control_available": svc.telegram_push_control_available(),
+    }))
 }
 
 /// List notifications, optionally filtered to unread only.

@@ -915,6 +915,16 @@ pub async fn task_adopt_checkpoint(
     })))
 }
 
+const RESPAWN_ATTEMPT_FLAG: &str = "--attempt";
+
+// `plan task respawn` requires the source attempt, so a hint without it names a
+// command the CLI rejects.
+fn respawn_spawn_command(plan_id: &str, task_id: &str, source_attempt_id: &str) -> String {
+    format!(
+        "codeterm plan task respawn {plan_id} {task_id} {RESPAWN_ATTEMPT_FLAG} {source_attempt_id}"
+    )
+}
+
 pub async fn task_respawn(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -979,7 +989,7 @@ pub async fn task_respawn(
             &id,
             &tid,
             &created.attempt.id,
-            format!("codeterm plan task respawn {id} {tid}"),
+            respawn_spawn_command(&id, &tid, &draft.source_attempt.id),
         );
     }
     emit_plan_changed(&state, &id);

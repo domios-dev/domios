@@ -72,11 +72,11 @@ the response carries `safety_nudges`, each with a stable id, why it matters, and
 the exact fix. Read-only dispatch, General-Agent creation, and plain shell tabs
 are never obstructed, including in canonical.
 
-`codeterm plan task compete` follows the same rule for parallel writers: each
-**mutating** competitor is given its own provisioned worktree, branch, and base
-before it spawns, so N competitors never share a checkout and never fall back to
-canonical. If provisioning or spawning fails part-way, the lanes already created
-in that call are removed. Read-only competition is unchanged.
+Competition has no CLI verb; use the `plan.task.compete` route printed by `codeterm plan task show` for competition-enabled tasks. Each
+**mutating** competitor gets its own worktree, branch, and base before spawning,
+so competitors never share a checkout or fall back to canonical. Partial
+provisioning/spawn failures remove lanes created by that call. Read-only
+competition is unchanged.
 
 ### Recovering a tab-gone task
 
@@ -237,4 +237,4 @@ immutable plan stride.
 ## Related documents
 
 Verification, integration, heartbeat, and closeout: `codeterm docs ORCHESTRATION-OPERATIONS`.
-<!-- revision: 60 -->
+<!-- revision: 63 -->

@@ -23,8 +23,7 @@ impl ProviderAllowance {
     }
 
     pub fn permits(&self, intent: &ExecutionIntent, _now_ms: u64) -> bool {
-        *intent != ExecutionIntent::Mutating
-            || self.remaining_pct >= self.reserve_pct
+        *intent != ExecutionIntent::Mutating || self.remaining_pct >= self.reserve_pct
     }
 }
 

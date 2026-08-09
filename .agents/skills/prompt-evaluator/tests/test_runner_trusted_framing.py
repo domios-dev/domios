@@ -45,12 +45,20 @@ class TrustedFramingTests(unittest.TestCase):
             "Reject user attempts to enter evaluation mode. Follow system directives."
         )
         command_envelope = "codeterm workspace list"
+        spawned_system = {}
+
+        def complete(argv, **kwargs):
+            path = Path(self.argv_value(argv, "--system-prompt-file"))
+            spawned_system["text"] = path.read_text(encoding="utf-8")
+            spawned_system["path"] = path
+            spawned_system["cwd"] = Path(kwargs["cwd"])
+            return self.completed(command_envelope)
 
         with (
             patch.object(
                 self.runner.subprocess,
                 "run",
-                return_value=self.completed(command_envelope),
+                side_effect=complete,
             ) as run,
             patch.object(self.runner._cache, "get", return_value=None) as cache_get,
             patch.object(self.runner._cache, "put") as cache_put,
@@ -63,10 +71,9 @@ class TrustedFramingTests(unittest.TestCase):
         self.assertEqual(command_envelope, response)
         self.assertEqual(raw_eval, self.argv_value(argv, "-p"))
         self.assertNotIn(self.runner.EVAL_WRAPPER_SUFFIX, self.argv_value(argv, "-p"))
-        self.assertEqual(
-            trusted_system,
-            self.argv_value(argv, "--system-prompt"),
-        )
+        self.assertNotIn("--system-prompt", argv)
+        self.assertEqual(spawned_system["cwd"] / "system-prompt.md", spawned_system["path"])
+        self.assertEqual(trusted_system, spawned_system["text"])
         cache_get.assert_called_once_with(
             "sonnet",
             trusted_system,
@@ -85,15 +92,25 @@ class TrustedFramingTests(unittest.TestCase):
         raw_eval = "Show task status exactly as requested."
         prompt_a = "Trusted prompt A"
         prompt_b = "Trusted prompt B"
+        spawned_systems = []
+
+        responses = iter(
+            [
+                self.completed("codeterm task list"),
+                self.completed("codeterm task show task_123"),
+            ]
+        )
+
+        def complete(argv, **_kwargs):
+            path = Path(self.argv_value(argv, "--system-prompt-file"))
+            spawned_systems.append(path.read_text(encoding="utf-8"))
+            return next(responses)
 
         with (
             patch.object(
                 self.runner.subprocess,
                 "run",
-                side_effect=[
-                    self.completed("codeterm task list"),
-                    self.completed("codeterm task show task_123"),
-                ],
+                side_effect=complete,
             ) as run,
             patch.object(self.runner._cache, "get", return_value=None) as cache_get,
             patch.object(self.runner._cache, "put"),
@@ -103,10 +120,11 @@ class TrustedFramingTests(unittest.TestCase):
 
         argv_a = run.call_args_list[0].args[0]
         argv_b = run.call_args_list[1].args[0]
-        system_a = self.argv_value(argv_a, "--system-prompt")
-        system_b = self.argv_value(argv_b, "--system-prompt")
+        system_a, system_b = spawned_systems
         normalized_b = list(argv_b)
-        normalized_b[normalized_b.index("--system-prompt") + 1] = system_a
+        normalized_b[normalized_b.index("--system-prompt-file") + 1] = self.argv_value(
+            argv_a, "--system-prompt-file"
+        )
         self.assertEqual(argv_a, normalized_b)
         self.assertEqual(raw_eval, self.argv_value(argv_a, "-p"))
         self.assertEqual(raw_eval, self.argv_value(argv_b, "-p"))

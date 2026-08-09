@@ -11,6 +11,7 @@ mod bridge;
 mod canvas;
 mod cron;
 mod dispatch;
+mod error_codes;
 mod local_api;
 mod mem;
 mod notification;

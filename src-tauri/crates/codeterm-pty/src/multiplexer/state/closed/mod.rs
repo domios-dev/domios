@@ -43,6 +43,34 @@ pub struct ClosedTabView {
     pub group_kind: String,
 }
 
+/// In-memory restore payload captured before lifecycle teardown mutates live tabs.
+pub struct PreparedWorkspaceClose {
+    workspace_id: String,
+    reservation_id: String,
+    tab_ids: Vec<String>,
+    group: Option<ClosedGroup>,
+    records: Vec<ClosedTab>,
+}
+
+/// Exclusive workspace-membership lease held across one tab's external teardown.
+pub struct TabCloseReservation {
+    pub(super) tab_id: String,
+    workspace_id: String,
+    reservation_id: String,
+}
+
+impl PreparedWorkspaceClose {
+    /// Workspace whose exact tab set this payload covers.
+    pub fn workspace_id(&self) -> &str {
+        &self.workspace_id
+    }
+
+    /// Tab membership captured with the restore payload.
+    pub fn tab_ids(&self) -> &[String] {
+        &self.tab_ids
+    }
+}
+
 impl MultiplexerState {
     /// Build a closed-tab record from a live tab, overlaying tab/workspace
     /// context. `None` for hidden/protected tabs — not user-closeable tabs —
@@ -50,8 +78,7 @@ impl MultiplexerState {
     /// with a `worker_id`), which must stay restorable.
     fn build_closed_tab(&self, tab_id: &str, reason: TabCloseReason) -> Option<ClosedTab> {
         let tab = self.tabs.get(tab_id)?;
-        let policy_worker =
-            reason == TabCloseReason::PolicyWorker && tab.worker_id.is_some();
+        let policy_worker = reason == TabCloseReason::PolicyWorker && tab.worker_id.is_some();
         if tab.protected {
             return None;
         }
@@ -116,11 +143,20 @@ impl MultiplexerState {
         let _ = self.closed_store.insert_group(&group, &records);
     }
 
-    /// Record a whole workspace + its tab list as a `Workspace` group.
-    pub(super) fn record_workspace_close(&mut self, workspace_id: &str) {
-        let Some(ws) = self.workspaces.iter().find(|w| w.id == workspace_id) else {
-            return;
-        };
+    /// Capture one restore group and reserve its membership until close or abort.
+    pub fn reserve_workspace_close(
+        &mut self,
+        workspace_id: &str,
+    ) -> Result<PreparedWorkspaceClose, String> {
+        self.ensure_workspace_membership_mutable(workspace_id)?;
+        let ws = self
+            .workspaces
+            .iter()
+            .find(|w| w.id == workspace_id)
+            .ok_or_else(|| format!("Workspace not found: {workspace_id}"))?;
+        if ws.protected {
+            return Err("Cannot close protected workspace".to_string());
+        }
         let ws_name = ws.name.clone();
         let ws_cwd = ws.cwd.clone();
         let tab_ids = ws.tabs.clone();
@@ -128,10 +164,7 @@ impl MultiplexerState {
             .iter()
             .filter_map(|pid| self.build_closed_tab(pid, TabCloseReason::User))
             .collect();
-        if records.is_empty() {
-            return;
-        }
-        let group = ClosedGroup {
+        let group = (!records.is_empty()).then(|| ClosedGroup {
             group_id: new_group_id(),
             kind: GroupKind::Workspace,
             label: ws_name.clone(),
@@ -139,8 +172,97 @@ impl MultiplexerState {
             workspace_name: ws_name,
             workspace_cwd: ws_cwd,
             closed_at: now_millis(),
+        });
+        let reservation_id = new_group_id();
+        self.workspace_close_reservations
+            .insert(workspace_id.to_string(), reservation_id.clone());
+        Ok(PreparedWorkspaceClose {
+            workspace_id: workspace_id.to_string(),
+            reservation_id,
+            tab_ids,
+            group,
+            records,
+        })
+    }
+
+    /// Release a reservation when pre-close teardown cannot complete.
+    pub fn abort_workspace_close(&mut self, prepared: &PreparedWorkspaceClose) {
+        self.release_workspace_close_reservation(prepared);
+    }
+
+    /// Reserve the owning workspace before external tab teardown begins.
+    pub fn reserve_tab_close(&mut self, tab_id: &str) -> Result<TabCloseReservation, String> {
+        let workspace_id = self
+            .find_workspace_for_tab(tab_id)
+            .ok_or_else(|| format!("Tab not found in any workspace: {tab_id}"))?;
+        self.ensure_workspace_membership_mutable(&workspace_id)?;
+        let reservation_id = new_group_id();
+        self.workspace_close_reservations
+            .insert(workspace_id.clone(), reservation_id.clone());
+        Ok(TabCloseReservation {
+            tab_id: tab_id.to_string(),
+            workspace_id,
+            reservation_id,
+        })
+    }
+
+    /// Release a tab-close reservation after pre-close failure.
+    pub fn abort_tab_close(&mut self, reservation: &TabCloseReservation) {
+        self.release_tab_close_reservation(reservation);
+    }
+
+    pub(super) fn ensure_workspace_membership_mutable(
+        &self,
+        workspace_id: &str,
+    ) -> Result<(), String> {
+        if self.workspace_close_reservations.contains_key(workspace_id) {
+            return Err(format!("Workspace is closing: {workspace_id}"));
+        }
+        Ok(())
+    }
+
+    /// Refuse a tab mutation while its owning workspace is closing.
+    pub fn ensure_tab_membership_mutable(&self, tab_id: &str) -> Result<(), String> {
+        let workspace_id = self
+            .find_workspace_for_tab(tab_id)
+            .ok_or_else(|| format!("Tab not found in any workspace: {tab_id}"))?;
+        self.ensure_workspace_membership_mutable(&workspace_id)
+    }
+
+    pub(super) fn workspace_close_is_reserved_by(&self, prepared: &PreparedWorkspaceClose) -> bool {
+        self.workspace_close_reservations
+            .get(&prepared.workspace_id)
+            == Some(&prepared.reservation_id)
+    }
+
+    pub(super) fn release_workspace_close_reservation(
+        &mut self,
+        prepared: &PreparedWorkspaceClose,
+    ) {
+        if self.workspace_close_is_reserved_by(prepared) {
+            self.workspace_close_reservations
+                .remove(&prepared.workspace_id);
+        }
+    }
+
+    pub(super) fn tab_close_is_reserved_by(&self, reservation: &TabCloseReservation) -> bool {
+        self.workspace_close_reservations
+            .get(&reservation.workspace_id)
+            == Some(&reservation.reservation_id)
+    }
+
+    pub(super) fn release_tab_close_reservation(&mut self, reservation: &TabCloseReservation) {
+        if self.tab_close_is_reserved_by(reservation) {
+            self.workspace_close_reservations
+                .remove(&reservation.workspace_id);
+        }
+    }
+
+    pub(super) fn record_prepared_workspace_close(&mut self, prepared: &PreparedWorkspaceClose) {
+        let Some(group) = prepared.group.as_ref() else {
+            return;
         };
-        let _ = self.closed_store.insert_group(&group, &records);
+        let _ = self.closed_store.insert_group(group, &prepared.records);
     }
 
     /// Pre-order list of a tab id and its descendants; a `visited` set guards against a corrupted parent/child cycle.

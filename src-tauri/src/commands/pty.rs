@@ -31,6 +31,37 @@ fn restored_fresh_launch_input(
     }
 }
 
+impl RestoredFreshLaunchInput {
+    /// `None` when a resume was asked for but the provider offers no resume
+    /// command — the caller clears the stale session and starts fresh rather
+    /// than silently sending a fresh-launch command down the resume branch.
+    fn command(&self, registry: &crate::agent::registry::AgentRegistry) -> Option<String> {
+        let provider_id = self.params.agent.as_deref()?;
+        registry
+            .with_provider(provider_id, |provider| {
+                let resumable = match self.params.resume_session_id.as_deref() {
+                    Some(session_id) => provider
+                        .build_resume_command(
+                            session_id,
+                            self.params.permission_bypass_requested(provider_id),
+                        )
+                        .is_some(),
+                    None => true,
+                };
+                resumable.then(|| {
+                    crate::service::build_agent_command(
+                        provider_id,
+                        &self.params,
+                        self.launch_task.as_deref(),
+                        None,
+                        registry,
+                    )
+                })
+            })
+            .flatten()
+    }
+}
+
 #[tauri::command]
 pub async fn spawn_pty(
     config_state: tauri::State<'_, crate::config::ConfigState>,
@@ -253,29 +284,30 @@ pub async fn spawn_pty_core(
                 // Build resume command from provider and global fallback config.
                 let pc = crate::config::provider_config(&provider_id);
                 let resume_enabled = pc.resume_sessions.unwrap_or(true);
-                let skip_perms = crate::service::permission_policy::configured_permission_bypass(
+                let permission_bypass_authorization =
+                    crate::service::permission_policy::configured_permission_bypass(
+                        &svc.agent_registry,
+                        &provider_id,
+                    )?;
+                let skip_perms = permission_bypass_authorization.is_some();
+                // Same seam as a fresh restored launch: the composed identity, the
+                // tab's model and the effort args all travel through
+                // build_agent_command instead of being re-added by hand here.
+                let resume_cmd = restored_fresh_launch_input(
                     &svc.agent_registry,
-                    &provider_id,
-                )?
-                .is_some();
-                let resume_cmd = svc
-                    .agent_registry
-                    .with_provider(&provider_id, |p| {
-                        let base = p.build_resume_command(&session_id, skip_perms)?;
-                        // Preserve the tab's model across restart — bare resume otherwise drops it to the provider default.
-                        match tab_model.as_deref().filter(|m| !m.trim().is_empty()) {
-                            Some(m) => {
-                                let margs = p.model_launch_args(m);
-                                Some(if margs.is_empty() {
-                                    base
-                                } else {
-                                    format!("{} {}", base, margs.join(" "))
-                                })
-                            }
-                            None => Some(base),
-                        }
-                    })
-                    .flatten();
+                    crate::service::SpawnAgentParams {
+                        agent: Some(provider_id.clone()),
+                        cwd: tab_cwd.clone(),
+                        resume_session_id: Some(session_id.clone()),
+                        skip_permissions: Some(skip_perms),
+                        permission_bypass_authorization,
+                        model: tab_model.clone(),
+                        role: tab_role.clone(),
+                        role_profile: tab_role_profile.clone(),
+                        ..Default::default()
+                    },
+                )
+                .command(&svc.agent_registry);
 
                 if let Some(cmd) = resume_cmd {
                     if resume_enabled {
@@ -441,15 +473,7 @@ pub async fn spawn_pty_core(
                     ..Default::default()
                 },
             );
-            let launch_cmd = svc.agent_registry.with_provider(&provider_id, |_| {
-                crate::service::build_agent_command(
-                    &provider_id,
-                    &input.params,
-                    input.launch_task.as_deref(),
-                    None,
-                    &svc.agent_registry,
-                )
-            });
+            let launch_cmd = input.command(&svc.agent_registry);
             if let Some(cmd) = launch_cmd {
                 let prompt_delivery = svc
                     .agent_registry
@@ -1086,100 +1110,5 @@ fn is_missing_pty_error(pty_id: &str, error: &str) -> bool {
 }
 
 #[cfg(test)]
-mod kill_pty_tests {
-    use std::collections::HashMap;
-
-    use super::{is_missing_pty_error, kill_pty_idempotent};
-
-    #[test]
-    fn kill_pty_idempotent_kills_child_and_allows_repeat() {
-        let mut manager = crate::pty::manager::PtyManager::new();
-        let (pty_id, session) = manager
-            .spawn(None, None, 80, 24, HashMap::new())
-            .expect("spawn default shell");
-        let child_pid = session.child.lock().expect("child lock").process_id();
-        assert!(child_pid.is_some(), "spawned child should expose a pid");
-
-        kill_pty_idempotent(&mut manager, &pty_id).expect("first kill succeeds");
-        assert!(
-            manager.get_session(&pty_id).is_none(),
-            "kill must remove session from manager"
-        );
-        // TerminateProcess is async on Windows and the reaper thread may reap
-        // concurrently; poll until the child is gone (here or in background).
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        loop {
-            match session.child.lock().expect("child lock").try_wait() {
-                Ok(Some(_)) | Err(_) => break,
-                Ok(None) => {}
-            }
-            assert!(
-                std::time::Instant::now() < deadline,
-                "kill must terminate the child"
-            );
-            std::thread::sleep(std::time::Duration::from_millis(25));
-        }
-
-        kill_pty_idempotent(&mut manager, &pty_id).expect("repeat kill is a no-op");
-        kill_pty_idempotent(&mut manager, "missing-pty").expect("unknown kill is a no-op");
-    }
-
-    #[test]
-    fn kill_pty_idempotent_does_not_swallow_unrelated_errors() {
-        let mut manager = crate::pty::manager::PtyManager::new();
-        let err = manager
-            .kill("real-id")
-            .expect_err("manager should expose exact missing-id error");
-        assert!(is_missing_pty_error("real-id", &err));
-        assert!(!is_missing_pty_error("other-id", &err));
-        assert!(!is_missing_pty_error(
-            "real-id",
-            "PTY real-id not found: access denied"
-        ));
-        assert!(!is_missing_pty_error(
-            "real-id",
-            "wrapped PTY real-id not found"
-        ));
-    }
-}
-
-#[cfg(test)]
-mod restored_fresh_launch_tests {
-    use super::restored_fresh_launch_input;
-
-    #[test]
-    fn restored_fresh_launch_preserves_worker_identity_without_starter_turn() {
-        let registry = crate::agent::registry::AgentRegistry::new();
-        for historical_task in [Some("historical assigned task"), None] {
-            let input = restored_fresh_launch_input(
-                &registry,
-                crate::service::SpawnAgentParams {
-                    agent: Some("fixture-provider".into()),
-                    cwd: Some("fixture-cwd".into()),
-                    model: Some("fixture-model".into()),
-                    role: Some("Worker".into()),
-                    role_profile: Some("fixture-profile".into()),
-                    task: historical_task.map(str::to_string),
-                    ..Default::default()
-                },
-            );
-            let identity = input.launch_task.as_deref().unwrap();
-
-            assert_eq!(input.params.task, None);
-            assert_eq!(input.params.role.as_deref(), Some("Worker"));
-            assert_eq!(
-                input.params.role_profile.as_deref(),
-                Some("fixture-profile")
-            );
-            assert_eq!(input.params.cwd.as_deref(), Some("fixture-cwd"));
-            assert_eq!(input.params.model.as_deref(), Some("fixture-model"));
-            assert_eq!(
-                input.params.starter_prompt,
-                crate::agent::provider::StarterPrompt::NoStarter
-            );
-            assert_eq!(identity.matches("You are a CodeTerm Worker.").count(), 1);
-            assert!(!identity.contains("## Assignment"));
-            assert!(!identity.contains("historical assigned task"));
-        }
-    }
-}
+#[path = "pty/tests.rs"]
+mod tests;

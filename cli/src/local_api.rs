@@ -99,10 +99,6 @@ impl LocalApiRequest {
         self
     }
 
-    pub fn timeout(self, _timeout: std::time::Duration) -> Self {
-        self
-    }
-
     pub fn send(self) -> Result<LocalApiResponse, LocalApiError> {
         let headers = self
             .headers

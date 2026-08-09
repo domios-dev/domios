@@ -1,29 +1,33 @@
 # CodeTerm API Reference
 
-CodeTerm exposes authenticated REST, local JSON-RPC over a named pipe or Unix
-socket, and the `codeterm` CLI for agent integration.
+CodeTerm exposes authenticated REST, local socket JSON-RPC, and the `codeterm` CLI.
 
 ### Architecture: Unified Service Layer
 
-All multiplexer operations (workspace/tab management, agent spawn, batch commands, etc.) are implemented in a single **ServiceContext** (`src-tauri/src/service.rs`). Both REST API routes and Tauri IPC commands delegate to this shared service layer, which ensures consistent behavior — PTY cleanup, event emission, hierarchy validation — regardless of the entry point. This means every operation available via REST is also available internally via Tauri commands, with identical semantics.
+All multiplexer operations are implemented in one **ServiceContext**
+(`src-tauri/src/service/mod.rs`). REST routes and Tauri IPC delegate to it,
+preserving PTY cleanup, events, hierarchy validation, and semantics.
 
-The CLI uses the local socket for control operations. Its internal `api.request`
-JSON-RPC method dispatches an HTTP-shaped request directly through the daemon's
-Axum router without opening a TCP connection. Unix peer credentials or the
-Windows process-token SID restrict this bridge to the daemon's OS user; the
-daemon injects its own API authentication before route dispatch. Mesh commands
-also enter through this socket, while the daemon owns peer signing, endpoint
-selection, and remote transport.
+The CLI's local socket dispatches internal `api.request` JSON-RPC through Axum
+without TCP. Unix peer credentials or the Windows process-token SID restrict it
+to the daemon's OS user; the daemon owns authentication, signing, and transport.
+
+Human `codeterm workspace list` shows authoritative tab counts, cwd, state, Teams,
+active Plans, and tabs in stable creation order. Inspect one tab with `codeterm tab
+inspect <id>`; whole-list JSON remains automation-only.
+`workspace current --json` returns `{ "id", "source" }`, where `source` is
+`explicit`, `caller-tab`, `workspace-env`, or `focus-fallback`. Resolution is never
+positional: `--workspace`, `$CODETERM_TAB_ID` joined through workspace membership,
+a validated `$CODETERM_WORKSPACE_ID`, then the active workspace. When no rung
+resolves, stdout stays empty and the command exits 1 (`--json` puts the error
+envelope on stdout).
 
 ## REST API
 
 Base URL: `http://<host>:7685/api`
-
-**Public vs internal REST surfaces.** This reference documents agent-facing and
-operator-facing REST routes. Browser mirror plumbing, debug-clock endpoints,
-upload/PTY mirror routes, and other web-only internals are intentionally not part
-of the public contract; see `src-tauri/src/api/web_routes.rs` and the route
-registration in `src-tauri/src/api/routes.rs` when auditing those surfaces.
+**Public vs internal REST surfaces.** This reference documents agent-facing and operator-facing
+REST routes. Browser mirror plumbing, debug-clock endpoints, upload/PTY mirror routes, and other
+web-only internals live in `src-tauri/src/api/web_routes.rs` and `src-tauri/src/api/routes.rs`.
 
 ### Authentication
 CodeTerm generates and persists a Bearer token on first load. Control endpoints
@@ -39,9 +43,8 @@ cors = false
 ```
 Then: `Authorization: Bearer your-secret-token`
 
-Non-loopback binds require an explicitly configured host and a non-empty token;
-remote requests are accepted only while Mesh is enabled. Turning Mesh off blocks
-all remote HTTP access while preserving localhost access. CORS is allowlist-only:
+Non-loopback binds require an explicit host and non-empty token; remote requests work only while
+Mesh is enabled. Turning Mesh off blocks remote HTTP while preserving localhost. CORS is allowlist-only:
 
 ```toml
 [api]
@@ -51,17 +54,12 @@ cors = true
 cors_allow_origins = ["https://console.example"]
 ```
 
-Authenticated config readback includes `api_listener.active`,
-`api_listener.configured`, and `api_listener.restart_required`. Both policy
-objects disclose `enabled`, address, CORS, and allowlisted origins; configured
-state also discloses whether authentication is configured. Full readback and
-exact `api.enabled`, `api.cors`, and `api.cors_allow_origins` queries include
-this listener truth, so a config write never masquerades as a runtime rebind.
-Listener rebind/recovery retains the generation behavior below. `localhost`,
-`::1`, and `[::1]` canonicalize to valid socket and callback URL forms.
+Authenticated config readback includes `api_listener.active`, `api_listener.configured`, and
+`api_listener.restart_required`, covering enabled state, address, CORS/origins, and authentication.
+Exact queries include listener truth, so writes cannot masquerade as runtime rebinds. Loopback
+hosts canonicalize to valid socket/callback URL forms; rebind/recovery retains generation below.
 
-An empty CORS allowlist permits no cross-origin browser requests and never
-disables the API listener. `*` and malformed origins are rejected.
+An empty CORS allowlist permits no cross-origin requests and never disables the listener; `*` and malformed origins are rejected.
 
 ### Endpoints
 
@@ -133,7 +131,9 @@ and response shapes are documented in the API-TRANSPORT reference.
 | GET | `/api/tabs` | `?workspace_id=<id>&agents=<bool>` or `?all_workspaces=true` | List compact tab summaries. Defaults to the focused workspace; use the explicit inspect endpoint for full payloads. |
 | GET | `/api/tabs/inspect` | `?tab_ids=<id>,<id>` | Return the full tab payload for the selected tab IDs only. |
 | POST | `/api/tabs` | `{title?, description?, cwd?, workspace_id?, cmd?, eager?, chat_backend?, system_prompt?, preset?, model?}` | Create a tab. `description` is trimmed, empty clears it, and values over 200 chars are rejected. When `cmd` is provided, CodeTerm sends it to the fresh tab through the same verified send path used by `/api/tabs/{id}/send`, with Enter appended. When `chat_backend` names an installed `chatBackend` plugin id, an **open agent shell** tab is created instead of a PTY: `system_prompt` overrides the resolved preset's prompt, `preset` selects one (omit → the plugin's `defaultPreset`), `model` picks a model. These three are only meaningful with `chat_backend`. |
-| POST | `/api/tabs/{id}/send` | `{text?, raw?, actions?: [{type:"key", key} \| {type:"delay", ms}], batch?: [{text, delay_ms?}], source_tab?}` | Plain text and every batch item always submit. Use `actions` or `raw` only for explicit low-level terminal input. Returns `{ok:true}` after accepting delivery. |
+| POST | `/api/tabs/{id}/send` | `{text?, raw?, actions?: [{type:"key", key} \| {type:"delay", ms}], batch?: [{text, delay_ms?}], source_tab?}` | The ordinary write path — CLI, mesh relay, and service push tokens all use it. Plain text and every batch item always submit. Use `actions` or `raw` only for explicit low-level terminal input. Not fire-and-forget: returns `{ok:true}` only after delivery is accepted, otherwise a structured delivery error. |
+| POST | `/api/tabs/{id}/chat-send` | `{text?, client_token?}` (shares the `/send` body type; only these two are read) | Chat UI user turn. Adds a ledger entry on top of delivery and returns one `ChatSendStatus` (`send_id`, `state`, `ledger_id`, `sequence`, `correlationId?`). `client_token` is echoed verbatim, never interpreted. The CLI does not use this route. |
+| GET | `/api/tabs/{id}/chat-send` | — | Read the chat-send ledger for this tab: `ChatSendStatus[]`, reconciled against session-turn evidence on read. `state` ∈ `accepted` \| `unknown` \| `confirmed` \| `failed`. Only lists sends started through `POST /api/tabs/{id}/chat-send`. |
 | POST | `/api/tabs/{id}/stop` | — | Stop the tab's PTY process |
 | POST | `/api/tabs/{id}/exec` | `{command, timeout_ms?, strip_ansi?}` | Send command + wait for output |
 | GET | `/api/tabs/{id}/output` | `?offset=N&strip_ansi=true` | Get output buffer (cursor-based) |
@@ -222,19 +222,19 @@ No disk persistence — restart wipes every paste. Correct semantics for "drop a
 #### Plan task mutation authority
 
 Task-mutating calls (socket `plan.task.*`, REST `/api/plans/{id}/tasks/{tid}*`)
-carry `caller_tab_id` + `session_id` + `session_binding_nonce` + `owner_epoch`
-(REST: the matching `X-CodeTerm-*` headers). Once a task has an owner epoch, the
-caller must normally match the recorded owner exactly.
+carry caller/session/binding/owner-epoch authority (REST: matching
+`X-CodeTerm-*` headers). Once owned, the caller must match the recorded owner.
+`GET /api/tasks` and socket `task.list` return the same object: `tasks` plus an
+optional `empty_reason`. Its `kind` is `plan_not_found`, `plan_archived`,
+`plan_outside_project`, `no_plans_in_scope`, `no_tasks_in_scope`,
+`all_tasks_inactive`, or `no_match_for_filters`. The field is absent when tasks
+exist; consumers ignore unknown kinds and never invent a local explanation.
 
 A live authenticated Plan owner may recover `update`, `assign`, `respawn`, or
-`close` after the owning tab disappears; retirement and the recovered state are
-committed atomically, and late readiness cannot restore the retired attempt.
-Mutating dispatch into canonical or another task's lane is refused with `-32013`
-and a stable `violation_id`; mutating competition provisions one isolated lane
-per competitor. Other safety findings are advisory and ride successful results
-in `safety_nudges` and `_hints`. The operational recovery and lane rules are in
-`codeterm docs ORCHESTRATION`.
-Related documents: `codeterm docs API-TABS`, `codeterm docs API-INTEGRATIONS`,
-`codeterm docs API-MEMORY`, `codeterm docs API-AGENTS`,
-`codeterm docs API-TRANSPORT`, and `codeterm docs API-CLI`.
-<!-- revision: 113 -->
+`close` after its tab disappears; retirement and recovery commit atomically.
+Mutating dispatch into canonical or another task's lane is refused with `-32013`;
+competition provisions one lane per competitor. Advisory findings ride successful
+results in `safety_nudges` and `_hints`. See `codeterm docs ORCHESTRATION`.
+Related: `codeterm docs API-TABS`, `API-INTEGRATIONS`, `API-MEMORY`, `API-AGENTS`,
+`API-TRANSPORT`, and `API-CLI`.
+<!-- revision: 119 -->

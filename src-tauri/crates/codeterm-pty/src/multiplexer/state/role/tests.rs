@@ -10,7 +10,8 @@ fn fresh() -> (MultiplexerState, String) {
 }
 
 fn new_tab(mux: &mut MultiplexerState) -> String {
-    mux.create_tab(&mux.list_workspaces()[0].id.clone()).unwrap()
+    mux.create_tab(&mux.list_workspaces()[0].id.clone())
+        .unwrap()
 }
 
 fn anchor(mux: &mut MultiplexerState, kind: &str) -> String {
@@ -137,7 +138,12 @@ fn a_manager_never_auto_promotes_its_parent() {
     let free_parent = new_tab(&mut mux);
     let planner = new_tab(&mut mux);
     let err = mux
-        .set_tab_role_kind(&planner, AgentRole::Manager, Some(PLANNER), Some(&free_parent))
+        .set_tab_role_kind(
+            &planner,
+            AgentRole::Manager,
+            Some(PLANNER),
+            Some(&free_parent),
+        )
         .unwrap_err();
     assert!(err.contains("requires a spawning parent"), "{err}");
     assert_eq!(
@@ -323,7 +329,11 @@ fn promoting_an_anchor_without_children_mints_nothing() {
     for kind in [ORCHESTRATOR, GENERAL_AGENT] {
         let (mut mux, _root) = MultiplexerState::new();
         let tab = anchor(&mut mux, kind);
-        assert_eq!(mux.team_count(), 0, "{kind} with zero children stays teamless");
+        assert_eq!(
+            mux.team_count(),
+            0,
+            "{kind} with zero children stays teamless"
+        );
         assert_eq!(mux.get_tab(&tab).unwrap().team_id, None, "{kind}");
     }
 }

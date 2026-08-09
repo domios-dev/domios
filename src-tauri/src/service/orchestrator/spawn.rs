@@ -1,9 +1,7 @@
 use codeterm_types::agent::role_kind::builtins;
 
-use super::launch::{
-    agent_system_prompt, build_agent_command, launch_agent_in_background, role_onboarding_task,
-    skip_local_worker_role, spawn_launch_task,
-};
+use super::launch::{build_agent_command, launch_agent_in_background, skip_local_worker_role};
+use super::prompt_compose::{agent_system_prompt, role_onboarding_task, spawn_launch_task};
 use super::types::{ReasoningEffortProvenance, SpawnAgentParams, SpawnResult};
 use crate::service::{spawn_title, ServiceContext};
 

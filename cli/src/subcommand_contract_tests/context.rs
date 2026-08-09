@@ -183,14 +183,36 @@ fn legacy_helpers_delegate_to_caller_context() {
     });
 }
 
-const PLAN_RS: &str = include_str!("../cmd/plan.rs");
-const QA_RS: &str = include_str!("../cmd/plan/qa_cmd.rs");
-const GATE_RS: &str = include_str!("../cmd/plan/gate_cmd.rs");
-const READ_RS: &str = include_str!("../cmd/plan/read_cmd.rs");
-const LOCAL_IO_RS: &str = include_str!("../cmd/local_io.rs");
-const ORCHESTRATOR_RS: &str = include_str!("../cmd/orchestrator.rs");
-const AGENT_RS: &str = include_str!("../cmd/agent.rs");
-const TASK_RS: &str = include_str!("../cmd/task.rs");
+/// Opening marker of an inline `#[cfg(test)] mod tests` body.
+const TEST_MOD_MARKER: &str = "mod tests {";
+
+/// Everything before a file's inline test module. Without this a test that
+/// merely mentions a guarded token would change what its guard observes.
+fn production(source: &str) -> &str {
+    source
+        .split_once(TEST_MOD_MARKER)
+        .map_or(source, |(before, _)| before)
+}
+
+/// Declares every guarded source through `production`, so no site below can
+/// reach the raw `include_str!` text.
+macro_rules! guarded_sources {
+    ($($name:ident => $path:literal,)+) => {
+        $(fn $name() -> &'static str { production(include_str!($path)) })+
+    };
+}
+
+guarded_sources! {
+    plan_rs => "../cmd/plan.rs",
+    qa_rs => "../cmd/plan/qa_cmd.rs",
+    gate_rs => "../cmd/plan/gate_cmd.rs",
+    read_rs => "../cmd/plan/read_cmd.rs",
+    local_io_rs => "../cmd/local_io.rs",
+    orchestrator_rs => "../cmd/orchestrator.rs",
+    agent_rs => "../cmd/agent.rs",
+    task_rs => "../cmd/task.rs",
+    caller_context_rs => "../cmd/plan/caller_context.rs",
+}
 
 /// Source text of `signature`'s body, up to the next item at column zero.
 fn fn_body<'a>(source: &'a str, signature: &str) -> &'a str {
@@ -216,10 +238,11 @@ fn fn_body<'a>(source: &'a str, signature: &str) -> &'a str {
 }
 
 fn call_plan_rpc_body() -> &'static str {
-    let start = PLAN_RS
+    let plan = plan_rs();
+    let start = plan
         .find("pub(crate) fn call_plan_rpc(")
         .expect("call_plan_rpc must exist in cmd/plan.rs");
-    let rest = &PLAN_RS[start..];
+    let rest = &plan[start..];
     let end = rest
         .find("\nfn call(")
         .expect("call_plan_rpc is followed by fn call");
@@ -228,37 +251,88 @@ fn call_plan_rpc_body() -> &'static str {
 
 /// One row per bounded injection point: (file, source, expected apply calls).
 /// Counts are frozen; a command gaining context changes one of them.
-const BOUNDED: &[(&str, &str, usize)] = &[
-    ("qa_cmd.rs", QA_RS, 5),
-    ("gate_cmd.rs", GATE_RS, 3),
-    ("read_cmd.rs", READ_RS, 1),
-    ("local_io.rs", LOCAL_IO_RS, 1),
-];
+fn bounded() -> [(&'static str, &'static str, usize); 4] {
+    [
+        ("qa_cmd.rs", qa_rs(), 5),
+        ("gate_cmd.rs", gate_rs(), 3),
+        ("read_cmd.rs", read_rs(), 1),
+        ("local_io.rs", local_io_rs(), 1),
+    ]
+}
+
+/// A guard must observe production text only, so an inline `cfg(test)` body can
+/// neither satisfy nor break it.
+#[test]
+fn guards_observe_production_text_only() {
+    const TOKEN: &str = "ctx.owner()";
+
+    let test_only = concat!(
+        "fn ship(params: &mut Value) {\n    params[\"seed\"] = json!(1);\n}\n\n",
+        "#[cfg(test)]\nmod tests {\n    fn t(ctx: &CallerContext) {\n",
+        "        let _ = ctx.owner();\n    }\n}\n",
+    );
+    assert_eq!(
+        test_only.matches(TOKEN).count(),
+        1,
+        "fixture must carry the token, otherwise the exclusion proves nothing"
+    );
+    let scoped = production(test_only);
+    assert_eq!(
+        scoped.matches(TOKEN).count(),
+        0,
+        "a token that exists only inside `mod tests` must never reach a guard"
+    );
+    assert!(
+        !scoped.contains(TEST_MOD_MARKER),
+        "the production slice must end at the test-module marker"
+    );
+    assert!(
+        scoped.contains("fn ship"),
+        "the production slice must keep the production item"
+    );
+
+    let in_production = concat!(
+        "fn ship(ctx: &CallerContext) {\n    let _ = ctx.owner();\n}\n\n",
+        "#[cfg(test)]\nmod tests {\n    fn t() {}\n}\n",
+    );
+    assert_eq!(
+        production(in_production).matches(TOKEN).count(),
+        1,
+        "a token in the production portion must still be counted"
+    );
+
+    let out_of_line = "fn ship(ctx: &CallerContext) {\n    let _ = ctx.owner();\n}\n";
+    assert_eq!(
+        production(out_of_line),
+        out_of_line,
+        "a file whose tests live out of line keeps its whole source"
+    );
+}
 
 #[test]
 fn context_scope_is_bounded_to_known_sites() {
-    for (name, source, expected) in BOUNDED {
+    for (name, source, expected) in bounded() {
         let applied = source.matches("apply_caller_tab(&mut params)").count();
         assert_eq!(
-            applied, *expected,
+            applied, expected,
             "{name}: caller-tab injection count changed; no command may gain or lose context"
         );
     }
 
     assert_eq!(
-        QA_RS.matches("ctx.owner()").count(),
+        qa_rs().matches("ctx.owner()").count(),
         5,
         "qa_cmd owner injections are frozen at five"
     );
     assert_eq!(
-        ORCHESTRATOR_RS
+        orchestrator_rs()
             .matches("CallerContext::from_env().owner()")
             .count(),
         1,
         "orchestrator carries exactly one owner injection"
     );
     assert_eq!(
-        AGENT_RS
+        agent_rs()
             .matches("CallerContext::from_env().owner()")
             .count(),
         1,
@@ -266,18 +340,18 @@ fn context_scope_is_bounded_to_known_sites() {
     );
 
     assert!(
-        !GATE_RS.contains("ctx.owner()"),
+        !gate_rs().contains("ctx.owner()"),
         "decision gates never carried an owner object and must not gain one"
     );
     assert!(
-        !READ_RS.contains("owner()") && !LOCAL_IO_RS.contains("owner()"),
+        !read_rs().contains("owner()") && !local_io_rs().contains("owner()"),
         "plan state/lanes and workspace.close carry caller_tab_id only"
     );
     assert!(
-        !READ_RS.contains("apply_trusted_session")
-            && !LOCAL_IO_RS.contains("apply_trusted_session")
-            && !GATE_RS.contains("apply_trusted_session")
-            && !QA_RS.contains("apply_trusted_session"),
+        !read_rs().contains("apply_trusted_session")
+            && !local_io_rs().contains("apply_trusted_session")
+            && !gate_rs().contains("apply_trusted_session")
+            && !qa_rs().contains("apply_trusted_session"),
         "no bounded site may gain trusted-session authority"
     );
 }
@@ -336,12 +410,12 @@ fn no_method_allowlist_was_introduced() {
 fn trust_disagreements_are_preserved() {
     // D1: `task take` refuses over mesh; `task drop` ships trust ungated.
     assert!(
-        TASK_RS.contains(
+        task_rs().contains(
             "task take requires a Tab on the target machine and is unavailable over mesh"
         ),
         "D1: task take must keep refusing over mesh"
     );
-    let drop_arm = TASK_RS
+    let drop_arm = task_rs()
         .split("TaskAction::Drop { task_id } => {")
         .nth(1)
         .expect("D1: task drop arm must exist");
@@ -355,20 +429,20 @@ fn trust_disagreements_are_preserved() {
 
     // D2: maybe_inject_caller_tab stays un-gated while its gated siblings remain gated.
     assert!(
-        !fn_body(PLAN_RS, "pub(crate) fn maybe_inject_caller_tab").contains("is_remote"),
+        !fn_body(plan_rs(), "pub(crate) fn maybe_inject_caller_tab").contains("is_remote"),
         "D2: caller-tab injection must stay un-gated"
     );
     assert!(
-        !include_str!("../cmd/plan/caller_context.rs").contains("is_remote"),
+        !caller_context_rs().contains("is_remote"),
         "D2: CallerContext must not introduce a mesh gate the helpers never had"
     );
     assert!(
-        PLAN_RS.contains("(!client.is_remote()).then(caller_tab_id).flatten()"),
+        plan_rs().contains("(!client.is_remote()).then(caller_tab_id).flatten()"),
         "D2: the gated caller_tab_id site must stay gated"
     );
     assert!(
         fn_body(
-            TASK_RS,
+            task_rs(),
             "fn caller_tab(client: &dyn RpcClient) -> Option<String>"
         )
         .contains("client.is_remote()"),
@@ -377,17 +451,17 @@ fn trust_disagreements_are_preserved() {
 
     // D3: agent.report says caller_session_id where inject_trusted_session says session_id.
     assert!(
-        AGENT_RS.contains("body[\"caller_session_id\"]"),
+        agent_rs().contains("body[\"caller_session_id\"]"),
         "D3: agent report must keep the caller_session_id key name"
     );
     assert!(
-        PLAN_RS.contains("fn inject_trusted_session"),
+        plan_rs().contains("fn inject_trusted_session"),
         "D3: the session_id-named helper must survive alongside it"
     );
 
     // D4: two owner shapes coexist.
     assert!(
-        TASK_RS.contains("params[\"owner\"] = json!({ \"tab_id\": caller });"),
+        task_rs().contains("params[\"owner\"] = json!({ \"tab_id\": caller });"),
         "D4: task.rs must keep its tab_id-only owner shape"
     );
     assert_eq!(
@@ -398,11 +472,11 @@ fn trust_disagreements_are_preserved() {
 
     // D5: agent.report and workspace.close bypass call_plan_rpc entirely.
     assert!(
-        AGENT_RS.contains("client.call_detailed(\"agent.report\", Some(body.clone()))"),
+        agent_rs().contains("client.call_detailed(\"agent.report\", Some(body.clone()))"),
         "D5: agent.report must keep bypassing call_plan_rpc"
     );
     assert!(
-        LOCAL_IO_RS.contains("client.call(\"workspace.close\", Some(params))"),
+        local_io_rs().contains("client.call(\"workspace.close\", Some(params))"),
         "D5: workspace.close must keep bypassing call_plan_rpc"
     );
 }
@@ -410,7 +484,7 @@ fn trust_disagreements_are_preserved() {
 /// Negative controls: commands that deliberately carry no caller context.
 #[test]
 fn commands_without_context_stay_without_it() {
-    let list = GATE_RS
+    let list = gate_rs()
         .split("PlanDecisionAction::List { plan_id, open } => {")
         .nth(1)
         .expect("decision list arm must exist");
@@ -420,7 +494,7 @@ fn commands_without_context_stay_without_it() {
         "plan.decision.list carries no caller context and must not gain any"
     );
 
-    let escalate = GATE_RS
+    let escalate = gate_rs()
         .split("PlanDecisionAction::Escalate {")
         .nth(1)
         .expect("decision escalate arm must exist");
@@ -432,7 +506,7 @@ fn commands_without_context_stay_without_it() {
         "plan.decision.escalate carries no caller context and must not gain any"
     );
 
-    let mut arms = LOCAL_IO_RS.split("WorkspaceAction::");
+    let mut arms = local_io_rs().split("WorkspaceAction::");
     arms.next();
     let mut seen = 0;
     for arm in arms {

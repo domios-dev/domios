@@ -56,6 +56,43 @@ pub struct TaskLabel {
     pub status: TaskStatus,
 }
 
+/// Why a task listing came back empty. Only the store can tell these apart:
+/// project identity is worktree-aware here and nowhere else.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum TaskListEmptyReason {
+    PlanNotFound {
+        plan_id: String,
+    },
+    PlanArchived {
+        plan_id: String,
+    },
+    PlanOutsideProject {
+        plan_id: String,
+        plan_project: String,
+        requested_project: String,
+    },
+    NoPlansInScope {
+        requested_project: Option<String>,
+    },
+    NoTasksInScope {
+        plan_id: Option<String>,
+    },
+    AllTasksInactive {
+        hidden: usize,
+    },
+    NoMatchForFilters,
+}
+
+/// The wire shape of `task.list` for every transport: serialize this whole
+/// struct, never hand-build `{ "tasks": ... }`, or the reason key drifts apart.
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskListResult {
+    pub tasks: Vec<TaskSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub empty_reason: Option<TaskListEmptyReason>,
+}
+
 fn canonical_project(project_path: &str) -> String {
     super::paths::project_root(Path::new(project_path))
         .display()
@@ -91,6 +128,77 @@ fn task_label(task: &Task) -> TaskLabel {
         name: task.name.clone(),
         status: task.status.clone(),
     }
+}
+
+fn plan_in_scope(filter: &TaskListFilter, plan: &Plan) -> bool {
+    if plan.status == PlanStatus::Archived {
+        return false;
+    }
+    if filter
+        .project_path
+        .as_deref()
+        .is_some_and(|project| plan.project_path != project)
+    {
+        return false;
+    }
+    !filter
+        .plan_id
+        .as_deref()
+        .is_some_and(|id| plan.id.as_str() != id)
+}
+
+fn empty_reason(filter: &TaskListFilter, plans: &[Plan]) -> TaskListEmptyReason {
+    if let Some(plan_id) = filter.plan_id.as_deref() {
+        let Some(plan) = plans.iter().find(|plan| plan.id == plan_id) else {
+            return TaskListEmptyReason::PlanNotFound {
+                plan_id: plan_id.to_string(),
+            };
+        };
+        if plan.status == PlanStatus::Archived {
+            return TaskListEmptyReason::PlanArchived {
+                plan_id: plan_id.to_string(),
+            };
+        }
+        if let Some(project) = filter.project_path.as_deref() {
+            if plan.project_path != project {
+                return TaskListEmptyReason::PlanOutsideProject {
+                    plan_id: plan_id.to_string(),
+                    plan_project: plan.project_path.clone(),
+                    requested_project: project.to_string(),
+                };
+            }
+        }
+    }
+    let scoped: Vec<&Plan> = plans
+        .iter()
+        .filter(|plan| plan_in_scope(filter, plan))
+        .collect();
+    if scoped.is_empty() {
+        return TaskListEmptyReason::NoPlansInScope {
+            requested_project: filter.project_path.clone(),
+        };
+    }
+    if scoped.iter().all(|plan| plan.tasks.is_empty()) {
+        return TaskListEmptyReason::NoTasksInScope {
+            plan_id: filter.plan_id.clone(),
+        };
+    }
+    if filter.active_only {
+        let relaxed = TaskListFilter {
+            active_only: false,
+            ..filter.clone()
+        };
+        let hidden = scoped
+            .iter()
+            .copied()
+            .flat_map(|plan| plan.tasks.iter())
+            .filter(|task| include_task(&relaxed, task))
+            .count();
+        if hidden > 0 {
+            return TaskListEmptyReason::AllTasksInactive { hidden };
+        }
+    }
+    TaskListEmptyReason::NoMatchForFilters
 }
 
 fn include_task(filter: &TaskListFilter, task: &Task) -> bool {
@@ -151,33 +259,21 @@ impl PlanStore {
         Ok((plan.id, task_id))
     }
 
-    pub fn list_tasks(&self, mut filter: TaskListFilter) -> Vec<TaskSummary> {
+    pub fn list_tasks(&self, filter: TaskListFilter) -> Vec<TaskSummary> {
+        self.list_tasks_with_reason(filter).tasks
+    }
+
+    pub fn list_tasks_with_reason(&self, mut filter: TaskListFilter) -> TaskListResult {
         filter.project_path = filter.project_path.map(|p| canonical_project(&p));
-        let mut out = vec![];
-        for plan in self.list_full() {
-            if plan.status == PlanStatus::Archived {
-                continue;
-            }
-            if filter
-                .project_path
-                .as_deref()
-                .is_some_and(|project| plan.project_path != project)
-            {
-                continue;
-            }
-            if filter
-                .plan_id
-                .as_deref()
-                .is_some_and(|id| plan.id.as_str() != id)
-            {
-                continue;
-            }
+        let plans = self.list_full();
+        let mut tasks = vec![];
+        for plan in plans.iter().filter(|plan| plan_in_scope(&filter, plan)) {
             for task in &plan.tasks {
                 if !include_task(&filter, task) {
                     continue;
                 }
-                let sections = task_sections(&plan, task);
-                out.push(TaskSummary {
+                let sections = task_sections(plan, task);
+                tasks.push(TaskSummary {
                     plan_id: plan.id.clone(),
                     plan_title: plan.title.clone(),
                     plan_owner: plan.owner.clone(),
@@ -186,12 +282,16 @@ impl PlanStore {
                 });
             }
         }
-        out.sort_by(|a, b| {
+        tasks.sort_by(|a, b| {
             a.plan_title
                 .cmp(&b.plan_title)
                 .then_with(|| a.task.name.cmp(&b.task.name))
         });
-        out
+        let empty_reason = tasks.is_empty().then(|| empty_reason(&filter, &plans));
+        TaskListResult {
+            tasks,
+            empty_reason,
+        }
     }
 
     pub fn show_task(&self, task_id: &str) -> Option<TaskDetail> {

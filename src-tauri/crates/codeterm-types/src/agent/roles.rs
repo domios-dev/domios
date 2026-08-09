@@ -167,7 +167,10 @@ mod tests {
             AgentRole::from_str_compat("Manager"),
             Some(AgentRole::Manager)
         );
-        assert_eq!(AgentRole::from_str_compat("Worker"), Some(AgentRole::Worker));
+        assert_eq!(
+            AgentRole::from_str_compat("Worker"),
+            Some(AgentRole::Worker)
+        );
         assert_eq!(AgentRole::from_str_compat("Planner"), None);
     }
 }

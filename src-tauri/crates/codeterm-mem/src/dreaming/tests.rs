@@ -527,7 +527,12 @@ mod cron_task {
     }
 
     fn ensure(store: &mut MockScheduler) -> Result<bool, String> {
-        crate::dreaming::ensure_dreaming_cron(store, &MemoryConfig::default(), "claude", &FakeCompat)
+        crate::dreaming::ensure_dreaming_cron(
+            store,
+            &MemoryConfig::default(),
+            "claude",
+            &FakeCompat,
+        )
     }
 
     #[test]
@@ -561,7 +566,10 @@ mod cron_task {
             "stale task must be healed to `mem dream run`, got: {:?}",
             store.jobs[0].task
         );
-        assert_eq!(id, store.jobs[0].id, "self-heal must edit in place, not recreate");
+        assert_eq!(
+            id, store.jobs[0].id,
+            "self-heal must edit in place, not recreate"
+        );
     }
 
     #[test]

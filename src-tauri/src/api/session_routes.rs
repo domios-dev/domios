@@ -39,6 +39,9 @@ pub(crate) struct SearchSessionsQuery {
 /// collects past sessions from disk, and returns matches ranked by recency.
 /// Each hit carries its `provider` so callers can route a "resume in new Tab"
 /// action to the correct launcher.
+///
+/// The scan is disk-bound, so it runs on the blocking pool — on the async
+/// runtime it starves every other IPC caller for the length of the corpus walk.
 pub async fn search_sessions_api(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -59,9 +62,26 @@ pub async fn search_sessions_api(
         project_path: q.project,
         limit: q.limit.unwrap_or(10),
         max_snippets: q.max_snippets.unwrap_or(3),
+        max_file_bytes: 0,
     };
-    let hits = state.svc.agent_registry.search_sessions(&opts);
+    let registry = state.svc.agent_registry.clone();
+    let hits = tokio::task::spawn_blocking(move || registry.search_sessions(&opts))
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")))?;
     Ok(Json(serde_json::json!({ "hits": hits })))
+}
+
+/// Session lookup enumerates every provider's on-disk history, so it belongs on
+/// the blocking pool for the same reason `search_sessions_api` does.
+async fn find_session_off_runtime(
+    state: &AppState,
+    session_id: &str,
+) -> Result<Option<crate::agent::provider::SessionMetadata>, (StatusCode, String)> {
+    let registry = state.svc.agent_registry.clone();
+    let session_id = session_id.to_string();
+    tokio::task::spawn_blocking(move || registry.find_session(&session_id))
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")))
 }
 
 /// Resolve a session id to its metadata across all providers.
@@ -72,7 +92,7 @@ pub async fn get_session_api(
     Path(session_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    match state.svc.agent_registry.find_session(&session_id) {
+    match find_session_off_runtime(&state, &session_id).await? {
         Some(meta) => Ok(Json(serde_json::to_value(meta).unwrap_or_default())),
         None => Err((
             StatusCode::NOT_FOUND,
@@ -176,10 +196,12 @@ pub async fn resume_session_api(
         model: None,
     });
 
-    let meta = state.svc.agent_registry.find_session(&session_id).ok_or((
-        StatusCode::NOT_FOUND,
-        format!("session {} not found", session_id),
-    ))?;
+    let meta = find_session_off_runtime(&state, &session_id)
+        .await?
+        .ok_or((
+            StatusCode::NOT_FOUND,
+            format!("session {} not found", session_id),
+        ))?;
 
     let cwd = meta.project_path.clone().ok_or((
         StatusCode::BAD_REQUEST,

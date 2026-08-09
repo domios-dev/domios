@@ -28,15 +28,25 @@ struct SerdeSessionMetadata {
     modified_ts: Option<i64>,
 }
 
+const SESSION_HEAD_BYTES: u64 = 64 * 1024;
+
+/// Bytes handed to `parseSessionMessages` per QuickJS call. Chunks are cut on
+/// line boundaries, so a JSONL parser sees the same token stream it would get
+/// from the whole file — without either side holding a multi-gigabyte string.
+const SESSION_PARSE_CHUNK_BYTES: usize = 4 * 1024 * 1024;
+
 fn session_description_head(path: &Path) -> String {
     let Ok(file) = std::fs::File::open(path) else {
         return String::new();
     };
+    // Bound the reader itself: a session whose first line is gigabytes long
+    // would otherwise be materialised before the per-line budget is consulted.
     let mut head = String::new();
-    for line in BufReader::new(file).lines().map_while(Result::ok).take(64) {
-        if head.len() + line.len() > 64 * 1024 {
-            break;
-        }
+    for line in BufReader::new(std::io::Read::take(file, SESSION_HEAD_BYTES))
+        .lines()
+        .map_while(Result::ok)
+        .take(64)
+    {
         head.push_str(&line);
         head.push('\n');
     }
@@ -242,6 +252,14 @@ impl JsProvider {
                 log::warn!("[plugin {}] {} failed: {e}", self.manifest.id, method);
                 None
             }
+        }
+    }
+
+    fn extend_parsed_session_chunk(&self, out: &mut Vec<SessionMessage>, chunk: &str) {
+        if let Some(parsed) =
+            self.try_call::<Vec<SerdeSessionMessage>>("parseSessionMessages", &[json!(chunk)])
+        {
+            out.extend(parsed.into_iter().map(SessionMessage::from));
         }
     }
 
@@ -673,12 +691,30 @@ impl AgentProvider for JsProvider {
                 None => Vec::new(),
             };
         }
-        let Ok(text) = std::fs::read_to_string(file_path) else {
+        let Ok(file) = std::fs::File::open(file_path) else {
             return Vec::new();
         };
-        self.try_call::<Vec<SerdeSessionMessage>>("parseSessionMessages", &[json!(text)])
-            .map(|v| v.into_iter().map(SessionMessage::from).collect())
-            .unwrap_or_default()
+        let mut reader = BufReader::new(file);
+        let mut out = Vec::new();
+        let mut chunk = String::new();
+        let mut line = String::new();
+        loop {
+            line.clear();
+            match reader.read_line(&mut line) {
+                Ok(0) => break,
+                Ok(_) => {}
+                Err(_) => break,
+            }
+            chunk.push_str(&line);
+            if chunk.len() >= SESSION_PARSE_CHUNK_BYTES {
+                self.extend_parsed_session_chunk(&mut out, &chunk);
+                chunk.clear();
+            }
+        }
+        if !chunk.is_empty() {
+            self.extend_parsed_session_chunk(&mut out, &chunk);
+        }
+        out
     }
 
     fn session_jsonl_path(&self, cwd: &str, session_id: &str) -> Option<std::path::PathBuf> {
@@ -819,6 +855,20 @@ impl AgentProvider for JsProvider {
             &[json!(session_id), json!(skip_permissions)],
         )
         .flatten()
+    }
+
+    fn build_resume_command_with_context(
+        &self,
+        params: &crate::provider::AgentResumeParams,
+    ) -> Option<String> {
+        // A missing export is the undeclared class, not a failure: fall back to
+        // the plain resume so the prompt is never re-applied by accident.
+        match self.try_call::<Option<String>>("buildResumeCommandWithContext", &[json!(params)]) {
+            Some(command) => command,
+            None => self
+                .build_resume_command(&params.session_id, params.skip_permissions)
+                .map(|base| crate::provider::append_launch_args(base, &params.args)),
+        }
     }
 
     fn has_hooks(&self) -> bool {

@@ -144,10 +144,25 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             ),
         },
         Commands::Notify { action } => match action {
-            crate::NotifyAction::Send { title, body, level } => (
+            crate::NotifyAction::Send {
+                title,
+                body,
+                level,
+                category,
+                event_key,
+            } => (
                 "POST".into(),
                 "/api/notifications".into(),
-                Some(serde_json::json!({"title": title, "body": body, "level": level}).to_string()),
+                Some(
+                    serde_json::json!({
+                        "title": title,
+                        "body": body,
+                        "level": level,
+                        "category": category.map(|c| c.as_str()),
+                        "event_key": event_key,
+                    })
+                    .to_string(),
+                ),
             ),
             crate::NotifyAction::List { unread } => {
                 let qs = if *unread { "?unread=true" } else { "" };
@@ -159,11 +174,16 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
         },
         Commands::Workspace { action } => match action {
             crate::WorkspaceAction::List => ("GET".into(), "/api/workspaces".into(), None),
-            crate::WorkspaceAction::Create { name, .. } => (
-                "POST".into(),
-                "/api/workspaces".into(),
-                Some(serde_json::json!({"name": name}).to_string()),
+            crate::WorkspaceAction::Current { .. } => unsupported(
+                "workspace current is caller-local — use workspace list on the peer",
             ),
+            crate::WorkspaceAction::Create { name, cwd } => {
+                let mut body = serde_json::json!({"name": name});
+                if let Some(cwd) = cwd {
+                    body["cwd"] = serde_json::json!(cwd);
+                }
+                ("POST".into(), "/api/workspaces".into(), Some(body.to_string()))
+            }
             crate::WorkspaceAction::Focus { id } => {
                 ("POST".into(), format!("/api/workspaces/{}/focus", id), None)
             }
@@ -175,7 +195,11 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             crate::WorkspaceAction::Close { id } => {
                 ("POST".into(), format!("/api/workspaces/{}/close", id), None)
             }
-            _ => ("GET".into(), "/api/workspaces".into(), None),
+            crate::WorkspaceAction::MoveTab { tab_id, from, to } => (
+                "POST".into(),
+                format!("/api/workspaces/{from}/tabs/{tab_id}/move"),
+                Some(serde_json::json!({"to_workspace_id": to}).to_string()),
+            ),
         },
         Commands::Tab { action } => match action {
             crate::TabAction::List {
@@ -731,11 +755,6 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             ),
             _ => ("GET".into(), "/api/keepawake".into(), None),
         },
-        // `system` is local-only platform config (schtasks/launchd/systemd).
-        // Mesh relay falls through to /identify for a valid response shape.
-        Commands::System { .. } => ("GET".into(), "/api/identify".into(), None),
-        // `docs` / `doc` read embedded markdown — local-only by definition.
-        Commands::Docs { .. } => ("GET".into(), "/api/identify".into(), None),
         Commands::Usage { action } => match action {
             crate::UsageAction::Latest {
                 provider,
@@ -795,6 +814,8 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
         | Commands::CliManifest { .. }
         | Commands::Capabilities
         | Commands::Pad { .. }
+        | Commands::System { .. }
+        | Commands::Docs { .. }
         | Commands::Debug { .. } => {
             unreachable!("transport table declares this command non-REST")
         }

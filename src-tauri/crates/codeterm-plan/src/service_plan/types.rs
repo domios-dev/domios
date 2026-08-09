@@ -4,6 +4,11 @@ use serde::Serialize;
 use std::fmt;
 use std::path::PathBuf;
 
+/// A well-formed request that named a missing object, kept distinct from a
+/// daemon fault so callers can branch on absence instead of parsing prose.
+pub const RPC_NOT_FOUND: i32 = -32001;
+pub const RPC_INTERNAL_ERROR: i32 = -32603;
+
 #[derive(Debug)]
 pub enum PlanError {
     NotFound,
@@ -305,6 +310,18 @@ impl fmt::Display for PlanError {
 impl std::error::Error for PlanError {}
 
 impl PlanError {
+    pub fn rpc_code(&self) -> i32 {
+        match self {
+            PlanError::NotFound
+            | PlanError::ElementNotFound
+            | PlanError::TaskNotFound
+            | PlanError::GateNotFound
+            | PlanError::GroupNotFound
+            | PlanError::DependencyTaskNotFound { .. } => RPC_NOT_FOUND,
+            _ => RPC_INTERNAL_ERROR,
+        }
+    }
+
     pub fn to_json(&self) -> serde_json::Value {
         match self {
             PlanError::NotFound => serde_json::json!({ "type": "not_found" }),
@@ -562,4 +579,48 @@ pub struct ReconcileFixResult {
     pub task_id: String,
     pub kind: DriftKind,
     pub action: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn absent_object_reaches_the_caller_as_not_found_not_internal_error() {
+        for error in [
+            PlanError::NotFound,
+            PlanError::ElementNotFound,
+            PlanError::TaskNotFound,
+            PlanError::GateNotFound,
+            PlanError::GroupNotFound,
+            PlanError::DependencyTaskNotFound {
+                task_id: "task_1".into(),
+            },
+        ] {
+            assert_eq!(
+                error.rpc_code(),
+                RPC_NOT_FOUND,
+                "{error:?} is an absent object, not a daemon fault"
+            );
+        }
+    }
+
+    #[test]
+    fn conditions_that_are_not_absence_keep_the_internal_error_code() {
+        for error in [
+            PlanError::BadStatus,
+            PlanError::QaNotRunning,
+            PlanError::GateAlreadyAnswered,
+            PlanError::DependencyCycle,
+            PlanError::DependencySelfReference,
+            PlanError::Io("disk is gone".into()),
+        ] {
+            assert_eq!(error.rpc_code(), RPC_INTERNAL_ERROR, "{error:?}");
+        }
+    }
+
+    #[test]
+    fn the_two_rpc_codes_are_distinguishable() {
+        assert_ne!(RPC_NOT_FOUND, RPC_INTERNAL_ERROR);
+    }
 }
