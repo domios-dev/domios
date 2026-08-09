@@ -410,6 +410,9 @@ impl ServiceContext {
                 agent.can_spawn,
             ) {
                 let _ = self.mux.write().close_tab(&tab_id);
+                // A concurrent save may have persisted the reserved tab before
+                // this rollback; record the removal as authorized.
+                crate::service::session_persist::persist_session_after_close(self);
                 self.emit_state_changed();
                 return Err(e);
             }
@@ -417,6 +420,7 @@ impl ServiceContext {
                 if let Some(ref parent) = spec.parent_tab_id {
                     if let Err(e) = self.expect_spawn_parent_link(&tab_id, parent) {
                         let _ = self.mux.write().close_tab(&tab_id);
+                        crate::service::session_persist::persist_session_after_close(self);
                         self.emit_state_changed();
                         return Err(e);
                     }

@@ -342,6 +342,9 @@ impl ServiceContext {
             };
             if let Err(e) = role_result {
                 let _ = self.mux.write().close_tab(&tab_id);
+                // A concurrent save may have persisted the reserved tab before
+                // this rollback; record the removal as authorized.
+                crate::service::session_persist::persist_session_after_close(self);
                 if emit_state_change {
                     self.emit_state_changed();
                 }
