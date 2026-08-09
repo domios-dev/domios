@@ -1,6 +1,7 @@
 use super::*;
 use crate::provider::{
-    BusySubmitStrategy, ProviderReadinessStrategy, ReadinessStrategy, VerifySubmitStrategy,
+    BusySubmitStrategy, ContextOwner, ProviderReadinessStrategy, ReadinessStrategy,
+    VerifySubmitStrategy,
 };
 
 #[test]
@@ -279,6 +280,7 @@ fn chat_backend_round_trips_symmetrically() {
         spawnable: true,
         watcher: false,
         session_config: false,
+        context_owner: ContextOwner::Plugin,
     };
     let v = serde_json::to_value(&spawnable).unwrap();
     assert_eq!(v, serde_json::json!({ "spawnable": true }));
@@ -290,6 +292,7 @@ fn chat_backend_round_trips_symmetrically() {
         spawnable: false,
         watcher: true,
         session_config: false,
+        context_owner: ContextOwner::Plugin,
     };
     let v = serde_json::to_value(&watcher).unwrap();
     assert_eq!(v, serde_json::json!({ "watcher": true }));
@@ -301,11 +304,143 @@ fn chat_backend_round_trips_symmetrically() {
         spawnable: false,
         watcher: false,
         session_config: true,
+        context_owner: ContextOwner::Plugin,
     };
     let v = serde_json::to_value(&session_config).unwrap();
     assert_eq!(v, serde_json::json!({ "sessionConfig": true }));
     let back: ChatBackendCap = serde_json::from_value(v).unwrap();
     assert!(back.enabled() && back.session_config());
+
+    let host_context = ChatBackendCap {
+        enabled: true,
+        spawnable: false,
+        watcher: false,
+        session_config: false,
+        context_owner: ContextOwner::Host,
+    };
+    let v = serde_json::to_value(&host_context).unwrap();
+    assert_eq!(v, serde_json::json!({ "contextOwner": "host" }));
+    let back: ChatBackendCap = serde_json::from_value(v).unwrap();
+    assert!(back.enabled() && back.context_owner() == ContextOwner::Host);
+}
+
+/// Independent reimplementation of the serializer as it stood before
+/// `contextOwner` existed. Byte-comparing against it is what proves the new
+/// field costs an already-shipped manifest nothing.
+fn chat_backend_serialization_before_context_owner(cap: &ChatBackendCap) -> String {
+    if cap.enabled() && (cap.spawnable() || cap.watcher() || cap.session_config()) {
+        let mut entries: Vec<&str> = Vec::new();
+        if cap.spawnable() {
+            entries.push(r#""spawnable":true"#);
+        }
+        if cap.watcher() {
+            entries.push(r#""watcher":true"#);
+        }
+        if cap.session_config() {
+            entries.push(r#""sessionConfig":true"#);
+        }
+        format!("{{{}}}", entries.join(","))
+    } else if cap.enabled() {
+        "true".to_string()
+    } else {
+        "false".to_string()
+    }
+}
+
+fn assert_context_owner_absent_is_byte_equivalent(source: &str, cap: &ChatBackendCap) {
+    assert_eq!(
+        cap.context_owner(),
+        ContextOwner::Plugin,
+        "{source}: a manifest without the key must stay provider-owned"
+    );
+    assert_eq!(
+        serde_json::to_string(cap).expect("serialize cap"),
+        chat_backend_serialization_before_context_owner(cap),
+        "{source}: serialization must be byte-equivalent to the pre-change bytes"
+    );
+}
+
+#[test]
+fn context_owner_absent_manifest_parses_byte_equivalent_to_today() {
+    let shipped_root =
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../..")).join("plugins");
+    let mut shipped = 0usize;
+    for entry in std::fs::read_dir(&shipped_root).expect("shipped plugins dir") {
+        let manifest_path = entry.expect("plugin dir entry").path().join("plugin.json");
+        if !manifest_path.exists() {
+            continue;
+        }
+        let raw = std::fs::read_to_string(&manifest_path).expect("read shipped manifest");
+        let manifest: PluginManifest = serde_json::from_str(&raw)
+            .unwrap_or_else(|e| panic!("parse {}: {e}", manifest_path.display()));
+        assert_context_owner_absent_is_byte_equivalent(
+            &manifest_path.display().to_string(),
+            &manifest.capabilities.chat_backend,
+        );
+        shipped += 1;
+    }
+    assert!(
+        shipped > 0,
+        "no shipped manifest was parsed — the fixture set must not be empty"
+    );
+
+    for declaration in [
+        "true",
+        "false",
+        r#"{ "spawnable": true }"#,
+        r#"{ "watcher": true }"#,
+        r#"{ "sessionConfig": true }"#,
+        r#"{ "spawnable": true, "watcher": true }"#,
+        r#"{ "spawnable": true, "watcher": true, "sessionConfig": true }"#,
+    ] {
+        let json = format!(
+            r#"{{ "id":"cap-shape-fixture","version":"0.1.0","displayName":"Cap shape fixture",
+                  "capabilities": {{ "chatBackend": {declaration} }} }}"#
+        );
+        let manifest: PluginManifest =
+            serde_json::from_str(&json).unwrap_or_else(|e| panic!("parse {declaration}: {e}"));
+        assert_context_owner_absent_is_byte_equivalent(
+            declaration,
+            &manifest.capabilities.chat_backend,
+        );
+    }
+}
+
+#[test]
+fn parse_chat_backend_context_owner_host() {
+    let json = r#"{
+            "id": "context-owner-fixture",
+            "version": "0.1.0",
+            "displayName": "Context owner fixture",
+            "capabilities": { "chatBackend": { "spawnable": true, "contextOwner": "host" } }
+        }"#;
+    let m: PluginManifest = serde_json::from_str(json).expect("parse host context owner");
+    assert_eq!(
+        m.capabilities.chat_backend.context_owner(),
+        ContextOwner::Host
+    );
+    assert!(m.capabilities.chat_backend_spawnable());
+
+    let explicit_plugin = json.replace(r#""host""#, r#""plugin""#);
+    let m: PluginManifest = serde_json::from_str(&explicit_plugin).expect("parse explicit plugin");
+    assert_eq!(
+        m.capabilities.chat_backend.context_owner(),
+        ContextOwner::Plugin
+    );
+}
+
+#[test]
+fn unknown_context_owner_fails_the_parse_instead_of_defaulting() {
+    // A typo silently meaning "plugin" would reinstate an unverifiable promise.
+    for declared in ["hosr", "Host", "HOST", "native", ""] {
+        let json = format!(
+            r#"{{ "id":"context-owner-typo-fixture","version":"0.1.0","displayName":"Typo fixture",
+                  "capabilities": {{ "chatBackend": {{ "contextOwner": "{declared}" }} }} }}"#
+        );
+        serde_json::from_str::<PluginManifest>(&json).expect_err(&format!(
+            "'{declared}' must fail the parse, never fall back"
+        ));
+    }
 }
 
 #[test]
