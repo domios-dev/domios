@@ -141,7 +141,11 @@ pub enum Commands {
         #[arg(allow_hyphen_values = true)]
         text: Option<String>,
 
-        /// Target tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
+        /// Target tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback).
+        /// Comma-separated ids address several tabs in one call — the same
+        /// payload is delivered per tab, every target is reported, and the
+        /// call exits non-zero if any of them failed. Multi-target does not
+        /// accept mesh ids: run it on the owning peer, one peer per call.
         #[arg(long = "tab", value_name = "TAB")]
         tab: Option<String>,
 
