@@ -287,9 +287,9 @@ fn the_decision_records_messages_as_the_unit() {
     assert_eq!(line["entriesSent"], 9);
     // Exact schema: a counting field of any other unit could not be added
     // without this failing.
-    assert_eq!(
-        line.as_object().unwrap().keys().collect::<Vec<_>>(),
-        [
+    let mut keys = line.as_object().unwrap().keys().collect::<Vec<_>>();
+    keys.sort();
+    let mut expected = vec![
             "turn",
             "unit",
             "limit",
@@ -303,6 +303,7 @@ fn the_decision_records_messages_as_the_unit() {
             "systemPromptSeedIds",
             "payloadBytes",
             "outcome",
-        ]
-    );
+    ];
+    expected.sort();
+    assert_eq!(keys, expected);
 }
