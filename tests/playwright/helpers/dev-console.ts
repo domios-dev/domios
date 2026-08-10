@@ -517,6 +517,38 @@ export interface UiSession {
   page: Page;
 }
 
+/** A viewport-fixed control that any full-screen modal must cover. Panels that are
+ *  `absolute inset-0` inside the main pane (Settings) legitimately do not, so probing
+ *  here isolates exactly the overlays that poison a later test. */
+export const UI_OVERLAY_PROBE = '[data-testid="titlebar-settings"]';
+
+export type PointerObstruction =
+  | { kind: "clear" }
+  | { kind: "missing" }
+  | { kind: "covered"; by: string };
+
+/**
+ * What owns pointer events at the centre of `selector`. "Covered" and "missing" are
+ * different bugs that this suite could previously not tell apart — both surfaced only
+ * as a long wait — so they are returned as distinct outcomes and never collapsed.
+ */
+export function pointerObstruction(page: Page, selector: string): Promise<PointerObstruction> {
+  return page.evaluate((sel) => {
+    const target = document.querySelector(sel);
+    if (!(target instanceof HTMLElement)) return { kind: "missing" as const };
+    const rect = target.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return { kind: "missing" as const };
+    const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    if (!hit) return { kind: "missing" as const };
+    if (hit === target || target.contains(hit)) return { kind: "clear" as const };
+    const named = hit.closest("[data-testid]");
+    return {
+      kind: "covered" as const,
+      by: named?.getAttribute("data-testid") ?? hit.tagName.toLowerCase(),
+    };
+  }, selector);
+}
+
 async function completeFirstRunPickerIfPresent(page: Page): Promise<void> {
   const picker = page.locator('[data-testid="first-run-general-picker"]');
   if (!(await picker.isVisible({ timeout: 1_000 }).catch(() => false))) return;
@@ -532,7 +564,10 @@ async function completeFirstRunPickerIfPresent(page: Page): Promise<void> {
 }
 
 async function activateFirstRunTab(page: Page): Promise<void> {
-  const closeCanvas = page.locator('[data-testid="canvas-toolbar-button"][aria-pressed="true"]');
+  // The canvas overlays the tab list. `canvas-toolbar-button` was renamed away and
+  // this step has been a silent no-op ever since; CanvasView renders the live close
+  // control as `canvas-focus-close`.
+  const closeCanvas = page.locator('[data-testid="canvas-focus-close"]');
   if (await closeCanvas.isVisible().catch(() => false)) {
     await closeCanvas.click({ timeout: 30_000 });
   }

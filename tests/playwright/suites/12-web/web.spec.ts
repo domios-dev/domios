@@ -512,23 +512,29 @@ test("@golden close sync: web close updates the desktop window, desktop close up
     }
 
     // 1) Close A through the WEB sidebar UI (⋮ → Close Tab).
+    await expect(webTab(a.tab_id), "web row for A before its menu").toBeVisible({ timeout: 15_000 });
     await webTab(a.tab_id).hover();
     const webActions = webTab(a.tab_id).locator('[title="Tab actions"]');
     await webActions.scrollIntoViewIfNeeded();
     await expect(webActions).toBeVisible({ timeout: 5_000 });
     await webActions.click();
-    await page.getByText(/^Close (Tab|Session)$/).first().click();
+    // The menu item carries `tab-menu-close` (TabItem.tsx). Its LABEL is
+    // "Close Session" or "Close Tab" depending on whether the tab has an agent,
+    // and the same words also appear on a CommandPalette entry — so a page-wide
+    // text match could act on a different tab entirely.
+    await page.getByTestId("tab-menu-close").click();
     await expect(webTab(a.tab_id)).toHaveCount(0, { timeout: 15_000 });
     // …and the DESKTOP window follows via mux-state-changed.
     await expect(deskTab(a.tab_id)).toHaveCount(0, { timeout: 15_000 });
 
     // 2) Close B through the DESKTOP sidebar UI.
+    await expect(deskTab(b.tab_id), "desktop row for B before its menu").toBeVisible({ timeout: 15_000 });
     await deskTab(b.tab_id).hover();
     const deskActions = deskTab(b.tab_id).locator('[title="Tab actions"]');
     await deskActions.scrollIntoViewIfNeeded();
     await expect(deskActions).toBeVisible({ timeout: 5_000 });
     await deskActions.click();
-    await ui.page.getByText(/^Close (Tab|Session)$/).first().click();
+    await ui.page.getByTestId("tab-menu-close").click();
     await expect(deskTab(b.tab_id)).toHaveCount(0, { timeout: 15_000 });
     // …and the WEB mirror follows via SSE.
     await expect(webTab(b.tab_id)).toHaveCount(0, { timeout: 15_000 });
