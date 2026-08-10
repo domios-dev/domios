@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { flushSync } from "react-dom";
 import { createPortal } from "react-dom";
 import { listen } from "../../lib/bridge";
@@ -14,6 +14,7 @@ import {
   invalidateWebRequestContext,
 } from "../../lib/webApi";
 import { clampFloatingPosition, type FloatingPosition } from "../shared/floatingPosition";
+import { menuKeyAction } from "./menuKeyboard";
 import { RELAY_PROTOCOL_VERSION } from "../../lib/types";
 
 let nextPeerSwitchId = 0;
@@ -52,6 +53,7 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
   const [switchFailed, setSwitchFailed] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
   const [menuPosition, setMenuPosition] = useState<FloatingPosition | null>(null);
 
   const refresh = useCallback(async () => {
@@ -129,6 +131,34 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
     return () => window.removeEventListener("codeterm-peer-switch-ready", ready);
   }, []);
 
+  const menuItems = useCallback(
+    () => Array.from(menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled])') ?? []),
+    [],
+  );
+
+  const closeMenu = useCallback(() => {
+    setOpen(false);
+    triggerRef.current?.focus();
+  }, []);
+
+  // An explicitly opened menu takes focus so arrows and Escape reach it.
+  useEffect(() => {
+    if (!open || !menuPosition) return;
+    menuItems()[0]?.focus();
+  }, [open, menuPosition, menuItems]);
+
+  const onMenuKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      const items = menuItems();
+      const action = menuKeyAction(event.key, items.indexOf(document.activeElement as HTMLElement), items.length);
+      if (!action) return;
+      event.preventDefault();
+      if (action.kind === "close") closeMenu();
+      else items[action.index]?.focus();
+    },
+    [closeMenu, menuItems],
+  );
+
   const target = displayTarget;
   const onSelf = !target;
   const label = switchingTo ? `Connecting to ${switchingTo}` : onSelf ? localName : target.name;
@@ -159,11 +189,13 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
   return (
     <div ref={rootRef} className="relative" data-testid="peer-picker">
       <button
+        ref={triggerRef}
         type="button"
         data-testid="peer-picker-button"
         aria-label={`Switch CodeTerm host, current host ${label}`}
+        aria-haspopup="menu"
         aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => (open ? closeMenu() : setOpen(true))}
         className={`flex items-center gap-1.5 rounded text-xs text-[var(--ct-fg)] bg-[var(--ct-hover)] hover:bg-[var(--ct-active)] border border-[var(--ct-border)] ${compact ? "h-7 min-w-0 max-w-[126px] px-2" : "min-h-[44px] sm:min-h-0 sm:h-7 px-2.5"}`}
         title="Switch CodeTerm host"
       >
@@ -177,6 +209,7 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
           data-testid="peer-picker-menu"
           role="menu"
           aria-label="CodeTerm hosts"
+          onKeyDown={onMenuKeyDown}
           className="fixed z-50 w-[min(320px,calc(100vw-0.5rem))] overflow-y-auto rounded border border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)] shadow-lg py-1"
           style={{ top: menuPosition.top, left: menuPosition.left, maxHeight: menuPosition.maxHeight }}
         >
@@ -184,6 +217,7 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
             type="button"
             role="menuitem"
             data-testid="peer-picker-self"
+            aria-current={onSelf ? "true" : undefined}
             onClick={() => switchTo(null)}
             className={`w-full text-left px-3 min-h-[44px] flex items-center gap-2 text-xs hover:bg-[var(--ct-hover)] ${onSelf ? "text-[var(--ct-accent,#58a6ff)]" : "text-[var(--ct-fg)]"}`}
           >
@@ -203,6 +237,7 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
                 role="menuitem"
                 key={p.instance_id}
                 data-testid="peer-picker-item"
+                aria-current={active ? "true" : undefined}
                 data-peer-name={p.instance_name}
                 data-peer-online={String(!!p.online)}
                 disabled={!available}

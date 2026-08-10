@@ -563,6 +563,7 @@ export function TeamUnit({
 
   return (
     <section
+      aria-label={displayTitle}
       data-testid="team-unit"
       data-team-id={team.id}
       data-expanded={expanded ? "true" : "false"}
@@ -619,13 +620,23 @@ export function TeamUnit({
       {expanded && (
         <div className="sidebar-team-body">
           {managerCount > 0 && (
-            <div data-testid="managers-section" className="sidebar-team-section">
+            <div
+              role="group"
+              aria-label={`${displayTitle} managers`}
+              data-testid="managers-section"
+              className="sidebar-team-section"
+            >
               <div className="sidebar-team-section-label">MANAGERS {managerCount}</div>
               <div className="sidebar-team-member-list">{managers}</div>
             </div>
           )}
           {workerCount > 0 && (
-            <div data-testid="workers-section" className="sidebar-team-section">
+            <div
+              role="group"
+              aria-label={`${displayTitle} workers`}
+              data-testid="workers-section"
+              className="sidebar-team-section"
+            >
               <SidebarDisclosure
                 data-testid="workers-collapse-toggle"
                 expanded={workersExpanded}
@@ -646,7 +657,12 @@ export function TeamUnit({
             </div>
           )}
           {terminalCount > 0 && (
-            <div data-testid="terminals-section" className="sidebar-team-section">
+            <div
+              role="group"
+              aria-label={`${displayTitle} utility shells`}
+              data-testid="terminals-section"
+              className="sidebar-team-section"
+            >
               <SidebarDisclosure
                 data-testid="terminals-collapse-toggle"
                 expanded={terminalsExpanded}
@@ -661,7 +677,12 @@ export function TeamUnit({
             </div>
           )}
           {cronCount > 0 && (
-            <div data-testid="crons-section" className="sidebar-team-section">
+            <div
+              role="group"
+              aria-label={`${displayTitle} scheduled jobs`}
+              data-testid="crons-section"
+              className="sidebar-team-section"
+            >
               <SidebarDisclosure
                 data-testid="crons-collapse-toggle"
                 expanded={cronsExpanded}

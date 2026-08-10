@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { CheckIcon, CopyIcon } from "../Icons";
 import { isMac } from "../../lib/keybindings";
 import type { LucideIcon } from "lucide-react";
@@ -31,10 +31,17 @@ export function SettingsPage({
   subtitle?: ReactNode;
   children: ReactNode;
 }) {
+  const titleId = useId();
   return (
-    <div className="max-w-[720px] mx-auto flex flex-col gap-5" data-testid="settings-page" data-settings-page={testIdPart(title)}>
+    <div
+      role="region"
+      aria-labelledby={titleId}
+      className="max-w-[720px] mx-auto flex flex-col gap-5"
+      data-testid="settings-page"
+      data-settings-page={testIdPart(title)}
+    >
       {/* Title already shown in the nav header — keep it for screen readers only, no visual duplicate. */}
-      <h1 className="sr-only">{title}</h1>
+      <h1 id={titleId} className="sr-only">{title}</h1>
       {subtitle && (
         <p className="text-sm text-[var(--ct-muted-fg)] -mt-1">{subtitle}</p>
       )}
@@ -58,15 +65,18 @@ export function SettingsCard({
   children?: ReactNode;
   className?: string;
 }) {
+  const titleId = useId();
   return (
     <Card
+      role="group"
+      aria-labelledby={titleId}
       className={`p-4 ${className ?? ""}`}
       data-testid="settings-card"
     >
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-[var(--ct-fg)] text-sm font-medium min-w-0">
           {icon}
-          <span className="truncate">{title}</span>
+          <span id={titleId} className="truncate">{title}</span>
         </div>
         {headerRight && <div className="shrink-0">{headerRight}</div>}
       </div>
