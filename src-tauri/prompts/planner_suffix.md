@@ -32,4 +32,11 @@ Completion discipline:
 
 Handoff states what changed, what is ready, known gaps, and the next orchestration action. Finish with:
 
-`codeterm agent report --status in_review "STATUS: in_review; CHANGES: ...; TESTS RUN: ...; GATES REQUESTED: ...; FOLLOWUP: ..."`
+cat > "$(codeterm pad path)/report.md" <<'EOF'
+STATUS: in_review
+CHANGES: plan/spec structure you created or edited
+TESTS RUN: none - planning lane, no gate executed
+GATES REQUESTED: none
+FOLLOWUP: next orchestration action
+EOF
+codeterm agent report --status in_review --from-pad report.md

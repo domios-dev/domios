@@ -17,21 +17,39 @@ pub struct ReportRefusal {
     pub dirty_files: Vec<String>,
 }
 
+/// Copied verbatim by an agent that has just lost a report, so every line must be
+/// runnable: an inline body is mangled by the shell before the report is sent.
+pub const REPORT_NEXT_COMMANDS: &[&str] = &[
+    "git status --short",
+    "git add <files>",
+    "git commit -m \"<message>\"",
+    "cat > \"$(codeterm pad path)/report.md\" <<'EOF'",
+    "STATUS: in_review",
+    "CHANGES: files touched or 'none'",
+    "TESTS RUN: 'deferred to Orchestrator canonical QA' unless explicitly authorized in canonical",
+    "GATES REQUESTED: exact QA/test-runner commands needed, or 'none'",
+    "FOLLOWUP: Orchestrator reviews and closes the task",
+    "EOF",
+    "codeterm agent report --status in_review --sha YOUR_OWN_COMMIT_SHA --from-pad report.md",
+    "# work in progress instead:",
+    "cat > \"$(codeterm pad path)/report.md\" <<'EOF'",
+    "STATUS: partial",
+    "CHANGES: completed progress",
+    "TESTS RUN: narrow evidence, or 'none - isolated lane, no gate executed'",
+    "GATES REQUESTED: none",
+    "FOLLOWUP: exact remaining work",
+    "EOF",
+    "codeterm agent report --status partial --from-pad report.md",
+];
+
 impl ReportRefusal {
     pub fn message(&self) -> String {
-        let mut lines = vec![
-            self.reason.clone(),
-            "Next commands:".to_string(),
-            "  git status --short".to_string(),
-            "  git add <files>".to_string(),
-            "  git commit -m \"<message>\"".to_string(),
-            "  codeterm agent report --status in_review --sha YOUR_OWN_COMMIT_SHA \"...\""
-                .to_string(),
+        let mut lines = vec![self.reason.clone(), "Next commands:".to_string()];
+        lines.extend(REPORT_NEXT_COMMANDS.iter().copied().map(str::to_string));
+        lines.push(
             "Replace YOUR_OWN_COMMIT_SHA with your own owned commit SHA as a hexadecimal literal, never a shell expression, variable, or HEAD. Never use another Worker's newer HEAD."
                 .to_string(),
-            "Or report WIP with:".to_string(),
-            "  codeterm agent report --status partial \"...\"".to_string(),
-        ];
+        );
         if !self.dirty_files.is_empty() {
             lines.push("Dirty lane files:".to_string());
             lines.extend(self.dirty_files.iter().map(|file| format!("  {file}")));
