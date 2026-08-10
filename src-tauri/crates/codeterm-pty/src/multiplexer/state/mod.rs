@@ -22,6 +22,7 @@ pub use closed::{
     ClosedGroup, ClosedTabView, ClosedTabsStore, GroupKind, PreparedWorkspaceClose,
     TabCloseReservation, CLOSED_GROUP_CAP, RECENTLY_CLOSED_CAP, RECENTLY_CLOSED_VIEW_LIMIT,
 };
+pub use snapshot::SnapshotMergeReport;
 
 #[cfg(test)]
 mod tests;
