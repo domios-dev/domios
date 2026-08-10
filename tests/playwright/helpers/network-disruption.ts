@@ -77,6 +77,7 @@ export function networkDisruption(page: Page): NetworkDisruption {
   async function blip(): Promise<void> {
     const ctx = page.context();
     await ctx.setOffline(true);
+    // PW_JUSTIFIED_SLEEP: stimulus — the offline window IS the fault injected.
     await new Promise((resolve) => setTimeout(resolve, BLIP_MS));
     await ctx.setOffline(false);
   }

@@ -11,6 +11,7 @@ export interface RouteDelay {
 
 export async function delayRoute(page: Page, urlGlob: string, delayMs: number): Promise<RouteDelay> {
   const handler = async (route: import("@playwright/test").Route) => {
+    // PW_JUSTIFIED_SLEEP: stimulus — the injected latency IS the test input.
     await new Promise((resolve) => setTimeout(resolve, delayMs));
     await route.continue();
   };

@@ -2,7 +2,16 @@ import { chromium, test as base, type Browser, type Page } from "@playwright/tes
 import { ApiClient, readDevToken } from "./api-client";
 import { currentDevInstance, type DevInstance } from "./dev-instance";
 import { apiReset, diffReset, snapshotBaseline } from "./reset";
-import { API_BASE, connectUi, ensureDevConsole, isHealthy, type UiSession } from "./dev-console";
+import {
+  API_BASE,
+  connectUi,
+  ensureDevConsole,
+  healthMismatchMessage,
+  isHealthy,
+  probeHealth,
+  type UiSession,
+} from "./dev-console";
+import { assertServedBundleIsFresh } from "./dist-freshness";
 
 type WorkerFixtures = {
   devInstance: DevInstance;
@@ -79,6 +88,7 @@ async function installMediaFetchMocks(page: Page): Promise<void> {
       }
       if (url.pathname === "/api/transcribe-voice" && win.__ctMediaTranscriptionMock) {
         const mock = win.__ctMediaTranscriptionMock;
+        // PW_JUSTIFIED_SLEEP: stimulus — the mocked transcription latency IS the test input.
         if (mock.delayMs) await new Promise((resolve) => setTimeout(resolve, mock.delayMs));
         return new Response(mock.body ?? JSON.stringify({ line: mock.line ?? "" }), {
           status: mock.status ?? 200,
@@ -135,7 +145,8 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
   ],
 
   webBrowser: [
-    async ({}, use) => {
+    async ({ devInstance }, use) => {
+      await assertServedBundleIsFresh(devInstance);
       const browser = await chromium.launch(
         process.platform === "win32" ? { channel: "msedge" } : {},
       );
@@ -149,9 +160,8 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
   ],
 
   ui: async ({ devInstance, uiSession }, use) => {
-    if (!(await isHealthy(devInstance))) {
-      throw new Error("dev console health check failed before Playwright test");
-    }
+    const verdict = await probeHealth(devInstance);
+    if (!verdict.ok) throw new Error(healthMismatchMessage(devInstance, verdict));
     await use(uiSession);
   },
 

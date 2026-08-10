@@ -30,6 +30,7 @@ export const WEB_URL = DEFAULT_INSTANCE.webUrl;
 const WEB_MODE = process.env.CT_E2E_WEB_MODE === "1";
 const WEB_UI_READY_TIMEOUT_MS = 90_000;
 const STOP_VERIFY_TIMEOUT_MS = process.platform === "win32" ? 30_000 : 15_000;
+const SERVICE_WORKER_READY_TIMEOUT_MS = 30_000;
 
 export const REPO_ROOT = process.env.CT_E2E_DEV_ROOT
   ? path.resolve(process.env.CT_E2E_DEV_ROOT)
@@ -37,6 +38,68 @@ export const REPO_ROOT = process.env.CT_E2E_DEV_ROOT
 
 export function emitDevConsoleProgress(phase: string, detail: string): void {
   console.log(`[dev-console] ${phase}: ${detail}`);
+}
+
+let cachedHeadSha: string | undefined;
+
+/** The commit under test. Memoised: a run is about exactly one HEAD. */
+export function testedHeadSha(): string {
+  if (cachedHeadSha) return cachedHeadSha;
+  let output: string;
+  try {
+    output = execFileSync("git", ["rev-parse", "HEAD"], { cwd: REPO_ROOT, encoding: "utf8" }).trim();
+  } catch (error) {
+    throw new Error(`cannot resolve the tested HEAD in ${REPO_ROOT}: ${error}`);
+  }
+  if (!/^[0-9a-f]{40}$/.test(output)) {
+    throw new Error(`cannot resolve the tested HEAD in ${REPO_ROOT}: git returned "${output}"`);
+  }
+  cachedHeadSha = output;
+  return output;
+}
+
+export interface HealthBody {
+  status?: string;
+  build_sha?: string;
+  instance?: {
+    name?: string;
+    api_port?: string | number;
+    vite_port?: string | number;
+    cdp_port?: string | number;
+    identifier?: string;
+  };
+}
+
+export type HealthVerdict =
+  | { ok: true }
+  | { ok: false; reason: "status" | "identity" }
+  | { ok: false; reason: "build"; actual: string; expected: string };
+
+/**
+ * Identity AND build. Without the build comparison the adopt path silently
+ * reuses an instance compiled at a different HEAD.
+ */
+export function evaluateHealth(body: HealthBody, instance: DevInstance, expectedSha: string): HealthVerdict {
+  if (body.status !== "ok") return { ok: false, reason: "status" };
+  const identityMatches =
+    body.instance?.name === instance.name &&
+    String(body.instance?.api_port) === String(instance.apiPort) &&
+    String(body.instance?.vite_port) === String(instance.vitePort) &&
+    String(body.instance?.cdp_port) === String(instance.cdpPort) &&
+    body.instance?.identifier === instance.identifier;
+  if (!identityMatches) return { ok: false, reason: "identity" };
+  if (body.build_sha !== expectedSha) {
+    return { ok: false, reason: "build", actual: body.build_sha ?? "absent", expected: expectedSha };
+  }
+  return { ok: true };
+}
+
+export function healthMismatchMessage(instance: DevInstance, verdict: HealthVerdict): string {
+  if (verdict.ok) return "";
+  if (verdict.reason === "build") {
+    return `Playwright instance ${instance.name || "default"} at ${instance.apiBase} was built at ${verdict.actual}, not the tested HEAD ${verdict.expected}; rebuild it through the Playwright harness before adopting it`;
+  }
+  return `Playwright instance ${instance.name || "default"} is not healthy at ${instance.apiBase} (${verdict.reason} mismatch); start that named instance through the Playwright harness before using the isolated runner`;
 }
 
 function progress(phase: string, detail: string): void {
@@ -51,12 +114,9 @@ export function nonAdoptableCdpError(instance: DevInstance): Error {
 
 export async function assertReusableDevConsole(instance = currentDevInstance()): Promise<void> {
   const usesWebUi = WEB_MODE || process.platform !== "win32";
-  progress("health probe", `checking ${instance.apiBase}/api/health`);
-  if (!(await isHealthy(instance))) {
-    throw new Error(
-      `Playwright instance ${instance.name || "default"} is not healthy at ${instance.apiBase}; start that named instance through the Playwright harness before using the isolated runner`,
-    );
-  }
+  progress("health probe", `checking ${instance.apiBase}/api/health at HEAD ${testedHeadSha()}`);
+  const verdict = await probeHealth(instance);
+  if (!verdict.ok) throw new Error(healthMismatchMessage(instance, verdict));
 
   if (usesWebUi) {
     progress("web-ui probe", `checking ${instance.webUrl}`);
@@ -72,31 +132,25 @@ export async function assertReusableDevConsole(instance = currentDevInstance()):
   }
 }
 
-export async function isHealthy(instance = currentDevInstance()): Promise<boolean> {
+export async function fetchHealth(instance = currentDevInstance()): Promise<HealthBody | null> {
   try {
-    const r = await fetch(`${instance.apiBase}/api/health`, { signal: AbortSignal.timeout(3000) });
-    if (!r.ok) return false;
-    const body = (await r.json()) as {
-      status?: string;
-      instance?: {
-        name?: string;
-        api_port?: string | number;
-        vite_port?: string | number;
-        cdp_port?: string | number;
-        identifier?: string;
-      };
-    };
-    return (
-      body.status === "ok" &&
-      body.instance?.name === instance.name &&
-      String(body.instance?.api_port) === String(instance.apiPort) &&
-      String(body.instance?.vite_port) === String(instance.vitePort) &&
-      String(body.instance?.cdp_port) === String(instance.cdpPort) &&
-      body.instance?.identifier === instance.identifier
-    );
+    const response = await fetch(`${instance.apiBase}/api/health`, { signal: AbortSignal.timeout(3000) });
+    if (!response.ok) return null;
+    return (await response.json()) as HealthBody;
   } catch {
-    return false;
+    return null;
   }
+}
+
+export async function probeHealth(instance = currentDevInstance()): Promise<HealthVerdict> {
+  const expectedSha = testedHeadSha();
+  const body = await fetchHealth(instance);
+  if (!body) return { ok: false, reason: "status" };
+  return evaluateHealth(body, instance, expectedSha);
+}
+
+export async function isHealthy(instance = currentDevInstance()): Promise<boolean> {
+  return (await probeHealth(instance)).ok;
 }
 
 export function isWebUiDocument(contentType: string | null, body: string): boolean {
@@ -348,9 +402,13 @@ export async function ensureDevConsole(instance = currentDevInstance()): Promise
     return;
   }
   const usesWebUi = WEB_MODE || process.platform !== "win32";
-  progress("health probe", `checking ${instance.apiBase}/api/health`);
-  if (await isHealthy(instance)) {
-    progress("health probe", "matching Playwright dev instance is healthy");
+  progress("health probe", `checking ${instance.apiBase}/api/health at HEAD ${testedHeadSha()}`);
+  const verdict = await probeHealth(instance);
+  if (!verdict.ok && verdict.reason === "build") {
+    progress("health probe", `${healthMismatchMessage(instance, verdict)}; restarting instead of adopting`);
+  }
+  if (verdict.ok) {
+    progress("health probe", "matching Playwright dev instance is healthy at the tested HEAD");
     if (usesWebUi) {
       progress("web-ui probe", `checking ${instance.webUrl}`);
       if (await waitForWebUi(instance)) {
@@ -478,20 +536,42 @@ async function expectReceivesPointerEvents(locator: ReturnType<Page["locator"]>,
   throw lastError;
 }
 
+/**
+ * The app registers a service worker only when `IS_WEB`
+ * (`src/lib/serviceWorkerRegistration.ts`), i.e. when `__TAURI_INTERNALS__` is
+ * absent. Asking the page for the product's own condition keeps the desktop
+ * CDP path from waiting on a worker that is never registered.
+ */
+export async function waitForServiceWorkerControl(page: Page): Promise<void> {
+  const expectsServiceWorker = await page.evaluate(
+    () => !("__TAURI_INTERNALS__" in window) && "serviceWorker" in navigator,
+  );
+  if (!expectsServiceWorker) return;
+  await page.evaluate(
+    (deadlineMs) =>
+      new Promise<void>((resolve, reject) => {
+        const failure = setTimeout(
+          () => reject(new Error(`service worker was not ready within ${deadlineMs}ms`)),
+          deadlineMs,
+        );
+        navigator.serviceWorker.ready.then(
+          () => {
+            clearTimeout(failure);
+            resolve();
+          },
+          (error) => {
+            clearTimeout(failure);
+            reject(error);
+          },
+        );
+      }),
+    SERVICE_WORKER_READY_TIMEOUT_MS,
+  );
+}
+
 async function waitForShellOnce(page: Page): Promise<void> {
   await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
-  await page
-    .evaluate(() =>
-      "serviceWorker" in navigator
-        ? Promise.race([
-            navigator.serviceWorker.ready.then(() => undefined),
-            new Promise<void>((resolve) => setTimeout(resolve, 1_000)),
-          ])
-        : undefined,
-    )
-    .catch(() => {
-      /* no SW in this context (desktop CDP) or registration still pending — non-fatal */
-    });
+  await waitForServiceWorkerControl(page);
   await page.evaluate(() => {
     try {
       localStorage.removeItem("codeterm-chat-ui-default-enabled");
