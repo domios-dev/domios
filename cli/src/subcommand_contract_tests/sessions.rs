@@ -12,8 +12,8 @@ struct SessionsOnly {
 
 #[test]
 fn sessions_backups_list_parses_with_default_limit() {
-    let parsed = SessionsOnly::try_parse_from(["sessions", "backups", "list"])
-        .expect("backups list parses");
+    let parsed =
+        SessionsOnly::try_parse_from(["sessions", "backups", "list"]).expect("backups list parses");
     match parsed.action {
         SessionsAction::Backups {
             action: BackupsAction::List { limit },
@@ -44,9 +44,8 @@ fn sessions_backups_restore_requires_a_backup_name() {
 
 #[test]
 fn sessions_backups_restore_parses_name() {
-    let parsed =
-        SessionsOnly::try_parse_from(["sessions", "backups", "restore", "1754700000"])
-            .expect("backups restore NAME parses");
+    let parsed = SessionsOnly::try_parse_from(["sessions", "backups", "restore", "1754700000"])
+        .expect("backups restore NAME parses");
     match parsed.action {
         SessionsAction::Backups {
             action: BackupsAction::Restore { name },

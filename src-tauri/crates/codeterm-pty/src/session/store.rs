@@ -351,7 +351,10 @@ impl SessionStore {
             dropped_tabs,
             quarantine: self.quarantine_reduced_snapshot(snapshot),
         };
-        log::error!("[session] REFUSED: {refusal} (persisted desk {} stays authoritative)", path.display());
+        log::error!(
+            "[session] REFUSED: {refusal} (persisted desk {} stays authoritative)",
+            path.display()
+        );
         Some(refusal)
     }
 
@@ -520,7 +523,10 @@ impl SessionStore {
         if name.is_empty() || !name.chars().all(|c| c.is_ascii_digit()) {
             return Err(format!("invalid backup name: {name}"));
         }
-        let path = self.session_dir.join("backups").join(format!("{name}.json"));
+        let path = self
+            .session_dir
+            .join("backups")
+            .join(format!("{name}.json"));
         let json = fs::read_to_string(&path)
             .map_err(|e| format!("read backup {}: {}", path.display(), e))?;
         parse_session_snapshot(&json, &path)

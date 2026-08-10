@@ -360,7 +360,10 @@ fn handle_backups(
                 return;
             }
             println!("{} session backup(s), newest first:\n", backups.len());
-            println!("{:<14} {:<18} {:>10} {:>6}", "NAME", "SAVED (UTC)", "WORKSPACES", "TABS");
+            println!(
+                "{:<14} {:<18} {:>10} {:>6}",
+                "NAME", "SAVED (UTC)", "WORKSPACES", "TABS"
+            );
             for b in &backups {
                 let name = b.get("name").and_then(|v| v.as_str()).unwrap_or("?");
                 let saved = b.get("saved_at_secs").and_then(|v| v.as_i64()).unwrap_or(0);
