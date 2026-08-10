@@ -36,13 +36,11 @@ test(
 
     // Re-apply the route interception after reload (routes survive reload).
     // Navigate to A's tab.
-    if (tabA.tab_id) {
-      const tabA = ui.page
-        .locator(`[data-testid="tab-item"][data-tab-id="${tabA.tab_id}"]`)
-        .first();
-      await expect(tabA).toBeVisible({ timeout: 30_000 });
-      await tabA.click();
-    }
+    const rowA = ui.page
+      .locator(`[data-testid="tab-item"][data-tab-id="${tabA.id}"]`)
+      .first();
+    await expect(rowA).toBeVisible({ timeout: 30_000 });
+    await rowA.click();
 
     const chatA = ui.page.locator(
       `[data-testid="tab-session-chat"][data-tab-id="${tabA.id}"]`,
