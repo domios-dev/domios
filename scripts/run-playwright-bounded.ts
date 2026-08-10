@@ -10,6 +10,7 @@ import {
 import {
   parsePlaywrightSpec,
   runStreaming,
+  stripArgumentSeparator,
 } from "./run-playwright-isolated";
 
 const TOTAL_BUDGET_MS = 600_000;
@@ -48,7 +49,8 @@ function singleOption(args: string[], name: string, required: boolean): string |
   return values[0];
 }
 
-export function parseBoundedPlaywrightArgs(args: string[]): BoundedPlaywrightArgs {
+export function parseBoundedPlaywrightArgs(rawArgs: string[]): BoundedPlaywrightArgs {
+  const args = stripArgumentSeparator(rawArgs);
   const allowed = new Set(["--file", "--grep", "--project", "--workers"]);
   if (args.length === 0 || args.length % 2 !== 0) throw new Error("options must be supplied as name/value pairs");
   for (let index = 0; index < args.length; index += 2) {

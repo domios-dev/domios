@@ -21,6 +21,18 @@ test("isolated runner requires one explicit spec, title, and project", () => {
   ]);
 });
 
+test("the documented pnpm form works: a forwarded leading -- is ignored", () => {
+  const documented = ["--", "--file", FILE, "--grep", "real UI", "--project", "smoke"];
+  assert.deepEqual(parseIsolatedPlaywrightArgs(documented), parseIsolatedPlaywrightArgs(documented.slice(1)));
+});
+
+test("only the leading separator is tolerated; a stray -- is still refused", () => {
+  assert.throws(
+    () => parseIsolatedPlaywrightArgs(["--file", FILE, "--", "--grep", "x", "--project", "smoke"]),
+    /unsupported option/,
+  );
+});
+
 test("isolated runner rejects broad and out-of-tree invocations", () => {
   assert.throws(() => parseIsolatedPlaywrightArgs(["--file", FILE, "--project", "smoke"]), /--grep/);
   assert.throws(
