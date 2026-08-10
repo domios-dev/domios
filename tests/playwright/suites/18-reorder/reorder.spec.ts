@@ -63,10 +63,16 @@ function onlyOwned(order: string[], owned: string[]): string[] {
 
 type ArrowKey = "ArrowUp" | "ArrowDown" | "ArrowLeft" | "ArrowRight";
 
-/** Keyboard drag a dnd-kit sortable row: focus, Space (lift), Arrow×n, Space
- *  (drop). SortableRow stamps `data-dnd-dragging` for the lifted row, so both
- *  ends of the gesture wait on an observable DOM signal instead of a delay. */
-async function keyboardDrag(page: Page, rowSelector: string, key: ArrowKey, presses: number) {
+/** dnd-kit's screen-reader region, which announces the drop target on every
+ *  `onDragOver`. It is the only per-step signal that an arrow key actually
+ *  moved the drag rather than arriving before the rects were remeasured. */
+const liveRegion = (page: Page) => page.locator('[id^="DndLiveRegion"]');
+
+/** Keyboard drag a dnd-kit sortable row: focus, Space (lift), one arrow per
+ *  entry in `overIds` (each confirmed by the announcement naming that id), then
+ *  Space (drop). Confirming each step is what stops a swallowed press from
+ *  landing the item one slot short and reading as a persistence bug. */
+async function keyboardDrag(page: Page, rowSelector: string, key: ArrowKey, overIds: string[]) {
   const row = sortableRow(page, rowSelector);
   await row.waitFor({ state: "visible", timeout: 15_000 });
   // dnd-kit activates from a synthetic onKeyDown on this node, so the row must
@@ -77,8 +83,10 @@ async function keyboardDrag(page: Page, rowSelector: string, key: ArrowKey, pres
   await expect(row, "the sortable row holds focus when the lift key is delivered").toBeFocused();
   await row.press("Space");
   await expect(row).toHaveAttribute("data-dnd-dragging", "true", { timeout: 15_000 });
-  for (let i = 0; i < presses; i++) {
+  for (const overId of overIds) {
     await row.press(key);
+    await expect(liveRegion(page), `the drag moved over ${overId}`)
+      .toContainText(overId, { timeout: 10_000 });
   }
   await row.press("Space");
   await expect(row).not.toHaveAttribute("data-dnd-dragging", "true", { timeout: 15_000 });
@@ -190,7 +198,7 @@ test("@golden C1 a top-level tab reorders within its workspace", async ({ api, u
   expect(onlyOwned(await topLevelOrder(api, ws), owned)).toEqual(owned);
 
   // Drag the first tab down two slots → it lands last.
-  await keyboardDrag(page, tabRow(ws, t1.tab_id), "ArrowDown", 2);
+  await keyboardDrag(page, tabRow(ws, t1.tab_id), "ArrowDown", [t2.tab_id, t3.tab_id]);
 
   await expect
     .poll(async () => onlyOwned(await topLevelOrder(api, ws), owned).join(","), { timeout: 15_000 })
@@ -230,7 +238,7 @@ test("@golden C3 workspaces reorder among themselves", async ({ api, ui }) => {
   // Drag beta onto the card rendered before it → beta now precedes that card.
   const neighbour = await precedingCard(page, b, before.filter((id) => id !== b));
   expect(before.indexOf(neighbour.id), "the rendered predecessor sorts before beta").toBeLessThan(ib);
-  await keyboardDrag(page, wsRow(b), neighbour.key, 1);
+  await keyboardDrag(page, wsRow(b), neighbour.key, [neighbour.id]);
   await expect
     .poll(
       async () => {
@@ -253,7 +261,7 @@ test("@golden C4 reordered order survives a reload", async ({ api, ui }) => {
   await readySidebar(page);
   await syncUi(page);
   await page.locator(`[data-tab-id="${t3.tab_id}"]`).first().waitFor({ state: "visible", timeout: 20_000 });
-  await keyboardDrag(page, tabRow(ws, t3.tab_id), "ArrowUp", 2);
+  await keyboardDrag(page, tabRow(ws, t3.tab_id), "ArrowUp", [t2.tab_id, t1.tab_id]);
   const reordered = [t3.tab_id, t1.tab_id, t2.tab_id];
   await expect
     .poll(async () => onlyOwned(await topLevelOrder(api, ws), owned).join(","), { timeout: 15_000 })
