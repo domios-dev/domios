@@ -85,6 +85,54 @@ fn report_refusal_text_starts_and_ends_with_not_sent() {
 }
 
 #[test]
+fn refusal_hint_stages_the_report_body_in_the_pad() {
+    let refusal = ReportRefusal {
+        reason: "readiness report refused".to_string(),
+        dirty_files: Vec::new(),
+    };
+
+    let message = refusal.message();
+
+    assert!(message.contains("codeterm pad path"));
+    assert!(message.contains("--from-pad report.md"));
+    // A heredoc only terminates on a column-0 EOF, so the copied block must stay unindented.
+    assert_eq!(message.lines().filter(|line| *line == "EOF").count(), 2);
+    let indented_command = message
+        .lines()
+        .find(|line| line.starts_with(' ') && line.trim_start().starts_with("codeterm agent"));
+    assert_eq!(indented_command, None);
+}
+
+#[test]
+fn refusal_hint_never_suggests_a_shell_expression_sha() {
+    let refusal = ReportRefusal {
+        reason: "readiness report refused".to_string(),
+        dirty_files: Vec::new(),
+    };
+
+    for line in refusal_next_commands() {
+        assert!(!line.contains("$(git "), "{line}");
+    }
+    assert!(refusal.message().contains("--sha YOUR_OWN_COMMIT_SHA --from-pad"));
+    assert!(!refusal.message().contains("--sha $("));
+}
+
+#[test]
+fn json_next_commands_are_the_same_sequence_the_text_hint_prints() {
+    let refusal = ReportRefusal {
+        reason: "readiness report refused".to_string(),
+        dirty_files: Vec::new(),
+    };
+    let message = refusal.message();
+
+    let commands = refusal_next_commands();
+    assert!(!commands.is_empty());
+    for line in &commands {
+        assert!(message.contains(*line), "{line}");
+    }
+}
+
+#[test]
 fn task_file_round_trips_shell_metacharacters_byte_exact() {
     let body = "run `whoami` then $(rm -rf /) and ${HOME}\nline two\twith tab\n";
     let path = std::env::temp_dir().join(format!("ct-task-file-{}.txt", uuid::Uuid::new_v4()));

@@ -150,13 +150,7 @@ pub(crate) fn join_cli_words(value: Option<Vec<String>>) -> Option<String> {
 }
 
 fn refusal_next_commands() -> Vec<&'static str> {
-    vec![
-        "git status --short",
-        "git add <files>",
-        "git commit -m \"<message>\"",
-        "codeterm agent report --status in_review --sha $(git rev-parse HEAD) \"...\"",
-        "codeterm agent report --status partial \"...\"",
-    ]
+    crate::cmd::report_guard::REPORT_NEXT_COMMANDS.to_vec()
 }
 
 fn refusal_report_message(refusal: &ReportRefusal, original: &str) -> String {
