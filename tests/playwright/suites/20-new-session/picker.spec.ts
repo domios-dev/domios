@@ -14,14 +14,11 @@ const TEST_WS_PREFIX = "pw-picker";
 
 const NEW_SESSION_CHOICE_STORAGE_KEY = "codeterm:new-session-choice";
 
-interface MuxTab {
-  id: string;
-  tab_id: string;
-}
 interface MuxWorkspace {
   id: string;
   name: string;
-  tabs: MuxTab[];
+  /** Tab ids in order; the entities live in `MuxState.tabs`. */
+  tabs: string[];
   active_tab_id?: string | null;
 }
 interface MuxTab {
@@ -119,10 +116,9 @@ function ptyCount(tabs: Tab[]): number {
 
 function visibleTabsInWorkspace(state: MuxState, wsId: string): MuxTab[] {
   const ws = state.workspaces.find((w) => w.id === wsId);
-  return (ws?.tabs ?? []).filter((tab) => {
-    const tab = state.tabs[tab.tab_id];
-    return tab && tab.hidden !== true && tab.show_in_tabbar !== false;
-  });
+  return (ws?.tabs ?? [])
+    .map((tabId) => state.tabs[tabId])
+    .filter((tab): tab is MuxTab => Boolean(tab) && tab.hidden !== true && tab.show_in_tabbar !== false);
 }
 
 /** Reads PEER_ORCH_GREETING straight from the Rust source and splits it on the
@@ -150,25 +146,25 @@ function peerOrchGreetingSegments(): string[] {
     .filter((s) => s.length > 0);
 }
 
-async function waitForOrchestrator(api: ApiClient, wsId: string): Promise<{ tab: MuxTab; tab: MuxTab }> {
+async function waitForOrchestrator(api: ApiClient, wsId: string): Promise<MuxTab> {
   const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
     const s = await muxState(api);
     const ws = s.workspaces.find((w) => w.id === wsId);
-    const tab = ws?.tabs.find((t) => s.tabs[t.tab_id]?.role === "Orchestrator");
-    if (tab && s.tabs[tab.tab_id]?.agent_type) return { tab, tab: s.tabs[tab.tab_id] };
+    const tabId = ws?.tabs.find((id) => s.tabs[id]?.role === "Orchestrator");
+    if (tabId && s.tabs[tabId]?.agent_type) return s.tabs[tabId];
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   throw new Error(`no orchestrator agent materialized in workspace ${wsId}`);
 }
 
-async function waitForSingleAgent(api: ApiClient, wsId: string): Promise<{ tab: MuxTab; tab: MuxTab }> {
+async function waitForSingleAgent(api: ApiClient, wsId: string): Promise<MuxTab> {
   const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
     const s = await muxState(api);
     const ws = s.workspaces.find((w) => w.id === wsId);
-    const tab = ws?.tabs.find((t) => s.tabs[t.tab_id]?.agent_type);
-    if (tab) return { tab, tab: s.tabs[tab.tab_id] };
+    const tabId = ws?.tabs.find((id) => s.tabs[id]?.agent_type);
+    if (tabId) return s.tabs[tabId];
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   throw new Error(`no single agent materialized in workspace ${wsId}`);
@@ -359,7 +355,7 @@ test.describe("new-session picker", () => {
       })
       .toBe(2);
 
-    const { tab: orchestrator } = await waitForOrchestrator(api, ws.id);
+    const orchestrator = await waitForOrchestrator(api, ws.id);
     expect(orchestrator.role).toBe("Orchestrator");
     // No leftover virtual husk anywhere in the snapshot.
     const after = await muxState(api);
@@ -377,7 +373,7 @@ test.describe("new-session picker", () => {
     await page.locator('[data-testid="picker-mode-orchestration"]').click();
     await page.locator('[data-testid="picker-confirm"]').click();
 
-    const { tab } = await waitForOrchestrator(api, ws.id);
+    const tab = await waitForOrchestrator(api, ws.id);
     const segments = peerOrchGreetingSegments();
     await expect
       .poll(
@@ -418,7 +414,7 @@ test.describe("new-session picker", () => {
           timeout: 60_000,
         })
         .toBeGreaterThanOrEqual(2);
-      const { tab: orchestrator } = await waitForOrchestrator(api, wsB.id);
+      const orchestrator = await waitForOrchestrator(api, wsB.id);
       expect(orchestrator.role, "orchestrator must land in workspace B").toBe("Orchestrator");
 
       // …and A keeps NO husk: the virtual picker just vanished, no backend tab.
@@ -440,7 +436,7 @@ test.describe("new-session picker", () => {
     if (await launch.isVisible({ timeout: 3_000 }).catch(() => false)) await launch.click();
 
     await expect(page.locator('[data-testid="new-session-picker"]')).toBeHidden({ timeout: 60_000 });
-    const { tab, tab } = await waitForSingleAgent(api, ws.id);
+    const tab = await waitForSingleAgent(api, ws.id);
     await expect
       .poll(async () => (await muxState(api)).workspaces.find((w) => w.id === ws.id)?.active_tab_id ?? null, {
         timeout: 30_000,
@@ -450,7 +446,7 @@ test.describe("new-session picker", () => {
     expect(s.active_workspace_id, "active workspace is the picker host").toBe(ws.id);
     expect(s.focused_tab_id, "the created agent tab is focused").toBe(tab.id);
     // No lingering virtual picker tab in the workspace.
-    expect(s.workspaces.find((w) => w.id === ws.id)?.tabs.every((t) => t.id !== "virtual"), "no virtual tab").toBe(true);
+    expect(s.workspaces.find((w) => w.id === ws.id)?.tabs.every((id) => id !== "virtual"), "no virtual tab").toBe(true);
   });
 
   test("@golden PAIR SELECT: Start selects + focuses the ORCHESTRATOR tab of the new group", async ({ api, ui }) => {
@@ -461,12 +457,12 @@ test.describe("new-session picker", () => {
     await page.locator('[data-testid="picker-confirm"]').click();
 
     await expect(page.locator('[data-testid="new-session-picker"]')).toBeHidden({ timeout: 60_000 });
-    const { tab: orchTab, tab: orchestrator } = await waitForOrchestrator(api, ws.id);
+    const orchestrator = await waitForOrchestrator(api, ws.id);
     await expect
       .poll(async () => (await muxState(api)).workspaces.find((w) => w.id === ws.id)?.active_tab_id ?? null, {
         timeout: 30_000,
       })
-      .toBe(orchTab.id);
+      .toBe(orchestrator.id);
     const s = await muxState(api);
     expect(s.active_workspace_id, "active workspace is the picker host").toBe(ws.id);
     // Stub agents boot in seconds, so the planner's focus grab can land after
@@ -489,12 +485,12 @@ test.describe("new-session picker", () => {
       await page.locator('[data-testid="picker-confirm"]').click();
 
       await expect(page.locator('[data-testid="new-session-picker"]')).toBeHidden({ timeout: 60_000 });
-      const { tab: orchTab, tab: orchestrator } = await waitForOrchestrator(api, wsB.id);
+      const orchestrator = await waitForOrchestrator(api, wsB.id);
       await expect
         .poll(async () => (await muxState(api)).active_workspace_id ?? null, { timeout: 30_000 })
         .toBe(wsB.id);
       const s = await muxState(api);
-      expect(s.workspaces.find((w) => w.id === wsB.id)?.active_tab_id, "B's orchestrator tab is active").toBe(orchTab.id);
+      expect(s.workspaces.find((w) => w.id === wsB.id)?.active_tab_id, "B's orchestrator tab is active").toBe(orchestrator.id);
       await expect
       .poll(async () => (await muxState(api)).focused_tab_id, { timeout: 30_000 })
       .toBe(orchestrator.id);
@@ -518,7 +514,7 @@ test.describe("new-session picker", () => {
       })
       .toBe(2);
 
-    const { tab: orchTab } = await waitForOrchestrator(api, ws.id);
+    const orchTab = await waitForOrchestrator(api, ws.id);
     const state = await muxState(api);
     const plannerTab = visibleTabsInWorkspace(state, ws.id).find((t) => t.id !== orchTab.id)!;
 
@@ -568,7 +564,7 @@ test.describe("new-session picker", () => {
     await expect(picker).toBeHidden();
     const baseTabs = await api.tabs();
     const baseState = await muxState(api);
-    const baseTabs = visibleTabsInWorkspace(baseState, ws.id).length;
+    const baseVisible = visibleTabsInWorkspace(baseState, ws.id).length;
 
     await openPicker(page, ws.id);
 
@@ -579,7 +575,7 @@ test.describe("new-session picker", () => {
     expect(
       visibleTabsInWorkspace(openState, ws.id).length,
       "no rendered backend tab added on open",
-    ).toBe(baseTabs);
+    ).toBe(baseVisible);
     expect(
       Object.values(openState.tabs).some((p) => p.title === "New session"),
       "snapshot has no picker tab entry",
