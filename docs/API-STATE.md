@@ -36,7 +36,9 @@ Pluggable secret-store layer. Active backend is selected by `integrations.secret
 #### Session Snapshot
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
-| POST | `/api/session/save` | — | Snapshot the multiplexer (workspaces/tabs) into the session store immediately. Durability is otherwise the 30s auto-save timer + close-to-tray hook; e2e harnesses call this before force-killing the daemon so restart-persistence is deterministic. |
+| POST | `/api/session/save` | — | Snapshot the multiplexer (workspaces/tabs) into the session store immediately. Durability is otherwise the 30s auto-save timer + close-to-tray hook; e2e harnesses call this before force-killing the daemon so restart-persistence is deterministic. A save that would drop workspaces/tabs vs the persisted `last.json` is refused unless it carries authorized-reduction intent (close verbs, Team close, policy closes, spawn rollbacks, boot cleanup of ghost/duplicate entries): the fuller persisted desk stays authoritative, the rejected snapshot is quarantined as `sessions/last.json.reduced-<epoch-ms>`, and the refusal is logged at error with drop counts. Refusal is protection, not failure — the endpoint still returns 200; only a genuine persist failure (I/O, serialization) errors. |
+| GET | `/api/session/backups` | — | List rotated full-desk snapshots from `sessions/backups/`, newest first: `{backups: [{name, saved_at_secs, workspaces, tabs}]}`. CLI: `codeterm sessions backups list`. |
+| POST | `/api/session/backups/{name}/restore` | — | Additive desk recovery from one backup: recreates workspaces/tabs missing from the live desk under their original ids; existing ones are never modified or closed. Returns `{restored, workspaces_added, tabs_added, tabs_already_present}`; 404 for an unknown/invalid name. CLI: `codeterm sessions backups restore <name>`. |
 
 #### Web Mirror
 | Method | Path | Body / Query | Description |
@@ -200,4 +202,4 @@ The HTTP response returns immediately (`{"status": "updating", "version": "..."}
 
 Service registration, health, and activity: `codeterm docs API-SERVICES`. Bridge and cron integrations: `codeterm docs API-INTEGRATIONS`.
 
-<!-- revision: 4 -->
+<!-- revision: 7 -->

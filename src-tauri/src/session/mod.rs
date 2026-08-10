@@ -23,7 +23,9 @@ pub fn save_session(
     session: tauri::State<'_, SessionState>,
 ) -> Result<(), String> {
     let snapshot = mux.write().to_session_snapshot();
-    let saved = session.lock().save(&snapshot);
+    // A refused reduction is the guard working (logged by the store), not a
+    // command failure.
+    let saved = session.lock().save(&snapshot).map(|_| ());
     if saved.is_ok() {
         scrollback_sync::sync_scrollback_sidecars(&app);
     }

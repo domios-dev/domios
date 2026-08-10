@@ -497,6 +497,14 @@ pub fn create_router(state: AppState) -> Router {
             post(pty_routes::pty_launch_command),
         )
         .route("/api/session/save", post(session_routes::save_session_api))
+        .route(
+            "/api/session/backups",
+            get(session_routes::list_session_backups_api),
+        )
+        .route(
+            "/api/session/backups/{name}/restore",
+            post(session_routes::restore_session_backup_api),
+        )
         .route("/api/providers", get(agent_routes::list_agent_providers))
         .route(
             "/api/sessions/search",

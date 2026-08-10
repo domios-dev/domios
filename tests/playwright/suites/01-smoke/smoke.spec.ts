@@ -47,7 +47,10 @@ test("@smoke UI agrees with API about the active workspace", async ({ api, ui })
   const workspaces = await api.workspaces();
   const active = workspaces.find((w) => w.is_active);
   expect(active).toBeDefined();
-  await expect(
-    ui.page.locator(`[data-testid="workspace-item"][data-workspace-id="${active!.id}"]`),
-  ).toBeVisible();
+  // The sidebar renders the protected (General) workspace as its own section,
+  // ordinary workspaces as cards — mirror partitionSidebarWorkspaces.
+  const rendered = active!.protected
+    ? ui.page.locator('[data-testid="general-section"]')
+    : ui.page.locator(`[data-testid="workspace-item"][data-workspace-id="${active!.id}"]`);
+  await expect(rendered).toBeVisible();
 });

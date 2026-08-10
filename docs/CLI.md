@@ -2541,6 +2541,22 @@ Show or rotate the push token for a service
 
 Past agent sessions — search conversations across all providers
 
+#### `codeterm sessions backups`
+
+Full-desk session backups (workspaces + tabs). List the rotated snapshots and recover a reduced/wiped desk from one without hand-editing JSON
+
+#### `codeterm sessions backups list`
+
+List desk snapshot backups, newest first, with workspace/tab counts
+
+- `--limit` — Max backups shown
+
+#### `codeterm sessions backups restore`
+
+Restore a backup into the live desk. Strictly additive — it replaces NOTHING: existing workspaces and tabs are untouched, only workspaces and tabs missing from the live desk are recreated from the backup
+
+- `<name>` — Backup name from `sessions backups list` (unix timestamp)
+
 #### `codeterm sessions get`
 
 Print metadata for a past session (provider, cwd, file path, times). Read-only probe — use before `sessions resume` to verify the session is still on disk

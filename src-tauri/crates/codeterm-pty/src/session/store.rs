@@ -212,6 +212,55 @@ pub enum SplitNodeSnapshot {
 }
 
 const MAX_BACKUPS: usize = 200;
+const MAX_REDUCED_QUARANTINE: usize = 20;
+
+/// Whether a snapshot that drops workspaces/tabs vs the persisted state may be
+/// written. Only a deliberate removal (user/policy close verb, startup cleanup
+/// of known-ephemeral tabs) may reduce; every other save path must refuse, so
+/// a wrongly-pruned in-memory state can never destroy the desk on disk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SaveIntent {
+    PreserveDesk,
+    AuthorizedReduction,
+}
+
+/// A refused reducing save. The fuller desk on disk stayed authoritative —
+/// this is the guard succeeding, not the save failing.
+#[derive(Debug, Clone)]
+pub struct ReductionRefusal {
+    pub dropped_workspaces: usize,
+    pub dropped_tabs: usize,
+    pub quarantine: String,
+}
+
+impl std::fmt::Display for ReductionRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "refused reducing session save without authorized-reduction intent: would drop \
+             {} workspace(s) and {} tab(s); rejected snapshot kept at {}",
+            self.dropped_workspaces, self.dropped_tabs, self.quarantine
+        )
+    }
+}
+
+/// How a save ended. `Err` is reserved for genuine failures (I/O,
+/// serialization) where the state of the disk is unknown.
+#[derive(Debug, Clone)]
+pub enum SaveOutcome {
+    Saved,
+    RefusedReduction(ReductionRefusal),
+}
+
+/// One entry of `backups/` — a previously persisted full-desk snapshot.
+#[derive(Debug, Clone, Serialize)]
+pub struct SessionBackupInfo {
+    /// File stem (unix seconds at rotation time); the handle `restore` takes.
+    pub name: String,
+    pub saved_at_secs: u64,
+    pub workspaces: usize,
+    pub tabs: usize,
+}
 
 pub struct SessionStore {
     pub(crate) session_dir: PathBuf,
@@ -229,7 +278,20 @@ impl SessionStore {
         Self { session_dir: dir }
     }
 
-    pub fn save(&self, snapshot: &SessionSnapshot) -> Result<(), String> {
+    pub fn save(&self, snapshot: &SessionSnapshot) -> Result<SaveOutcome, String> {
+        self.save_with_intent(snapshot, SaveIntent::PreserveDesk)
+    }
+
+    pub fn save_with_intent(
+        &self,
+        snapshot: &SessionSnapshot,
+        intent: SaveIntent,
+    ) -> Result<SaveOutcome, String> {
+        if intent == SaveIntent::PreserveDesk {
+            if let Some(refusal) = self.detect_reducing_snapshot(snapshot) {
+                return Ok(SaveOutcome::RefusedReduction(refusal));
+            }
+        }
         self.merge_agent_session_identities(snapshot)?;
         let path = self.session_dir.join("last.json");
         let tmp = self.session_dir.join("last.json.tmp");
@@ -240,7 +302,101 @@ impl SessionStore {
         // Atomic write: tmp file then rename. fs::write directly into last.json is NOT crash-safe — a kill mid-write (Windows reboot, OOM, BSOD)
         // truncates the live file and the next boot loses every workspace.
         fs::write(&tmp, json.as_bytes()).map_err(|e| format!("write {}: {}", tmp.display(), e))?;
-        fs::rename(&tmp, &path).map_err(|e| format!("rename → {}: {}", path.display(), e))
+        fs::rename(&tmp, &path).map_err(|e| format!("rename → {}: {}", path.display(), e))?;
+        Ok(SaveOutcome::Saved)
+    }
+
+    /// Some(refusal) when `snapshot` drops workspaces/tabs vs the persisted
+    /// `last.json`; the rejected snapshot is quarantined next to it and the
+    /// refusal logged at error before returning.
+    fn detect_reducing_snapshot(&self, snapshot: &SessionSnapshot) -> Option<ReductionRefusal> {
+        let path = self.session_dir.join("last.json");
+        let Ok(json) = fs::read_to_string(&path) else {
+            return None;
+        };
+        // A corrupt persisted snapshot can't anchor a comparison; the new save
+        // is strictly better than an unreadable file.
+        let Ok(persisted) = parse_session_snapshot(&json, &path) else {
+            return None;
+        };
+
+        let new_workspace_ids: std::collections::HashSet<&str> = snapshot
+            .workspaces
+            .iter()
+            .map(|ws| ws.id.as_str())
+            .collect();
+        // Tab ids compare globally so a tab moved across workspaces is not a drop.
+        let new_tab_ids: std::collections::HashSet<&str> = snapshot
+            .workspaces
+            .iter()
+            .flat_map(|ws| ws.tabs.iter().map(|tab| tab.id.as_str()))
+            .collect();
+        let dropped_workspaces = persisted
+            .workspaces
+            .iter()
+            .filter(|ws| !new_workspace_ids.contains(ws.id.as_str()))
+            .count();
+        let dropped_tabs = persisted
+            .workspaces
+            .iter()
+            .flat_map(|ws| ws.tabs.iter())
+            .filter(|tab| !new_tab_ids.contains(tab.id.as_str()))
+            .count();
+        if dropped_workspaces == 0 && dropped_tabs == 0 {
+            return None;
+        }
+
+        let refusal = ReductionRefusal {
+            dropped_workspaces,
+            dropped_tabs,
+            quarantine: self.quarantine_reduced_snapshot(snapshot),
+        };
+        log::error!(
+            "[session] REFUSED: {refusal} (persisted desk {} stays authoritative)",
+            path.display()
+        );
+        Some(refusal)
+    }
+
+    fn quarantine_reduced_snapshot(&self, snapshot: &SessionSnapshot) -> String {
+        let epoch_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        let path = self
+            .session_dir
+            .join(format!("last.json.reduced-{epoch_ms}"));
+        match serde_json::to_string_pretty(snapshot)
+            .map_err(|e| e.to_string())
+            .and_then(|json| fs::write(&path, json).map_err(|e| e.to_string()))
+        {
+            Ok(()) => {
+                self.evict_old_reduced_quarantine();
+                path.display().to_string()
+            }
+            Err(error) => format!("<quarantine write failed: {error}>"),
+        }
+    }
+
+    fn evict_old_reduced_quarantine(&self) {
+        let mut entries: Vec<_> = fs::read_dir(&self.session_dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with("last.json.reduced-")
+            })
+            .collect();
+        if entries.len() <= MAX_REDUCED_QUARANTINE {
+            return;
+        }
+        entries.sort_by_key(|e| e.file_name());
+        let to_remove = entries.len() - MAX_REDUCED_QUARANTINE;
+        for entry in entries.into_iter().take(to_remove) {
+            let _ = fs::remove_file(entry.path());
+        }
     }
 
     pub fn load_agent_session_identity(
@@ -333,6 +489,47 @@ impl SessionStore {
         for entry in entries.into_iter().take(to_remove) {
             let _ = fs::remove_file(entry.path());
         }
+    }
+
+    /// Rotated `backups/` snapshots, newest first. Unparseable files are skipped.
+    pub fn list_backups(&self) -> Result<Vec<SessionBackupInfo>, String> {
+        let backup_dir = self.session_dir.join("backups");
+        if !backup_dir.exists() {
+            return Ok(Vec::new());
+        }
+        let mut infos: Vec<SessionBackupInfo> = fs::read_dir(&backup_dir)
+            .map_err(|e| format!("read backups: {}", e))?
+            .filter_map(|entry| {
+                let entry = entry.ok()?;
+                let file_name = entry.file_name().to_string_lossy().to_string();
+                let name = file_name.strip_suffix(".json")?.to_string();
+                let saved_at_secs: u64 = name.parse().ok()?;
+                let content = fs::read_to_string(entry.path()).ok()?;
+                let snap = parse_session_snapshot(&content, &entry.path()).ok()?;
+                Some(SessionBackupInfo {
+                    name,
+                    saved_at_secs,
+                    workspaces: snap.workspaces.len(),
+                    tabs: snap.workspaces.iter().map(|ws| ws.tabs.len()).sum(),
+                })
+            })
+            .collect();
+        infos.sort_by(|a, b| b.saved_at_secs.cmp(&a.saved_at_secs));
+        Ok(infos)
+    }
+
+    /// Load one `backups/` snapshot by its `list_backups` name.
+    pub fn load_backup(&self, name: &str) -> Result<SessionSnapshot, String> {
+        if name.is_empty() || !name.chars().all(|c| c.is_ascii_digit()) {
+            return Err(format!("invalid backup name: {name}"));
+        }
+        let path = self
+            .session_dir
+            .join("backups")
+            .join(format!("{name}.json"));
+        let json = fs::read_to_string(&path)
+            .map_err(|e| format!("read backup {}: {}", path.display(), e))?;
+        parse_session_snapshot(&json, &path)
     }
 
     pub fn load_last(&self) -> Result<Option<SessionSnapshot>, String> {
@@ -658,265 +855,4 @@ fn parse_tab_record(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use tempfile::TempDir;
-
-    fn fresh_store() -> (SessionStore, TempDir) {
-        let dir = tempfile::tempdir().unwrap();
-        let store = SessionStore::for_test_dir(dir.path().to_path_buf());
-        (store, dir)
-    }
-
-    fn snap(workspaces: usize) -> SessionSnapshot {
-        SessionSnapshot {
-            version: "test".into(),
-            timestamp: 0,
-            active_workspace_id: None,
-            teams: vec![],
-            workspaces: (0..workspaces)
-                .map(|i| WorkspaceSnapshot {
-                    id: format!("ws_{}", i),
-                    name: format!("ws{}", i),
-                    tabs: vec![],
-                    active_tab_id: None,
-                    cwd: None,
-                    protected: false,
-                    sort_order: i as i32,
-                })
-                .collect(),
-        }
-    }
-
-    #[test]
-    fn save_is_atomic_no_leftover_tmp() {
-        let (store, _dir) = fresh_store();
-        store.save(&snap(2)).unwrap();
-        assert!(store.session_dir.join("last.json").exists());
-        assert!(!store.session_dir.join("last.json.tmp").exists());
-    }
-
-    #[test]
-    fn load_corrupt_last_falls_back_to_backup() {
-        let (store, _dir) = fresh_store();
-        store.save(&snap(3)).unwrap();
-        store.save(&snap(4)).unwrap();
-        store.save(&snap(5)).unwrap();
-
-        fs::write(store.session_dir.join("last.json"), b"{not valid json").unwrap();
-
-        let recovered = store.load_last().unwrap().expect("must recover");
-        assert!(
-            !recovered.workspaces.is_empty(),
-            "fallback to backups must return non-empty snapshot"
-        );
-    }
-
-    #[test]
-    fn load_missing_last_falls_back_to_backup() {
-        let (store, _dir) = fresh_store();
-        store.save(&snap(2)).unwrap();
-        store.save(&snap(3)).unwrap();
-        fs::remove_file(store.session_dir.join("last.json")).unwrap();
-
-        let recovered = store
-            .load_last()
-            .unwrap()
-            .expect("must recover from backup");
-        assert!(!recovered.workspaces.is_empty());
-    }
-
-    #[test]
-    fn load_no_last_no_backups_returns_none() {
-        let (store, _dir) = fresh_store();
-        let res = store.load_last().unwrap();
-        assert!(res.is_none());
-    }
-
-    #[test]
-    fn load_corrupt_last_and_corrupt_backups_returns_none() {
-        let (store, _dir) = fresh_store();
-        store.save(&snap(1)).unwrap();
-        store.save(&snap(1)).unwrap();
-        fs::write(store.session_dir.join("last.json"), b"oops").unwrap();
-        let backup_dir = store.session_dir.join("backups");
-        for entry in fs::read_dir(&backup_dir).unwrap().flatten() {
-            fs::write(entry.path(), b"corrupt").unwrap();
-        }
-        let res = store.load_last().unwrap();
-        assert!(res.is_none(), "all corrupt → None, never panics");
-    }
-
-    #[test]
-    fn round_trip_save_load() {
-        let (store, _dir) = fresh_store();
-        let s = snap(3);
-        store.save(&s).unwrap();
-        let loaded = store.load_last().unwrap().unwrap();
-        assert_eq!(loaded.workspaces.len(), 3);
-    }
-
-    #[test]
-    fn authoritative_session_binding_persists_orchestration_identity() {
-        use crate::multiplexer::state::MultiplexerState;
-        use crate::multiplexer::types::AgentRole;
-
-        let (store, _dir) = fresh_store();
-        let (mut state, parent) = MultiplexerState::new();
-        state.set_orchestrator_role(&parent).unwrap();
-        let parent_tab = state.get_tab_mut(&parent).unwrap();
-        parent_tab.agent_type = Some("claude".into());
-        parent_tab.agent_session_id = Some("session-orchestrator".into());
-        parent_tab.session_binding_nonce = Some("binding-orchestrator".into());
-        parent_tab.reported_session_binding_nonce = Some("binding-orchestrator".into());
-        let workspace = state.find_workspace_for_tab(&parent).unwrap();
-        let worker = state.create_tab(&workspace).unwrap();
-        state
-            .set_tab_role(&worker, AgentRole::Worker, Some(&parent))
-            .unwrap();
-        let tab = state.get_tab_mut(&worker).unwrap();
-        tab.role_profile = Some("executor".into());
-        tab.agent_type = Some("claude".into());
-        tab.agent_session_id = Some("session-owned".into());
-        tab.session_binding_nonce = Some("binding-owned".into());
-        tab.reported_session_binding_nonce = Some("binding-owned".into());
-        tab.reasoning_effort_identity = crate::multiplexer::types::ReasoningEffortIdentity {
-            planned: Some("high".into()),
-            requested: Some("high".into()),
-            resolved: Some("high".into()),
-            actual: None,
-            actual_source: Some("provider-default-unverified".into()),
-        };
-        tab.archive_context_epoch("claude", "prior-session");
-        let planner = state.create_tab(&workspace).unwrap();
-        state
-            .set_tab_role_kind(&planner, AgentRole::Manager, Some("planner"), Some(&parent))
-            .unwrap();
-        let planner_tab = state.get_tab_mut(&planner).unwrap();
-        planner_tab.agent_type = Some("claude".into());
-        planner_tab.agent_session_id = Some("session-planner".into());
-        planner_tab.session_binding_nonce = Some("binding-planner".into());
-        planner_tab.reported_session_binding_nonce = Some("binding-planner".into());
-
-        let snapshot = state.to_session_snapshot();
-        store.save(&snapshot).unwrap();
-        assert!(!store
-            .list_saved()
-            .unwrap()
-            .iter()
-            .any(|name| name == "agent-session-identities"));
-        let identity = store
-            .load_agent_session_identity("claude", "session-owned")
-            .expect("authoritative identity");
-        assert_eq!(identity.role, "Worker");
-        assert_eq!(identity.parent_tab_id.as_deref(), Some(parent.as_str()));
-        assert!(!identity.can_spawn);
-        assert_eq!(identity.role_profile.as_deref(), Some("executor"));
-        let orchestrator = store
-            .load_agent_session_identity("claude", "session-orchestrator")
-            .expect("orchestrator identity");
-        assert_eq!(orchestrator.role, "Manager");
-        assert_eq!(orchestrator.role_profile.as_deref(), Some("orchestrator"));
-        assert!(orchestrator.can_spawn);
-        let planner_identity = store
-            .load_agent_session_identity("claude", "session-planner")
-            .expect("planner identity");
-        assert_eq!(planner_identity.role, "Manager");
-        assert_eq!(planner_identity.role_profile.as_deref(), Some("planner"));
-        assert_eq!(
-            planner_identity.parent_tab_id.as_deref(),
-            Some(parent.as_str())
-        );
-        assert!(store
-            .load_agent_session_identity("claude", "different-session")
-            .is_none());
-        let catalog_path = store.session_dir.join("agent-session-identities.json");
-        let backup_path = store.session_dir.join("agent-session-identities.json.bak");
-        std::fs::copy(&catalog_path, &backup_path).unwrap();
-        std::fs::write(&catalog_path, "{").unwrap();
-        assert_eq!(
-            store
-                .load_agent_session_identity("claude", "session-owned")
-                .map(|identity| identity.role),
-            Some("Worker".into())
-        );
-        let restored = MultiplexerState::from_session_snapshot(&snapshot);
-        assert_eq!(
-            restored
-                .get_tab(&worker)
-                .unwrap()
-                .reasoning_effort_identity
-                .actual_source
-                .as_deref(),
-            Some("provider-default-unverified")
-        );
-        assert_eq!(
-            restored
-                .get_tab(&worker)
-                .unwrap()
-                .context_epoch_archives
-                .first()
-                .map(|archive| archive.session_id.as_str()),
-            Some("prior-session")
-        );
-
-        state.clear_tab_role(&worker).unwrap();
-        store.save(&state.to_session_snapshot()).unwrap();
-        assert!(store
-            .load_agent_session_identity("claude", "session-owned")
-            .is_none());
-    }
-
-    #[test]
-    fn restore_normalizes_pane_era_leaves_and_isolates_malformed_tabs() {
-        let (store, _dir) = fresh_store();
-        let fixture = serde_json::json!({
-            "version": "pane-era",
-            "timestamp": 7,
-            "active_workspace_id": "workspace",
-            "teams": [],
-            "workspaces": [{
-                "id": "workspace",
-                "name": "Recovered",
-                "tabs": [
-                    {
-                        "id": "tab-valid",
-                        "title": "Valid",
-                        "split_tree": {
-                            "type": "Leaf",
-                            "pane_id": "tab-valid",
-                            "cwd": "D:/project"
-                        },
-                        "sort_order": 0
-                    },
-                    {
-                        "id": "tab-malformed",
-                        "title": "Malformed",
-                        "split_tree": {
-                            "type": "Leaf",
-                            "cwd": "D:/project"
-                        },
-                        "sort_order": 1
-                    }
-                ],
-                "active_tab_id": "tab-valid",
-                "cwd": "D:/project",
-                "protected": false,
-                "sort_order": 0
-            }]
-        })
-        .to_string();
-        let path = store.session_dir.join("last.json");
-        fs::write(&path, &fixture).unwrap();
-
-        let snapshot = store.load_last().unwrap().unwrap();
-        assert_eq!(snapshot.workspaces.len(), 1);
-        assert_eq!(snapshot.workspaces[0].tabs.len(), 1);
-        assert_eq!(snapshot.workspaces[0].tabs[0].id, "tab-valid");
-        match &snapshot.workspaces[0].tabs[0].split_tree {
-            SplitNodeSnapshot::Leaf { tab_id, .. } => assert_eq!(tab_id, "tab-valid"),
-            SplitNodeSnapshot::Split { .. } => panic!("expected recovered leaf"),
-        }
-        assert_eq!(fs::read_to_string(path).unwrap(), fixture);
-    }
-}
+mod tests;
