@@ -17,3 +17,9 @@ Strengthened tests:
 - `15-extensions/extensions.spec.ts` now checks broken-channel error text.
 - `17-open-shell/lmstudio.spec.ts` now checks tool-result text.
 - `19-web-stability/web-stability.spec.ts` GRP-4 now checks the visible terminal belongs to the expected tab.
+
+## Not covered at the Playwright layer
+
+| Surface | Why the Playwright layer cannot assert it | Where it is covered instead |
+| --- | --- | --- |
+| Child tab reordering within a parent group (`18-reorder/reorder.spec.ts`, removed C2) | The Playwright layer cannot construct a parent/child tab pair without a live agent. `parent_tab_id` is settable only through `POST /tabs/{id}/role` or `POST /tabs/{id}/make-orchestrator`, both of which transition with `require_verified_session: true` and answer `400 agent_unavailable` for a tab that never reported a session binding, or through `POST /agents/spawn`, which spawns a real provider agent — and the `golden` project grep-inverts `@stub`. The UI handle is gone as well: only `tab:<workspaceId>` and `workspace:workspaces` dnd groups render, so `child:<parentTabId>` cannot be dragged. | `src-tauri/crates/codeterm-pty/src/multiplexer/state/reorder.rs`: `reorder_children_orders_only_same_parent_siblings`, `reorder_children_rejects_foreign_parent`, `reorder_tabs_rejects_a_child_tab`. |

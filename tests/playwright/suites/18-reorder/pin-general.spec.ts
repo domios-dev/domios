@@ -80,13 +80,16 @@ type ArrowKey = "ArrowUp" | "ArrowDown" | "ArrowLeft" | "ArrowRight";
 async function keyboardDrag(page: Page, rowSelector: string, key: ArrowKey, presses: number) {
   const row = sortableRow(page, rowSelector);
   await row.waitFor({ state: "visible", timeout: 15_000 });
+  // dnd-kit activates from a synthetic onKeyDown on this node, so the row must
+  // still hold focus when the key lands — assert that separately from the lift.
   await row.focus();
-  await page.keyboard.press("Space");
+  await expect(row, "the sortable row holds focus when the lift key is delivered").toBeFocused();
+  await row.press("Space");
   await expect(row).toHaveAttribute("data-dnd-dragging", "true", { timeout: 15_000 });
   for (let i = 0; i < presses; i++) {
-    await page.keyboard.press(key);
+    await row.press(key);
   }
-  await page.keyboard.press("Space");
+  await row.press("Space");
   await expect(row).not.toHaveAttribute("data-dnd-dragging", "true", { timeout: 15_000 });
 }
 
@@ -124,6 +127,30 @@ async function syncUi(page: Page) {
   await page.evaluate(() => window.dispatchEvent(new Event("codeterm-refresh-mux-state")));
 }
 
+/** The sidebar is worker-scoped state: one page serves every test in the file.
+ *  Establish the surfaces these tests read instead of inheriting whatever the
+ *  previous test left, and fail on the missing surface rather than 20s later on
+ *  a card inside it. */
+async function readySidebar(page: Page) {
+  await page.locator('[data-testid="sidebar"]').waitFor({ state: "visible", timeout: 30_000 });
+  const workspaces = page.locator('[data-testid="workspaces-section-toggle"]');
+  await workspaces.waitFor({ state: "visible", timeout: 30_000 });
+  if ((await workspaces.getAttribute("aria-expanded")) !== "true") {
+    await workspaces.click();
+  }
+  await expect(workspaces).toHaveAttribute("aria-expanded", "true");
+  await expect(page.locator('[data-testid="workspace-card-grid"]')).toBeVisible();
+}
+
+/** A drag left in flight by a failing test blocks every later lift on the shared
+ *  page, because a DndContext holding an active drag will not start another. */
+async function cancelStuckDrag(page: Page) {
+  const dragging = page.locator('[data-dnd-dragging="true"]');
+  if ((await dragging.count()) === 0) return;
+  await page.keyboard.press("Escape");
+  await expect(dragging, "Escape must cancel a drag left in flight").toHaveCount(0, { timeout: 10_000 });
+}
+
 /** Address a sortable row by the card it wraps — the wrapper carries no id of
  *  its own, and a `:has(> …)` relative selector is worth not betting on. */
 const tabRow = (wsId: string, tabId: string) =>
@@ -136,7 +163,8 @@ const sortableRow = (page: Page, cardSelector: string) =>
 const ownedWorkspaces: string[] = [];
 const ownedTabs: string[] = [];
 
-test.afterEach(async ({ api }) => {
+test.afterEach(async ({ api, ui }) => {
+  await cancelStuckDrag(ui.page).catch(() => {});
   for (const id of ownedTabs.splice(0)) {
     await api.closeTab(id).catch(() => {});
   }
@@ -162,6 +190,7 @@ test("@golden P1 dragging a workspace to the top cannot place it above General",
   const a = await makeWorkspace(api, `P1 alpha ${Date.now()}`);
   const b = await makeWorkspace(api, `P1 beta ${Date.now()}`);
 
+  await readySidebar(page);
   await syncUi(page);
   await page.locator(`[data-workspace-id="${b}"]`).first().waitFor({ state: "visible", timeout: 20_000 });
 
@@ -212,6 +241,7 @@ test("@golden P2 dragging a tab to the top cannot place it above the General tab
   const t1 = await makeTab(api, general.id);
   const t2 = await makeTab(api, general.id);
 
+  await readySidebar(page);
   await syncUi(page);
   await page.locator(`[data-tab-id="${t2.tab_id}"]`).first().waitFor({ state: "visible", timeout: 20_000 });
 
@@ -252,6 +282,7 @@ test("@golden P3 the General workspace and General tab are not draggable", async
   // A sibling below General, so the sortable group is non-empty.
   const sibling = await makeWorkspace(api, `P3 sibling ${Date.now()}`);
 
+  await readySidebar(page);
   await syncUi(page);
   await page.locator(`[data-workspace-id="${sibling}"]`).first().waitFor({ state: "visible", timeout: 20_000 });
 
