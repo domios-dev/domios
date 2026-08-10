@@ -2,7 +2,7 @@
 
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, finish, it } from "../../test/standaloneTest";
-import { SettingsCard, SettingsPage } from "./shared";
+import { SettingsCard, SettingsPage, Toggle } from "./shared";
 
 /** Resolve an aria-labelledby the way an AT does: follow the id to its text. */
 function labelledByText(html: string, container: RegExp): string | null {
@@ -56,6 +56,16 @@ describe("settings page and card accessibility surface", () => {
     const font = labelledByText(card("Font"), CARD_GROUP);
     expect(theme).toBe("Color Theme");
     expect(font).toBe("Font");
+  });
+
+  it("names each toggle switch from the label it was given", () => {
+    for (const label of ["Ligatures", "Copy on select", "Launch CodeTerm on system start"]) {
+      const html = renderToStaticMarkup(
+        <Toggle label={label} checked={false} onChange={() => undefined} />,
+      );
+      const name = html.match(/role="switch"[^>]*aria-label="([^"]*)"|aria-label="([^"]*)"[^>]*role="switch"/);
+      expect(name?.[1] ?? name?.[2]).toBe(label);
+    }
   });
 
   it("keeps the card group role and its label on the card element itself", () => {
