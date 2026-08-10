@@ -26,13 +26,11 @@ test(
     await ui.page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
 
     // Click into the tab.
-    if (tab.tab_id) {
-      const tab = ui.page
-        .locator(`[data-testid="tab-item"][data-tab-id="${tab.tab_id}"]`)
-        .first();
-      await expect(tab).toBeVisible({ timeout: 30_000 });
-      await tab.click();
-    }
+    const row = ui.page
+      .locator(`[data-testid="tab-item"][data-tab-id="${tab.id}"]`)
+      .first();
+    await expect(row).toBeVisible({ timeout: 30_000 });
+    await row.click();
 
     const chat = ui.page
       .locator(`[data-tab-id="${tab.id}"]`)

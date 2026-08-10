@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import path from "node:path";
 import test from "node:test";
 import { parseIsolatedPlaywrightArgs, playwrightArgs } from "../../../scripts/run-playwright-isolated";
 
@@ -9,7 +8,9 @@ test("isolated runner requires one explicit spec, title, and project", () => {
   const parsed = parseIsolatedPlaywrightArgs(["--file", FILE, "--grep", "real UI", "--project", "smoke"]);
   assert.equal(parsed.grep, "real UI");
   assert.equal(parsed.project, "smoke");
-  assert.ok(parsed.file.endsWith(path.join("01-smoke", "smoke.spec.ts")));
+  // Forward slashes, never a native separator: the value is a regex to Playwright.
+  assert.equal(parsed.file, FILE);
+  assert.ok(!parsed.file.includes("\\"));
   assert.deepEqual(playwrightArgs(parsed).slice(-7), [
     `--project=smoke`,
     parsed.file,
