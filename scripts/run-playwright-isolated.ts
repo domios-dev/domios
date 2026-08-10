@@ -25,7 +25,9 @@ export function parsePlaywrightSpec(fileArgument: string): string {
   if (!fs.statSync(file, { throwIfNoEntry: false })?.isFile()) {
     throw new Error(`Playwright spec does not exist: ${fileArgument}`);
   }
-  return file;
+  // Playwright reads the positional filter as a REGEX. A Windows path turns
+  // `\suites` into a whitespace class, so it can never match its own file.
+  return path.relative(REPO_ROOT, file).split(path.sep).join("/");
 }
 
 function requiredOption(args: string[], name: string): string {

@@ -53,11 +53,9 @@ async function openMockChatTab(
   await api.focusTab(tab.id);
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
-  if (tab.tab_id) {
-    const tab = page.locator(`[data-testid="tab-item"][data-tab-id="${tab.tab_id}"]`).first();
-    await expect(tab).toBeVisible({ timeout: 30_000 });
-    await tab.click();
-  }
+  const row = page.locator(`[data-testid="tab-item"][data-tab-id="${tab.id}"]`).first();
+  await expect(row).toBeVisible({ timeout: 30_000 });
+  await row.click();
 
   const chat = page.locator(`[data-testid="tab-session-chat"][data-tab-id="${tab.id}"]`);
   await expect(chat).toBeVisible({ timeout: 30_000 });
