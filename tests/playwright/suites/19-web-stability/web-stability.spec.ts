@@ -649,13 +649,19 @@ test.describe("@golden web stability verification", () => {
         port: stub.port,
       });
       peerId = added.instance_id;
-      stub.instanceId = peerId;
+      // Pairing rejects non-UUID identities and remaps the daemon's
+      // manual-<uuid> placeholder to the peer's real id — the stub must present
+      // its own UUID, so never overwrite it with the placeholder.
       await api.post("/mesh/connect", { instance_id: peerId });
       await stub.waitForPairAccept();
       await pollUntil(async () => {
         const peers = await api.get<{ paired: { instance_id: string }[] }>("/mesh/peers");
-        return peers.paired.some((p) => p.instance_id === peerId) || undefined;
+        return peers.paired.some((p) => p.instance_id === stub.instanceId) || undefined;
       }, 20_000, 500, "stub peer pairs");
+      peerId = stub.instanceId;
+      // The version-skew guard disables peers that have not announced the
+      // current relay protocol version.
+      await stub.announce();
 
       await openWeb(page);
       await page.click('[data-testid="peer-picker-button"]');
@@ -663,13 +669,13 @@ test.describe("@golden web stability verification", () => {
       await expect(item).toBeVisible({ timeout: 20_000 });
       await expect(item).toHaveAttribute("data-peer-online", "true");
       await item.click();
-      try {
-        await expect(
-          page.locator(`[data-testid="workspace-item"][data-workspace-name="${stub.instanceName}-workspace"]`),
-        ).toBeVisible({ timeout: 5_000 });
-      } catch {
-        test.skip(true, "GATE-4 feature gap: MeshStub peer is listed online, but switched-peer workspace does not render in this branch");
-      }
+      // Read the name off the stub; recomposing it here is how a fixture rename
+      // becomes a spec bug. Budget matches the peer-switching golden — the same
+      // relay round-trip needs the same allowance.
+      await expect(
+        page.locator(`[data-testid="workspace-item"][data-workspace-name="${stub.workspaceName}"]`),
+        "switched-peer ordinary workspace did not render as a sidebar card",
+      ).toBeVisible({ timeout: 20_000 });
       expect(stub.requests.some((r) => r.includes("/api/mux/state") || r.includes("/api/workspaces"))).toBe(true);
     } finally {
       if (peerId) await api.post(`/mesh/peers/disconnect/${peerId}`).catch(() => {});
