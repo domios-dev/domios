@@ -8,7 +8,9 @@ import {
   ensureDevConsole,
   healthMismatchMessage,
   isHealthy,
+  pointerObstruction,
   probeHealth,
+  UI_OVERLAY_PROBE,
   type UiSession,
 } from "./dev-console";
 import { assertServedBundleIsFresh } from "./dist-freshness";
@@ -159,10 +161,40 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     { scope: "worker", timeout: DEV_FIXTURE_TIMEOUT_MS },
   ],
 
-  ui: async ({ devInstance, uiSession }, use) => {
+  // The desktop UI is shared by every test in this worker and nothing resets it:
+  // tabCleanup diffs tabs and api diffs backend state, but nothing diffs the SCREEN.
+  // A test that ends with a full-screen modal open leaves it open, and its victim
+  // fails later on an unrelated selector — as a retry-to-deadline, which reads as a
+  // slow product rather than as leaked state. Name it here instead. This never
+  // dismisses what it finds: a harness that silently cleared the overlay would hide
+  // the leak rather than report it.
+  ui: async ({ devInstance, uiSession }, use, testInfo) => {
     const verdict = await probeHealth(devInstance);
     if (!verdict.ok) throw new Error(healthMismatchMessage(devInstance, verdict));
+    const inherited = await pointerObstruction(uiSession.page, UI_OVERLAY_PROBE);
+    if (inherited.kind === "covered") {
+      throw new Error(
+        `desktop UI was already covered at handover: "${inherited.by}" intercepts pointer ` +
+          `events over ${UI_OVERLAY_PROBE}. An earlier test left it open; fix that test — ` +
+          "this precondition reports the leak and never clears it.",
+      );
+    }
     await use(uiSession);
+    // Blame the test that leaked rather than its victim. A test that already failed
+    // owns its own error, so the overlay there is a consequence, not the story.
+    if (testInfo.status === testInfo.expectedStatus) {
+      const leaked = await pointerObstruction(uiSession.page, UI_OVERLAY_PROBE).catch(
+        () => ({ kind: "clear" }) as const,
+      );
+      if (leaked.kind === "covered") {
+        testInfo.annotations.push({
+          type: "leaked-overlay",
+          description:
+            `this test ended with "${leaked.by}" covering ${UI_OVERLAY_PROBE}; the next test ` +
+            "using the `ui` fixture will fail at handover",
+        });
+      }
+    }
   },
 
   resetTracker: [
