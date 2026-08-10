@@ -114,9 +114,11 @@ test("@smoke make-orchestrator promotes agent tab and surfaces onboarding", asyn
   expect(live?.role).toBe("Orchestrator");
   expect(live?.can_spawn).toBe(true);
 
+  // ChatSubscriptionBody requires subscriptionId (camelCase); `{}` is rejected
+  // with "missing field subscriptionId" before the handler runs.
   const chat = await api.post<{ messages?: { content?: string }[] }>(
     `/tabs/${tab.id}/chat-raw/start`,
-    {},
+    { subscriptionId: `pw-agents-${tab.id}` },
   );
   const greeting = JSON.stringify(chat.messages ?? []);
   expect(greeting).toContain("You are now the Orchestrator");
