@@ -22,7 +22,13 @@ const startingStates = [
  *  Playwright transpiles specs to CJS, so `import.meta.url` is not available. */
 const repoRoot = path.resolve(__dirname, "../../../..");
 
-async function loadingCardBundle(): Promise<string> {
+/** One esbuild per FILE, not per test. Bundling the product twice inside each
+ *  test's budget is what pushed this spec past its deadline and closed the page
+ *  out from under it. */
+let bundleOnce: Promise<string> | null = null;
+const loadingCardBundle = (): Promise<string> => (bundleOnce ??= buildLoadingCardBundle());
+
+async function buildLoadingCardBundle(): Promise<string> {
   const result = await build({
     bundle: true,
     format: "iife",
