@@ -334,12 +334,6 @@ async function expectTitlebarLayout(
   const titlebar = page.locator('[data-testid="titlebar"]');
   await expect(titlebar).toBeVisible({ timeout: 20_000 });
   await expect(
-    titlebar.locator('[data-testid="peer-picker-button"]'),
-  ).toBeVisible();
-  await expect(
-    titlebar.locator('[data-testid="canvas-toolbar-button"]'),
-  ).toBeVisible();
-  await expect(
     titlebar.locator('[data-testid="titlebar-extensions"]'),
   ).toBeVisible();
   await expect(
@@ -348,6 +342,10 @@ async function expectTitlebarLayout(
   await expect(
     titlebar.locator('[data-testid="titlebar-settings"]'),
   ).toBeVisible();
+  // The host switcher left the titlebar for the sidebar GENERAL header
+  // (Sidebar.tsx renders <WebPeerPicker compact/> there). web.spec's chrome
+  // golden owns its new home; this helper holds the titlebar to what it kept.
+  await expect(titlebar.locator('[data-testid="peer-picker"]')).toHaveCount(0);
 
   const metrics = await page.evaluate(() => {
     const rectOf = (selector: string) => {
@@ -365,7 +363,6 @@ async function expectTitlebarLayout(
     };
     return {
       titlebar: rectOf('[data-testid="titlebar"]'),
-      picker: rectOf('[data-testid="titlebar"] [data-testid="peer-picker"]'),
       burger: rectOf('[data-testid="web-sidebar-open"]'),
       scrollWidth: document.documentElement.scrollWidth,
       viewportWidth: window.innerWidth,
@@ -373,10 +370,6 @@ async function expectTitlebarLayout(
   });
 
   expect(metrics.titlebar, "titlebar box").not.toBeNull();
-  expect(
-    metrics.picker,
-    "WebPeerPicker must sit inside the titlebar left slot",
-  ).not.toBeNull();
   expect(
     metrics.scrollWidth,
     "web titlebar should not create horizontal scroll",
@@ -388,19 +381,17 @@ async function expectTitlebarLayout(
   expect(metrics.titlebar!.right, "titlebar fits viewport").toBeLessThanOrEqual(
     metrics.viewportWidth + 1,
   );
-  expect(
-    metrics.picker!.left,
-    "peer picker occupies traffic-lights corner",
-  ).toBeLessThanOrEqual(16);
   if (metrics.burger) {
+    // The hamburger is a child of the titlebar row (Titlebar.tsx), not a
+    // floating control below it.
     expect(
       metrics.burger.top,
-      "mobile burger stays below titlebar",
-    ).toBeGreaterThanOrEqual(metrics.titlebar!.bottom - 1);
+      "sidebar toggle sits inside the titlebar row",
+    ).toBeGreaterThanOrEqual(metrics.titlebar!.top - 1);
     expect(
       metrics.burger.bottom,
-      "mobile burger fits viewport",
-    ).toBeLessThanOrEqual(viewport.height);
+      "sidebar toggle stays inside the titlebar row",
+    ).toBeLessThanOrEqual(metrics.titlebar!.bottom + 1);
   }
 }
 
@@ -473,14 +464,10 @@ test.describe("@golden web-native parity", () => {
     }
   });
 
-  test("@golden T3 titlebar strip gate: desktop controls, deep links, keep-awake, toasts, and de-dup", async ({
+  test("@golden T3 titlebar strip gate: desktop settings deep link and keep-awake round-trip", async ({
     api,
     webBrowser,
   }) => {
-    test.skip(
-      true,
-      "over-scoped/slow strip gate — split into focused tests (parity covered by naming + mobile + web.spec titlebar gates)",
-    );
     test.setTimeout(180_000);
     const page = await newWebPage(webBrowser);
     try {
@@ -488,27 +475,9 @@ test.describe("@golden web-native parity", () => {
       await openWeb(page);
       await expectTitlebarLayout(page, { width: 1280, height: 800 });
 
-      const titlebar = page.locator('[data-testid="titlebar"]');
-      await expect(
-        titlebar.locator('[data-testid="peer-picker-button"]'),
-      ).toContainText("this host");
-      await expect(
-        page
-          .locator('[data-testid="keepawake-tray"]')
-          .locator("xpath=ancestor::*[@data-testid='titlebar']"),
-      ).toBeVisible();
-      await expect(page.locator('[data-testid="nav-settings"]')).toHaveCount(0);
-      await expect(
-        page.locator(
-          '[data-testid="web-sidebar-keepawake"], [data-testid="web-sidebar-peer-picker"]',
-        ),
-      ).toHaveCount(0);
-
-      await expect(
-        page.locator('[data-testid="canvas-toolbar-button"]'),
-      ).toBeVisible();
-
-      // and keep-awake round-trips — both strip controls.
+      // The two strip controls that own real behaviour: a settings deep link
+      // that lands on the right section and closes cleanly, and keep-awake
+      // driven from the web titlebar with the daemon confirming both edges.
       await expectSettingsDeepLink(page, "general");
       await expectKeepAwakeRoundTrip(page, api);
     } finally {
@@ -519,25 +488,33 @@ test.describe("@golden web-native parity", () => {
   });
 
   test("@golden T3 titlebar strip gate: mobile safe-area layout stays reachable", async ({
+    api,
     webBrowser,
   }) => {
+    // `workspace-item` is rendered only for ORDINARY workspaces; a fresh instance
+    // holds just the protected General, which lives in general-section. Waiting on
+    // whatever the shared instance happens to contain makes this test's result a
+    // function of another lane's timing, so it seeds the card it asserts.
+    const workspaceName = `pw-parity-mobile-${Date.now()}`;
+    await api.createWorkspace(workspaceName);
+    const workspaceId = (await api.workspaces()).find((w) => w.name === workspaceName)?.id;
+    expect(workspaceId, "safe-area fixture workspace was not created").toBeTruthy();
+
     const page = await newWebPage(webBrowser, { width: 375, height: 812 });
     try {
       await openWeb(page);
       await expectTitlebarLayout(page, { width: 375, height: 812 });
 
       const burger = page.locator('[data-testid="web-sidebar-open"]');
-      if (await burger.isVisible().catch(() => false)) {
-        await burger.click();
-      }
+      await expect(burger).toBeVisible({ timeout: 10_000 });
+      await burger.click();
       await expect(
-        page.locator('[data-testid="workspace-item"]').first(),
+        page.locator(`[data-testid="workspace-item"][data-workspace-name="${workspaceName}"]`),
+        "seeded ordinary workspace did not render as a sidebar card",
       ).toBeVisible({ timeout: 10_000 });
-      await expect(
-        page.locator('[data-testid="workspace-item"]'),
-      ).not.toHaveCount(0);
     } finally {
       await page.context().close();
+      if (workspaceId) await api.closeWorkspace(workspaceId).catch(() => {});
     }
   });
 });
