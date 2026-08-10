@@ -194,8 +194,10 @@ mod tests {
 
     #[test]
     fn oversize_refusal_counts_characters_not_bytes() {
-        let body = "Привіт".repeat(INLINE_BODY_REFUSAL_LIMIT / 6);
+        // Two bytes per char, so a byte-counting guard would refuse at the limit.
+        let body = "и".repeat(INLINE_BODY_REFUSAL_LIMIT);
         assert_eq!(body.chars().count(), INLINE_BODY_REFUSAL_LIMIT);
+        assert!(body.len() > INLINE_BODY_REFUSAL_LIMIT);
         assert!(oversize_inline_refusal(Some(&body)).is_none());
     }
 
