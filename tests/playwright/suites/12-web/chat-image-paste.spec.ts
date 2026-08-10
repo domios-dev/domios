@@ -4,6 +4,7 @@
  * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test, type Page, API_BASE, readDevToken } from "../../helpers/fixtures";
+import { isStubTransportActive } from "../../helpers/stub-gate";
 
 const WEB_URL = `${API_BASE}/`;
 
@@ -11,8 +12,14 @@ const WEB_URL = `${API_BASE}/`;
 const PNG_B64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
 
-test("@golden pasting a screenshot into the chat composer attaches it", async ({ api, webBrowser, tabCleanup, spawnAgent }) => {
+test("@stub pasting a screenshot into the chat composer attaches it", async ({ api, webBrowser, tabCleanup, spawnAgent }) => {
   test.setTimeout(120_000);
+  // The composer, not the provider, is under test — spawn through the stub
+  // transport so the assertion never depends on provider credit.
+  test.skip(
+    !(await isStubTransportActive(api)),
+    "dev daemon is not running with CODETERM_STUB_AGENT_CMD",
+  );
   const ctx = await webBrowser.newContext({ viewport: { width: 375, height: 812 } });
   const page: Page = await ctx.newPage();
 

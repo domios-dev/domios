@@ -13,6 +13,7 @@
 import http from "node:http";
 import { generateKeyPairSync, sign as edSign, randomUUID, type KeyObject } from "node:crypto";
 import { RELAY_PROTOCOL_VERSION } from "../../../src/lib/types";
+import { resolveHarnessDaemonBase } from "./daemon-base";
 
 export type StubMode = "happy" | "wedged" | "liar";
 
@@ -39,8 +40,9 @@ export class MeshStub {
   /** method+path log so tests can assert what the daemon actually called. */
   readonly requests: string[] = [];
   private serviceCount: number;
-  /** Daemon base for the pair-accept callback. */
-  private daemonBase: string;
+  /** Daemon base for the pair-accept callback; resolved from the harness
+   *  instance, never a hardcoded port. */
+  readonly daemonBase: string;
   private pairAcceptCompleted = false;
   private pairAcceptError: Error | null = null;
   private pairAcceptWaiters = new Set<{ resolve: () => void; reject: (error: Error) => void }>();
@@ -79,7 +81,7 @@ export class MeshStub {
 
   constructor(opts: { services?: number; daemonBase?: string; webToken?: string } = {}) {
     this.serviceCount = opts.services ?? 3;
-    this.daemonBase = opts.daemonBase ?? "http://127.0.0.1:7686";
+    this.daemonBase = resolveHarnessDaemonBase({ explicit: opts.daemonBase });
     this.webToken = opts.webToken ?? null;
     const { publicKey, privateKey } = generateKeyPairSync("ed25519");
     this.signingKey = privateKey;
