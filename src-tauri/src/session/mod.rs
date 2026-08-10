@@ -24,12 +24,9 @@ pub fn save_session(
 ) -> Result<(), String> {
     let snapshot = mux.write().to_session_snapshot();
     // A refused reduction is the guard working (logged by the store), not a
-    // command failure — but its live tab set is untrusted, so sidecars that
-    // prune off it must not be synced.
+    // command failure — the sidecar gate decides whether it may prune.
     let outcome = session.lock().save(&snapshot)?;
-    if matches!(outcome, store::SaveOutcome::Saved) {
-        scrollback_sync::sync_scrollback_sidecars(&app);
-    }
+    scrollback_sync::sync_scrollback_sidecars_after_save(&app, &outcome);
     Ok(())
 }
 

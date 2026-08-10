@@ -42,11 +42,7 @@ pub(crate) fn write_session_snapshot_with_intent(
         store.save_with_intent(&snapshot, intent)
     };
     let outcome = save_result.map_err(|e| format!("save session: {}", e))?;
-    // Sidecar pruning keys off the LIVE tab set, which a refused reduction has
-    // just declared untrustworthy — syncing there would delete what it saved.
-    if matches!(outcome, SaveOutcome::Saved) {
-        crate::session::scrollback_sync::sync_scrollback_sidecars(app);
-    }
+    crate::session::scrollback_sync::sync_scrollback_sidecars_after_save(app, &outcome);
     Ok(outcome)
 }
 
