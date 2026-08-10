@@ -62,6 +62,8 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
   const stub = new MeshStub({ services: 1, webToken: STUB_TOKEN, daemonBase: API_BASE });
   stub.muxDelayMs = 500;
   let peerId: string | undefined;
+  const selfWorkspaceName = `${stub.instanceName}-self-host`;
+  let selfWorkspaceId: string | undefined;
 
   // before its cleanup — drop them so selectors stay unambiguous.
   const existing = await api.get<{ paired: { instance_id: string; instance_name: string }[] }>(
@@ -74,6 +76,8 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
   }
 
   try {
+    await api.createWorkspace(selfWorkspaceName);
+    selfWorkspaceId = (await api.workspaces()).find((w) => w.name === selfWorkspaceName)?.id;
     // has every field it expects when pointed at the stub.
     stub.configPayload = await api.get("/config");
     await stub.start("happy");
@@ -153,10 +157,15 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
       "new peer received a request for the old peer tab",
     ).toEqual([]);
 
-    // Switch back to self: real workspaces return, no stub data leaks.
+    // Switch back to self: real workspaces return, no stub data leaks. Wait on
+    // THIS host's own ordinary workspace — a fresh instance holds only the
+    // protected General, which renders in general-section and never as a card.
     await page.click('[data-testid="peer-picker-button"]');
     await page.click('[data-testid="peer-picker-self"]');
-    await page.waitForSelector('[data-testid="workspace-item"]', { timeout: 20_000 });
+    await expect(
+      page.locator(`[data-testid="workspace-item"][data-workspace-name="${selfWorkspaceName}"]`),
+      "self host's own workspace did not return after switch-back",
+    ).toBeVisible({ timeout: 20_000 });
     await expect(
       page.locator(`[data-testid="workspace-item"][data-workspace-name="${stub.workspaceName}"]`),
       "stub workspace leaked into the self host after switch-back",
@@ -166,6 +175,7 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
     await page.context().close();
   } finally {
     if (peerId) await api.post(`/mesh/peers/disconnect/${peerId}`).catch(() => {});
+    if (selfWorkspaceId) await api.closeWorkspace(selfWorkspaceId).catch(() => {});
     await stub.stop();
   }
 });
