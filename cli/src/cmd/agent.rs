@@ -562,6 +562,9 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                     }
                 }
             }
+            crate::cmd::payload_source::refuse_oversize_inline(
+                text.as_deref().or(message.as_deref()),
+            );
             let tab_id = resolve_tab(client, tab);
             let mut message = if let Some(path) = from_pad {
                 crate::cmd::payload_source::read_from_pad(&path).unwrap_or_else(|e| {
