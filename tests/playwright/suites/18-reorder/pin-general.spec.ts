@@ -78,7 +78,7 @@ async function ordinaryWorkspaceOrder(api: ApiClient): Promise<string[]> {
 type ArrowKey = "ArrowUp" | "ArrowDown" | "ArrowLeft" | "ArrowRight";
 
 async function keyboardDrag(page: Page, rowSelector: string, key: ArrowKey, presses: number) {
-  const row = page.locator(rowSelector).first();
+  const row = sortableRow(page, rowSelector);
   await row.waitFor({ state: "visible", timeout: 15_000 });
   await row.focus();
   await page.keyboard.press("Space");
@@ -124,10 +124,14 @@ async function syncUi(page: Page) {
   await page.evaluate(() => window.dispatchEvent(new Event("codeterm-refresh-mux-state")));
 }
 
+/** Address a sortable row by the card it wraps — the wrapper carries no id of
+ *  its own, and a `:has(> …)` relative selector is worth not betting on. */
 const tabRow = (wsId: string, tabId: string) =>
-  `div[data-dnd-group="tab:${wsId}"]:has(> [data-tab-id="${tabId}"])`;
+  `div[data-dnd-group="tab:${wsId}"] > [data-tab-id="${tabId}"]`;
 const wsRow = (wsId: string) =>
-  `div[data-dnd-group="workspace:workspaces"]:has(> [data-workspace-id="${wsId}"])`;
+  `div[data-dnd-group="workspace:workspaces"] > [data-workspace-id="${wsId}"]`;
+const sortableRow = (page: Page, cardSelector: string) =>
+  page.locator(cardSelector).first().locator("xpath=..");
 
 const ownedWorkspaces: string[] = [];
 const ownedTabs: string[] = [];
@@ -258,7 +262,8 @@ test("@golden P3 the General workspace and General tab are not draggable", async
   await expect(generalSection.locator(`[data-tab-id="${gTab.id}"]`)).toBeVisible();
 
   // The General tab's row exists but carries dnd-kit's disabled affordance.
-  await expect(page.locator(tabRow(general.id, gTab.id)).first()).toHaveAttribute("aria-disabled", "true");
+  // dnd-kit stamps aria-disabled on the sortable wrapper, not on the card.
+  await expect(sortableRow(page, tabRow(general.id, gTab.id))).toHaveAttribute("aria-disabled", "true");
 
   // The daemon refuses to demote either one, whatever order is asked for.
   const wsBefore = await ordinaryWorkspaceOrder(api);
