@@ -238,6 +238,31 @@ test("a leaking instance still lets the rest tear down, then surfaces together",
   });
 });
 
+test("teardown failures are readable in the summary, not only in .errors", async () => {
+  await withEnvAsync({ CT_E2E_WORKERS: "2" }, async () => {
+    const instances = [devInstanceForSlot(0, 2), devInstanceForSlot(1, 2)];
+    const lifecycle: InstanceLifecycle = {
+      kill: (instance) => {
+        if (instance.name === "pw2") throw new Error("kill-token");
+      },
+      assertStopped: async (instance) => {
+        if (instance.name === "pw1") throw new Error("cannot determine residual processes: probe-token");
+      },
+    };
+    await assert.rejects(
+      () => teardownInstances(instances, lifecycle),
+      (error: unknown) => {
+        assert.ok(error instanceof AggregateError);
+        assert.equal(error.errors.length, 2);
+        assert.ok(error.message.includes("kill-token"), error.message);
+        assert.ok(error.message.includes("probe-token"), error.message);
+        assert.ok(!/leaked processes/.test(error.message), "the summary must not name a leak it never measured");
+        return true;
+      },
+    );
+  });
+});
+
 test("a synchronous kill failure still tears down the rest and surfaces", async () => {
   await withEnvAsync({ CT_E2E_WORKERS: "2" }, async () => {
     const instances = [devInstanceForSlot(0, 2), devInstanceForSlot(1, 2)];

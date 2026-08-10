@@ -36,7 +36,13 @@ function requiredOption(args: string[], name: string): string {
   return values[0];
 }
 
-export function parseIsolatedPlaywrightArgs(args: string[]): IsolatedPlaywrightArgs {
+/** `pnpm run <script> -- --file X` forwards the separator verbatim; drop it. */
+export function stripArgumentSeparator(args: string[]): string[] {
+  return args[0] === "--" ? args.slice(1) : args;
+}
+
+export function parseIsolatedPlaywrightArgs(rawArgs: string[]): IsolatedPlaywrightArgs {
+  const args = stripArgumentSeparator(rawArgs);
   const fileArgument = requiredOption(args, "--file");
   const project = requiredOption(args, "--project");
   const grep = requiredOption(args, "--grep");

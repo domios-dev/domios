@@ -24,6 +24,7 @@
     "test:pw:perf": "playwright test -c tests/playwright --project=perf",
     "test:pw:stub": "playwright test -c tests/playwright --project=stub",
     "test:pw:live-pair": "playwright test -c tests/playwright --project=live tests/playwright/suites/20-new-session/picker-live.spec.ts --timeout=30000 --global-timeout=600000 --reporter=line",
+    "test:pw:instance": "tsx scripts/start-playwright-instance.ts",
     "test:pw:one": "tsx scripts/run-playwright-isolated.ts",
     "test:pw:bounded": "tsx scripts/run-playwright-bounded.ts",
     "test:pw:visual:regen": "bash scripts/regenerate-visual-goldens.sh",

@@ -12,6 +12,7 @@ import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { readDevToken } from "./api-client";
+import { probeCdpAppReadiness, type CdpAppReadiness } from "./cdp-app-page";
 import {
   buildDevInstanceEnv,
   currentDevInstance,
@@ -31,6 +32,10 @@ const WEB_MODE = process.env.CT_E2E_WEB_MODE === "1";
 const WEB_UI_READY_TIMEOUT_MS = 90_000;
 const STOP_VERIFY_TIMEOUT_MS = process.platform === "win32" ? 30_000 : 15_000;
 const SERVICE_WORKER_READY_TIMEOUT_MS = 30_000;
+
+/** Adopt-only entry points never start an instance; they name the one that does. */
+export const STAND_UP_INSTANCE_HINT =
+  "stand the named instance up with `pnpm test:pw:instance` (adopt-only runners never start one)";
 
 export const REPO_ROOT = process.env.CT_E2E_DEV_ROOT
   ? path.resolve(process.env.CT_E2E_DEV_ROOT)
@@ -99,7 +104,7 @@ export function healthMismatchMessage(instance: DevInstance, verdict: HealthVerd
   if (verdict.reason === "build") {
     return `Playwright instance ${instance.name || "default"} at ${instance.apiBase} was built at ${verdict.actual}, not the tested HEAD ${verdict.expected}; rebuild it through the Playwright harness before adopting it`;
   }
-  return `Playwright instance ${instance.name || "default"} is not healthy at ${instance.apiBase} (${verdict.reason} mismatch); start that named instance through the Playwright harness before using the isolated runner`;
+  return `Playwright instance ${instance.name || "default"} is not healthy at ${instance.apiBase} (${verdict.reason} mismatch); ${STAND_UP_INSTANCE_HINT}`;
 }
 
 function progress(phase: string, detail: string): void {
@@ -127,8 +132,11 @@ export async function assertReusableDevConsole(instance = currentDevInstance()):
   progress("CDP probe", `checking ${instance.cdpBase}/json/version`);
   if (!(await isCdpUp(instance))) throw nonAdoptableCdpError(instance);
   progress("CDP app readiness", "checking the WebView2 document");
-  if (!(await isCdpAppReady(instance))) {
-    throw new Error(`healthy Playwright instance exposes CDP at ${instance.cdpBase}, but its app is not ready`);
+  const readiness = await cdpAppReadiness(instance);
+  if (!readiness.ready) {
+    throw new Error(
+      `healthy Playwright instance exposes CDP at ${instance.cdpBase}, but its app is not ready (${readiness.reason}); ${STAND_UP_INSTANCE_HINT}`,
+    );
   }
 }
 
@@ -188,22 +196,16 @@ export async function isCdpUp(instance = currentDevInstance()): Promise<boolean>
   }
 }
 
-async function isCdpAppReady(instance: DevInstance, timeoutMs = 3000): Promise<boolean> {
-  if (process.platform !== "win32") return true;
-  try {
-    const browser = await chromium.connectOverCDP(instance.cdpBase, { timeout: timeoutMs });
-    try {
-      const page = browser.contexts()[0]?.pages()[0];
-      if (!page) return false;
-      await page.waitForLoadState("load", { timeout: timeoutMs });
-      await page.locator("#root > *").first().waitFor({ state: "attached", timeout: timeoutMs });
-      return true;
-    } finally {
-      await browser.close();
-    }
-  } catch {
-    return false;
-  }
+async function cdpAppReadiness(instance: DevInstance): Promise<CdpAppReadiness> {
+  if (process.platform !== "win32") return { ready: true, matched: instance.webUrl, criterion: "app-origin" };
+  const readiness = await probeCdpAppReadiness(instance);
+  progress(
+    "CDP app readiness",
+    readiness.ready
+      ? `matched the app page by ${readiness.criterion}: ${readiness.matched}`
+      : `not ready: ${readiness.reason}`,
+  );
+  return readiness;
 }
 
 // from PowerShell — build.sh then dies in a WSL world. Pin git-bash.
@@ -310,17 +312,22 @@ function bashStreaming(instance: DevInstance, args: string[], timeoutMs: number)
 function killDevLeftovers(instance: DevInstance): void {
   if (process.platform !== "win32") return;
   try {
-    execFileSync(
-      "powershell",
-      windowsCleanupArgs(instance),
-      {
-        timeout: 30_000,
-        stdio: "inherit",
-      },
-    );
+    execFileSync(powershellExe(), windowsCleanupArgs(instance), {
+      timeout: 30_000,
+      stdio: "inherit",
+    });
   } catch (error) {
     throw new Error(`Windows cleanup failed for Playwright instance ${instance.name}: ${error}`);
   }
+}
+
+// A PATH without System32 turned every teardown into a phantom process leak.
+export function powershellExe(env: NodeJS.ProcessEnv = process.env): string {
+  const systemRoot = env.SystemRoot ?? env.SYSTEMROOT ?? env.windir;
+  const pinned = systemRoot
+    ? path.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+    : undefined;
+  return pinned && fs.existsSync(pinned) ? pinned : "powershell";
 }
 
 export function windowsCleanupArgs(instance: DevInstance): string[] {
@@ -415,24 +422,51 @@ export async function ensureDevConsole(instance = currentDevInstance()): Promise
         progress("adopt", "reusing healthy dev instance via web UI");
         return;
       }
-      throw new Error(
-        `healthy Playwright dev instance has no ready web UI at ${instance.webUrl}; restart it through the Playwright harness`,
+      return await restartUnreadyDevConsole(
+        instance,
+        usesWebUi,
+        `web UI at ${instance.webUrl} never became ready on the healthy instance`,
       );
     }
     progress("CDP probe", `checking ${instance.cdpBase}/json/version`);
     if (await isCdpUp(instance)) {
       progress("CDP app readiness", "checking the WebView2 document");
-      if (await isCdpAppReady(instance)) {
-        progress("adopt", "reusing healthy dev instance via CDP");
+      const readiness = await cdpAppReadiness(instance);
+      if (readiness.ready) {
+        progress("adopt", `reusing healthy dev instance via CDP (${readiness.criterion}: ${readiness.matched})`);
         return;
       }
-      throw new Error(
-        `healthy Playwright dev instance exposes CDP at ${instance.cdpBase}, but its app is not ready; restart it through the Playwright harness`,
-      );
+      return await restartUnreadyDevConsole(instance, usesWebUi, readiness.reason);
     }
     throw nonAdoptableCdpError(instance);
   }
   progress("health probe", "no adoptable healthy instance found; preparing a fresh start");
+  await startDevConsole(instance, usesWebUi);
+}
+
+// Prescribing a restart and then throwing let one bad instance state poison
+// every later test; restart for real and carry both reasons if that fails too.
+export async function recoverUnreadyInstance(
+  instance: DevInstance,
+  reason: string,
+  restart: () => Promise<void>,
+): Promise<void> {
+  progress("restart", `healthy instance is not usable (${reason}); restarting through the Playwright harness`);
+  try {
+    await restart();
+  } catch (error) {
+    throw new Error(
+      `Playwright instance ${instance.name || "default"} was not ready (${reason}) and the harness restart also failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  progress("restart", `restart completed after: ${reason}`);
+}
+
+function restartUnreadyDevConsole(instance: DevInstance, usesWebUi: boolean, reason: string): Promise<void> {
+  return recoverUnreadyInstance(instance, reason, () => startDevConsole(instance, usesWebUi));
+}
+
+async function startDevConsole(instance: DevInstance, usesWebUi: boolean): Promise<void> {
   killDevConsole(instance);
   await assertDevConsoleStopped(instance);
   progress("spawn guard", "all Playwright instance listeners are verified free");
@@ -464,12 +498,17 @@ export async function ensureDevConsole(instance = currentDevInstance()): Promise
     );
   }
   progress("post-start CDP readiness", `waiting for ${instance.cdpBase}`);
+  let lastReason = `CDP endpoint ${instance.cdpBase} never answered`;
   for (let i = 0; i < 20; i++) {
-    if ((await isCdpUp(instance)) && (await isCdpAppReady(instance))) return;
+    if (await isCdpUp(instance)) {
+      const readiness = await cdpAppReadiness(instance);
+      if (readiness.ready) return;
+      lastReason = readiness.reason;
+    }
     await new Promise((r) => setTimeout(r, 500));
   }
   throw new Error(
-    `dev console is healthy but WebView2 (${instance.cdpBase}) did not finish loading the app`,
+    `dev console is healthy but WebView2 (${instance.cdpBase}) did not finish loading the app: ${lastReason}`,
   );
 }
 
@@ -682,14 +721,50 @@ function portIsFree(port: number): Promise<boolean> {
   });
 }
 
-function residualOwnedProcessIds(instance: DevInstance): number[] {
-  if (process.platform !== "win32") return [];
-  const output = execFileSync("powershell", [...windowsCleanupArgs(instance), "-PlanOnly"], {
-    encoding: "utf8",
-    timeout: 30_000,
-  });
-  const plan = JSON.parse(output) as { selected_processes?: number[] };
-  return plan.selected_processes ?? [];
+export type ResidualProbe = { ok: true; processes: number[] } | { ok: false; failure: string };
+
+/** A probe that could not run names ITSELF; it never borrows "leak" vocabulary. */
+export function residualProbeFailure(error: unknown): string {
+  return `cannot determine residual processes: ${error instanceof Error ? error.message : String(error)}`;
+}
+
+export function parseResidualProbeOutput(output: string): ResidualProbe {
+  try {
+    const plan = JSON.parse(output) as { selected_processes?: number[] };
+    return { ok: true, processes: plan.selected_processes ?? [] };
+  } catch (error) {
+    return { ok: false, failure: residualProbeFailure(error) };
+  }
+}
+
+function residualOwnedProcesses(instance: DevInstance): ResidualProbe {
+  if (process.platform !== "win32") return { ok: true, processes: [] };
+  let output: string;
+  try {
+    output = execFileSync(powershellExe(), [...windowsCleanupArgs(instance), "-PlanOnly"], {
+      encoding: "utf8",
+      timeout: 30_000,
+    });
+  } catch (error) {
+    return { ok: false, failure: residualProbeFailure(error) };
+  }
+  return parseResidualProbeOutput(output);
+}
+
+export function stopVerificationFailure(
+  instance: DevInstance,
+  occupied: number[],
+  residual: ResidualProbe,
+): string {
+  const findings = [
+    occupied.length > 0 ? `leaked listeners [${occupied.join(", ")}]` : undefined,
+    residual.ok
+      ? residual.processes.length > 0
+        ? `leaked processes [${residual.processes.join(", ")}]`
+        : undefined
+      : residual.failure,
+  ].filter(Boolean);
+  return `Playwright instance ${instance.name || "default"} did not verify as stopped: ${findings.join("; ")}`;
 }
 
 export async function assertDevConsoleStopped(
@@ -700,24 +775,21 @@ export async function assertDevConsoleStopped(
   const deadline = Date.now() + timeoutMs;
   progress("kill verification", `checking listeners [${ports.join(", ")}] (deadline ${timeoutMs}ms)`);
   let nextProgressAt = Date.now() + 3_000;
-  while (Date.now() <= deadline) {
-    if (
-      (await Promise.all(ports.map(portIsFree))).every(Boolean) &&
-      residualOwnedProcessIds(instance).length === 0
-    ) return;
+  let residual = residualOwnedProcesses(instance);
+  while (residual.ok && Date.now() <= deadline) {
+    if ((await Promise.all(ports.map(portIsFree))).every(Boolean) && residual.processes.length === 0) return;
     if (Date.now() >= nextProgressAt) {
       progress("kill verification", "listeners or owned processes remain; awaiting release");
       nextProgressAt = Date.now() + 3_000;
     }
     await new Promise((resolve) => setTimeout(resolve, 250));
+    residual = residualOwnedProcesses(instance);
   }
   const occupied = [];
   for (const port of ports) {
     if (!(await portIsFree(port))) occupied.push(port);
   }
-  const processes = residualOwnedProcessIds(instance);
-  progress("kill verification", `failed: listeners [${occupied.join(", ")}], processes [${processes.join(", ")}]`);
-  throw new Error(
-    `Playwright instance ${instance.name || "default"} leaked listeners [${occupied.join(", ")}] or processes [${processes.join(", ")}]`,
-  );
+  const message = stopVerificationFailure(instance, occupied, residual);
+  progress("kill verification", `failed: ${message}`);
+  throw new Error(message);
 }
