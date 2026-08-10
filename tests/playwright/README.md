@@ -33,6 +33,7 @@ pnpm test:pw:perf    # @perf stub-provider latency budget project
 pnpm test:pw:stub    # @stub project — recorded-provider transport, no provider credit
 pnpm test:pw:full    # all non-quarantined tests
 pnpm test:pw:live-pair # bounded real-Claude orchestration launch gate
+pnpm test:pw:instance # start the named instance and leave it standing
 pnpm test:pw:report  # open the last HTML report
 pnpm test:pw:trace -- tests/playwright/artifacts/test-results/<trace.zip>
 pnpm test:pw:debug   # run the suite with Playwright Inspector
@@ -40,18 +41,30 @@ pnpm test:pw:debug   # run the suite with Playwright Inspector
 
 ### Fast isolated check against an existing test console
 
-When the named Playwright instance is already healthy, use the adopt-only runner
-to run one exact spec and title without rebuilding, restarting, or tearing it down:
+`test:pw:one` is **adopt-only: it requires a standing named instance and never
+starts one.** From a cold machine, stand the instance up first — this command
+starts it and leaves it running:
+
+```bash
+pnpm test:pw:instance
+```
+
+Then run one exact spec and title against it, without rebuilding, restarting, or
+tearing it down:
 
 ```bash
 pnpm test:pw:one -- --file tests/playwright/suites/01-smoke/smoke.spec.ts \
   --grep "real UI renders" --project smoke
 ```
 
+Both `pnpm test:pw:one -- --file ...` and `pnpm test:pw:one --file ...` work: the
+runner ignores the leading `--` that `pnpm run` forwards verbatim. (This is
+unlike `test:pw:perf` below, where the post-`--` flags reach Playwright itself.)
+
 It verifies the named instance identity, API health, and CDP/WebView readiness
 before launching Playwright. It always applies a 30-second per-test cap and a
-10-minute global cap. If preflight fails, it exits nonzero and leaves every
-instance untouched; use the normal harness when a clean start is actually needed.
+10-minute global cap. If preflight fails, it exits nonzero, names the missing
+precondition, and leaves every instance untouched.
 
 Parallel execution is opt-in. `CT_E2E_WORKERS=N` starts `pw1..pwN` with
 separate API, Vite, CDP, identifier, token, and `.codeterm-dev-pwN` state.
@@ -337,4 +350,4 @@ server-spawned tabs do). Each throws a clear
 - Suites assert **UI DOM state**, not just API JSON, wherever the action
   has a user-visible effect.
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->
