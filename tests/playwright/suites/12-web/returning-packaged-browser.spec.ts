@@ -1,3 +1,11 @@
+/**
+ * WHAT: A returning mobile browser holding a cached DEV service worker and shell picks up the packaged production deploy on reload.
+ * WHY: The web mirror precaches "/" and its app asset, so the previous worker can keep serving the dev
+ * shell — and its dev badge and dev runtime identity — after production ships to the same origin.
+ * ORACLE: On the html element, data-build-mode (served index) and data-sw-version (controlling worker's
+ * VERSION reply) read dev then prod, data-runtime-identifier (authenticated /api/health) empties, the
+ * "Development build, version ..." badge disappears, and the chat region renders with no "Loading chat…".
+ */
 import { once } from "node:events";
 import { createServer, type Server } from "node:http";
 import { expect, test } from "../../helpers/fixtures";
