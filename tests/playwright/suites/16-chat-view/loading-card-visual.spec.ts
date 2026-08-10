@@ -6,7 +6,7 @@
 // ChatSetupState is a glyph-and-ring overlay with no copy of its own and no
 // failure card: chatSetupView maps spawn_failed to the starting view, and
 // tabBootOverlayView owns the recovery surface (`tab-boot-failed`).
-import { fileURLToPath } from "node:url";
+import path from "node:path";
 import { build } from "esbuild";
 import { expect, test } from "../../helpers/fixtures";
 
@@ -18,8 +18,9 @@ const startingStates = [
 ] as const;
 
 /** Repo root — resolve the fixture's product imports against the checkout the
- *  spec lives in, never against whatever cwd the runner happened to start in. */
-const repoRoot = fileURLToPath(new URL("../../../../", import.meta.url));
+ *  spec lives in, never against whatever cwd the runner happened to start in.
+ *  Playwright transpiles specs to CJS, so `import.meta.url` is not available. */
+const repoRoot = path.resolve(__dirname, "../../../..");
 
 async function loadingCardBundle(): Promise<string> {
   const result = await build({
