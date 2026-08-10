@@ -233,7 +233,9 @@ mod tests {
                 .close_reserved_tab_with_reason(reservation, TabCloseReason::User)
                 .map(|_| ())
         };
-        let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
         let (desk, ()) = rt.block_on(capture_desk_before(svc, teardown)).unwrap();
 
         assert!(

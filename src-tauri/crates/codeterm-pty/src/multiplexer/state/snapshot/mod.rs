@@ -560,12 +560,10 @@ fn install_leaf(
                 .and_then(|identity| identity.reported_session_binding_nonce.clone()),
             prior_session_binding_nonces: Vec::new(),
             shell_integration_nonce: None,
-            lifecycle_epoch: restored_identity
-                .and_then(|identity| identity.lifecycle_epoch),
+            lifecycle_epoch: restored_identity.and_then(|identity| identity.lifecycle_epoch),
             lifecycle_operation_id: restored_identity
                 .and_then(|identity| identity.lifecycle_operation_id.clone()),
-            task_binding: restored_identity
-                .and_then(|identity| identity.task_binding.clone()),
+            task_binding: restored_identity.and_then(|identity| identity.task_binding.clone()),
             roleless_tracked: restored_identity
                 .map(|identity| identity.roleless_tracked)
                 .unwrap_or(false),
@@ -590,8 +588,7 @@ fn install_leaf(
             title_level: restored_level,
             chat_view: chat_view.unwrap_or(false),
             pending_prompt: None,
-            agent_state: restored_identity
-                .and_then(|identity| identity.agent_state.clone()),
+            agent_state: restored_identity.and_then(|identity| identity.agent_state.clone()),
             auto_approve: false,
             protected: false,
             connected_services: vec![],

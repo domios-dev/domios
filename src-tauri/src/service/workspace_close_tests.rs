@@ -371,7 +371,10 @@ fn close_team_via_service_persists_the_reduced_desk() {
     };
     let before = session.lock().load_last().unwrap().expect("desk persisted");
     let before_ids = persisted_ids(&before);
-    assert!(before_ids.contains(&orchestrator), "team desk on disk first");
+    assert!(
+        before_ids.contains(&orchestrator),
+        "team desk on disk first"
+    );
     assert!(before_ids.contains(&worker));
 
     // The REAL service boundary, not the close_team_with_state_change helper.
@@ -380,7 +383,11 @@ fn close_team_via_service_persists_the_reduced_desk() {
         .close_team(&team_id, TeamMutationCaller::Human)
         .unwrap();
 
-    let after = session.lock().load_last().unwrap().expect("desk re-persisted");
+    let after = session
+        .lock()
+        .load_last()
+        .unwrap()
+        .expect("desk re-persisted");
     let after_ids = persisted_ids(&after);
     assert!(
         !after_ids.contains(&orchestrator) && !after_ids.contains(&worker),

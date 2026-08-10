@@ -279,7 +279,12 @@ fn drain_feed_batch(rx: &mut tokio::sync::mpsc::Receiver<Vec<u8>>, data: &mut Ve
 
 /// Mark PTY as dead and emit events — mirrors the Err branch in read_pty.
 fn handle_pty_death(svc: &ServiceState, pty_id: &str, generation: u64) {
-    handle_pty_death_with_cause(svc, pty_id, generation, crate::crash::shutdown::active_shutdown());
+    handle_pty_death_with_cause(
+        svc,
+        pty_id,
+        generation,
+        crate::crash::shutdown::active_shutdown(),
+    );
 }
 
 /// Typed result of a PTY-death sweep so suppression, branch refusal, and a
@@ -707,7 +712,14 @@ mod tests {
                 .service
                 .pty
                 .lock()
-                .spawn_with_id(Some(ROLE_PTY.to_string()), None, None, 80, 24, HashMap::new())
+                .spawn_with_id(
+                    Some(ROLE_PTY.to_string()),
+                    None,
+                    None,
+                    80,
+                    24,
+                    HashMap::new(),
+                )
                 .expect("spawn test PTY");
             session.generation
         };
@@ -737,7 +749,12 @@ mod tests {
                 fixture.service.mux.read().get_tab(&tab).is_some(),
                 "{role:?} tab must survive a {cause:?} shutdown PTY death"
             );
-            fixture.service.pty.lock().kill(ROLE_PTY).expect("cleanup PTY");
+            fixture
+                .service
+                .pty
+                .lock()
+                .kill(ROLE_PTY)
+                .expect("cleanup PTY");
         }
     }
 

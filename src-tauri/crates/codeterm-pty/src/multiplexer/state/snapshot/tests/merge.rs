@@ -129,9 +129,11 @@ fn merge_lands_tabs_in_a_live_workspace_matched_by_cwd() {
     let mut live = MultiplexerState::empty();
     let live_ws = live.create_workspace("recreated".into(), Some("D:/repo".into()));
 
-    let report =
-        live.merge_session_snapshot(&backup(&[("ws_gone", Some("D:/repo"), &["t1"])]));
-    assert_eq!(report.workspaces_added, 0, "matched by path, not duplicated");
+    let report = live.merge_session_snapshot(&backup(&[("ws_gone", Some("D:/repo"), &["t1"])]));
+    assert_eq!(
+        report.workspaces_added, 0,
+        "matched by path, not duplicated"
+    );
     assert_eq!(report.tabs_added, 1);
     let ws = live.get_workspace(&live_ws.id).unwrap();
     assert!(ws.tabs.contains(&"t1".to_string()));

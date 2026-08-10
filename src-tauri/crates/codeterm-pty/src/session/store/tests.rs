@@ -304,7 +304,11 @@ fn reducing_save_is_refused_quarantined_and_last_json_stays_intact() {
     assert_eq!(refusal.dropped_tabs, 2);
 
     let persisted = store.load_last().unwrap().expect("last.json intact");
-    assert_eq!(persisted.workspaces.len(), 2, "full desk still authoritative");
+    assert_eq!(
+        persisted.workspaces.len(),
+        2,
+        "full desk still authoritative"
+    );
     assert_eq!(
         persisted
             .workspaces
@@ -318,7 +322,11 @@ fn reducing_save_is_refused_quarantined_and_last_json_stays_intact() {
     assert_eq!(quarantined.len(), 1, "rejected snapshot kept for forensics");
     let content = fs::read_to_string(&quarantined[0]).unwrap();
     let parsed: SessionSnapshot = serde_json::from_str(&content).unwrap();
-    assert_eq!(parsed.workspaces.len(), 1, "quarantine holds the rejected desk");
+    assert_eq!(
+        parsed.workspaces.len(),
+        1,
+        "quarantine holds the rejected desk"
+    );
 }
 
 #[test]
@@ -334,7 +342,10 @@ fn authorized_reduction_intent_allows_reducing_save() {
     assert!(matches!(outcome, SaveOutcome::Saved));
     let persisted = store.load_last().unwrap().unwrap();
     assert_eq!(persisted.workspaces.len(), 1);
-    assert!(quarantine_files(&store).is_empty(), "no quarantine on intent");
+    assert!(
+        quarantine_files(&store).is_empty(),
+        "no quarantine on intent"
+    );
 }
 
 #[test]
@@ -387,8 +398,14 @@ fn list_backups_reports_counts_newest_first_and_load_backup_round_trips() {
 
     let snap = store.load_backup(&backups[0].name).unwrap();
     assert_eq!(snap.workspaces.len(), 1);
-    assert!(store.load_backup("../escape").is_err(), "name is digits-only");
-    assert!(store.load_backup("999999999999").is_err(), "absent backup errs");
+    assert!(
+        store.load_backup("../escape").is_err(),
+        "name is digits-only"
+    );
+    assert!(
+        store.load_backup("999999999999").is_err(),
+        "absent backup errs"
+    );
 }
 
 #[test]
