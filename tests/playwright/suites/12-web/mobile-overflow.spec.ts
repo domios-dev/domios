@@ -192,7 +192,13 @@ async function prepareTargetTab(
     await api.post(`/tabs/${tabId}/agent-type`, { agent_type: "claude" });
   }
   await api.post(`/tabs/${tabId}/chat-view`, { enabled: true });
-  const chat = await api.post<ChatStart>(`/tabs/${tabId}/chat-raw/start`);
+  // chat-raw/start installs a per-subscriber tailer and REQUIRES its id:
+  // `ChatSubscriptionBody { subscription_id }` is `#[serde(rename_all = "camelCase")]`
+  // with no default, so an absent body is rejected before the handler runs. The
+  // frontend sends the same field (bridge.ts `chat_start`).
+  const chat = await api.post<ChatStart>(`/tabs/${tabId}/chat-raw/start`, {
+    subscriptionId: `pw-mobile-overflow-${tabId}`,
+  });
   expect(chat.pending, "authenticated chat-raw/start returns a ready transcript").toBe(false);
   await api.focusTab(tabId);
 
