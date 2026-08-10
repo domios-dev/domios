@@ -4,6 +4,8 @@
  * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test, type Page } from "../../helpers/fixtures";
+
+type Row = ReturnType<Page["locator"]>;
 import { ApiClient } from "../../helpers/api-client";
 
 /** `/mux/state` shape. `Workspace.tabs` is a list of tab ids
@@ -61,6 +63,9 @@ function onlyOwned(order: string[], owned: string[]): string[] {
   return order.filter((id) => ownedSet.has(id));
 }
 
+/** Sentinel for "the row itself holds focus" — anything else is the thief. */
+const ROW = "the sortable row";
+
 type ArrowKey = "ArrowUp" | "ArrowDown" | "ArrowLeft" | "ArrowRight";
 
 /** dnd-kit's screen-reader region, which announces the drop target on every
@@ -68,18 +73,20 @@ type ArrowKey = "ArrowUp" | "ArrowDown" | "ArrowLeft" | "ArrowRight";
  *  moved the drag rather than arriving before the rects were remeasured. */
 const liveRegion = (page: Page) => page.locator('[id^="DndLiveRegion"]');
 
-/** Who holds focus right now. A drag that stops responding mid-gesture is
- *  almost always focus moving elsewhere, so name the thief in the failure. */
-async function focusOwner(page: Page): Promise<string> {
-  return page.evaluate(() => {
-    const el = document.activeElement as HTMLElement | null;
-    if (!el) return "nothing";
-    const testId = el.getAttribute("data-testid");
-    return [el.tagName.toLowerCase(), testId && `[${testId}]`, el.className && `.${el.className}`]
+/** Who holds focus, described against the row itself. `toBeFocused()` can only
+ *  answer yes/no, so a stolen-focus failure reads "inactive" and never names the
+ *  thief; this reports the actual owner, which is the whole question. */
+async function focusState(row: Row): Promise<string> {
+  return row.evaluate((el, rowLabel) => {
+    const active = document.activeElement as HTMLElement | null;
+    if (active === el) return rowLabel;
+    if (!active) return "nothing";
+    const testId = active.getAttribute("data-testid");
+    return [active.tagName.toLowerCase(), testId && `[${testId}]`, active.className && `.${active.className}`]
       .filter(Boolean)
       .join("")
       .slice(0, 120);
-  });
+  }, ROW);
 }
 
 /** Keyboard drag a dnd-kit sortable row: focus, Space (lift), one arrow per
@@ -94,12 +101,17 @@ async function keyboardDrag(page: Page, rowSelector: string, key: ArrowKey, over
   // fails because focus moved is a different defect from one that fails
   // because activation did not fire, and they are indistinguishable downstream.
   await row.focus();
-  await expect(row, "the sortable row holds focus when the lift key is delivered").toBeFocused();
+  await expect
+    .poll(() => focusState(row), {
+      timeout: 5_000,
+      message: "the sortable row holds focus when the lift key is delivered",
+    })
+    .toBe(ROW);
   await row.press("Space");
   await expect(row).toHaveAttribute("data-dnd-dragging", "true", { timeout: 15_000 });
   for (const overId of overIds) {
     await row.press(key);
-    const holder = await focusOwner(page);
+    const holder = await focusState(row);
     await expect(liveRegion(page), `the drag moved over ${overId}; focus was on ${holder}`)
       .toContainText(overId, { timeout: 10_000 });
   }
