@@ -12,6 +12,7 @@
  */
 import http from "node:http";
 import { generateKeyPairSync, sign as edSign, randomUUID, type KeyObject } from "node:crypto";
+import { RELAY_PROTOCOL_VERSION } from "../../../src/lib/types";
 
 export type StubMode = "happy" | "wedged" | "liar";
 
@@ -103,7 +104,7 @@ export class MeshStub {
   /** Announce our relay protocol version to the (already-paired) daemon so it
    *  will open versioned relay-stream / relay-to connections to us. Empty
    *  addresses + online keep the daemon's existing 127.0.0.1 route intact. */
-  async announce(relayProtocolVersion = 1): Promise<void> {
+  async announce(relayProtocolVersion = RELAY_PROTOCOL_VERSION): Promise<void> {
     const res = await fetch(`${this.daemonBase}/api/mesh/announce`, {
       method: "POST",
       headers: {

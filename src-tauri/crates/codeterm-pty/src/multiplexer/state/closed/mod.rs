@@ -111,7 +111,9 @@ impl MultiplexerState {
             workspace_cwd: None,
             closed_at: now_millis(),
         };
-        let _ = self.closed_store.insert_group(&group, &[record]);
+        if let Err(error) = self.closed_store.insert_group(&group, &[record]) {
+            log::error!("[closed-history] single close for Tab {tab_id} not recorded: {error}");
+        }
     }
 
     /// Record an orchestrator + its subtree as one group (parent links preserved).
@@ -140,7 +142,12 @@ impl MultiplexerState {
             workspace_cwd: None,
             closed_at: now_millis(),
         };
-        let _ = self.closed_store.insert_group(&group, &records);
+        if let Err(error) = self.closed_store.insert_group(&group, &records) {
+            log::error!(
+                "[closed-history] cascade close rooted at Tab {root_tab_id} ({} tab(s)) not recorded: {error}",
+                records.len()
+            );
+        }
     }
 
     /// Capture one restore group and reserve its membership until close or abort.
@@ -262,7 +269,13 @@ impl MultiplexerState {
         let Some(group) = prepared.group.as_ref() else {
             return;
         };
-        let _ = self.closed_store.insert_group(group, &prepared.records);
+        if let Err(error) = self.closed_store.insert_group(group, &prepared.records) {
+            log::error!(
+                "[closed-history] workspace close {} ({} tab(s)) not recorded: {error}",
+                prepared.workspace_id,
+                prepared.records.len()
+            );
+        }
     }
 
     /// Pre-order list of a tab id and its descendants; a `visited` set guards against a corrupted parent/child cycle.
