@@ -73,8 +73,8 @@ fn read_from_pad_root(root: &Path, relative: &str) -> Result<String, String> {
     fs::read_to_string(file).map_err(|e| format!("read --from-pad as UTF-8: {e}"))
 }
 
-/// The largest report body any prescribed template inlines is ~330 characters;
-/// past this an argv body is an authoring mistake, not a deliberate short call.
+/// No prescribed template inlines a report body any more; past this an argv body
+/// is an authoring mistake, not a deliberate short call.
 pub const INLINE_BODY_REFUSAL_LIMIT: usize = 4000;
 
 /// Cheap, local pre-flight for an argv report body. Returns the refusal text so
