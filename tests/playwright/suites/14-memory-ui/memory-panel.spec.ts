@@ -35,6 +35,10 @@ test.afterEach(async ({ api, ui }) => {
 });
 
 async function openMemoryList(page: import("../../helpers/fixtures").Page): Promise<void> {
+  // Mount the panel fresh: a MemoryPanel left open by an earlier test keeps the
+  // snapshot it fetched then, so this test's seed would never reach the list.
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
   await page.locator('[data-testid="nav-memory"]').click();
   await expect(page.locator('[data-testid="memory-panel"]')).toBeVisible();
   await page.locator('[data-testid="memory-tab-inspect"]').click();
@@ -60,6 +64,21 @@ async function waitForGraphSnapshot(
   }, { timeout: 30_000, intervals: [250, 500, 1_000] }).toBe(true);
 }
 
+/** The list is `graph snapshot ∩ /mem/search hits` (MemoryListTab.tsx), and a
+ *  freshly saved item is searchable only once the background indexer has it.
+ *  Wait for the query the UI will issue to return the id it must render. */
+async function waitForSearchHit(
+  api: { get<T>(p: string): Promise<T> },
+  query: string,
+  id: string,
+): Promise<void> {
+  await expect.poll(async () => {
+    const params = new URLSearchParams({ q: query, limit: "50" });
+    const body = await api.get<{ hits?: Array<{ item?: { id?: string } }> }>(`/mem/search?${params}`);
+    return (body.hits ?? []).some((hit) => hit.item?.id === id);
+  }, { timeout: 60_000, intervals: [250, 500, 1_000] }).toBe(true);
+}
+
 test("@golden MemoryPanel searches saved memory and opens item preview", async ({ api, ui }) => {
   const marker = `pw-memory-ui-search-${Date.now()}`;
   const id = await memSave(
@@ -70,9 +89,9 @@ test("@golden MemoryPanel searches saved memory and opens item preview", async (
   );
   const item = await api.get<MemItem>(`/mem/items/${id}`);
   expect(item.title).toContain(marker);
-  // MemoryListTab intersects search hits with the graph snapshot it was handed,
-  // so an item absent from that snapshot can never list however it scores.
+  // Both halves of the list's intersection must exist before it can render.
   await waitForGraphSnapshot(api, [id]);
+  await waitForSearchHit(api, marker, id);
 
   await openMemoryList(ui.page);
   await ui.page.locator('[data-testid="memory-list-search"]').fill(marker);
@@ -104,9 +123,11 @@ test("@golden MemoryPanel renders graph relations in item detail", async ({ api,
   );
   await api.post("/mem/graph/relate", { from: a, rel: "relates_to", to: b });
   await waitForGraphSnapshot(api, [a, b]);
+  const alphaQuery = `Memory relation alpha ${stamp}`;
+  await waitForSearchHit(api, alphaQuery, a);
 
   await openMemoryList(ui.page);
-  await ui.page.locator('[data-testid="memory-list-search"]').fill(`Memory relation alpha ${stamp}`);
+  await ui.page.locator('[data-testid="memory-list-search"]').fill(alphaQuery);
   const row = ui.page.locator(`[data-testid="memory-list-item"][data-memory-id="${a}"]`);
   await expect(row).toBeVisible({ timeout: 20_000 });
   await row.locator('[data-testid="memory-list-view-graph"]').click();
