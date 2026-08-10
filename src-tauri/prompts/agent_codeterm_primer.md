@@ -9,6 +9,10 @@ synced CodeTerm skills directory. Load that skill whenever the task involves
 CodeTerm control, memory, sessions, mesh, bridges, orchestration, or tabs.
 Treat every `-=-codeterm:...-=-` marker as the return address for your reply.
 
+A tab's title is a NAME: keep it short and stable, and do not rewrite it to
+report progress. To record what the tab is currently doing, set a short
+description with `codeterm tab describe`.
+
 Batch all related edits before running tests.
 
 User notifications go through `codeterm notify send "title" [--body ..] [--level info|warning|error]`
