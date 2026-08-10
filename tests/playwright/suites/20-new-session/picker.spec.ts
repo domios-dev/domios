@@ -142,20 +142,26 @@ async function selectDropdown(page: Page, testId: string, value: string): Promis
   await dropdown(page, testId).click();
   await page.locator(`[data-testid="${testId}-option-${value}"]`).click();
 }
-/** Opens a DropdownSelect and clicks its first selectable option; returns that value. */
-async function selectFirstEnabledOption(page: Page, testId: string): Promise<string> {
-  await dropdown(page, testId).click();
-  const opts = page.locator(`[data-testid^="${testId}-option-"]`);
+interface DropdownOption {
+  value: string;
+  disabled: boolean;
+}
+
+/** Snapshots an OPEN dropdown's options in one evaluation — see `readAttributes`. */
+async function readDropdownOptions(page: Page, testId: string): Promise<DropdownOption[]> {
   const prefix = `${testId}-option-`;
-  for (let i = 0; i < (await opts.count()); i++) {
-    const opt = opts.nth(i);
-    if (await opt.isDisabled()) continue;
-    const value = ((await opt.getAttribute("data-testid")) ?? "").slice(prefix.length);
-    await opt.click();
-    return value;
-  }
-  await page.keyboard.press("Escape");
-  throw new Error(`${testId} offers no selectable option`);
+  return page.locator(`[data-testid^="${prefix}"]`).evaluateAll(
+    (nodes, p) =>
+      nodes.map((node) => ({
+        value: (node.getAttribute("data-testid") ?? "").slice(p.length),
+        disabled: (node as HTMLButtonElement).disabled === true,
+      })),
+    prefix,
+  );
+}
+
+async function clickOption(page: Page, testId: string, value: string): Promise<void> {
+  await page.locator(`[data-testid="${testId}-option-${value}"]`).click();
 }
 
 /**
@@ -167,11 +173,25 @@ async function selectFirstEnabledOption(page: Page, testId: string): Promise<str
  * it instead of assuming the default provider happens to be installed here.
  */
 async function settleOnUsableModel(page: Page, providerTestId: string, modelTestId: string): Promise<void> {
+  const tried = new Set<string>();
   await expect
     .poll(
       async () => {
         if (await dropdown(page, modelTestId).isEnabled()) return true;
-        await selectFirstEnabledOption(page, providerTestId);
+        // Retiring each provider we land on guarantees termination; retrying the
+        // same one would spin until the deadline and blame the wrong thing.
+        tried.add((await dropdown(page, providerTestId).getAttribute("data-value")) ?? "");
+        await dropdown(page, providerTestId).click();
+        const next = (await readDropdownOptions(page, providerTestId)).find(
+          (o) => o.value && !o.disabled && !tried.has(o.value),
+        );
+        if (!next) {
+          await page.keyboard.press("Escape");
+          throw new Error(
+            `${providerTestId}: no installed provider publishes a model to choose (tried ${[...tried].join(", ")})`,
+          );
+        }
+        await clickOption(page, providerTestId, next.value);
         return dropdown(page, modelTestId).isEnabled();
       },
       { timeout: 30_000 },
@@ -184,19 +204,17 @@ async function settleOnUsableModel(page: Page, providerTestId: string, modelTest
 async function selectFirstDifferentOption(page: Page, testId: string): Promise<string> {
   const current = await dropdown(page, testId).getAttribute("data-value");
   await dropdown(page, testId).click();
-  const opts = page.locator(`[data-testid^="${testId}-option-"]`);
-  const count = await opts.count();
-  const prefix = `${testId}-option-`;
-  for (let i = 0; i < count; i++) {
-    const tid = await opts.nth(i).getAttribute("data-testid");
-    const val = tid?.slice(prefix.length) ?? "";
-    if (val && val !== current) {
-      await opts.nth(i).click();
-      return val;
-    }
+  const next = (await readDropdownOptions(page, testId)).find(
+    (o) => o.value && o.value !== current && !o.disabled,
+  );
+  if (!next) {
+    await page.keyboard.press("Escape");
+    // Returning `current` here would let the caller "prove" persistence by
+    // round-tripping an unchanged value — a pass that asserts nothing.
+    throw new Error(`${testId} offers no selectable alternative to "${current}"`);
   }
-  await page.keyboard.press("Escape");
-  return current ?? "";
+  await clickOption(page, testId, next.value);
+  return next.value;
 }
 
 function tabCount(tabs: Tab[]): number {
@@ -270,15 +288,20 @@ function sidebarTabRow(page: Page, wsId: string, tabId: string): SidebarLocator 
   return workspaceDetail(page, wsId).locator(`[data-testid="tab-item"][data-tab-id="${tabId}"]`);
 }
 
+/**
+ * One-shot snapshot of an attribute across every match. `count()` then `nth(i)`
+ * is NOT atomic: the sidebar re-renders as backend state propagates, so a node
+ * counted a moment ago can detach before it is read, and `getAttribute` then
+ * waits for a re-attachment that never comes — the whole matched set is read in
+ * a single evaluation instead.
+ */
+async function readAttributes(locator: SidebarLocator, attribute: string): Promise<string[]> {
+  return locator.evaluateAll((nodes, attr) => nodes.map((node) => node.getAttribute(attr) ?? ""), attribute);
+}
+
 /** Titles from each row's `title` attribute (first line; tooltip is `title\ndescription`). */
 async function readTabTitles(rows: SidebarLocator): Promise<string[]> {
-  const count = await rows.count();
-  const titles: string[] = [];
-  for (let i = 0; i < count; i++) {
-    const t = (await rows.nth(i).getAttribute("title")) ?? "";
-    titles.push(t.split("\n")[0]);
-  }
-  return titles;
+  return (await readAttributes(rows, "title")).map((t) => t.split("\n")[0]);
 }
 
 /** Asserts the workspace body exists before reading it — an absent body used to
@@ -306,11 +329,8 @@ interface SidebarScope {
 
 /** Every sidebar surface that renders tabs: the protected GENERAL section (which
  *  carries no `data-workspace-id`) plus one body per ordinary workspace. */
-async function sidebarTabScopes(page: Page, state: MuxState): Promise<SidebarScope[]> {
+async function sidebarTabScopes(page: Page, state: MuxState, bodyIds: string[]): Promise<SidebarScope[]> {
   const scopes: SidebarScope[] = [];
-  // A collapsed disclosure renders no rows; expand rather than sweep an empty DOM.
-  await expandSection(page, "workspaces-section-toggle");
-  await expandSection(page, "general-section-toggle");
   const generalWs = state.workspaces.find((w) => w.protected === true);
   if (generalWs) {
     const general = page.locator('[data-testid="general-section"]');
@@ -322,15 +342,12 @@ async function sidebarTabScopes(page: Page, state: MuxState): Promise<SidebarSco
       teams: teamNames(general),
     });
   }
-  const details = page.locator('[data-testid="workspace-detail"]');
-  for (let i = 0; i < (await details.count()); i++) {
-    const detail = details.nth(i);
-    const id = (await detail.getAttribute("data-workspace-id")) ?? "";
+  for (const id of bodyIds) {
     scopes.push({
       label: `workspace ${id}`,
       wsId: id,
-      rows: detail.locator('[data-testid="tab-item"]'),
-      teams: teamNames(detail),
+      rows: workspaceDetail(page, id).locator('[data-testid="tab-item"]'),
+      teams: teamNames(workspaceDetail(page, id)),
     });
   }
   return scopes;
@@ -857,20 +874,38 @@ test.describe("ghost-tab invariant", () => {
 
   test("@golden GHOST-TAB: current session sidebar has no placeholder titles", async ({ api, ui }) => {
     // tab restored with a blank title, this catches it immediately.
-    const state = await muxState(api);
-    // Coverage first: every ordinary workspace must own a sidebar body, or the
-    // sweep below silently inspects nothing.
-    const bodies = ui.page.locator('[data-testid="workspace-detail"]');
-    const rendered = new Set<string>();
-    for (let i = 0; i < (await bodies.count()); i++) {
-      const id = await bodies.nth(i).getAttribute("data-workspace-id");
-      if (id) rendered.add(id);
-    }
-    for (const w of state.workspaces.filter((candidate) => candidate.protected !== true)) {
-      expect(rendered.has(w.id), `workspace "${w.id}" renders no sidebar body to inspect`).toBe(true);
-    }
+    // A collapsed disclosure renders no rows; expand rather than sweep an empty DOM.
+    await expandSection(ui.page, "workspaces-section-toggle");
+    await expandSection(ui.page, "general-section-toggle");
 
-    const scopes = await sidebarTabScopes(ui.page, state);
+    // Coverage first, or the sweep below silently inspects nothing. The sidebar
+    // trails backend state by an event, so assert the SETTLED correspondence:
+    // sampling both sources once compares two different instants and is unsound
+    // while a just-closed workspace is still on screen.
+    const bodies = ui.page.locator('[data-testid="workspace-detail"]');
+    let bodyIds: string[] = [];
+    let ordinaryIds: string[] = [];
+    await expect
+      .poll(
+        async () => {
+          ordinaryIds = (await muxState(api)).workspaces
+            .filter((candidate) => candidate.protected !== true)
+            .map((candidate) => candidate.id)
+            .sort();
+          bodyIds = (await readAttributes(bodies, "data-workspace-id")).filter(Boolean).sort();
+          return bodyIds.join(",") === ordinaryIds.join(",");
+        },
+        {
+          timeout: 15_000,
+          message:
+            "the sidebar must settle on exactly one body per ordinary workspace — a missing one hides tabs from this sweep, a stale one is a leak",
+        },
+      )
+      .toBe(true);
+    expect(bodyIds, "settled sidebar bodies must match the backend's ordinary workspaces").toEqual(ordinaryIds);
+
+    const state = await muxState(api);
+    const scopes = await sidebarTabScopes(ui.page, state, bodyIds);
     expect(scopes.length, "the sidebar must expose at least one tab surface").toBeGreaterThan(0);
 
     for (const scope of scopes) {
@@ -878,13 +913,11 @@ test.describe("ghost-tab invariant", () => {
         ...(await readTabTitles(scope.rows)),
         ...(await scope.teams.allTextContents()).map((t) => t.trim()),
       ];
-      // A workspace the backend says has visible tabs must render SOMETHING for
-      // them — a row, or the Team card that stands in for its anchoring tab.
-      if (visibleTabsInWorkspace(state, scope.wsId).length > 0) {
-        expect(
-          entries.length,
-          `${scope.label} has backend tabs but renders no sidebar entry to inspect`,
-        ).toBeGreaterThan(0);
+      // GENERAL is protected and always holds its General Agent, rendered either
+      // as a row or as the Team card that stands in for an anchoring tab. An empty
+      // sweep there means the surface went missing, not that the session is clean.
+      if (scope.label === "general-section") {
+        expect(entries.length, "GENERAL renders no sidebar entry to inspect").toBeGreaterThan(0);
       }
       for (const title of entries) {
         expect(
