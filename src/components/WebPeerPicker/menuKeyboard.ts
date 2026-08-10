@@ -11,8 +11,9 @@ export function menuKeyAction(key: string, currentIndex: number, itemCount: numb
   switch (key) {
     case "ArrowDown":
       return { kind: "focus", index: (from + 1) % itemCount };
+    // from === -1 means focus is outside the menu: ArrowUp enters at the last item.
     case "ArrowUp":
-      return { kind: "focus", index: (from - 1 + itemCount) % itemCount };
+      return { kind: "focus", index: from <= 0 ? itemCount - 1 : from - 1 };
     case "Home":
       return { kind: "focus", index: 0 };
     case "End":

@@ -133,6 +133,8 @@ export function Toggle({ label, checked, onChange }: { label: string; checked: b
     <label className="flex items-center justify-between cursor-pointer" data-testid="settings-toggle-row" data-settings-toggle={testIdPart(label)}>
       <span className="text-xs text-[var(--ct-muted-fg)]">{label}</span>
       <LiquidToggle
+        // A role="switch" button is not labelable, so the wrapping <label> never named it.
+        aria-label={label}
         data-testid="settings-toggle"
         data-settings-toggle={testIdPart(label)}
         checked={checked}
