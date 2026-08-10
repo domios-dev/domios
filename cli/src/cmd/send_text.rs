@@ -1,10 +1,8 @@
 use crate::client::SocketClient;
 use crate::cmd::print::print_human;
+use crate::cmd::resolved_text::resolved_text_echo;
 use crate::cmd::tab::remote_target::parse_remote_tab_id;
 use crate::resolve_tab;
-use regex::Regex;
-
-const RESOLVED_TEXT_PREFIX: &str = "CODETERM_RESOLVED_TEXT=";
 
 /// Detect content that's almost certainly the result of bash command-substitution
 /// eating the agent's intended text — e.g. unquoted `mesh peers` inside a
@@ -64,25 +62,6 @@ pub fn analyze_send_text_response(value: &serde_json::Value) -> SendTextOutcome 
         return SendTextOutcome::Success("OK (sent)".to_string());
     }
     SendTextOutcome::Other
-}
-
-pub fn redact_resolved_send_text(text: &str) -> String {
-    let bearer = Regex::new(r"(?i)\b(bearer\s+)[A-Za-z0-9._~+/=-]{8,}").unwrap();
-    let assignment = Regex::new(r"(?i)\b([a-z][a-z0-9_]*(?:token|secret|password|api[_-]?key|credential)[a-z0-9_]*)=([^\s]+)").unwrap();
-    let openai_key = Regex::new(r"\bsk-[A-Za-z0-9_-]{8,}\b").unwrap();
-    let redacted = bearer.replace_all(text, "$1***REDACTED***");
-    let redacted = assignment.replace_all(&redacted, "$1=***REDACTED***");
-    openai_key
-        .replace_all(&redacted, "***REDACTED***")
-        .into_owned()
-}
-
-pub fn resolved_text_echo(text: &str) -> String {
-    format!(
-        "{}{}",
-        RESOLVED_TEXT_PREFIX,
-        serde_json::to_string(&redact_resolved_send_text(text)).unwrap()
-    )
 }
 
 pub fn handle_send_text_result(
@@ -862,9 +841,8 @@ mod tests {
     use super::{
         analyze_send_text_response, classify_tab_kind, decide_send_eligibility,
         guard_against_shell_mangle, is_task_shaped_payload, key_action_bytes, parse_actions_spec,
-        parse_tab_targets, redact_resolved_send_text, resolve_send_text_input, resolved_text_echo,
-        SendActionSpec,
-        SendEligibility, SendTextOutcome, TabKind,
+        parse_tab_targets, resolve_send_text_input, SendActionSpec, SendEligibility,
+        SendTextOutcome, TabKind,
     };
 
     const CHARTER: &str = "You are Worker Leo.\nExecute the task; report on completion.";
@@ -967,19 +945,6 @@ mod tests {
             SendTextOutcome::Success(_) => {}
             other => panic!("expected Success, got {:?}", other),
         }
-    }
-
-    #[test]
-    fn resolved_text_echo_redacts_secrets() {
-        let echo = resolved_text_echo("deliver sk-live-super-secret-token and API_TOKEN=hunter2");
-        assert!(echo.starts_with("CODETERM_RESOLVED_TEXT=\"deliver "));
-        assert!(echo.contains("***REDACTED***"));
-        assert!(!echo.contains("sk-live-super-secret-token"));
-        assert!(!echo.contains("hunter2"));
-        assert_eq!(
-            redact_resolved_send_text("Authorization: Bearer abcdefghijkl"),
-            "Authorization: Bearer ***REDACTED***"
-        );
     }
 
     #[test]
