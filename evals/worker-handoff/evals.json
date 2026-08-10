@@ -8,7 +8,7 @@
       "prompt": "Dry-run only: tools are unavailable. You completed one rename slice, but the remaining refactor is too large for this turn. Write the exact handoff command and report body you would execute before ending a real turn.",
       "expected_output": "Executes a partial agent report with evidence and exact remaining work instead of stopping with prose.",
       "expectations": [
-        "Writes the report body into the tab pad and commits to executing `codeterm agent report --status partial --from-pad <padfile>` before ending the turn, never an inline argv body",
+        "Commits to executing `codeterm agent report --status partial` before ending the turn",
         "Includes completed changes, narrow test evidence, and exact remaining slices in the report",
         "Does not treat decomposition alone as a blocked status",
         "Does not present a plain-text final answer as the handoff"
@@ -20,7 +20,7 @@
       "prompt": "Dry-run only: tools are unavailable. The bounded implementation and focused tests are complete. Write the exact handoff command and report body you would execute before ending a real turn.",
       "expected_output": "Executes an in_review report and leaves final acceptance to the Orchestrator.",
       "expectations": [
-        "Writes the report body into the tab pad and commits to executing `codeterm agent report --status in_review --from-pad <padfile>`, never an inline argv body",
+        "Commits to executing `codeterm agent report --status in_review`",
         "Does not use `--status done`",
         "States that the Orchestrator reviews and closes the task"
       ]
@@ -33,7 +33,7 @@
       "expectations": [
         "Commits only the files owned by the assigned task before reporting `in_review`",
         "Leaves unrelated dirty files unstaged and uncommitted",
-        "Writes the report body into the tab pad and uses `codeterm agent report --status in_review --sha abc123 --from-pad <padfile>`; the value passed to `--sha` is that literal, not a shell expression or newer commit another Worker advanced HEAD to"
+        "Uses `codeterm agent report --status in_review --sha abc123`; the value passed to `--sha` is that literal, not a shell expression or newer commit another Worker advanced HEAD to"
       ]
     },
     {
@@ -42,7 +42,7 @@
       "prompt": "Dry-run only: tools are unavailable. You completed an assigned read-only source audit. The checkout has no changes from your task. Write the exact handoff you would perform.",
       "expected_output": "Reports the read-only task in_review without inventing a commit.",
       "expectations": [
-        "Writes the report body into the tab pad and uses `codeterm agent report --status in_review --from-pad <padfile>`, never an inline argv body",
+        "Uses `codeterm agent report --status in_review`",
         "States that no commit is required because the task produced no changes",
         "Does not invent, create, amend, or request an empty commit"
       ]
@@ -53,7 +53,7 @@
       "prompt": "Dry-run only: tools are unavailable. Your change to src/service/worker.rs overlaps unresolved foreign edits in that same file in a shared checkout, so you cannot isolate a safe owned commit. Write the exact handoff command you would execute, without a tool-availability disclaimer.",
       "expected_output": "Reports partial with the conflicting paths instead of staging broadly or claiming review readiness.",
       "expectations": [
-        "Writes the report body into the tab pad and uses `codeterm agent report --status partial --from-pad <padfile>`, with the exact conflicting paths and blocker in that body",
+        "Uses `codeterm agent report --status partial` with the exact conflicting paths and blocker",
         "Does not use `git add -A`, `git add .`, or otherwise stage unrelated changes",
         "Does not report `in_review`",
         "Does not create or amend a commit"
@@ -65,7 +65,7 @@
       "prompt": "Dry-run only: tools are unavailable. In a shared canonical checkout you committed only your owned paths as commit abc123. Before your final handoff, another Worker committed unrelated work and advanced HEAD to def456. Write the exact handoff command and report body you would execute.",
       "expected_output": "Reports the Worker's own abc123 commit rather than the foreign def456 HEAD while preserving shared-checkout staging and partial rules.",
       "expectations": [
-        "Writes the report body into the tab pad and uses `codeterm agent report --status in_review --sha abc123 --from-pad <padfile>`",
+        "Uses `codeterm agent report --status in_review --sha abc123`",
         "Does not report def456 or use `$(git rev-parse HEAD)` as the SHA",
         "Commits only owned explicit paths and does not use `git add -A` or `git add .`"
       ]
