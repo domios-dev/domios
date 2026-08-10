@@ -20,6 +20,8 @@ interface MuxWorkspace {
   /** Tab ids in order; the entities live in `MuxState.tabs`. */
   tabs: string[];
   active_tab_id?: string | null;
+  /** The protected GENERAL workspace renders as `general-section`, not a card body. */
+  protected?: boolean;
 }
 interface MuxTab {
   id: string;
@@ -29,6 +31,12 @@ interface MuxTab {
   title: string;
   hidden?: boolean;
   show_in_tabbar?: boolean;
+}
+/** `/agents/providers` — the descriptor that owns the model defaults the picker resolves. */
+interface PickerProvider {
+  id: string;
+  default_model?: string | null;
+  available_models?: { id: string }[];
 }
 interface MuxState {
   workspaces: MuxWorkspace[];
@@ -57,24 +65,45 @@ async function createTestWorkspace(api: ApiClient, prefix: string): Promise<{ id
   return { id: ws.id, name };
 }
 
-function workspaceItem(page: Page, wsId: string) {
-  return page.locator(`[data-testid="workspace-item"][data-workspace-id="${wsId}"]`);
+type SidebarLocator = ReturnType<Page["locator"]>;
+
+function workspaceCard(page: Page, wsId: string): SidebarLocator {
+  return page.locator(`[data-testid="workspace-card"][data-workspace-id="${wsId}"]`);
 }
-function workspaceGroup(page: Page, wsId: string) {
-  return page.locator(`[data-testid="workspace-group"][data-workspace-id="${wsId}"]`);
+/** The one expanded workspace body (Sidebar.tsx renders it `hidden` unless selected). */
+function workspaceDetail(page: Page, wsId: string): SidebarLocator {
+  return page.locator(`[data-testid="workspace-detail"][data-workspace-id="${wsId}"]`);
 }
 
-async function expandWorkspace(page: Page, wsId: string): Promise<void> {
-  const item = workspaceItem(page, wsId);
-  await expect(item).toBeVisible({ timeout: 15_000 });
-  const expand = item.locator('button[title="Expand"]');
-  if (await expand.isVisible().catch(() => false)) await expand.click();
+/**
+ * Selecting the card is what un-hides a workspace body — the sidebar shows
+ * exactly one at a time. Never rely on a freshly created workspace happening to
+ * be the selected one: POST /workspaces defaults `activate` to false
+ * (dispatch/mod.rs), so selection is otherwise whatever the instance already held.
+ */
+async function expandSection(page: Page, testId: string): Promise<void> {
+  const toggle = page.locator(`[data-testid="${testId}"]`);
+  if ((await toggle.count()) === 0) return;
+  if ((await toggle.getAttribute("aria-expanded")) === "false") await toggle.click();
+}
+
+async function selectWorkspace(page: Page, wsId: string): Promise<void> {
+  await expandSection(page, "workspaces-section-toggle");
+  const card = workspaceCard(page, wsId);
+  await expect(card).toBeVisible({ timeout: 15_000 });
+  if ((await card.getAttribute("data-selected")) !== "true") {
+    // The select button is the only one on an unselected card; match its own
+    // accessible-name prefix rather than recomposing the workspace name here.
+    await card.getByRole("button", { name: /^Select workspace / }).click();
+  }
+  await expect(card).toHaveAttribute("data-selected", "true", { timeout: 10_000 });
+  await expect(workspaceDetail(page, wsId)).toBeVisible({ timeout: 10_000 });
 }
 
 /** Opens the VIRTUAL picker; no backend tab/PTY exists until confirm. */
 async function openPicker(page: Page, wsId: string): Promise<void> {
-  await expandWorkspace(page, wsId);
-  await workspaceGroup(page, wsId).getByText("New session", { exact: true }).click();
+  await selectWorkspace(page, wsId);
+  await workspaceDetail(page, wsId).locator('[data-testid="sidebar-new-session"]').click();
   await expect(page.locator('[data-testid="new-session-picker"]')).toBeVisible({ timeout: 10_000 });
 }
 
@@ -170,17 +199,78 @@ async function waitForSingleAgent(api: ApiClient, wsId: string): Promise<MuxTab>
   throw new Error(`no single agent materialized in workspace ${wsId}`);
 }
 
-/** All sidebar tab titles inside a workspace group — from each tab's `title`
- *  attribute (first line; the tooltip is `title\ndescription`). */
-async function sidebarTabTitles(page: Page, wsId: string): Promise<string[]> {
-  const items = workspaceGroup(page, wsId).locator('[data-testid="tab-item"]');
-  const count = await items.count();
+function tabRows(page: Page, wsId: string): SidebarLocator {
+  return workspaceDetail(page, wsId).locator('[data-testid="tab-item"]');
+}
+/** `data-tab-id` also lands on the terminal pane, so anchor on the sidebar row. */
+function sidebarTabRow(page: Page, wsId: string, tabId: string): SidebarLocator {
+  return workspaceDetail(page, wsId).locator(`[data-testid="tab-item"][data-tab-id="${tabId}"]`);
+}
+
+/** Titles from each row's `title` attribute (first line; tooltip is `title\ndescription`). */
+async function readTabTitles(rows: SidebarLocator): Promise<string[]> {
+  const count = await rows.count();
   const titles: string[] = [];
   for (let i = 0; i < count; i++) {
-    const t = (await items.nth(i).getAttribute("title")) ?? "";
+    const t = (await rows.nth(i).getAttribute("title")) ?? "";
     titles.push(t.split("\n")[0]);
   }
   return titles;
+}
+
+/** Asserts the workspace body exists before reading it — an absent body used to
+ *  return [] and turn every title assertion into a silent no-op. */
+async function sidebarTabTitles(page: Page, wsId: string): Promise<string[]> {
+  await expect(
+    workspaceDetail(page, wsId),
+    `workspace ${wsId} renders no sidebar body, so its tab titles cannot be asserted`,
+  ).toHaveCount(1);
+  return readTabTitles(tabRows(page, wsId));
+}
+
+/** A team-anchoring tab (Orchestrator / General Agent) has no row of its own —
+ *  its Team card head stands for it, so the ghost sweep must read both. */
+function teamNames(scope: SidebarLocator): SidebarLocator {
+  return scope.locator('[data-testid="team-name"]');
+}
+
+interface SidebarScope {
+  label: string;
+  wsId: string;
+  rows: SidebarLocator;
+  teams: SidebarLocator;
+}
+
+/** Every sidebar surface that renders tabs: the protected GENERAL section (which
+ *  carries no `data-workspace-id`) plus one body per ordinary workspace. */
+async function sidebarTabScopes(page: Page, state: MuxState): Promise<SidebarScope[]> {
+  const scopes: SidebarScope[] = [];
+  // A collapsed disclosure renders no rows; expand rather than sweep an empty DOM.
+  await expandSection(page, "workspaces-section-toggle");
+  await expandSection(page, "general-section-toggle");
+  const generalWs = state.workspaces.find((w) => w.protected === true);
+  if (generalWs) {
+    const general = page.locator('[data-testid="general-section"]');
+    await expect(general, "the protected GENERAL workspace renders no sidebar section").toHaveCount(1);
+    scopes.push({
+      label: "general-section",
+      wsId: generalWs.id,
+      rows: general.locator('[data-testid="tab-item"]'),
+      teams: teamNames(general),
+    });
+  }
+  const details = page.locator('[data-testid="workspace-detail"]');
+  for (let i = 0; i < (await details.count()); i++) {
+    const detail = details.nth(i);
+    const id = (await detail.getAttribute("data-workspace-id")) ?? "";
+    scopes.push({
+      label: `workspace ${id}`,
+      wsId: id,
+      rows: detail.locator('[data-testid="tab-item"]'),
+      teams: teamNames(detail),
+    });
+  }
+  return scopes;
 }
 function isPlaceholderTitle(title: string): boolean {
   const t = title.trim();
@@ -250,10 +340,11 @@ test.describe("new-session picker", () => {
       Object.values(state.tabs).some((p) => p.title === "New session"),
       "no picker tab may appear in the snapshot",
     ).toBe(false);
-    // The picker's own tab in the sidebar is titled, never a "…"/empty husk.
-    for (const title of await sidebarTabTitles(ui.page, ws.id).catch(() => [])) {
-      expect(isPlaceholderTitle(title), `sidebar tab title "${title}" must not be a placeholder`).toBe(false);
-    }
+    // The virtual picker renders NO sidebar row at all — not even a titled one.
+    expect(
+      await sidebarTabTitles(ui.page, ws.id),
+      "the virtual picker must not render a sidebar tab row",
+    ).toEqual([]);
     // Sanity: the picker tab is virtual, so /tabs never lists it.
     expect(tabs.some((p) => p.title === "New session")).toBe(false);
   });
@@ -275,18 +366,40 @@ test.describe("new-session picker", () => {
     await expect(pair).toHaveAttribute("data-selected", "false");
   });
 
-  test("@golden DEFAULTS: orchestrator=claude/Opus, planner=claude/Fable with no prior persistence", async ({ ui }) => {
+  /**
+   * NOT COVERED: "orchestrator=Opus, planner=Fable". `defaultNewSessionChoice`
+   * (src/lib/newSessionChoice.ts) gives BOTH heads `providers[0]` and that one
+   * provider's `default_model`; no role-specific default exists anywhere in src/,
+   * and "fable" appears nowhere in the frontend. Only src/help/content/en.ts still
+   * promises the split. That contradiction is a product question, not a spec one,
+   * so this asserts the resolution mechanism that does hold and leaves the split
+   * claim unasserted rather than freezing either side of the disagreement.
+   */
+  test("@golden DEFAULTS: with no prior persistence both heads open on one provider at its declared default model", async ({ api, ui }) => {
     const page = ui.page;
     await page.evaluate((key) => window.localStorage.removeItem(key), NEW_SESSION_CHOICE_STORAGE_KEY);
     await page.reload();
     await openPicker(page, ws.id);
-    await page.locator('[data-testid="picker-mode-orchestration"]').click();
-    await expect(dropdown(page, "picker-provider-orchestrator")).toHaveAttribute("data-value", "claude");
-    await expect(dropdown(page, "picker-provider-planner")).toHaveAttribute("data-value", "claude");
-    const orchModel = (await dropdown(page, "picker-model-orchestrator").getAttribute("data-value")) ?? "";
-    const plannerModel = (await dropdown(page, "picker-model-planner").getAttribute("data-value")) ?? "";
-    expect(orchModel.toLowerCase()).toContain("opus");
-    expect(plannerModel.toLowerCase()).toContain("fable");
+    // The old spec CLICKED the pair card here, which masked whether pair is the
+    // unpersisted default at all. defaultNewSessionChoice returns mode "pair".
+    await expect(page.locator('[data-testid="picker-mode-orchestration"]')).toHaveAttribute("data-selected", "true");
+
+    const orchProvider = await dropdown(page, "picker-provider-orchestrator").getAttribute("data-value");
+    const plannerProvider = await dropdown(page, "picker-provider-planner").getAttribute("data-value");
+    expect(orchProvider, "an unpersisted picker must preselect a provider").toBeTruthy();
+    expect(plannerProvider, "both heads share the unpersisted default provider").toBe(orchProvider);
+
+    const provider = (await api.get<PickerProvider[]>("/agents/providers")).find((p) => p.id === orchProvider);
+    expect(provider, `picker offers provider "${orchProvider}" which /agents/providers does not list`).toBeTruthy();
+    const offered = (provider?.available_models ?? []).map((m) => m.id);
+    const declaredDefault = provider?.default_model ?? "";
+    expect(
+      offered,
+      `provider "${orchProvider}" must declare a default_model it actually offers, else nothing pins the picker's preselection`,
+    ).toContain(declaredDefault);
+
+    await expect(dropdown(page, "picker-model-orchestrator")).toHaveAttribute("data-value", declaredDefault);
+    await expect(dropdown(page, "picker-model-planner")).toHaveAttribute("data-value", declaredDefault);
   });
 
   test("@golden WORKSPACE ROW: preselected to current, help tooltip is instant", async ({ ui }) => {
@@ -361,10 +474,10 @@ test.describe("new-session picker", () => {
     const after = await muxState(api);
     expect(Object.values(after.tabs).some((p) => p.title === "New session")).toBe(false);
 
-    // is never the bare, pile-up-prone "Orchestration".
     // Plan creation is the live orchestrator's first act (lazy, LLM-driven) —
     // covered in picker-live.spec.ts; the stub transport verifies pair plumbing.
-});
+    // The suite's afterAll junk sweep is what guards bare "Orchestration" titles.
+  });
 
   test("@golden GREETING: orchestrator's first assistant message is the PEER_ORCH_GREETING, unprompted", async ({ api, ui }) => {
     test.setTimeout(120_000);
@@ -430,10 +543,9 @@ test.describe("new-session picker", () => {
     await requireStub(api);
     const page = ui.page;
     await page.locator('[data-testid="picker-mode-single"]').click();
+    // No post-confirm permissions dialog exists any more: full access is the
+    // picker's own "Full access for agents" checkbox (NewSessionPicker.tsx).
     await page.locator('[data-testid="picker-confirm"]').click();
-    // Single Claude asks about skip-permissions first — launch through it.
-    const launch = page.getByRole("button", { name: "Launch" });
-    if (await launch.isVisible({ timeout: 3_000 }).catch(() => false)) await launch.click();
 
     await expect(page.locator('[data-testid="new-session-picker"]')).toBeHidden({ timeout: 60_000 });
     const tab = await waitForSingleAgent(api, ws.id);
@@ -501,7 +613,13 @@ test.describe("new-session picker", () => {
     }
   });
 
-  test("@golden GROUP CLOSE: manager row closes individually; head close confirms when group has members", async ({ api, ui }) => {
+  /**
+   * A pair mints its own Team (service/orchestration_pair.rs), so the sidebar
+   * renders a TeamUnit: the orchestrator ANCHORS the team and therefore has no
+   * row of its own (SidebarWorkspaceTabs buckets exclude `anchorsTeam` tabs) —
+   * the card head stands for it, and its close runs through the Team menu.
+   */
+  test("@golden GROUP CLOSE: a manager row closes on its own; closing the team head confirms before anything closes", async ({ api, ui }) => {
     test.setTimeout(120_000);
     await requireStub(api);
     const page = ui.page;
@@ -518,7 +636,15 @@ test.describe("new-session picker", () => {
     const state = await muxState(api);
     const plannerTab = visibleTabsInWorkspace(state, ws.id).find((t) => t.id !== orchTab.id)!;
 
-    const plannerRow = page.locator(`[data-tab-id="${plannerTab.id}"]`);
+    const teamUnit = workspaceDetail(page, ws.id).locator('[data-testid="team-unit"]');
+    await expect(teamUnit, "the spawned pair renders as exactly one Team").toHaveCount(1);
+    expect(
+      await sidebarTabRow(page, ws.id, orchTab.id).count(),
+      "the orchestrator anchors the Team, so it must not also render a member row",
+    ).toBe(0);
+
+    const plannerRow = sidebarTabRow(page, ws.id, plannerTab.id);
+    await expect(plannerRow, "the planner is the Team's manager row").toBeVisible({ timeout: 15_000 });
     await plannerRow.hover();
     await plannerRow.locator('button[title="Tab actions"]').click();
     const plannerClose = page.locator('[data-testid="tab-menu-close"]');
@@ -531,13 +657,18 @@ test.describe("new-session picker", () => {
       })
       .toBe(1);
 
-    const headRow = page.locator(`[data-tab-id="${orchTab.id}"]`);
-    await expect(headRow).toBeVisible({ timeout: 15_000 });
-    await headRow.hover();
-    await headRow.locator('button[title="Tab actions"]').click();
-    const headClose = page.locator('[data-testid="tab-menu-close"]');
-    await expect(headClose).toBeVisible({ timeout: 5_000 });
-    await headClose.click();
+    await teamUnit.locator('[data-testid="team-menu-trigger"]').click();
+    const closeTeam = page.locator('[data-testid="team-menu"]').getByRole("menuitem", { name: "Close Team" });
+    await expect(closeTeam).toBeVisible({ timeout: 5_000 });
+    await closeTeam.click();
+
+    const confirm = page.locator('[data-testid="group-close-confirm"]');
+    await expect(confirm, "closing a Team head must confirm, never close silently").toBeVisible({ timeout: 5_000 });
+    expect(
+      visibleTabsInWorkspace(await muxState(api), ws.id),
+      "the head must still be open while the confirmation is pending",
+    ).toHaveLength(1);
+    await confirm.locator('[data-testid="group-close-confirm-button"]').click();
 
     await expect
       .poll(async () => visibleTabsInWorkspace(await muxState(api), ws.id).length, {
@@ -581,8 +712,11 @@ test.describe("new-session picker", () => {
       "snapshot has no picker tab entry",
     ).toBe(false);
 
-    // Ghost-title guard at picker-open: no sidebar tab renders empty/"…".
-    for (const title of await sidebarTabTitles(page, ws.id)) {
+    // Ghost-title guard at picker-open: the sidebar renders exactly the backend's
+    // visible tabs (no ghost row added) and every one of them is titled.
+    const openTitles = await sidebarTabTitles(page, ws.id);
+    expect(openTitles, "sidebar rows must match the backend's visible tabs").toHaveLength(baseVisible);
+    for (const title of openTitles) {
       expect(isPlaceholderTitle(title), `open-state tab title "${title}" must be titled`).toBe(false);
     }
   });
@@ -593,12 +727,16 @@ test.describe("new-session picker", () => {
     const page = ui.page;
     await page.locator('[data-testid="picker-mode-orchestration"]').click();
 
-    // any empty/"…" placeholder frame the moment it appears.
+    // any empty/"…" placeholder frame the moment it appears. Prove the surface
+    // exists once up front — a sampler over an absent scope observes nothing and
+    // would report "no ghost" forever.
+    await expect(workspaceDetail(page, ws.id), "no sidebar body to sample for ghosts").toHaveCount(1);
+    const rows = tabRows(page, ws.id);
     let ghost: string | null = null;
     let polling = true;
     const poller = (async () => {
       while (polling) {
-        for (const title of await sidebarTabTitles(page, ws.id).catch(() => [])) {
+        for (const title of await readTabTitles(rows)) {
           if (isPlaceholderTitle(title)) ghost = title;
         }
         await new Promise((r) => setTimeout(r, 60));
@@ -616,9 +754,14 @@ test.describe("new-session picker", () => {
     polling = false;
     await poller;
 
-    // Settled snapshot: every rendered tab is titled.
-    for (const title of await sidebarTabTitles(page, ws.id)) {
-      expect(isPlaceholderTitle(title), `settled tab title "${title}" must be titled`).toBe(false);
+    // Settled snapshot: the pair is one Team — the orchestrator as the card head,
+    // the planner as its single member row. Both surfaces must carry a real name.
+    const settled = await sidebarTabTitles(page, ws.id);
+    expect(settled, "the planner is the Team's one member row").toHaveLength(1);
+    const cardNames = (await teamNames(workspaceDetail(page, ws.id)).allTextContents()).map((t) => t.trim());
+    expect(cardNames, "the orchestrator renders as exactly one Team card head").toHaveLength(1);
+    for (const title of [...settled, ...cardNames]) {
+      expect(isPlaceholderTitle(title), `settled sidebar entry "${title}" must be titled`).toBe(false);
     }
     expect(ghost, `a placeholder tab title "${ghost}" appeared mid-spawn`).toBeNull();
   });
@@ -639,19 +782,40 @@ test.describe("ghost-tab invariant", () => {
   test("@golden GHOST-TAB: current session sidebar has no placeholder titles", async ({ api, ui }) => {
     // tab restored with a blank title, this catches it immediately.
     const state = await muxState(api);
-    const allTitles: Array<{ ws: string; title: string }> = [];
-
-    for (const w of state.workspaces) {
-      for (const title of await sidebarTabTitles(ui.page, w.id).catch(() => [])) {
-        allTitles.push({ ws: w.id, title });
-      }
+    // Coverage first: every ordinary workspace must own a sidebar body, or the
+    // sweep below silently inspects nothing.
+    const bodies = ui.page.locator('[data-testid="workspace-detail"]');
+    const rendered = new Set<string>();
+    for (let i = 0; i < (await bodies.count()); i++) {
+      const id = await bodies.nth(i).getAttribute("data-workspace-id");
+      if (id) rendered.add(id);
+    }
+    for (const w of state.workspaces.filter((candidate) => candidate.protected !== true)) {
+      expect(rendered.has(w.id), `workspace "${w.id}" renders no sidebar body to inspect`).toBe(true);
     }
 
-    for (const { ws, title } of allTitles) {
-      expect(
-        isPlaceholderTitle(title),
-        `workspace "${ws}" sidebar tab "${title}" is a ghost placeholder`,
-      ).toBe(false);
+    const scopes = await sidebarTabScopes(ui.page, state);
+    expect(scopes.length, "the sidebar must expose at least one tab surface").toBeGreaterThan(0);
+
+    for (const scope of scopes) {
+      const entries = [
+        ...(await readTabTitles(scope.rows)),
+        ...(await scope.teams.allTextContents()).map((t) => t.trim()),
+      ];
+      // A workspace the backend says has visible tabs must render SOMETHING for
+      // them — a row, or the Team card that stands in for its anchoring tab.
+      if (visibleTabsInWorkspace(state, scope.wsId).length > 0) {
+        expect(
+          entries.length,
+          `${scope.label} has backend tabs but renders no sidebar entry to inspect`,
+        ).toBeGreaterThan(0);
+      }
+      for (const title of entries) {
+        expect(
+          isPlaceholderTitle(title),
+          `${scope.label} sidebar entry "${title}" is a ghost placeholder`,
+        ).toBe(false);
+      }
     }
   });
 
@@ -667,10 +831,11 @@ test.describe("ghost-tab invariant", () => {
         "virtual picker must not create a rendered backend tab (would restore as ghost on restart)",
       ).toHaveLength(0);
 
-      // Every visible sidebar title is real, not a placeholder.
-      for (const title of await sidebarTabTitles(ui.page, testWs.id).catch(() => [])) {
-        expect(isPlaceholderTitle(title), `sidebar tab "${title}" is a ghost placeholder`).toBe(false);
-      }
+      // …and the sidebar body agrees: no row at all, ghost or otherwise.
+      expect(
+        await sidebarTabTitles(ui.page, testWs.id),
+        "an open virtual picker must leave the workspace body empty",
+      ).toEqual([]);
     } finally {
       await api.closeWorkspace(testWs.id).catch(() => {});
     }
