@@ -575,25 +575,27 @@ test.describe("new-session picker", () => {
 
     const tab = await waitForOrchestrator(api, ws.id);
     const segments = peerOrchGreetingSegments();
+    expect(segments.length, "PEER_ORCH_GREETING yielded no constant segment to assert").toBeGreaterThan(0);
+
+    // `subscriptionId` is REQUIRED and camelCase (ChatSubscriptionBody,
+    // api/web_routes.rs:659-663). A bodyless call is rejected by the extractor
+    // before the handler runs, so no readiness wait can ever satisfy it.
+    const subscriptionId = `pw-picker-greeting-${tab.id}`;
+    const chatStart = () =>
+      api.post<{ messages?: { type?: string; content?: string }[] }>(
+        `/tabs/${tab.id}/chat-raw/start`,
+        { subscriptionId },
+      );
+    // Unguarded and up front: a contract error must surface HERE carrying its own
+    // status text. Swallowing it into "" spent the poll's whole deadline and then
+    // blamed the greeting for a malformed request.
+    expect((await chatStart()).messages, "chat-raw/start must answer with a message window").toBeDefined();
+
     await expect
-      .poll(
-        async () => {
-          try {
-            const res = await api.post<{ messages?: { type?: string; content?: string }[] }>(
-              `/tabs/${tab.id}/chat-raw/start`,
-            );
-            return res.messages?.[0]?.content ?? "";
-          } catch {
-            return "";
-          }
-        },
-        { timeout: 60_000 },
-      )
+      .poll(async () => (await chatStart()).messages?.[0]?.content ?? "", { timeout: 60_000 })
       // the subordinate-framing reword tracks automatically.
       .toContain(segments[0]);
-    const greeting = (
-      await api.post<{ messages?: { content?: string }[] }>(`/tabs/${tab.id}/chat-raw/start`)
-    ).messages?.[0]?.content ?? "";
+    const greeting = (await chatStart()).messages?.[0]?.content ?? "";
     for (const seg of segments) {
       expect(greeting, `greeting must contain constant segment "${seg}"`).toContain(seg);
     }
