@@ -64,7 +64,22 @@ async function waitForGraphSnapshot(
   }, { timeout: 30_000, intervals: [250, 500, 1_000] }).toBe(true);
 }
 
-/** The list is `graph snapshot ∩ /mem/search hits` (MemoryListTab.tsx), and a
+/** The LIST's nodes come from `useGraphData` → `GET /mem/graph/full`
+ *  (MemoryPanel.tsx:48-52, useGraphData.ts:27, memoryApi.ts:33) — a different
+ *  source from the graph canvas's `/mem/graph/snapshot`. Seeding the snapshot
+ *  alone leaves the list empty however good the search is. */
+async function waitForGraphFull(
+  api: { get<T>(p: string): Promise<T> },
+  ids: string[],
+): Promise<void> {
+  await expect.poll(async () => {
+    const graph = await api.get<{ nodes?: Array<{ id?: string }> }>("/mem/graph/full");
+    const present = new Set((graph.nodes ?? []).map((node) => node.id).filter(Boolean));
+    return ids.every((id) => present.has(id));
+  }, { timeout: 30_000, intervals: [250, 500, 1_000] }).toBe(true);
+}
+
+/** The list is `graph full ∩ /mem/search hits` (MemoryListTab.tsx), and a
  *  freshly saved item is searchable only once the background indexer has it.
  *  Wait for the query the UI will issue to return the id it must render. */
 async function waitForSearchHit(
@@ -90,7 +105,7 @@ test("@golden MemoryPanel searches saved memory and opens item preview", async (
   const item = await api.get<MemItem>(`/mem/items/${id}`);
   expect(item.title).toContain(marker);
   // Both halves of the list's intersection must exist before it can render.
-  await waitForGraphSnapshot(api, [id]);
+  await waitForGraphFull(api, [id]);
   await waitForSearchHit(api, marker, id);
 
   await openMemoryList(ui.page);
@@ -122,6 +137,9 @@ test("@golden MemoryPanel renders graph relations in item detail", async ({ api,
     `Beta relation body ${stamp}`,
   );
   await api.post("/mem/graph/relate", { from: a, rel: "relates_to", to: b });
+  // The row lives in the list (graph/full), the detail it opens lives in the
+  // canvas (graph/snapshot) — this test crosses both, so seed both.
+  await waitForGraphFull(api, [a, b]);
   await waitForGraphSnapshot(api, [a, b]);
   const alphaQuery = `Memory relation alpha ${stamp}`;
   await waitForSearchHit(api, alphaQuery, a);
