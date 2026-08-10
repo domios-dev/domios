@@ -3,86 +3,125 @@
  * WHY: This spec protects the live CodeTerm workflow from regressions in 18-reorder.
  * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
+// Sidebar.tsx partitions the protected workspace out of the reorderable group
+// (partitionSidebarWorkspaces) and renders it in its own `general-section`
+// outside SidebarDnd, so "General cannot be dragged" is now structural.
 import { expect, test, type Page } from "../../helpers/fixtures";
 import { ApiClient } from "../../helpers/api-client";
 
+/** `/mux/state` shape. `Workspace.tabs` is a list of tab ids
+ *  (src-tauri/crates/codeterm-pty/src/multiplexer/types.rs), never objects. */
 interface StateTab {
   id: string;
-  tab_id: string;
   sort_order?: number;
+  hidden?: boolean;
+  parent_tab_id?: string | null;
+  protected?: boolean;
 }
 interface StateWs {
   id: string;
-  tabs: StateTab[];
+  tabs: string[];
   sort_order?: number;
   protected?: boolean;
 }
 interface MuxState {
   workspaces: StateWs[];
-  tabs: Record<string, { hidden?: boolean; parent_tab_id?: string | null; protected?: boolean }>;
+  tabs: Record<string, StateTab>;
 }
 
 async function muxState(api: ApiClient): Promise<MuxState> {
   return api.get<MuxState>("/mux/state");
 }
 
-async function workspaceOrder(api: ApiClient): Promise<string[]> {
-  const st = await muxState(api);
-  return [...st.workspaces].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)).map((w) => w.id);
+const bySortOrder = (a: { sort_order?: number }, b: { sort_order?: number }) =>
+  (a.sort_order ?? 0) - (b.sort_order ?? 0);
+
+function workspaceTabs(state: MuxState, wsId: string): StateTab[] {
+  const ws = state.workspaces.find((w) => w.id === wsId);
+  if (!ws) return [];
+  return ws.tabs.map((tabId) => state.tabs[tabId]).filter((tab): tab is StateTab => Boolean(tab));
 }
 
-/** The General workspace id — the (single) protected workspace. */
-async function generalWorkspaceId(api: ApiClient): Promise<string> {
-  const st = await muxState(api);
-  const ws = st.workspaces.find((w) => w.protected);
+/** The General workspace — the (single) protected workspace, created at boot by
+ *  service/general_agent/workspace.rs. */
+async function generalWorkspace(api: ApiClient): Promise<StateWs> {
+  const state = await muxState(api);
+  const ws = state.workspaces.find((w) => w.protected);
   if (!ws) throw new Error("no protected (General) workspace found");
-  return ws.id;
+  return ws;
 }
 
-/** The General tab of a workspace — the tab whose tab is protected. */
+/** The General tab — the protected tab of the protected workspace. */
 async function generalTab(api: ApiClient, wsId: string): Promise<StateTab> {
-  const st = await muxState(api);
-  const ws = st.workspaces.find((w) => w.id === wsId);
-  const tab = ws?.tabs.find((t) => st.tabs[t.tab_id]?.protected);
+  const state = await muxState(api);
+  const tab = workspaceTabs(state, wsId).find((candidate) => candidate.protected);
   if (!tab) throw new Error("no protected (General) tab found");
   return tab;
 }
 
 /** Top-level tab ids of a workspace, in sort_order. */
 async function topLevelOrder(api: ApiClient, wsId: string): Promise<string[]> {
-  const st = await muxState(api);
-  const ws = st.workspaces.find((w) => w.id === wsId);
-  if (!ws) return [];
-  return [...ws.tabs]
-    .filter((t) => {
-      const tab = st.tabs[t.tab_id];
-      return tab && tab.hidden !== true && !tab.parent_tab_id;
-    })
-    .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
-    .map((t) => t.id);
+  const state = await muxState(api);
+  return workspaceTabs(state, wsId)
+    .filter((tab) => tab.hidden !== true && !tab.parent_tab_id)
+    .sort(bySortOrder)
+    .map((tab) => tab.id);
 }
 
-async function keyboardDrag(page: Page, rowSelector: string, key: "ArrowDown" | "ArrowUp", presses: number) {
+/** Ordinary (non-protected) workspace ids in sort_order — exactly the group the
+ *  card grid renders as sortable. */
+async function ordinaryWorkspaceOrder(api: ApiClient): Promise<string[]> {
+  const state = await muxState(api);
+  return state.workspaces.filter((ws) => !ws.protected).sort(bySortOrder).map((ws) => ws.id);
+}
+
+type ArrowKey = "ArrowUp" | "ArrowDown" | "ArrowLeft" | "ArrowRight";
+
+async function keyboardDrag(page: Page, rowSelector: string, key: ArrowKey, presses: number) {
   const row = page.locator(rowSelector).first();
   await row.waitFor({ state: "visible", timeout: 15_000 });
   await row.focus();
   await page.keyboard.press("Space");
-  // PW_JUSTIFIED_SLEEP: fixed 200ms sampling/settle window; no app event exists for this probe.
-  await page.waitForTimeout(200);
+  await expect(row).toHaveAttribute("data-dnd-dragging", "true", { timeout: 15_000 });
   for (let i = 0; i < presses; i++) {
     await page.keyboard.press(key);
-    // PW_JUSTIFIED_SLEEP: fixed 150ms sampling/settle window; no app event exists for this probe.
-    await page.waitForTimeout(150);
   }
   await page.keyboard.press("Space");
-  // PW_JUSTIFIED_SLEEP: fixed 400ms sampling/settle window; no app event exists for this probe.
-  await page.waitForTimeout(400);
+  await expect(row).not.toHaveAttribute("data-dnd-dragging", "true", { timeout: 15_000 });
+}
+
+/** Workspaces render as a card grid (rectSortingStrategy), so which card a
+ *  single arrow reaches depends on where the cards actually landed, not on
+ *  their index. Find the subject's rendered predecessor and the arrow onto it. */
+async function precedingCard(
+  page: Page,
+  subjectId: string,
+  candidateIds: string[],
+): Promise<{ id: string; key: ArrowKey }> {
+  const boxes = new Map<string, { x: number; y: number; width: number; height: number }>();
+  for (const id of [subjectId, ...candidateIds]) {
+    const box = await page.locator(wsRow(id)).first().boundingBox();
+    if (box) boxes.set(id, box);
+  }
+  const subject = boxes.get(subjectId);
+  if (!subject) throw new Error(`workspace card ${subjectId} is not laid out`);
+  let sameRow: { id: string; x: number } | null = null;
+  let above: { id: string; y: number } | null = null;
+  for (const [id, box] of boxes) {
+    if (id === subjectId) continue;
+    if (Math.abs(box.y - subject.y) <= subject.height / 2) {
+      if (box.x < subject.x && (!sameRow || box.x > sameRow.x)) sameRow = { id, x: box.x };
+    } else if (box.y < subject.y && Math.abs(box.x - subject.x) <= subject.width / 2) {
+      if (!above || box.y > above.y) above = { id, y: box.y };
+    }
+  }
+  if (sameRow) return { id: sameRow.id, key: "ArrowLeft" };
+  if (above) return { id: above.id, key: "ArrowUp" };
+  throw new Error(`workspace card ${subjectId} has no rendered predecessor to reorder against`);
 }
 
 async function syncUi(page: Page) {
   await page.evaluate(() => window.dispatchEvent(new Event("codeterm-refresh-mux-state")));
-  // PW_JUSTIFIED_SLEEP: fixed 400ms sampling/settle window; no app event exists for this probe.
-  await page.waitForTimeout(400);
 }
 
 const tabRow = (wsId: string, tabId: string) =>
@@ -90,85 +129,149 @@ const tabRow = (wsId: string, tabId: string) =>
 const wsRow = (wsId: string) =>
   `div[data-dnd-group="workspace:workspaces"]:has(> [data-workspace-id="${wsId}"])`;
 
+const ownedWorkspaces: string[] = [];
+const ownedTabs: string[] = [];
+
+test.afterEach(async ({ api }) => {
+  for (const id of ownedTabs.splice(0)) {
+    await api.closeTab(id).catch(() => {});
+  }
+  for (const id of ownedWorkspaces.splice(0)) {
+    await api.closeWorkspace(id).catch(() => {});
+  }
+});
+
 async function makeWorkspace(api: ApiClient, name: string): Promise<string> {
   const ws = await api.post<{ id: string }>("/workspaces", { name, activate: true });
+  ownedWorkspaces.push(ws.id);
   return ws.id;
 }
-async function makeTab(api: ApiClient, wsId: string): Promise<{ tab_id: string; tab_id: string }> {
-  return api.post<{ tab_id: string; tab_id: string }>(`/workspaces/${wsId}/tabs`, {});
+async function makeTab(api: ApiClient, wsId: string): Promise<{ id: string; tab_id: string }> {
+  const tab = await api.post<{ id: string; tab_id: string }>(`/workspaces/${wsId}/tabs`, {});
+  ownedTabs.push(tab.tab_id);
+  return tab;
 }
 
 test("@golden P1 dragging a workspace to the top cannot place it above General", async ({ api, ui }) => {
   const { page } = ui;
-  const general = await generalWorkspaceId(api);
-  const a = await makeWorkspace(api, "P1 alpha");
-  const b = await makeWorkspace(api, "P1 beta");
+  const general = await generalWorkspace(api);
+  const a = await makeWorkspace(api, `P1 alpha ${Date.now()}`);
+  const b = await makeWorkspace(api, `P1 beta ${Date.now()}`);
 
   await syncUi(page);
   await page.locator(`[data-workspace-id="${b}"]`).first().waitFor({ state: "visible", timeout: 20_000 });
 
-  const before = await workspaceOrder(api);
-  expect(before[0], "General starts pinned at the top").toBe(general);
+  // General is not a member of the reorderable group at all, so no drop can
+  // target a slot above it.
+  await expect(page.locator(wsRow(general.id))).toHaveCount(0);
+  await expect(page.locator('[data-testid="general-section"]')).toBeVisible();
 
-  // Drag beta all the way up — it must not land above General.
-  await keyboardDrag(page, wsRow(b), "ArrowUp", before.length + 2);
-  // PW_JUSTIFIED_SLEEP: fixed 500ms sampling/settle window; no app event exists for this probe.
-  await page.waitForTimeout(500);
+  const before = await ordinaryWorkspaceOrder(api);
+  expect(before.indexOf(a)).toBeGreaterThanOrEqual(0);
+  expect(before.indexOf(b)).toBeGreaterThan(before.indexOf(a));
 
-  const after = await workspaceOrder(api);
-  expect(after[0], "General stays at index 0").toBe(general);
-  expect(after.indexOf(b), "beta never rises above General").toBeGreaterThan(0);
-  // The above-General drop is rejected outright (snap back) — order unchanged.
-  expect(after).toEqual(before);
+  // Drag beta up onto the card rendered before it — the highest slot a single
+  // step can reach inside the group General is not a member of.
+  const neighbour = await precedingCard(page, b, before.filter((id) => id !== b));
+  await keyboardDrag(page, wsRow(b), neighbour.key, 1);
+
+  // The drag really committed (this is what stops the guard being vacuous)…
+  await expect
+    .poll(
+      async () => {
+        const order = await ordinaryWorkspaceOrder(api);
+        return order.indexOf(b) < order.indexOf(neighbour.id);
+      },
+      { timeout: 15_000 },
+    )
+    .toBe(true);
+  // …and General is still pinned at the lowest ordinal, outside the group.
+  const after = await muxState(api);
+  const generalAfter = after.workspaces.find((ws) => ws.id === general.id);
+  expect(generalAfter?.sort_order ?? -1, "General stays pinned at ordinal 0").toBe(0);
+  expect(
+    Math.min(...after.workspaces.map((ws) => ws.sort_order ?? 0)),
+    "no workspace sorts above General",
+  ).toBe(0);
+  await expect(page.locator(wsRow(general.id)), "General never joins the sortable group").toHaveCount(0);
 });
 
+/** NOT COVERED (gesture): the General section renders outside `SidebarDnd`
+ *  (Sidebar.tsx), so no DndContext drives its rows and a keyboard drag there is
+ *  inert — asserting "the drop was rejected" would pass without exercising
+ *  anything. The clamp itself is live in MultiplexerState::reorder_tabs
+ *  (pin_protected_tabs_first) and is asserted through the route the sidebar calls. */
 test("@golden P2 dragging a tab to the top cannot place it above the General tab", async ({ api, ui }) => {
   const { page } = ui;
-  const general = await generalWorkspaceId(api);
-  const gTab = await generalTab(api, general);
-  const t1 = await makeTab(api, general);
-  const t2 = await makeTab(api, general);
+  const general = await generalWorkspace(api);
+  const gTab = await generalTab(api, general.id);
+  const t1 = await makeTab(api, general.id);
+  const t2 = await makeTab(api, general.id);
 
   await syncUi(page);
   await page.locator(`[data-tab-id="${t2.tab_id}"]`).first().waitFor({ state: "visible", timeout: 20_000 });
 
-  const before = await topLevelOrder(api, general);
+  const before = await topLevelOrder(api, general.id);
   expect(before[0], "General tab starts pinned at the top").toBe(gTab.id);
+  expect(before).toContain(t2.tab_id);
 
-  // Drag the last tab all the way up — it must not land above the General tab.
-  await keyboardDrag(page, tabRow(general, t2.tab_id), "ArrowUp", before.length + 2);
-  // PW_JUSTIFIED_SLEEP: fixed 500ms sampling/settle window; no app event exists for this probe.
-  await page.waitForTimeout(500);
+  // Ask for an order that puts the newest tab first — the daemon clamps the
+  // protected tab back to index 0 and keeps the rest in the requested order.
+  const requested = [t2.tab_id, ...before.filter((id) => id !== t2.tab_id)];
+  await api.post(`/workspaces/${general.id}/tabs/reorder`, { ordered_tab_ids: requested });
 
-  const after = await topLevelOrder(api, general);
+  const after = await topLevelOrder(api, general.id);
   expect(after[0], "General tab stays at index 0").toBe(gTab.id);
-  expect(after.indexOf(t2.tab_id), "the dragged tab never rises above the General tab").toBeGreaterThan(0);
+  expect(after.indexOf(t2.tab_id), "the moved tab never rises above the General tab").toBeGreaterThan(0);
+  expect(after, "the rest keep the requested relative order below General")
+    .toEqual([gTab.id, ...requested.filter((id) => id !== gTab.id)]);
+
+  // The rendered sidebar agrees with the clamped backend order.
+  await syncUi(page);
+  await expect
+    .poll(
+      async () =>
+        page.evaluate((wsId: string) =>
+          Array.from(document.querySelectorAll(`div[data-dnd-group="tab:${wsId}"]`))
+            .map((row) => row.querySelector("[data-tab-id]")?.getAttribute("data-tab-id"))
+            .filter((id): id is string => Boolean(id))[0],
+        general.id),
+      { timeout: 15_000 },
+    )
+    .toBe(gTab.id);
 });
 
 test("@golden P3 the General workspace and General tab are not draggable", async ({ api, ui }) => {
   const { page } = ui;
-  const general = await generalWorkspaceId(api);
-  const gTab = await generalTab(api, general);
-  // A sibling below General, so there is somewhere to (fail to) move into.
-  await makeWorkspace(api, "P3 sibling");
+  const general = await generalWorkspace(api);
+  const gTab = await generalTab(api, general.id);
+  // A sibling below General, so the sortable group is non-empty.
+  const sibling = await makeWorkspace(api, `P3 sibling ${Date.now()}`);
 
   await syncUi(page);
-  await page.locator(wsRow(general)).first().waitFor({ state: "visible", timeout: 20_000 });
+  await page.locator(`[data-workspace-id="${sibling}"]`).first().waitFor({ state: "visible", timeout: 20_000 });
 
-  // No drag affordance — the sortable row is disabled.
-  await expect(page.locator(wsRow(general)).first()).toHaveAttribute("aria-disabled", "true");
-  await expect(page.locator(tabRow(general, gTab.id)).first()).toHaveAttribute("aria-disabled", "true");
+  // The General workspace has no sortable row — it renders in its own section.
+  await expect(page.locator(wsRow(general.id))).toHaveCount(0);
+  const generalSection = page.locator('[data-testid="general-section"]');
+  await expect(generalSection).toBeVisible();
+  await expect(generalSection.locator(`[data-tab-id="${gTab.id}"]`)).toBeVisible();
 
-  // Attempting to drag General down is a no-op — order is unchanged.
-  const wsBefore = await workspaceOrder(api);
-  await keyboardDrag(page, wsRow(general), "ArrowDown", 3);
-  // PW_JUSTIFIED_SLEEP: fixed 500ms sampling/settle window; no app event exists for this probe.
-  await page.waitForTimeout(500);
-  expect(await workspaceOrder(api), "General workspace did not move").toEqual(wsBefore);
+  // The General tab's row exists but carries dnd-kit's disabled affordance.
+  await expect(page.locator(tabRow(general.id, gTab.id)).first()).toHaveAttribute("aria-disabled", "true");
 
-  const tabsBefore = await topLevelOrder(api, general);
-  await keyboardDrag(page, tabRow(general, gTab.id), "ArrowDown", 3);
-  // PW_JUSTIFIED_SLEEP: fixed 500ms sampling/settle window; no app event exists for this probe.
-  await page.waitForTimeout(500);
-  expect(await topLevelOrder(api, general), "General tab did not move").toEqual(tabsBefore);
+  // The daemon refuses to demote either one, whatever order is asked for.
+  const wsBefore = await ordinaryWorkspaceOrder(api);
+  await api.post("/workspaces/reorder", {
+    ordered_workspace_ids: [...wsBefore, general.id],
+  });
+  const wsAfter = await muxState(api);
+  expect(wsAfter.workspaces.find((ws) => ws.id === general.id)?.sort_order, "General workspace did not move")
+    .toBe(0);
+
+  const tabsBefore = await topLevelOrder(api, general.id);
+  await api.post(`/workspaces/${general.id}/tabs/reorder`, {
+    ordered_tab_ids: [...tabsBefore.filter((id) => id !== gTab.id), gTab.id],
+  });
+  expect(await topLevelOrder(api, general.id), "General tab did not move").toEqual(tabsBefore);
 });
