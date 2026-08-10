@@ -1,11 +1,12 @@
 /**
  * Build-hash mismatch guard.
  *
- * Compares the frontend's compile-time stamp (__BUILD_HASH__, injected by Vite)
- * against the backend's /api/health.build. When they differ, the Rust daemon
- * is running a stale build that doesn't know about newly-added commands —
- * the root cause of cryptic "Command X not found" errors in dev.
+ * Compares the frontend's compile-time build stamp against the backend's
+ * /api/health.build. When they differ, the Rust daemon is running a stale
+ * build that doesn't know about newly-added commands — the root cause of
+ * cryptic "Command X not found" errors in dev.
  */
+import { appVersion, buildHash } from "./buildStamp";
 
 export interface BuildMismatch {
   frontendHash: string;
@@ -25,24 +26,12 @@ let _frontendVersionOverride: string | null = null;
 
 function getFrontendHash(): string {
   if (_frontendHashOverride !== null) return _frontendHashOverride;
-  // __BUILD_HASH__ is injected by Vite at build time (see vite.config.ts).
-  // In tsx test runs it is not defined, so we fall back to "dev" (no false mismatch).
-  try {
-    const g = globalThis as unknown as { __BUILD_HASH__?: string };
-    return g.__BUILD_HASH__ ?? "dev";
-  } catch {
-    return "dev";
-  }
+  return buildHash();
 }
 
 function getFrontendVersion(): string {
   if (_frontendVersionOverride !== null) return _frontendVersionOverride;
-  try {
-    const g = globalThis as unknown as { __APP_VERSION__?: string };
-    return g.__APP_VERSION__ ?? "dev";
-  } catch {
-    return "dev";
-  }
+  return appVersion();
 }
 
 export async function checkBuildMismatch(apiBase?: string): Promise<BuildMismatch | null> {
