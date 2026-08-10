@@ -1,7 +1,7 @@
 /**
- * WHAT: Chat picker default settings honor prompted and explicit config states.
+ * WHAT: A tab's opening view follows chat capability until the user chooses otherwise.
  * WHY: New tabs must not surprise the user by silently switching chat UI defaults.
- * ORACLE: Config resets and picker interactions produce the expected persisted default flags.
+ * ORACLE: The mode switch selection and the per-tab persisted keys match resolveInitialTabUiMode's branches.
  */
 // The prompt-and-persist flow this spec was written against is gone: no
 // `chat-default-suggestion`/`chat-default-accept` handles, and neither
@@ -52,7 +52,7 @@ async function persistedMode(page: import("../../helpers/fixtures").Page, tabId:
   }), tabId);
 }
 
-test("@golden accepting chat default clears stale terminal picker overrides across reload", async ({
+test("@golden a chat-capable tab opens in Chat until an explicit mode choice overrides it across reload", async ({
   api,
   ui,
   tabCleanup,
