@@ -77,7 +77,12 @@ async function ordinaryWorkspaceOrder(api: ApiClient): Promise<string[]> {
 
 type ArrowKey = "ArrowUp" | "ArrowDown" | "ArrowLeft" | "ArrowRight";
 
-async function keyboardDrag(page: Page, rowSelector: string, key: ArrowKey, presses: number) {
+/** dnd-kit's screen-reader region, which announces the drop target on every
+ *  `onDragOver` — the only per-step signal that an arrow key actually moved the
+ *  drag rather than arriving before the rects were remeasured. */
+const liveRegion = (page: Page) => page.locator('[id^="DndLiveRegion"]');
+
+async function keyboardDrag(page: Page, rowSelector: string, key: ArrowKey, overIds: string[]) {
   const row = sortableRow(page, rowSelector);
   await row.waitFor({ state: "visible", timeout: 15_000 });
   // dnd-kit activates from a synthetic onKeyDown on this node, so the row must
@@ -86,8 +91,10 @@ async function keyboardDrag(page: Page, rowSelector: string, key: ArrowKey, pres
   await expect(row, "the sortable row holds focus when the lift key is delivered").toBeFocused();
   await row.press("Space");
   await expect(row).toHaveAttribute("data-dnd-dragging", "true", { timeout: 15_000 });
-  for (let i = 0; i < presses; i++) {
+  for (const overId of overIds) {
     await row.press(key);
+    await expect(liveRegion(page), `the drag moved over ${overId}`)
+      .toContainText(overId, { timeout: 10_000 });
   }
   await row.press("Space");
   await expect(row).not.toHaveAttribute("data-dnd-dragging", "true", { timeout: 15_000 });
@@ -206,7 +213,7 @@ test("@golden P1 dragging a workspace to the top cannot place it above General",
   // Drag beta up onto the card rendered before it — the highest slot a single
   // step can reach inside the group General is not a member of.
   const neighbour = await precedingCard(page, b, before.filter((id) => id !== b));
-  await keyboardDrag(page, wsRow(b), neighbour.key, 1);
+  await keyboardDrag(page, wsRow(b), neighbour.key, [neighbour.id]);
 
   // The drag really committed (this is what stops the guard being vacuous)…
   await expect
