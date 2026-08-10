@@ -1100,9 +1100,22 @@ for (const vp of VIEWPORTS) {
       await page.locator('[data-testid="nav-mesh"]').click();
       const meshTab = page.locator('[data-testid="mesh-tab-network"]');
       await meshTab.waitFor({ state: "visible", timeout: 10_000 });
-      const meshToolbar = page.locator(".ct-hscroll").filter({ has: meshTab });
-      await expect(meshToolbar, `${vp.name} mesh exact hscroll toolbar owner`).toHaveCount(1);
+      // The mesh section no longer owns a horizontal scroller: `.ct-section-toolbar`
+      // WRAPS below 640px and gives the tab rail the full width (globals.css), so
+      // the rail must already be whole inside the viewport with nothing to reveal.
+      const meshToolbar = page.locator(".ct-section-toolbar").filter({ has: meshTab });
+      await expect(meshToolbar, `${vp.name} mesh exact toolbar owner`).toHaveCount(1);
+      await expect(
+        page.locator(".ct-hscroll").filter({ has: meshTab }),
+        `${vp.name} mesh rail must not need a horizontal scroller`,
+      ).toHaveCount(0);
       await revealOwnedHorizontalSurface(page, meshTab, `${vp.name} mesh`);
+      const railBox = await meshTab.boundingBox();
+      expect(railBox, `${vp.name} mesh rail box`).toBeTruthy();
+      if (railBox) {
+        expect(railBox.x, `${vp.name} mesh rail left`).toBeGreaterThanOrEqual(-1);
+        expect(railBox.x + railBox.width, `${vp.name} mesh rail right`).toBeLessThanOrEqual(vp.width + 1);
+      }
       await settleLayout(page);
       await auditKnownSurfaces(page, `${vp.name} mesh`);
       await auditViewport(page, `${vp.name} mesh`);
