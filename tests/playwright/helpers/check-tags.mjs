@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { delimiter, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
+import { providerGateFindings } from "./provider-gate-rule.mjs";
 import { helperSourceFiles, scanTimerViolations } from "./timer-rules.mjs";
 
 const suitesDir = fileURLToPath(new URL("../suites", import.meta.url));
@@ -58,9 +59,13 @@ function toLabel(file) {
   return relative(process.cwd(), file).split("\\").join("/");
 }
 
+function fileLocation(file, line) {
+  return toLabel(file) + ":" + line;
+}
+
 function location(source, file, node) {
   const pos = source.getLineAndCharacterOfPosition(node.getStart(source));
-  return toLabel(file) + ":" + (pos.line + 1);
+  return fileLocation(file, pos.line + 1);
 }
 
 function titleFromArg(node) {
@@ -194,6 +199,12 @@ function checkFile(file) {
   }
 
   visit(source);
+
+  if (strictEnabled) {
+    for (const finding of providerGateFindings(text, file)) {
+      violations.push(fileLocation(file, finding.line) + " " + finding.reason);
+    }
+  }
 }
 
 for (const file of scopedSpecs()) {

@@ -30,6 +30,7 @@ pnpm test:pw:lint    # fail if any Playwright test has no tier tag
 pnpm test:pw:smoke   # @smoke project
 pnpm test:pw:golden  # @golden project, one retry and 5min timeout
 pnpm test:pw:perf    # @perf stub-provider latency budget project
+pnpm test:pw:stub    # @stub project — recorded-provider transport, no provider credit
 pnpm test:pw:full    # all non-quarantined tests
 pnpm test:pw:live-pair # bounded real-Claude orchestration launch gate
 pnpm test:pw:report  # open the last HTML report
@@ -235,11 +236,24 @@ checks this before a test can land unnoticed.
   test, run with `pnpm test:pw:golden`.
 - `@perf`: deterministic stub-provider latency budgets, run with the dedicated
   `perf` project.
+- `@stub`: agent flows over the recorded-provider transport
+  (`CODETERM_STUB_AGENT_CMD` → `fixtures/stub-agent/replay.mjs`). Run with
+  `pnpm test:pw:stub`. The `golden` project inverts this tag, so a mock-only
+  result can never be reported as a golden pass.
+- `@live`: real-provider flows, run on their own cadence outside `golden`.
 - `@quarantine`: excluded from `pnpm test:pw:full`; document entries in
   [`QUARANTINE.md`](QUARANTINE.md).
 
 Non-tier tags such as `@edge`, `@failure`, or `@regression` may still describe
 coverage, but they do not satisfy the lint by themselves.
+
+### Provider source is declared, not implied
+
+A test that spawns a real agent must declare exactly one provider source:
+`@stub` (or an in-scope `isStubTransportActive` gate, which is what actually
+routes the spawn through the substitute) or `@live`. `check-tags.mjs` enforces
+this; the rule itself lives in `helpers/provider-gate-rule.mjs` and is covered,
+defect-first, by `helpers/provider-gate-rule.test.mjs`.
 
 ## Deferred lint guardrails
 
@@ -323,4 +337,4 @@ server-spawned tabs do). Each throws a clear
 - Suites assert **UI DOM state**, not just API JSON, wherever the action
   has a user-visible effect.
 
-<!-- revision: 8 -->
+<!-- revision: 9 -->
