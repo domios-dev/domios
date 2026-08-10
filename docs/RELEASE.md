@@ -326,6 +326,11 @@ Don't skip this — a stale `develop` makes the next release start from a missin
   the updater runs anonymously.
 - **If source release assets are valid but the mirror failed**, download from `rollacode/codeterm`,
   regenerate `latest.json` with public mirror URLs, upload with `--clobber`, then publish.
+- **CI `rust (linux)` fails at `cargo fmt --check` although local `check`, frontend build and the
+  file-size gate all passed.** `release-preflight` was skipped; `check` only refreshes the lockfile
+  and never runs formatting or the test/lint matrix, so it cannot qualify a PR. Run
+  `./build.sh release-preflight` at the exact PR head, fix what it reports, and push the fix as a
+  new commit so fresh CI runs; never blind-rerun the red job.
 - **macOS Rust tests panic that `EventLoop` must be created on the main thread** when a test
   forgot the non-Windows guard required by the shared `ServiceContext` desktop fixture. Add the
   same `cfg_attr` used by its other consumers; do not treat elapsed time or retries as readiness.
@@ -368,4 +373,4 @@ The minisign updater key (`~/.tauri/codeterm.key`, empty password; its public ha
 the `github-release` skill lists the exact ids and restore paths. A builder without the minisign
 key produces artifacts the updater can't verify.
 
-<!-- revision: 26 -->
+<!-- revision: 27 -->

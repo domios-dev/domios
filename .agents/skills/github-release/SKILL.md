@@ -199,19 +199,23 @@ npm run check:versions
 # Do not hand-edit just one version file.
 
 git add package.json src-tauri/Cargo.toml src-tauri/Cargo.lock \
-  src-tauri/tauri.conf.json cli/Cargo.toml plugins packages scripts
+  src-tauri/tauri.conf.json cli/Cargo.toml cli/Cargo.lock plugins packages scripts
 git commit -m "release: v$VER"
 git push origin develop
 ```
 
-Run these on the exact release head before opening the master PR:
+Run this on the exact release head before opening the master PR:
 
 ```bash
-./build.sh frontend
-CODETERM_API_PORT=7686 ./build.sh check
-bash scripts/check-file-sizes.sh --fail
-git diff --check
+./build.sh release-preflight   # THE PR qualification gate: fmt, both Rust workspaces,
+                               # app+CLI tests, clippy, TS build/unit/plugin/lint,
+                               # bundle freshness, file-size policy
+git diff --check               # whitespace; not owned by preflight
 ```
+
+`./build.sh check` refreshes Cargo.lock during the version bump. It is NOT PR
+qualification: it never runs formatting or the test/lint matrix, so a green
+`check` says nothing about whether CI will pass.
 
 Then start dev from the main checkout and visually confirm the app:
 
@@ -581,6 +585,7 @@ Force-retag pre-publish is unilaterally allowed per `rule_blackstar_mac_release_
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
+| CI `rust (linux)` fails at `cargo fmt --check` after local `check` + frontend + file-size all passed | `release-preflight` was skipped; `check` does not run fmt or the test/lint matrix | run `./build.sh release-preflight` at the exact PR head, fix what it reports, push the fix as a new commit and let fresh CI run. Never blind-rerun the job |
 | `tauri build` ends with no DMG, no error | `build.sh dev` still running, Cargo target dir contention | `./build.sh kill` first |
 | DMG `spctl` → "rejected, Unnotarized Developer ID" | tauri signed the `.app` but left the DMG wrapper unsigned | Run `xcrun notarytool submit … --wait && xcrun stapler staple …` manually |
 | `notarytool store-credentials` → HTTP 401 | keychain creds expired OR used `APPLE_PASSWORD` instead of `APPLE_APP_SPECIFIC_PASSWORD` | source the env file, use correct var name |
