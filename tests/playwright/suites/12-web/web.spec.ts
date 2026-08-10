@@ -106,10 +106,27 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
     await expect(page.locator('[data-testid="web-token-input"]')).toHaveCount(0);
     await expect(page.locator(`[data-tab-id="${oldTabId}"]`)).toHaveCount(0);
 
+    // Prove WHICH state we reached before asserting how it renders, so a missing
+    // card cannot masquerade as a switch that never happened.
     await expect(
-      page.locator(`[data-testid="workspace-item"][data-workspace-name="${stub.instanceName}-workspace"]`),
+      page.locator('[data-testid="peer-picker-button"]'),
+      "host switch never landed on the stub peer",
+    ).toContainText(stub.instanceName, { timeout: 20_000 });
+
+    // A peer reports a protected General plus ordinary workspaces; the sidebar
+    // partitions on `protected`, so only the ordinary one is a card.
+    await expect(
+      page.locator(`[data-testid="workspace-item"][data-workspace-name="${stub.workspaceName}"]`),
+      "peer's ordinary workspace did not render as a sidebar workspace card",
     ).toBeVisible({ timeout: 20_000 });
-    await expect(page.locator('[data-testid="peer-picker-button"]')).toContainText(stub.instanceName);
+    await expect(
+      page.locator(`[data-testid="workspace-item"][data-workspace-name="${stub.generalWorkspaceName}"]`),
+      "peer's protected General belongs in the general section, never in a card",
+    ).toHaveCount(0);
+    await expect(
+      page.locator(`[data-testid="general-section"][aria-label="${stub.generalWorkspaceName} workspace contents"]`),
+      "peer's protected General did not render as the general section",
+    ).toHaveCount(1);
     expect(stub.requests.length, "stub saw no web traffic after switch").toBeGreaterThan(before);
     expect(
       stub.requests.some(
@@ -134,7 +151,8 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
     await page.click('[data-testid="peer-picker-self"]');
     await page.waitForSelector('[data-testid="workspace-item"]', { timeout: 20_000 });
     await expect(
-      page.locator(`[data-testid="workspace-item"][data-workspace-name="${stub.instanceName}-workspace"]`),
+      page.locator(`[data-testid="workspace-item"][data-workspace-name="${stub.workspaceName}"]`),
+      "stub workspace leaked into the self host after switch-back",
     ).toHaveCount(0);
     const host = await page.evaluate(() => sessionStorage.getItem("codeterm-web-host"));
     expect(host, "switch-back must clear the host override").toBeNull();
