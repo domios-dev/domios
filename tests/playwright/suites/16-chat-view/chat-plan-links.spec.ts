@@ -45,16 +45,25 @@ async function openMockChatTab(
   await api.focusTab(tab.id);
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
-  {
-    const row = page.locator(`[data-testid="tab-item"][data-tab-id="${tab.id}"]`).first();
-    if (await row.isVisible({ timeout: 5_000 })) {
-      await row.click();
-    }
-  }
+  const row = page.locator(`[data-testid="tab-item"][data-tab-id="${tab.id}"]`).first();
+  await expect(row).toBeVisible({ timeout: 30_000 });
+  await row.click();
   const chat = page.locator(`[data-testid="tab-session-chat"][data-tab-id="${tab.id}"]`);
   await expect(chat).toBeVisible({ timeout: 30_000 });
   return tab.id;
 }
+
+const ownedWorkspaces: string[] = [];
+const ownedPlans: string[] = [];
+
+test.afterEach(async ({ api }) => {
+  for (const planId of ownedPlans.splice(0)) {
+    await api.deletePlan(planId).catch(() => {});
+  }
+  for (const workspaceId of ownedWorkspaces.splice(0)) {
+    await api.closeWorkspace(workspaceId).catch(() => {});
+  }
+});
 
 async function seedCrossWorkspacePlan(api: ApiClient) {
   const projectA = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "codeterm-chat-plan-a-")));
@@ -65,6 +74,7 @@ async function seedCrossWorkspacePlan(api: ApiClient) {
   const workspaceA = workspaces.find((w) => w.cwd === projectA);
   const workspaceB = workspaces.find((w) => w.cwd === projectB);
   if (!workspaceA || !workspaceB) throw new Error("expected both workspaces to exist");
+  ownedWorkspaces.push(workspaceA.id, workspaceB.id);
 
   const created = await api.post<CreatePlanResponse>("/plans", {
     title: "Owner workspace plan",
@@ -72,6 +82,7 @@ async function seedCrossWorkspacePlan(api: ApiClient) {
     owner: { tab_id: "chat-plan-orchestrator", session_id: null, title: "Chat plan orchestrator" },
     kinds: "progress:#38bdf8",
   });
+  ownedPlans.push(created.plan_id);
   const section = await api.post<CreateSectionResponse>(`/plans/${created.plan_id}/sections`, {
     title: "Cross workspace section",
     body: "Section body",
@@ -114,8 +125,9 @@ async function pushAssistantMessage(page: Page, tabId: string, content: string, 
 test("@golden chat-task-link cross-workspace Enter opens plan-view-shell and focuses task", async ({ api, ui, tabCleanup }) => {
   test.setTimeout(180_000);
   await ui.reconnect();
-  const hasTestHook = await ui.page.evaluate(() => typeof window.__codetermTestChat !== "undefined");
-  test.skip(!hasTestHook, "__codetermTestChat not available in this build");
+  await expect
+    .poll(async () => ui.page.evaluate(() => typeof window.__codetermTestChat), { timeout: 30_000 })
+    .toBe("object");
 
   const { workspaceA, workspaceB, planId, taskId } = await seedCrossWorkspacePlan(api);
   await api.focusWorkspace(workspaceA.id);
@@ -153,6 +165,8 @@ test("@golden chat-task-link cross-workspace Enter opens plan-view-shell and foc
   const missingPlanId = "pl_missingplan";
   await api.focusWorkspace(workspaceA.id);
   await ui.page.reload({ waitUntil: "domcontentloaded" });
+  await ui.page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
+  await expect(chat).toBeVisible({ timeout: 30_000 });
   await pushAssistantMessage(ui.page, tabId, `Missing ref ${missingPlanId}`, "pw-plan-link-missing");
   const missingLink = chat.locator('[data-testid="chat-plan-link"]').filter({ hasText: missingPlanId }).first();
   await expect(missingLink).toBeVisible({ timeout: 30_000 });
@@ -167,8 +181,9 @@ test("@golden chat-task-link cross-workspace Enter opens plan-view-shell and foc
 test("@golden chat-plan-link mobile Space switches workspace and opens plan-view-shell", async ({ api, ui, tabCleanup }) => {
   test.setTimeout(180_000);
   await ui.reconnect();
-  const hasTestHook = await ui.page.evaluate(() => typeof window.__codetermTestChat !== "undefined");
-  test.skip(!hasTestHook, "__codetermTestChat not available in this build");
+  await expect
+    .poll(async () => ui.page.evaluate(() => typeof window.__codetermTestChat), { timeout: 30_000 })
+    .toBe("object");
 
   const { workspaceA, workspaceB, planId } = await seedCrossWorkspacePlan(api);
   await api.focusWorkspace(workspaceA.id);
