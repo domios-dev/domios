@@ -11,7 +11,7 @@ test(
     await ui.reconnect();
 
     // Create a bare shell tab — pty_id starts null (eager defaults to false).
-    const tab = await tabCleanup.createTab<{ id: string; tab_id?: string }>({
+    const tab = await tabCleanup.createTab<{ id: string }>({
       title: `pw-fresh-tab-send-${Date.now()}`,
     });
 
@@ -19,6 +19,12 @@ test(
     await api.post(`/tabs/${tab.id}/agent-type`, { agent_type: "claude" });
     await api.post(`/tabs/${tab.id}/chat-view`, { enabled: true });
     await api.focusTab(tab.id);
+
+    // POST /tabs answers with ids only, so read the title off the tab record
+    // that owns it — the chat region is named from exactly that value.
+    const created = (await api.tabs()).find((candidate) => candidate.id === tab.id);
+    expect(created, "the created tab is listed by the daemon").toBeTruthy();
+    const chatRegionName = `Tab chat: ${created!.title ?? tab.id}`;
 
     // Reload so the tab renders fresh — pty_id is null on the first paint;
     // xterm mount + PTY link happen asynchronously afterward.
@@ -32,10 +38,11 @@ test(
     await expect(row).toBeVisible({ timeout: 30_000 });
     await row.click();
 
-    const chat = ui.page
-      .locator(`[data-tab-id="${tab.id}"]`)
-      .getByRole("region", { name: `Tab chat: ${tab.title}` });
+    const chat = ui.page.locator(`[data-testid="tab-session-chat"][data-tab-id="${tab.id}"]`);
     await expect(chat).toBeVisible({ timeout: 30_000 });
+    await expect(chat).toHaveRole("region");
+    await expect(chat, "the chat region is named from the tab's own title")
+      .toHaveAttribute("aria-label", chatRegionName);
 
     const conversation = chat.getByRole("log", { name: "Conversation" });
     const composer = chat.getByRole("textbox", { name: "Message composer" });
@@ -47,19 +54,16 @@ test(
     await composer.fill(marker);
     await composer.press("Enter");
 
-    // Give any error notification time to appear.
-    // PW_JUSTIFIED_SLEEP: fixed 1_500ms sampling/settle window; no app event exists for this probe.
-    await ui.page.waitForTimeout(1_500);
+    // The rendered user message is the send completing — wait on it, not on a
+    // clock, then assert the failure toast never accompanied it.
+    const userMsg = conversation
+      .getByRole("article", { name: "user message" })
+      .filter({ hasText: marker });
+    await expect(userMsg).toBeVisible({ timeout: 30_000 });
 
-    // Assert: no "Tab has no PTY" toast.
     const tabHasNoPtyToast = ui.page
       .locator('[data-testid="notification-toast"]')
       .filter({ hasText: "Tab has no PTY" });
     await expect(tabHasNoPtyToast).toHaveCount(0);
-
-    const userMsg = conversation
-      .getByRole("article", { name: "user message" })
-      .filter({ hasText: marker });
-    await expect(userMsg).toBeVisible({ timeout: 10_000 });
   },
 );
