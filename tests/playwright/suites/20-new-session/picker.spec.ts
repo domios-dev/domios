@@ -107,6 +107,32 @@ async function openPicker(page: Page, wsId: string): Promise<void> {
   await expect(page.locator('[data-testid="new-session-picker"]')).toBeVisible({ timeout: 10_000 });
 }
 
+/**
+ * The picker is a `fixed inset-0 z-[1000]` modal and the desktop `ui` session is
+ * WORKER-SCOPED, so one left open covers the viewport for every test after it —
+ * including tests in later spec files. Teardown must dismiss it; the `ui` fixture's
+ * handover probe reports such a leak by design and never clears it.
+ *
+ * Every close path (Escape, backdrop, this button) is gated on the picker's `busy`
+ * flag, so a teardown landing mid-spawn waits for the product's own enabled signal
+ * rather than racing it.
+ */
+async function dismissPicker(page: Page): Promise<void> {
+  const picker = page.locator('[data-testid="new-session-picker"]');
+  const close = page.locator('[data-testid="picker-close"]');
+  await expect
+    .poll(async () => (await picker.count()) === 0 || (await close.isEnabled().catch(() => false)), {
+      timeout: 30_000,
+    })
+    .toBe(true);
+  if ((await picker.count()) === 0) return;
+  await close.click();
+  await expect(
+    picker,
+    "a picker left open at teardown covers the viewport and blocks every later test on this worker-scoped page",
+  ).toBeHidden({ timeout: 10_000 });
+}
+
 /** A shared DropdownSelect trigger — replaces the old native <select>. */
 function dropdown(page: Page, testId: string) {
   return page.locator(`[data-testid="${testId}"]`);
@@ -306,9 +332,12 @@ test.describe("new-session picker", () => {
     await openPicker(ui.page, ws.id);
   });
 
-  test.afterEach(async ({ api }) => {
+  test.afterEach(async ({ api, ui }) => {
+    // Dismiss BEFORE touching state under the modal, and before the workspace it
+    // targets disappears. Runs even when the test body threw — which is the leak
+    // that matters, since a failing test never reaches its own close.
+    await dismissPicker(ui.page);
     // Sweep created plans BEFORE closing the workspace (close doesn't cascade).
-    // Runs even when the test body threw — teardown is not gated on asserts.
     await plans.sweep();
     await cleanupWorkspace(api, ws?.id);
   });
@@ -778,6 +807,12 @@ test.describe("new-session picker", () => {
  */
 test.describe("ghost-tab invariant", () => {
   test.describe.configure({ timeout: 30_000, retries: 0 });
+
+  // The skip_snapshot scenario opens a picker and asserts against it; nothing in
+  // its flow closes it, and a mid-test failure would leak it into the next file.
+  test.afterEach(async ({ ui }) => {
+    await dismissPicker(ui.page);
+  });
 
   test("@golden GHOST-TAB: current session sidebar has no placeholder titles", async ({ api, ui }) => {
     // tab restored with a blank title, this catches it immediately.
