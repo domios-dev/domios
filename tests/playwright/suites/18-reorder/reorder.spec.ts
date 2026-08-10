@@ -69,13 +69,18 @@ type ArrowKey = "ArrowUp" | "ArrowDown" | "ArrowLeft" | "ArrowRight";
 async function keyboardDrag(page: Page, rowSelector: string, key: ArrowKey, presses: number) {
   const row = sortableRow(page, rowSelector);
   await row.waitFor({ state: "visible", timeout: 15_000 });
+  // dnd-kit activates from a synthetic onKeyDown on this node, so the row must
+  // still hold focus when the key lands. Assert that separately: a lift that
+  // fails because focus moved is a different defect from one that fails
+  // because activation did not fire, and they are indistinguishable downstream.
   await row.focus();
-  await page.keyboard.press("Space");
+  await expect(row, "the sortable row holds focus when the lift key is delivered").toBeFocused();
+  await row.press("Space");
   await expect(row).toHaveAttribute("data-dnd-dragging", "true", { timeout: 15_000 });
   for (let i = 0; i < presses; i++) {
-    await page.keyboard.press(key);
+    await row.press(key);
   }
-  await page.keyboard.press("Space");
+  await row.press("Space");
   await expect(row).not.toHaveAttribute("data-dnd-dragging", "true", { timeout: 15_000 });
 }
 
@@ -173,9 +178,12 @@ test("@golden C1 a top-level tab reorders within its workspace", async ({ api, u
 // POST /tabs/{id}/role, which requires a reported live session binding and
 // answers 400 agent_unavailable for a tab that never had an agent, and
 // POST /agents/spawn, which spawns a real provider agent -- and golden
-// grepInverts @stub. The contract is covered in Rust instead:
-// multiplexer/state/reorder.rs proves reorder_children orders only same-parent
-// siblings, rejects a foreign parent, and that reorder_tabs rejects a child.
+// grepInverts @stub. Covered instead, by name, in
+// crates/codeterm-pty/src/multiplexer/state/reorder.rs:
+//   reorder_children_orders_only_same_parent_siblings
+//   reorder_children_rejects_foreign_parent
+//   reorder_tabs_rejects_a_child_tab
+// Ledger row: tests/playwright/WEAK_ORACLES.md, "Not covered at the Playwright layer".
 
 test("@golden C3 workspaces reorder among themselves", async ({ api, ui }) => {
   const { page } = ui;
