@@ -80,13 +80,16 @@ type ArrowKey = "ArrowUp" | "ArrowDown" | "ArrowLeft" | "ArrowRight";
 async function keyboardDrag(page: Page, rowSelector: string, key: ArrowKey, presses: number) {
   const row = sortableRow(page, rowSelector);
   await row.waitFor({ state: "visible", timeout: 15_000 });
+  // dnd-kit activates from a synthetic onKeyDown on this node, so the row must
+  // still hold focus when the key lands — assert that separately from the lift.
   await row.focus();
-  await page.keyboard.press("Space");
+  await expect(row, "the sortable row holds focus when the lift key is delivered").toBeFocused();
+  await row.press("Space");
   await expect(row).toHaveAttribute("data-dnd-dragging", "true", { timeout: 15_000 });
   for (let i = 0; i < presses; i++) {
-    await page.keyboard.press(key);
+    await row.press(key);
   }
-  await page.keyboard.press("Space");
+  await row.press("Space");
   await expect(row).not.toHaveAttribute("data-dnd-dragging", "true", { timeout: 15_000 });
 }
 
