@@ -108,5 +108,48 @@ const TASK = "task_" + "b".repeat(32);
   assert(descNoStep.detail === undefined, "no note flag means no detail, not the plan id");
 }
 
+// --- agent report card body fields ---
+{
+  const BODY = [
+    "STATUS: in_review",
+    "CHANGES: cli/src/cmd/report_body.rs",
+    "TESTS RUN: deferred to canonical QA",
+    "GATES REQUESTED: build test-one cli report_echo",
+    "FOLLOWUP: orchestrator closes the task",
+  ].join("\n");
+  const EXPECTED = JSON.stringify([
+    { label: "status", value: "in_review" },
+    { label: "changes", value: "cli/src/cmd/report_body.rs" },
+    { label: "tests", value: "deferred to canonical QA" },
+    { label: "gates requested", value: "build test-one cli report_echo" },
+    { label: "followup", value: "orchestrator closes the task" },
+    { label: "sha", value: "a56ee3e3b" },
+  ]);
+  const echo = `report_r1 recorded\nCODETERM_RESOLVED_TEXT=${JSON.stringify(BODY)}`;
+
+  const inlineToday = describeAction(inv(`codeterm agent report --status in_review --sha a56ee3e3b "${BODY}"`), "report_r1 recorded");
+  assert(JSON.stringify(inlineToday.fields) === EXPECTED, "regression control: an inline report with no resolved echo renders exactly today's argv-extracted fields");
+
+  const inlineEchoed = describeAction(inv(`codeterm agent report --status in_review --sha a56ee3e3b "${BODY}"`), echo);
+  assert(JSON.stringify(inlineEchoed.fields) === EXPECTED, "an inline report renders identically once the CLI also echoes the resolved body");
+
+  const fromPad = describeAction(inv(`codeterm agent report --status in_review --sha a56ee3e3b --from-pad report.md`), echo);
+  assert(JSON.stringify(fromPad.fields) === EXPECTED, "a --from-pad report renders every body field from the resolved echo");
+
+  const padWithoutEcho = describeAction(inv(`codeterm agent report --status in_review --sha a56ee3e3b --from-pad report.md`), "report_r1 recorded");
+  assert(JSON.stringify(padWithoutEcho.fields) === JSON.stringify([{ label: "status", value: "in_review" }, { label: "sha", value: "a56ee3e3b" }]), "without a resolved echo a pad report still collapses to flags only — the defect this fixes");
+
+  const textFlag = describeAction(inv(`codeterm agent report --status in_review --sha a56ee3e3b --text "${BODY}"`), "report_r1 recorded");
+  assert(JSON.stringify(textFlag.fields) === EXPECTED, "--text extraction is unchanged when no echo is present");
+
+  const ESCAPED = BODY.replace(/\n/g, "\\n");
+  const escapedToday = describeAction(inv(`codeterm agent report --status in_review --sha a56ee3e3b "${ESCAPED}"`), "report_r1 recorded");
+  const escapedEchoed = describeAction(inv(`codeterm agent report --status in_review --sha a56ee3e3b "${ESCAPED}"`), `report_r1 recorded\nCODETERM_RESOLVED_TEXT=${JSON.stringify(ESCAPED)}`);
+  assert(JSON.stringify(escapedToday.fields) === EXPECTED && JSON.stringify(escapedEchoed.fields) === EXPECTED, "an inline body carrying literal \\n escapes renders the same five fields with and without the echo");
+
+  const redacted = describeAction(inv(`codeterm agent report --status in_review --from-pad report.md`), `ok\nCODETERM_RESOLVED_TEXT=${JSON.stringify("STATUS: in_review\nCHANGES: API_TOKEN=***REDACTED***")}`);
+  assert(redacted.fields?.some((f) => f.label === "changes" && f.value === "API_TOKEN=***REDACTED***"), "the card renders whatever the CLI redacted, never a second unredacted source");
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
