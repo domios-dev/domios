@@ -68,6 +68,20 @@ type ArrowKey = "ArrowUp" | "ArrowDown" | "ArrowLeft" | "ArrowRight";
  *  moved the drag rather than arriving before the rects were remeasured. */
 const liveRegion = (page: Page) => page.locator('[id^="DndLiveRegion"]');
 
+/** Who holds focus right now. A drag that stops responding mid-gesture is
+ *  almost always focus moving elsewhere, so name the thief in the failure. */
+async function focusOwner(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const el = document.activeElement as HTMLElement | null;
+    if (!el) return "nothing";
+    const testId = el.getAttribute("data-testid");
+    return [el.tagName.toLowerCase(), testId && `[${testId}]`, el.className && `.${el.className}`]
+      .filter(Boolean)
+      .join("")
+      .slice(0, 120);
+  });
+}
+
 /** Keyboard drag a dnd-kit sortable row: focus, Space (lift), one arrow per
  *  entry in `overIds` (each confirmed by the announcement naming that id), then
  *  Space (drop). Confirming each step is what stops a swallowed press from
@@ -85,7 +99,8 @@ async function keyboardDrag(page: Page, rowSelector: string, key: ArrowKey, over
   await expect(row).toHaveAttribute("data-dnd-dragging", "true", { timeout: 15_000 });
   for (const overId of overIds) {
     await row.press(key);
-    await expect(liveRegion(page), `the drag moved over ${overId}`)
+    const holder = await focusOwner(page);
+    await expect(liveRegion(page), `the drag moved over ${overId}; focus was on ${holder}`)
       .toContainText(overId, { timeout: 10_000 });
   }
   await row.press("Space");
