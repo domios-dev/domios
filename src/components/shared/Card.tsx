@@ -24,6 +24,7 @@ export function Card({
   className,
   style,
   onClick,
+  role,
   "data-testid": testId,
   ...rest
 }: CardProps) {
@@ -38,7 +39,7 @@ export function Card({
       className={cls}
       style={style}
       onClick={onClick}
-      role={interactive ? "button" : undefined}
+      role={interactive ? "button" : role}
       tabIndex={interactive ? 0 : undefined}
       data-touch-mode={interactive && touchMode ? "true" : undefined}
       onKeyDown={interactive && onClick ? (e) => {

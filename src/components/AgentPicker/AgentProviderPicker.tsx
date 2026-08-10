@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useId, useMemo, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import type { ProviderDescriptor } from "../../lib/types";
 import { ProviderCard, ProviderInstallPanel, providerInstallSortKey } from "./ProviderCard";
@@ -27,6 +27,7 @@ export function AgentProviderPicker({
   children,
   onConfirm,
 }: AgentProviderPickerProps) {
+  const headlineId = useId();
   const { installedByBinary, state, refresh } = useProviderAvailability(providers);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [installBusy, setInstallBusy] = useState(false);
@@ -64,12 +65,14 @@ export function AgentProviderPicker({
 
   return (
     <div
+      role="region"
+      aria-labelledby={headlineId}
       data-testid="agent-provider-picker"
       className="flex h-full w-full items-center justify-center p-6 overflow-auto"
     >
       <div className="w-full max-w-2xl space-y-6">
         <div className="text-center space-y-1">
-          <h1 className="text-lg font-semibold text-[var(--ct-fg)]">{headline}</h1>
+          <h1 id={headlineId} className="text-lg font-semibold text-[var(--ct-fg)]">{headline}</h1>
           <p className="text-xs text-[var(--ct-muted-fg)]">
             Pick the agent that powers your General tab. You can open plain terminal tabs from the
             sidebar anytime.
@@ -77,7 +80,12 @@ export function AgentProviderPicker({
         </div>
 
         {anyInstalled ? (
-          <div className="flex flex-wrap justify-center gap-3" data-testid="agent-picker-cards">
+          <div
+            role="group"
+            aria-label="Agent providers"
+            className="flex flex-wrap justify-center gap-3"
+            data-testid="agent-picker-cards"
+          >
             {providers.map((provider) => (
               <ProviderCard
                 key={provider.id}
