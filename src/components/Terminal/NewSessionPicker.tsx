@@ -370,13 +370,13 @@ export function NewSessionPicker({
         </button>
 
         <div className="relative mb-1.5 flex items-center gap-1.5">
-          <span className="text-[11px] font-medium text-[var(--ct-muted-fg)]">Mode</span>
+          <span id="new-session-picker-mode-label" className="text-[11px] font-medium text-[var(--ct-muted-fg)]">Mode</span>
           <FloatingTooltip content={<div>{MODE_HELP_TEXT}</div>} className="picker-help-glyph">
             <span className="picker-help-glyph-mark">?</span>
           </FloatingTooltip>
         </div>
 
-        <div className="relative mb-4">
+        <div className="relative mb-4" role="group" aria-labelledby="new-session-picker-mode-label">
           <ModeCards
             mode={choice.mode}
             singleProviderId={singleProviderId}
@@ -456,6 +456,8 @@ export function NewSessionPicker({
             background: "color-mix(in srgb, var(--ct-bg) 60%, transparent)",
           }}
           data-testid="picker-preview"
+          role="status"
+          aria-live="polite"
         >
           <span className="flex shrink-0 items-center gap-1" aria-hidden>
             {choice.mode === "pair" ? (
