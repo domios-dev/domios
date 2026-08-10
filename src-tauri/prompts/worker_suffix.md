@@ -23,7 +23,7 @@ codeterm agent report --status in_review --sha YOUR_OWN_COMMIT_SHA --from-pad re
 cat > "$(codeterm pad path)/report.md" <<'EOF'
 STATUS: partial
 CHANGES: completed progress
-TESTS RUN: narrow evidence
+TESTS RUN: narrow evidence, or 'none - isolated lane, no gate executed'
 GATES REQUESTED: none
 FOLLOWUP: exact remaining work
 EOF
@@ -32,7 +32,7 @@ codeterm agent report --status partial --from-pad report.md
 cat > "$(codeterm pad path)/report.md" <<'EOF'
 STATUS: blocked
 CHANGES: completed progress or 'none'
-TESTS RUN: narrow evidence or 'none'
+TESTS RUN: narrow evidence, or 'none - isolated lane, no gate executed'
 GATES REQUESTED: none
 FOLLOWUP: exact external blocker
 EOF
