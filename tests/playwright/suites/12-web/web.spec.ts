@@ -561,10 +561,13 @@ test("@golden web chat: a live assistant reply streams in AND history survives a
   const page = await newWebPage(webBrowser);
   try {
     // until then chat-raw/start 409s.
+    // chat-raw/start REQUIRES its subscriber id (ChatSubscriptionBody, camelCase);
+    // a bodyless call 400s forever and the catch turns that into a readiness lie.
+    const subscriptionId = `pw-web-chat-${tabId}`;
     await pollUntil(async () => {
       try {
-        await api.post(`/tabs/${tabId}/chat-raw/start`);
-        await api.post(`/tabs/${tabId}/chat-raw/stop`);
+        await api.post(`/tabs/${tabId}/chat-raw/start`, { subscriptionId });
+        await api.post(`/tabs/${tabId}/chat-raw/stop`, { subscriptionId });
         return true;
       } catch {
         return undefined;
