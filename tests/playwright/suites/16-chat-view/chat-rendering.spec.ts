@@ -244,7 +244,19 @@ test("@golden ChatView transcript remains correct across tool results, focus, an
   await expect(chatMessages).toHaveCount(4, { timeout: 10_000 });
   const texts = await chatMessages.evaluateAll((els) => els.map((el) => (el as HTMLElement).innerText));
   expect(texts.join("\n")).toContain("run a command");
-  expect(texts.join("\n")).toContain("latest failure");
+
+  // A tool_call card renders the command it ran, not the message's `content`
+  // string, so the failed calls are identified by the commands this fixture
+  // supplied and asserted through the card's own status attribute. The old
+  // `toContain("latest failure")` could never match; it survived only because
+  // the assertion above it failed first.
+  for (const command of ["exit 1", "exit 2"]) {
+    await expect(
+      chat.locator('[data-testid="chat-tool-call"][data-tool-status="error"]')
+        .filter({ hasText: command }),
+      `the failed \`${command}\` call renders as an error`,
+    ).toHaveCount(1);
+  }
 
   // A completed shell command card lands collapsed and keeps its output out of
   // the DOM (packages/chat-ui MessageBubble.expansion.test.tsx), so the merged

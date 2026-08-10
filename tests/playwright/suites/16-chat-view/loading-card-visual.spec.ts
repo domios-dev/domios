@@ -21,7 +21,13 @@ const startingStates = [
  *  spec lives in, never against whatever cwd the runner happened to start in. */
 const repoRoot = fileURLToPath(new URL("../../../../", import.meta.url));
 
-async function loadingCardBundle(): Promise<string> {
+/** One esbuild per FILE, not per test. Bundling the product twice inside each
+ *  test's budget is what pushed this spec past its deadline and closed the page
+ *  out from under it. */
+let bundleOnce: Promise<string> | null = null;
+const loadingCardBundle = (): Promise<string> => (bundleOnce ??= buildLoadingCardBundle());
+
+async function buildLoadingCardBundle(): Promise<string> {
   const result = await build({
     bundle: true,
     format: "iife",
