@@ -132,8 +132,11 @@ test("@golden ChatView message DOM order matches chronological push order", asyn
 }) => {
   await ui.reconnect();
   const tabId = await openMockChatTab(api, tabCleanup, ui.page);
-  const hasTestHook = await ui.page.evaluate(() => typeof window.__codetermTestChat !== "undefined");
-  test.skip(!hasTestHook, "window.__codetermTestChat not available in this build (macOS web mirror without VITE_CODETERM_TEST=1 build)");
+  // The harness builds with VITE_CODETERM_TEST=1 and loads ?e2e=1, so a missing
+  // hook is a real regression in the build, not a reason to stop asserting.
+  await expect
+    .poll(async () => ui.page.evaluate(() => typeof window.__codetermTestChat), { timeout: 30_000 })
+    .toBe("object");
   const messages: TestChatMessage[] = [
     { id: "pw-order-1", type: "user", content: "pw-order-first", timestamp: "1700002000001", provider: "test" },
     { id: "pw-order-2", type: "assistant", content: "pw-order-second", timestamp: "1700002000002", provider: "test" },
@@ -168,10 +171,13 @@ test("@golden ChatView transcript remains correct across tool results, focus, an
   ui,
   tabCleanup,
 }) => {
-  const hasTestHook = await ui.page.evaluate(() => typeof window.__codetermTestChat !== "undefined");
-  test.skip(!hasTestHook, "window.__codetermTestChat not available in this build (macOS web mirror without VITE_CODETERM_TEST=1 build)");
-
   await ui.reconnect();
+  // The harness builds with VITE_CODETERM_TEST=1 and loads ?e2e=1, so a missing
+  // hook is a real regression in the build, not a reason to stop asserting.
+  await expect
+    .poll(async () => ui.page.evaluate(() => typeof window.__codetermTestChat), { timeout: 30_000 })
+    .toBe("object");
+
   const tabId = await openMockChatTab(api, tabCleanup, ui.page);
   const chat = ui.page.locator(`[data-testid="tab-session-chat"][data-tab-id="${tabId}"]`);
   const composer = chat.locator('[data-testid="chat-composer"]');
@@ -238,8 +244,20 @@ test("@golden ChatView transcript remains correct across tool results, focus, an
   await expect(chatMessages).toHaveCount(4, { timeout: 10_000 });
   const texts = await chatMessages.evaluateAll((els) => els.map((el) => (el as HTMLElement).innerText));
   expect(texts.join("\n")).toContain("run a command");
-  expect(texts.join("\n")).toContain("ok");
   expect(texts.join("\n")).toContain("latest failure");
+
+  // A completed shell command card lands collapsed and keeps its output out of
+  // the DOM (packages/chat-ui MessageBubble.expansion.test.tsx), so the merged
+  // tool result is only readable once its own disclosure is opened.
+  const resultCard = chat
+    .locator('[data-testid="chat-tool-call"]')
+    .filter({ hasText: "echo ok" })
+    .first();
+  await expect(resultCard).toBeVisible();
+  const expandResult = resultCard.getByRole("button", { name: "Expand tool details" });
+  await expect(expandResult).toBeVisible();
+  await expandResult.click();
+  await expect(resultCard).toContainText("ok");
 
   await expect(chat.locator('[data-testid="chat-tool-call"]')).toHaveCount(3);
   await expect(chat.locator('[data-testid="chat-message"][data-message-role="tool_result"]')).toHaveCount(0);
@@ -267,8 +285,11 @@ test("@golden ChatView renders message blocks, code blocks, and image attachment
   ui,
   tabCleanup,
 }) => {
-  const hasTestHook = await ui.page.evaluate(() => typeof window.__codetermTestChat !== "undefined");
-  test.skip(!hasTestHook, "window.__codetermTestChat not available in this build (macOS web mirror without VITE_CODETERM_TEST=1 build)");
+  // The harness builds with VITE_CODETERM_TEST=1 and loads ?e2e=1, so a missing
+  // hook is a real regression in the build, not a reason to stop asserting.
+  await expect
+    .poll(async () => ui.page.evaluate(() => typeof window.__codetermTestChat), { timeout: 30_000 })
+    .toBe("object");
 
   const tabId = await openMockChatTab(api, tabCleanup, ui.page);
   const messages: TestChatMessage[] = [
