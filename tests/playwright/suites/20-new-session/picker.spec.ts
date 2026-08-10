@@ -142,6 +142,43 @@ async function selectDropdown(page: Page, testId: string, value: string): Promis
   await dropdown(page, testId).click();
   await page.locator(`[data-testid="${testId}-option-${value}"]`).click();
 }
+/** Opens a DropdownSelect and clicks its first selectable option; returns that value. */
+async function selectFirstEnabledOption(page: Page, testId: string): Promise<string> {
+  await dropdown(page, testId).click();
+  const opts = page.locator(`[data-testid^="${testId}-option-"]`);
+  const prefix = `${testId}-option-`;
+  for (let i = 0; i < (await opts.count()); i++) {
+    const opt = opts.nth(i);
+    if (await opt.isDisabled()) continue;
+    const value = ((await opt.getAttribute("data-testid")) ?? "").slice(prefix.length);
+    await opt.click();
+    return value;
+  }
+  await page.keyboard.press("Escape");
+  throw new Error(`${testId} offers no selectable option`);
+}
+
+/**
+ * A role's model control is disabled when its provider publishes no models OR that
+ * provider's CLI is absent (OrchestrationPairForm.tsx:78) — deliberate, since you
+ * cannot pick a model for an agent you cannot launch. Which providers are installed
+ * is machine-dependent AND resolves after mount (`probeProviderInstallMap` only ever
+ * ADDS disabled ids), so the usable set is not knowable at one instant. Converge on
+ * it instead of assuming the default provider happens to be installed here.
+ */
+async function settleOnUsableModel(page: Page, providerTestId: string, modelTestId: string): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        if (await dropdown(page, modelTestId).isEnabled()) return true;
+        await selectFirstEnabledOption(page, providerTestId);
+        return dropdown(page, modelTestId).isEnabled();
+      },
+      { timeout: 30_000 },
+    )
+    .toBe(true);
+}
+
 /** Opens a DropdownSelect and clicks the first option whose value differs from
  *  the current one; returns the value it landed on. */
 async function selectFirstDifferentOption(page: Page, testId: string): Promise<string> {
@@ -462,6 +499,9 @@ test.describe("new-session picker", () => {
   test("@golden PERSISTENCE: mode + model persist, workspace resets to current", async ({ api, ui }) => {
     const page = ui.page;
     await page.locator('[data-testid="picker-mode-orchestration"]').click();
+    // Changing a model needs a role whose model control is actually usable here.
+    await settleOnUsableModel(page, "picker-provider-planner", "picker-model-planner");
+    const plannerProvider = (await dropdown(page, "picker-provider-planner").getAttribute("data-value")) ?? "";
     const changedModel = await selectFirstDifferentOption(page, "picker-model-planner");
     const otherWs = await createTestWorkspace(api, "pw-picker-persist-dest");
     try {
@@ -471,6 +511,7 @@ test.describe("new-session picker", () => {
       await page.reload();
       await openPicker(page, ws.id);
       await expect(page.locator('[data-testid="picker-mode-orchestration"]')).toHaveAttribute("data-selected", "true");
+      await expect(dropdown(page, "picker-provider-planner")).toHaveAttribute("data-value", plannerProvider);
       await expect(dropdown(page, "picker-model-planner")).toHaveAttribute("data-value", changedModel);
       await expect(dropdown(page, "picker-workspace")).toHaveAttribute("data-value", ws.id);
     } finally {
