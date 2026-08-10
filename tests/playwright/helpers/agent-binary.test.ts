@@ -37,6 +37,32 @@ test("finds a Windows binary through PATHEXT", () => {
   );
 });
 
+// Case-insensitive NTFS hides this; a case-sensitive directory (1803+), WSL or a
+// network mount does not, and the fallout is a silent skip.
+test("an uppercase PATHEXT still finds the lowercase name installers write", () => {
+  const hit = path.join("C:\\tools", "cursor-agent.exe");
+  assert.equal(
+    discoverExecutable("cursor-agent", {
+      platform: "win32",
+      env: { PATH: "C:\\tools", PATHEXT: ".EXE;.CMD" },
+      exists: fakeFs(hit),
+    }),
+    hit,
+  );
+});
+
+test("a lowercase PATHEXT still finds an uppercase name", () => {
+  const hit = path.join("C:\\tools", "cursor-agent.EXE");
+  assert.equal(
+    discoverExecutable("cursor-agent", {
+      platform: "win32",
+      env: { PATH: "C:\\tools", PATHEXT: ".exe;.cmd" },
+      exists: fakeFs(hit),
+    }),
+    hit,
+  );
+});
+
 test("falls back to the extra per-user install dirs", () => {
   const hit = path.join("/home/pw/.local/bin", "cursor-agent");
   assert.equal(
