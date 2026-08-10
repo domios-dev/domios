@@ -111,6 +111,20 @@ function TabSubline({ subtitle, generalAgent }: { subtitle: string | null; gener
   );
 }
 
+/** What the tab is currently busy with — subordinate to the name, above the role. */
+function TabDescriptionSubtitle({ description }: { description: string | null }) {
+  const text = description?.trim() ?? "";
+  if (!text) return null;
+  return (
+    <span
+      data-testid="tab-description-subtitle"
+      className="block truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]/80"
+    >
+      {text}
+    </span>
+  );
+}
+
 function RemoteIdentityLine({ tab }: { tab: Tab }) {
   const identity = remoteIdentity(tab);
   if (!identity) return null;
@@ -379,6 +393,7 @@ function TabItemInner({
               </span>
             ) : (
               <>
+                <TabDescriptionSubtitle description={description} />
                 <TabSubline subtitle={localSubtitle} generalAgent={isGeneralAgent} />
                 <RemoteIdentityLine tab={tab} />
                 <ManagedByLine label={managedBy} />
