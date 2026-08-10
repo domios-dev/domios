@@ -122,6 +122,32 @@ async function syncUi(page: Page) {
   await page.evaluate(() => window.dispatchEvent(new Event("codeterm-refresh-mux-state")));
 }
 
+/** The sidebar is worker-scoped state: one page serves every test in the file.
+ *  Establish the surfaces these tests read instead of inheriting whatever the
+ *  previous test left, and fail on the missing surface rather than 20s later on
+ *  a row inside it. */
+async function readySidebar(page: Page) {
+  await page.locator('[data-testid="sidebar"]').waitFor({ state: "visible", timeout: 30_000 });
+  const workspaces = page.locator('[data-testid="workspaces-section-toggle"]');
+  await workspaces.waitFor({ state: "visible", timeout: 30_000 });
+  if ((await workspaces.getAttribute("aria-expanded")) !== "true") {
+    await workspaces.click();
+  }
+  await expect(workspaces).toHaveAttribute("aria-expanded", "true");
+}
+
+/** A keyboard drag that fails mid-gesture leaves dnd-kit holding an active drag
+ *  on the shared page, and a DndContext with an active drag will not start
+ *  another — so one failing drag test silently disables every later one. Cancel
+ *  it here, and assert the cancel worked: if Escape cannot clear it either, the
+ *  context is wedged rather than merely mid-drag, which is worth knowing. */
+async function cancelStuckDrag(page: Page) {
+  const dragging = page.locator('[data-dnd-dragging="true"]');
+  if ((await dragging.count()) === 0) return;
+  await page.keyboard.press("Escape");
+  await expect(dragging, "Escape must cancel a drag left in flight").toHaveCount(0, { timeout: 10_000 });
+}
+
 /** Address a sortable row by the card it wraps. The wrapper carries no id of
  *  its own, and a `:has(> …)` relative selector is the kind of thing worth not
  *  betting a whole cluster on. */
@@ -134,7 +160,8 @@ const sortableRow = (page: Page, cardSelector: string) =>
 
 const ownedWorkspaces: string[] = [];
 
-test.afterEach(async ({ api }) => {
+test.afterEach(async ({ api, ui }) => {
+  await cancelStuckDrag(ui.page).catch(() => {});
   for (const id of ownedWorkspaces.splice(0)) {
     await api.closeWorkspace(id).catch(() => {});
   }
@@ -156,6 +183,7 @@ test("@golden C1 a top-level tab reorders within its workspace", async ({ api, u
   const t2 = await makeTab(api, ws);
   const t3 = await makeTab(api, ws);
 
+  await readySidebar(page);
   await syncUi(page);
   await page.locator(`[data-tab-id="${t3.tab_id}"]`).first().waitFor({ state: "visible", timeout: 20_000 });
   const owned = [t1.tab_id, t2.tab_id, t3.tab_id];
@@ -190,6 +218,7 @@ test("@golden C3 workspaces reorder among themselves", async ({ api, ui }) => {
   const a = await makeWorkspace(api, `C3 alpha ${Date.now()}`);
   const b = await makeWorkspace(api, `C3 beta ${Date.now()}`);
 
+  await readySidebar(page);
   await syncUi(page);
   await page.locator(`[data-workspace-id="${b}"]`).first().waitFor({ state: "visible", timeout: 20_000 });
   const before = await ordinaryWorkspaceOrder(api);
@@ -221,6 +250,7 @@ test("@golden C4 reordered order survives a reload", async ({ api, ui }) => {
   const t3 = await makeTab(api, ws);
   const owned = [t1.tab_id, t2.tab_id, t3.tab_id];
 
+  await readySidebar(page);
   await syncUi(page);
   await page.locator(`[data-tab-id="${t3.tab_id}"]`).first().waitFor({ state: "visible", timeout: 20_000 });
   await keyboardDrag(page, tabRow(ws, t3.tab_id), "ArrowUp", 2);
