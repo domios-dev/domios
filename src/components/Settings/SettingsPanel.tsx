@@ -44,6 +44,9 @@ interface SettingsPanelProps {
   initialHelpSection?: HelpSectionId;
 }
 
+/** Names the settings dialog from its live header — one panel is mounted at a time. */
+const SETTINGS_TITLE_ID = "codeterm-settings-title";
+
 type Route =
   | { kind: "root" }
   | { kind: "section"; id: SectionId }
@@ -145,7 +148,13 @@ export function SettingsPanel({
   const parentSection = parent?.kind === "section" ? parent : undefined;
 
   return (
-    <div className="absolute inset-0 flex flex-col overflow-hidden bg-[var(--ct-sidebar-bg)]" data-testid="settings-panel">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={SETTINGS_TITLE_ID}
+      className="absolute inset-0 flex flex-col overflow-hidden bg-[var(--ct-sidebar-bg)]"
+      data-testid="settings-panel"
+    >
       <div className="absolute inset-0 flex flex-col pt-[var(--ct-safe-top,0px)] pb-[var(--ct-safe-bottom,0px)]">
         {/* Subtle dot grid background */}
         <div
@@ -172,7 +181,7 @@ export function SettingsPanel({
               </button>
             )}
           </div>
-          <h2 className="pointer-events-none absolute left-1/2 max-w-[55%] -translate-x-1/2 truncate text-center text-sm font-semibold text-[var(--ct-fg)]" data-testid="settings-header-title">
+          <h2 id={SETTINGS_TITLE_ID} className="pointer-events-none absolute left-1/2 max-w-[55%] -translate-x-1/2 truncate text-center text-sm font-semibold text-[var(--ct-fg)]" data-testid="settings-header-title">
             {headerTitle}
           </h2>
           <button
@@ -191,7 +200,11 @@ export function SettingsPanel({
           <div className="flex-1 overflow-y-auto px-5 py-5" data-testid="settings-body">
             {top.kind === "root" && (
               <div className="min-h-full flex items-center justify-center">
-                <div className="w-full max-w-3xl grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div
+                  role="navigation"
+                  aria-label="Settings sections"
+                  className="w-full max-w-3xl grid grid-cols-1 sm:grid-cols-2 gap-3"
+                >
                   {SETTINGS_SECTIONS.map((s) => {
                     const Icon = SECTION_ICONS[s.id];
                     return (

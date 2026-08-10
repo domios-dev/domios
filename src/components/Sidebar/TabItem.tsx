@@ -300,6 +300,10 @@ function TabItemInner({
   return (
     <div
       ref={tabRef}
+      role="group"
+      // Name the row from the title alone — the tooltip also carries the live
+      // description, which would make the accessible name churn on every update.
+      aria-label={accessibleTitle}
       data-testid="tab-item"
       data-tab-id={tab.id}
       data-tab-no-task-bubble="true"
@@ -402,13 +406,18 @@ function TabItemInner({
         </span>
         {/* Connected services */}
         {tab?.connected_services?.includes("telegram") && (
-          <span className="shrink-0 text-[var(--ct-muted-fg)]/50">
+          <span
+            role="img"
+            aria-label={`${accessibleTitle} is connected to Telegram`}
+            className="shrink-0 text-[var(--ct-muted-fg)]/50"
+          >
             <TelegramIcon />
           </span>
         )}
         {/* Prompt/status indicator dot */}
         {tab?.pending_prompt && (
           <span
+            role="img"
             className="shrink-0 w-2 h-2 rounded-full"
             style={{ background: "var(--ct-yellow)" }}
             title={tab.pending_prompt.question}
