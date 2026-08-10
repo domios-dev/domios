@@ -2,8 +2,10 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { delimiter, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
+import { helperSourceFiles, scanTimerViolations } from "./timer-rules.mjs";
 
 const suitesDir = fileURLToPath(new URL("../suites", import.meta.url));
+const helpersDir = fileURLToPath(new URL(".", import.meta.url));
 const baselinePath = fileURLToPath(new URL("./check-tags-baseline.txt", import.meta.url));
 const tagRe = /@(smoke|golden|perf|live|stub|quarantine)/;
 const quarantineTaskRe = /(?:task_[a-z0-9]+|#[0-9]+)/i;
@@ -52,9 +54,13 @@ function scopedSpecs() {
     });
 }
 
+function toLabel(file) {
+  return relative(process.cwd(), file).split("\\").join("/");
+}
+
 function location(source, file, node) {
   const pos = source.getLineAndCharacterOfPosition(node.getStart(source));
-  return relative(process.cwd(), file).split("\\").join("/") + ":" + (pos.line + 1);
+  return toLabel(file) + ":" + (pos.line + 1);
 }
 
 function titleFromArg(node) {
@@ -192,6 +198,14 @@ function checkFile(file) {
 
 for (const file of scopedSpecs()) {
   checkFile(file);
+}
+
+// helpers/ hid the harness's own sleeps from both checkers; the timer rules
+// walk it under the same strict switch and the same baseline file.
+if (strictEnabled) {
+  for (const file of helperSourceFiles(helpersDir)) {
+    violations.push(...scanTimerViolations(readFileSync(file, "utf8"), toLabel(file)));
+  }
 }
 
 if (violations.length) {
