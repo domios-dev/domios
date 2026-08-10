@@ -3,14 +3,23 @@
  * WHY: Startup state must identify the affected role without obscuring recovery actions.
  * ORACLE: Accessible card content and visual snapshots match each state and theme.
  */
+// ChatSetupState is a glyph-and-ring overlay with no copy of its own and no
+// failure card: chatSetupView maps spawn_failed to the starting view, and
+// tabBootOverlayView owns the recovery surface (`tab-boot-failed`).
+import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { expect, test } from "../../helpers/fixtures";
 
-const states = [
-  ["spawn", "preparing_role_instructions", "Preparing planner instructions…"],
-  ["fallback", "delivering_instructions", "Delivering instructions…"],
-  ["failure", "spawn_failed", "Planner could not start"],
+const PROVIDER_NAME = "Codex";
+const FAILURE_REASON = "fixture failure detail";
+const startingStates = [
+  ["spawn", "preparing_role_instructions"],
+  ["fallback", "delivering_instructions"],
 ] as const;
+
+/** Repo root — resolve the fixture's product imports against the checkout the
+ *  spec lives in, never against whatever cwd the runner happened to start in. */
+const repoRoot = fileURLToPath(new URL("../../../../", import.meta.url));
 
 async function loadingCardBundle(): Promise<string> {
   const result = await build({
@@ -20,13 +29,14 @@ async function loadingCardBundle(): Promise<string> {
     write: false,
     resolveExtensions: [".tsx", ".ts", ".jsx", ".js"],
     stdin: {
-      resolveDir: process.cwd(),
+      resolveDir: repoRoot,
       sourcefile: "loading-card-visual-fixture.tsx",
       loader: "tsx",
       contents: `
         import React from "react";
         import { createRoot } from "react-dom/client";
         import { ChatSetupState, chatSetupView } from "./src/components/Terminal/ChatSetupState";
+        import { TabBootOverlay, tabBootOverlayView } from "./src/components/Terminal/bootOverlay";
         import { TeamUnit } from "./src/components/Sidebar/TeamUnit";
 
         const colors = {
@@ -34,7 +44,7 @@ async function loadingCardBundle(): Promise<string> {
           light: { bg: "#f6f8fa", fg: "#1f2328", muted: "#59636e", border: "#d0d7de", accent: "#0969da" },
         };
 
-        window.__renderLoadingCard = (stage, theme) => {
+        const applyTheme = (theme) => {
           const palette = colors[theme];
           document.documentElement.style.colorScheme = theme;
           document.documentElement.style.setProperty("--ct-bg", palette.bg);
@@ -42,47 +52,57 @@ async function loadingCardBundle(): Promise<string> {
           document.documentElement.style.setProperty("--ct-muted-fg", palette.muted);
           document.documentElement.style.setProperty("--ct-border", palette.border);
           document.documentElement.style.setProperty("--ct-accent", palette.accent);
+          return palette;
+        };
+
+        const fixtureTab = (stage, failureReason) => ({
+          id: "loading-card-fixture",
+          type: "agent",
+          title: "Planner",
+          role: "Manager",
+          role_profile: "planner",
+          agent_type: "codex",
+          agent_session_model: "gpt-5.6",
+          cwd: "D:/Developer/codeterm",
+          boot_stage: stage,
+          boot_failure_reason: stage === "spawn_failed" ? failureReason : null,
+          protected: true,
+        });
+
+        window.__renderLoadingCard = (stage, theme, providerName, failureReason) => {
+          const palette = applyTheme(theme);
           document.body.innerHTML = '<div id="loading-card-root"></div>';
-          const tab = {
-            id: "loading-card-fixture",
-            type: "agent",
-            title: "Planner",
-            role: "Manager",
-            role_profile: "planner",
-            agent_type: "codex",
-            agent_session_model: "gpt-5.6",
-            cwd: "D:/Developer/codeterm",
-            boot_stage: stage,
-            boot_failure_reason: stage === "spawn_failed" ? "fixture failure detail" : null,
-            protected: true,
-          };
-          createRoot(document.getElementById("loading-card-root")).render(
+          const tab = fixtureTab(stage, failureReason);
+          const frame = (children) => (
             <main className="flex h-full items-center justify-center">
-              <div className="h-[420px] w-[640px] overflow-hidden border" style={{ borderColor: palette.border, background: palette.bg }}>
-                <ChatSetupState
-                  tab={tab}
-                  view={chatSetupView(tab)}
-                  providerName="Codex"
-                  providerIconColor={palette.accent}
-                  providerIconHint="C"
-                  teamName="Release 1.7.2"
-                  projectName="codeterm"
-                  onRetry={() => undefined}
-                  onOpenTerminal={() => undefined}
-                />
+              <div className="relative h-[420px] w-[640px] overflow-hidden border" style={{ borderColor: palette.border, background: palette.bg }}>
+                {children}
               </div>
-            </main>,
+            </main>
           );
+          const body = stage === "spawn_failed"
+            ? (
+              <TabBootOverlay
+                view={tabBootOverlayView(tab)}
+                shellReady={false}
+                overlayVisible
+                onRetry={() => undefined}
+              />
+            )
+            : (
+              <ChatSetupState
+                tab={tab}
+                view={chatSetupView(tab)}
+                providerName={providerName}
+                providerIconColor={palette.accent}
+                providerIconHint="C"
+              />
+            );
+          createRoot(document.getElementById("loading-card-root")).render(frame(body));
         };
 
         window.__renderTeamPicker = (theme) => {
-          const palette = colors[theme];
-          document.documentElement.style.colorScheme = theme;
-          document.documentElement.style.setProperty("--ct-bg", palette.bg);
-          document.documentElement.style.setProperty("--ct-fg", palette.fg);
-          document.documentElement.style.setProperty("--ct-muted-fg", palette.muted);
-          document.documentElement.style.setProperty("--ct-border", palette.border);
-          document.documentElement.style.setProperty("--ct-accent", palette.accent);
+          const palette = applyTheme(theme);
           document.body.innerHTML = '<div id="team-picker-root"></div>';
           createRoot(document.getElementById("team-picker-root")).render(
             <aside className="h-full w-[280px] p-3" style={{ background: palette.bg }}>
@@ -127,30 +147,80 @@ test("@golden loading identity card covers launch delivery and failure in both t
 }, testInfo) => {
   const bundle = await loadingCardBundle();
   const page = await webBrowser.newPage({ viewport: { width: 900, height: 620 } });
+  const readProgress = async () =>
+    page
+      .locator('[data-testid="chat-launch-ring"]')
+      .evaluate((element) => (element as HTMLElement).style.getPropertyValue("--launch-progress"));
+
   try {
     for (const theme of ["dark", "light"] as const) {
-      for (const [name, stage, expected] of states) {
+      const progressByStage = new Map<string, number>();
+      for (const [name, stage] of startingStates) {
         await page.goto(devInstance.webUrl);
         await page.addScriptTag({ content: bundle });
         await page.evaluate(
-          ({ stage, theme }) => {
-            const render = (window as typeof window & {
-              __renderLoadingCard: (stage: string, theme: string) => void;
-            }).__renderLoadingCard;
-            render(stage, theme);
+          ({ stage, theme, providerName, failureReason }) => {
+            (window as typeof window & {
+              __renderLoadingCard: (
+                stage: string,
+                theme: string,
+                providerName: string,
+                failureReason: string,
+              ) => void;
+            }).__renderLoadingCard(stage, theme, providerName, failureReason);
           },
-          { stage, theme },
+          { stage, theme, providerName: PROVIDER_NAME, failureReason: FAILURE_REASON },
         );
-        const card = page.locator(
-          stage === "spawn_failed" ? '[data-testid="chat-launch-failed"]' : '[data-testid="chat-setup-state"]',
-        );
+
+        const card = page.locator('[data-testid="chat-setup-state"]');
         await expect(card).toBeVisible();
-        await expect(card).toContainText(expected);
+        // The provider identity the fixture supplied is the card's only name.
+        await expect(card.locator('[data-testid="chat-launch-glyph"]'))
+          .toHaveAttribute("aria-label", PROVIDER_NAME);
+        const raw = await readProgress();
+        const percent = Number.parseFloat(raw.replace("%", ""));
+        expect(Number.isFinite(percent), `${name} ring exposes a numeric progress`).toBe(true);
+        expect(percent).toBeGreaterThan(0);
+        expect(percent).toBeLessThanOrEqual(100);
+        progressByStage.set(stage, percent);
+
         await page.screenshot({
           path: testInfo.outputPath(`loading-card-${theme}-${name}.png`),
           fullPage: false,
         });
       }
+      // The ring advances as boot advances — read off the product, not restated.
+      expect(
+        progressByStage.get("delivering_instructions"),
+        "delivery sits further along the ring than instruction preparation",
+      ).toBeGreaterThan(progressByStage.get("preparing_role_instructions")!);
+
+      // spawn_failed leaves the chat overlay and surfaces on the boot overlay,
+      // which owns the reason and the recovery action.
+      await page.goto(devInstance.webUrl);
+      await page.addScriptTag({ content: bundle });
+      await page.evaluate(
+        ({ theme, providerName, failureReason }) => {
+          (window as typeof window & {
+            __renderLoadingCard: (
+              stage: string,
+              theme: string,
+              providerName: string,
+              failureReason: string,
+            ) => void;
+          }).__renderLoadingCard("spawn_failed", theme, providerName, failureReason);
+        },
+        { theme, providerName: PROVIDER_NAME, failureReason: FAILURE_REASON },
+      );
+      const failed = page.locator('[data-testid="tab-boot-failed"]');
+      await expect(failed).toBeVisible();
+      await expect(failed).toContainText(FAILURE_REASON);
+      await expect(failed.getByRole("button", { name: "Retry agent launch" })).toBeVisible();
+      await expect(page.locator('[data-testid="chat-setup-state"]')).toHaveCount(0);
+      await page.screenshot({
+        path: testInfo.outputPath(`loading-card-${theme}-failure.png`),
+        fullPage: false,
+      });
     }
   } finally {
     await page.close();

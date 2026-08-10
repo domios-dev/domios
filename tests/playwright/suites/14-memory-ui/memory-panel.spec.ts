@@ -70,6 +70,9 @@ test("@golden MemoryPanel searches saved memory and opens item preview", async (
   );
   const item = await api.get<MemItem>(`/mem/items/${id}`);
   expect(item.title).toContain(marker);
+  // MemoryListTab intersects search hits with the graph snapshot it was handed,
+  // so an item absent from that snapshot can never list however it scores.
+  await waitForGraphSnapshot(api, [id]);
 
   await openMemoryList(ui.page);
   await ui.page.locator('[data-testid="memory-list-search"]').fill(marker);
