@@ -1,5 +1,7 @@
 tests/playwright/suites/12-web/tab-switch-bounce.spec.ts:43 Playwright force: true is banned; wait for an actionable element instead.
 tests/playwright/suites/12-web/tab-switch-bounce.spec.ts:71 Playwright force: true is banned; wait for an actionable element instead.
+tests/playwright/suites/12-web/web-parity.spec.ts:410 Agent-spawning Playwright test must declare exactly one provider source: @stub (or an in-scope stub-transport gate) or @live.
+tests/playwright/suites/12-web/web.spec.ts:450 Agent-spawning Playwright test must declare exactly one provider source: @stub (or an in-scope stub-transport gate) or @live.
 tests/playwright/suites/20-event-freeze/event-freeze-probe.spec.ts:65 waitForTimeout is banned; use web-first assertions or pollUntil.
 tests/playwright/suites/20-event-freeze/event-freeze-probe.spec.ts:72 Raw connectUi() is banned in specs; use the ui fixture.
 tests/playwright/suites/20-event-freeze/event-freeze-probe.spec.ts:112 Raw connectUi() is banned in specs; use the ui fixture.

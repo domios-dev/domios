@@ -15,20 +15,11 @@ import { appendFileSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { DEFAULT_REPLAY_BYTE_CAP, castOutput, defaultCastFor } from "./replay-cast.mjs";
+import { styleFor } from "./replay-style.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.join(HERE, "..", "..", "..", "..");
-
-// Recorded real-session boot screens: detection fingerprints come from these
-// bytes, so status/agent classification runs the provider's true code path.
-const DEFAULT_CASTS = {
-  claude:
-    "testbench/replays/claude/geometry_smoke_v1-20260621-geometry-smoke-v2-claude-geometry_smoke_v1-100x30/raw.cast",
-  codex:
-    "testbench/replays/codex/codex_prompt_idle_regression_v1-20260621-codex-prompt-idle-v1/raw.cast",
-  opencode:
-    "testbench/replays/opencode/geometry_smoke_v1-20260621-geometry-smoke-v2-opencode-geometry_smoke_v1-100x30/raw.cast",
-};
 
 function parseArgv(argv) {
   const sep = argv.indexOf("--");
@@ -78,27 +69,7 @@ const tabId = process.env.CODETERM_TAB_ID || "";
 const apiUrl = (process.env.CODETERM_API_URL || "").replace(/\/$/, "");
 const apiToken = process.env.CODETERM_API_TOKEN || "";
 
-const STYLE = {
-  claude: {
-    banner: `[38;2;217;119;87m✳[0m Claude Code (stub replay)  model: ${model ?? "default"}`,
-    turn: (text) => `[1m●[0m ${text}`,
-    tool: (marker) => `[2m⏺ Bash(echo ${marker})[0m\n[2m  ⎿  ${marker}[0m`,
-    idle: "[2m❯[0m ",
-  },
-  codex: {
-    banner: `[36mOpenAI Codex (stub replay)[0m  model: ${model ?? "default"}`,
-    turn: (text) => `[1mcodex[0m  ${text}`,
-    tool: (marker) => `[2mexec[0m echo ${marker}\n${marker}`,
-    idle: "[2m▌[0m ",
-  },
-  opencode: {
-    banner: `[35m█ opencode (stub replay)[0m  model: ${model ?? "default"}`,
-    turn: (text) => `[1m@[0m ${text}`,
-    tool: (marker) => `[2m$ echo ${marker}[0m\n${marker}`,
-    idle: "[2m>[0m ",
-  },
-};
-const style = STYLE[provider] ?? STYLE.claude;
+const style = styleFor(provider, model);
 
 function out(text) {
   process.stdout.write(text.endsWith("\n") ? text : `${text}\n`);
@@ -146,27 +117,18 @@ async function announceSession() {
 }
 
 function replayCast() {
-  const castPath = process.env.CODETERM_STUB_CAST || DEFAULT_CASTS[provider];
-  if (!castPath) return;
+  const castPath = process.env.CODETERM_STUB_CAST || defaultCastFor(provider);
+  if (!castPath) {
+    // Silence here is what let a cast-less provider pass for a real boot.
+    out(`stub replay: no recorded cast for provider ${provider}`);
+    return;
+  }
   const resolved = path.isAbsolute(castPath)
     ? castPath
     : path.join(REPO, castPath);
   try {
-    const lines = readFileSync(resolved, "utf8").split("\n").slice(1);
-    const byteCap = Number(process.env.CODETERM_STUB_REPLAY_BYTE_CAP ?? 12_000);
-    let bytesWritten = 0;
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      const [, kind, data] = JSON.parse(line);
-      if (kind !== "o") continue;
-      const chunk = stripTerminalQueries(data);
-      const remaining = byteCap - bytesWritten;
-      if (remaining <= 0) break;
-      const visible = chunk.slice(0, remaining);
-      process.stdout.write(visible);
-      bytesWritten += Buffer.byteLength(visible);
-      if (bytesWritten >= byteCap) break;
-    }
+    const byteCap = Number(process.env.CODETERM_STUB_REPLAY_BYTE_CAP ?? DEFAULT_REPLAY_BYTE_CAP);
+    process.stdout.write(castOutput(readFileSync(resolved, "utf8"), byteCap));
     process.stdout.write("\r\n");
   } catch (e) {
     out(`stub replay: cast unavailable (${String(e).slice(0, 80)})`);
@@ -323,14 +285,6 @@ function handleCodexInput(chunk) {
     handleLine(codexDraft);
     codexDraft = "";
   }
-}
-
-function stripTerminalQueries(data) {
-  return data
-    .replaceAll("\u001b[c", "")
-    .replaceAll("\u001b[6n", "")
-    .replaceAll("\u001b]10;?\u001b\\", "")
-    .replaceAll("\u001b]11;?\u001b\\", "");
 }
 
 function handleRawInput(chunk) {
