@@ -50,13 +50,11 @@ test(
     await expect(composerA).toBeVisible({ timeout: 10_000 });
 
     // then alive simultaneously, enabling the multi-mount focus-steal scenario.
-    if (tabB.tab_id) {
-      const tabB = ui.page
-        .locator(`[data-testid="tab-item"][data-tab-id="${tabB.tab_id}"]`)
-        .first();
-      await expect(tabB).toBeVisible({ timeout: 30_000 });
-      await tabB.click();
-    }
+    const rowB = ui.page
+      .locator(`[data-testid="tab-item"][data-tab-id="${tabB.id}"]`)
+      .first();
+    await expect(rowB).toBeVisible({ timeout: 30_000 });
+    await rowB.click();
     const chatB = ui.page.locator(
       `[data-testid="tab-session-chat"][data-tab-id="${tabB.id}"]`,
     );
