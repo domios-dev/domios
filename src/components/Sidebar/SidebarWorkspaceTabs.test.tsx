@@ -977,7 +977,9 @@ test("working team worker keeps activity dots without status rail", async () => 
   await act(async () => root.unmount());
 });
 
-test("team worker and manager descriptions do not add row lines", async () => {
+test("team worker and manager descriptions render as one subtitle line", async () => {
+  const managerDescription = "planning the release cut";
+  const workerDescription = "compiling shaders";
   const tabs: Record<string, Tab> = {
     orchestrator: tab({
       id: "orchestrator",
@@ -988,7 +990,7 @@ test("team worker and manager descriptions do not add row lines", async () => {
     manager: tab({
       id: "manager",
       title: "Planner",
-      description: "manager description must stay tooltip-only",
+      description: managerDescription,
       role: "Manager",
       role_profile: "planner",
       team_id: TEAM.id,
@@ -996,7 +998,7 @@ test("team worker and manager descriptions do not add row lines", async () => {
     worker: tab({
       id: "worker",
       title: "Worker",
-      description: "worker description must stay tooltip-only",
+      description: workerDescription,
       role: "Worker",
       team_id: TEAM.id,
     }),
@@ -1007,11 +1009,22 @@ test("team worker and manager descriptions do not add row lines", async () => {
     tab("tab-worker", "worker", 2),
   ];
   const { host, root } = await renderSidebar({ tabs, sortedTabs });
+  const orchestratorRow = host.querySelector('[data-tab-id="orchestrator"]');
   const managerRow = host.querySelector('[data-tab-id="manager"]');
   const workerRow = host.querySelector('[data-tab-id="worker"]');
-  assert(!managerRow?.textContent?.includes("manager description"), "manager description is not a row line");
-  assert(!workerRow?.textContent?.includes("worker description"), "worker description is not a row line");
-  assert(!workerRow?.querySelector('[data-testid="tab-subline"]'), "worker remains a single-line row");
+  const subtitles = (row: Element | null | undefined) =>
+    Array.from(row?.querySelectorAll('[data-testid="tab-description-subtitle"]') ?? []);
+  assert(
+    subtitles(managerRow).map((node) => node.textContent).join("|") === managerDescription,
+    "manager description is exactly one subtitle line",
+  );
+  assert(
+    subtitles(workerRow).map((node) => node.textContent).join("|") === workerDescription,
+    "worker description is exactly one subtitle line",
+  );
+  assert(subtitles(orchestratorRow).length === 0, "a tab without a description gains no subtitle line");
+  assert(managerRow?.getAttribute("title")?.includes(managerDescription), "full description stays in the row tooltip");
+  assert(!workerRow?.querySelector('[data-testid="tab-subline"]'), "worker still has no role subline");
   assert(managerRow?.querySelectorAll('[data-testid="tab-subline"]').length === 1, "manager has only its role subline");
   await act(async () => root.unmount());
 });
