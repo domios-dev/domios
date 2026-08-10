@@ -168,10 +168,15 @@ pub fn complete_first_run_core(
         )
     };
 
-    {
+    let duplicate_generals_closed = {
         let mut mux_guard = mux.write();
         close_first_run_tabs(&mut mux_guard)?;
-        ensure_general_workspace(&mut mux_guard, default_chat_view);
+        ensure_general_workspace(&mut mux_guard, default_chat_view)
+    };
+    if duplicate_generals_closed > 0 {
+        // Duplicate-General cleanup is a deliberate reduction of persisted
+        // workspaces; persist it with intent so the guard has nothing to refuse.
+        crate::service::session_persist::persist_session_after_close(svc.as_ref());
     }
     svc.emit_state_changed();
 
