@@ -175,10 +175,28 @@ Experimental/historical: `evals/dreamer-repair/`, `evals/seeds/`, `evals/v1_1_23
 
 When you write a new eval set, drop a one-line entry in the live list above.
 
+## Reading the sample count
+
+`--runs N` takes N distinct samples. Cache entries are keyed per sample index,
+so a repeat of the same command replays N previously-taken samples — it never
+serves one sample N times.
+
+Every report opens with a **Sampling:** line and carries a `Source` column per
+eval (`live` / `cached` / `k/N cached`). Treat them as part of the numbers:
+
+- `cached` means the verdicts were replayed from `~/.cache/codeterm-evals`, not
+  taken fresh. Re-run with `--no-cache` before acting on a surprising result.
+- Confidence intervals count **distinct samples**, never the requested `--runs`.
+  If those differ, the report prints an `⚠ Undersampled` line — the interval is
+  narrower evidence than the flag you typed suggests.
+
+`--no-cache` skips the cache entirely; `--clear-cache` wipes it first.
+
 ## Limitations
 
 1. **Sandbox mode means the agent can't actually call CodeTerm.** It describes what it would do in plain text; the judge reads that description. If a prompt's behavior depends on the agent reading actual files or tab state, this harness can't test it. For those cases, write an integration test in `tests/e2e/` instead.
 2. **LLM-as-judge is not perfectly deterministic.** Even the same expectation+response pair can flip verdicts run-to-run (~5% based on Anthropic eval research). Use `--thorough` (3 runs) when you need higher confidence. The default 1 run is fast for routine "did I just break something" checks where one verdict is enough.
+2b. **Some failures are harness, not behavior.** The judge auto-FAILs a response that emits `# NO_COMMAND: ...` when the expectation names a specific command, and a judge timeout is scored as a plain failure. Both look identical to a real behavioral miss in the report. Before reverting a prompt on a failure, read the sample response and check which one you are looking at.
 3. **Uses your Claude Code auth.** Runs through whatever `claude login` is currently active — OAuth subscription or API key, whichever you have. Use `--dry-run` first to see the call count if you want to budget against subscription quota. Typical default `A/B quick` run is ~100 calls (Haiku-mostly), `--thorough` triples it.
 4. **The prompt under test is *appended* to Claude Code's default system prompt, not replacing it.** This matches real usage (CodeTerm prompts always run on top of Claude's base behavior), but it means you can't test prompts that contradict Claude defaults. If you need a clean slate, hack `runner.py` to use `--system-prompt` instead of `--append-system-prompt`.
 5. **Git-revision references require a clean working tree** for the file under test. If you have uncommitted changes to `general_agent.md` and ask for `HEAD~1:general_agent.md`, you get the committed version, not your working copy — which is what you want for A/B but might confuse if you forgot.

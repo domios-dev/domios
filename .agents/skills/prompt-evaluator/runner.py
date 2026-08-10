@@ -177,15 +177,31 @@ Format rules:
 """
 
 
+@dataclass
+class AgentResponse:
+    """One agent sample plus the provenance needed to count it honestly."""
+
+    ok: bool
+    text: str
+    sample_key: str
+    from_cache: bool
+
+
 def run_agent(
     eval_prompt: str,
     system_prompt: str,
     model: str = "sonnet",
     timeout_s: int = 180,
-) -> tuple[bool, str]:
+    run_idx: int = 0,
+) -> AgentResponse:
     """
     Spawn `claude -p` in clean dry-run mode with the prompt-under-test as
-    the system prompt. Returns (ok, response_text).
+    the system prompt.
+
+    `run_idx` identifies which sample of a repeated measurement this is. It
+    salts the cache key, so `--runs N` takes N independently keyed samples
+    instead of replaying one entry N times. `sample_key` is that key, and the
+    aggregator counts distinct keys — never the requested run count.
 
     Key isolation choices:
       - `cwd=<empty tempdir>` — prevents Claude from auto-loading CLAUDE.md /
@@ -209,6 +225,17 @@ def run_agent(
     # ...) created by bash hook scripts redirecting to `> NUL`. Even
     # ignore_cleanup_errors doesn't catch that path.
     trusted_system_prompt = system_prompt + EVAL_WRAPPER_SUFFIX
+    salt = _cache.sample_salt(run_idx)
+    sample_key = _cache.key(
+        model,
+        trusted_system_prompt,
+        eval_prompt,
+        namespace="agent",
+        salt=salt,
+    )
+
+    def result(ok: bool, text: str, from_cache: bool = False) -> AgentResponse:
+        return AgentResponse(ok=ok, text=text, sample_key=sample_key, from_cache=from_cache)
 
     if _CACHE_ENABLED:
         cached = _cache.get(
@@ -216,9 +243,10 @@ def run_agent(
             trusted_system_prompt,
             eval_prompt,
             namespace="agent",
+            salt=salt,
         )
         if cached is not None:
-            return (True, cached)
+            return result(True, cached, from_cache=True)
 
     clean_cwd = tempfile.mkdtemp(prefix="codeterm-eval-")
     try:
@@ -247,22 +275,22 @@ def run_agent(
                 cwd=clean_cwd,
             )
         except subprocess.TimeoutExpired:
-            return (False, f"<timeout after {timeout_s}s>")
+            return result(False, f"<timeout after {timeout_s}s>")
         except FileNotFoundError:
             raise SystemExit("`claude` CLI not found in PATH — install Claude Code first.")
     finally:
         _force_rmtree(clean_cwd)
 
     if proc.returncode != 0:
-        return (False, f"<exit {proc.returncode}: {(proc.stderr or '').strip()[:300]}>")
+        return result(False, f"<exit {proc.returncode}: {(proc.stderr or '').strip()[:300]}>")
 
     if not proc.stdout:
-        return (False, f"<empty stdout, stderr: {(proc.stderr or '').strip()[:300]}>")
+        return result(False, f"<empty stdout, stderr: {(proc.stderr or '').strip()[:300]}>")
 
     try:
         envelope = json.loads(proc.stdout)
     except json.JSONDecodeError:
-        return (False, f"<non-JSON output: {proc.stdout[:300]}>")
+        return result(False, f"<non-JSON output: {proc.stdout[:300]}>")
 
     response_text = envelope.get("result") or ""
     if _CACHE_ENABLED and response_text:
@@ -272,8 +300,9 @@ def run_agent(
             eval_prompt,
             response_text,
             namespace="agent",
+            salt=salt,
         )
-    return (True, response_text)
+    return result(True, response_text)
 
 
 # ── Per-eval execution ─────────────────────────────────────────────
@@ -285,11 +314,17 @@ class RunResult:
     eval_name: str
     run_idx: int
     response: str
+    sample_key: str = ""
+    sample_from_cache: bool = False
     matches: list[MatchResult] = field(default_factory=list)
 
     @property
     def passed(self) -> bool:
         return all(m.passed for m in self.matches)
+
+    @property
+    def cached_judgements(self) -> int:
+        return sum(1 for m in self.matches if m.from_cache)
 
 
 def _do_one_run(
@@ -303,7 +338,8 @@ def _do_one_run(
     side: str | None,
     verbose: bool,
 ) -> RunResult:
-    ok, response = run_agent(ev.prompt, system_prompt, model=main_model)
+    sample = run_agent(ev.prompt, system_prompt, model=main_model, run_idx=run_idx)
+    response = sample.text
     if dashboard is not None:
         dashboard.event("call_done")
     rr = RunResult(
@@ -311,15 +347,17 @@ def _do_one_run(
         eval_name=ev.name,
         run_idx=run_idx,
         response=response,
+        sample_key=sample.sample_key,
+        sample_from_cache=sample.from_cache,
     )
-    if not ok:
+    if not sample.ok:
         rr.matches.append(MatchResult(False, "agent-error", response))
     elif ev.expectations:
         # Parallelize judge calls for this run's response.
         slots: list[MatchResult | None] = [None] * len(ev.expectations)
         with ThreadPoolExecutor(max_workers=max(1, judge_concurrency)) as pool:
             fut_to_idx = {
-                pool.submit(match_expectation, exp, response, judge_model): i
+                pool.submit(match_expectation, exp, response, judge_model, run_idx=run_idx): i
                 for i, exp in enumerate(ev.expectations)
             }
             for fut in as_completed(fut_to_idx):
@@ -335,7 +373,11 @@ def _do_one_run(
             run_idx=run_idx,
             passed=rr.passed,
             response=response,
-            matches=[{"passed": m.passed, "method": m.method, "reason": m.reason} for m in rr.matches],
+            from_cache=rr.sample_from_cache,
+            matches=[
+                {"passed": m.passed, "method": m.method, "reason": m.reason, "from_cache": m.from_cache}
+                for m in rr.matches
+            ],
             side=side,
         )
     if verbose:
@@ -388,13 +430,14 @@ def run_eval_n_times(
                 slots[fut_to_idx[fut]] = fut.result()
         results = [r for r in slots if r is not None]
     if dashboard is not None:
-        passed = sum(1 for r in results if r.passed)
+        distinct = distinct_samples(results)
         dashboard.event(
             "eval_done",
             eval_id=ev.id,
             eval_name=ev.name,
-            runs_passed=passed,
-            total_runs=runs,
+            runs_passed=sum(1 for r in distinct if r.passed),
+            total_runs=len(distinct),
+            requested_runs=runs,
             side=side,
         )
     return results
@@ -409,9 +452,13 @@ class EvalSummary:
     eval_name: str
     expected_output: str
     runs_passed: int
-    total_runs: int
+    total_runs: int                     # DISTINCT samples, never the requested run count
     failed_expectations: list[str]      # union of failed expectations across runs
     sample_response: str                # one response (first failing if any, else first)
+    requested_runs: int = 0
+    cached_samples: int = 0
+    cached_judgements: int = 0
+    total_judgements: int = 0
 
     @property
     def pass_rate(self) -> str:
@@ -424,6 +471,21 @@ class EvalSummary:
         if self.runs_passed == 0:
             return "✗"
         return "⚠"
+
+    @property
+    def undersampled(self) -> bool:
+        return self.requested_runs > self.total_runs
+
+    @property
+    def source_label(self) -> str:
+        """Provenance of the samples behind pass_rate — printed next to the numbers."""
+        if self.total_runs == 0:
+            return "none"
+        if self.cached_samples == 0:
+            return "live"
+        if self.cached_samples == self.total_runs:
+            return "cached"
+        return f"{self.cached_samples}/{self.total_runs} cached"
 
 
 def wilson_ci(passed: int, total: int, z: float = 1.96) -> tuple[float, float]:
@@ -446,7 +508,27 @@ def fmt_ci(lo: float, hi: float) -> str:
     return f"[{int(lo*100):>3}%-{int(hi*100):>3}%]"
 
 
-def summarize(eval_def: Eval, runs: list[RunResult]) -> EvalSummary:
+def distinct_samples(runs: list[RunResult]) -> list[RunResult]:
+    """
+    Collapse runs that share a sample key.
+
+    Two runs with the same key are the same model call served twice, so counting
+    both would report a sample size that was never taken. Keys are salted per run
+    index, so this is a no-op on a healthy run and a hard floor if that ever breaks.
+    """
+    seen: set[str] = set()
+    unique: list[RunResult] = []
+    for r in runs:
+        if r.sample_key and r.sample_key in seen:
+            continue
+        if r.sample_key:
+            seen.add(r.sample_key)
+        unique.append(r)
+    return unique
+
+
+def summarize(eval_def: Eval, runs: list[RunResult], requested_runs: int = 0) -> EvalSummary:
+    runs = distinct_samples(runs)
     passed = sum(1 for r in runs if r.passed)
     failed_expectations: set[str] = set()
     sample_response = runs[0].response if runs else ""
@@ -465,10 +547,57 @@ def summarize(eval_def: Eval, runs: list[RunResult]) -> EvalSummary:
         total_runs=len(runs),
         failed_expectations=sorted(failed_expectations),
         sample_response=sample_response,
+        requested_runs=requested_runs or len(runs),
+        cached_samples=sum(1 for r in runs if r.sample_from_cache),
+        cached_judgements=sum(r.cached_judgements for r in runs),
+        total_judgements=sum(len(r.matches) for r in runs),
     )
 
 
 # ── Reporting ──────────────────────────────────────────────────────
+
+
+SAMPLING_NOTE_MARKER = "Sampling:"
+
+
+def render_sampling_note(summaries: list[EvalSummary]) -> list[str]:
+    """
+    One unmissable line about where the numbers came from.
+
+    Always emitted, so silence can never be read as "fresh" — a reader who
+    skips the source column still learns that verdicts were replayed.
+    """
+    samples = sum(s.total_runs for s in summaries)
+    cached = sum(s.cached_samples for s in summaries)
+    judgements = sum(s.total_judgements for s in summaries)
+    cached_judgements = sum(s.cached_judgements for s in summaries)
+    undersampled = [s for s in summaries if s.undersampled]
+
+    lines: list[str] = []
+    if cached or cached_judgements:
+        lines.append(
+            f"> **{SAMPLING_NOTE_MARKER} WARM CACHE.** {cached}/{samples} agent sample(s) and "
+            f"{cached_judgements}/{judgements} judge verdict(s) were replayed from the on-disk "
+            "cache, not taken fresh. Every interval below counts distinct samples. "
+            "Re-run with `--no-cache` for fully fresh ones."
+        )
+    else:
+        lines.append(
+            f"> **{SAMPLING_NOTE_MARKER} all fresh.** {samples} agent sample(s) and "
+            f"{judgements} judge verdict(s) were taken live; no cache hits."
+        )
+    if undersampled:
+        detail = ", ".join(
+            f"eval {s.eval_id}: {s.requested_runs} requested → {s.total_runs} distinct"
+            for s in undersampled
+        )
+        lines.append(">")
+        lines.append(
+            f"> **⚠ Undersampled.** Fewer distinct samples than requested runs ({detail}). "
+            "Intervals reflect the distinct count."
+        )
+    lines.append("")
+    return lines
 
 
 def render_single_report(
@@ -476,12 +605,14 @@ def render_single_report(
     summaries: list[EvalSummary],
 ) -> str:
     lines = [f"# Eval report — {prompt_label}", ""]
-    lines.append("| ID | Eval | Result | 95% CI |")
-    lines.append("|----|------|--------|--------|")
+    lines.extend(render_sampling_note(summaries))
+    lines.append("| ID | Eval | Result | 95% CI | Samples | Source |")
+    lines.append("|----|------|--------|--------|---------|--------|")
     for s in summaries:
         lo, hi = wilson_ci(s.runs_passed, s.total_runs)
         lines.append(
-            f"| {s.eval_id} | {s.eval_name} | {s.pass_rate} {s.status_symbol} | {fmt_ci(lo, hi)} |"
+            f"| {s.eval_id} | {s.eval_name} | {s.pass_rate} {s.status_symbol} | "
+            f"{fmt_ci(lo, hi)} | {s.total_runs} | {s.source_label} |"
         )
     lines.append("")
     failed = [s for s in summaries if s.runs_passed < s.total_runs]
@@ -523,9 +654,12 @@ def render_ab_report(
         f"- **A:** `{label_a}`",
         f"- **B:** `{label_b}`",
         "",
-        "| ID | Eval | A | B | Δ | A 95% CI | B 95% CI |",
-        "|----|------|---|---|---|----------|----------|",
     ]
+    lines.extend(render_sampling_note(summaries_a + summaries_b))
+    lines.extend([
+        "| ID | Eval | A | B | Δ | A 95% CI | B 95% CI | A src | B src |",
+        "|----|------|---|---|---|----------|----------|-------|-------|",
+    ])
     regressions: list[tuple[EvalSummary, EvalSummary]] = []
     for eid in all_ids:
         a = by_id_a.get(eid)
@@ -550,8 +684,11 @@ def render_ab_report(
                 delta_str = "0"
         else:
             delta_str = "?"
+        a_src = a.source_label if a else "—"
+        b_src = b.source_label if b else "—"
         lines.append(
-            f"| {eid} | {(a or b).eval_name} | {a_str} | {b_str} | {delta_str} | {a_ci} | {b_ci} |"
+            f"| {eid} | {(a or b).eval_name} | {a_str} | {b_str} | {delta_str} "
+            f"| {a_ci} | {b_ci} | {a_src} | {b_src} |"
         )
     lines.append("")
 
@@ -661,7 +798,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--no-cache",
         action="store_true",
-        help="Skip the on-disk response cache (~/.cache/codeterm-evals/). Forces fresh main + judge calls.",
+        help="Skip the on-disk response cache (~/.cache/codeterm-evals/). Forces fresh main + judge calls. Cache entries are keyed per sample index, so --runs N is N distinct samples with or without this flag.",
     )
     p.add_argument(
         "--clear-cache",
@@ -721,7 +858,7 @@ def evaluate_prompt(
             run_concurrency=run_concurrency,
             judge_concurrency=judge_concurrency,
         )
-        return summarize(ev, run_results)
+        return summarize(ev, run_results, requested_runs=runs)
 
     if eval_concurrency <= 1:
         summaries = [one_eval(ev) for ev in evals]
@@ -761,9 +898,10 @@ def main() -> int:
         evals, runs=args.runs, ab_mode=bool(args.prompt_a)
     )
     print(
-        f"[preflight] {len(evals)} eval(s) × {args.runs} run(s) × "
+        f"[preflight] {len(evals)} eval(s) × {args.runs} distinct sample(s) × "
         f"{2 if args.prompt_a else 1} prompt(s) = {main_calls} main {args.model} call(s) + "
-        f"{judge_calls} {args.judge_model} judge call(s) = {main_calls + judge_calls} total",
+        f"{judge_calls} {args.judge_model} judge call(s) = {main_calls + judge_calls} total"
+        + ("" if args.no_cache else " (cache hits replay a prior distinct sample, never duplicate one)"),
         file=sys.stderr,
     )
     if args.dry_run:

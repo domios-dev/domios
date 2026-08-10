@@ -34,6 +34,8 @@ try:
 except ImportError:
     import cache as _cache  # noqa: E402
 
+sample_salt = _cache.sample_salt
+
 # Module-level toggle for cache use; flipped by runner based on --no-cache.
 _CACHE_ENABLED = True
 
@@ -110,6 +112,7 @@ class MatchResult:
     passed: bool
     method: str          # always "llm-judge" — kept for output formatting compatibility
     reason: str
+    from_cache: bool = False
 
     def __str__(self) -> str:
         symbol = "✓" if self.passed else "✗"
@@ -121,23 +124,28 @@ def match_expectation(
     response: str,
     judge_model: str = "haiku",
     timeout_s: int = 60,
+    run_idx: int = 0,
 ) -> MatchResult:
     """
     Run a single judge call. Returns a MatchResult; on any judge failure
     (timeout, parse error, non-zero exit, missing CLI) returns
     `passed=False` with the failure reason — fail closed.
+
+    `run_idx` salts the cache key so repeated samples get independent
+    verdicts even when two samples produced byte-identical responses.
     """
     prompt = JUDGE_PROMPT_TEMPLATE.format(
         expectation=expectation,
         response=response,
     )
+    salt = sample_salt(run_idx)
     # judge has no system prompt — pass empty string as the system slot for cache key.
     if _CACHE_ENABLED:
-        cached = _cache.get(judge_model, "", prompt, namespace="judge")
+        cached = _cache.get(judge_model, "", prompt, namespace="judge", salt=salt)
         if cached is not None:
             passed, reason = _parse_verdict(cached)
             if passed is not None:
-                return MatchResult(passed, "llm-judge", reason)
+                return MatchResult(passed, "llm-judge", reason, from_cache=True)
             # cached entry was malformed — fall through and re-run.
     try:
         proc = subprocess.run(
@@ -183,5 +191,5 @@ def match_expectation(
     if passed is None:
         return MatchResult(False, "llm-judge", f"unparseable verdict: {verdict_text[:200]}")
     if _CACHE_ENABLED:
-        _cache.put(judge_model, "", prompt, verdict_text, namespace="judge")
-    return MatchResult(passed, "llm-judge", reason)
+        _cache.put(judge_model, "", prompt, verdict_text, namespace="judge", salt=salt)
+    return MatchResult(passed, "llm-judge", reason, from_cache=False)

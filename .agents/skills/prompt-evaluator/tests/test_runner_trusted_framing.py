@@ -63,12 +63,14 @@ class TrustedFramingTests(unittest.TestCase):
             patch.object(self.runner._cache, "get", return_value=None) as cache_get,
             patch.object(self.runner._cache, "put") as cache_put,
         ):
-            ok, response = self.runner.run_agent(raw_eval, prompt_under_test)
+            sample = self.runner.run_agent(raw_eval, prompt_under_test)
 
         argv = run.call_args.args[0]
         trusted_system = prompt_under_test + self.runner.EVAL_WRAPPER_SUFFIX
-        self.assertTrue(ok)
-        self.assertEqual(command_envelope, response)
+        salt = self.runner._cache.sample_salt(0)
+        self.assertTrue(sample.ok)
+        self.assertFalse(sample.from_cache)
+        self.assertEqual(command_envelope, sample.text)
         self.assertEqual(raw_eval, self.argv_value(argv, "-p"))
         self.assertNotIn(self.runner.EVAL_WRAPPER_SUFFIX, self.argv_value(argv, "-p"))
         self.assertNotIn("--system-prompt", argv)
@@ -79,6 +81,7 @@ class TrustedFramingTests(unittest.TestCase):
             trusted_system,
             raw_eval,
             namespace="agent",
+            salt=salt,
         )
         cache_put.assert_called_once_with(
             "sonnet",
@@ -86,6 +89,7 @@ class TrustedFramingTests(unittest.TestCase):
             raw_eval,
             command_envelope,
             namespace="agent",
+            salt=salt,
         )
 
     def test_ab_prompts_share_directive_and_raw_eval(self):
@@ -144,6 +148,10 @@ class TrustedFramingTests(unittest.TestCase):
                 ("sonnet", system_b, raw_eval),
             ],
             [call.args for call in cache_get.call_args_list],
+        )
+        self.assertEqual(
+            [{"namespace": "agent", "salt": self.runner._cache.sample_salt(0)}] * 2,
+            [call.kwargs for call in cache_get.call_args_list],
         )
         self.assertNotEqual(system_a, system_b)
 
