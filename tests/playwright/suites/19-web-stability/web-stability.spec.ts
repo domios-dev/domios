@@ -24,7 +24,8 @@ type MuxState = {
   workspaces: {
     id: string;
     name: string;
-    tabs: { id: string; title?: string; tab_id?: string; children?: unknown[] }[];
+    /** A list of tab IDS (`Workspace.tabs: string[]`); titles live on `tabs`. */
+    tabs: string[];
     active_tab_id?: string | null;
   }[];
   tabs: Record<string, { id: string; title?: string; pending_prompt?: { question?: string } | null }>;
@@ -115,8 +116,9 @@ async function sendShell(api: ApiClient, tabId: string, text: string, enter = tr
 async function waitMuxTabTitle(api: ApiClient, tabId: string, title: string): Promise<void> {
   await pollUntil(async () => {
     const mux = await api.get<MuxState>("/mux/state");
-    return mux.workspaces.some((ws) =>
-      ws.tabs.some((tab) => tab.id === tabId && (tab.title === title || (tab.tab_id && mux.tabs[tab.tab_id]?.title === title))),
+    return (
+      mux.workspaces.some((ws) => ws.tabs.includes(tabId)) &&
+      mux.tabs[tabId]?.title === title
     ) || undefined;
   }, 20_000, 500, `mux tab title ${title}`);
 }
