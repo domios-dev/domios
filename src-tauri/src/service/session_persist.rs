@@ -41,9 +41,13 @@ pub(crate) fn write_session_snapshot_with_intent(
         let store = session.lock();
         store.save_with_intent(&snapshot, intent)
     };
-    save_result.map_err(|e| format!("save session: {}", e))?;
-    crate::session::scrollback_sync::sync_scrollback_sidecars(app);
-    Ok(())
+    let outcome = save_result.map_err(|e| format!("save session: {}", e))?;
+    // Sidecar pruning keys off the LIVE tab set, which a refused reduction has
+    // just declared untrustworthy — syncing there would delete what it saved.
+    if matches!(outcome, SaveOutcome::Saved) {
+        crate::session::scrollback_sync::sync_scrollback_sidecars(app);
+    }
+    Ok(outcome)
 }
 
 /// Prompt save after a deliberate removal (close verb, policy close, cleanup)

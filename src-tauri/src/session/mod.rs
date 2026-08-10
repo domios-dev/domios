@@ -24,12 +24,13 @@ pub fn save_session(
 ) -> Result<(), String> {
     let snapshot = mux.write().to_session_snapshot();
     // A refused reduction is the guard working (logged by the store), not a
-    // command failure.
-    let saved = session.lock().save(&snapshot).map(|_| ());
-    if saved.is_ok() {
+    // command failure — but its live tab set is untrusted, so sidecars that
+    // prune off it must not be synced.
+    let outcome = session.lock().save(&snapshot)?;
+    if matches!(outcome, store::SaveOutcome::Saved) {
         scrollback_sync::sync_scrollback_sidecars(&app);
     }
-    saved
+    Ok(())
 }
 
 /// Bounded display-buffer tail for a restored plain-shell tab. Agent tabs get
