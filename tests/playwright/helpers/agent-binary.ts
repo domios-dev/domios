@@ -17,15 +17,27 @@ export interface DiscoverOptions {
   exists?: (candidate: string) => boolean;
 }
 
+// PATHEXT is conventionally uppercase; installers write lowercase filenames. NTFS
+// reconciles the two, but per-directory case sensitivity (1803+), WSL and network
+// mounts do not — and this helper exists to stop discovery failing silently.
+function suffixCases(suffix: string): string[] {
+  return [...new Set([suffix, suffix.toLowerCase(), suffix.toUpperCase()])];
+}
+
 function executableSuffixes(platform: NodeJS.Platform, env: NodeJS.ProcessEnv): string[] {
   if (platform !== "win32") return [""];
   const pathext = env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD";
-  const suffixes = pathext
-    .split(";")
-    .map((entry) => entry.trim())
-    .filter(Boolean);
   // A suffix-less hit still counts: shims installed without an extension exist.
-  return ["", ...suffixes];
+  const suffixes = [""];
+  for (const entry of pathext.split(";")) {
+    const trimmed = entry.trim();
+    if (!trimmed) continue;
+    // PATHEXT order is precedence, so each entry's cases stay adjacent.
+    for (const variant of suffixCases(trimmed)) {
+      if (!suffixes.includes(variant)) suffixes.push(variant);
+    }
+  }
+  return suffixes;
 }
 
 export function discoverExecutable(name: string, options: DiscoverOptions = {}): string | null {
