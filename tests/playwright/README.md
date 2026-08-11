@@ -81,6 +81,26 @@ CT_E2E_WORKERS=2 npx playwright test --config=tests/playwright/playwright.config
   tests/playwright/suites/13-canvas/plan-view-mode.spec.ts
 ```
 
+### Many specs against an existing test console (`test:pw:selection`)
+
+`test:pw:one` adopts a standing instance but takes exactly one file;
+`test:pw:bounded` takes many files but kills, stands up, and tears down again.
+`test:pw:selection` is the pair that was missing: many specs, adopt-only, no
+lifecycle change. Stand the instance up once with `pnpm test:pw:instance`, then:
+
+```bash
+pnpm test:pw:selection -- --project golden \
+  --grep "@smoke|close sync|peer switching|does not bounce"
+```
+
+You never pass file paths. The runner asks Playwright which tests the
+`--project`/`--grep` selection resolves to, scopes the run to exactly those
+files, and then compares what ran against what was discovered. A hand-written
+file list is refused on purpose: a spec missing from one reads as covered when
+it never ran, and a zero-match filter exits 0, so the exit code proves nothing.
+A test that was discovered but never reported fails the run **by name**, and so
+does a selection that matched nothing.
+
 ### @perf capped run
 
 Run the perf gate with the required authoring caps via the DIRECT npx form:
@@ -350,4 +370,4 @@ server-spawned tabs do). Each throws a clear
 - Suites assert **UI DOM state**, not just API JSON, wherever the action
   has a user-visible effect.
 
-<!-- revision: 10 -->
+<!-- revision: 11 -->
