@@ -101,6 +101,26 @@ it never ran, and a zero-match filter exits 0, so the exit code proves nothing.
 A test that was discovered but never reported fails the run **by name**, and so
 does a selection that matched nothing.
 
+**The saving is the reuse, not the scoping.** MEASURED on this machine, warm,
+12 tests across 4 files: `test:pw:bounded` 105.8 s against `test:pw:selection`
+14.2 s and 12.9 s. All of that comes from skipping kill + standup + teardown.
+Scoping the run to the derived files is worth **210-333 ms** (a run loading all
+65 spec files against one loading a single file), and deriving the list costs a
+discovery pass of about 0.8-1.0 s — so file scoping is a small net LOSS in
+wall-clock. It is here for the count oracle, not for speed. Standing the
+instance up costs 52.5 s once and is then amortised over every later run.
+
+**Do not start `--grep` with `/` in Git Bash.** MSYS rewrites any argument
+beginning with `/` into a Windows path before the process sees it, so
+`-g "/api/health is ok"` arrives as `C:/Program Files/Git/api/health is ok` and
+silently matches nothing. In an alternation only the first alternative is
+mangled, so the selection quietly loses one test and every count still agrees
+with itself. Order the pattern so it does not begin with `/`.
+`MSYS2_ARG_CONV_EXCL='*'` fixes the grep and breaks pnpm, whose corepack shim
+needs the same conversion. **No count oracle can catch this** — discovery and
+the run receive the same mangled argument and agree perfectly on a selection
+that was already wrong. Read the derived list and check the names you expect.
+
 ### @perf capped run
 
 Run the perf gate with the required authoring caps via the DIRECT npx form:
