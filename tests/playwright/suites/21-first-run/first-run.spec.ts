@@ -235,7 +235,7 @@ test.describe("first run", () => {
     // config and relaunches the General Agent. See tests/playwright/WEAK_ORACLES.md.
   });
 
-  test("@golden FIRST RUN GATES NEW SESSION: no new-session picker can open while a first-run tab is unfinished", async ({
+  test("@golden FIRST RUN GATES NEW SESSION: backend first-run state disables New session until the tab is retired", async ({
     api,
     ui,
   }) => {
@@ -260,31 +260,38 @@ test.describe("first run", () => {
     await expect(detail).toBeVisible({ timeout: 10_000 });
 
     const sessionPicker = page.locator('[data-testid="new-session-picker"]');
+    const newSession = detail.locator('[data-testid="sidebar-new-session"]');
     const markerRow = detail.locator(`[data-testid="tab-item"][data-tab-id="${tabId}"]`);
     await expect(markerRow, "the marker tab must render a sidebar row before the gate is probed").toBeVisible({
       timeout: 15_000,
     });
 
-    await detail.locator('[data-testid="sidebar-new-session"]').click();
+    // The product does not silently swallow the click — it DISABLES the control, so
+    // the refusal is one a user and a screen reader can both perceive. Its wording is
+    // owned by SidebarWorkspaceTabs.test.tsx; what only this layer can prove is the
+    // wiring — that a first-run tab in BACKEND state is what disables it.
+    await expect(
+      newSession,
+      "New session must be refused while a first-run tab is outstanding",
+    ).toBeDisabled({ timeout: 15_000 });
+    await expect(newSession).toHaveAttribute("aria-disabled", "true");
+    await expect(sessionPicker, "no picker may be mounted while first run is pending").toHaveCount(0);
 
-    // Absence is proven against a LATER observable transition, never against
-    // elapsed time: close the marker tab and wait for its sidebar row to go, which
-    // is a render strictly after the click above. A picker that click had opened
-    // would be mounted by then.
+    // Retiring the tab is an observable backend transition, not elapsed time.
     await closeMarkerTab(api, tabId);
     createdMarkerTabId = undefined;
     await expect(markerRow).toHaveCount(0, { timeout: 15_000 });
-    await expect(
-      sessionPicker,
-      "New session must stay closed for as long as a first-run tab is outstanding",
-    ).toHaveCount(0);
 
-    // Positive control: same button, same selector, first run resolved. Without it
-    // a broken button or a stale selector would "prove" the gate.
-    await detail.locator('[data-testid="sidebar-new-session"]').click();
+    // Positive control: the disable was caused by the first-run tab and nothing
+    // ambient. Without this a permanently dead button would "prove" the gate.
+    await expect(
+      newSession,
+      "with no first-run tab left, New session must become available again",
+    ).toBeEnabled({ timeout: 15_000 });
+    await newSession.click();
     await expect(
       sessionPicker,
-      "with no first-run tab left, New session must open — otherwise the check above proves nothing",
+      "the re-enabled control must actually open the picker — otherwise the gate above proves nothing",
     ).toBeVisible({ timeout: 15_000 });
     const close = page.locator('[data-testid="picker-close"]');
     await expect(close).toBeEnabled({ timeout: 30_000 });
