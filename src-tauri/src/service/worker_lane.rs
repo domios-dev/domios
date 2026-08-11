@@ -379,8 +379,11 @@ fn git_value<'a>(
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
+/// The resolved path is persisted as lane provenance and later handed to `git`
+/// as a working directory, which rejects Windows verbatim (`\\?\`) prefixes.
 fn canonical_path(path: &str) -> Result<PathBuf, String> {
     std::fs::canonicalize(path)
+        .map(|resolved| PathBuf::from(codeterm_paths::strip_verbatim_prefix(&resolved.to_string_lossy())))
         .map_err(|error| format!("cannot resolve worker lane path '{path}': {error}"))
 }
 
@@ -398,6 +401,45 @@ mod tests {
             "{}",
             String::from_utf8_lossy(&output.stderr)
         );
+    }
+
+    /// The provenance is persisted and later replayed as a git working directory,
+    /// so a verbatim prefix here is what refuses a finished worker's report.
+    #[test]
+    fn lane_provenance_is_a_path_git_accepts_as_a_working_directory() {
+        let root = tempfile::tempdir().unwrap();
+        let project = root.path().join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        git(&project, &["init", "-q"]);
+        git(&project, &["config", "user.email", "test@example.com"]);
+        git(&project, &["config", "user.name", "Test"]);
+        std::fs::write(project.join("README.md"), "fixture").unwrap();
+        git(&project, &["add", "README.md"]);
+        git(&project, &["commit", "-qm", "fixture"]);
+
+        let canonical_project = std::fs::canonicalize(&project).unwrap();
+        let lane = provision_lane(canonical_project.to_str().unwrap(), "team_test").unwrap();
+        let provenance = verify_worker_lane(
+            canonical_project.to_str().unwrap(),
+            &lane.cwd,
+            Some(&lane.branch),
+            None,
+            LaneProtection::Enforced,
+        )
+        .unwrap();
+
+        for path in [&provenance.worktree_path, &provenance.canonical_cwd] {
+            assert!(
+                !path.starts_with(r"\\?\"),
+                "lane provenance carries a verbatim prefix git cannot use: {path}"
+            );
+        }
+        run_git(
+            &provenance.worktree_path,
+            ["rev-parse", "--is-inside-work-tree"],
+        )
+        .expect("the recorded worktree must validate where the lane's commits live");
+        lane.cleanup().unwrap();
     }
 
     #[test]

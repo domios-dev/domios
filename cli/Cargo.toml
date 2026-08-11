@@ -35,6 +35,7 @@ codeterm-plugins = { path = "../crates/codeterm-plugins" }
 # In-process reuse of the daemon's strict PluginManifest + QuickJS loader for
 # `plugin validate` — the CLI never grows its own manifest interpretation.
 codeterm-plugin = { path = "../src-tauri/crates/codeterm-plugin" }
+codeterm-paths = { path = "../crates/codeterm-paths" }
 
 [dev-dependencies]
 tempfile = "3"
