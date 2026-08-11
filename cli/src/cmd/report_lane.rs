@@ -53,9 +53,11 @@ fn task_readiness_scope_from_task(task: &Value, tab_id: &str) -> TaskReadinessSc
         _ => lane.or(attempt),
     };
     TaskReadinessScope {
+        // Lane records written before the provisioning fix carry a Windows
+        // verbatim prefix, which git rejects as a working directory.
         worktree_path: record
             .and_then(|record| nonempty(record.get("worktree_path")))
-            .map(PathBuf::from),
+            .map(|path| PathBuf::from(codeterm_paths::strip_verbatim_prefix(&path))),
         base: record.and_then(|record| nonempty(record.get("base"))),
         requires_repository: task.get("execution_intent").and_then(Value::as_str)
             != Some("non_repository"),
@@ -168,6 +170,21 @@ mod tests {
         assert_eq!(scope.worktree_path.as_deref(), Some(Path::new("/lanes/a")));
         assert_eq!(scope.base.as_deref(), Some("base-a"));
         assert!(scope.requires_repository);
+    }
+
+    #[test]
+    fn strips_the_windows_verbatim_prefix_from_a_recorded_lane() {
+        let task = json!({
+            "id": "task_a",
+            "lane": { "worktree_path": r"\\?\D:\Developer\codeterm-worktrees\pw15-speed" },
+        });
+        let scope = task_readiness_scope_from_task(&task, "tab-a");
+
+        assert_eq!(
+            scope.worktree_path.as_deref(),
+            Some(Path::new(r"D:\Developer\codeterm-worktrees\pw15-speed")),
+            "a verbatim-prefixed lane path is rejected by git as a working directory"
+        );
     }
 
     #[test]

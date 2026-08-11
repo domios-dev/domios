@@ -257,6 +257,7 @@ dependencies = [
  "chrono",
  "clap",
  "codeterm-mem-store",
+ "codeterm-paths",
  "codeterm-plugin",
  "codeterm-plugins",
  "deunicode",
