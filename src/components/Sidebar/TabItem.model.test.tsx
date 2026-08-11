@@ -16,12 +16,15 @@ Object.defineProperty(globalThis, "Event", { value: window.Event, configurable: 
 Object.defineProperty(globalThis, "CustomEvent", { value: window.CustomEvent, configurable: true });
 Object.defineProperty(globalThis, "MouseEvent", { value: window.MouseEvent, configurable: true });
 Object.defineProperty(globalThis, "KeyboardEvent", { value: window.KeyboardEvent, configurable: true });
+// happy-dom's timers are the Node ones (BrowserWindow.d.ts:1297,1303), so the
+// handle is a Timeout, never a number.
+type TimerHandle = ReturnType<typeof window.setTimeout>;
 Object.defineProperty(globalThis, "requestAnimationFrame", {
-  value: (cb: (t: number) => void) => window.setTimeout(() => cb(0), 0),
+  value: (cb: (t: number) => void): TimerHandle => window.setTimeout(() => cb(0), 0),
   configurable: true,
 });
 Object.defineProperty(globalThis, "cancelAnimationFrame", {
-  value: (id: number) => window.clearTimeout(id),
+  value: (id: TimerHandle) => window.clearTimeout(id),
   configurable: true,
 });
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
