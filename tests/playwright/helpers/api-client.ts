@@ -14,6 +14,8 @@ export interface Tab {
   protected: boolean;
   title?: string;
   agent_type?: string | null;
+  agent_session_id?: string | null;
+  agent_session_model?: string | null;
   pty_id?: string | null;
   cwd?: string;
 }
@@ -31,6 +33,8 @@ export interface Workspace {
 export interface Provider {
   id: string;
   available_models?: { id: string; display_name: string }[];
+  /** Provider-declared in-agent switch template; absent ⇒ no live model switch. */
+  model_switch_format?: string | null;
 }
 
 export interface PlanSummary {
