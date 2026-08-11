@@ -27,6 +27,7 @@
     "test:pw:instance": "tsx scripts/start-playwright-instance.ts",
     "test:pw:one": "tsx scripts/run-playwright-isolated.ts",
     "test:pw:bounded": "tsx scripts/run-playwright-bounded.ts",
+    "test:pw:selection": "tsx scripts/run-playwright-selection.ts",
     "test:pw:visual:regen": "bash scripts/regenerate-visual-goldens.sh",
     "test:pw:full": "playwright test -c tests/playwright --project=full",
     "test:pw:lint": "node scripts/check-playwright-spec-headers.mjs && node scripts/playwright-coverage-map.mjs --check && node tests/playwright/helpers/check-tags.mjs",
