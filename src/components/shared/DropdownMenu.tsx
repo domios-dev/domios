@@ -20,6 +20,8 @@ export interface DropdownMenuItem {
   disabled?: boolean;
   /** Native tooltip text — mainly meant for the `disabled` explanation. */
   title?: string;
+  /** Present ⇒ the item is one choice in a set: `menuitemradio` + `aria-checked`. */
+  selected?: boolean;
   "data-testid"?: string;
 }
 
@@ -204,7 +206,8 @@ export function DropdownMenu({
             {visibleItems.map((item, i) => (
               <button
                 key={`${item.label}:${i}`}
-                role="menuitem"
+                role={item.selected === undefined ? "menuitem" : "menuitemradio"}
+                aria-checked={item.selected}
                 aria-haspopup={item.submenu ? "menu" : undefined}
                 aria-expanded={item.submenu ? activeSubmenu === item.submenu : undefined}
                 data-testid={item["data-testid"]}

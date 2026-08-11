@@ -1,6 +1,8 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { Copy, Pencil, RefreshCw, RotateCcw, UserCog, X } from "lucide-react";
+import { Check, Copy, Cpu, Pencil, RefreshCw, RotateCcw, UserCog, X } from "lucide-react";
 import { useTabProvider, useShellSessionModel } from "../../lib/useTabProvider";
+import { getAgentDescriptor } from "../../lib/agentDescriptorCache";
+import { switchTabModel, tabModelEntryLabel, tabModelMenuView } from "./tabModelMenu";
 import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import { ActivityDots } from "../shared/ActivityDots";
 import { ChoiceIcon, TelegramIcon, TerminalIcon } from "../Icons";
@@ -178,6 +180,9 @@ function TabItemInner({
   // Unified identity for agent (agent_type) AND chatBackend shell (backing.plugin_id)
   // tabs — drives the icon, tooltip, and (for shells) the model badge.
   const provider = useTabProvider(tab);
+  // useTabProvider already subscribes to the descriptor cache, so this read
+  // re-resolves with it — the menu needs the models the glyph does not.
+  const descriptor = getAgentDescriptor(tab.agent_type);
   const shellSessionModel = useShellSessionModel(tab);
   const providerName = provider?.displayName || "Agent";
   // back to the live chatBackend session model (fetched/cached out of band).
@@ -236,6 +241,34 @@ function TabItemInner({
         onClick: () => { void makePlanner(tab.id, activity.planId); },
       });
     }
+    const modelMenu = tab ? tabModelMenuView(tab, descriptor, status) : null;
+    if (modelMenu) {
+      items.push({
+        label: tabModelEntryLabel(modelMenu),
+        icon: <Cpu size={11} strokeWidth={2} />,
+        disabled: Boolean(modelMenu.blockedReason),
+        title: modelMenu.blockedReason ?? undefined,
+        "data-testid": "tab-menu-model",
+        submenu: {
+          label: tabModelEntryLabel(modelMenu),
+          // The switch is the provider's own in-agent command on the live
+          // session — say so, because the neighbouring entry does restart one.
+          description: `Switches in session — ${providerName} keeps this session and its history.`,
+          items: modelMenu.models.map((model) => ({
+            label: model.display_name,
+            selected: model.id === modelMenu.currentModel?.id,
+            icon: model.id === modelMenu.currentModel?.id
+              ? <Check size={11} strokeWidth={2} />
+              : <span className="w-3 h-3" />,
+            onClick: () => {
+              void switchTabModel(modelMenu, model.id)
+                .catch((error) => console.warn("Model switch failed:", error));
+            },
+            "data-testid": `tab-menu-model-${model.id}`,
+          })),
+        },
+      });
+    }
     const sessionActions = tab ? tabSessionActionView(tab) : null;
     if (tab && sessionActions?.canReconnect) {
       items.push({
@@ -262,7 +295,7 @@ function TabItemInner({
       });
     }
     return items;
-  }, [activity, canonicalTitle, tab, canClose, hasAgent, onClose]);
+  }, [activity, canonicalTitle, tab, canClose, descriptor, hasAgent, onClose, providerName, status]);
 
   const sessionActions = tab ? tabSessionActionView(tab) : null;
   const sessionId = sessionActions?.sessionId ?? null;
@@ -524,6 +557,8 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
     pp.description === np.description &&
     pp.agent_type === np.agent_type &&
     pp.agent_session_id === np.agent_session_id &&
+    // The row menu's model entry needs a live PTY to write the switch into.
+    pp.pty_id === np.pty_id &&
     // shell model itself comes from a hook (useShellSessionModel), not a prop.
     pp.backing?.kind === np.backing?.kind &&
     backingPluginId(pp) === backingPluginId(np) &&
