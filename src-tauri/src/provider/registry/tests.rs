@@ -62,7 +62,7 @@ fn registry() -> (
         description: None,
         available: None,
     }]));
-    backends.register(
+    backends.register_and_wait(
         "shell",
         Arc::new(Shell {
             id: "shell",
@@ -71,7 +71,7 @@ fn registry() -> (
             models: models.clone(),
         }),
     );
-    backends.register(
+    backends.register_and_wait(
         "npc",
         Arc::new(Shell {
             id: "npc",
@@ -131,7 +131,7 @@ fn describe_all_reads_registration_snapshot_until_provider_refresh() {
     );
     assert_eq!(model_list_calls.load(Ordering::SeqCst), 1);
 
-    reg.chat_backends.register(
+    reg.chat_backends.register_and_wait(
         "shell",
         Arc::new(Shell {
             id: "shell",

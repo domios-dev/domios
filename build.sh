@@ -1441,10 +1441,10 @@ EOF
     cargo fmt --manifest-path cli/Cargo.toml --all --check
     bash scripts/check-file-sizes.sh --fail
     node scripts/check-plugin-bundles.mjs
-    node scripts/check-release-locks.mjs
     node scripts/sync-plugin-versions.mjs --check
     cargo check --manifest-path src-tauri/Cargo.toml
     cargo check --manifest-path cli/Cargo.toml
+    node scripts/check-release-locks.mjs
     bash scripts/clippy-gate.sh
     run_workspace_lib_tests
     scripts/test-capped.sh --manifest-path cli/Cargo.toml

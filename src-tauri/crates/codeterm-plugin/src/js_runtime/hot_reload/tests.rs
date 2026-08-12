@@ -45,7 +45,7 @@ impl PluginProviderRegistrar for TestRegistrar {
 }
 
 fn test_caps() -> CapabilityRegistries {
-    CapabilityRegistries {
+    let capabilities = CapabilityRegistries {
         transcribe: Arc::new(crate::transcribe::TranscribeRegistry::new()),
         glance: Arc::new(crate::glance::GlanceRegistry::new()),
         bubble: Arc::new(crate::bubble::BubbleRegistry::new()),
@@ -54,7 +54,9 @@ fn test_caps() -> CapabilityRegistries {
         chat_preprocessor: Arc::new(crate::chatpreprocessor::ChatPreprocessorRegistry::new()),
         agent_command: Arc::new(crate::agent_commands::AgentCommandRegistry::new()),
         secret: None,
-    }
+    };
+    let _ = capabilities.chatbackend.start_discovery();
+    capabilities
 }
 
 // Poll tick() until `condition` holds instead of assuming one tick is enough;

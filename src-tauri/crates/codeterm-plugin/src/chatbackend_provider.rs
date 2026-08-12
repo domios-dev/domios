@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use codeterm_types::agent::chat_types::StructuredChat;
@@ -195,54 +196,52 @@ struct RegisteredChatBackend {
 /// Lifecycle-owned chatBackend registry. Consumers read cached descriptor snapshots.
 pub struct ChatBackendRegistry {
     entries: Arc<RwLock<HashMap<String, RegisteredChatBackend>>>,
+    discovery_enabled: AtomicBool,
 }
 
 impl ChatBackendRegistry {
     pub fn new() -> Self {
         Self {
             entries: Arc::new(RwLock::new(HashMap::new())),
+            discovery_enabled: AtomicBool::new(false),
         }
     }
 
     pub fn register(&self, id: impl Into<String>, provider: Arc<dyn ChatBackendProvider>) {
-        let _ = self.register_background(id.into(), provider);
+        let id = id.into();
+        self.register_cached(id.clone(), provider.clone());
+        if self.discovery_enabled.load(Ordering::Acquire) {
+            let _ = self.refresh_background(id, provider);
+        }
     }
 
-    fn register_background(
-        &self,
-        id: String,
-        provider: Arc<dyn ChatBackendProvider>,
-    ) -> Option<std::thread::JoinHandle<()>> {
+    fn register_cached(&self, id: String, provider: Arc<dyn ChatBackendProvider>) {
         let mut descriptor = provider.describe();
         descriptor.id = id.clone();
-        descriptor.presets = match provider.list_presets() {
-            Ok(presets) => presets,
-            Err(error) => {
-                log::warn!(
-                    "[chatbackend.catalog] {id} listPresets failed: {}",
-                    bounded_capability_error(&error.to_string())
-                );
-                Vec::new()
-            }
-        };
         self.entries.write().insert(
-            id.clone(),
+            id,
             RegisteredChatBackend {
-                provider: provider.clone(),
+                provider,
                 descriptor,
                 model_error: None,
             },
         );
+    }
 
+    fn refresh_background(
+        &self,
+        id: String,
+        provider: Arc<dyn ChatBackendProvider>,
+    ) -> Option<std::thread::JoinHandle<()>> {
         let entries = self.entries.clone();
         let thread_id = id.clone();
         match std::thread::Builder::new()
             .name(format!("chatbackend-catalog-{id}"))
             .spawn(move || {
+                let presets = provider.list_presets();
                 let result = provider.list_models();
-                Self::apply_model_result(&entries, &thread_id, &provider, result);
-            })
-        {
+                Self::apply_capability_result(&entries, &thread_id, &provider, presets, result);
+            }) {
             Ok(handle) => Some(handle),
             Err(error) => {
                 log::warn!("[chatbackend.catalog] {id} refresh thread failed: {error}");
@@ -251,21 +250,36 @@ impl ChatBackendRegistry {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn register_and_wait(
-        &self,
-        id: impl Into<String>,
-        provider: Arc<dyn ChatBackendProvider>,
-    ) {
-        if let Some(handle) = self.register_background(id.into(), provider) {
+    #[doc(hidden)]
+    pub fn register_and_wait(&self, id: impl Into<String>, provider: Arc<dyn ChatBackendProvider>) {
+        let id = id.into();
+        self.register_cached(id.clone(), provider.clone());
+        if let Some(handle) = self.refresh_background(id, provider) {
             handle.join().unwrap();
         }
     }
 
-    fn apply_model_result(
+    pub fn start_discovery(&self) -> Vec<std::thread::JoinHandle<()>> {
+        if self.discovery_enabled.swap(true, Ordering::AcqRel) {
+            return Vec::new();
+        }
+        let providers = self
+            .entries
+            .read()
+            .iter()
+            .map(|(id, entry)| (id.clone(), entry.provider.clone()))
+            .collect::<Vec<_>>();
+        providers
+            .into_iter()
+            .filter_map(|(id, provider)| self.refresh_background(id, provider))
+            .collect()
+    }
+
+    fn apply_capability_result(
         entries: &RwLock<HashMap<String, RegisteredChatBackend>>,
         id: &str,
         provider: &Arc<dyn ChatBackendProvider>,
+        presets: Result<Vec<PresetInfo>, ChatBackendError>,
         result: Result<Vec<ModelInfo>, ChatBackendError>,
     ) {
         let (models, model_error) = match result {
@@ -283,6 +297,16 @@ impl ChatBackendRegistry {
         if !Arc::ptr_eq(&entry.provider, provider) {
             return;
         }
+        entry.descriptor.presets = match presets {
+            Ok(presets) => presets,
+            Err(error) => {
+                log::warn!(
+                    "[chatbackend.catalog] {id} listPresets failed: {}",
+                    bounded_capability_error(&error.to_string())
+                );
+                Vec::new()
+            }
+        };
         model_catalog::replace_resolved(
             id,
             RegisteredDefaults {
@@ -491,17 +515,13 @@ mod tests {
         let registry = ChatBackendRegistry::new();
         let (started_tx, started_rx) = mpsc::channel();
         let (release_tx, release_rx) = mpsc::channel();
-        let handle = registry
-            .register_background(
-                "chatbackend-blocking-fixture".into(),
-                Arc::new(BlockingBackend {
-                    started: started_tx,
-                    release: Mutex::new(release_rx),
-                }),
-            )
-            .unwrap();
-
-        started_rx.recv().unwrap();
+        registry.register(
+            "chatbackend-blocking-fixture",
+            Arc::new(BlockingBackend {
+                started: started_tx,
+                release: Mutex::new(release_rx),
+            }),
+        );
         assert!(registry
             .descriptor("chatbackend-blocking-fixture")
             .is_some());
@@ -511,8 +531,12 @@ mod tests {
             .available_models
             .is_empty());
 
+        let handles = registry.start_discovery();
+        started_rx.recv().unwrap();
         release_tx.send(()).unwrap();
-        handle.join().unwrap();
+        handles
+            .into_iter()
+            .for_each(|handle| handle.join().unwrap());
         assert_eq!(
             registry
                 .descriptor("chatbackend-blocking-fixture")
