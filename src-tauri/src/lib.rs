@@ -826,6 +826,7 @@ pub fn run() {
                     vm.set_service(Arc::downgrade(&host));
                 }
                 plugin::js_runtime::set_watcher_service(Arc::downgrade(&host));
+                let _ = chatbackend_registry.start_discovery();
             }
             app.manage(service_state.clone());
             crate::delayed_send::start_scheduler(service_state.clone());
