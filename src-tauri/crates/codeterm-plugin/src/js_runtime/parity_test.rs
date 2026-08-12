@@ -307,7 +307,7 @@ fn native_and_js_chatbackend_model_capability_are_identical() {
     use std::sync::Arc;
 
     let native_registry = ChatBackendRegistry::new();
-    native_registry.register(
+    native_registry.register_and_wait(
         "chatbackend-model-parity-fixture",
         Arc::new(ModelCapabilityNativeStub {
             outcome: Ok(model_capability_fixture()),
@@ -318,7 +318,7 @@ fn native_and_js_chatbackend_model_capability_are_identical() {
         .unwrap();
 
     let js_registry = ChatBackendRegistry::new();
-    js_registry.register(
+    js_registry.register_and_wait(
         "chatbackend-model-parity-fixture",
         Arc::new(js_model_capability(
             r#"module.exports.default = {
@@ -339,14 +339,14 @@ fn native_and_js_chatbackend_model_capability_are_identical() {
     assert_eq!(js.default_model, None);
 
     let native_missing = ChatBackendRegistry::new();
-    native_missing.register(
+    native_missing.register_and_wait(
         "chatbackend-model-parity-fixture",
         Arc::new(ModelCapabilityNativeStub {
             outcome: Ok(Vec::new()),
         }),
     );
     let js_missing = ChatBackendRegistry::new();
-    js_missing.register(
+    js_missing.register_and_wait(
         "chatbackend-model-parity-fixture",
         Arc::new(js_model_capability("module.exports.default = {};")),
     );
@@ -363,14 +363,14 @@ fn native_and_js_chatbackend_model_capability_are_identical() {
 
     let long_error = "native failure ".repeat(40);
     let native_error = ChatBackendRegistry::new();
-    native_error.register(
+    native_error.register_and_wait(
         "chatbackend-model-parity-fixture",
         Arc::new(ModelCapabilityNativeStub {
             outcome: Err(long_error),
         }),
     );
     let js_error = ChatBackendRegistry::new();
-    js_error.register(
+    js_error.register_and_wait(
         "chatbackend-model-parity-fixture",
         Arc::new(js_model_capability(
             r#"module.exports.default = {
