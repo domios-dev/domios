@@ -2760,7 +2760,7 @@ Get visible terminal text of a tab (what the user sees)
 
 Show the full daemon tab payload for one or more explicit tab ids
 
-- `--lifecycle` — Include this tab's lifecycle journal, checkpoint, and recovery verdict
+- `--lifecycle` — Include this tab's lifecycle journal telemetry: lineage, transitions, checkpoint
 - `--tab` — One or more tab ids to inspect. Repeat the flag for multiple tabs
 - `<tabs>` — Temporary positional aliases for tab ids. Prefer --tab
 

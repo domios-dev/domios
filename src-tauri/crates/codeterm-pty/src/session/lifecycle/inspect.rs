@@ -4,55 +4,42 @@ use crate::multiplexer::types::Tab;
 
 use super::journal::{checkpoints, JournalLoad, TabLifecycleJournal, TailStatus};
 use super::record::{JournalRecord, LifecycleEpoch};
-use super::recovery::{authorize, RecoveryVerdict, SnapshotAuthorityClaim};
 
+/// Read-only journal telemetry for one live tab: lineage, ordered transitions,
+/// surviving checkpoint, and journal-tail health. Never a restore input.
 pub fn inspect_tab_lifecycle(tab: &Tab) -> Value {
-    let claim = SnapshotAuthorityClaim {
-        tab_id: tab.id.clone(),
-        epoch: tab.lifecycle_epoch.map(LifecycleEpoch),
-        operation_id: tab.lifecycle_operation_id.clone(),
-        provider: tab.agent_type.clone(),
-        chat_backend: tab.is_chat_backend(),
-        session_id: tab.agent_session_id.clone(),
-        binding_nonce: tab.reported_session_binding_nonce.clone(),
-        role: tab.role.map(|role| role.label().to_string()),
-        role_profile: tab.role_profile.clone(),
-        team_id: tab.team_id.clone(),
-        parent_tab_id: tab.parent_tab_id.clone(),
-        can_spawn: tab.can_spawn,
-        depth: tab.depth,
-    };
-    inspect_claim(&claim, &TabLifecycleJournal::shared().load())
+    inspect_lineage(
+        &tab.id,
+        tab.lifecycle_epoch.map(LifecycleEpoch),
+        tab.lifecycle_operation_id.as_deref(),
+        &TabLifecycleJournal::shared().load(),
+    )
 }
 
-fn inspect_claim(claim: &SnapshotAuthorityClaim, load: &JournalLoad) -> Value {
+fn inspect_lineage(
+    tab_id: &str,
+    epoch: Option<LifecycleEpoch>,
+    operation_id: Option<&str>,
+    load: &JournalLoad,
+) -> Value {
     let checkpoint = checkpoints(load)
         .into_iter()
-        .find(|checkpoint| checkpoint.key.tab_id == claim.tab_id);
-    let tail_refusal = match &load.tail {
-        TailStatus::Intact => None,
-        TailStatus::Refused { line, reason } => Some(format!("line {line}: {reason}")),
-    };
+        .find(|checkpoint| checkpoint.key.tab_id == tab_id);
     let transitions = load
         .records
         .iter()
         .filter_map(|record| match record {
-            JournalRecord::Transition { entry } if entry.key.tab_id == claim.tab_id => Some(entry),
+            JournalRecord::Transition { entry } if entry.key.tab_id == tab_id => Some(entry),
             _ => None,
         })
         .collect::<Vec<_>>();
-    let lineage = match (claim.epoch, claim.operation_id.as_deref()) {
+    let lineage = match (epoch, operation_id) {
         (Some(epoch), Some(operation_id)) => json!({
             "epoch": epoch,
             "operation_id": operation_id,
         }),
         _ => Value::Null,
     };
-    let verdict = verdict_json(authorize(
-        claim,
-        checkpoint.as_ref(),
-        tail_refusal.as_deref(),
-    ));
     let tail = match &load.tail {
         TailStatus::Intact => json!({ "status": "intact" }),
         TailStatus::Refused { line, reason } => json!({
@@ -65,24 +52,8 @@ fn inspect_claim(claim: &SnapshotAuthorityClaim, load: &JournalLoad) -> Value {
         "lineage": lineage,
         "transitions": transitions,
         "checkpoint": checkpoint,
-        "verdict": verdict,
         "journal_tail": tail,
     })
-}
-
-fn verdict_json(verdict: RecoveryVerdict) -> Value {
-    match verdict {
-        RecoveryVerdict::NoAuthorityClaimed => json!({ "status": "no_authority_claimed" }),
-        RecoveryVerdict::PreJournal => json!({ "status": "pre_journal" }),
-        RecoveryVerdict::Restored(authority) => json!({
-            "status": "restored",
-            "authority": authority,
-        }),
-        RecoveryVerdict::Stripped(refusal) => json!({
-            "status": "stripped",
-            "reason": refusal.reason(),
-        }),
-    }
 }
 
 #[cfg(test)]
@@ -91,16 +62,7 @@ mod tests {
     use crate::session::lifecycle::{LifecycleEntry, LifecycleKey, LifecycleTransition};
 
     #[test]
-    fn inspection_is_scoped_and_reports_the_live_recovery_verdict() {
-        let claim = SnapshotAuthorityClaim {
-            tab_id: "target".into(),
-            epoch: Some(LifecycleEpoch(1)),
-            operation_id: Some("op-1".into()),
-            provider: Some("claude".into()),
-            session_id: Some("session-1".into()),
-            binding_nonce: Some("nonce-1".into()),
-            ..Default::default()
-        };
+    fn inspection_is_scoped_to_the_tab_and_reports_journal_telemetry() {
         let transitions = [
             LifecycleTransition::EpochOpened,
             LifecycleTransition::ProviderIdentityCommitted {
@@ -132,8 +94,10 @@ mod tests {
                 recorded_at: "other-stamp".into(),
             },
         });
-        let value = inspect_claim(
-            &claim,
+        let value = inspect_lineage(
+            "target",
+            Some(LifecycleEpoch(1)),
+            Some("op-1"),
             &JournalLoad {
                 records,
                 tail: TailStatus::Intact,
@@ -141,7 +105,12 @@ mod tests {
         );
 
         assert_eq!(value["transitions"].as_array().unwrap().len(), 4);
-        assert_eq!(value["verdict"]["status"], "restored");
+        assert_eq!(value["lineage"]["operation_id"], "op-1");
         assert_eq!(value["checkpoint"]["authority"]["session_id"], "session-1");
+        assert_eq!(value["journal_tail"]["status"], "intact");
+        assert!(
+            value.get("verdict").is_none(),
+            "inspection is telemetry; there is no recovery verdict"
+        );
     }
 }

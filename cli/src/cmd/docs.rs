@@ -98,7 +98,7 @@ pub(crate) const DOCS: &[EmbeddedDoc] = &[
     ),
     doc!(
         "TAB-LIFECYCLE",
-        "Tab lifecycle journal, checkpoints, and exact-checkpoint recovery",
+        "Tab lifecycle journal (telemetry) and unconditional restore",
         "../../../docs/TAB-LIFECYCLE.md"
     ),
     doc!(

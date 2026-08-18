@@ -1,13 +1,35 @@
-# Tab lifecycle audit and exact-checkpoint recovery
+# Tab lifecycle journal and unconditional restore
 
-CodeTerm keeps one append-only journal of every authoritative tab lifecycle transition.
-A restart restores provider, session, role, and Team authority **only** from a complete
-committed checkpoint with the snapshot's exact lineage. Anything unproven fails closed.
+CodeTerm keeps one append-only journal of every authoritative tab lifecycle
+transition. The journal is **telemetry**: a forensic record of what each launch
+committed and when. It is never consulted during session restore.
 
-This prevents a spawn that reached shell readiness without committing provider,
-session, and Team identity from restoring stale role authority after restart.
+**Restore is unconditional.** Whatever tabs were open at shutdown come back
+exactly as persisted: agent tabs relaunch with their persisted provider session,
+plain shells come back as shells. No field is stripped, no proof is demanded,
+and no journal state — missing, mismatched, truncated, or absent — changes what
+a snapshot restores.
 
-## Where it lives
+## The restore contract
+
+1. `sessions/last.json` is loaded and every tab it holds is rebuilt with its
+   persisted `agent_type`, `agent_session_id`, binding nonces, `role`,
+   `role_profile`, `team_id`, `parent_tab_id`, `can_spawn`, `depth`, model
+   provenance, and chatBackend binding intact.
+2. An agent tab relaunches its provider with the persisted session
+   (`--resume`-style continuation; `commands::pty::spawn_pty` owns the choice).
+3. If the provider's session file no longer exists on disk, the relaunch falls
+   back to a fresh session — the tab still comes back, it just starts a new
+   provider conversation. This is the only restore-time downgrade, and it is
+   decided by the provider session file, never by the journal.
+4. Pre-journal snapshots (1.8.0-era and earlier) restore like everything else.
+   Lineage fields are optional telemetry, not an admission ticket.
+
+Role strings still pass through the literal legacy migration
+(`Orchestrator`/`Conductor` → Manager with the orchestrator kind); that is a
+format upgrade, not a gate.
+
+## Where the journal lives
 
 | Instance | Path |
 |----------|------|
@@ -18,8 +40,8 @@ session, and Team identity from restoring stale role authority after restart.
 It sits beside `last.json`, `backups/`, and `agent-session-identities.json` in
 the same `sessions/` directory.
 
-**Agent access is read-only.** Read, grep, or diff it; never hand-edit the journal
-or a snapshot. An edit is indistinguishable from a forged authority commit.
+**Agent access is read-only.** Read, grep, or diff it; never hand-edit the
+journal or a snapshot.
 
 ## Format
 
@@ -53,24 +75,28 @@ One JSON object per line, in journal order. Two record kinds:
 - `epoch` — monotonic per tab; a new one opens at every launch.
 - `operation_id` — a UUID minted with the epoch.
 
-Two of the three matching is not a match.
+A tab's own persisted lineage (`agent_identity.lifecycle_epoch` and
+`agent_identity.lifecycle_operation_id`) links its snapshot to its journal
+history for inspection. Restore preserves the lineage fields verbatim and
+otherwise ignores them.
 
 ### Ordering
 
 `seq` is a single monotonic sequence across the whole file. It is the **only**
 ordering authority. `recorded_at` and `sealed_at` are UTC stamps for reading the
-journal by eye — they are never consulted for ordering, lineage, checkpoint
-selection, or conflict resolution.
+journal by eye — they are never consulted for ordering, checkpoint selection, or
+conflict resolution.
 
 A line that fails to parse, or whose `seq` does not advance, refuses itself and
-everything after it. A truncated tail never silently becomes history, and while
-the tail is refused every authority claim fails closed.
+everything after it: `JournalLoad::tail` reports the refused line and reason so
+the corruption is visible instead of silently becoming history. A refused tail
+affects only what the journal itself can report — it has no effect on restore.
 
 ### Transitions
 
 | `transition` | Meaning |
 |--------------|---------|
-| `epoch_opened` | A launch operation begins. No authority yet. |
+| `epoch_opened` | A launch operation begins. |
 | `provider_identity_committed` | Provider accepted for this operation. |
 | `session_bound` | Provider session bound and proven by the echoed launch nonce. |
 | `role_binding` | Role/profile/`can_spawn`/`depth` as committed. `role` absent means a role deliberately cleared. |
@@ -82,82 +108,17 @@ the tail is refused every authority claim fails closed.
 
 Each transition is written by the code that commits the mutation, in the same
 operation that performs it. Nothing observes tab state afterwards and infers a
-transition from it.
+transition from it. Only PTY transport commits lifecycle transitions;
+`open_lifecycle_epoch` refuses chatBackend tabs, so those tabs have no journal
+history.
 
-## Coverage is per tab
+### Checkpoints
 
-A tab enters journal coverage when its own lifecycle operation is journaled —
-never on a global flag, a first/second restart boundary, or anything about other
-tabs. Coverage is read off the tab's own persisted lineage
-(`agent_identity.lifecycle_epoch` and `agent_identity.lifecycle_operation_id`):
-
-| That tab's lineage | State | Effect |
-|--------------------|-------|--------|
-| both fields absent | pre-journal | The journal never saw this tab's lifecycle, so it does not judge it. Only the pre-journal contract applies: role authority still requires a provider identity, and a title is still not evidence. A legitimate provider/session-backed legacy tab restores unchanged. |
-| both fields present | covered | Enforced exactly against a sealed checkpoint in the current journal. |
-| one field only | partial | Half a lineage proves nothing. The tab's authority is stripped. |
-
-A covered tab is stripped whenever its proof is missing, mismatched, or
-unreadable: no sealed checkpoint for that tab (which is also what a deleted,
-rebuilt, or unavailable journal looks like), a different epoch or operation id, a
-field the checkpoint disagrees with, or a refused journal tail.
-
-Only PTY transport commits lifecycle transitions; `open_lifecycle_epoch` refuses
-chatBackend tabs. A chatBackend tab is therefore pre-journal. If it carries lineage,
-recovery strips it because PTY-shaped provider/session/nonce evidence cannot prove
-a plugin binding.
-
-Existing tabs are not swept up. A legacy agent keeps its identity until its next
-journaled launch, then becomes covered. A role without provider identity fails
-the pre-journal contract too.
-
-## The recovery rule
-
-An operation becomes a **checkpoint** only when all of this holds:
-
-1. `launch_ready` sealed it, and
-2. `provider_identity_committed` and `session_bound` both landed in that same
-   operation, and
-3. no `rolled_back` or `closed` followed.
-
-Provider identity plus a nonce-proven session are the floor. A role or Team
-binding without them is residue, never authority.
-
-A **covered** tab's authority survives a restart only when:
-
-- the tab claims authority at all (otherwise there is nothing to prove), and
-- the tab is covered, carrying both lineage fields, and
-- the journal replayed cleanly to its end, and
-- a checkpoint exists for that exact `tab_id`, and
-- both lineage fields equal the checkpoint's, and
-- every field the snapshot claims equals what the operation committed.
-
-A snapshot may hold *less* than the checkpoint (a field cleared before
-shutdown). It may never hold more, and never something different.
-
-Otherwise the restore strips `agent_type`, `agent_session_id`, binding nonces,
-`role`, `role_profile`, `team_id`, `parent_tab_id`, `can_spawn`, `depth`, boot
-stage, agent state, model identity/provenance, and chatBackend binding, and logs
-the refusal:
-
-```
-[tab-lifecycle] tab db79d2da restored without authority: role authority claimed without a provider identity
-```
-
-Refusal reasons are `no committed lifecycle checkpoint for this tab operation`,
-`snapshot carries only half a lifecycle lineage`, `role authority claimed
-without a provider identity`, `tab carries lifecycle lineage its transport never
-commits`, `epoch mismatch`, `operation mismatch`, a named
-field disagreement, or `journal tail refused`.
-
-A role, Team, parent, `can_spawn`, or `depth` claim is refused outright unless
-the tab also has a provider identity behind it — and for a covered tab, a
-session as well. A role-bearing plain shell is never restorable, however it came
-to be persisted.
-
-**Never used as evidence:** a zero or null field, the tab title, the cwd, any
-timestamp, temporal proximity, the newest provider session, a session belonging
-to another tab, or another tab's journaled operation.
+An operation becomes a **checkpoint** when `launch_ready` sealed it,
+`provider_identity_committed` and `session_bound` both landed in that same
+operation, and no `rolled_back` or `closed` followed. Checkpoints exist so the
+journal can be compacted and so inspection can show what a launch actually
+committed — they carry no restore authority.
 
 ## Retention and compaction
 
@@ -171,7 +132,7 @@ The journal is bounded by explicit compaction, never by age:
 - Replaying a compacted journal reaches exactly the checkpoints replaying the
   full history reaches.
 
-The shared atomic write (unique temp, fsync, replace) is the only pruning path; missing records never relax recovery.
+The shared atomic write (unique temp, fsync, replace) is the only pruning path.
 
 ## Inspecting it
 
@@ -195,7 +156,7 @@ jq -r 'select(.record=="transition") | .entry
        | "\(.key.tab_id) \(.transition.transition)"' "$JOURNAL" \
   | sort -u
 
-# what the snapshot claims, next to what the journal proves
+# what the snapshot persisted, next to what the journal recorded
 jq -r '.workspaces[].tabs[].split_tree
        | select(.agent_type != null or .role != null)
        | "\(.tab_id) role=\(.role) provider=\(.agent_type) epoch=\(.agent_identity.lifecycle_epoch)"' \
@@ -206,11 +167,9 @@ Rotated snapshots in `sessions/backups/` are plain JSON and diff the same way.
 
 For one selected live tab, `codeterm tab inspect --tab ID --lifecycle` adds a
 read-only `lifecycle` object with live lineage, ordered transitions, surviving
-checkpoint, recovery verdict, and journal-tail health. Default inspect output
-and `tab list` stay unchanged.
-
-Only in-process writers and the recovery gate can change lifecycle authority;
-the CLI projection has no restore or checkpoint-mutation surface.
+checkpoint, and journal-tail health. Default inspect output and `tab list`
+stay unchanged. The projection is telemetry only; it has no restore or
+checkpoint-mutation surface.
 
 ## Attempt retirement fences a closed tab's dispatch
 
@@ -226,15 +185,12 @@ The same fence backs Plan-owner recovery: `retire_stale_task_owner` retires the
 stale attempts, clears the dead owner identity, and supersedes the epoch in one
 transaction, so the intermediate state is never observable.
 
-## Not in scope yet
+## Not in scope
 
 - **Tab creation** is not journaled; the first `epoch_opened` marks its lifecycle.
 - **chatBackend lifecycle commits do not exist.** No chatBackend path opens a
-  lifecycle operation, so those tabs stay pre-journal. Covering them requires a
-  structural committed binding (PTY provider/session/nonce versus plugin/session),
-  transport-shaped logic, and journaling from chatBackend authentication.
-- **Rollback to a named checkpoint** is not implemented. Restoring a tab to an
-  earlier checkpoint requires an in-process boundary that validates, applies,
-  and journals atomically; it is not a file edit or CLI wrapper over one.
+  lifecycle operation, so those tabs have no journal history.
+- **Rollback to a named checkpoint** is not implemented. The journal records
+  history; it does not replay it.
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->
