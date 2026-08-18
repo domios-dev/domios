@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use codeterm_types::agent::chat_types::StructuredChat;
@@ -192,22 +193,96 @@ struct RegisteredChatBackend {
     model_error: Option<String>,
 }
 
-/// Lifecycle-owned chatBackend registry. Live capability calls happen only in
-/// `register`; consumers read the cached descriptor snapshot.
+/// Lifecycle-owned chatBackend registry. Consumers read cached descriptor snapshots.
 pub struct ChatBackendRegistry {
-    entries: RwLock<HashMap<String, RegisteredChatBackend>>,
+    entries: Arc<RwLock<HashMap<String, RegisteredChatBackend>>>,
+    discovery_enabled: AtomicBool,
 }
 
 impl ChatBackendRegistry {
     pub fn new() -> Self {
         Self {
-            entries: RwLock::new(HashMap::new()),
+            entries: Arc::new(RwLock::new(HashMap::new())),
+            discovery_enabled: AtomicBool::new(false),
         }
     }
 
     pub fn register(&self, id: impl Into<String>, provider: Arc<dyn ChatBackendProvider>) {
         let id = id.into();
-        let (models, model_error) = match provider.list_models() {
+        self.register_cached(id.clone(), provider.clone());
+        if self.discovery_enabled.load(Ordering::Acquire) {
+            let _ = self.refresh_background(id, provider);
+        }
+    }
+
+    fn register_cached(&self, id: String, provider: Arc<dyn ChatBackendProvider>) {
+        let mut descriptor = provider.describe();
+        descriptor.id = id.clone();
+        self.entries.write().insert(
+            id,
+            RegisteredChatBackend {
+                provider,
+                descriptor,
+                model_error: None,
+            },
+        );
+    }
+
+    fn refresh_background(
+        &self,
+        id: String,
+        provider: Arc<dyn ChatBackendProvider>,
+    ) -> Option<std::thread::JoinHandle<()>> {
+        let entries = self.entries.clone();
+        let thread_id = id.clone();
+        match std::thread::Builder::new()
+            .name(format!("chatbackend-catalog-{id}"))
+            .spawn(move || {
+                let presets = provider.list_presets();
+                let result = provider.list_models();
+                Self::apply_capability_result(&entries, &thread_id, &provider, presets, result);
+            }) {
+            Ok(handle) => Some(handle),
+            Err(error) => {
+                log::warn!("[chatbackend.catalog] {id} refresh thread failed: {error}");
+                None
+            }
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn register_and_wait(&self, id: impl Into<String>, provider: Arc<dyn ChatBackendProvider>) {
+        let id = id.into();
+        self.register_cached(id.clone(), provider.clone());
+        if let Some(handle) = self.refresh_background(id, provider) {
+            handle.join().unwrap();
+        }
+    }
+
+    pub fn start_discovery(&self) -> Vec<std::thread::JoinHandle<()>> {
+        if self.discovery_enabled.swap(true, Ordering::AcqRel) {
+            return Vec::new();
+        }
+        let providers = self
+            .entries
+            .read()
+            .iter()
+            .map(|(id, entry)| (id.clone(), entry.provider.clone()))
+            .collect::<Vec<_>>();
+        providers
+            .into_iter()
+            .filter_map(|(id, provider)| self.refresh_background(id, provider))
+            .collect()
+    }
+
+    fn apply_capability_result(
+        entries: &RwLock<HashMap<String, RegisteredChatBackend>>,
+        id: &str,
+        provider: &Arc<dyn ChatBackendProvider>,
+        presets: Result<Vec<PresetInfo>, ChatBackendError>,
+        result: Result<Vec<ModelInfo>, ChatBackendError>,
+    ) {
+        let (models, model_error) = match result {
             Ok(models) => (normalize_models(models), None),
             Err(error) => {
                 let error = bounded_capability_error(&error.to_string());
@@ -215,17 +290,14 @@ impl ChatBackendRegistry {
                 (Vec::new(), Some(error))
             }
         };
-        model_catalog::replace_resolved(
-            &id,
-            RegisteredDefaults {
-                models,
-                default: None,
-            },
-        );
-
-        let mut descriptor = provider.describe();
-        descriptor.id = id.clone();
-        descriptor.presets = match provider.list_presets() {
+        let mut entries = entries.write();
+        let Some(entry) = entries.get_mut(id) else {
+            return;
+        };
+        if !Arc::ptr_eq(&entry.provider, provider) {
+            return;
+        }
+        entry.descriptor.presets = match presets {
             Ok(presets) => presets,
             Err(error) => {
                 log::warn!(
@@ -235,14 +307,17 @@ impl ChatBackendRegistry {
                 Vec::new()
             }
         };
-        self.entries.write().insert(
+        model_catalog::replace_resolved(
             id,
-            RegisteredChatBackend {
-                provider,
-                descriptor,
-                model_error,
+            RegisteredDefaults {
+                models,
+                default: None,
             },
         );
+        let catalog = model_catalog::registered_snapshot(id);
+        entry.descriptor.available_models = catalog.models;
+        entry.descriptor.default_model = catalog.default;
+        entry.model_error = model_error;
     }
 
     pub fn unregister(&self, id: &str) {
@@ -333,14 +408,29 @@ pub type ChatBackendRegistryHandle = Arc<ChatBackendRegistry>;
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{mpsc, Mutex};
 
     use super::*;
 
     struct ListingBackend {
         id: &'static str,
-        calls: Arc<AtomicUsize>,
+        calls: Arc<CatalogCallTracker>,
         models: Result<Vec<ModelInfo>, String>,
+    }
+
+    #[derive(Default)]
+    struct CatalogCallTracker {
+        calls: Mutex<usize>,
+    }
+
+    impl CatalogCallTracker {
+        fn record(&self) {
+            *self.calls.lock().unwrap() += 1;
+        }
+
+        fn count(&self) -> usize {
+            *self.calls.lock().unwrap()
+        }
     }
 
     impl ChatBackendProvider for ListingBackend {
@@ -373,7 +463,7 @@ mod tests {
         }
 
         fn list_models(&self) -> Result<Vec<ModelInfo>, ChatBackendError> {
-            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.calls.record();
             self.models.clone().map_err(ChatBackendError::Call)
         }
     }
@@ -387,11 +477,82 @@ mod tests {
         }
     }
 
+    struct BlockingBackend {
+        started: mpsc::Sender<()>,
+        release: Mutex<mpsc::Receiver<()>>,
+    }
+
+    impl ChatBackendProvider for BlockingBackend {
+        fn id(&self) -> &str {
+            "chatbackend-blocking-fixture"
+        }
+
+        fn open_session(&self, _: serde_json::Value) -> Result<String, ChatBackendError> {
+            unreachable!("catalog fixture does not open sessions")
+        }
+
+        fn send_message(&self, _: &str, _: &str) -> Result<(), ChatBackendError> {
+            unreachable!("catalog fixture does not send messages")
+        }
+
+        fn poll(&self, _: &str, _: Option<&str>) -> Result<StructuredChat, ChatBackendError> {
+            unreachable!("catalog fixture does not poll sessions")
+        }
+
+        fn close_session(&self, _: &str) -> Result<(), ChatBackendError> {
+            unreachable!("catalog fixture does not close sessions")
+        }
+
+        fn list_models(&self) -> Result<Vec<ModelInfo>, ChatBackendError> {
+            self.started.send(()).unwrap();
+            self.release.lock().unwrap().recv().unwrap();
+            Ok(vec![model("ready-model", "Ready model", None)])
+        }
+    }
+
+    #[test]
+    fn registration_does_not_wait_for_live_model_discovery() {
+        let registry = ChatBackendRegistry::new();
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        registry.register(
+            "chatbackend-blocking-fixture",
+            Arc::new(BlockingBackend {
+                started: started_tx,
+                release: Mutex::new(release_rx),
+            }),
+        );
+        assert!(registry
+            .descriptor("chatbackend-blocking-fixture")
+            .is_some());
+        assert!(registry
+            .descriptor("chatbackend-blocking-fixture")
+            .unwrap()
+            .available_models
+            .is_empty());
+
+        let handles = registry.start_discovery();
+        started_rx.recv().unwrap();
+        release_tx.send(()).unwrap();
+        handles
+            .into_iter()
+            .for_each(|handle| handle.join().unwrap());
+        assert_eq!(
+            registry
+                .descriptor("chatbackend-blocking-fixture")
+                .unwrap()
+                .available_models[0]
+                .id,
+            "ready-model"
+        );
+        registry.unregister("chatbackend-blocking-fixture");
+    }
+
     #[test]
     fn chatbackend_list_models_populates_descriptor_catalog() {
         let registry = ChatBackendRegistry::new();
-        let calls = Arc::new(AtomicUsize::new(0));
-        registry.register(
+        let calls = Arc::new(CatalogCallTracker::default());
+        registry.register_and_wait(
             "chatbackend-populates-fixture",
             Arc::new(ListingBackend {
                 id: "chatbackend-populates-fixture",
@@ -402,11 +563,10 @@ mod tests {
                 ]),
             }),
         );
-
         let descriptor = registry
             .descriptor("chatbackend-populates-fixture")
             .unwrap();
-        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(calls.count(), 1);
         assert_eq!(
             descriptor
                 .available_models
@@ -432,7 +592,7 @@ mod tests {
             descriptor.available_models
         );
         assert_eq!(
-            calls.load(Ordering::SeqCst),
+            calls.count(),
             1,
             "describe reads the central snapshot without calling list_models"
         );
@@ -442,21 +602,21 @@ mod tests {
     #[test]
     fn failed_refresh_clears_only_that_provider_and_bounds_the_error() {
         let registry = ChatBackendRegistry::new();
-        registry.register(
+        registry.register_and_wait(
             "chatbackend-error-fixture",
             Arc::new(ListingBackend {
                 id: "chatbackend-error-fixture",
-                calls: Arc::new(AtomicUsize::new(0)),
+                calls: Arc::new(CatalogCallTracker::default()),
                 models: Ok(vec![model("sentinel-a", "Sentinel A", None)]),
             }),
         );
-        registry.register("foreign-chatbackend-fixture", Arc::new(ForeignBackend));
+        registry.register_and_wait("foreign-chatbackend-fixture", Arc::new(ForeignBackend));
 
-        registry.register(
+        registry.register_and_wait(
             "chatbackend-error-fixture",
             Arc::new(ListingBackend {
                 id: "chatbackend-error-fixture",
-                calls: Arc::new(AtomicUsize::new(0)),
+                calls: Arc::new(CatalogCallTracker::default()),
                 models: Err("capability failed ".repeat(40)),
             }),
         );
@@ -499,8 +659,8 @@ available = false
         )
         .unwrap();
         let registry = ChatBackendRegistry::new();
-        let calls = Arc::new(AtomicUsize::new(0));
-        registry.register(
+        let calls = Arc::new(CatalogCallTracker::default());
+        registry.register_and_wait(
             id,
             Arc::new(ListingBackend {
                 id,
@@ -508,7 +668,6 @@ available = false
                 models: Ok(vec![model("live-model", "Live model", Some(true))]),
             }),
         );
-
         let descriptor = registry.descriptor(id).unwrap();
         assert_eq!(descriptor.available_models.len(), 1);
         assert_eq!(descriptor.available_models[0].id, "override-model");
@@ -530,7 +689,7 @@ display_name = "Late model"
             "override-model",
             "descriptor stays on the lifecycle snapshot until refresh"
         );
-        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(calls.count(), 1);
 
         registry.unregister(id);
         let _ = std::fs::remove_file(override_path);

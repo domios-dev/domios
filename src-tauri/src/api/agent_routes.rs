@@ -1146,7 +1146,7 @@ mod tests {
         let agents = std::sync::Arc::new(crate::agent::registry::AgentRegistry::new());
         let backends = std::sync::Arc::new(crate::chatbackend::ChatBackendRegistry::new());
         for (id, shell) in shells {
-            backends.register(*id, shell.clone());
+            backends.register_and_wait(*id, shell.clone());
         }
         crate::provider::ProviderRegistry::new(agents, backends)
     }
