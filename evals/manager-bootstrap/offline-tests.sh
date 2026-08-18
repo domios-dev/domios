@@ -76,7 +76,7 @@ IDENTITY="$ROOT/src-tauri/src/service/role_identity.rs"
 rg -Fq 'pub(crate) fn resolve_in(' "$PRESETS"
 [ "$(rg -c 'fn resolve_in\(' "$PRESETS")" = 1 ]
 rg -Fq 'crate::service::persona::deliver(' "$ROOT/src-tauri/src/service/orchestrator/prompt_compose.rs"
-rg -Fq 'crate::service::persona::guidance_for(' "$LAUNCH"
+rg -Fq 'crate::service::persona::guidance_for(' "$ROOT/src-tauri/src/service/orchestrator/prompt_compose.rs"
 rg -Fq 'crate::service::persona::guidance_for(' "$IDENTITY"
 
 # The suffixes are chosen by the table, never re-selected at an injection site.
