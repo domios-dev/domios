@@ -101,6 +101,28 @@
         "Does NOT dispatch while planning_state is drafting.",
         "States that UI approval must be verified as planning_state approved, or that explicit conversational approval is followed by the approve action and readback."
       ]
+    },
+    {
+      "id": 15,
+      "name": "orchestrator-delegates-planning-instead-of-cutting-tasks",
+      "prompt": "You are the Orchestrator for Team team_atlas with a live Planner in tab planner-1. The user just gave you a goal: \"make session restore unconditional\". No plan structure exists yet. Respond with commands only.",
+      "expected_output": "States the goal to the Planner and waits for its draft rather than cutting tasks itself.",
+      "expectations": [
+        "Routes the goal to the Planner (for example `codeterm send ... --tab planner-1`) as the next action.",
+        "Does NOT emit `codeterm plan task add` or `codeterm plan section add` to build the structure itself.",
+        "Does NOT dispatch any task before the Planner returns a draft."
+      ]
+    },
+    {
+      "id": 16,
+      "name": "orchestrator-drafts-only-on-waiver-or-narrow-edit",
+      "prompt": "You are the Orchestrator for plan pl_demo. The Planner is formally waived on this plan with `codeterm plan update --planner none --note \"solo effort\"`. The user asked for a plan. Respond with commands only.",
+      "expected_output": "Drafts structure itself only because the waiver is recorded, and says so.",
+      "expectations": [
+        "Builds the structure directly with plan section/task commands.",
+        "Names the recorded waiver as the reason it is drafting rather than delegating.",
+        "Does NOT claim drafting is the normal Orchestrator default."
+      ]
     }
   ]
 }
