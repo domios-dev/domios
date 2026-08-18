@@ -148,6 +148,11 @@ pub struct SpawnAgentParams {
         Option<crate::service::permission_policy::PermissionBypassAuthorization>,
     /// CODETERM_TAB_ID of the caller — recorded for report routing fallback.
     pub spawned_by_tab_id: Option<String>,
+    /// Team a roleless spawn attaches to (`agent spawn --team`). Requires
+    /// `creator_tab_id`; membership is authorized, never assumed.
+    pub team_id: Option<String>,
+    /// Calling tab that must already belong to `team_id`.
+    pub creator_tab_id: Option<String>,
     /// Authenticated control ownership carried to the spawned tab (peer identity
     /// re-stamped at the relay boundary, never trusted from the payload).
     pub ownership: Option<codeterm_types::pty::RemoteOwnership>,
