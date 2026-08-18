@@ -198,6 +198,25 @@ impl ServiceContext {
         Ok(())
     }
 
+    /// Attach an already-running roleless agent tab to a Team the caller
+    /// already belongs to.
+    pub(crate) fn adopt_agent_for_team(
+        &self,
+        team_id: &str,
+        tab_id: &str,
+        caller_tab_id: &str,
+    ) -> Result<Team, String> {
+        let team = {
+            let mut mux = self.mux.write();
+            reject_remote_team_mutation(&mux, team_id)?;
+            let team = adopt_agent_into_team(&mut mux, team_id, tab_id, caller_tab_id)?;
+            crate::service::publish_mux_state_changed(&self.events);
+            team
+        };
+        self.emit_state_changed_after_bus_publish();
+        Ok(team)
+    }
+
     pub(crate) fn rename_team(
         &self,
         team_id: &str,
@@ -907,6 +926,11 @@ fn authorize_team_mutation(
 ) -> Result<(), String> {
     authorize_team_manager(mux, team_id, caller)
 }
+
+mod membership;
+pub(crate) use membership::{
+    adopt_agent_into_team, apply_team_attachment, resolve_spawn_attachment,
+};
 
 #[cfg(test)]
 mod tests;

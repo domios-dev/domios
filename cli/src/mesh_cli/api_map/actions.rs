@@ -723,10 +723,18 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
             max_actions,
             bound_task,
             plan_task,
+            team,
             execution_intent,
             provider_reserve_pct,
             non_user_facing,
         } => {
+            // Team membership is authorized against the caller's own tab, which
+            // has no meaning on the peer that owns the Team.
+            if team.is_some() {
+                return unsupported(
+                    "agent spawn --team is local-only: run it on the peer that owns the Team",
+                );
+            }
             let task = match crate::cmd::agent::resolve_spawn_task(
                 task.clone(),
                 task_file.clone(),

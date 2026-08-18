@@ -728,6 +728,16 @@
               "aliases": []
             },
             {
+              "name": "team",
+              "positional": false,
+              "required": false,
+              "value_name": "TEAM_ID",
+              "possible_values": [],
+              "default": null,
+              "help": "Attach this roleless agent to an existing Team, mirroring `tab new --team`. The calling tab (CODETERM_TAB_ID) must already belong to that Team. Rejected together with --role or --plan-task: a role- or plan-bound agent takes its Team from that binding, never from here",
+              "aliases": []
+            },
+            {
               "name": "title",
               "positional": false,
               "required": false,
@@ -12946,7 +12956,7 @@
               "value_name": "LIFECYCLE",
               "possible_values": [],
               "default": null,
-              "help": "Include this tab's lifecycle journal, checkpoint, and recovery verdict",
+              "help": "Include this tab's lifecycle journal telemetry: lineage, transitions, checkpoint",
               "aliases": []
             },
             {
@@ -13386,6 +13396,34 @@
       "aliases": [],
       "args": [],
       "subcommands": [
+        {
+          "name": "adopt-agent",
+          "about": "Attach an already-running roleless agent tab to a Team",
+          "aliases": [],
+          "args": [
+            {
+              "name": "tab_id",
+              "positional": true,
+              "required": true,
+              "value_name": "TAB_ID",
+              "possible_values": [],
+              "default": null,
+              "help": "Tab ID of the running agent",
+              "aliases": []
+            },
+            {
+              "name": "team_id",
+              "positional": true,
+              "required": true,
+              "value_name": "TEAM_ID",
+              "possible_values": [],
+              "default": null,
+              "help": "Team ID",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
         {
           "name": "adopt-plan",
           "about": "Bind an existing plan to a Team",

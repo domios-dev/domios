@@ -85,6 +85,22 @@ fn test_spawn_agent_params_from_json() {
 }
 
 #[test]
+fn spawn_agent_params_carry_the_team_attach_pair_from_the_wire() {
+    let params = SpawnAgentParams::from_json(&serde_json::json!({
+        "agent": "claude",
+        "team_id": "team_alpha",
+        "creator_tab_id": "tab_manager",
+    }))
+    .unwrap();
+    assert_eq!(params.team_id.as_deref(), Some("team_alpha"));
+    assert_eq!(params.creator_tab_id.as_deref(), Some("tab_manager"));
+
+    let bare = SpawnAgentParams::from_json(&serde_json::json!({ "agent": "claude" })).unwrap();
+    assert!(bare.team_id.is_none());
+    assert!(bare.creator_tab_id.is_none());
+}
+
+#[test]
 fn test_spawn_agent_params_from_json_minimal() {
     let json = serde_json::json!({});
     let params = SpawnAgentParams::from_json(&json).unwrap();

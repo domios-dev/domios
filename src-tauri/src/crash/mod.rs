@@ -5,7 +5,10 @@
 //!   crash-<ts>-native.dmp — binary minidump from crash-handler
 //!   crash-<ts>-native.txt — readable sidecar for the minidump
 
+pub mod exit;
 pub mod lifecycle;
+#[cfg(target_os = "macos")]
+pub mod macos_quit;
 mod native;
 mod panic;
 pub mod report;

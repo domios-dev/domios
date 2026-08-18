@@ -60,6 +60,8 @@ impl SpawnAgentParams {
             skip_permissions: None,
             permission_bypass_authorization: None,
             spawned_by_tab_id: json_str(params, "spawned_by_tab_id"),
+            team_id: json_str(params, "team_id"),
+            creator_tab_id: json_str(params, "creator_tab_id"),
             ownership: params
                 .get("ownership")
                 .cloned()

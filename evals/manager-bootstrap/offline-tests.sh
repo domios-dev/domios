@@ -41,10 +41,10 @@ expect_failure mux_absent tab_existing < "$FIXTURES/mux.json"
 IDLE_STARTER='You are a newly started agent. Wait for instructions from the user or your orchestration parent.'
 rg -Fq 'IdleWakeup' "$ROOT/src-tauri/crates/codeterm-plugin/src/provider.rs"
 rg -Fq "$IDLE_STARTER" "$ROOT"/plugins/provider-*/src/plugin.ts
-rg -Fq 'starter_prompt_for_assignment' "$ROOT/src-tauri/src/service/orchestrator/spawn.rs"
+rg -Fq 'starter_prompt_for_creation' "$ROOT/src-tauri/src/service/orchestrator/spawn.rs"
 rg -Fq 'starterPrompt === "idle_wakeup"' "$ROOT/plugins/provider-codex/src/plugin.ts"
 rg -Fq 'starterPrompt === "idle_wakeup"' "$ROOT/plugins/provider-opencode/src/plugin.ts"
-python - <<'PY'
+python3 - <<'PY'
 messages = [
     {"id": "repeat-a", "content": "same inbound instruction"},
     {"id": "repeat-b", "content": "same inbound instruction"},
@@ -53,7 +53,7 @@ assert len({message["id"] for message in messages}) == 2
 assert len(messages) == 2
 PY
 FAKE="$(mktemp -d)"; trap 'rm -rf "$FAKE"' EXIT
-printf '%s\n' '#!/usr/bin/env bash' "python -c 'print(\"[\" + \",\".join(\"0\" for _ in range(200000)) + \"]\")'" 'printf complete > "$1"' > "$FAKE/producer"
+printf '%s\n' '#!/usr/bin/env bash' "python3 -c 'print(\"[\" + \",\".join(\"0\" for _ in range(200000)) + \"]\")'" 'printf complete > "$1"' > "$FAKE/producer"
 chmod +x "$FAKE/producer"
 PAYLOAD="$(capture_json "$FAKE/producer" "$FAKE/complete")"
 expect_failure provider_id system <<< "$PAYLOAD"
@@ -75,8 +75,8 @@ IDENTITY="$ROOT/src-tauri/src/service/role_identity.rs"
 # Exactly one resolver, and every injection surface routes through it.
 rg -Fq 'pub(crate) fn resolve_in(' "$PRESETS"
 [ "$(rg -c 'fn resolve_in\(' "$PRESETS")" = 1 ]
-rg -Fq 'crate::service::persona::deliver(' "$LAUNCH"
-rg -Fq 'crate::service::persona::guidance_for(' "$LAUNCH"
+rg -Fq 'crate::service::persona::deliver(' "$ROOT/src-tauri/src/service/orchestrator/prompt_compose.rs"
+rg -Fq 'crate::service::persona::guidance_for(' "$ROOT/src-tauri/src/service/orchestrator/prompt_compose.rs"
 rg -Fq 'crate::service::persona::guidance_for(' "$IDENTITY"
 
 # The suffixes are chosen by the table, never re-selected at an injection site.
