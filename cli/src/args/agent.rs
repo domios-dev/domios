@@ -116,6 +116,7 @@ pub struct ReportArgs {
 }
 
 #[derive(Subcommand)]
+#[derive(Debug)]
 pub enum AgentAction {
     /// Mark a tab as orchestrator (top-level, can spawn workers)
     SetOrchestrator {
