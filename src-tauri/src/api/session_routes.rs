@@ -22,6 +22,60 @@ pub async fn save_session_api(
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
+/// Rotated full-desk snapshots under `sessions/backups/`, newest first.
+/// Disk-bound (reads + parses every backup), so it runs on the blocking pool.
+pub async fn list_session_backups_api(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let svc = state.svc.clone();
+    let backups = tokio::task::spawn_blocking(move || svc.list_session_backups())
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("backup list task failed: {e}"),
+            )
+        })?
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({ "backups": backups })))
+}
+
+/// Additive desk recovery from one backup: recreates workspaces/tabs missing
+/// from the live desk. Never replaces or closes anything that exists.
+pub async fn restore_session_backup_api(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let svc = state.svc.clone();
+    let restored_name = name.clone();
+    let report = tokio::task::spawn_blocking(move || svc.restore_session_backup(&name))
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("backup restore task failed: {e}"),
+            )
+        })?
+        .map_err(|e| {
+            let status = if e.contains("invalid backup name") || e.contains("read backup") {
+                StatusCode::NOT_FOUND
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            };
+            (status, e)
+        })?;
+    Ok(Json(serde_json::json!({
+        "restored": restored_name,
+        "workspaces_added": report.workspaces_added,
+        "tabs_added": report.tabs_added,
+        "tabs_already_present": report.tabs_already_present,
+    })))
+}
+
 #[derive(Deserialize)]
 pub(crate) struct SearchSessionsQuery {
     q: String,

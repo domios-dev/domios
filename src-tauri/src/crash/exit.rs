@@ -49,7 +49,7 @@ pub fn persist_state(app: &tauri::AppHandle) {
     {
         let snapshot = mux.write().to_session_snapshot();
         match session.lock().save(&snapshot) {
-            Ok(()) => log::info!("[shutdown] session snapshot saved"),
+            Ok(_) => log::info!("[shutdown] session snapshot saved"),
             Err(e) => log::error!("[shutdown] session save failed: {}", e),
         }
     }

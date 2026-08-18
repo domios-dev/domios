@@ -350,7 +350,7 @@ impl ServiceContext {
                 Ok(())
             };
             if let Err(e) = role_result {
-                let _ = self.mux.write().close_tab(&tab_id);
+                self.rollback_provisional_tab_via_close(&tab_id);
                 if emit_state_change {
                     self.emit_state_changed();
                 }
@@ -362,12 +362,12 @@ impl ServiceContext {
         }
 
         self.ensure_agent_pad(&tab_id).inspect_err(|_| {
-            self.mux.write().rollback_spawn_tab(&ws_id, &tab_id);
+            self.rollback_provisional_tab(&ws_id, &tab_id);
         })?;
 
         if let Err(error) = self.chatbackend_launch(plugin_id, tab_id.clone(), config, history_meta)
         {
-            self.mux.write().rollback_spawn_tab(&ws_id, &tab_id);
+            self.rollback_provisional_tab(&ws_id, &tab_id);
             let _ = self.revoke_agent_pad(&tab_id);
             if emit_state_change {
                 self.emit_state_changed();

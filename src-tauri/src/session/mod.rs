@@ -18,7 +18,9 @@ pub fn save_session(
     session: tauri::State<'_, SessionState>,
 ) -> Result<(), String> {
     let snapshot = mux.write().to_session_snapshot();
-    session.lock().save(&snapshot)
+    // A refused reduction is the guard working (logged by the store), not a
+    // command failure.
+    session.lock().save(&snapshot).map(|_| ())
 }
 
 #[tauri::command]
