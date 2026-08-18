@@ -39,39 +39,6 @@ pub(crate) struct AppStates {
     pub(crate) rest_api: super::RestApiControlState,
 }
 
-/// Reduce a snapshot to the authority the journal proves, tab by tab. A tab
-/// whose lifecycle predates the journal is judged by the prior contract only.
-fn quarantine_unproven_authority(snapshot: &mut crate::session::store::SessionSnapshot) {
-    use crate::session::lifecycle::{gate_session_snapshot, RecoveryVerdict, TabLifecycleJournal};
-
-    let load = TabLifecycleJournal::shared().load();
-    if let crate::session::lifecycle::TailStatus::Refused { line, reason } = &load.tail {
-        log::error!(
-            "[tab-lifecycle] journal unreadable from line {line} ({reason}); every authority claim fails closed"
-        );
-    }
-    for outcome in gate_session_snapshot(snapshot, &load) {
-        match outcome.verdict {
-            RecoveryVerdict::Stripped(refusal) => log::warn!(
-                "[tab-lifecycle] tab {} restored without authority: {}",
-                outcome.tab_id,
-                refusal.reason()
-            ),
-            RecoveryVerdict::Restored(authority) => log::info!(
-                "[tab-lifecycle] tab {} restored from committed checkpoint (provider={}, session={})",
-                outcome.tab_id,
-                authority.provider,
-                authority.session_id
-            ),
-            RecoveryVerdict::PreJournal => log::info!(
-                "[tab-lifecycle] tab {} has no journaled lifecycle; restored under the pre-journal contract",
-                outcome.tab_id
-            ),
-            RecoveryVerdict::NoAuthorityClaimed => {}
-        }
-    }
-}
-
 /// Orchestration bindings the dead epoch persisted, versus what came back.
 /// Roleless tabs are ordinary terminals, not in-flight work.
 fn snapshot_role_bindings(
@@ -287,8 +254,7 @@ pub(crate) fn init_states() -> AppStates {
     let mux_state_inner = {
         let last = session_state.lock().load_last();
         match last {
-            Ok(Some(mut snapshot)) if !snapshot.workspaces.is_empty() => {
-                quarantine_unproven_authority(&mut snapshot);
+            Ok(Some(snapshot)) if !snapshot.workspaces.is_empty() => {
                 bound_at_shutdown = snapshot_role_bindings(&snapshot);
                 agent_panes_at_shutdown = snapshot_agent_panes(&snapshot);
                 log::info!(
