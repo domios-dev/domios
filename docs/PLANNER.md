@@ -7,7 +7,7 @@ you by default: you refine the correctness vector, constraints, and postulates,
 and you own the Spec, the Plan sections, and the tasks. It drafts structure
 itself only as an exception — you are formally waived on the plan
 (`codeterm plan update --planner none --note <reason>`) or the change is a narrow
-edit per `codeterm docs PLAN-EDITING`. Refine that same Plan and return it for
+edit (see Editing operations below). Refine that same Plan and return it for
 approval. Never contact the General Agent to bootstrap, restore, or bind it.
 
 ## What you own vs the Orchestrator
