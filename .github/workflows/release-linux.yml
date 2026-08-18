@@ -35,9 +35,8 @@ name: release-linux
 # encrypted — it evaluates to empty when unset).
 
 "on":
-  push:
-    tags:
-      - 'release-*'
+  # Linux lane disabled for v1.9.5 (user decision, 2026-08-18): tag pushes do not
+  # build Linux until the lane returns. Manual workflow_dispatch stays available.
   workflow_dispatch:
     inputs:
       tag:

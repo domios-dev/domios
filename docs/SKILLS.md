@@ -78,7 +78,7 @@ Skills are markdown files that Claude Code loads automatically when relevant. Wh
 9. **Choose model**: use `codeterm agent models <provider>` to list valid ids and `codeterm agent spawn <provider> --model MODEL --task "..."` to select one. Do not treat `codeterm agent model` as a universal live switch.
 10. **Send report**: `codeterm agent report "task done"` (report to direct parent, auto-injected into parent's PTY)
 11. **Message a running agent**: `codeterm send --tab ID "status?"` (immediate agent-directed message via the normal send transport)
-12. **List tabs / hierarchy**: `codeterm tab list` (workspace tree, sub-agents nested, caller marked `(self)`; `--agents` filters to agent tabs). Use `codeterm tab inspect <id>` for one tab's full payload, or add `--lifecycle` for its journal and recovery verdict.
+12. **List tabs / hierarchy**: `codeterm tab list` (workspace tree, sub-agents nested, caller marked `(self)`; `--agents` filters to agent tabs). Use `codeterm tab inspect <id>` for one tab's full payload, or add `--lifecycle` for its journal telemetry.
 13. **Spawn agent**: `codeterm agent spawn claude --title "Worker" --role Worker --parent-tab ID --task "do work"` (creates new tab, non-blocking, does NOT switch active tab; task delivery is provider-owned and is not an inter-tab `-=-codeterm:tab...-=-` message)
 14. **Spawn with agent definition**: via REST API `POST /api/agents/spawn` with `agent_name` field (loads `.claude/agents/<name>.md`; not available in CLI)
 15. **Cross-workspace spawn**: `codeterm agent spawn claude --workspace WS_ID --title "Remote" --role Worker --parent-tab ID --task "work"`

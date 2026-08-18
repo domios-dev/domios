@@ -421,6 +421,8 @@ pub async fn resume_session_api(
         skip_permissions: Some(permission_bypass),
         permission_bypass_authorization,
         spawned_by_tab_id: None,
+        team_id: None,
+        creator_tab_id: None,
         ownership: None,
         model: body.model.clone(),
         planned_model: None,

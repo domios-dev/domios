@@ -76,7 +76,7 @@ pub enum TabAction {
         /// One or more tab ids to inspect. Repeat the flag for multiple tabs.
         #[arg(long = "tab", value_name = "ID", action = clap::ArgAction::Append)]
         tab: Vec<String>,
-        /// Include this tab's lifecycle journal, checkpoint, and recovery verdict.
+        /// Include this tab's lifecycle journal telemetry: lineage, transitions, checkpoint.
         #[arg(long)]
         lifecycle: bool,
     },

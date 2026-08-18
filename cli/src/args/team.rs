@@ -28,6 +28,13 @@ pub enum TeamAction {
         /// Plan ID
         plan_id: String,
     },
+    /// Attach an already-running roleless agent tab to a Team
+    AdoptAgent {
+        /// Team ID
+        team_id: String,
+        /// Tab ID of the running agent
+        tab_id: String,
+    },
     /// Create an Orchestrator + Planner Team in one action. The Plan stays
     /// unbound until the first goal.
     Pair {
@@ -63,6 +70,24 @@ mod tests {
                 action: TeamAction::AdoptPlan { team_id, plan_id }
             } if team_id == "team_alpha" && plan_id == "pl_one"
         ));
+    }
+
+    #[test]
+    fn adopt_agent_parses_team_and_tab_positionals() {
+        let parsed =
+            Cli::try_parse_from(["codeterm", "team", "adopt-agent", "team_alpha", "tab_seven"])
+                .expect("team adopt-agent parses");
+        assert!(matches!(
+            parsed.command,
+            Commands::Team {
+                action: TeamAction::AdoptAgent { team_id, tab_id }
+            } if team_id == "team_alpha" && tab_id == "tab_seven"
+        ));
+    }
+
+    #[test]
+    fn adopt_agent_requires_both_positionals() {
+        assert!(Cli::try_parse_from(["codeterm", "team", "adopt-agent", "team_alpha"]).is_err());
     }
 
     #[test]

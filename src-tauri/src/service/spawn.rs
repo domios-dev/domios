@@ -317,6 +317,15 @@ impl ServiceContext {
             (id, cwd)
         };
 
+        // Authorized before the tab exists: a non-member caller must never leave
+        // an orphan agent behind.
+        let team_attachment = super::team::resolve_spawn_attachment(
+            &self.mux.read(),
+            spec.team_id.as_deref(),
+            spec.creator_tab_id.as_deref(),
+            &ws_id,
+        )?;
+
         let (resolved_cwd, cwd_warning) = Self::resolve_agent_cwd(&spec.cwd, &ws_cwd);
         let warning = merge_warnings(cwd_warning, cli_warning);
 
@@ -451,6 +460,20 @@ impl ServiceContext {
                     &title,
                     now_unix_secs(),
                 );
+            }
+        }
+        // After role placement, which owns `parent_tab_id`/`team_id` for a
+        // role-bearing tab. Written before launch so the PTY inherits
+        // CODETERM_TEAM_ID.
+        if let Some(attachment) = &team_attachment {
+            let applied = {
+                let mut mux = self.mux.write();
+                super::team::apply_team_attachment(&mut mux, attachment, &tab_id)
+            };
+            if let Err(error) = applied {
+                let _ = self.mux.write().close_tab(&tab_id);
+                self.emit_state_changed();
+                return Err(error);
             }
         }
         if let Some(binding) = task_binding_from_spawn(&agent) {

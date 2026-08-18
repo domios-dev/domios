@@ -334,7 +334,7 @@ Bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
 - `docs/RELEASE.md` — release runbook: preflight, trigger-tag flow, artifact matrix, troubleshooting
 - `docs/MESH.md` — mesh networking (flat peer model) + bridge migration + Mesh tab (service registry, health probes, activity log, push tokens)
 - `docs/MEMORY.md` — memory subsystem
-- `docs/TAB-LIFECYCLE.md` — tab lifecycle journal: file location, schema, compaction, the exact-checkpoint recovery rule, read-only inspection recipes
+- `docs/TAB-LIFECYCLE.md` — tab lifecycle journal (telemetry only): file location, schema, compaction, the unconditional restore contract, read-only inspection recipes
 - `docs/PROMPTS.md` — prompt templates: where they live, how they compile
 - `docs/TESTING.md` — full test guide
 - `docs/spikes/llm-codemap-eval.md` — code-map bake-off; why SCIP is the adopted code-navigation index

@@ -25,7 +25,7 @@
 #   reset_dev_state
 #
 # Cross-platform (mac/linux/windows-bash). Filesystem paths go through
-# python's os.path.expanduser so git bash $HOME (/c/Users/X) doesn't
+# python3's os.path.expanduser so git bash $HOME (/c/Users/X) doesn't
 # break native Windows Python.
 
 set -u
@@ -113,7 +113,7 @@ dev_resolve_identity() {
     dev_resolution_error '<unresolved>' '<identify --json unavailable>'
     return 7
   fi
-  if ! parsed="$(printf '%s\n' "$output" | python -c '
+  if ! parsed="$(printf '%s\n' "$output" | python3 -c '
 import json, sys
 connection = json.load(sys.stdin)["connection"]
 values = [
@@ -203,7 +203,7 @@ dev_assert_target() {
     return 7
   fi
   if [ -n "$EVAL_LIB_RESOLVED_INSTANCE" ]; then
-    actual_instance="$(printf '%s\n' "$health" | python -c '
+    actual_instance="$(printf '%s\n' "$health" | python3 -c '
 import json, sys
 print(json.load(sys.stdin).get("instance", {}).get("name", ""))
 ')"
@@ -367,7 +367,7 @@ snapshot() {
   mkdir -p "$dir"
   dev_get /api/workspaces > "$dir/ws.json"
   dev_get /api/tabs      > "$dir/tabs.json"
-  python - "$dir" "${CODETERM_DEV_DATA_DIR:-$(dev_data_dir)}" <<'PYEOF'
+  python3 - "$dir" "${CODETERM_DEV_DATA_DIR:-$(dev_data_dir)}" <<'PYEOF'
 import os, sys, shutil
 src = os.path.join(sys.argv[2], 'sessions', 'last.json')
 if os.path.exists(src):
@@ -381,7 +381,7 @@ PYEOF
 diff_snapshots() {
   local pre="${1:?usage: diff_snapshots <pre_dir> <post_dir>}"
   local post="${2:?}"
-  PYTHONIOENCODING=utf-8 python - "$pre" "$post" <<'PYEOF'
+  PYTHONIOENCODING=utf-8 python3 - "$pre" "$post" <<'PYEOF'
 import json, sys, os
 pre, post = sys.argv[1], sys.argv[2]
 pre_ws = json.load(open(os.path.join(pre, 'ws.json')))
@@ -431,7 +431,7 @@ PYEOF
 # leftover test workspaces from prior runs don't pollute the next one.
 cleanup_test_workspaces() {
   local prefix="${1:-WS-}"
-  dev_get /api/workspaces | python -c "
+  dev_get /api/workspaces | python3 -c "
 import json, sys
 for w in json.load(sys.stdin):
     if w['name'].startswith('$prefix'): print(w['id'])
@@ -459,7 +459,7 @@ reset_dev_state() {
   local pass max_pass=4
   for pass in $(seq 1 $max_pass); do
     local ids
-    ids=$(dev_get /api/workspaces | python -c "
+    ids=$(dev_get /api/workspaces | python3 -c "
 import json, sys
 for w in json.load(sys.stdin):
     if not w.get('protected', False):
@@ -488,10 +488,10 @@ reset_dev_state_hard() {
 
 # Sanity check the on-disk session file is well-formed and that no
 # half-written .tmp got left behind. Returns non-zero on either issue.
-# Uses python's os.path.expanduser so the path resolves correctly on
+# Uses python3's os.path.expanduser so the path resolves correctly on
 # Windows (git bash $HOME is /c/Users/X — invalid for native Python).
 assert_atomic_save_clean() {
-  python - "$CODETERM_DEV_DATA_DIR" <<'PYEOF' || { echo "  FAIL session file integrity check"; return 1; }
+  python3 - "$CODETERM_DEV_DATA_DIR" <<'PYEOF' || { echo "  FAIL session file integrity check"; return 1; }
 import json, os, sys
 sess = os.path.join(sys.argv[1], 'sessions')
 tmp = os.path.join(sess, 'last.json.tmp')
@@ -515,11 +515,11 @@ PYEOF
 # by title — a regressed plan named "Orchestration"/"04:56" is still
 # swept), then assert before == after so a leak FAILS the bench.
 
-# NOTE: `python -c` (script via argv) — NOT `python - <<HEREDOC`. With a pipe
+# NOTE: `python3 -c` (script via argv) — NOT `python3 - <<HEREDOC`. With a pipe
 # the heredoc becomes stdin, so json.load(sys.stdin) reads empty and the sweep
 # silently no-ops (false-green). Single-quote the -c body so $/\ stay literal.
 plan_ids() {
-  dc plan list --json 2>/dev/null | python -c '
+  dc plan list --json 2>/dev/null | python3 -c '
 import json,sys
 try: d=json.load(sys.stdin)
 except Exception: d=[]
@@ -563,7 +563,7 @@ plan_sweep_new() {
 # Emit "<id>\t<title>" for every plan whose title marks matrix/creation
 # junk: empty, bare 'Orchestration', 'orchmatrix*', or a HH:MM name.
 plan_junk_titles() {
-  dc plan list --json 2>/dev/null | python -c '
+  dc plan list --json 2>/dev/null | python3 -c '
 import json,re,sys
 try: d=json.load(sys.stdin)
 except Exception: d=[]
@@ -602,14 +602,14 @@ new_workspace() {
   local name="$1" cwd="$2"
   mkdir -p "$cwd" 2>/dev/null
   dc workspace create "$name" --cwd "$cwd" --json 2>/dev/null \
-    | python -c "import json,sys; print(json.load(sys.stdin).get('id',''))"
+    | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))"
 }
 
 # Spawn a plain shell tab in the given workspace. Echoes tab_id.
 new_shell_tab() {
   local ws="$1" cwd="$2" title="${3:-shell}"
   dc tab new --workspace "$ws" --cwd "$cwd" --title "$title" --json 2>/dev/null \
-    | python -c "import json,sys; print(json.load(sys.stdin).get('tab_id',''))"
+    | python3 -c "import json,sys; print(json.load(sys.stdin).get('tab_id',''))"
 }
 
 # Spawn a claude tab in the given workspace. Echoes tab_id.

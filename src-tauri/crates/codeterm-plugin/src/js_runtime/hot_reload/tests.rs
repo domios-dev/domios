@@ -45,7 +45,7 @@ impl PluginProviderRegistrar for TestRegistrar {
 }
 
 fn test_caps() -> CapabilityRegistries {
-    CapabilityRegistries {
+    let capabilities = CapabilityRegistries {
         transcribe: Arc::new(crate::transcribe::TranscribeRegistry::new()),
         glance: Arc::new(crate::glance::GlanceRegistry::new()),
         bubble: Arc::new(crate::bubble::BubbleRegistry::new()),
@@ -54,7 +54,9 @@ fn test_caps() -> CapabilityRegistries {
         chat_preprocessor: Arc::new(crate::chatpreprocessor::ChatPreprocessorRegistry::new()),
         agent_command: Arc::new(crate::agent_commands::AgentCommandRegistry::new()),
         secret: None,
-    }
+    };
+    let _ = capabilities.chatbackend.start_discovery();
+    capabilities
 }
 
 // Poll tick() until `condition` holds instead of assuming one tick is enough;
@@ -477,14 +479,14 @@ fn chatbackend_model_refresh_is_provider_scoped_and_event_driven() {
         &chatbackend_with_model("foreign-model"),
     );
 
-    watcher.tick();
-    assert_eq!(
-        caps.chatbackend
-            .descriptor("sentinel")
-            .unwrap()
-            .available_models[0]
-            .id,
-        "sentinel-a"
+    assert!(
+        tick_until(&watcher, || {
+            caps.chatbackend
+                .descriptor("sentinel")
+                .and_then(|descriptor| descriptor.available_models.first().cloned())
+                .is_some_and(|model| model.id == "sentinel-a")
+        }),
+        "initial model discovery must complete"
     );
     assert_eq!(watcher.contribution_event_count(), 2);
 
@@ -500,15 +502,14 @@ fn chatbackend_model_refresh_is_provider_scoped_and_event_driven() {
         &sentinel_dir.join("plugin.js"),
         prior_mtime + Duration::from_secs(2),
     );
-    watcher.tick();
-
-    assert_eq!(
-        caps.chatbackend
-            .descriptor("sentinel")
-            .unwrap()
-            .available_models[0]
-            .id,
-        "sentinel-b"
+    assert!(
+        tick_until(&watcher, || {
+            caps.chatbackend
+                .descriptor("sentinel")
+                .and_then(|descriptor| descriptor.available_models.first().cloned())
+                .is_some_and(|model| model.id == "sentinel-b")
+        }),
+        "reloaded model discovery must complete"
     );
     assert_eq!(
         caps.chatbackend

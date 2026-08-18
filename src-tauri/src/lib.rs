@@ -826,6 +826,7 @@ pub fn run() {
                     vm.set_service(Arc::downgrade(&host));
                 }
                 plugin::js_runtime::set_watcher_service(Arc::downgrade(&host));
+                let _ = chatbackend_registry.start_discovery();
             }
             app.manage(service_state.clone());
             crate::delayed_send::start_scheduler(service_state.clone());
@@ -955,12 +956,16 @@ pub fn run() {
             });
             startup::build_system_tray(app)?;
 
+            // macOS quits never emit ExitRequested; observe AppKit's terminate instead.
+            #[cfg(target_os = "macos")]
+            crash::macos_quit::install_quit_hook();
+
             // Catch SIGTERM/SIGINT: run the same graceful cleanup as a Tauri Exit, then exit cleanly. (Windows is covered above.)
             #[cfg(unix)]
             {
                 let signal_app = app_handle.clone();
                 crash::shutdown::install_unix_signal_handlers(move || {
-                    graceful_exit_cleanup(&signal_app);
+                    crash::exit::graceful_exit_cleanup(&signal_app);
                 });
             }
 
@@ -1057,48 +1062,7 @@ pub fn run() {
 
             // log doesn't survive into the next run. The updater's graceful_shutdown already does this on the in-place upgrade path; this catches every other shutdown route.
             if let tauri::RunEvent::Exit = _event {
-                #[cfg(target_os = "macos")]
-                if !crash::shutdown::is_shutting_down() {
-                    log::warn!(
-                        "[shutdown] ignoring unrequested macOS RunEvent::Exit; process remains live"
-                    );
-                    return;
-                }
-                graceful_exit_cleanup(_app);
+                crash::exit::handle_run_exit(_app);
             }
         });
-}
-
-/// Shared graceful-exit cleanup for every clean shutdown route. Marks the process
-/// shutting down (drops the `.clean_exit` sentinel so no crash toast next launch),
-/// then best-effort persists session + checkpoints the mem WAL.
-fn graceful_exit_cleanup(app: &tauri::AppHandle) {
-    crash::shutdown::mark_shutting_down();
-    if let Some(state) = app.try_state::<KeepAwakeStateHandle>() {
-        keepawake::cleanup_active_children_for_exit_with_state(&state);
-    } else {
-        keepawake::cleanup_active_children_for_exit();
-    }
-    webview2_reap::clear_journal_for_exit();
-
-    if let (Some(mux), Some(session)) =
-        (app.try_state::<MuxState>(), app.try_state::<SessionState>())
-    {
-        let snapshot = mux.write().to_session_snapshot();
-        if let Err(e) = session.lock().save(&snapshot) {
-            log::error!("[shutdown] session save failed: {}", e);
-        }
-    }
-
-    if let Some(svc) = app.try_state::<service::ServiceState>() {
-        match svc.mem.checkpoint_and_close() {
-            Ok((busy, log_frames, checkpointed)) => log::info!(
-                "[shutdown] mem WAL checkpointed busy={} log_frames={} checkpointed={}",
-                busy,
-                log_frames,
-                checkpointed
-            ),
-            Err(e) => log::warn!("[shutdown] mem WAL checkpoint failed: {}", e),
-        }
-    }
 }

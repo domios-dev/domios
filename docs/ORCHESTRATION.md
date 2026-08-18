@@ -34,16 +34,16 @@ CodeTerm planner is the source of truth:
 GOAL → Spec (WHAT/WHY) ⊥ Plan (HOW) → Tasks → Strides
 ```
 
-- Set the GOAL first.
+- The Orchestrator sets the GOAL first, then delegates the rest of the structure.
 - Requirements, constraints, acceptance, and vocabulary belong in Spec.
 - Phases, ownership, sequencing, and verification belong in Plan.
-- Tasks carry bounded scope, ownership, acceptance criteria, correctness, and
-  an executable test plan.
+- Tasks carry bounded scope, ownership, acceptance criteria, correctness, and an executable test plan.
 - Strides record evidence, decisions, reports, and working points.
 - Do not replace planner state with a standalone markdown implementation plan.
 
-The Planner drafts structure. The Orchestrator approves or revises it, dispatches
-execution, judges reports, integrates accepted lanes, and owns cleanup.
+The Orchestrator states the GOAL and delegates planning to the Planner by default;
+the Planner drafts structure, and the Orchestrator approves or revises it,
+dispatches execution, judges reports, integrates accepted lanes, and owns cleanup.
 The Orchestrator may implement a genuinely small local change when delegation
 would cost more than the work, but Worker dispatch is the default for plan-owned source work. Never self-assign a normal implementation task merely because canonical is writable.
 When Team-bound, attach utility shells and cron jobs to the same Team with
@@ -89,8 +89,7 @@ the retired attempt is rejected instead of resurrecting ownership. The widening
 is for the Plan owner only: a non-owner, non-epoch caller is still refused.
 
 Archiving a plan with no retrospective **succeeds** and emits the advisory
-`plan.retrospective_unrecorded`, recording durable incident evidence on the plan.
-Write the retrospective before normal closure
+`plan.retrospective_unrecorded`. Write the retrospective before normal closure
 (`codeterm plan retrospective <plan> --body-file <pad-relative-path>`) — but the
 mechanism is a nudge, never a gate, so it can never trap recovery or closure.
 
@@ -101,8 +100,7 @@ Run this loop after every report, reminder, task close, tab death, or gate:
 1. **Handle pushed reports.** Worker reports arrive automatically as incoming
    messages. Accept or bounce them without polling an inbox.
 2. **Reconcile.** Run `codeterm plan reconcile <plan>`; fix only owned drift.
-3. **Re-derive the frontier.** Inspect all open tasks, not only the previous
-   focus.
+3. **Re-derive the frontier.** Inspect all open tasks, not only the previous focus.
 4. **Give every actionable task an exit:** dispatch, pause with a reason, judge,
    replan through the Planner, or escalate.
 5. **Keep the frontier staffed.** Do not leave a capable Worker idle while
@@ -127,8 +125,11 @@ goal.
 When a Planner is present:
 
 - the active Plan belongs to the Team and is visible through Team membership;
-- the Orchestrator creates and owns the Plan and may edit its full structure;
-- delegate structural refinement to the Planner when useful;
+- the Orchestrator owns the Plan and states its GOAL (it holds the user's intent);
+  the Planner refines the vector, constraints, and postulates and drafts the Spec,
+  Plan sections, and tasks — hand the goal over and wait; do not cut tasks in its place;
+- drafting structure directly is the exception: a formal Planner waiver
+  (`codeterm plan update --planner none --note <reason>`) or a narrow edit (see Related documents);
 - never create a separate Planner-to-Plan binding or ask the General Agent to bootstrap one;
 - run `codeterm plan doctor <plan> --kind quality`, then use one `codeterm plan
   approve <plan>` action to approve the structure and activate its tasks;
@@ -196,12 +197,11 @@ Every Worker must be visible under the Orchestrator and carry:
 - `codeterm agent ack` as its first task action;
 - instructions to report by running `codeterm agent report`.
 
-`plan task dispatch` is local-only. A Worker spawned on a mesh peer with
-`agent spawn --mesh PEER` has no attempt on the origin plan store and no plan/task
-env, so it must report with explicit `--plan <origin-plan> --task <task>` to home
-the report back to the owning machine, or the Orchestrator attaches the arriving
-tab message by hand. Full cross-mesh dispatch is out of scope; see the spawn-then-bind
-pattern in `codeterm docs MESH`.
+`plan task dispatch` is local-only. A Worker spawned with `agent spawn --mesh PEER`
+has no attempt on the origin plan store and no plan/task env, so it reports with
+explicit `--plan <origin-plan> --task <task>` to home the report back, or the
+Orchestrator attaches the arriving tab message by hand. Full cross-mesh dispatch is
+out of scope; see the spawn-then-bind pattern in `codeterm docs MESH`.
 
 ## Review capacity
 
@@ -237,4 +237,4 @@ immutable plan stride.
 ## Related documents
 
 Verification, integration, heartbeat, and closeout: `codeterm docs ORCHESTRATION-OPERATIONS`.
-<!-- revision: 63 -->
+<!-- revision: 64 -->
