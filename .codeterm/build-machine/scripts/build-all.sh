@@ -110,10 +110,18 @@ rm -rf "$REPO/src-tauri/target/release" \
 
 rc=0
 
-# arm64 wave
-run_wave arm64 \
-  "$HELPERS/mac-bundle.sh $VER arm64 $ART" \
-  "$DOCKER codeterm-build-linux-arm64 bash /build-linux.sh $TAG deb,appimage; cp $LWORK/out/*arm64.deb $ART/ 2>/dev/null; cp $LWORK/out/*aarch64.AppImage $ART/ 2>/dev/null" || rc=1
+# arm64 wave. Linux lane disabled for v1.9.5 (user decision, 2026-08-18):
+# set CT_BUILD_LINUX=1 to re-enable the docker arm64 Linux engine.
+if [ "${CT_BUILD_LINUX:-0}" = "1" ]; then
+  run_wave arm64 \
+    "$HELPERS/mac-bundle.sh $VER arm64 $ART" \
+    "$DOCKER codeterm-build-linux-arm64 bash /build-linux.sh $TAG deb,appimage; cp $LWORK/out/*arm64.deb $ART/ 2>/dev/null; cp $LWORK/out/*aarch64.AppImage $ART/ 2>/dev/null" || rc=1
+else
+  echo "[build-all] Linux arm64 engine skipped (CT_BUILD_LINUX!=1)"
+  run_wave arm64 \
+    "$HELPERS/mac-bundle.sh $VER arm64 $ART" \
+    "true" || rc=1
+fi
 
 # x86_64 wave — macOS only; x86_64 Linux is built natively on the ROG/WSL runner
 # (release-linux.yml), not cross-compiled here.

@@ -38,7 +38,10 @@ cp -f "CodeTerm_${VER}_x64.app.tar.gz.sig"     CodeTerm_x64.app.tar.gz.sig
 
 ARM_SIG=$(tr -d '\n' < CodeTerm_aarch64.app.tar.gz.sig)
 X64_SIG=$(tr -d '\n' < CodeTerm_x64.app.tar.gz.sig)
-LINUX_ARM_SIG=$(tr -d '\n' < "CodeTerm_${VER}_aarch64.AppImage.sig")
+# Linux lane disabled for v1.9.5: the arm64 AppImage sig is optional; when absent
+# the linux-aarch64 fragment is simply not emitted and Linux sees no update offer.
+LINUX_ARM_SIG=""
+[ -f "CodeTerm_${VER}_aarch64.AppImage.sig" ] && LINUX_ARM_SIG=$(tr -d '\n' < "CodeTerm_${VER}_aarch64.AppImage.sig")
 PUB=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 B="https://github.com/${MIRROR}/releases/download/${TAG}"
 
@@ -52,8 +55,9 @@ notes = "See the assets to download this version and install."
 frags = {
     "darwin-aarch64": {"url": f"{B}/CodeTerm_aarch64.app.tar.gz", "signature": os.environ["ARM_SIG"]},
     "darwin-x86_64":  {"url": f"{B}/CodeTerm_x64.app.tar.gz",     "signature": os.environ["X64_SIG"]},
-    "linux-aarch64":  {"url": f"{B}/CodeTerm_{ver}_aarch64.AppImage", "signature": os.environ["LINUX_ARM_SIG"]},
 }
+if os.environ.get("LINUX_ARM_SIG"):
+    frags["linux-aarch64"] = {"url": f"{B}/CodeTerm_{ver}_aarch64.AppImage", "signature": os.environ["LINUX_ARM_SIG"]}
 for key, entry in frags.items():
     with open(f"_frags/updater-{key}.json", "w") as f:
         json.dump({"version": ver, "notes": notes, "pub_date": pub,
@@ -61,9 +65,10 @@ for key, entry in frags.items():
 PY
 
 PRIV_ASSETS=( "CodeTerm_${VER}_aarch64.dmg" "CodeTerm_${VER}_x64.dmg"
-  CodeTerm_aarch64.app.tar.gz CodeTerm_x64.app.tar.gz
-  "CodeTerm_${VER}_aarch64.AppImage"
-  "CodeTerm_${VER}_arm64.deb" )
+  CodeTerm_aarch64.app.tar.gz CodeTerm_x64.app.tar.gz )
+# Linux arm64 assets ride only when the Linux lane built them (disabled for v1.9.5).
+[ -f "CodeTerm_${VER}_aarch64.AppImage" ] && PRIV_ASSETS+=("CodeTerm_${VER}_aarch64.AppImage")
+[ -f "CodeTerm_${VER}_arm64.deb" ] && PRIV_ASSETS+=("CodeTerm_${VER}_arm64.deb")
 # x86_64 Linux (.deb / .AppImage) is built + published on the ubunta runner;
 # fold its .deb in here only if it happens to be present in $ART.
 [ -f "CodeTerm_${VER}_amd64.deb" ] && PRIV_ASSETS+=("CodeTerm_${VER}_amd64.deb")
