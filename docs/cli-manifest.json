@@ -11939,6 +11939,50 @@
       "args": [],
       "subcommands": [
         {
+          "name": "backups",
+          "about": "Full-desk session backups (workspaces + tabs). List the rotated snapshots and recover a reduced/wiped desk from one without hand-editing JSON",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "list",
+              "about": "List desk snapshot backups, newest first, with workspace/tab counts",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "limit",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "LIMIT",
+                  "possible_values": [],
+                  "default": "20",
+                  "help": "Max backups shown",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "restore",
+              "about": "Restore a backup into the live desk. Strictly additive — it replaces NOTHING: existing workspaces and tabs are untouched, only workspaces and tabs missing from the live desk are recreated from the backup",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "name",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "NAME",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Backup name from `sessions backups list` (unix timestamp)",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
           "name": "get",
           "about": "Print metadata for a past session (provider, cwd, file path, times). Read-only probe — use before `sessions resume` to verify the session is still on disk",
           "aliases": [],

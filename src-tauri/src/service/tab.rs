@@ -203,6 +203,7 @@ impl ServiceContext {
         self.notif
             .lock()
             .close_push_scope(&crate::notification::push::tab_scope(tab_id));
+        session_persist::persist_session_after_close(self);
         self.emit_state_changed();
         if pre_focus != post_focus {
             if let Some(new) = post_focus {

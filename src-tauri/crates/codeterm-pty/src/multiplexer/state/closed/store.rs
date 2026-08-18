@@ -106,8 +106,43 @@ impl ClosedTabsStore {
             PRAGMA synchronous = NORMAL;
             "#,
         )?;
+        Self::migrate_pane_rename(conn)?;
         let version = Self::user_version(conn)?;
         Self::migrate(conn, version)
+    }
+
+    /// The pane->tab rename (9e41cf8a2) changed table/column names in SQL with
+    /// no migration, so every pre-rename db failed the version ladder's first
+    /// `ALTER TABLE closed_tab` and history silently fell back to in-memory.
+    fn migrate_pane_rename(conn: &Connection) -> rusqlite::Result<()> {
+        if !Self::table_exists(conn, "closed_pane")? || Self::table_exists(conn, "closed_tab")? {
+            return Ok(());
+        }
+        conn.execute_batch(
+            r#"
+            ALTER TABLE closed_pane RENAME TO closed_tab;
+            ALTER TABLE closed_tab RENAME COLUMN pane_id TO tab_id;
+            ALTER TABLE closed_tab RENAME COLUMN parent_pane_id TO parent_tab_id;
+            DROP INDEX IF EXISTS idx_closed_pane_workspace;
+            DROP INDEX IF EXISTS idx_closed_pane_group;
+            DROP INDEX IF EXISTS idx_closed_pane_recent;
+            CREATE INDEX IF NOT EXISTS idx_closed_tab_workspace
+                ON closed_tab(workspace_id, closed_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_closed_tab_group
+                ON closed_tab(group_id);
+            CREATE INDEX IF NOT EXISTS idx_closed_tab_recent
+                ON closed_tab(closed_at DESC);
+            "#,
+        )
+    }
+
+    fn table_exists(conn: &Connection, name: &str) -> rusqlite::Result<bool> {
+        conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+            params![name],
+            |r| r.get::<_, i64>(0),
+        )
+        .map(|n| n > 0)
     }
 
     fn migrate(conn: &Connection, from_version: u32) -> rusqlite::Result<()> {
@@ -929,6 +964,154 @@ mod tests {
         let total: usize = store.list_recent(CLOSED_GROUP_CAP + 100).len();
         assert_eq!(total, CLOSED_GROUP_CAP, "global group cap bounds total");
         assert!(store.list_for_workspace("w0").is_empty());
+    }
+
+    /// The exact on-disk shape a fully-migrated pre-rename (v3) install left
+    /// behind: `closed_pane` with `pane_id`/`parent_pane_id`.
+    fn write_pre_rename_v3_db(db: &std::path::Path) {
+        std::fs::create_dir_all(db.parent().unwrap()).unwrap();
+        let conn = Connection::open(db).unwrap();
+        conn.execute_batch(
+            r#"
+            CREATE TABLE closed_group (
+                group_id TEXT PRIMARY KEY,
+                kind TEXT NOT NULL DEFAULT 'single',
+                label TEXT NOT NULL DEFAULT '',
+                workspace_id TEXT NOT NULL DEFAULT '',
+                workspace_name TEXT NOT NULL DEFAULT '',
+                workspace_cwd TEXT,
+                closed_at INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE TABLE closed_pane (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                group_id TEXT NOT NULL,
+                pane_id TEXT NOT NULL DEFAULT '',
+                parent_pane_id TEXT,
+                title TEXT NOT NULL DEFAULT '',
+                description TEXT,
+                backing_json TEXT NOT NULL DEFAULT '{"kind":"pty"}',
+                cwd TEXT,
+                agent_type TEXT,
+                agent_session_id TEXT,
+                model TEXT,
+                workspace_id TEXT NOT NULL DEFAULT '',
+                workspace_name TEXT NOT NULL DEFAULT '',
+                closed_at INTEGER NOT NULL DEFAULT 0,
+                chat_view INTEGER NOT NULL DEFAULT 0,
+                role_profile TEXT
+            );
+            CREATE INDEX idx_closed_pane_workspace ON closed_pane(workspace_id, closed_at DESC);
+            CREATE INDEX idx_closed_pane_group ON closed_pane(group_id);
+            CREATE INDEX idx_closed_pane_recent ON closed_pane(closed_at DESC);
+            INSERT INTO closed_group (group_id, kind, label, workspace_id, workspace_name, closed_at)
+            VALUES ('g-old', 'single', 'pre-rename', 'w', 'WS', 42);
+            INSERT INTO closed_pane (group_id, pane_id, title, backing_json, workspace_id, workspace_name, closed_at)
+            VALUES ('g-old', 'pane-1', 'kept from pane era', '{"kind":"pty"}', 'w', 'WS', 42);
+            PRAGMA user_version = 3;
+            "#,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn pre_rename_v3_database_opens_migrates_and_records_new_closes() {
+        let db = temp_db();
+        write_pre_rename_v3_db(&db);
+
+        let store = ClosedTabsStore::open_at(&db).expect("pre-rename db must open");
+        let list = store.list_for_workspace("w");
+        assert_eq!(list.len(), 1, "pane-era row survives the rename");
+        assert_eq!(list[0].tab_id, "pane-1");
+        assert_eq!(list[0].title, "kept from pane era");
+
+        store
+            .insert_group(
+                &group("g-new", GroupKind::Single, "w", 100),
+                &[tab("t-new", "w", "post-migration close", 100)],
+            )
+            .expect("insert into migrated db");
+        assert_eq!(store.list_for_workspace("w").len(), 2);
+
+        let conn = Connection::open(&db).unwrap();
+        assert_eq!(
+            ClosedTabsStore::user_version(&conn).unwrap(),
+            CURRENT_CLOSED_SCHEMA_VERSION,
+            "version ladder ran after the rename"
+        );
+        assert!(!ClosedTabsStore::table_exists(&conn, "closed_pane").unwrap());
+        std::fs::remove_dir_all(db.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn pre_rename_v1_database_migrates_through_full_ladder() {
+        let db = temp_db();
+        std::fs::create_dir_all(db.parent().unwrap()).unwrap();
+        {
+            let conn = Connection::open(&db).unwrap();
+            conn.execute_batch(
+                r#"
+                CREATE TABLE closed_group (
+                    group_id TEXT PRIMARY KEY,
+                    kind TEXT NOT NULL DEFAULT 'single',
+                    label TEXT NOT NULL DEFAULT '',
+                    workspace_id TEXT NOT NULL DEFAULT '',
+                    workspace_name TEXT NOT NULL DEFAULT '',
+                    workspace_cwd TEXT,
+                    closed_at INTEGER NOT NULL DEFAULT 0
+                );
+                CREATE TABLE closed_pane (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    group_id TEXT NOT NULL,
+                    pane_id TEXT NOT NULL DEFAULT '',
+                    parent_pane_id TEXT,
+                    title TEXT NOT NULL DEFAULT '',
+                    description TEXT,
+                    backing_json TEXT NOT NULL DEFAULT '{"kind":"pty"}',
+                    cwd TEXT,
+                    agent_type TEXT,
+                    agent_session_id TEXT,
+                    model TEXT,
+                    workspace_id TEXT NOT NULL DEFAULT '',
+                    workspace_name TEXT NOT NULL DEFAULT '',
+                    closed_at INTEGER NOT NULL DEFAULT 0
+                );
+                INSERT INTO closed_group (group_id, kind, workspace_id, workspace_name, closed_at)
+                VALUES ('g1', 'single', 'w', 'WS', 1);
+                INSERT INTO closed_pane (group_id, pane_id, title, workspace_id, workspace_name, closed_at)
+                VALUES ('g1', 'p1', 'v1 pane row', 'w', 'WS', 1);
+                PRAGMA user_version = 1;
+                "#,
+            )
+            .unwrap();
+        }
+
+        let store = ClosedTabsStore::open_at(&db).expect("v1 pane db must open");
+        let list = store.list_for_workspace("w");
+        assert_eq!(list.len(), 1);
+        assert!(!list[0].chat_view, "v2 column added with default");
+        let conn = Connection::open(&db).unwrap();
+        assert_eq!(
+            ClosedTabsStore::user_version(&conn).unwrap(),
+            CURRENT_CLOSED_SCHEMA_VERSION
+        );
+        std::fs::remove_dir_all(db.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn insert_group_surfaces_storage_failure_as_err() {
+        let store = ClosedTabsStore::in_memory();
+        store
+            .conn
+            .lock()
+            .execute("DROP TABLE closed_tab", [])
+            .unwrap();
+        let err = store
+            .insert_group(
+                &group("g1", GroupKind::Single, "w", 1),
+                &[tab("p1", "w", "t", 1)],
+            )
+            .expect_err("a broken store must report the insert failure");
+        assert!(err.contains("no such table"), "actual error: {err}");
     }
 
     #[test]

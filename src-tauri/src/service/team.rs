@@ -126,6 +126,9 @@ impl ServiceContext {
         let result = match result {
             Ok(result) => result,
             Err(error) => {
+                // commit's invalid-hierarchy branch closed the member inside the
+                // mux-level fn; persist here, the nearest point with &self.
+                crate::service::session_persist::persist_session_after_close(self);
                 if let Some(lane) = lane.take() {
                     let _ = tauri::async_runtime::spawn_blocking(move || lane.cleanup()).await;
                 }
@@ -243,6 +246,9 @@ impl ServiceContext {
                 now_ms(),
             )?
         };
+        // Persist the authorized reduction before any fallible cleanup can
+        // early-return and leave last.json still holding the member tabs.
+        crate::service::session_persist::persist_session_after_close(self);
         for plan_id in changed_plan_ids {
             self.emit_plan_changed(&plan_id);
         }

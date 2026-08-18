@@ -208,6 +208,7 @@ impl ServiceContext {
                 cleanup_errors.push(format!("{tab_id}: {error}"));
             }
         }
+        session_persist::persist_session_after_close(self);
         self.emit_state_changed();
         if pre_focus != post_focus {
             if let Some(new) = post_focus {

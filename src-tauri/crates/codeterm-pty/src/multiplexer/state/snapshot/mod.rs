@@ -249,197 +249,6 @@ impl MultiplexerState {
     pub fn from_session_snapshot(snapshot: &crate::session::store::SessionSnapshot) -> Self {
         use crate::session::store::*;
 
-        /// Walk an old SplitNodeSnapshot looking for the first Leaf. Anything
-        /// past the first leaf in a Split branch is discarded — those tabs
-        /// will come back as a single-tab after restore.
-        fn first_leaf(node: &SplitNodeSnapshot) -> Option<&SplitNodeSnapshot> {
-            match node {
-                SplitNodeSnapshot::Leaf { .. } => Some(node),
-                SplitNodeSnapshot::Split { children, .. } => children.iter().find_map(first_leaf),
-            }
-        }
-
-        fn install_leaf(
-            leaf: &SplitNodeSnapshot,
-            legacy_tab_title: &str,
-            tabs: &mut HashMap<String, Tab>,
-        ) -> Option<String> {
-            let SplitNodeSnapshot::Leaf {
-                tab_id,
-                cwd,
-                title,
-                description,
-                title_level,
-                agent_type,
-                agent_type_locked,
-                claude_session_id,
-                agent_identity,
-                role,
-                role_profile,
-                team_id,
-                parent_tab_id,
-                spawned_by_tab_id,
-                report_target_tab_id,
-                report_target_mesh_peer,
-                ownership,
-                can_spawn,
-                depth,
-                chat_view,
-                auto_approve: _,
-                audience,
-                agent_session_model,
-                agent_planned_model,
-                agent_requested_model,
-                agent_provider_resolved_model,
-                model_fallback,
-                model_identity_mismatch,
-                chatbackend_plugin_id,
-                chatbackend_session_id,
-                watcher,
-                pending_delivery,
-            } = leaf
-            else {
-                return None;
-            };
-
-            let restored_backing = match (chatbackend_plugin_id, chatbackend_session_id) {
-                (Some(plugin_id), Some(session_id)) => TabBacking::ChatBackend {
-                    plugin_id: plugin_id.clone(),
-                    session_id: session_id.clone(),
-                },
-                _ => TabBacking::default(),
-            };
-
-            // Literal legacy migration: `Orchestrator`/`Conductor` rows carried
-            // no profile, so their anchoring kind is re-materialized here.
-            let restored_role =
-                codeterm_types::agent::restore_role(role.as_deref(), role_profile.as_deref());
-            let parsed_role = restored_role.as_ref().map(|restored| restored.role);
-            let restored_role_profile = restored_role
-                .as_ref()
-                .and_then(|restored| restored.role_profile.clone());
-            let raw_title = title.as_deref().unwrap_or("Terminal");
-            let legacy_title = legacy_tab_title.trim();
-            let has_agent_type =
-                agent_type.is_some() || derive_agent_type_from_title(Some(raw_title)).is_some();
-            let restored_title =
-                if should_seed_from_legacy_tab_title(raw_title, legacy_title, has_agent_type) {
-                    legacy_title.to_string()
-                } else {
-                    raw_title.to_string()
-                };
-            let restored_level = match title_level.as_deref() {
-                Some("User") => TitleLevel::User,
-                Some("Agent") => TitleLevel::Agent,
-                Some("Auto") => TitleLevel::Auto,
-                Some("Default") => TitleLevel::Default,
-                _ => {
-                    if role.is_some() {
-                        TitleLevel::User
-                    } else {
-                        TitleLevel::Default
-                    }
-                }
-            };
-            let restored_session_id = claude_session_id.as_ref().and_then(|sid| {
-                if tabs
-                    .values()
-                    .any(|p| p.agent_session_id.as_deref() == Some(sid.as_str()))
-                {
-                    None
-                } else {
-                    Some(sid.clone())
-                }
-            });
-            let restored_identity = restored_session_id.as_ref().and(agent_identity.as_ref());
-            // Provider identity is committed state, never read off a title.
-            let restored_agent_type = agent_type.clone();
-            let restored_locked = *agent_type_locked || restored_agent_type.is_some();
-            tabs.insert(
-                tab_id.clone(),
-                Tab {
-                    id: tab_id.clone(),
-                    sort_order: 0,
-                    pty_id: None,
-                    backing: restored_backing,
-                    tab_type: TabType::Terminal,
-                    pending_delivery: pending_delivery.clone(),
-                    title: restored_title,
-                    description: description.clone(),
-                    cwd: cwd.clone(),
-                    provisioned_cwd: agent_identity
-                        .as_ref()
-                        .and_then(|identity| identity.provisioned_cwd.clone()),
-                    url: None,
-                    agent_type: restored_agent_type,
-                    agent_type_locked: restored_locked,
-                    agent_session_id: restored_session_id,
-                    agent_session_name: None,
-                    agent_session_model: agent_session_model.clone(),
-                    agent_planned_model: agent_planned_model.clone(),
-                    agent_requested_model: agent_requested_model.clone(),
-                    agent_provider_resolved_model: agent_provider_resolved_model.clone(),
-                    model_fallback: model_fallback.clone(),
-                    model_identity_mismatch: model_identity_mismatch.clone(),
-                    reasoning_effort_identity: restored_identity
-                        .map(|identity| identity.reasoning_effort.clone())
-                        .unwrap_or_default(),
-                    context_epoch_archives: restored_identity
-                        .map(|identity| identity.context_epochs.clone())
-                        .unwrap_or_default(),
-                    session_binding_nonce: restored_identity
-                        .and_then(|identity| identity.session_binding_nonce.clone()),
-                    reported_session_binding_nonce: restored_identity
-                        .and_then(|identity| identity.reported_session_binding_nonce.clone()),
-                    prior_session_binding_nonces: Vec::new(),
-                    shell_integration_nonce: None,
-                    lifecycle_epoch: restored_identity
-                        .and_then(|identity| identity.lifecycle_epoch),
-                    lifecycle_operation_id: restored_identity
-                        .and_then(|identity| identity.lifecycle_operation_id.clone()),
-                    task_binding: restored_identity
-                        .and_then(|identity| identity.task_binding.clone()),
-                    roleless_tracked: restored_identity
-                        .map(|identity| identity.roleless_tracked)
-                        .unwrap_or(false),
-                    role: parsed_role,
-                    role_profile: restored_role_profile,
-                    team_id: team_id.clone(),
-                    watcher: watcher.clone(),
-                    parent_tab_id: parent_tab_id.clone(),
-                    pending_paired_planner_tab_id: None,
-                    can_spawn: *can_spawn,
-                    depth: *depth,
-                    // spawner / report target instead of hardcoding None.
-                    report_target_tab_id: report_target_tab_id.clone(),
-                    report_target_mesh_peer: report_target_mesh_peer.clone(),
-                    spawned_by_tab_id: spawned_by_tab_id.clone(),
-                    ownership: ownership.clone(),
-                    title_level: restored_level,
-                    chat_view: chat_view.unwrap_or(false),
-                    pending_prompt: None,
-                    agent_state: restored_identity
-                        .and_then(|identity| identity.agent_state.clone()),
-                    auto_approve: false,
-                    protected: false,
-                    connected_services: vec![],
-                    agent_set_at: None,
-                    exit_suspected_at: None,
-                    agent_booting: false,
-                    hidden: false,
-                    audience: *audience,
-                    skip_snapshot: false,
-                    show_in_tabbar: true,
-                    worker_id: None,
-                    restored_from_snapshot: true,
-                    pending_greeting: None,
-                    boot_stage: restored_identity.and_then(|identity| identity.boot_stage),
-                    boot_failure_reason: None,
-                },
-            );
-            Some(tab_id.clone())
-        }
-
         let teams: HashMap<String, codeterm_types::team::Team> = snapshot
             .teams
             .iter()
@@ -489,6 +298,304 @@ impl MultiplexerState {
             workspace_close_reservations: HashMap::new(),
         }
     }
+
+    /// Additive desk recovery from a saved snapshot: recreate workspaces/tabs
+    /// missing from the live state, never mutating or removing what exists.
+    /// Original ids are kept so parent links, task bindings, and pads reattach.
+    pub fn merge_session_snapshot(
+        &mut self,
+        snapshot: &crate::session::store::SessionSnapshot,
+    ) -> SnapshotMergeReport {
+        use crate::session::store::SplitNodeSnapshot;
+
+        let mut report = SnapshotMergeReport::default();
+        let mut merged_tab_ids: Vec<String> = Vec::new();
+        for ws_snap in &snapshot.workspaces {
+            let mut added_tab_ids: Vec<String> = Vec::new();
+            for tab_snap in &ws_snap.tabs {
+                let Some(leaf) = first_leaf(&tab_snap.split_tree) else {
+                    continue;
+                };
+                let SplitNodeSnapshot::Leaf { tab_id, .. } = leaf else {
+                    continue;
+                };
+                if self.tabs.contains_key(tab_id) {
+                    report.tabs_already_present += 1;
+                    continue;
+                }
+                let Some(new_id) = install_leaf(leaf, &tab_snap.title, &mut self.tabs) else {
+                    continue;
+                };
+                if let Some(tab) = self.tabs.get_mut(&new_id) {
+                    tab.sort_order = tab_snap.sort_order;
+                    if tab.description.is_none() {
+                        tab.description = tab_snap.description.clone();
+                    }
+                }
+                added_tab_ids.push(new_id);
+                report.tabs_added += 1;
+            }
+            merged_tab_ids.extend(added_tab_ids.iter().cloned());
+
+            // Land in the original workspace when it survived; else match by
+            // path (like closed-group reopen) before recreating it.
+            let target = self
+                .workspaces
+                .iter()
+                .position(|ws| ws.id == ws_snap.id)
+                .or_else(|| {
+                    ws_snap.cwd.as_deref().and_then(|cwd| {
+                        self.workspaces
+                            .iter()
+                            .position(|ws| ws.cwd.as_deref() == Some(cwd))
+                    })
+                });
+            match target {
+                Some(index) => {
+                    let ws = &mut self.workspaces[index];
+                    for id in added_tab_ids {
+                        if !ws.tabs.contains(&id) {
+                            ws.tabs.push(id);
+                        }
+                    }
+                }
+                None => {
+                    let active_tab_id = ws_snap
+                        .active_tab_id
+                        .clone()
+                        .filter(|active| added_tab_ids.contains(active))
+                        .or_else(|| added_tab_ids.first().cloned());
+                    self.workspaces.push(Workspace {
+                        id: ws_snap.id.clone(),
+                        name: ws_snap.name.clone(),
+                        tabs: added_tab_ids,
+                        active_tab_id,
+                        cwd: ws_snap.cwd.clone(),
+                        // Restored authority is never inferred from a file.
+                        protected: false,
+                        sort_order: ws_snap.sort_order,
+                    });
+                    report.workspaces_added += 1;
+                }
+            }
+        }
+
+        // A parent that neither survived nor restored must not leave a dangling
+        // hierarchy edge on the tabs added here.
+        for tab_id in &merged_tab_ids {
+            let parent_alive = self
+                .tabs
+                .get(tab_id)
+                .and_then(|tab| tab.parent_tab_id.clone())
+                .map(|parent| self.tabs.contains_key(&parent));
+            if parent_alive == Some(false) {
+                if let Some(tab) = self.tabs.get_mut(tab_id) {
+                    tab.parent_tab_id = None;
+                }
+            }
+        }
+        report
+    }
+}
+
+/// What `merge_session_snapshot` changed; nothing is ever removed.
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct SnapshotMergeReport {
+    pub workspaces_added: usize,
+    pub tabs_added: usize,
+    pub tabs_already_present: usize,
+}
+
+/// Walk an old SplitNodeSnapshot looking for the first Leaf. Anything
+/// past the first leaf in a Split branch is discarded — those tabs
+/// will come back as a single-tab after restore.
+fn first_leaf(
+    node: &crate::session::store::SplitNodeSnapshot,
+) -> Option<&crate::session::store::SplitNodeSnapshot> {
+    use crate::session::store::SplitNodeSnapshot;
+    match node {
+        SplitNodeSnapshot::Leaf { .. } => Some(node),
+        SplitNodeSnapshot::Split { children, .. } => children.iter().find_map(first_leaf),
+    }
+}
+
+fn install_leaf(
+    leaf: &crate::session::store::SplitNodeSnapshot,
+    legacy_tab_title: &str,
+    tabs: &mut HashMap<String, Tab>,
+) -> Option<String> {
+    use crate::session::store::*;
+    let SplitNodeSnapshot::Leaf {
+        tab_id,
+        cwd,
+        title,
+        description,
+        title_level,
+        agent_type,
+        agent_type_locked,
+        claude_session_id,
+        agent_identity,
+        role,
+        role_profile,
+        team_id,
+        parent_tab_id,
+        spawned_by_tab_id,
+        report_target_tab_id,
+        report_target_mesh_peer,
+        ownership,
+        can_spawn,
+        depth,
+        chat_view,
+        auto_approve: _,
+        audience,
+        agent_session_model,
+        agent_planned_model,
+        agent_requested_model,
+        agent_provider_resolved_model,
+        model_fallback,
+        model_identity_mismatch,
+        chatbackend_plugin_id,
+        chatbackend_session_id,
+        watcher,
+        pending_delivery,
+    } = leaf
+    else {
+        return None;
+    };
+
+    let restored_backing = match (chatbackend_plugin_id, chatbackend_session_id) {
+        (Some(plugin_id), Some(session_id)) => TabBacking::ChatBackend {
+            plugin_id: plugin_id.clone(),
+            session_id: session_id.clone(),
+        },
+        _ => TabBacking::default(),
+    };
+
+    // Literal legacy migration: `Orchestrator`/`Conductor` rows carried
+    // no profile, so their anchoring kind is re-materialized here.
+    let restored_role =
+        codeterm_types::agent::restore_role(role.as_deref(), role_profile.as_deref());
+    let parsed_role = restored_role.as_ref().map(|restored| restored.role);
+    let restored_role_profile = restored_role
+        .as_ref()
+        .and_then(|restored| restored.role_profile.clone());
+    let raw_title = title.as_deref().unwrap_or("Terminal");
+    let legacy_title = legacy_tab_title.trim();
+    let has_agent_type =
+        agent_type.is_some() || derive_agent_type_from_title(Some(raw_title)).is_some();
+    let restored_title =
+        if should_seed_from_legacy_tab_title(raw_title, legacy_title, has_agent_type) {
+            legacy_title.to_string()
+        } else {
+            raw_title.to_string()
+        };
+    let restored_level = match title_level.as_deref() {
+        Some("User") => TitleLevel::User,
+        Some("Agent") => TitleLevel::Agent,
+        Some("Auto") => TitleLevel::Auto,
+        Some("Default") => TitleLevel::Default,
+        _ => {
+            if role.is_some() {
+                TitleLevel::User
+            } else {
+                TitleLevel::Default
+            }
+        }
+    };
+    let restored_session_id = claude_session_id.as_ref().and_then(|sid| {
+        if tabs
+            .values()
+            .any(|p| p.agent_session_id.as_deref() == Some(sid.as_str()))
+        {
+            None
+        } else {
+            Some(sid.clone())
+        }
+    });
+    let restored_identity = restored_session_id.as_ref().and(agent_identity.as_ref());
+    // Provider identity is committed state, never read off a title.
+    let restored_agent_type = agent_type.clone();
+    let restored_locked = *agent_type_locked || restored_agent_type.is_some();
+    tabs.insert(
+        tab_id.clone(),
+        Tab {
+            id: tab_id.clone(),
+            sort_order: 0,
+            pty_id: None,
+            backing: restored_backing,
+            tab_type: TabType::Terminal,
+            pending_delivery: pending_delivery.clone(),
+            title: restored_title,
+            description: description.clone(),
+            cwd: cwd.clone(),
+            provisioned_cwd: agent_identity
+                .as_ref()
+                .and_then(|identity| identity.provisioned_cwd.clone()),
+            url: None,
+            agent_type: restored_agent_type,
+            agent_type_locked: restored_locked,
+            agent_session_id: restored_session_id,
+            agent_session_name: None,
+            agent_session_model: agent_session_model.clone(),
+            agent_planned_model: agent_planned_model.clone(),
+            agent_requested_model: agent_requested_model.clone(),
+            agent_provider_resolved_model: agent_provider_resolved_model.clone(),
+            model_fallback: model_fallback.clone(),
+            model_identity_mismatch: model_identity_mismatch.clone(),
+            reasoning_effort_identity: restored_identity
+                .map(|identity| identity.reasoning_effort.clone())
+                .unwrap_or_default(),
+            context_epoch_archives: restored_identity
+                .map(|identity| identity.context_epochs.clone())
+                .unwrap_or_default(),
+            session_binding_nonce: restored_identity
+                .and_then(|identity| identity.session_binding_nonce.clone()),
+            reported_session_binding_nonce: restored_identity
+                .and_then(|identity| identity.reported_session_binding_nonce.clone()),
+            prior_session_binding_nonces: Vec::new(),
+            shell_integration_nonce: None,
+            lifecycle_epoch: restored_identity.and_then(|identity| identity.lifecycle_epoch),
+            lifecycle_operation_id: restored_identity
+                .and_then(|identity| identity.lifecycle_operation_id.clone()),
+            task_binding: restored_identity.and_then(|identity| identity.task_binding.clone()),
+            roleless_tracked: restored_identity
+                .map(|identity| identity.roleless_tracked)
+                .unwrap_or(false),
+            role: parsed_role,
+            role_profile: restored_role_profile,
+            team_id: team_id.clone(),
+            watcher: watcher.clone(),
+            parent_tab_id: parent_tab_id.clone(),
+            pending_paired_planner_tab_id: None,
+            can_spawn: *can_spawn,
+            depth: *depth,
+            // spawner / report target instead of hardcoding None.
+            report_target_tab_id: report_target_tab_id.clone(),
+            report_target_mesh_peer: report_target_mesh_peer.clone(),
+            spawned_by_tab_id: spawned_by_tab_id.clone(),
+            ownership: ownership.clone(),
+            title_level: restored_level,
+            chat_view: chat_view.unwrap_or(false),
+            pending_prompt: None,
+            agent_state: restored_identity.and_then(|identity| identity.agent_state.clone()),
+            auto_approve: false,
+            protected: false,
+            connected_services: vec![],
+            agent_set_at: None,
+            exit_suspected_at: None,
+            agent_booting: false,
+            hidden: false,
+            audience: *audience,
+            skip_snapshot: false,
+            show_in_tabbar: true,
+            worker_id: None,
+            restored_from_snapshot: true,
+            pending_greeting: None,
+            boot_stage: restored_identity.and_then(|identity| identity.boot_stage),
+            boot_failure_reason: None,
+        },
+    );
+    Some(tab_id.clone())
 }
 
 #[cfg(test)]
