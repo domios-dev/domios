@@ -140,7 +140,7 @@ pub fn planner_onboarding_task(
 ) -> String {
     format!(
         "You are the Planner specialist for the active Team Plan {plan_id}, working with Orchestrator {orchestrator_label} (tab {orchestrator_tab_id}). {PEER_PLANNER_CHARTER_LINE} {PEER_ORCH_DEFERENCE_LINE}\n\
-First read `codeterm docs PLANNER` for your role. The Orchestrator owns and creates the Team Plan and may create its complete structure directly. When planning is delegated, refine that same Team Plan with `codeterm plan goal set`, `codeterm plan section add`, `codeterm plan task add`, `codeterm plan section show`, `codeterm plan get --sections`, and `codeterm plan doctor --kind quality`. No separate Planner-to-Plan binding or General Agent bootstrap is required. The full CLI reference is the `codeterm` skill (`codeterm mem search \"codeterm skill\"` if it is not loaded). If no planning request has been delegated yet, reply that you are ready and WAIT."
+First read `codeterm docs PLANNER` for your role. The Orchestrator owns the Team Plan and states its GOAL, then delegates planning to you by default. Refine that same Team Plan with `codeterm plan goal set`, `codeterm plan section add`, `codeterm plan task add`, `codeterm plan section show`, `codeterm plan get --sections`, and `codeterm plan doctor --kind quality`. No separate Planner-to-Plan binding or General Agent bootstrap is required. The full CLI reference is the `codeterm` skill (`codeterm mem search \"codeterm skill\"` if it is not loaded). If no planning request has been delegated yet, reply that you are ready and WAIT."
     )
 }
 
@@ -152,7 +152,7 @@ pub fn planner_onboarding_task_no_plan(
 ) -> String {
     format!(
         "You are the Planner specialist paired with Orchestrator {orchestrator_label} (tab {orchestrator_tab_id}). The Team may not have a Plan yet; the Orchestrator creates it and Team membership makes it visible to you automatically. {PEER_PLANNER_CHARTER_LINE} {PEER_ORCH_DEFERENCE_LINE}\n\
-First read `codeterm docs PLANNER` for your role. Do not create a bootstrap Plan, bind yourself to a Plan, or contact the General Agent. When the Orchestrator delegates planning, refine the active Team Plan with the normal plan editing commands. If no planning request has been delegated yet, reply that you are ready and WAIT."
+First read `codeterm docs PLANNER` for your role. Do not create a bootstrap Plan, bind yourself to a Plan, or contact the General Agent. Planning is delegated to you by default: refine the active Team Plan with the normal plan editing commands once the Orchestrator states the goal. If no planning request has been delegated yet, reply that you are ready and WAIT."
     )
 }
 
@@ -188,8 +188,11 @@ pub fn orchestrator_suffix() -> String {
 /// create-first path by constant, never by prose.
 pub const ORCH_ONBOARD_NO_PLAN_MARKER: &str =
     "No Team Plan exists yet — create and bind one before spawning a Planner.";
-/// Stable token for the plan-absent create+bind command.
+/// Stable token for the plan-absent create command. `plan create` takes no
+/// `--team`; the bind is a separate verb, pinned by [`ORCH_ONBOARD_ADOPT_STEP`].
 pub const ORCH_ONBOARD_CREATE_STEP: &str = "codeterm plan create --title";
+/// Stable token for the plan-absent bind step that adopts the new plan.
+pub const ORCH_ONBOARD_ADOPT_STEP: &str = "codeterm team adopt-plan";
 
 fn orchestrator_infra_brief_with_plan(tab_id: &str, team_id: &str, plan_id: &str) -> String {
     let spawn_cmd =
@@ -204,8 +207,10 @@ fn orchestrator_infra_brief_with_plan(tab_id: &str, team_id: &str, plan_id: &str
 fn orchestrator_infra_brief_no_plan(tab_id: &str, team_id: &str) -> String {
     format!(
         "Your tab is {tab_id}. Your team is {team_id}. {ORCH_ONBOARD_NO_PLAN_MARKER}\n\n\
-         Step 1 — create and bind the Team Plan to this team:\n{ORCH_ONBOARD_CREATE_STEP} \"<your goal>\" --team {team_id}\n\n\
-         Step 2 — once step 1 prints the new plan id, spawn your Planner bound to it and to this tab (never through the General Agent):\ncodeterm agent spawn <provider> [--model <model>] --parent {tab_id} --role Planner --plan <the plan id printed in step 1>"
+         Step 1 — create the Team Plan:\n{ORCH_ONBOARD_CREATE_STEP} \"<your goal>\"\n\n\
+         Step 2 — once step 1 prints the new plan id, bind it to this team:\n{ORCH_ONBOARD_ADOPT_STEP} {team_id} <the plan id printed in step 1>\n\n\
+         Step 3 — spawn your Planner bound to that plan and to this tab (never through the General Agent):\ncodeterm agent spawn <provider> [--model <model>] --parent-tab {tab_id} --role Planner --plan <the plan id printed in step 1>\n\n\
+         Then state the goal to the Planner and wait for its draft; do not cut tasks yourself."
     )
 }
 
@@ -363,6 +368,120 @@ mod tests {
         }
     }
 
+    /// Every long flag the manifest accepts on one command node, aliases
+    /// included. Positionals are not flags and never satisfy a `--x` reference.
+    fn flag_names(node: &serde_json::Value) -> Vec<&str> {
+        let Some(args) = node["args"].as_array() else {
+            return Vec::new();
+        };
+        args.iter()
+            .filter(|arg| arg["positional"].as_bool() != Some(true))
+            .flat_map(|arg| {
+                arg["name"].as_str().into_iter().chain(
+                    arg["aliases"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|alias| alias.as_str()),
+                )
+            })
+            .collect()
+    }
+
+    /// A `--long-flag` reference, unwrapped from the optional-argument and
+    /// punctuation decoration prompts write around it (`[--model <model>]`).
+    fn long_flag(token: &str) -> Option<&str> {
+        let flag = token
+            .trim_matches(|c| matches!(c, '[' | ']' | '(' | ')' | ',' | '.' | '`' | '\'' | '"'))
+            .strip_prefix("--")?
+            .split('=')
+            .next()?;
+        (!flag.is_empty()
+            && flag
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'))
+        .then_some(flag)
+    }
+
+    /// Where one command reference stops and the next begins. Without these a
+    /// later command's flags get charged to the earlier command in the span.
+    fn ends_command(token: &str) -> bool {
+        matches!(token, "codeterm" | "·" | "&&" | "||" | ";" | "|")
+    }
+
+    /// Prompts wrap commands in backticks and sentence punctuation. Strip both
+    /// so a decorated token still anchors and still resolves as a command word.
+    fn command_tokens(span: &str) -> Vec<&str> {
+        span.split_whitespace()
+            .map(|token| {
+                token.trim_matches(|c| matches!(c, '`' | ';' | ',' | '.' | '(' | ')' | '"' | '\''))
+            })
+            .filter(|token| !token.is_empty())
+            .collect()
+    }
+
+    /// Composed briefs write commands mid-sentence ("then run: codeterm …"),
+    /// which the line-start rule of [`command_spans`] misses. Anchor on the
+    /// first `codeterm` and stop at the closing backtick so trailing prose is
+    /// never mistaken for a positional argument.
+    fn brief_command_spans(text: &str) -> Vec<&str> {
+        text.lines()
+            .filter_map(|line| {
+                let command = &line[line.find("codeterm ")?..];
+                Some(command.find('`').map_or(command, |end| &command[..end]))
+            })
+            .collect()
+    }
+
+    /// Resolve each command reference in one span, then check every long flag
+    /// that follows it against that command node plus the global flags. A
+    /// prompt that teaches `plan create --team` fails here, not in production.
+    fn check_span_flags(root: &serde_json::Value, span: &str, problems: &mut Vec<String>) {
+        let globals = flag_names(root);
+        let tokens = command_tokens(span);
+        let mut index = 0;
+        while index < tokens.len() {
+            if tokens[index] != "codeterm" {
+                index += 1;
+                continue;
+            }
+            let mut node = root;
+            let mut path: Vec<&str> = Vec::new();
+            let mut cursor = index + 1;
+            while cursor < tokens.len() {
+                let Some(words) = command_words(tokens[cursor]) else {
+                    break;
+                };
+                if words.len() > 1 {
+                    break;
+                }
+                let Some(child) = subcommand(node, words[0]) else {
+                    break;
+                };
+                node = child;
+                path.push(tokens[cursor]);
+                cursor += 1;
+            }
+            if path.is_empty() {
+                index = cursor.max(index + 1);
+                continue;
+            }
+            let allowed = flag_names(node);
+            while cursor < tokens.len() && !ends_command(tokens[cursor]) {
+                if let Some(flag) = long_flag(tokens[cursor]) {
+                    if flag != "help" && !allowed.contains(&flag) && !globals.contains(&flag) {
+                        problems.push(format!(
+                            "`codeterm {}` has no `--{flag}` flag",
+                            path.join(" ")
+                        ));
+                    }
+                }
+                cursor += 1;
+            }
+            index = cursor;
+        }
+    }
+
     /// A rename that strands a prompt fails here instead of teaching agents a
     /// dead command. Resolution against the manifest, never prompt wording.
     #[test]
@@ -375,6 +494,7 @@ mod tests {
             for span in command_spans(fragment) {
                 let before = problems.len();
                 check_span(&root, span, &mut problems);
+                check_span_flags(&root, span, &mut problems);
                 for problem in problems.iter_mut().skip(before) {
                     *problem = format!("{name}: {problem}");
                 }
@@ -387,6 +507,82 @@ mod tests {
              is new, docs/cli-manifest.json needs regeneration:\n{}",
             problems.join("\n")
         );
+    }
+
+    /// The onboarding briefs are composed at runtime, so they escape the
+    /// fragment sweep above. A brief that teaches a dead command or a flag the
+    /// verb does not take strands the very first move an Orchestrator makes.
+    #[test]
+    fn onboarding_briefs_teach_only_commands_the_manifest_has() {
+        let root: serde_json::Value =
+            serde_json::from_str(CLI_MANIFEST).expect("cli-manifest.json must parse");
+
+        let mut problems: Vec<String> = Vec::new();
+        for (name, rendered) in [
+            (
+                "orchestrator_first_message",
+                orchestrator_first_message("tab-x", "team-y", Some("pl_z")),
+            ),
+            (
+                "orchestrator_first_message_no_plan",
+                orchestrator_first_message("tab-x", "team-y", None),
+            ),
+            (
+                "planner_onboarding_task",
+                planner_onboarding_task("Orion", "tab-x", "pl_z"),
+            ),
+            (
+                "planner_onboarding_task_no_plan",
+                planner_onboarding_task_no_plan("Orion", "tab-x"),
+            ),
+        ] {
+            let spans = command_spans(&rendered)
+                .into_iter()
+                .chain(brief_command_spans(&rendered));
+            for span in spans {
+                let before = problems.len();
+                check_span(&root, span, &mut problems);
+                check_span_flags(&root, span, &mut problems);
+                for problem in problems.iter_mut().skip(before) {
+                    *problem = format!("{name}: {problem}");
+                }
+            }
+        }
+
+        assert!(
+            problems.is_empty(),
+            "onboarding briefs teach commands the CLI manifest does not have:\n{}",
+            problems.join("\n")
+        );
+    }
+
+    /// `plan create` has no `--team`, so binding is its own verb. Pinned by
+    /// constant and by the ids this test supplies, never by prompt wording.
+    #[test]
+    fn no_plan_brief_creates_then_adopts_before_spawning_the_planner() {
+        let brief = orchestrator_first_message("tab-x", "team-y", None);
+
+        let create = brief
+            .find(ORCH_ONBOARD_CREATE_STEP)
+            .expect("brief must teach the create step");
+        let adopt = brief
+            .find(ORCH_ONBOARD_ADOPT_STEP)
+            .expect("brief must teach the adopt step");
+        let spawn = brief
+            .find("codeterm agent spawn")
+            .expect("brief must teach the planner spawn");
+        assert!(create < adopt && adopt < spawn, "steps must stay ordered");
+
+        let create_line = brief[create..]
+            .lines()
+            .next()
+            .expect("the create step is one line");
+        assert!(
+            !create_line.contains("--team"),
+            "`plan create` takes no --team: {create_line}"
+        );
+        assert!(brief.contains(&format!("{ORCH_ONBOARD_ADOPT_STEP} team-y")));
+        assert!(brief.contains("--parent-tab tab-x"));
     }
 
     #[test]
