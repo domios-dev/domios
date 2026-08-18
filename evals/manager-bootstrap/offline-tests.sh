@@ -75,7 +75,7 @@ IDENTITY="$ROOT/src-tauri/src/service/role_identity.rs"
 # Exactly one resolver, and every injection surface routes through it.
 rg -Fq 'pub(crate) fn resolve_in(' "$PRESETS"
 [ "$(rg -c 'fn resolve_in\(' "$PRESETS")" = 1 ]
-rg -Fq 'crate::service::persona::deliver(' "$LAUNCH"
+rg -Fq 'crate::service::persona::deliver(' "$ROOT/src-tauri/src/service/orchestrator/prompt_compose.rs"
 rg -Fq 'crate::service::persona::guidance_for(' "$LAUNCH"
 rg -Fq 'crate::service::persona::guidance_for(' "$IDENTITY"
 
