@@ -123,10 +123,11 @@ Newline-delimited JSON:
 | `workspace.reopen_closed_group` | `{group_id}` | Reopen a closed group by `group_id`. Returns `{workspace_id, tab_id, tab_id}`. |
 | `workspace.move_tab` | `{tab_id, from_workspace_id, to_workspace_id}` | Move tab |
 | `team.list` | — | Return `{teams: Team[]}` from the live Team registry. |
-| `team.show` | `{team_id}` | Return `{team: Team}` or reject an unknown Team. |
+| `team.show` | `{team_id}` | Return `{team: Team, members: [{tab_id, title, role, anchors_team}]}` (members sorted by tab id) or reject an unknown Team. |
 | `team.rename` | `{team_id, name, caller_tab_id?}` | Rename a Team and emit `mux-state-changed`. |
 | `team.close` | `{team_id, caller_tab_id?}` | Explicitly cascade-close Team members, remove the registry entry, archive/detach bound plans, retire owner/planner routing, and emit `mux-state-changed`. |
 | `team.adopt_plan` | `{team_id, plan_id, caller_tab_id}` | Atomically activate an existing plan 1:1 under the Team's sole live Orchestrator, replace owner/history, clear stale planner routing, relink hierarchy, and emit both `plan-changed` and `mux-state-changed`. The caller is required and must manage the destination Team. |
+| `team.adopt_agent` | `{team_id, tab_id, caller_tab_id}` | Attach an already-running ROLELESS agent tab to a Team, binding it under the Team's live Orchestrator, and emit `mux-state-changed`. Returns `{team_id, tab_id, team}`. |
 | `plan.transfer` | `{plan_id, to: OrchestratorRef, reason?, caller_tab_id}` | Transfer atomically to the destination Orchestrator's live Team. The caller is required and must manage the source Team. |
 | `tab.list` | — | List tabs |
 | `tab.focus` | `{tab_id}` | Focus tab |
@@ -220,6 +221,8 @@ Newline-delimited JSON:
 | `activity.list` | `{source?, since?, limit?}` | Read recent activity events (push / health / peer / cron). Defaults: `limit=500`. |
 | `bridge.send` | `{text, chat_id?, service?, append?, type?, file?, caption?, filename?}` | Send message or media to external service (Telegram). `type`: `text`/`photo`/`document`/`voice`/`animation`/`video`/`sticker`. `file`: absolute path for media. `append`: concatenate to previous message. |
 
+`team.adopt_agent` and the `agent.spawn` / `tab` creation `{team_id, creator_tab_id}` pair share one membership check: the caller tab must exist, already carry that `team_id`, sit in the Team's workspace, and the Team must have a live anchoring Orchestrator. Failing any of those refuses before the tab is created or mutated. `team.adopt_agent` additionally refuses a missing tab, a tab already bound to a Team, and a role-bearing tab — a role- or plan-task-bound spawn derives its Team from that binding, so `agent.spawn` rejects `team_id` combined with `role` or `plan_task`.
+
 For `team.rename` and `team.close`, omitted `caller_tab_id` is the trusted direct-user path on the local socket. `team.adopt_plan` requires a non-empty caller belonging to the destination Team as its Orchestrator or planner-profile Manager; missing callers, Workers, and foreign tabs are rejected before mutation. Adoption preserves the structured `team_already_has_active_plan` conflict when the Team already owns another active plan. Events are emitted only after persistence succeeds.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->

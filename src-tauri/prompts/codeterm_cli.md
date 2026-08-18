@@ -60,7 +60,8 @@ words below resolve; the flags are the corrections.
 - `codeterm plan task show <plan> <task>` (or `codeterm task show <task>`) — the task-body reader (body, criteria, test_plan, correctness, executor_role, sections).
 - `codeterm plan mode <plan> <mode>` — the mode is a trailing positional OR `--set <mode>`; values `planning|approved|execution|complete`.
 - `codeterm plan review accept <plan> <task> --note "..."` — the verdict flag is `--note` (REQUIRED), NOT `--reason`. Same for `codeterm plan review bounce <plan> <task> --note "..."`.
-- `codeterm team pair --orchestrator <provider[:model]> --planner <provider[:model]>` — there is NO `team create`; a Team is minted at plan creation or via `team pair`.
+- `codeterm team pair --orchestrator <provider[:model]> --planner <provider[:model]>` — there is NO `team create`; a Team is minted at plan creation or via `team pair`. Team verbs: `list|show|rename|close|adopt-plan|adopt-agent|pair`.
+- Agents CAN join a Team. `codeterm agent spawn <provider> --team <team-id>` attaches a fresh roleless agent (mirrors `tab new --team`); `codeterm team adopt-agent <team-id> <tab-id>` attaches one that is already running. Both authorize on YOUR OWN membership — `$CODETERM_TEAM_ID` must already be that Team — and refuse a non-member caller. `--team` is rejected with `--role`/`--plan-task` (those bindings carry their own Team) and is local-only, never with `--mesh`. Adopting a tab that already has a Team or a role is refused; `codeterm team show <team-id>` lists the member tabs.
 
 Source of truth: this file (`src-tauri/prompts/codeterm_cli.md`) plus the generated `docs/CLI.md`; `~/.claude/skills/codeterm` mirrors the repo `skills/codeterm`.
 

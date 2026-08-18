@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 40 -->
+<!-- revision: 41 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -15,9 +15,11 @@ as the source. When no identity resolves, it exits 1 with empty stdout.
 
 **Planning?** Read `codeterm docs ORCHESTRATION` first (GOAL ⟶ Spec ⊥ Plan ⟶ Tasks ⟶ Strides; author GOAL-first, Spec=WHAT, Plan=HOW built from the spec, M:N section links). Don't cram requirements into plan sections; the Spec holds WHAT.
 
-The Team verbs are `codeterm team list|show|rename|close|adopt-plan|pair`. `codeterm team pair --orchestrator <provider[:model]> --planner <provider[:model]>` creates an Orchestrator + Planner Team in one action and leaves the Plan unbound until the first goal. `codeterm team close <team_id>` is the only operation that removes a Team; it cascade-closes the Team's members, archives/detaches its plans, records owner retirement, and clears owner/planner routing to the destroyed tabs. Agent callers may mutate only their own `team_id` when they are the Team's Orchestrator or planner Manager; rename and close retain their authenticated direct-user path. A newly minted Team is returned with `codeterm team rename <team_id> <name>` and `codeterm docs ORCHESTRATION` guidance.
+The Team verbs are `codeterm team list|show|rename|close|adopt-plan|adopt-agent|pair`. `codeterm team pair --orchestrator <provider[:model]> --planner <provider[:model]>` creates an Orchestrator + Planner Team in one action and leaves the Plan unbound until the first goal. `codeterm team close <team_id>` is the only operation that removes a Team; it cascade-closes the Team's members, archives/detaches its plans, records owner retirement, and clears owner/planner routing to the destroyed tabs. Agent callers may mutate only their own `team_id` when they are the Team's Orchestrator or planner Manager; rename and close retain their authenticated direct-user path. A newly minted Team is returned with `codeterm team rename <team_id> <name>` and `codeterm docs ORCHESTRATION` guidance.
 
 `codeterm team adopt-plan <team_id> <plan_id>` requires `CODETERM_TAB_ID` for the destination Team's Orchestrator or planner Manager. It activates an archived/teamless plan only when the Team has exactly one live Orchestrator and no other active plan. Adoption atomically binds the Team, replaces the old owner with that Orchestrator, records owner history, clears stale planner routing, and relinks live task hierarchy. `codeterm plan unarchive|resume` require an existing live Team binding; they never recreate a Team.
+
+Agents join a Team two ways, both authorized against the caller's own membership (`CODETERM_TAB_ID` must already belong to that Team; a non-member is refused before any tab is created or mutated). `codeterm agent spawn <provider> --team <team_id>` attaches a fresh roleless agent at spawn time, mirroring `codeterm tab new --team`; it is rejected together with `--role` or `--plan-task`, because a role- or plan-bound agent already derives its Team from that binding. `codeterm team adopt-agent <team_id> <tab_id>` attaches an already-running roleless agent tab; adopting a tab that already belongs to a Team, holds a role, or does not exist fails with a specific error. Both bind the tab under the Team's live Orchestrator, and `codeterm team show <team_id>` lists the Team's member tabs.
 
 `codeterm plan task dispatch` refuses a **mutating** dispatch before any tab exists when the resolved worktree is the canonical checkout or another task's lane; the error carries a stable `violation_id` (`lane.mutating_write_in_canonical_checkout`, `lane.mutating_write_in_foreign_lane`) plus the exact `plan task update --worktree/--branch/--base` command that supplies an isolated lane. A task with no recorded lane is not refused — the dispatcher provisions one and commits Team workspace identity together with the lane. Every other lane finding is advisory: the dispatch succeeds and prints a `safety_nudges` block on stderr, each line carrying a stable id and the exact fix. Read-only dispatch, General-Agent creation, and plain shell tabs are never obstructed, including in canonical.
 
@@ -156,6 +158,7 @@ Spawn a new agent; roleless unless --role is provided.
 - `--task` — Task to send after agent starts
 - `--task-file` — Read the task body from a file (or `-` for stdin) instead of --task. Relative paths resolve from --cwd. Content bypasses the caller's shell and remains byte-exact. Mutually exclusive with --task
 - `--task-id` — Bound task id
+- `--team` — Attach this roleless agent to an existing Team, mirroring `tab new --team`. The calling tab (CODETERM_TAB_ID) must already belong to that Team. Rejected together with --role or --plan-task: a role- or plan-bound agent takes its Team from that binding, never from here
 - `--title` — Tab title
 - `--workspace` — Target workspace ID (default: parent's workspace or active workspace)
 
@@ -2857,6 +2860,13 @@ Assign the task to the caller's tab
 #### `codeterm team`
 
 Team registry, 1:1 plan binding, and paired creation
+
+#### `codeterm team adopt-agent`
+
+Attach an already-running roleless agent tab to a Team
+
+- `<tab_id>` — Tab ID of the running agent
+- `<team_id>` — Team ID
 
 #### `codeterm team adopt-plan`
 

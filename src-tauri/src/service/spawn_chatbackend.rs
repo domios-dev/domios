@@ -294,10 +294,19 @@ impl ServiceContext {
             (id, cwd)
         };
         let resolved_cwd = spec.cwd.clone().or(ws_cwd);
+        let team_attachment = crate::service::team::resolve_spawn_attachment(
+            &self.mux.read(),
+            spec.team_id.as_deref(),
+            spec.creator_tab_id.as_deref(),
+            &ws_id,
+        )?;
 
         let tab_id = {
             let mut mux = self.mux.write();
             let result = mux.create_tab(&ws_id)?;
+            if let Some(attachment) = &team_attachment {
+                crate::service::team::apply_team_attachment(&mut mux, attachment, &result)?;
+            }
             if let Some(ref title) = spec.title {
                 if let Err(e) = mux.rename_tab(&result, title) {
                     log::warn!("[spawn.chatbackend] rename_tab failed: {}", e);

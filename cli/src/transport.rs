@@ -167,7 +167,7 @@ pub(crate) fn transport_for(command: &Commands) -> Transport {
 }
 
 /// `team pair` is the one Team action that reaches a peer over REST; the other
-/// five relay as socket RPCs, which makes their recorded verdict unreachable.
+/// six relay as socket RPCs, which makes their recorded verdict unreachable.
 fn team_transport(action: &TeamAction) -> Transport {
     match action {
         TeamAction::Pair { .. } => socket_rest(),
@@ -175,7 +175,8 @@ fn team_transport(action: &TeamAction) -> Transport {
         | TeamAction::Show { .. }
         | TeamAction::Rename { .. }
         | TeamAction::Close { .. }
-        | TeamAction::AdoptPlan { .. } => socket_rpc_relayed(TEAM_LOCAL_ONLY),
+        | TeamAction::AdoptPlan { .. }
+        | TeamAction::AdoptAgent { .. } => socket_rpc_relayed(TEAM_LOCAL_ONLY),
     }
 }
 

@@ -300,6 +300,12 @@ pub enum AgentAction {
         /// Plan task to bind when spawning `--role Worker` (handle, id, or prefix).
         #[arg(long = "plan-task")]
         plan_task: Option<String>,
+        /// Attach this roleless agent to an existing Team, mirroring `tab new
+        /// --team`. The calling tab (CODETERM_TAB_ID) must already belong to
+        /// that Team. Rejected together with --role or --plan-task: a role- or
+        /// plan-bound agent takes its Team from that binding, never from here.
+        #[arg(long, value_name = "TEAM_ID", conflicts_with_all = ["role", "plan_task"])]
+        team: Option<String>,
         #[arg(
             long = "execution-intent",
             value_parser = ["read_only", "mutating"],
@@ -635,6 +641,35 @@ mod tests {
                 assert_eq!(task.as_deref(), Some("review startup"));
             }
             _ => panic!("expected agent spawn"),
+        }
+    }
+
+    #[test]
+    fn spawn_team_attaches_a_roleless_agent() {
+        let action = parse_spawn(&["claude", "--team", "team_alpha"]).expect("--team parses");
+        match action {
+            AgentAction::Spawn {
+                team,
+                role,
+                plan_task,
+                ..
+            } => {
+                assert_eq!(team.as_deref(), Some("team_alpha"));
+                assert!(role.is_none());
+                assert!(plan_task.is_none());
+            }
+            _ => panic!("expected agent spawn"),
+        }
+    }
+
+    #[test]
+    fn spawn_team_conflicts_with_role_and_plan_task() {
+        for args in [
+            vec!["claude", "--team", "team_alpha", "--role", "Worker"],
+            vec!["claude", "--team", "team_alpha", "--plan-task", "task_one"],
+        ] {
+            let error = parse_spawn(&args).expect_err("--team must not combine with a binding");
+            assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
         }
     }
 

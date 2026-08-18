@@ -175,6 +175,7 @@ impl ServiceContext {
         params.title = spawn_title::normalize_agent_title(params.title.take());
         params.normalize_role_profile()?;
         crate::service::spawn_plan_task::validate_worker_plan_task_spawn(&params)?;
+        crate::service::spawn_params::reject_team_with_binding(&params)?;
         self.preflight_worker_plan_task_spawn(&params)?;
         self.prepare_worker_plan_task_spawn(&mut params)?;
         let worker_persona_reservation = self.reserve_worker_persona(&mut params)?;
@@ -260,6 +261,7 @@ impl ServiceContext {
         params.title = spawn_title::normalize_agent_title(params.title.take());
         params.normalize_role_profile()?;
         crate::service::spawn_plan_task::validate_worker_plan_task_spawn(&params)?;
+        crate::service::spawn_params::reject_team_with_binding(&params)?;
         self.preflight_worker_plan_task_spawn(&params)?;
         self.prepare_worker_plan_task_spawn(&mut params)?;
         let worker_persona_reservation = self.reserve_worker_persona(&mut params)?;
