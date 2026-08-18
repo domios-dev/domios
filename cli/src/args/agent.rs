@@ -115,8 +115,7 @@ pub struct ReportArgs {
     pub attachments: Vec<String>,
 }
 
-#[derive(Subcommand)]
-#[derive(Debug)]
+#[derive(Subcommand, Debug)]
 pub enum AgentAction {
     /// Mark a tab as orchestrator (top-level, can spawn workers)
     SetOrchestrator {

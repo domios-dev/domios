@@ -147,7 +147,10 @@ fn pending_record_snapshot_round_trip() {
     assert_eq!(tab.pending_delivery, Some(pending));
     // Restore is unconditional: the bootstrap root's anchor kind survives
     // alongside the delivery record even though no provider ever launched.
-    assert_eq!(tab.role, Some(crate::multiplexer::types::AgentRole::Manager));
+    assert_eq!(
+        tab.role,
+        Some(crate::multiplexer::types::AgentRole::Manager)
+    );
     assert!(tab.can_spawn);
     assert_eq!(tab.depth, 1);
 }
