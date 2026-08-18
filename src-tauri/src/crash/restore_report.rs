@@ -23,7 +23,7 @@ pub struct RestorePane {
 #[serde(rename_all = "snake_case")]
 pub enum DropReason {
     /// Present in the snapshot, absent from the restored multiplexer state
-    /// (ghost-purged, authority-stripped, or failed to rebuild).
+    /// (ghost-purged or failed to rebuild).
     NotRestored,
 }
 
