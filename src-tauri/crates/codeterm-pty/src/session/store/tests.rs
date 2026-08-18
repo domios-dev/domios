@@ -460,3 +460,113 @@ fn restore_normalizes_pane_era_leaves_and_isolates_malformed_tabs() {
     }
     assert_eq!(fs::read_to_string(path).unwrap(), fixture);
 }
+
+#[test]
+fn restore_keeps_a_full_fidelity_1_7_7_leaf() {
+    // The minimal fixture above proves the rename alone. A real 1.7.7 leaf
+    // carries the whole agent identity, and a single field this build cannot
+    // deserialize quarantines the tab silently — parse "succeeds", session empty.
+    let (store, _dir) = fresh_store();
+    let fixture = r#"{
+  "version": "1.7.7",
+  "timestamp": 7,
+  "active_workspace_id": "ws",
+  "teams": [],
+  "workspaces": [{
+"id": "ws",
+"name": "General",
+"active_tab_id": "p1",
+"cwd": "/tmp/project",
+"protected": false,
+"sort_order": 0,
+"tabs": [{
+  "id": "p1",
+  "title": "Keats",
+  "sort_order": 0,
+  "split_tree": {
+    "type": "Leaf",
+    "pane_id": "p1",
+    "cwd": "/tmp/project",
+    "title": "Keats",
+    "title_level": "Default",
+    "agent_type": "claude",
+    "agent_type_locked": true,
+    "claude_session_id": "b0937780-2ad6-4ceb-a8dc-571a3c491d6b",
+    "agent_identity": {
+      "session_binding_nonce": "0244b07f-7746-4d22-9e73-9bc396c3af48",
+      "reported_session_binding_nonce": "0244b07f-7746-4d22-9e73-9bc396c3af48",
+      "agent_state": { "state": "idle", "last_turn_summary": "Baked for 9s" },
+      "boot_stage": "agent_ready"
+    },
+    "role": "Manager",
+    "role_profile": "orchestrator",
+    "team_id": "team_ac70d9af",
+    "parent_pane_id": "p0",
+    "spawned_by_pane_id": "p0",
+    "report_target_pane_id": "p0",
+    "report_target_mesh_peer": "Mac-Air",
+    "can_spawn": true,
+    "depth": 1,
+    "chat_view": true,
+    "auto_approve": true,
+    "agent_session_model": "opus",
+    "agent_planned_model": "opus",
+    "agent_requested_model": "opus",
+    "agent_provider_resolved_model": "opus"
+  }
+}]
+  }]
+}"#
+    .to_string();
+    fs::write(store.session_dir.join("last.json"), &fixture).unwrap();
+
+    let snapshot = store.load_last().unwrap().unwrap();
+    assert_eq!(
+        snapshot.workspaces.len(),
+        1,
+        "a 1.7.7 workspace must survive the upgrade",
+    );
+    let tabs = &snapshot.workspaces[0].tabs;
+    assert_eq!(tabs.len(), 1, "the 1.7.7 tab must not be quarantined");
+    match &tabs[0].split_tree {
+        SplitNodeSnapshot::Leaf {
+            tab_id,
+            parent_tab_id,
+            spawned_by_tab_id,
+            report_target_tab_id,
+            agent_type,
+            claude_session_id,
+            agent_identity,
+            role,
+            role_profile,
+            team_id,
+            can_spawn,
+            depth,
+            ..
+        } => {
+            assert_eq!(tab_id, "p1");
+            assert_eq!(parent_tab_id.as_deref(), Some("p0"));
+            assert_eq!(spawned_by_tab_id.as_deref(), Some("p0"));
+            assert_eq!(report_target_tab_id.as_deref(), Some("p0"));
+            assert_eq!(
+                claude_session_id.as_deref(),
+                Some("b0937780-2ad6-4ceb-a8dc-571a3c491d6b"),
+                "resume identity must survive or the agent restarts blank",
+            );
+            // Pre-journal authority restores like everything else —
+            // restore is unconditional, so every field comes back verbatim.
+            assert_eq!(agent_type.as_deref(), Some("claude"));
+            assert_eq!(role.as_deref(), Some("Manager"));
+            assert_eq!(role_profile.as_deref(), Some("orchestrator"));
+            assert_eq!(team_id.as_deref(), Some("team_ac70d9af"));
+            assert!(*can_spawn);
+            assert_eq!(*depth, 1);
+            let identity = agent_identity.as_ref().expect("agent identity survives");
+            assert_eq!(
+                identity.session_binding_nonce.as_deref(),
+                Some("0244b07f-7746-4d22-9e73-9bc396c3af48"),
+            );
+        }
+        SplitNodeSnapshot::Split { .. } => panic!("expected a leaf"),
+    }
+}

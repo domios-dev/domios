@@ -70,6 +70,7 @@ pub(super) fn dispatch(
                 "team.rename",
                 "team.close",
                 "team.adopt_plan",
+                "team.adopt_agent",
                 "orchestrator.refresh",
                 "plan.create",
                 "plan.adopt",

@@ -298,6 +298,8 @@ pub(crate) fn ensure_planner_task_fields_are_structural(
     if !matches!(author, PlanningAuthor::Planner { .. }) {
         return Ok(());
     }
+    // Routing (executor_role/personality/role_guidance) is planning, not
+    // execution: a draft Planner writes it at task-add time, like any brief field.
     const EXECUTION_FIELDS: &[&str] = &[
         "status",
         "status_label",
@@ -305,9 +307,6 @@ pub(crate) fn ensure_planner_task_fields_are_structural(
         "assign_tab",
         "assigned_tab_id",
         "tab",
-        "executor_role",
-        "role_guidance",
-        "personality",
         "personality_provenance",
         "attempt",
         "attempt_id",
@@ -321,7 +320,7 @@ pub(crate) fn ensure_planner_task_fields_are_structural(
         .find(|field| body.get(**field).is_some_and(|value| !value.is_null()));
     match field {
         Some(field) => Err(format!(
-            "draft Planners may only edit structural task fields; '{field}' requires the Plan Orchestrator"
+            "draft Planners may only edit structural and routing task fields; '{field}' requires the Plan Orchestrator"
         )),
         None => Ok(()),
     }
@@ -523,22 +522,84 @@ mod tests {
         };
         for field in [
             "status",
+            "status_label",
             "lane",
-            "executor_role",
             "assign_tab",
+            "assigned_tab_id",
+            "tab",
+            "personality_provenance",
+            "attempt",
             "attempt_id",
+            "attempts",
+            "competition",
+            "review_stage",
+            "qa_state",
         ] {
-            assert!(ensure_planner_task_fields_are_structural(
+            let refusal = ensure_planner_task_fields_are_structural(
                 &author,
-                &serde_json::json!({ (field): "forbidden" })
+                &serde_json::json!({ (field): "forbidden" }),
             )
-            .is_err());
+            .expect_err("execution lifecycle field must stay Orchestrator-owned");
+            assert!(refusal.contains(field), "refusal must name the field");
         }
         assert!(ensure_planner_task_fields_are_structural(
             &author,
             &serde_json::json!({ "name": "Structural", "depends_on": [] })
         )
         .is_ok());
+    }
+
+    /// Routing IS planning: a draft Planner cuts the task and its worker
+    /// persona in one call, so these fields are outside the refusal list.
+    #[test]
+    fn planner_task_writes_accept_routing_fields() {
+        let author = PlanningAuthor::Planner {
+            tab_id: "planner".into(),
+        };
+        for field in ["executor_role", "personality", "role_guidance"] {
+            assert!(
+                ensure_planner_task_fields_are_structural(
+                    &author,
+                    &serde_json::json!({ (field): "routing" })
+                )
+                .is_ok(),
+                "draft Planner must be able to set {field}"
+            );
+        }
+        assert!(ensure_planner_task_fields_are_structural(
+            &author,
+            &serde_json::json!({
+                "name": "Routed",
+                "executor_role": "prompt-methodology-dev",
+                "personality": "Nora",
+                "role_guidance": "You are Nora.",
+            })
+        )
+        .is_ok());
+    }
+
+    /// The refusal list is Planner-scoped only. The Plan Orchestrator classifies
+    /// as `User`, so its authority over every field is unchanged.
+    #[test]
+    fn orchestrator_authority_over_task_fields_is_unrestricted() {
+        let author = PlanningAuthor::User;
+        for field in [
+            "status",
+            "lane",
+            "assign_tab",
+            "attempt_id",
+            "qa_state",
+            "executor_role",
+            "personality",
+            "role_guidance",
+            "personality_provenance",
+        ] {
+            assert!(ensure_planner_task_fields_are_structural(
+                &author,
+                &serde_json::json!({ (field): "allowed" })
+            )
+            .is_ok());
+        }
     }
 
     #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]

@@ -17,46 +17,12 @@ impl ServiceContext {
             let cwd = mux.get_workspace(&id).and_then(|ws| ws.cwd.clone());
             (id, cwd)
         };
-        let team_membership = {
-            let mux = self.mux.read();
-            match (&spec.team_id, &spec.creator_tab_id) {
-                (None, None) => None,
-                (Some(team_id), Some(creator_tab_id)) => {
-                    let creator = mux
-                        .get_tab(creator_tab_id)
-                        .ok_or_else(|| format!("Creator Tab {creator_tab_id} not found"))?;
-                    if creator.team_id.as_deref() != Some(team_id.as_str()) {
-                        return Err(format!(
-                            "Creator Tab {creator_tab_id} does not belong to Team {team_id}"
-                        ));
-                    }
-                    let team_workspace = mux
-                        .team_workspace(team_id)
-                        .ok_or_else(|| format!("Team {team_id} not found"))?;
-                    if team_workspace != ws_id {
-                        return Err(format!(
-                            "Team {team_id} belongs to workspace {team_workspace}, not {ws_id}"
-                        ));
-                    }
-                    let manager_tab_id = mux
-                        .snapshot()
-                        .tabs
-                        .values()
-                        .find(|tab| {
-                            tab.team_id.as_deref() == Some(team_id.as_str()) && tab.anchors_team()
-                        })
-                        .map(|tab| tab.id.clone())
-                        .ok_or_else(|| format!("Team {team_id} has no live Orchestrator"))?;
-                    Some((team_id.clone(), creator_tab_id.clone(), manager_tab_id))
-                }
-                _ => {
-                    return Err(
-                        "team_id and creator_tab_id are required together for a Team terminal"
-                            .into(),
-                    )
-                }
-            }
-        };
+        let team_membership = super::team::resolve_spawn_attachment(
+            &self.mux.read(),
+            spec.team_id.as_deref(),
+            spec.creator_tab_id.as_deref(),
+            &ws_id,
+        )?;
         let (resolved_cwd, warning) = Self::resolve_agent_cwd(&spec.cwd, &ws_cwd);
 
         let tab_id = {
@@ -64,18 +30,15 @@ impl ServiceContext {
             let result = mux.create_tab(&ws_id)?;
             if let Some(tab) = mux.get_tab_mut(&result) {
                 tab.audience = spec.audience;
-                if let Some((team_id, creator_tab_id, manager_tab_id)) = &team_membership {
-                    tab.team_id = Some(team_id.clone());
-                    tab.spawned_by_tab_id = Some(creator_tab_id.clone());
-                    tab.parent_tab_id = Some(manager_tab_id.clone());
-                    tab.depth = 2;
-                }
                 if let Some(ref dir) = resolved_cwd {
                     tab.cwd = Some(dir.clone());
                 }
             }
             if let Some(ref description) = spec.description {
                 let _ = mux.set_tab_description(&result, Some(description.clone()));
+            }
+            if let Some(attachment) = &team_membership {
+                super::team::apply_team_attachment(&mut mux, attachment, &result)?;
             }
             if let Some(ref title) = spec.title {
                 if let Err(e) = mux.rename_tab(&result, title) {

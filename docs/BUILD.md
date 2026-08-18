@@ -133,7 +133,8 @@ does not publish a release or alter GitHub assets.
 
 | Symptom | Cause | Recovery |
 |---|---|---|
-| `Release lock version mismatch` before build | Version manifests and one or both Cargo lockfiles differ | Run `release-preflight`, commit both lockfiles, then retry. |
+| `release-preflight` prints a Rust formatting diff and exits before lock validation | Integrated Rust workspace source was not formatted with the repository toolchain | Run `cargo fmt --manifest-path src-tauri/Cargo.toml --all`, inspect the changed files, then rerun `release-preflight`. |
+| `Release lock version mismatch` during a version bump | An older preflight checked lock versions before Cargo refreshed the workspace packages | Use the current `release-preflight`, which checks both manifests before verifying both lockfiles; commit the refreshed lockfiles, then retry. |
 | A direct `npm run` or `pnpm build` reports `'node' is not recognized` while `node --version` works | The package manager selected `cmd.exe` for lifecycle scripts in a shell whose effective command lookup differs from the parent PowerShell session | Use the named build operation (`build.ps1 frontend` for the production UI gate). For standalone version validation, run `npm run check:versions --script-shell pwsh.exe`. |
 | `release-preflight` reports `'rustc' is not recognized` from `prepare-embed-stub.js` even though Git Bash finds rustc | Native Node launched `cmd.exe` with Git Bash's colon-delimited PATH, so shell lookup could not resolve Cargo tools | Update the stub generator to invoke rustc directly from `CARGO_HOME`/the user Cargo directory, then rerun `release-preflight`. Do not rewrite PATH or bypass the stub. |
 | `release source is not clean` | A source or lockfile change has not been reviewed/committed | Inspect `git status --short`; commit the intentional change or stop. Never bypass provenance. |
@@ -253,4 +254,4 @@ production app during startup, in-app update, or `install-local`.
 
 Tooling, outputs, platform notes, and repository layout: `docs/BUILD-REFERENCE.md`. Test workflows: `codeterm docs TESTING`.
 
-<!-- revision: 97 -->
+<!-- revision: 98 -->

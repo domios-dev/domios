@@ -85,6 +85,10 @@ pub(crate) struct SpawnAgentBody {
     /// Tab id of the caller that ran `agent spawn` (CODETERM_TAB_ID).
     /// Recorded on the spawned tab for report routing fallback.
     spawned_by_tab_id: Option<String>,
+    /// Team a roleless spawn attaches to; requires `creator_tab_id`, which the
+    /// service authorizes as an existing member of that Team.
+    team_id: Option<String>,
+    creator_tab_id: Option<String>,
     /// Authenticated control ownership injected by the origin relay-out from its
     /// local caller tab; the target relay boundary re-stamps `peer_id`/`peer_name`.
     ownership: Option<codeterm_types::pty::RemoteOwnership>,
@@ -270,6 +274,8 @@ pub async fn spawn_agent(
         skip_permissions: None,
         permission_bypass_authorization: None,
         spawned_by_tab_id: body.spawned_by_tab_id,
+        team_id: body.team_id,
+        creator_tab_id: body.creator_tab_id,
         ownership: body.ownership,
         model: body.model,
         planned_model: None,
@@ -1140,7 +1146,7 @@ mod tests {
         let agents = std::sync::Arc::new(crate::agent::registry::AgentRegistry::new());
         let backends = std::sync::Arc::new(crate::chatbackend::ChatBackendRegistry::new());
         for (id, shell) in shells {
-            backends.register(*id, shell.clone());
+            backends.register_and_wait(*id, shell.clone());
         }
         crate::provider::ProviderRegistry::new(agents, backends)
     }
