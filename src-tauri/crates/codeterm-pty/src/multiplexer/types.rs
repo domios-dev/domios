@@ -527,7 +527,7 @@ pub struct Tab {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub shell_integration_nonce: Option<String>,
     /// Lineage of the operation owning this tab's authority. Stamped only by
-    /// the journal writer; persisted so a restore can prove the match.
+    /// the journal writer; persisted as telemetry linking the tab to its history.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub lifecycle_epoch: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none", default)]

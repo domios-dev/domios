@@ -940,8 +940,14 @@ mod tests {
                 parent_tab_id,
                 spawned_by_tab_id,
                 report_target_tab_id,
+                agent_type,
                 claude_session_id,
                 agent_identity,
+                role,
+                role_profile,
+                team_id,
+                can_spawn,
+                depth,
                 ..
             } => {
                 assert_eq!(tab_id, "p1");
@@ -953,6 +959,14 @@ mod tests {
                     Some("b0937780-2ad6-4ceb-a8dc-571a3c491d6b"),
                     "resume identity must survive or the agent restarts blank",
                 );
+                // Pre-journal authority restores like everything else —
+                // restore is unconditional, so every field comes back verbatim.
+                assert_eq!(agent_type.as_deref(), Some("claude"));
+                assert_eq!(role.as_deref(), Some("Manager"));
+                assert_eq!(role_profile.as_deref(), Some("orchestrator"));
+                assert_eq!(team_id.as_deref(), Some("team_ac70d9af"));
+                assert!(*can_spawn);
+                assert_eq!(*depth, 1);
                 let identity = agent_identity.as_ref().expect("agent identity survives");
                 assert_eq!(
                     identity.session_binding_nonce.as_deref(),

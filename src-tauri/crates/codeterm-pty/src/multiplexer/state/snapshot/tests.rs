@@ -144,11 +144,11 @@ fn pending_record_snapshot_round_trip() {
     assert_eq!(before, after);
     let tab = restored.get_tab(&tab_id).expect("Tab restored");
     assert_eq!(tab.pending_delivery, Some(pending));
-    // The bootstrap root claims an anchor kind but never launched a provider,
-    // so the delivery record survives while the unproven claim stays rolled back.
-    assert_eq!(tab.role, None);
-    assert!(!tab.can_spawn);
-    assert_eq!(tab.depth, 0);
+    // Restore is unconditional: the bootstrap root's anchor kind survives
+    // alongside the delivery record even though no provider ever launched.
+    assert_eq!(tab.role, Some(crate::multiplexer::types::AgentRole::Manager));
+    assert!(tab.can_spawn);
+    assert_eq!(tab.depth, 1);
 }
 
 #[test]

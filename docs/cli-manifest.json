@@ -12884,7 +12884,7 @@
               "value_name": "LIFECYCLE",
               "possible_values": [],
               "default": null,
-              "help": "Include this tab's lifecycle journal, checkpoint, and recovery verdict",
+              "help": "Include this tab's lifecycle journal telemetry: lineage, transitions, checkpoint",
               "aliases": []
             },
             {

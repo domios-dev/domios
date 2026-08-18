@@ -1,10 +1,10 @@
 use super::snapshot_with;
 use crate::multiplexer::state::MultiplexerState;
-use crate::multiplexer::types::TabAudience;
+use crate::multiplexer::types::{AgentRole, TabAudience};
 use crate::session::store::SplitNodeSnapshot;
 
-/// A launch that never completed persists a role with no provider identity.
-fn partial_launch_residue_leaf(role: &str) -> SplitNodeSnapshot {
+/// A persisted role claim, with or without a provider identity behind it.
+fn role_claim_leaf(role: &str) -> SplitNodeSnapshot {
     SplitNodeSnapshot::Leaf {
         tab_id: "db79d2da".into(),
         cwd: None,
@@ -41,30 +41,33 @@ fn partial_launch_residue_leaf(role: &str) -> SplitNodeSnapshot {
     }
 }
 
+/// Restore is unconditional: a role claim survives verbatim even when no
+/// provider identity was persisted alongside it.
 #[test]
-fn partial_launch_residue_never_restores_as_a_live_orchestrator() {
-    for role in ["Orchestrator", "Conductor", "Manager", "Worker"] {
-        let restored = MultiplexerState::from_session_snapshot(&snapshot_with(
-            partial_launch_residue_leaf(role),
-        ));
-        let tab = restored.get_tab("db79d2da").expect("residue tab survives");
+fn a_role_claim_survives_restore_without_provider_identity() {
+    for (role, expected, expected_profile) in [
+        ("Orchestrator", AgentRole::Manager, Some("orchestrator")),
+        ("Conductor", AgentRole::Manager, Some("orchestrator")),
+        ("Worker", AgentRole::Worker, None),
+    ] {
+        let restored =
+            MultiplexerState::from_session_snapshot(&snapshot_with(role_claim_leaf(role)));
+        let tab = restored.get_tab("db79d2da").expect("tab survives");
 
-        assert_eq!(tab.role, None, "{role}: no provider identity, no role");
-        assert_eq!(tab.role_profile, None, "{role}");
-        assert_eq!(tab.team_id, None, "{role}: Team metadata rolls back too");
-        assert_eq!(tab.parent_tab_id, None, "{role}");
-        assert!(!tab.can_spawn, "{role}");
-        assert_eq!(tab.depth, 0, "{role}");
-        assert!(!tab.anchors_team(), "{role}");
-        assert!(!tab.has_team_orchestrator_authority(), "{role}");
+        assert_eq!(tab.role, Some(expected), "{role}");
+        assert_eq!(tab.role_profile.as_deref(), expected_profile, "{role}");
+        assert_eq!(tab.team_id.as_deref(), Some("team_residue"), "{role}");
+        assert!(tab.can_spawn, "{role}");
+        assert_eq!(tab.depth, 1, "{role}");
+        assert_eq!(tab.agent_type, None, "{role}: no provider is invented");
     }
 }
 
-/// A Team utility shell never claims a role, so it is not residue: it keeps the
-/// membership that makes Team close responsible for cleaning it up.
+/// A roleless Team utility shell keeps the membership that makes Team close
+/// responsible for cleaning it up.
 #[test]
 fn a_roleless_team_utility_tab_keeps_its_team_across_restore() {
-    let mut leaf = partial_launch_residue_leaf("Worker");
+    let mut leaf = role_claim_leaf("Worker");
     if let SplitNodeSnapshot::Leaf {
         ref mut role,
         ref mut can_spawn,
@@ -87,26 +90,27 @@ fn a_roleless_team_utility_tab_keeps_its_team_across_restore() {
     assert!(!tab.can_spawn);
 }
 
-/// The title is not evidence of a provider — an incomplete tab must never be
-/// handed a guessed one just because its name mentions an agent.
+/// The title is never evidence of a provider — restore keeps the persisted
+/// role but never invents an agent_type from the tab's name.
 #[test]
-fn residue_titled_like_an_agent_still_loses_its_role() {
-    let mut leaf = partial_launch_residue_leaf("Orchestrator");
+fn a_title_never_invents_a_provider_identity() {
+    let mut leaf = role_claim_leaf("Orchestrator");
     if let SplitNodeSnapshot::Leaf { ref mut title, .. } = leaf {
         *title = Some("codex orchestrator".into());
     }
 
     let restored = MultiplexerState::from_session_snapshot(&snapshot_with(leaf));
-    let tab = restored.get_tab("db79d2da").expect("residue tab survives");
+    let tab = restored.get_tab("db79d2da").expect("tab survives");
 
-    assert_eq!(tab.role, None, "a title never resurrects Team authority");
-    assert!(!tab.can_spawn);
+    assert_eq!(tab.agent_type, None, "a title never guesses a provider");
+    assert_eq!(tab.role, Some(AgentRole::Manager), "the role claim survives");
+    assert!(tab.can_spawn);
 }
 
-/// A complete agent tab keeps everything — the guard must not demote real work.
+/// A complete agent tab keeps everything.
 #[test]
 fn a_complete_agent_tab_keeps_its_restored_role_and_team() {
-    let mut leaf = partial_launch_residue_leaf("Orchestrator");
+    let mut leaf = role_claim_leaf("Orchestrator");
     if let SplitNodeSnapshot::Leaf {
         ref mut agent_type, ..
     } = leaf
@@ -117,10 +121,7 @@ fn a_complete_agent_tab_keeps_its_restored_role_and_team() {
     let restored = MultiplexerState::from_session_snapshot(&snapshot_with(leaf));
     let tab = restored.get_tab("db79d2da").expect("agent tab");
 
-    assert_eq!(
-        tab.role,
-        Some(crate::multiplexer::types::AgentRole::Manager)
-    );
+    assert_eq!(tab.role, Some(AgentRole::Manager));
     assert_eq!(tab.role_profile.as_deref(), Some("orchestrator"));
     assert_eq!(tab.team_id.as_deref(), Some("team_residue"));
     assert!(tab.can_spawn);
