@@ -48,6 +48,10 @@ pub fn handle(client: &mut dyn RpcClient, json_output: bool, action: TeamAction)
             adopt_plan_params(team_id, plan_id, caller_tab_id.as_deref())
                 .and_then(|params| client.call("team.adopt_plan", Some(params)))
         }
+        TeamAction::AdoptAgent { team_id, tab_id } => {
+            adopt_agent_params(team_id, tab_id, caller_tab_id.as_deref())
+                .and_then(|params| client.call("team.adopt_agent", Some(params)))
+        }
         TeamAction::Pair { .. } => unreachable!("pair returns before the socket verbs"),
     };
     match result {
@@ -167,6 +171,23 @@ fn adopt_plan_params(
     }))
 }
 
+fn adopt_agent_params(
+    team_id: String,
+    tab_id: String,
+    caller_tab_id: Option<&str>,
+) -> Result<Value, String> {
+    let caller_tab_id = caller_tab_id
+        .filter(|caller| !caller.trim().is_empty())
+        .ok_or_else(|| {
+            "Team agent adoption requires CODETERM_TAB_ID from a live Team member".to_string()
+        })?;
+    Ok(json!({
+        "team_id": team_id,
+        "tab_id": tab_id,
+        "caller_tab_id": caller_tab_id,
+    }))
+}
+
 fn print_human(value: &Value) {
     if let Some(teams) = value.get("teams").and_then(Value::as_array) {
         if teams.is_empty() {
@@ -178,8 +199,21 @@ fn print_human(value: &Value) {
         }
         return;
     }
+    if let (Some(team_id), Some(tab_id)) = (
+        value.get("team_id").and_then(Value::as_str),
+        value.get("tab_id").and_then(Value::as_str),
+    ) {
+        println!("Adopted Tab {tab_id} into Team {team_id}.");
+        return;
+    }
     if let Some(team) = value.get("team") {
         print_team(team);
+        print_members(
+            value
+                .get("members")
+                .and_then(Value::as_array)
+                .map(Vec::as_slice),
+        );
         return;
     }
     let team_id = value.get("team_id").and_then(Value::as_str).unwrap_or("?");
@@ -189,6 +223,20 @@ fn print_human(value: &Value) {
         .and_then(Value::as_str)
         .unwrap_or("?");
     println!("Adopted plan {plan_id} into Team {team_id}.");
+}
+
+fn print_members(members: Option<&[Value]>) {
+    let Some(members) = members else { return };
+    if members.is_empty() {
+        println!("  (no member tabs)");
+        return;
+    }
+    for member in members {
+        let tab_id = member.get("tab_id").and_then(Value::as_str).unwrap_or("?");
+        let title = member.get("title").and_then(Value::as_str).unwrap_or("");
+        let role = member.get("role").and_then(Value::as_str).unwrap_or("-");
+        println!("  {tab_id}\t{role}\t{title}");
+    }
 }
 
 fn print_team(team: &Value) {
@@ -217,6 +265,20 @@ mod tests {
 
         for caller in [None, Some(""), Some("  ")] {
             let error = adopt_plan_params("team".into(), "plan".into(), caller).unwrap_err();
+            assert!(error.contains("CODETERM_TAB_ID"));
+        }
+    }
+
+    #[test]
+    fn adopt_agent_params_require_nonempty_caller() {
+        let params =
+            adopt_agent_params("team".into(), "tab_seven".into(), Some("manager")).unwrap();
+        assert_eq!(params["team_id"], "team");
+        assert_eq!(params["tab_id"], "tab_seven");
+        assert_eq!(params["caller_tab_id"], "manager");
+
+        for caller in [None, Some(""), Some("  ")] {
+            let error = adopt_agent_params("team".into(), "tab_seven".into(), caller).unwrap_err();
             assert!(error.contains("CODETERM_TAB_ID"));
         }
     }

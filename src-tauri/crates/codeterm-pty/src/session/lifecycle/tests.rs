@@ -3,6 +3,8 @@ use std::fs;
 use tempfile::TempDir;
 
 use super::*;
+use crate::multiplexer::state::MultiplexerState;
+use crate::multiplexer::types::{AgentRole, Tab};
 use crate::session::store::{
     AgentIdentitySnapshot, SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot,
 };
@@ -133,6 +135,7 @@ fn committed_leaf(
         role,
         role_profile,
         team_id,
+        parent_tab_id,
         can_spawn,
         depth,
         ..
@@ -145,19 +148,21 @@ fn committed_leaf(
         *role = Some("Manager".into());
         *role_profile = Some("orchestrator".into());
         *team_id = Some("team-1".into());
+        *parent_tab_id = Some("tab-parent".into());
         *can_spawn = true;
         *depth = 1;
     }
     node
 }
 
-/// The verified db79d2da residue: role authority and a launch nonce, with no
-/// provider, session, Team, or boot stage ever committed.
+/// Residue of a launch that never completed: role authority and a launch
+/// nonce, with no provider or session ever committed.
 fn partial_launch_leaf(tab_id: &str) -> SplitNodeSnapshot {
     let mut node = leaf(tab_id);
     if let SplitNodeSnapshot::Leaf {
         agent_identity,
         role,
+        team_id,
         can_spawn,
         depth,
         ..
@@ -167,7 +172,8 @@ fn partial_launch_leaf(tab_id: &str) -> SplitNodeSnapshot {
             reported_session_binding_nonce: None,
             ..identity(None, None)
         });
-        *role = Some("Manager".into());
+        *role = Some("Worker".into());
+        *team_id = Some("team-1".into());
         *can_spawn = true;
         *depth = 1;
     }
@@ -175,7 +181,7 @@ fn partial_launch_leaf(tab_id: &str) -> SplitNodeSnapshot {
 }
 
 /// A chatBackend-backed tab. Its transport commits no lifecycle transitions,
-/// so it never carries lineage.
+/// so any lineage it carries is journal-alien.
 fn chat_backend_leaf(tab_id: &str, lineage: Option<(u64, &str)>) -> SplitNodeSnapshot {
     let mut node = leaf(tab_id);
     if let SplitNodeSnapshot::Leaf {
@@ -244,255 +250,200 @@ fn split_tree_tab_id(node: &SplitNodeSnapshot) -> String {
     }
 }
 
-fn authority_of(snapshot: &SessionSnapshot, tab_id: &str) -> SplitNodeSnapshot {
-    snapshot.workspaces[0]
-        .tabs
-        .iter()
-        .find(|tab| tab.id == tab_id)
-        .map(|tab| tab.split_tree.clone())
-        .expect("tab in snapshot")
+/// The real restore path. It takes no journal: restore is unconditional.
+fn restored_tab(leaves: Vec<SplitNodeSnapshot>, tab_id: &str) -> Tab {
+    MultiplexerState::from_session_snapshot(&snapshot(leaves))
+        .get_tab(tab_id)
+        .cloned()
+        .expect("tab survives restore")
 }
 
-fn verdict_for(outcomes: &[TabRecoveryOutcome], tab_id: &str) -> RecoveryVerdict {
-    outcomes
-        .iter()
-        .find(|outcome| outcome.tab_id == tab_id)
-        .map(|outcome| outcome.verdict.clone())
-        .expect("verdict for tab")
-}
-
-#[test]
-fn a_legacy_provider_backed_tab_restores_without_lineage() {
-    let (journal, _dir) = new_journal();
-    let mut node = committed_leaf("tab-legacy", 1, "op-legacy", "session-legacy");
-    if let SplitNodeSnapshot::Leaf { agent_identity, .. } = &mut node {
-        *agent_identity = Some(identity(None, None));
-    }
-    let mut snapshot = snapshot(vec![node]);
-
-    let outcomes = gate_session_snapshot(&mut snapshot, &journal.load());
-
+fn assert_full_authority(tab: &Tab, session_id: &str) {
+    assert_eq!(tab.agent_type.as_deref(), Some("claude"));
+    assert_eq!(tab.agent_session_id.as_deref(), Some(session_id));
+    assert_eq!(tab.role, Some(AgentRole::Manager));
+    assert_eq!(tab.role_profile.as_deref(), Some("orchestrator"));
+    assert_eq!(tab.team_id.as_deref(), Some("team-1"));
+    assert_eq!(tab.parent_tab_id.as_deref(), Some("tab-parent"));
+    assert!(tab.can_spawn);
+    assert_eq!(tab.depth, 1);
     assert_eq!(
-        verdict_for(&outcomes, "tab-legacy"),
-        RecoveryVerdict::PreJournal,
-        "an untouched legacy agent tab is not the journal's to judge"
-    );
-    let SplitNodeSnapshot::Leaf {
-        agent_type,
-        claude_session_id,
-        role,
-        team_id,
-        can_spawn,
-        ..
-    } = authority_of(&snapshot, "tab-legacy")
-    else {
-        panic!("expected leaf");
-    };
-    assert_eq!(agent_type.as_deref(), Some("claude"));
-    assert_eq!(claude_session_id.as_deref(), Some("session-legacy"));
-    assert_eq!(role.as_deref(), Some("Manager"));
-    assert_eq!(team_id.as_deref(), Some("team-1"));
-    assert!(can_spawn);
-}
-
-#[test]
-fn a_legacy_tab_enters_coverage_only_once_its_own_operation_is_journaled() {
-    let (journal, _dir) = new_journal();
-    commit_full_launch(&journal, &key("tab-other", 1, "op-other"), "session-other");
-
-    let mut node = committed_leaf("tab-legacy", 1, "op-legacy", "session-legacy");
-    if let SplitNodeSnapshot::Leaf { agent_identity, .. } = &mut node {
-        *agent_identity = Some(identity(None, None));
-    }
-    let mut snapshot = snapshot(vec![node]);
-
-    let outcomes = gate_session_snapshot(&mut snapshot, &journal.load());
-
-    assert_eq!(
-        verdict_for(&outcomes, "tab-legacy"),
-        RecoveryVerdict::PreJournal,
-        "another tab's journaled operation must not pull this one into coverage"
+        tab.reported_session_binding_nonce.as_deref(),
+        Some("nonce-1")
     );
 }
 
+// ---------------------------------------------------------------------------
+// Unconditional restore: snapshot authority survives verbatim regardless of
+// journal state. The journal is telemetry; restore never consults it.
+// ---------------------------------------------------------------------------
+
 #[test]
-fn half_a_lineage_proves_nothing() {
+fn restore_keeps_every_authority_field_with_no_journal_at_all() {
     let (journal, _dir) = new_journal();
-    commit_full_launch(&journal, &key("tab-a", 1, "op-a"), "session-a");
-    let mut node = committed_leaf("tab-a", 1, "op-a", "session-a");
-    if let SplitNodeSnapshot::Leaf { agent_identity, .. } = &mut node {
-        *agent_identity = Some(identity(Some(1), None));
-    }
-    let mut snapshot = snapshot(vec![node]);
+    assert!(checkpoints(&journal.load()).is_empty());
 
-    let outcomes = gate_session_snapshot(&mut snapshot, &journal.load());
-
-    assert_eq!(
-        verdict_for(&outcomes, "tab-a"),
-        RecoveryVerdict::Stripped(RecoveryRefusal::PartialLineage)
+    let tab = restored_tab(
+        vec![committed_leaf("tab-a", 1, "op-a", "session-a")],
+        "tab-a",
     );
-    let SplitNodeSnapshot::Leaf {
-        role, agent_type, ..
-    } = authority_of(&snapshot, "tab-a")
-    else {
-        panic!("expected leaf");
-    };
-    assert_eq!(role, None);
-    assert_eq!(agent_type, None);
+
+    assert_full_authority(&tab, "session-a");
+    assert_eq!(tab.lifecycle_epoch, Some(1));
+    assert_eq!(tab.lifecycle_operation_id.as_deref(), Some("op-a"));
 }
 
 #[test]
-fn a_covered_tab_whose_journal_was_rebuilt_is_stripped() {
+fn restore_keeps_authority_when_the_journal_was_rebuilt() {
     let dir = tempfile::tempdir().unwrap();
     let first = TabLifecycleJournal::for_dir(dir.path().to_path_buf());
     commit_full_launch(&first, &key("tab-a", 1, "op-a"), "session-a");
     fs::remove_file(dir.path().join(JOURNAL_FILE_NAME)).unwrap();
     let rebuilt = TabLifecycleJournal::for_dir(dir.path().to_path_buf());
+    assert!(checkpoints(&rebuilt.load()).is_empty());
 
-    let mut snapshot = snapshot(vec![committed_leaf("tab-a", 1, "op-a", "session-a")]);
-    let outcomes = gate_session_snapshot(&mut snapshot, &rebuilt.load());
-
-    assert_eq!(
-        verdict_for(&outcomes, "tab-a"),
-        RecoveryVerdict::Stripped(RecoveryRefusal::NoCommittedCheckpoint),
-        "deleting the journal must not buy an exemption"
+    let tab = restored_tab(
+        vec![committed_leaf("tab-a", 1, "op-a", "session-a")],
+        "tab-a",
     );
-    let SplitNodeSnapshot::Leaf {
-        role, agent_type, ..
-    } = authority_of(&snapshot, "tab-a")
-    else {
-        panic!("expected leaf");
-    };
-    assert_eq!(role, None);
-    assert_eq!(agent_type, None);
+
+    assert_full_authority(&tab, "session-a");
 }
 
 #[test]
-fn a_covered_tab_with_no_journal_at_all_is_stripped() {
+fn restore_keeps_authority_across_epoch_and_operation_mismatch() {
     let (journal, _dir) = new_journal();
-    let mut snapshot = snapshot(vec![committed_leaf("tab-a", 1, "op-a", "session-a")]);
+    commit_full_launch(&journal, &key("tab-a", 2, "op-b"), "session-b");
 
-    let outcomes = gate_session_snapshot(&mut snapshot, &journal.load());
-
-    assert_eq!(
-        verdict_for(&outcomes, "tab-a"),
-        RecoveryVerdict::Stripped(RecoveryRefusal::NoCommittedCheckpoint)
+    let tab = restored_tab(
+        vec![committed_leaf("tab-a", 1, "op-a", "session-a")],
+        "tab-a",
     );
+
+    assert_full_authority(&tab, "session-a");
+    assert_eq!(tab.lifecycle_epoch, Some(1));
+    assert_eq!(tab.lifecycle_operation_id.as_deref(), Some("op-a"));
 }
 
 #[test]
-fn a_legacy_chat_backend_tab_is_neither_stripped_nor_claimed_as_proven() {
-    let (journal, _dir) = new_journal();
-    commit_full_launch(&journal, &key("tab-pty", 1, "op-pty"), "session-pty");
-    let mut snapshot = snapshot(vec![chat_backend_leaf("tab-chat", None)]);
+fn restore_keeps_authority_with_a_refused_journal_tail() {
+    let (journal, dir) = new_journal();
+    commit_full_launch(&journal, &key("tab-a", 1, "op-a"), "session-a");
+    let path = dir.path().join(JOURNAL_FILE_NAME);
+    let mut body = fs::read_to_string(&path).unwrap();
+    body.push_str("{\"record\":\"transition\",\"entry\":{\"seq\":99,\"key\"");
+    fs::write(&path, body).unwrap();
+    assert!(!journal.load().tail.is_intact());
 
-    let outcomes = gate_session_snapshot(&mut snapshot, &journal.load());
-
-    assert_eq!(
-        verdict_for(&outcomes, "tab-chat"),
-        RecoveryVerdict::PreJournal,
-        "a transport that commits nothing is never journal-proven"
+    let tab = restored_tab(
+        vec![committed_leaf("tab-a", 1, "op-a", "session-a")],
+        "tab-a",
     );
-    let SplitNodeSnapshot::Leaf {
-        chatbackend_plugin_id,
-        chatbackend_session_id,
-        role,
-        team_id,
-        ..
-    } = authority_of(&snapshot, "tab-chat")
-    else {
-        panic!("expected leaf");
-    };
-    assert_eq!(chatbackend_plugin_id.as_deref(), Some("lmstudio"));
-    assert_eq!(chatbackend_session_id.as_deref(), Some("plugin-session"));
-    assert_eq!(role.as_deref(), Some("Worker"));
-    assert_eq!(team_id.as_deref(), Some("team-1"));
+
+    assert_full_authority(&tab, "session-a");
 }
 
 #[test]
-fn a_chat_backend_tab_carrying_lineage_is_unprovable() {
-    let (journal, _dir) = new_journal();
-    commit_full_launch(&journal, &key("tab-chat", 1, "op-chat"), "plugin-session");
-    let mut snapshot = snapshot(vec![chat_backend_leaf("tab-chat", Some((1, "op-chat")))]);
+fn restore_keeps_pre_journal_authority_without_stripping() {
+    let mut node = committed_leaf("tab-legacy", 1, "op-legacy", "session-legacy");
+    if let SplitNodeSnapshot::Leaf { agent_identity, .. } = &mut node {
+        *agent_identity = Some(identity(None, None));
+    }
 
-    let outcomes = gate_session_snapshot(&mut snapshot, &journal.load());
+    let tab = restored_tab(vec![node], "tab-legacy");
 
-    assert_eq!(
-        verdict_for(&outcomes, "tab-chat"),
-        RecoveryVerdict::Stripped(RecoveryRefusal::UnjournaledTransport),
-        "a PTY-shaped checkpoint must never stand in for a plugin binding"
-    );
-    let SplitNodeSnapshot::Leaf {
-        chatbackend_plugin_id,
-        role,
-        ..
-    } = authority_of(&snapshot, "tab-chat")
-    else {
-        panic!("expected leaf");
-    };
-    assert_eq!(chatbackend_plugin_id, None);
-    assert_eq!(role, None);
+    assert_full_authority(&tab, "session-legacy");
+    assert_eq!(tab.lifecycle_epoch, None);
+    assert_eq!(tab.lifecycle_operation_id, None);
 }
 
 #[test]
-fn partial_launch_residue_fails_closed() {
-    let (journal, _dir) = new_journal();
-    let key = key("db79d2da", 1, "op-partial");
-    journal
-        .append(key.clone(), LifecycleTransition::EpochOpened)
-        .unwrap();
+fn restore_keeps_authority_with_half_a_lineage() {
+    let mut node = committed_leaf("tab-a", 1, "op-a", "session-a");
+    if let SplitNodeSnapshot::Leaf { agent_identity, .. } = &mut node {
+        *agent_identity = Some(identity(Some(1), None));
+    }
 
-    let mut snapshot = snapshot(vec![partial_launch_leaf("db79d2da")]);
-    let outcomes = gate_session_snapshot(&mut snapshot, &journal.load());
+    let tab = restored_tab(vec![node], "tab-a");
 
-    assert_eq!(
-        verdict_for(&outcomes, "db79d2da"),
-        RecoveryVerdict::Stripped(RecoveryRefusal::UnbackedRoleAuthority)
-    );
-    let SplitNodeSnapshot::Leaf {
-        role,
-        can_spawn,
-        depth,
-        agent_type,
-        claude_session_id,
-        team_id,
-        ..
-    } = authority_of(&snapshot, "db79d2da")
-    else {
-        panic!("expected leaf");
-    };
-    assert_eq!(role, None, "a role-bearing plain shell must not come back");
-    assert!(!can_spawn);
-    assert_eq!(depth, 0);
-    assert_eq!(agent_type, None);
-    assert_eq!(claude_session_id, None);
-    assert_eq!(team_id, None);
+    assert_full_authority(&tab, "session-a");
+    assert_eq!(tab.lifecycle_epoch, Some(1));
+    assert_eq!(tab.lifecycle_operation_id, None);
 }
 
 #[test]
-fn atomic_commit_restores_every_authority_field() {
+fn restore_keeps_a_rolled_back_operations_snapshot_fields() {
     let (journal, _dir) = new_journal();
     let key = key("tab-a", 1, "op-a");
     commit_full_launch(&journal, &key, "session-a");
+    journal
+        .append(
+            key.clone(),
+            LifecycleTransition::RolledBack {
+                reason: "agent exited".into(),
+            },
+        )
+        .unwrap();
+    assert!(checkpoints(&journal.load()).is_empty());
 
-    let mut snapshot = snapshot(vec![committed_leaf("tab-a", 1, "op-a", "session-a")]);
-    let outcomes = gate_session_snapshot(&mut snapshot, &journal.load());
+    let tab = restored_tab(
+        vec![committed_leaf("tab-a", 1, "op-a", "session-a")],
+        "tab-a",
+    );
 
-    let RecoveryVerdict::Restored(authority) = verdict_for(&outcomes, "tab-a") else {
-        panic!("exact checkpoint must restore");
-    };
-    assert_eq!(authority.provider, "claude");
-    assert_eq!(authority.session_id, "session-a");
-    assert_eq!(authority.role.as_deref(), Some("Manager"));
-    assert_eq!(authority.role_profile.as_deref(), Some("orchestrator"));
-    assert_eq!(authority.team_id.as_deref(), Some("team-1"));
-    assert!(authority.can_spawn);
-    assert_eq!(authority.depth, 1);
-    let SplitNodeSnapshot::Leaf { agent_type, .. } = authority_of(&snapshot, "tab-a") else {
-        panic!("expected leaf");
-    };
-    assert_eq!(agent_type.as_deref(), Some("claude"));
+    assert_full_authority(&tab, "session-a");
 }
+
+#[test]
+fn restore_keeps_a_role_claim_without_provider_identity() {
+    let (journal, _dir) = new_journal();
+    journal
+        .append(
+            key("tab-partial", 1, "op-partial"),
+            LifecycleTransition::EpochOpened,
+        )
+        .unwrap();
+
+    let tab = restored_tab(vec![partial_launch_leaf("tab-partial")], "tab-partial");
+
+    assert_eq!(tab.role, Some(AgentRole::Worker));
+    assert_eq!(tab.team_id.as_deref(), Some("team-1"));
+    assert!(tab.can_spawn);
+    assert_eq!(tab.depth, 1);
+    assert_eq!(tab.agent_type, None, "no provider is ever invented");
+}
+
+#[test]
+fn restore_keeps_a_chat_backend_tab_with_lineage() {
+    let tab = restored_tab(
+        vec![chat_backend_leaf("tab-chat", Some((1, "op-chat")))],
+        "tab-chat",
+    );
+
+    assert!(tab.is_chat_backend());
+    assert_eq!(tab.agent_type.as_deref(), Some("lmstudio"));
+    assert_eq!(tab.agent_session_id.as_deref(), Some("plugin-session"));
+    assert_eq!(tab.role, Some(AgentRole::Worker));
+    assert_eq!(tab.role_profile.as_deref(), Some("executor"));
+    assert_eq!(tab.team_id.as_deref(), Some("team-1"));
+    assert_eq!(tab.depth, 2);
+}
+
+#[test]
+fn a_plain_shell_restores_as_a_plain_shell() {
+    let tab = restored_tab(vec![leaf("plain-shell")], "plain-shell");
+
+    assert_eq!(tab.agent_type, None);
+    assert_eq!(tab.agent_session_id, None);
+    assert_eq!(tab.role, None);
+    assert_eq!(tab.team_id, None);
+    assert!(!tab.can_spawn);
+    assert_eq!(tab.depth, 0);
+}
+
+// ---------------------------------------------------------------------------
+// Journal mechanics: the telemetry record itself stays trustworthy.
+// ---------------------------------------------------------------------------
 
 #[test]
 fn unsealed_launch_never_becomes_a_checkpoint() {
@@ -536,169 +487,6 @@ fn rollback_withdraws_the_checkpoint() {
         .unwrap();
 
     assert!(checkpoints(&journal.load()).is_empty());
-    let mut snapshot = snapshot(vec![committed_leaf("tab-a", 1, "op-a", "session-a")]);
-    let outcomes = gate_session_snapshot(&mut snapshot, &journal.load());
-    assert_eq!(
-        verdict_for(&outcomes, "tab-a"),
-        RecoveryVerdict::Stripped(RecoveryRefusal::NoCommittedCheckpoint)
-    );
-}
-
-#[test]
-fn restart_restores_only_the_snapshot_of_its_own_epoch() {
-    let (journal, _dir) = new_journal();
-    commit_full_launch(&journal, &key("tab-a", 1, "op-a"), "session-a");
-    journal
-        .append(
-            key("tab-a", 1, "op-a"),
-            LifecycleTransition::RestartRequested,
-        )
-        .unwrap();
-    commit_full_launch(&journal, &key("tab-a", 2, "op-b"), "session-b");
-
-    let mut current = snapshot(vec![committed_leaf("tab-a", 2, "op-b", "session-b")]);
-    assert!(matches!(
-        verdict_for(
-            &gate_session_snapshot(&mut current, &journal.load()),
-            "tab-a"
-        ),
-        RecoveryVerdict::Restored(_)
-    ));
-
-    let mut stale = snapshot(vec![committed_leaf("tab-a", 1, "op-a", "session-a")]);
-    assert_eq!(
-        verdict_for(&gate_session_snapshot(&mut stale, &journal.load()), "tab-a"),
-        RecoveryVerdict::Stripped(RecoveryRefusal::EpochMismatch {
-            snapshot: LifecycleEpoch(1),
-            checkpoint: LifecycleEpoch(2),
-        })
-    );
-}
-
-#[test]
-fn a_refused_checkpoint_leaves_no_agent_model_identity_on_the_plain_shell() {
-    let (journal, _dir) = new_journal();
-    commit_full_launch(&journal, &key("tab-a", 2, "op-b"), "session-b");
-    let mut stale = committed_leaf("tab-a", 1, "op-a", "session-a");
-    if let SplitNodeSnapshot::Leaf {
-        agent_session_model,
-        agent_planned_model,
-        agent_requested_model,
-        agent_provider_resolved_model,
-        model_fallback,
-        model_identity_mismatch,
-        ..
-    } = &mut stale
-    {
-        *agent_session_model = Some("actual".into());
-        *agent_planned_model = Some("planned".into());
-        *agent_requested_model = Some("requested".into());
-        *agent_provider_resolved_model = Some("resolved".into());
-        *model_fallback = Some(crate::multiplexer::types::ModelFallbackNotice {
-            planned_model: Some("planned".into()),
-            requested_model: "requested".into(),
-            provider_resolved_model: "resolved".into(),
-            actual_model: Some("actual".into()),
-            reason: "fixture".into(),
-        });
-        *model_identity_mismatch = Some(crate::multiplexer::types::ModelIdentityMismatch {
-            planned_model: Some("planned".into()),
-            requested_model: "requested".into(),
-            provider_resolved_model: Some("resolved".into()),
-            actual_model: "actual".into(),
-            reason: "fixture".into(),
-        });
-    }
-    let mut snapshot = snapshot(vec![stale]);
-
-    gate_session_snapshot(&mut snapshot, &journal.load());
-
-    let SplitNodeSnapshot::Leaf {
-        agent_session_model,
-        agent_planned_model,
-        agent_requested_model,
-        agent_provider_resolved_model,
-        model_fallback,
-        model_identity_mismatch,
-        ..
-    } = &snapshot.workspaces[0].tabs[0].split_tree
-    else {
-        panic!("fixture must remain a leaf");
-    };
-    assert!(agent_session_model.is_none());
-    assert!(agent_planned_model.is_none());
-    assert!(agent_requested_model.is_none());
-    assert!(agent_provider_resolved_model.is_none());
-    assert!(model_fallback.is_none());
-    assert!(model_identity_mismatch.is_none());
-}
-
-#[test]
-fn same_epoch_different_operation_is_refused() {
-    let (journal, _dir) = new_journal();
-    commit_full_launch(&journal, &key("tab-a", 1, "op-a"), "session-a");
-
-    let mut snapshot = snapshot(vec![committed_leaf("tab-a", 1, "op-foreign", "session-a")]);
-    let outcomes = gate_session_snapshot(&mut snapshot, &journal.load());
-    assert_eq!(
-        verdict_for(&outcomes, "tab-a"),
-        RecoveryVerdict::Stripped(RecoveryRefusal::OperationMismatch {
-            snapshot: "op-foreign".into(),
-            checkpoint: "op-a".into(),
-        })
-    );
-}
-
-#[test]
-fn snapshot_claiming_a_different_session_is_refused() {
-    let (journal, _dir) = new_journal();
-    commit_full_launch(&journal, &key("tab-a", 1, "op-a"), "session-a");
-
-    let mut snapshot = snapshot(vec![committed_leaf("tab-a", 1, "op-a", "session-other")]);
-    let outcomes = gate_session_snapshot(&mut snapshot, &journal.load());
-    assert_eq!(
-        verdict_for(&outcomes, "tab-a"),
-        RecoveryVerdict::Stripped(RecoveryRefusal::FieldMismatch {
-            field: "agent_session_id"
-        })
-    );
-}
-
-#[test]
-fn a_newer_tabs_checkpoint_never_authorizes_another_tab() {
-    let (journal, _dir) = new_journal();
-    commit_full_launch(&journal, &key("tab-other", 1, "op-other"), "session-other");
-
-    let mut snapshot = snapshot(vec![committed_leaf(
-        "db79d2da",
-        1,
-        "op-other",
-        "session-other",
-    )]);
-    let outcomes = gate_session_snapshot(&mut snapshot, &journal.load());
-    assert_eq!(
-        verdict_for(&outcomes, "db79d2da"),
-        RecoveryVerdict::Stripped(RecoveryRefusal::NoCommittedCheckpoint)
-    );
-}
-
-#[test]
-fn truncated_tail_refuses_every_claim() {
-    let (journal, dir) = new_journal();
-    commit_full_launch(&journal, &key("tab-a", 1, "op-a"), "session-a");
-    let path = dir.path().join(JOURNAL_FILE_NAME);
-    let mut body = fs::read_to_string(&path).unwrap();
-    body.push_str("{\"record\":\"transition\",\"entry\":{\"seq\":99,\"key\"");
-    fs::write(&path, body).unwrap();
-
-    let load = journal.load();
-    assert!(!load.tail.is_intact());
-    let mut snapshot = snapshot(vec![committed_leaf("tab-a", 1, "op-a", "session-a")]);
-    let outcomes = gate_session_snapshot(&mut snapshot, &load);
-    assert!(matches!(
-        verdict_for(&outcomes, "tab-a"),
-        RecoveryVerdict::Stripped(RecoveryRefusal::JournalTailRefused { .. })
-    ));
 }
 
 #[test]
@@ -774,7 +562,7 @@ fn repeated_compaction_replaces_in_place_and_leaves_no_temp() {
 }
 
 #[test]
-fn compaction_is_equivalent_for_recovery() {
+fn compaction_reaches_the_same_checkpoints_as_the_full_history() {
     let (journal, _dir) = new_journal();
     commit_full_launch(&journal, &key("tab-a", 1, "op-a"), "session-a");
     commit_full_launch(&journal, &key("tab-a", 2, "op-b"), "session-b");
@@ -782,17 +570,12 @@ fn compaction_is_equivalent_for_recovery() {
         .append(key("tab-a", 3, "op-c"), LifecycleTransition::EpochOpened)
         .unwrap();
 
-    let mut before = snapshot(vec![committed_leaf("tab-a", 2, "op-b", "session-b")]);
-    let before_verdict = verdict_for(
-        &gate_session_snapshot(&mut before, &journal.load()),
-        "tab-a",
-    );
+    let before = checkpoints(&journal.load());
     journal.compact().unwrap();
-    let mut after = snapshot(vec![committed_leaf("tab-a", 2, "op-b", "session-b")]);
-    let after_verdict = verdict_for(&gate_session_snapshot(&mut after, &journal.load()), "tab-a");
+    let after = checkpoints(&journal.load());
 
-    assert!(matches!(before_verdict, RecoveryVerdict::Restored(_)));
-    assert_eq!(before_verdict, after_verdict);
+    assert_eq!(before.len(), 1);
+    assert_eq!(before, after);
 }
 
 #[test]
@@ -820,15 +603,4 @@ fn next_epoch_follows_the_tabs_own_history() {
     assert_eq!(next_epoch_for(&load, "tab-a"), LifecycleEpoch(2));
     assert_eq!(next_epoch_for(&load, "tab-b"), LifecycleEpoch(8));
     assert_eq!(next_epoch_for(&load, "tab-fresh"), LifecycleEpoch::first());
-}
-
-#[test]
-fn a_tab_claiming_nothing_needs_no_proof() {
-    let (journal, _dir) = new_journal();
-    let mut snapshot = snapshot(vec![leaf("plain-shell")]);
-    let outcomes = gate_session_snapshot(&mut snapshot, &journal.load());
-    assert_eq!(
-        verdict_for(&outcomes, "plain-shell"),
-        RecoveryVerdict::NoAuthorityClaimed
-    );
 }

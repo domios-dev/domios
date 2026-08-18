@@ -22,6 +22,22 @@ pub(crate) fn starter_prompt_for_creation(
     }
 }
 
+/// `--team` attaches a ROLELESS agent. A role- or plan-task-bound spawn already
+/// derives its Team from that binding, so accepting both would leave two
+/// sources of truth for one tab's Team.
+pub(crate) fn reject_team_with_binding(params: &SpawnAgentParams) -> Result<(), String> {
+    if params.team_id.is_none() {
+        return Ok(());
+    }
+    if params.role.is_some() || params.plan_task.is_some() {
+        return Err(
+            "--team attaches a roleless agent; a role- or plan-task-bound spawn takes its Team from that binding"
+                .into(),
+        );
+    }
+    Ok(())
+}
+
 impl SpawnTabSpec {
     pub fn from_agent_params(params: SpawnAgentParams) -> Self {
         Self::from_agent_params_command(params, None)
@@ -96,8 +112,8 @@ impl SpawnTabSpec {
         Self {
             workspace_id: params.workspace_id.clone(),
             parent_tab_id: params.parent_tab_id.clone(),
-            team_id: None,
-            creator_tab_id: None,
+            team_id: params.team_id.clone(),
+            creator_tab_id: params.creator_tab_id.clone(),
             cwd: params.cwd.clone(),
             title: params.title.clone(),
             description: params.description.clone(),
@@ -155,6 +171,8 @@ impl SpawnTabSpec {
             skip_permissions: None,
             permission_bypass_authorization: None,
             spawned_by_tab_id: agent.spawned_by_tab_id.clone(),
+            team_id: self.team_id.clone(),
+            creator_tab_id: self.creator_tab_id.clone(),
             ownership: None,
             model: agent.model.clone(),
             planned_model: agent.planned_model.clone(),
@@ -515,5 +533,44 @@ mod tests {
             starter_prompt_for_creation(Some("Worker"), Some("   ")),
             crate::agent::provider::StarterPrompt::NoStarter
         );
+    }
+
+    #[test]
+    fn team_attach_is_rejected_alongside_a_role_or_plan_task_binding() {
+        let attach = |role: Option<&str>, plan_task: Option<&str>| SpawnAgentParams {
+            team_id: Some("team_alpha".into()),
+            creator_tab_id: Some("tab_manager".into()),
+            role: role.map(str::to_string),
+            plan_task: plan_task.map(str::to_string),
+            ..Default::default()
+        };
+        assert!(reject_team_with_binding(&attach(None, None)).is_ok());
+        assert!(reject_team_with_binding(&attach(Some("Worker"), None)).is_err());
+        assert!(reject_team_with_binding(&attach(None, Some("task_one"))).is_err());
+    }
+
+    #[test]
+    fn a_spawn_without_a_team_never_trips_the_binding_guard() {
+        assert!(reject_team_with_binding(&SpawnAgentParams {
+            role: Some("Worker".into()),
+            plan_task: Some("task_one".into()),
+            ..Default::default()
+        })
+        .is_ok());
+    }
+
+    #[test]
+    fn team_attach_fields_round_trip_through_the_tab_spec() {
+        let spec = SpawnTabSpec::from_agent_params(SpawnAgentParams {
+            agent: Some("claude".into()),
+            team_id: Some("team_alpha".into()),
+            creator_tab_id: Some("tab_manager".into()),
+            ..Default::default()
+        });
+        assert_eq!(spec.team_id.as_deref(), Some("team_alpha"));
+        assert_eq!(spec.creator_tab_id.as_deref(), Some("tab_manager"));
+        let params = spec.to_agent_params().unwrap();
+        assert_eq!(params.team_id.as_deref(), Some("team_alpha"));
+        assert_eq!(params.creator_tab_id.as_deref(), Some("tab_manager"));
     }
 }

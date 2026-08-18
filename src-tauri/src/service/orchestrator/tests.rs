@@ -311,6 +311,8 @@ fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
         skip_permissions: None,
         permission_bypass_authorization: None,
         spawned_by_tab_id: None,
+        team_id: None,
+        creator_tab_id: None,
         ownership: None,
         model: None,
         planned_model: None,

@@ -302,7 +302,7 @@ mod tests {
         assert!(msg.contains("team-xyz"));
         assert!(msg.contains("pl_real42"));
         // A ready-to-run planner spawn bound to THIS tab and the real plan.
-        assert!(msg.contains("--parent tab-abc --role Planner --plan pl_real42"));
+        assert!(msg.contains("--parent-tab tab-abc --role Planner --plan pl_real42"));
         assert_no_placeholder_residue(&msg);
     }
 
@@ -315,7 +315,11 @@ mod tests {
         assert!(!msg.contains("pl_"));
         assert!(msg.contains(crate::prompts::ORCH_ONBOARD_NO_PLAN_MARKER));
         assert!(msg.contains(crate::prompts::ORCH_ONBOARD_CREATE_STEP));
-        assert!(msg.contains("--team team-xyz"));
+        // Binding is its own verb: `plan create` has no --team.
+        assert!(msg.contains(&format!(
+            "{} team-xyz",
+            crate::prompts::ORCH_ONBOARD_ADOPT_STEP
+        )));
         assert_no_placeholder_residue(&msg);
     }
 
