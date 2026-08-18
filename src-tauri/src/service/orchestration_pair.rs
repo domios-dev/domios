@@ -63,7 +63,7 @@ fn degraded_fix_command(
         .map(|m| format!(" --model {m}"))
         .unwrap_or_default();
     format!(
-        "codeterm agent spawn {planner_agent}{model_flag} --parent {orch_tab_id} --role Planner"
+        "codeterm agent spawn {planner_agent}{model_flag} --parent-tab {orch_tab_id} --role Planner"
     )
 }
 
@@ -742,7 +742,7 @@ mod tests {
         let cmd = degraded_fix_command("orch-1", "codex", Some("gpt-5"));
         assert!(cmd.contains("agent spawn codex"));
         assert!(cmd.contains("--model gpt-5"));
-        assert!(cmd.contains("--parent orch-1"));
+        assert!(cmd.contains("--parent-tab orch-1"));
         assert!(cmd.contains("--role Planner"));
         assert!(!cmd.contains("--plan"));
     }

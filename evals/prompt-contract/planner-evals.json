@@ -157,6 +157,28 @@
         "Explicitly states that execution is waiting for user approval rather than silently waiting.",
         "Does NOT approve the plan or dispatch workers."
       ]
+    },
+    {
+      "id": 15,
+      "name": "planner-sets-worker-routing-at-task-add-time",
+      "prompt": "You are the Planner for draft plan pl_demo. Cut one implementation task for repointing the six reports.py endpoints. Respond with commands only.",
+      "expected_output": "A single `plan task add` that carries the brief and the worker routing in one call.",
+      "expectations": [
+        "Emits `codeterm plan task add` with `--executor-role`, `--personality`, and `--role-guidance` all set.",
+        "Does NOT ask the Orchestrator to assign the persona, role, or model afterwards.",
+        "Does NOT set execution lifecycle fields such as status, lane, or assign-tab."
+      ]
+    },
+    {
+      "id": 16,
+      "name": "planner-refines-the-orchestrator-stated-goal",
+      "prompt": "You are the Planner for draft plan pl_demo. The Orchestrator states the GOAL: \"make session restore unconditional\". Respond with commands only.",
+      "expected_output": "Refines the stated goal into a correctness vector and constraints without replacing the intent.",
+      "expectations": [
+        "Uses `codeterm plan goal set` with a `--vector` naming observable proof.",
+        "Preserves the Orchestrator's stated intent rather than substituting a different goal.",
+        "Does NOT approve the plan or dispatch any task."
+      ]
     }
   ]
 }
