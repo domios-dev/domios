@@ -103,7 +103,11 @@ fn a_title_never_invents_a_provider_identity() {
     let tab = restored.get_tab("db79d2da").expect("tab survives");
 
     assert_eq!(tab.agent_type, None, "a title never guesses a provider");
-    assert_eq!(tab.role, Some(AgentRole::Manager), "the role claim survives");
+    assert_eq!(
+        tab.role,
+        Some(AgentRole::Manager),
+        "the role claim survives"
+    );
     assert!(tab.can_spawn);
 }
 
