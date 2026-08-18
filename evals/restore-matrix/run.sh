@@ -19,7 +19,7 @@ RM_PROVIDERS="${RM_PROVIDERS:-claude codex opencode cursor}"
 RM_PER_PROVIDER="${RM_PER_PROVIDER:-3}"
 RM_MATERIALIZE_TIMEOUT="${RM_MATERIALIZE_TIMEOUT:-60}"
 
-RUN_ID="$(python - <<'PY'
+RUN_ID="$(python3 - <<'PY'
 import uuid
 print(uuid.uuid4().hex[:10])
 PY
@@ -47,7 +47,7 @@ trap cleanup EXIT
 
 write_manifest() {
   local phase="$1"
-  PYTHONIOENCODING=utf-8 python - "$MANIFEST" "$phase" "$RUN_ID" "$WORKSPACE_NAME" "$WORKSPACE_ID" "$SLOTS_TSV" <<'PY'
+  PYTHONIOENCODING=utf-8 python3 - "$MANIFEST" "$phase" "$RUN_ID" "$WORKSPACE_NAME" "$WORKSPACE_ID" "$SLOTS_TSV" <<'PY'
 import json, pathlib, sys
 manifest, phase, run_id, ws_name, ws_id, tsv = sys.argv[1:7]
 slots = []
@@ -82,7 +82,7 @@ PY
 
 replace_slot_field() {
   local provider="$1" idx="$2" field="$3" value="$4"
-  PYTHONIOENCODING=utf-8 python - "$SLOTS_DIR/$provider-$idx.tsv" "$field" "$value" <<'PY'
+  PYTHONIOENCODING=utf-8 python3 - "$SLOTS_DIR/$provider-$idx.tsv" "$field" "$value" <<'PY'
 import os, pathlib, sys
 path, field, value = sys.argv[1:4]
 fields = ['provider','idx','model','tab_id','marker','sid_before','sid_after','skipped','reason','booted_model']
@@ -104,7 +104,7 @@ append_slot() {
 }
 
 merge_slots() {
-  python - "$SLOTS_DIR" "$SLOTS_TSV" <<'PY'
+  python3 - "$SLOTS_DIR" "$SLOTS_TSV" <<'PY'
 import pathlib, sys
 slots_dir, output = map(pathlib.Path, sys.argv[1:3])
 rows = []
@@ -117,7 +117,7 @@ PY
 }
 
 split_slots() {
-  python - "$SLOTS_TSV" "$SLOTS_DIR" <<'PY'
+  python3 - "$SLOTS_TSV" "$SLOTS_DIR" <<'PY'
 import pathlib, sys
 source, slots_dir = map(pathlib.Path, sys.argv[1:3])
 for line in source.read_text(encoding="utf-8").splitlines():
@@ -130,12 +130,12 @@ PY
 
 json_field() {
   local expr="$1"
-  python -c "import json,sys; raw=sys.stdin.read(); data=json.loads(raw) if raw.strip().startswith('{') else {}; print($expr or '')" 2>/dev/null
+  python3 -c "import json,sys; raw=sys.stdin.read(); data=json.loads(raw) if raw.strip().startswith('{') else {}; print($expr or '')" 2>/dev/null
 }
 
 marker_in_text() {
   local marker="$1"
-  PYTHONIOENCODING=utf-8 python - "$marker" <<'PY'
+  PYTHONIOENCODING=utf-8 python3 - "$marker" <<'PY'
 import re, sys
 marker = sys.argv[1]
 text = sys.stdin.read()
@@ -147,7 +147,7 @@ PY
 
 marker_materialized_in_store() {
   local provider="$1" idx="$2"
-  PYTHONIOENCODING=utf-8 python - "$SLOTS_DIR/$provider-$idx.tsv" "$provider" "$idx" "$WORKSPACE_NAME" "$WORKSPACE_CWD" <<'PY'
+  PYTHONIOENCODING=utf-8 python3 - "$SLOTS_DIR/$provider-$idx.tsv" "$provider" "$idx" "$WORKSPACE_NAME" "$WORKSPACE_CWD" <<'PY'
 import json, os, pathlib, sqlite3, sys
 slots_path, provider, idx, workspace_name = sys.argv[1:5]
 workspace_cwd = sys.argv[5]
@@ -269,7 +269,7 @@ PY
 
 detect_booted_model_evidence() {
   local provider="$1" tab_id="$2"
-  dc tab get-text --tab "$tab_id" 2>/dev/null | PYTHONIOENCODING=utf-8 python - "$provider" <<'PY'
+  dc tab get-text --tab "$tab_id" 2>/dev/null | PYTHONIOENCODING=utf-8 python3 - "$provider" <<'PY'
 import re, sys
 provider = sys.argv[1]
 text = sys.stdin.read().lower()
@@ -299,7 +299,7 @@ PY
 
 tab_json_by_id() {
   local tab_id="$1"
-  dev_get /api/tabs | python - "$tab_id" <<'PY'
+  dev_get /api/tabs | python3 - "$tab_id" <<'PY'
 import json, sys
 tab_id = sys.argv[1]
 for tab in json.load(sys.stdin):
@@ -323,7 +323,7 @@ refresh_slot_pre() {
 
 refresh_all_slots_pre() {
   dev_get /api/tabs > "$RUN_DIR/pre-tabs.json"
-  PYTHONIOENCODING=utf-8 python - "$SLOTS_TSV" "$RUN_DIR/pre-tabs.json" <<'PY'
+  PYTHONIOENCODING=utf-8 python3 - "$SLOTS_TSV" "$RUN_DIR/pre-tabs.json" <<'PY'
 import json, pathlib, sys
 slots_path, tabs_path = sys.argv[1:3]
 rows = [line.split('\t') for line in pathlib.Path(slots_path).read_text(encoding='utf-8').splitlines() if line.strip()]
@@ -382,7 +382,7 @@ send_marker_and_wait() {
   local out evidence wait_result
 
   refresh_slot_pre "$provider" "$idx" || true
-  wait_result=$(PYTHONIOENCODING=utf-8 python - "$tab_id" "$marker" "$prompt" "$RM_MATERIALIZE_TIMEOUT" 2>&1 <<'PY'
+  wait_result=$(PYTHONIOENCODING=utf-8 python3 - "$tab_id" "$marker" "$prompt" "$RM_MATERIALIZE_TIMEOUT" 2>&1 <<'PY'
 import json, os, queue, sys, threading, time, urllib.request, uuid
 
 tab_id, marker, prompt, timeout_text = sys.argv[1:]
@@ -488,7 +488,7 @@ provider_model() {
     opencode)
       local providers_json
       providers_json="$(dev_get /api/agents/providers 2>/dev/null || true)"
-      python -c '
+      python3 -c '
 import json, sys
 try:
     providers = json.loads(sys.stdin.read() or "[]")
@@ -512,7 +512,7 @@ else:
 }
 
 new_marker() {
-  python - <<'PY'
+  python3 - <<'PY'
 import uuid
 print("RESTORE-MARKER-" + str(uuid.uuid4()))
 PY
@@ -568,7 +568,7 @@ send_all_markers() {
 }
 
 assert_post_chat_isolation() {
-  PYTHONIOENCODING=utf-8 python - "$SLOTS_TSV" <<'PY'
+  PYTHONIOENCODING=utf-8 python3 - "$SLOTS_TSV" <<'PY'
 import json, os, pathlib, re, sys, urllib.error, urllib.request
 slots_path = pathlib.Path(sys.argv[1])
 token = os.environ.get("CODETERM_API_TOKEN", "")
@@ -623,7 +623,7 @@ PY
 refresh_post_sids_and_assert_api() {
   local tabs_json="$RUN_DIR/post-tabs.json"
   dev_get /api/tabs > "$tabs_json"
-  PYTHONIOENCODING=utf-8 python - "$SLOTS_TSV" "$tabs_json" <<'PY'
+  PYTHONIOENCODING=utf-8 python3 - "$SLOTS_TSV" "$tabs_json" <<'PY'
 import pathlib, sys, json
 slots_path, tabs_path = sys.argv[1:3]
 rows = [line.split('\t') for line in pathlib.Path(slots_path).read_text(encoding='utf-8').splitlines() if line.strip()]
