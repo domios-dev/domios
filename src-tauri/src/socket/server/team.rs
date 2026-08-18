@@ -27,12 +27,13 @@ pub(super) fn dispatch(
         "team.list" => Ok(serde_json::json!({ "teams": mux.read().list_teams() })),
         "team.show" => {
             let team_id = get_string_param(params, "team_id")?;
-            let team = mux.read().get_team(&team_id).cloned().ok_or(JsonRpcError {
+            let mux = mux.read();
+            let team = mux.get_team(&team_id).cloned().ok_or(JsonRpcError {
                 code: -32602,
                 message: format!("Team {team_id} not found"),
                 data: None,
             })?;
-            Ok(serde_json::json!({ "team": team }))
+            Ok(serde_json::json!({ "team": team, "members": team_members(&mux, &team_id) }))
         }
         "team.rename" => {
             let team_id = get_string_param(params, "team_id")?;
@@ -80,6 +81,19 @@ pub(super) fn dispatch(
                 .map_err(team_plan_rpc_err)?;
             Ok(serde_json::json!({ "team_id": team_id, "plan": plan }))
         }
+        "team.adopt_agent" => {
+            let team_id = get_string_param(params, "team_id")?;
+            let tab_id = get_string_param(params, "tab_id")?;
+            let caller_tab_id = required_caller_tab(params, "Team agent adoption")?;
+            let team = svc
+                .adopt_agent_for_team(&team_id, &tab_id, &caller_tab_id)
+                .map_err(|message| JsonRpcError {
+                    code: -32602,
+                    message,
+                    data: None,
+                })?;
+            Ok(serde_json::json!({ "team_id": team_id, "tab_id": tab_id, "team": team }))
+        }
         _ => Err(JsonRpcError {
             code: -32601,
             message: "Method not found".into(),
@@ -88,7 +102,33 @@ pub(super) fn dispatch(
     }
 }
 
+/// Member tabs of a Team, ordered by tab id so the listing is stable.
+fn team_members(mux: &crate::multiplexer::state::MultiplexerState, team_id: &str) -> Value {
+    let mut members: Vec<Value> = mux
+        .snapshot()
+        .tabs
+        .values()
+        .filter(|tab| tab.team_id.as_deref() == Some(team_id))
+        .map(|tab| {
+            serde_json::json!({
+                "tab_id": tab.id,
+                "title": tab.title,
+                "role": tab.role_kind_id().unwrap_or("roleless"),
+                "anchors_team": tab.anchors_team(),
+            })
+        })
+        .collect();
+    members.sort_by(|a, b| a["tab_id"].as_str().cmp(&b["tab_id"].as_str()));
+    Value::Array(members)
+}
+
 fn adopt_plan_caller(params: &Option<Value>) -> Result<String, JsonRpcError> {
+    required_caller_tab(params, "Team plan adoption")
+}
+
+/// A Team mutation that authorizes against membership needs the caller's own
+/// tab; an absent caller is a refusal, never an implicit direct-user path.
+fn required_caller_tab(params: &Option<Value>, action: &str) -> Result<String, JsonRpcError> {
     params
         .as_ref()
         .and_then(|value| value.get("caller_tab_id"))
@@ -97,7 +137,7 @@ fn adopt_plan_caller(params: &Option<Value>) -> Result<String, JsonRpcError> {
         .map(str::to_string)
         .ok_or_else(|| JsonRpcError {
             code: -32602,
-            message: "caller_tab_id is required for Team plan adoption".into(),
+            message: format!("caller_tab_id is required for {action}"),
             data: None,
         })
 }
@@ -106,6 +146,17 @@ fn adopt_plan_caller(params: &Option<Value>) -> Result<String, JsonRpcError> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn required_caller_tab_names_the_refused_action() {
+        let error = required_caller_tab(&Some(json!({})), "Team agent adoption").unwrap_err();
+        assert_eq!(error.code, -32602);
+        assert!(
+            error.message.contains("Team agent adoption"),
+            "{}",
+            error.message
+        );
+    }
 
     #[test]
     fn adopt_plan_caller_requires_nonempty_tab_id() {
