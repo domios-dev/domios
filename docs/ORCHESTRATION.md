@@ -34,7 +34,7 @@ CodeTerm planner is the source of truth:
 GOAL → Spec (WHAT/WHY) ⊥ Plan (HOW) → Tasks → Strides
 ```
 
-- Set the GOAL first.
+- The Orchestrator sets the GOAL first, then delegates the rest of the structure.
 - Requirements, constraints, acceptance, and vocabulary belong in Spec.
 - Phases, ownership, sequencing, and verification belong in Plan.
 - Tasks carry bounded scope, ownership, acceptance criteria, correctness, and
@@ -42,6 +42,7 @@ GOAL → Spec (WHAT/WHY) ⊥ Plan (HOW) → Tasks → Strides
 - Strides record evidence, decisions, reports, and working points.
 - Do not replace planner state with a standalone markdown implementation plan.
 
+The Orchestrator states the GOAL and delegates planning to the Planner by default.
 The Planner drafts structure. The Orchestrator approves or revises it, dispatches
 execution, judges reports, integrates accepted lanes, and owns cleanup.
 The Orchestrator may implement a genuinely small local change when delegation
@@ -127,8 +128,13 @@ goal.
 When a Planner is present:
 
 - the active Plan belongs to the Team and is visible through Team membership;
-- the Orchestrator creates and owns the Plan and may edit its full structure;
-- delegate structural refinement to the Planner when useful;
+- the Orchestrator owns the Plan and states its GOAL, because it holds the user's
+  intent; the Planner refines the correctness vector, constraints, and postulates;
+- delegation is the default: hand the goal to the Planner and wait for its draft of
+  the Spec, the Plan sections, and the tasks; do not cut tasks in its place;
+- the Orchestrator drafts structure itself only as an exception — the Planner is
+  formally waived on the plan (`codeterm plan update --planner none --note <reason>`)
+  or the change is a narrow edit per `codeterm docs PLAN-EDITING`;
 - never create a separate Planner-to-Plan binding or ask the General Agent to bootstrap one;
 - run `codeterm plan doctor <plan> --kind quality`, then use one `codeterm plan
   approve <plan>` action to approve the structure and activate its tasks;
@@ -237,4 +243,4 @@ immutable plan stride.
 ## Related documents
 
 Verification, integration, heartbeat, and closeout: `codeterm docs ORCHESTRATION-OPERATIONS`.
-<!-- revision: 63 -->
+<!-- revision: 64 -->
