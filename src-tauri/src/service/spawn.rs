@@ -29,7 +29,10 @@ use spawn_hidden_delivery::deliver_hidden_pty_task;
 mod spawn_identity;
 #[cfg(test)]
 pub(crate) use spawn_identity::task_spawn_handle;
-pub(crate) use spawn_identity::{now_unix_secs, roleless_spawner, task_binding_from_spawn};
+pub(crate) use spawn_identity::{
+    now_unix_secs, params_caller_tab_id, roleless_spawner, spawn_caller_tab_id,
+    task_binding_from_spawn,
+};
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct SpawnTabSpec {
@@ -143,16 +146,21 @@ fn merge_warnings(a: Option<String>, b: Option<String>) -> Option<String> {
     }
 }
 
-/// Explicit `workspace_id` wins; `parent_tab_id` only picks a workspace when none was requested.
+/// Explicit `workspace_id` wins, then the spawn lineage: declared parent, then
+/// the caller's own tab. The focused workspace is a last resort for callers with
+/// no tab identity (UI clicks, external API) — an agent must never land its
+/// children in whatever workspace the user happens to be looking at.
 pub(crate) fn resolve_spawn_workspace_id(
     requested_workspace_id: Option<String>,
     parent_tab_id: Option<&str>,
-    parent_workspace: impl FnOnce(&str) -> Option<String>,
+    caller_tab_id: Option<&str>,
+    workspace_of_tab: impl Fn(&str) -> Option<String>,
     active_workspace_id: Option<String>,
     fallback_workspace_id: Option<String>,
 ) -> Result<String, String> {
     requested_workspace_id
-        .or_else(|| parent_tab_id.and_then(parent_workspace))
+        .or_else(|| parent_tab_id.and_then(&workspace_of_tab))
+        .or_else(|| caller_tab_id.and_then(&workspace_of_tab))
         .or(active_workspace_id)
         .or(fallback_workspace_id)
         .ok_or_else(|| "No workspace found".to_string())
@@ -311,6 +319,7 @@ impl ServiceContext {
             let id = resolve_spawn_workspace_id(
                 spec.workspace_id.clone(),
                 spec.parent_tab_id.as_deref(),
+                spawn_caller_tab_id(&agent, &spec),
                 |pid| mux.find_workspace_for_tab(pid),
                 mux.get_active_workspace().map(|w| w.id.clone()),
                 mux.list_workspaces().first().map(|w| w.id.clone()),

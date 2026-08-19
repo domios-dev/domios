@@ -100,3 +100,38 @@ def test_create_workspace_fresh_counters(api_only: CodeTermAPI):
     assert ws.get("existing") is None
 
     api_only.close_workspace(ws["id"])
+
+
+def test_create_tab_follows_creator_not_focus(api_only: CodeTermAPI):
+    """POST /api/tabs lands in the creator tab's workspace, not the focused one.
+
+    Agents kept creating their shells in whatever workspace the user had
+    selected; the creator tab is the identity that decides.
+    """
+    home = api_only.create_workspace(unique_name("ws-creator-home"))
+    elsewhere = api_only.create_workspace(unique_name("ws-creator-focused"))
+    try:
+        creator = api_only.create_tab(home["id"])
+        api_only.post(f"/api/workspaces/{elsewhere['id']}/focus")
+
+        created = api_only.post(
+            "/api/tabs", json={"creator_tab_id": creator["tab_id"]}
+        )
+        assert created["workspace_id"] == home["id"], (
+            "tab must inherit the creator's workspace, "
+            f"got {created['workspace_id']}"
+        )
+
+        explicit = api_only.post(
+            "/api/tabs",
+            json={
+                "creator_tab_id": creator["tab_id"],
+                "workspace_id": elsewhere["id"],
+            },
+        )
+        assert explicit["workspace_id"] == elsewhere["id"], (
+            "an explicit workspace_id still wins over the creator"
+        )
+    finally:
+        api_only.close_workspace(home["id"])
+        api_only.close_workspace(elsewhere["id"])

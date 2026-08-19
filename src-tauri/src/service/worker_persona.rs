@@ -202,6 +202,7 @@ impl ServiceContext {
             resolve_spawn_workspace_id(
                 params.workspace_id.clone(),
                 params.parent_tab_id.as_deref(),
+                crate::service::spawn::params_caller_tab_id(params),
                 |pid| mux.find_workspace_for_tab(pid),
                 mux.get_active_workspace().map(|w| w.id.clone()),
                 mux.list_workspaces().first().map(|w| w.id.clone()),

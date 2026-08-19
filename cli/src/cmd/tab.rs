@@ -107,16 +107,20 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             if let Some(t) = title {
                 body["title"] = serde_json::Value::String(t);
             }
+            // Caller identity lets the daemon inherit the calling tab's own
+            // workspace instead of falling back to the focused one.
+            let caller_tab_id = std::env::var("CODETERM_TAB_ID")
+                .ok()
+                .filter(|value| !value.trim().is_empty());
+            if let Some(caller) = caller_tab_id.as_deref() {
+                body["creator_tab_id"] = serde_json::Value::String(caller.to_string());
+            }
             if let Some(team_id) = team.as_deref() {
-                let creator_tab_id = std::env::var("CODETERM_TAB_ID")
-                    .ok()
-                    .filter(|value| !value.trim().is_empty())
-                    .unwrap_or_else(|| {
-                        eprintln!("Error: --team requires CODETERM_TAB_ID from a live Team member");
-                        std::process::exit(1);
-                    });
+                if caller_tab_id.is_none() {
+                    eprintln!("Error: --team requires CODETERM_TAB_ID from a live Team member");
+                    std::process::exit(1);
+                }
                 body["team_id"] = serde_json::Value::String(team_id.to_string());
-                body["creator_tab_id"] = serde_json::Value::String(creator_tab_id);
             }
             if eager {
                 body["eager"] = serde_json::Value::Bool(true);

@@ -82,7 +82,7 @@ Skills are markdown files that Claude Code loads automatically when relevant. Wh
 13. **Spawn agent**: `codeterm agent spawn claude --title "Worker" --role Worker --parent-tab ID --task "do work"` (creates new tab, non-blocking, does NOT switch active tab; task delivery is provider-owned and is not an inter-tab `-=-codeterm:tab...-=-` message)
 14. **Spawn with agent definition**: via REST API `POST /api/agents/spawn` with `agent_name` field (loads `.claude/agents/<name>.md`; not available in CLI)
 15. **Cross-workspace spawn**: `codeterm agent spawn claude --workspace WS_ID --title "Remote" --role Worker --parent-tab ID --task "work"`
-16. **Create cron job**: `codeterm cron create "name" --schedule "0 9 * * * *" --task "Review TODOs"` (uses `$CODETERM_WORKSPACE_ID` by default; add `--once` for oneshot: `--schedule "in 30m" --once`)
+16. **Create cron job**: `codeterm cron create "name" --schedule "0 9 * * * *" --task "Review TODOs"` (lands in your own workspace, not the UI-selected one; add `--once` for oneshot: `--schedule "in 30m" --once`)
 17. **Edit cron job**: `codeterm cron edit ID --schedule "*/15 * * * *"` (prefer over delete+recreate to preserve history)
 18. **Complete cron run**: `codeterm cron complete --run-id UUID --summary "result"`
 19. **List cron jobs**: `codeterm cron list`, **trigger manually**: `codeterm cron trigger ID`
@@ -170,4 +170,4 @@ Dot-notation for nested keys. Values are JSON (true, false, 42, "string", ["arra
 
 Agent hierarchy and session integration: `codeterm docs AGENT-CONTROL`.
 
-<!-- revision: 48 -->
+<!-- revision: 49 -->
