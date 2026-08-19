@@ -23,6 +23,36 @@ pub(crate) fn roleless_spawner(agent: &AgentSpawnSpec, spec: &SpawnTabSpec) -> O
         .or_else(|| spec.creator_tab_id.clone())
 }
 
+/// The tab that issued the spawn, for workspace inheritance: the CLI caller if
+/// known, else the Team creator. `parent_tab_id` is resolved separately and wins.
+pub(crate) fn spawn_caller_tab_id<'a>(
+    agent: &'a AgentSpawnSpec,
+    spec: &'a SpawnTabSpec,
+) -> Option<&'a str> {
+    first_live_tab_id(
+        agent.spawned_by_tab_id.as_deref(),
+        spec.creator_tab_id.as_deref(),
+    )
+}
+
+/// Same lineage as `spawn_caller_tab_id`, for the orchestrator-side spawn params.
+/// Both shapes must agree or the workspace picked for the lane, the persona
+/// reservation, and the tab itself would drift apart.
+pub(crate) fn params_caller_tab_id(params: &crate::service::SpawnAgentParams) -> Option<&str> {
+    first_live_tab_id(
+        params.spawned_by_tab_id.as_deref(),
+        params.creator_tab_id.as_deref(),
+    )
+}
+
+fn first_live_tab_id<'a>(spawner: Option<&'a str>, creator: Option<&'a str>) -> Option<&'a str> {
+    [spawner, creator]
+        .into_iter()
+        .flatten()
+        .map(str::trim)
+        .find(|id| !id.is_empty())
+}
+
 /// A stable, one-line digest of the `--task` handle for ad-hoc lanes.
 pub(crate) fn task_spawn_handle(task: Option<&str>) -> Option<String> {
     let raw = task?.lines().find(|l| !l.trim().is_empty())?.trim();

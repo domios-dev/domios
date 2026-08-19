@@ -151,7 +151,7 @@ Schedule format: 5-field cron expressions (`min hour dom mon dow`). Examples: `*
 
 **Hidden spawn:** cron runs no longer create visible tabs. Each run spawns a **hidden tab** (no UI surface); observe progress via the cron tabl / `cron_read_log`, not as a regular tab. When done, the agent calls `codeterm cron complete --run-id UUID` (socket method `cron.complete`). Logs are saved to `~/.codeterm/crons/<job_id>/<run_id>.log` with SUMMARY and RAW OUTPUT sections. Successful spawns do not generate notifications — only errors do.
 
-**Workspace resolution:** The CLI `cron create` command uses `$CODETERM_WORKSPACE_ID` by default (the agent's own workspace), falling back to the first workspace if the env var is not set. Override with `--workspace ID`.
+**Workspace resolution:** The CLI `cron create` command resolves the workspace the same way `codeterm workspace current` does — the calling tab's own workspace, then a validated `$CODETERM_WORKSPACE_ID`, then the focused workspace. Override with `--workspace ID`.
 
 **Updating cron jobs:** Use `PUT /api/crons/:id` (CLI: `codeterm cron edit ID`) to modify a cron job in-place. Do NOT delete and recreate -- that loses run history and changes the ID.
 
@@ -165,4 +165,4 @@ Schedule format: 5-field cron expressions (`min hour dom mon dow`). Examples: `*
 
 Service registration, health, usage, logs, and activity: `codeterm docs API-SERVICES`. Notifications and webhooks: `codeterm docs API-TABS`. Secret storage used by bridge startup: `codeterm docs API-STATE`.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->
