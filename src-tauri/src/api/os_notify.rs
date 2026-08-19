@@ -13,6 +13,71 @@ pub fn _send_os_notification_if_unfocused(app: &tauri::AppHandle, title: &str, b
     }
 }
 
+/// `NotificationBuilder::show` spawns the real send onto the async runtime and drops
+/// its result, so its `Ok` is not evidence of delivery and can never select a fallback.
+/// Windows silently discards a toast from a binary running out of `target/`, because the
+/// plugin declines to set an AppUserModelID there.
+fn native_toast_can_deliver() -> bool {
+    #[cfg(windows)]
+    {
+        match tauri::utils::platform::current_exe() {
+            Ok(exe) => windows_toast_reaches_the_shell(exe.parent()),
+            Err(_) => false,
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        true
+    }
+}
+
+/// Mirrors the plugin's own AppUserModelID condition: it sets the id only outside
+/// `target/debug` and `target/release`, and Windows drops a toast that carries none.
+#[cfg(any(windows, test))]
+fn windows_toast_reaches_the_shell(exe_dir: Option<&std::path::Path>) -> bool {
+    let sep = std::path::MAIN_SEPARATOR;
+    match exe_dir.map(|dir| dir.display().to_string()) {
+        Some(dir) => {
+            !(dir.ends_with(&format!("{sep}target{sep}debug"))
+                || dir.ends_with(&format!("{sep}target{sep}release")))
+        }
+        None => false,
+    }
+}
+
+#[cfg(test)]
+mod delivery_tests {
+    use super::windows_toast_reaches_the_shell;
+    use std::path::{Path, PathBuf};
+
+    fn native(parts: &[&str]) -> PathBuf {
+        parts.iter().collect()
+    }
+
+    #[test]
+    fn an_installed_binary_may_use_the_native_toast() {
+        assert!(windows_toast_reaches_the_shell(Some(&native(&[
+            "C:", "Program Files", "CodeTerm"
+        ]))));
+    }
+
+    #[test]
+    fn a_binary_running_out_of_target_falls_back_instead_of_vanishing() {
+        for profile in ["debug", "release"] {
+            let dir = native(&["D:", "Developer", "codeterm", "target", profile]);
+            assert!(
+                !windows_toast_reaches_the_shell(Some(&dir)),
+                "the plugin sets no AppUserModelID under target/{profile}, so the toast is dropped"
+            );
+        }
+    }
+
+    #[test]
+    fn an_unresolvable_exe_directory_falls_back() {
+        assert!(!windows_toast_reaches_the_shell(None::<&Path>));
+    }
+}
+
 /// Single notification popup via system notification API.
 /// Uses tauri-plugin-notification on all platforms — clicking focuses the app.
 #[cfg_attr(test, allow(unreachable_code))]
@@ -23,19 +88,17 @@ pub fn _send_os_notification(app: &tauri::AppHandle, title: &str, body: Option<&
         return;
     }
 
-    {
+    if native_toast_can_deliver() {
         use tauri_plugin_notification::NotificationExt;
         let mut notif = app.notification().builder().title(title);
         if let Some(b) = body {
             notif = notif.body(b);
         }
-        if notif.show().is_ok() {
-            return;
-        }
+        let _ = notif.show();
+        return;
     }
 
-    // Fallback: custom WebviewWindow popup if the plugin path failed.
-    #[allow(unreachable_code)]
+    // Fallback: custom WebviewWindow popup where the native toast cannot arrive.
     {
         use std::sync::atomic::{AtomicBool, Ordering};
         use tauri::Manager;
