@@ -21,6 +21,9 @@ concurrency:
 jobs:
   rust-linux:
     name: rust (linux)
+    # Linux CI disabled for now (user decision, 2026-08-18) — the linux-build
+    # runner is offline; drop this `if: false` to re-enable the lane.
+    if: false
     runs-on: [self-hosted, linux-build]
     timeout-minutes: 40
     steps:

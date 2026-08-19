@@ -212,6 +212,10 @@ pub enum AgentAction {
     ///   Orchestrator (independent objective / separate workspace / remote):
     ///     spawn codex --role Orchestrator --workspace WS_ID --task "..."
     ///
+    /// The child lands in the parent's workspace, else in your own — never in
+    /// the workspace the user has selected in the UI. Pass --workspace only to
+    /// place it elsewhere on purpose.
+    ///
     /// --task is launch-time input, NOT a routed inbound message: no
     /// return-address marker is injected. If the child must report or reply
     /// somewhere, put the exact report/send command in the task body.
@@ -259,7 +263,9 @@ pub enum AgentAction {
         /// Extra provider args. Put this after all CodeTerm spawn options.
         #[arg(long, num_args = 1.., allow_hyphen_values = true)]
         args: Option<Vec<String>>,
-        /// Target workspace ID (default: parent's workspace or active workspace)
+        /// Target workspace ID. Defaults to the parent tab's workspace, then your
+        /// own — never the workspace selected in the UI. Pass this only to place
+        /// the agent in a different workspace on purpose.
         #[arg(long)]
         workspace: Option<String>,
         /// Model selector (e.g. "github-copilot/claude-haiku-4.5", "gpt-5"). The
