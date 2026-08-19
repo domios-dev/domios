@@ -68,20 +68,7 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
             tz,
             timeout_secs,
         } => {
-            let ws_id = workspace.unwrap_or_else(|| {
-                std::env::var("CODETERM_WORKSPACE_ID")
-                    .ok()
-                    .unwrap_or_else(|| {
-                        client
-                            .call("workspace.list", None)
-                            .ok()
-                            .and_then(|v| v.as_array().and_then(|a| a.first().cloned()))
-                            .and_then(|w| {
-                                w.get("id").and_then(|v| v.as_str()).map(|s| s.to_string())
-                            })
-                            .unwrap_or_default()
-                    })
-            });
+            let ws_id = workspace.unwrap_or_else(|| caller_workspace_id(client));
             let params = crate::args::cron::cron_create_body(
                 &name,
                 &schedule,
@@ -296,4 +283,26 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
             }
         }
     }
+}
+
+/// A scheduled job belongs to the workspace of the tab that created it. The
+/// focused workspace is a last resort for a caller with no tab identity.
+fn caller_workspace_id(client: &mut SocketClient) -> String {
+    let workspaces = client
+        .call("workspace.list", None)
+        .ok()
+        .and_then(|value| value.as_array().cloned())
+        .unwrap_or_default();
+    let caller_tab_id = crate::nonempty_env("CODETERM_TAB_ID");
+    let workspace_env = crate::nonempty_env("CODETERM_WORKSPACE_ID");
+    crate::cmd::local_io::workspace_current_resolution(
+        &workspaces,
+        crate::cmd::local_io::WorkspaceIdentity {
+            explicit: None,
+            caller_tab_id: caller_tab_id.as_deref(),
+            workspace_env: workspace_env.as_deref(),
+        },
+    )
+    .map(|resolved| resolved.id.to_string())
+    .unwrap_or_default()
 }
