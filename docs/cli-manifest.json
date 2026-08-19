@@ -754,7 +754,7 @@
               "value_name": "WORKSPACE",
               "possible_values": [],
               "default": null,
-              "help": "Target workspace ID (default: parent's workspace or active workspace)",
+              "help": "Target workspace ID. Defaults to the parent tab's workspace, then your own — never the workspace selected in the UI. Pass this only to place the agent in a different workspace on purpose",
               "aliases": []
             }
           ],
@@ -1386,7 +1386,7 @@
               "value_name": "WORKSPACE",
               "possible_values": [],
               "default": null,
-              "help": "Workspace ID (default: active)",
+              "help": "Workspace ID. Defaults to the calling tab's own workspace — pass this only to schedule the job somewhere other than where you are",
               "aliases": []
             }
           ],
@@ -13004,7 +13004,7 @@
         },
         {
           "name": "new",
-          "about": "Plain shell tab. For an AI tab use `codeterm agent spawn` instead",
+          "about": "Plain shell tab, created in the calling tab's own workspace — never the workspace selected in the UI. For an AI tab use `codeterm agent spawn`",
           "aliases": [],
           "args": [
             {
@@ -13084,7 +13084,7 @@
               "value_name": "WORKSPACE",
               "possible_values": [],
               "default": null,
-              "help": "Target workspace id (default: current focused)",
+              "help": "Target workspace id. Defaults to the calling tab's own workspace, then the focused workspace for a caller with no tab identity",
               "aliases": []
             }
           ],

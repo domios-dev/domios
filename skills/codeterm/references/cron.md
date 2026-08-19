@@ -49,6 +49,6 @@ codeterm cron history ID                  # run history
 - Logs: `~/.codeterm/crons/<job_id>/<run_id>.log` (SUMMARY + RAW OUTPUT sections)
 - The app hides to system tray on close so crons keep running
 - Successful spawns do not generate notifications — only errors do
-- `cron create` uses `$CODETERM_WORKSPACE_ID` by default; override with `--workspace ID`
+- `cron create` lands in your own workspace (the one owning your tab), never the one selected in the UI; override with `--workspace ID`
 
 The sidebar shows a cron tree with runs and next scheduled time. Click a finished run to open the log viewer.

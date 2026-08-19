@@ -5,27 +5,99 @@ use std::time::Duration;
 
 #[test]
 fn resolve_spawn_workspace_prefers_explicit_workspace_over_parent() {
-    let parent_ws = "ws-parent".to_string();
-    let explicit_ws = "ws-explicit".to_string();
+    let workspace_of = |tab: &str| match tab {
+        "parent-tab" => Some("ws-parent".to_string()),
+        "caller-tab" => Some("ws-caller".to_string()),
+        _ => None,
+    };
     let resolved = resolve_spawn_workspace_id(
-        Some(explicit_ws.clone()),
+        Some("ws-explicit".into()),
         Some("parent-tab"),
-        |_| Some(parent_ws.clone()),
+        Some("caller-tab"),
+        workspace_of,
         Some("ws-active".into()),
         Some("ws-fallback".into()),
     )
     .unwrap();
-    assert_eq!(resolved, explicit_ws);
+    assert_eq!(resolved, "ws-explicit");
 
     let from_parent = resolve_spawn_workspace_id(
         None,
         Some("parent-tab"),
-        |_| Some(parent_ws.clone()),
+        Some("caller-tab"),
+        workspace_of,
         Some("ws-active".into()),
         Some("ws-fallback".into()),
     )
     .unwrap();
-    assert_eq!(from_parent, parent_ws);
+    assert_eq!(from_parent, "ws-parent");
+}
+
+/// The focused workspace is what agents kept landing in: without a parent, the
+/// spawn belongs to the caller's own workspace, not to the user's UI selection.
+#[test]
+fn resolve_spawn_workspace_prefers_caller_tab_over_focused_workspace() {
+    let workspace_of = |tab: &str| match tab {
+        "caller-tab" => Some("ws-caller".to_string()),
+        _ => None,
+    };
+    let from_caller = resolve_spawn_workspace_id(
+        None,
+        None,
+        Some("caller-tab"),
+        workspace_of,
+        Some("ws-active".into()),
+        Some("ws-fallback".into()),
+    )
+    .unwrap();
+    assert_eq!(from_caller, "ws-caller");
+
+    let unknown_caller = resolve_spawn_workspace_id(
+        None,
+        None,
+        Some("ghost-tab"),
+        workspace_of,
+        Some("ws-active".into()),
+        Some("ws-fallback".into()),
+    )
+    .unwrap();
+    assert_eq!(unknown_caller, "ws-active");
+
+    let no_identity = resolve_spawn_workspace_id(
+        None,
+        None,
+        None,
+        workspace_of,
+        None,
+        Some("ws-fallback".into()),
+    )
+    .unwrap();
+    assert_eq!(no_identity, "ws-fallback");
+}
+
+#[test]
+fn spawn_caller_tab_id_prefers_cli_spawner_then_team_creator() {
+    let mut agent = AgentSpawnSpec::default();
+    let mut spec = SpawnTabSpec {
+        creator_tab_id: Some("creator-tab".into()),
+        ..Default::default()
+    };
+    assert_eq!(
+        spawn_caller_tab_id(&agent, &spec),
+        Some("creator-tab"),
+        "team creator is the only identity present"
+    );
+    agent.spawned_by_tab_id = Some("  ".into());
+    assert_eq!(
+        spawn_caller_tab_id(&agent, &spec),
+        Some("creator-tab"),
+        "a blank spawner must not shadow the creator"
+    );
+    agent.spawned_by_tab_id = Some("spawner-tab".into());
+    assert_eq!(spawn_caller_tab_id(&agent, &spec), Some("spawner-tab"));
+    spec.creator_tab_id = None;
+    agent.spawned_by_tab_id = None;
+    assert_eq!(spawn_caller_tab_id(&agent, &spec), None);
 }
 
 #[test]
