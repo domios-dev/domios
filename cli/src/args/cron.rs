@@ -18,7 +18,8 @@ pub enum CronAction {
         /// Task prompt for the agent
         #[arg(long, allow_hyphen_values = true)]
         task: String,
-        /// Workspace ID (default: active)
+        /// Workspace ID. Defaults to the calling tab's own workspace — pass this
+        /// only to schedule the job somewhere other than where you are.
         #[arg(long)]
         workspace: Option<String>,
         /// Attach this job to a Team. The calling Tab must belong to it.

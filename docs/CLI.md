@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 41 -->
+<!-- revision: 42 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -160,7 +160,7 @@ Spawn a new agent; roleless unless --role is provided.
 - `--task-id` — Bound task id
 - `--team` — Attach this roleless agent to an existing Team, mirroring `tab new --team`. The calling tab (CODETERM_TAB_ID) must already belong to that Team. Rejected together with --role or --plan-task: a role- or plan-bound agent takes its Team from that binding, never from here
 - `--title` — Tab title
-- `--workspace` — Target workspace ID (default: parent's workspace or active workspace)
+- `--workspace` — Target workspace ID. Defaults to the parent tab's workspace, then your own — never the workspace selected in the UI. Pass this only to place the agent in a different workspace on purpose
 
 #### `codeterm agent unlink`
 
@@ -293,7 +293,7 @@ Create a cron job
 - `--team` — Attach this job to a Team. The calling Tab must belong to it
 - `--timeout-secs` — Per-cron run timeout (seconds). Overrides global memory.worker_timeout_seconds. Set high (e.g. 1800) for long-running tasks like memory dreaming
 - `--tz` — IANA timezone for the schedule (e.g. "Europe/Riga"). Default: UTC
-- `--workspace` — Workspace ID (default: active)
+- `--workspace` — Workspace ID. Defaults to the calling tab's own workspace — pass this only to schedule the job somewhere other than where you are
 
 #### `codeterm cron delete`
 
@@ -2793,7 +2793,7 @@ List compact tab summaries in the current workspace. Use `tab inspect` for full 
 
 #### `codeterm tab new`
 
-Plain shell tab. For an AI tab use `codeterm agent spawn` instead
+Plain shell tab, created in the calling tab's own workspace — never the workspace selected in the UI. For an AI tab use `codeterm agent spawn`
 
 - `--chat-backend` — Open a non-PTY chat-backend tab driven by the given plugin id (a plugin declaring the `chatBackend` capability). `codeterm send`/`tab get-text` then route to the plugin, not a shell
 - `--cmd` — Spawn a shell that runs this command on start (e.g. `"cd /repo && ./build.sh dev"`). Delivery waits for the PTY to be ready, so the command runs reliably even on a freshly-created tab
@@ -2802,7 +2802,7 @@ Plain shell tab. For an AI tab use `codeterm agent spawn` instead
 - `--eager` — Spawn the shell PTY immediately on the daemon for headless/API use
 - `--team` — Attach this shell to a Team as a utility terminal. The calling Tab must already belong to that Team
 - `--title` — Tab title
-- `--workspace` — Target workspace id (default: current focused)
+- `--workspace` — Target workspace id. Defaults to the calling tab's own workspace, then the focused workspace for a caller with no tab identity
 
 #### `codeterm tab rename`
 
