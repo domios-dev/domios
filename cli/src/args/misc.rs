@@ -80,9 +80,11 @@ pub enum TabAction {
         #[arg(long)]
         lifecycle: bool,
     },
-    /// Plain shell tab. For an AI tab use `codeterm agent spawn` instead.
+    /// Plain shell tab, created in the calling tab's own workspace — never the
+    /// workspace selected in the UI. For an AI tab use `codeterm agent spawn`.
     New {
-        /// Target workspace id (default: current focused)
+        /// Target workspace id. Defaults to the calling tab's own workspace, then
+        /// the focused workspace for a caller with no tab identity.
         #[arg(long)]
         workspace: Option<String>,
         /// Working directory for the new tab

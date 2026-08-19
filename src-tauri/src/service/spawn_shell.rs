@@ -10,6 +10,7 @@ impl ServiceContext {
             let id = resolve_spawn_workspace_id(
                 spec.workspace_id.clone(),
                 spec.parent_tab_id.as_deref(),
+                spec.creator_tab_id.as_deref(),
                 |pid| mux.find_workspace_for_tab(pid),
                 mux.get_active_workspace().map(|w| w.id.clone()),
                 mux.list_workspaces().first().map(|w| w.id.clone()),

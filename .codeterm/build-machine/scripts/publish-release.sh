@@ -104,7 +104,10 @@ gh release upload "$TAG" --repo "$MIRROR" --clobber "${PRIV_ASSETS[@]}" latest.j
 gh release edit "$TAG" --repo "$MIRROR" --draft=false --latest
 
 echo "### verify anon updater URLs"
-for u in latest.json CodeTerm_aarch64.app.tar.gz CodeTerm_x64.app.tar.gz "CodeTerm_${VER}_aarch64.AppImage"; do
+VERIFY_URLS=(latest.json CodeTerm_aarch64.app.tar.gz CodeTerm_x64.app.tar.gz)
+# Linux lane disabled for v1.9.5: verify the AppImage only when this run shipped it.
+[ -n "$LINUX_ARM_SIG" ] && VERIFY_URLS+=("CodeTerm_${VER}_aarch64.AppImage")
+for u in "${VERIFY_URLS[@]}"; do
   code=$(curl -sIL -o /dev/null -w '%{http_code}' "$B/$u")
   echo "  $code  $u"; [ "$code" = 200 ] || { echo "::error::updater URL $u -> $code"; exit 1; }
 done
