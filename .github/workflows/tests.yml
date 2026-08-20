@@ -249,5 +249,8 @@ jobs:
       - name: Release metadata contract tests
         run: python3 -m unittest scripts.tests.test_release_issue_contract
 
+      - name: Updater manifest merge + signature tests
+        run: node --test scripts/tests/updater-manifest.test.mjs
+
       - name: Biome (TS lint)
         run: pnpm lint

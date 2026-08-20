@@ -113,7 +113,13 @@ public declarations close only after publication.
 The tag-driven `.github/workflows/release.yml` has a serialized publication boundary:
 
 1. Build and publish the private archive and public mirror.
-2. Verify the matching public release, `latest.json`, version, and every version-pinned asset URL.
+2. Verify the matching public release, `latest.json`, version, every version-pinned asset URL, and
+   — with `scripts/verify-updater-manifest.mjs` — that each platform signature validates against
+   the bytes actually served. A signature signs the artifact, not the manifest, so a rerun that
+   rebuilds an artifact under a kept signature returns 200 everywhere and still fails in every
+   client. Each lane therefore merges its own freshly signed fragments last
+   (`merge-latest-json.js --overlay <dir>`), because everything else in the merge was
+   round-tripped through release assets, where a replaced asset reads back stale for minutes.
 3. Resolve commits and associated private PRs in the release range and union their declarations.
 4. Close only still-open issues in `rollacode/codeterm-releases`, commenting `Released in vX.Y.Z`
    and a declaring commit or private PR URL.
@@ -160,4 +166,4 @@ To unblock notarization:
   inline merge is sufficient for the current release cadence.
 - Cross-compiling Linux ARM (`aarch64-unknown-linux-gnu`).
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->
