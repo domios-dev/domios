@@ -246,5 +246,8 @@ jobs:
       - name: Run plugin tests
         run: pnpm test:plugins
 
+      - name: Release metadata contract tests
+        run: python3 -m unittest scripts.tests.test_release_issue_contract
+
       - name: Biome (TS lint)
         run: pnpm lint
