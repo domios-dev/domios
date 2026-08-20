@@ -101,9 +101,13 @@ no entry for a platform that hasn't been built yet.
 `.github/workflows/ready-for-release.yml` validates private PR bodies and commits. Source issues use
 `Repository-Issue: rollacode/codeterm#N`; public issues use
 `Public-Issue: rollacode/codeterm-releases#N`. `scripts/release_issue_contract.py` owns parsing and
-normalization. The workflow rejects duplicate, malformed, wrong-repository, prose, and closing-
+normalization. A declaration must own its line or end one — `prose text. Repository-Issue:
+rollacode/codeterm#N` counts, because a commit message cannot be edited once pushed and a
+release range containing it must still resolve; the prose before such a declaration stays under
+the same rules. The workflow rejects duplicate, malformed, wrong-repository, prose, and closing-
 keyword references, verifies every declared issue exists, and renders both normalized sets in the
-check summary. Source declarations become `Closes #N` only in the final `develop` → `master` PR;
+check summary. `scripts/tests/test_release_issue_contract.py` guards these rules and runs in the
+`tests` workflow and `./build.sh release-preflight`. Source declarations become `Closes #N` only in the final `develop` → `master` PR;
 public declarations close only after publication.
 
 The tag-driven `.github/workflows/release.yml` has a serialized publication boundary:
@@ -156,4 +160,4 @@ To unblock notarization:
   inline merge is sufficient for the current release cadence.
 - Cross-compiling Linux ARM (`aarch64-unknown-linux-gnu`).
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->
