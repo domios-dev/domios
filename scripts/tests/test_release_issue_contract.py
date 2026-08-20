@@ -52,6 +52,7 @@ class ReleaseIssueContractTest(unittest.TestCase):
     def test_invalid_fixtures_are_rejected(self):
         for name in (
             "duplicate.md",
+            "trailing-prose-ref.md",
             "wrong-repo.md",
             "malformed.md",
             "malformed-repository.md",
@@ -125,6 +126,36 @@ class ReleaseIssueContractTest(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("commit 4444444444444444444444444444444444444444", result.stderr)
         self.assertIn("malformed Public-Issue metadata", result.stderr)
+
+    def test_trailing_declaration_closes_a_prose_line(self):
+        """A commit message cannot be edited, so a declaration that ends a prose
+        line has to resolve rather than fail every range that contains it."""
+        result = self.resolve_fixture(
+            prs="empty-commits.json",
+            commits="trailing-declaration-commits.json",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        resolved = json.loads(result.stdout)
+        self.assertEqual(
+            [issue["reference"] for issue in resolved["repository_issues"]],
+            ["rollacode/codeterm#308"],
+        )
+        self.assertEqual(
+            [issue["reference"] for issue in resolved["issues"]],
+            ["rollacode/codeterm-releases#42"],
+        )
+
+        accepted = self.run_contract(
+            "parse", "--body-file", str(FIXTURES / "trailing-declaration.md")
+        )
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+
+    def test_prose_before_a_trailing_declaration_stays_under_contract(self):
+        rejected = self.run_contract(
+            "parse", "--body-file", str(FIXTURES / "trailing-prose-ref.md")
+        )
+        self.assertEqual(rejected.returncode, 2)
+        self.assertIn("issue references must use issue metadata", rejected.stderr)
 
     def test_failed_tag_does_not_advance_successful_release_range(self):
         start = self.run_contract(
