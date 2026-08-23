@@ -17,10 +17,24 @@ fn capability(completion: bool) -> Option<ProviderSelfUpdateCapability> {
     })
 }
 
+/// Source tab lives in the ordinary first workspace; General is a separate
+/// protected workspace, so "raised in General" is a real assertion.
 fn fixture(
     audience: TabAudience,
 ) -> (
     ServiceFixture,
+    String,
+    std::sync::mpsc::Receiver<ProviderUpdateTestEffect>,
+) {
+    let (fixture, tab_id, _, receiver) = general_fixture(audience);
+    (fixture, tab_id, receiver)
+}
+
+fn general_fixture(
+    audience: TabAudience,
+) -> (
+    ServiceFixture,
+    String,
     String,
     std::sync::mpsc::Receiver<ProviderUpdateTestEffect>,
 ) {
@@ -29,10 +43,41 @@ fn fixture(
     tab.pty_id = Some("pty-update".to_string());
     tab.agent_type = Some("provider-fixture".to_string());
     tab.audience = audience;
+    crate::service::general_agent::ensure_general_workspace(&mut mux, false);
+    let general_workspace =
+        crate::service::general_agent::general_workspace_id(&mux).expect("General workspace");
     let fixture = ServiceFixture::new(mux);
     let (sender, receiver) = std::sync::mpsc::channel();
     fixture.service.provider_updates.set_probe(sender);
-    (fixture, tab_id, receiver)
+    (fixture, tab_id, general_workspace, receiver)
+}
+
+/// `(tab_id, pty_id)` of the tab the press raised.
+fn update_tab(service: &ServiceContext, prompt_id: &str) -> (String, String) {
+    let tab_id = service
+        .provider_updates
+        .get(prompt_id)
+        .and_then(|entry| entry.runner_tab_id)
+        .expect("update tab");
+    let pty_id = service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .and_then(|tab| tab.pty_id.clone())
+        .expect("update tab pty");
+    (tab_id, pty_id)
+}
+
+fn tabs_in(
+    snapshot: &crate::multiplexer::state::MultiplexerSnapshot,
+    workspace_id: &str,
+) -> Vec<String> {
+    snapshot
+        .workspaces
+        .iter()
+        .find(|workspace| workspace.id == workspace_id)
+        .map(|workspace| workspace.tabs.clone())
+        .unwrap_or_default()
 }
 
 fn handle_prompt(service: &ServiceContext, tab_id: &str, completion: bool) {
@@ -122,7 +167,7 @@ fn runner_completion_requires_an_install_submission_and_is_claimed_once() {
         runner_pty_id: None,
         install_submitted: false,
     });
-    assert!(registry.bind_runner(&prompt_id, "runner-tab".into(), "runner-pty".into()));
+    assert!(registry.bind_runner(&prompt_id, "runner-tab".into()));
     assert!(registry
         .claim_completion("runner-tab", "runner-pty")
         .is_none());
@@ -143,12 +188,10 @@ fn runner_completion_requires_an_install_submission_and_is_claimed_once() {
 }
 
 #[test]
-fn runner_timeout_is_claimed_once() {
-    let registry = ProviderUpdateRegistry::default();
-    let prompt_id = "prompt-timeout".to_string();
-    registry.insert(PendingProviderUpdate {
+fn update_tab_spec_declares_a_visible_user_tab_in_the_given_workspace() {
+    let entry = PendingProviderUpdate {
         view: ProviderUpdatePromptView {
-            prompt_id: prompt_id.clone(),
+            prompt_id: "prompt-spec".into(),
             tab_id: "source-tab".into(),
             provider_name: "Provider".into(),
             restart_required: true,
@@ -160,25 +203,226 @@ fn runner_timeout_is_claimed_once() {
         capability: capability(true),
         install_writes: Vec::new(),
         decline_writes: Vec::new(),
-        consent: Some(RecordedConsent {
-            prompt_id: prompt_id.clone(),
-        }),
+        consent: None,
         phase: ProviderUpdatePhase::Installing,
         waiter_started: false,
-        runner_tab_id: Some("runner-tab".into()),
-        runner_pty_id: Some("runner-pty".into()),
-        install_submitted: true,
-    });
+        runner_tab_id: None,
+        runner_pty_id: None,
+        install_submitted: false,
+    };
 
-    assert!(registry
-        .claim_runner_timeout(&prompt_id, "runner-tab")
-        .is_some());
-    assert!(registry
-        .claim_runner_timeout(&prompt_id, "runner-tab")
-        .is_none());
-    assert!(registry
-        .claim_completion("runner-tab", "runner-pty")
-        .is_none());
+    let spec = provider_update_tab_spec(&entry, "ws-general");
+    assert_eq!(spec.workspace_id.as_deref(), Some("ws-general"));
+    assert_eq!(
+        spec.visibility,
+        crate::service::spawn::TabVisibility::Visible
+    );
+    assert_eq!(spec.audience, TabAudience::User);
+    assert_eq!(
+        spec.description.as_deref(),
+        Some(provider_update_tab_description("prompt-spec").as_str())
+    );
+    assert!(matches!(
+        spec.command,
+        crate::service::spawn::TabCommand::Agent(ref agent) if agent.provider == "provider-fixture"
+    ));
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "mock Tauri desktop fixture")]
+fn update_tab_lands_in_the_general_workspace_and_takes_focus() {
+    let (fixture, tab_id, general_workspace, receiver) = general_fixture(TabAudience::User);
+    let source_workspace = fixture
+        .service
+        .mux
+        .read()
+        .find_workspace_for_tab(&tab_id)
+        .unwrap();
+    assert_ne!(source_workspace, general_workspace);
+
+    handle_prompt(&fixture.service, &tab_id, true);
+    let prompt = await_status(&receiver, ProviderUpdateStatus::AwaitingConsent);
+    fixture
+        .service
+        .respond_provider_update_prompt(&prompt.prompt_id, true)
+        .unwrap();
+    await_status(&receiver, ProviderUpdateStatus::Installing);
+
+    let (update_tab_id, _) = update_tab(&fixture.service, &prompt.prompt_id);
+    let snapshot = fixture.service.mux.read().snapshot();
+    assert!(tabs_in(&snapshot, &general_workspace).contains(&update_tab_id));
+    assert!(!tabs_in(&snapshot, &source_workspace).contains(&update_tab_id));
+    assert_eq!(
+        snapshot.focused_tab_id.as_deref(),
+        Some(update_tab_id.as_str())
+    );
+    assert_eq!(
+        snapshot.active_workspace_id.as_deref(),
+        Some(general_workspace.as_str())
+    );
+    assert_eq!(
+        snapshot
+            .workspaces
+            .iter()
+            .find(|workspace| workspace.id == general_workspace)
+            .and_then(|workspace| workspace.active_tab_id.as_deref()),
+        Some(update_tab_id.as_str())
+    );
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "mock Tauri desktop fixture")]
+fn update_tab_is_a_user_visible_tab_not_an_automation_surface() {
+    let (fixture, tab_id, general_workspace, receiver) = general_fixture(TabAudience::User);
+    handle_prompt(&fixture.service, &tab_id, true);
+    let prompt = await_status(&receiver, ProviderUpdateStatus::AwaitingConsent);
+    fixture
+        .service
+        .respond_provider_update_prompt(&prompt.prompt_id, true)
+        .unwrap();
+    await_status(&receiver, ProviderUpdateStatus::Installing);
+
+    let (update_tab_id, _) = update_tab(&fixture.service, &prompt.prompt_id);
+    let snapshot = fixture.service.mux.read().snapshot();
+    let tab = snapshot.tabs.get(&update_tab_id).expect("update tab in state");
+    assert!(!tab.hidden);
+    assert!(tab.show_in_tabbar);
+    assert_eq!(tab.audience, TabAudience::User);
+    assert!(tabs_in(&snapshot, &general_workspace).contains(&update_tab_id));
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "mock Tauri desktop fixture")]
+fn a_second_press_focuses_the_live_update_tab_instead_of_duplicating_it() {
+    let (fixture, tab_id, general_workspace, receiver) = general_fixture(TabAudience::User);
+    handle_prompt(&fixture.service, &tab_id, true);
+    let prompt = await_status(&receiver, ProviderUpdateStatus::AwaitingConsent);
+    fixture
+        .service
+        .respond_provider_update_prompt(&prompt.prompt_id, true)
+        .unwrap();
+    await_status(&receiver, ProviderUpdateStatus::Installing);
+    await_effect(
+        &receiver,
+        |effect| matches!(effect, ProviderUpdateTestEffect::Wrote { bytes, .. } if bytes == b"install"),
+    );
+
+    let (update_tab_id, _) = update_tab(&fixture.service, &prompt.prompt_id);
+    let before = tabs_in(&fixture.service.mux.read().snapshot(), &general_workspace);
+    fixture
+        .service
+        .mux
+        .write()
+        .set_focused_tab(&tab_id)
+        .unwrap();
+
+    fixture
+        .service
+        .respond_provider_update_prompt(&prompt.prompt_id, true)
+        .unwrap();
+
+    let snapshot = fixture.service.mux.read().snapshot();
+    assert_eq!(tabs_in(&snapshot, &general_workspace), before);
+    assert_eq!(
+        snapshot.focused_tab_id.as_deref(),
+        Some(update_tab_id.as_str())
+    );
+    assert_eq!(
+        update_tab(&fixture.service, &prompt.prompt_id).0,
+        update_tab_id
+    );
+    assert_eq!(
+        receiver
+            .try_iter()
+            .filter(|effect| matches!(
+                effect,
+                ProviderUpdateTestEffect::Wrote { bytes, .. } if bytes == b"install"
+            ))
+            .count(),
+        0,
+        "a repeat press must not re-authorize an install"
+    );
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "mock Tauri desktop fixture")]
+fn a_failed_update_tab_stays_visible_and_is_never_reported_as_success() {
+    let (fixture, tab_id, general_workspace, receiver) = general_fixture(TabAudience::User);
+    handle_prompt(&fixture.service, &tab_id, true);
+    let prompt = await_status(&receiver, ProviderUpdateStatus::AwaitingConsent);
+    fixture
+        .service
+        .respond_provider_update_prompt(&prompt.prompt_id, true)
+        .unwrap();
+    await_status(&receiver, ProviderUpdateStatus::Installing);
+    let (update_tab_id, update_pty_id) = update_tab(&fixture.service, &prompt.prompt_id);
+    let notifications_before = fixture.service.notif.lock().list(false).len();
+
+    let entry = fixture
+        .service
+        .provider_updates
+        .get(&prompt.prompt_id)
+        .unwrap();
+    fixture
+        .service
+        .fail_provider_update(entry, "the update command exited non-zero");
+
+    let failed = await_status(&receiver, ProviderUpdateStatus::Failed);
+    assert_eq!(failed.prompt_id, prompt.prompt_id);
+    let snapshot = fixture.service.mux.read().snapshot();
+    let tab = snapshot
+        .tabs
+        .get(&update_tab_id)
+        .expect("failed update stays readable in its own tab");
+    assert!(!tab.hidden);
+    assert!(tabs_in(&snapshot, &general_workspace).contains(&update_tab_id));
+    assert_eq!(
+        fixture.service.notif.lock().list(false).len(),
+        notifications_before,
+        "a failed update is never swallowed into a notification"
+    );
+
+    // A late completion signal must not overwrite the recorded failure.
+    fixture
+        .service
+        .handle_provider_update_completed(&update_tab_id, &update_pty_id);
+    let statuses: Vec<_> = fixture
+        .service
+        .list_provider_update_prompts()
+        .into_iter()
+        .filter(|view| view.prompt_id == prompt.prompt_id)
+        .map(|view| view.status)
+        .collect();
+    assert_eq!(statuses, vec![ProviderUpdateStatus::Failed]);
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "mock Tauri desktop fixture")]
+fn closing_the_update_tab_fails_the_prompt_and_frees_the_source_tab() {
+    let (fixture, tab_id, _, receiver) = general_fixture(TabAudience::User);
+    handle_prompt(&fixture.service, &tab_id, true);
+    let prompt = await_status(&receiver, ProviderUpdateStatus::AwaitingConsent);
+    fixture
+        .service
+        .respond_provider_update_prompt(&prompt.prompt_id, true)
+        .unwrap();
+    await_status(&receiver, ProviderUpdateStatus::Installing);
+    let (update_tab_id, _) = update_tab(&fixture.service, &prompt.prompt_id);
+
+    fixture.service.mux.write().close_tab(&update_tab_id).unwrap();
+
+    let statuses: Vec<_> = fixture
+        .service
+        .list_provider_update_prompts()
+        .into_iter()
+        .filter(|view| view.prompt_id == prompt.prompt_id)
+        .map(|view| view.status)
+        .collect();
+    assert_eq!(statuses, vec![ProviderUpdateStatus::Failed]);
+
+    handle_prompt(&fixture.service, &tab_id, true);
+    let reopened = await_status(&receiver, ProviderUpdateStatus::AwaitingConsent);
+    assert_ne!(reopened.prompt_id, prompt.prompt_id);
 }
 
 #[test]
@@ -328,9 +572,10 @@ fn authorized_provider_update_restarts_after_delivery_resolution() {
             .try_iter()
             .any(|effect| matches!(effect, ProviderUpdateTestEffect::Restarted { .. })));
 
+        let (update_tab_id, update_pty_id) = update_tab(&fixture.service, &prompt.prompt_id);
         fixture
             .service
-            .handle_provider_update_completed(&tab_id, "pty-update");
+            .handle_provider_update_completed(&update_tab_id, &update_pty_id);
         assert!(matches!(
             await_effect(
                 &receiver,
@@ -407,12 +652,14 @@ fn provider_update_concurrent_and_replayed_authority_is_consumed_once() {
         .collect();
     barrier.wait();
     let results: Vec<_> = calls.into_iter().map(|call| call.join().unwrap()).collect();
-    assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
-    assert_eq!(results.iter().filter(|result| result.is_err()).count(), 1);
-    assert!(fixture
+    // The loser either lost the claim outright or landed on the tab the winner
+    // raised; neither outcome may authorize a second install.
+    assert!(results.iter().filter(|result| result.is_err()).count() <= 1);
+    // A replay after the tab exists focuses it instead of failing.
+    fixture
         .service
         .respond_provider_update_prompt(&prompt.prompt_id, true)
-        .is_err());
+        .unwrap();
     let effects: Vec<_> = receiver.try_iter().collect();
     assert_eq!(
         effects
@@ -422,12 +669,24 @@ fn provider_update_concurrent_and_replayed_authority_is_consumed_once() {
         1
     );
 
+    let (update_tab_id, update_pty_id) = update_tab(&fixture.service, &prompt.prompt_id);
+    let description = provider_update_tab_description(&prompt.prompt_id);
+    let raised = fixture
+        .service
+        .mux
+        .read()
+        .snapshot()
+        .tabs
+        .values()
+        .filter(|tab| tab.description.as_deref() == Some(description.as_str()))
+        .count();
+    assert_eq!(raised, 1, "one press raises exactly one update tab");
     fixture
         .service
-        .handle_provider_update_completed(&tab_id, "pty-update");
+        .handle_provider_update_completed(&update_tab_id, &update_pty_id);
     fixture
         .service
-        .handle_provider_update_completed(&tab_id, "pty-update");
+        .handle_provider_update_completed(&update_tab_id, &update_pty_id);
     let effects: Vec<_> = receiver.try_iter().collect();
     assert_eq!(
         effects
