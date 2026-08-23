@@ -1452,6 +1452,8 @@ EOF
     node node_modules/knip/bin/knip.js --workspace @codeterm/chat-core --exports
     node scripts/run-ts-unit-tests.mjs
     node scripts/run-plugin-tests.mjs
+    python3 -m unittest scripts.tests.test_release_issue_contract
+    node --test scripts/tests/updater-manifest.test.mjs
     node node_modules/@biomejs/biome/bin/biome check .
     ;;
   test)

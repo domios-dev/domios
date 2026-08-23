@@ -48,8 +48,12 @@ pub fn handle_mem(client: &mut SocketClient, json_mode: bool, action: MemAction)
             };
             handle_result(json_mode, result);
         }
-        MemAction::Tail { follow, limit } => {
-            tail::run_mem_tail(client, json_mode, follow, limit);
+        MemAction::Tail {
+            follow,
+            limit,
+            since,
+        } => {
+            tail::run_mem_tail(client, json_mode, follow, limit, since);
         }
         MemAction::Skill { action } => {
             print_mem_result(json_mode, skill::handle_mem_skill(client, action));

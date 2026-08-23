@@ -357,7 +357,12 @@ jobs:
           $baseArgs = @()
           gh release download "$env:TAG" --pattern 'latest.json' --dir _base --repo "$env:SOURCE_REPO" 2>$null
           if (Test-Path "_base/latest.json") { $baseArgs = @('--base', '_base/latest.json') }
-          node scripts/merge-latest-json.js --in manifest-fragments --out "$env:MANIFEST" @baseArgs
+          # manifest-fragments came back through the release assets, where a re-run
+          # can read a cached copy of the asset it just replaced. Ours overlays last.
+          Remove-Item -Recurse -Force _overlay -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force _overlay | Out-Null
+          Copy-Item "updater-$env:TARGET.json" "_overlay/" -Force
+          node scripts/merge-latest-json.js --in manifest-fragments --out "$env:MANIFEST" @baseArgs --overlay _overlay
           gh release upload "$env:TAG" "$env:MANIFEST" --clobber --repo "$env:SOURCE_REPO"
 
       # Mirror the updater bundle (installer) and merged manifest to the public
@@ -397,3 +402,19 @@ jobs:
           }
 
           gh release upload "$env:TAG" "$bundle" "$env:MANIFEST" --clobber --repo "$env:MIRROR_REPO"
+
+      # A 200 says nothing about installability: verify every signature in the
+      # published manifest against the bytes actually served.
+      - name: Verify published manifest is installable
+        if: github.event_name == 'push'
+        env:
+          TAG: ${{ steps.tag.outputs.name }}
+          MANIFEST: ${{ steps.channel.outputs.manifest }}
+          MIRROR_REPO: rollacode/codeterm-releases
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bust = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+          $url = "https://github.com/$env:MIRROR_REPO/releases/download/$env:TAG/$env:MANIFEST" + "?cb=$bust"
+          node scripts/verify-updater-manifest.mjs --manifest $url
+          if ($LASTEXITCODE -ne 0) { Write-Error "published manifest is not installable"; exit 1 }

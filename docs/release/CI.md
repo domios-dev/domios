@@ -101,15 +101,25 @@ no entry for a platform that hasn't been built yet.
 `.github/workflows/ready-for-release.yml` validates private PR bodies and commits. Source issues use
 `Repository-Issue: rollacode/codeterm#N`; public issues use
 `Public-Issue: rollacode/codeterm-releases#N`. `scripts/release_issue_contract.py` owns parsing and
-normalization. The workflow rejects duplicate, malformed, wrong-repository, prose, and closing-
+normalization. A declaration must own its line or end one — `prose text. Repository-Issue:
+rollacode/codeterm#N` counts, because a commit message cannot be edited once pushed and a
+release range containing it must still resolve; the prose before such a declaration stays under
+the same rules. The workflow rejects duplicate, malformed, wrong-repository, prose, and closing-
 keyword references, verifies every declared issue exists, and renders both normalized sets in the
-check summary. Source declarations become `Closes #N` only in the final `develop` → `master` PR;
+check summary. `scripts/tests/test_release_issue_contract.py` guards these rules and runs in the
+`tests` workflow and `./build.sh release-preflight`. Source declarations become `Closes #N` only in the final `develop` → `master` PR;
 public declarations close only after publication.
 
 The tag-driven `.github/workflows/release.yml` has a serialized publication boundary:
 
 1. Build and publish the private archive and public mirror.
-2. Verify the matching public release, `latest.json`, version, and every version-pinned asset URL.
+2. Verify the matching public release, `latest.json`, version, every version-pinned asset URL, and
+   — with `scripts/verify-updater-manifest.mjs` — that each platform signature validates against
+   the bytes actually served. A signature signs the artifact, not the manifest, so a rerun that
+   rebuilds an artifact under a kept signature returns 200 everywhere and still fails in every
+   client. Each lane therefore merges its own freshly signed fragments last
+   (`merge-latest-json.js --overlay <dir>`), because everything else in the merge was
+   round-tripped through release assets, where a replaced asset reads back stale for minutes.
 3. Resolve commits and associated private PRs in the release range and union their declarations.
 4. Close only still-open issues in `rollacode/codeterm-releases`, commenting `Released in vX.Y.Z`
    and a declaring commit or private PR URL.
@@ -156,4 +166,4 @@ To unblock notarization:
   inline merge is sufficient for the current release cadence.
 - Cross-compiling Linux ARM (`aarch64-unknown-linux-gnu`).
 
-<!-- revision: 5 -->
+<!-- revision: 7 -->

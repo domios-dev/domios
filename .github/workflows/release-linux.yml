@@ -241,7 +241,11 @@ jobs:
           if gh release download "$TAG" --pattern 'latest.json' --dir _base --repo "$SOURCE_REPO" 2>/dev/null; then
             [ -f _base/latest.json ] && BASE_ARG=(--base _base/latest.json)
           fi
-          node scripts/merge-latest-json.js --in _merge --out "$MANIFEST" "${BASE_ARG[@]}"
+          # _merge came back through the release assets, where a re-run can read a
+          # cached copy of the asset it just replaced. Our own fragment overlays last.
+          rm -rf _overlay && mkdir -p _overlay
+          cp "updater-${TARGET}.json" _overlay/
+          node scripts/merge-latest-json.js --in _merge --out "$MANIFEST" "${BASE_ARG[@]}" --overlay _overlay
           gh release upload "$TAG" "$MANIFEST" --clobber --repo "$SOURCE_REPO"
 
       - name: Refresh Debian updater manifest
@@ -267,7 +271,9 @@ jobs:
             [ -f "$f" ] || continue
             d="_merge_deb/frag-$i"; mkdir -p "$d"; cp "$f" "$d/latest.json"; i=$((i+1))
           done
-          node scripts/merge-latest-json.js --in _merge_deb --out "$DEB_MANIFEST"
+          rm -rf _overlay_deb && mkdir -p _overlay_deb
+          cp "updater-${TARGET}-deb.json" _overlay_deb/
+          node scripts/merge-latest-json.js --in _merge_deb --out "$DEB_MANIFEST" --overlay _overlay_deb
           gh release upload "$TAG" "$DEB_MANIFEST" --clobber --repo "$SOURCE_REPO"
 
       # Mirror the .deb + .AppImage (user downloads) + updater bundle + merged
@@ -313,3 +319,18 @@ jobs:
           ASSETS=("$DEB" "$APPIMAGE")
           [ -n "$UPDATER_BUNDLE" ] && ASSETS+=("$UPDATER_BUNDLE")
           gh release upload "$TAG" "${ASSETS[@]}" "$MANIFEST" "$DEB_MANIFEST" --clobber --repo "$MIRROR_REPO"
+
+      # A 200 says nothing about installability: verify every signature in the
+      # published manifest against the bytes actually served.
+      - name: Verify published manifest is installable
+        if: github.event_name == 'push'
+        env:
+          TAG: ${{ steps.tag.outputs.name }}
+          MANIFEST: ${{ steps.channel.outputs.manifest }}
+          MIRROR_REPO: rollacode/codeterm-releases
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="https://github.com/${MIRROR_REPO}/releases/download/${TAG}/${MANIFEST}?cb=$(date +%s)"
+          node scripts/verify-updater-manifest.mjs --manifest "$url" \
+            || { echo "::error::published manifest is not installable"; exit 1; }

@@ -97,24 +97,31 @@ class CodeTermAPI:
 
     # -- Generic HTTP -------------------------------------------------------
 
+    @staticmethod
+    def _raise_for_status(r: requests.Response) -> None:
+        try:
+            r.raise_for_status()
+        except requests.HTTPError as e:
+            raise requests.HTTPError(f"{e} | body: {r.text[:500]}", response=r) from e
+
     def get(self, path: str, **kw) -> dict:
         r = self.s.get(f"{self.base}{path}", **kw)
-        r.raise_for_status()
+        self._raise_for_status(r)
         return r.json()
 
     def post(self, path: str, **kw) -> dict:
         r = self.s.post(f"{self.base}{path}", **kw)
-        r.raise_for_status()
+        self._raise_for_status(r)
         return r.json()
 
     def put(self, path: str, **kw) -> dict:
         r = self.s.put(f"{self.base}{path}", **kw)
-        r.raise_for_status()
+        self._raise_for_status(r)
         return r.json()
 
     def delete(self, path: str, **kw) -> dict:
         r = self.s.delete(f"{self.base}{path}", **kw)
-        r.raise_for_status()
+        self._raise_for_status(r)
         return r.json()
 
     # -- High-level helpers -------------------------------------------------
@@ -221,7 +228,7 @@ class CodeTermAPI:
         return self.post(f"/api/workspaces/{ws_id}/tabs", json=body)
 
     def list_tabs(self) -> list[dict]:
-        return self.get("/api/tabs")
+        return self.get("/api/tabs", params={"all_workspaces": "true"})
 
     def split_tab(self, tab_id: str, direction: str = "right") -> dict:
         return self.post(

@@ -93,7 +93,10 @@ done
 gh release download "$TAG" --repo "$SRC" --pattern 'latest.json' --dir _merge 2>/dev/null || true
 BASE_ARG=()
 [ -f _merge/latest.json ] && BASE_ARG=(--base _merge/latest.json)
-node "$MERGE" --in _merge --out latest.json "${BASE_ARG[@]}"
+# _frags is what THIS run signed; everything in _merge came back through the
+# release assets, where a re-run can read a cached copy of the asset it just
+# replaced. Overlay last so a rebuilt artifact never ships a stale signature.
+node "$MERGE" --in _merge --out latest.json "${BASE_ARG[@]}" --overlay _frags
 python3 -m json.tool latest.json >/dev/null
 
 echo "### publish merged manifest (source + public mirror)"
@@ -111,5 +114,11 @@ for u in "${VERIFY_URLS[@]}"; do
   code=$(curl -sIL -o /dev/null -w '%{http_code}' "$B/$u")
   echo "  $code  $u"; [ "$code" = 200 ] || { echo "::error::updater URL $u -> $code"; exit 1; }
 done
-LIVE=$(curl -sL "$B/latest.json" | python3 -c "import json,sys;print(json.load(sys.stdin)['version'])")
-[ "$LIVE" = "$VER" ] && echo "PUBLISH_OK v$VER is live" || { echo "::error::manifest=$LIVE != $VER"; exit 1; }
+LIVE=$(curl -sL "$B/latest.json?cb=$(date +%s)" | python3 -c "import json,sys;print(json.load(sys.stdin)['version'])")
+[ "$LIVE" = "$VER" ] || { echo "::error::manifest=$LIVE != $VER"; exit 1; }
+# A 200 says nothing about installability: verify every signature against the
+# bytes actually served, with the key the shipped app uses.
+node "$REPO_ROOT/scripts/verify-updater-manifest.mjs" \
+  --manifest "$B/latest.json?cb=$(date +%s)" || {
+  echo "::error::published manifest is not installable (signature/bytes mismatch)"; exit 1; }
+echo "PUBLISH_OK v$VER is live"

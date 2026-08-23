@@ -411,6 +411,35 @@ fn calibration_sweep_subcommand_parses() {
 }
 
 #[test]
+fn mem_tail_subcommand_parses_since() {
+    let cli = Cli::try_parse_from([
+        "codeterm",
+        "mem",
+        "tail",
+        "--since",
+        "2026-08-01T00:00:00Z",
+    ])
+    .unwrap();
+    match cli.command {
+        Commands::Mem {
+            action: MemAction::Tail { since, .. },
+        } => assert_eq!(since.as_deref(), Some("2026-08-01T00:00:00Z")),
+        _ => panic!("expected Tail"),
+    }
+}
+
+#[test]
+fn mem_tail_subcommand_without_since_is_none() {
+    let cli = Cli::try_parse_from(["codeterm", "mem", "tail"]).unwrap();
+    match cli.command {
+        Commands::Mem {
+            action: MemAction::Tail { since, .. },
+        } => assert!(since.is_none()),
+        _ => panic!("expected Tail"),
+    }
+}
+
+#[test]
 fn calibration_sweep_no_force_defaults_false() {
     use crate::MemCalibrationAction;
     let cli = Cli::try_parse_from(["codeterm", "mem", "calibration", "sweep"]).unwrap();
