@@ -845,6 +845,37 @@ export function CanvasViewInner({
   );
 }
 
+const EMPTY_PLANS: Plan[] = [];
+
+/** Owner tab ids of the fixture plans actually handed to the shell. */
+export function fixtureOwnerTabIds(fixturePlans: readonly Plan[], shownPlans: readonly Plan[]): string[] {
+  const shown = new Set(shownPlans.map((p) => p.id));
+  const ids = new Set<string>();
+  for (const plan of fixturePlans) {
+    if (!shown.has(plan.id)) continue;
+    const tabId = plan.owner.tab_id?.trim();
+    if (tabId) ids.add(tabId);
+  }
+  return [...ids];
+}
+
+/** A fixture world is synthetic: its owner tab can never appear in a real
+ *  workspace, so scoping would drop every fixture plan. Bind those owners to the
+ *  scoped workspace instead of disabling scoping, which still rejects plans from
+ *  other workspaces. */
+export function bindFixtureOwnersToWorkspace(
+  workspaces: Workspace[],
+  workspaceId: string | undefined,
+  ownerTabIds: readonly string[],
+): Workspace[] {
+  if (!workspaceId || ownerTabIds.length === 0) return workspaces;
+  return workspaces.map((ws) => {
+    if (ws.id !== workspaceId) return ws;
+    const missing = ownerTabIds.filter((id) => !ws.tabs.includes(id));
+    return missing.length ? { ...ws, tabs: [...ws.tabs, ...missing] } : ws;
+  });
+}
+
 export interface CanvasViewProps {
   mode: "workspace" | "focus";
   workspaceId?: string;
@@ -880,8 +911,10 @@ export function CanvasView({ mode, workspaceId, planId, orchestratorTabId, focus
   const perfN = perfFixtureCount();
   const perfProfile = perfFixtureProfile();
   const useReal = realFixtureEnabled();
-  const plans = useMemo(() => {
-    const fixturePlans = useReal
+  const fixtureActive = useReal || perfProfile !== "default" || perfN > 0;
+  const fixturePlans = useMemo(() => {
+    if (!fixtureActive) return EMPTY_PLANS;
+    return useReal
         ? realFixturePlans()
         : perfProfile === "card-metadata"
           ? buildCardMetadataFixturePlans()
@@ -893,11 +926,12 @@ export function CanvasView({ mode, workspaceId, planId, orchestratorTabId, focus
                 ? buildMidStreamChatTranscriptFixturePlans()
           : perfProfile === "done-heavy"
             ? buildDoneHeavyPerfFixturePlans()
-            : perfN > 0
-              ? buildPerfFixturePlans(perfN)
-              : livePlans;
-    return selectCanvasPlans(livePlans, fixturePlans, requestedPlanId);
-  }, [useReal, perfProfile, perfN, livePlans, requestedPlanId]);
+            : buildPerfFixturePlans(perfN);
+  }, [fixtureActive, useReal, perfProfile, perfN]);
+  const plans = useMemo(
+    () => (fixtureActive ? selectCanvasPlans(livePlans, fixturePlans, requestedPlanId) : livePlans),
+    [fixtureActive, fixturePlans, livePlans, requestedPlanId],
+  );
   // (the live-tab gate filters real plans correctly; this only feeds the demo plan).
   const tabs = useMemo(() => {
     if (perfN <= 0 || useReal) return state.tabs;
@@ -911,6 +945,16 @@ export function CanvasView({ mode, workspaceId, planId, orchestratorTabId, focus
             : buildPerfFixtureTabs(plans);
     return { ...state.tabs, ...fixtureTabs };
   }, [perfN, useReal, perfProfile, plans, state.tabs]);
+  const scopeWorkspaceId =
+    mode === "workspace" ? workspaceId ?? state.active_workspace_id ?? undefined : undefined;
+  const shownFixtureOwnerTabIds = useMemo(
+    () => fixtureOwnerTabIds(fixturePlans, plans),
+    [fixturePlans, plans],
+  );
+  const scopedWorkspaces = useMemo(
+    () => bindFixtureOwnersToWorkspace(state.workspaces, scopeWorkspaceId, shownFixtureOwnerTabIds),
+    [state.workspaces, scopeWorkspaceId, shownFixtureOwnerTabIds],
+  );
   return (
     <PlanViewShell
       mode={mode}
@@ -924,8 +968,8 @@ export function CanvasView({ mode, workspaceId, planId, orchestratorTabId, focus
       orchestratorTabId={orchestratorTabId}
       focusTabId={focusTabId}
       tabs={tabs}
-      workspaces={state.workspaces}
-      workspaceId={mode === "workspace" ? workspaceId ?? state.active_workspace_id ?? undefined : undefined}
+      workspaces={scopedWorkspaces}
+      workspaceId={scopeWorkspaceId}
       teams={state.teams}
       projectPath={projectPath}
       workspaceTarget={mode === "workspace" ? workspaceTarget : null}

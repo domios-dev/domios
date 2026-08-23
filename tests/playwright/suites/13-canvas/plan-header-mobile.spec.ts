@@ -6,7 +6,7 @@
 import path from "node:path";
 import { expect, test } from "../../helpers/fixtures";
 import {
-  isEmpty,
+  assertPlanSurfaceNotEmpty,
   openInlineWorkspaceCanvas,
   seedPerfFixtureAndOpenInlineCanvas,
   CANVAS_ART_DIR,
@@ -17,7 +17,11 @@ import type { Locator, Page } from "@playwright/test";
 
 const PHONE = { width: 390, height: 844 };
 const DESKTOP = { width: 1280, height: 800 };
-const TEST_TIMEOUT = 30_000;
+// Deadline, not an oracle: the seed alone creates a workspace, opens a web
+// context, loads the app and reloads twice, and the helpers inside already carry
+// bounded 30s waits — a 30s outer budget only replaced their messages with an
+// opaque "Test timeout exceeded". Matches the rest of the suite.
+const TEST_TIMEOUT = 120_000;
 
 function visibleHeader(page: Page): Locator {
   return page.locator('[data-testid="plan-context-header"]:visible').first();
@@ -59,10 +63,7 @@ test(
     const canvas = await seedPerfFixtureAndOpenInlineCanvas(webBrowser, api as unknown as ApiClient);
     try {
       const { page } = canvas;
-      if (await isEmpty(page)) {
-        test.skip(true, "canvas empty — perf fixture did not inject");
-        return;
-      }
+      await assertPlanSurfaceNotEmpty(page);
       await applyViewportAndReload(page, canvas.workspaceId, PHONE);
 
       const header = visibleHeader(page);
@@ -77,14 +78,14 @@ test(
       await expect(header.locator('[data-testid="plan-context-compact-progress"]')).toBeVisible();
 
       // Tasks visible above the fold: first board column top edge in the upper half.
+      // The seeded board always has columns, so this is unconditional.
       const col = page.locator('[data-testid="plan-board-column"]:visible').first();
-      if (await col.count()) {
-        const colBox = await col.boundingBox();
-        expect(colBox, "column has a box").toBeTruthy();
-        expect(colBox!.y, "first column starts in the upper half of the viewport").toBeLessThan(
-          PHONE.height / 2,
-        );
-      }
+      await expect(col).toBeVisible();
+      const colBox = await col.boundingBox();
+      expect(colBox, "column has a box").toBeTruthy();
+      expect(colBox!.y, "first column starts in the upper half of the viewport").toBeLessThan(
+        PHONE.height / 2,
+      );
       await shot(page, "plan-header-mobile-collapsed");
     } finally {
       await canvas.close();
@@ -99,10 +100,7 @@ test(
     const canvas = await seedPerfFixtureAndOpenInlineCanvas(webBrowser, api as unknown as ApiClient);
     try {
       const { page } = canvas;
-      if (await isEmpty(page)) {
-        test.skip(true, "canvas empty — perf fixture did not inject");
-        return;
-      }
+      await assertPlanSurfaceNotEmpty(page);
       await applyViewportAndReload(page, canvas.workspaceId, PHONE);
 
       const bar = visibleHeader(page).locator('[data-testid="plan-context-compact-bar"]');
@@ -144,10 +142,7 @@ test(
     const canvas = await seedPerfFixtureAndOpenInlineCanvas(webBrowser, api as unknown as ApiClient);
     try {
       const { page } = canvas;
-      if (await isEmpty(page)) {
-        test.skip(true, "canvas empty — perf fixture did not inject");
-        return;
-      }
+      await assertPlanSurfaceNotEmpty(page);
       await applyViewportAndReload(page, canvas.workspaceId, DESKTOP);
 
       // No compact bar anywhere (neither mounted view renders one above the breakpoint).
@@ -179,10 +174,7 @@ test(
     const canvas = await seedPerfFixtureAndOpenInlineCanvas(webBrowser, api as unknown as ApiClient);
     try {
       const { page } = canvas;
-      if (await isEmpty(page)) {
-        test.skip(true, "canvas empty — perf fixture did not inject");
-        return;
-      }
+      await assertPlanSurfaceNotEmpty(page);
       // A failed skills endpoint must not add an error surface to the header.
       await page.route("**/api/plans/*/skills", (route) =>
         route.fulfill({ status: 500, contentType: "application/json", body: '{"error":"boom"}' }),
@@ -209,10 +201,7 @@ test(
     const canvas = await seedPerfFixtureAndOpenInlineCanvas(webBrowser, api as unknown as ApiClient);
     try {
       const { page } = canvas;
-      if (await isEmpty(page)) {
-        test.skip(true, "canvas empty — perf fixture did not inject");
-        return;
-      }
+      await assertPlanSurfaceNotEmpty(page);
       await applyViewportAndReload(page, canvas.workspaceId, PHONE);
 
       const bar = visibleHeader(page).locator('[data-testid="plan-context-compact-bar"]');
@@ -240,10 +229,7 @@ test(
     const canvas = await seedPerfFixtureAndOpenInlineCanvas(webBrowser, api as unknown as ApiClient);
     try {
       const { page } = canvas;
-      if (await isEmpty(page)) {
-        test.skip(true, "canvas empty — perf fixture did not inject");
-        return;
-      }
+      await assertPlanSurfaceNotEmpty(page);
       await applyViewportAndReload(page, canvas.workspaceId, PHONE, "list");
 
       const header = visibleHeader(page);
@@ -272,10 +258,7 @@ test(
     const canvas = await seedPerfFixtureAndOpenInlineCanvas(webBrowser, api as unknown as ApiClient);
     try {
       const { page } = canvas;
-      if (await isEmpty(page)) {
-        test.skip(true, "canvas empty — perf fixture did not inject");
-        return;
-      }
+      await assertPlanSurfaceNotEmpty(page);
       await applyViewportAndReload(page, canvas.workspaceId, PHONE, "board");
 
       // Compact plan bar is a >=44px coarse target.
@@ -291,10 +274,11 @@ test(
       }
 
       // Every rendered interactive sidebar row must be a >=44px coarse target.
+      // `workspace-plan-entry` was deleted from product source (a plan's sidebar
+      // home is now its Team card), so it is not in this sweep.
       const ROW_TESTIDS = [
         "tab-item",
         "workspace-item",
-        "workspace-plan-entry",
         "nav-extensions",
         "nav-memory",
         "nav-mesh",
@@ -329,36 +313,21 @@ test(
     const canvas = await seedPerfFixtureAndOpenInlineCanvas(webBrowser, api as unknown as ApiClient);
     try {
       const { page } = canvas;
-      if (await isEmpty(page)) {
-        test.skip(true, "canvas empty — perf fixture did not inject");
-        return;
-      }
+      await assertPlanSurfaceNotEmpty(page);
       await applyViewportAndReload(page, canvas.workspaceId, PHONE);
 
-      const bubble = page.locator('[data-testid="plan-companion-bubble"]:visible').first();
-      if ((await bubble.count()) === 0) {
-        test.skip(true, "no live companion agent in the perf fixture — bubble not rendered");
-        return;
-      }
-      await expect(bubble).toBeVisible();
-      await expect(bubble.locator('[data-testid="plan-companion-presence"]')).toHaveCount(1);
-
-      const overlaps = (
-        a: { x: number; y: number; width: number; height: number } | null,
-        b: { x: number; y: number; width: number; height: number } | null,
-      ) => {
-        if (!a || !b) return false;
-        return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
-      };
-      const bubbleBox = await bubble.boundingBox();
-      const headerBox = await visibleHeader(page).boundingBox();
-      expect(overlaps(bubbleBox, headerBox), "bubble must not overlap the compact header").toBe(false);
-
-      const composer = page.locator('[data-testid="chat-composer"]:visible, [data-testid="composer"]:visible').first();
-      if (await composer.count()) {
-        const composerBox = await composer.boundingBox();
-        expect(overlaps(bubbleBox, composerBox), "bubble must not overlap the composer").toBe(false);
-      }
+      // NOT COVERED: the bubble-vs-header and bubble-vs-composer overlap geometry.
+      // PlanCompanionBubble mounts only when the ACTIVE PLAN'S OWNER tab is a live
+      // agent Tab (companionResolver.resolveCompanionTab + tabHasLiveAgent). Every
+      // fixture world owns its plan with a synthetic id (`perf_orch` /
+      // `fixture_orch`) that no fixture tab builder mints, and the Tabs
+      // buildPerfFixtureTabs does mint carry no `agent_type` — so the bubble can
+      // never mount under any seeded world. Making it mount means changing
+      // buildPerfFixtureTabs, which is product source outside this lane's
+      // boundary. Absence is the only honest oracle available here, and it fails
+      // loudly the day a fixture starts producing a live companion — at which
+      // point the geometry assertions above it should be restored.
+      await expect(page.locator('[data-testid="plan-companion-bubble"]')).toHaveCount(0);
       await shot(page, "plan-header-mobile-companion");
     } finally {
       await canvas.close();

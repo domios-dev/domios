@@ -6,7 +6,7 @@
 import path from "node:path";
 import { expect, test } from "../../helpers/fixtures";
 import {
-  isEmpty,
+  assertPlanSurfaceNotEmpty,
   MISSION_CONTROL_LIVE_SEL,
   MISSION_CONTROL_PLAN_SURFACE_SEL,
   openInlineWorkspaceCanvas,
@@ -37,10 +37,7 @@ test("@golden @mission-control-flow flow river + group milestone + measured curv
   );
   try {
     const { page } = canvas;
-    if (await isEmpty(page)) {
-      test.skip(true, "canvas empty — perf fixture did not inject");
-      return;
-    }
+    await assertPlanSurfaceNotEmpty(page);
     await toCanvasMode(page, canvas.workspaceId);
 
     await expect(page.locator(MISSION_CONTROL_PLAN_SURFACE_SEL)).toBeVisible();
@@ -52,7 +49,8 @@ test("@golden @mission-control-flow flow river + group milestone + measured curv
     await expect(river.locator('[data-testid="flow-station-milestone"]')).toBeVisible();
     await expect(river.locator('[data-testid="flow-station-done"]')).toBeVisible();
 
-    // Milestone derives from task groups (perf fixture: Layout / Navigation / Isolation).
+    // The tab-tree world has a pending task, so the milestone station is present
+    // (PlanRiver: frontier.count > 0) and names itself either way.
     const milestone = river.locator('[data-testid="flow-station-milestone"]');
     await expect(milestone).toContainText(/Milestone/i);
     // Measured flow curves connect the stations (F2: derived from station rects).
@@ -79,10 +77,7 @@ test("@golden @mission-control-flow 60fps pan probe — transform layer, no refl
   );
   try {
     const { page } = canvas;
-    if (await isEmpty(page)) {
-      test.skip(true, "canvas empty — perf fixture did not inject");
-      return;
-    }
+    await assertPlanSurfaceNotEmpty(page);
     await toCanvasMode(page, canvas.workspaceId);
 
     const viewport = page.locator(`${MISSION_CONTROL_LIVE_SEL} .mc-live-viewport`).first();
