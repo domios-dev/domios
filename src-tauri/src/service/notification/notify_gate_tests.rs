@@ -59,6 +59,17 @@ fn notify(sinks: &Sinks, title: &str, desktop: DesktopDispatch) -> String {
     )
 }
 
+/// Stand-in for the live multiplexer; the provider-update prompt needs a tab
+/// that still resolves or it never opens a record at all.
+fn live_update_tab(candidate: &str) -> Option<NotificationProvenance> {
+    (candidate == "tab_update").then(|| NotificationProvenance {
+        tab_id: Some("tab_update".into()),
+        tab_title: Some("Codex".into()),
+        workspace_id: Some("ws_main".into()),
+        peer_name: None,
+    })
+}
+
 fn shipped(declared: Option<NotifyCategory>) -> DesktopDispatch {
     DesktopDispatch {
         declared,
@@ -170,14 +181,6 @@ fn notify_gate_leaves_non_agent_routes_unchanged() {
     assert!(sinks.native.lock().is_empty());
     assert!(sinks.emitted.lock().is_empty());
 
-    let live_tab = |candidate: &str| {
-        (candidate == "tab_update").then(|| NotificationProvenance {
-            tab_id: Some("tab_update".into()),
-            tab_title: Some("Codex".into()),
-            workspace_id: Some("ws_main".into()),
-            peer_name: None,
-        })
-    };
     let id = create_notification_with_delivery(
         NotificationAdmission::ProviderUpdate {
             prompt_id: "prompt_1".into(),
@@ -190,7 +193,7 @@ fn notify_gate_leaves_non_agent_routes_unchanged() {
         Some(serde_json::json!([])),
         Some(true),
         NotificationOrigin::local_tab("tab_update".into()),
-        live_tab,
+        live_update_tab,
         PushDispatch::inert(),
         DesktopDispatch::silent(),
         |payload| sinks.emitted.lock().push(payload),
