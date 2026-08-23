@@ -109,6 +109,7 @@ fn derive_planner_name<'a>(
     "Specialist".to_string()
 }
 
+#[derive(Debug)]
 struct ReservedPairTabs {
     orchestrator_tab_id: String,
     planner_tab_id: String,
