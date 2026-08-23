@@ -1,8 +1,9 @@
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{AgentRole, Tab};
 
-/// The one kind carrying machine-coordination authority. It anchors a Team
-/// exactly like `orchestrator` does.
+/// The one kind carrying machine-coordination authority. It is a hierarchy
+/// root like `orchestrator`, but unlike one it never binds a `team_id` —
+/// membership is refused by `team_membership`.
 pub const GENERAL_AGENT_KIND: &str = codeterm_types::agent::role_kind::builtins::GENERAL_AGENT;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

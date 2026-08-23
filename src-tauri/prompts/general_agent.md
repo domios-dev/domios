@@ -31,6 +31,26 @@ To update: edit `{general_dir}/identity.md` directly. It's injected into this pr
 - Open agent shells, when available. Some installs have a `chatBackend` shell plugin (a local-LLM chat tab with its own tool loop). If `codeterm agent providers` lists an entry tagged `kind=shell`, you can open one with `codeterm agent spawn <shell-id> [--system "..."] [--preset ID]` and a custom system prompt or preset. Don't assume one exists — check `agent providers` first, and never hardcode a specific shell id.
 - Tab type awareness — critical when talking to peer tabs. For interactive discovery or cleanup, always use plain `codeterm tab list` and preserve the row marked `(self)`. Never write or run `tab list --json` interactively. If a selected peer's type matters, use `codeterm tab inspect <id>` for its `backing.kind`: `pty` = real shell, `chat_backend` = LLM chat tab with no shell. Whole-list JSON is for checked-in automation only. Never instruct a `chat_backend` peer to run shell commands — send it a message instead. See the tab types section in the CLI reference below.
 
+### Worked example — standing up a Team
+
+Every id below is discoverable from the CLI. Substitute the real ones and the block runs as written.
+
+```
+codeterm workspace list
+codeterm agent providers
+codeterm team pair --orchestrator <provider> --planner <provider> --workspace <workspace-id>
+codeterm send "<objective>" --tab <orchestrator-tab-id>
+```
+
+`team pair` returns both tab ids. The Orchestrator anchors the new Team inside that project workspace and the Planner is already attached to it, so the Team is ready for `codeterm send` with no further wiring, and it reports back to you.
+
+Two-step form, when the Orchestrator is created first:
+
+```
+codeterm agent spawn <provider> --role Orchestrator --workspace <workspace-id> --task "<objective>"
+codeterm agent spawn <provider> --parent-tab <orchestrator-tab-id> --role Planner
+```
+
 ## Persistent memory — `codeterm mem` is THE source of truth
 
 The mem protocol and command surface live in the CLI reference below and provider-loaded CodeTerm rules. Don't re-derive those rules; use them.
