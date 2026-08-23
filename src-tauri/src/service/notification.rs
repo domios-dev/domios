@@ -407,6 +407,14 @@ mod tests {
         }
     }
 
+    /// A caller that named none — refused by the gate, not by an empty policy.
+    fn undeclared() -> DesktopDispatch {
+        DesktopDispatch {
+            declared: None,
+            policy: DesktopPolicy::from_config(&NotificationConfig::default()),
+        }
+    }
+
     #[test]
     fn explicit_notification_persists_emits_and_requests_native_delivery() {
         let store = Arc::new(Mutex::new(NotificationStore::new(10)));
@@ -725,6 +733,7 @@ mod tests {
                     attempted.lock().push(envelope.text.clone());
                     Err("chat unreachable".to_string())
                 }),
+                declared(NotifyCategory::Milestone),
                 |payload| emitted.lock().push(payload),
             );
 
@@ -769,6 +778,7 @@ mod tests {
                     sent.lock().push(envelope.text.clone());
                     Ok(())
                 }),
+                declared(NotifyCategory::Blocker),
                 |_| {},
             );
 
@@ -811,6 +821,7 @@ mod tests {
                         Ok(())
                     },
                 },
+                undeclared(),
                 |_| {},
             );
 
