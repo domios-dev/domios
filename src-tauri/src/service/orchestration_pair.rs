@@ -7,6 +7,7 @@
 //! only sequences the two spawns and records the pending pair.
 
 use codeterm_types::agent::role_kind::builtins::{ORCHESTRATOR, PLANNER};
+use codeterm_types::team::general_agent_membership::{CorrectiveShape, MembershipAttempt};
 use serde::{Deserialize, Serialize};
 
 use crate::plan::{OrchestratorRef, PlannerRef};
@@ -139,7 +140,18 @@ fn reserve_pair_tabs(
     mux: &mut crate::multiplexer::state::MultiplexerState,
     workspace_id: &str,
     existing_orchestrator_tab_id: Option<&str>,
+    shape: &CorrectiveShape,
 ) -> Result<ReservedPairTabs, String> {
+    // Membership door 1: claiming a Tab as the pair Orchestrator binds a Team
+    // onto it. Guarded before the claim, so a refusal reserves nothing.
+    if let Some(tab_id) = existing_orchestrator_tab_id {
+        crate::service::general_agent::refuse_general_agent_team_membership(
+            mux,
+            tab_id,
+            MembershipAttempt::Join,
+            shape,
+        )?;
+    }
     let orchestrator_tab_id = match existing_orchestrator_tab_id {
         Some(tab_id) => mux.claim_existing_tab(workspace_id, tab_id)?,
         None => mux.create_tab(workspace_id)?,
@@ -446,9 +458,16 @@ impl ServiceContext {
             planner_model.as_deref(),
         );
 
+        let membership_shape = CorrectiveShape::in_workspace(Some(&workspace_id))
+            .with_agents(Some(&params.orchestrator_agent), Some(&params.planner_agent));
         let reserved = {
             let mut mux = self.mux.write();
-            reserve_pair_tabs(&mut mux, &workspace_id, params.existing_tab_id.as_deref())?
+            reserve_pair_tabs(
+                &mut mux,
+                &workspace_id,
+                params.existing_tab_id.as_deref(),
+                &membership_shape,
+            )?
         };
         let orchestrator_label = self
             .mux
@@ -678,6 +697,8 @@ impl ServiceContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use codeterm_types::team::general_agent_membership::GENERAL_AGENT_TEAM_MEMBERSHIP_VIOLATION;
+
     use crate::plan::PlannerRef;
     use crate::service::plan::PlanStore;
 
@@ -837,7 +858,8 @@ mod tests {
     fn pair_tabs_are_reserved_before_either_agent_launches() {
         let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
         let workspace_id = mux.list_workspaces()[0].id.clone();
-        let reserved = reserve_pair_tabs(&mut mux, &workspace_id, None).unwrap();
+        let reserved =
+            reserve_pair_tabs(&mut mux, &workspace_id, None, &CorrectiveShape::default()).unwrap();
 
         assert_ne!(reserved.orchestrator_tab_id, reserved.planner_tab_id);
         assert!(mux.get_tab(&reserved.orchestrator_tab_id).is_some());
@@ -870,7 +892,8 @@ mod tests {
     ) {
         let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
         let workspace_id = mux.list_workspaces()[0].id.clone();
-        let reserved = reserve_pair_tabs(&mut mux, &workspace_id, None).unwrap();
+        let reserved =
+            reserve_pair_tabs(&mut mux, &workspace_id, None, &CorrectiveShape::default()).unwrap();
         (mux, workspace_id, reserved)
     }
 
@@ -937,7 +960,13 @@ mod tests {
             .unwrap()
             .team_id;
 
-        let reserved = reserve_pair_tabs(&mut mux, &workspace_id, Some(&claimed)).unwrap();
+        let reserved = reserve_pair_tabs(
+            &mut mux,
+            &workspace_id,
+            Some(&claimed),
+            &CorrectiveShape::default(),
+        )
+        .unwrap();
         assert!(!reserved.team_minted);
         assert_eq!(reserved.team.id, adopted_team_id);
 
@@ -960,5 +989,123 @@ mod tests {
         assert!(msg.contains("spawn timed out"));
         assert!(msg.contains(&fix));
         assert!(msg.contains(crate::prompts::PEER_WAIVER_HINT));
+    }
+
+    // ── General Agent membership guard ──────────────────────────────
+
+    fn general_agent_in_pair_workspace(
+        mux: &mut crate::multiplexer::state::MultiplexerState,
+        workspace_id: &str,
+    ) -> String {
+        let tab_id = mux.create_tab(workspace_id).unwrap();
+        crate::service::general_agent::identity::apply_general_agent_kind(
+            mux.get_tab_mut(&tab_id).unwrap(),
+        );
+        tab_id
+    }
+
+    #[test]
+    fn general_agent_team_guard_refuses_self_pairing_and_reserves_nothing() {
+        let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
+        let workspace_id = mux.list_workspaces()[0].id.clone();
+        let general = general_agent_in_pair_workspace(&mut mux, &workspace_id);
+        let teams_before = mux.team_count();
+        let tabs_before = mux.snapshot().tabs.len();
+
+        let error = reserve_pair_tabs(
+            &mut mux,
+            &workspace_id,
+            Some(&general),
+            &CorrectiveShape::default(),
+        )
+        .expect_err("the General Agent may not claim the Orchestrator seat of a pair");
+
+        assert!(
+            error.contains(GENERAL_AGENT_TEAM_MEMBERSHIP_VIOLATION),
+            "refusal must carry the stable violation id, got: {error}"
+        );
+        assert_eq!(mux.team_count(), teams_before, "no Team may be minted");
+        assert_eq!(mux.snapshot().tabs.len(), tabs_before, "no Tab reserved");
+        let tab = mux.get_tab(&general).unwrap();
+        assert_eq!(tab.team_id, None, "the General Agent stays outside Teams");
+        assert!(!tab.agent_booting, "a refused claim starts no boot");
+    }
+
+    #[test]
+    fn general_agent_team_guard_still_lets_the_general_agent_pair_for_other_agents() {
+        let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
+        let workspace_id = mux.list_workspaces()[0].id.clone();
+        let general = general_agent_in_pair_workspace(&mut mux, &workspace_id);
+        let teams_before = mux.team_count();
+
+        let reserved = reserve_pair_tabs(
+            &mut mux,
+            &workspace_id,
+            None,
+            &CorrectiveShape::in_workspace(Some(&workspace_id)),
+        )
+        .expect("creating a pair for OTHER agents is the General Agent's job");
+
+        assert_eq!(mux.team_count(), teams_before + 1);
+        assert!(reserved.team_minted);
+        for tab_id in [&reserved.orchestrator_tab_id, &reserved.planner_tab_id] {
+            assert_eq!(
+                mux.get_tab(tab_id).unwrap().team_id.as_deref(),
+                Some(reserved.team.id.as_str())
+            );
+        }
+        let general_tab = mux.get_tab(&general).unwrap();
+        assert_eq!(
+            general_tab.team_id, None,
+            "the pair belongs to its Orchestrator, never to its creator"
+        );
+    }
+
+    #[test]
+    fn general_agent_team_guard_refusal_carries_the_requested_pair_shape() {
+        let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
+        let workspace_id = mux.list_workspaces()[0].id.clone();
+        let general = general_agent_in_pair_workspace(&mut mux, &workspace_id);
+        let requested_orchestrator = "provider-alpha";
+        let requested_planner = "provider-beta";
+
+        let error = reserve_pair_tabs(
+            &mut mux,
+            &workspace_id,
+            Some(&general),
+            &CorrectiveShape::in_workspace(Some(&workspace_id))
+                .with_agents(Some(requested_orchestrator), Some(requested_planner)),
+        )
+        .unwrap_err();
+
+        for supplied in [
+            general.as_str(),
+            workspace_id.as_str(),
+            requested_orchestrator,
+            requested_planner,
+        ] {
+            assert!(
+                error.contains(supplied),
+                "refusal must name what the caller supplied ({supplied}): {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn general_agent_team_guard_transports_forward_the_claimed_tab_to_the_guarded_service() {
+        // REST, socket and the Tauri command all deserialize this one struct
+        // before calling `create_orchestration_pair`, so none of them can drop
+        // the claimed tab and slip past the guard.
+        let body = serde_json::json!({
+            "orchestrator_agent": "provider-alpha",
+            "planner_agent": "provider-beta",
+            "workspace_id": "ws_target_7",
+            "existing_tab_id": "tab_general",
+            "spawned_by_tab_id": "tab_caller",
+        });
+        let params: OrchestrationPairParams = serde_json::from_value(body).unwrap();
+        assert_eq!(params.existing_tab_id.as_deref(), Some("tab_general"));
+        assert_eq!(params.spawned_by_tab_id.as_deref(), Some("tab_caller"));
+        assert_eq!(params.workspace_id.as_deref(), Some("ws_target_7"));
     }
 }

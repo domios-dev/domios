@@ -3,6 +3,7 @@ use codeterm_types::agent::role_kind::{self, builtins};
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{AgentRole, Tab};
 use crate::plan::PlannerRef;
+use crate::service::general_agent::refuse_parenting_under_general_agent;
 use crate::service::plan::mutations::agent_lifecycle::{
     AgentLifecyclePlanChange, AgentLifecyclePlanRebind, AgentLifecyclePlanTransaction,
 };
@@ -446,6 +447,7 @@ fn apply_destination(
             parent_tab_id,
             role_profile,
         } => {
+            refuse_parenting_under_general_agent(mux, Some(parent_tab_id.as_str()))?;
             mux.set_tab_role_kind(
                 &request.tab_id,
                 AgentRole::Worker,
@@ -460,6 +462,7 @@ fn apply_destination(
             can_spawn,
         } => {
             let parent = resolved_manager_parent(request, plan_rebind, parent_tab_id)?;
+            refuse_parenting_under_general_agent(mux, parent.as_deref())?;
             mux.set_tab_role_kind(
                 &request.tab_id,
                 AgentRole::Manager,
