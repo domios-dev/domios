@@ -8,6 +8,10 @@
 
 ## Surface Map
 
+### 00-perf-gate
+
+- [tests/playwright/suites/00-perf-gate/perf-gate.spec.ts](../../tests/playwright/suites/00-perf-gate/perf-gate.spec.ts) - Stub-provider performance gate for visible terminal interactions.
+
 ### 01-smoke
 
 - [tests/playwright/suites/01-smoke/smoke.spec.ts](../../tests/playwright/suites/01-smoke/smoke.spec.ts) - smoke covers its Playwright acceptance contract.
@@ -15,15 +19,21 @@
 ### 02-multiplexer
 
 - [tests/playwright/suites/02-multiplexer/multiplexer.spec.ts](../../tests/playwright/suites/02-multiplexer/multiplexer.spec.ts) - multiplexer covers its Playwright acceptance contract.
+- [tests/playwright/suites/02-multiplexer/team-rename.spec.ts](../../tests/playwright/suites/02-multiplexer/team-rename.spec.ts) - Renaming a Team persists while an unrelated tab owns focus.
 
 ### 03-agents
 
+- [tests/playwright/suites/03-agents/agents-live.spec.ts](../../tests/playwright/suites/03-agents/agents-live.spec.ts) - real-provider end-to-end agent flows (live LLM), run on their own cadence.
 - [tests/playwright/suites/03-agents/agents.spec.ts](../../tests/playwright/suites/03-agents/agents.spec.ts) - agents covers its Playwright acceptance contract.
+- [tests/playwright/suites/03-agents/composer-draft-isolation.spec.ts](../../tests/playwright/suites/03-agents/composer-draft-isolation.spec.ts) - Fresh tabs never inherit another tab's unsent composer draft.
 - [tests/playwright/suites/03-agents/cross-tab-chat.spec.ts](../../tests/playwright/suites/03-agents/cross-tab-chat.spec.ts) - cross tab chat covers its Playwright acceptance contract.
+- [tests/playwright/suites/03-agents/stub-replay.spec.ts](../../tests/playwright/suites/03-agents/stub-replay.spec.ts) - stub agent replayer drives the REAL spawn/detection/parse pipeline.
+- [tests/playwright/suites/03-agents/tab-model-switch.spec.ts](../../tests/playwright/suites/03-agents/tab-model-switch.spec.ts) - the sidebar row's kebab switches a running agent's model in session.
 
 ### 04-mesh
 
 - [tests/playwright/suites/04-mesh/mesh.spec.ts](../../tests/playwright/suites/04-mesh/mesh.spec.ts) - mesh covers its Playwright acceptance contract.
+- [tests/playwright/suites/04-mesh/remote-tab-render.spec.ts](../../tests/playwright/suites/04-mesh/remote-tab-render.spec.ts) - a projected remote tab actually mounts and renders in the live dev UI —
 
 ### 06-mem
 
@@ -44,8 +54,11 @@
 ### 12-web
 
 - [tests/playwright/suites/12-web/chat-image-paste.spec.ts](../../tests/playwright/suites/12-web/chat-image-paste.spec.ts) - chat image paste covers its Playwright acceptance contract.
+- [tests/playwright/suites/12-web/mesh-web-ui.spec.ts](../../tests/playwright/suites/12-web/mesh-web-ui.spec.ts) - the global Mesh header "Web UI" control and the per-peer "Open Web UI"
+- [tests/playwright/suites/12-web/mobile-overflow.spec.ts](../../tests/playwright/suites/12-web/mobile-overflow.spec.ts) - mobile overflow covers broad web surfaces at phone widths.
 - [tests/playwright/suites/12-web/multitab-perf.spec.ts](../../tests/playwright/suites/12-web/multitab-perf.spec.ts) - multitab perf covers its Playwright acceptance contract.
 - [tests/playwright/suites/12-web/network-primitives.spec.ts](../../tests/playwright/suites/12-web/network-primitives.spec.ts) - network primitives covers its Playwright acceptance contract.
+- [tests/playwright/suites/12-web/returning-packaged-browser.spec.ts](../../tests/playwright/suites/12-web/returning-packaged-browser.spec.ts) - A returning mobile browser holding a cached DEV service worker and shell picks up the packaged production deploy on reload.
 - [tests/playwright/suites/12-web/tab-switch-bounce.spec.ts](../../tests/playwright/suites/12-web/tab-switch-bounce.spec.ts) - Web tab switching stays on the user-selected tab after split backend focus updates.
 - [tests/playwright/suites/12-web/voice-indicator.spec.ts](../../tests/playwright/suites/12-web/voice-indicator.spec.ts) - voice indicator covers its Playwright acceptance contract.
 - [tests/playwright/suites/12-web/voice-warm-mic.spec.ts](../../tests/playwright/suites/12-web/voice-warm-mic.spec.ts) - voice warm mic covers its Playwright acceptance contract.
@@ -55,29 +68,7 @@
 
 ### 13-canvas
 
-- [tests/playwright/suites/13-canvas/_diag.spec.ts](../../tests/playwright/suites/13-canvas/_diag.spec.ts) - Canvas diagnostic capture opens selected plans and writes board screenshots.
-- [tests/playwright/suites/13-canvas/canvas-calm-ux.spec.ts](../../tests/playwright/suites/13-canvas/canvas-calm-ux.spec.ts) - canvas calm ux covers its Playwright acceptance contract.
-- [tests/playwright/suites/13-canvas/canvas-layout-integrity.spec.ts](../../tests/playwright/suites/13-canvas/canvas-layout-integrity.spec.ts) - canvas layout integrity covers its Playwright acceptance contract.
-- [tests/playwright/suites/13-canvas/canvas-multiview-overflow.spec.ts](../../tests/playwright/suites/13-canvas/canvas-multiview-overflow.spec.ts) - canvas multiview overflow covers its Playwright acceptance contract.
-- [tests/playwright/suites/13-canvas/canvas-nav.spec.ts](../../tests/playwright/suites/13-canvas/canvas-nav.spec.ts) - canvas nav covers its Playwright acceptance contract.
-- [tests/playwright/suites/13-canvas/canvas-perf-baseline.spec.ts](../../tests/playwright/suites/13-canvas/canvas-perf-baseline.spec.ts) - Canvas perf baseline records deterministic frame and threshold evidence for fixture worlds.
-- [tests/playwright/suites/13-canvas/canvas-perf.spec.ts](../../tests/playwright/suites/13-canvas/canvas-perf.spec.ts) - canvas perf covers its Playwright acceptance contract.
-- [tests/playwright/suites/13-canvas/canvas-plan-document.spec.ts](../../tests/playwright/suites/13-canvas/canvas-plan-document.spec.ts) - canvas plan document covers its Playwright acceptance contract.
-- [tests/playwright/suites/13-canvas/canvas-presence.spec.ts](../../tests/playwright/suites/13-canvas/canvas-presence.spec.ts) - canvas presence covers its Playwright acceptance contract.
 - [tests/playwright/suites/13-canvas/canvas-reconnecting-banner.spec.ts](../../tests/playwright/suites/13-canvas/canvas-reconnecting-banner.spec.ts) - canvas reconnecting banner covers its Playwright acceptance contract.
-- [tests/playwright/suites/13-canvas/canvas-section-agent.spec.ts](../../tests/playwright/suites/13-canvas/canvas-section-agent.spec.ts) - canvas section agent covers its Playwright acceptance contract.
-- [tests/playwright/suites/13-canvas/canvas-section-zones.spec.ts](../../tests/playwright/suites/13-canvas/canvas-section-zones.spec.ts) - canvas section zones covers its Playwright acceptance contract.
-- [tests/playwright/suites/13-canvas/canvas-spec-plan-link.spec.ts](../../tests/playwright/suites/13-canvas/canvas-spec-plan-link.spec.ts) - canvas spec plan link covers its Playwright acceptance contract.
-- [tests/playwright/suites/13-canvas/canvas-tag-filter.spec.ts](../../tests/playwright/suites/13-canvas/canvas-tag-filter.spec.ts) - canvas tag filter covers its Playwright acceptance contract.
-- [tests/playwright/suites/13-canvas/canvas-task-titles.spec.ts](../../tests/playwright/suites/13-canvas/canvas-task-titles.spec.ts) - canvas task titles covers its Playwright acceptance contract.
-- [tests/playwright/suites/13-canvas/canvas-ux1-schematic.spec.ts](../../tests/playwright/suites/13-canvas/canvas-ux1-schematic.spec.ts) - canvas ux1 schematic covers its Playwright acceptance contract.
-- [tests/playwright/suites/13-canvas/canvas-visual-sweep.spec.ts](../../tests/playwright/suites/13-canvas/canvas-visual-sweep.spec.ts) - canvas visual sweep covers its Playwright acceptance contract.
-- [tests/playwright/suites/13-canvas/canvas-visual.spec.ts](../../tests/playwright/suites/13-canvas/canvas-visual.spec.ts) - canvas visual covers its Playwright acceptance contract.
-- [tests/playwright/suites/13-canvas/canvas-working-points.spec.ts](../../tests/playwright/suites/13-canvas/canvas-working-points.spec.ts) - canvas working points covers its Playwright acceptance contract.
-- [tests/playwright/suites/13-canvas/canvas-worlds-v2.spec.ts](../../tests/playwright/suites/13-canvas/canvas-worlds-v2.spec.ts) - canvas worlds v2 covers its Playwright acceptance contract.
-- [tests/playwright/suites/13-canvas/canvas-worlds-v3.spec.ts](../../tests/playwright/suites/13-canvas/canvas-worlds-v3.spec.ts) - canvas worlds v3 covers its Playwright acceptance contract.
-- [tests/playwright/suites/13-canvas/canvas-worlds.spec.ts](../../tests/playwright/suites/13-canvas/canvas-worlds.spec.ts) - canvas worlds covers its Playwright acceptance contract.
-- [tests/playwright/suites/13-canvas/canvas-zoom-drift.spec.ts](../../tests/playwright/suites/13-canvas/canvas-zoom-drift.spec.ts) - Canvas zoom and focus operations keep task geometry stable across camera changes.
 - [tests/playwright/suites/13-canvas/figma-acceptance-fixtures.spec.ts](../../tests/playwright/suites/13-canvas/figma-acceptance-fixtures.spec.ts) - figma acceptance fixtures covers its Playwright acceptance contract.
 - [tests/playwright/suites/13-canvas/mission-control-flow.spec.ts](../../tests/playwright/suites/13-canvas/mission-control-flow.spec.ts) - mission control flow covers its Playwright acceptance contract.
 - [tests/playwright/suites/13-canvas/plan-card-metadata.spec.ts](../../tests/playwright/suites/13-canvas/plan-card-metadata.spec.ts) - plan card metadata covers its Playwright acceptance contract.
@@ -87,6 +78,7 @@
 - [tests/playwright/suites/13-canvas/plan-view-mode.spec.ts](../../tests/playwright/suites/13-canvas/plan-view-mode.spec.ts) - plan view mode covers its Playwright acceptance contract.
 - [tests/playwright/suites/13-canvas/quiet-tab-chrome.spec.ts](../../tests/playwright/suites/13-canvas/quiet-tab-chrome.spec.ts) - quiet tab chrome covers its Playwright acceptance contract.
 - [tests/playwright/suites/13-canvas/tab-switch-latency.spec.ts](../../tests/playwright/suites/13-canvas/tab-switch-latency.spec.ts) - tab switch latency covers its Playwright acceptance contract.
+- [tests/playwright/suites/13-canvas/team-status-tally.spec.ts](../../tests/playwright/suites/13-canvas/team-status-tally.spec.ts) - A real Team plan renders every task-status bucket across sidebar widths.
 - [tests/playwright/suites/13-canvas/visual-regression.spec.ts](../../tests/playwright/suites/13-canvas/visual-regression.spec.ts) - visual-regression protects the key plan surfaces with screenshot goldens.
 - [tests/playwright/suites/13-canvas/workspace-plan-entry.spec.ts](../../tests/playwright/suites/13-canvas/workspace-plan-entry.spec.ts) - Workspace plan entry opens canvas/web plan surfaces from the sidebar flow.
 
@@ -96,7 +88,7 @@
 
 ### 14-memory-ui
 
-- [tests/playwright/suites/14-memory-ui/memory-tabl.spec.ts](../../tests/playwright/suites/14-memory-ui/memory-tabl.spec.ts) - Memory tabl supports list, detail, edit, and related-item navigation.
+- [tests/playwright/suites/14-memory-ui/memory-panel.spec.ts](../../tests/playwright/suites/14-memory-ui/memory-panel.spec.ts) - Memory panel supports list, detail, edit, and related-item navigation.
 
 ### 15-extensions
 
@@ -104,12 +96,19 @@
 
 ### 16-chat-view
 
-- [tests/playwright/suites/16-chat-view/chat-picker-default.spec.ts](../../tests/playwright/suites/16-chat-view/chat-picker-default.spec.ts) - Chat picker default settings honor prompted and explicit config states.
+- [tests/playwright/suites/16-chat-view/chat-picker-default.spec.ts](../../tests/playwright/suites/16-chat-view/chat-picker-default.spec.ts) - A tab's opening view follows chat capability until the user chooses otherwise.
+- [tests/playwright/suites/16-chat-view/chat-plan-links.spec.ts](../../tests/playwright/suites/16-chat-view/chat-plan-links.spec.ts) - Structured chat plan/task refs resolve through the global plan index and deep-link across workspaces.
 - [tests/playwright/suites/16-chat-view/chat-rendering.spec.ts](../../tests/playwright/suites/16-chat-view/chat-rendering.spec.ts) - Chat view renders empty, user, assistant, code, and image message shapes.
 - [tests/playwright/suites/16-chat-view/composer-focus-steal.spec.ts](../../tests/playwright/suites/16-chat-view/composer-focus-steal.spec.ts) - composer focus steal covers its Playwright acceptance contract.
+- [tests/playwright/suites/16-chat-view/composer-output-performance.spec.ts](../../tests/playwright/suites/16-chat-view/composer-output-performance.spec.ts) - Composer latency under a 25-tab agent/output fixture.
 - [tests/playwright/suites/16-chat-view/cursor-new-rebinds-session.spec.ts](../../tests/playwright/suites/16-chat-view/cursor-new-rebinds-session.spec.ts) - cursor new rebinds session covers its Playwright acceptance contract.
+- [tests/playwright/suites/16-chat-view/loading-card-visual.spec.ts](../../tests/playwright/suites/16-chat-view/loading-card-visual.spec.ts) - Agent loading, failure, and staffing cards remain legible in both themes.
 - [tests/playwright/suites/16-chat-view/opencode-assistant-replies.spec.ts](../../tests/playwright/suites/16-chat-view/opencode-assistant-replies.spec.ts) - opencode assistant replies covers its Playwright acceptance contract.
+- [tests/playwright/suites/16-chat-view/report-card-body.spec.ts](../../tests/playwright/suites/16-chat-view/report-card-body.spec.ts) - Report cards render the agent's free-form message alongside the structured status chip.
 - [tests/playwright/suites/16-chat-view/send-on-fresh-tab.spec.ts](../../tests/playwright/suites/16-chat-view/send-on-fresh-tab.spec.ts) - send on fresh tab covers its Playwright acceptance contract.
+- [tests/playwright/suites/16-chat-view/stale-boot-after-chat-attach.live.spec.ts](../../tests/playwright/suites/16-chat-view/stale-boot-after-chat-attach.live.spec.ts) - Attached Codex Chat remains authoritative after stale boot-stage events.
+- [tests/playwright/suites/16-chat-view/stub-chat-parity.spec.ts](../../tests/playwright/suites/16-chat-view/stub-chat-parity.spec.ts) - ChatView/tailer parity for the stub agent transport.
+- [tests/playwright/suites/16-chat-view/tool-output-cards.spec.ts](../../tests/playwright/suites/16-chat-view/tool-output-cards.spec.ts) - Shared tool-output cards retain complete transport envelopes behind a bounded preview.
 - [tests/playwright/suites/16-chat-view/watcher-tab.spec.ts](../../tests/playwright/suites/16-chat-view/watcher-tab.spec.ts) - watcher tab covers its Playwright acceptance contract.
 
 ### 17-open-shell
@@ -126,6 +125,15 @@
 - [tests/playwright/suites/19-web-stability/tab-switch-wake-resync.spec.ts](../../tests/playwright/suites/19-web-stability/tab-switch-wake-resync.spec.ts) - A wake resync cannot overwrite an immediate user tab switch with stale active_tab_id.
 - [tests/playwright/suites/19-web-stability/web-stability.spec.ts](../../tests/playwright/suites/19-web-stability/web-stability.spec.ts) - Web stability scenarios cover reconnect, grouped tab focus, and browser lifecycle edges.
 
+### 20-event-freeze
+
+- [tests/playwright/suites/20-event-freeze/event-freeze-probe.spec.ts](../../tests/playwright/suites/20-event-freeze/event-freeze-probe.spec.ts) - Quarantined desktop event-delivery and recovery probes for task_uwkt7p.
+
 ### 20-new-session
 
+- [tests/playwright/suites/20-new-session/picker-live.spec.ts](../../tests/playwright/suites/20-new-session/picker-live.spec.ts) - real-provider template routes launch their declared agent surfaces:
 - [tests/playwright/suites/20-new-session/picker.spec.ts](../../tests/playwright/suites/20-new-session/picker.spec.ts) - picker covers its Playwright acceptance contract.
+
+### 21-first-run
+
+- [tests/playwright/suites/21-first-run/first-run.spec.ts](../../tests/playwright/suites/21-first-run/first-run.spec.ts) - first run covers the core arrival flow — the General-agent picker surface and a live General Agent.
