@@ -27,6 +27,22 @@
     "agentStateStatusReconciliation": true,
     "supportsLazySkills": false,
     "hasHooks": true,
+    "hookEventRoster": [
+      {
+        "event": "SessionStart",
+        "route": "session_start"
+      },
+      {
+        "event": "session.status",
+        "route": "session_state",
+        "verdict": "working"
+      },
+      {
+        "event": "session.idle",
+        "route": "session_state",
+        "verdict": "idle"
+      }
+    ],
     "supportsStructuredPrompts": true,
     "structuredPromptServer": true
   },

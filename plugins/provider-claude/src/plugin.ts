@@ -645,12 +645,13 @@ const plugin: PluginModule = {
         settings_exists: false,
         hooks_installed: false,
         notification_hook: false,
+        permission_request_hook: false,
         stop_hook: false,
         precompact_hook: false,
         session_start_hook: false,
         target: path || "~/.claude/settings.json",
         backup_exists: !!path && host.fileExists(path + ".codeterm-backup"),
-        proposed_changes: ["Notification", "Stop", "SessionStart"],
+        proposed_changes: ["PermissionRequest", "Notification", "Stop", "SessionStart"],
       };
     }
     const json = host.fs.readJson<ClaudeSettings>(path);
@@ -700,19 +701,21 @@ const plugin: PluginModule = {
       return false;
     }
     const n = present("Notification");
+    const pr = present("PermissionRequest");
     const s = present("Stop");
     const pc = present("PreCompact");
     const ss = sessionStartCurrent();
     return {
       settings_exists: true,
-      hooks_installed: n && s && ss,
+      hooks_installed: n && pr && s && ss,
       notification_hook: n,
+      permission_request_hook: pr,
       stop_hook: s,
       precompact_hook: pc,
       session_start_hook: ss,
       target: path,
       backup_exists: host.fileExists(path + ".codeterm-backup"),
-      proposed_changes: ["Notification", "Stop", "SessionStart"],
+      proposed_changes: ["PermissionRequest", "Notification", "Stop", "SessionStart"],
     };
   },
 
@@ -758,7 +761,7 @@ const plugin: PluginModule = {
 
     const notifyCmd = guard + 'curl -s -o /dev/null -X POST "$CODETERM_API_URL'
       + '/api/tabs/$CODETERM_TAB_ID/hook/permission" '
-      + "-H 'Content-Type: application/json' " + authH + " -d '{}'" + finish;
+      + "-H 'Content-Type: application/json' " + authH + " " + nonceH + " --data-binary @-" + finish;
     const stopCmd = guard + 'curl -s -o /dev/null -X POST "$CODETERM_API_URL'
       + '/api/tabs/$CODETERM_TAB_ID/hook/stop" '
       + "-H 'Content-Type: application/json' " + authH + " -d '{}'" + finish;
@@ -780,17 +783,20 @@ const plugin: PluginModule = {
         }],
       };
     }
+    // PermissionRequest and Notification share the permission route and differ
+    // only in matcher: per-tool vs the vendor's late permission_prompt.
     const newHooks: Record<string, HookEntry> = {
-      Notification:  newEntry("permission_prompt", notifyCmd, 5000),
-      Stop:          newEntry("", stopCmd, 5000),
-      SessionStart:  newEntry("", sessionStartCmd, 5000),
+      PermissionRequest: newEntry("*", notifyCmd, 5000),
+      Notification:      newEntry("permission_prompt", notifyCmd, 5000),
+      Stop:              newEntry("", stopCmd, 5000),
+      SessionStart:      newEntry("", sessionStartCmd, 5000),
     };
     if (options.precompact_memory_export === true) {
       newHooks.PreCompact = newEntry("", precompactCmd, 10000);
     }
 
     // Remove existing codeterm hooks before appending to avoid stale leftovers.
-    const keys = ["Notification", "Stop", "PreCompact", "SessionStart"];
+    const keys = INTEGRATION_HOOK_KEYS;
     for (let i = 0; i < keys.length; i++) {
       const k = keys[i];
       if (json.hooks[k] !== undefined && !Array.isArray(json.hooks[k])) {
@@ -840,7 +846,7 @@ const plugin: PluginModule = {
     if (!json.hooks || typeof json.hooks !== "object" || Array.isArray(json.hooks)) {
       return { ok: false, error: "hooks is not an object" };
     }
-    const keys = ["Notification", "Stop", "PreCompact", "SessionStart"];
+    const keys = INTEGRATION_HOOK_KEYS;
     for (let i = 0; i < keys.length; i++) {
       const k = keys[i];
       if (json.hooks[k] !== undefined && !Array.isArray(json.hooks[k])) {
@@ -968,6 +974,7 @@ interface HookEntry { matcher?: string; hooks?: HookCmd[] }
 interface ClaudeSettings { hooks?: Record<string, HookEntry[]> }
 
 const CODETERM_HOOK_MARKER = "codeterm-hook-v3";
+const INTEGRATION_HOOK_KEYS = ["PermissionRequest", "Notification", "Stop", "PreCompact", "SessionStart"];
 
 function isCodetermHook(entry: HookEntry): boolean {
   const hooks = entry && entry.hooks;

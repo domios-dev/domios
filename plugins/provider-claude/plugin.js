@@ -1517,12 +1517,13 @@ var plugin = {
         settings_exists: false,
         hooks_installed: false,
         notification_hook: false,
+        permission_request_hook: false,
         stop_hook: false,
         precompact_hook: false,
         session_start_hook: false,
         target: path || "~/.claude/settings.json",
         backup_exists: !!path && host.fileExists(path + ".codeterm-backup"),
-        proposed_changes: ["Notification", "Stop", "SessionStart"]
+        proposed_changes: ["PermissionRequest", "Notification", "Stop", "SessionStart"]
       };
     }
     const json = host.fs.readJson(path);
@@ -1557,19 +1558,21 @@ var plugin = {
       return false;
     }
     const n = present("Notification");
+    const pr = present("PermissionRequest");
     const s = present("Stop");
     const pc = present("PreCompact");
     const ss = sessionStartCurrent();
     return {
       settings_exists: true,
-      hooks_installed: n && s && ss,
+      hooks_installed: n && pr && s && ss,
       notification_hook: n,
+      permission_request_hook: pr,
       stop_hook: s,
       precompact_hook: pc,
       session_start_hook: ss,
       target: path,
       backup_exists: host.fileExists(path + ".codeterm-backup"),
-      proposed_changes: ["Notification", "Stop", "SessionStart"]
+      proposed_changes: ["PermissionRequest", "Notification", "Stop", "SessionStart"]
     };
   },
   installIntegration(_apiPort, options) {
@@ -1605,7 +1608,7 @@ var plugin = {
     const authH = '-H "Authorization: Bearer $CODETERM_API_TOKEN"';
     const nonceH = '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}"';
     const finish = " || true; fi";
-    const notifyCmd = guard + `curl -s -o /dev/null -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/permission" -H 'Content-Type: application/json' ` + authH + " -d '{}'" + finish;
+    const notifyCmd = guard + `curl -s -o /dev/null -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/permission" -H 'Content-Type: application/json' ` + authH + " " + nonceH + " --data-binary @-" + finish;
     const stopCmd = guard + `curl -s -o /dev/null -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/stop" -H 'Content-Type: application/json' ` + authH + " -d '{}'" + finish;
     const precompactCmd = guard + `curl -s -o /dev/null -X POST "$CODETERM_API_URL/api/mem/flush" -H 'Content-Type: application/json' ` + authH + ` -d '{"tab":"'"$CODETERM_TAB_ID"'","title":"pre-compact"}'` + finish;
     const sessionStartCmd = guard + `curl -s -o /dev/null -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start" -H 'Content-Type: application/json' ` + authH + " " + nonceH + " --data-binary @-" + finish;
@@ -1621,6 +1624,7 @@ var plugin = {
       };
     }
     const newHooks = {
+      PermissionRequest: newEntry("*", notifyCmd, 5e3),
       Notification: newEntry("permission_prompt", notifyCmd, 5e3),
       Stop: newEntry("", stopCmd, 5e3),
       SessionStart: newEntry("", sessionStartCmd, 5e3)
@@ -1628,7 +1632,7 @@ var plugin = {
     if (options.precompact_memory_export === true) {
       newHooks.PreCompact = newEntry("", precompactCmd, 1e4);
     }
-    const keys = ["Notification", "Stop", "PreCompact", "SessionStart"];
+    const keys = INTEGRATION_HOOK_KEYS;
     for (let i = 0; i < keys.length; i++) {
       const k = keys[i];
       if (json.hooks[k] !== void 0 && !Array.isArray(json.hooks[k])) {
@@ -1672,7 +1676,7 @@ var plugin = {
     if (!json.hooks || typeof json.hooks !== "object" || Array.isArray(json.hooks)) {
       return { ok: false, error: "hooks is not an object" };
     }
-    const keys = ["Notification", "Stop", "PreCompact", "SessionStart"];
+    const keys = INTEGRATION_HOOK_KEYS;
     for (let i = 0; i < keys.length; i++) {
       const k = keys[i];
       if (json.hooks[k] !== void 0 && !Array.isArray(json.hooks[k])) {
@@ -1772,6 +1776,7 @@ function randomShortHex(len) {
   return out;
 }
 var CODETERM_HOOK_MARKER = "codeterm-hook-v3";
+var INTEGRATION_HOOK_KEYS = ["PermissionRequest", "Notification", "Stop", "PreCompact", "SessionStart"];
 function isCodetermHook(entry) {
   const hooks = entry && entry.hooks;
   if (!Array.isArray(hooks)) return false;

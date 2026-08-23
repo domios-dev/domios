@@ -7,7 +7,8 @@
 //!
 //! - a per-tab endpoint registry (`base_url` + `cwd`), populated at spawn;
 //! - a background subscriber thread per tab that turns SSE prompt events into
-//!   `tab.pending_prompt` (the PTY stays display-only for these classes);
+//!   `tab.pending_prompt` (the PTY stays display-only for these classes), and
+//!   commits any turn-state verdict the provider declared for a streamed event;
 //! - the active-prompt store the hot path reads ([`pending_for_tab`]);
 //! - the HTTP reply round-trip ([`respond`]), wired through the same
 //!   option-index contract the PTY send-back uses.
@@ -273,7 +274,13 @@ fn connect_and_stream(svc: &ServiceContext, tab_id: &str, base_url: &str, cwd: &
                     svc.push_structured_prompt(tab_id, None);
                 }
             }
-            ParsedEvent::Ignored => {}
+            // The bus already carries the provider's own turn state; what it
+            // declares in its roster is a verdict, not another ignored event.
+            ParsedEvent::Ignored => {
+                if let Some(event) = value.get("type").and_then(|t| t.as_str()) {
+                    crate::agent::state_verdict::observe_declared_event(svc, tab_id, event);
+                }
+            }
         }
     }
     false
