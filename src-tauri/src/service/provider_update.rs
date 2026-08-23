@@ -370,7 +370,7 @@ impl ServiceContext {
         install_writes: Vec<Vec<u8>>,
         decline_writes: Vec<Vec<u8>>,
     ) {
-        self.reconcile_closed_update_tabs();
+        let _ = self.reconcile_closed_update_tabs();
         let Some((pty_id, principal, work)) = self.provider_update_context(tab_id) else {
             return;
         };
@@ -456,7 +456,7 @@ impl ServiceContext {
     }
 
     pub fn list_provider_update_prompts(&self) -> Vec<ProviderUpdatePromptView> {
-        self.reconcile_closed_update_tabs();
+        let _ = self.reconcile_closed_update_tabs();
         self.provider_updates.list()
     }
 
@@ -465,7 +465,7 @@ impl ServiceContext {
         prompt_id: &str,
         accept: bool,
     ) -> Result<(), String> {
-        self.reconcile_closed_update_tabs();
+        let _ = self.reconcile_closed_update_tabs();
         // One press, one tab: a repeat press lands the user on the update
         // already running rather than racing a second installer against it.
         if accept {
@@ -879,10 +879,12 @@ impl ServiceContext {
 
     /// A closed update tab is the only terminating signal a visible run needs:
     /// its prompt fails loudly instead of pinning the source tab forever.
-    fn reconcile_closed_update_tabs(&self) {
+    /// Returns the prompts it terminated, so callers and tests can distinguish
+    /// "nothing to reconcile" from "reconciled but did not terminate".
+    fn reconcile_closed_update_tabs(&self) -> Vec<String> {
         let open = self.provider_updates.open_runner_tabs();
         if open.is_empty() {
-            return;
+            return Vec::new();
         }
         let closed: Vec<String> = {
             let mux = self.mux.read();
@@ -891,14 +893,17 @@ impl ServiceContext {
                 .map(|(prompt_id, _)| prompt_id)
                 .collect()
         };
+        let mut terminated = Vec::new();
         for prompt_id in closed {
             if let Some(entry) = self.provider_updates.get(&prompt_id) {
                 self.fail_provider_update(
                     entry,
                     "The update tab was closed before the update reported completion",
                 );
+                terminated.push(prompt_id);
             }
         }
+        terminated
     }
 
     fn provider_update_runner_prompt_id(&self, tab_id: &str) -> Option<String> {
