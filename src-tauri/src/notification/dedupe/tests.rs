@@ -72,7 +72,7 @@ fn notify_dedupe_same_message_reaches_the_sink_once() {
     };
 
     assert!(first.reaches_sink(), "the first arrival is delivered");
-    assert!(!second.reaches_sink(), "одного достаточно: the second is not");
+    assert!(!second.reaches_sink(), "one delivery is enough: the second is not");
     assert_eq!(
         second.id(),
         first.id(),
