@@ -471,6 +471,51 @@ fn closing_the_update_tab_fails_the_prompt_and_frees_the_source_tab() {
     assert_eq!(fresh[0].tab_id, tab_id);
 }
 
+/// The seam with N2: a DECLINE must stay latched (that is the hammering N2
+/// stopped), while a FAILED attempt must re-arm, or one closed update tab would
+/// silence that provider until it somehow installed itself.
+#[test]
+#[cfg_attr(not(windows), ignore = "mock Tauri desktop fixture")]
+fn a_declined_update_tab_stays_silent_while_a_failed_one_can_announce_again() {
+    let (declined, declined_tab, _ws, _probe) = general_fixture(TabAudience::User);
+    handle_prompt(&declined.service, &declined_tab, true);
+    let prompt = sole_prompt(&declined.service);
+    declined
+        .service
+        .respond_provider_update_prompt(&prompt.prompt_id, false)
+        .unwrap();
+    assert_eq!(
+        sole_prompt(&declined.service).status,
+        ProviderUpdateStatus::Declined
+    );
+    assert_eq!(
+        handle_prompt(&declined.service, &declined_tab, true),
+        ProviderUpdatePromptOutcome::ConditionAlreadyAnnounced,
+        "a declined update must not be announced again"
+    );
+
+    let (failed, failed_tab, _ws, _probe) = general_fixture(TabAudience::User);
+    handle_prompt(&failed.service, &failed_tab, true);
+    let prompt = sole_prompt(&failed.service);
+    failed
+        .service
+        .respond_provider_update_prompt(&prompt.prompt_id, true)
+        .unwrap();
+    let entry = failed
+        .service
+        .provider_updates
+        .get(&prompt.prompt_id)
+        .unwrap();
+    failed
+        .service
+        .fail_provider_update(entry, "the update command exited non-zero");
+    assert_eq!(
+        handle_prompt(&failed.service, &failed_tab, true),
+        ProviderUpdatePromptOutcome::Raised(ProviderUpdateStatus::AwaitingConsent),
+        "a failed update leaves the condition unresolved, so it is news again"
+    );
+}
+
 /// No Tauri app, no channel, no fixture: proves the state transition the
 /// closed-tab path depends on, so a failure here is the mechanism and a failure
 /// only in the fixture test above is the harness.
