@@ -52,6 +52,13 @@ fn general_fixture(
     (fixture, tab_id, general_workspace, receiver)
 }
 
+/// The single live prompt, read from state rather than awaited on the channel.
+fn sole_prompt(service: &ServiceContext) -> ProviderUpdatePromptView {
+    let mut prompts = service.list_provider_update_prompts();
+    assert_eq!(prompts.len(), 1, "expected exactly one update prompt");
+    prompts.remove(0)
+}
+
 /// `(tab_id, pty_id)` of the tab the press raised.
 fn update_tab(service: &ServiceContext, prompt_id: &str) -> (String, String) {
     let tab_id = service
@@ -399,30 +406,120 @@ fn a_failed_update_tab_stays_visible_and_is_never_reported_as_success() {
 #[test]
 #[cfg_attr(not(windows), ignore = "mock Tauri desktop fixture")]
 fn closing_the_update_tab_fails_the_prompt_and_frees_the_source_tab() {
-    let (fixture, tab_id, _, receiver) = general_fixture(TabAudience::User);
+    // Every observation here is a direct state read. The mechanism under test is
+    // derived from the multiplexer, not announced as an event, so waiting on the
+    // effect channel would only reintroduce a deadline — and a deadline cannot
+    // tell "never fired" apart from "fired and did the wrong thing".
+    let (fixture, tab_id, _general_workspace, _probe) = general_fixture(TabAudience::User);
     handle_prompt(&fixture.service, &tab_id, true);
-    let prompt = await_status(&receiver, ProviderUpdateStatus::AwaitingConsent);
+    let prompt = sole_prompt(&fixture.service);
+    assert_eq!(prompt.status, ProviderUpdateStatus::AwaitingConsent);
+
     fixture
         .service
         .respond_provider_update_prompt(&prompt.prompt_id, true)
         .unwrap();
-    await_status(&receiver, ProviderUpdateStatus::Installing);
+    assert_eq!(
+        sole_prompt(&fixture.service).status,
+        ProviderUpdateStatus::Installing
+    );
     let (update_tab_id, _) = update_tab(&fixture.service, &prompt.prompt_id);
 
     fixture.service.mux.write().close_tab(&update_tab_id).unwrap();
 
-    let statuses: Vec<_> = fixture
+    // 1. Did reconciliation fire at all, and on which prompt?
+    let terminated = fixture.service.reconcile_closed_update_tabs();
+    assert_eq!(
+        terminated,
+        vec![prompt.prompt_id.clone()],
+        "a closed update tab must terminate exactly its own prompt"
+    );
+
+    // 2. Did terminating record the failure rather than a silent success?
+    let closed: Vec<_> = fixture
         .service
         .list_provider_update_prompts()
         .into_iter()
         .filter(|view| view.prompt_id == prompt.prompt_id)
         .map(|view| view.status)
         .collect();
-    assert_eq!(statuses, vec![ProviderUpdateStatus::Failed]);
+    assert_eq!(closed, vec![ProviderUpdateStatus::Failed]);
 
+    // 3. Is the source tab actually free again? A count of 0 means it is still
+    //    pinned; a Declined status means it prompted but lost authority.
     handle_prompt(&fixture.service, &tab_id, true);
-    let reopened = await_status(&receiver, ProviderUpdateStatus::AwaitingConsent);
-    assert_ne!(reopened.prompt_id, prompt.prompt_id);
+    let fresh: Vec<_> = fixture
+        .service
+        .list_provider_update_prompts()
+        .into_iter()
+        .filter(|view| view.prompt_id != prompt.prompt_id)
+        .collect();
+    assert_eq!(
+        fresh.len(),
+        1,
+        "the freed source tab must raise exactly one new prompt"
+    );
+    assert_eq!(fresh[0].status, ProviderUpdateStatus::AwaitingConsent);
+    assert_eq!(fresh[0].tab_id, tab_id);
+}
+
+/// No Tauri app, no channel, no fixture: proves the state transition the
+/// closed-tab path depends on, so a failure here is the mechanism and a failure
+/// only in the fixture test above is the harness.
+#[test]
+fn update_tab_termination_frees_the_source_tab_for_a_new_prompt() {
+    let registry = ProviderUpdateRegistry::default();
+    let prompt_id = "prompt-close".to_string();
+    registry.insert(PendingProviderUpdate {
+        view: ProviderUpdatePromptView {
+            prompt_id: prompt_id.clone(),
+            tab_id: "source-tab".into(),
+            provider_name: "Provider".into(),
+            restart_required: true,
+            status: ProviderUpdateStatus::Installing,
+            message: "Installing".into(),
+        },
+        provider_id: "provider-fixture".into(),
+        pty_id: "source-pty".into(),
+        capability: capability(true),
+        install_writes: Vec::new(),
+        decline_writes: Vec::new(),
+        consent: Some(RecordedConsent {
+            prompt_id: prompt_id.clone(),
+        }),
+        phase: ProviderUpdatePhase::Installing,
+        waiter_started: false,
+        runner_tab_id: Some("update-tab".into()),
+        runner_pty_id: Some("update-pty".into()),
+        install_submitted: true,
+    });
+
+    assert_eq!(
+        registry.open_runner_tabs(),
+        vec![(prompt_id.clone(), "update-tab".to_string())],
+        "a live update tab is what reconciliation looks up"
+    );
+    assert!(
+        registry.has_open_source("source-tab", "provider-fixture"),
+        "a live update pins its source tab"
+    );
+
+    let entry = registry.get(&prompt_id).unwrap();
+    registry.finish(
+        entry,
+        ProviderUpdateStatus::Failed,
+        "the update tab was closed".into(),
+    );
+
+    assert!(registry.open_runner_tabs().is_empty());
+    assert!(
+        !registry.has_open_source("source-tab", "provider-fixture"),
+        "a terminated update frees its source tab to prompt again"
+    );
+    assert!(
+        registry.runner_tab(&prompt_id).is_none(),
+        "a terminated prompt has no tab left to focus"
+    );
 }
 
 #[test]
