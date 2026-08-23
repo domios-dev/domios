@@ -226,7 +226,8 @@ impl ServiceContext {
                     None
                 };
                 // Structured handles (SSE/API) win; the native attributed-grid detector
-                // is the PTY fallback. Tier order + chrome/prose negatives: native_prompt tests.
+                // is the PTY fallback. Resolution carries the provenance, so a scrape
+                // is never recorded as structured.
                 let parsed = crate::agent::prompt::parse_prompt_safely(|| {
                     crate::agent::native_prompt::resolve_pending_prompt(
                         structured,

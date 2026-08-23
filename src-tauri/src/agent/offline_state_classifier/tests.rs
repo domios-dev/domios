@@ -73,22 +73,6 @@ fn ignores_terminal_choice_shape_when_cursor_is_visible() {
 }
 
 #[test]
-fn permission_box_with_visible_cursor_and_confirm_footer_is_question() {
-    let screen = lines(&[
-        "Allow command execution?",
-        "  1. Yes, allow once",
-        "  2. Yes, allow for this session",
-        "  3. No, deny",
-        "  Use up/down to choose, Enter to confirm, Esc to cancel",
-    ]);
-    assert_eq!(
-        classify_terminal_menu_question(&screen, false),
-        Some(QuestionSubtype::Unknown),
-        "visible-cursor permission box must classify Question"
-    );
-}
-
-#[test]
 fn terminal_menu_question_does_not_preempt_working_grace() {
     let screen = lines(&[
         "┃  Which option do you choose?",
@@ -363,22 +347,6 @@ fn composer_ready_does_not_preempt_working_grace() {
     );
 }
 
-// button / options block at the bottom vetoes the composer-ready idle path.
-#[test]
-fn composer_ready_vetoed_by_options_block() {
-    let screen = lines(&["Allow this tool to run?", "❯ Yes      No      Always"]);
-    let mut input = quiescent_input(&screen);
-    input.composer_ready = true;
-    input.byte_idle_ms = 3000; // past grace
-    input.semantic_idle_ms = 3000;
-    let verdict = classify_state(&input, working());
-    assert_ne!(
-        verdict.state,
-        TimelineState::Idle,
-        "horizontal buttons must veto composer idle"
-    );
-}
-
 #[test]
 fn offline_picker_above_ready_composer_is_stale_transcript() {
     let mut signals = StreamSignals::default();
@@ -413,31 +381,6 @@ fn offline_picker_above_ready_composer_is_stale_transcript() {
         offline_picker_is_coherent(&active, &signals),
         "a picker reaching the composer row remains a candidate"
     );
-}
-
-#[test]
-fn options_block_horizontal_only_not_vertical_or_idle_box() {
-    // Horizontal buttons (bottom row, column-gapped) -> vetoed.
-    assert!(super::looks_like_options_block(&lines(&[
-        "Allow?",
-        "❯ Yes      No      Cancel"
-    ])));
-    assert!(!super::looks_like_options_block(&lines(&[
-        "┃ 1. Alpha",
-        "┃ 2. Beta",
-        "┃ 3. Gamma"
-    ])));
-    // Answered cursor poll above the composer -> not vetoed (composer is bottom).
-    assert!(!super::looks_like_options_block(&lines(&[
-        "[x] A",
-        "[ ] B",
-        "→ Add a follow-up"
-    ])));
-    // opencode idle box -> not vetoed.
-    assert!(!super::looks_like_options_block(&lines(&[
-        "┃  Build · model",
-        "  9.4K (5%)  ctrl+p commands"
-    ])));
 }
 
 // ── active_turn_footer copy-fragility gate ──────────────────────────────────

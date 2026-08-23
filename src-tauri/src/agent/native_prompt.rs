@@ -12,14 +12,33 @@ pub fn pending_prompt_from_input(input: &NativePromptInput) -> Option<PendingPro
     Some(pending_prompt_from_detection(detection))
 }
 
+/// A resolved pending prompt carrying the provenance it was resolved from.
+/// `explicit` is true ONLY for a structured handle (push/API). A screen scrape
+/// is always false, so a scrape can never be reported as structured.
+#[derive(Debug, Clone)]
+pub struct ResolvedPrompt {
+    pub prompt: PendingPrompt,
+    pub explicit: bool,
+}
+
 /// Live-path resolution for a tab's pending-prompt card.
 /// A structured handle (push/API) wins; otherwise the structurally gated
 /// attributed-grid detector extracts the picker from the tab's own screen.
+/// Provenance is preserved through the resolution instead of being discarded.
 pub fn resolve_pending_prompt(
     structured: Option<PendingPrompt>,
     input: Option<&NativePromptInput>,
-) -> Option<PendingPrompt> {
-    structured.or_else(|| input.and_then(pending_prompt_from_input))
+) -> Option<ResolvedPrompt> {
+    if let Some(prompt) = structured {
+        return Some(ResolvedPrompt {
+            prompt,
+            explicit: true,
+        });
+    }
+    Some(ResolvedPrompt {
+        prompt: input.and_then(pending_prompt_from_input)?,
+        explicit: false,
+    })
 }
 
 pub fn pending_prompt_from_signals(
@@ -229,10 +248,13 @@ mod tests {
             let native = pending_prompt_from_input(&input).unwrap_or_else(|| {
                 panic!("{case}: precondition — the fingerprint accepts this frame")
             });
-            assert_eq!(
-                resolve_pending_prompt(None, Some(&input)),
-                Some(native),
-                "{case}: live resolution dropped a detector-accepted picker"
+            let resolved = resolve_pending_prompt(None, Some(&input)).unwrap_or_else(|| {
+                panic!("{case}: live resolution dropped a detector-accepted picker")
+            });
+            assert_eq!(resolved.prompt, native, "{case}");
+            assert!(
+                !resolved.explicit,
+                "{case}: a scrape must never be resolved as structured"
             );
         }
     }
@@ -248,10 +270,10 @@ mod tests {
             submit_available: None,
             selected_values: None,
         };
-        assert_eq!(
-            resolve_pending_prompt(Some(structured.clone()), Some(&input)),
-            Some(structured)
-        );
+        let resolved = resolve_pending_prompt(Some(structured.clone()), Some(&input))
+            .expect("the structured handle resolves");
+        assert_eq!(resolved.prompt, structured);
+        assert!(resolved.explicit, "a structured handle keeps structured provenance");
     }
 
     #[test]
