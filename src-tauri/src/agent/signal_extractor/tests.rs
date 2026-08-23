@@ -1,7 +1,7 @@
 use super::*;
 
 fn none_hint() -> VolatileHint {
-    VolatileHint::default()
+    VolatileHint { bottom_rows: 0 }
 }
 
 #[test]
