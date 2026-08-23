@@ -6,6 +6,8 @@ use serde::Serialize;
 
 use crate::agent::provider::{ProviderSelfUpdateCapability, ProviderUpdateCompletionSignal};
 use crate::agent::status::TabStatus;
+use crate::notification::dedupe::{provider_update_condition, ConditionTransition};
+use crate::notification::push::tab_scope;
 use crate::multiplexer::types::{PendingDeliveryState, TabAudience};
 
 use super::ServiceContext;
@@ -390,6 +392,13 @@ impl ServiceContext {
         if self.provider_updates.has_open_source(tab_id, provider_id) {
             return;
         }
+        // "An update is available" stays true until it is installed. Announce
+        // the transition; a later observation of the same state is not news.
+        if self.announce_provider_update_available(tab_id, provider_id)
+            == ConditionTransition::AlreadyAnnounced
+        {
+            return;
+        }
         let provider_name = self
             .agent_registry
             .with_provider(provider_id, |provider| provider.display_name().to_string())
@@ -630,10 +639,25 @@ impl ServiceContext {
         });
     }
 
+    fn announce_provider_update_available(
+        &self,
+        tab_id: &str,
+        provider_id: &str,
+    ) -> ConditionTransition {
+        self.notif
+            .lock()
+            .observe_condition_present(&tab_scope(tab_id), &provider_update_condition(provider_id))
+    }
+
     pub(crate) fn handle_provider_update_completed(&self, tab_id: &str, pty_id: &str) {
         let Some(entry) = self.provider_updates.claim_completion(tab_id, pty_id) else {
             return;
         };
+        // The condition resolved, so a genuinely new update announces again.
+        self.notif.lock().observe_condition_absent(
+            &tab_scope(&entry.view.tab_id),
+            &provider_update_condition(&entry.provider_id),
+        );
         let restart_required = entry
             .capability
             .is_some_and(|capability| capability.restart_required);

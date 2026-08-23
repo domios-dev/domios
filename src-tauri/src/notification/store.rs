@@ -3,6 +3,9 @@ use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
+use super::dedupe::{
+    ConditionLedger, ConditionTransition, DeliveryAdmission, DeliveryLedger, NotificationIdentity,
+};
 use super::push::PushCategory;
 
 #[derive(Debug, Clone, Serialize)]
@@ -38,7 +41,7 @@ pub struct NotificationProvenance {
     pub peer_name: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, Hash)]
 pub enum NotificationLevel {
     Info,
     Warning,
@@ -111,6 +114,10 @@ pub struct NotificationStore {
     push_slots: HashMap<(String, PushCategory), PushSlot>,
     /// Lifetime push count per scope. A count, so no clock can advance it.
     push_counts: HashMap<String, u32>,
+    /// Live identities of unread records: the same message twice opens one.
+    deliveries: DeliveryLedger,
+    /// Standing conditions already announced, so re-observation stays quiet.
+    conditions: ConditionLedger,
 }
 
 impl NotificationStore {
@@ -121,6 +128,8 @@ impl NotificationStore {
             max_notifications: max,
             push_slots: HashMap::new(),
             push_counts: HashMap::new(),
+            deliveries: DeliveryLedger::default(),
+            conditions: ConditionLedger::default(),
         }
     }
 
@@ -183,9 +192,45 @@ impl NotificationStore {
         while self.notifications.len() > self.max_notifications {
             let evicted = self.notifications.remove(0);
             self.close_push_slot_for(&evicted.id);
+            self.deliveries.release(&evicted.id);
         }
 
         id
+    }
+
+    /// Add a notification unless an identical one is already live. Identity is
+    /// derived here, so no caller can opt out of it.
+    pub fn add_deduped(
+        &mut self,
+        title: String,
+        body: Option<String>,
+        level: NotificationLevel,
+        provenance: NotificationProvenance,
+        actions: Option<serde_json::Value>,
+        sticky: Option<bool>,
+    ) -> DeliveryAdmission {
+        let identity = NotificationIdentity::of(&provenance, &level, &title, body.as_deref());
+        if let Some(id) = self.deliveries.existing(&identity) {
+            return DeliveryAdmission::Duplicate(id);
+        }
+        let id = self.add_ext(title, body, level, provenance, actions, sticky);
+        self.deliveries.bind(identity, id.clone());
+        DeliveryAdmission::Deliver(id)
+    }
+
+    /// Observe a condition that stays true. Only the absent -> present edge is
+    /// news; every later observation of the same condition is the same news.
+    pub fn observe_condition_present(
+        &mut self,
+        scope: &str,
+        condition: &str,
+    ) -> ConditionTransition {
+        self.conditions.observe_present(scope, condition)
+    }
+
+    /// The condition resolved, so a later recurrence is a fresh transition.
+    pub fn observe_condition_absent(&mut self, scope: &str, condition: &str) {
+        self.conditions.observe_absent(scope, condition);
     }
 
     /// Admit a push-eligible notification. Dedup and coalescing are decided
@@ -287,6 +332,8 @@ impl NotificationStore {
         self.push_slots
             .retain(|(slot_scope, _), _| slot_scope != scope);
         self.push_counts.remove(scope);
+        self.deliveries.release_scope(scope);
+        self.conditions.close_scope(scope);
     }
 
     fn close_push_slot_for(&mut self, id: &str) {
@@ -334,6 +381,7 @@ impl NotificationStore {
         if let Some(n) = self.notifications.iter_mut().find(|n| n.id == id) {
             n.read = true;
             self.close_push_slot_for(id);
+            self.deliveries.release(id);
             true
         } else {
             false
@@ -346,11 +394,13 @@ impl NotificationStore {
                 self.notifications.retain(|n| n.id != id);
                 self.provider_updates.retain(|_, value| value != id);
                 self.close_push_slot_for(id);
+                self.deliveries.release(id);
             }
             None => {
                 self.notifications.clear();
                 self.provider_updates.clear();
                 self.push_slots.clear();
+                self.deliveries.clear();
             }
         }
     }
