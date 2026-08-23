@@ -1187,7 +1187,7 @@ List notifications
 Send a notification
 
 - `--body` — Notification body
-- `--category` — Opt-in push category. Omit for a local-only notification
+- `--category` — Category that lets this alert reach the user. Omit to file it in the bell only
 - `--event-key` — Stable identity for coalescing. Derived from the title when omitted
 - `--level` — Notification level: info, warning, error
 - `<title>` — Notification title

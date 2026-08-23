@@ -46,7 +46,7 @@ pub(crate) fn parse_push_intent(
     let category = match category.map(str::trim).filter(|c| !c.is_empty()) {
         None => None,
         Some(raw) => Some(
-            crate::notification::push::PushCategory::parse(raw)
+            crate::notification::push::NotifyCategory::parse(raw)
                 .ok_or("Unknown notification category: expected milestone, blocker or failure")?,
         ),
     };

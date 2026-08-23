@@ -5197,7 +5197,7 @@
                 "failure"
               ],
               "default": null,
-              "help": "Opt-in push category. Omit for a local-only notification",
+              "help": "Category that lets this alert reach the user. Omit to file it in the bell only",
               "aliases": []
             },
             {

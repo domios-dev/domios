@@ -46,6 +46,11 @@ copy_on_select = false
 desktop = true
 sound = false
 toast_duration = 5  # seconds
+# Agent alerts are gated by category: only milestones, blockers and failures can
+# raise a desktop alert. Anything else stays in the bell instead of interrupting.
+# [[notifications.agent_categories]]
+# category = "milestone"
+# enabled = true
 
 [keybindings]
 new_tab = "Ctrl+T"

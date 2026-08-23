@@ -156,6 +156,8 @@ const HTTP_MAP: Record<string, Mapper> = {
       level: a.level,
       tab_id: a.tabId,
       workspace_id: a.workspaceId,
+      category: a.category,
+      event_key: a.eventKey,
     }),
   mark_notification_read: (a) =>
     webJson("POST", `/api/notifications/${enc(s(a, "id"))}/read`),

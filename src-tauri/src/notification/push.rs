@@ -1,47 +1,17 @@
-//! Opt-in Telegram push channel: a closed category set, clock-free coalescing
-//! keys, and length-capped rendering over daemon-resolved provenance.
+//! Opt-in Telegram push channel: the shared closed category set, clock-free
+//! coalescing keys, and length-capped rendering over daemon-resolved provenance.
 
 use super::store::NotificationProvenance;
 use codeterm_types::config::schema::TelegramNotifyConfig;
+pub use codeterm_types::notification::NotifyCategory;
 
-/// The complete set of push-eligible categories. Routine progress has no
-/// variant, so it is unsendable rather than merely undelivered.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum PushCategory {
-    Milestone,
-    Blocker,
-    Failure,
-}
-
-/// Wire values, in the same order as the CLI `value_enum`.
-#[cfg(test)]
-const PUSH_CATEGORY_VALUES: [&str; 3] = ["milestone", "blocker", "failure"];
-
-impl PushCategory {
-    /// Unknown input is a rejection, never a pass-through string.
-    pub fn parse(raw: &str) -> Option<Self> {
-        match raw.trim() {
-            "milestone" => Some(Self::Milestone),
-            "blocker" => Some(Self::Blocker),
-            "failure" => Some(Self::Failure),
-            _ => None,
-        }
-    }
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Milestone => "milestone",
-            Self::Blocker => "blocker",
-            Self::Failure => "failure",
-        }
-    }
-
-    fn label(self) -> &'static str {
-        match self {
-            Self::Milestone => "Milestone",
-            Self::Blocker => "Needs you",
-            Self::Failure => "Failed",
-        }
+/// Telegram-facing display copy for a category. Rendering only — the category
+/// set itself is `NotifyCategory`, which the desktop gate reads unchanged.
+fn label(category: NotifyCategory) -> &'static str {
+    match category {
+        NotifyCategory::Milestone => "Milestone",
+        NotifyCategory::Blocker => "Needs you",
+        NotifyCategory::Failure => "Failed",
     }
 }
 
@@ -95,14 +65,14 @@ fn collapse(text: &str) -> String {
 /// Render a push body. Reads only the title, the agent body, and the resolved
 /// provenance labels — never cwd, prompt text, task text, logs, or ids.
 pub fn render_push(
-    category: PushCategory,
+    category: NotifyCategory,
     title: &str,
     body: Option<&str>,
     provenance: &NotificationProvenance,
 ) -> String {
     let mut lines = vec![format!(
         "[{}] {}",
-        category.label(),
+        label(category),
         cap(&collapse(title), MAX_TITLE_CHARS)
     )];
     if let Some(body) = body.map(collapse).filter(|b| !b.is_empty()) {
@@ -168,7 +138,7 @@ mod telegram_render {
         assert!(oversized_body.chars().count() > MAX_BODY_CHARS);
 
         let rendered = render_push(
-            PushCategory::Failure,
+            NotifyCategory::Failure,
             &oversized_title,
             Some(&oversized_body),
             &provenance(),
@@ -193,14 +163,14 @@ mod telegram_render {
     #[test]
     fn multibyte_truncation_stays_on_char_boundaries() {
         let title = "я".repeat(MAX_TITLE_CHARS + 10);
-        let rendered = render_push(PushCategory::Milestone, &title, None, &provenance());
+        let rendered = render_push(NotifyCategory::Milestone, &title, None, &provenance());
         assert_eq!(rendered.matches('я').count(), MAX_TITLE_CHARS);
     }
 
     #[test]
     fn rendered_push_never_carries_ids_or_workspace() {
         let rendered = render_push(
-            PushCategory::Blocker,
+            NotifyCategory::Blocker,
             "approval needed",
             Some("continue with the destructive step?"),
             &provenance(),
@@ -212,12 +182,12 @@ mod telegram_render {
 
     #[test]
     fn progress_is_not_a_parseable_category() {
-        assert_eq!(PushCategory::parse("progress"), None);
-        assert_eq!(PushCategory::parse("info"), None);
-        assert_eq!(PushCategory::parse(""), None);
-        for value in PUSH_CATEGORY_VALUES {
+        assert_eq!(NotifyCategory::parse("progress"), None);
+        assert_eq!(NotifyCategory::parse("info"), None);
+        assert_eq!(NotifyCategory::parse(""), None);
+        for value in NotifyCategory::wire_values() {
             assert!(
-                PushCategory::parse(value).is_some(),
+                NotifyCategory::parse(value).is_some(),
                 "{value} is one of the three expressible categories"
             );
         }

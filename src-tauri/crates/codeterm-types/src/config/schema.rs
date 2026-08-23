@@ -244,6 +244,9 @@ pub struct NotificationConfig {
     pub sound: bool,
     pub toast_duration: u32,
     pub telegram: TelegramNotifyConfig,
+    /// The desktop gate's user-visible rows. An agent notification naming no
+    /// category, or a category switched off here, stays in the inbox.
+    pub agent_categories: Vec<AgentCategoryChoice>,
 }
 
 impl Default for NotificationConfig {
@@ -253,8 +256,29 @@ impl Default for NotificationConfig {
             sound: false,
             toast_duration: 5,
             telegram: TelegramNotifyConfig::default(),
+            agent_categories: default_agent_categories(),
         }
     }
+}
+
+/// One row of the desktop gate as the user sees it. Settings render this list
+/// rather than restating the category set, so the UI cannot drift from it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentCategoryChoice {
+    pub category: String,
+    pub enabled: bool,
+}
+
+/// Generated from the shared definition, never restated, so the desktop rows
+/// and the push channel cannot know different categories.
+pub fn default_agent_categories() -> Vec<AgentCategoryChoice> {
+    crate::notification::NotifyCategory::ALL
+        .into_iter()
+        .map(|category| AgentCategoryChoice {
+            category: category.as_str().to_string(),
+            enabled: true,
+        })
+        .collect()
 }
 
 fn default_per_scope_limit() -> u32 {
