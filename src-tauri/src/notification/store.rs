@@ -6,7 +6,7 @@ use uuid::Uuid;
 use super::dedupe::{
     ConditionLedger, ConditionTransition, DeliveryAdmission, DeliveryLedger, NotificationIdentity,
 };
-use super::push::PushCategory;
+use super::push::NotifyCategory;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Notification {
@@ -91,7 +91,7 @@ impl PushAdmission {
 /// caller cannot opt out of either.
 pub struct PushRequest {
     pub scope: String,
-    pub category: PushCategory,
+    pub category: NotifyCategory,
     pub event_key: String,
     pub title: String,
     pub body: Option<String>,
@@ -111,7 +111,7 @@ pub struct NotificationStore {
     max_notifications: usize,
     /// One open coalescing slot per (scope, category). Closed on read, clear,
     /// eviction or tab close — never by elapsed time.
-    push_slots: HashMap<(String, PushCategory), PushSlot>,
+    push_slots: HashMap<(String, NotifyCategory), PushSlot>,
     /// Lifetime push count per scope. A count, so no clock can advance it.
     push_counts: HashMap<String, u32>,
     /// Live identities of unread records: the same message twice opens one.
@@ -566,7 +566,7 @@ mod tests {
 
         fn request(
             tab_id: &str,
-            category: PushCategory,
+            category: NotifyCategory,
             supplied_key: Option<&str>,
             title: &str,
             body: &str,
@@ -601,7 +601,7 @@ mod tests {
             let mut store = NotificationStore::new(10);
             let first = store.add_push(request(
                 "tab_a",
-                PushCategory::Milestone,
+                NotifyCategory::Milestone,
                 Some(KEY),
                 FIRST_TITLE,
                 FIRST_BODY,
@@ -609,7 +609,7 @@ mod tests {
             ));
             let second = store.add_push(request(
                 "tab_a",
-                PushCategory::Milestone,
+                NotifyCategory::Milestone,
                 Some(KEY),
                 SECOND_TITLE,
                 SECOND_BODY,
@@ -634,7 +634,7 @@ mod tests {
             let mut store = NotificationStore::new(10);
             let first = store.add_push(request(
                 "tab_a",
-                PushCategory::Milestone,
+                NotifyCategory::Milestone,
                 Some(KEY),
                 "Build started",
                 "one",
@@ -644,7 +644,7 @@ mod tests {
 
             let after_read = store.add_push(request(
                 "tab_a",
-                PushCategory::Milestone,
+                NotifyCategory::Milestone,
                 Some(KEY),
                 "Build started again",
                 "two",
@@ -663,7 +663,7 @@ mod tests {
             let mut store = NotificationStore::new(10);
             let first = store.add_push(request(
                 "tab_a",
-                PushCategory::Milestone,
+                NotifyCategory::Milestone,
                 Some("step-1"),
                 "Step one done",
                 "first body",
@@ -671,7 +671,7 @@ mod tests {
             ));
             let second = store.add_push(request(
                 "tab_a",
-                PushCategory::Milestone,
+                NotifyCategory::Milestone,
                 Some("step-2"),
                 "Step two done",
                 "second body",
@@ -704,7 +704,7 @@ mod tests {
                 keys.push(key.clone());
                 outcomes.push(store.add_push(request(
                     "tab_a",
-                    PushCategory::Milestone,
+                    NotifyCategory::Milestone,
                     Some(&key),
                     &format!("Milestone {step}"),
                     "body",
@@ -747,7 +747,7 @@ mod tests {
             let mut store = NotificationStore::new(10);
             let first = store.add_push(request(
                 "tab_a",
-                PushCategory::Milestone,
+                NotifyCategory::Milestone,
                 Some("event-1"),
                 "One",
                 "body",
@@ -758,7 +758,7 @@ mod tests {
 
             let after_clear = store.add_push(request(
                 "tab_a",
-                PushCategory::Milestone,
+                NotifyCategory::Milestone,
                 Some("event-2"),
                 "Two",
                 "body",
@@ -777,7 +777,7 @@ mod tests {
             let scope = push::scope_key(&provenance_for("tab_a"));
             store.add_push(request(
                 "tab_a",
-                PushCategory::Milestone,
+                NotifyCategory::Milestone,
                 Some("event-1"),
                 "One",
                 "body",
@@ -787,7 +787,7 @@ mod tests {
 
             let reopened = store.add_push(request(
                 "tab_a",
-                PushCategory::Milestone,
+                NotifyCategory::Milestone,
                 Some("event-2"),
                 "Two",
                 "body",
@@ -802,7 +802,7 @@ mod tests {
             let mut store = NotificationStore::new(10);
             let first = store.add_push(request(
                 "tab_a",
-                PushCategory::Blocker,
+                NotifyCategory::Blocker,
                 None,
                 "Approval required",
                 "first body",
@@ -810,7 +810,7 @@ mod tests {
             ));
             let second = store.add_push(request(
                 "tab_a",
-                PushCategory::Blocker,
+                NotifyCategory::Blocker,
                 None,
                 "Approval required",
                 "second body",
@@ -830,7 +830,7 @@ mod tests {
             let mut store = NotificationStore::new(10);
             let milestone = store.add_push(request(
                 "tab_a",
-                PushCategory::Milestone,
+                NotifyCategory::Milestone,
                 Some("shared"),
                 "A",
                 "body",
@@ -838,7 +838,7 @@ mod tests {
             ));
             let blocker = store.add_push(request(
                 "tab_a",
-                PushCategory::Blocker,
+                NotifyCategory::Blocker,
                 Some("shared"),
                 "B",
                 "body",
@@ -846,7 +846,7 @@ mod tests {
             ));
             let other_tab = store.add_push(request(
                 "tab_b",
-                PushCategory::Milestone,
+                NotifyCategory::Milestone,
                 Some("shared"),
                 "C",
                 "body",
@@ -864,7 +864,7 @@ mod tests {
             let mut store = NotificationStore::new(10);
             let admitted = store.add_push(request(
                 "tab_a",
-                PushCategory::Failure,
+                NotifyCategory::Failure,
                 Some("event-1"),
                 "Terminal failure",
                 "body",
