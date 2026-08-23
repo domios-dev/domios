@@ -73,7 +73,8 @@ fn notify_gate_push_and_desktop_read_one_category_definition() {
         );
     }
 
-    let shipped: Vec<&str> = NotificationConfig::default()
+    let cfg = NotificationConfig::default();
+    let shipped: Vec<&str> = cfg
         .agent_categories
         .iter()
         .map(|row| row.category.as_str())
