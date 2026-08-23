@@ -129,6 +129,9 @@ pub enum HookIngestionRoute {
     Stop,
     SessionStart,
     MemFlush,
+    /// A provider reporting its own live turn state. Separate from `Stop`,
+    /// which is a turn-completion notification with side effects.
+    SessionState,
 }
 
 impl HookIngestionRoute {
@@ -138,13 +141,46 @@ impl HookIngestionRoute {
     }
 }
 
+/// The structured live-state verdict a `session_state` event commits to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderStateVerdict {
+    Working,
+    Idle,
+}
+
+impl ProviderStateVerdict {
+    /// Resolve a declared verdict name against the closed set.
+    pub fn parse(name: &str) -> Option<Self> {
+        serde_json::from_value(serde_json::Value::String(name.to_string())).ok()
+    }
+}
+
 /// One declared hook event: the provider-side event name and the core
-/// ingestion route its POSTs land on.
+/// ingestion route its POSTs land on. `verdict` is meaningful only on the
+/// `session_state` route, where it names the state the event commits to.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "snake_case")]
 pub struct HookEventBinding {
     pub event: String,
     pub route: HookIngestionRoute,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verdict: Option<ProviderStateVerdict>,
+}
+
+/// The verdict a declared roster commits an incoming event to. An undeclared
+/// event, an event off the `session_state` route, or one declared without a
+/// verdict all yield `None` — nothing changes.
+pub fn declared_state_verdict(
+    roster: &[HookEventBinding],
+    event: &str,
+) -> Option<ProviderStateVerdict> {
+    let event = event.trim();
+    roster
+        .iter()
+        .find(|binding| binding.event == event)
+        .filter(|binding| binding.route == HookIngestionRoute::SessionState)
+        .and_then(|binding| binding.verdict)
 }
 
 /// The minimal roster every hooked provider posts today: SessionStart is the
@@ -153,6 +189,7 @@ pub fn session_start_hook_roster() -> Vec<HookEventBinding> {
     vec![HookEventBinding {
         event: "SessionStart".into(),
         route: HookIngestionRoute::SessionStart,
+        verdict: None,
     }]
 }
 

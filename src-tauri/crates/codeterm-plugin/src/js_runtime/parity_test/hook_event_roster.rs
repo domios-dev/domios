@@ -6,7 +6,8 @@
 use super::*;
 use crate::js_runtime::{PluginManifest, PluginVm};
 use crate::provider::{
-    session_start_hook_roster, HookEventBinding, HookIngestionRoute, IntegrationInstallOptions,
+    declared_state_verdict, HookEventBinding, HookIngestionRoute, IntegrationInstallOptions,
+    ProviderStateVerdict,
 };
 
 fn load_roster_js(id: &str, roster_json: &str) -> JsProvider {
@@ -33,6 +34,15 @@ fn roster_binding(event: &str, route: HookIngestionRoute) -> HookEventBinding {
     HookEventBinding {
         event: event.into(),
         route,
+        verdict: None,
+    }
+}
+
+fn state_binding(event: &str, verdict: ProviderStateVerdict) -> HookEventBinding {
+    HookEventBinding {
+        event: event.into(),
+        route: HookIngestionRoute::SessionState,
+        verdict: Some(verdict),
     }
 }
 
@@ -165,12 +175,26 @@ fn default_hook_event_roster_matches_bundled_manifests() {
         ],
         "codex: declared roster is SessionStart + Stop"
     );
-    // A JS-only hooked provider without a declaration defaults to SessionStart.
+    // opencode declares session state as manifest data, keeping SessionStart.
+    let opencode = load_js("opencode").hook_event_roster();
     assert_eq!(
-        load_js("opencode").hook_event_roster(),
-        session_start_hook_roster(),
-        "opencode: default roster is the SessionStart binding event"
+        opencode,
+        vec![
+            roster_binding("SessionStart", HookIngestionRoute::SessionStart),
+            state_binding("session.status", ProviderStateVerdict::Working),
+            state_binding("session.idle", ProviderStateVerdict::Idle),
+        ],
+        "opencode: SessionStart is preserved alongside the declared state events"
     );
+    assert_eq!(
+        declared_state_verdict(&opencode, "session.status"),
+        Some(ProviderStateVerdict::Working)
+    );
+    assert_eq!(
+        declared_state_verdict(&opencode, "session.idle"),
+        Some(ProviderStateVerdict::Idle)
+    );
+    assert_eq!(declared_state_verdict(&opencode, "session.deleted"), None);
     // A hookless provider registers nothing.
     assert!(load_js("cursor").hook_event_roster().is_empty());
 
@@ -188,6 +212,7 @@ fn default_hook_event_roster_matches_bundled_manifests() {
             .map(|b| (b.event.as_str(), b.route))
             .collect::<Vec<_>>(),
         [
+            ("PermissionRequest", HookIngestionRoute::Permission),
             ("Notification", HookIngestionRoute::Permission),
             ("Stop", HookIngestionRoute::Stop),
             ("PreCompact", HookIngestionRoute::MemFlush),
@@ -195,3 +220,4 @@ fn default_hook_event_roster_matches_bundled_manifests() {
         ]
     );
 }
+

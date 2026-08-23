@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::time::Instant;
 
+use crate::agent::permission_request::PermissionRequestSignal;
 use crate::multiplexer::types::{PendingPrompt, PromptOption};
 
 #[derive(Debug)]
@@ -52,6 +53,8 @@ pub type ParsedPrompt = Option<PendingPrompt>;
 /// Keyed by tab_id.
 pub struct PromptDetector {
     states: HashMap<String, TabPromptState>,
+    /// Last per-tool permission payload a provider reported, kept verbatim.
+    permission_requests: HashMap<String, PermissionRequestSignal>,
     cooldown_ms: u64,
 }
 
@@ -59,6 +62,7 @@ impl PromptDetector {
     pub fn new() -> Self {
         Self {
             states: HashMap::new(),
+            permission_requests: HashMap::new(),
             cooldown_ms: 500,
         }
     }
@@ -179,9 +183,32 @@ impl PromptDetector {
         )
     }
 
+    /// Entry point for a provider's immediate per-tool permission report. The
+    /// payload is stored verbatim; the surfaced prompt is built from the
+    /// vendor's own suggestions instead of re-parsed off the screen.
+    pub fn hook_detected_permission_request(
+        &mut self,
+        tab_id: &str,
+        signal: PermissionRequestSignal,
+    ) -> PromptDecision {
+        let prompt = signal.to_pending_prompt();
+        self.permission_requests.insert(tab_id.to_string(), signal);
+        match prompt {
+            Some(prompt) => self.hook_detected_explicit(tab_id, prompt),
+            None => PromptDecision::None,
+        }
+    }
+
+    /// The last per-tool permission payload reported for a tab.
+    #[allow(dead_code)]
+    pub fn permission_request(&self, tab_id: &str) -> Option<&PermissionRequestSignal> {
+        self.permission_requests.get(tab_id)
+    }
+
     /// Called when prompt is cleared via API (test cleanup) — resets to Idle.
     pub fn clear(&mut self, tab_id: &str) {
         self.states.remove(tab_id);
+        self.permission_requests.remove(tab_id);
     }
 
     pub fn hook_detected_parsed(
@@ -237,6 +264,7 @@ impl PromptDetector {
     /// Remove state for a closed tab.
     pub fn remove_tab(&mut self, tab_id: &str) {
         self.states.remove(tab_id);
+        self.permission_requests.remove(tab_id);
     }
 
     fn transition_from_parsed(&mut self, tab_id: &str, parsed: ParsedPrompt) -> PromptDecision {

@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::provider::{
     BusySubmitStrategy, HookEventBinding, HookIngestionRoute, ModelInfo,
-    ProviderReadinessStrategy, ReadinessStrategy, ReasoningEffortInfo, SessionIdInjection,
-    SystemPromptDelivery, TaskDelivery, VerifySubmitStrategy,
+    ProviderReadinessStrategy, ProviderStateVerdict, ReadinessStrategy, ReasoningEffortInfo,
+    SessionIdInjection, SystemPromptDelivery, TaskDelivery, VerifySubmitStrategy,
 };
 
 /// Hosts/origins a plugin may reach via `host.fetch`.
@@ -264,6 +264,9 @@ impl From<SerdeSessionIdInjection> for SessionIdInjection {
 pub struct SerdeHookEventBinding {
     pub event: String,
     pub route: String,
+    /// Only meaningful on the `session_state` route; unknown names fail closed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verdict: Option<String>,
 }
 
 /// Resolve a manifest-declared roster against the closed ingestion-route set.
@@ -274,17 +277,26 @@ pub fn resolve_hook_event_roster(
     entries
         .iter()
         .map(|entry| {
-            HookIngestionRoute::parse(&entry.route)
-                .map(|route| HookEventBinding {
-                    event: entry.event.clone(),
-                    route,
-                })
-                .ok_or_else(|| {
+            let route = HookIngestionRoute::parse(&entry.route).ok_or_else(|| {
+                format!(
+                    "hook event '{}' declares unknown ingestion route '{}'",
+                    entry.event, entry.route
+                )
+            })?;
+            let verdict = match entry.verdict.as_deref() {
+                None => None,
+                Some(name) => Some(ProviderStateVerdict::parse(name).ok_or_else(|| {
                     format!(
-                        "hook event '{}' declares unknown ingestion route '{}'",
-                        entry.event, entry.route
+                        "hook event '{}' declares unknown state verdict '{}'",
+                        entry.event, name
                     )
-                })
+                })?),
+            };
+            Ok(HookEventBinding {
+                event: entry.event.clone(),
+                route,
+                verdict,
+            })
         })
         .collect()
 }

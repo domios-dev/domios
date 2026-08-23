@@ -12,6 +12,7 @@ pub mod models;
 pub mod motion_decoder;
 pub mod native_prompt;
 pub mod offline_state_classifier;
+pub mod permission_request;
 pub mod plugin_registrar;
 pub mod prompt;
 pub mod provider;
@@ -23,6 +24,7 @@ pub mod run_watcher;
 pub mod semantic_marker;
 pub mod signal_extractor;
 pub mod state_reactor;
+pub mod state_verdict;
 #[allow(dead_code)]
 pub mod status;
 pub mod structured_prompt;

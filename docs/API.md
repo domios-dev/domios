@@ -159,7 +159,8 @@ and response shapes are documented in the API-TRANSPORT reference.
 | PATCH | `/api/delayed-messages/{id}` | `{text?, scheduledAtMs?}` | Edit a queued or failed delayed message |
 | DELETE | `/api/delayed-messages/{id}` | — | Delete a queued or failed delayed message |
 | POST | `/api/delayed-messages/{id}/send-now` | — | Deliver a queued or failed delayed message immediately |
-| POST | `/api/tabs/{id}/hook/permission` | `{question?, options?: [{label, value}]}` | Notify that tab is showing a permission prompt (see below) |
+| POST | `/api/tabs/{id}/hook/permission` | `{tool_name?, tool_input?, permission_suggestions?: []}` or `{question?, options?: [{label, value}]}` | Permission signal for this tab. A body carrying `tool_name` is the provider's immediate per-tool `PermissionRequest` payload: `tool_name`, `tool_input` and `permission_suggestions[]` are kept verbatim and the vendor's own suggestions become the surfaced options — no screen scraping, no late `Notification` wait. A body without `tool_name` keeps the existing explicit/`Notification` behaviour (see below). A report whose binding nonce disagrees with the tab's launch nonce is rejected with 409 |
+| POST | `/api/tabs/{id}/hook/session_state` | `{event, provider_id?, session_id?, binding_nonce?}` | Provider-reported live turn state. `event` is resolved against the reporting provider's declared `hookEventRoster` — an event the provider did not declare changes nothing, and a foreign binding nonce is rejected with 409. Bindings on the `session_state` route carry a `working` or `idle` verdict (OpenCode declares `session.status` → Working, `session.idle` → Idle). Core reads the declaration, never a provider id |
 | POST | `/api/tabs/{id}/hook/stop` | `{}` | Notify that the agent finished its turn (see below) |
 | POST | `/api/tabs/{id}/hook/session_start` | *(Claude SessionStart JSON, forwarded from stdin)* | Persist the agent-reported `session_id` on the tab; covers `/new` and `/clear` inside the TUI (see below) |
 | POST | `/api/tabs/{id}/agent/restart` | `{force?: bool, grace_secs?: u64}` | Restart the agent in this tab; resumes only when the recorded session is valid. See [Agent Restart](#agent-restart-post-apitabsidagentrestart). |
@@ -243,4 +244,4 @@ competition provisions one lane per competitor. Advisory findings ride successfu
 results in `safety_nudges` and `_hints`. See `codeterm docs ORCHESTRATION`.
 Related: `codeterm docs API-TABS`, `API-INTEGRATIONS`, `API-MEMORY`, `API-AGENTS`,
 `API-TRANSPORT`, and `API-CLI`.
-<!-- revision: 121 -->
+<!-- revision: 122 -->
