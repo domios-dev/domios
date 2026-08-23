@@ -66,6 +66,7 @@ fn binding(event: &str, route: HookIngestionRoute) -> HookEventBinding {
     HookEventBinding {
         event: event.into(),
         route,
+        verdict: None,
     }
 }
 
@@ -200,12 +201,13 @@ fn default_hook_event_roster_registration_matches_today() {
             .map(|b| (b.event.as_str(), b.route))
             .collect::<Vec<_>>(),
         [
+            ("PermissionRequest", HookIngestionRoute::Permission),
             ("Notification", HookIngestionRoute::Permission),
             ("Stop", HookIngestionRoute::Stop),
             ("PreCompact", HookIngestionRoute::MemFlush),
             ("SessionStart", HookIngestionRoute::SessionStart),
         ],
-        "claude registers its current four events"
+        "claude registers its current events"
     );
     assert_eq!(
         table["codex"],
@@ -270,6 +272,10 @@ fn codex_stop_bundled_roster_declares_session_start_and_stop_and_registration_fo
             event: entry["event"].as_str().expect("event name").into(),
             route: HookIngestionRoute::parse(entry["route"].as_str().expect("route name"))
                 .expect("route resolves against the closed ingestion set"),
+            verdict: entry["verdict"].as_str().map(|name| {
+                ProviderStateVerdict::parse(name)
+                    .expect("verdict resolves against the closed verdict set")
+            }),
         })
         .collect();
     assert_eq!(

@@ -525,6 +525,46 @@ for (const [name, fixture] of [
   eq(files.get(settingsPath), original, "Claude restore reproduces exact original bytes");
 }
 
+console.log("--- permission_request ingestion ---");
+{
+  const settingsPath = "/tmp/.claude/settings.json";
+  const files = new Map<string, string>([[settingsPath, "{}"]]);
+  const p = loadClaudeWithHost(baseHost({
+    expandHome: () => settingsPath,
+    fileExists: (path: string) => files.has(path),
+    removeFile: (path: string) => files.delete(path),
+    fs: {
+      readFile: (path: string) => files.get(path) ?? null,
+      readJson: (path: string) => {
+        const value = files.get(path);
+        return value === undefined ? null : JSON.parse(value);
+      },
+      writeFile: (path: string, value: string) => { files.set(path, value); return true; },
+      writeJson: (path: string, value: unknown) => { files.set(path, JSON.stringify(value)); return true; },
+    },
+  }));
+  assert(p.installIntegration(7686, { consent: true, precompact_memory_export: false }).ok === true, "Claude install for permission_request succeeds");
+  const installed = JSON.parse(files.get(settingsPath) || "{}");
+  for (const key of ["PermissionRequest", "Notification"]) {
+    const cmd = installed.hooks?.[key]?.[0]?.hooks?.[0]?.command as string | undefined;
+    assert(typeof cmd === "string", `${key} hook is installed by the shipped plugin`);
+    assert((cmd as string).indexOf("--data-binary @-") !== -1, `${key} forwards the stdin payload`);
+    assert((cmd as string).indexOf("-d '{}'") === -1, `${key} never posts an empty body`);
+    assert((cmd as string).indexOf("/hook/permission") !== -1, `${key} targets the existing permission route`);
+    assert((cmd as string).indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1, `${key} carries the binding nonce`);
+  }
+  eq(installed.hooks?.PermissionRequest?.[0]?.matcher, "*", "PermissionRequest fires per tool");
+  eq(installed.hooks?.Notification?.[0]?.matcher, "permission_prompt", "Notification keeps the vendor matcher");
+
+  const status = p.checkIntegration() as Record<string, unknown>;
+  assert(status.permission_request_hook === true, "checkIntegration reports the PermissionRequest hook");
+  assert(status.hooks_installed === true, "hooks_installed requires the new hook too");
+
+  assert(p.uninstallIntegration().ok === true, "Claude uninstall succeeds");
+  const cleaned = JSON.parse(files.get(settingsPath) || "{}");
+  eq((cleaned.hooks?.PermissionRequest || []).length, 0, "uninstall removes the PermissionRequest hook");
+}
+
 console.log("\n--- Windows task launch shape ---\n");
 {
   const p = loadClaudeWithHost(baseHost({

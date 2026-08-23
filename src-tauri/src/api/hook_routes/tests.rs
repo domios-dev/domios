@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use super::*;
 use crate::agent::provider::{
-    AgentLaunchParams, AgentProvider, HookEventBinding, HookIngestionRoute, ReadinessStrategy,
-    TaskDelivery,
+    AgentLaunchParams, AgentProvider, HookEventBinding, HookIngestionRoute, ProviderStateVerdict,
+    ReadinessStrategy, TaskDelivery,
 };
 use crate::agent::registry::AgentRegistry;
 use crate::multiplexer::commands::MuxState;
@@ -76,6 +76,7 @@ impl AgentProvider for HookProvider {
     }
 }
 
+mod permission_request_tests;
 mod roster_tests;
 
 fn registry(ids: &[&'static str]) -> AgentRegistry {

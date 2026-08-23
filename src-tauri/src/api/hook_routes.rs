@@ -89,11 +89,27 @@ fn ensure_agent_state(state: &AppState, tab_id: &str) {
 pub async fn hook_permission(
     AxumState(state): AxumState<AppState>,
     Path(raw_tab_id): Path<String>,
+    headers: HeaderMap,
     body: Option<Json<serde_json::Value>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let tab_id = resolve_tab(&state, &raw_tab_id).map_err(|(s, m)| (s, m.to_string()))?;
     // Hook firing = authoritative proof that an agent is running in this tab.
     ensure_agent_state(&state, &tab_id);
+
+    // The per-tool payload the vendor already sent beats anything scraped back
+    // off the screen, so it is ingested before the parsing fallbacks.
+    if let Some(Json(raw)) = body.as_ref() {
+        if let Some(signal) = crate::agent::permission_request::parse_permission_request(raw) {
+            reject_foreign_binding_nonce(&state, &tab_id, &headers, raw)?;
+            let decision = state
+                .svc
+                .prompt_detector
+                .lock()
+                .hook_detected_permission_request(&tab_id, signal);
+            state.svc.apply_prompt_decision(&decision);
+            return Ok(Json(serde_json::json!({"ok": true, "ingested": true})));
+        }
+    }
 
     let explicit_prompt = body.and_then(|Json(b)| {
         let question = b.get("question")?.as_str()?.to_string();
@@ -578,6 +594,46 @@ fn acknowledge_authenticated_launch(
         })
     };
     binding.is_some_and(|binding| crate::service::record_provider_session(tab_id, &binding))
+}
+
+/// A report carrying a binding nonce that disagrees with the tab's own launch
+/// nonce is a foreign or stale reporter: reject it so it affects no tab. A
+/// report with no nonce keeps the pre-existing tolerance.
+fn reject_foreign_binding_nonce(
+    state: &AppState,
+    tab_id: &str,
+    headers: &HeaderMap,
+    body: &serde_json::Value,
+) -> Result<(), (StatusCode, String)> {
+    let reported = crate::agent::permission_request::body_binding_nonce(body)
+        .or_else(|| header_str(headers, "x-codeterm-binding-nonce"))
+        .map(str::trim)
+        .filter(|nonce| !nonce.is_empty());
+    let Some(reported) = reported else {
+        return Ok(());
+    };
+    if binding_nonce_scoped(&state.svc.mux, tab_id, reported) {
+        return Ok(());
+    }
+    log::warn!("[hook] rejecting report for Tab {tab_id}: binding nonce mismatch");
+    Err((StatusCode::CONFLICT, "binding nonce mismatch".to_string()))
+}
+
+/// True when the reported nonce matches the tab's launch nonce, or the tab has
+/// no launch nonce to compare against.
+fn binding_nonce_scoped(
+    mux: &crate::multiplexer::commands::MuxState,
+    tab_id: &str,
+    reported: &str,
+) -> bool {
+    match mux
+        .read()
+        .get_tab(tab_id)
+        .and_then(|tab| tab.session_binding_nonce.clone())
+    {
+        Some(expected) => expected == reported,
+        None => true,
+    }
 }
 
 fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
