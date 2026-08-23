@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Bell } from "lucide-react";
 import type { Notification } from "../../lib/types";
 import { UI_TRAY_BTN } from "../shared/design";
-import { NotificationBadge } from "./NotificationBadge";
 import { NotificationPanel } from "./NotificationPanel";
 
 interface NotificationBellProps {
@@ -25,14 +24,17 @@ export function NotificationBell({
 }: NotificationBellProps) {
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState({ top: 38, right: 8 });
+  const [lookedAtId, setLookedAtId] = useState<string | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
-  const unread = notifications.reduce((count, notification) => count + (notification.read ? 0 : 1), 0);
+  const unreadStatusId = useId();
   const newestUnread = notifications.reduce<Notification | null>((newest, notification) => {
     if (notification.read) return newest;
     return !newest || notification.timestamp >= newest.timestamp ? notification : newest;
   }, null);
   const newestUnreadId = newestUnread?.id ?? null;
+  // The dot means something arrived and you have not looked — never how many.
+  const arrived = newestUnreadId !== null && newestUnreadId !== lookedAtId;
 
   const updatePosition = useCallback(() => {
     const rect = buttonRef.current?.getBoundingClientRect();
@@ -47,6 +49,11 @@ export function NotificationBell({
     updatePosition();
     setOpen((value) => !value);
   }, [updatePosition]);
+
+  // Looking is the clear action: an open panel keeps pace with what arrives.
+  useEffect(() => {
+    if (open) setLookedAtId(newestUnreadId);
+  }, [open, newestUnreadId]);
 
   useEffect(() => {
     if (!open) return;
@@ -76,6 +83,7 @@ export function NotificationBell({
         data-testid="notification-bell"
         aria-label="Notifications"
         aria-expanded={open}
+        aria-describedby={arrived ? unreadStatusId : undefined}
         title="Notifications"
         onClick={toggle}
         className={`${UI_TRAY_BTN} relative ${open ? "text-[var(--ct-accent)]" : ""}`}
@@ -83,15 +91,20 @@ export function NotificationBell({
         <Bell
           key={`bell-${newestUnreadId ?? "idle"}`}
           size={14}
-          className={newestUnreadId ? "ct-notification-bell-ring" : undefined}
+          className={arrived ? "ct-notification-bell-ring" : undefined}
         />
-        <span
-          key={`badge-${newestUnreadId ?? "idle"}`}
-          className={`absolute -right-1 -top-0.5 ${newestUnreadId ? "ct-notification-badge-pop" : ""}`}
-        >
-          <NotificationBadge count={unread} />
-        </span>
+        {arrived && (
+          <span
+            key={`dot-${newestUnreadId}`}
+            data-testid="notification-unread-dot"
+            aria-hidden="true"
+            className="ct-notification-dot-pop absolute right-0 top-0.5 h-1.5 w-1.5 rounded-full bg-[var(--ct-accent)]"
+          />
+        )}
       </button>
+      <span id={unreadStatusId} role="status" className="sr-only">
+        {arrived ? "Unread notifications" : ""}
+      </span>
       {open && createPortal(
         <div
           ref={panelRef}
