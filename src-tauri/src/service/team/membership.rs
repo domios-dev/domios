@@ -1,6 +1,8 @@
+use codeterm_types::team::general_agent_membership::MembershipAttempt;
 use codeterm_types::team::Team;
 
 use crate::multiplexer::state::MultiplexerState;
+use crate::service::general_agent::{refuse_general_agent_team_membership, shape_for_tab};
 
 /// Placement one Team attachment resolves to: the Team, the member tab that
 /// asked for it, and the Team's live anchor the attached tab hangs under.
@@ -20,6 +22,15 @@ pub(crate) fn authorize_team_attachment(
     caller_tab_id: &str,
     workspace_id: &str,
 ) -> Result<TeamAttachment, String> {
+    // Attaching spends the caller's own membership, so a General Agent caller
+    // is refused here rather than reported as "not a member of Team ...".
+    let shape = shape_for_tab(mux, caller_tab_id);
+    refuse_general_agent_team_membership(
+        mux,
+        caller_tab_id,
+        MembershipAttempt::ExerciseMembership,
+        &shape,
+    )?;
     let caller = mux
         .get_tab(caller_tab_id)
         .ok_or_else(|| format!("Creator Tab {caller_tab_id} not found"))?;
@@ -56,6 +67,10 @@ pub(crate) fn apply_team_attachment(
     attachment: &TeamAttachment,
     tab_id: &str,
 ) -> Result<(), String> {
+    // Membership door 3: the one write every attach verb shares — `tab new
+    // --team`, `agent spawn --team`, and `team adopt-agent`.
+    let shape = shape_for_tab(mux, tab_id);
+    refuse_general_agent_team_membership(mux, tab_id, MembershipAttempt::Join, &shape)?;
     let tab = mux
         .get_tab_mut(tab_id)
         .ok_or_else(|| format!("Tab {tab_id} not found"))?;
@@ -94,6 +109,8 @@ pub(crate) fn adopt_agent_into_team(
     tab_id: &str,
     caller_tab_id: &str,
 ) -> Result<Team, String> {
+    let shape = shape_for_tab(mux, tab_id);
+    refuse_general_agent_team_membership(mux, tab_id, MembershipAttempt::Join, &shape)?;
     let tab = mux
         .get_tab(tab_id)
         .ok_or_else(|| format!("Tab {tab_id} not found"))?;

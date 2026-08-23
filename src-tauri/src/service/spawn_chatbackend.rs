@@ -10,6 +10,7 @@ use super::ServiceContext;
 use crate::agent::chat_types::{ChatMsg, StructuredChat};
 use crate::agent::reports::ReportDetails;
 use crate::multiplexer::types::{TabBacking, WatcherPolicy, WatcherSpec};
+use crate::service::general_agent::refuse_parenting_under_general_agent;
 use crate::service::messenger::MessageEnvelope;
 use crate::service::watcher::{
     apply_guardrails, build_observation, collect_watch_group, observation_config_from_json,
@@ -344,11 +345,18 @@ impl ServiceContext {
             } else {
                 let parsed = Self::parse_role(role)?;
                 let mut mux = self.mux.write();
-                mux.set_tab_role(&tab_id, parsed, spec.parent_tab_id.as_deref())?;
-                if let Some(can_spawn) = can_spawn {
-                    mux.set_can_spawn(&tab_id, can_spawn)?;
+                // Membership door 7: placement mints the parent's Team onto the
+                // parent, so the refusal has to reach the rollback below.
+                match refuse_parenting_under_general_agent(&mux, spec.parent_tab_id.as_deref()) {
+                    Err(refusal) => Err(refusal.to_string()),
+                    Ok(()) => {
+                        mux.set_tab_role(&tab_id, parsed, spec.parent_tab_id.as_deref())?;
+                        if let Some(can_spawn) = can_spawn {
+                            mux.set_can_spawn(&tab_id, can_spawn)?;
+                        }
+                        Ok(())
+                    }
                 }
-                Ok(())
             };
             if let Err(e) = role_result {
                 self.rollback_provisional_tab_via_close(&tab_id);
