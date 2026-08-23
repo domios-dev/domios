@@ -149,12 +149,13 @@ pub fn check_integration() -> Json {
             "settings_exists": false,
             "hooks_installed": false,
             "notification_hook": false,
+            "permission_request_hook": false,
             "stop_hook": false,
             "precompact_hook": false,
             "session_start_hook": false,
             "target": "~/.claude/settings.json",
             "backup_exists": false,
-            "proposed_changes": ["Notification", "Stop", "SessionStart"],
+            "proposed_changes": ["PermissionRequest", "Notification", "Stop", "SessionStart"],
         });
     };
     if !path.exists() {
@@ -162,12 +163,13 @@ pub fn check_integration() -> Json {
             "settings_exists": false,
             "hooks_installed": false,
             "notification_hook": false,
+            "permission_request_hook": false,
             "stop_hook": false,
             "precompact_hook": false,
             "session_start_hook": false,
             "target": path,
             "backup_exists": backup_path(&path).exists(),
-            "proposed_changes": ["Notification", "Stop", "SessionStart"],
+            "proposed_changes": ["PermissionRequest", "Notification", "Stop", "SessionStart"],
         });
     }
 
@@ -180,6 +182,11 @@ pub fn check_integration() -> Json {
 
     let notification_hook = json
         .pointer("/hooks/Notification")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().any(is_current_codeterm_hook))
+        .unwrap_or(false);
+    let permission_request_hook = json
+        .pointer("/hooks/PermissionRequest")
         .and_then(|v| v.as_array())
         .map(|arr| arr.iter().any(is_current_codeterm_hook))
         .unwrap_or(false);
@@ -201,36 +208,51 @@ pub fn check_integration() -> Json {
 
     serde_json::json!({
         "settings_exists": true,
-        "hooks_installed": notification_hook && stop_hook && session_start_hook,
+        "hooks_installed": notification_hook
+            && permission_request_hook
+            && stop_hook
+            && session_start_hook,
         "notification_hook": notification_hook,
+        "permission_request_hook": permission_request_hook,
         "stop_hook": stop_hook,
         "precompact_hook": precompact_hook,
         "session_start_hook": session_start_hook,
         "target": path,
         "backup_exists": backup_path(&path).exists(),
-        "proposed_changes": ["Notification", "Stop", "SessionStart"],
+        "proposed_changes": ["PermissionRequest", "Notification", "Stop", "SessionStart"],
     })
 }
 
-/// Claude's declared hook event roster — its four installed events as data.
+/// Claude's declared hook event roster — its installed events as data.
 /// Install/uninstall and core route registration all consume this declaration.
 pub fn hook_event_roster() -> Vec<HookEventBinding> {
     vec![
+        // The immediate per-tool signal. `Notification` is the same route's
+        // late, optionless fallback and stays declared alongside it.
+        HookEventBinding {
+            event: "PermissionRequest".into(),
+            route: HookIngestionRoute::Permission,
+            verdict: None,
+        },
         HookEventBinding {
             event: "Notification".into(),
             route: HookIngestionRoute::Permission,
+            verdict: None,
         },
         HookEventBinding {
             event: "Stop".into(),
             route: HookIngestionRoute::Stop,
+            verdict: None,
         },
         HookEventBinding {
             event: "PreCompact".into(),
             route: HookIngestionRoute::MemFlush,
+            verdict: None,
         },
         HookEventBinding {
             event: "SessionStart".into(),
             route: HookIngestionRoute::SessionStart,
+            verdict: None,
         },
     ]
 }
@@ -246,17 +268,28 @@ fn hook_command(path: &str, body: &str, extra_headers: &str, stdin: bool) -> Str
     )
 }
 
-/// The settings.json hook entry a declared route installs — the handler side
+/// The settings.json hook entry a declared binding installs — the handler side
 /// of the roster. Every `HookIngestionRoute` variant must be covered here.
-fn hook_entry(route: HookIngestionRoute) -> Json {
+/// Keyed on the BINDING, not the route: two events may share a route and still
+/// need different matchers (`PermissionRequest` fires per tool, `Notification`
+/// only on the vendor's `permission_prompt`). `None` = this provider declares
+/// no settings.json shape for that route and installs nothing.
+fn hook_entry(binding: &HookEventBinding) -> Option<Json> {
     let nonce_h = "-H \"X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}\"";
-    match route {
+    // Forward the vendor's stdin payload; an empty body throws away the
+    // tool_name / tool_input / permission_suggestions it already sent.
+    let permission_command = hook_command(
+        "/api/tabs/$CODETERM_TAB_ID/hook/permission",
+        "",
+        nonce_h,
+        true,
+    );
+    Some(match binding.route {
         HookIngestionRoute::Permission => serde_json::json!({
-            "matcher": "permission_prompt",
+            "matcher": if binding.event == "Notification" { "permission_prompt" } else { "*" },
             "hooks": [{
                 "type": "command",
-                "command": hook_command(
-                    "/api/tabs/$CODETERM_TAB_ID/hook/permission", "{}", "", false),
+                "command": permission_command,
                 "timeout": 5000,
                 "_source": CODETERM_HOOK_MARKER
             }]
@@ -293,7 +326,10 @@ fn hook_entry(route: HookIngestionRoute) -> Json {
                 "_source": CODETERM_HOOK_MARKER
             }]
         }),
-    }
+        // Claude declares no session-state event, so its roster never reaches
+        // this arm; the match stays exhaustive so a new variant fails to build.
+        HookIngestionRoute::SessionState => return None,
+    })
 }
 
 pub(crate) fn install_integration_at(
@@ -351,7 +387,9 @@ pub(crate) fn install_integration_at(
         {
             continue;
         }
-        let entry = hook_entry(binding.route);
+        let Some(entry) = hook_entry(binding) else {
+            continue;
+        };
         hooks
             .entry(binding.event.clone())
             .or_insert_with(|| serde_json::json!([]))
@@ -609,7 +647,7 @@ mod tests {
     }
 
     #[test]
-    fn hook_event_roster_declares_the_four_current_events() {
+    fn hook_event_roster_declares_the_current_events() {
         use crate::provider::HookIngestionRoute;
 
         let declared: Vec<(String, HookIngestionRoute)> = hook_event_roster()
@@ -619,6 +657,10 @@ mod tests {
         assert_eq!(
             declared,
             vec![
+                (
+                    "PermissionRequest".to_string(),
+                    HookIngestionRoute::Permission
+                ),
                 ("Notification".to_string(), HookIngestionRoute::Permission),
                 ("Stop".to_string(), HookIngestionRoute::Stop),
                 ("PreCompact".to_string(), HookIngestionRoute::MemFlush),
@@ -696,5 +738,85 @@ mod tests {
         assert!(installed.pointer("/hooks/PreCompact").is_some());
         restore_integration_at(&path).unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+    }
+    #[test]
+    fn permission_request_hook_forwards_the_payload_instead_of_an_empty_body() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        install_integration_at(&path, &integration_options(false)).unwrap();
+        let installed: Json =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+
+        for event in ["PermissionRequest", "Notification"] {
+            let command = installed
+                .pointer(&format!("/hooks/{event}/0/hooks/0/command"))
+                .and_then(|c| c.as_str())
+                .unwrap_or_else(|| panic!("{event} hook installed"));
+            assert!(
+                command.contains("--data-binary @-"),
+                "{event} must forward the stdin payload: {command}"
+            );
+            assert!(
+                !command.contains("-d '{}'"),
+                "{event} must not post an empty body: {command}"
+            );
+            assert!(
+                command.contains("/hook/permission"),
+                "{event} targets the existing permission route: {command}"
+            );
+            assert!(
+                command.contains("CODETERM_SESSION_BINDING_NONCE"),
+                "{event} must carry the binding nonce: {command}"
+            );
+        }
+    }
+
+    #[test]
+    fn permission_request_and_notification_share_a_route_with_distinct_matchers() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        install_integration_at(&path, &integration_options(false)).unwrap();
+        let installed: Json =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+
+        // Both declare HookIngestionRoute::Permission; keying hook_entry on the
+        // binding is what lets them install different matchers.
+        assert_eq!(
+            installed.pointer("/hooks/PermissionRequest/0/matcher"),
+            Some(&Json::from("*"))
+        );
+        assert_eq!(
+            installed.pointer("/hooks/Notification/0/matcher"),
+            Some(&Json::from("permission_prompt"))
+        );
+    }
+
+    #[test]
+    fn permission_request_uninstall_removes_the_declared_event() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        install_integration_at(&path, &integration_options(false)).unwrap();
+        uninstall_integration_at(&path).unwrap();
+        let cleaned: Json =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(
+            cleaned
+                .pointer("/hooks/PermissionRequest")
+                .and_then(|v| v.as_array())
+                .map(|entries| entries.len()),
+            Some(0),
+            "uninstall iterates the roster, so a declared event is removed for free"
+        );
+    }
+
+    #[test]
+    fn permission_request_check_integration_requires_the_new_hook() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        install_integration_at(&path, &integration_options(false)).unwrap();
+        let installed: Json =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let entry = installed.pointer("/hooks/PermissionRequest/0").unwrap();
+        assert!(is_current_codeterm_hook(entry));
     }
 }

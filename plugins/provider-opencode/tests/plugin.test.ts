@@ -329,6 +329,23 @@ console.log("\n--- discoverModels ---\n");
   );
 }
 
+console.log("--- permission_request: opencode declared session state ---");
+{
+  const manifest = JSON.parse(fs.readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "plugin.json"),
+    "utf8",
+  ));
+  const roster = manifest.spawn?.hookEventRoster as Array<{ event: string; route: string; verdict?: string }>;
+  const entry = (event: string) => roster.find((r) => r.event === event);
+  assert(Array.isArray(roster), "opencode declares a hook event roster in its manifest");
+  eq(entry("SessionStart")?.route, "session_start", "SessionStart stays declared, not dropped");
+  eq(entry("session.status")?.route, "session_state", "session.status lands on session_state");
+  eq(entry("session.status")?.verdict, "working", "session.status is declared Working");
+  eq(entry("session.idle")?.route, "session_state", "session.idle lands on session_state");
+  eq(entry("session.idle")?.verdict, "idle", "session.idle is declared Idle");
+  eq(entry("session.deleted"), undefined, "an undeclared opencode event is absent from the roster");
+}
+
 // never a "latest model in cwd" fallback that would surface a SIBLING's model.
 console.log("\n--- detectSessionModel (identity-bound, no cwd fallback) ---\n");
 

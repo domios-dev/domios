@@ -546,7 +546,7 @@ fn busy_submit_conversion() {
 
 #[test]
 fn hook_event_roster_parses_and_resolves_declared_routes() {
-    use crate::provider::{HookEventBinding, HookIngestionRoute};
+    use crate::provider::{HookEventBinding, HookIngestionRoute, ProviderStateVerdict};
 
     let json = r#"{
             "id": "roster-demo",
@@ -561,7 +561,8 @@ fn hook_event_roster_parses_and_resolves_declared_routes() {
                     { "event": "Stop", "route": "stop" },
                     { "event": "SessionStart", "route": "session_start" },
                     { "event": "PreCompact", "route": "mem_flush" },
-                    { "event": "Notification", "route": "permission" }
+                    { "event": "Notification", "route": "permission" },
+                    { "event": "session.idle", "route": "session_state", "verdict": "idle" }
                 ]
             }
         }"#;
@@ -574,18 +575,27 @@ fn hook_event_roster_parses_and_resolves_declared_routes() {
             HookEventBinding {
                 event: "Stop".into(),
                 route: HookIngestionRoute::Stop,
+                verdict: None,
             },
             HookEventBinding {
                 event: "SessionStart".into(),
                 route: HookIngestionRoute::SessionStart,
+                verdict: None,
             },
             HookEventBinding {
                 event: "PreCompact".into(),
                 route: HookIngestionRoute::MemFlush,
+                verdict: None,
             },
             HookEventBinding {
                 event: "Notification".into(),
                 route: HookIngestionRoute::Permission,
+                verdict: None,
+            },
+            HookEventBinding {
+                event: "session.idle".into(),
+                route: HookIngestionRoute::SessionState,
+                verdict: Some(ProviderStateVerdict::Idle),
             },
         ]
     );
@@ -597,12 +607,29 @@ fn hook_event_roster_resolution_rejects_unknown_route() {
         SerdeHookEventBinding {
             event: "Stop".into(),
             route: "stop".into(),
+            verdict: None,
         },
         SerdeHookEventBinding {
             event: "Warp".into(),
             route: "warp_core".into(),
+            verdict: None,
         },
     ];
     let error = resolve_hook_event_roster(&declared).expect_err("unknown route fails the roster");
     assert!(error.contains("Warp") && error.contains("warp_core"), "{error}");
+}
+
+#[test]
+fn permission_request_roster_resolution_rejects_unknown_verdict() {
+    let declared = vec![SerdeHookEventBinding {
+        event: "session.status".into(),
+        route: "session_state".into(),
+        verdict: Some("busy".into()),
+    }];
+    let error =
+        resolve_hook_event_roster(&declared).expect_err("unknown verdict fails the roster");
+    assert!(
+        error.contains("session.status") && error.contains("busy"),
+        "{error}"
+    );
 }
