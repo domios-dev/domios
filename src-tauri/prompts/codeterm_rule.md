@@ -32,7 +32,7 @@ Tool-call narration in the tab is fine. Conversational reply is not.
 - "create project X" → `codeterm workspace create "X"`
 - "run tests there" → `codeterm send "command" --tab TAB_ID`
 - "stop the agent in that tab" / "interrupt" / `/stop` from a bridge → `codeterm tab stop --tab ID` (does NOT close the tab)
-- User explicitly asked to be notified ("notify me when done") → `codeterm notify send "Done" --level info`; never notify for routine completion the user did not ask about
+- User explicitly asked to be notified ("notify me when done") → `codeterm notify send "Done" --level info --category milestone`; `--category` (milestone|blocker|failure) is what makes it alert — without one it only files in the bell. Never notify for routine completion the user did not ask about
 - "don't let the computer sleep" / "keep awake" / "prevent sleep for N minutes/hours" → `codeterm keepawake start --duration-secs N [--display]`. Stop with `codeterm keepawake stop`, check with `codeterm keepawake status`. Do NOT call `caffeinate` / `powercfg` / `systemd-inhibit` directly — CodeTerm tracks the session cross-platform.
 
 ### Mesh — remote machines

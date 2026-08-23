@@ -3,7 +3,8 @@
 use super::ServiceContext;
 use crate::notification::{
     dedupe::DeliveryAdmission,
-    push::{self, PushCategory},
+    desktop::{self, DesktopPolicy},
+    push::{self, NotifyCategory},
     store::{DedupAdmission, NotificationLevel, NotificationProvenance, PushRequest},
     NotifState,
 };
@@ -12,7 +13,7 @@ use crate::notification::{
 /// has nothing to name; `event_key` is a hint the daemon derives when absent.
 #[derive(Debug, Clone, Default)]
 pub struct PushIntent {
-    pub category: Option<PushCategory>,
+    pub category: Option<NotifyCategory>,
     pub event_key: Option<String>,
 }
 
@@ -20,7 +21,7 @@ pub struct PushIntent {
 /// travels back to the caller — failure feedback invites retry, and retry is
 /// the spam vector.
 pub struct PushEnvelope {
-    pub category: PushCategory,
+    pub category: NotifyCategory,
     pub text: String,
     pub notification_id: String,
 }
@@ -43,6 +44,26 @@ impl PushDispatch<fn(PushEnvelope) -> Result<(), String>> {
             intent: PushIntent::default(),
             per_scope_limit: 0,
             deliver: inert_sink,
+        }
+    }
+}
+
+/// The desktop leg of one notification: what the caller declared, and the
+/// user's standing policy. Deliberately not folded into `PushDispatch` — the
+/// push opt-in clears its own intent when nobody is subscribed, while the
+/// declared category still governs whether the toast may fire.
+pub struct DesktopDispatch {
+    pub declared: Option<NotifyCategory>,
+    pub policy: DesktopPolicy,
+}
+
+impl DesktopDispatch {
+    /// Routes that raise no toast at all: internal diagnostics and the in-app
+    /// provider-update prompt.
+    pub fn silent() -> Self {
+        Self {
+            declared: None,
+            policy: DesktopPolicy::silent(),
         }
     }
 }
@@ -95,6 +116,9 @@ fn resolve_origin(
         .unwrap_or_default()
 }
 
+#[cfg(test)]
+mod notify_gate_tests;
+
 #[derive(Debug)]
 enum NotificationAdmission {
     Diagnostic,
@@ -126,6 +150,7 @@ fn create_notification_with_delivery(
     origin: NotificationOrigin,
     resolve_tab: impl FnOnce(&str) -> Option<NotificationProvenance>,
     push: PushDispatch<impl FnOnce(PushEnvelope) -> Result<(), String>>,
+    desktop: DesktopDispatch,
     emit: impl FnOnce(serde_json::Value),
 ) -> String {
     if matches!(admission, NotificationAdmission::Diagnostic) {
@@ -222,10 +247,15 @@ fn create_notification_with_delivery(
     if let Some(s) = sticky {
         payload["sticky"] = serde_json::json!(s);
     }
-    deliver_native(
-        payload["title"].as_str().unwrap_or_default(),
-        payload["body"].as_str(),
-    );
+    // Dedupe already decided this message is new; the gate decides whether it
+    // may interrupt. Uncategorised keeps its record and its bell event, and stops.
+    if let Some(pass) = desktop::admit(desktop.declared, &desktop.policy).pass() {
+        log::debug!("[notify-gate] desktop toast admitted as {}", pass.category().as_str());
+        deliver_native(
+            payload["title"].as_str().unwrap_or_default(),
+            payload["body"].as_str(),
+        );
+    }
     emit(payload);
     id
 }
@@ -279,6 +309,7 @@ impl ServiceContext {
             NotificationOrigin::local_tab(tab_id),
             |candidate| self.resolve_tab_provenance(candidate),
             PushDispatch::inert(),
+            DesktopDispatch::silent(),
             |payload| self.notify_event("notification-created", payload),
         )
     }
@@ -309,6 +340,7 @@ impl ServiceContext {
             NotificationOrigin::default(),
             |_| None,
             PushDispatch::inert(),
+            DesktopDispatch::silent(),
             |_| {},
         )
     }
@@ -325,7 +357,14 @@ impl ServiceContext {
         origin: NotificationOrigin,
         intent: PushIntent,
     ) -> String {
+        // The declared category outlives the push policy: an install with no
+        // Telegram audience still has a desktop gate to satisfy.
+        let declared = intent.category;
         let (intent, per_scope_limit, audience) = self.resolve_push_policy(intent);
+        let desktop = DesktopDispatch {
+            declared,
+            policy: self.resolve_desktop_policy(),
+        };
         create_notification_with_delivery(
             NotificationAdmission::Explicit,
             &self.notif,
@@ -346,6 +385,7 @@ impl ServiceContext {
                     self.deliver_telegram_push(&audience, &envelope)
                 },
             },
+            desktop,
             |payload| self.notify_event("notification-created", payload),
         )
     }
@@ -355,8 +395,17 @@ impl ServiceContext {
 mod tests {
     use super::*;
     use crate::notification::store::NotificationStore;
+    use codeterm_types::config::schema::NotificationConfig;
     use parking_lot::Mutex;
     use std::sync::Arc;
+
+    /// A caller that named a category, judged against the shipped policy.
+    fn declared(category: NotifyCategory) -> DesktopDispatch {
+        DesktopDispatch {
+            declared: Some(category),
+            policy: DesktopPolicy::from_config(&NotificationConfig::default()),
+        }
+    }
 
     #[test]
     fn explicit_notification_persists_emits_and_requests_native_delivery() {
@@ -385,6 +434,7 @@ mod tests {
             NotificationOrigin::default(),
             |_| None,
             PushDispatch::inert(),
+            declared(NotifyCategory::Milestone),
             |payload| emitted.lock().push(payload),
         );
 
@@ -428,6 +478,7 @@ mod tests {
             NotificationOrigin::default(),
             |_| None,
             PushDispatch::inert(),
+            declared(NotifyCategory::Blocker),
             |payload| emitted.lock().push(payload),
         );
 
@@ -477,6 +528,7 @@ mod tests {
                 NotificationOrigin::default(),
                 |_| None,
                 PushDispatch::inert(),
+                DesktopDispatch::silent(),
                 |payload| emitted.lock().push(payload),
             );
         }
@@ -529,6 +581,7 @@ mod tests {
                 NotificationOrigin::claimed(Some("tab_never_existed".into())),
                 live_registry,
                 PushDispatch::inert(),
+                DesktopDispatch::silent(),
                 |payload| emitted.lock().push(payload),
             );
 
@@ -576,6 +629,7 @@ mod tests {
                 origin,
                 live_registry,
                 PushDispatch::inert(),
+                DesktopDispatch::silent(),
                 |payload| emitted.lock().push(payload),
             );
 
@@ -610,6 +664,7 @@ mod tests {
                 origin,
                 live_registry,
                 PushDispatch::inert(),
+                DesktopDispatch::silent(),
                 |_| {},
             );
 
@@ -634,7 +689,7 @@ mod tests {
             })
         }
 
-        fn dispatch<F>(category: PushCategory, deliver: F) -> PushDispatch<F>
+        fn dispatch<F>(category: NotifyCategory, deliver: F) -> PushDispatch<F>
         where
             F: FnOnce(PushEnvelope) -> Result<(), String>,
         {
@@ -666,7 +721,7 @@ mod tests {
                 None,
                 NotificationOrigin::claimed(Some("tab_worker".into())),
                 live_tab,
-                dispatch(PushCategory::Milestone, |envelope: PushEnvelope| {
+                dispatch(NotifyCategory::Milestone, |envelope: PushEnvelope| {
                     attempted.lock().push(envelope.text.clone());
                     Err("chat unreachable".to_string())
                 }),
@@ -710,7 +765,7 @@ mod tests {
                 None,
                 NotificationOrigin::claimed(Some("tab_worker".into())),
                 live_tab,
-                dispatch(PushCategory::Blocker, |envelope: PushEnvelope| {
+                dispatch(NotifyCategory::Blocker, |envelope: PushEnvelope| {
                     sent.lock().push(envelope.text.clone());
                     Ok(())
                 }),
@@ -768,6 +823,8 @@ mod tests {
     }
 
     /// Both sinks a first arrival reaches: the OS toast and the bell event.
+    /// The gate is open here on purpose — dedupe decides whether a message is
+    /// new, and that question is only interesting once it is allowed at all.
     fn deliver(
         store: &NotifState,
         title: &str,
@@ -787,6 +844,7 @@ mod tests {
             NotificationOrigin::default(),
             |_| None,
             PushDispatch::inert(),
+            declared(NotifyCategory::Blocker),
             |payload| emitted.lock().push(payload),
         )
     }

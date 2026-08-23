@@ -324,8 +324,9 @@ pub enum PasteAction {
     },
 }
 
-/// The complete set of push-eligible categories. Routine progress has no
-/// variant, so an invented category is a parse error, not a runtime string.
+/// The complete set of interrupt-eligible categories, mirroring the daemon's
+/// own closed set. Routine progress has no variant, so an invented category is
+/// a parse error rather than a runtime string.
 #[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NotifyCategory {
     /// A material milestone worth interrupting for
@@ -361,7 +362,7 @@ pub enum NotifyAction {
         #[arg(long, default_value = "info")]
         level: String,
 
-        /// Opt-in push category. Omit for a local-only notification.
+        /// Category that lets this alert reach the user. Omit to file it in the bell only.
         #[arg(long, value_enum)]
         category: Option<NotifyCategory>,
 

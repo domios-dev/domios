@@ -15,10 +15,16 @@ description with `codeterm tab describe`.
 
 Batch all related edits before running tests.
 
-User notifications go through `codeterm notify send "title" [--body ..] [--level info|warning|error]`
+User notifications go through
+`codeterm notify send "title" [--body ..] [--level info|warning|error] --category milestone|blocker|failure`
 and never through provider-native or OS-level notification mechanisms. Notify
 is a rare user-attention escalation, valid in exactly two cases: a solo agent
 or Orchestrator genuinely needs user input and cannot proceed autonomously, or
 the user explicitly asked to be notified. Worker and Planner tabs never notify
 the user directly — they report through their reporting channel instead.
 Routine completion is never a notification.
+
+`--category` is a closed set with no progress variant. Without it, or with a
+category the user switched off, the notification is filed in the bell and never
+alerts. A message that fits none of the three is not meant to interrupt: leave
+it uncategorised rather than mislabelling it to get through.
