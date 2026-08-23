@@ -1,4 +1,5 @@
 pub mod dedupe;
+pub mod desktop;
 pub mod push;
 pub mod store;
 
@@ -12,7 +13,8 @@ use store::{Notification, NotificationStore};
 /// Shared notification state, thread-safe.
 pub type NotifState = Arc<Mutex<NotificationStore>>;
 
-/// Create a notification.
+/// Create a notification. `category` names the closed set; omitting it keeps
+/// the notification in the inbox instead of raising a desktop alert.
 #[tauri::command]
 pub fn notify(
     svc: State<'_, crate::service::ServiceState>,
@@ -20,7 +22,11 @@ pub fn notify(
     body: Option<String>,
     level: Option<String>,
     tab_id: Option<String>,
+    category: Option<String>,
+    event_key: Option<String>,
 ) -> Result<String, String> {
+    let intent = crate::api::notification_routes::parse_push_intent(category.as_deref(), event_key)
+        .map_err(str::to_string)?;
     Ok(svc.create_notification_ext(
         title,
         body,
@@ -28,7 +34,7 @@ pub fn notify(
         None,
         None,
         crate::service::notification::NotificationOrigin::claimed(tab_id),
-        crate::service::notification::PushIntent::default(),
+        intent,
     ))
 }
 

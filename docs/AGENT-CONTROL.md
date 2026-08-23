@@ -31,7 +31,7 @@ curl http://localhost:7685/api/tabs/$TAB_ID/output
 # Notify
 curl -X POST http://localhost:7685/api/notifications \
   -H "Content-Type: application/json" \
-  -d '{"title":"Build complete","level":"info"}'
+  -d '{"title":"Build complete","level":"info","category":"milestone"}'
 ```
 
 ## Agent Hierarchy
@@ -114,4 +114,4 @@ CodeTerm tracks and restores terminal state across sessions:
 - **Cross-provider session search**: `codeterm sessions search` walks every registered provider's on-disk sessions (Claude JSONLs, Codex `~/.codex/sessions/YYYY/MM/DD/*.jsonl`). `codeterm sessions resume` opens the tab in the correct cwd and hands the resume id to the right provider.
 - **Auto-save**: Session state is persisted every 30 seconds.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->
