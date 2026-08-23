@@ -943,11 +943,11 @@ button,
   }
 }
 
-.ct-notification-badge-pop {
-  animation: ct-notification-badge-pop 360ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+.ct-notification-dot-pop {
+  animation: ct-notification-dot-pop 360ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
-@keyframes ct-notification-badge-pop {
+@keyframes ct-notification-dot-pop {
   0% {
     opacity: 0;
     transform: scale(0.5);
@@ -966,7 +966,7 @@ button,
   .ct-toast-enter,
   .ct-toast-exit,
   .ct-notification-bell-ring,
-  .ct-notification-badge-pop,
+  .ct-notification-dot-pop,
   .ct-toast-pending {
     animation: none;
   }

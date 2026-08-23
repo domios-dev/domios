@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import quote
 
 import pytest
 import requests
@@ -51,15 +52,15 @@ PROTECTED_WEB_ROUTES = [
         "/api/tabs/tab_missing/resize-owner",
         json={"pty_id": "pty_missing", "client_id": "client", "cols": 80, "rows": 24},
     ),
-    RouteCase("POST", "/web/manifest-bootstrap"),
+    RouteCase("POST", "/manifest-bootstrap"),
 ]
 
 
 ALLOWED_ANONYMOUS_WEB_ROUTES = [
-    "/web/",
-    "/web/deep/link",
-    "/web/manifest.webmanifest",
-    "/web/icons/pwa-192.png",
+    "/",
+    "/deep/link",
+    "/manifest.webmanifest",
+    "/icons/pwa-192.png",
 ]
 
 
@@ -114,20 +115,20 @@ def test_web_gate_rejects_bad_token_without_serving_spa(api_only, route: RouteCa
 def test_web_gate_valid_codeterm_web_link_token_serves_spa_and_api(api_only):
     token = _token_from_api_fixture(api_only)
 
-    spa = requests.get(f"{api_only.base}/web/#token={token}", timeout=10)
+    spa = requests.get(f"{api_only.base}/#token={token}", timeout=10)
     assert spa.status_code == 200
     assert len(spa.text) > 1000
     for marker in SPA_MARKERS:
         assert marker in spa.text
 
     manifest = requests.get(
-        f"{api_only.base}/web/manifest.webmanifest",
+        f"{api_only.base}/manifest.webmanifest",
         params={"token": token},
         timeout=10,
     )
     assert manifest.status_code == 200
     assert manifest.headers["content-type"].startswith("application/manifest+json")
-    assert manifest.json()["start_url"] == f"/web/#token={token}"
+    assert manifest.json()["start_url"] == f"/#token={quote(token)}"
 
     state = requests.get(
         f"{api_only.base}/api/mux/state",
@@ -153,8 +154,8 @@ def test_allowed_anonymous_web_surface_is_explicit(api_only, path: str):
     assert response.status_code == 200
     if path.endswith(".webmanifest"):
         body = response.json()
-        assert body["start_url"] == "/web/"
-        assert body["scope"] == "/web/"
+        assert body["start_url"] == "/"
+        assert body["scope"] == "/"
     elif path.endswith(".png"):
         assert response.headers["content-type"].startswith("image/png")
         assert len(response.content) > 1000
@@ -165,12 +166,12 @@ def test_allowed_anonymous_web_surface_is_explicit(api_only, path: str):
 
 
 def test_allowed_anonymous_static_asset_is_explicit(api_only):
-    index = requests.get(f"{api_only.base}/web/", timeout=10)
+    index = requests.get(f"{api_only.base}/", timeout=10)
     assert index.status_code == 200
     match = re.search(r'src="\./(assets/index-[^"]+\.js)"', index.text)
     assert match, index.text[:500]
 
-    asset = requests.get(f"{api_only.base}/web/{match.group(1)}", timeout=10)
+    asset = requests.get(f"{api_only.base}/{match.group(1)}", timeout=10)
 
     assert asset.status_code == 200
     assert asset.headers["content-type"].startswith("text/javascript")
@@ -181,11 +182,18 @@ def test_manifest_bad_token_falls_back_without_leaking_expected_token(api_only):
     expected_token = _token_from_api_fixture(api_only)
 
     response = requests.get(
-        f"{api_only.base}/web/manifest.webmanifest",
+        f"{api_only.base}/manifest.webmanifest",
         params={"token": "garbage-expired-token"},
         timeout=10,
     )
 
     assert response.status_code == 200
-    assert response.json()["start_url"] == "/web/"
+    assert response.json()["start_url"] == "/"
     assert expected_token not in response.text
+
+
+@pytest.mark.parametrize("path", ["/web", "/web/anything"])
+def test_legacy_web_prefix_is_gone(api_only, path: str):
+    response = requests.get(f"{api_only.base}{path}", timeout=10)
+
+    assert response.status_code == 404

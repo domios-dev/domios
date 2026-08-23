@@ -37,6 +37,7 @@ pub use lifecycle::{
 pub use watchdog::start_watchdog;
 pub use workspace::{
     apply_general_chat_view_default, default_chat_view_for_provider, ensure_general_workspace,
+    general_workspace_id,
 };
 
 pub const GENERAL_ALIAS: &str = "general";

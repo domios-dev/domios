@@ -1,3 +1,4 @@
+pub mod dedupe;
 pub mod push;
 pub mod store;
 

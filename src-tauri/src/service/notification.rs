@@ -2,6 +2,7 @@
 
 use super::ServiceContext;
 use crate::notification::{
+    dedupe::DeliveryAdmission,
     push::{self, PushCategory},
     store::{DedupAdmission, NotificationLevel, NotificationProvenance, PushRequest},
     NotifState,
@@ -140,14 +141,19 @@ fn create_notification_with_delivery(
     let id = match admission {
         NotificationAdmission::Diagnostic => unreachable!(),
         NotificationAdmission::Explicit => match push.intent.category {
-            None => store.lock().add_ext(
+            // An identical live message is the same message: it keeps its
+            // record and reaches neither the native sink nor the bell again.
+            None => match store.lock().add_deduped(
                 title.clone(),
                 body.clone(),
                 parsed_level,
                 provenance.clone(),
                 actions.clone(),
                 sticky,
-            ),
+            ) {
+                DeliveryAdmission::Deliver(id) => id,
+                DeliveryAdmission::Duplicate(id) => return id,
+            },
             Some(category) => {
                 let admitted = store.lock().add_push(PushRequest {
                     scope: push::scope_key(&provenance),
@@ -759,5 +765,106 @@ mod tests {
             );
             assert_eq!(store.lock().list(false).len(), 1);
         }
+    }
+
+    /// Both sinks a first arrival reaches: the OS toast and the bell event.
+    fn deliver(
+        store: &NotifState,
+        title: &str,
+        body: Option<&str>,
+        native: &Mutex<Vec<String>>,
+        emitted: &Mutex<Vec<serde_json::Value>>,
+    ) -> String {
+        create_notification_with_delivery(
+            NotificationAdmission::Explicit,
+            store,
+            |title, _| native.lock().push(title.to_string()),
+            title.to_string(),
+            body.map(str::to_string),
+            Some("info"),
+            None,
+            None,
+            NotificationOrigin::default(),
+            |_| None,
+            PushDispatch::inert(),
+            |payload| emitted.lock().push(payload),
+        )
+    }
+
+    #[test]
+    fn notify_dedupe_same_message_reaches_the_sinks_once() {
+        let store = Arc::new(Mutex::new(NotificationStore::new(10)));
+        let native = Mutex::new(Vec::new());
+        let emitted = Mutex::new(Vec::new());
+
+        let title = "agent needs input";
+        let body = Some("approve the destructive step?");
+        let first = deliver(&store, title, body, &native, &emitted);
+        let second = deliver(&store, title, body, &native, &emitted);
+
+        assert_eq!(second, first, "the duplicate names the record that exists");
+        assert_eq!(native.lock().len(), 1, "one native toast, not two");
+        assert_eq!(emitted.lock().len(), 1, "one bell event, not two");
+        assert_eq!(store.lock().list(false).len(), 1, "one record, not two");
+    }
+
+    #[test]
+    fn notify_dedupe_distinct_messages_both_reach_the_sinks() {
+        let store = Arc::new(Mutex::new(NotificationStore::new(10)));
+        let native = Mutex::new(Vec::new());
+        let emitted = Mutex::new(Vec::new());
+
+        let first = deliver(&store, "build failed", Some("linker error"), &native, &emitted);
+        let other_body = deliver(&store, "build failed", Some("test error"), &native, &emitted);
+        let other_title = deliver(&store, "build passed", Some("linker error"), &native, &emitted);
+
+        assert_ne!(first, other_body);
+        assert_ne!(first, other_title);
+        assert_eq!(native.lock().len(), 3);
+        assert_eq!(emitted.lock().len(), 3);
+        assert_eq!(store.lock().list(false).len(), 3);
+    }
+
+    #[test]
+    fn notify_dedupe_an_acknowledged_message_may_arrive_again() {
+        let store = Arc::new(Mutex::new(NotificationStore::new(10)));
+        let native = Mutex::new(Vec::new());
+        let emitted = Mutex::new(Vec::new());
+
+        let first = deliver(&store, "codex available", None, &native, &emitted);
+        assert!(store.lock().mark_read(&first));
+        let again = deliver(&store, "codex available", None, &native, &emitted);
+
+        assert_ne!(
+            again, first,
+            "a recurrence after the user acknowledged it is a new event"
+        );
+        assert_eq!(native.lock().len(), 2);
+        assert_eq!(store.lock().unread_count(), 1);
+    }
+
+    #[test]
+    fn notify_dedupe_standing_condition_survives_a_cleared_inbox() {
+        let store = Arc::new(Mutex::new(NotificationStore::new(10)));
+        let scope = push::tab_scope("tab_a");
+        let condition = crate::notification::dedupe::provider_update_condition("codex");
+
+        assert_eq!(
+            store.lock().observe_condition_present(&scope, &condition),
+            crate::notification::dedupe::ConditionTransition::Announce
+        );
+        store.lock().clear(None);
+        assert_eq!(
+            store.lock().observe_condition_present(&scope, &condition),
+            crate::notification::dedupe::ConditionTransition::AlreadyAnnounced,
+            "wiping history does not make a still-true condition news again"
+        );
+
+        store.lock().observe_condition_absent(&scope, &condition);
+        assert_eq!(
+            store.lock().observe_condition_present(&scope, &condition),
+            crate::notification::dedupe::ConditionTransition::Announce,
+            "only the condition resolving re-arms the announcement"
+        );
     }
 }

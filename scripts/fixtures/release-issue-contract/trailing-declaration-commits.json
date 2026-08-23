@@ -1,0 +1,12 @@
+[
+  {
+    "sha": "5555555555555555555555555555555555555555",
+    "url": "https://github.com/rollacode/codeterm/commit/5555555555555555555555555555555555555555",
+    "body": "fix: persist final state on macOS quit\n\nWindows/Linux exit behavior is unchanged. Repository-Issue: rollacode/codeterm#308"
+  },
+  {
+    "sha": "6666666666666666666666666666666666666666",
+    "url": "https://github.com/rollacode/codeterm/commit/6666666666666666666666666666666666666666",
+    "body": "fix: mirror verification\n\nShipped to the public mirror. Public-Issue: rollacode/codeterm-releases#42"
+  }
+]

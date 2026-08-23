@@ -7,8 +7,12 @@ use serde::Serialize;
 use crate::agent::provider::{ProviderSelfUpdateCapability, ProviderUpdateCompletionSignal};
 use crate::agent::status::TabStatus;
 use crate::multiplexer::types::{PendingDeliveryState, TabAudience};
+use crate::notification::dedupe::{provider_update_condition, ConditionTransition};
+use crate::notification::push::tab_scope;
 
 use super::ServiceContext;
+
+const RUNNER_DESCRIPTION_PREFIX: &str = "codeterm:provider-update:";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConsentPrincipal {
@@ -82,6 +86,24 @@ pub fn decide(
     PolicyDecision::Install {
         restart_required: capability.restart_required,
     }
+}
+
+/// Why a provider's update signal did or did not reach the user. Without this
+/// a swallowed prompt is indistinguishable from one that was never signalled.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProviderUpdatePromptOutcome {
+    /// The tab is gone, or has no PTY to answer on.
+    TabUnavailable,
+    /// This tab IS an update tab: its install keys were submitted there.
+    InstallSubmitted,
+    /// This tab is an update tab whose prompt is no longer taking an install.
+    UpdateTabSettled,
+    /// This source tab already owns a prompt that has not terminated.
+    SourceAlreadyPrompted,
+    /// The update-available condition was already announced for this tab, so
+    /// re-observing it is the same news. Nothing was raised, by design.
+    ConditionAlreadyAnnounced,
+    Raised(ProviderUpdateStatus),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -273,7 +295,7 @@ impl ProviderUpdateRegistry {
         Some(entry.clone())
     }
 
-    fn bind_runner(&self, prompt_id: &str, tab_id: String, pty_id: String) -> bool {
+    fn bind_runner(&self, prompt_id: &str, tab_id: String) -> bool {
         let mut entries = self.entries.lock();
         let Some(entry) = entries.get_mut(prompt_id) else {
             return false;
@@ -282,8 +304,44 @@ impl ProviderUpdateRegistry {
             return false;
         }
         entry.runner_tab_id = Some(tab_id);
-        entry.runner_pty_id = Some(pty_id);
         true
+    }
+
+    /// `(prompt_id, update_tab_id)` for every prompt still owning a live-looking
+    /// update tab — the caller resolves aliveness against the multiplexer.
+    fn open_runner_tabs(&self) -> Vec<(String, String)> {
+        self.entries
+            .lock()
+            .values()
+            .filter(|entry| entry.phase != ProviderUpdatePhase::Terminal)
+            .filter_map(|entry| {
+                entry
+                    .runner_tab_id
+                    .clone()
+                    .map(|tab_id| (entry.view.prompt_id.clone(), tab_id))
+            })
+            .collect()
+    }
+
+    /// Which prompt owns this tab as its update tab. Authoritative: the registry
+    /// knows what it bound, so nothing here depends on a tab's description text.
+    /// Phase-independent on purpose — a settled update tab must still not be
+    /// mistaken for a source tab, exactly as before.
+    fn prompt_for_runner_tab(&self, tab_id: &str) -> Option<String> {
+        self.entries
+            .lock()
+            .values()
+            .find(|entry| entry.runner_tab_id.as_deref() == Some(tab_id))
+            .map(|entry| entry.view.prompt_id.clone())
+    }
+
+    fn runner_tab(&self, prompt_id: &str) -> Option<String> {
+        let entries = self.entries.lock();
+        let entry = entries.get(prompt_id)?;
+        if entry.phase == ProviderUpdatePhase::Terminal {
+            return None;
+        }
+        entry.runner_tab_id.clone()
     }
 
     fn claim_runner_prompt(
@@ -306,18 +364,6 @@ impl ProviderUpdateRegistry {
         let mut runner = entry.clone();
         runner.pty_id = pty_id.to_string();
         Some(runner)
-    }
-
-    fn claim_runner_timeout(&self, prompt_id: &str, tab_id: &str) -> Option<PendingProviderUpdate> {
-        let mut entries = self.entries.lock();
-        let entry = entries.get_mut(prompt_id)?;
-        if entry.phase != ProviderUpdatePhase::Installing
-            || entry.runner_tab_id.as_deref() != Some(tab_id)
-        {
-            return None;
-        }
-        entry.phase = ProviderUpdatePhase::Completing;
-        Some(entry.clone())
     }
 
     fn finish(
@@ -355,25 +401,38 @@ impl ServiceContext {
         capability: Option<ProviderSelfUpdateCapability>,
         install_writes: Vec<Vec<u8>>,
         decline_writes: Vec<Vec<u8>>,
-    ) {
+    ) -> ProviderUpdatePromptOutcome {
+        let _ = self.reconcile_closed_update_tabs();
         let Some((pty_id, principal, work)) = self.provider_update_context(tab_id) else {
-            return;
+            log::debug!("[provider-update] ignored tab={tab_id}: no tab or no PTY");
+            return ProviderUpdatePromptOutcome::TabUnavailable;
         };
         if let Some(prompt_id) = self.provider_update_runner_prompt_id(tab_id) {
-            if let Some(entry) = self.provider_updates.claim_runner_prompt(
+            let Some(entry) = self.provider_updates.claim_runner_prompt(
                 &prompt_id,
                 tab_id,
                 &pty_id,
                 install_writes,
-            ) {
-                if let Err(error) = self.write_provider_update_keys(&entry, &entry.install_writes) {
-                    self.fail_provider_update(entry, &error);
-                }
+            ) else {
+                log::debug!("[provider-update] ignored tab={tab_id}: update tab already settled");
+                return ProviderUpdatePromptOutcome::UpdateTabSettled;
+            };
+            if let Err(error) = self.write_provider_update_keys(&entry, &entry.install_writes) {
+                self.fail_provider_update(entry, &error);
             }
-            return;
+            return ProviderUpdatePromptOutcome::InstallSubmitted;
         }
         if self.provider_updates.has_open_source(tab_id, provider_id) {
-            return;
+            log::debug!("[provider-update] ignored tab={tab_id}: a prompt is already open");
+            return ProviderUpdatePromptOutcome::SourceAlreadyPrompted;
+        }
+        // "An update is available" stays true until it is installed. Announce
+        // the transition; a later observation of the same state is not news.
+        if self.announce_provider_update_available(tab_id, provider_id)
+            == ConditionTransition::AlreadyAnnounced
+        {
+            log::debug!("[provider-update] ignored tab={tab_id}: condition already announced");
+            return ProviderUpdatePromptOutcome::ConditionAlreadyAnnounced;
         }
         let provider_name = self
             .agent_registry
@@ -390,7 +449,10 @@ impl ServiceContext {
                 ProviderUpdateStatus::Declined,
                 format!("Update declined: {}.", decline_reason_text(reason)),
             ),
-            _ => return,
+            other => {
+                log::debug!("[provider-update] ignored tab={tab_id}: unconsented {other:?}");
+                return ProviderUpdatePromptOutcome::TabUnavailable;
+            }
         };
         let entry = PendingProviderUpdate {
             view: ProviderUpdatePromptView {
@@ -438,9 +500,11 @@ impl ServiceContext {
                 entry.view.message
             );
         }
+        ProviderUpdatePromptOutcome::Raised(status)
     }
 
     pub fn list_provider_update_prompts(&self) -> Vec<ProviderUpdatePromptView> {
+        let _ = self.reconcile_closed_update_tabs();
         self.provider_updates.list()
     }
 
@@ -449,6 +513,19 @@ impl ServiceContext {
         prompt_id: &str,
         accept: bool,
     ) -> Result<(), String> {
+        let _ = self.reconcile_closed_update_tabs();
+        // One press, one tab: a repeat press lands the user on the update
+        // already running rather than racing a second installer against it.
+        if accept {
+            if let Some(tab_id) = self.provider_updates.runner_tab(prompt_id) {
+                let workspace_id = {
+                    let mux = self.mux.read();
+                    mux.find_workspace_for_tab(&tab_id)
+                }
+                .ok_or_else(|| "The update tab is no longer in a workspace".to_string())?;
+                return self.focus_provider_update_tab(&workspace_id, &tab_id);
+            }
+        }
         let entry = self
             .provider_updates
             .get(prompt_id)
@@ -601,10 +678,25 @@ impl ServiceContext {
         });
     }
 
+    fn announce_provider_update_available(
+        &self,
+        tab_id: &str,
+        provider_id: &str,
+    ) -> ConditionTransition {
+        self.notif
+            .lock()
+            .observe_condition_present(&tab_scope(tab_id), &provider_update_condition(provider_id))
+    }
+
     pub(crate) fn handle_provider_update_completed(&self, tab_id: &str, pty_id: &str) {
         let Some(entry) = self.provider_updates.claim_completion(tab_id, pty_id) else {
             return;
         };
+        // The condition resolved, so a genuinely new update announces again.
+        self.notif.lock().observe_condition_absent(
+            &tab_scope(&entry.view.tab_id),
+            &provider_update_condition(&entry.provider_id),
+        );
         let restart_required = entry
             .capability
             .is_some_and(|capability| capability.restart_required);
@@ -724,9 +816,8 @@ impl ServiceContext {
                 });
             return Ok((1, 0));
         }
-        if let Some(runner_tab_id) = entry.runner_tab_id.as_deref() {
-            self.close_tab(runner_tab_id)?;
-        }
+        // The update tab stays open and unrestarted: it is the user's evidence
+        // of what the update actually did.
         let candidates: Vec<String> = {
             let mux = self.mux.read();
             mux.list_workspaces()
@@ -734,7 +825,9 @@ impl ServiceContext {
                 .flat_map(|workspace| workspace.tab_ids.iter())
                 .filter_map(|tab_id| mux.get_tab(tab_id))
                 .filter(|tab| {
-                    !tab.hidden && tab.agent_type.as_deref() == Some(entry.provider_id.as_str())
+                    !tab.hidden
+                        && tab.agent_type.as_deref() == Some(entry.provider_id.as_str())
+                        && Some(tab.id.as_str()) != entry.runner_tab_id.as_deref()
                 })
                 .map(|tab| tab.id.clone())
                 .collect()
@@ -760,88 +853,134 @@ impl ServiceContext {
         Ok((restarted, deferred))
     }
 
+    /// The update runs in an ordinary user tab in General so the user watches it
+    /// happen and reads any failure where it happened.
     fn start_provider_update_runner(&self, entry: &PendingProviderUpdate) -> Result<(), String> {
-        #[cfg(test)]
-        if self.provider_updates.probe.lock().is_some() {
-            self.provider_updates.bind_runner(
-                &entry.view.prompt_id,
-                entry.view.tab_id.clone(),
-                entry.pty_id.clone(),
-            );
-            let runner = self
-                .provider_updates
-                .claim_runner_prompt(
-                    &entry.view.prompt_id,
-                    &entry.view.tab_id,
-                    &entry.pty_id,
-                    entry.install_writes.clone(),
-                )
-                .ok_or_else(|| "Provider update test runner was not claimed".to_string())?;
-            self.write_provider_update_keys(&runner, &runner.install_writes)?;
-            return Ok(());
-        }
-        let (workspace_id, cwd) = {
+        let workspace_id = {
             let mux = self.mux.read();
-            let tab = mux
-                .get_tab(&entry.view.tab_id)
-                .ok_or_else(|| "Provider update source tab disappeared".to_string())?;
-            (mux.find_workspace_for_tab(&tab.id), tab.cwd.clone())
-        };
-        let handle = self.spawn_tab(crate::service::spawn::SpawnTabSpec {
-            workspace_id,
-            cwd,
-            title: Some(format!("{} updater", entry.view.provider_name)),
-            description: Some(format!("codeterm:provider-update:{}", entry.view.prompt_id)),
-            visibility: crate::service::spawn::TabVisibility::Hidden,
-            audience: TabAudience::Automation,
-            command: crate::service::spawn::TabCommand::Agent(
-                crate::service::spawn::AgentSpawnSpec {
-                    provider: entry.provider_id.clone(),
-                    ..Default::default()
-                },
-            ),
-            ..Default::default()
-        })?;
-        let pty_id = handle
-            .pty_id
-            .ok_or_else(|| "Provider update runner has no PTY".to_string())?;
+            crate::service::general_agent::general_workspace_id(&mux)
+        }
+        .ok_or_else(|| "The General workspace is unavailable for the update tab".to_string())?;
+        let tab_id = self.spawn_provider_update_tab(entry, &workspace_id)?;
         if !self
             .provider_updates
-            .bind_runner(&entry.view.prompt_id, handle.tab_id.clone(), pty_id)
+            .bind_runner(&entry.view.prompt_id, tab_id.clone())
         {
-            let _ = self.close_tab(&handle.tab_id);
-            return Err("Provider update authority expired before runner launch".into());
+            return Err("Provider update authority expired before the update tab launched".into());
         }
-        let svc = self.clone();
-        let prompt_id = entry.view.prompt_id.clone();
-        let runner_tab_id = handle.tab_id;
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_secs(120));
-            let Some(timed_out) = svc
-                .provider_updates
-                .claim_runner_timeout(&prompt_id, &runner_tab_id)
-            else {
-                return;
-            };
-            let _ = svc.close_tab(&runner_tab_id);
-            svc.fail_provider_update(
-                timed_out,
-                "Provider update runner did not complete within 120 seconds",
-            );
-        });
+        self.focus_provider_update_tab(&workspace_id, &tab_id)?;
+        #[cfg(test)]
+        self.probe_provider_update_runner_prompt(&entry.view.prompt_id, &tab_id)?;
         Ok(())
     }
 
-    fn provider_update_runner_prompt_id(&self, tab_id: &str) -> Option<String> {
-        self.mux
+    fn spawn_provider_update_tab(
+        &self,
+        entry: &PendingProviderUpdate,
+        workspace_id: &str,
+    ) -> Result<String, String> {
+        let spec = provider_update_tab_spec(entry, workspace_id);
+        #[cfg(test)]
+        if self.provider_updates.probe.lock().is_some() {
+            let mut mux = self.mux.write();
+            let tab_id = mux.create_tab(workspace_id)?;
+            let _ = mux.set_tab_description(&tab_id, spec.description.clone());
+            if let Some(tab) = mux.get_tab_mut(&tab_id) {
+                tab.audience = spec.audience;
+                tab.agent_type = Some(entry.provider_id.clone());
+                tab.pty_id = Some(format!("pty-{tab_id}"));
+            }
+            return Ok(tab_id);
+        }
+        let handle = self.spawn_tab(spec)?;
+        Ok(handle.tab_id)
+    }
+
+    /// Stands in for the reactor observing the provider's own update prompt
+    /// inside the freshly raised tab; the PTY process itself is what the probe
+    /// replaces, never the tab lifecycle under test.
+    #[cfg(test)]
+    fn probe_provider_update_runner_prompt(
+        &self,
+        prompt_id: &str,
+        tab_id: &str,
+    ) -> Result<(), String> {
+        if self.provider_updates.probe.lock().is_none() {
+            return Ok(());
+        }
+        let pty_id = self
+            .mux
             .read()
             .get_tab(tab_id)
-            .and_then(|tab| tab.description.as_deref())
-            .and_then(|description| description.strip_prefix("codeterm:provider-update:"))
-            .map(str::to_string)
+            .and_then(|tab| tab.pty_id.clone())
+            .ok_or_else(|| "Update tab has no PTY".to_string())?;
+        let install_writes = self
+            .provider_updates
+            .get(prompt_id)
+            .map(|entry| entry.install_writes.clone())
+            .unwrap_or_default();
+        let runner = self
+            .provider_updates
+            .claim_runner_prompt(prompt_id, tab_id, &pty_id, install_writes)
+            .ok_or_else(|| "Provider update test runner was not claimed".to_string())?;
+        self.write_provider_update_keys(&runner, &runner.install_writes)
+    }
+
+    /// Focus follows tab creation directly: workspace, workspace-active tab, and
+    /// global focus are set in one multiplexer write, then announced.
+    fn focus_provider_update_tab(&self, workspace_id: &str, tab_id: &str) -> Result<(), String> {
+        {
+            let mut mux = self.mux.write();
+            mux.set_active_tab(workspace_id, tab_id)?;
+            mux.set_active_workspace(workspace_id)?;
+            mux.set_focused_tab(tab_id)?;
+        }
+        self.emit_state_changed();
+        self.emit_tab_focus_changed(tab_id);
+        Ok(())
+    }
+
+    /// A closed update tab is the only terminating signal a visible run needs:
+    /// its prompt fails loudly instead of pinning the source tab forever.
+    /// Returns the prompts it terminated, so callers and tests can distinguish
+    /// "nothing to reconcile" from "reconciled but did not terminate".
+    fn reconcile_closed_update_tabs(&self) -> Vec<String> {
+        let open = self.provider_updates.open_runner_tabs();
+        if open.is_empty() {
+            return Vec::new();
+        }
+        let closed: Vec<String> = {
+            let mux = self.mux.read();
+            open.into_iter()
+                .filter(|(_, tab_id)| mux.get_tab(tab_id).is_none())
+                .map(|(prompt_id, _)| prompt_id)
+                .collect()
+        };
+        let mut terminated = Vec::new();
+        for prompt_id in closed {
+            if let Some(entry) = self.provider_updates.get(&prompt_id) {
+                self.fail_provider_update(
+                    entry,
+                    "The update tab was closed before the update reported completion",
+                );
+                terminated.push(prompt_id);
+            }
+        }
+        terminated
+    }
+
+    fn provider_update_runner_prompt_id(&self, tab_id: &str) -> Option<String> {
+        self.provider_updates.prompt_for_runner_tab(tab_id)
     }
 
     fn fail_provider_update(&self, mut entry: PendingProviderUpdate, message: &str) {
+        // The attempt ended and the update did NOT install, so the next
+        // observation is genuinely new news. A decline is the opposite case and
+        // deliberately keeps its latch — that is the hammering N2 stopped.
+        self.notif.lock().observe_condition_absent(
+            &tab_scope(&entry.view.tab_id),
+            &provider_update_condition(&entry.provider_id),
+        );
         self.provider_updates.finish(
             entry.clone(),
             ProviderUpdateStatus::Failed,
@@ -850,6 +989,28 @@ impl ServiceContext {
         entry.view.status = ProviderUpdateStatus::Failed;
         entry.view.message = message.to_string();
         self.emit_provider_update(&entry.view);
+    }
+}
+
+fn provider_update_tab_description(prompt_id: &str) -> String {
+    format!("{RUNNER_DESCRIPTION_PREFIX}{prompt_id}")
+}
+
+fn provider_update_tab_spec(
+    entry: &PendingProviderUpdate,
+    workspace_id: &str,
+) -> crate::service::spawn::SpawnTabSpec {
+    crate::service::spawn::SpawnTabSpec {
+        workspace_id: Some(workspace_id.to_string()),
+        title: Some(format!("Updating {}", entry.view.provider_name)),
+        description: Some(provider_update_tab_description(&entry.view.prompt_id)),
+        visibility: crate::service::spawn::TabVisibility::Visible,
+        audience: TabAudience::User,
+        command: crate::service::spawn::TabCommand::Agent(crate::service::spawn::AgentSpawnSpec {
+            provider: entry.provider_id.clone(),
+            ..Default::default()
+        }),
+        ..Default::default()
     }
 }
 
