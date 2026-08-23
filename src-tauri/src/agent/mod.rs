@@ -1,5 +1,6 @@
 pub mod attributed_screen;
 pub mod chat_types;
+pub mod classify_input;
 pub mod command_detection;
 pub mod detector;
 pub mod keys;

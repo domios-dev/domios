@@ -267,7 +267,10 @@ fn classify_at(provider: &JsProvider, sig: &StreamSignals) -> Option<TabStateCla
 }
 
 fn replay(cast: &Cast, provider: &JsProvider) -> Vec<StepResult> {
-    let mut extractor = SignalExtractor::new(cast.height, cast.width, VolatileHint::default());
+    let hint = VolatileHint {
+        bottom_rows: provider.status_bar_rows(),
+    };
+    let mut extractor = SignalExtractor::new(cast.height, cast.width, hint);
     let mut steps = Vec::new();
     let mut last_ms = 0u64;
 
@@ -508,7 +511,9 @@ fn provider_screen_attr_actual_from_cast(cast: &Cast) -> Value {
 }
 
 fn attributed_screen_from_cast(cast: &Cast) -> AttributedScreen {
-    let mut extractor = SignalExtractor::new(cast.height, cast.width, VolatileHint::default());
+    // Grid-only: the attributed screen is independent of the volatile band.
+    let hint = VolatileHint { bottom_rows: 0 };
+    let mut extractor = SignalExtractor::new(cast.height, cast.width, hint);
     for ev in &cast.events {
         match ev {
             Event::Resize { rows, cols, .. } => extractor.resize(*rows, *cols),

@@ -8,6 +8,9 @@ import sys
 import time
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from provider_rows import rows_for_replay  # noqa: E402
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PROVIDERS = ["claude", "opencode", "codex", "cursor"]
@@ -80,6 +83,8 @@ def render_and_gate(replay_dir: Path) -> dict[str, object]:
             str(meta),
             "--phases",
             str(phases),
+            "--status-bar-rows",
+            str(rows_for_replay(replay_dir, fixture_rows=0)),
         ],
         timeout=900,
     )

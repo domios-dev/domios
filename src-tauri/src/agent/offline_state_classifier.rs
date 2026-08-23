@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use super::attributed_screen::{detect_picker, PickerDetection};
-use super::signal_extractor::{Motion, SignalExtractor, StreamSignals, VolatileHint};
+use super::classify_input::{ClassifyInputBuilder, ClassifyParts, StatusBarRows};
+use super::signal_extractor::{Motion, SignalExtractor, StreamSignals};
 
 mod status;
 
@@ -49,6 +50,9 @@ impl CastEvent {
 pub struct CastTimelineInput {
     pub width: u16,
     pub height: u16,
+    /// Required, never defaulted: the replayed provider's chrome band. Offline
+    /// gates the semantic clock with exactly the band live excludes.
+    pub status_bar_rows: StatusBarRows,
     pub events: Vec<CastEvent>,
 }
 
@@ -59,7 +63,11 @@ pub struct CastTimelineInput {
 /// - the live PTY path passes the already-surfaced pending prompt's question so
 ///   it never re-parses the picker, and derives `screen_lines`/`tail` from the
 ///   existing per-tab `ScreenState` parser (no second vt100).
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ClassifyInput<'a> {
+    /// Resolved provider chrome band. Required input, no default: it is built
+    /// only via `classify_input::ClassifyInputBuilder`.
+    pub status_bar_rows: StatusBarRows,
     /// Pre-detected picker question, if a picker is on screen.
     pub picker_question: Option<&'a str>,
     /// Trimmed per-row screen text (text-question + ready-prompt fingerprints).
@@ -254,7 +262,8 @@ pub struct BoundarySignals {
 }
 
 pub fn classify_timeline(cast: &CastTimelineInput) -> Vec<ClassifiedSegment> {
-    let mut extractor = SignalExtractor::new(cast.height, cast.width, VolatileHint::default());
+    let builder = ClassifyInputBuilder::for_rows(cast.status_bar_rows);
+    let mut extractor = SignalExtractor::new(cast.height, cast.width, builder.volatile_hint());
     let mut samples = Vec::new();
     let mut previous = TabVerdict {
         state: TimelineState::Idle,
@@ -267,7 +276,7 @@ pub fn classify_timeline(cast: &CastTimelineInput) -> Vec<ClassifiedSegment> {
             let mut tick = last_ms + TICK_MS;
             while tick < event.now_ms() {
                 let signals = extractor.step(b"", tick);
-                previous = classify_signals(&extractor, &signals, previous);
+                previous = classify_signals(&extractor, &signals, previous, &builder);
                 samples.push((tick, previous));
                 tick += TICK_MS;
             }
@@ -280,7 +289,7 @@ pub fn classify_timeline(cast: &CastTimelineInput) -> Vec<ClassifiedSegment> {
             }
             CastEvent::Output { now_ms, bytes } => {
                 let signals = extractor.step(bytes, *now_ms);
-                previous = classify_signals(&extractor, &signals, previous);
+                previous = classify_signals(&extractor, &signals, previous, &builder);
                 samples.push((*now_ms, previous));
                 last_ms = *now_ms;
             }
@@ -291,7 +300,7 @@ pub fn classify_timeline(cast: &CastTimelineInput) -> Vec<ClassifiedSegment> {
     let mut tick = last_ms + TICK_MS;
     while tick <= end_ms {
         let signals = extractor.step(b"", tick);
-        previous = classify_signals(&extractor, &signals, previous);
+        previous = classify_signals(&extractor, &signals, previous, &builder);
         samples.push((tick, previous));
         tick += TICK_MS;
     }
@@ -300,7 +309,8 @@ pub fn classify_timeline(cast: &CastTimelineInput) -> Vec<ClassifiedSegment> {
 }
 
 pub fn render_signals_at(cast: &CastTimelineInput, at_ms: u64) -> BoundarySignals {
-    let mut extractor = SignalExtractor::new(cast.height, cast.width, VolatileHint::default());
+    let builder = ClassifyInputBuilder::for_rows(cast.status_bar_rows);
+    let mut extractor = SignalExtractor::new(cast.height, cast.width, builder.volatile_hint());
 
     for event in &cast.events {
         if event.now_ms() > at_ms {
@@ -326,6 +336,7 @@ pub fn render_signals_at(cast: &CastTimelineInput, at_ms: u64) -> BoundarySignal
             state: TimelineState::Idle,
             subtype: None,
         },
+        &builder,
     );
     BoundarySignals {
         state: verdict.state,
@@ -347,6 +358,7 @@ pub fn classify_signals(
     extractor: &SignalExtractor,
     signals: &StreamSignals,
     previous: TabVerdict,
+    builder: &ClassifyInputBuilder,
 ) -> TabVerdict {
     let attributed = extractor.attributed_screen();
     let active_working_chrome = extract_status_line(&signals.screen.lines).is_some()
@@ -358,7 +370,7 @@ pub fn classify_signals(
         .flatten()
         .filter(|picker| offline_picker_is_coherent(picker, signals));
     classify_state(
-        &ClassifyInput {
+        &builder.build(ClassifyParts {
             picker_question: picker.as_ref().map(|p| p.question.as_str()),
             screen_lines: &signals.screen.lines,
             tail: &signals.tail,
@@ -371,7 +383,7 @@ pub fn classify_signals(
                 signals.cursor.row,
                 signals.rows,
             ),
-        },
+        }),
         previous,
     )
 }
