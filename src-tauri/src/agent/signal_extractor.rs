@@ -101,9 +101,11 @@ pub struct StreamSignals {
     pub picker_active: bool,
 }
 
-/// Plugin-declared volatile region hint. Default = none (every change is
-/// semantic). `bottom_rows` is the spinner/status band the semantic clock ignores.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+/// Plugin-declared volatile region hint: `bottom_rows` is the spinner/status
+/// band the semantic clock ignores. Deliberately NOT `Default` — the band is a
+/// measured provider fact, so every construction states it (see
+/// `agent::classify_input::StatusBarRows`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VolatileHint {
     pub bottom_rows: u16,
 }

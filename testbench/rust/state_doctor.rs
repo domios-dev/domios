@@ -7,6 +7,9 @@ use codeterm_lib::agent::offline_state_classifier::{
 use serde::Deserialize;
 use serde_json::Value;
 
+#[path = "provider_rows.rs"]
+mod provider_rows;
+
 const MIN_CAST_ROWS: usize = 50;
 const MIN_CAST_BYTES: u64 = 40_000;
 
@@ -100,9 +103,17 @@ fn inspect_dump(root: &Path, dir: &Path) -> DumpVerdict {
     let scenario = dir.file_name().unwrap_or_default().to_string_lossy();
     let timeline = parse_timeline(&dir.join("timeline.json"));
     let cast = parse_cast(&dir.join("session.cast"));
+    let provider = dir
+        .strip_prefix(root)
+        .ok()
+        .and_then(|p| p.components().next())
+        .map(|c| c.as_os_str().to_string_lossy().to_string())
+        .unwrap_or_default();
     let input = CastTimelineInput {
         width: cast.width,
         height: cast.height,
+        status_bar_rows: provider_rows::status_bar_rows(&provider)
+            .unwrap_or_else(|e| panic!("state dump provider {provider:?}: {e}")),
         events: cast.events.clone(),
     };
     let predicted = classify_timeline(&input);

@@ -45,7 +45,9 @@ say "OFFLINE regression — regen timelines (classifier untouched by spawn diff)
 ( cd src-tauri && cargo build --example render_timeline 2>&1 | tail -1 )
 RT=src-tauri/target/debug/examples/render_timeline; rm -rf "$SCRATCH/regen"; mkdir -p "$SCRATCH/regen"
 while IFS= read -r c; do d=$(dirname "$c");
+  rows="$(python3 testbench/provider_rows.py "$d" --fixture-rows 0)" || continue
   "$RT" "$c" "$SCRATCH/regen/$(echo "$d"|sed 's#testbench/replays/##;s#/#__#g').json" \
+    --status-bar-rows "$rows" \
     $([ -f "$d/meta.json" ]&&echo --meta "$d/meta.json") $([ -f "$d/phases.json" ]&&echo --phases "$d/phases.json") >/dev/null 2>&1
 done < <(find testbench/replays -name raw.cast)
 echo "regen done -> $SCRATCH/regen"

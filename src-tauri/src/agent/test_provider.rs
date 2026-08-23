@@ -16,6 +16,7 @@ pub struct MockProvider {
     supports_chat_ui: bool,
     reasoning_efforts: Vec<ReasoningEffortInfo>,
     system_prompt_delivery: SystemPromptDelivery,
+    status_bar_rows: u16,
 }
 
 impl MockProvider {
@@ -25,6 +26,16 @@ impl MockProvider {
             supports_chat_ui: false,
             reasoning_efforts: Vec::new(),
             system_prompt_delivery: SystemPromptDelivery::External,
+            status_bar_rows: 0,
+        }
+    }
+
+    /// Declares a chrome band, so a test can round-trip it through the registry
+    /// instead of comparing against a baked number.
+    pub fn with_status_bar_rows(id: &str, rows: u16) -> Self {
+        Self {
+            status_bar_rows: rows,
+            ..Self::new(id)
         }
     }
 
@@ -84,6 +95,9 @@ impl AgentProvider for MockProvider {
     }
     fn supports_chat_ui(&self) -> bool {
         self.supports_chat_ui
+    }
+    fn status_bar_rows(&self) -> u16 {
+        self.status_bar_rows
     }
     fn reasoning_efforts(&self) -> Vec<ReasoningEffortInfo> {
         self.reasoning_efforts.clone()
