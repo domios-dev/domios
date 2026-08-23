@@ -17,11 +17,15 @@ enum TabPromptState {
         prompt: PendingPrompt,
         #[allow(dead_code)]
         detected_at: Instant,
-        /// Set by a hook call with no live structured backing (explicit JSON
-        /// body, or screen-parsed hook fallback) rather than the continuous
-        /// structured-handle scan. Such prompts have no per-chunk source to
-        /// reconcile against, so a routine "nothing parsed this chunk" result
-        /// must not clear them — only `/prompt/clear` or `hook_stop` does.
+        /// Set by a hook call with no live structured backing rather than the
+        /// continuous structured-handle scan. Such prompts have no per-chunk
+        /// source to reconcile against, so a routine "nothing parsed this chunk"
+        /// result must not clear them — only `/prompt/clear` or `hook_stop` does.
+        hook_owned: bool,
+        /// Provenance, never inferred from the call site: true ONLY when the
+        /// prompt came from a structured source (explicit hook body, per-tool
+        /// PermissionRequest, structured handle). A screen scrape is always
+        /// false, so a scrape is never reported as structured.
         explicit: bool,
     },
     /// Suppress re-detection for cooldown_ms after user responds.
@@ -48,6 +52,17 @@ pub enum PromptDecision {
 }
 
 pub type ParsedPrompt = Option<PendingPrompt>;
+
+pub use crate::agent::native_prompt::ResolvedPrompt;
+
+/// A scrape-derived parse: provenance is pinned to non-structured at the seam,
+/// so no caller can promote a screen scrape to `explicit`.
+fn scraped(parsed: ParsedPrompt) -> Option<ResolvedPrompt> {
+    parsed.map(|prompt| ResolvedPrompt {
+        prompt,
+        explicit: false,
+    })
+}
 
 /// Centralized prompt detection state machine.
 /// Keyed by tab_id.
@@ -96,7 +111,7 @@ impl PromptDetector {
         };
 
         let parsed = parse_prompt_safely(|| parse_fn(text));
-        self.transition_from_parsed(tab_id, parsed)
+        self.transition_from_parsed(tab_id, scraped(parsed))
     }
 
     pub fn evaluate_pty_output_parsed(
@@ -104,7 +119,7 @@ impl PromptDetector {
         tab_id: &str,
         has_markers: bool,
         clean_ring_text_present: bool,
-        parsed: ParsedPrompt,
+        resolved: Option<ResolvedPrompt>,
     ) -> PromptDecision {
         let is_active = matches!(self.states.get(tab_id), Some(TabPromptState::Active { .. }));
 
@@ -116,7 +131,7 @@ impl PromptDetector {
             return PromptDecision::None;
         }
 
-        self.transition_from_parsed(tab_id, parsed)
+        self.transition_from_parsed(tab_id, resolved)
     }
 
     /// Entry point for hook path (API endpoint).
@@ -125,6 +140,25 @@ impl PromptDetector {
         &mut self,
         tab_id: &str,
         prompt: PendingPrompt,
+    ) -> PromptDecision {
+        self.hook_detected(tab_id, prompt, true)
+    }
+
+    /// Hook path for a prompt scraped off the screen. Hook-owned (no per-chunk
+    /// source to reconcile against) but NEVER structured.
+    pub fn hook_detected_scraped(
+        &mut self,
+        tab_id: &str,
+        prompt: PendingPrompt,
+    ) -> PromptDecision {
+        self.hook_detected(tab_id, prompt, false)
+    }
+
+    fn hook_detected(
+        &mut self,
+        tab_id: &str,
+        prompt: PendingPrompt,
+        explicit: bool,
     ) -> PromptDecision {
         let state = self.states.get(tab_id);
         match state {
@@ -139,7 +173,8 @@ impl PromptDetector {
                     TabPromptState::Active {
                         prompt: prompt.clone(),
                         detected_at: Instant::now(),
-                        explicit: true,
+                        hook_owned: true,
+                        explicit,
                     },
                 );
                 PromptDecision::PromptUpdated {
@@ -153,7 +188,8 @@ impl PromptDetector {
                     TabPromptState::Active {
                         prompt: prompt.clone(),
                         detected_at: Instant::now(),
-                        explicit: true,
+                        hook_owned: true,
+                        explicit,
                     },
                 );
                 PromptDecision::NewPrompt {
@@ -236,7 +272,7 @@ impl PromptDetector {
                     prompt.question,
                     prompt.options.len()
                 );
-                self.hook_detected_explicit(tab_id, prompt)
+                self.hook_detected_scraped(tab_id, prompt)
             }
             None => PromptDecision::None,
         }
@@ -261,40 +297,56 @@ impl PromptDetector {
         }
     }
 
+    /// The provenance the active prompt is reported with: `true` only when it
+    /// came from a structured source, never from a screen scrape.
+    #[allow(dead_code)]
+    pub fn active_prompt_explicit(&self, tab_id: &str) -> Option<bool> {
+        match self.states.get(tab_id) {
+            Some(TabPromptState::Active { explicit, .. }) => Some(*explicit),
+            _ => None,
+        }
+    }
+
     /// Remove state for a closed tab.
     pub fn remove_tab(&mut self, tab_id: &str) {
         self.states.remove(tab_id);
         self.permission_requests.remove(tab_id);
     }
 
-    fn transition_from_parsed(&mut self, tab_id: &str, parsed: ParsedPrompt) -> PromptDecision {
+    fn transition_from_parsed(
+        &mut self,
+        tab_id: &str,
+        resolved: Option<ResolvedPrompt>,
+    ) -> PromptDecision {
         match self.states.get(tab_id) {
             Some(TabPromptState::Active {
                 prompt: existing,
-                explicit,
+                hook_owned,
                 ..
             }) => {
-                let explicit = *explicit;
-                match parsed {
-                    Some(new_prompt) => {
-                        if same_prompt(existing, &new_prompt) {
+                let hook_owned = *hook_owned;
+                match resolved {
+                    Some(resolved) => {
+                        if same_prompt(existing, &resolved.prompt) {
                             PromptDecision::None
                         } else {
+                            let prompt = resolved.prompt;
                             self.states.insert(
                                 tab_id.to_string(),
                                 TabPromptState::Active {
-                                    prompt: new_prompt.clone(),
+                                    prompt: prompt.clone(),
                                     detected_at: Instant::now(),
-                                    explicit: false,
+                                    hook_owned: false,
+                                    explicit: resolved.explicit,
                                 },
                             );
                             PromptDecision::PromptUpdated {
                                 tab_id: tab_id.to_string(),
-                                prompt: new_prompt,
+                                prompt,
                             }
                         }
                     }
-                    None if explicit => PromptDecision::None,
+                    None if hook_owned => PromptDecision::None,
                     None => {
                         self.states.insert(tab_id.to_string(), TabPromptState::Idle);
                         PromptDecision::PromptCleared {
@@ -309,22 +361,28 @@ impl PromptDetector {
                     return PromptDecision::None;
                 }
                 self.states.insert(tab_id.to_string(), TabPromptState::Idle);
-                self.try_apply_parsed(tab_id, parsed)
+                self.try_apply_parsed(tab_id, resolved)
             }
 
-            Some(TabPromptState::Idle) | None => self.try_apply_parsed(tab_id, parsed),
+            Some(TabPromptState::Idle) | None => self.try_apply_parsed(tab_id, resolved),
         }
     }
 
-    fn try_apply_parsed(&mut self, tab_id: &str, parsed: ParsedPrompt) -> PromptDecision {
-        match parsed {
-            Some(prompt) => {
+    fn try_apply_parsed(
+        &mut self,
+        tab_id: &str,
+        resolved: Option<ResolvedPrompt>,
+    ) -> PromptDecision {
+        match resolved {
+            Some(resolved) => {
+                let prompt = resolved.prompt;
                 self.states.insert(
                     tab_id.to_string(),
                     TabPromptState::Active {
                         prompt: prompt.clone(),
                         detected_at: Instant::now(),
-                        explicit: false,
+                        hook_owned: false,
+                        explicit: resolved.explicit,
                     },
                 );
                 PromptDecision::NewPrompt {
@@ -355,9 +413,9 @@ where
     parse_prompt_safely(|| parse_fn(clean_ring_text))
 }
 
-pub(crate) fn parse_prompt_safely<F>(parse_fn: F) -> ParsedPrompt
+pub(crate) fn parse_prompt_safely<T, F>(parse_fn: F) -> Option<T>
 where
-    F: FnOnce() -> ParsedPrompt,
+    F: FnOnce() -> Option<T>,
 {
     match catch_unwind(AssertUnwindSafe(parse_fn)) {
         Ok(parsed) => parsed,
