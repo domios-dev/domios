@@ -199,13 +199,15 @@ fn react(svc: &ServiceState, pty_id: &str, status: TabStatus) {
         ReactorDecision::Ignore => {}
         ReactorDecision::Surface(surface) => surface_to_user(svc, &tab_id, surface),
         ReactorDecision::Act(action) => execute_action(svc, &tab_id, action),
-        ReactorDecision::ProviderUpdate(action) => svc.handle_provider_update_prompt(
-            &tab_id,
-            &agent_type,
-            update_capability,
-            keys_to_writes(&action.install_keys),
-            keys_to_writes(&action.decline_keys),
-        ),
+        ReactorDecision::ProviderUpdate(action) => {
+            let _ = svc.handle_provider_update_prompt(
+                &tab_id,
+                &agent_type,
+                update_capability,
+                keys_to_writes(&action.install_keys),
+                keys_to_writes(&action.decline_keys),
+            );
+        }
         ReactorDecision::ProviderUpdateCompleted => {
             svc.handle_provider_update_completed(&tab_id, pty_id)
         }
