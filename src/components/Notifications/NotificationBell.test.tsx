@@ -5,7 +5,10 @@ import type { Notification } from "../../lib/types";
 import { __setInvokeForTest } from "../../lib/bridge";
 import { NotificationBell } from "./NotificationBell";
 
+let checked = 0;
+
 function assert(condition: unknown, message: string): asserts condition {
+  checked++;
   if (!condition) throw new Error(message);
 }
 
@@ -170,7 +173,7 @@ async function run() {
 
   await act(async () => root.unmount());
   __setInvokeForTest(null);
-  console.log("NotificationBell tests: 1/1 passed");
+  console.log(`NotificationBell tests: ${checked} assertions passed`);
 }
 
 void run();
