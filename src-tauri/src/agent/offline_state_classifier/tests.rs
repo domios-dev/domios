@@ -129,6 +129,7 @@ use super::{
     TabVerdict, TimelineState,
 };
 use crate::agent::attributed_screen::PickerDetection;
+use crate::agent::classify_input::{ClassifyInputBuilder, ClassifyParts, StatusBarRows};
 use crate::agent::signal_extractor::StreamSignals;
 
 fn working() -> TabVerdict {
@@ -139,7 +140,7 @@ fn working() -> TabVerdict {
 }
 
 fn quiescent_input(screen: &[String]) -> ClassifyInput<'_> {
-    ClassifyInput {
+    ClassifyInputBuilder::for_rows(StatusBarRows::fixture(0)).build(ClassifyParts {
         picker_question: None,
         screen_lines: screen,
         tail: "",
@@ -148,7 +149,7 @@ fn quiescent_input(screen: &[String]) -> ClassifyInput<'_> {
         motion: Motion::Still,
         cursor_hidden: false,
         composer_ready: false,
-    }
+    })
 }
 
 // The codex idle composer: a `›` prompt line followed by the model/cwd footer.

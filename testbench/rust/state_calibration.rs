@@ -8,6 +8,9 @@ use codeterm_lib::agent::offline_state_classifier::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+#[path = "provider_rows.rs"]
+mod provider_rows;
+
 #[derive(Clone, Debug)]
 enum Event {
     Output { now_ms: u64, bytes: Vec<u8> },
@@ -21,11 +24,21 @@ struct Cast {
     events: Vec<Event>,
 }
 
-impl From<&Cast> for CastTimelineInput {
-    fn from(value: &Cast) -> Self {
+/// A cast paired with the band its provider actually repaints — the corpus is
+/// only comparable to production once both are present.
+struct ProvidedCast<'a> {
+    cast: &'a Cast,
+    provider: &'a str,
+}
+
+impl From<ProvidedCast<'_>> for CastTimelineInput {
+    fn from(provided: ProvidedCast<'_>) -> Self {
+        let value = provided.cast;
         Self {
             width: value.width,
             height: value.height,
+            status_bar_rows: provider_rows::status_bar_rows(provided.provider)
+                .unwrap_or_else(|e| panic!("state dump provider {:?}: {e}", provided.provider)),
             events: value
                 .events
                 .iter()
@@ -129,7 +142,10 @@ pub fn run_state_calibration(root: &Path) -> StateCalibrationSummary {
             .replace('\\', "/");
         let timeline = parse_timeline(&dir.join("timeline.json"));
         let cast = parse_cast(&dir.join("session.cast"));
-        let predicted = classify_timeline(&CastTimelineInput::from(&cast));
+        let predicted = classify_timeline(&CastTimelineInput::from(ProvidedCast {
+            cast: &cast,
+            provider: &provider,
+        }));
         let report = score_dump(&timeline, &predicted);
         print_dump_score(&case, &provider, &timeline, &report);
         by_provider.entry(provider).or_default().merge(report);

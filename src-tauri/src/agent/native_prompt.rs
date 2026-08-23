@@ -379,10 +379,12 @@ mod tests {
 
     fn extractor_for_cast(dir: &Path) -> SignalExtractor {
         let header = cast_header(dir);
+        // Grid-only fixture: the attributed screen is independent of the
+        // volatile band, so zero rows is a stated value, not a fallback.
         SignalExtractor::new(
             header["height"].as_u64().unwrap_or(24) as u16,
             header["width"].as_u64().unwrap_or(80) as u16,
-            VolatileHint::default(),
+            VolatileHint { bottom_rows: 0 },
         )
     }
 

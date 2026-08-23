@@ -123,7 +123,10 @@ fn classify_at(provider: &JsProvider, sig: &StreamSignals) -> Option<TabStateCla
 }
 
 fn replay(cast: &Cast, provider: &JsProvider) -> Vec<StepResult> {
-    let mut ex = SignalExtractor::new(cast.height, cast.width, VolatileHint::default());
+    let hint = VolatileHint {
+        bottom_rows: provider.status_bar_rows(),
+    };
+    let mut ex = SignalExtractor::new(cast.height, cast.width, hint);
     let mut steps = Vec::new();
     let mut last_ms = 0u64;
 
