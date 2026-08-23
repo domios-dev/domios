@@ -45,8 +45,13 @@ async function applyViewportAndReload(
     await openInlineWorkspaceCanvas(page, workspaceId);
   }
   if (vp.width < 640 && !(await page.locator('[data-testid="web-sidebar-open"]').isVisible().catch(() => false))) {
-    await page.mouse.click(vp.width - 8, Math.floor(vp.height / 2));
-    await page.locator('[data-testid="web-sidebar-open"]').waitFor({ state: "visible", timeout: 5_000 }).catch(() => {});
+    // App.tsx decides `sidebarOpen` ONCE, from window.innerWidth at mount, and the
+    // page is opened at 1280px — so resizing to a phone leaves the overlay open.
+    // Close it through the backdrop that owns "tap to close". The coordinate guess
+    // that used to stand here aimed at nothing and landed on whatever surface was
+    // underneath; that was only ever safe while the canvas rendered an empty <p>.
+    await page.locator(".ct-sidebar-backdrop").click();
+    await page.locator('[data-testid="web-sidebar-open"]').waitFor({ state: "visible", timeout: 5_000 });
   }
   // which mounts no plan-context header. Force a task surface without reloading.
   if (mode !== "canvas") {
@@ -68,6 +73,7 @@ test(
 
       const header = visibleHeader(page);
       await expect(header.locator('[data-testid="plan-context-compact-bar"]')).toBeVisible();
+      await expect(header).toBeVisible();
       const box = await header.boundingBox();
       expect(box, "header has a box").toBeTruthy();
       expect(box!.height, "collapsed compact header <= 56px").toBeLessThanOrEqual(56);
@@ -238,6 +244,7 @@ test(
       await expect(filter, "status filters remain visible on narrow").toBeVisible();
 
       // Filters sit BELOW the compact bar and never fold.
+      await expect(header, "compact header present at phone width").toBeVisible();
       const headerBox = await header.boundingBox();
       const filterBox = await filter.boundingBox();
       expect(headerBox && filterBox, "both have boxes").toBeTruthy();
@@ -261,8 +268,18 @@ test(
       await assertPlanSurfaceNotEmpty(page);
       await applyViewportAndReload(page, canvas.workspaceId, PHONE, "board");
 
+      // Named post-condition: if the board is gone by here, say so in seconds
+      // instead of letting an unbounded boundingBox() burn the whole test budget.
+      await expect(
+        page.locator('[data-testid="plan-view-shell"]'),
+        "plan view shell still mounted after the viewport switch",
+      ).toHaveAttribute("data-plan-view-mode", "board");
+      await assertPlanSurfaceNotEmpty(page);
+
       // Compact plan bar is a >=44px coarse target.
-      const barBox = await visibleHeader(page).locator('[data-testid="plan-context-compact-bar"]').boundingBox();
+      const bar = visibleHeader(page).locator('[data-testid="plan-context-compact-bar"]');
+      await expect(bar, "compact bar present at phone width").toBeVisible({ timeout: 15_000 });
+      const barBox = await bar.boundingBox();
       expect(barBox, "compact bar has a box").toBeTruthy();
       expect(barBox!.height, "compact bar >= 44px").toBeGreaterThanOrEqual(44);
 
@@ -286,16 +303,18 @@ test(
         "recently-closed-item",
         "recently-closed-group-toggle",
       ];
+      // One atomic DOM read per id: a per-locator boundingBox() waits for
+      // actionability with no timeout, so a row detaching mid-sweep hangs the
+      // whole test instead of failing.
       let asserted = 0;
       for (const id of ROW_TESTIDS) {
-        const loc = page.locator(`[data-testid="${id}"]:visible`);
-        const n = await loc.count();
-        for (let i = 0; i < n; i++) {
-          const b = await loc.nth(i).boundingBox();
-          if (!b) continue;
-          expect(b.height, `${id}[${i}] hit height >= 44px`).toBeGreaterThanOrEqual(44);
+        const heights = await page
+          .locator(`[data-testid="${id}"]:visible`)
+          .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().height));
+        heights.forEach((height, i) => {
+          expect(height, `${id}[${i}] hit height >= 44px`).toBeGreaterThanOrEqual(44);
           asserted += 1;
-        }
+        });
       }
       // a false green if selectors silently match nothing.
       expect(asserted, "at least the nav + new-session rows were measured").toBeGreaterThanOrEqual(4);
