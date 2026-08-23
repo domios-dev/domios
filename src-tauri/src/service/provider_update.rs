@@ -6,9 +6,9 @@ use serde::Serialize;
 
 use crate::agent::provider::{ProviderSelfUpdateCapability, ProviderUpdateCompletionSignal};
 use crate::agent::status::TabStatus;
+use crate::multiplexer::types::{PendingDeliveryState, TabAudience};
 use crate::notification::dedupe::{provider_update_condition, ConditionTransition};
 use crate::notification::push::tab_scope;
-use crate::multiplexer::types::{PendingDeliveryState, TabAudience};
 
 use super::ServiceContext;
 
@@ -100,6 +100,9 @@ pub(crate) enum ProviderUpdatePromptOutcome {
     UpdateTabSettled,
     /// This source tab already owns a prompt that has not terminated.
     SourceAlreadyPrompted,
+    /// The update-available condition was already announced for this tab, so
+    /// re-observing it is the same news. Nothing was raised, by design.
+    ConditionAlreadyAnnounced,
     Raised(ProviderUpdateStatus),
 }
 
@@ -428,7 +431,8 @@ impl ServiceContext {
         if self.announce_provider_update_available(tab_id, provider_id)
             == ConditionTransition::AlreadyAnnounced
         {
-            return;
+            log::debug!("[provider-update] ignored tab={tab_id}: condition already announced");
+            return ProviderUpdatePromptOutcome::ConditionAlreadyAnnounced;
         }
         let provider_name = self
             .agent_registry
@@ -970,6 +974,13 @@ impl ServiceContext {
     }
 
     fn fail_provider_update(&self, mut entry: PendingProviderUpdate, message: &str) {
+        // The attempt ended and the update did NOT install, so the next
+        // observation is genuinely new news. A decline is the opposite case and
+        // deliberately keeps its latch — that is the hammering N2 stopped.
+        self.notif.lock().observe_condition_absent(
+            &tab_scope(&entry.view.tab_id),
+            &provider_update_condition(&entry.provider_id),
+        );
         self.provider_updates.finish(
             entry.clone(),
             ProviderUpdateStatus::Failed,
