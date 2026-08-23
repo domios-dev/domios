@@ -1,8 +1,12 @@
 use codeterm_types::agent::role_kind::builtins;
+use codeterm_types::team::general_agent_membership::MembershipAttempt;
 
 use super::launch::{build_agent_command, launch_agent_in_background, skip_local_worker_role};
 use super::prompt_compose::{agent_system_prompt, role_onboarding_task, spawn_launch_task};
 use super::types::{ReasoningEffortProvenance, SpawnAgentParams, SpawnResult};
+use crate::service::general_agent::{
+    refuse_general_agent_team_membership, refuse_parenting_under_general_agent, shape_for_tab,
+};
 use crate::service::{spawn_title, ServiceContext};
 
 /// Build effort provenance for a launch where the requested effort has already
@@ -495,6 +499,20 @@ impl ServiceContext {
         // launch with its reserved, host-resolved Team in env. Never mint.
         if let Some(team_id) = bootstrap_bound_team_id(params.manager_bootstrap.as_ref()) {
             let mut mux = self.mux.write();
+            // Membership door 6: the bootstrap-bound Team write. Unreachable for
+            // the General Agent kind today, guarded so it stays that way.
+            let shape = shape_for_tab(&mux, &tab_id);
+            let guard = refuse_general_agent_team_membership(
+                &mux,
+                &tab_id,
+                MembershipAttempt::Join,
+                &shape,
+            );
+            if let Err(refusal) = guard {
+                drop(mux);
+                let _ = self.close_tab(&tab_id);
+                return Err(refusal.to_string());
+            }
             if mux.get_team(team_id).is_some() {
                 if let Some(tab) = mux.get_tab_mut(&tab_id) {
                     tab.team_id = Some(team_id.to_string());
@@ -747,6 +765,9 @@ impl ServiceContext {
         emit_state_change: bool,
     ) -> Result<(), String> {
         let (role, profile) = Self::parse_role_kind(role_str, role_profile)?;
+        // Membership door 7: role placement mints the parent's Team onto the
+        // parent, so parenting anything under the General Agent would enrol it.
+        refuse_parenting_under_general_agent(&self.mux.read(), parent_tab_id)?;
         // A Planner names its plan, not a parent: the plan record owns the
         // anchor, and placement + planner binding commit as one transaction.
         if profile.as_deref() == Some(builtins::PLANNER) && parent_tab_id.is_none() {

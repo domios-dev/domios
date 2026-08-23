@@ -1,9 +1,11 @@
 use codeterm_types::agent::role_kind::{self, builtins::ORCHESTRATOR, builtins::PLANNER};
+use codeterm_types::team::general_agent_membership::MembershipAttempt;
 use codeterm_types::team::Team;
 use tauri::Manager;
 
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{AgentRole, TabBacking};
+use crate::service::general_agent::{refuse_general_agent_team_membership, shape_for_tab};
 use crate::service::plan::PlanError;
 use crate::service::ServiceContext;
 
@@ -619,6 +621,16 @@ fn prepare_team_member_spawn(
     caller_tab_id: &str,
     params: AddTeamMemberParams,
 ) -> Result<PreparedTeamMemberSpawn, String> {
+    // Membership door 2: growing an existing Team spends the caller's own
+    // membership. Guarded before authorization so the General Agent gets the
+    // teaching refusal whether or not it is already (wrongly) in the Team.
+    let shape = shape_for_tab(mux, caller_tab_id).with_agents(Some(&params.provider), None);
+    refuse_general_agent_team_membership(
+        mux,
+        caller_tab_id,
+        MembershipAttempt::ExerciseMembership,
+        &shape,
+    )?;
     authorize_team_manager(
         mux,
         team_id,
@@ -709,6 +721,8 @@ pub(crate) fn commit_team_member_spawn(
         return Err("Team member spawn did not preserve the manager hierarchy".into());
     }
     if anchors {
+        let shape = shape_for_tab(mux, tab_id);
+        refuse_general_agent_team_membership(mux, tab_id, MembershipAttempt::Join, &shape)?;
         mux.get_tab_mut(tab_id)
             .expect("Tab validated before Team assignment")
             .team_id = Some(team_id.into());
@@ -931,6 +945,9 @@ mod membership;
 pub(crate) use membership::{
     adopt_agent_into_team, apply_team_attachment, resolve_spawn_attachment,
 };
+
+#[cfg(test)]
+mod general_agent_guard_tests;
 
 #[cfg(test)]
 mod tests;

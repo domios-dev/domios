@@ -1,8 +1,11 @@
 //! Promote a tab to Orchestrator and inject the onboarding cheat-sheet.
 
+use codeterm_types::team::general_agent_membership::MembershipAttempt;
+
 use super::ServiceContext;
 use crate::mem::{SearchHit, SearchQuery};
 use crate::multiplexer::types::Tab;
+use crate::service::general_agent::{refuse_general_agent_team_membership, shape_for_tab};
 use crate::service::messenger::MessageEnvelope;
 
 const PREF_QUERY: &str = "CodeTerm orchestration and planning preferences";
@@ -90,6 +93,18 @@ pub fn orchestrator_onboarding_body(tab_id: &str, team_id: &str, plan_id: Option
 
 impl ServiceContext {
     pub fn deliver_orchestrator_onboarding(&self, tab_id: &str) {
+        // Membership door 5: onboarding mints a Team onto the promoted Tab, and
+        // the General Agent kind anchors, so it would qualify without this.
+        {
+            let mux = self.mux.read();
+            let shape = shape_for_tab(&mux, tab_id);
+            let guard =
+                refuse_general_agent_team_membership(&mux, tab_id, MembershipAttempt::Join, &shape);
+            if let Err(refusal) = guard {
+                log::warn!("[orchestrator-onboard] {refusal}");
+                return;
+            }
+        }
         // An anchoring Orchestrator owns a Team; mint it now if the promotion
         // left it unbound so the first message carries a real team id.
         let team_id = match self.mux.write().resolve_or_mint_team_for_parent(tab_id) {
