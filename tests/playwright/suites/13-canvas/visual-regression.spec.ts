@@ -3,10 +3,17 @@
  * WHY: These baselines replace manual visual review for the board/list/canvas/sidebar/detail surfaces.
  * ORACLE: Seeded fixtures, fixed viewport, web-mode Chromium, and tight screenshot diffs catch layout drift.
  */
+
+// NOT COVERED on Windows: every baseline in visual-regression.spec.ts-snapshots is
+// `<name>-golden-darwin.png`, and Playwright resolves `<name>-<project>-<platform>.png`.
+// A win32 runner therefore has no baseline: the run fails with "snapshot doesn't
+// exist", or silently writes one under --update-snapshots, which asserts nothing.
+// A win32 baseline can only come from running the browser and reviewing the images
+// by eye (`pnpm test:pw:visual:regen`); it must never be authored blind.
 import type { Locator } from "@playwright/test";
 import { expect, test, type Page } from "../../helpers/fixtures";
 import type { ApiClient } from "../../helpers/api-client";
-import { openSidebarIfNeeded, setCanvasScale, waitForVisiblePlanCanvas } from "../../helpers/canvas-inspect";
+import { assertPlanSurfaceNotEmpty, openSidebarIfNeeded, setCanvasScale, waitForVisiblePlanCanvas } from "../../helpers/canvas-inspect";
 import { seedWorldStateAndOpenInlineCanvas, worldStates, type SeededCanvasWorld } from "../../fixtures/world-states";
 
 const VIEWPORT = { width: 1280, height: 800 };
@@ -14,6 +21,7 @@ const DIFF = { maxDiffPixels: 180 };
 
 async function prepareWorld(api: ApiClient, webBrowser: Parameters<typeof seedWorldStateAndOpenInlineCanvas>[0]) {
   const canvas = await seedWorldStateAndOpenInlineCanvas(webBrowser, api, worldStates.planWithKnownTasks);
+  await assertPlanSurfaceNotEmpty(canvas.page);
   await canvas.page.setViewportSize(VIEWPORT);
   await stabilize(canvas.page);
   return canvas;
@@ -129,6 +137,7 @@ test("@golden @visual-regression sidebar seeded pair tree matches golden", async
   const canvas = await seedWorldStateAndOpenInlineCanvas(webBrowser, api as ApiClient, worldStates.tabTreeWithStatuses);
   try {
     const { page } = canvas;
+    await assertPlanSurfaceNotEmpty(page);
     await page.setViewportSize(VIEWPORT);
     await openSidebarIfNeeded(page);
     await expect(page.locator('[data-testid="workspace-item"]').first()).toBeVisible({ timeout: 20_000 });
