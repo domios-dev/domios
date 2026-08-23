@@ -87,14 +87,18 @@ fn tabs_in(
         .unwrap_or_default()
 }
 
-fn handle_prompt(service: &ServiceContext, tab_id: &str, completion: bool) {
+fn handle_prompt(
+    service: &ServiceContext,
+    tab_id: &str,
+    completion: bool,
+) -> ProviderUpdatePromptOutcome {
     service.handle_provider_update_prompt(
         tab_id,
         "provider-fixture",
         capability(completion),
         vec![b"install".to_vec()],
         vec![b"decline".to_vec()],
-    );
+    )
 }
 
 fn await_effect(
@@ -445,9 +449,13 @@ fn closing_the_update_tab_fails_the_prompt_and_frees_the_source_tab() {
         .collect();
     assert_eq!(closed, vec![ProviderUpdateStatus::Failed]);
 
-    // 3. Is the source tab actually free again? A count of 0 means it is still
-    //    pinned; a Declined status means it prompted but lost authority.
-    handle_prompt(&fixture.service, &tab_id, true);
+    // 3. Is the source tab actually free again? The outcome names the branch
+    //    taken, so a swallowed prompt reports which gate swallowed it.
+    assert_eq!(
+        handle_prompt(&fixture.service, &tab_id, true),
+        ProviderUpdatePromptOutcome::Raised(ProviderUpdateStatus::AwaitingConsent),
+        "the freed source tab must raise a new consent prompt"
+    );
     let fresh: Vec<_> = fixture
         .service
         .list_provider_update_prompts()
