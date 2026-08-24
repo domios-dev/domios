@@ -288,14 +288,24 @@ export interface PtyInfo {
   status: "running" | "dead";
 }
 
-export interface NotificationAction {
-  label: string;
-  /** "invoke" calls a Tauri command, "url" opens in browser, "dismiss" just closes */
-  type: "invoke" | "url" | "dismiss";
-  /** Tauri command name or URL */
-  value?: string;
-  /** Args for Tauri invoke */
-  args?: Record<string, unknown>;
+/**
+ * What one notification button does. A closed union, mirroring the Rust set: an
+ * unknown kind never parses, and only the kinds that need a command name have a
+ * field to carry one.
+ */
+export type NotificationAction =
+  /** Calls a Tauri command. Daemon-constructed only. */
+  | { type: "invoke"; label: string; value: string; args?: Record<string, unknown> }
+  | { type: "url"; label: string; value: string }
+  | { type: "dismiss"; label: string }
+  /** One offered choice. The label is its entire payload — no command, no args. */
+  | { type: "answer"; label: string };
+
+/** The answer slot of one notification: the tab captured when the question was
+ * sent, and the single label it may ever hold. */
+export interface NotificationAnswer {
+  asked_from_tab: string | null;
+  answered: string | null;
 }
 
 export interface Notification {
@@ -313,6 +323,8 @@ export interface Notification {
   read: boolean;
   /** Action buttons — if present, toast shows buttons instead of auto-dismiss */
   actions?: NotificationAction[];
+  /** Present when the notification offers a choice */
+  answer?: NotificationAnswer;
   /** Persist toast — don't auto-dismiss, require explicit action */
   sticky?: boolean;
 }

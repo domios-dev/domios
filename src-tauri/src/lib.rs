@@ -296,6 +296,7 @@ pub fn run() {
             notification::telegram_push_gate,
             notification::list_notifications,
             notification::mark_notification_read,
+            notification::answer_notification,
             notification::clear_notifications,
             config::get_config,
             config::update_config,

@@ -26,7 +26,10 @@ interface ToastItemProps {
 function ToastItem({ notification, onDismiss, onMarkRead, onNavigate, embedded }: ToastItemProps) {
   const [closing, setClosing] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const hasActions = (notification.actions?.length ?? 0) > 0;
+  // A choice is answered from the bell and the chat card, which keep it as a
+  // log of decisions; a toast that vanishes must not offer one.
+  const runnable = notification.actions?.filter((action) => action.type !== "answer") ?? [];
+  const hasActions = runnable.length > 0;
   const sticky = notification.sticky || hasActions || expanded;
 
   const dismiss = useCallback((e: React.MouseEvent) => {
@@ -92,7 +95,7 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate, embedded }
       </div>
       {hasActions && (
         <div className="flex shrink-0 gap-1">
-          {notification.actions!.map((action, i) => (
+          {runnable.map((action, i) => (
             <button
               key={i}
               onClick={(e) => { e.stopPropagation(); runAction(action); }}
@@ -167,7 +170,7 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate, embedded }
                       Show Tab
                     </button>
                   )}
-                  {notification.actions?.map((action, index) => (
+                  {runnable.map((action, index) => (
                     <button
                       type="button"
                       key={`${action.label}-${index}`}

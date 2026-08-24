@@ -1,7 +1,10 @@
 //! Notification creation with OS toast support.
 
+use codeterm_types::notification::NotificationAction;
+
 use super::ServiceContext;
 use crate::notification::{
+    answer::AnswerAdmission,
     dedupe::DeliveryAdmission,
     desktop::{self, DesktopPolicy},
     push::{self, NotifyLevel},
@@ -145,7 +148,7 @@ fn create_notification_with_delivery(
     title: String,
     body: Option<String>,
     severity: Option<&str>,
-    actions: Option<serde_json::Value>,
+    actions: Option<Vec<NotificationAction>>,
     sticky: Option<bool>,
     origin: NotificationOrigin,
     resolve_tab: impl FnOnce(&str) -> Option<NotificationProvenance>,
@@ -222,7 +225,7 @@ fn create_notification_with_delivery(
                 prompt_id,
                 title.clone(),
                 body.clone().unwrap_or_default(),
-                actions.clone().unwrap_or_else(|| serde_json::json!([])),
+                actions.clone().unwrap_or_default(),
                 provenance.clone(),
             ) {
                 DedupAdmission::Added(id) => id,
@@ -231,6 +234,9 @@ fn create_notification_with_delivery(
         }
     };
 
+    // The answer slot the store just built, so every surface renders the same
+    // capture rather than deriving its own.
+    let answer = store.lock().answer_slot(&id).cloned();
     let mut payload = serde_json::json!({
         "id": id,
         "title": title,
@@ -242,7 +248,10 @@ fn create_notification_with_delivery(
         "peer_name": provenance.peer_name.clone(),
     });
     if let Some(ref acts) = actions {
-        payload["actions"] = acts.clone();
+        payload["actions"] = serde_json::to_value(acts).unwrap_or_default();
+    }
+    if let Some(ref slot) = answer {
+        payload["answer"] = serde_json::to_value(slot).unwrap_or_default();
     }
     if let Some(s) = sticky {
         payload["sticky"] = serde_json::json!(s);
@@ -281,20 +290,12 @@ impl ServiceContext {
         message: String,
         tab_id: String,
     ) -> String {
-        let actions = serde_json::json!([
-            {
-                "label": "Update",
-                "type": "invoke",
-                "value": "respond_provider_update_prompt",
-                "args": { "promptId": prompt_id, "accept": true }
-            },
-            {
-                "label": "Not now",
-                "type": "invoke",
-                "value": "respond_provider_update_prompt",
-                "args": { "promptId": prompt_id, "accept": false }
-            }
-        ]);
+        let respond = |label: &str, accept: bool| NotificationAction::Invoke {
+            label: label.to_string(),
+            value: "respond_provider_update_prompt".to_string(),
+            args: Some(serde_json::json!({ "promptId": prompt_id, "accept": accept })),
+        };
+        let actions = vec![respond("Update", true), respond("Not now", false)];
         create_notification_with_delivery(
             NotificationAdmission::ProviderUpdate {
                 prompt_id: prompt_id.clone(),
@@ -352,7 +353,7 @@ impl ServiceContext {
         title: String,
         body: Option<String>,
         severity: Option<&str>,
-        actions: Option<serde_json::Value>,
+        actions: Option<Vec<NotificationAction>>,
         sticky: Option<bool>,
         origin: NotificationOrigin,
         intent: PushIntent,
@@ -388,6 +389,39 @@ impl ServiceContext {
             desktop,
             |payload| self.notify_event("notification-created", payload),
         )
+    }
+
+    /// Record the user's choice. The command carries the record and the chosen
+    /// label only — the tab it answers to was captured when the question was
+    /// sent, so nothing is resolved here.
+    pub fn answer_notification(
+        &self,
+        id: &str,
+        label: &str,
+    ) -> Result<serde_json::Value, String> {
+        // The guard is dropped before the event fans out: nothing downstream of
+        // an emit may re-enter the store while it is still held.
+        let admission = self.notif.lock().record_answer(id, label);
+        match admission {
+            AnswerAdmission::Recorded(chosen) => {
+                self.notify_event(
+                    "notification-answered",
+                    serde_json::json!({ "id": id, "answered": chosen }),
+                );
+                Ok(serde_json::json!({ "answered": chosen }))
+            }
+            // A second tap is not an error to the user: the standing answer is
+            // what the question holds, and it is unchanged.
+            AnswerAdmission::AlreadyAnswered(standing) => {
+                Ok(serde_json::json!({ "answered": standing }))
+            }
+            AnswerAdmission::Undeliverable => {
+                Err("The tab that asked this question is gone".to_string())
+            }
+            AnswerAdmission::NotOffered => {
+                Err("That choice was not offered by this notification".to_string())
+            }
+        }
     }
 }
 

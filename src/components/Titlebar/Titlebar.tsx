@@ -30,6 +30,7 @@ interface TitlebarProps {
   onMarkAllNotificationsRead?: () => void;
   onDeleteNotification?: (id: string) => void;
   onClearNotifications?: () => void;
+  onAnswerNotification?: (id: string, label: string) => void;
   onDismissToast?: (id: string) => void;
   onNavigateToast?: (tabId: string, workspaceId: string | null) => void;
 }
@@ -47,6 +48,7 @@ export function Titlebar({
   onMarkAllNotificationsRead,
   onDeleteNotification,
   onClearNotifications,
+  onAnswerNotification,
   onDismissToast,
   onNavigateToast,
 }: TitlebarProps) {
@@ -137,6 +139,7 @@ export function Titlebar({
             onDelete={onDeleteNotification}
             onClearAll={onClearNotifications}
             onNavigate={onNavigateToast}
+            onAnswer={onAnswerNotification}
           />
         )}
         {onOpenExtensions && <ExtensionsTray onOpen={onOpenExtensions} />}
