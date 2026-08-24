@@ -12,6 +12,7 @@ interface NotificationBellProps {
   onDelete: (id: string) => void;
   onClearAll: () => void;
   onNavigate: (tabId: string, workspaceId: string | null) => void;
+  onAnswer?: (id: string, label: string) => void;
 }
 
 export function NotificationBell({
@@ -21,6 +22,7 @@ export function NotificationBell({
   onDelete,
   onClearAll,
   onNavigate,
+  onAnswer,
 }: NotificationBellProps) {
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState({ top: 38, right: 8 });
@@ -117,6 +119,7 @@ export function NotificationBell({
             onMarkAllRead={onMarkAllRead}
             onDelete={onDelete}
             onClearAll={onClearAll}
+            onAnswer={onAnswer}
             onJumpToTab={(tabId, workspaceId) => {
               onNavigate(tabId, workspaceId);
               setOpen(false);

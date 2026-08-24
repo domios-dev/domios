@@ -325,6 +325,7 @@ fn main_impl() {
                 severity,
                 level,
                 event_key,
+                choice,
                 ..
             } => client.call(
                 "notification.create",
@@ -334,6 +335,7 @@ fn main_impl() {
                     level,
                     event_key.as_deref(),
                     from_pad.as_deref(),
+                    &choice,
                 )),
             ),
             NotifyAction::List { unread } => client.call(

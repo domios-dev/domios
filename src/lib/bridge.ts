@@ -161,6 +161,8 @@ const HTTP_MAP: Record<string, Mapper> = {
     }),
   mark_notification_read: (a) =>
     webJson("POST", `/api/notifications/${enc(s(a, "id"))}/read`),
+  answer_notification: (a) =>
+    webJson("POST", `/api/notifications/${enc(s(a, "id"))}/answer`, { label: s(a, "label") }),
   clear_notifications: (a) =>
     a.id
       ? webJson("DELETE", `/api/notifications/${enc(s(a, "id"))}`)

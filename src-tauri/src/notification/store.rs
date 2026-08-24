@@ -3,6 +3,9 @@ use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
+use codeterm_types::notification::{AnswerSlot, NotificationAction};
+
+use super::answer::{self, AnswerAdmission};
 use super::dedupe::{
     ConditionLedger, ConditionTransition, DeliveryAdmission, DeliveryLedger, NotificationIdentity,
 };
@@ -23,7 +26,11 @@ pub struct Notification {
     pub timestamp: u64,
     pub read: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub actions: Option<serde_json::Value>,
+    pub actions: Option<Vec<NotificationAction>>,
+    /// Opened when the record offers a choice. Carries the asking tab captured
+    /// at send time and the one answer it may ever hold.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub answer: Option<AnswerSlot>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sticky: Option<bool>,
     /// Set when the push sink refused the record. Never surfaced to the caller.
@@ -162,7 +169,7 @@ impl NotificationStore {
         body: Option<String>,
         severity: NotificationSeverity,
         provenance: NotificationProvenance,
-        actions: Option<serde_json::Value>,
+        actions: Option<Vec<NotificationAction>>,
         sticky: Option<bool>,
     ) -> String {
         let id = Uuid::new_v4().to_string();
@@ -171,6 +178,9 @@ impl NotificationStore {
             .unwrap_or_default()
             .as_millis() as u64;
 
+        // Send-time capture: the asking tab is read from the provenance this
+        // record is being created with, never resolved when an answer is tapped.
+        let answer = answer::slot_for(actions.as_deref(), provenance.tab_id.as_deref());
         let notification = Notification {
             id: id.clone(),
             tab_id: provenance.tab_id,
@@ -183,6 +193,7 @@ impl NotificationStore {
             timestamp,
             read: false,
             actions,
+            answer,
             sticky,
             push_failed: None,
         };
@@ -206,7 +217,7 @@ impl NotificationStore {
         body: Option<String>,
         severity: NotificationSeverity,
         provenance: NotificationProvenance,
-        actions: Option<serde_json::Value>,
+        actions: Option<Vec<NotificationAction>>,
         sticky: Option<bool>,
     ) -> DeliveryAdmission {
         let identity = NotificationIdentity::of(&provenance, &severity, &title, body.as_deref());
@@ -345,7 +356,7 @@ impl NotificationStore {
         prompt_id: String,
         title: String,
         body: String,
-        actions: serde_json::Value,
+        actions: Vec<NotificationAction>,
         provenance: NotificationProvenance,
     ) -> DedupAdmission {
         if let Some(id) = self.provider_updates.get(&prompt_id) {
@@ -403,6 +414,29 @@ impl NotificationStore {
                 self.deliveries.clear();
             }
         }
+    }
+
+    /// The one answer this notification may hold, and the tab it was asked
+    /// from. Read-only: recording goes through `record_answer`.
+    pub fn answer_slot(&self, id: &str) -> Option<&AnswerSlot> {
+        self.notifications
+            .iter()
+            .find(|n| n.id == id)?
+            .answer
+            .as_ref()
+    }
+
+    /// Record the user's choice. The invariant lives here, not in any surface:
+    /// the same question renders in more than one place, and a per-surface
+    /// guard would let it take two answers.
+    pub fn record_answer(&mut self, id: &str, label: &str) -> AnswerAdmission {
+        answer::record(&mut self.notifications, id, label)
+    }
+
+    /// The tab that asked has closed. Its unanswered questions become visibly
+    /// undeliverable; answers already recorded stay exactly as they were.
+    pub fn forget_answer_tab(&mut self, tab_id: &str) {
+        answer::forget_tab(&mut self.notifications, tab_id);
     }
 
     pub fn unread_count(&self) -> usize {
@@ -514,7 +548,11 @@ mod tests {
     #[test]
     fn provider_update_notification_is_actionable_deduplicated_and_resolvable() {
         let mut store = NotificationStore::new(100);
-        let actions = serde_json::json!([{"label":"Update","type":"invoke"}]);
+        let actions = vec![NotificationAction::Invoke {
+            label: "Update".into(),
+            value: "respond_provider_update_prompt".into(),
+            args: None,
+        }];
         let provenance = NotificationProvenance {
             tab_id: Some("tab-1".into()),
             tab_title: Some("Build".into()),

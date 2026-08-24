@@ -370,6 +370,11 @@ pub enum NotifyAction {
         /// Stable identity for coalescing. Derived from the title when omitted.
         #[arg(long)]
         event_key: Option<String>,
+
+        /// Offer one tappable choice; repeat for each. Labels only — a
+        /// notification takes a chosen label back, never typed text.
+        #[arg(long = "choice", value_name = "LABEL")]
+        choice: Vec<String>,
     },
     /// List notifications
     List {

@@ -150,6 +150,7 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 severity,
                 level,
                 event_key,
+                choice,
                 ..
             } => (
                 "POST".into(),
@@ -166,6 +167,10 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                         "severity": severity,
                         "level": level.map(|l| l.as_str()),
                         "event_key": event_key,
+                        "actions": crate::cmd::notify::choice_actions(choice).unwrap_or_else(|e| {
+                            eprintln!("Error: {e}");
+                            std::process::exit(1)
+                        }),
                     })
                     .to_string(),
                 ),
