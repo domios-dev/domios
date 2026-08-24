@@ -1185,10 +1185,13 @@ List notifications
 
 #### `codeterm notify send`
 
-Send a notification
+Send a notification. The body is read only from the calling tab's AgentPad
 
-- `--body` — Notification body
+- `<body>` — REFUSED: an inline body is mangled by the shell — stage it in the pad
 - `--event-key` — Stable identity for coalescing. Derived from the title when omitted
+- `--from-file` — REFUSED: a file outside the pad has no provenance — stage it in the pad
+- `--from-pad` — Read the notification body from a relative file in the calling tab's pad
+- `--from-stdin` — REFUSED: stdin is a shell pipe — stage the body in the pad
 - `--level` — What this notification is, on the one level axis. Omit to file it in the bell only
 - `--severity` — Toast severity: info, warning, error
 - `<title>` — Notification title

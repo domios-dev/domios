@@ -41,7 +41,7 @@ Env vars set CONDITIONALLY, only when the tab actually has that identity — tes
 | Past chat sessions | `sessions search/get/resume` (resume handles cwd — never hand-craft `--resume`) | — |
 | Services/daemons registry | `service --help` | `docs MESH` |
 | Config keys | `config get <key>` (dot-notation) or bare `config get` to dump the whole redacted config; `config set` (JSON values) | `docs CONFIG` |
-| Desktop notifications | `notify send "title" [--body ..] [--severity info\|warning\|error] [--level verbose\|action_needed\|failure] [--event-key ..]` is canonical; `notify list` / `notify clear`. `send` is required — there is no bare `notify "title"`. `--level` takes only those three values; `verbose` is progress, `action_needed` is waiting on the user, `failure` is a stop | `docs CONFIG` |
+| Desktop notifications | `notify send "title" [--from-pad PATH] [--severity info\|warning\|error] [--level verbose\|action_needed\|failure] [--event-key ..]` is canonical; `notify list` / `notify clear`. `send` is required — there is no bare `notify "title"`. The body is read only from the calling tab's AgentPad; an inline body is refused at parse time. `--level` takes only those three values; `verbose` is progress, `action_needed` is waiting on the user, `failure` is a stop | `docs CONFIG` |
 | Updates | `update check`, `update install --auto` | — |
 | Plugins/providers | `plugin list/install/update/update-system` | `codeterm docs API-CLI` |
 | Cross-machine payload handoff | `paste put`, then `paste get <id>` / `paste rm <id>` (id may be bare `fpu2zp` or `paste:fpu2zp` — both resolve); `--pop` for one-shot (in-memory, TTL) — not `mem save` | — |

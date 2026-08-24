@@ -5183,17 +5183,17 @@
         },
         {
           "name": "send",
-          "about": "Send a notification",
+          "about": "Send a notification. The body is read only from the calling tab's AgentPad",
           "aliases": [],
           "args": [
             {
               "name": "body",
-              "positional": false,
+              "positional": true,
               "required": false,
               "value_name": "BODY",
               "possible_values": [],
               "default": null,
-              "help": "Notification body",
+              "help": "REFUSED: an inline body is mangled by the shell — stage it in the pad",
               "aliases": []
             },
             {
@@ -5204,6 +5204,36 @@
               "possible_values": [],
               "default": null,
               "help": "Stable identity for coalescing. Derived from the title when omitted",
+              "aliases": []
+            },
+            {
+              "name": "from-file",
+              "positional": false,
+              "required": false,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": "REFUSED: a file outside the pad has no provenance — stage it in the pad",
+              "aliases": []
+            },
+            {
+              "name": "from-pad",
+              "positional": false,
+              "required": false,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": "Read the notification body from a relative file in the calling tab's pad",
+              "aliases": []
+            },
+            {
+              "name": "from-stdin",
+              "positional": false,
+              "required": false,
+              "value_name": "FROM_STDIN",
+              "possible_values": [],
+              "default": null,
+              "help": "REFUSED: stdin is a shell pipe — stage the body in the pad",
               "aliases": []
             },
             {

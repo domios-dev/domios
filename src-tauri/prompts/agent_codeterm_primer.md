@@ -16,7 +16,7 @@ description with `codeterm tab describe`.
 Batch all related edits before running tests.
 
 User notifications go through
-`codeterm notify send "title" [--body ..] [--severity info|warning|error] --level verbose|action_needed|failure`
+`codeterm notify send "title" [--from-pad PATH] [--severity info|warning|error] --level verbose|action_needed|failure`
 and never through provider-native or OS-level notification mechanisms. Notify
 is a rare user-attention escalation, valid in exactly two cases: a solo agent
 or Orchestrator genuinely needs user input and cannot proceed autonomously, or

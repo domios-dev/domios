@@ -146,17 +146,23 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
         Commands::Notify { action } => match action {
             crate::NotifyAction::Send {
                 title,
-                body,
+                from_pad,
                 severity,
                 level,
                 event_key,
+                ..
             } => (
                 "POST".into(),
                 "/api/notifications".into(),
                 Some(
                     serde_json::json!({
                         "title": title,
-                        "body": body,
+                        "body": from_pad.as_ref().map(|path| {
+                            crate::cmd::payload_source::read_from_pad(path).unwrap_or_else(|e| {
+                                eprintln!("Error: {e}");
+                                std::process::exit(1)
+                            })
+                        }),
                         "severity": severity,
                         "level": level.map(|l| l.as_str()),
                         "event_key": event_key,
