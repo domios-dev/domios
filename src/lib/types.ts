@@ -322,6 +322,9 @@ export interface Notification {
   icon_color?: string | null;
   icon_hint?: string | null;
   severity: "Info" | "Warning" | "Error";
+  /** The axis a caller may name explicitly, independent of `severity`. Absent
+   *  means the caller named no level — a distinct, legal state, not a lost one. */
+  level?: "verbose" | "action_needed" | "failure";
   timestamp: number;
   read: boolean;
   /** Action buttons — if present, toast shows buttons instead of auto-dismiss */

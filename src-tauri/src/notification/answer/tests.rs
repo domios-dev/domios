@@ -20,6 +20,7 @@ fn asked_from(tab_id: Option<&str>) -> (NotificationStore, String) {
         },
         Some(choices(&["Rebase", "Merge"])),
         None,
+        None,
     );
     (store, id)
 }
@@ -198,6 +199,7 @@ fn notify_answer_absent_when_no_choice_is_offered() {
             tab_id: Some("asking-tab".into()),
             ..Default::default()
         },
+        None,
         None,
         None,
     );

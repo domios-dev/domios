@@ -258,6 +258,24 @@ async function run() {
     "an accessible name derived from the level cannot be a constant",
   );
 
+  // 6. A record naming a level renders that level, not the one severity alone
+  //    would imply (contrast with case 1's `severity: "Info"` → "verbose").
+  const leveled = ask({ severity: "Info", level: "failure" });
+  const leveledView = await renderCard(leveled, answerThroughStore);
+  const leveledCard = leveledView.querySelector('[data-testid="chat-ask-card"]') as HTMLElement;
+  assert(
+    leveledCard.dataset.notificationLevel === "failure",
+    `an explicit level must win over the severity-derived one, got: ${leveledCard.dataset.notificationLevel}`,
+  );
+  assert(
+    leveledCard.getAttribute("aria-label") === askAccessibleName("failure", leveled.title),
+    "the accessible name must derive from the declared level, not severity",
+  );
+  assert(
+    levelTone("failure") !== levelTone("verbose"),
+    "the fixture must actually distinguish the two tones for this assertion to mean anything",
+  );
+
   await act(async () => root.unmount());
   console.log(`chat_ask_card tests: ${checked} assertions passed`);
 }

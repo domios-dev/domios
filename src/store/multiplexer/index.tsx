@@ -254,6 +254,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       title: string;
       body: string | null;
       severity: "Info" | "Warning" | "Error";
+      level?: "verbose" | "action_needed" | "failure";
       actions?: NotificationAction[];
       answer?: NotificationAnswer;
       sticky?: boolean;
@@ -267,6 +268,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
           title: event.payload.title,
           body: event.payload.body,
           severity: event.payload.severity,
+          level: event.payload.level,
           timestamp: Date.now(),
           read: false,
           actions: event.payload.actions,
