@@ -55,7 +55,7 @@ impl ServiceContext {
             return Err(format!(
                 "{rejected}/{} telegram sends rejected for {}",
                 audience.len(),
-                envelope.category.as_str()
+                envelope.level.as_str()
             ));
         }
         Ok(())

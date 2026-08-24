@@ -1006,6 +1006,7 @@ Show recent mem writes (newest first). With --follow, poll for new rows
 
 - `--follow` — Follow mode: poll every 500ms and print new rows as they appear
 - `--limit` — Max rows per fetch (default 20)
+- `--since` — ISO8601 lower-bound for the initial fetch (rows created at/after this time)
 
 #### `codeterm mem taxonomy`
 
