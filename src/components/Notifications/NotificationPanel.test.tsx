@@ -35,7 +35,7 @@ const asked: Notification = {
     { label: "Rebase", type: "answer" },
     { label: "Merge", type: "answer" },
   ],
-  answer: { asked_from_tab: "tab-tab-1", answered: null },
+  answer: { asked_from_tab: "tab-tab-1", answered: null, delivered: false },
 };
 
 const host = document.createElement("div");
@@ -96,7 +96,7 @@ async function run() {
   // Once answered the row is a record of the decision, not a live control.
   panel = await render({
     ...asked,
-    answer: { asked_from_tab: "tab-tab-1", answered: "Rebase" },
+    answer: { asked_from_tab: "tab-tab-1", answered: "Rebase", delivered: true },
   });
   const mark = panel.querySelector('[data-testid="notification-answered"]');
   assert(mark, "an answered question should render the chosen answer");
@@ -116,7 +116,7 @@ async function run() {
   // would quietly do nothing.
   panel = await render({
     ...asked,
-    answer: { asked_from_tab: null, answered: null },
+    answer: { asked_from_tab: null, answered: null, delivered: false },
   });
   assert(
     panel.querySelector('[data-testid="notification-undeliverable"]'),
@@ -125,6 +125,27 @@ async function run() {
   assert(
     buttonLabels(panel).length === 0,
     "an undeliverable question should offer no choice buttons",
+  );
+
+  // An answer the envelope path could not carry is not a decision the asking
+  // tab has: the card says so instead of showing it as answered-and-delivered.
+  panel = await render({
+    ...asked,
+    answer: { asked_from_tab: "tab-tab-1", answered: "Rebase", delivered: false },
+  });
+  const undelivered = panel.querySelector('[data-testid="notification-answer-undelivered"]');
+  assert(undelivered, "an undelivered answer should render as not delivered");
+  assert(
+    undelivered.textContent?.includes("Rebase"),
+    "the undelivered card should still name the standing answer",
+  );
+  assert(
+    !panel.querySelector('[data-testid="notification-answered"]'),
+    "an undelivered answer must not render as answered-and-delivered",
+  );
+  assert(
+    buttonLabels(panel).length === 0,
+    "a standing answer offers no choice buttons, delivered or not",
   );
 
   // The pre-existing action kinds still render and still run through the

@@ -6,6 +6,7 @@ use uuid::Uuid;
 use codeterm_types::notification::{AnswerSlot, NotificationAction};
 
 use super::answer::{self, AnswerAdmission};
+use super::answer_delivery::{self, AnswerDeliveryPlan};
 use super::dedupe::{
     ConditionLedger, ConditionTransition, DeliveryAdmission, DeliveryLedger, NotificationIdentity,
 };
@@ -431,6 +432,17 @@ impl NotificationStore {
     /// guard would let it take two answers.
     pub fn record_answer(&mut self, id: &str, label: &str) -> AnswerAdmission {
         answer::record(&mut self.notifications, id, label)
+    }
+
+    /// What one record owes the tab that asked. Read-only: the send itself
+    /// happens outside the guard, through the existing envelope path.
+    pub fn answer_delivery_plan(&self, id: &str) -> AnswerDeliveryPlan {
+        answer_delivery::plan(&self.notifications, id)
+    }
+
+    /// The standing answer reached the asking tab.
+    pub fn mark_answer_delivered(&mut self, id: &str) -> bool {
+        answer_delivery::mark_delivered(&mut self.notifications, id)
     }
 
     /// The tab that asked has closed. Its unanswered questions become visibly
