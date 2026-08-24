@@ -3,7 +3,7 @@
 //! reaches the inbox but never the toast, so it cannot interrupt the user.
 
 use codeterm_types::config::schema::NotificationConfig;
-use codeterm_types::notification::NotifyLevel;
+use codeterm_types::notification::{NotifyDestination, NotifyLevel};
 
 #[cfg(test)]
 mod tests;
@@ -60,7 +60,7 @@ impl DesktopPolicy {
             allowed: cfg
                 .agent_levels
                 .iter()
-                .filter(|choice| choice.enabled)
+                .filter(|choice| choice.allows(NotifyDestination::Desktop))
                 .filter_map(|choice| NotifyLevel::parse(&choice.level))
                 .collect(),
         }

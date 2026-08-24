@@ -1,3 +1,4 @@
+pub mod bell;
 pub mod dedupe;
 pub mod desktop;
 pub mod push;

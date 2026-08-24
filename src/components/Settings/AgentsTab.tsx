@@ -6,7 +6,7 @@ import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { SchemaRenderer } from "./SchemaRenderer";
 import { ProviderInstallCard } from "./ProviderInstallCard";
 import { ProviderNotifications } from "./ProviderNotifications";
-import { AgentNotificationLevels } from "./AgentNotificationLevels";
+import { NotificationDestinations } from "./NotificationDestinations";
 import { TelegramNotifications } from "./TelegramNotifications";
 import { SettingsCard, SettingsPill, Toggle } from "./shared";
 import { AgentIcon } from "../AgentIcon";
@@ -315,14 +315,19 @@ function NotificationsGroup({
       description="Get alerted when an agent finishes a task or needs your attention. Hooks auto-install on startup."
     >
       <Toggle
+        label="Show the bell"
+        checked={config.notifications.show_bell !== false}
+        onChange={(v) => onUpdate("notifications", { show_bell: v })}
+      />
+      <p className="text-[10px] text-[var(--ct-muted)] leading-relaxed">
+        Off hides the indicator entirely. History is still kept, and the panel stays the complete
+        log.
+      </p>
+      <Toggle
         label="Desktop notifications"
         checked={config.notifications.desktop}
         onChange={(v) => onUpdate("notifications", { desktop: v })}
       />
-
-      {config.notifications.desktop && (
-        <AgentNotificationLevels config={config} onUpdate={onUpdate} />
-      )}
       <Toggle
         label="Sound"
         checked={config.notifications.sound}
@@ -336,6 +341,11 @@ function NotificationsGroup({
           <span className="inline-block h-3.5 w-3.5 rounded-full bg-white translate-x-0.5" />
         </span>
       </label>
+
+      <h4 className="text-[var(--ct-muted-fg)] text-xs font-medium pt-1">
+        Where each level may go
+      </h4>
+      <NotificationDestinations config={config} onUpdate={onUpdate} />
 
       <TelegramNotifications config={config} onUpdate={onUpdate} />
 
