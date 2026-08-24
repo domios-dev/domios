@@ -4589,6 +4589,16 @@
               "default": "20",
               "help": "Max rows per fetch (default 20)",
               "aliases": []
+            },
+            {
+              "name": "since",
+              "positional": false,
+              "required": false,
+              "value_name": "SINCE",
+              "possible_values": [],
+              "default": null,
+              "help": "ISO8601 lower-bound for the initial fetch (rows created at/after this time)",
+              "aliases": []
             }
           ],
           "subcommands": []

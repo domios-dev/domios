@@ -1,0 +1,92 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: "Inter", "Segoe UI", "Avenir Next", sans-serif; background: #0d1117; }
+    a { color: #58a6ff; } a:hover { color: #79c0ff; }
+    * { box-sizing: border-box; }
+    code, pre { font-family: "JetBrains Mono", "Cascadia Code", Consolas, monospace; }
+  </style>
+</helmet>
+
+<div style="padding: 24px; display: flex; flex-direction: column; gap: 14px; width: 560px">
+
+  <div style="display: flex; flex-direction: column; gap: 3px">
+    <div style="font-size: 11px; font-weight: 500; color: #c9d1d9">What the button does</div>
+    <div style="font-size: 11px; color: #828a92; line-height: 1.45">A fourth action kind. The existing three cannot carry an answer anywhere.</div>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 0">
+
+    <div style="display: flex; gap: 10px">
+      <div style="display: flex; flex-direction: column; align-items: center; width: 20px; flex-shrink: 0">
+        <span style="display: inline-flex; height: 20px; width: 20px; align-items: center; justify-content: center; border-radius: 999px; border: 1px solid #232930; background: #141b24; font-size: 9px; color: #828a92">1</span>
+        <span style="flex: 1; width: 1px; background: #232930"></span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 5px; padding-bottom: 14px">
+        <span style="font-size: 11px; color: #c9d1d9">The agent asks, writing the body through its pad</span>
+        <div style="border-radius: 4px; border: 1px solid #232930; background: #0d1117; padding: 8px 10px; font-size: 11px; line-height: 1.5; color: #828a92">
+          <span style="color: #7ee787">codeterm notify send</span> "Delete the stale win32 baselines?" \<br>
+          &nbsp;&nbsp;--level action-needed \<br>
+          &nbsp;&nbsp;--from-pad ask.md \<br>
+          &nbsp;&nbsp;--answer "Delete them" --answer "Keep, mark unproven"
+        </div>
+        <span style="font-size: 10px; color: #484f58; line-height: 1.45">The body is only ever a pad path. An inline body is refused, so a shell never mangles a question before the user reads it.</span>
+      </div>
+    </div>
+
+    <div style="display: flex; gap: 10px">
+      <div style="display: flex; flex-direction: column; align-items: center; width: 20px; flex-shrink: 0">
+        <span style="display: inline-flex; height: 20px; width: 20px; align-items: center; justify-content: center; border-radius: 999px; border: 1px solid #232930; background: #141b24; font-size: 9px; color: #828a92">2</span>
+        <span style="flex: 1; width: 1px; background: #232930"></span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 5px; padding-bottom: 14px">
+        <span style="font-size: 11px; color: #c9d1d9">The card records who asked, before you answer</span>
+        <span style="font-size: 10px; color: #484f58; line-height: 1.45">The asking tab is captured at send time, not resolved at click time. A tab that dies between the ask and the tap leaves the card answerable-but-undeliverable, and it says so instead of failing silently.</span>
+      </div>
+    </div>
+
+    <div style="display: flex; gap: 10px">
+      <div style="display: flex; flex-direction: column; align-items: center; width: 20px; flex-shrink: 0">
+        <span style="display: inline-flex; height: 20px; width: 20px; align-items: center; justify-content: center; border-radius: 999px; border: 1px solid #1e324a; background: color-mix(in srgb, #141b24 80%, #58a6ff 20%); font-size: 9px; color: #58a6ff">3</span>
+        <span style="flex: 1; width: 1px; background: #232930"></span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 5px; padding-bottom: 14px">
+        <span style="font-size: 11px; color: #c9d1d9">You tap. The label is delivered to that tab as a routed message</span>
+        <div style="border-radius: 4px; border: 1px solid #232930; background: #0d1117; padding: 8px 10px; font-size: 11px; line-height: 1.5; color: #828a92">
+          <span style="color: #d29922">-=-codeterm:answer notification=n_4f2a-=-</span>Delete them
+        </div>
+        <span style="font-size: 10px; color: #484f58; line-height: 1.45">It arrives on the same routed-message path a tab reply already uses, so the agent needs no new reading mechanism &mdash; only a marker it already knows how to recognise.</span>
+      </div>
+    </div>
+
+    <div style="display: flex; gap: 10px">
+      <div style="display: flex; flex-direction: column; align-items: center; width: 20px; flex-shrink: 0">
+        <span style="display: inline-flex; height: 20px; width: 20px; align-items: center; justify-content: center; border-radius: 999px; border: 1px solid #232930; background: #141b24; font-size: 9px; color: #828a92">4</span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 5px">
+        <span style="font-size: 11px; color: #c9d1d9">The card becomes a record of what you chose</span>
+        <span style="font-size: 10px; color: #484f58; line-height: 1.45">One answer per notification. A second tap does nothing &mdash; the buttons are replaced by the answer, so the panel stays an honest log of decisions rather than a set of live controls.</span>
+      </div>
+    </div>
+
+  </div>
+
+  <div style="display: flex; gap: 7px; border-radius: 8px; border: 1px solid #232930; background: #141b24; padding: 10px 12px">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#828a92" stroke-width="2" stroke-linecap="round" style="flex-shrink: 0; margin-top: 1px"><circle cx="12" cy="12" r="9"/><path d="M12 8v.01M12 11v5"/></svg>
+    <span style="font-size: 10px; color: #828a92; line-height: 1.45">The existing action kinds are <code style="color: #c9d1d9">invoke</code>, <code style="color: #c9d1d9">url</code> and <code style="color: #c9d1d9">dismiss</code>. None routes anything back to a tab, which is why an answer needs its own kind rather than an <code style="color: #c9d1d9">invoke</code> carrying a tab id in its arguments &mdash; that would let any notification call any command.</span>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"$preview":{"width":608,"height":700}}'>
+class Component extends DCLogic {}
+</script>
+</body>
+</html>

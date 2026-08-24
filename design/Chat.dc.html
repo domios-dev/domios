@@ -1,0 +1,126 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: "Inter", "Segoe UI", "Avenir Next", sans-serif; background: #0d1117; }
+    a { color: #58a6ff; } a:hover { color: #79c0ff; }
+    * { box-sizing: border-box; }
+    button { font-family: inherit; cursor: pointer; }
+  </style>
+</helmet>
+
+<div style="padding: 24px; display: flex; flex-direction: column; gap: 14px">
+
+  <div style="display: flex; flex-direction: column; gap: 3px">
+    <div style="font-size: 11px; font-weight: 500; color: #c9d1d9">The same ask, inside the chat</div>
+    <div style="font-size: 11px; color: #828a92; line-height: 1.45">Card vocabulary borrowed from the system-prompt and context-request cards, so it sits in the transcript rather than on top of it.</div>
+  </div>
+
+  <div style="display: flex; flex-direction: column; width: 896px">
+
+    <div style="margin-bottom: 6px; min-width: 0; max-width: 100%; font-size: 14px; line-height: 1.625; color: #c9d1d9">
+      Gate 9 came back with all five visual-regression specs failing on “A snapshot doesn't exist”. That is the failure I predicted, so the scope fix landed — but the run also wrote four win32 PNGs to disk as a side effect.
+    </div>
+
+    <div style="margin-bottom: 12px; width: 100%; max-width: 896px; min-width: 0">
+      <div style="max-width: 100%; min-width: 0; border-radius: 6px; border: 1px solid color-mix(in srgb, #d29922 32%, transparent); background: color-mix(in srgb, #141b24 92%, #d29922 8%); color: #c9d1d9">
+
+        <button onClick="{{toggle}}" style="display: flex; width: 100%; min-width: 0; align-items: center; gap: 8px; border: 0; background: none; padding: 8px 12px; text-align: left; color: #c9d1d9">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#d29922" stroke-width="2" stroke-linecap="round" style="flex-shrink: 0"><path d="M12 9v4M12 17v.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
+          <span style="min-width: 0; flex: 1">
+            <span style="display: block; font-size: 12px; font-weight: 500">Waiting on you</span>
+            <span style="display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: #828a92">Delete the stale win32 baselines?</span>
+          </span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="flex-shrink: 0; opacity: 0.6; transform: {{chevron}}"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+
+        <sc-if value="{{open}}" hint-placeholder-val="{{ true }}">
+          <div style="border-top: 1px solid color-mix(in srgb, #d29922 18%, transparent); padding: 10px 12px 12px">
+            <div style="white-space: pre-line; font-size: 14px; line-height: 1.625; color: #c9d1d9">Left in place, the next run passes against baselines nobody reviewed — a green that means “I wrote the expectation myself”.
+
+I can delete them and report the five specs as honestly failing, or keep them and mark the suite unproven until someone regenerates win32 baselines under review.</div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{unanswered}}" hint-placeholder-val="{{ true }}">
+          <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px; border-top: 1px solid color-mix(in srgb, #d29922 18%, transparent); padding: 9px 12px">
+            <sc-for list="{{answers}}" as="answer" hint-placeholder-count="2">
+              <button onClick="{{answer.pick}}" style="min-height: 28px; border-radius: 6px; border: 1px solid {{answer.border}}; background: {{answer.bg}}; padding: 0 12px; font-size: 12px; color: {{answer.fg}}">{{answer.label}}</button>
+            </sc-for>
+            <span style="margin-left: auto; font-size: 11px; color: #484f58">Your answer is sent here, as a message</span>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{answered}}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; align-items: center; gap: 7px; border-top: 1px solid color-mix(in srgb, #d29922 18%, transparent); padding: 9px 12px; font-size: 11px; color: #828a92">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#7ee787" stroke-width="2.2" stroke-linecap="round" style="flex-shrink: 0"><path d="M20 6 9 17l-5-5"/></svg>
+            <span>Answered <strong style="font-weight: 500; color: #c9d1d9">{{chosen}}</strong></span>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+
+    <sc-if value="{{answered}}" hint-placeholder-val="{{ false }}">
+      <div style="margin-bottom: 6px; width: 100%; max-width: 896px; min-width: 0">
+        <div style="margin-bottom: 4px; display: flex; align-items: center; gap: 6px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: #58a6ff">
+          <span style="flex-shrink: 0; opacity: 0.85">&rarr;</span>
+          <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">Orchestrator</span>
+        </div>
+        <div style="min-width: 0; max-width: 100%; font-size: 14px; line-height: 1.625; color: #c9d1d9">{{chosen}}</div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{unanswered}}" hint-placeholder-val="{{ true }}">
+      <div style="display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12px; color: #484f58">
+        <span style="display: inline-flex; height: 6px; width: 6px; border-radius: 999px; background: #d29922"></span>
+        <span>Stopped, waiting for an answer</span>
+      </div>
+    </sc-if>
+
+  </div>
+
+  <div style="display: flex; gap: 7px; width: 896px; border-radius: 6px; border: 1px solid #232930; background: #141b24; padding: 10px 12px">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#828a92" stroke-width="2" stroke-linecap="round" style="flex-shrink: 0; margin-top: 1px"><circle cx="12" cy="12" r="9"/><path d="M12 8v.01M12 11v5"/></svg>
+    <span style="font-size: 11px; color: #828a92; line-height: 1.45">The chat card and the panel card are the same notification. Answering in either one closes both, because the answer is recorded on the notification rather than on the surface that showed it &mdash; so the panel cannot offer a choice the chat already spent.</span>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"$preview":{"width":944,"height":560}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { open: true, chosen: null };
+  }
+
+  renderVals() {
+    const options = [
+      { label: "Delete them", primary: true },
+      { label: "Keep, mark unproven" },
+    ];
+    return {
+      open: this.state.open,
+      chevron: this.state.open ? "rotate(180deg)" : "none",
+      toggle: () => this.setState({ open: !this.state.open }),
+      answered: Boolean(this.state.chosen),
+      unanswered: !this.state.chosen,
+      chosen: this.state.chosen,
+      answers: options.map((option) => ({
+        label: option.label,
+        border: option.primary ? "#58a6ff" : "#232930",
+        bg: option.primary ? "color-mix(in srgb, #141b24 80%, #58a6ff 20%)" : "transparent",
+        fg: option.primary ? "#c9d1d9" : "#828a92",
+        pick: () => this.setState({ chosen: option.label }),
+      })),
+    };
+  }
+}
+</script>
+</body>
+</html>
