@@ -195,7 +195,7 @@ export function Sidebar({
         workspace_id: workspaceId,
         title: "Orchestration pair failed",
         body: e instanceof Error ? e.message : String(e),
-        level: "Error",
+        severity: "Error",
         sticky: true,
       });
     });

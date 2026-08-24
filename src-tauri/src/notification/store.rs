@@ -6,7 +6,7 @@ use uuid::Uuid;
 use super::dedupe::{
     ConditionLedger, ConditionTransition, DeliveryAdmission, DeliveryLedger, NotificationIdentity,
 };
-use super::push::NotifyCategory;
+use super::push::NotifyLevel;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Notification {
@@ -19,7 +19,7 @@ pub struct Notification {
     pub peer_name: Option<String>,
     pub title: String,
     pub body: Option<String>,
-    pub level: NotificationLevel,
+    pub severity: NotificationSeverity,
     pub timestamp: u64,
     pub read: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -42,7 +42,7 @@ pub struct NotificationProvenance {
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Hash)]
-pub enum NotificationLevel {
+pub enum NotificationSeverity {
     Info,
     Warning,
     Error,
@@ -91,11 +91,11 @@ impl PushAdmission {
 /// caller cannot opt out of either.
 pub struct PushRequest {
     pub scope: String,
-    pub category: NotifyCategory,
+    pub level: NotifyLevel,
     pub event_key: String,
     pub title: String,
     pub body: Option<String>,
-    pub level: NotificationLevel,
+    pub severity: NotificationSeverity,
     pub provenance: NotificationProvenance,
     pub per_scope_limit: u32,
 }
@@ -109,9 +109,9 @@ pub struct NotificationStore {
     notifications: Vec<Notification>,
     provider_updates: HashMap<String, String>,
     max_notifications: usize,
-    /// One open coalescing slot per (scope, category). Closed on read, clear,
+    /// One open coalescing slot per (scope, level). Closed on read, clear,
     /// eviction or tab close — never by elapsed time.
-    push_slots: HashMap<(String, NotifyCategory), PushSlot>,
+    push_slots: HashMap<(String, NotifyLevel), PushSlot>,
     /// Lifetime push count per scope. A count, so no clock can advance it.
     push_counts: HashMap<String, u32>,
     /// Live identities of unread records: the same message twice opens one.
@@ -138,14 +138,14 @@ impl NotificationStore {
         &mut self,
         title: String,
         body: Option<String>,
-        level: NotificationLevel,
+        severity: NotificationSeverity,
         tab_id: Option<String>,
         workspace_id: Option<String>,
     ) -> String {
         self.add_ext(
             title,
             body,
-            level,
+            severity,
             NotificationProvenance {
                 tab_id,
                 workspace_id,
@@ -160,7 +160,7 @@ impl NotificationStore {
         &mut self,
         title: String,
         body: Option<String>,
-        level: NotificationLevel,
+        severity: NotificationSeverity,
         provenance: NotificationProvenance,
         actions: Option<serde_json::Value>,
         sticky: Option<bool>,
@@ -179,7 +179,7 @@ impl NotificationStore {
             peer_name: provenance.peer_name,
             title,
             body,
-            level,
+            severity,
             timestamp,
             read: false,
             actions,
@@ -204,16 +204,16 @@ impl NotificationStore {
         &mut self,
         title: String,
         body: Option<String>,
-        level: NotificationLevel,
+        severity: NotificationSeverity,
         provenance: NotificationProvenance,
         actions: Option<serde_json::Value>,
         sticky: Option<bool>,
     ) -> DeliveryAdmission {
-        let identity = NotificationIdentity::of(&provenance, &level, &title, body.as_deref());
+        let identity = NotificationIdentity::of(&provenance, &severity, &title, body.as_deref());
         if let Some(id) = self.deliveries.existing(&identity) {
             return DeliveryAdmission::Duplicate(id);
         }
-        let id = self.add_ext(title, body, level, provenance, actions, sticky);
+        let id = self.add_ext(title, body, severity, provenance, actions, sticky);
         self.deliveries.bind(identity, id.clone());
         DeliveryAdmission::Deliver(id)
     }
@@ -236,7 +236,7 @@ impl NotificationStore {
     /// Admit a push-eligible notification. Dedup and coalescing are decided
     /// here so no caller can opt out of them.
     pub fn add_push(&mut self, request: PushRequest) -> PushAdmission {
-        let slot_key = (request.scope.clone(), request.category);
+        let slot_key = (request.scope.clone(), request.level);
         let open = self.push_slots.get(&slot_key).map(|slot| {
             (
                 slot.event_key == request.event_key,
@@ -253,20 +253,20 @@ impl NotificationStore {
             event_key,
             title,
             body,
-            level,
+            severity,
             provenance,
             per_scope_limit,
             ..
         } = request;
 
         let reused = open.and_then(|(_, id)| {
-            self.rewrite_in_place(&id, title.clone(), body.clone(), level.clone(), &provenance)
+            self.rewrite_in_place(&id, title.clone(), body.clone(), severity.clone(), &provenance)
                 .then_some(id)
         });
         let is_supersede = reused.is_some();
         let id = match reused {
             Some(id) => id,
-            None => self.add_ext(title, body, level, provenance, None, None),
+            None => self.add_ext(title, body, severity, provenance, None, None),
         };
 
         self.push_slots.insert(
@@ -296,7 +296,7 @@ impl NotificationStore {
         id: &str,
         title: String,
         body: Option<String>,
-        level: NotificationLevel,
+        severity: NotificationSeverity,
         provenance: &NotificationProvenance,
     ) -> bool {
         let Some(target) = self.notifications.iter_mut().find(|n| n.id == id) else {
@@ -304,7 +304,7 @@ impl NotificationStore {
         };
         target.title = title;
         target.body = body;
-        target.level = level;
+        target.severity = severity;
         target.tab_id = provenance.tab_id.clone();
         target.tab_title = provenance.tab_title.clone();
         target.workspace_id = provenance.workspace_id.clone();
@@ -354,7 +354,7 @@ impl NotificationStore {
         let id = self.add_ext(
             title,
             Some(body),
-            NotificationLevel::Info,
+            NotificationSeverity::Info,
             provenance,
             Some(actions),
             Some(true),
@@ -417,7 +417,7 @@ mod tests {
     #[test]
     fn test_add_notification() {
         let mut store = NotificationStore::new(100);
-        let id = store.add("Test".into(), None, NotificationLevel::Info, None, None);
+        let id = store.add("Test".into(), None, NotificationSeverity::Info, None, None);
         assert!(!id.is_empty());
         assert_eq!(store.list(false).len(), 1);
     }
@@ -425,7 +425,7 @@ mod tests {
     #[test]
     fn test_notification_defaults_unread() {
         let mut store = NotificationStore::new(100);
-        store.add("Test".into(), None, NotificationLevel::Info, None, None);
+        store.add("Test".into(), None, NotificationSeverity::Info, None, None);
         assert_eq!(store.unread_count(), 1);
         assert_eq!(store.list(true).len(), 1);
     }
@@ -433,7 +433,7 @@ mod tests {
     #[test]
     fn test_mark_read() {
         let mut store = NotificationStore::new(100);
-        let id = store.add("Test".into(), None, NotificationLevel::Info, None, None);
+        let id = store.add("Test".into(), None, NotificationSeverity::Info, None, None);
         assert!(store.mark_read(&id));
         assert_eq!(store.unread_count(), 0);
         assert_eq!(store.list(true).len(), 0);
@@ -449,8 +449,8 @@ mod tests {
     #[test]
     fn test_clear_specific() {
         let mut store = NotificationStore::new(100);
-        let id1 = store.add("A".into(), None, NotificationLevel::Info, None, None);
-        let _id2 = store.add("B".into(), None, NotificationLevel::Info, None, None);
+        let id1 = store.add("A".into(), None, NotificationSeverity::Info, None, None);
+        let _id2 = store.add("B".into(), None, NotificationSeverity::Info, None, None);
         store.clear(Some(&id1));
         assert_eq!(store.list(false).len(), 1);
         assert_eq!(store.list(false)[0].title, "B");
@@ -459,8 +459,8 @@ mod tests {
     #[test]
     fn test_clear_all() {
         let mut store = NotificationStore::new(100);
-        store.add("A".into(), None, NotificationLevel::Info, None, None);
-        store.add("B".into(), None, NotificationLevel::Info, None, None);
+        store.add("A".into(), None, NotificationSeverity::Info, None, None);
+        store.add("B".into(), None, NotificationSeverity::Info, None, None);
         store.clear(None);
         assert_eq!(store.list(false).len(), 0);
     }
@@ -468,28 +468,28 @@ mod tests {
     #[test]
     fn test_eviction() {
         let mut store = NotificationStore::new(3);
-        store.add("A".into(), None, NotificationLevel::Info, None, None);
-        store.add("B".into(), None, NotificationLevel::Info, None, None);
-        store.add("C".into(), None, NotificationLevel::Info, None, None);
-        store.add("D".into(), None, NotificationLevel::Info, None, None);
+        store.add("A".into(), None, NotificationSeverity::Info, None, None);
+        store.add("B".into(), None, NotificationSeverity::Info, None, None);
+        store.add("C".into(), None, NotificationSeverity::Info, None, None);
+        store.add("D".into(), None, NotificationSeverity::Info, None, None);
         assert_eq!(store.list(false).len(), 3);
         let titles: Vec<&str> = store.list(false).iter().map(|n| n.title.as_str()).collect();
         assert_eq!(titles, vec!["B", "C", "D"]);
     }
 
     #[test]
-    fn test_notification_levels() {
+    fn test_notification_severities() {
         let mut store = NotificationStore::new(100);
-        store.add("Info".into(), None, NotificationLevel::Info, None, None);
-        store.add("Warn".into(), None, NotificationLevel::Warning, None, None);
-        store.add("Err".into(), None, NotificationLevel::Error, None, None);
-        let levels: Vec<&NotificationLevel> = store.list(false).iter().map(|n| &n.level).collect();
+        store.add("Info".into(), None, NotificationSeverity::Info, None, None);
+        store.add("Warn".into(), None, NotificationSeverity::Warning, None, None);
+        store.add("Err".into(), None, NotificationSeverity::Error, None, None);
+        let severities: Vec<&NotificationSeverity> = store.list(false).iter().map(|n| &n.severity).collect();
         assert_eq!(
-            levels,
+            severities,
             vec![
-                &NotificationLevel::Info,
-                &NotificationLevel::Warning,
-                &NotificationLevel::Error
+                &NotificationSeverity::Info,
+                &NotificationSeverity::Warning,
+                &NotificationSeverity::Error
             ]
         );
     }
@@ -500,7 +500,7 @@ mod tests {
         store.add(
             "Title".into(),
             Some("Body text".into()),
-            NotificationLevel::Info,
+            NotificationSeverity::Info,
             Some("tab-1".into()),
             Some("ws-1".into()),
         );
@@ -566,7 +566,7 @@ mod tests {
 
         fn request(
             tab_id: &str,
-            category: NotifyCategory,
+            level: NotifyLevel,
             supplied_key: Option<&str>,
             title: &str,
             body: &str,
@@ -575,11 +575,11 @@ mod tests {
             let provenance = provenance_for(tab_id);
             PushRequest {
                 scope: push::scope_key(&provenance),
-                category,
+                level,
                 event_key: push::event_key(supplied_key, title),
                 title: title.to_string(),
                 body: Some(body.to_string()),
-                level: NotificationLevel::Info,
+                severity: NotificationSeverity::Info,
                 provenance,
                 per_scope_limit,
             }
@@ -601,7 +601,7 @@ mod tests {
             let mut store = NotificationStore::new(10);
             let first = store.add_push(request(
                 "tab_a",
-                NotifyCategory::Milestone,
+                NotifyLevel::Verbose,
                 Some(KEY),
                 FIRST_TITLE,
                 FIRST_BODY,
@@ -609,7 +609,7 @@ mod tests {
             ));
             let second = store.add_push(request(
                 "tab_a",
-                NotifyCategory::Milestone,
+                NotifyLevel::Verbose,
                 Some(KEY),
                 SECOND_TITLE,
                 SECOND_BODY,
@@ -634,7 +634,7 @@ mod tests {
             let mut store = NotificationStore::new(10);
             let first = store.add_push(request(
                 "tab_a",
-                NotifyCategory::Milestone,
+                NotifyLevel::Verbose,
                 Some(KEY),
                 "Build started",
                 "one",
@@ -644,7 +644,7 @@ mod tests {
 
             let after_read = store.add_push(request(
                 "tab_a",
-                NotifyCategory::Milestone,
+                NotifyLevel::Verbose,
                 Some(KEY),
                 "Build started again",
                 "two",
@@ -663,7 +663,7 @@ mod tests {
             let mut store = NotificationStore::new(10);
             let first = store.add_push(request(
                 "tab_a",
-                NotifyCategory::Milestone,
+                NotifyLevel::Verbose,
                 Some("step-1"),
                 "Step one done",
                 "first body",
@@ -671,7 +671,7 @@ mod tests {
             ));
             let second = store.add_push(request(
                 "tab_a",
-                NotifyCategory::Milestone,
+                NotifyLevel::Verbose,
                 Some("step-2"),
                 "Step two done",
                 "second body",
@@ -704,9 +704,9 @@ mod tests {
                 keys.push(key.clone());
                 outcomes.push(store.add_push(request(
                     "tab_a",
-                    NotifyCategory::Milestone,
+                    NotifyLevel::Verbose,
                     Some(&key),
-                    &format!("Milestone {step}"),
+                    &format!("Progress {step}"),
                     "body",
                     LIMIT,
                 )));
@@ -747,7 +747,7 @@ mod tests {
             let mut store = NotificationStore::new(10);
             let first = store.add_push(request(
                 "tab_a",
-                NotifyCategory::Milestone,
+                NotifyLevel::Verbose,
                 Some("event-1"),
                 "One",
                 "body",
@@ -758,7 +758,7 @@ mod tests {
 
             let after_clear = store.add_push(request(
                 "tab_a",
-                NotifyCategory::Milestone,
+                NotifyLevel::Verbose,
                 Some("event-2"),
                 "Two",
                 "body",
@@ -777,7 +777,7 @@ mod tests {
             let scope = push::scope_key(&provenance_for("tab_a"));
             store.add_push(request(
                 "tab_a",
-                NotifyCategory::Milestone,
+                NotifyLevel::Verbose,
                 Some("event-1"),
                 "One",
                 "body",
@@ -787,7 +787,7 @@ mod tests {
 
             let reopened = store.add_push(request(
                 "tab_a",
-                NotifyCategory::Milestone,
+                NotifyLevel::Verbose,
                 Some("event-2"),
                 "Two",
                 "body",
@@ -802,7 +802,7 @@ mod tests {
             let mut store = NotificationStore::new(10);
             let first = store.add_push(request(
                 "tab_a",
-                NotifyCategory::Blocker,
+                NotifyLevel::ActionNeeded,
                 None,
                 "Approval required",
                 "first body",
@@ -810,7 +810,7 @@ mod tests {
             ));
             let second = store.add_push(request(
                 "tab_a",
-                NotifyCategory::Blocker,
+                NotifyLevel::ActionNeeded,
                 None,
                 "Approval required",
                 "second body",
@@ -826,19 +826,19 @@ mod tests {
         }
 
         #[test]
-        fn categories_and_scopes_do_not_share_a_slot() {
+        fn levels_and_scopes_do_not_share_a_slot() {
             let mut store = NotificationStore::new(10);
-            let milestone = store.add_push(request(
+            let verbose = store.add_push(request(
                 "tab_a",
-                NotifyCategory::Milestone,
+                NotifyLevel::Verbose,
                 Some("shared"),
                 "A",
                 "body",
                 GENEROUS_LIMIT,
             ));
-            let blocker = store.add_push(request(
+            let action_needed = store.add_push(request(
                 "tab_a",
-                NotifyCategory::Blocker,
+                NotifyLevel::ActionNeeded,
                 Some("shared"),
                 "B",
                 "body",
@@ -846,15 +846,15 @@ mod tests {
             ));
             let other_tab = store.add_push(request(
                 "tab_b",
-                NotifyCategory::Milestone,
+                NotifyLevel::Verbose,
                 Some("shared"),
                 "C",
                 "body",
                 GENEROUS_LIMIT,
             ));
 
-            assert!(matches!(milestone, PushAdmission::Deliver(_)));
-            assert!(matches!(blocker, PushAdmission::Deliver(_)));
+            assert!(matches!(verbose, PushAdmission::Deliver(_)));
+            assert!(matches!(action_needed, PushAdmission::Deliver(_)));
             assert!(matches!(other_tab, PushAdmission::Deliver(_)));
             assert_eq!(store.list(false).len(), 3);
         }
@@ -864,7 +864,7 @@ mod tests {
             let mut store = NotificationStore::new(10);
             let admitted = store.add_push(request(
                 "tab_a",
-                NotifyCategory::Failure,
+                NotifyLevel::Failure,
                 Some("event-1"),
                 "Terminal failure",
                 "body",

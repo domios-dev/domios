@@ -207,7 +207,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
             workspace_id: null,
             title: tab.title || "Agent",
             body: "Needs your attention",
-            level: "Warning" as const,
+            severity: "Warning" as const,
             read: false,
             sticky: false,
             timestamp: Date.now(),

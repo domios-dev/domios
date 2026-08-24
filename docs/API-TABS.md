@@ -120,7 +120,7 @@ Response: `{"ok": true, "changed": true}` when the persisted id changed, `{"ok":
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
 | GET | `/api/notifications` | `?unread=true` | List notifications |
-| POST | `/api/notifications` | `{title, body?, level?, actions?, sticky?, tab_id?, category?, event_key?}` | Create notification (+ desktop toast when the category gate admits it). Navigation provenance is daemon-resolved: `X-CodeTerm-Tab-Id` outranks a body `tab_id`, an id naming no live tab is dropped (the notification still lands, without a Show Tab target), and `tab_title`/`workspace_id` come from the multiplexer. Mesh-relayed calls lose every tab claim and carry the signed peer name instead. `category` is the closed set `milestone` / `blocker` / `failure`; anything else is `400`. It gates BOTH sinks: an uncategorised notification is stored and rings the bell but raises no desktop toast and no Telegram push. Desktop additionally honours `notifications.desktop` and the per-category rows in `notifications.agent_categories`. Telegram delivery outcome is never returned. |
+| POST | `/api/notifications` | `{title, body?, severity?, actions?, sticky?, tab_id?, level?, event_key?}` | Create notification (+ desktop toast when the level gate admits it). Navigation provenance is daemon-resolved: `X-CodeTerm-Tab-Id` outranks a body `tab_id`, an id naming no live tab is dropped (the notification still lands, without a Show Tab target), and `tab_title`/`workspace_id` come from the multiplexer. Mesh-relayed calls lose every tab claim and carry the signed peer name instead. `level` is the closed set `verbose` / `action_needed` / `failure`; anything else is `400`. It gates BOTH sinks: a notification naming no level is stored and rings the bell but raises no desktop toast and no Telegram push. Desktop additionally honours `notifications.desktop` and the per-level rows in `notifications.agent_levels`. `severity` (`info`/`warning`/`error`) is toast styling only and gates nothing. Telegram delivery outcome is never returned. |
 | POST | `/api/notifications/clear` | — | Clear all |
 | GET | `/api/notifications/telegram-gate` | — | `{control_available}` — whether the settings opt-in may be offered (live bridge supervisor AND non-empty `telegram_allowed_users`). |
 
@@ -199,4 +199,4 @@ The `connect`, `approve`, `reject`, and `disconnect` endpoints are high-level �
 
 Memory item, graph, calibration, and worker endpoints: `codeterm docs API-MEMORY`.
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->

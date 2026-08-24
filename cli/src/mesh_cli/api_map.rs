@@ -147,8 +147,8 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             crate::NotifyAction::Send {
                 title,
                 body,
+                severity,
                 level,
-                category,
                 event_key,
             } => (
                 "POST".into(),
@@ -157,8 +157,8 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                     serde_json::json!({
                         "title": title,
                         "body": body,
-                        "level": level,
-                        "category": category.map(|c| c.as_str()),
+                        "severity": severity,
+                        "level": level.map(|l| l.as_str()),
                         "event_key": event_key,
                     })
                     .to_string(),

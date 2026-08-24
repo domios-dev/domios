@@ -1,4 +1,6 @@
+use clap::builder::TypedValueParser;
 use clap::Subcommand;
+use codeterm_types::notification::NotifyLevel;
 
 #[derive(Subcommand)]
 pub enum WorkspaceAction {
@@ -324,27 +326,12 @@ pub enum PasteAction {
     },
 }
 
-/// The complete set of interrupt-eligible categories, mirroring the daemon's
-/// own closed set. Routine progress has no variant, so an invented category is
-/// a parse error rather than a runtime string.
-#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
-pub enum NotifyCategory {
-    /// A material milestone worth interrupting for
-    Milestone,
-    /// Blocked, or waiting on an approval
-    Blocker,
-    /// A terminal failure
-    Failure,
-}
-
-impl NotifyCategory {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Milestone => "milestone",
-            Self::Blocker => "blocker",
-            Self::Failure => "failure",
-        }
-    }
+/// Accepted values come straight from the daemon-shared set, so the CLI cannot
+/// know a level the daemon rejects, and no triple is restated here.
+fn notify_level_parser() -> impl clap::builder::TypedValueParser<Value = NotifyLevel> {
+    clap::builder::PossibleValuesParser::new(NotifyLevel::wire_values()).map(|raw| {
+        NotifyLevel::parse(&raw).expect("possible values are derived from NotifyLevel::ALL")
+    })
 }
 
 #[derive(Subcommand)]
@@ -358,13 +345,13 @@ pub enum NotifyAction {
         #[arg(long)]
         body: Option<String>,
 
-        /// Notification level: info, warning, error
+        /// Toast severity: info, warning, error
         #[arg(long, default_value = "info")]
-        level: String,
+        severity: String,
 
-        /// Category that lets this alert reach the user. Omit to file it in the bell only.
-        #[arg(long, value_enum)]
-        category: Option<NotifyCategory>,
+        /// What this notification is, on the one level axis. Omit to file it in the bell only.
+        #[arg(long, value_parser = notify_level_parser())]
+        level: Option<NotifyLevel>,
 
         /// Stable identity for coalescing. Derived from the title when omitted.
         #[arg(long)]

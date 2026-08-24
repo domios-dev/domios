@@ -1,9 +1,9 @@
-//! The desktop counterpart of the Telegram push gate: the same closed category
-//! set, the same fail-closed default. A notification that names no category
+//! The desktop counterpart of the Telegram push gate: the same closed level
+//! set, the same fail-closed default. A notification that names no level
 //! reaches the inbox but never the toast, so it cannot interrupt the user.
 
 use codeterm_types::config::schema::NotificationConfig;
-use codeterm_types::notification::NotifyCategory;
+use codeterm_types::notification::NotifyLevel;
 
 #[cfg(test)]
 mod tests;
@@ -11,10 +11,10 @@ mod tests;
 /// Proof that the gate admitted one notification. The field is private and
 /// `admit` is the only constructor, so no caller can conjure a pass.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DesktopPass(NotifyCategory);
+pub struct DesktopPass(NotifyLevel);
 
 impl DesktopPass {
-    pub fn category(self) -> NotifyCategory {
+    pub fn level(self) -> NotifyLevel {
         self.0
     }
 }
@@ -24,12 +24,12 @@ impl DesktopPass {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DesktopAdmission {
     Allowed(DesktopPass),
-    /// The caller named no category. This is the fail-closed edge.
-    Uncategorised,
+    /// The caller named no level. This is the fail-closed edge.
+    Unlevelled,
     /// Desktop notifications are switched off entirely.
     DesktopOff,
-    /// A real category the user chose not to be interrupted by.
-    CategoryDisabled(NotifyCategory),
+    /// A real level the user chose not to be interrupted by.
+    LevelDisabled(NotifyLevel),
 }
 
 impl DesktopAdmission {
@@ -38,7 +38,7 @@ impl DesktopAdmission {
     pub fn pass(self) -> Option<DesktopPass> {
         match self {
             Self::Allowed(pass) => Some(pass),
-            Self::Uncategorised | Self::DesktopOff | Self::CategoryDisabled(_) => None,
+            Self::Unlevelled | Self::DesktopOff | Self::LevelDisabled(_) => None,
         }
     }
 }
@@ -48,20 +48,20 @@ impl DesktopAdmission {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DesktopPolicy {
     pub enabled: bool,
-    pub allowed: Vec<NotifyCategory>,
+    pub allowed: Vec<NotifyLevel>,
 }
 
 impl DesktopPolicy {
     /// An unrecognised config entry is dropped, exactly as an unrecognised
-    /// category on the wire is rejected — never widened into a pass-through.
+    /// level on the wire is rejected — never widened into a pass-through.
     pub fn from_config(cfg: &NotificationConfig) -> Self {
         Self {
             enabled: cfg.desktop,
             allowed: cfg
-                .agent_categories
+                .agent_levels
                 .iter()
                 .filter(|choice| choice.enabled)
-                .filter_map(|choice| NotifyCategory::parse(&choice.category))
+                .filter_map(|choice| NotifyLevel::parse(&choice.level))
                 .collect(),
         }
     }
@@ -72,23 +72,23 @@ impl DesktopPolicy {
         Self::default()
     }
 
-    pub fn allows(&self, category: NotifyCategory) -> bool {
-        self.allowed.contains(&category)
+    pub fn allows(&self, level: NotifyLevel) -> bool {
+        self.allowed.contains(&level)
     }
 }
 
-/// The single entry to the desktop sink. A caller that named no category is
+/// The single entry to the desktop sink. A caller that named no level is
 /// refused here, so routing an agent through `codeterm notify` cannot widen
 /// what reaches the user.
-pub fn admit(declared: Option<NotifyCategory>, policy: &DesktopPolicy) -> DesktopAdmission {
-    let Some(category) = declared else {
-        return DesktopAdmission::Uncategorised;
+pub fn admit(declared: Option<NotifyLevel>, policy: &DesktopPolicy) -> DesktopAdmission {
+    let Some(level) = declared else {
+        return DesktopAdmission::Unlevelled;
     };
     if !policy.enabled {
         return DesktopAdmission::DesktopOff;
     }
-    if !policy.allows(category) {
-        return DesktopAdmission::CategoryDisabled(category);
+    if !policy.allows(level) {
+        return DesktopAdmission::LevelDisabled(level);
     }
-    DesktopAdmission::Allowed(DesktopPass(category))
+    DesktopAdmission::Allowed(DesktopPass(level))
 }
