@@ -13,8 +13,10 @@ import {
   planNavContextEqual,
   selectTab,
   selectTabAgentTypes,
+  selectTabAsks,
   selectTabTitleMap,
   selectPlanNavContext,
+  tabAsksEqual,
 } from "../../store/multiplexer/selectors";
 import { useTabProvider, useShellSessionModel } from "../../lib/useTabProvider";
 import { formatModelBadge } from "../../lib/formatModelBadge";
@@ -39,7 +41,8 @@ import { useChatScroll } from "./useChatScroll";
 import { resolveTabNavigationTarget } from "./tabNavigation";
 import { useMeshPeerNameResolver } from "./useMeshPeerNameResolver";
 import { useAgentReportProjection } from "./agentReportProjection";
-import { messageTimeMs, placeOutboundReports } from "./outboundReportPlacement";
+import { messageTimeMs, normalizeEpochMs, placeOutboundReports } from "./outboundReportPlacement";
+import { ChatAskCard } from "../Notifications/ChatAskCard";
 
 interface Props {
   tabId: string;
@@ -114,12 +117,14 @@ export function TabSessionChat({
   const chatRootRef = useRef<HTMLDivElement>(null);
   const chatFollowTailRef = useRef(true);
 
-  const { setFocusedTab, selectTabByTab, addNotification, setActiveWorkspace } = useMultiplexer();
+  const { setFocusedTab, selectTabByTab, addNotification, setActiveWorkspace, answerNotification } = useMultiplexer();
   const tabSelector = useCallback((s: Parameters<typeof selectTab>[0]) => selectTab(s, tabId), [tabId]);
   const tab = useMuxSelector(tabSelector, tabFieldsEqual);
   const tabTitleMap = useMuxSelector(selectTabTitleMap, tabTitleMapEqual);
   const planNav = useMuxSelector(selectPlanNavContext, planNavContextEqual);
   const tabAgentTypes = useMuxSelector(selectTabAgentTypes, tabAgentTypesEqual);
+  const askSelector = useCallback((s: Parameters<typeof selectTabAsks>[0]) => selectTabAsks(s, tabId), [tabId]);
+  const asks = useMuxSelector(askSelector, tabAsksEqual);
   const { index: planIndex } = usePlanIndexOptional();
   const tabProvider = tab?.agent_type ?? null;
   const provider = useTabProvider(tab);
@@ -379,6 +384,19 @@ export function TabSessionChat({
       </div>
     );
   };
+  const renderAsk = (index: number) => {
+    const ask = asks[index];
+    if (!ask) return null;
+    return (
+      <ChatAskCard
+        key={ask.id}
+        notification={ask}
+        onAnswer={answerNotification}
+        resolveTabName={resolveTabName}
+        fontScale={uiFontScale}
+      />
+    );
+  };
   const renderedEnrichedMessages = enrichedMessages;
   const reportPlacement = useMemo(
     () => placeOutboundReports(
@@ -387,6 +405,14 @@ export function TabSessionChat({
       outboundReports.map((report) => report.at),
     ),
     [renderedEnrichedMessages, outboundReports],
+  );
+  const askPlacement = useMemo(
+    () => placeOutboundReports(
+      renderedEnrichedMessages,
+      ({ msg }) => messageTimeMs(msg.timestamp),
+      asks.map((ask) => normalizeEpochMs(ask.timestamp)),
+    ),
+    [renderedEnrichedMessages, asks],
   );
   const deferredPlanRefMessages = useDeferredValue(enrichedMessages);
   // Record the visible tail after paint so diagnostics do not overstate progress
@@ -651,6 +677,7 @@ export function TabSessionChat({
           </div>
         )}
         {(reportPlacement.afterIndex.get(-1) ?? []).map(renderOutboundReport)}
+        {(askPlacement.afterIndex.get(-1) ?? []).map(renderAsk)}
         {renderedEnrichedMessages.map(({ msg, item, origin }, messageIndex) => {
           const originProps = originPropsById.get(msg.id);
           const following = reportPlacement.afterIndex.get(messageIndex) ?? [];
@@ -684,10 +711,12 @@ export function TabSessionChat({
               />
             </div>
               {following.map(renderOutboundReport)}
+              {(askPlacement.afterIndex.get(messageIndex) ?? []).map(renderAsk)}
             </Fragment>
           );
         })}
         {reportPlacement.trailing.map(renderOutboundReport)}
+        {askPlacement.trailing.map(renderAsk)}
         <ChatSetupState
           tab={tab}
           view={setupView}
