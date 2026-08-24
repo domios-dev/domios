@@ -1,8 +1,9 @@
 import { useCallback, useState } from "react";
 import type { Notification, NotificationAction } from "../../lib/types";
 import { invoke } from "../../lib/bridge";
-import { Bell, ChevronDown, Trash2, X } from "lucide-react";
+import { Bell, Check, ChevronDown, Trash2, X } from "lucide-react";
 import { timeAgo } from "../../lib/formatters";
+import { isAnswerUndeliverable } from "../../lib/notificationAnswer";
 import { UI_BUTTON, UI_TEXT } from "../shared/design";
 
 const SEVERITY_COLORS: Record<Notification["severity"], string> = {
@@ -18,6 +19,7 @@ interface NotificationPanelProps {
   onDelete: (id: string) => void;
   onClearAll: () => void;
   onJumpToTab: (tabId: string, workspaceId: string | null) => void;
+  onAnswer?: (id: string, label: string) => void;
   onClose: () => void;
 }
 
@@ -28,6 +30,7 @@ export function NotificationPanel({
   onDelete,
   onClearAll,
   onJumpToTab,
+  onAnswer,
   onClose,
 }: NotificationPanelProps) {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
@@ -47,7 +50,7 @@ export function NotificationPanel({
         await invoke(action.value, action.args ?? {});
       }
     } catch (error) {
-      console.warn(`Notification action '${action.value ?? action.type}' failed:`, error);
+      console.warn(`Notification action '${action.label}' failed:`, error);
     }
   }, []);
   const headerBtnClass = `${UI_BUTTON.ghost} ${UI_BUTTON.compact} h-6 px-1.5 text-[10px] disabled:pointer-events-none disabled:opacity-35`;
@@ -165,22 +168,44 @@ export function NotificationPanel({
                     Show Tab
                   </button>
                 )}
-                {(notif.actions?.length ?? 0) > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {notif.actions!.map((action, index) => (
-                      <button
-                        type="button"
-                        key={`${action.label}-${index}`}
-                        className="rounded border border-[var(--ct-border)] px-2 py-1 text-[10px] text-[var(--ct-fg)] hover:bg-[var(--ct-hover)]"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void runAction(action);
-                        }}
-                      >
-                        {action.label}
-                      </button>
-                    ))}
+                {notif.answer?.answered ? (
+                  <div
+                    data-testid="notification-answered"
+                    className="mt-2 inline-flex items-center gap-1 text-[11px] text-[var(--ct-green)]"
+                  >
+                    <Check size={12} aria-hidden />
+                    <span>You answered: {notif.answer.answered}</span>
                   </div>
+                ) : notif.answer && isAnswerUndeliverable(notif.answer) ? (
+                  <div
+                    data-testid="notification-undeliverable"
+                    className="mt-2 text-[11px] text-[var(--ct-muted-fg)]"
+                  >
+                    The tab that asked is gone — this can no longer be answered.
+                  </div>
+                ) : (
+                  (notif.actions?.length ?? 0) > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {notif.actions!.map((action, index) => (
+                        <button
+                          type="button"
+                          key={`${action.label}-${index}`}
+                          className={
+                            action.type === "answer" && index === 0
+                              ? "rounded border border-[var(--ct-accent)] px-2 py-1 text-[10px] text-[var(--ct-accent)] hover:bg-[var(--ct-hover)]"
+                              : "rounded border border-[var(--ct-border)] px-2 py-1 text-[10px] text-[var(--ct-fg)] hover:bg-[var(--ct-hover)]"
+                          }
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            if (action.type === "answer") onAnswer?.(notif.id, action.label);
+                            else void runAction(action);
+                          }}
+                        >
+                          {action.label}
+                        </button>
+                      ))}
+                    </div>
+                  )
                 )}
               </div>
               <button

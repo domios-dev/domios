@@ -3,6 +3,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Json,
 };
+use codeterm_types::notification::{validate_answer_labels, NotificationAction};
 use serde::Deserialize;
 
 use crate::api::routes::{check_auth, AppState};
@@ -28,7 +29,9 @@ pub(crate) struct CreateNotifBody {
     title: String,
     body: Option<String>,
     severity: Option<String>,
-    actions: Option<serde_json::Value>,
+    /// Typed at the boundary: an unknown kind is refused here rather than
+    /// travelling on as a string some click handler later interprets.
+    actions: Option<Vec<NotificationAction>>,
     sticky: Option<bool>,
     tab_id: Option<String>,
     /// Stamped by the Mesh relay from the signed sender; suppresses any tab claim.
@@ -60,6 +63,17 @@ pub(crate) fn parse_push_intent(
     })
 }
 
+/// Vet a caller-supplied action set. Parsing already closed the kind; this
+/// closes the choice set, which only makes sense as a whole.
+pub(crate) fn vet_actions(
+    actions: Option<Vec<NotificationAction>>,
+) -> Result<Option<Vec<NotificationAction>>, String> {
+    if let Some(ref actions) = actions {
+        validate_answer_labels(actions)?;
+    }
+    Ok(actions)
+}
+
 pub async fn create_notification(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -73,11 +87,13 @@ pub async fn create_notification(
     };
     let intent = parse_push_intent(body.level.as_deref(), body.event_key)
         .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
+    let actions =
+        vet_actions(body.actions).map_err(|message| (StatusCode::BAD_REQUEST, message))?;
     let id = state.svc.create_notification_ext(
         body.title,
         body.body,
         body.severity.as_deref(),
-        body.actions,
+        actions,
         body.sticky,
         origin,
         intent,
@@ -124,6 +140,27 @@ pub async fn delete_notification(
     check_auth(&state, &headers)?;
     state.svc.notif.lock().clear(Some(&id));
     Ok(Json(serde_json::json!({"ok": true})))
+}
+
+#[derive(Deserialize)]
+pub(crate) struct AnswerNotifBody {
+    label: String,
+}
+
+/// Record the user's choice. The path names the record and the body names the
+/// chosen label; neither can name a command, arguments, or a target tab.
+pub async fn answer_notification(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<AnswerNotifBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(code, message)| (code, message.to_string()))?;
+    state
+        .svc
+        .answer_notification(&id, &body.label)
+        .map(Json)
+        .map_err(|message| (StatusCode::CONFLICT, message))
 }
 
 #[derive(Deserialize)]
