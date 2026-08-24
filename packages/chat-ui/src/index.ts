@@ -18,6 +18,9 @@ export type { PeerNameResolver, TabNameResolver } from "./codeterm/templates";
 export { extractPlanRefs } from "./codeterm/planRefs";
 export { installInboundReportCardHarness } from "./codeterm/InboundReportCard.browserHarness";
 export { OutboundReportCard } from "./codeterm/OutboundReportCard";
+export { SentMessageBubble } from "./codeterm/SentMessageBubble";
+export { sentInvocation } from "./codeterm/sentInvocation";
+export { pickUiFontScaleValue } from "./uiFontScale";
 export type { OutboundReportDescriptor } from "./codeterm/OutboundReportCard";
 export {
   parseDeliveredTaskOutcome,

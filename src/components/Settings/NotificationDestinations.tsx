@@ -4,6 +4,7 @@ import {
   destinationCellLabel,
   type NotifyDestinationId,
 } from "../../lib/notifyDestinations";
+import { levelLabel, levelTone } from "../../lib/notifyLevels";
 import { Toggle } from "./shared";
 
 export function setLevelDestination(
@@ -18,24 +19,6 @@ export function setLevelDestination(
     next[destination] = routed;
     return next;
   });
-}
-
-/** Derived from the wire value, so no surface restates the level set. */
-export function levelLabel(level: string): string {
-  const spaced = level.replace(/_/g, " ");
-  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
-}
-
-/** Existing product tokens, keyed by level. A level the set gains later falls
- *  back to the neutral tone rather than going uncoloured or unrendered. */
-const LEVEL_TONE: Record<string, string> = {
-  verbose: "var(--ct-muted-fg)",
-  action_needed: "var(--ct-yellow)",
-  failure: "var(--ct-red)",
-};
-
-export function levelTone(level: string): string {
-  return LEVEL_TONE[level] ?? "var(--ct-muted-fg)";
 }
 
 export function reachesNothing(choice: AgentLevelChoice): boolean {
