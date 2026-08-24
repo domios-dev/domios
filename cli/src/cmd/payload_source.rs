@@ -44,7 +44,7 @@ pub fn read_from_pad(relative: &str) -> Result<String, String> {
     read_from_pad_root(&current_pad()?, relative)
 }
 
-fn read_from_pad_root(root: &Path, relative: &str) -> Result<String, String> {
+pub(crate) fn read_from_pad_root(root: &Path, relative: &str) -> Result<String, String> {
     let relative = Path::new(relative);
     if relative.as_os_str().is_empty()
         || relative.is_absolute()
