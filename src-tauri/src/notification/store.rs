@@ -24,6 +24,10 @@ pub struct Notification {
     pub title: String,
     pub body: Option<String>,
     pub severity: NotificationSeverity,
+    /// The axis a caller may name explicitly, independent of `severity`. Absent
+    /// is a legal, distinct state, never defaulted from `severity` here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub level: Option<NotifyLevel>,
     pub timestamp: u64,
     pub read: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -161,9 +165,11 @@ impl NotificationStore {
             },
             None,
             None,
+            None,
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn add_ext(
         &mut self,
         title: String,
@@ -172,6 +178,7 @@ impl NotificationStore {
         provenance: NotificationProvenance,
         actions: Option<Vec<NotificationAction>>,
         sticky: Option<bool>,
+        level: Option<NotifyLevel>,
     ) -> String {
         let id = Uuid::new_v4().to_string();
         let timestamp = SystemTime::now()
@@ -191,6 +198,7 @@ impl NotificationStore {
             title,
             body,
             severity,
+            level,
             timestamp,
             read: false,
             actions,
@@ -212,6 +220,7 @@ impl NotificationStore {
 
     /// Add a notification unless an identical one is already live. Identity is
     /// derived here, so no caller can opt out of it.
+    #[allow(clippy::too_many_arguments)]
     pub fn add_deduped(
         &mut self,
         title: String,
@@ -220,12 +229,13 @@ impl NotificationStore {
         provenance: NotificationProvenance,
         actions: Option<Vec<NotificationAction>>,
         sticky: Option<bool>,
+        level: Option<NotifyLevel>,
     ) -> DeliveryAdmission {
         let identity = NotificationIdentity::of(&provenance, &severity, &title, body.as_deref());
         if let Some(id) = self.deliveries.existing(&identity) {
             return DeliveryAdmission::Duplicate(id);
         }
-        let id = self.add_ext(title, body, severity, provenance, actions, sticky);
+        let id = self.add_ext(title, body, severity, provenance, actions, sticky, level);
         self.deliveries.bind(identity, id.clone());
         DeliveryAdmission::Deliver(id)
     }
@@ -262,23 +272,23 @@ impl NotificationStore {
 
         let PushRequest {
             scope,
+            level,
             event_key,
             title,
             body,
             severity,
             provenance,
             per_scope_limit,
-            ..
         } = request;
 
         let reused = open.and_then(|(_, id)| {
-            self.rewrite_in_place(&id, title.clone(), body.clone(), severity.clone(), &provenance)
+            self.rewrite_in_place(&id, title.clone(), body.clone(), severity.clone(), &provenance, level)
                 .then_some(id)
         });
         let is_supersede = reused.is_some();
         let id = match reused {
             Some(id) => id,
-            None => self.add_ext(title, body, severity, provenance, None, None),
+            None => self.add_ext(title, body, severity, provenance, None, None, Some(level)),
         };
 
         self.push_slots.insert(
@@ -303,6 +313,7 @@ impl NotificationStore {
 
     /// Content-only rewrite: the coalesced record keeps its id, position and
     /// opening timestamp so it reads as one event, not a new one.
+    #[allow(clippy::too_many_arguments)]
     fn rewrite_in_place(
         &mut self,
         id: &str,
@@ -310,6 +321,7 @@ impl NotificationStore {
         body: Option<String>,
         severity: NotificationSeverity,
         provenance: &NotificationProvenance,
+        level: NotifyLevel,
     ) -> bool {
         let Some(target) = self.notifications.iter_mut().find(|n| n.id == id) else {
             return false;
@@ -317,6 +329,7 @@ impl NotificationStore {
         target.title = title;
         target.body = body;
         target.severity = severity;
+        target.level = Some(level);
         target.tab_id = provenance.tab_id.clone();
         target.tab_title = provenance.tab_title.clone();
         target.workspace_id = provenance.workspace_id.clone();
@@ -370,6 +383,7 @@ impl NotificationStore {
             provenance,
             Some(actions),
             Some(true),
+            None,
         );
         self.provider_updates.insert(prompt_id, id.clone());
         DedupAdmission::Added(id)
@@ -425,6 +439,12 @@ impl NotificationStore {
             .find(|n| n.id == id)?
             .answer
             .as_ref()
+    }
+
+    /// The level the caller declared for this record, if any. Read-only: the
+    /// emitted payload reads this back so it never drifts from what is stored.
+    pub fn level(&self, id: &str) -> Option<NotifyLevel> {
+        self.notifications.iter().find(|n| n.id == id)?.level
     }
 
     /// Record the user's choice. The invariant lives here, not in any surface:
@@ -927,6 +947,98 @@ mod tests {
             assert_eq!(listed.len(), 1);
             assert_eq!(listed[0].id, admitted.id());
             assert_eq!(listed[0].push_failed, Some(true));
+        }
+    }
+
+    /// Every construction path that can carry a level writes it onto the
+    /// record. Payload assembly is covered in `service::notification`.
+    mod notification_level_field {
+        use super::*;
+        use crate::notification::push;
+
+        #[test]
+        fn add_ext_stores_the_level_independent_of_severity() {
+            let mut store = NotificationStore::new(10);
+            let id = store.add_ext(
+                "Which branch?".into(),
+                None,
+                NotificationSeverity::Info,
+                NotificationProvenance::default(),
+                None,
+                None,
+                Some(NotifyLevel::ActionNeeded),
+            );
+            let listed = store.list(false);
+            assert_eq!(listed[0].id, id);
+            assert_eq!(listed[0].severity, NotificationSeverity::Info);
+            assert_eq!(listed[0].level, Some(NotifyLevel::ActionNeeded));
+        }
+
+        #[test]
+        fn add_ext_with_no_level_leaves_it_absent() {
+            let mut store = NotificationStore::new(10);
+            store.add_ext(
+                "Still working".into(),
+                None,
+                NotificationSeverity::Info,
+                NotificationProvenance::default(),
+                None,
+                None,
+                None,
+            );
+            assert_eq!(store.list(false)[0].level, None);
+        }
+
+        #[test]
+        fn add_deduped_carries_a_declared_level_onto_the_record() {
+            let mut store = NotificationStore::new(10);
+            let admission = store.add_deduped(
+                "Which branch?".into(),
+                None,
+                NotificationSeverity::Info,
+                NotificationProvenance::default(),
+                None,
+                None,
+                Some(NotifyLevel::ActionNeeded),
+            );
+            let id = match admission {
+                DeliveryAdmission::Deliver(id) => id,
+                DeliveryAdmission::Duplicate(_) => panic!("first call must not dedupe"),
+            };
+            assert_eq!(store.level(&id), Some(NotifyLevel::ActionNeeded));
+        }
+
+        #[test]
+        fn add_push_writes_the_request_level_on_both_fresh_and_superseded_records() {
+            let mut store = NotificationStore::new(10);
+            let provenance = NotificationProvenance {
+                tab_id: Some("tab_a".into()),
+                ..Default::default()
+            };
+            let fresh = store.add_push(PushRequest {
+                scope: push::scope_key(&provenance),
+                level: NotifyLevel::Failure,
+                event_key: push::event_key(Some("step-1"), "Step one"),
+                title: "Step one".into(),
+                body: None,
+                severity: NotificationSeverity::Info,
+                provenance: provenance.clone(),
+                per_scope_limit: 50,
+            });
+            assert_eq!(store.level(fresh.id()), Some(NotifyLevel::Failure));
+
+            let superseded = store.add_push(PushRequest {
+                scope: push::scope_key(&provenance),
+                level: NotifyLevel::Failure,
+                event_key: push::event_key(Some("step-2"), "Step two"),
+                title: "Step two".into(),
+                body: None,
+                severity: NotificationSeverity::Info,
+                provenance,
+                per_scope_limit: 50,
+            });
+            assert_eq!(superseded.id(), fresh.id(), "supersede reuses the record");
+            assert_eq!(store.level(superseded.id()), Some(NotifyLevel::Failure));
         }
     }
 }

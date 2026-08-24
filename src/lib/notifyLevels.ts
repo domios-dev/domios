@@ -22,8 +22,8 @@ export function levelTone(level: string): string {
   return LEVEL_TONE[level] ?? "var(--ct-muted-fg)";
 }
 
-/** A stored record carries the severity its caller sent, and level and severity
- *  name the same three-way axis, so one tone table serves every surface. */
+/** Fallback for records with no declared level (diagnostics, provider-update
+ *  prompts): a declared level always wins below; severity is never consulted once one is present. */
 const LEVEL_BY_SEVERITY: Record<Notification["severity"], NotifyLevelName> = {
   Info: "verbose",
   Warning: "action_needed",
@@ -31,7 +31,7 @@ const LEVEL_BY_SEVERITY: Record<Notification["severity"], NotifyLevelName> = {
 };
 
 export function notificationLevel(notification: Notification): NotifyLevelName {
-  return LEVEL_BY_SEVERITY[notification.severity];
+  return notification.level ?? LEVEL_BY_SEVERITY[notification.severity];
 }
 
 /** The accessible name of one ask, composed from the level and the label the
