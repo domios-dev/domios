@@ -321,23 +321,21 @@ fn main_impl() {
         Commands::Notify { action } => match action {
             NotifyAction::Send {
                 title,
-                body,
+                from_pad,
                 severity,
                 level,
                 event_key,
-            } => {
-                let mut params = serde_json::json!({ "title": title, "severity": severity });
-                if let Some(b) = body {
-                    params["body"] = serde_json::Value::String(b);
-                }
-                if let Some(l) = level {
-                    params["level"] = serde_json::Value::String(l.as_str().to_string());
-                }
-                if let Some(k) = event_key {
-                    params["event_key"] = serde_json::Value::String(k);
-                }
-                client.call("notification.create", Some(params))
-            }
+                ..
+            } => client.call(
+                "notification.create",
+                Some(cmd::notify::send_params(
+                    &title,
+                    &severity,
+                    level,
+                    event_key.as_deref(),
+                    from_pad.as_deref(),
+                )),
+            ),
             NotifyAction::List { unread } => client.call(
                 "notification.list",
                 Some(serde_json::json!({ "unread_only": unread })),

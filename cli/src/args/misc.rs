@@ -336,14 +336,28 @@ fn notify_level_parser() -> impl clap::builder::TypedValueParser<Value = NotifyL
 
 #[derive(Subcommand)]
 pub enum NotifyAction {
-    /// Send a notification
+    /// Send a notification. The body is read only from the calling tab's AgentPad.
     Send {
         /// Notification title
         title: String,
 
-        /// Notification body
-        #[arg(long)]
+        /// Read the notification body from a relative file in the calling tab's pad
+        #[arg(long, value_name = "PATH", conflicts_with_all = ["body", "from_file", "from_stdin"])]
+        from_pad: Option<String>,
+
+        // The refused sources stay declared so their use is a clap-level conflict with
+        // the always-present title — a parse error cannot be reached past at runtime.
+        /// REFUSED: an inline body is mangled by the shell — stage it in the pad
+        #[arg(hide = true, conflicts_with_all = ["title", "from_pad"])]
         body: Option<String>,
+
+        /// REFUSED: a file outside the pad has no provenance — stage it in the pad
+        #[arg(long, value_name = "PATH", hide = true, conflicts_with_all = ["title", "from_pad"])]
+        from_file: Option<String>,
+
+        /// REFUSED: stdin is a shell pipe — stage the body in the pad
+        #[arg(long, hide = true, conflicts_with_all = ["title", "from_pad"])]
+        from_stdin: bool,
 
         /// Toast severity: info, warning, error
         #[arg(long, default_value = "info")]
