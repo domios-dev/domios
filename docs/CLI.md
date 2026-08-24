@@ -1188,6 +1188,7 @@ List notifications
 Send a notification. The body is read only from the calling tab's AgentPad
 
 - `<body>` — REFUSED: an inline body is mangled by the shell — stage it in the pad
+- `--choice` — Offer one tappable choice; repeat for each. Labels only — a notification takes a chosen label back, never typed text
 - `--event-key` — Stable identity for coalescing. Derived from the title when omitted
 - `--from-file` — REFUSED: a file outside the pad has no provenance — stage it in the pad
 - `--from-pad` — Read the notification body from a relative file in the calling tab's pad

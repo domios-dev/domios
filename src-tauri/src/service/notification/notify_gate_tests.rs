@@ -190,7 +190,7 @@ fn notify_gate_leaves_non_agent_routes_unchanged() {
         "Codex update available".into(),
         Some("1.2.3".into()),
         Some("info"),
-        Some(serde_json::json!([])),
+        Some(Vec::new()),
         Some(true),
         NotificationOrigin::local_tab("tab_update".into()),
         live_update_tab,
