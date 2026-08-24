@@ -276,14 +276,18 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       });
     }).then((unlisten) => unlisteners.push(unlisten));
 
-    listen<{ id: string; answered: string }>("notification-answered", (event) => {
-      if (!event.payload?.id) return;
-      dispatch({
-        type: "ANSWER_NOTIFICATION",
-        id: event.payload.id,
-        answered: event.payload.answered,
-      });
-    }).then((unlisten) => unlisteners.push(unlisten));
+    listen<{ id: string; answered: string; delivered?: boolean }>(
+      "notification-answered",
+      (event) => {
+        if (!event.payload?.id) return;
+        dispatch({
+          type: "ANSWER_NOTIFICATION",
+          id: event.payload.id,
+          answered: event.payload.answered,
+          delivered: event.payload.delivered === true,
+        });
+      },
+    ).then((unlisten) => unlisteners.push(unlisten));
 
     listen<{ id: string }>("notification-resolved", (event) => {
       if (!event.payload?.id) return;
@@ -823,10 +827,15 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   // — the answer shown is the one the store recorded, which on a second tap is
   // still the first one.
   const answerNotification = useCallback((id: string, label: string) => {
-    void invoke<{ answered?: string }>("answer_notification", { id, label })
+    void invoke<{ answered?: string; delivered?: boolean }>("answer_notification", { id, label })
       .then((result) => {
         if (result?.answered) {
-          dispatch({ type: "ANSWER_NOTIFICATION", id, answered: result.answered });
+          dispatch({
+            type: "ANSWER_NOTIFICATION",
+            id,
+            answered: result.answered,
+            delivered: result.delivered === true,
+          });
         }
       })
       .catch((err) => {

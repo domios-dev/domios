@@ -306,6 +306,9 @@ export type NotificationAction =
 export interface NotificationAnswer {
   asked_from_tab: string | null;
   answered: string | null;
+  /** Whether the standing answer reached the asking tab. Recording an answer and
+   * carrying it back are separate facts, so a refused send never reads as done. */
+  delivered: boolean;
 }
 
 export interface Notification {

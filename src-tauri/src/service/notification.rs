@@ -5,6 +5,7 @@ use codeterm_types::notification::NotificationAction;
 use super::ServiceContext;
 use crate::notification::{
     answer::AnswerAdmission,
+    answer_delivery::{self, AnswerDeliveryOutcome},
     bell::{self, BellPolicy},
     dedupe::DeliveryAdmission,
     desktop::{self, DesktopPolicy},
@@ -413,24 +414,44 @@ impl ServiceContext {
         // an emit may re-enter the store while it is still held.
         let admission = self.notif.lock().record_answer(id, label);
         match admission {
-            AnswerAdmission::Recorded(chosen) => {
-                self.notify_event(
-                    "notification-answered",
-                    serde_json::json!({ "id": id, "answered": chosen }),
-                );
-                Ok(serde_json::json!({ "answered": chosen }))
-            }
+            // Carrying the answer back is an ordered consequence of recording
+            // it: the send happens before this call returns.
+            AnswerAdmission::Recorded(chosen) => Ok(self.settle_answer(id, chosen)),
             // A second tap is not an error to the user: the standing answer is
-            // what the question holds, and it is unchanged.
-            AnswerAdmission::AlreadyAnswered(standing) => {
-                Ok(serde_json::json!({ "answered": standing }))
-            }
+            // what the question holds, and it is unchanged. A retry may still
+            // finish a delivery the first attempt could not.
+            AnswerAdmission::AlreadyAnswered(standing) => Ok(self.settle_answer(id, standing)),
             AnswerAdmission::Undeliverable => {
                 Err("The tab that asked this question is gone".to_string())
             }
             AnswerAdmission::NotOffered => {
                 Err("That choice was not offered by this notification".to_string())
             }
+        }
+    }
+
+    /// Carry the standing answer to the tab that asked, as a caller of the
+    /// existing envelope path, and report what actually happened. A refused
+    /// send leaves the record answered-but-undelivered, never delivered.
+    fn settle_answer(&self, id: &str, standing: String) -> serde_json::Value {
+        let outcome = answer_delivery::deliver(&self.notif, id, |to_tab, envelope, body| {
+            crate::service::messenger::Messenger::deliver(self, to_tab, envelope, body).map(|_| ())
+        });
+        if let Some(detail) = outcome.failure() {
+            log::warn!("[notify-answer] {id} recorded but not delivered: {detail}");
+        }
+        let delivered = outcome.reached_tab();
+        self.notify_event(
+            "notification-answered",
+            serde_json::json!({ "id": id, "answered": standing, "delivered": delivered }),
+        );
+        match outcome {
+            AnswerDeliveryOutcome::Failed(detail) => serde_json::json!({
+                "answered": standing,
+                "delivered": false,
+                "deliveryError": detail,
+            }),
+            _ => serde_json::json!({ "answered": standing, "delivered": delivered }),
         }
     }
 }
