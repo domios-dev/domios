@@ -92,10 +92,18 @@ fn notify_answer_choice_labels_round_trip_into_the_actions() {
     );
     for action in actions {
         assert_eq!(action["type"], serde_json::json!("answer"));
-        let fields: Vec<&String> = action.as_object().unwrap().keys().collect();
+        // Sorted, because serde_json's key order is the map's, not the insertion
+        // order — the claim is which fields exist, never the order they serialise in.
+        let mut fields: Vec<&str> = action
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        fields.sort_unstable();
         assert_eq!(
             fields,
-            vec!["type", "label"],
+            vec!["label", "type"],
             "a choice carries its label and nothing that could name a command"
         );
     }

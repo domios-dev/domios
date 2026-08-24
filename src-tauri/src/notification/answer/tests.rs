@@ -44,14 +44,18 @@ fn notify_answer_kind_cannot_express_a_command_or_arguments() {
         label: "Yes".into(),
     })
     .expect("an answer action serializes");
-    let fields: Vec<&String> = serialized
+    // Sorted, because serde_json's key order is the map's, not the insertion
+    // order — the claim is which fields exist, never the order they serialise in.
+    let mut fields: Vec<&str> = serialized
         .as_object()
         .expect("an action is a JSON object")
         .keys()
+        .map(String::as_str)
         .collect();
+    fields.sort_unstable();
     assert_eq!(
         fields,
-        vec!["type", "label"],
+        vec!["label", "type"],
         "the whole wire shape of a choice is its kind and its label"
     );
 }
