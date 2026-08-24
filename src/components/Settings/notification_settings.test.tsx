@@ -8,11 +8,10 @@ import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import {
   NotificationDestinations,
-  levelLabel,
-  levelTone,
   reachesNothing,
   setLevelDestination,
 } from "./NotificationDestinations";
+import { levelLabel, levelTone } from "../../lib/notifyLevels";
 import { Toggle } from "./shared";
 import {
   NOTIFY_DESTINATIONS,
