@@ -36,18 +36,22 @@ impl NotificationIdentity {
         }
     }
 
+    #[cfg(test)]
     pub fn scope(&self) -> &str {
         &self.scope
     }
 
+    #[cfg(test)]
     pub fn severity(&self) -> &NotificationSeverity {
         &self.severity
     }
 
+    #[cfg(test)]
     pub fn title(&self) -> &str {
         &self.title
     }
 
+    #[cfg(test)]
     pub fn body(&self) -> &str {
         &self.body
     }
