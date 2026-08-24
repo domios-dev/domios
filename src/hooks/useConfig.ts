@@ -22,6 +22,8 @@ export function defaultConfig(): AppConfig {
     desktop: true,
     sound: false,
     toast_duration: 5,
+    // The bell has always been drawn; until the daemon answers, it stays drawn.
+    show_bell: true,
     telegram: { enabled: false, recipients: [], per_scope_limit: 12 },
     // The daemon owns the level set; until it answers there is nothing to
     // claim the user controls.

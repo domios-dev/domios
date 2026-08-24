@@ -32,19 +32,37 @@ copy_on_select = false
 desktop = true
 sound = false
 toast_duration = 5  # seconds
+show_bell = true    # false removes the indicator; every record is still kept
 
-# Desktop gate for agent alerts. The rows are generated from the same closed
-# level set the Telegram channel uses; an agent notification that names no
-# level, or one switched off here, stays in the bell and never toasts.
+# Where each level may go. Rows are generated from the same closed level set the
+# Telegram channel uses, and are reconciled on read — a level added to that set
+# appears here on its own, and a row naming no known level is dropped. Any
+# combination of columns is legal, including none: that level reaches nothing.
+# An agent notification that names no level is kept and rings the bell, and
+# never reaches the system or Telegram.
 [[notifications.agent_levels]]
 level = "verbose"
-enabled = true
+bell = true
+desktop = true
+telegram = true
 [[notifications.agent_levels]]
 level = "action_needed"
-enabled = true
+bell = true
+desktop = true
+telegram = true
 [[notifications.agent_levels]]
 level = "failure"
-enabled = true
+bell = true
+desktop = true
+telegram = true
+
+`show_bell` and the `bell` column answer different questions and never stand in
+for each other. `show_bell = false` removes the indicator from the titlebar
+while every notification is still recorded, so turning it back on reveals the
+complete log. `bell = false` on a row is routing: that level never arrives at
+the bell, which stays drawn and simply has nothing from that level in it. They
+compose rather than override — hiding the surface changes no row, and closing
+every row leaves the surface visible.
 
 [notifications.telegram]
 enabled = false        # opt-in push; off on a fresh install
@@ -210,4 +228,4 @@ When a Worker lane worktree is created, each declared directory that exists in t
 
 Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`.
 
-<!-- revision: 44 -->
+<!-- revision: 45 -->
