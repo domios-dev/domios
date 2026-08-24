@@ -22,6 +22,8 @@ pub enum BellAdmission {
 }
 
 impl BellAdmission {
+    /// Test-only: production matches the variants so a refusal can name its level.
+    #[cfg(test)]
     pub fn reaches_bell(self) -> bool {
         matches!(self, Self::Allowed)
     }
