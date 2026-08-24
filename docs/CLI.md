@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 42 -->
+<!-- revision: 43 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -1184,11 +1184,14 @@ List notifications
 
 #### `codeterm notify send`
 
-Send a notification
+Send a notification. The body is read only from the calling tab's AgentPad
 
-- `--body` — Notification body
+- `<body>` — REFUSED: an inline body is mangled by the shell — stage it in the pad
 - `--category` — Category that lets this alert reach the user. Omit to file it in the bell only
 - `--event-key` — Stable identity for coalescing. Derived from the title when omitted
+- `--from-file` — REFUSED: a file outside the pad has no provenance — stage it in the pad
+- `--from-pad` — Read the notification body from a relative file in the calling tab's pad
+- `--from-stdin` — REFUSED: stdin is a shell pipe — stage the body in the pad
 - `--level` — Notification level: info, warning, error
 - `<title>` — Notification title
 

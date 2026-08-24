@@ -666,6 +666,7 @@ fn removed_docs_selectors_and_alias_are_rejected() {
     }
 }
 
+mod notify;
 mod plan;
 
 #[test]
