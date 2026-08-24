@@ -100,27 +100,37 @@ test("team menu enables staffing only for a Team with a manager", async () => {
   await act(async () => root.unmount());
 });
 
-test("managerless Team hides staffing and makes no request", async () => {
+// A Team with nobody who can spawn used to be a dead end: every staffing entry
+// was hidden, so the manager it is told to route through could never arrive.
+test("managerless Team offers only the anchoring role, and rename", async () => {
   const requests: unknown[] = [];
   const tabs = { worker: tab({ id: "worker", title: "Worker", role: "Worker", team_id: TEAM.id }) };
   const { host, root } = await renderSidebar({
     tabs,
     sortedTabs: [tab("tab-worker", "worker", 0)],
     onAddTeamMember: (...args) => requests.push(args),
+    onRenameTeam: () => {},
   });
   const trigger = host.querySelector('[data-testid="team-menu-trigger"]') as HTMLButtonElement | null;
   assert(trigger, "team menu trigger exists");
   await act(async () => trigger.click());
   const menu = document.querySelector('[data-testid="team-menu"]');
-  for (const role of ["worker", "planner", "orchestrator"])
-    assert(!menu?.textContent?.includes(`Add ${role}`), `managerless Team hides ${role} staffing`);
-  assert(!menu?.textContent?.includes("Rename"), "managerless Team hides rename");
-  assert(requests.length === 0, "managerless Team does not issue a staffing request");
+  assert(
+    menu?.textContent?.includes("Add orchestrator"),
+    "an orchestrator anchors, so it is placeable with nobody to parent it",
+  );
+  for (const role of ["worker", "planner"])
+    assert(
+      !menu?.textContent?.includes(`Add ${role}`),
+      `${role} takes a parent, so it stays hidden until someone can spawn`,
+    );
+  assert(menu?.textContent?.includes("Rename"), "renaming never needed a spawner");
+  assert(requests.length === 0, "opening the menu issues no staffing request");
   await act(async () => root.unmount());
 });
 
 test("staffing selects the first eligible manager in visible Orchestrator-first order", async () => {
-  const requests: Array<[string, TeamMemberRole, string, string]> = [];
+  const requests: Array<[string, TeamMemberRole, string, string | null]> = [];
   const tabs = {
     unrelated: tab({ id: "unrelated", title: "Unrelated Tab", role: "Worker" }),
     "a-O2": tab({ id: "a-O2", title: "Orchestrator Two", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }),
@@ -168,7 +178,7 @@ test("staffing selects the first eligible manager in visible Orchestrator-first 
 });
 
 test("staffing selects a planner when no Orchestrator is eligible", async () => {
-  const requests: Array<[string, TeamMemberRole, string, string]> = [];
+  const requests: Array<[string, TeamMemberRole, string, string | null]> = [];
   const tabs = {
     watcher: tab({ id: "A0", title: "Watcher", role: "Manager", role_profile: "watcher", team_id: TEAM.id }),
     planner: tab({ id: "P1", title: "Planner", role: "Manager", role_profile: "planner", team_id: TEAM.id, can_spawn: true }),
@@ -196,7 +206,7 @@ test("staffing selects a planner when no Orchestrator is eligible", async () => 
 });
 
 test("staffing picker uses descriptor icons and requires a descriptor model choice", async () => {
-  const requests: Array<[string, TeamMemberRole, string, string, string?]> = [];
+  const requests: Array<[string, TeamMemberRole, string, string | null, string?]> = [];
   const tabs = {
     manager: tab({ id: "manager", title: "Manager", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }),
   };

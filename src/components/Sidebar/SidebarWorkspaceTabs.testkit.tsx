@@ -118,12 +118,12 @@ export async function renderSidebar({
   onActivateTab?: (tabId: string) => void;
   onCloseTab?: (tabId: string) => void;
   onRenameTab?: (tabId: string, title: string) => void;
-  onRenameTeam?: (teamId: string, name: string, managerTabId: string) => void | Promise<void>;
+  onRenameTeam?: (teamId: string, name: string, managerTabId: string | null) => void | Promise<void>;
   onAddTeamMember?: (
     teamId: string,
     role: TeamMemberRole,
     providerId: string,
-    managerTabId: string,
+    managerTabId: string | null,
     model?: string,
   ) => void;
   onCloseTeam?: (teamId: string) => void;

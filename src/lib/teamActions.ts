@@ -1,10 +1,10 @@
 export interface TeamActions {
-  onRenameTeam: (teamId: string, name: string, managerTabId: string) => Promise<void>;
+  onRenameTeam: (teamId: string, name: string, managerTabId: string | null) => Promise<void>;
   onAddTeamMember: (
     teamId: string,
     role: TeamMemberRole,
     providerId: string,
-    managerTabId: string,
+    managerTabId: string | null,
     model?: string,
   ) => Promise<void>;
   onCloseTeam: (teamId: string) => Promise<void>;
