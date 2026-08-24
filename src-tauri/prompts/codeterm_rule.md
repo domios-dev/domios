@@ -69,7 +69,11 @@ Your replies render as GitHub-flavored markdown plus two rich blocks. Reach for 
 
 ### Secrets — pluggable secret store
 
-When the user wants to save, look up, or rotate a credential (API key, OAuth token, master password, license key, etc.) → use the secret store, NOT plaintext files / env vars / shell history.
+Scope decides where a credential lives, and the two scopes are different rules.
+
+**CodeTerm's own credentials** — anything CodeTerm, a skill, plugin, bridge, mesh peer or integration authenticates with → the secret store, never a file. `codeterm mem secret`.
+
+**A project's own credentials** — a token the user's local app reads at runtime → that project's `.env` is fine and normal, provided it is gitignored, uncommitted, permission-restricted, and never printed or logged. Prefer the project's own secret manager where it has one. Do not refuse this; it is ordinary practice.
 
 The command ladder, exit codes, and backend setup live in `codeterm docs SECRETS`. Two rules bind before you read it:
 
@@ -90,6 +94,6 @@ AGENT-TO-AGENT COMMUNICATION IS ALWAYS IN ENGLISH — task prompts, `--task` arg
 - Do NOT create filesystem directories when user says "create project" — create a workspace
 - Do NOT use raw `curl` or REST endpoints for the CodeTerm API — always use `codeterm` CLI commands
 - Do NOT call `caffeinate`, `powercfg /requests`, or `systemd-inhibit` directly — use the keepawake verbs above
-- Do NOT save secrets to plaintext files / `.env` / shell history — use the secret store above
+- Do NOT put CODETERM's own credentials in a file or shell history — use the secret store. A project's own `.env` is not this rule.
 
-<!-- revision: 20 -->
+<!-- revision: 21 -->
