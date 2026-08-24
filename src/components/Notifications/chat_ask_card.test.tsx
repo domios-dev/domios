@@ -45,7 +45,7 @@ function ask(overrides: Partial<Notification> = {}): Notification {
       { type: "answer", label: FIRST_CHOICE },
       { type: "answer", label: SECOND_CHOICE },
     ],
-    answer: { asked_from_tab: ASKING_TAB, answered: null },
+    answer: { asked_from_tab: ASKING_TAB, answered: null, delivered: false },
     ...overrides,
   };
 }
@@ -162,7 +162,7 @@ async function run() {
   //    surfaces — neither holds an answer of its own.
   let state: ExtendedState = { ...emptyState(), notifications: [ask()] };
   const answerThroughStore = (id: string, label: string) => {
-    state = reducer(state, { type: "ANSWER_NOTIFICATION", id, answered: label });
+    state = reducer(state, { type: "ANSWER_NOTIFICATION", id, answered: label, delivered: true });
   };
   const stored = () => state.notifications[0];
 
