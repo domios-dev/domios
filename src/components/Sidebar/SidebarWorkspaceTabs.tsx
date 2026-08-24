@@ -87,6 +87,12 @@ function isEligibleTeamStaffingManager(member: TeamTabMember): boolean {
     && member.tab.role === "Manager";
 }
 
+/// Every role a Team with a spawn-capable manager can place.
+const TEAM_MEMBER_ROLES = ["orchestrator", "planner", "worker"] as const;
+/// With no spawner inside, only an anchoring role can be placed: it takes no
+/// parent, so it is the door through which a stalled Team gets one.
+const BOOTSTRAP_ONLY_ROLES = ["orchestrator"] as const;
+
 function selectTeamStaffingManager(members: readonly TeamTabMember[]): string | null {
   return members.find(isEligibleTeamStaffingManager)?.tab.id ?? null;
 }
@@ -119,12 +125,12 @@ export interface SidebarWorkspaceTabsProps {
   onNewSession: () => void;
   onOpenRemoteTab?: () => void;
   newSessionDisabled?: boolean;
-  onRenameTeam?: (teamId: string, name: string, managerTabId: string) => void | Promise<void>;
+  onRenameTeam?: (teamId: string, name: string, managerTabId: string | null) => void | Promise<void>;
   onAddTeamMember?: (
     teamId: string,
     role: TeamMemberRole,
     providerId: string,
-    managerTabId: string,
+    managerTabId: string | null,
     model?: string,
   ) => void | Promise<void>;
   onCloseTeam?: (teamId: string) => void;
@@ -407,14 +413,15 @@ export function SidebarWorkspaceTabs({
         ))}
         providers={providers}
         providersLoading={providersLoading}
-        onRenameTeam={onRenameTeam && managerTabId
+        onRenameTeam={onRenameTeam
           ? (teamId, name) => onRenameTeam(teamId, name, managerTabId)
           : undefined}
         onOpenEffort={(target) => {
           onBeforeOpenPlan();
           openTeamPlanCanvas({ ...target, managerTabId });
         }}
-        onAddMember={onAddTeamMember && managerTabId
+        addableRoles={managerTabId ? TEAM_MEMBER_ROLES : BOOTSTRAP_ONLY_ROLES}
+        onAddMember={onAddTeamMember
           ? (role, providerId, model) => onAddTeamMember(teamId, role, providerId, managerTabId, model)
           : undefined}
         onCloseTeam={onCloseTeam}

@@ -72,7 +72,7 @@ impl ServiceContext {
     pub(crate) async fn add_team_member(
         &self,
         team_id: &str,
-        caller_tab_id: &str,
+        caller_tab_id: Option<&str>,
         params: AddTeamMemberParams,
     ) -> Result<AddTeamMemberResult, String> {
         let prepared = {
@@ -144,7 +144,7 @@ impl ServiceContext {
     fn attach_manager_bootstrap(
         &self,
         team_id: &str,
-        caller_tab_id: &str,
+        caller_tab_id: Option<&str>,
         params: &mut crate::service::SpawnAgentParams,
     ) -> Result<(), String> {
         let role_kind = match params.role_kind() {
@@ -177,17 +177,22 @@ impl ServiceContext {
             .find(|plan| plan.team_id.as_deref() == Some(team_id))
             .map(|plan| plan.id)
             .unwrap_or_else(|| "no bound plan yet".into());
-        let coordination = (role_kind == PLANNER).then(|| {
-            let mux = self.mux.read();
-            let caller_label = mux.display_label_for_tab(caller_tab_id);
-            let planner = crate::service::spawn_factory::Counterpart::new("Planner", "", "");
-            let orchestrator = crate::service::spawn_factory::Counterpart::new(
-                "Orchestrator",
-                caller_label,
-                caller_tab_id,
-            );
-            crate::service::spawn_factory::introduction_body(&planner, &orchestrator)
-        });
+        // A Planner is introduced to the Orchestrator that added it. A caller-less add
+        // is the bootstrap door and can only place an anchoring role, so there is no
+        // counterpart to name and nothing to introduce.
+        let coordination = caller_tab_id
+            .filter(|_| role_kind == PLANNER)
+            .map(|caller_tab_id| {
+                let mux = self.mux.read();
+                let caller_label = mux.display_label_for_tab(caller_tab_id);
+                let planner = crate::service::spawn_factory::Counterpart::new("Planner", "", "");
+                let orchestrator = crate::service::spawn_factory::Counterpart::new(
+                    "Orchestrator",
+                    caller_label,
+                    caller_tab_id,
+                );
+                crate::service::spawn_factory::introduction_body(&planner, &orchestrator)
+            });
         params.manager_bootstrap = Some(crate::service::role_identity::ManagerBootstrapInputs {
             role: role.into(),
             role_kind,
@@ -618,39 +623,54 @@ struct PreparedTeamMemberSpawn {
 fn prepare_team_member_spawn(
     mux: &MultiplexerState,
     team_id: &str,
-    caller_tab_id: &str,
+    caller_tab_id: Option<&str>,
     params: AddTeamMemberParams,
 ) -> Result<PreparedTeamMemberSpawn, String> {
-    // Membership door 2: growing an existing Team spends the caller's own
-    // membership. Guarded before authorization so the General Agent gets the
-    // teaching refusal whether or not it is already (wrongly) in the Team.
-    let shape = shape_for_tab(mux, caller_tab_id).with_agents(Some(&params.provider), None);
-    refuse_general_agent_team_membership(
-        mux,
-        caller_tab_id,
-        MembershipAttempt::ExerciseMembership,
-        &shape,
-    )?;
-    authorize_team_manager(
-        mux,
-        team_id,
-        &TeamMutationCaller::AgentTab(caller_tab_id.to_string()),
-    )?;
-    if !mux
-        .get_tab(caller_tab_id)
-        .is_some_and(|caller| caller.can_spawn)
-    {
-        return Err(format!(
-            "Caller tab {caller_tab_id} does not allow spawning Team members"
-        ));
+    if let Some(caller_tab_id) = caller_tab_id {
+        // Membership door 2: growing an existing Team spends the caller's own
+        // membership. Guarded before authorization so the General Agent gets the
+        // teaching refusal whether or not it is already (wrongly) in the Team.
+        let shape = shape_for_tab(mux, caller_tab_id).with_agents(Some(&params.provider), None);
+        refuse_general_agent_team_membership(
+            mux,
+            caller_tab_id,
+            MembershipAttempt::ExerciseMembership,
+            &shape,
+        )?;
+    }
+    authorize_team_manager(mux, team_id, &TeamMutationCaller::from_tab(caller_tab_id))?;
+    if let Some(caller_tab_id) = caller_tab_id {
+        if !mux
+            .get_tab(caller_tab_id)
+            .is_some_and(|caller| caller.can_spawn)
+        {
+            return Err(format!(
+                "Caller tab {caller_tab_id} does not allow spawning Team members"
+            ));
+        }
     }
     let (role, role_profile) = team_member_role(&params.role)?;
-    let workspace_id = mux
-        .find_workspace_for_tab(caller_tab_id)
-        .ok_or_else(|| format!("Caller tab {caller_tab_id} has no workspace"))?;
     let anchors =
         role_kind::anchors_team(AgentRole::from_str_compat(&role), role_profile.as_deref());
-    let parent_tab_id = (!anchors).then(|| caller_tab_id.into());
+    // A caller-less add is the bootstrap door: a Team whose members cannot spawn
+    // would otherwise have no way to receive the manager they are told to route
+    // through. Only an anchoring role fits, because it takes no parent.
+    if caller_tab_id.is_none() && !anchors {
+        return Err(format!(
+            "{} takes a parent, so it needs a Team member that can spawn",
+            role
+        ));
+    }
+    let workspace_id = match caller_tab_id {
+        Some(caller_tab_id) => mux
+            .find_workspace_for_tab(caller_tab_id)
+            .ok_or_else(|| format!("Caller tab {caller_tab_id} has no workspace"))?,
+        None => mux
+            .get_team(team_id)
+            .map(|team| team.workspace_id.clone())
+            .ok_or_else(|| format!("Team {team_id} not found"))?,
+    };
+    let parent_tab_id = (!anchors).then(|| caller_tab_id.unwrap_or_default().into());
     let task = params.task.filter(|task| !task.trim().is_empty());
     let starter_prompt = crate::service::spawn_params::starter_prompt_for_creation(
         Some(role.as_str()),
@@ -669,8 +689,8 @@ fn prepare_team_member_spawn(
             starter_prompt,
             model: params.model,
             workspace_id: Some(workspace_id),
-            report_target_tab_id: Some(caller_tab_id.into()),
-            spawned_by_tab_id: Some(caller_tab_id.into()),
+            report_target_tab_id: caller_tab_id.map(Into::into),
+            spawned_by_tab_id: caller_tab_id.map(Into::into),
             ..Default::default()
         },
     })
@@ -679,7 +699,7 @@ fn prepare_team_member_spawn(
 fn prepare_team_member_spawn_with_provider_validation<F>(
     mux: &MultiplexerState,
     team_id: &str,
-    caller_tab_id: &str,
+    caller_tab_id: Option<&str>,
     params: AddTeamMemberParams,
     validate_provider: F,
 ) -> Result<PreparedTeamMemberSpawn, String>
@@ -695,7 +715,7 @@ pub(crate) fn commit_team_member_spawn(
     mux: &mut MultiplexerState,
     events: &crate::api::events::EventBroadcaster,
     team_id: &str,
-    caller_tab_id: &str,
+    caller_tab_id: Option<&str>,
     tab_id: &str,
     expected_role: &str,
     expected_profile: &Option<String>,
@@ -707,15 +727,21 @@ pub(crate) fn commit_team_member_spawn(
     // Resolve the expectation through the same rule the tab reports itself by:
     // a profileless Worker is the `worker` kind on both sides, never `None`.
     let expected_kind_id = role_kind::kind_id(Some(expected_role), expected_kind.as_deref());
-    let expected_parent = (!anchors).then_some(caller_tab_id);
+    let expected_parent = (!anchors).then_some(caller_tab_id).flatten();
     let tab = mux
         .get_tab(tab_id)
         .ok_or_else(|| format!("Tab {tab_id} not found after member spawn"))?;
+    // With no caller there is no caller workspace to compare against, so the Team's
+    // own workspace is the expectation — the same one the spawn was given.
+    let expected_workspace = match caller_tab_id {
+        Some(caller_tab_id) => mux.find_workspace_for_tab(caller_tab_id),
+        None => mux.get_team(team_id).map(|team| team.workspace_id.clone()),
+    };
     let invalid_hierarchy = tab.parent_tab_id.as_deref() != expected_parent
         || (!anchors && tab.team_id.as_deref() != Some(team_id))
         || tab.role != Some(expected_role)
         || tab.role_kind_id() != expected_kind_id
-        || mux.find_workspace_for_tab(tab_id) != mux.find_workspace_for_tab(caller_tab_id);
+        || mux.find_workspace_for_tab(tab_id) != expected_workspace;
     if invalid_hierarchy {
         mux.close_tab(tab_id)?;
         return Err("Team member spawn did not preserve the manager hierarchy".into());

@@ -51,7 +51,7 @@ fn general_agent_team_guard_refuses_add_team_member_by_the_constant_violation_id
     let before = team_member_tab_ids(&mux, &team_id);
     let before_team_count = mux.team_count();
 
-    let error = prepare_team_member_spawn(&mux, &team_id, &general, member_params("worker"))
+    let error = prepare_team_member_spawn(&mux, &team_id, Some(&general), member_params("worker"))
         .expect_err("the General Agent may not grow a Team it is inside");
 
     assert!(
@@ -78,7 +78,7 @@ fn general_agent_team_guard_refuses_add_team_member_before_authorization_masks_i
         .unwrap()
         .team_id;
 
-    let error = prepare_team_member_spawn(&mux, &foreign_team, &general, member_params("worker"))
+    let error = prepare_team_member_spawn(&mux, &foreign_team, Some(&general), member_params("worker"))
         .expect_err("a General Agent outside the Team is refused for identity, not membership");
 
     assert!(
@@ -104,7 +104,7 @@ fn general_agent_team_guard_refuses_the_anchoring_commit_without_binding_a_team(
         &mut mux,
         &events,
         &team_id,
-        &general,
+        Some(&general),
         &candidate,
         "Manager",
         &Some(crate::service::general_agent::GENERAL_AGENT_KIND.to_string()),
@@ -129,7 +129,7 @@ fn general_agent_team_guard_leaves_an_ordinary_manager_add_member_byte_identical
     let before_team_count = mux.team_count();
 
     let prepared =
-        prepare_team_member_spawn(&mux, &team_id, &orchestrator, member_params("worker")).unwrap();
+        prepare_team_member_spawn(&mux, &team_id, Some(&orchestrator), member_params("worker")).unwrap();
     let member = mux.create_tab(&workspace_id).unwrap();
     mux.set_tab_role(&member, AgentRole::Worker, Some(&orchestrator))
         .unwrap();
@@ -138,7 +138,7 @@ fn general_agent_team_guard_leaves_an_ordinary_manager_add_member_byte_identical
         &mut mux,
         &events,
         &team_id,
-        &orchestrator,
+        Some(&orchestrator),
         &member,
         &prepared.expected_role,
         &prepared.expected_profile,
