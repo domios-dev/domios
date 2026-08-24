@@ -36,6 +36,9 @@ codeterm-plugins = { path = "../crates/codeterm-plugins" }
 # `plugin validate` — the CLI never grows its own manifest interpretation.
 codeterm-plugin = { path = "../src-tauri/crates/codeterm-plugin" }
 codeterm-paths = { path = "../crates/codeterm-paths" }
+# The notification level set is defined once in the daemon-shared crate; the CLI
+# derives its flag values from it instead of mirroring the enum.
+codeterm-types = { path = "../src-tauri/crates/codeterm-types" }
 
 [dev-dependencies]
 tempfile = "3"

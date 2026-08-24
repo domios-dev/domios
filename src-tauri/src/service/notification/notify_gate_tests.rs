@@ -3,7 +3,7 @@
 
 use super::*;
 use crate::notification::store::NotificationStore;
-use codeterm_types::config::schema::{AgentCategoryChoice, NotificationConfig};
+use codeterm_types::config::schema::{AgentLevelChoice, NotificationConfig};
 use parking_lot::Mutex;
 use std::sync::Arc;
 
@@ -27,13 +27,13 @@ impl Sinks {
     }
 }
 
-fn policy_allowing(categories: &[NotifyCategory]) -> DesktopPolicy {
+fn policy_allowing(levels: &[NotifyLevel]) -> DesktopPolicy {
     DesktopPolicy::from_config(&NotificationConfig {
-        agent_categories: NotifyCategory::ALL
+        agent_levels: NotifyLevel::ALL
             .into_iter()
-            .map(|category| AgentCategoryChoice {
-                category: category.as_str().to_string(),
-                enabled: categories.contains(&category),
+            .map(|level| AgentLevelChoice {
+                level: level.as_str().to_string(),
+                enabled: levels.contains(&level),
             })
             .collect(),
         ..NotificationConfig::default()
@@ -70,7 +70,7 @@ fn live_update_tab(candidate: &str) -> Option<NotificationProvenance> {
     })
 }
 
-fn shipped(declared: Option<NotifyCategory>) -> DesktopDispatch {
+fn shipped(declared: Option<NotifyLevel>) -> DesktopDispatch {
     DesktopDispatch {
         declared,
         policy: DesktopPolicy::from_config(&NotificationConfig::default()),
@@ -78,29 +78,29 @@ fn shipped(declared: Option<NotifyCategory>) -> DesktopDispatch {
 }
 
 #[test]
-fn notify_gate_allowed_category_reaches_the_desktop_sink() {
+fn notify_gate_allowed_level_reaches_the_desktop_sink() {
     let sinks = Sinks::new();
-    for category in NotifyCategory::ALL {
-        notify(&sinks, category.as_str(), shipped(Some(category)));
+    for level in NotifyLevel::ALL {
+        notify(&sinks, level.as_str(), shipped(Some(level)));
     }
 
     assert_eq!(
         sinks.native.lock().len(),
-        NotifyCategory::ALL.len(),
-        "every category of the closed set reaches the toast under the shipped policy"
+        NotifyLevel::ALL.len(),
+        "every level of the closed set reaches the toast under the shipped policy"
     );
-    assert_eq!(sinks.records(), NotifyCategory::ALL.len());
-    assert_eq!(sinks.emitted.lock().len(), NotifyCategory::ALL.len());
+    assert_eq!(sinks.records(), NotifyLevel::ALL.len());
+    assert_eq!(sinks.emitted.lock().len(), NotifyLevel::ALL.len());
 }
 
 #[test]
-fn notify_gate_uncategorised_notification_never_reaches_the_desktop_sink() {
+fn notify_gate_unlevelled_notification_never_reaches_the_desktop_sink() {
     let sinks = Sinks::new();
     let id = notify(&sinks, "step 4 of 9", shipped(None));
 
     assert!(
         sinks.native.lock().is_empty(),
-        "an uncategorised agent notification fails closed at the desktop sink"
+        "an unlevelled agent notification fails closed at the desktop sink"
     );
     assert_eq!(
         sinks.records(),
@@ -112,46 +112,46 @@ fn notify_gate_uncategorised_notification_never_reaches_the_desktop_sink() {
 }
 
 #[test]
-fn notify_gate_user_disabled_category_keeps_the_record_but_not_the_toast() {
+fn notify_gate_user_disabled_level_keeps_the_record_but_not_the_toast() {
     let sinks = Sinks::new();
     let only_failures = |declared| DesktopDispatch {
         declared: Some(declared),
-        policy: policy_allowing(&[NotifyCategory::Failure]),
+        policy: policy_allowing(&[NotifyLevel::Failure]),
     };
 
-    notify(&sinks, "milestone", only_failures(NotifyCategory::Milestone));
-    notify(&sinks, "blocker", only_failures(NotifyCategory::Blocker));
+    notify(&sinks, "verbose", only_failures(NotifyLevel::Verbose));
+    notify(&sinks, "action needed", only_failures(NotifyLevel::ActionNeeded));
     assert!(
         sinks.native.lock().is_empty(),
-        "categories the user turned off do not reach the sink"
+        "levels the user turned off do not reach the sink"
     );
 
-    notify(&sinks, "failure", only_failures(NotifyCategory::Failure));
+    notify(&sinks, "failure", only_failures(NotifyLevel::Failure));
     assert_eq!(sinks.native.lock().as_slice(), &["failure"]);
     assert_eq!(sinks.records(), 3, "every message kept its record");
 }
 
 #[test]
-fn notify_gate_master_desktop_toggle_off_silences_every_category() {
+fn notify_gate_master_desktop_toggle_off_silences_every_level() {
     let sinks = Sinks::new();
     let cfg = NotificationConfig {
         desktop: false,
         ..NotificationConfig::default()
     };
 
-    for category in NotifyCategory::ALL {
+    for level in NotifyLevel::ALL {
         notify(
             &sinks,
-            category.as_str(),
+            level.as_str(),
             DesktopDispatch {
-                declared: Some(category),
+                declared: Some(level),
                 policy: DesktopPolicy::from_config(&cfg),
             },
         );
     }
 
     assert!(sinks.native.lock().is_empty());
-    assert_eq!(sinks.records(), NotifyCategory::ALL.len());
+    assert_eq!(sinks.records(), NotifyLevel::ALL.len());
 }
 
 /// Negative control: the two routes that never toast today still never toast,
@@ -214,8 +214,8 @@ fn notify_gate_leaves_non_agent_routes_unchanged() {
 fn notify_gate_and_dedupe_are_separate_decisions() {
     let sinks = Sinks::new();
 
-    let first = notify(&sinks, "approval needed", shipped(Some(NotifyCategory::Blocker)));
-    let repeat = notify(&sinks, "approval needed", shipped(Some(NotifyCategory::Blocker)));
+    let first = notify(&sinks, "approval needed", shipped(Some(NotifyLevel::ActionNeeded)));
+    let repeat = notify(&sinks, "approval needed", shipped(Some(NotifyLevel::ActionNeeded)));
     assert_eq!(repeat, first, "dedupe kept one record for one message");
     assert_eq!(
         sinks.native.lock().len(),

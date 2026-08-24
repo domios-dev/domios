@@ -34,16 +34,16 @@ sound = false
 toast_duration = 5  # seconds
 
 # Desktop gate for agent alerts. The rows are generated from the same closed
-# category set the Telegram channel uses; an agent notification that names no
-# category, or one switched off here, stays in the bell and never toasts.
-[[notifications.agent_categories]]
-category = "milestone"
+# level set the Telegram channel uses; an agent notification that names no
+# level, or one switched off here, stays in the bell and never toasts.
+[[notifications.agent_levels]]
+level = "verbose"
 enabled = true
-[[notifications.agent_categories]]
-category = "blocker"
+[[notifications.agent_levels]]
+level = "action_needed"
 enabled = true
-[[notifications.agent_categories]]
-category = "failure"
+[[notifications.agent_levels]]
+level = "failure"
 enabled = true
 
 [notifications.telegram]
@@ -210,4 +210,4 @@ When a Worker lane worktree is created, each declared directory that exists in t
 
 Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`.
 
-<!-- revision: 43 -->
+<!-- revision: 44 -->

@@ -6,7 +6,7 @@ import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { SchemaRenderer } from "./SchemaRenderer";
 import { ProviderInstallCard } from "./ProviderInstallCard";
 import { ProviderNotifications } from "./ProviderNotifications";
-import { AgentNotificationCategories } from "./AgentNotificationCategories";
+import { AgentNotificationLevels } from "./AgentNotificationLevels";
 import { TelegramNotifications } from "./TelegramNotifications";
 import { SettingsCard, SettingsPill, Toggle } from "./shared";
 import { AgentIcon } from "../AgentIcon";
@@ -321,7 +321,7 @@ function NotificationsGroup({
       />
 
       {config.notifications.desktop && (
-        <AgentNotificationCategories config={config} onUpdate={onUpdate} />
+        <AgentNotificationLevels config={config} onUpdate={onUpdate} />
       )}
       <Toggle
         label="Sound"

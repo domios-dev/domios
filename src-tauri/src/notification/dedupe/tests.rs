@@ -27,7 +27,7 @@ fn identity(
     title: &str,
     body: Option<&str>,
 ) -> NotificationIdentity {
-    NotificationIdentity::of(provenance, &NotificationLevel::Info, title, body)
+    NotificationIdentity::of(provenance, &NotificationSeverity::Info, title, body)
 }
 
 #[test]
@@ -35,20 +35,20 @@ fn notify_dedupe_identity_round_trips_the_values_it_was_built_from() {
     let provenance = tab_provenance("tab_7f21c0de");
     let built = NotificationIdentity::of(
         &provenance,
-        &NotificationLevel::Warning,
+        &NotificationSeverity::Warning,
         "  build finished  ",
         Some("  release artifacts ready  "),
     );
 
     assert_eq!(built.scope(), "tab:tab_7f21c0de");
-    assert_eq!(built.level(), &NotificationLevel::Warning);
+    assert_eq!(built.severity(), &NotificationSeverity::Warning);
     assert_eq!(built.title(), "build finished");
     assert_eq!(built.body(), "release artifacts ready");
     assert_eq!(
         built,
         NotificationIdentity::of(
             &provenance,
-            &NotificationLevel::Warning,
+            &NotificationSeverity::Warning,
             "build finished",
             Some("release artifacts ready"),
         ),
