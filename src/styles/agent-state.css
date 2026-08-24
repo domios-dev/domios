@@ -26,6 +26,9 @@
 
 .ct-agent-row--chat {
   padding: 4px 0 8px;
+  /* The Stop button is 2px taller than the status text, so the row grew by that
+     much the moment it appeared. Reserve the taller height in every state. */
+  min-height: calc(22px + 12px);
 }
 
 /* Steady block caret — kept only beside the question title. */
