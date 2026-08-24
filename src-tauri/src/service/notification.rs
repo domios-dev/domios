@@ -177,6 +177,8 @@ fn create_notification_with_delivery(
         NotificationAdmission::Explicit => match push.intent.level {
             // An identical live message is the same message: it keeps its
             // record and reaches neither the native sink nor the bell again.
+            // Push routing may clear its own intent (no audience); the
+            // caller's declared level still stands and is what gets stored.
             None => match store.lock().add_deduped(
                 title.clone(),
                 body.clone(),
@@ -184,6 +186,7 @@ fn create_notification_with_delivery(
                 provenance.clone(),
                 actions.clone(),
                 sticky,
+                surfaces.declared,
             ) {
                 DeliveryAdmission::Deliver(id) => id,
                 DeliveryAdmission::Duplicate(id) => return id,
@@ -243,6 +246,9 @@ fn create_notification_with_delivery(
     // The answer slot the store just built, so every surface renders the same
     // capture rather than deriving its own.
     let answer = store.lock().answer_slot(&id).cloned();
+    // Read back off the record rather than reusing `surfaces.declared`: the
+    // payload must always agree with what was actually stored.
+    let level = store.lock().level(&id);
     let mut payload = serde_json::json!({
         "id": id,
         "title": title,
@@ -258,6 +264,9 @@ fn create_notification_with_delivery(
     }
     if let Some(ref slot) = answer {
         payload["answer"] = serde_json::to_value(slot).unwrap_or_default();
+    }
+    if let Some(level) = level {
+        payload["level"] = serde_json::json!(level.as_str());
     }
     if let Some(s) = sticky {
         payload["sticky"] = serde_json::json!(s);
@@ -1002,5 +1011,116 @@ mod tests {
             crate::notification::dedupe::ConditionTransition::Announce,
             "only the condition resolving re-arms the announcement"
         );
+    }
+
+    /// `level` and `severity` are independent axes on the wire — these
+    /// exercise the payload, which is what the surfaces actually read.
+    mod notification_level_field {
+        use super::*;
+
+        #[test]
+        fn notification_level_field_reaches_stored_record_and_emitted_payload() {
+            let store = Arc::new(Mutex::new(NotificationStore::new(10)));
+            let emitted = Mutex::new(Vec::new());
+
+            let id = create_notification_with_delivery(
+                NotificationAdmission::Explicit,
+                &store,
+                |_, _| {},
+                "Which branch?".into(),
+                None,
+                Some("info"),
+                None,
+                None,
+                NotificationOrigin::default(),
+                |_| None,
+                PushDispatch::inert(),
+                declared(NotifyLevel::ActionNeeded),
+                |payload| emitted.lock().push(payload),
+            );
+
+            assert_eq!(
+                store.lock().level(&id),
+                Some(NotifyLevel::ActionNeeded),
+                "the declared level is written onto the stored record"
+            );
+            let events = emitted.lock();
+            assert_eq!(events.len(), 1);
+            assert_eq!(
+                events[0]["level"], "action_needed",
+                "the surfaces read the payload, so the level must be on it"
+            );
+        }
+
+        #[test]
+        fn notification_level_field_absent_stays_absent_and_still_notifies() {
+            let store = Arc::new(Mutex::new(NotificationStore::new(10)));
+            let emitted = Mutex::new(Vec::new());
+
+            let id = create_notification_with_delivery(
+                NotificationAdmission::Explicit,
+                &store,
+                |_, _| {},
+                "Still working".into(),
+                Some("step 4 of 9".into()),
+                Some("info"),
+                None,
+                None,
+                NotificationOrigin::default(),
+                |_| None,
+                PushDispatch::inert(),
+                undeclared(),
+                |payload| emitted.lock().push(payload),
+            );
+
+            assert_eq!(
+                store.lock().level(&id),
+                None,
+                "naming no level is a legal, distinct state, not a lost one"
+            );
+            let guard = store.lock();
+            let listed = guard.list(false);
+            assert_eq!(listed.len(), 1, "the record is still kept");
+            assert!(!listed[0].read, "it still counts as unread");
+            drop(guard);
+
+            let events = emitted.lock();
+            assert_eq!(events.len(), 1, "the bell still rings");
+            assert!(
+                events[0].get("level").is_none(),
+                "an absent level must not appear on the payload at all"
+            );
+        }
+
+        #[test]
+        fn notification_level_field_independent_of_severity_survives_no_push_audience() {
+            // `PushDispatch::inert()` mirrors `resolve_push_policy` clearing
+            // intent with no audience — `surfaces.declared` must still land.
+            let store = Arc::new(Mutex::new(NotificationStore::new(10)));
+            let emitted = Mutex::new(Vec::new());
+
+            create_notification_with_delivery(
+                NotificationAdmission::Explicit,
+                &store,
+                |_, _| {},
+                "Which branch?".into(),
+                None,
+                Some("info"),
+                None,
+                None,
+                NotificationOrigin::default(),
+                |_| None,
+                PushDispatch::inert(),
+                declared(NotifyLevel::ActionNeeded),
+                |payload| emitted.lock().push(payload),
+            );
+
+            let events = emitted.lock();
+            assert_eq!(events[0]["severity"], "Info");
+            assert_eq!(
+                events[0]["level"], "action_needed",
+                "severity being the info default must not drag the level down with it"
+            );
+        }
     }
 }
