@@ -5,18 +5,18 @@
 use std::collections::{HashMap, HashSet};
 
 use super::push::scope_key;
-use super::store::{NotificationLevel, NotificationProvenance};
+use super::store::{NotificationProvenance, NotificationSeverity};
 
 #[cfg(test)]
 mod tests;
 
 /// What makes two notifications the same message: the same words, at the same
-/// level, from the same origin. Derived, so no caller can opt out by omitting
+/// severity, from the same origin. Derived, so no caller can opt out by omitting
 /// a key.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct NotificationIdentity {
     scope: String,
-    level: NotificationLevel,
+    severity: NotificationSeverity,
     title: String,
     body: String,
 }
@@ -24,13 +24,13 @@ pub struct NotificationIdentity {
 impl NotificationIdentity {
     pub fn of(
         provenance: &NotificationProvenance,
-        level: &NotificationLevel,
+        severity: &NotificationSeverity,
         title: &str,
         body: Option<&str>,
     ) -> Self {
         Self {
             scope: scope_key(provenance),
-            level: level.clone(),
+            severity: severity.clone(),
             title: title.trim().to_string(),
             body: body.unwrap_or_default().trim().to_string(),
         }
@@ -40,8 +40,8 @@ impl NotificationIdentity {
         &self.scope
     }
 
-    pub fn level(&self) -> &NotificationLevel {
-        &self.level
+    pub fn severity(&self) -> &NotificationSeverity {
+        &self.severity
     }
 
     pub fn title(&self) -> &str {

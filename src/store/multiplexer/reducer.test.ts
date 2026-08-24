@@ -138,7 +138,7 @@ test("deleting a notification removes its history entry and active toast", () =>
     workspace_id: "workspace-1",
     title: "Needs attention",
     body: "Read the full message",
-    level: "Warning",
+    severity: "Warning",
     timestamp: 1,
     read: false,
   };
@@ -155,7 +155,7 @@ test("notification hydration keeps newer live entries and restores backend histo
     workspace_id: null,
     title: "Historical",
     body: null,
-    level: "Info",
+    severity: "Info",
     timestamp: 1,
     read: false,
   };

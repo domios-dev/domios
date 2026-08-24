@@ -251,7 +251,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       workspace_id: string | null;
       title: string;
       body: string | null;
-      level: "Info" | "Warning" | "Error";
+      severity: "Info" | "Warning" | "Error";
       actions?: Array<{ label: string; type: "invoke" | "url" | "dismiss"; value?: string; args?: Record<string, unknown> }>;
       sticky?: boolean;
     }>("notification-created", (event) => {
@@ -263,7 +263,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
           workspace_id: event.payload.workspace_id,
           title: event.payload.title,
           body: event.payload.body,
-          level: event.payload.level,
+          severity: event.payload.severity,
           timestamp: Date.now(),
           read: false,
           actions: event.payload.actions,
@@ -582,7 +582,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         workspace_id: workspaceId,
         title: providerMissing ? "Provider not installed" : `Failed to spawn ${agentId}`,
         body: message,
-        level: "Error",
+        severity: "Error",
         timestamp: Date.now(),
         read: false,
         sticky: providerMissing,

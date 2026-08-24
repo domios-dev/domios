@@ -27,31 +27,35 @@ pub async fn list_notifications(
 pub(crate) struct CreateNotifBody {
     title: String,
     body: Option<String>,
-    level: Option<String>,
+    severity: Option<String>,
     actions: Option<serde_json::Value>,
     sticky: Option<bool>,
     tab_id: Option<String>,
     /// Stamped by the Mesh relay from the signed sender; suppresses any tab claim.
     source_peer: Option<String>,
-    category: Option<String>,
+    level: Option<String>,
     event_key: Option<String>,
 }
 
-/// An unknown category is rejected here rather than degrading to a runtime
-/// string, so `progress` can never be expressed on any transport.
+/// An unknown level is rejected here rather than degrading to a runtime
+/// string, so an invented level can never be expressed on any transport.
 pub(crate) fn parse_push_intent(
-    category: Option<&str>,
+    level: Option<&str>,
     event_key: Option<String>,
-) -> Result<crate::service::notification::PushIntent, &'static str> {
-    let category = match category.map(str::trim).filter(|c| !c.is_empty()) {
+) -> Result<crate::service::notification::PushIntent, String> {
+    let level = match level.map(str::trim).filter(|c| !c.is_empty()) {
         None => None,
         Some(raw) => Some(
-            crate::notification::push::NotifyCategory::parse(raw)
-                .ok_or("Unknown notification category: expected milestone, blocker or failure")?,
+            crate::notification::push::NotifyLevel::parse(raw).ok_or_else(|| {
+                format!(
+                    "Unknown notification level: expected one of {}",
+                    crate::notification::push::NotifyLevel::wire_values().join(", ")
+                )
+            })?,
         ),
     };
     Ok(crate::service::notification::PushIntent {
-        category,
+        level,
         event_key,
     })
 }
@@ -60,19 +64,19 @@ pub async fn create_notification(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Json(body): Json<CreateNotifBody>,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(code, message)| (code, message.to_string()))?;
     let origin = crate::service::notification::NotificationOrigin {
         caller_tab_id: crate::api::tab_routes::caller_tab_header(&headers),
         claimed_tab_id: body.tab_id,
         peer_name: body.source_peer,
     };
-    let intent = parse_push_intent(body.category.as_deref(), body.event_key)
+    let intent = parse_push_intent(body.level.as_deref(), body.event_key)
         .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
     let id = state.svc.create_notification_ext(
         body.title,
         body.body,
-        body.level.as_deref(),
+        body.severity.as_deref(),
         body.actions,
         body.sticky,
         origin,

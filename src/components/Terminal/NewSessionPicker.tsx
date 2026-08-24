@@ -130,7 +130,7 @@ export function NewSessionPicker({
           workspace_id: workspaceId,
           title: "Installer running",
           body: "The install command is running in a terminal tab. Come back to Start a session when it finishes.",
-          level: "Info",
+          severity: "Info",
           sticky: false,
         });
       } catch (e) {
@@ -139,7 +139,7 @@ export function NewSessionPicker({
           workspace_id: workspaceId,
           title: "Install failed to start",
           body: e instanceof Error ? e.message : String(e),
-          level: "Error",
+          severity: "Error",
           sticky: true,
         });
       }
@@ -187,7 +187,7 @@ export function NewSessionPicker({
         workspace_id: workspaceId,
         title: "Session start failed",
         body: e instanceof Error ? e.message : String(e),
-        level: "Error",
+        severity: "Error",
         sticky: true,
       });
     } finally {
@@ -240,7 +240,7 @@ export function NewSessionPicker({
           workspace_id: wsId,
           title: "Orchestration start failed",
           body: e instanceof Error ? e.message : String(e),
-          level: "Error",
+          severity: "Error",
           sticky: true,
         });
       });
@@ -271,7 +271,7 @@ export function NewSessionPicker({
           workspace_id: workspaceId,
           title: "Agent access was not saved",
           body: error instanceof Error ? error.message : String(error),
-          level: "Error",
+          severity: "Error",
           sticky: true,
         });
       });

@@ -92,8 +92,8 @@ export function TelegramNotifications({
             />
           </div>
           <p className="text-[10px] text-[var(--ct-muted)]">
-            Only milestones, blockers and failures can be sent. Routine progress cannot. Nobody
-            receives anything until a chat ID is listed here.
+            Only the levels you allow can be sent. Nobody receives anything
+            until a chat ID is listed here.
           </p>
         </>
       )}

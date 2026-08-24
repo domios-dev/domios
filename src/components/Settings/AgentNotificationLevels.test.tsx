@@ -1,14 +1,14 @@
-// Run: npx tsx src/components/Settings/AgentNotificationCategories.test.tsx
+// Run: npx tsx src/components/Settings/AgentNotificationLevels.test.tsx
 
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import {
-  AgentNotificationCategories,
-  categoryLabel,
-  setCategoryEnabled,
-} from "./AgentNotificationCategories";
-import type { AgentCategoryChoice, AppConfig } from "../../lib/types";
+  AgentNotificationLevels,
+  levelLabel,
+  setLevelEnabled,
+} from "./AgentNotificationLevels";
+import type { AgentLevelChoice, AppConfig } from "../../lib/types";
 
 function assert(value: unknown, message: string): asserts value {
   if (!value) throw new Error(message);
@@ -38,8 +38,8 @@ function setupDom() {
   }
 }
 
-function configWith(agent_categories?: AgentCategoryChoice[]): AppConfig {
-  return { notifications: { agent_categories } } as unknown as AppConfig;
+function configWith(agent_levels?: AgentLevelChoice[]): AppConfig {
+  return { notifications: { agent_levels } } as unknown as AppConfig;
 }
 
 type UpdateCall = { section: string; patch: Record<string, unknown> };
@@ -53,7 +53,7 @@ async function render(
   const root = createRoot(host);
   await act(async () =>
     root.render(
-      <AgentNotificationCategories
+      <AgentNotificationLevels
         config={config}
         onUpdate={(section, patch) =>
           updates.push({ section, patch: patch as Record<string, unknown> })
@@ -66,29 +66,29 @@ async function render(
 
 setupDom();
 
-const CONTROL = '[data-testid="settings-agent-notification-categories"]';
+const CONTROL = '[data-testid="settings-agent-notification-levels"]';
 
-const DAEMON_ROWS: AgentCategoryChoice[] = [
-  { category: "milestone", enabled: true },
-  { category: "blocker", enabled: true },
-  { category: "failure", enabled: false },
+const DAEMON_ROWS: AgentLevelChoice[] = [
+  { level: "verbose", enabled: true },
+  { level: "action_needed", enabled: true },
+  { level: "failure", enabled: false },
 ];
 
 async function testRowsMirrorTheDaemonList() {
   const updates: UpdateCall[] = [];
   const { host, root } = await render(configWith(DAEMON_ROWS), updates);
   const control = host.querySelector(CONTROL);
-  assert(control, "the control renders when the daemon shipped category rows");
+  assert(control, "the control renders when the daemon shipped level rows");
 
   const toggles = control.querySelectorAll("label");
   assert(
     toggles.length === DAEMON_ROWS.length,
-    `one row per daemon category, got ${toggles.length}`,
+    `one row per daemon level, got ${toggles.length}`,
   );
   for (const row of DAEMON_ROWS) {
     assert(
-      control.textContent?.includes(categoryLabel(row.category)),
-      `the user can see that ${row.category} may reach him`,
+      control.textContent?.includes(levelLabel(row.level)),
+      `the user can see that ${row.level} may reach him`,
     );
   }
   await act(async () => root.unmount());
@@ -106,7 +106,7 @@ async function testAbsentRowsRenderNothing() {
   host.remove();
 }
 
-async function testTogglingOneCategoryPatchesOnlyThatRow() {
+async function testTogglingOneLevelPatchesOnlyThatRow() {
   const updates: UpdateCall[] = [];
   const { host, root } = await render(configWith(DAEMON_ROWS), updates);
   const control = host.querySelector(CONTROL);
@@ -115,51 +115,51 @@ async function testTogglingOneCategoryPatchesOnlyThatRow() {
   const first = control.querySelector('button[role="switch"]') as HTMLButtonElement | null;
   assert(first, "each row is an accessible switch");
   assert(
-    first.getAttribute("aria-label")?.includes("Milestone"),
-    "the switch names the category it governs",
+    first.getAttribute("aria-label")?.includes("Verbose"),
+    "the switch names the level it governs",
   );
   await act(async () => first.click());
 
   assert(updates.length === 1, `one patch per toggle, got ${updates.length}`);
   assert(updates[0].section === "notifications", "the patch targets the notifications section");
   assert(
-    JSON.stringify(updates[0].patch.agent_categories) ===
+    JSON.stringify(updates[0].patch.agent_levels) ===
       JSON.stringify([
-        { category: "milestone", enabled: false },
-        { category: "blocker", enabled: true },
-        { category: "failure", enabled: false },
+        { level: "verbose", enabled: false },
+        { level: "action_needed", enabled: true },
+        { level: "failure", enabled: false },
       ]),
-    `only the toggled row changes, got ${JSON.stringify(updates[0].patch.agent_categories)}`,
+    `only the toggled row changes, got ${JSON.stringify(updates[0].patch.agent_levels)}`,
   );
   await act(async () => root.unmount());
   host.remove();
 }
 
 function testPureHelpers() {
-  const flipped = setCategoryEnabled(DAEMON_ROWS, "failure", true);
+  const flipped = setLevelEnabled(DAEMON_ROWS, "failure", true);
   assert(
     JSON.stringify(flipped) ===
       JSON.stringify([
-        { category: "milestone", enabled: true },
-        { category: "blocker", enabled: true },
-        { category: "failure", enabled: true },
+        { level: "verbose", enabled: true },
+        { level: "action_needed", enabled: true },
+        { level: "failure", enabled: true },
       ]),
-    `setCategoryEnabled must patch one row in place, got ${JSON.stringify(flipped)}`,
+    `setLevelEnabled must patch one row in place, got ${JSON.stringify(flipped)}`,
   );
   assert(
-    JSON.stringify(setCategoryEnabled(DAEMON_ROWS, "progress", true)) ===
+    JSON.stringify(setLevelEnabled(DAEMON_ROWS, "progress", true)) ===
       JSON.stringify(DAEMON_ROWS),
-    "a category the daemon never shipped cannot be added from the UI",
+    "a level the daemon never shipped cannot be added from the UI",
   );
-  assert(categoryLabel("milestone") === "Milestone", "labels are derived, not listed");
+  assert(levelLabel("action_needed") === "Action needed", "labels are derived, not listed");
 }
 
 async function main() {
   await testRowsMirrorTheDaemonList();
   await testAbsentRowsRenderNothing();
-  await testTogglingOneCategoryPatchesOnlyThatRow();
+  await testTogglingOneLevelPatchesOnlyThatRow();
   testPureHelpers();
-  console.log("PASS AgentNotificationCategories desktop gate control");
+  console.log("PASS AgentNotificationLevels desktop gate control");
 }
 
 main().catch((error) => {

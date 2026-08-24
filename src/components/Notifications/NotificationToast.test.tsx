@@ -54,7 +54,7 @@ function notification(id: string, title: string, timestamp: number): Notificatio
     tab_id: null,
     workspace_id: null,
     body: null,
-    level: "Info",
+    severity: "Info",
     read: false,
     sticky: true,
   };

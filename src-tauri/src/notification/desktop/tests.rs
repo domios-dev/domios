@@ -3,7 +3,7 @@
 
 use super::*;
 use crate::notification::push;
-use codeterm_types::config::schema::{AgentCategoryChoice, NotificationConfig};
+use codeterm_types::config::schema::{AgentLevelChoice, NotificationConfig};
 
 /// Reads as the question the gate answers. Production reaches the sink by
 /// holding the pass itself, so this stays a test-side convenience.
@@ -21,120 +21,190 @@ fn default_policy() -> DesktopPolicy {
     DesktopPolicy::from_config(&NotificationConfig::default())
 }
 
-fn policy_with(agent_categories: Vec<AgentCategoryChoice>) -> DesktopPolicy {
+fn policy_with(agent_levels: Vec<AgentLevelChoice>) -> DesktopPolicy {
     DesktopPolicy::from_config(&NotificationConfig {
-        agent_categories,
+        agent_levels,
         ..NotificationConfig::default()
     })
 }
 
-fn choice(category: &str, enabled: bool) -> AgentCategoryChoice {
-    AgentCategoryChoice {
-        category: category.to_string(),
+fn choice(level: &str, enabled: bool) -> AgentLevelChoice {
+    AgentLevelChoice {
+        level: level.to_string(),
         enabled,
     }
 }
 
 #[test]
-fn notify_gate_uncategorised_never_reaches_the_desktop_sink() {
+fn notify_gate_unlevelled_never_reaches_the_desktop_sink() {
     let policy = default_policy();
     assert!(
         policy.enabled,
-        "the fixture keeps desktop notifications on, so only the missing category can refuse"
+        "the fixture keeps desktop notifications on, so only the missing level can refuse"
     );
     assert!(
         !admit(None, &policy).reaches_sink(),
-        "an uncategorised notification fails closed"
+        "an unlevelled notification fails closed"
     );
-    assert_eq!(admit(None, &policy), DesktopAdmission::Uncategorised);
+    assert_eq!(admit(None, &policy), DesktopAdmission::Unlevelled);
 
-    for category in NotifyCategory::ALL {
+    for level in NotifyLevel::ALL {
         assert!(
-            admit(Some(category), &policy).reaches_sink(),
-            "{} is an allowed category and reaches the sink",
-            category.as_str()
+            admit(Some(level), &policy).reaches_sink(),
+            "{} is an allowed level and reaches the sink",
+            level.as_str()
         );
     }
 }
 
 #[test]
-fn notify_gate_push_and_desktop_read_one_category_definition() {
+fn notify_gate_push_and_desktop_read_one_level_definition() {
     let policy = default_policy();
-    for category in NotifyCategory::ALL {
-        let wire = category.as_str();
+    for level in NotifyLevel::ALL {
+        let wire = level.as_str();
         assert_eq!(
-            NotifyCategory::parse(wire),
-            Some(category),
+            NotifyLevel::parse(wire),
+            Some(level),
             "the push transport parses {wire} from the shared definition"
         );
         assert!(
-            policy.allows(category),
+            policy.allows(level),
             "{wire} is valid for the push sink, so it is valid for the desktop sink"
         );
     }
 
     let cfg = NotificationConfig::default();
     let shipped: Vec<&str> = cfg
-        .agent_categories
+        .agent_levels
         .iter()
-        .map(|row| row.category.as_str())
+        .map(|row| row.level.as_str())
         .collect();
     assert_eq!(
         shipped,
-        NotifyCategory::wire_values(),
+        NotifyLevel::wire_values(),
         "the shipped desktop rows are the shared definition, not a second hand-written list"
     );
     assert_eq!(
         policy.allowed.len(),
-        NotifyCategory::ALL.len(),
-        "neither sink knows a category the other does not"
+        NotifyLevel::ALL.len(),
+        "neither sink knows a level the other does not"
     );
 }
 
 #[test]
-fn notify_gate_user_disabled_categories_do_not_reach_the_sink() {
+fn notify_gate_user_disabled_levels_do_not_reach_the_sink() {
     let policy = policy_with(vec![
-        choice(NotifyCategory::Milestone.as_str(), false),
-        choice(NotifyCategory::Blocker.as_str(), false),
-        choice(NotifyCategory::Failure.as_str(), true),
+        choice(NotifyLevel::Verbose.as_str(), false),
+        choice(NotifyLevel::ActionNeeded.as_str(), false),
+        choice(NotifyLevel::Failure.as_str(), true),
     ]);
 
-    assert!(admit(Some(NotifyCategory::Failure), &policy).reaches_sink());
+    assert!(admit(Some(NotifyLevel::Failure), &policy).reaches_sink());
     assert_eq!(
-        admit(Some(NotifyCategory::Milestone), &policy),
-        DesktopAdmission::CategoryDisabled(NotifyCategory::Milestone),
-        "a category the user removed is refused even though it is in the closed set"
+        admit(Some(NotifyLevel::Verbose), &policy),
+        DesktopAdmission::LevelDisabled(NotifyLevel::Verbose),
+        "a level the user removed is refused even though it is in the closed set"
     );
-    assert!(!admit(Some(NotifyCategory::Blocker), &policy).reaches_sink());
+    assert!(!admit(Some(NotifyLevel::ActionNeeded), &policy).reaches_sink());
 
     let none_allowed = policy_with(Vec::new());
-    for category in NotifyCategory::ALL {
-        assert!(!admit(Some(category), &none_allowed).reaches_sink());
+    for level in NotifyLevel::ALL {
+        assert!(!admit(Some(level), &none_allowed).reaches_sink());
     }
 }
 
 #[test]
-fn notify_gate_master_toggle_off_refuses_every_category() {
+fn notify_gate_master_toggle_off_refuses_every_level() {
     let policy = DesktopPolicy::from_config(&NotificationConfig {
         desktop: false,
         ..NotificationConfig::default()
     });
-    for category in NotifyCategory::ALL {
-        assert_eq!(admit(Some(category), &policy), DesktopAdmission::DesktopOff);
+    for level in NotifyLevel::ALL {
+        assert_eq!(admit(Some(level), &policy), DesktopAdmission::DesktopOff);
     }
-    assert_eq!(admit(None, &policy), DesktopAdmission::Uncategorised);
+    assert_eq!(admit(None, &policy), DesktopAdmission::Unlevelled);
 }
 
+/// The persisted-row decision: config rows are strings on disk, and this repo
+/// ships no migration for the retired names. One unreadable row must cost that
+/// row only — never the whole read.
 #[test]
-fn notify_gate_unknown_config_entries_are_dropped_not_passed_through() {
+fn notify_level_unparseable_stored_row_is_dropped_and_the_rest_still_read() {
     let policy = policy_with(vec![
-        choice("progress", true),
+        choice(NotifyLevel::Verbose.as_str(), true),
+        // Rows written by the retired taxonomy, plus outright garbage.
+        choice("milestone", true),
+        choice("blocker", true),
         choice("everything", true),
         choice("", true),
-        choice(NotifyCategory::Blocker.as_str(), true),
+        choice(NotifyLevel::ActionNeeded.as_str(), true),
     ]);
-    assert_eq!(policy.allowed, [NotifyCategory::Blocker]);
+
+    assert_eq!(
+        policy.allowed,
+        [NotifyLevel::Verbose, NotifyLevel::ActionNeeded],
+        "every readable row survives; only the unreadable ones are dropped"
+    );
+    for surviving in [NotifyLevel::Verbose, NotifyLevel::ActionNeeded] {
+        assert!(
+            admit(Some(surviving), &policy).reaches_sink(),
+            "{} still reaches the sink despite unreadable neighbours",
+            surviving.as_str()
+        );
+    }
+    assert!(
+        !admit(Some(NotifyLevel::Failure), &policy).reaches_sink(),
+        "a level no readable row named stays refused"
+    );
     assert!(!admit(None, &policy).reaches_sink());
+}
+
+/// Every shipped list is `ALL` mapped, so no surface can drift from the set.
+#[test]
+fn notify_level_all_is_the_single_source_for_every_shipped_list() {
+    let cfg = NotificationConfig::default();
+    let shipped: Vec<String> = cfg
+        .agent_levels
+        .iter()
+        .map(|row| row.level.clone())
+        .collect();
+    let derived: Vec<String> = NotifyLevel::ALL
+        .into_iter()
+        .map(|level| level.as_str().to_string())
+        .collect();
+    assert_eq!(
+        shipped, derived,
+        "the shipped rows are ALL mapped, not a second hand-written list"
+    );
+    assert_eq!(
+        DesktopPolicy::from_config(&cfg).allowed.len(),
+        NotifyLevel::ALL.len(),
+        "the gate knows exactly the shared set"
+    );
+}
+
+/// The rename is semantic, not cosmetic: the retired wire strings are rejected
+/// at the transport boundary rather than quietly accepted.
+#[test]
+fn notify_level_wire_parse_rejects_the_retired_names() {
+    use crate::api::notification_routes::parse_push_intent;
+
+    for level in NotifyLevel::ALL {
+        let intent = parse_push_intent(Some(level.as_str()), None)
+            .unwrap_or_else(|e| panic!("{} must parse at the boundary: {e}", level.as_str()));
+        assert_eq!(intent.level, Some(level));
+    }
+    for retired in ["milestone", "blocker", "progress", "Milestone"] {
+        assert!(
+            parse_push_intent(Some(retired), None).is_err(),
+            "{retired} must be rejected on the wire, not passed through"
+        );
+    }
+    assert_eq!(
+        parse_push_intent(None, None).expect("naming no level stays legal").level,
+        None,
+        "omitting the level is still the fail-closed inbox path"
+    );
 }
 
 #[test]
@@ -142,8 +212,8 @@ fn notify_gate_silent_policy_admits_nothing() {
     let policy = DesktopPolicy::silent();
     assert!(!policy.enabled);
     assert!(policy.allowed.is_empty());
-    for category in NotifyCategory::ALL {
-        assert!(!admit(Some(category), &policy).reaches_sink());
+    for level in NotifyLevel::ALL {
+        assert!(!admit(Some(level), &policy).reaches_sink());
     }
 }
 
@@ -158,7 +228,7 @@ fn notify_gate_composes_with_the_push_scope_without_sharing_a_decision() {
         peer_name: None,
     };
     assert_eq!(push::scope_key(&provenance), "tab:tab_gate");
-    assert!(admit(Some(NotifyCategory::Blocker), &default_policy()).reaches_sink());
+    assert!(admit(Some(NotifyLevel::ActionNeeded), &default_policy()).reaches_sink());
 }
 
 /// Structural, not behavioural: the desktop sink is reachable only from the

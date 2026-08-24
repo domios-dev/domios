@@ -5,7 +5,7 @@ import { Bell, ChevronDown, Trash2, X } from "lucide-react";
 import { timeAgo } from "../../lib/formatters";
 import { UI_BUTTON, UI_TEXT } from "../shared/design";
 
-const LEVEL_COLORS: Record<Notification["level"], string> = {
+const SEVERITY_COLORS: Record<Notification["severity"], string> = {
   Info: "var(--ct-accent)",
   Warning: "var(--ct-yellow)",
   Error: "var(--ct-red)",
@@ -109,7 +109,7 @@ export function NotificationPanel({
               onClick={() => handleClick(notif)}
               className={`${rowClass} ${!notif.read ? "border-l-2 border-l-[var(--ct-accent)]" : "border-l-2 border-l-transparent"}`}
             >
-              <LevelDot level={notif.level} />
+              <SeverityDot severity={notif.severity} />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between gap-2">
                   <span
@@ -203,11 +203,11 @@ export function NotificationPanel({
   );
 }
 
-function LevelDot({ level }: { level: Notification["level"] }) {
+function SeverityDot({ severity }: { severity: Notification["severity"] }) {
   return (
     <span
       className="inline-block w-2 h-2 rounded-full shrink-0 mt-1"
-      style={{ backgroundColor: LEVEL_COLORS[level] }}
+      style={{ backgroundColor: SEVERITY_COLORS[severity] }}
     />
   );
 }
