@@ -219,6 +219,11 @@ pub struct AnswerSlot {
     pub asked_from_tab: Option<String>,
     /// The one chosen label. Set once and never overwritten.
     pub answered: Option<String>,
+    /// Whether the standing answer reached the asking tab. Recording an answer
+    /// and carrying it back are separate facts, so a refused send cannot render
+    /// as answered-and-delivered.
+    #[serde(default)]
+    pub delivered: bool,
 }
 
 impl AnswerSlot {
@@ -226,6 +231,7 @@ impl AnswerSlot {
         Self {
             asked_from_tab: tab_id.map(str::to_string),
             answered: None,
+            delivered: false,
         }
     }
 
@@ -233,6 +239,11 @@ impl AnswerSlot {
     /// instead of offering buttons that would do nothing.
     pub fn is_undeliverable(&self) -> bool {
         self.answered.is_none() && self.asked_from_tab.is_none()
+    }
+
+    /// An answer stands that never reached the tab that asked.
+    pub fn is_undelivered(&self) -> bool {
+        self.answered.is_some() && !self.delivered
     }
 }
 

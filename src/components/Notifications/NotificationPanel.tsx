@@ -3,7 +3,7 @@ import type { Notification, NotificationAction } from "../../lib/types";
 import { invoke } from "../../lib/bridge";
 import { Bell, Check, ChevronDown, Trash2, X } from "lucide-react";
 import { timeAgo } from "../../lib/formatters";
-import { isAnswerUndeliverable } from "../../lib/notificationAnswer";
+import { isAnswerUndeliverable, isAnswerUndelivered } from "../../lib/notificationAnswer";
 import { UI_BUTTON, UI_TEXT } from "../shared/design";
 
 const SEVERITY_COLORS: Record<Notification["severity"], string> = {
@@ -169,13 +169,23 @@ export function NotificationPanel({
                   </button>
                 )}
                 {notif.answer?.answered ? (
-                  <div
-                    data-testid="notification-answered"
-                    className="mt-2 inline-flex items-center gap-1 text-[11px] text-[var(--ct-green)]"
-                  >
-                    <Check size={12} aria-hidden />
-                    <span>You answered: {notif.answer.answered}</span>
-                  </div>
+                  isAnswerUndelivered(notif.answer) ? (
+                    <div
+                      data-testid="notification-answer-undelivered"
+                      className="mt-2 text-[11px] text-[var(--ct-yellow)]"
+                    >
+                      You answered: {notif.answer.answered} — it could not be delivered to
+                      the tab that asked.
+                    </div>
+                  ) : (
+                    <div
+                      data-testid="notification-answered"
+                      className="mt-2 inline-flex items-center gap-1 text-[11px] text-[var(--ct-green)]"
+                    >
+                      <Check size={12} aria-hidden />
+                      <span>You answered: {notif.answer.answered}</span>
+                    </div>
+                  )
                 ) : notif.answer && isAnswerUndeliverable(notif.answer) ? (
                   <div
                     data-testid="notification-undeliverable"
