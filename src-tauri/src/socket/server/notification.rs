@@ -18,9 +18,9 @@ pub(super) fn dispatch(
                 .and_then(|p| p.get("body"))
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
-            let level_str = params
+            let severity_str = params
                 .as_ref()
-                .and_then(|p| p.get("level"))
+                .and_then(|p| p.get("severity"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("info");
             let string_param = |key: &str| {
@@ -37,20 +37,20 @@ pub(super) fn dispatch(
                 claimed_tab_id: string_param("tab_id"),
                 peer_name: None,
             };
-            let category = string_param("category");
+            let level = string_param("level");
             let intent = crate::api::notification_routes::parse_push_intent(
-                category.as_deref(),
+                level.as_deref(),
                 string_param("event_key"),
             )
             .map_err(|message| JsonRpcError {
                 code: -32602,
-                message: message.to_string(),
+                message,
                 data: None,
             })?;
             let id = svc.create_notification_ext(
                 title,
                 body,
-                Some(level_str),
+                Some(severity_str),
                 None,
                 None,
                 origin,

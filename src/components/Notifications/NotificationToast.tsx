@@ -6,7 +6,7 @@ import { Check, X } from "lucide-react";
 import { InfoIcon, WarningIcon, ErrorIcon } from "../Icons";
 import { PluginIcon } from "../Extensions/PluginIcon";
 
-const LEVEL_STYLES: Record<Notification["level"], { accent: string; icon: string }> = {
+const SEVERITY_STYLES: Record<Notification["severity"], { accent: string; icon: string }> = {
   Info: { accent: "var(--ct-accent)", icon: "text-[var(--ct-accent)]" },
   Warning: { accent: "var(--ct-yellow)", icon: "text-[var(--ct-yellow)]" },
   Error: { accent: "var(--ct-red)", icon: "text-[var(--ct-red)]" },
@@ -66,7 +66,7 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate, embedded }
       ? "ct-toast-enter"
       : "ct-toast-timed";
 
-  const styles = LEVEL_STYLES[notification.level];
+  const styles = SEVERITY_STYLES[notification.severity];
   const hasCustomIcon = Boolean(notification.icon_svg || notification.icon_hint || notification.icon_color);
   const content = (
     <>
@@ -82,7 +82,7 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate, embedded }
           />
         </span>
       ) : (
-        <LevelIcon level={notification.level} className={`shrink-0 ${styles.icon}`} />
+        <SeverityIcon severity={notification.severity} className={`shrink-0 ${styles.icon}`} />
       )}
       <div className="min-w-0 flex flex-1 items-baseline gap-1.5">
         <span className="truncate font-medium text-[var(--ct-fg)]">
@@ -125,7 +125,7 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate, embedded }
           data-testid="notification-toast"
           data-notification-id={notification.id}
           data-notification-key={notification.key ?? ""}
-          data-notification-level={notification.level}
+          data-notification-severity={notification.severity}
           role="status"
           style={{
             ["--toast-accent" as string]: styles.accent,
@@ -149,7 +149,7 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate, embedded }
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-start gap-2">
-              <LevelIcon level={notification.level} className={`mt-0.5 shrink-0 ${styles.icon}`} />
+              <SeverityIcon severity={notification.severity} className={`mt-0.5 shrink-0 ${styles.icon}`} />
               <div className="min-w-0 flex-1">
                 <div className="font-medium text-[var(--ct-fg)]">{notification.title}</div>
                 {notification.body && (
@@ -201,7 +201,7 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate, embedded }
       data-testid="notification-toast"
       data-notification-id={notification.id}
       data-notification-key={notification.key ?? ""}
-      data-notification-level={notification.level}
+      data-notification-severity={notification.severity}
       role="status"
       style={{
         ["--toast-accent" as string]: styles.accent,
@@ -283,8 +283,8 @@ export function NotificationToastContainer({
   );
 }
 
-function LevelIcon({ level, className }: { level: Notification["level"]; className?: string }) {
-  switch (level) {
+function SeverityIcon({ severity, className }: { severity: Notification["severity"]; className?: string }) {
+  switch (severity) {
     case "Info": return <InfoIcon className={className} />;
     case "Warning": return <WarningIcon className={className} />;
     case "Error": return <ErrorIcon className={className} />;

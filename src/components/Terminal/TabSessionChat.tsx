@@ -147,7 +147,7 @@ export function TabSessionChat({
       body: isMicrophonePermissionError(message)
         ? `${message} Open microphone permissions in Settings if needed.`
         : message,
-      level: "Error",
+      severity: "Error",
     });
   }, [addNotification, tabId]);
 

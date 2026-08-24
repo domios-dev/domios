@@ -4,16 +4,16 @@ use super::ServiceContext;
 use crate::notification::{
     dedupe::DeliveryAdmission,
     desktop::{self, DesktopPolicy},
-    push::{self, NotifyCategory},
-    store::{DedupAdmission, NotificationLevel, NotificationProvenance, PushRequest},
+    push::{self, NotifyLevel},
+    store::{DedupAdmission, NotificationProvenance, NotificationSeverity, PushRequest},
     NotifState,
 };
 
-/// Caller-side push intent. `category` is the closed enum, so routine progress
+/// Caller-side push intent. `level` is the closed enum, so routine progress
 /// has nothing to name; `event_key` is a hint the daemon derives when absent.
 #[derive(Debug, Clone, Default)]
 pub struct PushIntent {
-    pub category: Option<NotifyCategory>,
+    pub level: Option<NotifyLevel>,
     pub event_key: Option<String>,
 }
 
@@ -21,7 +21,7 @@ pub struct PushIntent {
 /// travels back to the caller — failure feedback invites retry, and retry is
 /// the spam vector.
 pub struct PushEnvelope {
-    pub category: NotifyCategory,
+    pub level: NotifyLevel,
     pub text: String,
     pub notification_id: String,
 }
@@ -38,7 +38,7 @@ fn inert_sink(_: PushEnvelope) -> Result<(), String> {
 }
 
 impl PushDispatch<fn(PushEnvelope) -> Result<(), String>> {
-    /// No opt-in, no audience, or no category: behaves exactly as before.
+    /// No opt-in, no audience, or no level: behaves exactly as before.
     pub fn inert() -> Self {
         Self {
             intent: PushIntent::default(),
@@ -51,9 +51,9 @@ impl PushDispatch<fn(PushEnvelope) -> Result<(), String>> {
 /// The desktop leg of one notification: what the caller declared, and the
 /// user's standing policy. Deliberately not folded into `PushDispatch` — the
 /// push opt-in clears its own intent when nobody is subscribed, while the
-/// declared category still governs whether the toast may fire.
+/// declared level still governs whether the toast may fire.
 pub struct DesktopDispatch {
-    pub declared: Option<NotifyCategory>,
+    pub declared: Option<NotifyLevel>,
     pub policy: DesktopPolicy,
 }
 
@@ -129,11 +129,11 @@ enum NotificationAdmission {
     },
 }
 
-fn notification_level(level: Option<&str>) -> NotificationLevel {
-    match level {
-        Some("warning") | Some("Warning") => NotificationLevel::Warning,
-        Some("error") | Some("Error") => NotificationLevel::Error,
-        _ => NotificationLevel::Info,
+fn notification_severity(severity: Option<&str>) -> NotificationSeverity {
+    match severity {
+        Some("warning") | Some("Warning") => NotificationSeverity::Warning,
+        Some("error") | Some("Error") => NotificationSeverity::Error,
+        _ => NotificationSeverity::Info,
     }
 }
 
@@ -144,7 +144,7 @@ fn create_notification_with_delivery(
     deliver_native: impl FnOnce(&str, Option<&str>),
     title: String,
     body: Option<String>,
-    level: Option<&str>,
+    severity: Option<&str>,
     actions: Option<serde_json::Value>,
     sticky: Option<bool>,
     origin: NotificationOrigin,
@@ -157,21 +157,21 @@ fn create_notification_with_delivery(
         return uuid::Uuid::new_v4().to_string();
     }
     let provenance = resolve_origin(&origin, resolve_tab);
-    let parsed_level = notification_level(level);
-    let level_str = match &parsed_level {
-        NotificationLevel::Warning => "Warning",
-        NotificationLevel::Error => "Error",
+    let parsed_severity = notification_severity(severity);
+    let severity_str = match &parsed_severity {
+        NotificationSeverity::Warning => "Warning",
+        NotificationSeverity::Error => "Error",
         _ => "Info",
     };
     let id = match admission {
         NotificationAdmission::Diagnostic => unreachable!(),
-        NotificationAdmission::Explicit => match push.intent.category {
+        NotificationAdmission::Explicit => match push.intent.level {
             // An identical live message is the same message: it keeps its
             // record and reaches neither the native sink nor the bell again.
             None => match store.lock().add_deduped(
                 title.clone(),
                 body.clone(),
-                parsed_level,
+                parsed_severity,
                 provenance.clone(),
                 actions.clone(),
                 sticky,
@@ -179,14 +179,14 @@ fn create_notification_with_delivery(
                 DeliveryAdmission::Deliver(id) => id,
                 DeliveryAdmission::Duplicate(id) => return id,
             },
-            Some(category) => {
+            Some(level) => {
                 let admitted = store.lock().add_push(PushRequest {
                     scope: push::scope_key(&provenance),
-                    category,
+                    level,
                     event_key: push::event_key(push.intent.event_key.as_deref(), &title),
                     title: title.clone(),
                     body: body.clone(),
-                    level: parsed_level,
+                    severity: parsed_severity,
                     provenance: provenance.clone(),
                     per_scope_limit: push.per_scope_limit,
                 });
@@ -196,8 +196,8 @@ fn create_notification_with_delivery(
                 }
                 if admitted.should_push() {
                     let envelope = PushEnvelope {
-                        category,
-                        text: push::render_push(category, &title, body.as_deref(), &provenance),
+                        level,
+                        text: push::render_push(level, &title, body.as_deref(), &provenance),
                         notification_id: admitted.id().to_string(),
                     };
                     if let Err(reason) = (push.deliver)(envelope) {
@@ -235,7 +235,7 @@ fn create_notification_with_delivery(
         "id": id,
         "title": title,
         "body": body,
-        "level": level_str,
+        "severity": severity_str,
         "tab_id": provenance.tab_id.clone(),
         "workspace_id": provenance.workspace_id.clone(),
         "tab_title": provenance.tab_title.clone(),
@@ -248,9 +248,9 @@ fn create_notification_with_delivery(
         payload["sticky"] = serde_json::json!(s);
     }
     // Dedupe already decided this message is new; the gate decides whether it
-    // may interrupt. Uncategorised keeps its record and its bell event, and stops.
+    // may interrupt. Unlevelled keeps its record and its bell event, and stops.
     if let Some(pass) = desktop::admit(desktop.declared, &desktop.policy).pass() {
-        log::debug!("[notify-gate] desktop toast admitted as {}", pass.category().as_str());
+        log::debug!("[notify-gate] desktop toast admitted as {}", pass.level().as_str());
         deliver_native(
             payload["title"].as_str().unwrap_or_default(),
             payload["body"].as_str(),
@@ -326,7 +326,7 @@ impl ServiceContext {
         &self,
         title: String,
         body: Option<String>,
-        level: Option<&str>,
+        severity: Option<&str>,
     ) -> String {
         create_notification_with_delivery(
             NotificationAdmission::Diagnostic,
@@ -334,7 +334,7 @@ impl ServiceContext {
             |_, _| {},
             title,
             body,
-            level,
+            severity,
             None,
             None,
             NotificationOrigin::default(),
@@ -351,15 +351,15 @@ impl ServiceContext {
         &self,
         title: String,
         body: Option<String>,
-        level: Option<&str>,
+        severity: Option<&str>,
         actions: Option<serde_json::Value>,
         sticky: Option<bool>,
         origin: NotificationOrigin,
         intent: PushIntent,
     ) -> String {
-        // The declared category outlives the push policy: an install with no
+        // The declared level outlives the push policy: an install with no
         // Telegram audience still has a desktop gate to satisfy.
-        let declared = intent.category;
+        let declared = intent.level;
         let (intent, per_scope_limit, audience) = self.resolve_push_policy(intent);
         let desktop = DesktopDispatch {
             declared,
@@ -373,7 +373,7 @@ impl ServiceContext {
             },
             title,
             body,
-            level,
+            severity,
             actions,
             sticky,
             origin,
@@ -399,10 +399,10 @@ mod tests {
     use parking_lot::Mutex;
     use std::sync::Arc;
 
-    /// A caller that named a category, judged against the shipped policy.
-    fn declared(category: NotifyCategory) -> DesktopDispatch {
+    /// A caller that named a level, judged against the shipped policy.
+    fn declared(level: NotifyLevel) -> DesktopDispatch {
         DesktopDispatch {
-            declared: Some(category),
+            declared: Some(level),
             policy: DesktopPolicy::from_config(&NotificationConfig::default()),
         }
     }
@@ -442,7 +442,7 @@ mod tests {
             NotificationOrigin::default(),
             |_| None,
             PushDispatch::inert(),
-            declared(NotifyCategory::Milestone),
+            declared(NotifyLevel::Verbose),
             |payload| emitted.lock().push(payload),
         );
 
@@ -452,7 +452,7 @@ mod tests {
         assert_eq!(listed[0].id, id, "returned id names the stored record");
         assert_eq!(listed[0].title, "Build finished");
         assert_eq!(listed[0].body.as_deref(), Some("release artifacts ready"));
-        assert_eq!(listed[0].level, NotificationLevel::Warning);
+        assert_eq!(listed[0].severity, NotificationSeverity::Warning);
         assert!(!listed[0].read);
         drop(guard);
 
@@ -486,7 +486,7 @@ mod tests {
             NotificationOrigin::default(),
             |_| None,
             PushDispatch::inert(),
-            declared(NotifyCategory::Blocker),
+            declared(NotifyLevel::ActionNeeded),
             |payload| emitted.lock().push(payload),
         );
 
@@ -697,13 +697,13 @@ mod tests {
             })
         }
 
-        fn dispatch<F>(category: NotifyCategory, deliver: F) -> PushDispatch<F>
+        fn dispatch<F>(level: NotifyLevel, deliver: F) -> PushDispatch<F>
         where
             F: FnOnce(PushEnvelope) -> Result<(), String>,
         {
             PushDispatch {
                 intent: PushIntent {
-                    category: Some(category),
+                    level: Some(level),
                     event_key: Some("release-42".into()),
                 },
                 per_scope_limit: 10,
@@ -729,11 +729,11 @@ mod tests {
                 None,
                 NotificationOrigin::claimed(Some("tab_worker".into())),
                 live_tab,
-                dispatch(NotifyCategory::Milestone, |envelope: PushEnvelope| {
+                dispatch(NotifyLevel::Verbose, |envelope: PushEnvelope| {
                     attempted.lock().push(envelope.text.clone());
                     Err("chat unreachable".to_string())
                 }),
-                declared(NotifyCategory::Milestone),
+                declared(NotifyLevel::Verbose),
                 |payload| emitted.lock().push(payload),
             );
 
@@ -774,11 +774,11 @@ mod tests {
                 None,
                 NotificationOrigin::claimed(Some("tab_worker".into())),
                 live_tab,
-                dispatch(NotifyCategory::Blocker, |envelope: PushEnvelope| {
+                dispatch(NotifyLevel::ActionNeeded, |envelope: PushEnvelope| {
                     sent.lock().push(envelope.text.clone());
                     Ok(())
                 }),
-                declared(NotifyCategory::Blocker),
+                declared(NotifyLevel::ActionNeeded),
                 |_| {},
             );
 
@@ -798,7 +798,7 @@ mod tests {
         }
 
         #[test]
-        fn an_uncategorised_notification_never_reaches_the_push_sink() {
+        fn an_unlevelled_notification_never_reaches_the_push_sink() {
             let store = Arc::new(Mutex::new(NotificationStore::new(10)));
             let sent = Mutex::new(Vec::new());
 
@@ -827,7 +827,7 @@ mod tests {
 
             assert!(
                 sent.lock().is_empty(),
-                "routine progress has no category, so it cannot reach the channel"
+                "routine progress has no level, so it cannot reach the channel"
             );
             assert_eq!(store.lock().list(false).len(), 1);
         }
@@ -855,7 +855,7 @@ mod tests {
             NotificationOrigin::default(),
             |_| None,
             PushDispatch::inert(),
-            declared(NotifyCategory::Blocker),
+            declared(NotifyLevel::ActionNeeded),
             |payload| emitted.lock().push(payload),
         )
     }

@@ -23,9 +23,9 @@ export function defaultConfig(): AppConfig {
     sound: false,
     toast_duration: 5,
     telegram: { enabled: false, recipients: [], per_scope_limit: 12 },
-    // The daemon owns the category set; until it answers there is nothing to
+    // The daemon owns the level set; until it answers there is nothing to
     // claim the user controls.
-    agent_categories: [],
+    agent_levels: [],
   },
   keybindings: {
     reopen_tab: "Ctrl+Shift+T",

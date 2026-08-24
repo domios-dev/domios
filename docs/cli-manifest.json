@@ -5187,20 +5187,6 @@
               "aliases": []
             },
             {
-              "name": "category",
-              "positional": false,
-              "required": false,
-              "value_name": "CATEGORY",
-              "possible_values": [
-                "milestone",
-                "blocker",
-                "failure"
-              ],
-              "default": null,
-              "help": "Category that lets this alert reach the user. Omit to file it in the bell only",
-              "aliases": []
-            },
-            {
               "name": "event-key",
               "positional": false,
               "required": false,
@@ -5215,9 +5201,23 @@
               "positional": false,
               "required": false,
               "value_name": "LEVEL",
+              "possible_values": [
+                "verbose",
+                "action_needed",
+                "failure"
+              ],
+              "default": null,
+              "help": "What this notification is, on the one level axis. Omit to file it in the bell only",
+              "aliases": []
+            },
+            {
+              "name": "severity",
+              "positional": false,
+              "required": false,
+              "value_name": "SEVERITY",
               "possible_values": [],
               "default": "info",
-              "help": "Notification level: info, warning, error",
+              "help": "Toast severity: info, warning, error",
               "aliases": []
             },
             {

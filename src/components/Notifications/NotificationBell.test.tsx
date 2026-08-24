@@ -28,7 +28,7 @@ const item: Notification = {
   workspace_id: "workspace-1",
   title: "Agent needs input",
   body: "First line\nSecond line",
-  level: "Warning",
+  severity: "Warning",
   timestamp: Date.now(),
   read: false,
   actions: [

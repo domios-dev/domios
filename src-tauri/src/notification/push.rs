@@ -1,19 +1,9 @@
-//! Opt-in Telegram push channel: the shared closed category set, clock-free
+//! Opt-in Telegram push channel: the shared closed level set, clock-free
 //! coalescing keys, and length-capped rendering over daemon-resolved provenance.
 
 use super::store::NotificationProvenance;
 use codeterm_types::config::schema::TelegramNotifyConfig;
-pub use codeterm_types::notification::NotifyCategory;
-
-/// Telegram-facing display copy for a category. Rendering only — the category
-/// set itself is `NotifyCategory`, which the desktop gate reads unchanged.
-fn label(category: NotifyCategory) -> &'static str {
-    match category {
-        NotifyCategory::Milestone => "Milestone",
-        NotifyCategory::Blocker => "Needs you",
-        NotifyCategory::Failure => "Failed",
-    }
-}
+pub use codeterm_types::notification::NotifyLevel;
 
 /// Coalescing scope for a caller the daemon could not attribute to a tab or a
 /// peer. One shared bucket, so the lifetime ceiling still binds.
@@ -65,14 +55,14 @@ fn collapse(text: &str) -> String {
 /// Render a push body. Reads only the title, the agent body, and the resolved
 /// provenance labels — never cwd, prompt text, task text, logs, or ids.
 pub fn render_push(
-    category: NotifyCategory,
+    level: NotifyLevel,
     title: &str,
     body: Option<&str>,
     provenance: &NotificationProvenance,
 ) -> String {
     let mut lines = vec![format!(
         "[{}] {}",
-        label(category),
+        level.label(),
         cap(&collapse(title), MAX_TITLE_CHARS)
     )];
     if let Some(body) = body.map(collapse).filter(|b| !b.is_empty()) {
@@ -138,7 +128,7 @@ mod telegram_render {
         assert!(oversized_body.chars().count() > MAX_BODY_CHARS);
 
         let rendered = render_push(
-            NotifyCategory::Failure,
+            NotifyLevel::Failure,
             &oversized_title,
             Some(&oversized_body),
             &provenance(),
@@ -163,14 +153,14 @@ mod telegram_render {
     #[test]
     fn multibyte_truncation_stays_on_char_boundaries() {
         let title = "я".repeat(MAX_TITLE_CHARS + 10);
-        let rendered = render_push(NotifyCategory::Milestone, &title, None, &provenance());
+        let rendered = render_push(NotifyLevel::Verbose, &title, None, &provenance());
         assert_eq!(rendered.matches('я').count(), MAX_TITLE_CHARS);
     }
 
     #[test]
     fn rendered_push_never_carries_ids_or_workspace() {
         let rendered = render_push(
-            NotifyCategory::Blocker,
+            NotifyLevel::ActionNeeded,
             "approval needed",
             Some("continue with the destructive step?"),
             &provenance(),
@@ -181,14 +171,14 @@ mod telegram_render {
     }
 
     #[test]
-    fn progress_is_not_a_parseable_category() {
-        assert_eq!(NotifyCategory::parse("progress"), None);
-        assert_eq!(NotifyCategory::parse("info"), None);
-        assert_eq!(NotifyCategory::parse(""), None);
-        for value in NotifyCategory::wire_values() {
+    fn notify_level_progress_is_not_a_parseable_level() {
+        assert_eq!(NotifyLevel::parse("progress"), None);
+        assert_eq!(NotifyLevel::parse("info"), None);
+        assert_eq!(NotifyLevel::parse(""), None);
+        for value in NotifyLevel::wire_values() {
             assert!(
-                NotifyCategory::parse(value).is_some(),
-                "{value} is one of the three expressible categories"
+                NotifyLevel::parse(value).is_some(),
+                "{value} is one of the three expressible levels"
             );
         }
     }

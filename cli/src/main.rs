@@ -322,16 +322,16 @@ fn main_impl() {
             NotifyAction::Send {
                 title,
                 body,
+                severity,
                 level,
-                category,
                 event_key,
             } => {
-                let mut params = serde_json::json!({ "title": title, "level": level });
+                let mut params = serde_json::json!({ "title": title, "severity": severity });
                 if let Some(b) = body {
                     params["body"] = serde_json::Value::String(b);
                 }
-                if let Some(c) = category {
-                    params["category"] = serde_json::Value::String(c.as_str().to_string());
+                if let Some(l) = level {
+                    params["level"] = serde_json::Value::String(l.as_str().to_string());
                 }
                 if let Some(k) = event_key {
                     params["event_key"] = serde_json::Value::String(k);
