@@ -25,6 +25,9 @@ interface TitlebarProps {
   onOpenExtensions?: () => void;
   onOpenSettings?: (section?: SectionId) => void;
   notifications?: Notification[];
+  /** The master bell switch. False removes the indicator; nothing about what is
+   *  recorded changes, so flipping it back reveals the complete log. */
+  showBell?: boolean;
   toasts?: Notification[];
   onMarkNotificationRead?: (id: string) => void;
   onMarkAllNotificationsRead?: () => void;
@@ -43,6 +46,7 @@ export function Titlebar({
   onOpenExtensions,
   onOpenSettings,
   notifications = [],
+  showBell = true,
   toasts = [],
   onMarkNotificationRead,
   onMarkAllNotificationsRead,
@@ -131,7 +135,7 @@ export function Titlebar({
             embedded
           />
         )}
-        {onMarkNotificationRead && onMarkAllNotificationsRead && onDeleteNotification && onClearNotifications && onNavigateToast && (
+        {showBell && onMarkNotificationRead && onMarkAllNotificationsRead && onDeleteNotification && onClearNotifications && onNavigateToast && (
           <NotificationBell
             notifications={notifications}
             onMarkRead={onMarkNotificationRead}

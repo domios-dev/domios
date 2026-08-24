@@ -31,9 +31,13 @@ fn policy_allowing(levels: &[NotifyLevel]) -> DesktopPolicy {
     DesktopPolicy::from_config(&NotificationConfig {
         agent_levels: NotifyLevel::ALL
             .into_iter()
-            .map(|level| AgentLevelChoice {
-                level: level.as_str().to_string(),
-                enabled: levels.contains(&level),
+            .map(|level| {
+                let mut row = AgentLevelChoice::open(level.as_str());
+                row.set(
+                    codeterm_types::notification::NotifyDestination::Desktop,
+                    levels.contains(&level),
+                );
+                row
             })
             .collect(),
         ..NotificationConfig::default()
@@ -41,7 +45,7 @@ fn policy_allowing(levels: &[NotifyLevel]) -> DesktopPolicy {
 }
 
 /// One agent notification through the explicit verb's own code path.
-fn notify(sinks: &Sinks, title: &str, desktop: DesktopDispatch) -> String {
+fn notify(sinks: &Sinks, title: &str, desktop: SurfaceDispatch) -> String {
     create_notification_with_delivery(
         NotificationAdmission::Explicit,
         &sinks.store,
@@ -70,10 +74,11 @@ fn live_update_tab(candidate: &str) -> Option<NotificationProvenance> {
     })
 }
 
-fn shipped(declared: Option<NotifyLevel>) -> DesktopDispatch {
-    DesktopDispatch {
+fn shipped(declared: Option<NotifyLevel>) -> SurfaceDispatch {
+    SurfaceDispatch {
         declared,
-        policy: DesktopPolicy::from_config(&NotificationConfig::default()),
+        bell: BellPolicy::from_config(&NotificationConfig::default()),
+        desktop: DesktopPolicy::from_config(&NotificationConfig::default()),
     }
 }
 
@@ -114,9 +119,10 @@ fn notify_gate_unlevelled_notification_never_reaches_the_desktop_sink() {
 #[test]
 fn notify_gate_user_disabled_level_keeps_the_record_but_not_the_toast() {
     let sinks = Sinks::new();
-    let only_failures = |declared| DesktopDispatch {
+    let only_failures = |declared| SurfaceDispatch {
         declared: Some(declared),
-        policy: policy_allowing(&[NotifyLevel::Failure]),
+        bell: BellPolicy::open(),
+        desktop: policy_allowing(&[NotifyLevel::Failure]),
     };
 
     notify(&sinks, "verbose", only_failures(NotifyLevel::Verbose));
@@ -143,9 +149,10 @@ fn notify_gate_master_desktop_toggle_off_silences_every_level() {
         notify(
             &sinks,
             level.as_str(),
-            DesktopDispatch {
+            SurfaceDispatch {
                 declared: Some(level),
-                policy: DesktopPolicy::from_config(&cfg),
+                bell: BellPolicy::open(),
+                desktop: DesktopPolicy::from_config(&cfg),
             },
         );
     }
@@ -173,7 +180,7 @@ fn notify_gate_leaves_non_agent_routes_unchanged() {
             NotificationOrigin::default(),
             |_| None,
             PushDispatch::inert(),
-            DesktopDispatch::silent(),
+            SurfaceDispatch::silent(),
             |payload| sinks.emitted.lock().push(payload),
         );
     }
@@ -195,7 +202,7 @@ fn notify_gate_leaves_non_agent_routes_unchanged() {
         NotificationOrigin::local_tab("tab_update".into()),
         live_update_tab,
         PushDispatch::inert(),
-        DesktopDispatch::silent(),
+        SurfaceDispatch::silent(),
         |payload| sinks.emitted.lock().push(payload),
     );
 

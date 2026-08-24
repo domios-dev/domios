@@ -87,8 +87,9 @@ async function run() {
     answered.length === 1 && answered[0][0] === asked.id && answered[0][1] === "Rebase",
     "tapping a choice should deliver the notification id and the chosen label",
   );
+  const invokedAfterChoice = invoked.length;
   assert(
-    invoked.length === 0,
+    invokedAfterChoice === 0,
     "a choice must not reach the generic action runner that can invoke commands",
   );
 

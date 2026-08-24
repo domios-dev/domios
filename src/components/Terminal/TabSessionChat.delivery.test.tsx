@@ -83,6 +83,7 @@ function muxActions(): MultiplexerActionsContextType {
   const noop = () => {};
   const noopAsync = async () => undefined;
   return {
+    answerNotification: noop,
     createWorkspace: noopAsync,
     setActiveWorkspace: noop,
     closeWorkspace: noop,

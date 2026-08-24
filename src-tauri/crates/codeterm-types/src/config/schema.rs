@@ -2,6 +2,8 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::notification::{NotifyDestination, NotifyLevel};
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
@@ -243,9 +245,13 @@ pub struct NotificationConfig {
     pub desktop: bool,
     pub sound: bool,
     pub toast_duration: u32,
+    /// Whether the bell surface is rendered at all. Presentation, not routing:
+    /// off hides the indicator while every record is still kept, which is why
+    /// it stays distinguishable from every row having its bell column off.
+    pub show_bell: bool,
     pub telegram: TelegramNotifyConfig,
-    /// The desktop gate's user-visible rows. An agent notification naming no
-    /// level, or a level switched off here, stays in the inbox.
+    /// One row per level of the shared set, each naming where that level may
+    /// go. An agent notification naming no level stays in the bell.
     pub agent_levels: Vec<AgentLevelChoice>,
 }
 
@@ -255,28 +261,98 @@ impl Default for NotificationConfig {
             desktop: true,
             sound: false,
             toast_duration: 5,
+            show_bell: true,
             telegram: TelegramNotifyConfig::default(),
             agent_levels: default_agent_levels(),
         }
     }
 }
 
-/// One row of the desktop gate as the user sees it. Settings render this list
-/// rather than restating the level set, so the UI cannot drift from it.
+/// One row of the levels-by-destinations grid. Settings render this list rather
+/// than restating the level set, so the UI cannot drift from it. Every column
+/// off is a legitimate answer: that level simply reaches nothing.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentLevelChoice {
     pub level: String,
-    pub enabled: bool,
+    #[serde(default = "routed_by_default")]
+    pub bell: bool,
+    #[serde(default = "routed_by_default")]
+    pub desktop: bool,
+    #[serde(default = "routed_by_default")]
+    pub telegram: bool,
 }
 
-/// Generated from the shared definition, never restated, so the desktop rows
-/// and the push channel cannot know different levels.
+/// An absent column is today's behaviour: every destination the surrounding
+/// switches already allowed stays allowed, so a config that never named the
+/// grid reads exactly as it did before the grid existed.
+fn routed_by_default() -> bool {
+    true
+}
+
+impl AgentLevelChoice {
+    /// All destinations open, which is what an install that never opened the
+    /// panel has always done.
+    pub fn open(level: &str) -> Self {
+        Self {
+            level: level.to_string(),
+            bell: true,
+            desktop: true,
+            telegram: true,
+        }
+    }
+
+    /// Dispatch over the closed destination set, so no caller restates the
+    /// columns to read one.
+    pub fn allows(&self, destination: NotifyDestination) -> bool {
+        match destination {
+            NotifyDestination::Bell => self.bell,
+            NotifyDestination::Desktop => self.desktop,
+            NotifyDestination::Telegram => self.telegram,
+        }
+    }
+
+    pub fn set(&mut self, destination: NotifyDestination, routed: bool) {
+        match destination {
+            NotifyDestination::Bell => self.bell = routed,
+            NotifyDestination::Desktop => self.desktop = routed,
+            NotifyDestination::Telegram => self.telegram = routed,
+        }
+    }
+
+    /// A level that reaches nothing. Valid, never a validation error.
+    pub fn reaches_nothing(&self) -> bool {
+        NotifyDestination::ALL
+            .into_iter()
+            .all(|destination| !self.allows(destination))
+    }
+}
+
+/// Generated from the shared definition, never restated, so the grid rows and
+/// the push channel cannot know different levels.
 pub fn default_agent_levels() -> Vec<AgentLevelChoice> {
-    crate::notification::NotifyLevel::ALL
+    NotifyLevel::ALL
         .into_iter()
-        .map(|level| AgentLevelChoice {
-            level: level.as_str().to_string(),
-            enabled: true,
+        .map(|level| AgentLevelChoice::open(level.as_str()))
+        .collect()
+}
+
+/// Reconcile stored rows against the shared level set: a level the user already
+/// answered keeps its answer, a level the set gained arrives open, and a row
+/// naming no known level is dropped. This is what stops a fourth level from
+/// desyncing the grid without a migration.
+pub fn reconcile_agent_levels(stored: &[AgentLevelChoice]) -> Vec<AgentLevelChoice> {
+    NotifyLevel::ALL
+        .into_iter()
+        .map(|level| {
+            stored
+                .iter()
+                .find(|row| NotifyLevel::parse(&row.level) == Some(level))
+                .cloned()
+                .map(|mut row| {
+                    row.level = level.as_str().to_string();
+                    row
+                })
+                .unwrap_or_else(|| AgentLevelChoice::open(level.as_str()))
         })
         .collect()
 }
