@@ -32,6 +32,7 @@ fn asked_from(tab_id: Option<&str>) -> (NotifState, String) {
         },
         Some(choices(&[CHOSEN, "Merge"])),
         None,
+        None,
     );
     (Arc::new(Mutex::new(store)), id)
 }
