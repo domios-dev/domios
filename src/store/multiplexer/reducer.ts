@@ -32,6 +32,7 @@ export type Action =
   | { type: "HYDRATE_NOTIFICATIONS"; notifications: Notification[] }
   | { type: "UPSERT_TOAST"; toast: Notification }
   | { type: "MARK_READ"; id: string }
+  | { type: "ANSWER_NOTIFICATION"; id: string; answered: string }
   | { type: "MARK_ALL_READ" }
   | { type: "DELETE_NOTIFICATION"; id: string }
   | { type: "CLEAR_NOTIFICATIONS" }
@@ -517,6 +518,20 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
       const toasts = [...state.toasts];
       toasts[existingIndex] = action.toast;
       return { ...state, toasts };
+    }
+
+    // The one-answer invariant lives in the store; this only reflects what the
+    // daemon recorded, so a second tap can never overwrite it here either.
+    case "ANSWER_NOTIFICATION": {
+      const withAnswer = (entry: Notification): Notification =>
+        entry.id !== action.id || !entry.answer || entry.answer.answered !== null
+          ? entry
+          : { ...entry, answer: { ...entry.answer, answered: action.answered } };
+      return {
+        ...state,
+        notifications: state.notifications.map(withAnswer),
+        toasts: state.toasts.map(withAnswer),
+      };
     }
 
     case "MARK_READ":

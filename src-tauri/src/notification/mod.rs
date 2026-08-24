@@ -1,3 +1,4 @@
+pub mod answer;
 pub mod dedupe;
 pub mod desktop;
 pub mod push;
@@ -57,6 +58,17 @@ pub fn list_notifications(
     let s = store.lock();
     let unread = unread_only.unwrap_or(false);
     Ok(s.list(unread).into_iter().cloned().collect())
+}
+
+/// Record the user's choice on a notification. The caller names the record and
+/// the chosen label; it cannot name a command, arguments, or a target tab.
+#[tauri::command]
+pub fn answer_notification(
+    svc: State<'_, crate::service::ServiceState>,
+    id: String,
+    label: String,
+) -> Result<serde_json::Value, String> {
+    svc.answer_notification(&id, &label)
 }
 
 /// Mark a single notification as read.

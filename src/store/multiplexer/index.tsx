@@ -24,6 +24,8 @@ import { TitleLevel } from "../../lib/types";
 import type {
   MultiplexerState,
   Notification,
+  NotificationAction,
+  NotificationAnswer,
   TabStatus,
   AtomicSpawn,
   OrchestrationPairInput,
@@ -252,7 +254,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       title: string;
       body: string | null;
       severity: "Info" | "Warning" | "Error";
-      actions?: Array<{ label: string; type: "invoke" | "url" | "dismiss"; value?: string; args?: Record<string, unknown> }>;
+      actions?: NotificationAction[];
+      answer?: NotificationAnswer;
       sticky?: boolean;
     }>("notification-created", (event) => {
       dispatch({
@@ -267,8 +270,18 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
           timestamp: Date.now(),
           read: false,
           actions: event.payload.actions,
+          answer: event.payload.answer,
           sticky: event.payload.sticky,
         },
+      });
+    }).then((unlisten) => unlisteners.push(unlisten));
+
+    listen<{ id: string; answered: string }>("notification-answered", (event) => {
+      if (!event.payload?.id) return;
+      dispatch({
+        type: "ANSWER_NOTIFICATION",
+        id: event.payload.id,
+        answered: event.payload.answered,
       });
     }).then((unlisten) => unlisteners.push(unlisten));
 
@@ -805,6 +818,22 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // The chosen label is all that travels: the tab it answers to was recorded on
+  // the notification when the question was sent. Nothing is rendered optimistically
+  // — the answer shown is the one the store recorded, which on a second tap is
+  // still the first one.
+  const answerNotification = useCallback((id: string, label: string) => {
+    void invoke<{ answered?: string }>("answer_notification", { id, label })
+      .then((result) => {
+        if (result?.answered) {
+          dispatch({ type: "ANSWER_NOTIFICATION", id, answered: result.answered });
+        }
+      })
+      .catch((err) => {
+        console.warn("Failed to record notification answer:", err);
+      });
+  }, []);
+
   const clearNotifications = useCallback(() => {
     dispatch({ type: "CLEAR_NOTIFICATIONS" });
     void invoke("clear_notifications").catch((err) => {
@@ -864,6 +893,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       markAllRead,
       deleteNotification,
       clearNotifications,
+      answerNotification,
       dismissToast,
       setTabTitle,
       setAgentType,
@@ -896,6 +926,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       markAllRead,
       deleteNotification,
       clearNotifications,
+      answerNotification,
       dismissToast,
       setTabTitle,
       setAgentType,

@@ -10,6 +10,10 @@ fn pad() -> (tempfile::TempDir, std::path::PathBuf) {
     (temp, pad)
 }
 
+fn labels(raw: &[&str]) -> Vec<String> {
+    raw.iter().map(|l| l.to_string()).collect()
+}
+
 /// The pad file is the body. A value the test wrote must arrive in the delivered
 /// params unchanged — backticks, `$`, quotes and newlines included.
 #[test]
@@ -19,7 +23,8 @@ fn notify_pad_body_round_trips_byte_for_byte() {
     fs::write(pad.join("message.md"), authored).unwrap();
 
     let body = read_from_pad_root(&pad, "message.md").expect("a pad-relative body resolves");
-    let params = params_from_body("Needs a decision", "warning", None, None, Some(body));
+    let params = params_from_body("Needs a decision", "warning", None, None, Some(body), &[])
+        .expect("a body with no choices is legal");
 
     assert_eq!(params["body"], serde_json::json!(authored));
     assert_eq!(params["title"], serde_json::json!("Needs a decision"));
@@ -53,7 +58,89 @@ fn notify_pad_body_absent_leaves_no_body_key() {
         Some(NotifyLevel::Verbose),
         None,
         None,
-    );
+        &[],
+    )
+    .expect("a title-only notification is legal");
     assert!(params.get("body").is_none());
     assert_eq!(params["level"], serde_json::json!("verbose"));
+}
+
+/// `--choice` labels reach the daemon as answer actions and nothing else: the
+/// delivered params carry the labels the caller typed, in order, with no command
+/// name and no arguments anywhere in the set.
+#[test]
+fn notify_answer_choice_labels_round_trip_into_the_actions() {
+    let params = params_from_body(
+        "Which branch?",
+        "info",
+        Some(NotifyLevel::ActionNeeded),
+        None,
+        None,
+        &labels(&["Rebase", "Merge", "Neither"]),
+    )
+    .expect("distinct non-empty labels are a legal choice set");
+
+    let actions = params["actions"]
+        .as_array()
+        .expect("choices are delivered as an action array");
+    assert_eq!(
+        actions
+            .iter()
+            .map(|action| action["label"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["Rebase", "Merge", "Neither"]
+    );
+    for action in actions {
+        assert_eq!(action["type"], serde_json::json!("answer"));
+        let fields: Vec<&String> = action.as_object().unwrap().keys().collect();
+        assert_eq!(
+            fields,
+            vec!["type", "label"],
+            "a choice carries its label and nothing that could name a command"
+        );
+    }
+}
+
+/// Naming no choice leaves the key off entirely, so an ordinary notification is
+/// byte-for-byte what it was before choices existed.
+#[test]
+fn notify_answer_no_choice_leaves_no_actions_key() {
+    let params = params_from_body("Build complete", "info", None, None, None, &[])
+        .expect("a notification without choices is legal");
+    assert!(params.get("actions").is_none());
+    assert_eq!(choice_actions(&[]).unwrap(), None);
+}
+
+/// A blank label names nothing and two equal labels name the same thing twice:
+/// both are refused before anything is sent.
+#[test]
+fn notify_answer_choice_refuses_blank_and_duplicate_labels() {
+    for rejected in [
+        labels(&["Rebase", ""]),
+        labels(&["   "]),
+        labels(&["Rebase", "Rebase"]),
+        labels(&["Rebase", " rebase "]),
+    ] {
+        assert!(
+            params_from_body("Which branch?", "info", None, None, None, &rejected).is_err(),
+            "{rejected:?} must be refused before it is sent"
+        );
+        assert!(choice_actions(&rejected).is_err());
+    }
+}
+
+/// Choices are labels only. The flag has no free-text sibling, and a label is
+/// carried verbatim rather than reinterpreted as anything the shell could mean.
+#[test]
+fn notify_answer_choice_labels_are_carried_verbatim() {
+    let awkward = labels(&["Yes, $NOW", "No `never`"]);
+    let params = params_from_body("Proceed?", "info", None, None, None, &awkward)
+        .expect("punctuation is not a reason to refuse a label");
+    let carried: Vec<String> = params["actions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|action| action["label"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(carried, awkward);
 }

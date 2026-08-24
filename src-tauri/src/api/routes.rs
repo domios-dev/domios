@@ -348,6 +348,10 @@ pub fn create_router(state: AppState) -> Router {
             post(notification_routes::mark_notification_read),
         )
         .route(
+            "/api/notifications/{id}/answer",
+            post(notification_routes::answer_notification),
+        )
+        .route(
             "/api/notifications/{id}",
             axum::routing::delete(notification_routes::delete_notification),
         )

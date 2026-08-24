@@ -102,3 +102,39 @@ fn notify_pad_body_leaves_paste_put_unchanged() {
     let conflict = parse_error(&["codeterm", "paste", "put", "raw body", "--from-pad", "m.md"]);
     assert_eq!(conflict.kind(), ErrorKind::ArgumentConflict);
 }
+
+/// A repeated `--choice` is the whole choice surface: labels only, in the order
+/// they were named, and no sibling flag that would take typed text.
+#[test]
+fn notify_answer_choice_flag_repeats_and_takes_labels_only() {
+    let parsed = Cli::try_parse_from([
+        "codeterm",
+        "notify",
+        "send",
+        "Which branch?",
+        "--choice",
+        "Rebase",
+        "--choice",
+        "Merge",
+    ])
+    .expect("--choice repeats");
+    assert!(matches!(
+        parsed.command,
+        Commands::Notify {
+            action: NotifyAction::Send { ref choice, .. }
+        } if choice == &["Rebase".to_string(), "Merge".to_string()]
+    ));
+
+    let none = Cli::try_parse_from(["codeterm", "notify", "send", "Done"])
+        .expect("choices stay optional");
+    assert!(matches!(
+        none.command,
+        Commands::Notify {
+            action: NotifyAction::Send { ref choice, .. }
+        } if choice.is_empty()
+    ));
+
+    // A label is a value, so a bare `--choice` is a parse error rather than a
+    // silent empty choice.
+    parse_error(&["codeterm", "notify", "send", "Which branch?", "--choice"]);
+}

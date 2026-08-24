@@ -189,6 +189,7 @@ function AppInner() {
     markAllRead,
     deleteNotification,
     clearNotifications,
+    answerNotification,
     dismissToast,
     spawnClaudeTab,
   } = useMultiplexer();
@@ -531,6 +532,7 @@ function AppInner() {
         onMarkAllNotificationsRead={markAllRead}
         onDeleteNotification={deleteNotification}
         onClearNotifications={clearNotifications}
+        onAnswerNotification={answerNotification}
         onDismissToast={dismissToast}
         onNavigateToast={navigateToNotificationTab}
       />
