@@ -526,6 +526,7 @@ function AppInner() {
         onOpenSettings={(section) => { setSettingsSection(section); setSettingsOpen(true); }}
         onOpenExtensions={() => { setExtensionsOpen(true); }}
         notifications={state.notifications}
+        showBell={config.notifications?.show_bell !== false}
         toasts={state.toasts}
         onMarkNotificationRead={markRead}
         onMarkAllNotificationsRead={markAllRead}

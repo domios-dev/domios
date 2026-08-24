@@ -46,11 +46,16 @@ copy_on_select = false
 desktop = true
 sound = false
 toast_duration = 5  # seconds
-# Agent alerts are gated by level: each level below can raise a desktop alert, and
-# a notification naming no level stays in the bell instead of interrupting.
+show_bell = true  # false hides the indicator; every record is still kept
+# Where each level may go. Rows are generated from the shared level set, so a
+# level added later appears here on its own. Any combination is legal, including
+# none — that level simply reaches nothing. A notification naming no level is
+# kept and rings the bell, and never reaches the system or Telegram.
 # [[notifications.agent_levels]]
 # level = "action_needed"
-# enabled = true
+# bell = true
+# desktop = true
+# telegram = true
 
 [keybindings]
 new_tab = "Ctrl+T"
@@ -351,6 +356,10 @@ fn normalize_runtime_defaults(config: &mut AppConfig) {
     if config.mesh.instance_name.trim().is_empty() {
         config.mesh.instance_name = default_mesh_instance_name();
     }
+    // The grid is the shared level set mapped. Reconciling on read is what lets
+    // a level join the set without a migration and without the panel drifting.
+    config.notifications.agent_levels =
+        schema::reconcile_agent_levels(&config.notifications.agent_levels);
 }
 
 fn default_mesh_instance_name() -> String {

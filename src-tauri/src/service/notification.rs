@@ -2,6 +2,7 @@
 
 use super::ServiceContext;
 use crate::notification::{
+    bell::{self, BellPolicy},
     dedupe::DeliveryAdmission,
     desktop::{self, DesktopPolicy},
     push::{self, NotifyLevel},
@@ -48,22 +49,26 @@ impl PushDispatch<fn(PushEnvelope) -> Result<(), String>> {
     }
 }
 
-/// The desktop leg of one notification: what the caller declared, and the
-/// user's standing policy. Deliberately not folded into `PushDispatch` — the
-/// push opt-in clears its own intent when nobody is subscribed, while the
-/// declared level still governs whether the toast may fire.
-pub struct DesktopDispatch {
+/// The two in-app legs of one notification: what the caller declared, and the
+/// user's standing policy for each surface it may reach. Deliberately not
+/// folded into `PushDispatch` — the push opt-in clears its own intent when
+/// nobody is subscribed, while the declared level still governs the toast and
+/// the bell.
+pub struct SurfaceDispatch {
     pub declared: Option<NotifyLevel>,
-    pub policy: DesktopPolicy,
+    pub bell: BellPolicy,
+    pub desktop: DesktopPolicy,
 }
 
-impl DesktopDispatch {
+impl SurfaceDispatch {
     /// Routes that raise no toast at all: internal diagnostics and the in-app
-    /// provider-update prompt.
+    /// provider-update prompt. They still reach the bell, which is where they
+    /// have always landed — silence is about interrupting, not about recording.
     pub fn silent() -> Self {
         Self {
             declared: None,
-            policy: DesktopPolicy::silent(),
+            bell: BellPolicy::open(),
+            desktop: DesktopPolicy::silent(),
         }
     }
 }
@@ -150,7 +155,7 @@ fn create_notification_with_delivery(
     origin: NotificationOrigin,
     resolve_tab: impl FnOnce(&str) -> Option<NotificationProvenance>,
     push: PushDispatch<impl FnOnce(PushEnvelope) -> Result<(), String>>,
-    desktop: DesktopDispatch,
+    surfaces: SurfaceDispatch,
     emit: impl FnOnce(serde_json::Value),
 ) -> String {
     if matches!(admission, NotificationAdmission::Diagnostic) {
@@ -247,16 +252,24 @@ fn create_notification_with_delivery(
     if let Some(s) = sticky {
         payload["sticky"] = serde_json::json!(s);
     }
-    // Dedupe already decided this message is new; the gate decides whether it
-    // may interrupt. Unlevelled keeps its record and its bell event, and stops.
-    if let Some(pass) = desktop::admit(desktop.declared, &desktop.policy).pass() {
+    // Dedupe already decided this message is new; the gates decide where it may
+    // go. Unlevelled keeps its record and its bell event, and stops.
+    if let Some(pass) = desktop::admit(surfaces.declared, &surfaces.desktop).pass() {
         log::debug!("[notify-gate] desktop toast admitted as {}", pass.level().as_str());
         deliver_native(
             payload["title"].as_str().unwrap_or_default(),
             payload["body"].as_str(),
         );
     }
-    emit(payload);
+    // The bell column is routing: a level the user routed away from the bell
+    // keeps its record and simply never arrives there. The master switch is a
+    // separate, presentation-only decision and never reaches this gate.
+    match bell::admit(surfaces.declared, &surfaces.bell) {
+        bell::BellAdmission::Allowed => emit(payload),
+        bell::BellAdmission::LevelDisabled(level) => {
+            log::debug!("[notify-gate] bell refused {}", level.as_str());
+        }
+    }
     id
 }
 
@@ -309,7 +322,7 @@ impl ServiceContext {
             NotificationOrigin::local_tab(tab_id),
             |candidate| self.resolve_tab_provenance(candidate),
             PushDispatch::inert(),
-            DesktopDispatch::silent(),
+            SurfaceDispatch::silent(),
             |payload| self.notify_event("notification-created", payload),
         )
     }
@@ -340,7 +353,7 @@ impl ServiceContext {
             NotificationOrigin::default(),
             |_| None,
             PushDispatch::inert(),
-            DesktopDispatch::silent(),
+            SurfaceDispatch::silent(),
             |_| {},
         )
     }
@@ -361,10 +374,7 @@ impl ServiceContext {
         // Telegram audience still has a desktop gate to satisfy.
         let declared = intent.level;
         let (intent, per_scope_limit, audience) = self.resolve_push_policy(intent);
-        let desktop = DesktopDispatch {
-            declared,
-            policy: self.resolve_desktop_policy(),
-        };
+        let surfaces = self.resolve_surface_dispatch(declared);
         create_notification_with_delivery(
             NotificationAdmission::Explicit,
             &self.notif,
@@ -385,7 +395,7 @@ impl ServiceContext {
                     self.deliver_telegram_push(&audience, &envelope)
                 },
             },
-            desktop,
+            surfaces,
             |payload| self.notify_event("notification-created", payload),
         )
     }
@@ -400,18 +410,20 @@ mod tests {
     use std::sync::Arc;
 
     /// A caller that named a level, judged against the shipped policy.
-    fn declared(level: NotifyLevel) -> DesktopDispatch {
-        DesktopDispatch {
+    fn declared(level: NotifyLevel) -> SurfaceDispatch {
+        SurfaceDispatch {
             declared: Some(level),
-            policy: DesktopPolicy::from_config(&NotificationConfig::default()),
+            bell: BellPolicy::from_config(&NotificationConfig::default()),
+            desktop: DesktopPolicy::from_config(&NotificationConfig::default()),
         }
     }
 
     /// A caller that named none — refused by the gate, not by an empty policy.
-    fn undeclared() -> DesktopDispatch {
-        DesktopDispatch {
+    fn undeclared() -> SurfaceDispatch {
+        SurfaceDispatch {
             declared: None,
-            policy: DesktopPolicy::from_config(&NotificationConfig::default()),
+            bell: BellPolicy::from_config(&NotificationConfig::default()),
+            desktop: DesktopPolicy::from_config(&NotificationConfig::default()),
         }
     }
 
@@ -536,7 +548,7 @@ mod tests {
                 NotificationOrigin::default(),
                 |_| None,
                 PushDispatch::inert(),
-                DesktopDispatch::silent(),
+                SurfaceDispatch::silent(),
                 |payload| emitted.lock().push(payload),
             );
         }
@@ -589,7 +601,7 @@ mod tests {
                 NotificationOrigin::claimed(Some("tab_never_existed".into())),
                 live_registry,
                 PushDispatch::inert(),
-                DesktopDispatch::silent(),
+                SurfaceDispatch::silent(),
                 |payload| emitted.lock().push(payload),
             );
 
@@ -637,7 +649,7 @@ mod tests {
                 origin,
                 live_registry,
                 PushDispatch::inert(),
-                DesktopDispatch::silent(),
+                SurfaceDispatch::silent(),
                 |payload| emitted.lock().push(payload),
             );
 
@@ -672,7 +684,7 @@ mod tests {
                 origin,
                 live_registry,
                 PushDispatch::inert(),
-                DesktopDispatch::silent(),
+                SurfaceDispatch::silent(),
                 |_| {},
             );
 

@@ -1,7 +1,8 @@
 use super::{
-    IntegrationsConfig, MemoryConfig, NotificationConfig, OrchestrationConfig, UiConfig,
-    UsageConfig,
+    reconcile_agent_levels, AgentLevelChoice, IntegrationsConfig, MemoryConfig, NotificationConfig,
+    OrchestrationConfig, UiConfig, UsageConfig,
 };
+use crate::notification::{NotifyDestination, NotifyLevel};
 
 #[test]
 fn telegram_push_is_opt_out_on_a_fresh_install() {
@@ -196,4 +197,186 @@ fn discord_allowed_users_also_tolerant() {
         cfg.discord_allowed_users,
         vec!["555".to_string(), "666".to_string()]
     );
+}
+
+/// Absent config is the whole compatibility contract: an install that never
+/// opened the panel must route exactly where it routed before the grid existed.
+#[test]
+fn notification_settings_absent_config_reproduces_todays_behaviour() {
+    let empty: NotificationConfig = toml::from_str("").unwrap();
+    let default = NotificationConfig::default();
+
+    assert!(empty.desktop, "desktop notifications were on before the grid");
+    assert!(!empty.sound);
+    assert_eq!(empty.toast_duration, 5);
+    assert!(
+        empty.show_bell,
+        "the bell was visible before there was a switch to hide it"
+    );
+    assert!(!empty.telegram.enabled, "push stays opt-in");
+
+    assert_eq!(
+        empty.agent_levels, default.agent_levels,
+        "an absent grid is the generated grid"
+    );
+    for row in &empty.agent_levels {
+        for destination in NotifyDestination::ALL {
+            assert!(
+                row.allows(destination),
+                "{} -> {} was reachable before the grid and must stay reachable",
+                row.level,
+                destination.as_str()
+            );
+        }
+    }
+
+    // A row that names only its level is the same contract at row scope.
+    let partial: NotificationConfig = toml::from_str(
+        r#"
+[[agent_levels]]
+level = "verbose"
+"#,
+    )
+    .unwrap();
+    let verbose = &partial.agent_levels[0];
+    assert!(verbose.bell && verbose.desktop && verbose.telegram);
+}
+
+/// The rows are `ALL` mapped. The proof is a fixture that gains a level: the
+/// reconciled grid gains a row without anyone editing a list of three.
+#[test]
+fn notification_settings_rows_derive_from_the_shared_level_set() {
+    let generated: Vec<String> = NotificationConfig::default()
+        .agent_levels
+        .into_iter()
+        .map(|row| row.level)
+        .collect();
+    assert_eq!(
+        generated,
+        NotifyLevel::wire_values(),
+        "the shipped grid is the shared set mapped, not a hand-written triple"
+    );
+
+    // Stored answers survive reconciliation; a level nobody answered arrives open.
+    let mut only_failure = AgentLevelChoice::open(NotifyLevel::Failure.as_str());
+    only_failure.desktop = false;
+    let reconciled = reconcile_agent_levels(&[only_failure]);
+    assert_eq!(
+        reconciled.len(),
+        NotifyLevel::ALL.len(),
+        "every level of the shared set gets exactly one row"
+    );
+    let failure_row = reconciled
+        .iter()
+        .find(|row| row.level == NotifyLevel::Failure.as_str())
+        .expect("the answered level keeps its row");
+    assert!(!failure_row.desktop, "the stored answer is preserved");
+    assert!(failure_row.bell && failure_row.telegram);
+    for row in &reconciled {
+        assert!(
+            NotifyLevel::parse(&row.level).is_some(),
+            "{} is not a level of the shared set",
+            row.level
+        );
+    }
+
+    // A row the set does not know is dropped rather than rendered.
+    let retired = AgentLevelChoice::open("milestone");
+    let cleaned = reconcile_agent_levels(&[retired]);
+    assert_eq!(cleaned, NotificationConfig::default().agent_levels);
+    assert!(cleaned.iter().all(|row| row.level != "milestone"));
+}
+
+/// All-off is a configuration, not a validation error, and it round-trips.
+#[test]
+fn notification_settings_all_off_for_a_level_is_accepted_and_round_trips() {
+    let mut cfg = NotificationConfig::default();
+    let verbose = cfg
+        .agent_levels
+        .iter_mut()
+        .find(|row| row.level == NotifyLevel::Verbose.as_str())
+        .expect("verbose has a row");
+    for destination in NotifyDestination::ALL {
+        verbose.set(destination, false);
+    }
+    assert!(verbose.reaches_nothing());
+
+    let encoded = toml::to_string(&cfg).expect("an all-off level serialises");
+    let decoded: NotificationConfig = toml::from_str(&encoded).expect("and parses back");
+    let reloaded = decoded
+        .agent_levels
+        .iter()
+        .find(|row| row.level == NotifyLevel::Verbose.as_str())
+        .expect("the row survives the round trip");
+    assert!(
+        reloaded.reaches_nothing(),
+        "a level that reaches nothing stays a level that reaches nothing"
+    );
+    assert_eq!(decoded.agent_levels, cfg.agent_levels);
+
+    // Reconciliation must not quietly re-open what the user closed.
+    assert_eq!(reconcile_agent_levels(&decoded.agent_levels), cfg.agent_levels);
+}
+
+/// A hidden bell surface and an unreachable bell column are different states.
+/// Config must be able to tell them apart, in both directions.
+#[test]
+fn notification_settings_hidden_bell_is_distinct_from_every_bell_column_off() {
+    let mut hidden = NotificationConfig::default();
+    hidden.show_bell = false;
+
+    let mut columns_off = NotificationConfig::default();
+    for row in &mut columns_off.agent_levels {
+        row.set(NotifyDestination::Bell, false);
+    }
+
+    assert!(!hidden.show_bell);
+    assert!(
+        hidden
+            .agent_levels
+            .iter()
+            .all(|row| row.allows(NotifyDestination::Bell)),
+        "hiding the surface routes nothing away from it"
+    );
+
+    assert!(columns_off.show_bell, "the surface is still rendered");
+    assert!(columns_off
+        .agent_levels
+        .iter()
+        .all(|row| !row.allows(NotifyDestination::Bell)));
+
+    assert_ne!(
+        toml::to_string(&hidden).unwrap(),
+        toml::to_string(&columns_off).unwrap(),
+        "the two states must not serialise to the same config"
+    );
+
+    // And both compose: the surface can be hidden while the column stays open.
+    let mut both = columns_off.clone();
+    both.show_bell = false;
+    assert!(!both.show_bell);
+    assert!(both
+        .agent_levels
+        .iter()
+        .all(|row| !row.allows(NotifyDestination::Bell)));
+}
+
+/// `allows`/`set` dispatch over the closed set, so a fourth destination cannot
+/// leave a column silently unreadable.
+#[test]
+fn notification_settings_every_destination_is_independently_togglable() {
+    for target in NotifyDestination::ALL {
+        let mut row = AgentLevelChoice::open(NotifyLevel::ActionNeeded.as_str());
+        row.set(target, false);
+        for destination in NotifyDestination::ALL {
+            assert_eq!(
+                row.allows(destination),
+                destination != target,
+                "toggling {} must not move {}",
+                target.as_str(),
+                destination.as_str()
+            );
+        }
+        assert!(!row.reaches_nothing());
+    }
 }
