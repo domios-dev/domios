@@ -3,7 +3,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Json,
 };
-use codeterm_types::notification::{validate_answer_labels, NotificationAction};
+use codeterm_types::notification::{validate_answer_labels, CallerAction};
 use serde::Deserialize;
 
 use crate::api::routes::{check_auth, AppState};
@@ -29,9 +29,10 @@ pub(crate) struct CreateNotifBody {
     title: String,
     body: Option<String>,
     severity: Option<String>,
-    /// Typed at the boundary: an unknown kind is refused here rather than
-    /// travelling on as a string some click handler later interprets.
-    actions: Option<Vec<NotificationAction>>,
+    /// Typed at the boundary as the CALLER-facing action set, which has no
+    /// invoke variant: a command name has nowhere to land, so it is not a
+    /// value some later click handler could interpret.
+    actions: Option<Vec<CallerAction>>,
     sticky: Option<bool>,
     tab_id: Option<String>,
     /// Stamped by the Mesh relay from the signed sender; suppresses any tab claim.
@@ -60,11 +61,12 @@ pub(crate) fn parse_push_intent(
     Ok(crate::service::notification::PushIntent { level, event_key })
 }
 
-/// Vet a caller-supplied action set. Parsing already closed the kind; this
-/// closes the choice set, which only makes sense as a whole.
+/// Vet a caller-supplied action set. Parsing already closed the kind - and the
+/// type it parsed into has no invoke variant at all; this closes the choice
+/// set, which only makes sense as a whole.
 pub(crate) fn vet_actions(
-    actions: Option<Vec<NotificationAction>>,
-) -> Result<Option<Vec<NotificationAction>>, String> {
+    actions: Option<Vec<CallerAction>>,
+) -> Result<Option<Vec<CallerAction>>, String> {
     if let Some(ref actions) = actions {
         validate_answer_labels(actions)?;
     }

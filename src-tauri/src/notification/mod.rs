@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod action_provenance;
 pub mod answer;
 pub mod answer_delivery;
 pub mod bell;

@@ -1,0 +1,91 @@
+// Run: npx tsx src/components/Notifications/action_provenance/legacy_row.test.ts
+//
+// The legacy-row decision. A stored or relayed row written before actions
+// carried daemon provenance loads with its invoke STRIPPED, never silently
+// accepted. Stripping rather than rejecting the whole row is deliberate: the
+// title and body are the user's message and a real one, while the button is the
+// only part that ever carried capability. Rejecting the row would delete a
+// message to close a hole that dropping one button already closes.
+
+import { adoptStoredActions } from "../../../lib/notificationActions";
+
+let checked = 0;
+function check(condition: unknown, message: string): void {
+  checked++;
+  if (!condition) throw new Error(message);
+}
+
+const LEGACY_INVOKE = {
+  type: "invoke",
+  label: "Go",
+  value: "clear_notifications",
+  args: { id: "notice-1" },
+};
+
+function run() {
+  const legacyRow = [
+    LEGACY_INVOKE,
+    { type: "url", label: "Docs", value: "https://example.invalid" },
+    { type: "dismiss", label: "Later" },
+    { type: "answer", label: "Rebase" },
+  ];
+  const adopted = adoptStoredActions(legacyRow) ?? [];
+
+  check(adopted.length === 3, `the legacy invoke should be dropped, got ${JSON.stringify(adopted)}`);
+  check(
+    adopted.every((action) => action.type !== "invoke"),
+    "a legacy invoke must not survive ingress",
+  );
+  check(
+    JSON.stringify(adopted) === JSON.stringify(legacyRow.slice(1)),
+    "every other kind on a legacy row survives byte for byte",
+  );
+  check(
+    !JSON.stringify(adopted).includes("clear_notifications"),
+    "no field of an adopted row may still carry the legacy command name",
+  );
+
+  // A row whose ONLY action was a legacy invoke keeps its message and loses its
+  // button - the row itself is not rejected.
+  check(
+    JSON.stringify(adoptStoredActions([LEGACY_INVOKE])) === "[]",
+    "a row carrying only a legacy invoke adopts to an empty action set",
+  );
+
+  // A command outside the daemon set is the same case, whatever field names it.
+  for (const outside of ["clear_notifications", "", "RespondProviderUpdatePrompt"]) {
+    check(
+      JSON.stringify(adoptStoredActions([{ type: "invoke", label: "Go", command: outside }])) === "[]",
+      `an invoke naming ${outside} is outside the daemon set and must be dropped`,
+    );
+  }
+
+  // A daemon-written row is adopted whole, and gains no free-form target.
+  const daemon = adoptStoredActions([
+    {
+      type: "invoke",
+      label: "Update",
+      command: "respond_provider_update_prompt",
+      args: { promptId: "prompt-1", accept: true },
+      value: "clear_notifications",
+    },
+  ]);
+  check(daemon?.length === 1, "a daemon-written invoke is adopted");
+  check(
+    JSON.stringify(daemon?.[0]) ===
+      JSON.stringify({
+        type: "invoke",
+        label: "Update",
+        command: "respond_provider_update_prompt",
+        args: { promptId: "prompt-1", accept: true },
+      }),
+    "an adopted invoke is rebuilt field by field, so a stray value field cannot ride along",
+  );
+
+  check(adoptStoredActions(undefined) === undefined, "a row with no actions adopts to none");
+  check(adoptStoredActions("nope") === undefined, "a non-array action set adopts to none");
+
+  console.log(`action_provenance legacy row: ${checked} assertions passed`);
+}
+
+run();

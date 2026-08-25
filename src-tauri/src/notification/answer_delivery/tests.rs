@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::sync::Arc;
 
 use codeterm_types::message_markers;
-use codeterm_types::notification::{answer_actions, NotificationAction};
+use codeterm_types::notification::{adopt_caller_actions, answer_actions, NotificationAction};
 use parking_lot::Mutex;
 
 use super::*;
@@ -14,8 +14,10 @@ const CHOSEN: &str = "Rebase";
 const ASKING_TAB: &str = "tab-asking-7";
 
 fn choices(labels: &[&str]) -> Vec<NotificationAction> {
-    answer_actions(&labels.iter().map(|l| l.to_string()).collect::<Vec<_>>())
-        .expect("distinct non-empty labels are a legal choice set")
+    adopt_caller_actions(
+        answer_actions(&labels.iter().map(|l| l.to_string()).collect::<Vec<_>>())
+            .expect("distinct non-empty labels are a legal choice set"),
+    )
 }
 
 /// A store holding one question, asked from `tab_id` (or from a tab that is

@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
-import type { Notification, NotificationAction } from "../../lib/types";
-import { invoke } from "../../lib/bridge";
+import type { Notification } from "../../lib/types";
+import { runNotificationAction } from "../../lib/notificationActions";
 import { Bell, Check, ChevronDown, Trash2, X } from "lucide-react";
 import { timeAgo } from "../../lib/formatters";
 import { isAnswerUndeliverable, isAnswerUndelivered } from "../../lib/notificationAnswer";
@@ -37,17 +37,6 @@ export function NotificationPanel({
     },
     [onMarkRead],
   );
-  const runAction = useCallback(async (action: NotificationAction) => {
-    try {
-      if (action.type === "url" && action.value) {
-        window.open(action.value, "_blank");
-      } else if (action.type === "invoke" && action.value) {
-        await invoke(action.value, action.args ?? {});
-      }
-    } catch (error) {
-      console.warn(`Notification action '${action.label}' failed:`, error);
-    }
-  }, []);
   const headerBtnClass = `${UI_BUTTON.ghost} ${UI_BUTTON.compact} h-6 px-1.5 text-[10px] disabled:pointer-events-none disabled:opacity-35`;
   const rowClass = `group flex items-start gap-2 border-b border-[var(--ct-border)] px-3 py-2.5 transition-colors hover:bg-[var(--ct-hover)]`;
 
@@ -203,7 +192,7 @@ export function NotificationPanel({
                           onClick={(event) => {
                             event.stopPropagation();
                             if (action.type === "answer") onAnswer?.(notif.id, action.label);
-                            else void runAction(action);
+                            else void runNotificationAction(action);
                           }}
                         >
                           {action.label}
