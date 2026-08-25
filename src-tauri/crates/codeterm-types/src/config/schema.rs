@@ -380,13 +380,14 @@ fn default_per_scope_limit() -> u32 {
     12
 }
 
-/// One channel's opt-in push audience, keyed in `notifications.channels` by
-/// the channel's service id. `recipients` is an audience and is deliberately
-/// not an integration's allow list, which admits inbound senders instead.
+/// One channel's push audience, keyed in `notifications.channels` by the
+/// channel's service id. `recipients` is an audience and is deliberately not
+/// an integration's inbound admission list, which admits senders rather than
+/// naming an audience. Empty means nobody, never everyone admitted. Whether a
+/// level reaches this channel at all is that channel's column of the grid.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PushChannelConfig {
-    pub enabled: bool,
     #[serde(deserialize_with = "deserialize_user_id_list")]
     pub recipients: Vec<String>,
     /// Lifetime push ceiling per originating tab. A count, never a rate.
@@ -397,7 +398,6 @@ pub struct PushChannelConfig {
 impl Default for PushChannelConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
             recipients: Vec::new(),
             per_scope_limit: default_per_scope_limit(),
         }

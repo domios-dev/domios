@@ -138,10 +138,20 @@ fn registered_ids() -> Vec<&'static str> {
     channels::roster().into_iter().map(|entry| entry.id()).collect()
 }
 
+/// Admitted inbound and chosen as an audience are two different answers, so
+/// this fixture states both: the allow list admits the sender, and the
+/// channel's own entry is where that id was chosen to receive pushes.
 fn discord_opted_in() -> AppConfig {
     let mut cfg = open_config();
     cfg.integrations.discord_enabled = true;
     cfg.integrations.discord_allowed_users = vec!["424242".to_string()];
+    cfg.notifications.channels.insert(
+        "discord".to_string(),
+        PushChannelConfig {
+            recipients: vec!["424242".to_string()],
+            ..PushChannelConfig::default()
+        },
+    );
     cfg
 }
 
@@ -152,7 +162,7 @@ fn discord_opted_in() -> AppConfig {
 /// A second push channel becomes routable through registry data and its own
 /// module. Nothing here edits the destination enum, the grid, or a match arm
 /// that spells a channel: Discord routes because the roster carries it and
-/// because the integration config it already had names an audience.
+/// because its own channel entry names an audience.
 #[test]
 fn channel_registry_second_channel_routes_without_touching_the_enum_or_the_grid() {
     let roster = channels::roster();
@@ -192,7 +202,7 @@ fn channel_registry_second_channel_routes_without_touching_the_enum_or_the_grid(
     let plan = plan_push(&cfg, &roster, &host, intent(NotifyLevel::Failure));
     assert!(
         plan.targets.iter().any(|target| target.service == "discord"),
-        "discord is routable from the config that already existed"
+        "discord is routable from registry data plus its own audience entry"
     );
 
     // Routable is not the claim; carrying is. Every function of the second

@@ -85,7 +85,6 @@ fn opted_in_config() -> AppConfig {
     cfg.notifications.channels.insert(
         "telegram".to_string(),
         PushChannelConfig {
-            enabled: true,
             recipients: vec![CHAT_ID.to_string()],
             per_scope_limit: 12,
         },

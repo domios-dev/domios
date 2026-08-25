@@ -481,7 +481,7 @@ async function mount(element: ReactElement) {
   };
 }
 
-const TELEGRAM = '[data-testid="settings-telegram-notifications"]';
+const TELEGRAM = '[data-testid="settings-channel-audience"][data-channel="telegram"]';
 
 /** 6. The nav exposes a Notifications section and the matrix renders under it. */
 async function theNavExposesNotificationsAndTheMatrixLivesThere() {
