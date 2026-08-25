@@ -1,11 +1,15 @@
-use codeterm_types::notification::{answer_actions, NotificationAction};
+use codeterm_types::notification::{
+    adopt_caller_actions, answer_actions, CallerAction, NotificationAction, OfferedChoice,
+};
 
 use super::*;
 use crate::notification::store::{NotificationProvenance, NotificationSeverity, NotificationStore};
 
 fn choices(labels: &[&str]) -> Vec<NotificationAction> {
-    answer_actions(&labels.iter().map(|l| l.to_string()).collect::<Vec<_>>())
-        .expect("distinct non-empty labels are a legal choice set")
+    adopt_caller_actions(
+        answer_actions(&labels.iter().map(|l| l.to_string()).collect::<Vec<_>>())
+            .expect("distinct non-empty labels are a legal choice set"),
+    )
 }
 
 fn asked_from(tab_id: Option<&str>) -> (NotificationStore, String) {
@@ -36,7 +40,7 @@ fn notify_answer_kind_cannot_express_a_command_or_arguments() {
         serde_json::json!({"type": "answer", "label": "Yes", "command": "x"}),
     ] {
         assert!(
-            serde_json::from_value::<NotificationAction>(smuggled.clone()).is_err(),
+            serde_json::from_value::<CallerAction>(smuggled.clone()).is_err(),
             "an answer action must not be able to express {smuggled}"
         );
     }
@@ -68,11 +72,11 @@ fn notify_answer_unknown_kind_is_a_parse_rejection() {
     for unknown in ["approve", "run", "Answer", ""] {
         let raw = serde_json::json!({"type": unknown, "label": "Yes"});
         assert!(
-            serde_json::from_value::<NotificationAction>(raw).is_err(),
+            serde_json::from_value::<CallerAction>(raw).is_err(),
             "{unknown} is outside the closed set of action kinds"
         );
     }
-    assert!(serde_json::from_value::<NotificationAction>(
+    assert!(serde_json::from_value::<CallerAction>(
         serde_json::json!({"type": "answer", "label": "Yes"})
     )
     .is_ok());
@@ -242,7 +246,7 @@ fn notify_answer_choice_set_refuses_blank_and_duplicate_labels() {
     assert_eq!(
         accepted
             .iter()
-            .filter_map(NotificationAction::answer_label)
+            .filter_map(OfferedChoice::answer_label)
             .collect::<Vec<_>>(),
         vec!["Rebase", "Merge"]
     );

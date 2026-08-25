@@ -35,7 +35,7 @@ const item: Notification = {
     {
       label: "Update",
       type: "invoke",
-      value: "respond_provider_update_prompt",
+      command: "respond_provider_update_prompt",
       args: { promptId: "prompt-1", accept: true },
     },
   ],

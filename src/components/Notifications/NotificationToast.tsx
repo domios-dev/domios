@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { invoke } from "../../lib/bridge";
+import { runNotificationAction } from "../../lib/notificationActions";
 import type { Notification, NotificationAction } from "../../lib/types";
 import { Check, X } from "lucide-react";
 import { InfoIcon, WarningIcon, ErrorIcon } from "../Icons";
@@ -43,16 +43,7 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate, embedded }
   }, [notification.id, notification.read, onMarkRead]);
 
   const runAction = useCallback(async (action: NotificationAction) => {
-    if (action.type === "dismiss") {
-    } else if (action.type === "url" && action.value) {
-      try { window.open(action.value, "_blank"); } catch {}
-    } else if (action.type === "invoke" && action.value) {
-      try {
-        await invoke(action.value, action.args ?? {});
-      } catch (e) {
-        console.warn(`Notification action '${action.value}' failed:`, e);
-      }
-    }
+    await runNotificationAction(action);
     setClosing(true);
   }, []);
 

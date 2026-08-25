@@ -1,4 +1,4 @@
-use codeterm_types::notification::{answer_actions, NotificationAction, NotifyLevel};
+use codeterm_types::notification::{answer_actions, CallerAction, NotifyLevel};
 
 /// `notification.create` params. The body has exactly one source — the calling
 /// tab's pad — so a shell can never mangle a question before the user reads it.
@@ -24,7 +24,7 @@ pub fn send_params(
 
 /// The offered choices, or nothing when none were named. A label is the whole
 /// payload of a choice, so an unusable set is refused before it is sent.
-pub fn choice_actions(choices: &[String]) -> Result<Option<Vec<NotificationAction>>, String> {
+pub fn choice_actions(choices: &[String]) -> Result<Option<Vec<CallerAction>>, String> {
     if choices.is_empty() {
         return Ok(None);
     }

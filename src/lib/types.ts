@@ -289,17 +289,30 @@ export interface PtyInfo {
 }
 
 /**
- * What one notification button does. A closed union, mirroring the Rust set: an
- * unknown kind never parses, and only the kinds that need a command name have a
- * field to carry one.
+ * The fixed set of commands the daemon may put behind a notification button.
+ * Mirrors the Rust `DaemonCommand`: an invoke action names a member of this set
+ * and nothing else, so there is no free-form command target on the wire.
+ */
+export type DaemonCommand = "respond_provider_update_prompt";
+
+/**
+ * What one notification button does, as the daemon stores and emits it. A
+ * closed union mirroring the Rust set.
  */
 export type NotificationAction =
-  /** Calls a Tauri command. Daemon-constructed only. */
-  | { type: "invoke"; label: string; value: string; args?: Record<string, unknown> }
+  /** Calls one allowlisted Tauri command. Daemon-constructed only. */
+  | { type: "invoke"; label: string; command: DaemonCommand; args?: Record<string, unknown> }
   | { type: "url"; label: string; value: string }
   | { type: "dismiss"; label: string }
   /** One offered choice. The label is its entire payload — no command, no args. */
   | { type: "answer"; label: string };
+
+/**
+ * What a CALLER may ask a notification button to do. Mirrors the Rust
+ * `CallerAction`: the invoke member is absent, so a caller-supplied action has
+ * no field a command name could live in.
+ */
+export type CallerNotificationAction = Exclude<NotificationAction, { type: "invoke" }>;
 
 /** The answer slot of one notification: the tab captured when the question was
  * sent, and the single label it may ever hold. */

@@ -38,13 +38,13 @@ pub(super) fn dispatch(
                 peer_name: None,
             };
             // The CLI reaches the daemon here, so `--choice` is parsed on this
-            // path too — an unknown kind is refused rather than dropped.
+            // path too, into the caller-facing set that has no invoke variant.
             let actions =
                 match params.as_ref().and_then(|p| p.get("actions")) {
                     None | Some(Value::Null) => None,
                     Some(raw) => Some(
                         serde_json::from_value::<
-                            Vec<codeterm_types::notification::NotificationAction>,
+                            Vec<codeterm_types::notification::CallerAction>,
                         >(raw.clone())
                         .map_err(|e| JsonRpcError {
                             code: -32602,
