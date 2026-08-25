@@ -1,8 +1,10 @@
 import type { AgentLevelChoice, AppConfig } from "../../lib/types";
 import {
-  NOTIFY_DESTINATIONS,
   destinationCellLabel,
-  type NotifyDestinationId,
+  destinationColumns,
+  isRouted,
+  type DestinationColumn,
+  type PushChannelDescriptor,
 } from "../../lib/notifyDestinations";
 import { levelLabel, levelTone } from "../../lib/notifyLevels";
 import { Toggle } from "./shared";
@@ -10,38 +12,44 @@ import { Toggle } from "./shared";
 export function setLevelDestination(
   current: AgentLevelChoice[],
   level: string,
-  destination: NotifyDestinationId,
+  destination: string,
   routed: boolean,
 ): AgentLevelChoice[] {
   return current.map((choice) => {
     if (choice.level !== level) return choice;
-    const next: AgentLevelChoice = { ...choice };
-    next[destination] = routed;
-    return next;
+    return { ...choice, [destination]: routed };
   });
 }
 
-export function reachesNothing(choice: AgentLevelChoice): boolean {
-  return NOTIFY_DESTINATIONS.every((destination) => !choice[destination.id]);
+export function reachesNothing(
+  choice: AgentLevelChoice,
+  columns: readonly DestinationColumn[],
+): boolean {
+  return columns.every((column) => !isRouted(choice, column.id));
 }
 
 /**
  * The levels-by-destinations grid.
  *
  * Rows come from the daemon's own closed level set, so a level added there
- * appears here without anyone editing a list. Columns come from the shared
- * destination set. Every cell is independent, and a level with every column
- * closed is a configuration rather than an error — it simply reaches nothing.
+ * appears here without anyone editing a list. Columns come from the daemon's
+ * channel registry the same way: this component never names a channel, so a
+ * channel the registry gains becomes a column with nothing here to change.
+ * Every cell is independent, and a level with every column closed is a
+ * configuration rather than an error — it simply reaches nothing.
  */
 export function NotificationDestinations({
   config,
+  channels,
   onUpdate,
 }: {
   config: AppConfig;
+  channels: readonly PushChannelDescriptor[];
   onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void;
 }) {
   const levels = config.notifications?.agent_levels ?? [];
   if (levels.length === 0) return null;
+  const columns = destinationColumns(channels);
 
   return (
     <div className="flex flex-col gap-4" data-testid="settings-notification-destinations">
@@ -68,15 +76,15 @@ export function NotificationDestinations({
               >
                 {label}
               </span>
-              {reachesNothing(choice) && (
+              {reachesNothing(choice, columns) && (
                 <span className="text-[10px] text-[var(--ct-muted)]">reaches nothing</span>
               )}
             </div>
-            {NOTIFY_DESTINATIONS.map((destination) => (
+            {columns.map((destination) => (
               <Toggle
                 key={destination.id}
                 label={destinationCellLabel(label, destination.label)}
-                checked={choice[destination.id]}
+                checked={isRouted(choice, destination.id)}
                 onChange={(value) =>
                   onUpdate("notifications", {
                     agent_levels: setLevelDestination(
@@ -94,7 +102,7 @@ export function NotificationDestinations({
       })}
       <p className="text-[10px] text-[var(--ct-muted)] leading-relaxed">
         A message that names no level is kept and rings the bell. It never reaches the system or
-        Telegram — there is no fallback level and no way to widen this set from here.
+        any push channel — there is no fallback level and no way to widen this set from here.
       </p>
     </div>
   );

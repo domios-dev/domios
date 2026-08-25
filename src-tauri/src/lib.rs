@@ -295,7 +295,7 @@ pub fn run() {
             commands::mux_commands::mux_respond_prompt,
             commands::mux_commands::mux_batch,
             notification::notify,
-            notification::telegram_push_gate,
+            notification::push_channel_roster,
             notification::list_notifications,
             notification::mark_notification_read,
             notification::answer_notification,

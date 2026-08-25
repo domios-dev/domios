@@ -148,7 +148,7 @@ const HTTP_MAP: Record<string, Mapper> = {
     return config;
   },
   list_notifications: () => webJson("GET", "/api/notifications"),
-  telegram_push_gate: () => webJson("GET", "/api/notifications/telegram-gate"),
+  push_channel_roster: () => webJson("GET", "/api/notifications/channels"),
   notify: (a) =>
     webJson("POST", "/api/notifications", {
       title: a.title,

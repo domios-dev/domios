@@ -42,11 +42,14 @@ pub fn create_outbound_channel() -> (
     (Arc::new(Mutex::new(Some(tx))), rx)
 }
 
+/// Gate the send path on the service roster. A service nobody registered is
+/// unknown; a registered service with no transport in this build says exactly
+/// that, so the caller is never told a real channel does not exist.
 pub fn ensure_supported_service(service: &str) -> Result<(), &'static str> {
-    if service == "telegram" {
-        Ok(())
-    } else {
-        Err("service unsupported")
+    match crate::services::find(service) {
+        Some(descriptor) if descriptor.outbound => Ok(()),
+        Some(_) => Err("service has no outbound transport in this build"),
+        None => Err("service unsupported"),
     }
 }
 

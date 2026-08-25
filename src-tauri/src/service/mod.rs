@@ -36,7 +36,7 @@ pub mod message_gateway;
 pub mod messenger;
 pub mod notification;
 mod notification_desktop;
-mod notification_push;
+pub(crate) mod notification_push;
 mod orchestration_pair;
 mod orchestrator;
 pub(crate) use orchestrator::{build_agent_command, provider_launch_task};

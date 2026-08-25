@@ -1,43 +1,48 @@
 use super::{
     reconcile_agent_levels, AgentLevelChoice, IntegrationsConfig, MemoryConfig, NotificationConfig,
-    OrchestrationConfig, UiConfig, UsageConfig,
+    OrchestrationConfig, PushChannelConfig, UiConfig, UsageConfig,
 };
 use crate::notification::{NotifyDestination, NotifyLevel};
 
-#[test]
-fn telegram_push_is_opt_out_on_a_fresh_install() {
-    let cfg = NotificationConfig::default();
-    assert!(
-        !cfg.telegram.enabled,
-        "a fresh install must behave exactly as before"
-    );
-    assert!(
-        cfg.telegram.recipients.is_empty(),
-        "no audience is configured by default, so nobody receives anything"
-    );
-    assert!(cfg.telegram.per_scope_limit > 0);
+/// A channel id core has never heard of. Every column assertion below routes
+/// through one of these, so nothing here can pass by knowing a real channel.
+const FIXTURE_CHANNEL: &str = "fixture";
 
-    let from_empty_toml: NotificationConfig = toml::from_str("").unwrap();
-    assert!(!from_empty_toml.telegram.enabled);
-    assert!(from_empty_toml.telegram.recipients.is_empty());
+fn fixture_columns() -> Vec<NotifyDestination<'static>> {
+    NotifyDestination::columns([FIXTURE_CHANNEL])
 }
 
 #[test]
-fn telegram_push_recipients_accept_bare_and_quoted_chat_ids() {
+fn push_channels_are_opt_out_on_a_fresh_install() {
+    let cfg = NotificationConfig::default();
+    assert!(
+        cfg.channels.is_empty(),
+        "a fresh install names no audience, so nobody receives anything"
+    );
+    assert!(PushChannelConfig::default().per_scope_limit > 0);
+    assert!(!PushChannelConfig::default().enabled);
+
+    let from_empty_toml: NotificationConfig = toml::from_str("").unwrap();
+    assert!(from_empty_toml.channels.is_empty());
+}
+
+#[test]
+fn push_channel_recipients_accept_bare_and_quoted_chat_ids() {
     let toml = r#"
-        [telegram]
+        [channels.fixture]
         enabled = true
         recipients = [100000001, "789012345"]
     "#;
     let cfg: NotificationConfig = toml::from_str(toml).unwrap();
-    assert!(cfg.telegram.enabled);
+    let channel = cfg.channels.get(FIXTURE_CHANNEL).expect("the keyed entry");
+    assert!(channel.enabled);
     assert_eq!(
-        cfg.telegram.recipients,
+        channel.recipients,
         vec!["100000001".to_string(), "789012345".to_string()]
     );
     assert_eq!(
-        cfg.telegram.per_scope_limit,
-        NotificationConfig::default().telegram.per_scope_limit,
+        channel.per_scope_limit,
+        PushChannelConfig::default().per_scope_limit,
         "an omitted ceiling falls back to the default rather than to zero"
     );
 }
@@ -216,14 +221,14 @@ fn notification_settings_absent_config_reproduces_todays_behaviour() {
         empty.show_bell,
         "the bell was visible before there was a switch to hide it"
     );
-    assert!(!empty.telegram.enabled, "push stays opt-in");
+    assert!(empty.channels.is_empty(), "push stays opt-in");
 
     assert_eq!(
         empty.agent_levels, default.agent_levels,
         "an absent grid is the generated grid"
     );
     for row in &empty.agent_levels {
-        for destination in NotifyDestination::ALL {
+        for destination in fixture_columns() {
             assert!(
                 row.allows(destination),
                 "{} -> {} was reachable before the grid and must stay reachable",
@@ -242,7 +247,11 @@ level = "verbose"
     )
     .unwrap();
     let verbose = &partial.agent_levels[0];
-    assert!(verbose.bell && verbose.desktop && verbose.telegram);
+    assert!(verbose.bell && verbose.desktop);
+    assert!(
+        verbose.allows(NotifyDestination::Channel(FIXTURE_CHANNEL)),
+        "a row that never named a channel still reaches it"
+    );
 }
 
 /// The rows are `ALL` mapped. The proof is a fixture that gains a level: the
@@ -274,7 +283,8 @@ fn notification_settings_rows_derive_from_the_shared_level_set() {
         .find(|row| row.level == NotifyLevel::Failure.as_str())
         .expect("the answered level keeps its row");
     assert!(!failure_row.desktop, "the stored answer is preserved");
-    assert!(failure_row.bell && failure_row.telegram);
+    assert!(failure_row.bell);
+    assert!(failure_row.allows(NotifyDestination::Channel(FIXTURE_CHANNEL)));
     for row in &reconciled {
         assert!(
             NotifyLevel::parse(&row.level).is_some(),
@@ -299,10 +309,10 @@ fn notification_settings_all_off_for_a_level_is_accepted_and_round_trips() {
         .iter_mut()
         .find(|row| row.level == NotifyLevel::Verbose.as_str())
         .expect("verbose has a row");
-    for destination in NotifyDestination::ALL {
+    for destination in fixture_columns() {
         verbose.set(destination, false);
     }
-    assert!(verbose.reaches_nothing());
+    assert!(verbose.reaches_nothing(&fixture_columns()));
 
     let encoded = toml::to_string(&cfg).expect("an all-off level serialises");
     let decoded: NotificationConfig = toml::from_str(&encoded).expect("and parses back");
@@ -312,7 +322,7 @@ fn notification_settings_all_off_for_a_level_is_accepted_and_round_trips() {
         .find(|row| row.level == NotifyLevel::Verbose.as_str())
         .expect("the row survives the round trip");
     assert!(
-        reloaded.reaches_nothing(),
+        reloaded.reaches_nothing(&fixture_columns()),
         "a level that reaches nothing stays a level that reaches nothing"
     );
     assert_eq!(decoded.agent_levels, cfg.agent_levels);
@@ -367,22 +377,23 @@ fn notification_settings_hidden_bell_is_distinct_from_every_bell_column_off() {
         .all(|row| !row.allows(NotifyDestination::Bell)));
 }
 
-/// `allows`/`set` dispatch over the closed set, so a fourth destination cannot
-/// leave a column silently unreadable.
+/// `allows`/`set` dispatch per column, so a column the roster gains cannot
+/// leave another one silently unreadable.
 #[test]
 fn notification_settings_every_destination_is_independently_togglable() {
-    for target in NotifyDestination::ALL {
+    let columns = NotifyDestination::columns(["fixture", "another-fixture"]);
+    for target in &columns {
         let mut row = AgentLevelChoice::open(NotifyLevel::ActionNeeded.as_str());
-        row.set(target, false);
-        for destination in NotifyDestination::ALL {
+        row.set(*target, false);
+        for destination in &columns {
             assert_eq!(
-                row.allows(destination),
+                row.allows(*destination),
                 destination != target,
                 "toggling {} must not move {}",
                 target.as_str(),
                 destination.as_str()
             );
         }
-        assert!(!row.reaches_nothing());
+        assert!(!row.reaches_nothing(&columns));
     }
 }

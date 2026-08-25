@@ -53,12 +53,17 @@ telegram = true
 level = "action_needed"
 bell = true
 desktop = true
-telegram = true
+telegram = true        # one flag per registered push channel, keyed by service id
 [[notifications.agent_levels]]
 level = "failure"
 bell = true
 desktop = true
 telegram = true
+
+`bell` and `desktop` are the two local surfaces. Every other key on a row is a
+push channel's service id, and a channel key that is absent reads as routed —
+so a row written before a channel was registered still reaches it, and a channel
+the registry gains needs no migration to become a column.
 
 `show_bell` and the `bell` column answer different questions and never stand in
 for each other. `show_bell = false` removes the indicator from the titlebar
@@ -68,7 +73,12 @@ the bell, which stays drawn and simply has nothing from that level in it. They
 compose rather than override — hiding the surface changes no row, and closing
 every row leaves the surface visible.
 
-[notifications.telegram]
+# Per-channel push opt-in, keyed by the channel's bridge service id — the same
+# id `codeterm bridge send --service <id>` takes. A channel with no entry here
+# has no audience, which is the pre-opt-in state. A channel whose audience lives
+# in its own integration config (Discord reads `integrations.discord_*`) needs
+# no entry at all.
+[notifications.channels.telegram]
 enabled = false        # opt-in push; off on a fresh install
 recipients = []        # explicit audience (chat ids) — NOT telegram_allowed_users
 per_scope_limit = 12   # lifetime push ceiling per originating tab (a count, not a rate)
@@ -232,4 +242,4 @@ When a Worker lane worktree is created, each declared directory that exists in t
 
 Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`.
 
-<!-- revision: 46 -->
+<!-- revision: 47 -->
