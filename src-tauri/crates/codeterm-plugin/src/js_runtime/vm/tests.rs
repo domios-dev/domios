@@ -427,6 +427,14 @@ module.exports.default = {
 /// firing is always reported as a test failure.
 const WEDGED: Duration = Duration::from_secs(30);
 
+/// A distinct plugin id per test: exec jobs are keyed by it, and a VM dropping
+/// at the end of one test reaps every pending job sharing its id.
+fn serialization_vm(plugin_id: &str) -> Arc<PluginVm> {
+    Arc::new(
+        PluginVm::from_source(plugin_id, SERIALIZATION_FIXTURE.to_string()).expect("load"),
+    )
+}
+
 type CallResult = Result<serde_json::Value, VmError>;
 
 fn spawn_call(
@@ -455,7 +463,7 @@ fn vm_serialization_slow_call_does_not_block_an_unrelated_call() {
     call_gate::reset(entered);
     call_gate::reset(release);
 
-    let vm = Arc::new(fixture(SERIALIZATION_FIXTURE));
+    let vm = serialization_vm("vm-serialization-slow");
     let slow_finished = Arc::new(AtomicBool::new(false));
 
     let slow_vm = vm.clone();
@@ -502,7 +510,7 @@ fn vm_serialization_preserves_call_order_and_never_interleaves_frames() {
     call_gate::reset(entered);
     call_gate::reset(release);
 
-    let vm = Arc::new(fixture(SERIALIZATION_FIXTURE));
+    let vm = serialization_vm("vm-serialization-order");
     let slow_vm = vm.clone();
     let slow = thread::spawn(move || {
         call_json::<serde_json::Value>(
@@ -584,7 +592,7 @@ fn vm_serialization_error_in_flight_surfaces_and_leaves_the_vm_usable() {
         call_gate::reset(gate);
     }
 
-    let vm = Arc::new(fixture(SERIALIZATION_FIXTURE));
+    let vm = serialization_vm("vm-serialization-error");
     let boom_vm = vm.clone();
     let boom = thread::spawn(move || {
         call_json::<serde_json::Value>(&boom_vm, "boom", &[json!(entered), json!(release)])
