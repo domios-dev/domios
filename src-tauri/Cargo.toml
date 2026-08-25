@@ -1,6 +1,6 @@
 [package]
 name = "codeterm"
-version = "1.9.6"
+version = "1.10.0"
 edition = "2021"
 default-run = "codeterm"
 
