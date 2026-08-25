@@ -36,10 +36,14 @@ export function NotificationsOverview({
           onChange={(v) => onUpdate("notifications", { desktop: v })}
         />
         <Toggle
-          label="Sound"
+          label="Sound when an agent stops"
           checked={config.notifications.sound}
           onChange={(v) => onUpdate("notifications", { sound: v })}
         />
+        <p className="text-[10px] text-[var(--ct-muted)] leading-relaxed">
+          Opt-in, and it rides the bell: it sounds only for an arrival the bell already admits, and
+          only when that arrival says the agent stopped — never for progress.
+        </p>
         <label className="flex items-center justify-between opacity-50 cursor-not-allowed">
           <span className="text-xs text-[var(--ct-muted-fg)]">In-app toast (coming soon)</span>
           <span
