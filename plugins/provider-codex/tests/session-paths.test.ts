@@ -102,5 +102,64 @@ console.log("\n--- sessionFilePath: session_meta stored id wins over filename (t
   );
 }
 
+console.log("\n--- sessionFilePath: a resolved id is remembered, not re-scanned ---\n");
+{
+  // The scan reads a header out of every rollout in the tree, and chat polls this
+  // on a loop. Re-walking on every call is what pegged a daemon's CPU (#319).
+  const meta = '{"type":"session_meta","payload":{"id":"77777777-7777-7777-7777-777777777777","cwd":"/work/proj"}}';
+  const entry = {
+    isFile: true,
+    name: "rollout-2026-06-01T10-00-00-77777777-7777-7777-7777-777777777777.jsonl",
+    path: "/sessions/remembered.jsonl",
+    modifiedMs: 1000,
+  };
+  let walks = 0;
+  let existsChecks = 0;
+  const p = loadCodexWithHost(baseHost({
+    fs: {
+      ...baseHost({}).fs,
+      walkDir: () => { walks++; return [entry]; },
+      readFileHead: () => meta,
+      fileExists: () => { existsChecks++; return true; },
+    },
+  }));
+
+  const id = "77777777-7777-7777-7777-777777777777";
+  const first = p.sessionJsonlPath("/work/proj", id);
+  eq(first, "/sessions/remembered.jsonl", "first lookup resolves the rollout");
+  eq(p.sessionJsonlPath("/work/proj", id), first, "a repeat lookup returns the same path");
+  eq(p.sessionJsonlPath("/work/proj", id), first, "and keeps returning it");
+  eq(walks, 1, "three lookups walk the sessions tree exactly once");
+  assert(existsChecks >= 2, "the remembered path is revalidated before it is reused");
+}
+
+console.log("\n--- sessionFilePath: a vanished rollout is re-scanned, never served stale ---\n");
+{
+  const meta = '{"type":"session_meta","payload":{"id":"88888888-8888-8888-8888-888888888888","cwd":"/work/proj"}}';
+  const entry = {
+    isFile: true,
+    name: "rollout-2026-06-01T10-00-00-88888888-8888-8888-8888-888888888888.jsonl",
+    path: "/sessions/gone.jsonl",
+    modifiedMs: 1000,
+  };
+  let walks = 0;
+  let alive = true;
+  const p = loadCodexWithHost(baseHost({
+    fs: {
+      ...baseHost({}).fs,
+      walkDir: () => { walks++; return alive ? [entry] : []; },
+      readFileHead: () => meta,
+      fileExists: () => alive,
+    },
+  }));
+
+  const id = "88888888-8888-8888-8888-888888888888";
+  eq(p.sessionJsonlPath("/work/proj", id), "/sessions/gone.jsonl", "resolves while the rollout exists");
+  alive = false;
+  eq(p.sessionJsonlPath("/work/proj", id), null, "a removed rollout is not served from memory");
+  eq(walks, 2, "the second lookup re-scans instead of trusting the cache");
+}
+
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
