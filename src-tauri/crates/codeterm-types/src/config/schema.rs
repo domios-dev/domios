@@ -117,6 +117,10 @@ pub struct ProviderConfig {
     pub extra: HashMap<String, toml::Value>,
 }
 
+/// The `extra` key the consent-granting install path records and the
+/// launch-time integration check reads. One name, two readers.
+pub const INTEGRATION_CONSENT_GRANTED: &str = "integration_consent_granted";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ApiConfig {
