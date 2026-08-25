@@ -299,8 +299,8 @@ async function masterSwitchHidesTheSurfaceAndStaysDistinguishable() {
   );
 }
 
-/** 4. Absent config reproduces today's behaviour. */
-async function absentConfigReproducesTodaysBehaviour() {
+/** 4. With no rows there is no grid, and a column a row never named is off. */
+async function absentConfigDrawsNothingAndAnUnnamedColumnIsOff() {
   const updates: UpdateCall[] = [];
   const view = await renderGrid(configWith(undefined), updates);
   assert(
@@ -309,23 +309,31 @@ async function absentConfigReproducesTodaysBehaviour() {
   );
   await view.done();
 
-  const defaults = source("../../hooks/useConfig.ts");
+  // A row written before a column existed reads that column as off, exactly as
+  // the daemon reads it: a column nobody named is a column nobody chose.
+  const unnamed = { level: "verbose", bell: true, desktop: false } as AgentLevelChoice;
+  assert(!isRouted(unnamed, "telegram"), "an unnamed channel column is off");
+  assert(isRouted(unnamed, "bell"), "the column it did name keeps the answer it gave");
+  assert(!isRouted(unnamed, "desktop"), "as does the one it named false");
   assert(
-    /show_bell:\s*true/.test(defaults),
-    "before the daemon answers, the bell is drawn exactly as it always was",
+    !reachesNothing(unnamed, COLUMNS),
+    "the bell is still standing, so the level is not an empty row",
   );
-  assert(/desktop:\s*true/.test(defaults), "and the desktop default is unchanged");
-  assert(/agent_levels:\s*\[\]/.test(defaults), "the daemon still owns the level set");
+  assert(
+    reachesNothing({ level: "verbose" } as AgentLevelChoice, COLUMNS),
+    "a row that named no column at all falls through to nothing",
+  );
 
-  const schema = readFileSync(
-    new URL("../../../src-tauri/crates/codeterm-types/src/config/schema.rs", import.meta.url),
-    "utf8",
-  );
+  // And the grid draws that reading rather than a second opinion about it.
+  const drawn = await renderGrid(configWith([unnamed]), updates);
+  const row = drawn.host.querySelector(ROW);
+  assert(row, "the row is drawn");
+  const states = switches(row).map((control) => control.getAttribute("aria-checked"));
   assert(
-    /fn routed_by_default\(\) -> bool \{\s*true\s*\}/.test(schema),
-    "an absent column is an open column, so a config predating the grid routes as before",
+    states.join(",") === "true,false,false",
+    `the unnamed column is drawn off, got ${states.join(",")}`,
   );
-  assert(schema.includes("show_bell: true"), "and the master switch defaults to visible");
+  await drawn.done();
 }
 
 /** 5. Every control names its level and its destination, and the control is the
@@ -618,7 +626,10 @@ async function main() {
     "the master switch hides the surface and stays distinguishable",
     masterSwitchHidesTheSurfaceAndStaysDistinguishable,
   );
-  await check("absent config reproduces today's behaviour", absentConfigReproducesTodaysBehaviour);
+  await check(
+    "absent config draws nothing, and an unnamed column is off",
+    absentConfigDrawsNothingAndAnUnnamedColumnIsOff,
+  );
   await check(
     "notification_settings_home: every control is named and is the shared toggle",
     everyControlIsNamedAndIsTheSharedToggle,

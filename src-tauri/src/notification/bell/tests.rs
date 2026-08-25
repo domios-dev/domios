@@ -12,7 +12,7 @@ fn config_with(rows: Vec<AgentLevelChoice>) -> NotificationConfig {
 }
 
 fn row(level: NotifyLevel, bell: bool) -> AgentLevelChoice {
-    let mut choice = AgentLevelChoice::open(level.as_str());
+    let mut choice = AgentLevelChoice::open(level.as_str(), &[]);
     choice.set(NotifyDestination::Bell, bell);
     choice
 }
@@ -23,7 +23,7 @@ fn notification_settings_shipped_bell_column_admits_every_level() {
     assert_eq!(
         policy.allowed.len(),
         NotifyLevel::ALL.len(),
-        "the shipped grid routes every level to the bell, as it always did"
+        "the shipped grid routes every level to the bell, which is all it routes"
     );
     for level in NotifyLevel::ALL {
         assert!(admit(Some(level), &policy).reaches_bell());
@@ -109,8 +109,8 @@ fn notification_settings_master_switch_hides_the_surface_without_touching_routin
 fn notification_settings_unparseable_bell_row_is_dropped_and_the_rest_still_read() {
     let policy = BellPolicy::from_config(&config_with(vec![
         row(NotifyLevel::Verbose, true),
-        AgentLevelChoice::open("milestone"),
-        AgentLevelChoice::open(""),
+        AgentLevelChoice::open("milestone", &[]),
+        AgentLevelChoice::open("", &[]),
         row(NotifyLevel::Failure, true),
     ]));
 

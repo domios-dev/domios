@@ -80,7 +80,7 @@ fn opted_in_config() -> AppConfig {
     let mut cfg = AppConfig::default();
     cfg.notifications.agent_levels = NotifyLevel::ALL
         .into_iter()
-        .map(|level| AgentLevelChoice::open(level.as_str()))
+        .map(|level| AgentLevelChoice::open(level.as_str(), &["telegram"]))
         .collect();
     cfg.notifications.channels.insert(
         "telegram".to_string(),

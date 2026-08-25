@@ -19,7 +19,8 @@ export function defaultConfig(): AppConfig {
     copy_on_select: false,
   },
   notifications: {
-    desktop: true,
+    // Off until someone opts in; until the daemon answers, nothing interrupts.
+    desktop: false,
     sound: false,
     toast_duration: 5,
     // The bell has always been drawn; until the daemon answers, it stays drawn.

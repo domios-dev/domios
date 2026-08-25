@@ -261,14 +261,15 @@ pub struct NotificationConfig {
     /// its own integration config simply has no entry here.
     pub channels: BTreeMap<String, PushChannelConfig>,
     /// One row per level of the shared set, each naming where that level may
-    /// go. An agent notification naming no level stays in the bell.
+    /// go. A fresh install names the bell and nothing else, at every level; an
+    /// agent notification naming no level stays in the bell.
     pub agent_levels: Vec<AgentLevelChoice>,
 }
 
 impl Default for NotificationConfig {
     fn default() -> Self {
         Self {
-            desktop: true,
+            desktop: false,
             sound: false,
             toast_duration: 5,
             show_bell: true,
@@ -280,7 +281,8 @@ impl Default for NotificationConfig {
 
 /// One row of the levels-by-destinations grid. Settings render this list rather
 /// than restating the level set, so the UI cannot drift from it. Every column
-/// off is a legitimate answer: that level simply reaches nothing.
+/// off is a legitimate answer: that level simply reaches nothing, which is also
+/// where every column but the bell starts.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentLevelChoice {
     pub level: String,
@@ -295,24 +297,40 @@ pub struct AgentLevelChoice {
     pub channels: BTreeMap<String, bool>,
 }
 
-/// An absent column is today's behaviour: every destination the surrounding
-/// switches already allowed stays allowed, so a config that never named the
-/// grid reads exactly as it did before the grid existed. A channel key absent
-/// from a row reads the same way, which is what makes a new channel arrive
-/// open instead of silently closed.
+/// A column nobody named is a column nobody chose, so it reads closed. This one
+/// answer serves both the shipped default and the read of a stored row that
+/// omits a column, so a config written before the grid existed no longer reads
+/// as everything the surrounding switches allowed then - it reads as the bell
+/// alone. A channel key absent from a row reads the same way: a channel the
+/// registry gains arrives closed and stays closed until someone opts into it.
 fn routed_by_default() -> bool {
-    true
+    false
 }
 
 impl AgentLevelChoice {
-    /// All destinations open, which is what an install that never opened the
-    /// panel has always done. No channel is listed: absent is open.
-    pub fn open(level: &str) -> Self {
+    /// The bell and nothing else: the in-app record, with nothing that
+    /// interrupts. What a fresh install ships for every level, and what a level
+    /// the shared set gains arrives as.
+    pub fn bell_only(level: &str) -> Self {
+        Self {
+            level: level.to_string(),
+            bell: true,
+            desktop: false,
+            channels: BTreeMap::new(),
+        }
+    }
+
+    /// Every column open, including each channel the caller resolved. Channels
+    /// must be named here because an unnamed column reads closed.
+    pub fn open(level: &str, channels: &[&str]) -> Self {
         Self {
             level: level.to_string(),
             bell: true,
             desktop: true,
-            channels: BTreeMap::new(),
+            channels: channels
+                .iter()
+                .map(|service| ((*service).to_string(), true))
+                .collect(),
         }
     }
 
@@ -351,14 +369,14 @@ impl AgentLevelChoice {
 pub fn default_agent_levels() -> Vec<AgentLevelChoice> {
     NotifyLevel::ALL
         .into_iter()
-        .map(|level| AgentLevelChoice::open(level.as_str()))
+        .map(|level| AgentLevelChoice::bell_only(level.as_str()))
         .collect()
 }
 
 /// Reconcile stored rows against the shared level set: a level the user already
-/// answered keeps its answer, a level the set gained arrives open, and a row
-/// naming no known level is dropped. This is what stops a fourth level from
-/// desyncing the grid without a migration.
+/// answered keeps its answer, a level the set gained arrives at the bell alone,
+/// and a row naming no known level is dropped. This is what stops a fourth
+/// level from desyncing the grid without a migration.
 pub fn reconcile_agent_levels(stored: &[AgentLevelChoice]) -> Vec<AgentLevelChoice> {
     NotifyLevel::ALL
         .into_iter()
@@ -371,7 +389,7 @@ pub fn reconcile_agent_levels(stored: &[AgentLevelChoice]) -> Vec<AgentLevelChoi
                     row.level = level.as_str().to_string();
                     row
                 })
-                .unwrap_or_else(|| AgentLevelChoice::open(level.as_str()))
+                .unwrap_or_else(|| AgentLevelChoice::bell_only(level.as_str()))
         })
         .collect()
 }

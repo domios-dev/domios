@@ -63,7 +63,8 @@ const TWO_CHANNELS: PushChannelDescriptor[] = [
   { id: "discord", label: "Discord", control_available: false },
 ];
 
-/** Rows as a config written before any channel existed: no channel key at all. */
+/** Rows as a config written before any channel existed: no channel key at all,
+ *  which is a channel nobody opted into and therefore a channel nobody reaches. */
 const ROWS: AgentLevelChoice[] = [
   { level: "verbose", bell: true, desktop: true },
   { level: "action_needed", bell: true, desktop: false },
@@ -185,18 +186,18 @@ async function bellAndDesktopStayTheFirstTwoLocalSurfaces() {
 }
 
 /** 3. A row written before a channel existed still reaches it. */
-async function anAbsentChannelKeyReadsAsRouted() {
+async function anAbsentChannelKeyReadsAsClosed() {
   for (const row of ROWS) {
     for (const channel of TWO_CHANNELS) {
       assert(
-        isRouted(row, channel.id),
-        `${row.level} names no ${channel.id} key and must still reach it`,
+        !isRouted(row, channel.id),
+        `${row.level} names no ${channel.id} key, so it does not reach it`,
       );
     }
   }
   assert(
     !reachesNothing(ROWS[0], destinationColumns(TWO_CHANNELS)),
-    "a row with open surfaces and unnamed channels reaches something",
+    "a row with an open surface reaches something even with every channel unnamed",
   );
   const shut: AgentLevelChoice = { level: "verbose", bell: false, desktop: false };
   assert(
@@ -204,8 +205,13 @@ async function anAbsentChannelKeyReadsAsRouted() {
     "with no channels registered, both surfaces closed is reaching nothing",
   );
   assert(
-    !reachesNothing(shut, destinationColumns(TWO_CHANNELS)),
-    "an unnamed channel column is open, so the level still reaches it",
+    reachesNothing(shut, destinationColumns(TWO_CHANNELS)),
+    "an unnamed channel column is closed, so the level still reaches nothing",
+  );
+  // Named is what routes: opting the column in is the whole difference.
+  assert(
+    isRouted({ ...shut, discord: true }, "discord"),
+    "the column someone switched on reaches its channel",
   );
 }
 
@@ -311,8 +317,8 @@ async function main() {
     bellAndDesktopStayTheFirstTwoLocalSurfaces,
   );
   await check(
-    "channel_registry: an absent channel key reads as routed",
-    anAbsentChannelKeyReadsAsRouted,
+    "channel_registry: an absent channel key reads as closed",
+    anAbsentChannelKeyReadsAsClosed,
   );
   await check(
     "channel_registry: an unavailable channel is a column without controls",

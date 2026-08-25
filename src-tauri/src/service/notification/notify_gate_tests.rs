@@ -32,7 +32,7 @@ fn policy_allowing(levels: &[NotifyLevel]) -> DesktopPolicy {
         agent_levels: NotifyLevel::ALL
             .into_iter()
             .map(|level| {
-                let mut row = AgentLevelChoice::open(level.as_str());
+                let mut row = AgentLevelChoice::open(level.as_str(), &[]);
                 row.set(
                     codeterm_types::notification::NotifyDestination::Desktop,
                     levels.contains(&level),
@@ -74,11 +74,28 @@ fn live_update_tab(candidate: &str) -> Option<NotificationProvenance> {
     })
 }
 
-fn shipped(declared: Option<NotifyLevel>) -> SurfaceDispatch {
+/// The shipped grid routes nothing to the desktop, so the gate is asked of a
+/// user who switched the surface on and opened every level's column.
+fn opted_in_config() -> NotificationConfig {
+    let mut cfg = NotificationConfig {
+        desktop: true,
+        ..NotificationConfig::default()
+    };
+    for row in &mut cfg.agent_levels {
+        row.set(
+            codeterm_types::notification::NotifyDestination::Desktop,
+            true,
+        );
+    }
+    cfg
+}
+
+fn opted_in(declared: Option<NotifyLevel>) -> SurfaceDispatch {
+    let cfg = opted_in_config();
     SurfaceDispatch {
         declared,
-        bell: BellPolicy::from_config(&NotificationConfig::default()),
-        desktop: DesktopPolicy::from_config(&NotificationConfig::default()),
+        bell: BellPolicy::from_config(&cfg),
+        desktop: DesktopPolicy::from_config(&cfg),
     }
 }
 
@@ -86,13 +103,13 @@ fn shipped(declared: Option<NotifyLevel>) -> SurfaceDispatch {
 fn notify_gate_allowed_level_reaches_the_desktop_sink() {
     let sinks = Sinks::new();
     for level in NotifyLevel::ALL {
-        notify(&sinks, level.as_str(), shipped(Some(level)));
+        notify(&sinks, level.as_str(), opted_in(Some(level)));
     }
 
     assert_eq!(
         sinks.native.lock().len(),
         NotifyLevel::ALL.len(),
-        "every level of the closed set reaches the toast under the shipped policy"
+        "every level of the closed set reaches the toast once the user opted in"
     );
     assert_eq!(sinks.records(), NotifyLevel::ALL.len());
     assert_eq!(sinks.emitted.lock().len(), NotifyLevel::ALL.len());
@@ -101,7 +118,7 @@ fn notify_gate_allowed_level_reaches_the_desktop_sink() {
 #[test]
 fn notify_gate_unlevelled_notification_never_reaches_the_desktop_sink() {
     let sinks = Sinks::new();
-    let id = notify(&sinks, "step 4 of 9", shipped(None));
+    let id = notify(&sinks, "step 4 of 9", opted_in(None));
 
     assert!(
         sinks.native.lock().is_empty(),
@@ -228,12 +245,12 @@ fn notify_gate_and_dedupe_are_separate_decisions() {
     let first = notify(
         &sinks,
         "approval needed",
-        shipped(Some(NotifyLevel::ActionNeeded)),
+        opted_in(Some(NotifyLevel::ActionNeeded)),
     );
     let repeat = notify(
         &sinks,
         "approval needed",
-        shipped(Some(NotifyLevel::ActionNeeded)),
+        opted_in(Some(NotifyLevel::ActionNeeded)),
     );
     assert_eq!(repeat, first, "dedupe kept one record for one message");
     assert_eq!(
@@ -242,7 +259,7 @@ fn notify_gate_and_dedupe_are_separate_decisions() {
         "allowed and new toasts once; allowed and repeated does not toast again"
     );
 
-    let quiet = notify(&sinks, "step 4 of 9", shipped(None));
+    let quiet = notify(&sinks, "step 4 of 9", opted_in(None));
     assert_ne!(quiet, first, "a different message is a different record");
     assert_eq!(
         sinks.native.lock().len(),

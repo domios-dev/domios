@@ -528,9 +528,10 @@ export interface NotificationConfig {
 
 /** One row of the levels-by-destinations grid: where this level may go. The two
  *  local surfaces are named fields; every other key is a push channel's service
- *  id, flattened into the row. An absent channel key reads as routed, which is
- *  how a channel the registry gains arrives reachable. Every column off is a
- *  legitimate answer — that level simply reaches nothing. */
+ *  id, flattened into the row. An absent channel key reads as closed, which is
+ *  how a channel the registry gains arrives off until someone opts into it.
+ *  Every column off is a legitimate answer — that level simply reaches nothing,
+ *  and every column but the bell starts there. */
 export interface AgentLevelChoice {
   level: string;
   bell: boolean;
