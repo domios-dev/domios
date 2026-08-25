@@ -23,6 +23,12 @@ pub(crate) enum PlanAuthorityError {
     /// or a nonce with no lineage to this tab. A genuinely foreign caller lands
     /// here and is refused — the rebind never accepts it.
     BindingForeign,
+    /// The caller proved it runs inside this tab, but the provider never
+    /// reported a session for it, so there is no binding to authorize against
+    /// and none to re-sync. Distinct from `BindingForeign` because the refusal
+    /// is identical while the remedy is not: this one is repaired by fixing the
+    /// provider integration, not by rebinding.
+    SessionUnregistered,
     /// Binding is live but the caller is neither the Plan owner nor a draft
     /// Planner for this plan.
     RoleUnauthorized,
@@ -34,6 +40,7 @@ impl PlanAuthorityError {
             Self::PlanNotFound => "plan_not_found",
             Self::BindingStaleAfterRelaunch => "plan_binding_stale_after_relaunch",
             Self::BindingForeign => "plan_binding_authorization_required",
+            Self::SessionUnregistered => "plan_binding_session_unregistered",
             Self::RoleUnauthorized => "plan_role_authorization_required",
         }
     }
@@ -45,6 +52,9 @@ impl PlanAuthorityError {
                 "the live bound planning session is required; its binding nonce is stale after a relaunch — re-sync with `codeterm plan rebind <plan>`"
             }
             Self::BindingForeign => "the live bound planning session is required",
+            Self::SessionUnregistered => {
+                "no agent session is registered for this tab, so there is no planning binding to \n                 authorize or re-sync. The provider reports one through its integration hook — check it \n                 with `codeterm plugin list` and reinstall the provider integration, then start a new \n                 agent session. `codeterm plan rebind` cannot help: it re-syncs an existing binding."
+            }
             Self::RoleUnauthorized => {
                 "the live bound Plan owner or draft Planner session is required"
             }
@@ -88,10 +98,15 @@ fn binding_failure_class(
     let stale_lineage_nonce = tab.session_binding_nonce.as_deref() != Some(nonce)
         && tab.binding_nonce_in_current_session_lineage(nonce);
     if session_ok && stale_lineage_nonce {
-        PlanAuthorityError::BindingStaleAfterRelaunch
-    } else {
-        PlanAuthorityError::BindingForeign
+        return PlanAuthorityError::BindingStaleAfterRelaunch;
     }
+    // Presenting the tab's OWN launch nonce is proof the caller runs inside it —
+    // the daemon injects that value per PTY. A foreign caller cannot reach this
+    // arm, so naming the real gap leaks nothing and saves the dead-end hunt.
+    if tab.agent_session_id.is_none() && tab.session_binding_nonce.as_deref() == Some(nonce) {
+        return PlanAuthorityError::SessionUnregistered;
+    }
+    PlanAuthorityError::BindingForeign
 }
 
 impl ServiceContext {
@@ -334,6 +349,67 @@ mod tests {
     use crate::plan::{OrchestratorRef, Plan, PlanMode, TaskStatus};
     use crate::service::plan::NewTask;
     use crate::service::test_fixture::ServiceFixture;
+
+    /// A tab whose provider never registered a session is a dead end today: the
+    /// gate refuses it exactly like a foreign caller, and `plan rebind` — the
+    /// documented repair — needs the very binding that is missing. The refusal
+    /// stays; the diagnosis has to say which of the two it is (#316).
+    #[test]
+    fn an_unregistered_session_is_named_apart_from_a_foreign_caller() {
+        let (mut mux, tab_id) = MultiplexerState::new();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_type = Some("claude".into());
+        tab.pty_id = Some("pty-1".into());
+        tab.session_binding_nonce = Some("nonce-1".into());
+        // The hook never reported one, so there is nothing to authorize against.
+        tab.agent_session_id = None;
+        tab.reported_session_binding_nonce = None;
+        let tab = &*tab;
+
+        assert_eq!(
+            binding_failure_class(tab, None, Some("nonce-1")),
+            PlanAuthorityError::SessionUnregistered,
+            "a tab presenting its own launch nonce is not a foreign caller"
+        );
+    }
+
+    /// The arm is reached only by proof of running inside the tab, so a caller
+    /// with someone else's nonce learns nothing new.
+    #[test]
+    fn a_foreign_nonce_still_reads_as_foreign() {
+        let (mut mux, tab_id) = MultiplexerState::new();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_type = Some("claude".into());
+        tab.pty_id = Some("pty-1".into());
+        tab.session_binding_nonce = Some("nonce-1".into());
+        tab.agent_session_id = None;
+        let tab = &*tab;
+
+        assert_eq!(
+            binding_failure_class(tab, None, Some("someone-elses-nonce")),
+            PlanAuthorityError::BindingForeign,
+        );
+        assert_eq!(
+            binding_failure_class(tab, None, None),
+            PlanAuthorityError::BindingForeign
+        );
+    }
+
+    /// The remedy has to name the integration, because rebinding cannot fix it.
+    #[test]
+    fn the_unregistered_diagnosis_points_away_from_rebind() {
+        let error = PlanAuthorityError::SessionUnregistered;
+        assert_eq!(error.diagnostic_type(), "plan_binding_session_unregistered");
+        let message = error.to_string();
+        assert!(
+            message.contains("integration"),
+            "must name where a session comes from: {message}"
+        );
+        assert!(
+            message.contains("rebind"),
+            "must say rebind is not the repair: {message}"
+        );
+    }
 
     fn fixture() -> (
         ServiceFixture,
