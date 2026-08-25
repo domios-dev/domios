@@ -27,8 +27,12 @@ impl Sinks {
     }
 }
 
+/// The surface is switched on so the per-level columns are what decide. The
+/// shipped master switch is off, and inheriting it would silence every level
+/// before its row was read.
 fn policy_allowing(levels: &[NotifyLevel]) -> DesktopPolicy {
     DesktopPolicy::from_config(&NotificationConfig {
+        desktop: true,
         agent_levels: NotifyLevel::ALL
             .into_iter()
             .map(|level| {
