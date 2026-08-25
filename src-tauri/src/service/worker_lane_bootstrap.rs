@@ -164,7 +164,10 @@ fn create_directory_link(link: &Path, target: &Path) -> Result<&'static str, Str
 /// `;` (valid in bash and PowerShell) keeps the agent launch unconditional, so
 /// a failed setup stays visible as an ordinary failed first command.
 pub(crate) fn compose_launch_with_setup(setup_command: Option<&str>, launch_cmd: String) -> String {
-    match setup_command.map(str::trim).filter(|setup| !setup.is_empty()) {
+    match setup_command
+        .map(str::trim)
+        .filter(|setup| !setup.is_empty())
+    {
         Some(setup) => format!("{setup} ; {launch_cmd}"),
         None => launch_cmd,
     }
@@ -312,12 +315,7 @@ mod tests {
             shared_directories: vec!["node_modules".into()],
             setup_command: None,
         };
-        let bootstrap = bootstrap_lane_with(
-            project.to_str().unwrap(),
-            &lane.cwd,
-            config,
-            no_links,
-        );
+        let bootstrap = bootstrap_lane_with(project.to_str().unwrap(), &lane.cwd, config, no_links);
         assert!(bootstrap.links.is_empty());
         assert_eq!(bootstrap.warnings.len(), 1);
         assert!(bootstrap.warnings[0].contains("no link support"));
@@ -339,10 +337,7 @@ mod tests {
             compose_launch_with_setup(Some("npm install"), "claude --task x".into()),
             "npm install ; claude --task x"
         );
-        assert_eq!(
-            compose_launch_with_setup(None, "claude".into()),
-            "claude"
-        );
+        assert_eq!(compose_launch_with_setup(None, "claude".into()), "claude");
         assert_eq!(
             compose_launch_with_setup(Some("   "), "claude".into()),
             "claude"

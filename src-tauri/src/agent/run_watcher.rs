@@ -207,12 +207,7 @@ impl RunWatcherRegistry {
     /// binding nonce. Claims and completes the nonce-matching tab's run only;
     /// any other nonce claims nothing, leaving every classifier-fallback
     /// completion path (semantic idle, idle backstop, scanner) in charge.
-    pub fn complete_via_stop_report(
-        &self,
-        svc: &ServiceContext,
-        tab_id: &str,
-        report_nonce: &str,
-    ) {
+    pub fn complete_via_stop_report(&self, svc: &ServiceContext, tab_id: &str, report_nonce: &str) {
         let Some(state) = self.claim_stop_report_run(&svc.mux, tab_id, report_nonce) else {
             return;
         };
@@ -819,7 +814,10 @@ mod tests {
         let (state, tab_id) = crate::multiplexer::state::MultiplexerState::new();
         let mux: TestMux = Arc::new(TimedRwLock::new("mux-test", state));
         if let Some(nonce) = nonce {
-            mux.write().get_tab_mut(&tab_id).unwrap().session_binding_nonce = Some(nonce.into());
+            mux.write()
+                .get_tab_mut(&tab_id)
+                .unwrap()
+                .session_binding_nonce = Some(nonce.into());
         }
         (mux, tab_id)
     }
@@ -827,7 +825,10 @@ mod tests {
     fn add_tab_with_nonce(mux: &TestMux, sibling_tab: &str, nonce: &str) -> String {
         let workspace_id = mux.read().find_workspace_for_tab(sibling_tab).unwrap();
         let tab_id = mux.write().create_tab(&workspace_id).unwrap();
-        mux.write().get_tab_mut(&tab_id).unwrap().session_binding_nonce = Some(nonce.into());
+        mux.write()
+            .get_tab_mut(&tab_id)
+            .unwrap()
+            .session_binding_nonce = Some(nonce.into());
         tab_id
     }
 

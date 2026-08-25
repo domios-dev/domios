@@ -39,26 +39,28 @@ pub(super) fn dispatch(
             };
             // The CLI reaches the daemon here, so `--choice` is parsed on this
             // path too — an unknown kind is refused rather than dropped.
-            let actions = match params.as_ref().and_then(|p| p.get("actions")) {
-                None | Some(Value::Null) => None,
-                Some(raw) => Some(
-                    serde_json::from_value::<Vec<codeterm_types::notification::NotificationAction>>(
-                        raw.clone(),
-                    )
-                    .map_err(|e| JsonRpcError {
+            let actions =
+                match params.as_ref().and_then(|p| p.get("actions")) {
+                    None | Some(Value::Null) => None,
+                    Some(raw) => Some(
+                        serde_json::from_value::<
+                            Vec<codeterm_types::notification::NotificationAction>,
+                        >(raw.clone())
+                        .map_err(|e| JsonRpcError {
+                            code: -32602,
+                            message: format!("Invalid notification actions: {e}"),
+                            data: None,
+                        })?,
+                    ),
+                };
+            let actions =
+                crate::api::notification_routes::vet_actions(actions).map_err(|message| {
+                    JsonRpcError {
                         code: -32602,
-                        message: format!("Invalid notification actions: {e}"),
+                        message,
                         data: None,
-                    })?,
-                ),
-            };
-            let actions = crate::api::notification_routes::vet_actions(actions).map_err(
-                |message| JsonRpcError {
-                    code: -32602,
-                    message,
-                    data: None,
-                },
-            )?;
+                    }
+                })?;
             let level = string_param("level");
             let intent = crate::api::notification_routes::parse_push_intent(
                 level.as_deref(),

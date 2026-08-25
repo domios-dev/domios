@@ -47,7 +47,11 @@ mod tests {
     #[test]
     fn resolved_text_echo_is_one_json_encoded_line() {
         let echo = resolved_text_echo("first line\nsecond \"quoted\" line");
-        assert_eq!(echo.lines().count(), 1, "echo must stay a single line: {echo}");
+        assert_eq!(
+            echo.lines().count(),
+            1,
+            "echo must stay a single line: {echo}"
+        );
         let encoded = echo
             .strip_prefix(RESOLVED_TEXT_PREFIX)
             .expect("echo carries the shared prefix");

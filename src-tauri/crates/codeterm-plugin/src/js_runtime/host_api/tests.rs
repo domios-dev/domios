@@ -74,7 +74,10 @@ fn granted_cwd_root_widens_reads_only_on_its_own_sandbox() {
         let fwd = t.to_string_lossy().replace('\\', "/");
         let sb = PluginSandbox::restricted(vec![], vec![]);
         sb.grant_cwd_read_root(&fwd);
-        assert!(sb.can_read(&file_str), "forward-slash grant covers {file_str}");
+        assert!(
+            sb.can_read(&file_str),
+            "forward-slash grant covers {file_str}"
+        );
     }
 }
 
@@ -129,9 +132,8 @@ fn list_child_dirs_gated_by_cwd_grant_with_negative_controls() {
         };
     "#;
     let sandbox = Arc::new(PluginSandbox::restricted(vec![], vec![]));
-    let vm =
-        PluginVm::from_source_sandboxed("confined", SRC.to_string(), None, sandbox.clone())
-            .unwrap();
+    let vm = PluginVm::from_source_sandboxed("confined", SRC.to_string(), None, sandbox.clone())
+        .unwrap();
     let t_str = t.to_string_lossy().into_owned();
     let t_git = t.join("a").join(".git").to_string_lossy().into_owned();
 
@@ -155,7 +157,11 @@ fn list_child_dirs_gated_by_cwd_grant_with_negative_controls() {
 
     // NEGATIVE CONTROL: ungranted sibling stays denied even while T is granted.
     let sib_str = sibling.to_string_lossy().into_owned();
-    let sib_git = sibling.join("x").join(".git").to_string_lossy().into_owned();
+    let sib_git = sibling
+        .join("x")
+        .join(".git")
+        .to_string_lossy()
+        .into_owned();
     let sib: Option<Vec<String>> =
         crate::js_runtime::vm::call_json(&vm, "list", &[json!(sib_str)]).unwrap();
     assert_eq!(sib, None, "ungranted sibling listing must stay denied");

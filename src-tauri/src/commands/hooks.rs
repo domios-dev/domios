@@ -236,7 +236,8 @@ mod tests {
     };
     use crate::agent::provider::{
         install_integration_with_trust_grant, AgentLaunchParams, AgentProvider,
-        IntegrationInstallOptions, IntegrationTrustGrantCapability, ReadinessStrategy, TaskDelivery,
+        IntegrationInstallOptions, IntegrationTrustGrantCapability, ReadinessStrategy,
+        TaskDelivery,
     };
     use crate::agent::registry::AgentRegistry;
     use std::cell::Cell;
@@ -301,7 +302,11 @@ mod tests {
         fn session_file_path(&self, _cwd: &str, _session_id: &str) -> Option<PathBuf> {
             None
         }
-        fn build_resume_command(&self, _session_id: &str, _skip_permissions: bool) -> Option<String> {
+        fn build_resume_command(
+            &self,
+            _session_id: &str,
+            _skip_permissions: bool,
+        ) -> Option<String> {
             None
         }
         fn detect_session_id(
@@ -400,7 +405,10 @@ mod tests {
     #[test]
     fn install_offload_success_path_round_trips_install_and_grant_result() {
         let outcome = serde_json::json!({ "granted": true, "marker": "fixture-supplied" });
-        let probe = Arc::new(InstallProbeProvider::with_grant("offload-probe", outcome.clone()));
+        let probe = Arc::new(InstallProbeProvider::with_grant(
+            "offload-probe",
+            outcome.clone(),
+        ));
         let install_thread = probe.install_thread.clone();
         let grant_thread = probe.grant_thread.clone();
 

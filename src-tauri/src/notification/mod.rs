@@ -28,8 +28,7 @@ pub fn notify(
     level: Option<String>,
     event_key: Option<String>,
 ) -> Result<String, String> {
-    let intent =
-        crate::api::notification_routes::parse_push_intent(level.as_deref(), event_key)?;
+    let intent = crate::api::notification_routes::parse_push_intent(level.as_deref(), event_key)?;
     Ok(svc.create_notification_ext(
         title,
         body,

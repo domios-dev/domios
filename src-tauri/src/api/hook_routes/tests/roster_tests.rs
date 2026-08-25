@@ -302,4 +302,3 @@ fn codex_stop_bundled_roster_declares_session_start_and_stop_and_registration_fo
         "registration must equal exactly the declared roster"
     );
 }
-

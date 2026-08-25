@@ -616,7 +616,10 @@ fn hook_event_roster_resolution_rejects_unknown_route() {
         },
     ];
     let error = resolve_hook_event_roster(&declared).expect_err("unknown route fails the roster");
-    assert!(error.contains("Warp") && error.contains("warp_core"), "{error}");
+    assert!(
+        error.contains("Warp") && error.contains("warp_core"),
+        "{error}"
+    );
 }
 
 #[test]
@@ -626,8 +629,7 @@ fn permission_request_roster_resolution_rejects_unknown_verdict() {
         route: "session_state".into(),
         verdict: Some("busy".into()),
     }];
-    let error =
-        resolve_hook_event_roster(&declared).expect_err("unknown verdict fails the roster");
+    let error = resolve_hook_event_roster(&declared).expect_err("unknown verdict fails the roster");
     assert!(
         error.contains("session.status") && error.contains("busy"),
         "{error}"

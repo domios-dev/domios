@@ -97,7 +97,9 @@ pub(crate) fn resolve_plan_ctx(
             return Ok((Some(plan_id), None));
         };
         if !tab_holds_task(plan_store, tab_id, &plan_id, task_id) {
-            return Err(stale_task_hint_refusal(plan_store, tab_id, &plan_id, task_id));
+            return Err(stale_task_hint_refusal(
+                plan_store, tab_id, &plan_id, task_id,
+            ));
         }
         return Ok((Some(plan_id), Some(task_id.to_string())));
     }

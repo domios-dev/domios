@@ -83,10 +83,12 @@ pub(crate) fn mux_rename_team_service_core(
     name: String,
     caller_tab_id: Option<String>,
 ) -> Result<Team, String> {
-    svc.rename_team(&team_id, name, TeamMutationCaller::from_tab(caller_tab_id.as_deref()))
+    svc.rename_team(
+        &team_id,
+        name,
+        TeamMutationCaller::from_tab(caller_tab_id.as_deref()),
+    )
 }
-
-
 
 /// Rename a Team through the service boundary so authorization and the state
 /// change event remain identical for desktop and web callers.

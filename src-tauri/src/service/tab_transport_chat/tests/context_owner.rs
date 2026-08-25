@@ -108,9 +108,10 @@ impl DiscriminatorSession {
 
     fn clear(&self) {
         let _ = std::fs::remove_file(self.sidecar());
-        let _ = std::fs::remove_file(
-            crate::service::tab_chat::chatbackend_history::session_path(self.plugin, self.session),
-        );
+        let _ = std::fs::remove_file(crate::service::tab_chat::chatbackend_history::session_path(
+            self.plugin,
+            self.session,
+        ));
     }
 }
 
@@ -135,10 +136,7 @@ fn plugin_context_owner_send_path_is_unchanged() {
 
     assert_eq!(
         backend.messages.lock().as_slice(),
-        &[(
-            fixture.session.to_string(),
-            "the identical ask".to_string()
-        )],
+        &[(fixture.session.to_string(), "the identical ask".to_string())],
         "send_message received exactly (session_id, text)"
     );
     assert!(

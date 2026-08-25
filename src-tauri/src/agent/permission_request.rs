@@ -18,7 +18,10 @@ pub struct PermissionRequestSignal {
 /// per-tool permission report (e.g. the late `Notification` fallback), so the
 /// caller keeps its existing screen-parsing path.
 pub fn parse_permission_request(body: &Value) -> Option<PermissionRequestSignal> {
-    let root = body.get("payload").filter(|v| v.is_object()).unwrap_or(body);
+    let root = body
+        .get("payload")
+        .filter(|v| v.is_object())
+        .unwrap_or(body);
     let tool_name = root
         .get("tool_name")
         .and_then(Value::as_str)

@@ -310,12 +310,10 @@ pub async fn hook_stop(
     // A nonce-verified report is the completion-via-report path; a nonce-less
     // legacy post keeps today's tab-keyed behavior. No-op for visible tabs.
     match (verdict, report_nonce.as_deref()) {
-        (StopReportVerdict::Verified, Some(nonce)) => {
-            state
-                .svc
-                .run_watcher
-                .complete_via_stop_report(&state.svc, &tab_id, nonce)
-        }
+        (StopReportVerdict::Verified, Some(nonce)) => state
+            .svc
+            .run_watcher
+            .complete_via_stop_report(&state.svc, &tab_id, nonce),
         _ => state
             .svc
             .run_watcher

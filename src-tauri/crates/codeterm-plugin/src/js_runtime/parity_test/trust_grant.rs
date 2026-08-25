@@ -117,20 +117,30 @@ const DECLARING_PLUGIN_JS: &str = r#"
 
 #[test]
 fn integration_trust_grant_invoked_once_per_install_with_managed_keys() {
-    let js = trust_grant_js_fixture("trust-grant-js-fixture", DECLARING_MANIFEST, DECLARING_PLUGIN_JS);
+    let js = trust_grant_js_fixture(
+        "trust-grant-js-fixture",
+        DECLARING_MANIFEST,
+        DECLARING_PLUGIN_JS,
+    );
     let native = TrustGrantNativeStub::default();
     let expected_keys = serde_json::json!(["session_start"]);
 
     let js_grant = install_integration_with_trust_grant(&js, 7686, &install_options())
         .expect("install must succeed")
         .expect("declared capability must be invoked");
-    assert_eq!(js_grant["calls"], 1, "JS grant must run exactly once per install");
+    assert_eq!(
+        js_grant["calls"], 1,
+        "JS grant must run exactly once per install"
+    );
     assert_eq!(js_grant["keys"], expected_keys);
 
     let native_grant = install_integration_with_trust_grant(&native, 7686, &install_options())
         .expect("install must succeed")
         .expect("declared capability must be invoked");
-    assert_eq!(native_grant["calls"], 1, "native grant must run exactly once per install");
+    assert_eq!(
+        native_grant["calls"], 1,
+        "native grant must run exactly once per install"
+    );
     assert_eq!(native_grant["keys"], expected_keys);
     assert_eq!(
         native.granted_calls.lock().unwrap().as_slice(),
@@ -184,7 +194,10 @@ fn integration_trust_grant_absent_capability_leaves_providers_unaffected() {
 
     let js_outcome = install_integration_with_trust_grant(&js, 7686, &install_options())
         .expect("install must succeed");
-    assert!(js_outcome.is_none(), "undeclared JS capability must not be invoked");
+    assert!(
+        js_outcome.is_none(),
+        "undeclared JS capability must not be invoked"
+    );
     assert!(
         !sentinel.exists(),
         "grantIntegrationTrust must never run without a manifest declaration"
@@ -200,7 +213,11 @@ fn integration_trust_grant_absent_capability_leaves_providers_unaffected() {
 
 #[test]
 fn integration_trust_grant_descriptor_declares_managed_keys() {
-    let js = trust_grant_js_fixture("trust-grant-js-fixture", DECLARING_MANIFEST, DECLARING_PLUGIN_JS);
+    let js = trust_grant_js_fixture(
+        "trust-grant-js-fixture",
+        DECLARING_MANIFEST,
+        DECLARING_PLUGIN_JS,
+    );
     let native = TrustGrantNativeStub::default();
     let expected = Some(IntegrationTrustGrantCapability {
         managed_keys: vec!["session_start".into()],

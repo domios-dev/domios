@@ -6,8 +6,8 @@ use std::sync::Mutex;
 
 use super::*;
 use crate::agent::chat_types::{ChatMsg, StructuredChat};
-use crate::chatbackend::{ChatBackendError, ChatBackendProvider, HostTurn};
 use crate::agent::provider::{ContextOwner, ModelInfo};
+use crate::chatbackend::{ChatBackendError, ChatBackendProvider, HostTurn};
 
 struct RecordingBackend {
     owner: ContextOwner,
@@ -138,7 +138,10 @@ fn context_decision_line_records_the_limit_in_effect() {
     assert_eq!(decision.unit, context_window::ContextUnit::Messages);
     assert_eq!(decision.limit, context_window::PROVISIONAL_GROUP_LIMIT);
     assert_eq!(decision.groups_available, groups + 1);
-    assert_eq!(decision.groups_sent, context_window::PROVISIONAL_GROUP_LIMIT);
+    assert_eq!(
+        decision.groups_sent,
+        context_window::PROVISIONAL_GROUP_LIMIT
+    );
     assert_eq!(
         decision.groups_dropped,
         groups + 1 - context_window::PROVISIONAL_GROUP_LIMIT
@@ -262,10 +265,7 @@ fn default_path_writes_no_context_sidecar() {
 
     let backend = RecordingBackend::new(ContextOwner::Plugin);
     crate::service::tab_transport_chat::dispatch_chatbackend_send(
-        &backend,
-        plugin,
-        session_id,
-        "ask",
+        &backend, plugin, session_id, "ask",
     )
     .unwrap();
 
@@ -305,14 +305,15 @@ fn host_owned_send_writes_the_sidecar_beside_the_mirror() {
 
     let backend = RecordingBackend::new(ContextOwner::Host);
     crate::service::tab_transport_chat::dispatch_chatbackend_send(
-        &backend,
-        plugin,
-        session_id,
-        "ask",
+        &backend, plugin, session_id, "ask",
     )
     .unwrap();
 
-    assert_eq!(mirror.parent(), sidecar.parent(), "sidecar sits beside the mirror");
+    assert_eq!(
+        mirror.parent(),
+        sidecar.parent(),
+        "sidecar sits beside the mirror"
+    );
     assert_eq!(read_decisions(&sidecar).len(), 1);
     assert_eq!(
         std::fs::read(&mirror).unwrap(),

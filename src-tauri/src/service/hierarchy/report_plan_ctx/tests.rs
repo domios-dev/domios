@@ -54,7 +54,9 @@ fn holdings(worker: &str, other_was_ours: bool) -> Holdings {
     let other = add_task(&store, &plan.id, "moved on", 2);
     let held = add_task(&store, &plan.id, "actually held", 2);
     if other_was_ours {
-        store.assign_task(&plan.id, &other, worker, None, 3).unwrap();
+        store
+            .assign_task(&plan.id, &other, worker, None, 3)
+            .unwrap();
     }
     store
         .assign_task(&plan.id, &other, "someone-else", None, 4)
@@ -83,7 +85,10 @@ fn stale_task_report_hint_for_a_task_the_tab_lost_is_refused() {
     .unwrap_err();
 
     assert!(error.contains(STALE_TASK_HINT_REFUSAL));
-    assert!(error.contains(&fx.other), "must name the stale task: {error}");
+    assert!(
+        error.contains(&fx.other),
+        "must name the stale task: {error}"
+    );
     assert!(error.contains("worker"), "must name the caller: {error}");
     assert!(
         error.contains(&fx.held),
@@ -125,9 +130,10 @@ fn stale_task_report_lingering_open_attempt_cannot_launder_a_hint() {
         .find(|task| task.id == fx.other)
         .unwrap();
     assert!(
-        other.execution_attempts.iter().any(|attempt| {
-            attempt.executor_tab_id == "worker" && attempt.closed_at.is_none()
-        }),
+        other
+            .execution_attempts
+            .iter()
+            .any(|attempt| { attempt.executor_tab_id == "worker" && attempt.closed_at.is_none() }),
         "the reassigned task must still carry the tab's open attempt for this to prove anything"
     );
     assert_eq!(other.assigned_tab_id.as_deref(), Some("someone-else"));
@@ -174,7 +180,8 @@ fn stale_task_report_absent_hint_paths_are_unchanged() {
     assert!(notices.is_empty());
 
     let mut notices = Vec::new();
-    let (plan, task) = resolve_plan_ctx(&fx.store, "unbound-tab", None, None, &mut notices).unwrap();
+    let (plan, task) =
+        resolve_plan_ctx(&fx.store, "unbound-tab", None, None, &mut notices).unwrap();
     assert_eq!((plan, task), (None, None));
     assert!(notices.is_empty());
 
@@ -307,7 +314,9 @@ fn seed_plan(
     store
         .assign_task(&plan.id, &stale, "someone-else", None, 3)
         .unwrap();
-    store.assign_task(&plan.id, &held, &caller, None, 4).unwrap();
+    store
+        .assign_task(&plan.id, &held, &caller, None, 4)
+        .unwrap();
     store
         .update_attempt_executor_identity(
             &plan.id,
@@ -339,18 +348,17 @@ fn stale_task_report_transitions_nothing_and_names_the_mismatch() {
     let held_before = h.shape(&h.held);
     let stale_before = h.shape(&h.stale);
 
-    let result = h
-        .fx
-        .service
-        .submit_report(
-            &h.caller,
-            "STALE_REPORT_PAYLOAD",
-            h.details(ReportStatus::InReview),
-            Some(&h.plan_id),
-            Some(&h.stale),
-            None,
-        )
-        .expect("a refused transition must not swallow the report");
+    let result =
+        h.fx.service
+            .submit_report(
+                &h.caller,
+                "STALE_REPORT_PAYLOAD",
+                h.details(ReportStatus::InReview),
+                Some(&h.plan_id),
+                Some(&h.stale),
+                None,
+            )
+            .expect("a refused transition must not swallow the report");
 
     let rejection = result
         .rejected_task_transition
@@ -435,18 +443,17 @@ fn stale_task_report_absent_hint_still_transitions_the_held_task() {
     let h = worker_harness();
     let stale_before = h.shape(&h.stale);
 
-    let result = h
-        .fx
-        .service
-        .submit_report(
-            &h.caller,
-            "ABSENT_HINT_PAYLOAD",
-            h.details(ReportStatus::InReview),
-            None,
-            None,
-            None,
-        )
-        .unwrap();
+    let result =
+        h.fx.service
+            .submit_report(
+                &h.caller,
+                "ABSENT_HINT_PAYLOAD",
+                h.details(ReportStatus::InReview),
+                None,
+                None,
+                None,
+            )
+            .unwrap();
 
     assert!(result.rejected_task_transition.is_none());
     assert_eq!(
@@ -500,18 +507,17 @@ fn stale_task_report_plan_owner_in_recovery_cannot_land_a_stale_binding() {
     );
 
     let stale_before = h.shape(&h.stale);
-    let result = h
-        .fx
-        .service
-        .submit_report(
-            &h.caller,
-            "RECOVERY_HATCH_PAYLOAD",
-            h.details(ReportStatus::InReview),
-            Some(&h.plan_id),
-            Some(&h.stale),
-            None,
-        )
-        .expect("a refused transition must not swallow the report");
+    let result =
+        h.fx.service
+            .submit_report(
+                &h.caller,
+                "RECOVERY_HATCH_PAYLOAD",
+                h.details(ReportStatus::InReview),
+                Some(&h.plan_id),
+                Some(&h.stale),
+                None,
+            )
+            .expect("a refused transition must not swallow the report");
 
     let rejection = result
         .rejected_task_transition

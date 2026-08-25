@@ -46,10 +46,9 @@ struct Spy {
 
 impl Spy {
     fn accept(&self, to_tab: &str, envelope: MessageEnvelope, body: &str) -> Result<(), String> {
-        self.calls.borrow_mut().push((
-            to_tab.to_string(),
-            Messenger::from(envelope).wrap(body),
-        ));
+        self.calls
+            .borrow_mut()
+            .push((to_tab.to_string(), Messenger::from(envelope).wrap(body)));
         Ok(())
     }
 
@@ -86,8 +85,8 @@ fn answer_delivery_carries_the_recorded_tab_and_the_chosen_label() {
         "the answer goes to the tab captured when the question was sent"
     );
 
-    let marker = message_markers::parse(wrapped)
-        .expect("the envelope composed the marker, not this module");
+    let marker =
+        message_markers::parse(wrapped).expect("the envelope composed the marker, not this module");
     assert_eq!(
         marker.kind,
         host_event_kind(),
@@ -156,8 +155,15 @@ fn answer_delivery_never_attempted_for_a_dead_recorded_tab() {
     assert_eq!(outcome, AnswerDeliveryOutcome::NotAttempted);
     assert!(spy.calls().is_empty(), "a dead tab is never sent to");
 
-    let slot = store.lock().answer_slot(&id).cloned().expect("the slot stands");
-    assert!(slot.is_undeliverable(), "the card says so instead of claiming an answer");
+    let slot = store
+        .lock()
+        .answer_slot(&id)
+        .cloned()
+        .expect("the slot stands");
+    assert!(
+        slot.is_undeliverable(),
+        "the card says so instead of claiming an answer"
+    );
     assert!(!slot.delivered);
 }
 
@@ -194,9 +200,17 @@ fn answer_delivery_failure_surfaces_as_not_delivered() {
 
     assert_eq!(outcome, AnswerDeliveryOutcome::Failed(refusal.to_string()));
     assert!(!outcome.reached_tab(), "a refused send is never delivered");
-    assert_eq!(outcome.failure(), Some(refusal), "the reason is not swallowed");
+    assert_eq!(
+        outcome.failure(),
+        Some(refusal),
+        "the reason is not swallowed"
+    );
 
-    let slot = store.lock().answer_slot(&id).cloned().expect("the slot stands");
+    let slot = store
+        .lock()
+        .answer_slot(&id)
+        .cloned()
+        .expect("the slot stands");
     assert_eq!(slot.answered.as_deref(), Some(CHOSEN));
     assert!(
         slot.is_undelivered(),
@@ -210,5 +224,11 @@ fn answer_delivery_failure_surfaces_as_not_delivered() {
     });
     assert_eq!(retry, AnswerDeliveryOutcome::Delivered);
     assert_eq!(spy.calls().len(), 1);
-    assert!(store.lock().answer_slot(&id).expect("the slot stands").delivered);
+    assert!(
+        store
+            .lock()
+            .answer_slot(&id)
+            .expect("the slot stands")
+            .delivered
+    );
 }

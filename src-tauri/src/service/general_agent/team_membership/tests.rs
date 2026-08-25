@@ -16,7 +16,10 @@ fn mux_with_general_agent() -> (MultiplexerState, String, String) {
 #[test]
 fn general_agent_team_guard_refuses_by_role_kind_on_both_attempts() {
     let (mux, general, _) = mux_with_general_agent();
-    for attempt in [MembershipAttempt::Join, MembershipAttempt::ExerciseMembership] {
+    for attempt in [
+        MembershipAttempt::Join,
+        MembershipAttempt::ExerciseMembership,
+    ] {
         let refusal = refuse_general_agent_team_membership(
             &mux,
             &general,

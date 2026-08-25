@@ -259,9 +259,11 @@ pub(crate) fn dispatch_chatbackend_send(
         ContextOwner::Plugin => provider
             .send_message(session_id, text)
             .map_err(|e| e.to_string()),
-        ContextOwner::Host => crate::service::tab_chat::host_context::deliver_host_turn_for_session(
-            provider, plugin_id, session_id, text,
-        ),
+        ContextOwner::Host => {
+            crate::service::tab_chat::host_context::deliver_host_turn_for_session(
+                provider, plugin_id, session_id, text,
+            )
+        }
     }
 }
 

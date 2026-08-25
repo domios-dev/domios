@@ -18,10 +18,10 @@ pub(crate) use launch::{
     record_provider_session, record_reader_termination, ProviderSessionBinding,
 };
 pub(crate) use prompt_compose::{provider_launch_task, role_launch_task};
-pub(crate) use spawn::move_chatbackend_task_to_system_prompt;
 #[cfg(test)]
 pub(crate) use prompt_compose::{role_onboarding_task, spawn_onboarding_task};
 pub use refresh::{RefreshOutcome, RefreshRequest, RefreshTrigger, RefreshTuning};
+pub(crate) use spawn::move_chatbackend_task_to_system_prompt;
 pub(crate) use types::TaskLaunchAuthority;
 pub use types::{BatchOp, SpawnAgentParams, SpawnIdentityProvenance, SpawnResult};
 

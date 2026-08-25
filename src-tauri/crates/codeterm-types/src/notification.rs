@@ -53,8 +53,6 @@ impl NotifyLevel {
     }
 }
 
-
-
 /// What one notification button does. A closed set: an unknown kind is a parse
 /// rejection, never a string that reaches a click handler.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -313,7 +311,11 @@ mod tests {
         );
         let distinct: std::collections::HashSet<&str> =
             NotifyLevel::wire_values().into_iter().collect();
-        assert_eq!(distinct.len(), NotifyLevel::ALL.len(), "wire values collide");
+        assert_eq!(
+            distinct.len(),
+            NotifyLevel::ALL.len(),
+            "wire values collide"
+        );
     }
 
     #[test]
@@ -332,7 +334,15 @@ mod tests {
 
     #[test]
     fn notify_level_rejects_unknown_and_empty_input() {
-        for rejected in ["progress", "info", "", "   ", "Verbose", "urgent", "action needed"] {
+        for rejected in [
+            "progress",
+            "info",
+            "",
+            "   ",
+            "Verbose",
+            "urgent",
+            "action needed",
+        ] {
             assert_eq!(
                 NotifyLevel::parse(rejected),
                 None,

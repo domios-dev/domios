@@ -27,12 +27,12 @@ use std::path::Path;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
+mod brief_tests;
 mod checkout_occupancy;
 mod lane_safety;
 mod qa_pass;
 mod recovery_race;
 mod worker_ack;
-mod brief_tests;
 
 #[test]
 fn nonrepo_team_runs_noncode_workers_without_git_probe() {
@@ -912,7 +912,6 @@ fn routing_empty_inputs_use_defaults() {
     assert_eq!(r.agent, None);
     assert_eq!(r.model, None);
 }
-
 
 fn task(value: serde_json::Value) -> Task {
     serde_json::from_value(value).expect("task fixture")

@@ -295,7 +295,10 @@ fn update_tab_is_a_user_visible_tab_not_an_automation_surface() {
 
     let (update_tab_id, _) = update_tab(&fixture.service, &prompt.prompt_id);
     let snapshot = fixture.service.mux.read().snapshot();
-    let tab = snapshot.tabs.get(&update_tab_id).expect("update tab in state");
+    let tab = snapshot
+        .tabs
+        .get(&update_tab_id)
+        .expect("update tab in state");
     assert!(!tab.hidden);
     assert!(tab.show_in_tabbar);
     assert_eq!(tab.audience, TabAudience::User);
@@ -429,7 +432,12 @@ fn closing_the_update_tab_fails_the_prompt_and_frees_the_source_tab() {
     );
     let (update_tab_id, _) = update_tab(&fixture.service, &prompt.prompt_id);
 
-    fixture.service.mux.write().close_tab(&update_tab_id).unwrap();
+    fixture
+        .service
+        .mux
+        .write()
+        .close_tab(&update_tab_id)
+        .unwrap();
 
     // 1. Did reconciliation fire at all, and on which prompt?
     let terminated = fixture.service.reconcile_closed_update_tabs();

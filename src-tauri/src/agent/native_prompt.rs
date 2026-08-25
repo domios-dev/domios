@@ -273,7 +273,10 @@ mod tests {
         let resolved = resolve_pending_prompt(Some(structured.clone()), Some(&input))
             .expect("the structured handle resolves");
         assert_eq!(resolved.prompt, structured);
-        assert!(resolved.explicit, "a structured handle keeps structured provenance");
+        assert!(
+            resolved.explicit,
+            "a structured handle keeps structured provenance"
+        );
     }
 
     #[test]

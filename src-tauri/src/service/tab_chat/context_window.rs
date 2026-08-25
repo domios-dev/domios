@@ -132,18 +132,16 @@ pub fn is_system_prompt_seed(entry: &ChatMsg) -> bool {
 /// `HostTurn.system`, and forwarding both would send the brief twice. The
 /// exclusion is recorded in `systemPromptSeedIds`; when no brief was supplied,
 /// the seed's payload is promoted into `system` rather than dropped.
-pub fn compose(
-    system: &str,
-    transcript: &[ChatMsg],
-    limit: usize,
-    in_flight: &str,
-) -> Composition {
+pub fn compose(system: &str, transcript: &[ChatMsg], limit: usize, in_flight: &str) -> Composition {
     let limit = limit.max(1);
     let (seeds, conversation): (Vec<&ChatMsg>, Vec<&ChatMsg>) = transcript
         .iter()
         .partition(|entry| is_system_prompt_seed(entry));
     let system = if system.is_empty() {
-        seeds.last().map(|seed| seed_brief(seed)).unwrap_or_default()
+        seeds
+            .last()
+            .map(|seed| seed_brief(seed))
+            .unwrap_or_default()
     } else {
         system.to_string()
     };

@@ -84,10 +84,7 @@ mod tests {
     fn locked(
         state: MultiplexerState,
         buf: OutputBuffer,
-    ) -> (
-        TimedRwLock<MultiplexerState>,
-        TimedMutex<OutputBuffer>,
-    ) {
+    ) -> (TimedRwLock<MultiplexerState>, TimedMutex<OutputBuffer>) {
         (
             TimedRwLock::new("mux", state),
             TimedMutex::new("output_buf", buf),

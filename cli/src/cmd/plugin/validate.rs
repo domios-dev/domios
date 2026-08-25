@@ -87,7 +87,10 @@ pub fn run(json: bool, dir: &Path) {
     match validate_dir(dir) {
         Ok(report) => {
             if json {
-                println!("{}", serde_json::to_string_pretty(&report.to_json()).unwrap());
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&report.to_json()).unwrap()
+                );
             } else {
                 print!("{}", report.render(dir));
             }
@@ -105,8 +108,7 @@ pub fn validate_dir(dir: &Path) -> Result<ValidationReport, String> {
         return Err(format!("no plugin.json in {}", dir.display()));
     }
     // Strict parse first so a manifest typo fails naming the key, before any VM work.
-    let manifest =
-        PluginManifest::load(&manifest_path).map_err(|e| format!("manifest: {e}"))?;
+    let manifest = PluginManifest::load(&manifest_path).map_err(|e| format!("manifest: {e}"))?;
     validate_command_templates(&manifest)?;
     // The daemon's real load path: entry existence, hostApi conformance, QuickJS eval.
     let provider = load_one(&manifest_path).map_err(|e| format!("load: {e}"))?;
@@ -209,7 +211,12 @@ fn enabled_capabilities(m: &PluginManifest) -> Vec<&'static str> {
 impl ValidationReport {
     fn render(&self, dir: &Path) -> String {
         let mut out = String::new();
-        out.push_str(&format!("plugin: {} v{} ({})\n", self.id, self.version, dir.display()));
+        out.push_str(&format!(
+            "plugin: {} v{} ({})\n",
+            self.id,
+            self.version,
+            dir.display()
+        ));
         out.push_str("manifest: OK (strict daemon parse)\n");
         out.push_str("load: OK (QuickJS eval)\n");
         out.push_str(&format!("capabilities: {}\n", self.capabilities.join(", ")));
@@ -319,8 +326,14 @@ mod tests {
         );
         write(&dir.join("plugin.js"), "module.exports.default = {};");
         let err = validate_dir(&dir).expect_err("typo'd spawn key must fail");
-        assert!(err.starts_with("manifest:"), "fails in the manifest phase: {err}");
-        assert!(err.contains("taskDelivry"), "error names the typo'd key: {err}");
+        assert!(
+            err.starts_with("manifest:"),
+            "fails in the manifest phase: {err}"
+        );
+        assert!(
+            err.contains("taskDelivry"),
+            "error names the typo'd key: {err}"
+        );
     }
 
     #[test]
@@ -334,7 +347,10 @@ mod tests {
         );
         let err = validate_dir(&dir).expect_err("throwing plugin.js must fail");
         assert!(err.starts_with("load:"), "fails in the load phase: {err}");
-        assert!(err.contains("boom-at-eval"), "error carries the JS message: {err}");
+        assert!(
+            err.contains("boom-at-eval"),
+            "error carries the JS message: {err}"
+        );
     }
 
     #[test]
@@ -359,7 +375,10 @@ mod tests {
             .find(|(n, _, _)| *n == "classifyTabState")
             .expect("classifyTabState probed");
         assert!(!classify_found, "unexported method reports as fallback");
-        assert!(report.warnings.is_empty(), "launch export present — no warning");
+        assert!(
+            report.warnings.is_empty(),
+            "launch export present — no warning"
+        );
     }
 
     #[test]
@@ -445,8 +464,14 @@ mod tests {
         );
         write(&dir.join("plugin.js"), "module.exports.default = {};");
         let err = validate_dir(&dir).expect_err("unknown placeholder must fail validation");
-        assert!(err.starts_with("template:"), "fails in the template phase: {err}");
-        assert!(err.contains("taks"), "error names the offending placeholder: {err}");
+        assert!(
+            err.starts_with("template:"),
+            "fails in the template phase: {err}"
+        );
+        assert!(
+            err.contains("taks"),
+            "error names the offending placeholder: {err}"
+        );
         assert!(
             err.contains("launchArgsFormat"),
             "error names the offending field: {err}"
@@ -484,7 +509,10 @@ mod tests {
         );
         write(&dir.join("plugin.js"), "module.exports.default = {};");
         let err = validate_dir(&dir).expect_err("wrong hostApi must fail");
-        assert!(err.starts_with("load:"), "conformance gate is a load failure: {err}");
+        assert!(
+            err.starts_with("load:"),
+            "conformance gate is a load failure: {err}"
+        );
         assert!(err.contains("hostApi"), "error names the gate: {err}");
     }
 }

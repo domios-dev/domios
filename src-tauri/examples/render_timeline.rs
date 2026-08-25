@@ -372,7 +372,8 @@ fn main() {
     let include_native_picker = argv.iter().any(|a| a == "--native-picker");
     // Required, no default: replaying with a fictional band would render a
     // timeline for a program nobody runs.
-    let Some(status_bar_rows) = flag("--status-bar-rows").and_then(|s| s.parse::<u16>().ok()) else {
+    let Some(status_bar_rows) = flag("--status-bar-rows").and_then(|s| s.parse::<u16>().ok())
+    else {
         eprintln!("--status-bar-rows N is required: the replayed provider's chrome band");
         std::process::exit(2);
     };

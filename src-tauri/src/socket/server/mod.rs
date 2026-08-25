@@ -570,7 +570,16 @@ fn respond_to_request(
     // catch_unwind so a panic inside any dispatch handler does not silently drop the socket and leave the CLI with an "EOF while parsing" mystery.
     // We surface a real JSON-RPC error instead.
     let dispatched = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        dispatch::dispatch(&req.method, req.params, mux, pty, notif, app, output_buf, svc)
+        dispatch::dispatch(
+            &req.method,
+            req.params,
+            mux,
+            pty,
+            notif,
+            app,
+            output_buf,
+            svc,
+        )
     }));
     match dispatched {
         Ok(Ok(result)) => JsonRpcResponse::success(id, result),

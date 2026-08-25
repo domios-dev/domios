@@ -63,7 +63,11 @@ fn permission_request_unmapped_stream_event_changes_nothing() {
     let (mux, tab_id) = agent_tab();
 
     // Events the bus carries but the provider never declared.
-    for event in ["session.deleted", "message.part.updated", "server.connected"] {
+    for event in [
+        "session.deleted",
+        "message.part.updated",
+        "server.connected",
+    ] {
         assert_eq!(declared_state_verdict(&roster, event), None, "{event}");
     }
     // An event declared off the session_state route yields no verdict either.

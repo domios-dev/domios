@@ -290,19 +290,19 @@ fn the_decision_records_messages_as_the_unit() {
     let mut keys = line.as_object().unwrap().keys().collect::<Vec<_>>();
     keys.sort();
     let mut expected = vec![
-            "turn",
-            "unit",
-            "limit",
-            "groupsAvailable",
-            "groupsSent",
-            "groupsDropped",
-            "entriesSent",
-            "droppedEntryIds",
-            "systemPromptIncluded",
-            "systemPromptBytes",
-            "systemPromptSeedIds",
-            "payloadBytes",
-            "outcome",
+        "turn",
+        "unit",
+        "limit",
+        "groupsAvailable",
+        "groupsSent",
+        "groupsDropped",
+        "entriesSent",
+        "droppedEntryIds",
+        "systemPromptIncluded",
+        "systemPromptBytes",
+        "systemPromptSeedIds",
+        "payloadBytes",
+        "outcome",
     ];
     expected.sort();
     assert_eq!(keys, expected);

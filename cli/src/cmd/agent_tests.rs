@@ -113,7 +113,9 @@ fn refusal_hint_never_suggests_a_shell_expression_sha() {
     for line in refusal_next_commands() {
         assert!(!line.contains("$(git "), "{line}");
     }
-    assert!(refusal.message().contains("--sha YOUR_OWN_COMMIT_SHA --from-pad"));
+    assert!(refusal
+        .message()
+        .contains("--sha YOUR_OWN_COMMIT_SHA --from-pad"));
     assert!(!refusal.message().contains("--sha $("));
 }
 

@@ -91,9 +91,15 @@ fn question_removal_substring_words_do_not_produce_question() {
             "describe",
             "  Please describe the change and press enter; the selected item is saved.",
         ),
-        ("escape", "  Escape hatches let you enter a selected branch."),
+        (
+            "escape",
+            "  Escape hatches let you enter a selected branch.",
+        ),
         ("rescue", "  The rescue job will enter the selected queue."),
-        ("selected", "  The selected namespace will enter a rescue window."),
+        (
+            "selected",
+            "  The selected namespace will enter a rescue window.",
+        ),
         (
             "namespace",
             "  The namespace will enter a rescue window shortly.",

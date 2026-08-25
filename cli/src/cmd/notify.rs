@@ -50,8 +50,8 @@ fn params_from_body(
         params["event_key"] = serde_json::Value::String(event_key.to_string());
     }
     if let Some(actions) = choice_actions(choices)? {
-        params["actions"] =
-            serde_json::to_value(actions).map_err(|e| format!("choices are not serializable: {e}"))?;
+        params["actions"] = serde_json::to_value(actions)
+            .map_err(|e| format!("choices are not serializable: {e}"))?;
     }
     Ok(params)
 }
