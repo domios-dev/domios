@@ -375,6 +375,16 @@ pub enum NotifyAction {
         /// notification takes a chosen label back, never typed text.
         #[arg(long = "choice", value_name = "LABEL")]
         choice: Vec<String>,
+
+        /// Offer to turn one notification surface on: `desktop`, or a push
+        /// channel's service id. The change waits for the tap — an agent may
+        /// offer to be louder, never make itself louder.
+        #[arg(long = "offer", value_name = "SURFACE", requires = "offer_accept")]
+        offer: Option<String>,
+
+        /// Which of this notification's own choices accepts the offer.
+        #[arg(long = "offer-accept", value_name = "LABEL", requires = "offer")]
+        offer_accept: Option<String>,
     },
     /// List notifications
     List {

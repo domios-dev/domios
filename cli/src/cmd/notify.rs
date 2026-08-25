@@ -2,6 +2,16 @@ use codeterm_types::notification::{answer_actions, CallerAction, NotifyLevel};
 
 /// `notification.create` params. The body has exactly one source — the calling
 /// tab's pad — so a shell can never mangle a question before the user reads it.
+/// The surface a notification offers to turn on, and the choice that accepts
+/// it. Both or neither: an offer with nothing to accept it would never apply,
+/// and an accepting label with no surface would apply nothing.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Offer<'a> {
+    pub surface: Option<&'a str>,
+    pub accept: Option<&'a str>,
+}
+
+#[allow(clippy::too_many_arguments)]
 pub fn send_params(
     title: &str,
     severity: &str,
@@ -9,6 +19,7 @@ pub fn send_params(
     event_key: Option<&str>,
     from_pad: Option<&str>,
     choices: &[String],
+    offer: Offer<'_>,
 ) -> serde_json::Value {
     let body = from_pad.map(|path| {
         crate::cmd::payload_source::read_from_pad(path).unwrap_or_else(|e| {
@@ -23,6 +34,7 @@ pub fn send_params(
         event_key,
         body,
         choices,
+        offer,
         crate::nonempty_env("CODETERM_TAB_ID").as_deref(),
     )
     .unwrap_or_else(|e| {
@@ -40,6 +52,7 @@ pub fn choice_actions(choices: &[String]) -> Result<Option<Vec<CallerAction>>, S
     answer_actions(choices).map(Some)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn params_from_body(
     title: &str,
     severity: &str,
@@ -47,6 +60,7 @@ fn params_from_body(
     event_key: Option<&str>,
     body: Option<String>,
     choices: &[String],
+    offer: Offer<'_>,
     caller_tab_id: Option<&str>,
 ) -> Result<serde_json::Value, String> {
     let mut params = serde_json::json!({ "title": title, "severity": severity });
@@ -69,6 +83,15 @@ fn params_from_body(
         if let Some(tab_id) = caller_tab_id {
             params["caller_tab_id"] = serde_json::Value::String(tab_id.to_string());
         }
+    }
+    // The daemon resolves the surface against its own registry and ties the
+    // accepting label to this notification's choices, so the names travel as
+    // written and nothing here decides whether either is real.
+    if let Some(surface) = offer.surface {
+        params["offer"] = serde_json::Value::String(surface.to_string());
+    }
+    if let Some(accept) = offer.accept {
+        params["offer_accept"] = serde_json::Value::String(accept.to_string());
     }
     Ok(params)
 }

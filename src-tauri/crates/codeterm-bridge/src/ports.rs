@@ -32,6 +32,10 @@ pub trait BridgeTabPort: Send + Sync {
         agent_type: Option<&str>,
     ) -> Result<(), String>;
     fn queue_inbound(&self, tab_id: &str, prefixed: String);
+    /// Offer one tapped button's opaque payload to the daemon. `true` means the
+    /// daemon claimed it as an answer to a question it asked, so nothing is
+    /// pasted into a tab; `false` means it was ordinary channel traffic.
+    fn claim_channel_answer(&self, callback_data: &str) -> bool;
     fn telegram_token(&self) -> Option<String>;
     fn telegram_token_path(&self) -> PathBuf;
 }

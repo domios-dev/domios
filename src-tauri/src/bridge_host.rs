@@ -118,6 +118,10 @@ impl BridgeTabPort for ServiceBridgeTabPort {
         codeterm_bridge::bridge::inbound_buffer::push(tab_id, prefixed);
     }
 
+    fn claim_channel_answer(&self, callback_data: &str) -> bool {
+        self.0.claim_channel_answer(callback_data)
+    }
+
     fn telegram_token(&self) -> Option<String> {
         codeterm_bridge::bridge::telegram::read_token(&AppAttachmentStorePort)
     }

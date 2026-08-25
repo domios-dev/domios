@@ -5,6 +5,7 @@ use crate::notification::channels::{
     self, discord, Audience, ChannelHost, ChannelReadiness, PushChannel,
 };
 use codeterm_bridge::bridge::manager::OutboundMessage;
+use crate::notification::channel_ask::PushMessage;
 use codeterm_bridge::bridge::traits::OutboundContent;
 use codeterm_bridge::services::ServiceDescriptor;
 use codeterm_types::config::schema::{AgentLevelChoice, AppConfig, PushChannelConfig};
@@ -91,14 +92,14 @@ impl PushChannel for FixtureChannel {
         &self,
         host: &dyn ChannelHost,
         _audience: &Audience,
-        text: &str,
+        message: &PushMessage,
     ) -> Result<(), String> {
         host.enqueue(
             FIXTURE_SERVICE.id,
             OutboundMessage {
                 user_id: None,
                 content: OutboundContent::Text {
-                    text: text.to_string(),
+                    text: message.text.clone(),
                 },
                 append: false,
                 buttons: None,
@@ -201,7 +202,7 @@ fn channel_registry_second_channel_routes_without_touching_the_enum_or_the_grid(
     // rather than merely compiled.
     let envelope = PushEnvelope {
         level: NotifyLevel::Failure,
-        text: "a rendered push".to_string(),
+        message: PushMessage::text("a rendered push"),
         notification_id: "notif".to_string(),
     };
     assert_eq!(
@@ -323,7 +324,7 @@ fn channel_registry_resolving_a_channel_never_requires_core_to_name_one() {
 
     let envelope = PushEnvelope {
         level: NotifyLevel::Verbose,
-        text: "a rendered push".to_string(),
+        message: PushMessage::text("a rendered push"),
         notification_id: "notif".to_string(),
     };
     assert_eq!(
@@ -389,7 +390,7 @@ fn channel_registry_unknown_or_unavailable_channel_degrades_honestly() {
     );
     let envelope = PushEnvelope {
         level: NotifyLevel::Failure,
-        text: "text".to_string(),
+        message: PushMessage::text("text"),
         notification_id: "notif".to_string(),
     };
     let outcome = deliver_plan(&plan.targets, &plan.refusals, &dead, &envelope);

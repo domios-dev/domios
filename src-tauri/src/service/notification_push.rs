@@ -7,6 +7,7 @@
 use super::notification::{PushEnvelope, PushIntent};
 use super::ServiceContext;
 use crate::bridge::manager::OutboundMessage;
+use crate::notification::authority::SurfaceTarget;
 use crate::notification::channels::{
     self, Audience, ChannelHost, ChannelReadiness, PushChannel, RegisteredChannel,
 };
@@ -144,7 +145,7 @@ pub(crate) fn deliver_plan(
     for target in targets {
         if let Err(reason) = target
             .channel
-            .deliver(host, &target.audience, &envelope.text)
+            .deliver(host, &target.audience, &envelope.message)
         {
             failures.push(format!("{}: {reason}", target.service));
         }
@@ -200,6 +201,27 @@ impl ServiceContext {
     pub(crate) fn resolve_push_plan(&self, intent: PushIntent) -> PushPlan {
         let cfg = crate::config::load_config();
         plan_push(&cfg, &channels::roster(), self, intent)
+    }
+
+    /// Resolve the surface an offer names. `desktop` is core's own; anything
+    /// else must be a channel the registry answers to, so an offer can never
+    /// name a destination that resolves to nothing. The bell is refused: it is
+    /// presentation, not a capability an agent could be granted.
+    pub(crate) fn resolve_surface_target(&self, named: &str) -> Result<SurfaceTarget, String> {
+        match NotifyDestination::parse_local(named) {
+            Some(NotifyDestination::Desktop) => Ok(SurfaceTarget::Desktop),
+            Some(surface) => Err(format!(
+                "'{}' is not a surface an agent may offer to turn on",
+                surface.as_str()
+            )),
+            None => {
+                let roster = channels::roster();
+                let registered = channels::resolve_in(&roster, named)?;
+                Ok(SurfaceTarget::Channel {
+                    service: registered.id().to_string(),
+                })
+            }
+        }
     }
 
     /// What settings may offer per channel, in roster order.
