@@ -35,8 +35,12 @@ fn opted_in_config() -> NotificationConfig {
     cfg
 }
 
+/// The surface is switched on here so the ROWS are what refuse. Inheriting the
+/// shipped master switch would answer `DesktopOff` before a row was consulted,
+/// and every per-level assertion below would pass for the wrong reason.
 fn policy_with(agent_levels: Vec<AgentLevelChoice>) -> DesktopPolicy {
     DesktopPolicy::from_config(&NotificationConfig {
+        desktop: true,
         agent_levels,
         ..NotificationConfig::default()
     })

@@ -6,21 +6,42 @@ use codeterm_types::config::schema::NotificationConfig;
 use parking_lot::Mutex;
 use std::sync::Arc;
 
-/// A caller that named a level, judged against the shipped policy.
+/// A user who switched the desktop surface on and opened every level's column.
+/// The shipped grid routes nothing to the desktop, so an open gate has to be
+/// asked for explicitly here rather than inherited from the defaults.
+fn opted_in_config() -> NotificationConfig {
+    let mut cfg = NotificationConfig {
+        desktop: true,
+        ..NotificationConfig::default()
+    };
+    for row in &mut cfg.agent_levels {
+        row.set(
+            codeterm_types::notification::NotifyDestination::Desktop,
+            true,
+        );
+    }
+    cfg
+}
+
+/// A caller that named a level, judged against a policy that admits it.
 fn declared(level: NotifyLevel) -> SurfaceDispatch {
+    let cfg = opted_in_config();
     SurfaceDispatch {
         declared: Some(level),
-        bell: BellPolicy::from_config(&NotificationConfig::default()),
-        desktop: DesktopPolicy::from_config(&NotificationConfig::default()),
+        bell: BellPolicy::from_config(&cfg),
+        desktop: DesktopPolicy::from_config(&cfg),
     }
 }
 
-/// A caller that named none — refused by the gate, not by an empty policy.
+/// A caller that named none — refused by the gate, not by an empty policy. The
+/// policy is the opted-in one on purpose: the missing level is the only thing
+/// left that can refuse, so the refusal cannot be a switched-off surface.
 fn undeclared() -> SurfaceDispatch {
+    let cfg = opted_in_config();
     SurfaceDispatch {
         declared: None,
-        bell: BellPolicy::from_config(&NotificationConfig::default()),
-        desktop: DesktopPolicy::from_config(&NotificationConfig::default()),
+        bell: BellPolicy::from_config(&cfg),
+        desktop: DesktopPolicy::from_config(&cfg),
     }
 }
 
