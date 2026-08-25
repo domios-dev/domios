@@ -5267,7 +5267,7 @@
               "value_name": "SEVERITY",
               "possible_values": [],
               "default": "info",
-              "help": "Toast severity: info, warning, error",
+              "help": "Record identity axis: info, warning, error. Tone comes from --level",
               "aliases": []
             },
             {

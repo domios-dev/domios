@@ -196,6 +196,7 @@ export function Sidebar({
         title: "Orchestration pair failed",
         body: e instanceof Error ? e.message : String(e),
         severity: "Error",
+        level: "failure",
         sticky: true,
       });
     });

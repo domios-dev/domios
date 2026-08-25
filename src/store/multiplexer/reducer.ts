@@ -209,6 +209,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
             title: tab.title || "Agent",
             body: "Needs your attention",
             severity: "Warning" as const,
+            level: "action_needed" as const,
             read: false,
             sticky: false,
             timestamp: Date.now(),

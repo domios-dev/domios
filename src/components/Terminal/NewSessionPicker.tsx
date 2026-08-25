@@ -131,6 +131,7 @@ export function NewSessionPicker({
           title: "Installer running",
           body: "The install command is running in a terminal tab. Come back to Start a session when it finishes.",
           severity: "Info",
+          level: "verbose",
           sticky: false,
         });
       } catch (e) {
@@ -140,6 +141,7 @@ export function NewSessionPicker({
           title: "Install failed to start",
           body: e instanceof Error ? e.message : String(e),
           severity: "Error",
+          level: "failure",
           sticky: true,
         });
       }
@@ -188,6 +190,7 @@ export function NewSessionPicker({
         title: "Session start failed",
         body: e instanceof Error ? e.message : String(e),
         severity: "Error",
+        level: "failure",
         sticky: true,
       });
     } finally {
@@ -241,6 +244,7 @@ export function NewSessionPicker({
           title: "Orchestration start failed",
           body: e instanceof Error ? e.message : String(e),
           severity: "Error",
+          level: "failure",
           sticky: true,
         });
       });
@@ -272,6 +276,7 @@ export function NewSessionPicker({
           title: "Agent access was not saved",
           body: error instanceof Error ? error.message : String(error),
           severity: "Error",
+          level: "failure",
           sticky: true,
         });
       });

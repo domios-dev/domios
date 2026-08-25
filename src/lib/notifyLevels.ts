@@ -18,29 +18,35 @@ const LEVEL_TONE: Record<string, string> = {
   failure: "var(--ct-red)",
 };
 
+/** A record whose sender named no level makes no claim about urgency, so every
+ *  surface paints it neutral by this name — never by a level invented for it. */
+export const UNLEVELLED_TONE = "var(--ct-muted-fg)";
+
 export function levelTone(level: string): string {
-  return LEVEL_TONE[level] ?? "var(--ct-muted-fg)";
+  return LEVEL_TONE[level] ?? UNLEVELLED_TONE;
 }
 
-/** Fallback for records with no declared level (diagnostics, provider-update
- *  prompts): a declared level always wins below; severity is never consulted once one is present. */
-const LEVEL_BY_SEVERITY: Record<Notification["severity"], NotifyLevelName> = {
-  Info: "verbose",
-  Warning: "action_needed",
-  Error: "failure",
-};
+/** The record's own level, or `null` when it carries none. `severity` is a
+ *  separate wire axis and is never read here: tone must agree with routing. */
+export function notificationLevel(notification: Notification): NotifyLevelName | null {
+  return notification.level ?? null;
+}
 
-export function notificationLevel(notification: Notification): NotifyLevelName {
-  return notification.level ?? LEVEL_BY_SEVERITY[notification.severity];
+/** The one tone authority. Every notification surface paints from this, so one
+ *  record can never read calm on the bell and urgent in the transcript. */
+export function notificationTone(notification: Notification): string {
+  const level = notificationLevel(notification);
+  return level === null ? UNLEVELLED_TONE : levelTone(level);
 }
 
 /** The accessible name of one ask, composed from the level and the label the
- *  question carries, so no surface hardcodes what a reader hears. */
-export function askAccessibleName(level: string, title: string): string {
-  return `${levelLabel(level)}: ${title}`;
+ *  question carries, so no surface hardcodes what a reader hears. An unlevelled
+ *  record is named by its label alone rather than by a level it never claimed. */
+export function askAccessibleName(level: string | null, title: string): string {
+  return level ? `${levelLabel(level)}: ${title}` : title;
 }
 
 /** The accessible name of one offered choice, placed inside its question. */
-export function choiceAccessibleName(level: string, title: string, choice: string): string {
+export function choiceAccessibleName(level: string | null, title: string, choice: string): string {
   return `${choice} — ${askAccessibleName(level, title)}`;
 }
