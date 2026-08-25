@@ -38,10 +38,6 @@ export interface HostExec {
   start(opts: ExecOpts): ExecStartResult;
   poll(jobId: string): ExecPollResult;
   close(jobId: string): void;
-  // Run `opts` off the VM; the host resumes this context with `then` once it
-  // finishes, and the plugin's caller receives what `then` returned. Must be
-  // `return`ed from the plugin method — it yields the frame, it does not block.
-  async<T>(opts: ExecOpts, then: (result: ExecPollResult) => T): T;
 }
 
 export interface FetchOpts {
@@ -223,10 +219,6 @@ export interface Host {
   execStart(optsJson: string): string;
   execPoll(jobId: string): string;
   execClose(jobId: string): void;
-  // Yield the VM until `jobId` finishes, then continue with `then`. Only valid
-  // as a plugin method's return value; a method that blocks instead serializes
-  // every other call into the same plugin.
-  awaitJob<T>(jobId: string, then: (result: ExecPollResult) => T): T;
   fetch: HostFetch;
   fetchStream(optsJson: string): string;
   fetchStreamPoll(jobId: string): string;

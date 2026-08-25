@@ -10,7 +10,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::LazyLock;
 use std::time::Duration;
 
-use parking_lot::{Condvar, Mutex};
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use wait_timeout::ChildExt;
 
@@ -313,33 +313,10 @@ pub(super) fn bin_of(opts_json: &str) -> Option<String> {
 
 // ── Async exec (job-id + poll) ──────────────────────────────────────────────
 
-/// Completion signal for one job. A waiter blocks on the condvar; the worker
-/// flips `done` and notifies. No polling and no elapsed-time check anywhere.
-#[derive(Default)]
-struct DoneEvent {
-    done: Mutex<bool>,
-    cv: Condvar,
-}
-
-impl DoneEvent {
-    fn signal(&self) {
-        *self.done.lock() = true;
-        self.cv.notify_all();
-    }
-
-    fn wait(&self) {
-        let mut done = self.done.lock();
-        while !*done {
-            self.cv.wait(&mut done);
-        }
-    }
-}
-
 #[derive(Default)]
 struct ExecJob {
     plugin_id: String,
     done: bool,
-    done_event: std::sync::Arc<DoneEvent>,
     code: Option<i32>,
     stdout: Option<String>,
     stderr: Option<String>,
@@ -436,64 +413,14 @@ pub(super) fn poll(plugin_id: &str, job_id: &str) -> String {
 
 pub(super) fn close(plugin_id: &str, job_id: &str) {
     let plugin_id = normalize_plugin_id(plugin_id);
-    EXEC_JOBS.lock().retain(|id, job| {
-        let dropped = id == job_id && job.plugin_id == plugin_id;
-        if dropped {
-            job.done_event.signal();
-        }
-        !dropped
-    });
+    EXEC_JOBS
+        .lock()
+        .retain(|id, job| id != job_id || job.plugin_id != plugin_id);
 }
 
 pub(super) fn drop_plugin_jobs(plugin_id: &str) {
     let plugin_id = normalize_plugin_id(plugin_id);
-    EXEC_JOBS.lock().retain(|_, job| {
-        let dropped = job.plugin_id == plugin_id;
-        if dropped {
-            job.done_event.signal();
-        }
-        !dropped
-    });
-}
-
-/// Block until `job_id` finishes, then hand back the payload `poll` would have
-/// produced. The caller must hold no VM lock: this is the wait that used to sit
-/// inside the plugin's JS frame, where it serialized every other call.
-pub(super) fn wait_json(plugin_id: &str, job_id: &str) -> String {
-    let plugin_id = normalize_plugin_id(plugin_id);
-    let event = {
-        let jobs = EXEC_JOBS.lock();
-        match jobs.get(job_id).filter(|job| job.plugin_id == plugin_id) {
-            Some(job) => job.done_event.clone(),
-            None => {
-                return serde_json::json!({ "done": true, "error": "job not found" }).to_string()
-            }
-        }
-    };
-    event.wait();
-    poll(&plugin_id, job_id)
-}
-
-/// Test-only job whose completion is driven by `gate` instead of a subprocess,
-/// so a blocking plugin call can be released by an event the test controls.
-#[cfg(test)]
-pub(super) fn start_gated_job<F>(plugin_id: &str, gate: F) -> String
-where
-    F: FnOnce() + Send + 'static,
-{
-    let job_id = match start_exec_job(plugin_id) {
-        Ok(id) => id,
-        Err(e) => return err(&e),
-    };
-    let worker = job_id.clone();
-    std::thread::spawn(move || {
-        gate();
-        finish_exec_job(
-            &worker,
-            &serde_json::json!({ "code": 0, "stdout": "", "stderr": "" }),
-        );
-    });
-    job_id
+    EXEC_JOBS.lock().retain(|_, job| job.plugin_id != plugin_id);
 }
 
 fn start_exec_job(plugin_id: &str) -> Result<String, String> {
@@ -525,8 +452,7 @@ fn run_exec_worker(job_id: String, opts_json: String) {
 }
 
 fn finish_exec_job(job_id: &str, value: &serde_json::Value) {
-    let mut jobs = EXEC_JOBS.lock();
-    if let Some(job) = jobs.get_mut(job_id) {
+    if let Some(job) = EXEC_JOBS.lock().get_mut(job_id) {
         job.done = true;
         job.code = value.get("code").and_then(|v| v.as_i64()).map(|c| c as i32);
         job.stdout = value
@@ -541,7 +467,6 @@ fn finish_exec_job(job_id: &str, value: &serde_json::Value) {
             .get("error")
             .and_then(|v| v.as_str())
             .map(String::from);
-        job.done_event.signal();
     }
 }
 
