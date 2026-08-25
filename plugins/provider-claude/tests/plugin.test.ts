@@ -807,5 +807,54 @@ console.log("\n--- claude_alias_catalog_matches_model_picker_r3 ---\n");
   }
 }
 
+
+// A previously-installed hook whose command uses $CODETERM_API_URL (no literal
+// host:port) has to be recognised as ours, or every install appends a duplicate
+// instead of replacing it — which is how one machine accumulated ten copies of
+// every hook and fired ten POSTs per session start.
+{
+  const settingsPath = "/home/test/.claude/settings.json";
+  const legacy = {
+    hooks: {
+      SessionStart: [
+        {
+          matcher: "",
+          hooks: [
+            {
+              type: "command",
+              // The shipped shape: env-var URL, no port literal, no _source marker.
+              command:
+                'if [ -n "${CODETERM_API_URL:-}" ]; then curl -s -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start"; fi',
+              timeout: 5000,
+            },
+          ],
+        },
+      ],
+    },
+  };
+  let written: any = null;
+  const p = loadClaudeWithHost(baseHost({
+    expandHome: () => settingsPath,
+    fileExists: () => true,
+    fs: {
+      readFile: () => JSON.stringify(legacy),
+      readJson: () => JSON.parse(JSON.stringify(legacy)),
+      writeFile: () => true,
+      writeJson: (_path: string, value: unknown) => { written = value; return true; },
+    },
+  }));
+
+  const result = p.installIntegration(7686, { consent: true, precompact_memory_export: false });
+  assert(result.ok === true, "install over a marker-less hook succeeds");
+  const sessionStart = written?.hooks?.SessionStart ?? [];
+  eq(sessionStart.length, 1, "an install replaces the previous hook instead of appending a duplicate");
+  const commands = sessionStart.flatMap((entry: any) => entry.hooks ?? []);
+  eq(commands.length, 1, "exactly one SessionStart command survives");
+  assert(
+    commands[0]._source && String(commands[0]._source).indexOf("codeterm-hook") === 0,
+    "the surviving hook carries the marker so the next check recognises it",
+  );
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
