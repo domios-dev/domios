@@ -565,9 +565,6 @@ pub(super) fn install(
     // host compute base (host.worker/agent/workspace/mem) — lives in `host_compute` to keep this bind table flat.
     super::host_compute::install_handles(&host, &sandbox)?;
 
-    #[cfg(test)]
-    super::call_gate::install(&host, &sandbox)?;
-
     ctx.globals()
         .set(HOST_GLOBAL, host)
         .catch(ctx)
