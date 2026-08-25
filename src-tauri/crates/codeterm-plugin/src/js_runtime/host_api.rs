@@ -132,6 +132,14 @@ impl PluginSandbox {
         self
     }
 
+    /// Stamp the plugin identity without touching permissions. The VM and its
+    /// sandbox must agree on this: `host.exec`/`host.fetch` jobs are keyed by
+    /// the sandbox's id, and the VM awaits and reaps them by the same one.
+    pub(super) fn with_identity(mut self, plugin_id: &str) -> Self {
+        self.plugin_id = plugin_id.to_string();
+        self
+    }
+
     pub(super) fn plugin_id(&self) -> &str {
         &self.plugin_id
     }
