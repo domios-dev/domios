@@ -28,6 +28,7 @@ pub mod health;
 mod hierarchy;
 pub mod inject_verify;
 pub mod input_parser;
+pub(crate) mod integration_silence;
 mod kpi_hooks;
 pub(crate) mod launch_delivery;
 pub(crate) mod launch_diagnostics;

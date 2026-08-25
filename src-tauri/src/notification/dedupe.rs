@@ -158,3 +158,15 @@ pub const PROVIDER_UPDATE_AVAILABLE: &str = "provider-update-available";
 pub fn provider_update_condition(provider_id: &str) -> String {
     format!("{PROVIDER_UPDATE_AVAILABLE}:{provider_id}")
 }
+
+/// Owner of a condition that is true for the machine rather than for one tab.
+/// A per-tab latch would announce the same machine-wide gap once per tab.
+pub const MACHINE_SCOPE: &str = "<machine>";
+
+/// "This provider's session-registering integration is not installed" is a
+/// state: it stays true until the integration is installed.
+pub const PROVIDER_INTEGRATION_MISSING: &str = "provider-integration-missing";
+
+pub fn provider_integration_missing_condition(provider_id: &str) -> String {
+    format!("{PROVIDER_INTEGRATION_MISSING}:{provider_id}")
+}
