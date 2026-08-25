@@ -6,9 +6,9 @@
 
 use codeterm_bridge::bridge::manager::OutboundMessage;
 use codeterm_bridge::bridge::traits::OutboundContent;
-use codeterm_types::config::schema::{AppConfig, PushChannelConfig};
+use codeterm_types::config::schema::AppConfig;
 
-use super::{Audience, ChannelHost, ChannelReadiness, PushChannel};
+use super::{stored_audience, Audience, ChannelHost, ChannelReadiness, PushChannel};
 use crate::notification::push;
 
 /// The bridge service this channel rides.
@@ -18,13 +18,16 @@ pub static CHANNEL: TelegramChannel = TelegramChannel;
 
 pub struct TelegramChannel;
 
-/// This channel's own audience entry. Absent is the pre-opt-in state.
-fn audience_config(cfg: &AppConfig) -> PushChannelConfig {
-    cfg.notifications
-        .channels
-        .get(SERVICE)
-        .cloned()
-        .unwrap_or_default()
+/// The chosen audience, narrowed to what Telegram can address. An entry that is
+/// not a chat id is dropped rather than broadcast to, and nothing here reads
+/// `integrations.telegram_allowed_users`: that list admits inbound senders.
+fn audience(cfg: &AppConfig) -> Audience {
+    Audience(
+        push::resolve_audience(&stored_audience(cfg, SERVICE))
+            .into_iter()
+            .filter(|entry| entry.parse::<i64>().is_ok())
+            .collect(),
+    )
 }
 
 /// Chat ids, dropping anything that is not one. An entry that is not a chat id
@@ -43,7 +46,7 @@ impl PushChannel for TelegramChannel {
     }
 
     fn readiness(&self, cfg: &AppConfig, host: &dyn ChannelHost) -> ChannelReadiness {
-        let audience = push::resolve_audience(&audience_config(cfg));
+        let audience = audience(cfg);
         if audience.is_empty() {
             return ChannelReadiness::OptedOut;
         }
@@ -53,13 +56,11 @@ impl PushChannel for TelegramChannel {
                 audience.len()
             ));
         }
-        ChannelReadiness::Ready(Audience(
-            audience.into_iter().map(|id| id.to_string()).collect(),
-        ))
+        ChannelReadiness::Ready(audience)
     }
 
     fn per_scope_limit(&self, cfg: &AppConfig) -> u32 {
-        audience_config(cfg).per_scope_limit
+        stored_audience(cfg, SERVICE).per_scope_limit
     }
 
     fn control_available(&self, cfg: &AppConfig, host: &dyn ChannelHost) -> bool {

@@ -1,7 +1,6 @@
 //! The Discord push channel.
 //!
-//! Its audience is the Discord integration the config already carries, so
-//! becoming routable took a roster row and this module — no core edit, no new
+//! Becoming routable took a roster row and this module — no core edit, no new
 //! config section, no column added by hand. This build ships no Discord
 //! transport yet, which is a readiness answer rather than an absence: an
 //! opted-in level says why it could not be carried instead of going quiet.
@@ -9,7 +8,8 @@
 use codeterm_bridge::bridge::manager::OutboundMessage;
 use codeterm_types::config::schema::AppConfig;
 
-use super::{Audience, ChannelHost, ChannelReadiness, PushChannel};
+use super::{stored_audience, Audience, ChannelHost, ChannelReadiness, PushChannel};
+use crate::notification::push;
 
 const SERVICE: &str = "discord";
 
@@ -17,20 +17,11 @@ pub static CHANNEL: DiscordChannel = DiscordChannel;
 
 pub struct DiscordChannel;
 
-/// The audience the integration config already names. An entry that is not an
-/// id is dropped rather than broadcast to, exactly as every audience is read.
+/// The audience this channel's own surface stored, read exactly as every
+/// channel's is. `integrations.discord_allowed_users` admits inbound senders
+/// and is deliberately not read here, so an unchosen audience is nobody.
 fn audience(cfg: &AppConfig) -> Audience {
-    if !cfg.integrations.discord_enabled {
-        return Audience::default();
-    }
-    Audience(
-        cfg.integrations
-            .discord_allowed_users
-            .iter()
-            .map(|entry| entry.trim().to_string())
-            .filter(|entry| !entry.is_empty())
-            .collect(),
-    )
+    Audience(push::resolve_audience(&stored_audience(cfg, SERVICE)))
 }
 
 impl PushChannel for DiscordChannel {
@@ -53,13 +44,7 @@ impl PushChannel for DiscordChannel {
     }
 
     fn per_scope_limit(&self, cfg: &AppConfig) -> u32 {
-        cfg.notifications
-            .channels
-            .get(SERVICE)
-            .map(|entry| entry.per_scope_limit)
-            .unwrap_or_else(|| {
-                codeterm_types::config::schema::PushChannelConfig::default().per_scope_limit
-            })
+        stored_audience(cfg, SERVICE).per_scope_limit
     }
 
     fn control_available(&self, cfg: &AppConfig, host: &dyn ChannelHost) -> bool {

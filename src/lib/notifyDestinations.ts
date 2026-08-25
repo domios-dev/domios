@@ -23,6 +23,9 @@ export interface PushChannelDescriptor {
 export interface DestinationColumn {
   id: string;
   label: string;
+  /** Which side of the surface this column is. A channel column also decides
+   *  who, which a locally drawn surface never has to. */
+  kind: "local" | "channel";
 }
 
 /** The grid's columns: the local surfaces, then whatever the registry resolved.
@@ -32,8 +35,8 @@ export function destinationColumns(
   channels: readonly PushChannelDescriptor[],
 ): DestinationColumn[] {
   return [
-    ...LOCAL_DESTINATIONS.map(({ id, label }) => ({ id, label })),
-    ...channels.map(({ id, label }) => ({ id, label })),
+    ...LOCAL_DESTINATIONS.map(({ id, label }) => ({ id, label, kind: "local" as const })),
+    ...channels.map(({ id, label }) => ({ id, label, kind: "channel" as const })),
   ];
 }
 
