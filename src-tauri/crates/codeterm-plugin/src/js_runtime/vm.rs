@@ -436,19 +436,36 @@ pub(super) fn grant_ctx_cwd(vm: &PluginVm, ctx: &serde_json::Value) {
 ///
 /// This lives as a free function (not a method) so callers can pass an
 /// `Arc<PluginVm>` cheaply and not borrow the whole vm for the duration.
+/// A call past this is worth a line: the VM mutex is held for the whole call, so
+/// a plugin that blocks in a synchronous `host.exec` is not merely slow for its
+/// own caller — every other call into that plugin waits behind it. Reported in
+/// release builds too, because that is where a user meets it (#319, #4).
+const SLOW_CALL_THRESHOLD: std::time::Duration = std::time::Duration::from_secs(1);
+
 pub fn call_json<R: serde::de::DeserializeOwned>(
     vm: &PluginVm,
     method: &str,
     args: &[serde_json::Value],
 ) -> Result<R, VmError> {
+    let started = std::time::Instant::now();
     // bad drop-in can't unwind through the host and take the daemon down (#16).
     let run = std::panic::AssertUnwindSafe(|| call_json_inner::<R>(vm, method, args));
-    match std::panic::catch_unwind(run) {
+    let result = match std::panic::catch_unwind(run) {
         Ok(res) => res,
         Err(_) => Err(VmError::Script(format!(
             "{method}: plugin panicked (caught — provider isolated)"
         ))),
+    };
+    let held = started.elapsed();
+    if held >= SLOW_CALL_THRESHOLD {
+        log::warn!(
+            "[plugin-vm] {}.{} held the VM for {}ms — other calls into this plugin queued behind it",
+            vm.plugin_id,
+            method,
+            held.as_millis()
+        );
     }
+    result
 }
 
 fn call_json_inner<R: serde::de::DeserializeOwned>(
