@@ -509,6 +509,9 @@ export interface TerminalConfigSettings {
 
 export interface NotificationConfig {
   desktop: boolean;
+  /** Whether a bell arrival that says the agent stopped also makes a sound.
+   *  Presentation like `show_bell`, never a destination: it carries no record
+   *  and cannot widen where a level goes, so it is not a column of the grid. */
   sound: boolean;
   toast_duration: number;
   /** Whether the bell surface is drawn at all. Presentation, not routing: off

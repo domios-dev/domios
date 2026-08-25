@@ -1,0 +1,58 @@
+// Run: npm run test:unit -- notification_sound
+//
+// Opt-in stays opt-in. The default is off in every place that answers for it,
+// and a config that predates this change — absent field, or a stored `false` —
+// reproduces today's behaviour exactly: a user who never opens the panel hears
+// nothing new.
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
+import { defaultConfig } from "../../hooks/useConfig";
+import { shouldSoundArrival } from "../notificationSound";
+import { assert, mountSound, report } from "./harness";
+
+let checked = 0;
+function check(condition: unknown, message: string): void {
+  checked++;
+  assert(condition, message);
+}
+
+const here = dirname(fileURLToPath(import.meta.url));
+const read = (relative: string) => readFileSync(resolve(here, relative), "utf8");
+
+// 1. The frontend default, the daemon default, and the written template all say off.
+check(defaultConfig().notifications.sound === false, "the frontend default is off");
+
+const schema = read("../../../src-tauri/crates/codeterm-types/src/config/schema.rs");
+check(/\bsound: false,/.test(schema), "the daemon default is off");
+check(
+  /#\[serde\(default\)\]\s*pub struct NotificationConfig/.test(schema),
+  "an absent field falls back to that default rather than failing to parse",
+);
+
+const template = read("../../../src-tauri/src/config/mod.rs");
+check(/^sound = false\b/m.test(template), "the written template ships it off");
+
+// 2. Absent or legacy: neither a missing answer nor a stored `false` sounds,
+//    whatever the level says.
+for (const level of ["verbose", "action_needed", "failure", null]) {
+  check(
+    !shouldSoundArrival(undefined, level),
+    `an absent answer stays silent at ${String(level)}`,
+  );
+  check(
+    !shouldSoundArrival(false, level),
+    `a stored off answer stays silent at ${String(level)}`,
+  );
+}
+
+// 3. And behaviourally, through the shipped hook: opted out, the arrival that
+//    would otherwise sound loudest is silent.
+const optedOut = await mountSound(false);
+await optedOut.arrive("failure");
+check(optedOut.recorder.notes.length === 0, "opted out, nothing sounds");
+await optedOut.arrive("action_needed");
+check(optedOut.recorder.notes.length === 0, "still nothing");
+await optedOut.done();
+
+report("notification_sound/opt_in_default_and_legacy_config", checked);

@@ -26,6 +26,7 @@ import { canvasFocusStore, useCanvasFocusOpen, useCanvasFocusTarget, useCanvasWo
 import { CronWorkspaceView } from "./components/Cron/CronWorkspaceView";
 import { cronSelectionStore, useCronSelection } from "./components/Cron/cronSelectionStore";
 import { useConfig } from "./hooks/useConfig";
+import { useNotificationSound } from "./hooks/useNotificationSound";
 import { useKeyboardInset } from "./hooks/useKeyboardInset";
 import { useTabPrewarm } from "./hooks/terminal/useTabPrewarm";
 import { usageTrackingOverrides } from "./components/Terminal/usageTracking";
@@ -169,6 +170,7 @@ function AppInner() {
   const stableTerminalConfig = useStableJsonValue(config.terminal);
   const stableApiConfig = useStableJsonValue(config.api);
   const uiFontScale = fontSizeToUiFontScale(stableFontConfig.size);
+  useNotificationSound(Boolean(config.notifications?.sound));
 
   // events on its own (the per-bubble `useConfig` was multiplying invokes by tab count and made the webview unresponsive after many resumes).
   const computedUsageEnabledByProvider = useMemo(() => {
