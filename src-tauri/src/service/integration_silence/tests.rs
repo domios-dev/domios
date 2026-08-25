@@ -149,7 +149,7 @@ impl Sinks {
             silence.title(FIXTURE_PROVIDER),
             Some(silence.body()),
             Some("warning"),
-            None,
+            crate::notification::store::Ask::default(),
             None,
             NotificationOrigin::claimed(Some("tab_launch".into())),
             |candidate| {

@@ -149,12 +149,12 @@ pub(crate) fn admit_config_write(
     key: Option<&str>,
     partial: &serde_json::Map<String, serde_json::Value>,
 ) -> Result<(), String> {
-    use crate::notification::authority::{admit_change, ChangeAuthority, SURFACE_ROOT};
+    use crate::notification::authority::{admit_unattended_change, SURFACE_ROOT};
     if let Some(key) = key {
-        return admit_change(ChangeAuthority::Unattended, key);
+        return admit_unattended_change(key);
     }
     if caller_tab.is_some() && partial.contains_key(SURFACE_ROOT) {
-        return admit_change(ChangeAuthority::Unattended, SURFACE_ROOT);
+        return admit_unattended_change(SURFACE_ROOT);
     }
     Ok(())
 }
