@@ -1788,7 +1788,7 @@ function isCodetermHook(entry) {
     }
     const cmd = h.command;
     if (typeof cmd === "string") {
-      const isUrl = cmd.indexOf("7685") !== -1 || cmd.indexOf("7686") !== -1;
+      const isUrl = cmd.indexOf("7685") !== -1 || cmd.indexOf("7686") !== -1 || cmd.indexOf("CODETERM_API_URL") !== -1;
       const isPath = cmd.indexOf("/api/notifications") !== -1 || cmd.indexOf("/api/tabs/") !== -1 || cmd.indexOf("/hook/permission") !== -1 || cmd.indexOf("/hook/stop") !== -1 || cmd.indexOf("/hook/session_start") !== -1 || cmd.indexOf("/api/mem/flush") !== -1;
       if (isUrl && isPath) return true;
     }

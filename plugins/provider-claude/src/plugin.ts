@@ -988,7 +988,13 @@ function isCodetermHook(entry: HookEntry): boolean {
     }
     const cmd = h.command;
     if (typeof cmd === "string") {
-      const isUrl = cmd.indexOf("7685") !== -1 || cmd.indexOf("7686") !== -1;
+      // The command stopped carrying a literal host:port when it moved to
+      // $CODETERM_API_URL, and this recogniser never followed — so an install
+      // could not find its own previous hooks, removed nothing, and appended a
+      // duplicate every time. Accept either form.
+      const isUrl = cmd.indexOf("7685") !== -1
+        || cmd.indexOf("7686") !== -1
+        || cmd.indexOf("CODETERM_API_URL") !== -1;
       const isPath = cmd.indexOf("/api/notifications") !== -1
         || cmd.indexOf("/api/tabs/") !== -1
         || cmd.indexOf("/hook/permission") !== -1
