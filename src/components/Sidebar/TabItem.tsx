@@ -1,8 +1,11 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { Check, Copy, Cpu, Pencil, RefreshCw, RotateCcw, UserCog, X } from "lucide-react";
+import { Bot, Check, Copy, Cpu, Pencil, RefreshCw, RotateCcw, UserCog, X } from "lucide-react";
 import { useTabProvider, useShellSessionModel } from "../../lib/useTabProvider";
 import { getAgentDescriptor } from "../../lib/agentDescriptorCache";
 import { switchTabModel, tabModelEntryLabel, tabModelMenuView } from "./tabModelMenu";
+import { switchTabProvider, tabProviderEntryLabel, tabProviderMenuView } from "./tabProviderMenu";
+import { getTabProviderApi } from "./tabProviderApi";
+import { listAgentDescriptors } from "../../lib/agentDescriptorCache";
 import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import { ActivityDots } from "../shared/ActivityDots";
 import { ChoiceIcon, TelegramIcon, TerminalIcon } from "../Icons";
@@ -265,6 +268,34 @@ function TabItemInner({
                 .catch((error) => console.warn("Model switch failed:", error));
             },
             "data-testid": `tab-menu-model-${model.id}`,
+          })),
+        },
+      });
+    }
+    const providerMenu = tab ? tabProviderMenuView(tab, listAgentDescriptors(), status) : null;
+    if (providerMenu) {
+      items.push({
+        label: tabProviderEntryLabel(providerMenu),
+        icon: <Bot size={11} strokeWidth={2} />,
+        disabled: Boolean(providerMenu.blockedReason),
+        title: providerMenu.blockedReason ?? undefined,
+        "data-testid": "tab-menu-provider",
+        submenu: {
+          label: tabProviderEntryLabel(providerMenu),
+          // The neighbouring model entry switches in session; this one does not.
+          description: "Restarts the session — the new provider starts fresh.",
+          items: providerMenu.providers.map((provider) => ({
+            label: provider.display_name,
+            selected: provider.id === providerMenu.currentProviderId,
+            icon: provider.id === providerMenu.currentProviderId
+              ? <Check size={11} strokeWidth={2} />
+              : <span className="w-3 h-3" />,
+            onClick: () => {
+              if (provider.id === providerMenu.currentProviderId) return;
+              void switchTabProvider(getTabProviderApi(), tab.id, provider.id)
+                .catch((error) => console.warn("Provider switch failed:", error));
+            },
+            "data-testid": `tab-menu-provider-${provider.id}`,
           })),
         },
       });
