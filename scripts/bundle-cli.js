@@ -9,11 +9,20 @@ const isMacOS = process.platform === "darwin";
 const repoRoot = path.resolve(__dirname, "..");
 const binName = isWindows ? "codeterm.exe" : "codeterm";
 
-function bundledCliName(env = process.env, platform = process.platform) {
-  if (platform === "win32" && env.CARGO_BUILD_TARGET) {
-    return `codeterm-${env.CARGO_BUILD_TARGET}.exe`;
-  }
-  return platform === "win32" ? "codeterm.exe" : "codeterm";
+// One name per platform, whether or not CARGO_BUILD_TARGET is set. A local build
+// used to stage `codeterm.exe` while CI staged `codeterm-<triple>.exe`, so an app
+// installed from CI kept a stale triple-named resource that the startup lookup
+// prefers — the fresh CLI was bundled and then permanently ignored, which is how
+// a local install could leave every `codeterm` command talking an old protocol.
+function hostWindowsTarget(arch = process.arch) {
+  if (arch === "arm64") return "aarch64-pc-windows-msvc";
+  if (arch === "ia32") return "i686-pc-windows-msvc";
+  return "x86_64-pc-windows-msvc";
+}
+
+function bundledCliName(env = process.env, platform = process.platform, arch = process.arch) {
+  if (platform !== "win32") return "codeterm";
+  return `codeterm-${env.CARGO_BUILD_TARGET || hostWindowsTarget(arch)}.exe`;
 }
 
 function peMachineForTarget(target) {
@@ -111,6 +120,7 @@ if (require.main === module) {
     resolveCliReleaseDir,
     resolveCliSource,
     bundledCliName,
+    hostWindowsTarget,
     peMachineForTarget,
     assertTargetArchitecture,
   };
