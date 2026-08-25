@@ -510,15 +510,21 @@ impl ServiceContext {
     /// the one it named. An untapped or declined offer never reaches here, and
     /// what changes is the one field `authority::apply` writes.
     fn apply_surface_offer(&self, id: &str, label: &str, proof: authority::TapProof) {
-        let standing = { self.notif.lock().surface_offer(id) };
-        let Some(offer) = standing else {
+        // The level is read off the record the tap answered, never passed in
+        // beside it: what the tap grants is the kind of notification the
+        // question itself demonstrated, and only the record knows which that was.
+        let standing = {
+            let store = self.notif.lock();
+            store.surface_offer(id).zip(store.level(id))
+        };
+        let Some((offer, level)) = standing else {
             return;
         };
         if !offer.accepted_by(label) {
             return;
         }
         let mut cfg = crate::config::load_config();
-        authority::apply(proof, &mut cfg.notifications, &offer.target);
+        authority::apply(proof, &mut cfg.notifications, &offer.target, level);
         if let Err(reason) = crate::config::save_config_pub(&cfg) {
             log::error!("[notify-offer] accepted offer on {id} could not be saved: {reason}");
             return;

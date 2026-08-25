@@ -9,7 +9,8 @@ use codeterm_bridge::bridge::manager::OutboundMessage;
 use codeterm_bridge::bridge::traits::OutboundContent;
 use codeterm_types::config::schema::{AgentLevelChoice, AppConfig, PushChannelConfig};
 use codeterm_types::notification::{
-    adopt_caller_actions, answer_actions, validate_answer_labels, CallerAction, NotifyLevel,
+    adopt_caller_actions, answer_actions, validate_answer_labels, CallerAction, NotifyDestination,
+    NotifyLevel,
 };
 use parking_lot::Mutex;
 
@@ -17,7 +18,7 @@ use super::*;
 use crate::notification::answer::AnswerAdmission;
 use crate::notification::answer_delivery::AnswerDeliveryPlan;
 use crate::notification::authority::{
-    self, admit_change, adopt_offer, apply, tap_proof, ChangeAuthority, SurfaceOffer, SurfaceTarget,
+    self, admit_unattended_change, adopt_offer, apply, tap_proof, SurfaceOffer, SurfaceTarget,
 };
 use crate::notification::channels::{self, ChannelHost, PushChannel};
 use crate::notification::push;
@@ -31,6 +32,41 @@ const ASKING_TAB: &str = "tab_the_one_that_asked";
 const CHOSEN: &str = "Rebase";
 const DECLINED: &str = "Merge";
 const RECIPIENT: &str = "100000001";
+
+/// The level every question here is asked at. The record carries it and the
+/// tap opens it, from this one constant, so the two cannot drift apart in the
+/// fixture and leave the proportionality assertion testing nothing.
+const ASKED_AT: NotifyLevel = NotifyLevel::ActionNeeded;
+
+/// Whether one cell of the levels-by-destinations grid is open.
+fn routed(cfg: &AppConfig, level: NotifyLevel, column: NotifyDestination<'_>) -> bool {
+    cfg.notifications
+        .agent_levels
+        .iter()
+        .find(|row| NotifyLevel::parse(&row.level) == Some(level))
+        .is_some_and(|row| row.allows(column))
+}
+
+/// Put one cell back the way a fresh install represents it, so a test can undo
+/// exactly what an offer opened and compare the WHOLE config against baseline.
+/// A closed channel column is an absent key, not a stored `false`, so restoring
+/// it means removing the key the tap inserted.
+fn shut_cell(cfg: &mut AppConfig, level: NotifyLevel, column: NotifyDestination<'_>) {
+    let Some(row) = cfg
+        .notifications
+        .agent_levels
+        .iter_mut()
+        .find(|row| NotifyLevel::parse(&row.level) == Some(level))
+    else {
+        return;
+    };
+    match column {
+        NotifyDestination::Channel(service) => {
+            row.channels.remove(service);
+        }
+        local => row.set(local, false),
+    }
+}
 
 /// One registered channel, addressed through the registry rather than by name,
 /// so this test spells no provider id.
@@ -60,7 +96,7 @@ fn asked_question(store: &mut NotificationStore, ask: Ask) -> String {
     };
     let admitted = store.add_push(PushRequest {
         scope: push::scope_key(&provenance),
-        level: NotifyLevel::ActionNeeded,
+        level: ASKED_AT,
         event_key: push::event_key(None, "Which branch?"),
         title: "Which branch?".to_string(),
         body: None,
@@ -96,17 +132,18 @@ impl ChannelHost for RecordingHost {
     }
 }
 
-/// Every level open, with one channel opted in and given an audience.
+/// One channel routed at every level and given an audience. Whether a level
+/// reaches the channel is the row's column - the entry answers only who.
 fn opted_in_config() -> AppConfig {
     let mut cfg = AppConfig::default();
+    let channel = a_registered_channel();
     cfg.notifications.agent_levels = NotifyLevel::ALL
         .into_iter()
-        .map(|level| AgentLevelChoice::open(level.as_str()))
+        .map(|level| AgentLevelChoice::open(level.as_str(), &[channel]))
         .collect();
     cfg.notifications.channels.insert(
-        a_registered_channel().to_string(),
+        channel.to_string(),
         PushChannelConfig {
-            enabled: true,
             recipients: vec![RECIPIENT.to_string()],
             per_scope_limit: 8,
         },
@@ -240,11 +277,11 @@ fn channel_ask_authority_refuses_every_unattended_surface_change() {
         authority::SURFACE_ROOT,
         "notifications.desktop",
         "notifications.show_bell",
-        "notifications.channels.a-service.enabled",
+        "notifications.channels.a-service.recipients",
         "notifications.agent_levels",
     ] {
         assert!(
-            admit_change(ChangeAuthority::Unattended, key).is_err(),
+            admit_unattended_change(key).is_err(),
             "{key} decides where notifications go and must not move unattended"
         );
         assert!(authority::is_surface_path(key));
@@ -255,7 +292,7 @@ fn channel_ask_authority_refuses_every_unattended_surface_change() {
         "integrations",
         "api.port",
     ] {
-        assert!(admit_change(ChangeAuthority::Unattended, key).is_ok());
+        assert!(admit_unattended_change(key).is_ok());
         assert!(!authority::is_surface_path(key));
     }
 
@@ -296,17 +333,46 @@ fn channel_ask_authority_refuses_every_unattended_surface_change() {
         );
     }
 
-    // What a tap may change, exactly: one field, and nothing else moves.
+    // What a tap may change, exactly: ONE cell of the grid — the offered
+    // column on the row of the level the user was actually shown — plus, for
+    // desktop, the master switch that cell is ANDed with.
     let before = AppConfig::default();
     let mut after = before.clone();
     let proof = tap_proof(&AnswerAdmission::Recorded(CHOSEN.into())).expect("a tap");
-    apply(proof, &mut after.notifications, &SurfaceTarget::Desktop);
-    assert!(after.notifications.desktop);
+    apply(
+        proof,
+        &mut after.notifications,
+        &SurfaceTarget::Desktop,
+        ASKED_AT,
+    );
+
+    assert!(
+        routed(&after, ASKED_AT, NotifyDestination::Desktop),
+        "the level the question demonstrated is the level the tap opened"
+    );
+    assert!(
+        after.notifications.desktop,
+        "the master switch the cell is ANDed with opens too, or the grant is a silent no-op"
+    );
+    // The proportionality criterion, and the reason it is only one level: a tap
+    // on one question must not route a kind of notification the user was never
+    // shown.
+    for unshown in NotifyLevel::ALL.into_iter().filter(|it| *it != ASKED_AT) {
+        assert!(
+            !routed(&after, unshown, NotifyDestination::Desktop),
+            "{} was never demonstrated to the user and stays shut",
+            unshown.as_str()
+        );
+    }
+
+    // Put back exactly the cell and the master, and the whole config must be
+    // identical — which is what makes the blast radius stated rather than hoped.
+    shut_cell(&mut after, ASKED_AT, NotifyDestination::Desktop);
     after.notifications.desktop = before.notifications.desktop;
     assert_eq!(
         serde_json::to_value(&after).unwrap(),
         serde_json::to_value(&before).unwrap(),
-        "an accepted offer moves the surface it named and nothing besides"
+        "an accepted offer opens one cell and moves nothing else anywhere"
     );
 }
 
@@ -332,14 +398,25 @@ fn channel_ask_offer_applies_on_the_tap_and_is_inert_otherwise() {
     )
     .is_err());
 
+    // And it may only be made by a notification that HAS a level, because the
+    // level is the row the tap opens. An offer that could never apply is
+    // refused when it is made, not accepted and left silently inert.
+    assert_eq!(
+        crate::api::notification_routes::offer_requires_level(&service, Some(ASKED_AT)),
+        Ok(ASKED_AT),
+        "a levelled notification names the row its tap would open"
+    );
+    assert!(
+        crate::api::notification_routes::offer_requires_level(&service, None).is_err(),
+        "an unlevelled notification has no row, so it cannot offer one"
+    );
+
     let baseline = AppConfig::default();
-    let enabled = |cfg: &AppConfig| {
-        cfg.notifications
-            .channels
-            .get(&service)
-            .is_some_and(|entry| entry.enabled)
-    };
-    assert!(!enabled(&baseline), "no offer has been tapped yet");
+    let column = NotifyDestination::Channel(&service);
+    assert!(
+        !routed(&baseline, ASKED_AT, column),
+        "a fresh install routes this level nowhere but the bell"
+    );
 
     let mut store = NotificationStore::new(10);
     let id = asked_question(&mut store, ask(&[CHOSEN, DECLINED], Some(offer.clone())));
@@ -355,9 +432,12 @@ fn channel_ask_offer_applies_on_the_tap_and_is_inert_otherwise() {
     assert_eq!(admission, AnswerAdmission::Recorded(DECLINED.to_string()));
     let proof = tap_proof(&admission).expect("a decline is still a first tap");
     if offer.accepted_by(DECLINED) {
-        apply(proof, &mut declined.notifications, &offer.target);
+        apply(proof, &mut declined.notifications, &offer.target, ASKED_AT);
     }
-    assert!(!enabled(&declined), "a declined offer changes nothing");
+    assert!(
+        !routed(&declined, ASKED_AT, column),
+        "a declined offer changes nothing"
+    );
     assert_eq!(
         serde_json::to_value(&declined).unwrap(),
         serde_json::to_value(&baseline).unwrap()
@@ -370,20 +450,32 @@ fn channel_ask_offer_applies_on_the_tap_and_is_inert_otherwise() {
     let admission = fresh.record_answer(&fresh_id, CHOSEN);
     let proof = tap_proof(&admission).expect("the accepting tap");
     assert!(offer.accepted_by(CHOSEN));
-    apply(proof, &mut accepted.notifications, &offer.target);
+    apply(proof, &mut accepted.notifications, &offer.target, ASKED_AT);
     assert!(
-        enabled(&accepted),
-        "the accepted offer turned the surface on"
+        routed(&accepted, ASKED_AT, column),
+        "the accepted offer routed this level to the channel"
     );
-    accepted
-        .notifications
-        .channels
-        .remove(&service)
-        .expect("the one entry the offer opened");
+    // One tap, one level. Routing routine progress somewhere the user was never
+    // shown is the escalation this whole rule exists to refuse.
+    for unshown in NotifyLevel::ALL.into_iter().filter(|it| *it != ASKED_AT) {
+        assert!(
+            !routed(&accepted, unshown, column),
+            "{} was never demonstrated to the user and stays shut",
+            unshown.as_str()
+        );
+    }
+    // Whether a level reaches a channel is the grid's answer alone. The
+    // channel's own entry says WHO, so a tap must not mint one.
+    assert!(
+        !accepted.notifications.channels.contains_key(&service),
+        "opening a column is not an audience, and a tap writes no channel entry"
+    );
+
+    shut_cell(&mut accepted, ASKED_AT, column);
     assert_eq!(
         serde_json::to_value(&accepted).unwrap(),
         serde_json::to_value(&baseline).unwrap(),
-        "the accepted offer opted one channel in and moved nothing else"
+        "the accepted offer opened one cell and moved nothing else anywhere"
     );
 
     // A second tap yields no proof, so nothing can be applied again.

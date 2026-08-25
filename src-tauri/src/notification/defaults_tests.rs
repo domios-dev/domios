@@ -55,14 +55,14 @@ impl PushChannel for FixtureChannel {
         &self,
         host: &dyn ChannelHost,
         _audience: &Audience,
-        text: &str,
+        message: &crate::notification::channel_ask::PushMessage,
     ) -> Result<(), String> {
         host.enqueue(
             FIXTURE_SERVICE.id,
             OutboundMessage {
                 user_id: None,
                 content: OutboundContent::Text {
-                    text: text.to_string(),
+                    text: message.text.clone(),
                 },
                 append: false,
                 buttons: None,
@@ -276,7 +276,7 @@ fn notify_defaults_an_explicitly_enabled_destination_still_routes() {
         let text = format!("{wire} left the machine");
         let envelope = PushEnvelope {
             level,
-            text: text.clone(),
+            message: crate::notification::channel_ask::PushMessage::text(text.clone()),
             notification_id: format!("notif-{wire}"),
         };
         assert_eq!(

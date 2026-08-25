@@ -86,7 +86,7 @@ fn intent() -> PushIntent {
 fn envelope() -> PushEnvelope {
     PushEnvelope {
         level: NotifyLevel::Failure,
-        text: "a rendered push".to_string(),
+        message: crate::notification::channel_ask::PushMessage::text("a rendered push"),
         notification_id: "notif".to_string(),
     }
 }
