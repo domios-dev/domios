@@ -204,6 +204,13 @@ const plugin: PluginModule = {
   sessionFilePath(_cwd: string, sessionId: string): string | null {
     const root = codexSessionsRoot();
     if (!root) return null;
+    // A session id resolves to one rollout file for good, but this is called on
+    // every chat poll — and the scan below reads a header out of every rollout
+    // in the tree. On a months-old sessions directory that is thousands of file
+    // opens per poll, which is what pegged a daemon's CPU and starved the mesh
+    // relay behind it (#319). Remember the answer; re-scan only if it vanishes.
+    const remembered = sessionPathCache[sessionId];
+    if (remembered && host.fs.fileExists(remembered)) return remembered;
     let hit: string | null = null;
     const files = host.fs.walkDir(root, 5);
     for (let i = 0; i < files.length; i++) {
@@ -222,6 +229,7 @@ const plugin: PluginModule = {
         break;
       }
     }
+    if (hit) sessionPathCache[sessionId] = hit;
     return hit;
   },
 
@@ -866,6 +874,10 @@ function endsWith(s: string, suffix: string): boolean {
   return s.length >= suffix.length
     && s.substring(s.length - suffix.length) === suffix;
 }
+
+/// Resolved rollout path per session id. The mapping is immutable once a session
+/// exists, so the only invalidation needed is the file going away.
+const sessionPathCache: Record<string, string> = {};
 
 function codexSessionsRoot(): string | null {
   const override = host.envGet("CODETERM_CODEX_SESSIONS_ROOT");

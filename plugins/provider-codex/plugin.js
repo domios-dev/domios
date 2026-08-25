@@ -1311,6 +1311,8 @@ var plugin = {
   sessionFilePath(_cwd, sessionId) {
     const root = codexSessionsRoot();
     if (!root) return null;
+    const remembered = sessionPathCache[sessionId];
+    if (remembered && host.fs.fileExists(remembered)) return remembered;
     let hit = null;
     const files = host.fs.walkDir(root, 5);
     for (let i = 0; i < files.length; i++) {
@@ -1325,6 +1327,7 @@ var plugin = {
         break;
       }
     }
+    if (hit) sessionPathCache[sessionId] = hit;
     return hit;
   },
   // Chat uses generic JSONL-session hook; codex paths resolve via sessionFilePath.
@@ -1894,6 +1897,7 @@ function canonicalToolFields(name, input) {
 function endsWith(s, suffix) {
   return s.length >= suffix.length && s.substring(s.length - suffix.length) === suffix;
 }
+var sessionPathCache = {};
 function codexSessionsRoot() {
   const override = host.envGet("CODETERM_CODEX_SESSIONS_ROOT");
   if (override) return override;
