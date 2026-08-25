@@ -1,11 +1,13 @@
 //! Routing over the push-channel registry, and one member proved to deliver.
 
 use super::*;
-use crate::notification::channels::{self, Audience, ChannelHost, ChannelReadiness, PushChannel};
+use crate::notification::channels::{
+    self, discord, Audience, ChannelHost, ChannelReadiness, PushChannel,
+};
 use codeterm_bridge::bridge::manager::OutboundMessage;
 use codeterm_bridge::bridge::traits::OutboundContent;
 use codeterm_bridge::services::ServiceDescriptor;
-use codeterm_types::config::schema::{AgentLevelChoice, AppConfig};
+use codeterm_types::config::schema::{AgentLevelChoice, AppConfig, PushChannelConfig};
 use parking_lot::Mutex;
 
 /// A host whose readiness the test states outright, so a channel's own answer
@@ -129,6 +131,13 @@ fn open_config() -> AppConfig {
     cfg
 }
 
+/// The registry's ids. Production never builds a column list — the daemon
+/// routes per notification through `plan_push`, and the grid gets its columns
+/// from the roster endpoint — so this belongs to the tests that check columns.
+fn registered_ids() -> Vec<&'static str> {
+    channels::roster().into_iter().map(|entry| entry.id()).collect()
+}
+
 fn discord_opted_in() -> AppConfig {
     let mut cfg = open_config();
     cfg.integrations.discord_enabled = true;
@@ -154,7 +163,7 @@ fn channel_registry_second_channel_routes_without_touching_the_enum_or_the_grid(
 
     // The grid's columns are the local surfaces plus whatever the registry
     // resolved. Nobody added a Discord column by hand.
-    let ids = channels::channel_ids();
+    let ids = registered_ids();
     let columns = NotifyDestination::columns(ids.clone());
     assert_eq!(columns.len(), NotifyDestination::LOCAL.len() + ids.len());
     assert!(columns.iter().any(|column| column.as_str() == "discord"));
@@ -186,6 +195,38 @@ fn channel_registry_second_channel_routes_without_touching_the_enum_or_the_grid(
         "discord is routable from the config that already existed"
     );
 
+    // Routable is not the claim; carrying is. Every function of the second
+    // channel's module runs here — its audience, its readiness, its ceiling,
+    // its delivery — so the module that is this design's evidence is exercised
+    // rather than merely compiled.
+    let envelope = PushEnvelope {
+        level: NotifyLevel::Failure,
+        text: "a rendered push".to_string(),
+        notification_id: "notif".to_string(),
+    };
+    assert_eq!(
+        deliver_plan(&plan.targets, &plan.refusals, &host, &envelope),
+        Ok(())
+    );
+    assert_eq!(
+        host.texts(),
+        vec![(
+            "discord".to_string(),
+            None,
+            "a rendered push".to_string()
+        )],
+        "the message left through the second channel's own module"
+    );
+    assert_eq!(
+        plan.per_scope_limit,
+        PushChannelConfig::default().per_scope_limit,
+        "and its ceiling came from the channel, not from a constant in core"
+    );
+    assert!(
+        discord::CHANNEL.control_available(&cfg, &host),
+        "its settings control is offerable once its service can carry traffic"
+    );
+
     // And closing the column closes it, through the same keyed lookup.
     let mut closed = cfg.clone();
     for row in &mut closed.notifications.agent_levels {
@@ -211,7 +252,7 @@ fn channel_registry_bell_and_desktop_stay_unchanged_local_surfaces() {
     // byte-identical afterwards.
     let mut channels_closed = cfg.clone();
     for row in &mut channels_closed.notifications.agent_levels {
-        for id in channels::channel_ids() {
+        for id in registered_ids() {
             row.set(NotifyDestination::Channel(id), false);
         }
         assert!(row.bell && row.desktop, "a channel column moved a surface");
@@ -229,7 +270,7 @@ fn channel_registry_bell_and_desktop_stay_unchanged_local_surfaces() {
     let mut bell_closed = cfg.clone();
     for row in &mut bell_closed.notifications.agent_levels {
         row.set(NotifyDestination::Bell, false);
-        for id in channels::channel_ids() {
+        for id in registered_ids() {
             assert!(
                 row.allows(NotifyDestination::Channel(id)),
                 "closing the bell moved {id}"

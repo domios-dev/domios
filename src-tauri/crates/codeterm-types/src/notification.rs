@@ -402,11 +402,6 @@ impl<'a> NotifyDestination<'a> {
             .chain(channels.into_iter().map(Self::Channel))
             .collect()
     }
-
-    /// Wire values of a resolved column set, derived rather than restated.
-    pub fn wire_values(columns: &[Self]) -> Vec<&'a str> {
-        columns.iter().map(|column| column.as_str()).collect()
-    }
 }
 
 #[cfg(test)]
@@ -522,12 +517,10 @@ mod tests {
         let resolved = ["one-channel", "another-channel"];
         let columns = NotifyDestination::columns(resolved);
         assert_eq!(columns.len(), NotifyDestination::LOCAL.len() + resolved.len());
-        assert_eq!(
-            NotifyDestination::wire_values(&columns),
-            columns.iter().map(|c| c.as_str()).collect::<Vec<_>>()
-        );
+        // A channel that took a surface's wire value would silently shadow that
+        // surface's cell, so the whole column set must stay distinct.
         let distinct: std::collections::HashSet<&str> =
-            NotifyDestination::wire_values(&columns).into_iter().collect();
+            columns.iter().map(|column| column.as_str()).collect();
         assert_eq!(distinct.len(), columns.len(), "a column wire value collides");
 
         let cells: Vec<(NotifyLevel, NotifyDestination<'_>)> = NotifyLevel::ALL

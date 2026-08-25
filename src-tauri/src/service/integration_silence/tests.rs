@@ -107,9 +107,11 @@ fn config_routing(level: NotifyLevel, routed: bool) -> NotificationConfig {
             .map(|row_level| {
                 let mut row = AgentLevelChoice::open(row_level.as_str());
                 if row_level == level {
-                    for destination in NotifyDestination::columns(
-                        crate::notification::channels::channel_ids(),
-                    ) {
+                    let registered: Vec<&'static str> = crate::notification::channels::roster()
+                        .into_iter()
+                        .map(|entry| entry.id())
+                        .collect();
+                    for destination in NotifyDestination::columns(registered) {
                         row.set(destination, routed);
                     }
                 }
