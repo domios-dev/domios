@@ -152,29 +152,33 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 event_key,
                 choice,
                 ..
-            } => (
-                "POST".into(),
-                "/api/notifications".into(),
-                Some(
-                    serde_json::json!({
-                        "title": title,
-                        "body": from_pad.as_ref().map(|path| {
-                            crate::cmd::payload_source::read_from_pad(path).unwrap_or_else(|e| {
-                                eprintln!("Error: {e}");
-                                std::process::exit(1)
-                            })
-                        }),
-                        "severity": severity,
-                        "level": level.map(|l| l.as_str()),
-                        "event_key": event_key,
-                        "actions": crate::cmd::notify::choice_actions(choice).unwrap_or_else(|e| {
+            } => {
+                let mut body = serde_json::json!({
+                    "title": title,
+                    "body": from_pad.as_ref().map(|path| {
+                        crate::cmd::payload_source::read_from_pad(path).unwrap_or_else(|e| {
                             eprintln!("Error: {e}");
                             std::process::exit(1)
-                        }),
-                    })
-                    .to_string(),
-                ),
-            ),
+                        })
+                    }),
+                    "severity": severity,
+                    "level": level.map(|l| l.as_str()),
+                    "event_key": event_key,
+                });
+                // Inserted only when offered, because the local path omits the key
+                // rather than sending null — the two bodies have to stay identical.
+                if let Some(actions) = crate::cmd::notify::choice_actions(choice).unwrap_or_else(|e| {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1)
+                }) {
+                    body["actions"] = serde_json::to_value(actions).unwrap_or_default();
+                }
+                (
+                    "POST".into(),
+                    "/api/notifications".into(),
+                    Some(body.to_string()),
+                )
+            }
             crate::NotifyAction::List { unread } => {
                 let qs = if *unread { "?unread=true" } else { "" };
                 ("GET".into(), format!("/api/notifications{}", qs), None)

@@ -11,9 +11,11 @@ use crate::provider::AgentLaunchParams;
 /// `{skipPermissions}` expands to the manifest's declared auto-approve
 /// flags when requested, and to nothing otherwise.
 fn skip_permission_flags(manifest: &PluginManifest, skip_permissions: bool) -> String {
-    skip_permissions
-        .then(|| manifest.commands.auto_approve_flags.join(" "))
-        .unwrap_or_default()
+    if skip_permissions {
+        manifest.commands.auto_approve_flags.join(" ")
+    } else {
+        String::new()
+    }
 }
 
 /// A placeholder outside the closed set never half-renders: warn and ignore
