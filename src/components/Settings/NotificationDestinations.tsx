@@ -7,6 +7,12 @@ import {
   type PushChannelDescriptor,
 } from "../../lib/notifyDestinations";
 import { levelLabel, levelTone } from "../../lib/notifyLevels";
+import {
+  channelPatch,
+  channelRecipients,
+  configuredUsers,
+  preselectedAudience,
+} from "../../lib/pushChannels";
 import { Toggle } from "./shared";
 
 export function setLevelDestination(
@@ -19,6 +25,33 @@ export function setLevelDestination(
     if (choice.level !== level) return choice;
     return { ...choice, [destination]: routed };
   });
+}
+
+/**
+ * One cell, flipped. Opening a channel's column is the whole of whether that
+ * level reaches the channel; it also answers who when the answer is
+ * unambiguous, so a single configured id needs nothing typed. With several the
+ * audience stays untouched — a preselected everyone would make one flip a
+ * broadcast — and an audience already chosen is never overwritten.
+ */
+export function destinationCellUpdate(
+  config: AppConfig,
+  levels: AgentLevelChoice[],
+  level: string,
+  column: DestinationColumn,
+  routed: boolean,
+): Partial<AppConfig["notifications"]> {
+  const agent_levels = setLevelDestination(levels, level, column.id, routed);
+  if (column.kind !== "channel" || !routed) return { agent_levels };
+  if (channelRecipients(config, column.id).length > 0) return { agent_levels };
+  const preselected = preselectedAudience(configuredUsers(config, column.id));
+  if (preselected.length === 0) return { agent_levels };
+  return {
+    agent_levels,
+    ...channelPatch(config.notifications?.channels, column.id, {
+      recipients: preselected,
+    }),
+  };
 }
 
 export function reachesNothing(
@@ -36,7 +69,9 @@ export function reachesNothing(
  * channel registry the same way: this component never names a channel, so a
  * channel the registry gains becomes a column with nothing here to change.
  * Every cell is independent, and a level with every column closed is a
- * configuration rather than an error — it simply reaches nothing.
+ * configuration rather than an error — it simply reaches nothing. A channel's
+ * column is the whole of whether that level reaches it; who receives it is that
+ * channel's own audience surface, never a second switch agreeing with this one.
  */
 export function NotificationDestinations({
   config,
@@ -86,14 +121,10 @@ export function NotificationDestinations({
                 label={destinationCellLabel(label, destination.label)}
                 checked={isRouted(choice, destination.id)}
                 onChange={(value) =>
-                  onUpdate("notifications", {
-                    agent_levels: setLevelDestination(
-                      levels,
-                      choice.level,
-                      destination.id,
-                      value,
-                    ),
-                  })
+                  onUpdate(
+                    "notifications",
+                    destinationCellUpdate(config, levels, choice.level, destination, value),
+                  )
                 }
               />
             ))}

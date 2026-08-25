@@ -15,7 +15,18 @@ pub mod telegram;
 
 use codeterm_bridge::bridge::manager::OutboundMessage;
 use codeterm_bridge::services::ServiceDescriptor;
-use codeterm_types::config::schema::AppConfig;
+use codeterm_types::config::schema::{AppConfig, PushChannelConfig};
+
+/// One channel's stored audience entry, keyed by its service id. Absent is an
+/// audience nobody has chosen yet, which resolves to nobody rather than to that
+/// service's inbound admission list.
+pub fn stored_audience(cfg: &AppConfig, service: &str) -> PushChannelConfig {
+    cfg.notifications
+        .channels
+        .get(service)
+        .cloned()
+        .unwrap_or_default()
+}
 
 /// The recipients a channel resolved from config, in that channel's own terms.
 /// Opaque to everything above: only the channel knows what a token means.

@@ -73,13 +73,14 @@ the bell, which stays drawn and simply has nothing from that level in it. They
 compose rather than override — hiding the surface changes no row, and closing
 every row leaves the surface visible.
 
-# Per-channel push opt-in, keyed by the channel's bridge service id — the same
-# id `codeterm bridge send --service <id>` takes. A channel with no entry here
-# has no audience, which is the pre-opt-in state. A channel whose audience lives
-# in its own integration config (Discord reads `integrations.discord_*`) needs
-# no entry at all.
+# Per-channel push AUDIENCE, keyed by the channel's bridge service id — the same
+# id `codeterm bridge send --service <id>` takes. Whether a level reaches a
+# channel at all is that channel's column of the level grid above; this answers
+# only who receives what the grid routed here. A channel with no entry has no
+# audience, and an empty audience is nobody: it never falls back to that
+# integration's allowed-users list, which admits inbound senders instead.
+# Settings offers those admitted ids as the choices, and stores only what you pick.
 [notifications.channels.telegram]
-enabled = false        # opt-in push; off on a fresh install
 recipients = []        # explicit audience (chat ids) — NOT telegram_allowed_users
 per_scope_limit = 12   # lifetime push ceiling per originating tab (a count, not a rate)
 
@@ -242,4 +243,4 @@ When a Worker lane worktree is created, each declared directory that exists in t
 
 Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`.
 
-<!-- revision: 47 -->
+<!-- revision: 48 -->
