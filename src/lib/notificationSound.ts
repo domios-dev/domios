@@ -61,9 +61,19 @@ interface ChimeOscillator {
 export interface ChimeContext {
   readonly currentTime: number;
   readonly destination: unknown;
+  readonly state?: string;
   createOscillator(): ChimeOscillator;
   createGain(): ChimeGain;
   resume?(): unknown;
+}
+
+/**
+ * A context born outside a user gesture starts suspended, and a suspended
+ * context is silence. Resuming is therefore a state transition to make, not a
+ * ritual to perform on every note.
+ */
+function resumeIfSuspended(context: ChimeContext): void {
+  if (context.state === "suspended") context.resume?.();
 }
 
 const NOTE_HZ = [660, 880];
@@ -77,7 +87,7 @@ const FLOOR_GAIN = 0.0001;
  * sound, never control flow waiting on elapsed time.
  */
 export function playArrivalChime(context: ChimeContext): void {
-  context.resume?.();
+  resumeIfSuspended(context);
   const start = context.currentTime;
   NOTE_HZ.forEach((hz, index) => {
     const at = start + index * NOTE_SECONDS;
@@ -109,4 +119,27 @@ export function openChimeContext(): ChimeContext | null {
   } catch {
     return null;
   }
+}
+
+let established: ChimeContext | null = null;
+
+/**
+ * Establish the chime's audio context. Call this from inside the gesture that
+ * enables the sound: that is the only moment the browser lets a context start
+ * running, so enabling the chime and hearing the very next arrival needs no
+ * second click.
+ */
+export function establishChimeContext(): ChimeContext | null {
+  established = established ?? openChimeContext();
+  if (established) resumeIfSuspended(established);
+  return established;
+}
+
+/** The context the enabling gesture established, if it got one. */
+export function chimeContext(): ChimeContext | null {
+  return established;
+}
+
+export function __resetChimeContextForTest(): void {
+  established = null;
 }
