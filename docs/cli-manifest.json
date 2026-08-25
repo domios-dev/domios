@@ -5261,6 +5261,26 @@
               "aliases": []
             },
             {
+              "name": "offer",
+              "positional": false,
+              "required": false,
+              "value_name": "SURFACE",
+              "possible_values": [],
+              "default": null,
+              "help": "Offer to turn one notification surface on: `desktop`, or a push channel's service id. The change waits for the tap — an agent may offer to be louder, never make itself louder",
+              "aliases": []
+            },
+            {
+              "name": "offer-accept",
+              "positional": false,
+              "required": false,
+              "value_name": "LABEL",
+              "possible_values": [],
+              "default": null,
+              "help": "Which of this notification's own choices accepts the offer",
+              "aliases": []
+            },
+            {
               "name": "severity",
               "positional": false,
               "required": false,
