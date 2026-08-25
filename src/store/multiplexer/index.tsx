@@ -602,6 +602,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         title: providerMissing ? "Provider not installed" : `Failed to spawn ${agentId}`,
         body: message,
         severity: "Error",
+        level: "failure",
         timestamp: Date.now(),
         read: false,
         sticky: providerMissing,

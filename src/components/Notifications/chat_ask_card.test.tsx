@@ -39,6 +39,7 @@ function ask(overrides: Partial<Notification> = {}): Notification {
     title: "Delete the stale win32 baselines?",
     body: "Left in place, the next run passes against baselines nobody reviewed.",
     severity: "Warning",
+    level: "action_needed",
     timestamp: 1_700_000_000_000,
     read: false,
     actions: [
@@ -122,21 +123,21 @@ function choiceButtons(scope: HTMLElement): HTMLElement[] {
 
 async function run() {
   // 1. Every level paints from its own existing token. The card carries the
-  //    level it resolved, and the colour formula is a color-mix over that token
-  //    and the surface — never a literal that would freeze one theme in place.
-  const levels: Array<[Notification["severity"], string, string]> = [
-    ["Info", "verbose", "--ct-muted-fg"],
-    ["Warning", "action_needed", "--ct-yellow"],
-    ["Error", "failure", "--ct-red"],
+  //    level the record declared, and the colour formula is a color-mix over
+  //    that token and the surface — never a literal that would freeze one theme.
+  const levels: Array<[NonNullable<Notification["level"]>, string]> = [
+    ["verbose", "--ct-muted-fg"],
+    ["action_needed", "--ct-yellow"],
+    ["failure", "--ct-red"],
   ];
-  for (const [severity, level, token] of levels) {
+  for (const [level, token] of levels) {
     const html = renderToStaticMarkup(
-      <ChatAskCard notification={ask({ severity })} onAnswer={() => {}} />,
+      <ChatAskCard notification={ask({ level })} onAnswer={() => {}} />,
     );
     const style = cardStyle(html);
     assert(
       html.includes(`data-notification-level="${level}"`),
-      `${severity} should render as the ${level} level`,
+      `a record declaring ${level} should render as the ${level} level`,
     );
     assert(levelTone(level) === `var(${token})`, `${level} should tone from ${token}`);
     assert(
@@ -247,7 +248,7 @@ async function run() {
       === choiceAccessibleName("action_needed", ask().title, FIRST_CHOICE),
     "a choice name should place the label inside its question",
   );
-  const failing = await renderCard(ask({ severity: "Error" }), answerThroughStore);
+  const failing = await renderCard(ask({ level: "failure" }), answerThroughStore);
   const failingCard = failing.querySelector('[data-testid="chat-ask-card"]') as HTMLElement;
   assert(
     failingCard.getAttribute("aria-label") === askAccessibleName("failure", ask().title),
@@ -258,14 +259,14 @@ async function run() {
     "an accessible name derived from the level cannot be a constant",
   );
 
-  // 6. A record naming a level renders that level, not the one severity alone
-  //    would imply (contrast with case 1's `severity: "Info"` → "verbose").
+  // 6. The level is the only axis read: a record naming one renders it however
+  //    loudly or quietly its severity reads.
   const leveled = ask({ severity: "Info", level: "failure" });
   const leveledView = await renderCard(leveled, answerThroughStore);
   const leveledCard = leveledView.querySelector('[data-testid="chat-ask-card"]') as HTMLElement;
   assert(
     leveledCard.dataset.notificationLevel === "failure",
-    `an explicit level must win over the severity-derived one, got: ${leveledCard.dataset.notificationLevel}`,
+    `the declared level must be the one rendered, got: ${leveledCard.dataset.notificationLevel}`,
   );
   assert(
     leveledCard.getAttribute("aria-label") === askAccessibleName("failure", leveled.title),

@@ -3,23 +3,15 @@ import { Check, ChevronDown } from "lucide-react";
 import { SentMessageBubble, pickUiFontScaleValue, sentInvocation } from "@codeterm/chat-ui";
 import type { TabNameResolver } from "@codeterm/chat-ui";
 import type { Notification } from "../../lib/types";
-import { ErrorIcon, InfoIcon, WarningIcon } from "../Icons";
 import { isAnswerUndeliverable } from "../../lib/notificationAnswer";
 import {
   askAccessibleName,
   choiceAccessibleName,
   levelLabel,
-  levelTone,
   notificationLevel,
-  type NotifyLevelName,
+  notificationTone,
 } from "../../lib/notifyLevels";
-
-/** The product's own severity glyphs, keyed by level rather than restated. */
-const LEVEL_ICON: Record<NotifyLevelName, typeof InfoIcon> = {
-  verbose: InfoIcon,
-  action_needed: WarningIcon,
-  failure: ErrorIcon,
-};
+import { levelIcon } from "./levelIcon";
 
 interface Props {
   notification: Notification;
@@ -39,9 +31,10 @@ interface Props {
 export function ChatAskCard({ notification, onAnswer, resolveTabName, fontScale }: Props) {
   const [expanded, setExpanded] = useState(false);
   const level = notificationLevel(notification);
-  const tone = levelTone(level);
-  const LevelIcon = LEVEL_ICON[level];
+  const tone = notificationTone(notification);
+  const LevelIcon = levelIcon(level);
   const name = askAccessibleName(level, notification.title);
+  const heading = level === null ? notification.title : levelLabel(level);
   const bodyText = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
   const slot = notification.answer;
   const chosen = slot?.answered ?? null;
@@ -55,7 +48,7 @@ export function ChatAskCard({ notification, onAnswer, resolveTabName, fontScale 
         <div
           data-testid="chat-ask-card"
           data-notification-id={notification.id}
-          data-notification-level={level}
+          data-notification-level={level ?? ""}
           role="group"
           aria-label={name}
           className="max-w-full min-w-0 rounded-md border"
@@ -75,10 +68,12 @@ export function ChatAskCard({ notification, onAnswer, resolveTabName, fontScale 
           >
             <LevelIcon size={14} className="shrink-0" style={{ color: tone }} />
             <span className="min-w-0 flex-1">
-              <span className="block text-xs font-medium">{levelLabel(level)}</span>
-              <span className="block truncate text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>
-                {notification.title}
-              </span>
+              <span className="block truncate text-xs font-medium">{heading}</span>
+              {level !== null && (
+                <span className="block truncate text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>
+                  {notification.title}
+                </span>
+              )}
             </span>
             <ChevronDown
               size={14}

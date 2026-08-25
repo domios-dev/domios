@@ -3,14 +3,9 @@ import { createPortal } from "react-dom";
 import { invoke } from "../../lib/bridge";
 import type { Notification, NotificationAction } from "../../lib/types";
 import { Check, X } from "lucide-react";
-import { InfoIcon, WarningIcon, ErrorIcon } from "../Icons";
 import { PluginIcon } from "../Extensions/PluginIcon";
-
-const SEVERITY_STYLES: Record<Notification["severity"], { accent: string; icon: string }> = {
-  Info: { accent: "var(--ct-accent)", icon: "text-[var(--ct-accent)]" },
-  Warning: { accent: "var(--ct-yellow)", icon: "text-[var(--ct-yellow)]" },
-  Error: { accent: "var(--ct-red)", icon: "text-[var(--ct-red)]" },
-};
+import { notificationLevel, notificationTone } from "../../lib/notifyLevels";
+import { levelIcon } from "./levelIcon";
 
 const AUTO_DISMISS_MS = 5000;
 const MAX_VISIBLE_TOASTS = 2;
@@ -69,7 +64,9 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate, embedded }
       ? "ct-toast-enter"
       : "ct-toast-timed";
 
-  const styles = SEVERITY_STYLES[notification.severity];
+  const level = notificationLevel(notification);
+  const tone = notificationTone(notification);
+  const LevelIcon = levelIcon(level);
   const hasCustomIcon = Boolean(notification.icon_svg || notification.icon_hint || notification.icon_color);
   const content = (
     <>
@@ -85,7 +82,7 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate, embedded }
           />
         </span>
       ) : (
-        <SeverityIcon severity={notification.severity} className={`shrink-0 ${styles.icon}`} />
+        <LevelIcon className="shrink-0" style={{ color: tone }} />
       )}
       <div className="min-w-0 flex flex-1 items-baseline gap-1.5">
         <span className="truncate font-medium text-[var(--ct-fg)]">
@@ -129,9 +126,10 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate, embedded }
           data-notification-id={notification.id}
           data-notification-key={notification.key ?? ""}
           data-notification-severity={notification.severity}
+          data-notification-level={level ?? ""}
           role="status"
           style={{
-            ["--toast-accent" as string]: styles.accent,
+            ["--toast-accent" as string]: tone,
             ["--ct-toast-duration" as string]: `${AUTO_DISMISS_MS}ms`,
           }}
           className="ct-toast-inline cursor-pointer"
@@ -148,11 +146,11 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate, embedded }
             role="dialog"
             aria-label={notification.title}
             className="fixed right-2 top-[calc(2rem+var(--ct-safe-top,0px)+6px)] z-[70] w-[min(420px,calc(100vw-16px))] rounded-md border border-[var(--ct-border)] bg-[var(--ct-surface)] p-3 shadow-2xl ct-float"
-            style={{ ["--toast-accent" as string]: styles.accent }}
+            style={{ ["--toast-accent" as string]: tone }}
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-start gap-2">
-              <SeverityIcon severity={notification.severity} className={`mt-0.5 shrink-0 ${styles.icon}`} />
+              <LevelIcon className="mt-0.5 shrink-0" style={{ color: tone }} />
               <div className="min-w-0 flex-1">
                 <div className="font-medium text-[var(--ct-fg)]">{notification.title}</div>
                 {notification.body && (
@@ -205,9 +203,10 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate, embedded }
       data-notification-id={notification.id}
       data-notification-key={notification.key ?? ""}
       data-notification-severity={notification.severity}
+      data-notification-level={level ?? ""}
       role="status"
       style={{
-        ["--toast-accent" as string]: styles.accent,
+        ["--toast-accent" as string]: tone,
         ["--ct-toast-duration" as string]: `${AUTO_DISMISS_MS}ms`,
       }}
       onAnimationEnd={handleAnimationEnd}
@@ -284,12 +283,4 @@ export function NotificationToastContainer({
       ))}
     </div>
   );
-}
-
-function SeverityIcon({ severity, className }: { severity: Notification["severity"]; className?: string }) {
-  switch (severity) {
-    case "Info": return <InfoIcon className={className} />;
-    case "Warning": return <WarningIcon className={className} />;
-    case "Error": return <ErrorIcon className={className} />;
-  }
 }
