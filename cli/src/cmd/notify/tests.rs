@@ -30,6 +30,7 @@ fn notify_pad_body_round_trips_byte_for_byte() {
         None,
         Some(body),
         &[],
+        Offer::default(),
         None,
     )
     .expect("a body with no choices is legal");
@@ -67,6 +68,7 @@ fn notify_pad_body_absent_leaves_no_body_key() {
         None,
         None,
         &[],
+        Offer::default(),
         None,
     )
     .expect("a title-only notification is legal");
@@ -86,6 +88,7 @@ fn notify_answer_choice_labels_round_trip_into_the_actions() {
         None,
         None,
         &labels(&["Rebase", "Merge", "Neither"]),
+        Offer::default(),
         None,
     )
     .expect("distinct non-empty labels are a legal choice set");
@@ -123,8 +126,17 @@ fn notify_answer_choice_labels_round_trip_into_the_actions() {
 /// byte-for-byte what it was before choices existed.
 #[test]
 fn notify_answer_no_choice_leaves_no_actions_key() {
-    let params = params_from_body("Build complete", "info", None, None, None, &[], None)
-        .expect("a notification without choices is legal");
+    let params = params_from_body(
+        "Build complete",
+        "info",
+        None,
+        None,
+        None,
+        &[],
+        Offer::default(),
+        None,
+    )
+    .expect("a notification without choices is legal");
     assert!(params.get("actions").is_none());
     assert_eq!(choice_actions(&[]).unwrap(), None);
 }
@@ -140,7 +152,17 @@ fn notify_answer_choice_refuses_blank_and_duplicate_labels() {
         labels(&["Rebase", " rebase "]),
     ] {
         assert!(
-            params_from_body("Which branch?", "info", None, None, None, &rejected, None).is_err(),
+            params_from_body(
+                "Which branch?",
+                "info",
+                None,
+                None,
+                None,
+                &rejected,
+                Offer::default(),
+                None,
+            )
+            .is_err(),
             "{rejected:?} must be refused before it is sent"
         );
         assert!(choice_actions(&rejected).is_err());
@@ -152,8 +174,17 @@ fn notify_answer_choice_refuses_blank_and_duplicate_labels() {
 #[test]
 fn notify_answer_choice_labels_are_carried_verbatim() {
     let awkward = labels(&["Yes, $NOW", "No `never`"]);
-    let params = params_from_body("Proceed?", "info", None, None, None, &awkward, None)
-        .expect("punctuation is not a reason to refuse a label");
+    let params = params_from_body(
+        "Proceed?",
+        "info",
+        None,
+        None,
+        None,
+        &awkward,
+        Offer::default(),
+        None,
+    )
+    .expect("punctuation is not a reason to refuse a label");
     let carried: Vec<String> = params["actions"]
         .as_array()
         .unwrap()
@@ -176,6 +207,7 @@ fn notify_answer_choices_carry_the_asking_tab() {
         None,
         None,
         &labels(&["Rebase", "Merge"]),
+        Offer::default(),
         Some("tab-7"),
     )
     .expect("a legal choice set");
@@ -193,6 +225,7 @@ fn notify_without_choices_carries_no_asking_tab() {
         None,
         None,
         &[],
+        Offer::default(),
         Some("tab-7"),
     )
     .expect("a title-only notification is legal");

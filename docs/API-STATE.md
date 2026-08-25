@@ -173,6 +173,15 @@ Session binding model: `docs/contributing/architecture.md` §3 (provider-reporte
 
 The config is saved to disk and a `config-changed` Tauri event is emitted.
 
+**Where notifications go is not writable here.** Anything under the `notifications`
+subtree decides which surfaces a notification may reach, and switching a desktop
+toast or a push channel on is a capability the user never granted by typing a
+config key. Two shapes are refused with `403`: a dot-notation write naming any
+`notifications` path, and a partial merge carrying a `notifications` section from
+a caller that sent `X-CodeTerm-Tab-Id` (i.e. from inside a tab). An agent OFFERS
+the change instead — `codeterm notify send --offer <surface> --offer-accept <label>`
+— and it applies only when that label is tapped.
+
 #### Updates
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
@@ -202,4 +211,4 @@ The HTTP response returns immediately (`{"status": "updating", "version": "..."}
 
 Service registration, health, and activity: `codeterm docs API-SERVICES`. Bridge and cron integrations: `codeterm docs API-INTEGRATIONS`.
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->

@@ -8,11 +8,13 @@ use super::ServiceContext;
 use crate::notification::{
     answer::AnswerAdmission,
     answer_delivery::{self, AnswerDeliveryOutcome},
+    authority::{self, SurfaceOffer},
     bell::{self, BellPolicy},
+    channel_ask::{self, PushMessage},
     dedupe::DeliveryAdmission,
     desktop::{self, DesktopPolicy},
     push::{self, NotifyLevel},
-    store::{DedupAdmission, NotificationProvenance, NotificationSeverity, PushRequest},
+    store::{Ask, DedupAdmission, NotificationProvenance, NotificationSeverity, PushRequest},
     NotifState,
 };
 
@@ -29,8 +31,17 @@ pub struct PushIntent {
 /// the spam vector.
 pub struct PushEnvelope {
     pub level: NotifyLevel,
-    pub text: String,
     pub notification_id: String,
+    /// The rendered text and the offered options, each carrying the opaque
+    /// token that names it. A channel draws them; the tapped token comes back
+    /// through the one answer path the in-app card already uses.
+    pub message: PushMessage,
+}
+
+impl PushEnvelope {
+    pub fn text(&self) -> &str {
+        &self.message.text
+    }
 }
 
 /// Intent plus the daemon-owned policy and sink for one notification.
@@ -156,7 +167,7 @@ pub(crate) fn create_notification_with_delivery(
     title: String,
     body: Option<String>,
     severity: Option<&str>,
-    actions: Option<Vec<NotificationAction>>,
+    ask: Ask,
     sticky: Option<bool>,
     origin: NotificationOrigin,
     resolve_tab: impl FnOnce(&str) -> Option<NotificationProvenance>,
@@ -167,6 +178,7 @@ pub(crate) fn create_notification_with_delivery(
     if matches!(admission, NotificationAdmission::Diagnostic) {
         return uuid::Uuid::new_v4().to_string();
     }
+    let actions = ask.actions.clone();
     let provenance = resolve_origin(&origin, resolve_tab);
     let parsed_severity = notification_severity(severity);
     let severity_str = match &parsed_severity {
@@ -186,7 +198,7 @@ pub(crate) fn create_notification_with_delivery(
                 body.clone(),
                 parsed_severity,
                 provenance.clone(),
-                actions.clone(),
+                ask,
                 sticky,
                 surfaces.declared,
             ) {
@@ -203,6 +215,7 @@ pub(crate) fn create_notification_with_delivery(
                     severity: parsed_severity,
                     provenance: provenance.clone(),
                     per_scope_limit: push.per_scope_limit,
+                    ask,
                 });
                 // A duplicate reuses an open record: nothing new to toast or emit.
                 if !admitted.opened_or_changed_record() {
@@ -211,7 +224,12 @@ pub(crate) fn create_notification_with_delivery(
                 if admitted.should_push() {
                     let envelope = PushEnvelope {
                         level,
-                        text: push::render_push(level, &title, body.as_deref(), &provenance),
+                        message: PushMessage {
+                            text: push::render_push(level, &title, body.as_deref(), &provenance),
+                            // Read off the record: the position a token names
+                            // is the position that record will resolve it at.
+                            choices: store.lock().offered_choices_for_channel(admitted.id()),
+                        },
                         notification_id: admitted.id().to_string(),
                     };
                     if let Err(reason) = (push.deliver)(envelope) {
@@ -333,7 +351,7 @@ impl ServiceContext {
             format!("{provider_name} update available"),
             Some(message),
             Some("info"),
-            Some(actions),
+            Ask::offering(Some(actions)),
             Some(true),
             NotificationOrigin::local_tab(tab_id),
             |candidate| self.resolve_tab_provenance(candidate),
@@ -364,7 +382,7 @@ impl ServiceContext {
             title,
             body,
             severity,
-            None,
+            Ask::default(),
             None,
             NotificationOrigin::default(),
             |_| None,
@@ -385,10 +403,12 @@ impl ServiceContext {
         sticky: Option<bool>,
         origin: NotificationOrigin,
         intent: PushIntent,
+        offer: Option<SurfaceOffer>,
     ) -> String {
         // The provenance seam: a caller-supplied set becomes stored actions
         // here, through a conversion with no invoke arm to reach.
         let actions = actions.map(adopt_caller_actions);
+        let ask = Ask { actions, offer };
         // The declared level outlives the push policy: an install whose
         // channels resolve to nobody still has a desktop gate to satisfy.
         let declared = intent.level;
@@ -408,7 +428,7 @@ impl ServiceContext {
             title,
             body,
             severity,
-            actions,
+            ask,
             sticky,
             origin,
             |candidate| self.resolve_tab_provenance(candidate),
@@ -431,6 +451,12 @@ impl ServiceContext {
         // The guard is dropped before the event fans out: nothing downstream of
         // an emit may re-enter the store while it is still held.
         let admission = self.notif.lock().record_answer(id, label);
+        // THE AUTHORITY RULE, at the one place a surface may widen: the proof
+        // exists only for a first-and-only recording, so an offer applies on
+        // the tap that answered it and on nothing else.
+        if let Some(proof) = authority::tap_proof(&admission) {
+            self.apply_surface_offer(id, label, proof);
+        }
         match admission {
             // Carrying the answer back is an ordered consequence of recording
             // it: the send happens before this call returns.
@@ -446,6 +472,62 @@ impl ServiceContext {
                 Err("That choice was not offered by this notification".to_string())
             }
         }
+    }
+
+    /// An answer arrived on a push channel. The token names a position on one
+    /// record; the label is resolved off that record and then walks the very
+    /// same answer path an in-app tap walks, so the tapped label returns to the
+    /// tab that asked and no second answer route exists. `false` means this was
+    /// ordinary channel traffic and nothing was claimed.
+    pub fn claim_channel_answer(&self, callback_data: &str) -> bool {
+        let Some(tapped) = channel_ask::decode(callback_data) else {
+            return false;
+        };
+        // The guard is taken and dropped before the answer path runs: that path
+        // takes the same store lock, and parking_lot is not reentrant.
+        let resolved = {
+            self.notif
+                .lock()
+                .offered_choice(&tapped.notification_id, tapped.index)
+        };
+        let Some(label) = resolved else {
+            log::warn!(
+                "[notify-answer] a channel tap named no offered choice on {}",
+                tapped.notification_id
+            );
+            return true;
+        };
+        if let Err(reason) = self.answer_notification(&tapped.notification_id, &label) {
+            log::warn!(
+                "[notify-answer] a channel tap on {} was refused: {reason}",
+                tapped.notification_id
+            );
+        }
+        true
+    }
+
+    /// Apply whatever this record offered, and only when the tapped label is
+    /// the one it named. An untapped or declined offer never reaches here, and
+    /// what changes is the one field `authority::apply` writes.
+    fn apply_surface_offer(&self, id: &str, label: &str, proof: authority::TapProof) {
+        let standing = { self.notif.lock().surface_offer(id) };
+        let Some(offer) = standing else {
+            return;
+        };
+        if !offer.accepted_by(label) {
+            return;
+        }
+        let mut cfg = crate::config::load_config();
+        authority::apply(proof, &mut cfg.notifications, &offer.target);
+        if let Err(reason) = crate::config::save_config_pub(&cfg) {
+            log::error!("[notify-offer] accepted offer on {id} could not be saved: {reason}");
+            return;
+        }
+        crate::api::events::emit_everywhere(
+            &self.app_handle,
+            "config-changed",
+            serde_json::to_value(&cfg).unwrap_or_default(),
+        );
     }
 
     /// Carry the standing answer to the tab that asked, as a caller of the

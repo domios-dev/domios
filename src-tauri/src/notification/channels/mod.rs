@@ -28,6 +28,8 @@ pub fn stored_audience(cfg: &AppConfig, service: &str) -> PushChannelConfig {
         .unwrap_or_default()
 }
 
+pub use super::channel_ask::PushMessage;
+
 /// The recipients a channel resolved from config, in that channel's own terms.
 /// Opaque to everything above: only the channel knows what a token means.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -75,11 +77,14 @@ pub trait PushChannel: Send + Sync {
     fn per_scope_limit(&self, cfg: &AppConfig) -> u32;
     /// Whether settings may offer this channel's own controls at all.
     fn control_available(&self, cfg: &AppConfig, host: &dyn ChannelHost) -> bool;
+    /// Carry one rendered notification. The message holds the text every
+    /// channel has always been handed plus the offered options; a channel that
+    /// cannot draw options carries the text and leaves them alone.
     fn deliver(
         &self,
         host: &dyn ChannelHost,
         audience: &Audience,
-        text: &str,
+        message: &PushMessage,
     ) -> Result<(), String>;
 }
 

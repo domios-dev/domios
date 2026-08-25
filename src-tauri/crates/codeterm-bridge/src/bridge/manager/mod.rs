@@ -120,6 +120,14 @@ impl BridgeManager {
                     return;
                 }
                 Some(msg) = rx.recv() => {
+                    // A tapped button may be answering a question the daemon
+                    // asked. It is offered whole and unmerged: an answer is one
+                    // event, and debouncing it into neighbouring text would
+                    // paste the token into a tab instead of answering with it.
+                    if msg.callback_data.as_deref().is_some_and(|data| tab.claim_channel_answer(data)) {
+                        log::info!("[bridge] inbound tap answered a notification");
+                        continue;
+                    }
                     // Debounce: collect rapid-fire messages (user splitting text, Telegram auto-split)
                     let mut messages = vec![msg];
                     let debounce_until = tokio::time::Instant::now() + std::time::Duration::from_millis(300);
@@ -157,6 +165,7 @@ impl BridgeManager {
                         text: merged_text,
                         attachments: merged_attachments,
                         message_id: first.message_id,
+                        callback_data: first.callback_data.clone(),
                         reply_ctx: first.reply_ctx.clone(),
                     };
 

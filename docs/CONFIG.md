@@ -74,6 +74,18 @@ the bell, which stays drawn and simply has nothing from that level in it. They
 compose rather than override — hiding the surface changes no row, and closing
 every row leaves the surface visible.
 
+Everything under `notifications` is set from Settings, not from `codeterm
+config set`. Where a notification may go is your standing answer, so an agent
+that could switch a desktop toast or a push channel on by itself would grant
+itself a capability you never saw. A `codeterm config set notifications.*` — and
+any config write arriving from inside a tab that carries a `notifications`
+section — is refused with `403`. An agent may OFFER instead: `codeterm notify
+send "…" --choice "Turn it on" --choice "Not now" --offer desktop --offer-accept
+"Turn it on"` sends a question, and the surface changes only when you tap the
+accepting label. An untapped or declined offer changes nothing. The refusal is
+not agent-specific — the daemon cannot tell you from an agent inside a tab, so
+the same command typed by hand in a CodeTerm tab is refused too.
+
 # Per-channel push AUDIENCE, keyed by the channel's bridge service id — the same
 # id `codeterm bridge send --service <id>` takes. Whether a level reaches a
 # channel at all is that channel's column of the level grid above; this answers
