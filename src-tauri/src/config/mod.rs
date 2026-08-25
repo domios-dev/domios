@@ -44,7 +44,7 @@ copy_on_select = false
 
 [notifications]
 desktop = true
-sound = false
+sound = false  # opt-in chime on a bell arrival that says the agent stopped
 toast_duration = 5  # seconds
 show_bell = true  # false hides the indicator; every record is still kept
 # Where each level may go. Rows are generated from the shared level set, so a
