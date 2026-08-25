@@ -1,16 +1,29 @@
-// Run: npx tsx src/components/Settings/notification_settings.test.tsx
+// Run: npx tsx src/components/Settings/notification_settings_home.test.tsx
 //
-// The levels-by-destinations grid and the master bell switch.
+// The levels-by-destinations grid, the master bell switch, and the one home
+// they now live in.
 
-import { readFileSync } from "node:fs";
-import { act } from "react";
+import { readFileSync, readdirSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { act, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
+import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
 import {
   NotificationDestinations,
   reachesNothing,
   setLevelDestination,
 } from "./NotificationDestinations";
+import { AgentsOverview } from "./AgentsTab";
+import { NotificationsOverview } from "./NotificationsTab";
+import {
+  SECTION_ICONS,
+  SETTINGS_SECTIONS,
+  normalizeSection,
+  sectionTitle,
+  type SectionId,
+} from "./sections";
 import { levelLabel, levelTone } from "../../lib/notifyLevels";
 import { Toggle } from "./shared";
 import {
@@ -269,7 +282,7 @@ async function masterSwitchHidesTheSurfaceAndStaysDistinguishable() {
   await act(async () => root.unmount());
   host.remove();
 
-  const settings = source("./AgentsTab.tsx");
+  const settings = source("./NotificationsTab.tsx");
   assert(
     settings.includes('onUpdate("notifications", { show_bell: v })'),
     "the panel writes the master switch into the existing notifications section",
@@ -399,10 +412,196 @@ async function destinationsMatchTheRowShape() {
   assert(levelLabel("action_needed") === "Action needed", "labels are derived, not listed");
 }
 
+/* ---------------------------------------------------------------------------
+ * notification_settings_home — the one home the surfaces above now live in.
+ * ------------------------------------------------------------------------ */
+
+const SRC_ROOT = fileURLToPath(new URL("../../", import.meta.url));
+const MOVED_SURFACES = [
+  "NotificationDestinations",
+  "TelegramNotifications",
+  "ProviderNotifications",
+] as const;
+
+/** Every non-test module under src/, so "exactly one place" is a fact about the
+ *  tree rather than about the two files this test happened to open. */
+function productModules(directory: string, found: string[] = []): string[] {
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const child = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name !== "node_modules" && entry.name !== "dist") productModules(child, found);
+      continue;
+    }
+    if (/\.tsx?$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name)) found.push(child);
+  }
+  return found;
+}
+
+function modulesMentioning(symbol: string): string[] {
+  return productModules(SRC_ROOT)
+    .filter((file) => readFileSync(file, "utf8").includes(symbol))
+    .map((file) => path.basename(file));
+}
+
+async function daemonStub(command: string): Promise<unknown> {
+  if (command === "list_agent_providers") return [];
+  if (command === "telegram_push_gate") return { control_available: true };
+  return null;
+}
+
+async function withDaemonStubs(run: () => Promise<void>): Promise<void> {
+  __setInvokeForTest(async <T,>(command: string) => daemonStub(command) as Promise<T>);
+  __setListenForTest(async () => () => {});
+  try {
+    await run();
+  } finally {
+    __setInvokeForTest(null);
+    __setListenForTest(null);
+  }
+}
+
+async function mount(element: ReactElement) {
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  await act(async () => root.render(element));
+  return {
+    host,
+    async done() {
+      await act(async () => root.unmount());
+      host.remove();
+    },
+  };
+}
+
+const TELEGRAM = '[data-testid="settings-telegram-notifications"]';
+
+/** 6. The nav exposes a Notifications section and the matrix renders under it. */
+async function theNavExposesNotificationsAndTheMatrixLivesThere() {
+  const entry = SETTINGS_SECTIONS.find((section) => section.id === "notifications");
+  assert(entry, "the curated nav list exposes a notifications section");
+  assert(entry.label === "Notifications", `the user looks for "Notifications", got "${entry.label}"`);
+  assert(entry.desc.trim().length > 0, "the nav card describes what the section holds");
+  assert(SECTION_ICONS.notifications, "the section has a breadcrumb icon like every other section");
+  assert(
+    sectionTitle("notifications") === entry.label,
+    "the header title is derived from the nav entry, not restated",
+  );
+
+  const panel = source("./SettingsPanel.tsx");
+  assert(
+    /top\.id === "notifications"[\s\S]{0,400}<NotificationsOverview/.test(panel),
+    "the notifications route renders the notifications home rather than an empty page",
+  );
+
+  await withDaemonStubs(async () => {
+    const updates: UpdateCall[] = [];
+    const view = await mount(
+      <NotificationsOverview
+        config={configWith(DAEMON_ROWS)}
+        onUpdate={(section, patch) =>
+          updates.push({ section, patch: patch as Record<string, unknown> })
+        }
+        onUpdateFullConfig={() => {}}
+      />,
+    );
+    const grid = view.host.querySelector(GRID);
+    assert(grid, "the destinations matrix renders inside the notifications home");
+    assert(
+      grid.querySelectorAll(ROW).length === DAEMON_ROWS.length,
+      "the moved matrix still draws one row per shipped level",
+    );
+    assert(
+      switches(grid).length === DAEMON_ROWS.length * NOTIFY_DESTINATIONS.length,
+      "levels x destinations survived the move intact",
+    );
+    assert(view.host.querySelector(TELEGRAM), "the Telegram surface moved here too");
+    await view.done();
+  });
+}
+
+/** 7. Moved, not copied: the surfaces are absent from the Agents surface. */
+async function theMovedSurfacesRenderInExactlyOnePlace() {
+  await withDaemonStubs(async () => {
+    const view = await mount(
+      <AgentsOverview
+        config={configWith(DAEMON_ROWS)}
+        onUpdate={() => {}}
+        onOpenProvider={() => {}}
+      />,
+    );
+    assert(
+      view.host.querySelector('[data-testid="settings-agents-overview"]'),
+      "the Agents surface really rendered, so its absences mean something",
+    );
+    assert(
+      view.host.querySelector(GRID) === null,
+      "the destinations matrix is gone from Agents, not drawn in two places",
+    );
+    assert(
+      view.host.querySelector(TELEGRAM) === null,
+      "the Telegram notification surface is gone from Agents",
+    );
+    await view.done();
+  });
+
+  const agents = source("./AgentsTab.tsx");
+  for (const surface of MOVED_SURFACES) {
+    assert(!agents.includes(surface), `${surface} must not be referenced from AgentsTab`);
+  }
+
+  const home = source("./NotificationsTab.tsx");
+  for (const surface of MOVED_SURFACES) {
+    assert(home.includes(surface), `${surface} must be rendered by the notifications home`);
+    const hosts = modulesMentioning(surface).filter((file) => file !== `${surface}.tsx`);
+    assert(
+      JSON.stringify(hosts) === JSON.stringify(["NotificationsTab.tsx"]),
+      `${surface} must have exactly one home, got ${JSON.stringify(hosts)}`,
+    );
+  }
+}
+
+/** 8. The legacy deep link now resolves to the section the controls live in. */
+async function theLegacyDeepLinkResolvesToTheNotificationsSection() {
+  assert(
+    normalizeSection("notifications") === "notifications",
+    `the notifications deep link resolves to itself, got ${normalizeSection("notifications")}`,
+  );
+  assert(
+    normalizeSection("notifications") !== ("agents" as SectionId),
+    "it must never land on the page the controls just left",
+  );
+  assert(normalizeSection(undefined) === undefined, "no section still means the section grid");
+  for (const section of SETTINGS_SECTIONS) {
+    assert(
+      normalizeSection(section.id) === section.id,
+      `${section.id} maps to itself, so the alias rewrites nothing`,
+    );
+  }
+
+  const nav = source("./sections.ts");
+  assert(
+    !/return id === "notifications" \? "agents" : id;/.test(nav),
+    "the silent rewrite to agents is gone",
+  );
+
+  // The target is a real, rendered destination rather than a dangling id.
+  assert(
+    SETTINGS_SECTIONS.some((section) => section.id === normalizeSection("notifications")),
+    "the resolved id is a section the nav actually offers",
+  );
+  const agentsEntry = SETTINGS_SECTIONS.find((section) => section.id === "agents");
+  assert(agentsEntry, "the agents entry still exists");
+  assert(
+    !agentsEntry.desc.toLowerCase().includes("notification"),
+    `the Agents description stops claiming notifications, got "${agentsEntry.desc}"`,
+  );
+}
+
 async function main() {
   await check("rows derive from the shared level set", rowsDeriveFromTheSharedLevelSet);
   await check(
-    "toggling a cell persists and all-off round-trips",
+    "notification_settings_home: toggling a cell persists and all-off round-trips",
     togglingACellPersistsAndAllOffRoundTrips,
   );
   await check(
@@ -411,11 +610,23 @@ async function main() {
   );
   await check("absent config reproduces today's behaviour", absentConfigReproducesTodaysBehaviour);
   await check(
-    "every control is named and is the shared toggle",
+    "notification_settings_home: every control is named and is the shared toggle",
     everyControlIsNamedAndIsTheSharedToggle,
   );
   await check("destinations match the serialised row shape", destinationsMatchTheRowShape);
-  console.log(`PASS notification_settings — ${cases.length}/${cases.length} cases`);
+  await check(
+    "notification_settings_home: the nav exposes Notifications and the matrix lives there",
+    theNavExposesNotificationsAndTheMatrixLivesThere,
+  );
+  await check(
+    "notification_settings_home: the moved surfaces render in exactly one place",
+    theMovedSurfacesRenderInExactlyOnePlace,
+  );
+  await check(
+    "notification_settings_home: the legacy deep link resolves to the Notifications section",
+    theLegacyDeepLinkResolvesToTheNotificationsSection,
+  );
+  console.log(`PASS notification_settings_home — ${cases.length}/${cases.length} cases`);
 }
 
 main().catch((error) => {
