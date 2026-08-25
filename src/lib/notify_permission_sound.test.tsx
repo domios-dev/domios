@@ -49,6 +49,29 @@ interface Probe {
 
 const probe: Probe = { built: 0, resumed: 0, notes: [], last: null };
 
+/** One reading of the counters, taken now. */
+interface Observation {
+  built: number;
+  resumed: number;
+  notes: number;
+  state: string | null;
+}
+
+/**
+ * The counters advance inside the audio callbacks, where control-flow analysis
+ * cannot follow, so `probe` itself is never read twice in one flow: an assertion
+ * about it would narrow the field to a literal and make the next one impossible.
+ * Every assertion below is about a snapshot, which really is that literal.
+ */
+function observed(): Observation {
+  return {
+    built: probe.built,
+    resumed: probe.resumed,
+    notes: probe.notes.length,
+    state: probe.last?.state ?? null,
+  };
+}
+
 /** A context that behaves like a real one born outside a gesture: suspended. */
 class SuspendedAudioContext {
   currentTime = 0;
@@ -137,42 +160,51 @@ async function main() {
 
   const established = establishChimeContext();
   check(established, "the enabling gesture opens an audio context");
-  check(probe.built === 1, `and opens exactly one, got ${probe.built}`);
+  const afterGesture = observed();
+  check(afterGesture.built === 1, `and opens exactly one, got ${afterGesture.built}`);
   check(
-    probe.resumed === 1,
-    `a context born suspended is resumed inside the gesture, got ${probe.resumed} resume(s)`,
+    afterGesture.resumed === 1,
+    `a context born suspended is resumed inside the gesture, got ${afterGesture.resumed} resume(s)`,
   );
-  check(probe.last?.state === "running", "so the context is running when the gesture ends");
+  check(afterGesture.state === "running", "so the context is running when the gesture ends");
 
   check(
-    establishChimeContext() === established && probe.built === 1,
+    establishChimeContext() === established,
     "a second gesture reuses the established context rather than opening another",
   );
+  const afterSecondGesture = observed();
   check(
-    probe.resumed === 1,
-    "and a running context is not resumed again — the state is checked, not assumed",
+    afterSecondGesture.built === 1,
+    `and opens no second one, got ${afterSecondGesture.built}`,
+  );
+  check(
+    afterSecondGesture.resumed === 1,
+    `a running context is not resumed again — the state is checked, not assumed, got ${afterSecondGesture.resumed} resume(s)`,
   );
 
   const listener = await mountListener();
   await listener.arrive("action_needed");
+  const afterArrival = observed();
   check(
-    probe.notes.length > 0,
+    afterArrival.notes > 0,
     "the very next action_needed sounds, with no second click to open a context",
   );
   check(
-    probe.built === 1,
-    `and it sounds on the context the gesture established, got ${probe.built} context(s)`,
+    afterArrival.built === 1,
+    `and it sounds on the context the gesture established, got ${afterArrival.built} context(s)`,
   );
 
-  const beforeSuspension = probe.notes.length;
-  probe.last!.state = "suspended";
+  const context = probe.last;
+  check(context, "the probe recorded the context the gesture established");
+  context.state = "suspended";
   await listener.arrive("action_needed");
+  const afterResuspension = observed();
   check(
-    probe.resumed === 2,
-    `a context the host suspended later is resumed rather than left silent, got ${probe.resumed} resume(s)`,
+    afterResuspension.resumed === 2,
+    `a context the host suspended later is resumed rather than left silent, got ${afterResuspension.resumed} resume(s)`,
   );
   check(
-    probe.notes.length > beforeSuspension,
+    afterResuspension.notes > afterArrival.notes,
     "and that arrival is audible instead of being dropped into a suspended context",
   );
 
