@@ -13,3 +13,9 @@ plugins/**/tests/fixtures/tab-state/*.txt text eol=lf
 # Legacy plan-state converter fixtures assert byte-exact \n structure
 # preservation; force LF so the golden expectations hold on Windows checkouts.
 tests/fixtures/plan-state/*.yaml text eol=lf
+
+# Cargo rewrites manifests with LF, and core.autocrlf converts them back on every
+# checkout — so a plain `cargo` run left Cargo.toml permanently "modified" and
+# failed the release provenance check on a dirty tree.
+**/Cargo.toml text eol=lf
+**/Cargo.lock text eol=lf
