@@ -30,7 +30,7 @@ copy_on_select = false
 
 [notifications]
 desktop = true
-sound = false
+sound = false       # opt-in chime on a bell arrival that says the agent stopped
 toast_duration = 5  # seconds
 show_bell = true    # false removes the indicator; every record is still kept
 
@@ -40,6 +40,10 @@ show_bell = true    # false removes the indicator; every record is still kept
 # combination of columns is legal, including none: that level reaches nothing.
 # An agent notification that names no level is kept and rings the bell, and
 # never reaches the system or Telegram.
+# `sound` is presentation, not a destination: it has no column here and cannot
+# widen where a level goes. It rides the bell arrival, so a level whose `bell`
+# column is false never sounds, and only `action_needed` and `failure` — the
+# levels that mean the agent stopped — sound at all.
 [[notifications.agent_levels]]
 level = "verbose"
 bell = true
@@ -228,4 +232,4 @@ When a Worker lane worktree is created, each declared directory that exists in t
 
 Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`.
 
-<!-- revision: 45 -->
+<!-- revision: 46 -->
