@@ -5,13 +5,21 @@ const OPAQUE_ORCHESTRATOR: &str = "provider-alpha";
 const OPAQUE_PLANNER: &str = "provider-beta";
 
 fn refusal(shape: CorrectiveShape) -> GeneralAgentTeamRefusal {
-    GeneralAgentTeamRefusal::new("tab_general", "general_agent", MembershipAttempt::Join, shape)
+    GeneralAgentTeamRefusal::new(
+        "tab_general",
+        "general_agent",
+        MembershipAttempt::Join,
+        shape,
+    )
 }
 
 #[test]
 fn general_agent_team_guard_refusal_carries_the_constant_violation_id() {
     let refusal = refusal(CorrectiveShape::default());
-    assert_eq!(refusal.violation_id, GENERAL_AGENT_TEAM_MEMBERSHIP_VIOLATION);
+    assert_eq!(
+        refusal.violation_id,
+        GENERAL_AGENT_TEAM_MEMBERSHIP_VIOLATION
+    );
     assert_eq!(
         refusal.data()["violation_id"],
         GENERAL_AGENT_TEAM_MEMBERSHIP_VIOLATION
@@ -44,7 +52,10 @@ fn general_agent_team_guard_unknown_values_stay_placeholders_not_empty_holes() {
     let command = refusal.corrective_command();
     assert!(command.contains(WORKSPACE_PLACEHOLDER), "{command}");
     assert!(command.contains(PROVIDER_PLACEHOLDER), "{command}");
-    assert!(!command.contains("  "), "no collapsed empty argument: {command}");
+    assert!(
+        !command.contains("  "),
+        "no collapsed empty argument: {command}"
+    );
 }
 
 #[test]

@@ -262,13 +262,13 @@ impl ServiceContext {
                 "Agent provider '{}' is still loading; retry shortly",
                 provider_id
             )),
-            crate::agent::registry::ProviderStartupStatus::Unknown => {
-                Err(super::spawn_capability::classify_unavailable_agent_provider(
+            crate::agent::registry::ProviderStartupStatus::Unknown => Err(
+                super::spawn_capability::classify_unavailable_agent_provider(
                     provider_id,
                     self.available_agent_or_shell_ids(),
                 )
-                .into())
-            }
+                .into(),
+            ),
         }
     }
 

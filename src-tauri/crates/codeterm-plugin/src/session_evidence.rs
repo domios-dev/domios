@@ -107,7 +107,10 @@ mod tests {
         env.set(EVIDENCE_DIR_ENV, tmp.path().join("store"));
 
         let sid = "evidence-round-trip-sid";
-        assert!(record(sid, r"\\?\C:\Users\u\.claude\projects\p\drifted.jsonl"));
+        assert!(record(
+            sid,
+            r"\\?\C:\Users\u\.claude\projects\p\drifted.jsonl"
+        ));
         assert_eq!(
             stored_transcript_path(sid),
             Some(PathBuf::from("C:/Users/u/.claude/projects/p/drifted.jsonl")),
@@ -151,7 +154,10 @@ mod tests {
             "live evidence survives repeated reads",
         );
 
-        assert!(record("dead-sid", &tmp.path().join("gone.jsonl").to_string_lossy()));
+        assert!(record(
+            "dead-sid",
+            &tmp.path().join("gone.jsonl").to_string_lossy()
+        ));
         assert!(
             stored_transcript_path("dead-sid").is_some(),
             "first read still reports the dead evidenced path",

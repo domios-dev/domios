@@ -78,8 +78,9 @@ fn general_agent_team_guard_refuses_add_team_member_before_authorization_masks_i
         .unwrap()
         .team_id;
 
-    let error = prepare_team_member_spawn(&mux, &foreign_team, Some(&general), member_params("worker"))
-        .expect_err("a General Agent outside the Team is refused for identity, not membership");
+    let error =
+        prepare_team_member_spawn(&mux, &foreign_team, Some(&general), member_params("worker"))
+            .expect_err("a General Agent outside the Team is refused for identity, not membership");
 
     assert!(
         error.contains(GENERAL_AGENT_TEAM_MEMBERSHIP_VIOLATION),
@@ -129,7 +130,8 @@ fn general_agent_team_guard_leaves_an_ordinary_manager_add_member_byte_identical
     let before_team_count = mux.team_count();
 
     let prepared =
-        prepare_team_member_spawn(&mux, &team_id, Some(&orchestrator), member_params("worker")).unwrap();
+        prepare_team_member_spawn(&mux, &team_id, Some(&orchestrator), member_params("worker"))
+            .unwrap();
     let member = mux.create_tab(&workspace_id).unwrap();
     mux.set_tab_role(&member, AgentRole::Worker, Some(&orchestrator))
         .unwrap();

@@ -12,11 +12,8 @@ use std::sync::Arc;
 
 /// The three verbs the recovery list omitted, which is why `close` recovered a
 /// tab-gone task live while these refused.
-const TAB_GONE_RECOVERY_VERBS: &[&str] = &[
-    "plan.task.dispatch",
-    "plan.task.pause",
-    "plan.task.resume",
-];
+const TAB_GONE_RECOVERY_VERBS: &[&str] =
+    &["plan.task.dispatch", "plan.task.pause", "plan.task.resume"];
 
 const GONE_OWNER_TAB: &str = "gone-worker-tab";
 const GONE_OWNER_SESSION: &str = "gone-worker-session";
@@ -375,7 +372,11 @@ fn recovery_authority_admits_a_moved_owner_session_but_not_a_foreign_tab() {
         &live_worker,
         "worker-session",
     );
-    move_recorded_owner_session(&harness.fixture, &harness.plan_id, "session-before-the-move");
+    move_recorded_owner_session(
+        &harness.fixture,
+        &harness.plan_id,
+        "session-before-the-move",
+    );
     let service = Arc::new(harness.fixture.service.clone());
 
     let owner = caller_params(
@@ -471,6 +472,9 @@ fn recovery_authority_does_not_launder_a_stale_binding_report() {
         let after = task_record(&harness.fixture, &harness.plan_id, &harness.task_id);
         assert_eq!(after.interruption.owner_epoch, OWNER_EPOCH);
         assert_eq!(after.status, TaskStatus::InProgress);
-        assert_eq!(after.interruption.owner_tab_id.as_deref(), Some(&*owner_tab));
+        assert_eq!(
+            after.interruption.owner_tab_id.as_deref(),
+            Some(&*owner_tab)
+        );
     }
 }

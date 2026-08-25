@@ -95,7 +95,10 @@ mod tests {
         let v = JsViewProvider::new(vm, "confined-view");
         let cwd = tmp.path().to_string_lossy().into_owned();
 
-        let out = v.call("probe", serde_json::json!({ "cwd": cwd })).await.unwrap();
+        let out = v
+            .call("probe", serde_json::json!({ "cwd": cwd }))
+            .await
+            .unwrap();
         assert_eq!(
             out["names"],
             serde_json::Value::Null,
@@ -104,7 +107,10 @@ mod tests {
 
         // Once the HOST granted the same cwd (bubble/glance path), the view works.
         sandbox.grant_cwd_read_root(&cwd);
-        let out = v.call("probe", serde_json::json!({ "cwd": cwd })).await.unwrap();
+        let out = v
+            .call("probe", serde_json::json!({ "cwd": cwd }))
+            .await
+            .unwrap();
         assert_eq!(out["names"], serde_json::json!(["loot"]));
     }
 }

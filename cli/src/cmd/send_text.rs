@@ -252,7 +252,9 @@ fn send_text_to_targets(
 ) {
     let mut failures: Vec<(String, String)> = Vec::new();
     let mut delivered: Vec<String> = Vec::new();
-    let source_tab = std::env::var("CODETERM_TAB_ID").ok().filter(|t| !t.is_empty());
+    let source_tab = std::env::var("CODETERM_TAB_ID")
+        .ok()
+        .filter(|t| !t.is_empty());
     for tab_id in targets {
         if !resolved_text.trim().is_empty() {
             let kind = probe_tab_kind(client, tab_id);

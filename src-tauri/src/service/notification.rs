@@ -274,7 +274,10 @@ fn create_notification_with_delivery(
     // Dedupe already decided this message is new; the gates decide where it may
     // go. Unlevelled keeps its record and its bell event, and stops.
     if let Some(pass) = desktop::admit(surfaces.declared, &surfaces.desktop).pass() {
-        log::debug!("[notify-gate] desktop toast admitted as {}", pass.level().as_str());
+        log::debug!(
+            "[notify-gate] desktop toast admitted as {}",
+            pass.level().as_str()
+        );
         deliver_native(
             payload["title"].as_str().unwrap_or_default(),
             payload["body"].as_str(),
@@ -414,11 +417,7 @@ impl ServiceContext {
     /// Record the user's choice. The command carries the record and the chosen
     /// label only — the tab it answers to was captured when the question was
     /// sent, so nothing is resolved here.
-    pub fn answer_notification(
-        &self,
-        id: &str,
-        label: &str,
-    ) -> Result<serde_json::Value, String> {
+    pub fn answer_notification(&self, id: &str, label: &str) -> Result<serde_json::Value, String> {
         // The guard is dropped before the event fans out: nothing downstream of
         // an emit may re-enter the store while it is still held.
         let admission = self.notif.lock().record_answer(id, label);
@@ -959,9 +958,27 @@ mod tests {
         let native = Mutex::new(Vec::new());
         let emitted = Mutex::new(Vec::new());
 
-        let first = deliver(&store, "build failed", Some("linker error"), &native, &emitted);
-        let other_body = deliver(&store, "build failed", Some("test error"), &native, &emitted);
-        let other_title = deliver(&store, "build passed", Some("linker error"), &native, &emitted);
+        let first = deliver(
+            &store,
+            "build failed",
+            Some("linker error"),
+            &native,
+            &emitted,
+        );
+        let other_body = deliver(
+            &store,
+            "build failed",
+            Some("test error"),
+            &native,
+            &emitted,
+        );
+        let other_title = deliver(
+            &store,
+            "build passed",
+            Some("linker error"),
+            &native,
+            &emitted,
+        );
 
         assert_ne!(first, other_body);
         assert_ne!(first, other_title);

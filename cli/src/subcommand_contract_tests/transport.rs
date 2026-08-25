@@ -414,7 +414,12 @@ fn api_map_still_builds_identical_rest_bodies() {
 
     // Body shape is asserted through parsed JSON so key order is not the test.
     let (method, path, body) = cli_command_to_api(&parse(&[
-        "codeterm", "notify", "send", "hello", "--severity", "info",
+        "codeterm",
+        "notify",
+        "send",
+        "hello",
+        "--severity",
+        "info",
     ]));
     assert_eq!(method.as_str(), "POST");
     assert_eq!(path.as_str(), "/api/notifications");

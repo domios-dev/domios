@@ -146,12 +146,17 @@ impl ServiceContext {
     /// Pad and nonces are resolved before the mux read so no lock is held across
     /// a record write (lock order: mux, then the rest).
     fn tab_launch_env(&self, tab_id: &str) -> TabLaunchEnv {
-        let pad_dir = self.ensure_agent_pad(tab_id).ok().map(|pad| pad.env_value());
+        let pad_dir = self
+            .ensure_agent_pad(tab_id)
+            .ok()
+            .map(|pad| pad.env_value());
         let session_binding_nonce = self.ensure_session_binding_nonce(tab_id);
         let shell_nonce = self.ensure_shell_integration_nonce(tab_id);
         let identity = {
             let mux = self.mux.read();
-            mux.get_tab(tab_id).map(tab_identity_env).unwrap_or_default()
+            mux.get_tab(tab_id)
+                .map(tab_identity_env)
+                .unwrap_or_default()
         };
         TabLaunchEnv {
             tab_id: tab_id.to_string(),
@@ -175,7 +180,11 @@ impl ServiceContext {
     /// `None` tab id is a PTY with no tab record yet: instance vars only.
     pub(crate) fn frontend_pty_env(&self, tab_id: Option<&str>) -> HashMap<String, String> {
         let tab = tab_id.map(|tab_id| self.tab_launch_env(tab_id));
-        compose_launch_env(&InstanceEnv::resolve(), tab.as_ref(), LaunchSurface::Frontend)
+        compose_launch_env(
+            &InstanceEnv::resolve(),
+            tab.as_ref(),
+            LaunchSurface::Frontend,
+        )
     }
 }
 

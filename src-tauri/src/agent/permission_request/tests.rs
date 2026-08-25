@@ -26,7 +26,10 @@ fn permission_request_payload_round_trips_every_supplied_field() {
     assert_eq!(signal.tool_name, "Bash");
     // tool_input is preserved verbatim, not flattened or summarized.
     assert_eq!(signal.tool_input, body["tool_input"]);
-    assert_eq!(signal.tool_input["command"].as_str(), Some("rm -rf ./build"));
+    assert_eq!(
+        signal.tool_input["command"].as_str(),
+        Some("rm -rf ./build")
+    );
     assert_eq!(signal.tool_input["timeout"].as_u64(), Some(120000));
     assert_eq!(
         signal.permission_suggestions,
@@ -86,7 +89,9 @@ fn permission_request_without_suggestions_still_records_the_payload() {
     let mut detector = PromptDetector::new();
     let decision = detector.hook_detected_permission_request("tab-2", signal);
     assert!(matches!(decision, PromptDecision::None));
-    let stored = detector.permission_request("tab-2").expect("still recorded");
+    let stored = detector
+        .permission_request("tab-2")
+        .expect("still recorded");
     assert_eq!(stored.tool_input, body["tool_input"]);
 }
 

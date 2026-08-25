@@ -167,7 +167,6 @@ fn dispatch_treats_batch_personality_without_legacy_provenance_as_provisional() 
     assert_eq!(provenance, Some(SpawnIdentityProvenance::Suggested));
 }
 
-
 #[test]
 fn socket_dispatch_requires_daemon_owned_capacity_provenance() {
     let mut plan = Plan::new(

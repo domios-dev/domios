@@ -136,9 +136,7 @@ fn route_send_origin(
 /// bodies. Length only — the content is never inspected.
 fn route_payload_bytes(text: Option<&str>, batch: Option<&[BatchCommand]>) -> usize {
     text.map_or(0, str::len)
-        + batch.map_or(0, |items| {
-            items.iter().map(|c| c.text.len()).sum::<usize>()
-        })
+        + batch.map_or(0, |items| items.iter().map(|c| c.text.len()).sum::<usize>())
 }
 
 pub(super) use self::await_pty_link as wait_for_pty_link;
@@ -668,8 +666,11 @@ mod payload_preflight_tests {
     #[test]
     fn api_route_payload_preflight_refuses_over_bound_programmatic_without_delivery() {
         // Every existing programmatic marker: service push, source tab, mesh peer.
-        for (push, src, peer) in [(true, false, false), (false, true, false), (false, false, true)]
-        {
+        for (push, src, peer) in [
+            (true, false, false),
+            (false, true, false),
+            (false, false, true),
+        ] {
             let origin = route_send_origin(push, src, peer);
             assert_eq!(origin, SendOrigin::Programmatic);
             let (passed, delivered) = route_gate(origin, PROGRAMMATIC_SEND_MAX_BYTES + 1);

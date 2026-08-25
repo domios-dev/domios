@@ -459,8 +459,10 @@ impl ServiceContext {
             planner_model.as_deref(),
         );
 
-        let membership_shape = CorrectiveShape::in_workspace(Some(&workspace_id))
-            .with_agents(Some(&params.orchestrator_agent), Some(&params.planner_agent));
+        let membership_shape = CorrectiveShape::in_workspace(Some(&workspace_id)).with_agents(
+            Some(&params.orchestrator_agent),
+            Some(&params.planner_agent),
+        );
         let reserved = {
             let mut mux = self.mux.write();
             reserve_pair_tabs(

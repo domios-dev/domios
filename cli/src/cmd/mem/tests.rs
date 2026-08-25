@@ -412,14 +412,8 @@ fn calibration_sweep_subcommand_parses() {
 
 #[test]
 fn mem_tail_subcommand_parses_since() {
-    let cli = Cli::try_parse_from([
-        "codeterm",
-        "mem",
-        "tail",
-        "--since",
-        "2026-08-01T00:00:00Z",
-    ])
-    .unwrap();
+    let cli = Cli::try_parse_from(["codeterm", "mem", "tail", "--since", "2026-08-01T00:00:00Z"])
+        .unwrap();
     match cli.command {
         Commands::Mem {
             action: MemAction::Tail { since, .. },

@@ -126,7 +126,11 @@ fn notify_gate_user_disabled_level_keeps_the_record_but_not_the_toast() {
     };
 
     notify(&sinks, "verbose", only_failures(NotifyLevel::Verbose));
-    notify(&sinks, "action needed", only_failures(NotifyLevel::ActionNeeded));
+    notify(
+        &sinks,
+        "action needed",
+        only_failures(NotifyLevel::ActionNeeded),
+    );
     assert!(
         sinks.native.lock().is_empty(),
         "levels the user turned off do not reach the sink"
@@ -221,8 +225,16 @@ fn notify_gate_leaves_non_agent_routes_unchanged() {
 fn notify_gate_and_dedupe_are_separate_decisions() {
     let sinks = Sinks::new();
 
-    let first = notify(&sinks, "approval needed", shipped(Some(NotifyLevel::ActionNeeded)));
-    let repeat = notify(&sinks, "approval needed", shipped(Some(NotifyLevel::ActionNeeded)));
+    let first = notify(
+        &sinks,
+        "approval needed",
+        shipped(Some(NotifyLevel::ActionNeeded)),
+    );
+    let repeat = notify(
+        &sinks,
+        "approval needed",
+        shipped(Some(NotifyLevel::ActionNeeded)),
+    );
     assert_eq!(repeat, first, "dedupe kept one record for one message");
     assert_eq!(
         sinks.native.lock().len(),

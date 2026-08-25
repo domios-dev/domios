@@ -220,4 +220,3 @@ fn default_hook_event_roster_matches_bundled_manifests() {
         ]
     );
 }
-

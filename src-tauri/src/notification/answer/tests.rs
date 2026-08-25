@@ -85,7 +85,9 @@ fn notify_answer_records_the_asking_tab_at_send_time() {
     std::env::set_var("CODETERM_TAB_ID", "environment-tab");
     let (store, id) = asked_from(Some("asking-tab"));
 
-    let slot = store.answer_slot(&id).expect("a choice opens an answer slot");
+    let slot = store
+        .answer_slot(&id)
+        .expect("a choice opens an answer slot");
     assert_eq!(slot.asked_from_tab.as_deref(), Some("asking-tab"));
     assert_eq!(slot.answered, None);
     assert!(!slot.is_undeliverable());
@@ -98,7 +100,9 @@ fn notify_answer_records_the_asking_tab_at_send_time() {
 fn notify_answer_without_an_asking_tab_is_born_undeliverable() {
     let (mut store, id) = asked_from(None);
 
-    let slot = store.answer_slot(&id).expect("a choice opens an answer slot");
+    let slot = store
+        .answer_slot(&id)
+        .expect("a choice opens an answer slot");
     assert!(
         slot.is_undeliverable(),
         "the panel renders this card as undeliverable"
@@ -107,7 +111,10 @@ fn notify_answer_without_an_asking_tab_is_born_undeliverable() {
         store.record_answer(&id, "Rebase"),
         AnswerAdmission::Undeliverable
     );
-    assert_eq!(store.answer_slot(&id).and_then(|s| s.answered.clone()), None);
+    assert_eq!(
+        store.answer_slot(&id).and_then(|s| s.answered.clone()),
+        None
+    );
 }
 
 /// Answering resolves nothing: the tab recorded at send time is the only tab,
@@ -148,7 +155,9 @@ fn notify_answer_takes_exactly_one_answer_per_notification() {
         AnswerAdmission::AlreadyAnswered("Rebase".into())
     );
     assert_eq!(
-        store.answer_slot(&id).and_then(|slot| slot.answered.clone()),
+        store
+            .answer_slot(&id)
+            .and_then(|slot| slot.answered.clone()),
         Some("Rebase".into()),
         "the stored answer is unchanged by every later attempt"
     );
@@ -183,7 +192,10 @@ fn notify_answer_refuses_a_label_that_was_never_offered() {
         store.record_answer("no-such-record", "Rebase"),
         AnswerAdmission::NotOffered
     );
-    assert_eq!(store.answer_slot(&id).and_then(|s| s.answered.clone()), None);
+    assert_eq!(
+        store.answer_slot(&id).and_then(|s| s.answered.clone()),
+        None
+    );
 }
 
 /// A notification that offers no choice has no slot at all, so nothing about it

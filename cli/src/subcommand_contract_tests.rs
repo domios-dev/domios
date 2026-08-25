@@ -305,8 +305,15 @@ fn retained_spellings_still_parse() {
         }
     ));
 
-    let send = Cli::try_parse_from(["codeterm", "notify", "send", "hello", "--severity", "warning"])
-        .expect("notify send parses");
+    let send = Cli::try_parse_from([
+        "codeterm",
+        "notify",
+        "send",
+        "hello",
+        "--severity",
+        "warning",
+    ])
+    .expect("notify send parses");
     assert!(matches!(
         send.command,
         Commands::Notify {
@@ -403,8 +410,8 @@ fn notify_level_flag_is_closed_and_derived_from_the_shared_set() {
         );
     }
 
-    let unlevelled = Cli::try_parse_from(["codeterm", "notify", "send", "Done"])
-        .expect("level stays optional");
+    let unlevelled =
+        Cli::try_parse_from(["codeterm", "notify", "send", "Done"]).expect("level stays optional");
     assert!(matches!(
         unlevelled.command,
         Commands::Notify {

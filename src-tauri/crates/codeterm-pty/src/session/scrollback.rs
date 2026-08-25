@@ -59,7 +59,10 @@ impl SessionStore {
     /// Remove sidecars whose tab is no longer a live scrollback-eligible tab,
     /// including crash-orphaned `.scrollback.tmp` files for dead tabs.
     pub fn prune_scrollback_tails(&self, live_tab_ids: &HashSet<String>) {
-        let keep: HashSet<String> = live_tab_ids.iter().map(|id| sidecar_file_name(id)).collect();
+        let keep: HashSet<String> = live_tab_ids
+            .iter()
+            .map(|id| sidecar_file_name(id))
+            .collect();
         let Ok(entries) = fs::read_dir(self.scrollback_dir()) else {
             return;
         };
@@ -165,7 +168,10 @@ mod tests {
             dir.join("tab-a.scrollback.tmp").exists(),
             "tmp belonging to a live tab kept"
         );
-        assert!(dir.join("unrelated.txt").exists(), "non-sidecar files untouched");
+        assert!(
+            dir.join("unrelated.txt").exists(),
+            "non-sidecar files untouched"
+        );
         assert_eq!(store.load_scrollback_tail("tab-a").unwrap(), b"aaa");
     }
 

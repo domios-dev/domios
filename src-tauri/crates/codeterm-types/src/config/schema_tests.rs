@@ -206,7 +206,10 @@ fn notification_settings_absent_config_reproduces_todays_behaviour() {
     let empty: NotificationConfig = toml::from_str("").unwrap();
     let default = NotificationConfig::default();
 
-    assert!(empty.desktop, "desktop notifications were on before the grid");
+    assert!(
+        empty.desktop,
+        "desktop notifications were on before the grid"
+    );
     assert!(!empty.sound);
     assert_eq!(empty.toast_duration, 5);
     assert!(
@@ -315,7 +318,10 @@ fn notification_settings_all_off_for_a_level_is_accepted_and_round_trips() {
     assert_eq!(decoded.agent_levels, cfg.agent_levels);
 
     // Reconciliation must not quietly re-open what the user closed.
-    assert_eq!(reconcile_agent_levels(&decoded.agent_levels), cfg.agent_levels);
+    assert_eq!(
+        reconcile_agent_levels(&decoded.agent_levels),
+        cfg.agent_levels
+    );
 }
 
 /// A hidden bell surface and an unreachable bell column are different states.

@@ -57,10 +57,7 @@ pub(crate) fn parse_push_intent(
             })?,
         ),
     };
-    Ok(crate::service::notification::PushIntent {
-        level,
-        event_key,
-    })
+    Ok(crate::service::notification::PushIntent { level, event_key })
 }
 
 /// Vet a caller-supplied action set. Parsing already closed the kind; this

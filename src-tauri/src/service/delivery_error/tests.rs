@@ -201,7 +201,10 @@ mod payload_preflight_bound_tests {
             preflight_payload_size("p1", SendOrigin::User, PROGRAMMATIC_SEND_MAX_BYTES + 1),
             Ok(())
         );
-        assert_eq!(preflight_payload_size("p1", SendOrigin::User, usize::MAX), Ok(()));
+        assert_eq!(
+            preflight_payload_size("p1", SendOrigin::User, usize::MAX),
+            Ok(())
+        );
     }
 
     #[test]
@@ -209,7 +212,10 @@ mod payload_preflight_bound_tests {
         let err = preflight_payload_size("p1", SendOrigin::Programmatic, usize::MAX).unwrap_err();
         let json = err.to_json();
         assert_eq!(json["ok"], serde_json::json!(false));
-        assert_eq!(json["error"]["code"], serde_json::json!("payload_too_large"));
+        assert_eq!(
+            json["error"]["code"],
+            serde_json::json!("payload_too_large")
+        );
         assert_eq!(json["error"]["bytes_written"], serde_json::json!(false));
         assert_eq!(json["error"]["tab"], serde_json::json!("p1"));
     }

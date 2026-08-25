@@ -57,7 +57,9 @@ mod delivery_tests {
     #[test]
     fn an_installed_binary_may_use_the_native_toast() {
         assert!(windows_toast_reaches_the_shell(Some(&native(&[
-            "C:", "Program Files", "CodeTerm"
+            "C:",
+            "Program Files",
+            "CodeTerm"
         ]))));
     }
 

@@ -385,7 +385,11 @@ fn git_value<'a>(
 /// as a working directory, which rejects Windows verbatim (`\\?\`) prefixes.
 fn canonical_path(path: &str) -> Result<PathBuf, String> {
     std::fs::canonicalize(path)
-        .map(|resolved| PathBuf::from(codeterm_paths::strip_verbatim_prefix(&resolved.to_string_lossy())))
+        .map(|resolved| {
+            PathBuf::from(codeterm_paths::strip_verbatim_prefix(
+                &resolved.to_string_lossy(),
+            ))
+        })
         .map_err(|error| format!("cannot resolve worker lane path '{path}': {error}"))
 }
 

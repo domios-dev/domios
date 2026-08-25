@@ -822,7 +822,10 @@ mod tests {
             None,
         );
 
-        assert_eq!(seen, vec!["tab.list".to_string(), "system.identify".to_string()]);
+        assert_eq!(
+            seen,
+            vec!["tab.list".to_string(), "system.identify".to_string()]
+        );
         let SocketCallError::Transport(rendered) = outcome.unwrap_err() else {
             panic!("cross-version -32601 becomes a transport explanation");
         };

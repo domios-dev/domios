@@ -10,9 +10,7 @@ use crate::session::store::SaveOutcome;
 use crate::session::SessionState;
 use crate::OutputBufferState;
 
-fn sidecar_state(
-    app: &tauri::AppHandle,
-) -> Option<(MuxState, OutputBufferState, SessionState)> {
+fn sidecar_state(app: &tauri::AppHandle) -> Option<(MuxState, OutputBufferState, SessionState)> {
     let (Some(mux), Some(output_buf), Some(session)) = (
         app.try_state::<MuxState>(),
         app.try_state::<OutputBufferState>(),

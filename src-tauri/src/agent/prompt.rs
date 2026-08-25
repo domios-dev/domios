@@ -146,11 +146,7 @@ impl PromptDetector {
 
     /// Hook path for a prompt scraped off the screen. Hook-owned (no per-chunk
     /// source to reconcile against) but NEVER structured.
-    pub fn hook_detected_scraped(
-        &mut self,
-        tab_id: &str,
-        prompt: PendingPrompt,
-    ) -> PromptDecision {
+    pub fn hook_detected_scraped(&mut self, tab_id: &str, prompt: PendingPrompt) -> PromptDecision {
         self.hook_detected(tab_id, prompt, false)
     }
 

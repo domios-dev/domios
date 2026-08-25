@@ -60,8 +60,11 @@ fn permission_request_native_and_js_install_the_same_declared_events() {
 
     let native_dir = tempfile::tempdir().unwrap();
     let native_settings = native_dir.path().join("settings.json");
-    crate::agent_claude::provider::integration::install_integration_at(&native_settings, &consented())
-        .unwrap();
+    crate::agent_claude::provider::integration::install_integration_at(
+        &native_settings,
+        &consented(),
+    )
+    .unwrap();
 
     let js_dir = tempfile::tempdir().unwrap();
     let js_settings = js_dir.path().join("settings.json");
@@ -90,8 +93,11 @@ fn permission_request_payload_is_forwarded_on_both_runtimes() {
 
     let native_dir = tempfile::tempdir().unwrap();
     let native_settings = native_dir.path().join("settings.json");
-    crate::agent_claude::provider::integration::install_integration_at(&native_settings, &consented())
-        .unwrap();
+    crate::agent_claude::provider::integration::install_integration_at(
+        &native_settings,
+        &consented(),
+    )
+    .unwrap();
 
     let js_dir = tempfile::tempdir().unwrap();
     let js_settings = js_dir.path().join("settings.json");
@@ -125,8 +131,11 @@ fn permission_request_and_notification_keep_distinct_matchers_on_both_runtimes()
     }
     let native_dir = tempfile::tempdir().unwrap();
     let native_settings = native_dir.path().join("settings.json");
-    crate::agent_claude::provider::integration::install_integration_at(&native_settings, &consented())
-        .unwrap();
+    crate::agent_claude::provider::integration::install_integration_at(
+        &native_settings,
+        &consented(),
+    )
+    .unwrap();
 
     let js_dir = tempfile::tempdir().unwrap();
     let js_settings = js_dir.path().join("settings.json");

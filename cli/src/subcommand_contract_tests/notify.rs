@@ -125,8 +125,8 @@ fn notify_answer_choice_flag_repeats_and_takes_labels_only() {
         } if choice == &["Rebase".to_string(), "Merge".to_string()]
     ));
 
-    let none = Cli::try_parse_from(["codeterm", "notify", "send", "Done"])
-        .expect("choices stay optional");
+    let none =
+        Cli::try_parse_from(["codeterm", "notify", "send", "Done"]).expect("choices stay optional");
     assert!(matches!(
         none.command,
         Commands::Notify {

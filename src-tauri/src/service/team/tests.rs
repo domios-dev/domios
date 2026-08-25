@@ -864,7 +864,8 @@ fn bootstrap_add_places_an_anchoring_manager_with_no_caller() {
     );
     assert_eq!(
         params.workspace_id.as_deref(),
-        mux.get_team(&team_id).map(|team| team.workspace_id.as_str()),
+        mux.get_team(&team_id)
+            .map(|team| team.workspace_id.as_str()),
         "the workspace comes from the Team when no caller supplies one"
     );
 }

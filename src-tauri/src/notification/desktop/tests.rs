@@ -30,7 +30,10 @@ fn policy_with(agent_levels: Vec<AgentLevelChoice>) -> DesktopPolicy {
 
 fn choice(level: &str, enabled: bool) -> AgentLevelChoice {
     let mut choice = AgentLevelChoice::open(level);
-    choice.set(codeterm_types::notification::NotifyDestination::Desktop, enabled);
+    choice.set(
+        codeterm_types::notification::NotifyDestination::Desktop,
+        enabled,
+    );
     choice
 }
 
@@ -200,7 +203,9 @@ fn notify_level_wire_parse_rejects_the_retired_names() {
         );
     }
     assert_eq!(
-        parse_push_intent(None, None).expect("naming no level stays legal").level,
+        parse_push_intent(None, None)
+            .expect("naming no level stays legal")
+            .level,
         None,
         "omitting the level is still the fail-closed inbox path"
     );
@@ -286,7 +291,11 @@ mod no_inference {
             };
             if source.contains(needle) {
                 let relative = path.strip_prefix(root).unwrap_or(&path);
-                hits.push(relative.to_string_lossy().replace(std::path::MAIN_SEPARATOR, "/"));
+                hits.push(
+                    relative
+                        .to_string_lossy()
+                        .replace(std::path::MAIN_SEPARATOR, "/"),
+                );
             }
         }
     }

@@ -69,7 +69,9 @@ impl CorrectiveShape {
     }
 
     fn workspace(&self) -> &str {
-        self.workspace_id.as_deref().unwrap_or(WORKSPACE_PLACEHOLDER)
+        self.workspace_id
+            .as_deref()
+            .unwrap_or(WORKSPACE_PLACEHOLDER)
     }
 
     fn orchestrator(&self) -> &str {

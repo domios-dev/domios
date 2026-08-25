@@ -282,8 +282,15 @@ impl NotificationStore {
         } = request;
 
         let reused = open.and_then(|(_, id)| {
-            self.rewrite_in_place(&id, title.clone(), body.clone(), severity.clone(), &provenance, level)
-                .then_some(id)
+            self.rewrite_in_place(
+                &id,
+                title.clone(),
+                body.clone(),
+                severity.clone(),
+                &provenance,
+                level,
+            )
+            .then_some(id)
         });
         let is_supersede = reused.is_some();
         let id = match reused {
@@ -547,9 +554,16 @@ mod tests {
     fn test_notification_severities() {
         let mut store = NotificationStore::new(100);
         store.add("Info".into(), None, NotificationSeverity::Info, None, None);
-        store.add("Warn".into(), None, NotificationSeverity::Warning, None, None);
+        store.add(
+            "Warn".into(),
+            None,
+            NotificationSeverity::Warning,
+            None,
+            None,
+        );
         store.add("Err".into(), None, NotificationSeverity::Error, None, None);
-        let severities: Vec<&NotificationSeverity> = store.list(false).iter().map(|n| &n.severity).collect();
+        let severities: Vec<&NotificationSeverity> =
+            store.list(false).iter().map(|n| &n.severity).collect();
         assert_eq!(
             severities,
             vec![

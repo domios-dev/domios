@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::provider::{
-    BusySubmitStrategy, HookEventBinding, HookIngestionRoute, ModelInfo,
-    ProviderReadinessStrategy, ProviderStateVerdict, ReadinessStrategy, ReasoningEffortInfo,
-    SessionIdInjection, SystemPromptDelivery, TaskDelivery, VerifySubmitStrategy,
+    BusySubmitStrategy, HookEventBinding, HookIngestionRoute, ModelInfo, ProviderReadinessStrategy,
+    ProviderStateVerdict, ReadinessStrategy, ReasoningEffortInfo, SessionIdInjection,
+    SystemPromptDelivery, TaskDelivery, VerifySubmitStrategy,
 };
 
 /// Hosts/origins a plugin may reach via `host.fetch`.
@@ -426,8 +426,7 @@ pub struct CommandsConfig {
 
 /// Closed placeholder set for `launchArgsFormat`. `{skipPermissions}` expands
 /// to the manifest's `autoApproveFlags`; model/effort flags arrive via `{args}`.
-pub const LAUNCH_TEMPLATE_PLACEHOLDERS: &[&str] =
-    &["task", "args", "skipPermissions", "sessionId"];
+pub const LAUNCH_TEMPLATE_PLACEHOLDERS: &[&str] = &["task", "args", "skipPermissions", "sessionId"];
 
 /// Closed placeholder set for `resumeArgsFormat`.
 pub const RESUME_TEMPLATE_PLACEHOLDERS: &[&str] = &["sessionId", "skipPermissions"];

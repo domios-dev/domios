@@ -680,8 +680,7 @@ mod tests {
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         let hooks = installed.get("hooks").and_then(|h| h.as_object()).unwrap();
 
-        let declared: BTreeSet<String> =
-            hook_event_roster().into_iter().map(|b| b.event).collect();
+        let declared: BTreeSet<String> = hook_event_roster().into_iter().map(|b| b.event).collect();
         let written: BTreeSet<String> = hooks.keys().cloned().collect();
         assert_eq!(written, declared, "installed events must equal the roster");
         for event in &declared {
@@ -797,8 +796,7 @@ mod tests {
         let path = dir.path().join("settings.json");
         install_integration_at(&path, &integration_options(false)).unwrap();
         uninstall_integration_at(&path).unwrap();
-        let cleaned: Json =
-            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let cleaned: Json = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(
             cleaned
                 .pointer("/hooks/PermissionRequest")

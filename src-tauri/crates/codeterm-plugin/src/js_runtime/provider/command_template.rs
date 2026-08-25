@@ -55,7 +55,10 @@ pub(super) fn launch_command_from_template(
             ("task", params.task.as_deref().unwrap_or_default()),
             ("args", args.as_str()),
             ("skipPermissions", skip.as_str()),
-            ("sessionId", params.session_id.as_deref().unwrap_or_default()),
+            (
+                "sessionId",
+                params.session_id.as_deref().unwrap_or_default(),
+            ),
         ],
     ))
 }

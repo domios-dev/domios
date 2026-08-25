@@ -126,7 +126,12 @@ fn append_decision(sidecar: &Path, mut decision: ContextDecision) {
 
 fn next_turn(sidecar: &Path) -> u64 {
     std::fs::read_to_string(sidecar)
-        .map(|content| content.lines().filter(|line| !line.trim().is_empty()).count() as u64)
+        .map(|content| {
+            content
+                .lines()
+                .filter(|line| !line.trim().is_empty())
+                .count() as u64
+        })
         .unwrap_or(0)
         + 1
 }

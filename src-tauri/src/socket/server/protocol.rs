@@ -25,11 +25,7 @@ pub(crate) fn client_protocol_version(raw: Option<&serde_json::Value>) -> u64 {
     raw.and_then(serde_json::Value::as_u64).unwrap_or(0)
 }
 
-pub(crate) fn version_skew_gate(
-    client: u64,
-    server: u64,
-    recovery: &str,
-) -> Option<JsonRpcError> {
+pub(crate) fn version_skew_gate(client: u64, server: u64, recovery: &str) -> Option<JsonRpcError> {
     (client < server).then(|| version_skew_error(client, server, recovery))
 }
 
@@ -67,9 +63,7 @@ mod tests {
 
     #[test]
     fn version_skew_same_version_gate_is_inert() {
-        assert!(
-            version_skew_gate(PROTOCOL_VERSION, PROTOCOL_VERSION, RECOVERY_COMMAND).is_none()
-        );
+        assert!(version_skew_gate(PROTOCOL_VERSION, PROTOCOL_VERSION, RECOVERY_COMMAND).is_none());
     }
 
     #[test]

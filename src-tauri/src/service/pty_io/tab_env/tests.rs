@@ -157,7 +157,10 @@ fn env_compose_absent_identity_omits_variables_instead_of_blanking_them() {
         );
     }
     assert!(
-        service.values().chain(frontend.values()).all(|v| !v.is_empty()),
+        service
+            .values()
+            .chain(frontend.values())
+            .all(|v| !v.is_empty()),
         "no launch variable may be exported with an empty value"
     );
     assert_eq!(without_frontend_only(&frontend), service);
@@ -200,8 +203,14 @@ fn env_compose_service_surface_matches_todays_agent_launch_map() {
     .map(str::to_string)
     .collect();
     assert_eq!(keys(&service), expected);
-    assert_eq!(service.get("CODETERM_TAB_ID").map(String::as_str), Some(AGENT_TAB_ID));
-    assert_eq!(service.get("CODETERM_ROLE").map(String::as_str), Some("Manager"));
+    assert_eq!(
+        service.get("CODETERM_TAB_ID").map(String::as_str),
+        Some(AGENT_TAB_ID)
+    );
+    assert_eq!(
+        service.get("CODETERM_ROLE").map(String::as_str),
+        Some("Manager")
+    );
 }
 
 /// The frontend surface also spawns PTYs that have no tab record yet; those
