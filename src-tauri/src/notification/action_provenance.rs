@@ -8,9 +8,7 @@ use codeterm_types::notification::{
 };
 
 use crate::api::notification_routes::CreateNotifBody;
-use crate::notification::store::{
-    DedupAdmission, NotificationProvenance, NotificationStore,
-};
+use crate::notification::store::{DedupAdmission, NotificationProvenance, NotificationStore};
 
 /// Tauri commands that exist and are worth stealing. None is in the daemon set,
 /// and none can be named by a caller-supplied action.

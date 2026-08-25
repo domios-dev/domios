@@ -301,9 +301,8 @@ fn host_compute_perms_gate_workspace_and_agent() {
         spawn_agents: true,
         ..Default::default()
     };
-    let granted = Arc::new(
-        PluginSandbox::restricted(vec![], vec![]).with_identity_and_perms("p", &perms),
-    );
+    let granted =
+        Arc::new(PluginSandbox::restricted(vec![], vec![]).with_identity_and_perms("p", &perms));
     let vm2 = PluginVm::from_source_sandboxed("p", SRC.to_string(), None, granted).unwrap();
     let ws2: String = call_json(&vm2, "ws", &[]).unwrap();
     assert!(
@@ -430,9 +429,7 @@ const WEDGED: Duration = Duration::from_secs(30);
 /// A distinct plugin id per test: exec jobs are keyed by it, and a VM dropping
 /// at the end of one test reaps every pending job sharing its id.
 fn serialization_vm(plugin_id: &str) -> Arc<PluginVm> {
-    Arc::new(
-        PluginVm::from_source(plugin_id, SERIALIZATION_FIXTURE.to_string()).expect("load"),
-    )
+    Arc::new(PluginVm::from_source(plugin_id, SERIALIZATION_FIXTURE.to_string()).expect("load"))
 }
 
 type CallResult = Result<serde_json::Value, VmError>;
@@ -482,7 +479,10 @@ fn vm_serialization_slow_call_does_not_block_an_unrelated_call() {
         "the slow call never reached its blocking point"
     );
 
-    let fast = recv_call(&spawn_call(&vm, "fast", vec![json!("a")]), "the unrelated call");
+    let fast = recv_call(
+        &spawn_call(&vm, "fast", vec![json!("a")]),
+        "the unrelated call",
+    );
 
     assert_eq!(fast.expect("unrelated call failed"), json!(7));
     assert!(
@@ -519,15 +519,23 @@ fn vm_serialization_preserves_call_order_and_never_interleaves_frames() {
             &[json!(entered), json!(release), json!("slow")],
         )
     });
-    assert!(call_gate::wait_opened(entered, WEDGED), "the slow call never started");
+    assert!(
+        call_gate::wait_opened(entered, WEDGED),
+        "the slow call never started"
+    );
 
     for tag in ["one", "two", "three"] {
-        let out = recv_call(&spawn_call(&vm, "fast", vec![json!(tag)]), "an interleaved call");
+        let out = recv_call(
+            &spawn_call(&vm, "fast", vec![json!(tag)]),
+            "an interleaved call",
+        );
         assert_eq!(out.expect("interleaved call failed"), json!(7));
     }
 
     call_gate::open(release);
-    slow.join().expect("slow thread panicked").expect("slow call failed");
+    slow.join()
+        .expect("slow thread panicked")
+        .expect("slow call failed");
 
     let trace: Vec<String> = call_json(&vm, "trace", &[]).expect("trace");
     assert!(
@@ -597,7 +605,10 @@ fn vm_serialization_error_in_flight_surfaces_and_leaves_the_vm_usable() {
     let boom = thread::spawn(move || {
         call_json::<serde_json::Value>(&boom_vm, "boom", &[json!(entered), json!(release)])
     });
-    assert!(call_gate::wait_opened(entered, WEDGED), "the failing call never started");
+    assert!(
+        call_gate::wait_opened(entered, WEDGED),
+        "the failing call never started"
+    );
 
     let missing = recv_call(&spawn_call(&vm, "nope", vec![]), "a failing unrelated call")
         .expect_err("a missing method must still error while an await is in flight");
@@ -605,7 +616,10 @@ fn vm_serialization_error_in_flight_surfaces_and_leaves_the_vm_usable() {
         missing,
         VmError::Script(_) | VmError::MissingFunction(_)
     ));
-    let during = recv_call(&spawn_call(&vm, "fast", vec![json!("during")]), "a good unrelated call");
+    let during = recv_call(
+        &spawn_call(&vm, "fast", vec![json!("during")]),
+        "a good unrelated call",
+    );
     assert_eq!(during.expect("good call failed"), json!(7));
 
     call_gate::open(release);
