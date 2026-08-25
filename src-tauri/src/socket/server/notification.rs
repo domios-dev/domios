@@ -60,6 +60,19 @@ pub(super) fn dispatch(
                         data: None,
                     }
                 })?;
+            // The offer rides the same seam as the choices, because the offer
+            // IS one of them: the surface applies on the label that was tapped.
+            let offer = crate::api::notification_routes::vet_offer(
+                svc,
+                string_param("offer"),
+                string_param("offer_accept"),
+                actions.as_deref(),
+            )
+            .map_err(|message| JsonRpcError {
+                code: -32602,
+                message,
+                data: None,
+            })?;
             let level = string_param("level");
             let intent = crate::api::notification_routes::parse_push_intent(
                 level.as_deref(),
@@ -78,6 +91,7 @@ pub(super) fn dispatch(
                 None,
                 origin,
                 intent,
+                offer,
             );
 
             Ok(serde_json::json!({"id": id}))

@@ -151,6 +151,8 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 level,
                 event_key,
                 choice,
+                offer,
+                offer_accept,
                 ..
             } => {
                 let mut body = serde_json::json!({
@@ -172,6 +174,14 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                     std::process::exit(1)
                 }) {
                     body["actions"] = serde_json::to_value(actions).unwrap_or_default();
+                }
+                // Same reason: the local path omits these keys rather than
+                // sending null, so the two bodies stay identical.
+                if let Some(surface) = offer {
+                    body["offer"] = serde_json::Value::String(surface.clone());
+                }
+                if let Some(accept) = offer_accept {
+                    body["offer_accept"] = serde_json::Value::String(accept.clone());
                 }
                 (
                     "POST".into(),

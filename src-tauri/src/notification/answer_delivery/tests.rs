@@ -32,7 +32,7 @@ fn asked_from(tab_id: Option<&str>) -> (NotifState, String) {
             tab_id: tab_id.map(str::to_string),
             ..Default::default()
         },
-        Some(choices(&[CHOSEN, "Merge"])),
+        crate::notification::store::Ask::offering(Some(choices(&[CHOSEN, "Merge"]))),
         None,
         None,
     );

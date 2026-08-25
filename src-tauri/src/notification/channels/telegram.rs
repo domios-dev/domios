@@ -5,10 +5,10 @@
 //! rendered push becomes an outbound bridge message.
 
 use codeterm_bridge::bridge::manager::OutboundMessage;
-use codeterm_bridge::bridge::traits::OutboundContent;
+use codeterm_bridge::bridge::traits::{InlineButton, InlineKeyboard, OutboundContent};
 use codeterm_types::config::schema::{AppConfig, PushChannelConfig};
 
-use super::{Audience, ChannelHost, ChannelReadiness, PushChannel};
+use super::{Audience, ChannelHost, ChannelReadiness, PushChannel, PushMessage};
 use crate::notification::push;
 
 /// The bridge service this channel rides.
@@ -35,6 +35,27 @@ fn chat_ids(audience: &Audience) -> Vec<i64> {
         .iter()
         .filter_map(|candidate| candidate.trim().parse::<i64>().ok())
         .collect()
+}
+
+/// One offered option per row, carrying its opaque token. The label is drawn
+/// and the token is what comes back, so nothing readable decides the answer.
+fn keyboard(message: &PushMessage) -> Option<InlineKeyboard> {
+    if !message.offers_choices() {
+        return None;
+    }
+    Some(
+        message
+            .choices
+            .iter()
+            .map(|choice| {
+                vec![InlineButton {
+                    text: choice.label.clone(),
+                    data: Some(choice.token.clone()),
+                    url: None,
+                }]
+            })
+            .collect(),
+    )
 }
 
 impl PushChannel for TelegramChannel {
@@ -75,12 +96,13 @@ impl PushChannel for TelegramChannel {
         &self,
         host: &dyn ChannelHost,
         audience: &Audience,
-        text: &str,
+        message: &PushMessage,
     ) -> Result<(), String> {
         let chat_ids = chat_ids(audience);
         if chat_ids.is_empty() {
             return Err(format!("{SERVICE}: no explicit recipients configured"));
         }
+        let buttons = keyboard(message);
         let rejected = chat_ids
             .iter()
             .filter(|chat_id| {
@@ -89,10 +111,10 @@ impl PushChannel for TelegramChannel {
                     OutboundMessage {
                         user_id: Some(**chat_id),
                         content: OutboundContent::Text {
-                            text: text.to_string(),
+                            text: message.text.clone(),
                         },
                         append: false,
-                        buttons: None,
+                        buttons: buttons.clone(),
                     },
                 )
                 .is_err()

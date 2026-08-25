@@ -9,7 +9,7 @@
 use codeterm_bridge::bridge::manager::OutboundMessage;
 use codeterm_types::config::schema::AppConfig;
 
-use super::{Audience, ChannelHost, ChannelReadiness, PushChannel};
+use super::{Audience, ChannelHost, ChannelReadiness, PushChannel, PushMessage};
 
 const SERVICE: &str = "discord";
 
@@ -70,7 +70,7 @@ impl PushChannel for DiscordChannel {
         &self,
         host: &dyn ChannelHost,
         audience: &Audience,
-        text: &str,
+        message: &PushMessage,
     ) -> Result<(), String> {
         if audience.is_empty() {
             return Err(format!("{SERVICE}: no explicit recipients configured"));
@@ -83,7 +83,7 @@ impl PushChannel for DiscordChannel {
             OutboundMessage {
                 user_id: None,
                 content: codeterm_bridge::bridge::traits::OutboundContent::Text {
-                    text: text.to_string(),
+                    text: message.text.clone(),
                 },
                 append: false,
                 buttons: None,

@@ -26,6 +26,7 @@ fn text_msg() -> InboundMessage {
         text: "do the task".into(),
         attachments: vec![],
         message_id: Some(12345),
+        callback_data: None,
         reply_ctx: ReplyContext::Telegram { chat_id: 100000001 },
     }
 }
@@ -224,6 +225,7 @@ fn voice_msg(path: &str) -> InboundMessage {
             mime_type: Some("audio/ogg".into()),
         }],
         message_id: Some(7),
+        callback_data: None,
         reply_ctx: ReplyContext::Telegram { chat_id: 99 },
     }
 }
@@ -241,6 +243,7 @@ fn photo_msg(path: &str) -> InboundMessage {
             mime_type: Some("image/jpeg".into()),
         }],
         message_id: None,
+        callback_data: None,
         reply_ctx: ReplyContext::Telegram { chat_id: 99 },
     }
 }
