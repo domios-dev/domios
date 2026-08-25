@@ -1,5 +1,7 @@
 mod agent_commands;
 mod bubble;
+#[cfg(test)]
+mod call_gate;
 mod chatbackend;
 mod chatpreprocessor;
 mod glance;
