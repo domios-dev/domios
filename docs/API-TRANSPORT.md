@@ -44,9 +44,6 @@ curl -N "http://host:7685/api/tabs/$TAB/output/stream"
 ### Examples
 
 ```bash
-# Health check
-curl http://host:7685/api/health
-
 # Create workspace + tab
 WS=$(curl -s -X POST http://host:7685/api/workspaces \
   -H "Content-Type: application/json" \
@@ -73,26 +70,8 @@ curl -X POST http://host:7685/api/webhooks \
   -H "Content-Type: application/json" \
   -d '{"url": "https://my-orchestrator/done", "events": ["agent.task_complete"], "once": true, "tab_id": "'"$TAB"'"}'
 
-# Network info
-curl http://host:7685/api/network
-# {"local_ip":"192.168.1.50","tailscale_ip":"100.64.10.1","api_url":"http://192.168.1.50:7685"}
 ```
-
-#### Updates
-| Method | Path | Body / Query | Description |
-|--------|------|------|-------------|
-| GET | `/api/update/status` | — | Current updater state and last update result |
-
-#### Git
-| Method | Path | Body / Query | Description |
-|--------|------|------|-------------|
-| GET | `/api/git/graph` | — | Commit graph for configured repositories |
-| GET | `/api/git/commit/{sha}/files` | — | Files changed by a commit |
-| GET | `/api/git/commit/{sha}/diff` | — | Diff for a commit |
-| GET | `/api/git/workdir-diff` | — | Current working tree diff |
-| GET | `/api/git/workdir-files` | — | Current working tree changed-file list |
-| POST | `/api/git/revert-file` | `{path}` | Revert one file through the API guardrails |
-| GET | `/api/git/repos` | — | Known repositories |
+The updater and Git surfaces are not transport; they live in API-INTEGRATIONS.
 
 ## Socket API (JSON-RPC v2)
 
@@ -258,4 +237,4 @@ exact command).
 
 For `team.rename` and `team.close`, omitted `caller_tab_id` is the trusted direct-user path on the local socket. `team.adopt_plan` requires a non-empty caller belonging to the destination Team as its Orchestrator or planner-profile Manager; missing callers, Workers, and foreign tabs are rejected before mutation. Adoption preserves the structured `team_already_has_active_plan` conflict when the Team already owns another active plan. Events are emitted only after persistence succeeds.
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->

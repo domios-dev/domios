@@ -59,6 +59,21 @@ ID [--mesh PEER]`, or `codeterm agent report` for a Worker). Reading the
 recipient's visible terminal text is not a delivery signal and must not be used
 as one.
 
+### Workspace routes
+
+| Method | Path | Body | Description |
+|---|---|---|---|
+| GET | `/api/workspaces` | — | List all workspaces |
+| POST | `/api/workspaces` | `{name, cwd?}` | Create workspace. When `cwd` matches an existing workspace, the existing workspace is returned with `existing: true`; no new workspace is created and the requested name is ignored. |
+| POST | `/api/workspaces/{id}/focus` | — | Switch to workspace |
+| POST | `/api/workspaces/{id}/rename` | `{name}` | Rename workspace |
+| POST | `/api/workspaces/{id}/close` | — | Delete workspace |
+| GET | `/api/workspaces/{id}/recently-closed` | — | List recently-closed tab entries for this workspace. Returns `ClosedTab[]` (see [Closed History & Restore](#closed-history--restore)). |
+| POST | `/api/workspaces/{id}/reopen-closed` | `{index?}` | Reopen a recently-closed tab (browser Ctrl+Shift+T). `index` selects the ring entry (0 = most recent, default). Returns `TabInfo {id, title, tab_id}`. |
+| POST | `/api/workspaces/{id}/tabs` | — | Create tab |
+| POST | `/api/workspaces/{id}/tabs/{tab_id}/rename` | `{name}` | Rename tab |
+| POST | `/api/workspaces/{id}/tabs/{tab_id}/move` | `{to_workspace_id}` | Move tab between workspaces |
+
 #### Permission Hook (POST /api/tabs/{id}/hook/permission)
 
 Called by Claude Code hooks (or any agent integration) to notify CodeTerm that the agent is showing a permission prompt. This is a faster path than PTY auto-detection and bypasses the cooldown period.
@@ -67,6 +82,7 @@ Called by Claude Code hooks (or any agent integration) to notify CodeTerm that t
 
 1. **Explicit prompt** -- provide `question` and `options` in the body. CodeTerm uses them directly.
 2. **Auto-parse** -- send an empty body `{}`. CodeTerm reads the terminal screen content and runs structural fingerprint detection to extract the prompt.
+3. **Per-tool payload** -- send the provider's own `PermissionRequest`: `tool_name`, `tool_input` and `permission_suggestions[]` are kept verbatim and the vendor's suggestions become the surfaced options. No screen scraping and no late `Notification` wait. A body without `tool_name` keeps modes 1 and 2. A report whose binding nonce disagrees with the tab's launch nonce is rejected with 409.
 
 ```bash
 # Auto-parse (most common — Claude hooks just ping the endpoint)
@@ -90,6 +106,10 @@ curl -X POST "http://host:7685/api/tabs/$TAB/hook/stop" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $CODETERM_API_TOKEN" -d '{}'
 ```
+
+#### Session State Hook (POST /api/tabs/{id}/hook/session_state)
+
+Provider-reported live turn state: `{event, provider_id?, session_id?, binding_nonce?}`. The `event` is resolved against the reporting provider's declared `hookEventRoster`, so an event the provider never declared changes nothing, and a binding nonce that disagrees with the tab's launch nonce is rejected with 409. A binding on this route carries a `working` or `idle` verdict — OpenCode declares `session.status` as Working and `session.idle` as Idle. Core reads the declaration, never a provider id.
 
 #### SessionStart Hook (POST /api/tabs/{id}/hook/session_start)
 
@@ -200,4 +220,4 @@ The `connect`, `approve`, `reject`, and `disconnect` endpoints are high-level �
 
 Memory item, graph, calibration, and worker endpoints: `codeterm docs API-MEMORY`.
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->
