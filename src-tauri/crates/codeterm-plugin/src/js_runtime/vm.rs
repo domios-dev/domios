@@ -233,6 +233,10 @@ impl std::error::Error for VmError {
 /// `Arc<PluginVm>`.
 pub struct PluginVm {
     inner: Mutex<Inner>,
+    /// Outside `inner` on purpose. Nothing here needs the context, so reading it
+    /// must not queue behind a slow call; and `host.exec` jobs are keyed by this
+    /// identity, so awaiting one must not read it through the lock it releases.
+    sandbox: std::sync::Arc<super::host_api::PluginSandbox>,
     plugin_id: String,
 }
 
@@ -245,8 +249,6 @@ struct Inner {
     bundle_source: String,
     // Manifest JSON string returned to the plugin via `host.manifest()`. Preserved across reload so the post-reload plugin still sees its declared paths.
     manifest_json: Option<String>,
-    // FS/env policy for this plugin's host calls. Preserved across reload.
-    sandbox: std::sync::Arc<super::host_api::PluginSandbox>,
 }
 
 impl PluginVm {
@@ -316,7 +318,9 @@ impl PluginVm {
             plugin_id,
             bundle_source,
             manifest_json,
-            std::sync::Arc::new(super::host_api::PluginSandbox::unrestricted()),
+            std::sync::Arc::new(
+                super::host_api::PluginSandbox::unrestricted().with_identity(plugin_id),
+            ),
         )
     }
 
@@ -368,8 +372,8 @@ impl PluginVm {
                 _rt: rt,
                 bundle_source,
                 manifest_json,
-                sandbox,
             }),
+            sandbox,
             plugin_id: plugin_id.to_string(),
         })
     }
@@ -380,28 +384,28 @@ impl PluginVm {
 
     /// Late-bind the host `ServiceContext` (the VM is built before it exists). First write wins.
     pub fn set_service(&self, svc: std::sync::Weak<dyn crate::host_traits::PluginHostCtx>) -> bool {
-        self.inner.lock().sandbox.set_service(svc)
+        self.sandbox.set_service(svc)
     }
 
     /// Resolve the live host context, if one has been bound.
     pub fn service(&self) -> Option<std::sync::Arc<dyn crate::host_traits::PluginHostCtx>> {
-        self.inner.lock().sandbox.service()
+        self.sandbox.service()
     }
 
     /// Whether this plugin holds the `agent_commands` grant — drives inverse-seam handler registration.
     pub fn agent_commands_allowed(&self) -> bool {
-        self.inner.lock().sandbox.agent_commands_allowed()
+        self.sandbox.agent_commands_allowed()
     }
 
     /// Record a host-supplied tab cwd as a sandbox read-root (no-op when unrestricted).
     pub fn grant_cwd_read_root(&self, cwd: &str) {
-        self.inner.lock().sandbox.grant_cwd_read_root(cwd);
+        self.sandbox.grant_cwd_read_root(cwd);
     }
 
     /// Re-stamp the plugin's settings into the existing sandbox without rebuilding the
     /// VM, so a config-only reload preserves in-memory state (open chatBackend sessions).
     pub fn reload_settings(&self, settings_json: String) {
-        self.inner.lock().sandbox.set_settings(settings_json);
+        self.sandbox.set_settings(settings_json);
     }
 
     /// Re-load the plugin from a fresh source string. Used by the
@@ -425,7 +429,7 @@ impl PluginVm {
             source = new_source
         );
         let manifest_for_install = inner.manifest_json.clone();
-        let sandbox_for_install = inner.sandbox.clone();
+        let sandbox_for_install = self.sandbox.clone();
         ctx.with(|ctx| -> Result<(), VmError> {
             super::host_api::install(&ctx, manifest_for_install.as_deref(), sandbox_for_install)?;
             eval_source::<(), _>(&ctx, PLUGIN_PREAMBLE)
@@ -448,8 +452,10 @@ impl PluginVm {
 
 impl Drop for PluginVm {
     fn drop(&mut self) {
-        super::host_net::drop_plugin_jobs(&self.plugin_id);
-        super::host_exec::drop_plugin_jobs(&self.plugin_id);
+        // The sandbox's id, not the VM's: that is what `host.exec`/`host.fetch`
+        // keyed the jobs by when the plugin started them.
+        super::host_net::drop_plugin_jobs(self.sandbox.plugin_id());
+        super::host_exec::drop_plugin_jobs(self.sandbox.plugin_id());
     }
 }
 
@@ -546,7 +552,7 @@ fn call_json_inner<R: serde::de::DeserializeOwned>(
         CALL_YIELDED.with(|y| y.set(true));
         // No guard is held here: the frame unwound to produce the marker, so the
         // context is idle and this wait costs no other caller.
-        let job_result = super::host_exec::wait_json(vm.plugin_id(), &pending.job);
+        let job_result = super::host_exec::wait_json(vm.sandbox.plugin_id(), &pending.job);
         result_json = resume_call(vm, method, &pending.continuation, &job_result)?;
     }
     serde_json::from_str(&result_json)
