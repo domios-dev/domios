@@ -134,7 +134,7 @@ async fn push_delivery_reaches_the_send_endpoint_end_to_end() {
         title.to_string(),
         Some(body.to_string()),
         Some("error"),
-        None,
+        crate::notification::store::Ask::default(),
         None,
         NotificationOrigin::default(),
         |_| None,

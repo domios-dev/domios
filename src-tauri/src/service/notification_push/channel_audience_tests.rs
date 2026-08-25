@@ -61,7 +61,7 @@ fn config_with(admitted: &[&str], chosen: &[&str]) -> AppConfig {
     cfg.notifications.agent_levels = NotifyLevel::ALL
         .into_iter()
         .map(|level| {
-            let mut row = AgentLevelChoice::open(level.as_str());
+            let mut row = AgentLevelChoice::open(level.as_str(), &[]);
             row.set(NotifyDestination::Channel(CHANNEL), true);
             row
         })

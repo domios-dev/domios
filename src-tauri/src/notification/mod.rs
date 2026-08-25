@@ -4,7 +4,9 @@ mod action_provenance;
 mod defaults_tests;
 pub mod answer;
 pub mod answer_delivery;
+pub mod authority;
 pub mod bell;
+pub mod channel_ask;
 pub mod channels;
 pub mod dedupe;
 pub mod desktop;
@@ -42,6 +44,7 @@ pub fn notify(
         None,
         crate::service::notification::NotificationOrigin::claimed(tab_id),
         intent,
+        None,
     ))
 }
 

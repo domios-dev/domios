@@ -443,6 +443,7 @@ impl TelegramService {
                             text,
                             attachments: vec![],
                             message_id: msg_id,
+                            callback_data: Some(data.to_string()),
                             reply_ctx: ReplyContext::Telegram { chat_id },
                         })
                         .await;
@@ -500,6 +501,7 @@ impl TelegramService {
                         text,
                         attachments,
                         message_id,
+                        callback_data: None,
                         reply_ctx: ReplyContext::Telegram { chat_id },
                     })
                     .await

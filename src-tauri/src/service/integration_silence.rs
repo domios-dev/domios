@@ -247,6 +247,7 @@ impl ServiceContext {
                     None,
                     NotificationOrigin::local_tab(tab_id.to_string()),
                     silence.intent(),
+                    None,
                 );
             }
         }

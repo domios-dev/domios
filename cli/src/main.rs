@@ -326,6 +326,8 @@ fn main_impl() {
                 level,
                 event_key,
                 choice,
+                offer,
+                offer_accept,
                 ..
             } => client.call(
                 "notification.create",
@@ -336,6 +338,10 @@ fn main_impl() {
                     event_key.as_deref(),
                     from_pad.as_deref(),
                     &choice,
+                    cmd::notify::Offer {
+                        surface: offer.as_deref(),
+                        accept: offer_accept.as_deref(),
+                    },
                 )),
             ),
             NotifyAction::List { unread } => client.call(

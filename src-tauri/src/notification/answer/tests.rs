@@ -22,7 +22,7 @@ fn asked_from(tab_id: Option<&str>) -> (NotificationStore, String) {
             tab_id: tab_id.map(str::to_string),
             ..Default::default()
         },
-        Some(choices(&["Rebase", "Merge"])),
+        crate::notification::store::Ask::offering(Some(choices(&["Rebase", "Merge"]))),
         None,
         None,
     );
@@ -215,7 +215,7 @@ fn notify_answer_absent_when_no_choice_is_offered() {
             tab_id: Some("asking-tab".into()),
             ..Default::default()
         },
-        None,
+        crate::notification::store::Ask::default(),
         None,
         None,
     );

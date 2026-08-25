@@ -7,6 +7,8 @@ use codeterm_types::notification::{AnswerSlot, NotificationAction};
 
 use super::answer::{self, AnswerAdmission};
 use super::answer_delivery::{self, AnswerDeliveryPlan};
+use super::authority::SurfaceOffer;
+use super::channel_ask;
 use super::dedupe::{
     ConditionLedger, ConditionTransition, DeliveryAdmission, DeliveryLedger, NotificationIdentity,
 };
@@ -36,6 +38,11 @@ pub struct Notification {
     /// at send time and the one answer it may ever hold.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub answer: Option<AnswerSlot>,
+    /// The surface this question offers to turn on, and the one label that
+    /// turns it on. Daemon-constructed, and read only when an answer is
+    /// recorded — an untapped offer changes nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub surface_offer: Option<SurfaceOffer>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sticky: Option<bool>,
     /// Set when the push sink refused the record. Never surfaced to the caller.
@@ -99,6 +106,24 @@ impl PushAdmission {
     }
 }
 
+/// What one notification asks: the buttons it offers, and — when it is an
+/// offer to be louder — the surface a tap would turn on. One value, so the
+/// choice set and the offer that rides on it cannot be stored apart.
+#[derive(Debug, Clone, Default)]
+pub struct Ask {
+    pub actions: Option<Vec<NotificationAction>>,
+    pub offer: Option<SurfaceOffer>,
+}
+
+impl Ask {
+    pub fn offering(actions: Option<Vec<NotificationAction>>) -> Self {
+        Self {
+            actions,
+            offer: None,
+        }
+    }
+}
+
 /// A push-eligible request. `scope` and `event_key` are daemon-derived; the
 /// caller cannot opt out of either.
 pub struct PushRequest {
@@ -110,6 +135,9 @@ pub struct PushRequest {
     pub severity: NotificationSeverity,
     pub provenance: NotificationProvenance,
     pub per_scope_limit: u32,
+    /// A levelled notification carries its question too: an escalation that
+    /// asks must be answerable on the channel it reached.
+    pub ask: Ask,
 }
 
 struct PushSlot {
@@ -163,7 +191,7 @@ impl NotificationStore {
                 workspace_id,
                 ..Default::default()
             },
-            None,
+            Ask::default(),
             None,
             None,
         )
@@ -176,10 +204,11 @@ impl NotificationStore {
         body: Option<String>,
         severity: NotificationSeverity,
         provenance: NotificationProvenance,
-        actions: Option<Vec<NotificationAction>>,
+        ask: Ask,
         sticky: Option<bool>,
         level: Option<NotifyLevel>,
     ) -> String {
+        let Ask { actions, offer } = ask;
         let id = Uuid::new_v4().to_string();
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -203,6 +232,7 @@ impl NotificationStore {
             read: false,
             actions,
             answer,
+            surface_offer: offer,
             sticky,
             push_failed: None,
         };
@@ -227,7 +257,7 @@ impl NotificationStore {
         body: Option<String>,
         severity: NotificationSeverity,
         provenance: NotificationProvenance,
-        actions: Option<Vec<NotificationAction>>,
+        ask: Ask,
         sticky: Option<bool>,
         level: Option<NotifyLevel>,
     ) -> DeliveryAdmission {
@@ -235,7 +265,7 @@ impl NotificationStore {
         if let Some(id) = self.deliveries.existing(&identity) {
             return DeliveryAdmission::Duplicate(id);
         }
-        let id = self.add_ext(title, body, severity, provenance, actions, sticky, level);
+        let id = self.add_ext(title, body, severity, provenance, ask, sticky, level);
         self.deliveries.bind(identity, id.clone());
         DeliveryAdmission::Deliver(id)
     }
@@ -279,23 +309,28 @@ impl NotificationStore {
             severity,
             provenance,
             per_scope_limit,
+            ask,
         } = request;
 
+        // A record that offers a choice is never a coalescing target: rewriting
+        // a standing question in place would retract it under the user's
+        // finger, and the tap that arrived would answer something else.
         let reused = open.and_then(|(_, id)| {
-            self.rewrite_in_place(
-                &id,
-                title.clone(),
-                body.clone(),
-                severity.clone(),
-                &provenance,
-                level,
-            )
+            (!self.offers_choice(&id)
+                && self.rewrite_in_place(
+                    &id,
+                    title.clone(),
+                    body.clone(),
+                    severity.clone(),
+                    &provenance,
+                    level,
+                ))
             .then_some(id)
         });
         let is_supersede = reused.is_some();
         let id = match reused {
             Some(id) => id,
-            None => self.add_ext(title, body, severity, provenance, None, None, Some(level)),
+            None => self.add_ext(title, body, severity, provenance, ask, None, Some(level)),
         };
 
         self.push_slots.insert(
@@ -388,7 +423,7 @@ impl NotificationStore {
             Some(body),
             NotificationSeverity::Info,
             provenance,
-            Some(actions),
+            Ask::offering(Some(actions)),
             Some(true),
             None,
         );
@@ -446,6 +481,51 @@ impl NotificationStore {
             .find(|n| n.id == id)?
             .answer
             .as_ref()
+    }
+
+    /// Whether this record still stands as a question.
+    pub fn offers_choice(&self, id: &str) -> bool {
+        self.notifications
+            .iter()
+            .find(|n| n.id == id)
+            .and_then(|n| n.actions.as_deref())
+            .is_some_and(|actions| !channel_ask::offered_labels(actions).is_empty())
+    }
+
+    /// The label at one offered position of this record. A tapped token names
+    /// a position, and only the record decides which labels it ever offered —
+    /// so a token cannot name a label this notification never carried.
+    pub fn offered_choice(&self, id: &str, index: usize) -> Option<String> {
+        let actions = self
+            .notifications
+            .iter()
+            .find(|n| n.id == id)?
+            .actions
+            .as_deref()?;
+        channel_ask::label_at(actions, index).map(str::to_string)
+    }
+
+    /// The options a channel carries for this record, each with the opaque
+    /// token that names its position back to this very store.
+    pub fn offered_choices_for_channel(&self, id: &str) -> Vec<channel_ask::ChannelChoice> {
+        match self
+            .notifications
+            .iter()
+            .find(|n| n.id == id)
+            .and_then(|n| n.actions.as_deref())
+        {
+            Some(actions) => channel_ask::choices_for(id, actions),
+            None => Vec::new(),
+        }
+    }
+
+    /// The surface this record offers to turn on, if it is an offer at all.
+    pub fn surface_offer(&self, id: &str) -> Option<SurfaceOffer> {
+        self.notifications
+            .iter()
+            .find(|n| n.id == id)?
+            .surface_offer
+            .clone()
     }
 
     /// The level the caller declared for this record, if any. Read-only: the
@@ -666,6 +746,7 @@ mod tests {
                 severity: NotificationSeverity::Info,
                 provenance,
                 per_scope_limit,
+                ask: Ask::default(),
             }
         }
 
@@ -978,7 +1059,7 @@ mod tests {
                 None,
                 NotificationSeverity::Info,
                 NotificationProvenance::default(),
-                None,
+                Ask::default(),
                 None,
                 Some(NotifyLevel::ActionNeeded),
             );
@@ -996,7 +1077,7 @@ mod tests {
                 None,
                 NotificationSeverity::Info,
                 NotificationProvenance::default(),
-                None,
+                Ask::default(),
                 None,
                 None,
             );
@@ -1011,7 +1092,7 @@ mod tests {
                 None,
                 NotificationSeverity::Info,
                 NotificationProvenance::default(),
-                None,
+                Ask::default(),
                 None,
                 Some(NotifyLevel::ActionNeeded),
             );
@@ -1038,6 +1119,7 @@ mod tests {
                 severity: NotificationSeverity::Info,
                 provenance: provenance.clone(),
                 per_scope_limit: 50,
+                ask: Ask::default(),
             });
             assert_eq!(store.level(fresh.id()), Some(NotifyLevel::Failure));
 

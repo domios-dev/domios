@@ -39,6 +39,39 @@ pub(crate) struct CreateNotifBody {
     source_peer: Option<String>,
     level: Option<String>,
     event_key: Option<String>,
+    /// The surface this notification offers to turn on: `desktop`, or the
+    /// service id of a registered push channel. A caller names a surface, never
+    /// a config key, and the change still waits for the tap.
+    offer: Option<String>,
+    /// Which offered label applies the offer. Must be one of this
+    /// notification's own choices.
+    offer_accept: Option<String>,
+}
+
+/// Adopt a caller's offer to be louder. The surface is resolved against the
+/// registry and the accepting label against this notification's own choice
+/// set, so an offer can neither name a destination that resolves to nothing
+/// nor apply on a label no surface will draw.
+pub(crate) fn vet_offer(
+    svc: &crate::service::ServiceState,
+    offer: Option<String>,
+    offer_accept: Option<String>,
+    actions: Option<&[CallerAction]>,
+) -> Result<Option<crate::notification::authority::SurfaceOffer>, String> {
+    let Some(named) = offer.as_deref().map(str::trim).filter(|s| !s.is_empty()) else {
+        if offer_accept.is_some() {
+            return Err("An accepting label needs a surface to offer".to_string());
+        }
+        return Ok(None);
+    };
+    let accept = offer_accept
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "An offered surface needs the label that accepts it".to_string())?;
+    let target = svc.resolve_surface_target(named)?;
+    crate::notification::authority::adopt_offer(target, accept, actions.unwrap_or_default())
+        .map(Some)
 }
 
 /// An unknown level is rejected here rather than degrading to a runtime
@@ -88,6 +121,13 @@ pub async fn create_notification(
         .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
     let actions =
         vet_actions(body.actions).map_err(|message| (StatusCode::BAD_REQUEST, message))?;
+    let offer = vet_offer(
+        &state.svc,
+        body.offer,
+        body.offer_accept,
+        actions.as_deref(),
+    )
+    .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
     let id = state.svc.create_notification_ext(
         body.title,
         body.body,
@@ -96,6 +136,7 @@ pub async fn create_notification(
         body.sticky,
         origin,
         intent,
+        offer,
     );
     Ok(Json(serde_json::json!({"id": id})))
 }
