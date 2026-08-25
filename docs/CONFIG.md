@@ -29,17 +29,18 @@ scrollback = 10000
 copy_on_select = false
 
 [notifications]
-desktop = true
+desktop = false     # opt-in; the per-level grid below still decides which levels toast
 sound = false       # opt-in chime on a bell arrival that says the agent stopped
 toast_duration = 5  # seconds
 show_bell = true    # false removes the indicator; every record is still kept
 
 # Where each level may go. Rows are generated from the same closed level set the
-# Telegram channel uses, and are reconciled on read — a level added to that set
+# push channels use, and are reconciled on read — a level added to that set
 # appears here on its own, and a row naming no known level is dropped. Any
 # combination of columns is legal, including none: that level reaches nothing.
-# An agent notification that names no level is kept and rings the bell, and
-# never reaches the system or Telegram.
+# A fresh install ships what is written below — the bell, at every level, and
+# nothing else. An agent notification that names no level is kept and rings the
+# bell, and never reaches the system or a push channel.
 # `sound` is presentation, not a destination: it has no column here and cannot
 # widen where a level goes. It rides the bell arrival, so a level whose `bell`
 # column is false never sounds, and only `action_needed` and `failure` — the
@@ -47,23 +48,23 @@ show_bell = true    # false removes the indicator; every record is still kept
 [[notifications.agent_levels]]
 level = "verbose"
 bell = true
-desktop = true
-telegram = true
+desktop = false
 [[notifications.agent_levels]]
 level = "action_needed"
 bell = true
-desktop = true
-telegram = true        # one flag per registered push channel, keyed by service id
+desktop = false
+# telegram = true      # one flag per registered push channel, keyed by service id
 [[notifications.agent_levels]]
 level = "failure"
 bell = true
-desktop = true
-telegram = true
+desktop = false
 
 `bell` and `desktop` are the two local surfaces. Every other key on a row is a
-push channel's service id, and a channel key that is absent reads as routed —
-so a row written before a channel was registered still reaches it, and a channel
-the registry gains needs no migration to become a column.
+push channel's service id, and a channel key that is absent reads as closed —
+a column nobody named is a column nobody chose, so a channel the registry gains
+arrives off and stays off until someone opts into it. The same answer serves the
+shipped default, which is why a config written before the grid existed now reads
+as the bell alone rather than as whatever the surrounding switches allowed then.
 
 `show_bell` and the `bell` column answer different questions and never stand in
 for each other. `show_bell = false` removes the indicator from the titlebar
