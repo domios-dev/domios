@@ -44,15 +44,6 @@ export function NotificationsOverview({
           Opt-in, and it rides the bell: it sounds only for an arrival the bell already admits, and
           only when that arrival says the agent stopped — never for progress.
         </p>
-        <label className="flex items-center justify-between opacity-50 cursor-not-allowed">
-          <span className="text-xs text-[var(--ct-muted-fg)]">In-app toast (coming soon)</span>
-          <span
-            className="relative inline-flex h-5 w-9 items-center rounded-full bg-[var(--ct-border)]"
-          >
-            <span className="inline-block h-3.5 w-3.5 rounded-full bg-white translate-x-0.5" />
-          </span>
-        </label>
-
         <h4 className="text-[var(--ct-muted-fg)] text-xs font-medium pt-1">
           Where each level may go
         </h4>
