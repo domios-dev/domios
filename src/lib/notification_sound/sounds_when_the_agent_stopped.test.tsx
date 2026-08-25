@@ -6,6 +6,9 @@
 // on the user) and `failure` (it broke and stopped). Progress never sounds,
 // because an agent still working has not finished, and an arrival naming no
 // level claims nothing and so claims no completion either.
+//
+// This file is the one the level mapping lives or dies by: flip `action_needed`
+// to false in AGENT_STOPPED and the first assertion below is what breaks.
 import { assert, mountSound, report } from "./harness";
 
 let checked = 0;
@@ -46,4 +49,7 @@ async function main() {
   report("notification_sound/sounds_when_the_agent_stopped", checked);
 }
 
-await main();
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

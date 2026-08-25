@@ -3,11 +3,15 @@
 // The fate of the bare `notifications.sound` bool: RETAINED, and given the
 // meaning it never had. It stays outside `agent_levels` on purpose — it is
 // presentation, next to `show_bell`, not a destination — so this pins that no
-// fourth column appeared, that the field is still the one switch, and that its
-// meaning is exercised rather than merely asserted in prose.
-import { readFileSync } from "node:fs";
+// fourth column appeared and that the field is the whole opt-in and is not
+// inert again.
+//
+// Deliberately says nothing about WHICH levels sound: that is the defect test's
+// claim, and duplicating it here would make a mutation of the level mapping
+// break two files instead of the one that owns it.
+import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { defaultConfig } from "../../hooks/useConfig";
 import { NOTIFY_DESTINATIONS } from "../notifyDestinations";
 import { shouldSoundArrival } from "../notificationSound";
@@ -19,6 +23,7 @@ function check(condition: unknown, message: string): void {
 }
 
 const OPTED_IN = true;
+const LEVELS = ["verbose", "action_needed", "failure", null];
 const here = dirname(fileURLToPath(import.meta.url));
 const read = (relative: string) => readFileSync(resolve(here, relative), "utf8");
 
@@ -48,17 +53,29 @@ check(
   "and no sound cell was smuggled onto the row",
 );
 
-// 3. Its meaning, exercised: the field is the whole opt-in, and it decides
-//    nothing about routing — an admitted arrival still has to say the agent
-//    stopped before the switch matters.
-check(shouldSoundArrival(OPTED_IN, "action_needed"), "on, an agent waiting on the user sounds");
-check(shouldSoundArrival(OPTED_IN, "failure"), "on, an agent that stopped on an error sounds");
-check(!shouldSoundArrival(OPTED_IN, "verbose"), "on, progress still does not");
-check(!shouldSoundArrival(OPTED_IN, null), "on, an unlevelled arrival still does not");
+// 3. The switch dimension, exercised. Off is silence at every level, and the
+//    field is load-bearing rather than dead again — turning it on changes at
+//    least one answer. Which levels those are is the defect test's claim.
+check(
+  LEVELS.every((level) => !shouldSoundArrival(false, level)),
+  "off, nothing sounds at any level",
+);
+check(
+  LEVELS.some((level) => shouldSoundArrival(OPTED_IN, level)),
+  "on, the field decides something — it is not the dead switch it used to be",
+);
 
-// 4. One writer, one reader. Nothing else reads the old field for some other
-//    purpose, so its meaning cannot fork.
-const settings = read("../../components/Settings/AgentsTab.tsx");
+// 4. One control, wherever Settings currently keeps it, and it is the shared
+//    toggle. Found by search rather than by filename: the notification settings
+//    have already moved once, and a hardcoded path would have passed that move
+//    while pointing at a file that no longer holds the control.
+const settingsDir = resolve(here, "../../components/Settings");
+const holders = readdirSync(settingsDir)
+  .filter((name) => /\.tsx$/.test(name) && !/\.test\.tsx$/.test(name))
+  .map((name) => join(settingsDir, name))
+  .filter((file) => readFileSync(file, "utf8").includes("config.notifications.sound"));
+check(holders.length === 1, `exactly one Settings file owns the control, found ${holders.length}`);
+const settings = readFileSync(holders[0], "utf8");
 check(
   /<Toggle\s+label="Sound[^"]*"\s+checked=\{config\.notifications\.sound\}/.test(settings),
   "the control is the shared toggle, not a new one",
@@ -67,9 +84,14 @@ check(
   /onUpdate\("notifications", \{ sound: v \}\)/.test(settings),
   "and it writes the bare field, never a grid row",
 );
+check(
+  /import \{[^}]*\bToggle\b[^}]*\} from "\.\/shared"/.test(settings),
+  "the toggle comes from the shared settings rows",
+);
 const shared = read("../../components/Settings/shared.tsx");
 check(shared.includes("LiquidToggle"), "the shared toggle is still the liquid toggle");
 
+// 5. One reader.
 const app = read("../../App.tsx");
 check(
   /useNotificationSound\(Boolean\(config\.notifications\?\.sound\)\)/.test(app),
