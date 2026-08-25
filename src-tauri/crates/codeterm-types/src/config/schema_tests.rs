@@ -20,7 +20,10 @@ fn push_channels_are_opt_out_on_a_fresh_install() {
         "a fresh install names no audience, so nobody receives anything"
     );
     assert!(PushChannelConfig::default().per_scope_limit > 0);
-    assert!(!PushChannelConfig::default().enabled);
+    assert!(
+        PushChannelConfig::default().recipients.is_empty(),
+        "an entry that named nobody stays nobody; there is no second opt-in to read"
+    );
 
     let from_empty_toml: NotificationConfig = toml::from_str("").unwrap();
     assert!(from_empty_toml.channels.is_empty());
@@ -30,12 +33,10 @@ fn push_channels_are_opt_out_on_a_fresh_install() {
 fn push_channel_recipients_accept_bare_and_quoted_chat_ids() {
     let toml = r#"
         [channels.fixture]
-        enabled = true
         recipients = [100000001, "789012345"]
     "#;
     let cfg: NotificationConfig = toml::from_str(toml).unwrap();
     let channel = cfg.channels.get(FIXTURE_CHANNEL).expect("the keyed entry");
-    assert!(channel.enabled);
     assert_eq!(
         channel.recipients,
         vec!["100000001".to_string(), "789012345".to_string()]

@@ -538,10 +538,11 @@ export interface AgentLevelChoice {
   [channel: string]: string | boolean | undefined;
 }
 
-/** One channel's opt-in push audience. Deliberately not that integration's
- *  allow list, which admits inbound senders rather than naming an audience. */
+/** One channel's push audience. `recipients` is deliberately not that
+ *  integration's inbound admission list, which admits senders rather than
+ *  naming an audience. Empty means nobody, never everyone admitted; whether a
+ *  level reaches this channel at all is that channel's column of the grid. */
 export interface PushChannelConfig {
-  enabled: boolean;
   recipients: string[];
   per_scope_limit: number;
 }

@@ -92,22 +92,21 @@ pub fn control_available(bridge_active: bool, allow_list_len: usize) -> bool {
     bridge_active && allow_list_len > 0
 }
 
-/// The explicit audience of one channel, distinct from that integration's
-/// inbound allow list. An entry that is not a chat id is dropped rather than
-/// broadcast to.
-pub fn resolve_audience(cfg: &PushChannelConfig) -> Vec<i64> {
-    if !cfg.enabled {
-        return Vec::new();
-    }
-    let mut chat_ids: Vec<i64> = Vec::new();
+/// The explicit audience of one channel: exactly the recipients its own surface
+/// stored, trimmed and deduplicated. An empty audience is nobody — it is
+/// deliberately not that integration's inbound admission list, so clearing the
+/// selection stops every push instead of widening it to everyone admitted.
+/// Whether a level reaches this channel at all is the grid column, not this.
+pub fn resolve_audience(cfg: &PushChannelConfig) -> Vec<String> {
+    let mut recipients: Vec<String> = Vec::new();
     for candidate in &cfg.recipients {
-        if let Ok(chat_id) = candidate.trim().parse::<i64>() {
-            if !chat_ids.contains(&chat_id) {
-                chat_ids.push(chat_id);
-            }
+        let entry = candidate.trim();
+        if entry.is_empty() || recipients.iter().any(|kept| kept == entry) {
+            continue;
         }
+        recipients.push(entry.to_string());
     }
-    chat_ids
+    recipients
 }
 
 #[cfg(test)]
@@ -187,18 +186,25 @@ mod push_render {
     }
 
     #[test]
-    fn audience_is_explicit_and_ignores_unparseable_entries() {
-        let mut cfg = PushChannelConfig {
-            enabled: true,
-            recipients: vec!["100000001".into(), "not-a-chat-id".into(), "".into()],
+    fn channel_audience_is_exactly_the_stored_selection() {
+        let cfg = PushChannelConfig {
+            recipients: vec![
+                " 100000001 ".into(),
+                "100000001".into(),
+                "".into(),
+                "100000002".into(),
+            ],
             per_scope_limit: 8,
         };
-        assert_eq!(resolve_audience(&cfg), vec![100000001]);
+        assert_eq!(
+            resolve_audience(&cfg),
+            vec!["100000001".to_string(), "100000002".to_string()],
+            "the audience is the selection, trimmed and deduplicated, and nothing more"
+        );
 
-        cfg.enabled = false;
         assert!(
-            resolve_audience(&cfg).is_empty(),
-            "opt-out yields no audience even with recipients configured"
+            resolve_audience(&PushChannelConfig::default()).is_empty(),
+            "an unchosen audience is nobody; there is no second field to consult"
         );
     }
 

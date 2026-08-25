@@ -55,6 +55,10 @@ impl PushPlan {
 
 /// Resolve a level's routing against the registry. Pure: it reads config and
 /// the roster, and asks each channel about itself.
+///
+/// The level's column for a channel is the whole of whether: closed here and
+/// the channel is never asked. What a channel then answers is who — an
+/// audience nobody chose is nobody, never that integration's admission list.
 pub(crate) fn plan_push(
     cfg: &AppConfig,
     roster: &[RegisteredChannel],
@@ -221,3 +225,6 @@ mod tests;
 
 #[cfg(test)]
 mod delivery_tests;
+
+#[cfg(test)]
+mod channel_audience_tests;

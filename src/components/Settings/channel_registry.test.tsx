@@ -51,7 +51,7 @@ setupDom();
 
 const GRID = '[data-testid="settings-notification-destinations"]';
 const ROW = '[data-testid="settings-notification-level"]';
-const TELEGRAM_EDITOR = '[data-testid="settings-telegram-notifications"]';
+const TELEGRAM_EDITOR = '[data-testid="settings-channel-audience"][data-channel="telegram"]';
 
 const ONE_CHANNEL: PushChannelDescriptor[] = [
   { id: "telegram", label: "Telegram", control_available: true },
