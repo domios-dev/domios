@@ -24,12 +24,13 @@ import {
   row,
   setupDom,
   switches,
+  type AdmittedId,
   type UpdateCall,
 } from "./harness";
 
 setupDom();
 
-const CHOSEN = [ADMITTED[0]];
+const CHOSEN: readonly AdmittedId[] = [ADMITTED[0]];
 const LEVEL = "failure";
 
 /** Closed reaches nothing, open reaches the selection — both stated, neither

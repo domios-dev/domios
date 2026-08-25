@@ -14,6 +14,12 @@ export const CHANNEL: PushChannelDescriptor = {
  *  is a separate answer, which is the whole point of these fixtures. */
 export const ADMITTED = ["100000001", "100000002", "100000003"] as const;
 
+/** One of the admitted ids. A selection is a SUBSET of that set, so a binding
+ *  holding one is typed by this and stays answerable about every offered id —
+ *  inference would narrow it to the members it happens to start with, and the
+ *  id a selection leaves out is exactly what these fixtures need to ask about. */
+export type AdmittedId = (typeof ADMITTED)[number];
+
 export function assert(value: unknown, message: string): asserts value {
   if (!value) throw new Error(message);
 }
