@@ -101,17 +101,18 @@ fn registry_with(provider: FixtureProvider) -> AgentRegistry {
 /// The shipped grid, then one level's whole row closed — the two ends of the
 /// user's per-level destination configuration.
 fn config_routing(level: NotifyLevel, routed: bool) -> NotificationConfig {
+    let registered: Vec<&'static str> = crate::notification::channels::roster()
+        .into_iter()
+        .map(|entry| entry.id())
+        .collect();
     NotificationConfig {
+        desktop: true,
         agent_levels: NotifyLevel::ALL
             .into_iter()
             .map(|row_level| {
-                let mut row = AgentLevelChoice::open(row_level.as_str());
+                let mut row = AgentLevelChoice::open(row_level.as_str(), &registered);
                 if row_level == level {
-                    let registered: Vec<&'static str> = crate::notification::channels::roster()
-                        .into_iter()
-                        .map(|entry| entry.id())
-                        .collect();
-                    for destination in NotifyDestination::columns(registered) {
+                    for destination in NotifyDestination::columns(registered.clone()) {
                         row.set(destination, routed);
                     }
                 }

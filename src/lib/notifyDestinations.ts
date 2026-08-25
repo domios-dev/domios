@@ -37,11 +37,11 @@ export function destinationColumns(
   ];
 }
 
-/** Read one cell. An absent key reads as routed, exactly as the daemon reads
- *  it, so a row written before a channel existed still reaches it. */
+/** Read one cell. An absent key reads as closed, exactly as the daemon reads
+ *  it: a column nobody named is a column nobody chose, so a channel the registry
+ *  gains arrives off rather than already reaching someone. */
 export function isRouted(choice: AgentLevelChoice, destination: string): boolean {
-  const stored = choice[destination];
-  return stored === undefined ? true : Boolean(stored);
+  return Boolean(choice[destination]);
 }
 
 /** The accessible name of one cell. Composed from the level and the

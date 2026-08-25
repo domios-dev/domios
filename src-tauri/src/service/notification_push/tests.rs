@@ -121,12 +121,28 @@ fn intent(level: NotifyLevel) -> PushIntent {
     }
 }
 
-/// Every level open, which is what an install that never opened the panel has.
+/// Every level routed to every column the real registry resolves. Each channel
+/// is named, because a column nobody named reads closed.
 fn open_config() -> AppConfig {
+    let ids = registered_ids();
     let mut cfg = AppConfig::default();
+    cfg.notifications.desktop = true;
     cfg.notifications.agent_levels = NotifyLevel::ALL
         .into_iter()
-        .map(|level| AgentLevelChoice::open(level.as_str()))
+        .map(|level| AgentLevelChoice::open(level.as_str(), &ids))
+        .collect();
+    cfg
+}
+
+/// The same, for the tests that route against `fixture_roster`. It names the
+/// fixture channel and no other: a column pointing at an id the roster in hand
+/// cannot resolve is deliberately a reported refusal, not a no-op.
+fn fixture_open_config() -> AppConfig {
+    let mut cfg = AppConfig::default();
+    cfg.notifications.desktop = true;
+    cfg.notifications.agent_levels = NotifyLevel::ALL
+        .into_iter()
+        .map(|level| AgentLevelChoice::open(level.as_str(), &[FIXTURE_SERVICE.id]))
         .collect();
     cfg
 }
@@ -174,8 +190,9 @@ fn channel_registry_second_channel_routes_without_touching_the_enum_or_the_grid(
         "core's own column list names no channel at all"
     );
 
-    // A stored row that never heard of Discord still routes to it: an absent
-    // column is open, so a channel arrives reachable instead of silently shut.
+    // The row routes to Discord through a keyed lookup on the id the roster
+    // carries. Nothing named a Discord field: the key is the service id, and it
+    // is on because someone opted in, never because it defaulted open.
     let cfg = discord_opted_in();
     let row = cfg
         .notifications
@@ -184,9 +201,10 @@ fn channel_registry_second_channel_routes_without_touching_the_enum_or_the_grid(
         .find(|row| row.level == NotifyLevel::Failure.as_str())
         .expect("the level has a row");
     assert!(
-        row.channels.is_empty(),
-        "the fixture row names no channel, which is the pre-registry shape"
+        row.channels.contains_key("discord"),
+        "the column is keyed by the roster's id, never by a field core spelled"
     );
+    assert!(row.allows(NotifyDestination::Channel("discord")));
 
     let host = FakeHost::carrying(&["discord"]);
     let plan = plan_push(&cfg, &roster, &host, intent(NotifyLevel::Failure));
@@ -305,13 +323,13 @@ fn channel_registry_resolving_a_channel_never_requires_core_to_name_one() {
     );
 
     // A row that has never seen this id answers for it anyway, by key.
-    let mut row = AgentLevelChoice::open(NotifyLevel::Verbose.as_str());
+    let mut row = AgentLevelChoice::open(NotifyLevel::Verbose.as_str(), &[unknown_to_core]);
     assert!(row.allows(column));
     row.set(column, false);
     assert!(!row.allows(column));
     assert!(row.bell && row.desktop);
 
-    let cfg = open_config();
+    let cfg = fixture_open_config();
     let host = FakeHost::carrying(&[unknown_to_core]);
     let plan = plan_push(&cfg, &fixture_roster(), &host, intent(NotifyLevel::Verbose));
     assert_eq!(plan.targets.len(), 1);
@@ -413,7 +431,7 @@ fn channel_registry_unknown_or_unavailable_channel_degrades_honestly() {
  * ----------------------------------------------------------------------- */
 
 fn column_routing(level: NotifyLevel, routed: bool) -> AppConfig {
-    let mut cfg = open_config();
+    let mut cfg = fixture_open_config();
     for row in &mut cfg.notifications.agent_levels {
         if NotifyLevel::parse(&row.level) == Some(level) {
             row.set(NotifyDestination::Channel(FIXTURE_SERVICE.id), routed);
@@ -444,18 +462,19 @@ fn notification_settings_channel_column_gates_only_its_own_level() {
     );
 }
 
+/// The shipped grid is the absent grid, and it routes no level to any channel:
+/// push is opt-in, even to a channel that is carrying and has an audience.
 #[test]
-fn notification_settings_absent_grid_routes_every_level_to_every_channel() {
+fn notification_settings_shipped_grid_routes_no_level_to_any_channel() {
     let mut cfg = AppConfig::default();
     cfg.notifications.agent_levels = codeterm_types::config::schema::default_agent_levels();
     let host = FakeHost::carrying(&[FIXTURE_SERVICE.id]);
     let roster = fixture_roster();
     for level in NotifyLevel::ALL {
+        let plan = plan_push(&cfg, &roster, &host, intent(level));
         assert!(
-            !plan_push(&cfg, &roster, &host, intent(level))
-                .targets
-                .is_empty(),
-            "{} reached an opted-in audience before the grid existed",
+            plan.targets.is_empty() && plan.refusals.is_empty(),
+            "{} reaches no channel until someone opts that column in",
             level.as_str()
         );
     }
@@ -470,7 +489,8 @@ fn notification_settings_absent_grid_routes_every_level_to_every_channel() {
 #[test]
 fn notification_settings_level_with_no_readable_row_is_refused() {
     let mut cfg = AppConfig::default();
-    cfg.notifications.agent_levels = vec![AgentLevelChoice::open("milestone")];
+    cfg.notifications.agent_levels =
+        vec![AgentLevelChoice::open("milestone", &[FIXTURE_SERVICE.id])];
     let host = FakeHost::carrying(&[FIXTURE_SERVICE.id]);
     let roster = fixture_roster();
     for level in NotifyLevel::ALL {

@@ -204,22 +204,19 @@ fn discord_allowed_users_also_tolerant() {
     );
 }
 
-/// Absent config is the whole compatibility contract: an install that never
-/// opened the panel must route exactly where it routed before the grid existed.
+/// Absent config is the whole default contract: an install that never opened
+/// the panel reaches the bell, at every level, and reaches nothing else.
 #[test]
-fn notification_settings_absent_config_reproduces_todays_behaviour() {
+fn notification_settings_absent_config_is_the_bell_alone() {
     let empty: NotificationConfig = toml::from_str("").unwrap();
     let default = NotificationConfig::default();
 
-    assert!(
-        empty.desktop,
-        "desktop notifications were on before the grid"
-    );
+    assert!(!empty.desktop, "the desktop surface is opt-in");
     assert!(!empty.sound);
     assert_eq!(empty.toast_duration, 5);
     assert!(
         empty.show_bell,
-        "the bell was visible before there was a switch to hide it"
+        "the surface the records land on is still drawn"
     );
     assert!(empty.channels.is_empty(), "push stays opt-in");
 
@@ -228,17 +225,30 @@ fn notification_settings_absent_config_reproduces_todays_behaviour() {
         "an absent grid is the generated grid"
     );
     for row in &empty.agent_levels {
+        assert!(
+            row.allows(NotifyDestination::Bell),
+            "{} rings the bell",
+            row.level
+        );
         for destination in fixture_columns() {
+            if destination == NotifyDestination::Bell {
+                continue;
+            }
             assert!(
-                row.allows(destination),
-                "{} -> {} was reachable before the grid and must stay reachable",
+                !row.allows(destination),
+                "{} -> {} is off until someone opts into it",
                 row.level,
                 destination.as_str()
             );
         }
+        assert!(
+            !row.reaches_nothing(&fixture_columns()),
+            "the bell is still standing, so the row is not an empty row"
+        );
     }
 
-    // A row that names only its level is the same contract at row scope.
+    // A row that names only its level named no column at all, so it reaches
+    // nothing: not the pre-grid set of destinations, and not a default.
     let partial: NotificationConfig = toml::from_str(
         r#"
 [[agent_levels]]
@@ -247,11 +257,12 @@ level = "verbose"
     )
     .unwrap();
     let verbose = &partial.agent_levels[0];
-    assert!(verbose.bell && verbose.desktop);
+    assert!(!verbose.bell && !verbose.desktop);
     assert!(
-        verbose.allows(NotifyDestination::Channel(FIXTURE_CHANNEL)),
-        "a row that never named a channel still reaches it"
+        !verbose.allows(NotifyDestination::Channel(FIXTURE_CHANNEL)),
+        "a row that never named a channel does not reach it"
     );
+    assert!(verbose.reaches_nothing(&fixture_columns()));
 }
 
 /// The rows are `ALL` mapped. The proof is a fixture that gains a level: the
@@ -269,8 +280,10 @@ fn notification_settings_rows_derive_from_the_shared_level_set() {
         "the shipped grid is the shared set mapped, not a hand-written triple"
     );
 
-    // Stored answers survive reconciliation; a level nobody answered arrives open.
-    let mut only_failure = AgentLevelChoice::open(NotifyLevel::Failure.as_str());
+    // Stored answers survive reconciliation; a level nobody answered arrives at
+    // the bell alone.
+    let mut only_failure =
+        AgentLevelChoice::open(NotifyLevel::Failure.as_str(), &[FIXTURE_CHANNEL]);
     only_failure.desktop = false;
     let reconciled = reconcile_agent_levels(&[only_failure]);
     assert_eq!(
@@ -294,7 +307,7 @@ fn notification_settings_rows_derive_from_the_shared_level_set() {
     }
 
     // A row the set does not know is dropped rather than rendered.
-    let retired = AgentLevelChoice::open("milestone");
+    let retired = AgentLevelChoice::open("milestone", &[FIXTURE_CHANNEL]);
     let cleaned = reconcile_agent_levels(&[retired]);
     assert_eq!(cleaned, NotificationConfig::default().agent_levels);
     assert!(cleaned.iter().all(|row| row.level != "milestone"));
@@ -383,7 +396,10 @@ fn notification_settings_hidden_bell_is_distinct_from_every_bell_column_off() {
 fn notification_settings_every_destination_is_independently_togglable() {
     let columns = NotifyDestination::columns(["fixture", "another-fixture"]);
     for target in &columns {
-        let mut row = AgentLevelChoice::open(NotifyLevel::ActionNeeded.as_str());
+        let mut row = AgentLevelChoice::open(
+            NotifyLevel::ActionNeeded.as_str(),
+            &["fixture", "another-fixture"],
+        );
         row.set(*target, false);
         for destination in &columns {
             assert_eq!(

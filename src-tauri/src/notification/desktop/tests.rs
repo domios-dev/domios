@@ -17,8 +17,22 @@ impl ReachesSink for DesktopAdmission {
     }
 }
 
-fn default_policy() -> DesktopPolicy {
-    DesktopPolicy::from_config(&NotificationConfig::default())
+/// A user who switched the desktop surface on and opened every level's column.
+/// The shipped default routes nothing here, so the gate's own behaviour has to
+/// be asked of an explicit opt-in rather than of the defaults.
+fn opted_in_policy() -> DesktopPolicy {
+    DesktopPolicy::from_config(&opted_in_config())
+}
+
+fn opted_in_config() -> NotificationConfig {
+    let mut cfg = NotificationConfig {
+        desktop: true,
+        ..NotificationConfig::default()
+    };
+    for row in &mut cfg.agent_levels {
+        row.set(NotifyDestination::Desktop, true);
+    }
+    cfg
 }
 
 fn policy_with(agent_levels: Vec<AgentLevelChoice>) -> DesktopPolicy {
@@ -29,7 +43,7 @@ fn policy_with(agent_levels: Vec<AgentLevelChoice>) -> DesktopPolicy {
 }
 
 fn choice(level: &str, enabled: bool) -> AgentLevelChoice {
-    let mut choice = AgentLevelChoice::open(level);
+    let mut choice = AgentLevelChoice::open(level, &[]);
     choice.set(
         codeterm_types::notification::NotifyDestination::Desktop,
         enabled,
@@ -39,10 +53,10 @@ fn choice(level: &str, enabled: bool) -> AgentLevelChoice {
 
 #[test]
 fn notify_gate_unlevelled_never_reaches_the_desktop_sink() {
-    let policy = default_policy();
+    let policy = opted_in_policy();
     assert!(
         policy.enabled,
-        "the fixture keeps desktop notifications on, so only the missing level can refuse"
+        "the fixture switched desktop notifications on, so only the missing level can refuse"
     );
     assert!(
         !admit(None, &policy).reaches_sink(),
@@ -61,7 +75,7 @@ fn notify_gate_unlevelled_never_reaches_the_desktop_sink() {
 
 #[test]
 fn notify_gate_push_and_desktop_read_one_level_definition() {
-    let policy = default_policy();
+    let policy = opted_in_policy();
     for level in NotifyLevel::ALL {
         let wire = level.as_str();
         assert_eq!(
@@ -179,7 +193,7 @@ fn notify_level_all_is_the_single_source_for_every_shipped_list() {
         "the shipped rows are ALL mapped, not a second hand-written list"
     );
     assert_eq!(
-        DesktopPolicy::from_config(&cfg).allowed.len(),
+        opted_in_policy().allowed.len(),
         NotifyLevel::ALL.len(),
         "the gate knows exactly the shared set"
     );
@@ -232,7 +246,7 @@ fn notify_gate_composes_with_the_push_scope_without_sharing_a_decision() {
         peer_name: None,
     };
     assert_eq!(push::scope_key(&provenance), "tab:tab_gate");
-    assert!(admit(Some(NotifyLevel::ActionNeeded), &default_policy()).reaches_sink());
+    assert!(admit(Some(NotifyLevel::ActionNeeded), &opted_in_policy()).reaches_sink());
 }
 
 /// Structural, not behavioural: the desktop sink is reachable only from the
