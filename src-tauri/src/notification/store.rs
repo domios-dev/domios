@@ -596,7 +596,7 @@ mod tests {
         let mut store = NotificationStore::new(100);
         let actions = vec![NotificationAction::Invoke {
             label: "Update".into(),
-            value: "respond_provider_update_prompt".into(),
+            command: codeterm_types::notification::DaemonCommand::RespondProviderUpdatePrompt,
             args: None,
         }];
         let provenance = NotificationProvenance {

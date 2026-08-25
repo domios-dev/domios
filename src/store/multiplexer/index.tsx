@@ -21,10 +21,10 @@ import { uid } from "../../lib/uid";
 import { setPendingCommand, setPendingCwd } from "../../lib/pendingCommands";
 import { defaultSpawnProviderId } from "../../lib/agentDescriptorCache";
 import { TitleLevel } from "../../lib/types";
+import { adoptStoredActions } from "../../lib/notificationActions";
 import type {
   MultiplexerState,
   Notification,
-  NotificationAction,
   NotificationAnswer,
   TabStatus,
   AtomicSpawn,
@@ -192,7 +192,17 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         console.warn("Failed to load backend state, using local state:", err);
       });
     invoke<Notification[]>("list_notifications", { unreadOnly: false })
-      .then((notifications) => dispatch({ type: "HYDRATE_NOTIFICATIONS", notifications }))
+      .then((notifications) =>
+        dispatch({
+          type: "HYDRATE_NOTIFICATIONS",
+          // Ingress for stored rows: an action written before actions carried
+          // daemon provenance loads with its invoke stripped, never accepted.
+          notifications: notifications.map((notification) => ({
+            ...notification,
+            actions: adoptStoredActions(notification.actions),
+          })),
+        }),
+      )
       .catch((err) => console.warn("Failed to load notification history:", err));
   }, [applyBackendState]);
 
@@ -255,7 +265,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       body: string | null;
       severity: "Info" | "Warning" | "Error";
       level?: "verbose" | "action_needed" | "failure";
-      actions?: NotificationAction[];
+      actions?: unknown;
       answer?: NotificationAnswer;
       sticky?: boolean;
     }>("notification-created", (event) => {
@@ -271,7 +281,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
           level: event.payload.level,
           timestamp: Date.now(),
           read: false,
-          actions: event.payload.actions,
+          actions: adoptStoredActions(event.payload.actions),
           answer: event.payload.answer,
           sticky: event.payload.sticky,
         },

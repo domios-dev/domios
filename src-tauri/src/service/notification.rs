@@ -1,6 +1,8 @@
 //! Notification creation with OS toast support.
 
-use codeterm_types::notification::NotificationAction;
+use codeterm_types::notification::{
+    adopt_caller_actions, CallerAction, DaemonCommand, NotificationAction,
+};
 
 use super::ServiceContext;
 use crate::notification::{
@@ -318,7 +320,7 @@ impl ServiceContext {
     ) -> String {
         let respond = |label: &str, accept: bool| NotificationAction::Invoke {
             label: label.to_string(),
-            value: "respond_provider_update_prompt".to_string(),
+            command: DaemonCommand::RespondProviderUpdatePrompt,
             args: Some(serde_json::json!({ "promptId": prompt_id, "accept": accept })),
         };
         let actions = vec![respond("Update", true), respond("Not now", false)];
@@ -379,11 +381,14 @@ impl ServiceContext {
         title: String,
         body: Option<String>,
         severity: Option<&str>,
-        actions: Option<Vec<NotificationAction>>,
+        actions: Option<Vec<CallerAction>>,
         sticky: Option<bool>,
         origin: NotificationOrigin,
         intent: PushIntent,
     ) -> String {
+        // The provenance seam: a caller-supplied set becomes stored actions
+        // here, through a conversion with no invoke arm to reach.
+        let actions = actions.map(adopt_caller_actions);
         // The declared level outlives the push policy: an install with no
         // Telegram audience still has a desktop gate to satisfy.
         let declared = intent.level;
