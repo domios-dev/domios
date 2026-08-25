@@ -176,6 +176,7 @@ function pluginActivityToast(
     icon_color: display.iconColor ?? null,
     icon_hint: display.iconHint ?? null,
     severity: "Info",
+    level: "verbose",
     sticky: true,
   };
 }

@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 43 -->
+<!-- revision: 44 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -1194,7 +1194,7 @@ Send a notification. The body is read only from the calling tab's AgentPad
 - `--from-pad` — Read the notification body from a relative file in the calling tab's pad
 - `--from-stdin` — REFUSED: stdin is a shell pipe — stage the body in the pad
 - `--level` — What this notification is, on the one level axis. Omit to file it in the bell only
-- `--severity` — Toast severity: info, warning, error
+- `--severity` — Record identity axis: info, warning, error. Tone comes from --level
 - `<title>` — Notification title
 
 #### `codeterm orchestrator`

@@ -359,7 +359,7 @@ pub enum NotifyAction {
         #[arg(long, hide = true, conflicts_with_all = ["title", "from_pad"])]
         from_stdin: bool,
 
-        /// Toast severity: info, warning, error
+        /// Record identity axis: info, warning, error. Tone comes from --level
         #[arg(long, default_value = "info")]
         severity: String,
 
