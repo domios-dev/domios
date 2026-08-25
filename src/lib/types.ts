@@ -321,9 +321,12 @@ export interface Notification {
   icon_svg?: string | null;
   icon_color?: string | null;
   icon_hint?: string | null;
+  /** Wire and dedupe axis only: it joins provenance and title in the record's
+   *  identity. No surface tones by it — `level` is the single tone axis. */
   severity: "Info" | "Warning" | "Error";
-  /** The axis a caller may name explicitly, independent of `severity`. Absent
-   *  means the caller named no level — a distinct, legal state, not a lost one. */
+  /** The tone axis, named by the sender and routed on by the destination
+   *  matrix. Absent means the caller named no level — a distinct, legal state,
+   *  not a lost one — and every surface paints it the neutral tone. */
   level?: "verbose" | "action_needed" | "failure";
   timestamp: number;
   read: boolean;

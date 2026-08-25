@@ -4,13 +4,8 @@ import { invoke } from "../../lib/bridge";
 import { Bell, Check, ChevronDown, Trash2, X } from "lucide-react";
 import { timeAgo } from "../../lib/formatters";
 import { isAnswerUndeliverable, isAnswerUndelivered } from "../../lib/notificationAnswer";
+import { notificationLevel, notificationTone } from "../../lib/notifyLevels";
 import { UI_BUTTON, UI_TEXT } from "../shared/design";
-
-const SEVERITY_COLORS: Record<Notification["severity"], string> = {
-  Info: "var(--ct-accent)",
-  Warning: "var(--ct-yellow)",
-  Error: "var(--ct-red)",
-};
 
 interface NotificationPanelProps {
   notifications: Notification[];
@@ -112,7 +107,7 @@ export function NotificationPanel({
               onClick={() => handleClick(notif)}
               className={`${rowClass} ${!notif.read ? "border-l-2 border-l-[var(--ct-accent)]" : "border-l-2 border-l-transparent"}`}
             >
-              <SeverityDot severity={notif.severity} />
+              <LevelDot notification={notif} />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between gap-2">
                   <span
@@ -238,11 +233,14 @@ export function NotificationPanel({
   );
 }
 
-function SeverityDot({ severity }: { severity: Notification["severity"] }) {
+function LevelDot({ notification }: { notification: Notification }) {
   return (
     <span
+      data-testid="notification-level-dot"
+      data-notification-level={notificationLevel(notification) ?? ""}
+      aria-hidden
       className="inline-block w-2 h-2 rounded-full shrink-0 mt-1"
-      style={{ backgroundColor: SEVERITY_COLORS[severity] }}
+      style={{ backgroundColor: notificationTone(notification) }}
     />
   );
 }

@@ -177,6 +177,7 @@ export function tabAsksEqual(a: Notification[], b: Notification[]): boolean {
       && ask.title === other.title
       && ask.body === other.body
       && ask.severity === other.severity
+      && ask.level === other.level
       && ask.actions === other.actions
       && ask.answer?.answered === other.answer?.answered
       && ask.answer?.asked_from_tab === other.answer?.asked_from_tab;
