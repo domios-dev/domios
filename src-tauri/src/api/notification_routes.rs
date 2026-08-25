@@ -52,11 +52,27 @@ pub(crate) struct CreateNotifBody {
 /// registry and the accepting label against this notification's own choice
 /// set, so an offer can neither name a destination that resolves to nothing
 /// nor apply on a label no surface will draw.
+/// A tap opens the offered column on the row of THIS notification's level, so
+/// an offer that names no level could only ever apply nothing. Refused when the
+/// offer is made rather than accepted and left silently inert, because an offer
+/// that can never apply is a button that lies.
+pub(crate) fn offer_requires_level(
+    named: &str,
+    level: Option<crate::notification::push::NotifyLevel>,
+) -> Result<crate::notification::push::NotifyLevel, String> {
+    level.ok_or_else(|| {
+        format!(
+            "Offering '{named}' needs a level: the tap opens that column for the level this notification carries, and one that names no level has no row to open"
+        )
+    })
+}
+
 pub(crate) fn vet_offer(
     svc: &crate::service::ServiceState,
     offer: Option<String>,
     offer_accept: Option<String>,
     actions: Option<&[CallerAction]>,
+    level: Option<crate::notification::push::NotifyLevel>,
 ) -> Result<Option<crate::notification::authority::SurfaceOffer>, String> {
     let Some(named) = offer.as_deref().map(str::trim).filter(|s| !s.is_empty()) else {
         if offer_accept.is_some() {
@@ -69,6 +85,7 @@ pub(crate) fn vet_offer(
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .ok_or_else(|| "An offered surface needs the label that accepts it".to_string())?;
+    offer_requires_level(named, level)?;
     let target = svc.resolve_surface_target(named)?;
     crate::notification::authority::adopt_offer(target, accept, actions.unwrap_or_default())
         .map(Some)
@@ -126,6 +143,7 @@ pub async fn create_notification(
         body.offer,
         body.offer_accept,
         actions.as_deref(),
+        intent.level,
     )
     .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
     let id = state.svc.create_notification_ext(

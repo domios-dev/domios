@@ -1132,6 +1132,7 @@ mod tests {
                 severity: NotificationSeverity::Info,
                 provenance,
                 per_scope_limit: 50,
+                ask: Ask::default(),
             });
             assert_eq!(superseded.id(), fresh.id(), "supersede reuses the record");
             assert_eq!(store.level(superseded.id()), Some(NotifyLevel::Failure));

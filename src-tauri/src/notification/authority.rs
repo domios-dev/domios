@@ -8,7 +8,7 @@
 //! takes a first-and-only recorded answer.
 
 use codeterm_types::config::schema::NotificationConfig;
-use codeterm_types::notification::OfferedChoice;
+use codeterm_types::notification::{NotifyDestination, NotifyLevel, OfferedChoice};
 use serde::Serialize;
 
 use super::answer::AnswerAdmission;
@@ -18,35 +18,28 @@ use super::channel_ask;
 /// under it is a surface decision; nothing outside it is.
 pub const SURFACE_ROOT: &str = "notifications";
 
-/// Who is asking to change a surface. Exactly one of these may widen one.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ChangeAuthority {
-    /// The user tapped an offered label on a question the daemon asked.
-    TappedAnswer,
-    /// Anything an agent reaches on its own: its own config write, a bridge
-    /// command, a scheduled job, a relayed call from a peer.
-    Unattended,
-}
-
 /// Whether one config path decides a notification surface.
 pub fn is_surface_path(key: &str) -> bool {
     let key = key.trim();
     key == SURFACE_ROOT || key.starts_with(&format!("{SURFACE_ROOT}."))
 }
 
-/// The rule, as one refusal. What may change without a tap is stated here and
-/// nowhere else: nothing under the surface root, whichever surface it names.
-pub fn admit_change(authority: ChangeAuthority, key: &str) -> Result<(), String> {
+/// The rule, as one refusal: NOTHING unattended may change where a notification
+/// goes, whichever surface the key names.
+///
+/// There is deliberately no "but a tap may" arm here, and no authority argument
+/// that could select one. A tap does not reach this function at all — it reaches
+/// [`apply`], which cannot be called without a [`TapProof`]. An arm for the
+/// permitted case would be a second answer to "may this change", and a second
+/// answer is a second thing to get wrong.
+pub fn admit_unattended_change(key: &str) -> Result<(), String> {
     if !is_surface_path(key) {
         return Ok(());
     }
-    match authority {
-        ChangeAuthority::TappedAnswer => Ok(()),
-        ChangeAuthority::Unattended => Err(format!(
-            "'{}' decides where notifications go and changes only on a tapped answer; offer it instead of setting it",
-            key.trim()
-        )),
-    }
+    Err(format!(
+        "'{}' decides where notifications go and changes only on a tapped answer; offer it instead of setting it",
+        key.trim()
+    ))
 }
 
 /// Proof that a user tapped an offered label. The field is private and the one
@@ -69,8 +62,20 @@ pub fn tap_proof(admission: &AnswerAdmission) -> Option<TapProof> {
 pub enum SurfaceTarget {
     /// The OS notification centre.
     Desktop,
-    /// One push channel's opt-in, addressed by its service id.
+    /// One push channel, addressed by its service id.
     Channel { service: String },
+}
+
+impl SurfaceTarget {
+    /// The grid column this surface is. Whether a level reaches anywhere is one
+    /// question with one home - a cell of the levels-by-destinations grid - so
+    /// an offer names a column and never a switch of its own.
+    pub fn column(&self) -> NotifyDestination<'_> {
+        match self {
+            Self::Desktop => NotifyDestination::Desktop,
+            Self::Channel { service } => NotifyDestination::Channel(service),
+        }
+    }
 }
 
 /// An agent's offer to be louder: the surface it would turn on, and the one
@@ -116,13 +121,33 @@ pub fn adopt_offer<A: OfferedChoice>(
     })
 }
 
-/// What one offer changes, and the whole of it. Exactly one field moves, which
-/// is what makes the blast radius statable rather than implied.
-pub fn apply(_proof: TapProof, cfg: &mut NotificationConfig, target: &SurfaceTarget) {
-    match target {
-        SurfaceTarget::Desktop => cfg.desktop = true,
-        SurfaceTarget::Channel { service } => {
-            cfg.channels.entry(service.clone()).or_default().enabled = true;
-        }
+/// What one offer changes, and the whole of it: ONE cell of the grid - the
+/// offered column, on the row of the level the user was actually shown.
+///
+/// `level` is read off the record the tap answered, never supplied alongside
+/// it, because that is the whole proportionality argument: the question
+/// demonstrated one kind of notification, and the tap grants that kind. Opening
+/// every level would let a tap on one `action_needed` question route routine
+/// progress to a push channel the user was never shown.
+///
+/// The desktop master switch moves with the desktop cell because the two are
+/// ANDed at the gate: opening the cell alone would change nothing the user
+/// could observe, which is a silent no-op wearing the shape of a grant.
+pub fn apply(
+    _proof: TapProof,
+    cfg: &mut NotificationConfig,
+    target: &SurfaceTarget,
+    level: NotifyLevel,
+) {
+    let column = target.column();
+    if let Some(row) = cfg
+        .agent_levels
+        .iter_mut()
+        .find(|row| NotifyLevel::parse(&row.level) == Some(level))
+    {
+        row.set(column, true);
+    }
+    if matches!(target, SurfaceTarget::Desktop) {
+        cfg.desktop = true;
     }
 }
