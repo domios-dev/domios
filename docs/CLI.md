@@ -1194,6 +1194,8 @@ Send a notification. The body is read only from the calling tab's AgentPad
 - `--from-pad` — Read the notification body from a relative file in the calling tab's pad
 - `--from-stdin` — REFUSED: stdin is a shell pipe — stage the body in the pad
 - `--level` — What this notification is, on the one level axis. Omit to file it in the bell only
+- `--offer` — Offer to turn one notification surface on: `desktop`, or a push channel's service id. The change waits for the tap — an agent may offer to be louder, never make itself louder
+- `--offer-accept` — Which of this notification's own choices accepts the offer
 - `--severity` — Record identity axis: info, warning, error. Tone comes from --level
 - `<title>` — Notification title
 
