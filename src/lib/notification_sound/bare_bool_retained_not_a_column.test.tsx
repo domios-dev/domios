@@ -13,7 +13,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import { defaultConfig } from "../../hooks/useConfig";
-import { NOTIFY_DESTINATIONS } from "../notifyDestinations";
+import { LOCAL_DESTINATIONS, destinationColumns } from "../notifyDestinations";
 import { shouldSoundArrival } from "../notificationSound";
 
 let checked = 0;
@@ -32,20 +32,24 @@ check("sound" in defaultConfig().notifications, "the frontend config still carri
 const schema = read("../../../src-tauri/crates/codeterm-types/src/config/schema.rs");
 check(/pub sound: bool,/.test(schema), "and so does the daemon schema");
 
-// 2. Not migrated into the matrix: no fourth column, on either side.
+// 2. Not migrated into the matrix: no sound column, on either side. The
+//    columns are the local surfaces plus whatever the registry resolved, and
+//    sound is in neither list however many channels are registered.
 const row = { level: "failure", bell: true, desktop: true, telegram: true };
+check(!("sound" in row), "a grid row carries no sound cell");
+const registered = [
+  { id: "telegram", label: "Telegram", control_available: true },
+  { id: "discord", label: "Discord", control_available: false },
+];
+for (const columns of [destinationColumns([]), destinationColumns(registered)]) {
+  check(
+    !columns.some((destination) => destination.id === ("sound" as string)),
+    "sound is not one of the destinations, at any roster size",
+  );
+}
 check(
-  Object.keys(row).length === 1 + NOTIFY_DESTINATIONS.length,
-  "a grid row is a level plus one cell per destination, and nothing more",
-);
-check(
-  !NOTIFY_DESTINATIONS.some((destination) => destination.id === ("sound" as string)),
-  "sound is not one of those destinations",
-);
-const destinations = read("../../../src-tauri/crates/codeterm-types/src/notification.rs");
-check(
-  /pub const ALL: \[Self; 3\] = \[Self::Bell, Self::Desktop, Self::Telegram\];/.test(destinations),
-  "the daemon's destination set gained no member",
+  LOCAL_DESTINATIONS.every((surface) => surface.id !== ("sound" as string)),
+  "and it is not one of the surfaces the app draws either",
 );
 const agentLevelRow = schema.slice(schema.indexOf("pub struct AgentLevelChoice"));
 check(

@@ -1,11 +1,15 @@
 // Run: npx tsx src/components/Settings/TelegramNotifications.test.tsx
+//
+// Telegram's own channel editor. Whether it is offered at all is the registry's
+// answer and is covered by the channel_registry suite; this file covers what
+// the editor itself does once mounted.
 
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
-import { __setInvokeForTest } from "../../lib/bridge";
-import { TelegramNotifications, parseRecipients, telegramPatch } from "./TelegramNotifications";
-import type { AppConfig } from "../../lib/types";
+import { TelegramNotifications, TELEGRAM_CHANNEL_ID } from "./TelegramNotifications";
+import { channelPatch, parseRecipients } from "../../lib/pushChannels";
+import type { AppConfig, PushChannelConfig } from "../../lib/types";
 
 function assert(value: unknown, message: string): asserts value {
   if (!value) throw new Error(message);
@@ -32,9 +36,10 @@ function setupDom() {
   }
 }
 
-
-function configWith(telegram?: { enabled: boolean; recipients: string[]; per_scope_limit: number }): AppConfig {
-  return { notifications: telegram ? { telegram } : {} } as unknown as AppConfig;
+function configWith(audience?: PushChannelConfig): AppConfig {
+  return {
+    notifications: audience ? { channels: { [TELEGRAM_CHANNEL_ID]: audience } } : {},
+  } as unknown as AppConfig;
 }
 
 type UpdateCall = { section: string; patch: Record<string, unknown> };
@@ -57,92 +62,43 @@ async function render(
   return { host, root };
 }
 
-async function withInvoke(
-  invoke: (command: string) => Promise<unknown>,
-  body: () => Promise<void>,
-) {
-  __setInvokeForTest(async <T,>(command: string) => invoke(command) as Promise<T>);
-  try {
-    await body();
-  } finally {
-    __setInvokeForTest(null);
-  }
-}
-
 setupDom();
 
 const CONTROL = '[data-testid="settings-telegram-notifications"]';
 
-async function testDeliverableGateRendersControl() {
-  await withInvoke(
-    async (command) => {
-      if (command === "telegram_push_gate") return { control_available: true };
-      throw new Error(`unexpected command: ${command}`);
-    },
-    async () => {
-      const updates: UpdateCall[] = [];
-      const { host, root } = await render(configWith(), updates);
-      assert(host.querySelector(CONTROL), "deliverable gate must render the opt-in control");
-      await act(async () => root.unmount());
-    },
+async function testMountedEditorOffersTheOptIn() {
+  const updates: UpdateCall[] = [];
+  const { host, root } = await render(configWith(), updates);
+  assert(host.querySelector(CONTROL), "a mounted channel editor renders its opt-in control");
+  const toggle = host.querySelector('button[role="switch"]') as HTMLButtonElement | null;
+  assert(toggle, "the opt-in is an accessible switch");
+  assert(toggle.getAttribute("aria-checked") === "false", "an absent entry reads as opted out");
+  await act(async () => toggle.click());
+  assert(updates.length === 1, `one patch per flip, got ${updates.length}`);
+  assert(updates[0].section === "notifications", "the patch targets the notifications section");
+  const channels = updates[0].patch.channels as Record<string, PushChannelConfig>;
+  assert(
+    channels[TELEGRAM_CHANNEL_ID].enabled,
+    "the flip writes this channel's own keyed entry",
   );
-}
-
-async function testUndeliverableGateHidesControl() {
-  await withInvoke(
-    async (command) => {
-      if (command === "telegram_push_gate") return { control_available: false };
-      throw new Error(`unexpected command: ${command}`);
-    },
-    async () => {
-      const updates: UpdateCall[] = [];
-      const { host, root } = await render(
-        configWith({ enabled: true, recipients: ["123"], per_scope_limit: 12 }),
-        updates,
-      );
-      assert(!host.querySelector(CONTROL), "undeliverable gate must render nothing, even when config opts in");
-      await act(async () => root.unmount());
-    },
-  );
-}
-
-async function testGateFailureFailsClosed() {
-  await withInvoke(
-    async () => {
-      throw new Error("daemon unreachable");
-    },
-    async () => {
-      const updates: UpdateCall[] = [];
-      const { host, root } = await render(configWith(), updates);
-      assert(!host.querySelector(CONTROL), "a failed gate probe must hide the control, not default it open");
-      await act(async () => root.unmount());
-    },
-  );
+  await act(async () => root.unmount());
 }
 
 async function testEnabledOptInRendersAccessibleRecipientsInput() {
-  await withInvoke(
-    async (command) => {
-      if (command === "telegram_push_gate") return { control_available: true };
-      throw new Error(`unexpected command: ${command}`);
-    },
-    async () => {
-      const updates: UpdateCall[] = [];
-      const { host, root } = await render(
-        configWith({ enabled: true, recipients: [], per_scope_limit: 12 }),
-        updates,
-      );
-      const input = host.querySelector(
-        '[data-testid="settings-telegram-push-recipients"]',
-      ) as HTMLInputElement | null;
-      assert(input, "enabled opt-in must expose the recipients input");
-      assert(
-        host.querySelector('label[for="telegram-push-recipients"]'),
-        "recipients input must carry an associated label for accessibility",
-      );
-      await act(async () => root.unmount());
-    },
+  const updates: UpdateCall[] = [];
+  const { host, root } = await render(
+    configWith({ enabled: true, recipients: [], per_scope_limit: 12 }),
+    updates,
   );
+  const input = host.querySelector(
+    '[data-testid="settings-telegram-push-recipients"]',
+  ) as HTMLInputElement | null;
+  assert(input, "enabled opt-in must expose the recipients input");
+  assert(
+    host.querySelector('label[for="telegram-push-recipients"]'),
+    "recipients input must carry an associated label for accessibility",
+  );
+  await act(async () => root.unmount());
 }
 
 function testRecipientsParsingAndPatchContract() {
@@ -152,31 +108,45 @@ function testRecipientsParsingAndPatchContract() {
   );
   assert(JSON.stringify(parseRecipients("")) === "[]", "empty text must parse to no recipients");
 
-  const patch = telegramPatch(
-    { enabled: true, recipients: [], per_scope_limit: 12 },
+  const patch = channelPatch(
+    { [TELEGRAM_CHANNEL_ID]: { enabled: true, recipients: [], per_scope_limit: 12 } },
+    TELEGRAM_CHANNEL_ID,
     { recipients: parseRecipients(" 123 , 456 ,, ") },
   );
   assert(
     JSON.stringify(patch) ===
-      JSON.stringify({ telegram: { enabled: true, recipients: ["123", "456"], per_scope_limit: 12 } }),
+      JSON.stringify({
+        channels: { telegram: { enabled: true, recipients: ["123", "456"], per_scope_limit: 12 } },
+      }),
     `recipients patch must keep current settings and carry the parsed list, got ${JSON.stringify(patch)}`,
   );
 
-  const defaulted = telegramPatch(undefined, { enabled: true });
+  const defaulted = channelPatch(undefined, TELEGRAM_CHANNEL_ID, { enabled: true });
   assert(
     JSON.stringify(defaulted) ===
-      JSON.stringify({ telegram: { enabled: true, recipients: [], per_scope_limit: 12 } }),
+      JSON.stringify({
+        channels: { telegram: { enabled: true, recipients: [], per_scope_limit: 12 } },
+      }),
     `patch from an absent config must apply the documented defaults, got ${JSON.stringify(defaulted)}`,
+  );
+
+  // One channel's entry never disturbs another's.
+  const alongside = channelPatch(
+    { other: { enabled: true, recipients: ["9"], per_scope_limit: 3 } },
+    TELEGRAM_CHANNEL_ID,
+    { enabled: true },
+  );
+  assert(
+    alongside.channels.other.recipients[0] === "9",
+    "patching one channel keeps every other channel's entry intact",
   );
 }
 
 async function main() {
-  await testDeliverableGateRendersControl();
-  await testUndeliverableGateHidesControl();
-  await testGateFailureFailsClosed();
+  await testMountedEditorOffersTheOptIn();
   await testEnabledOptInRendersAccessibleRecipientsInput();
   testRecipientsParsingAndPatchContract();
-  console.log("PASS TelegramNotifications deliverability gate");
+  console.log("PASS TelegramNotifications channel editor");
 }
 
 main().catch((error) => {

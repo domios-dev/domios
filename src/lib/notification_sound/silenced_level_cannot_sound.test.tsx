@@ -8,7 +8,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
-import { NOTIFY_DESTINATIONS } from "../notifyDestinations";
+import { LOCAL_DESTINATIONS, destinationColumns } from "../notifyDestinations";
 import { assert, mountSound, report } from "./harness";
 
 let checked = 0;
@@ -98,10 +98,12 @@ async function main() {
   // 5. The config cannot even express "sound for a level that reaches nothing":
   //    there is no fourth column to set.
   check(
-    NOTIFY_DESTINATIONS.every((destination) => destination.id !== ("sound" as string)),
+    destinationColumns([{ id: "telegram", label: "Telegram", control_available: true }]).every(
+      (destination) => destination.id !== ("sound" as string),
+    ),
     "sound is not a destination, so it has no column",
   );
-  check(NOTIFY_DESTINATIONS.length === 3, "the destination set is unchanged");
+  check(LOCAL_DESTINATIONS.length === 2, "the local surfaces are unchanged");
 
   // 6. And behaviourally: opted in, mounted, with no arrival delivered, nothing
   //    sounds. The event is the whole trigger.

@@ -27,9 +27,11 @@ import {
 import { levelLabel, levelTone } from "../../lib/notifyLevels";
 import { Toggle } from "./shared";
 import {
-  NOTIFY_DESTINATIONS,
   destinationCellLabel,
-  type NotifyDestinationId,
+  destinationColumns,
+  isRouted,
+  LOCAL_DESTINATIONS,
+  type PushChannelDescriptor,
 } from "../../lib/notifyDestinations";
 import type { AgentLevelChoice, AppConfig } from "../../lib/types";
 
@@ -65,6 +67,13 @@ setupDom();
 
 const source = (relative: string) => readFileSync(new URL(relative, import.meta.url), "utf8");
 
+/** The roster the daemon would answer with. The grid draws whatever is here,
+ *  so this fixture is the only place the test knows a channel exists. */
+const DAEMON_CHANNELS: PushChannelDescriptor[] = [
+  { id: "telegram", label: "Telegram", control_available: true },
+];
+const COLUMNS = destinationColumns(DAEMON_CHANNELS);
+
 function open(level: string): AgentLevelChoice {
   return { level, bell: true, desktop: true, telegram: true };
 }
@@ -92,6 +101,7 @@ async function renderGrid(config: AppConfig, updates: UpdateCall[]) {
       root.render(
         <NotificationDestinations
           config={next}
+          channels={DAEMON_CHANNELS}
           onUpdate={(section, patch) =>
             updates.push({ section, patch: patch as Record<string, unknown> })
           }
@@ -147,7 +157,7 @@ async function rowsDeriveFromTheSharedLevelSet() {
   const grownGrid = view.host.querySelector(GRID);
   assert(grownGrid, "the grown grid is still rendered");
   assert(
-    switches(grownGrid).length === grown.length * NOTIFY_DESTINATIONS.length,
+    switches(grownGrid).length === grown.length * COLUMNS.length,
     "the grid is levels x destinations, never a fixed cell count",
   );
   assert(
@@ -168,7 +178,7 @@ async function togglingACellPersistsAndAllOffRoundTrips() {
   const verbose = view.host.querySelector(`${ROW}[data-notification-level="verbose"]`);
   assert(verbose, "the verbose row is present");
 
-  const desktopIndex = NOTIFY_DESTINATIONS.findIndex((d) => d.id === "desktop");
+  const desktopIndex = COLUMNS.findIndex((column) => column.id === "desktop");
   await act(async () => switches(verbose)[desktopIndex].click());
 
   assert(updates.length === 1, `one patch per cell, got ${updates.length}`);
@@ -195,10 +205,10 @@ async function togglingACellPersistsAndAllOffRoundTrips() {
 
   // All-off is a configuration, not a validation error.
   let allOff = patched;
-  for (const destination of NOTIFY_DESTINATIONS) {
+  for (const destination of COLUMNS) {
     allOff = setLevelDestination(allOff, "verbose", destination.id, false);
   }
-  assert(reachesNothing(allOff[0]), "every column closed is expressible");
+  assert(reachesNothing(allOff[0], COLUMNS), "every column closed is expressible");
   await view.draw(configWith(allOff));
   const closed = view.host.querySelector(`${ROW}[data-notification-level="verbose"]`);
   assert(closed, "a level that reaches nothing still renders its row");
@@ -211,7 +221,7 @@ async function togglingACellPersistsAndAllOffRoundTrips() {
     "the user is told what all-off means rather than being blocked",
   );
   assert(
-    switches(closed).length === NOTIFY_DESTINATIONS.length,
+    switches(closed).length === COLUMNS.length,
     "every cell stays togglable when the level reaches nothing",
   );
   await view.done();
@@ -335,20 +345,20 @@ async function everyControlIsNamedAndIsTheSharedToggle() {
     );
     const controls = switches(row);
     assert(
-      controls.length === NOTIFY_DESTINATIONS.length,
+      controls.length === COLUMNS.length,
       `one control per destination on ${level}, got ${controls.length}`,
     );
     const shipped = DAEMON_ROWS.find((candidate) => candidate.level === level);
     assert(shipped, `${level} came from the fixture`);
     controls.forEach((control, index) => {
-      const destination = NOTIFY_DESTINATIONS[index];
+      const destination = COLUMNS[index];
       const expected = destinationCellLabel(levelLabel(level), destination.label);
       assert(
         control.getAttribute("aria-label") === expected,
         `expected "${expected}", got "${control.getAttribute("aria-label")}"`,
       );
       assert(
-        control.getAttribute("aria-checked") === String(shipped[destination.id]),
+        control.getAttribute("aria-checked") === String(isRouted(shipped, destination.id)),
         `${expected} reports the state it was given`,
       );
       assert(
@@ -382,24 +392,21 @@ async function everyControlIsNamedAndIsTheSharedToggle() {
 /** The columns cannot drift from the row shape the daemon serialises. */
 async function destinationsMatchTheRowShape() {
   const shape = Object.keys(open("verbose")).filter((key) => key !== "level");
-  const columns = NOTIFY_DESTINATIONS.map((destination) => destination.id as string);
+  const columns = COLUMNS.map((destination) => destination.id);
   assert(
     JSON.stringify(columns) === JSON.stringify(shape),
     `columns must be the row's destination fields, got ${JSON.stringify(columns)}`,
   );
-  const rust = readFileSync(
-    new URL("../../../src-tauri/crates/codeterm-types/src/notification.rs", import.meta.url),
-    "utf8",
+  assert(
+    JSON.stringify(LOCAL_DESTINATIONS.map((surface) => surface.id)) ===
+      JSON.stringify(["bell", "desktop"]),
+    "the local surfaces are the only columns this side names",
   );
-  for (const id of columns) {
-    assert(rust.includes(`=> "${id}"`), `${id} must be a wire value of NotifyDestination`);
-  }
-  const setter = setLevelDestination(
-    DAEMON_ROWS,
-    "action_needed",
-    "telegram" as NotifyDestinationId,
-    false,
+  assert(
+    !LOCAL_DESTINATIONS.some((surface) => DAEMON_CHANNELS.some((c) => c.id === surface.id)),
+    "a channel is never restated as a local surface",
   );
+  const setter = setLevelDestination(DAEMON_ROWS, "action_needed", "telegram", false);
   assert(
     setter[1].telegram === false && setter[1].bell && setter[1].desktop,
     "the setter moves one cell of one row",
@@ -419,7 +426,7 @@ async function destinationsMatchTheRowShape() {
 const SRC_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const MOVED_SURFACES = [
   "NotificationDestinations",
-  "TelegramNotifications",
+  "PushChannelSettings",
   "ProviderNotifications",
 ] as const;
 
@@ -445,7 +452,7 @@ function modulesMentioning(symbol: string): string[] {
 
 async function daemonStub(command: string): Promise<unknown> {
   if (command === "list_agent_providers") return [];
-  if (command === "telegram_push_gate") return { control_available: true };
+  if (command === "push_channel_roster") return { channels: DAEMON_CHANNELS };
   return null;
 }
 
@@ -512,10 +519,13 @@ async function theNavExposesNotificationsAndTheMatrixLivesThere() {
       "the moved matrix still draws one row per shipped level",
     );
     assert(
-      switches(grid).length === DAEMON_ROWS.length * NOTIFY_DESTINATIONS.length,
+      switches(grid).length === DAEMON_ROWS.length * COLUMNS.length,
       "levels x destinations survived the move intact",
     );
-    assert(view.host.querySelector(TELEGRAM), "the Telegram surface moved here too");
+    assert(
+      view.host.querySelector(TELEGRAM),
+      "the channel's own surface is drawn by the registry-driven section",
+    );
     await view.done();
   });
 }

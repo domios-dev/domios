@@ -1,14 +1,48 @@
-/** Mirrors `NotifyDestination::ALL` in `codeterm-types`: the closed set of
- *  places one level may reach, in column order. Every surface that renders or
- *  names a destination maps over this list rather than restating it. */
-export const NOTIFY_DESTINATIONS = [
+import type { AgentLevelChoice } from "./types";
+
+/** Mirrors `NotifyDestination::LOCAL` in `codeterm-types`: the surfaces the app
+ *  draws itself, in column order. Push channels are deliberately absent —
+ *  there is no closed set of them to restate here. */
+export const LOCAL_DESTINATIONS = [
   { id: "bell", label: "Ring the bell" },
   { id: "desktop", label: "System notification" },
-  { id: "telegram", label: "Telegram" },
 ] as const;
 
-export type NotifyDestination = (typeof NOTIFY_DESTINATIONS)[number];
-export type NotifyDestinationId = NotifyDestination["id"];
+export type LocalDestinationId = (typeof LOCAL_DESTINATIONS)[number]["id"];
+
+/** One registered push channel, as the daemon's registry reports it. */
+export interface PushChannelDescriptor {
+  /** The bridge service id. Never rendered. */
+  id: string;
+  /** The column caption, owned by the registry entry. */
+  label: string;
+  /** Whether this channel's own controls may be offered at all. */
+  control_available: boolean;
+}
+
+export interface DestinationColumn {
+  id: string;
+  label: string;
+}
+
+/** The grid's columns: the local surfaces, then whatever the registry resolved.
+ *  A channel appears here because the daemon listed it, never because a column
+ *  was written down. */
+export function destinationColumns(
+  channels: readonly PushChannelDescriptor[],
+): DestinationColumn[] {
+  return [
+    ...LOCAL_DESTINATIONS.map(({ id, label }) => ({ id, label })),
+    ...channels.map(({ id, label }) => ({ id, label })),
+  ];
+}
+
+/** Read one cell. An absent key reads as routed, exactly as the daemon reads
+ *  it, so a row written before a channel existed still reaches it. */
+export function isRouted(choice: AgentLevelChoice, destination: string): boolean {
+  const stored = choice[destination];
+  return stored === undefined ? true : Boolean(stored);
+}
 
 /** The accessible name of one cell. Composed from the level and the
  *  destination it governs, so no control carries a name a reader cannot place. */

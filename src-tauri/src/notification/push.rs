@@ -1,8 +1,10 @@
-//! Opt-in Telegram push channel: the shared closed level set, clock-free
-//! coalescing keys, and length-capped rendering over daemon-resolved provenance.
+//! The push leg shared by every channel: the closed level set, clock-free
+//! coalescing keys, and length-capped rendering over daemon-resolved
+//! provenance. Which channels exist is `notification::channels`; this module
+//! is what all of them render and scope through.
 
 use super::store::NotificationProvenance;
-use codeterm_types::config::schema::TelegramNotifyConfig;
+use codeterm_types::config::schema::PushChannelConfig;
 pub use codeterm_types::notification::NotifyLevel;
 
 /// Coalescing scope for a caller the daemon could not attribute to a tab or a
@@ -90,9 +92,10 @@ pub fn control_available(bridge_active: bool, allow_list_len: usize) -> bool {
     bridge_active && allow_list_len > 0
 }
 
-/// The explicit audience, distinct from `telegram_allowed_users`. An entry that
-/// is not a chat id is dropped rather than broadcast to.
-pub fn resolve_audience(cfg: &TelegramNotifyConfig) -> Vec<i64> {
+/// The explicit audience of one channel, distinct from that integration's
+/// inbound allow list. An entry that is not a chat id is dropped rather than
+/// broadcast to.
+pub fn resolve_audience(cfg: &PushChannelConfig) -> Vec<i64> {
     if !cfg.enabled {
         return Vec::new();
     }
@@ -108,7 +111,7 @@ pub fn resolve_audience(cfg: &TelegramNotifyConfig) -> Vec<i64> {
 }
 
 #[cfg(test)]
-mod telegram_render {
+mod push_render {
     use super::*;
 
     fn provenance() -> NotificationProvenance {
@@ -121,7 +124,7 @@ mod telegram_render {
     }
 
     #[test]
-    fn telegram_render_truncates_oversized_agent_text() {
+    fn push_render_truncates_oversized_agent_text() {
         let oversized_title = "T".repeat(MAX_TITLE_CHARS + 40);
         let oversized_body = "B".repeat(MAX_BODY_CHARS + 500);
         assert!(oversized_title.chars().count() > MAX_TITLE_CHARS);
@@ -185,7 +188,7 @@ mod telegram_render {
 
     #[test]
     fn audience_is_explicit_and_ignores_unparseable_entries() {
-        let mut cfg = TelegramNotifyConfig {
+        let mut cfg = PushChannelConfig {
             enabled: true,
             recipients: vec!["100000001".into(), "not-a-chat-id".into(), "".into()],
             per_scope_limit: 8,
