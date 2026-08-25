@@ -2,6 +2,7 @@ import { Bell } from "lucide-react";
 import type { AppConfig } from "../../lib/types";
 import { ProviderNotifications } from "./ProviderNotifications";
 import { NotificationDestinations } from "./NotificationDestinations";
+import { NotificationSurfaces } from "./NotificationSurfaces";
 import { TelegramNotifications } from "./TelegramNotifications";
 import { SettingsCard, Toggle } from "./shared";
 
@@ -30,20 +31,7 @@ export function NotificationsOverview({
           Off hides the indicator entirely. History is still kept, and the panel stays the complete
           log.
         </p>
-        <Toggle
-          label="Desktop notifications"
-          checked={config.notifications.desktop}
-          onChange={(v) => onUpdate("notifications", { desktop: v })}
-        />
-        <Toggle
-          label="Sound when an agent stops"
-          checked={config.notifications.sound}
-          onChange={(v) => onUpdate("notifications", { sound: v })}
-        />
-        <p className="text-[10px] text-[var(--ct-muted)] leading-relaxed">
-          Opt-in, and it rides the bell: it sounds only for an arrival the bell already admits, and
-          only when that arrival says the agent stopped — never for progress.
-        </p>
+        <NotificationSurfaces config={config} onUpdate={onUpdate} />
         <h4 className="text-[var(--ct-muted-fg)] text-xs font-medium pt-1">
           Where each level may go
         </h4>

@@ -16,6 +16,10 @@ export const WEB_UNSUPPORTED: Record<string, string> = {
     "Local file-backed HTML previews are available only in the desktop app",
   read_local_preview_file:
     "Local page, image, and document previews are available only in the desktop app",
+  notify_permission_state:
+    "OS toast permission belongs to the machine running the app; the browser mirror has no such grant to read",
+  establish_notify_permission:
+    "Only the desktop host can raise the OS notification prompt for its own bundle",
   frontend_ready:
     "Desktop startup readiness acknowledgement has no browser equivalent",
   frontend_readiness_generation:
