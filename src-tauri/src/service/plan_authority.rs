@@ -53,7 +53,7 @@ impl PlanAuthorityError {
             }
             Self::BindingForeign => "the live bound planning session is required",
             Self::SessionUnregistered => {
-                "no agent session is registered for this tab, so there is no planning binding to \n                 authorize or re-sync. The provider reports one through its integration hook — check it \n                 with `codeterm plugin list` and reinstall the provider integration, then start a new \n                 agent session. `codeterm plan rebind` cannot help: it re-syncs an existing binding."
+                "no agent session is registered for this tab — the provider reports one through its integration hook and none arrived. Establish the binding from this tab with `codeterm plan rebind <plan>`, then repair the integration so the next session registers itself."
             }
             Self::RoleUnauthorized => {
                 "the live bound Plan owner or draft Planner session is required"
@@ -158,13 +158,23 @@ impl ServiceContext {
             .and_then(|id| mux.get_tab(id))
             .ok_or(PlanAuthorityError::BindingForeign)?;
         let session_id = requested_session_id.or(tab.agent_session_id.as_deref());
-        let live = requested_session_id.is_none_or(|requested| Some(requested) == session_id)
+        let agent_attested = requested_session_id
+            .is_none_or(|requested| Some(requested) == session_id)
             && tab.agent_session_id.as_deref() == session_id
             && tab.session_binding_nonce.as_deref() == nonce
             && tab.reported_session_binding_nonce.as_deref() == nonce
             && session_id.is_some()
             && nonce.is_some();
-        if !live {
+        // A binding the TAB attested for itself, because the provider never
+        // registered a session. Only `rebind` can produce this state and only
+        // from nothing, so it cannot mask a live session or be forged by a
+        // caller that does not already hold this tab's launch nonce.
+        let tab_attested = nonce.is_some()
+            && session_id.is_none()
+            && tab.agent_session_id.is_none()
+            && tab.session_binding_nonce.as_deref() == nonce
+            && tab.reported_session_binding_nonce.as_deref() == nonce;
+        if !(agent_attested || tab_attested) {
             return Err(binding_failure_class(tab, requested_session_id, nonce));
         }
         let owner = plan.owner.tab_id.as_deref() == tab_id && tab.has_team_orchestrator_authority();
@@ -218,6 +228,28 @@ impl ServiceContext {
                 tab_id: tab_id.to_string(),
                 nonce: nonce.to_string(),
                 resynced: false,
+            });
+        }
+        // Nothing was ever registered, so there is no lineage to prove against and
+        // `provable` below can never be true — that is the closed loop where the
+        // repair needed what it repairs (#316). Presenting this tab's own launch
+        // nonce proves the caller runs inside it, the same trust boundary every
+        // tab-scoped command sits on. Bootstrap only: never over a live session,
+        // never over an existing report, never for a caller claiming a session
+        // id the tab does not have.
+        let bootstrap = tab.agent_type.is_some()
+            && tab.pty_id.is_some()
+            && tab.exit_suspected_at.is_none()
+            && tab.agent_session_id.is_none()
+            && tab.reported_session_binding_nonce.is_none()
+            && requested_session.is_none()
+            && tab.session_binding_nonce.as_deref() == Some(nonce);
+        if bootstrap {
+            tab.reported_session_binding_nonce = Some(nonce.to_string());
+            return Ok(RebindOutcome {
+                tab_id: tab_id.to_string(),
+                nonce: nonce.to_string(),
+                resynced: true,
             });
         }
         let provable = tab_has_live_agent(tab)
@@ -349,6 +381,124 @@ mod tests {
     use crate::plan::{OrchestratorRef, Plan, PlanMode, TaskStatus};
     use crate::service::plan::NewTask;
     use crate::service::test_fixture::ServiceFixture;
+
+    /// The closed loop: with no session ever registered there is no lineage to
+    /// prove, so the repair could never run. Presenting the tab's own launch
+    /// nonce establishes the binding (#316).
+    #[test]
+    fn rebind_establishes_a_first_binding_from_the_tabs_own_nonce() {
+        let (fixture, _plan_id, owner, _planner) = fixture();
+        let tab_id = owner.tab_id.clone().unwrap();
+        {
+            let mut mux = fixture.service.mux.write();
+            let tab = mux.get_tab_mut(&tab_id).unwrap();
+            tab.agent_session_id = None;
+            tab.reported_session_binding_nonce = None;
+        }
+        let caller = AuthenticatedPlanCaller {
+            session_id: None,
+            ..owner.clone()
+        };
+        let outcome = fixture
+            .service
+            .rebind_stale_planning_session(&caller)
+            .expect("a tab presenting its own nonce can establish the first binding");
+        assert!(
+            outcome.resynced,
+            "the binding was established, not already current"
+        );
+        let mux = fixture.service.mux.read();
+        let tab = mux.get_tab(&tab_id).unwrap();
+        assert_eq!(
+            tab.reported_session_binding_nonce, tab.session_binding_nonce,
+            "the tab attested its own launch nonce"
+        );
+        assert!(
+            tab.agent_session_id.is_none(),
+            "no provider session may be invented — only the attestation is recorded"
+        );
+    }
+
+    /// The bootstrap must never mask a live provider session.
+    #[test]
+    fn rebind_does_not_bootstrap_over_a_registered_session() {
+        let (fixture, _plan_id, owner, _planner) = fixture();
+        let tab_id = owner.tab_id.clone().unwrap();
+        {
+            let mut mux = fixture.service.mux.write();
+            let tab = mux.get_tab_mut(&tab_id).unwrap();
+            tab.agent_session_id = Some("live-session".into());
+            tab.reported_session_binding_nonce = None;
+        }
+        let caller = AuthenticatedPlanCaller {
+            session_id: None,
+            ..owner.clone()
+        };
+        assert!(
+            fixture
+                .service
+                .rebind_stale_planning_session(&caller)
+                .is_err(),
+            "a tab with a registered session must go through the lineage proof"
+        );
+    }
+
+    /// A caller without this tab's launch nonce is still refused.
+    #[test]
+    fn rebind_refuses_a_bootstrap_from_a_foreign_nonce() {
+        let (fixture, _plan_id, owner, _planner) = fixture();
+        let tab_id = owner.tab_id.clone().unwrap();
+        {
+            let mut mux = fixture.service.mux.write();
+            let tab = mux.get_tab_mut(&tab_id).unwrap();
+            tab.agent_session_id = None;
+            tab.reported_session_binding_nonce = None;
+        }
+        let caller = AuthenticatedPlanCaller {
+            session_id: None,
+            binding_nonce: Some("not-this-tabs-nonce".into()),
+            ..owner.clone()
+        };
+        assert!(
+            fixture
+                .service
+                .rebind_stale_planning_session(&caller)
+                .is_err(),
+            "the launch nonce is the whole proof — without it there is none"
+        );
+    }
+
+    /// After the bootstrap the write gate accepts the tab, which is the point.
+    #[test]
+    fn a_tab_attested_binding_authorizes_plan_writes() {
+        let (fixture, plan_id, owner, _planner) = fixture();
+        let tab_id = owner.tab_id.clone().unwrap();
+        {
+            let mut mux = fixture.service.mux.write();
+            let tab = mux.get_tab_mut(&tab_id).unwrap();
+            tab.agent_session_id = None;
+            tab.reported_session_binding_nonce = None;
+        }
+        let caller = AuthenticatedPlanCaller {
+            session_id: None,
+            ..owner.clone()
+        };
+        assert!(
+            fixture
+                .service
+                .authorize_draft_structure_mutation(&plan_id, &caller)
+                .is_err(),
+            "before the bootstrap the write is refused"
+        );
+        fixture
+            .service
+            .rebind_stale_planning_session(&caller)
+            .expect("bootstrap");
+        fixture
+            .service
+            .authorize_draft_structure_mutation(&plan_id, &caller)
+            .expect("after the bootstrap the same caller may write");
+    }
 
     /// A tab whose provider never registered a session is a dead end today: the
     /// gate refuses it exactly like a foreign caller, and `plan rebind` — the
