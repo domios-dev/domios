@@ -26,6 +26,12 @@ impl Audience {
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
+
+    /// How many recipients this channel resolved. Channels report it in the
+    /// reason they hand back when they cannot carry a message.
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
 }
 
 /// What a channel says about itself for one notification.
@@ -124,9 +130,4 @@ pub fn resolve_in<'r>(
         .iter()
         .find(|registered| registered.id() == wanted)
         .ok_or_else(|| format!("no registered push channel answers to '{service}'"))
-}
-
-/// The channel ids, in roster order — the grid's channel columns.
-pub fn channel_ids() -> Vec<&'static str> {
-    roster().into_iter().map(|entry| entry.id()).collect()
 }
