@@ -9,6 +9,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { __setListenForTest } from "../bridge";
+import { __resetChimeContextForTest } from "../notificationSound";
 import { useNotificationSound } from "../../hooks/useNotificationSound";
 
 type ListenHandler = (event: { payload: unknown }) => void;
@@ -82,6 +83,7 @@ function Harness({ enabled }: { enabled: boolean }) {
 
 export async function mountSound(enabled: boolean): Promise<Mounted> {
   setupDom();
+  __resetChimeContextForTest();
   const recorder = installFakeAudio();
   const handlers = new Map<string, ListenHandler>();
   __setListenForTest(async (event, handler) => {

@@ -227,6 +227,8 @@ pub fn run() {
             commands::open_folder,
             commands::open_url,
             commands::test_notification,
+            commands::notify_permission_state,
+            commands::establish_notify_permission,
             commands::get_autostart_enabled,
             commands::set_autostart_enabled,
             commands::mux_commands::mux_get_state,

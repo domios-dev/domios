@@ -1,5 +1,8 @@
 //! OS-level toast notification helpers.
 //! Used by other handlers to surface notifications to the user via tauri-plugin-notification.
+use std::sync::atomic::{AtomicU8, Ordering};
+use tauri_plugin_notification::{NotificationExt, PermissionState};
+
 /// Send an OS-level toast notification if the CodeTerm window is not focused.
 pub fn _send_os_notification_if_unfocused(app: &tauri::AppHandle, title: &str, body: Option<&str>) {
     use tauri::Manager;
@@ -13,11 +16,103 @@ pub fn _send_os_notification_if_unfocused(app: &tauri::AppHandle, title: &str, b
     }
 }
 
-/// `NotificationBuilder::show` spawns the real send onto the async runtime and drops
-/// its result, so its `Ok` is not evidence of delivery and can never select a fallback.
-/// Windows silently discards a toast from a binary running out of `target/`, because the
-/// plugin declines to set an AppUserModelID there.
-fn native_toast_can_deliver() -> bool {
+const PERMISSION_PROMPT: u8 = 0;
+const PERMISSION_GRANTED: u8 = 1;
+const PERMISSION_DENIED: u8 = 2;
+
+/// The answer the OS has given this process, for the whole process. `Prompt`
+/// until something asks, which is why enabling asks rather than the first send.
+static ESTABLISHED_PERMISSION: AtomicU8 = AtomicU8::new(PERMISSION_PROMPT);
+
+fn permission_code(state: PermissionState) -> u8 {
+    match state {
+        PermissionState::Granted => PERMISSION_GRANTED,
+        PermissionState::Denied => PERMISSION_DENIED,
+        _ => PERMISSION_PROMPT,
+    }
+}
+
+fn permission_from_code(code: u8) -> PermissionState {
+    match code {
+        PERMISSION_GRANTED => PermissionState::Granted,
+        PERMISSION_DENIED => PermissionState::Denied,
+        _ => PermissionState::Prompt,
+    }
+}
+
+/// What the OS has already answered. Nothing asked yet reads `Prompt`, which is
+/// honest: it is not a refusal, and it is not a grant either.
+pub fn established_toast_permission() -> PermissionState {
+    permission_from_code(ESTABLISHED_PERMISSION.load(Ordering::Relaxed))
+}
+
+fn record_toast_permission(state: PermissionState) {
+    ESTABLISHED_PERMISSION.store(permission_code(state), Ordering::Relaxed);
+}
+
+/// The one seam onto the OS. tauri-plugin-notification's desktop build answers
+/// `Granted` from a stub, so a truthful macOS probe replaces this function alone.
+fn ask_the_os(app: &tauri::AppHandle) -> PermissionState {
+    app.notification()
+        .request_permission()
+        .unwrap_or(PermissionState::Denied)
+}
+
+/// The same seam, reading rather than asking: it must never raise a prompt.
+fn read_the_os(app: &tauri::AppHandle) -> Option<PermissionState> {
+    app.notification().permission_state().ok()
+}
+
+/// Permission belongs to the enabling gesture: switching a surface ON asks the
+/// OS, switching it OFF asks nothing, because withdrawing needs no consent.
+fn establish_with(
+    enabling: bool,
+    ask: impl FnOnce() -> PermissionState,
+) -> Option<PermissionState> {
+    if !enabling {
+        return None;
+    }
+    Some(ask())
+}
+
+/// The enabling gesture, wired to the OS: on asks and remembers the answer, off
+/// reports what is already known without raising a prompt.
+pub fn establish_toast_permission(app: &tauri::AppHandle, enabling: bool) -> PermissionState {
+    match establish_with(enabling, || ask_the_os(app)) {
+        Some(state) => {
+            record_toast_permission(state);
+            state
+        }
+        None => established_toast_permission(),
+    }
+}
+
+/// Fill an unasked slot from the OS without prompting. An answer already given
+/// this process is never overwritten, so a refusal outlives every later send.
+fn refresh_unasked_permission(app: &tauri::AppHandle) {
+    if established_toast_permission() != PermissionState::Prompt {
+        return;
+    }
+    if let Some(state) = read_the_os(app) {
+        record_toast_permission(state);
+    }
+}
+
+/// What the OS says right now, without asking the user for anything.
+pub fn toast_permission(app: &tauri::AppHandle) -> PermissionState {
+    refresh_unasked_permission(app);
+    established_toast_permission()
+}
+
+/// Deliverability is permission AND a platform channel that carries the toast.
+/// Neither half alone is evidence, so neither half alone may answer yes.
+fn toast_can_deliver(permission: PermissionState, channel_open: bool) -> bool {
+    channel_open && permission == PermissionState::Granted
+}
+
+/// The platform half only. Windows silently discards a toast from a binary run
+/// out of `target/`, because the plugin declines to set an AppUserModelID there.
+fn platform_toast_channel_open() -> bool {
     #[cfg(windows)]
     {
         match tauri::utils::platform::current_exe() {
@@ -29,6 +124,10 @@ fn native_toast_can_deliver() -> bool {
     {
         true
     }
+}
+
+fn native_toast_can_deliver() -> bool {
+    toast_can_deliver(established_toast_permission(), platform_toast_channel_open())
 }
 
 /// Mirrors the plugin's own AppUserModelID condition: it sets the id only outside
@@ -43,6 +142,22 @@ fn windows_toast_reaches_the_shell(exe_dir: Option<&std::path::Path>) -> bool {
         }
         None => false,
     }
+}
+
+/// Where a toast ended up, once the gate and the send itself have both answered.
+#[derive(Debug, PartialEq, Eq)]
+enum ToastRoute {
+    Native,
+    FallbackWindow,
+}
+
+/// The whole send decision. A closed gate is never sent through, and a send that
+/// failed is not a delivery — both answer `FallbackWindow` rather than success.
+fn route_toast<E>(can_deliver: bool, send: impl FnOnce() -> Result<(), E>) -> ToastRoute {
+    if can_deliver && send().is_ok() {
+        return ToastRoute::Native;
+    }
+    ToastRoute::FallbackWindow
 }
 
 #[cfg(test)]
@@ -80,6 +195,9 @@ mod delivery_tests {
     }
 }
 
+#[cfg(test)]
+mod notify_permission_tests;
+
 /// Single notification popup via system notification API.
 /// Uses tauri-plugin-notification on all platforms — clicking focuses the app.
 #[cfg_attr(test, allow(unreachable_code))]
@@ -90,13 +208,15 @@ pub fn _send_os_notification(app: &tauri::AppHandle, title: &str, body: Option<&
         return;
     }
 
-    if native_toast_can_deliver() {
-        use tauri_plugin_notification::NotificationExt;
+    refresh_unasked_permission(app);
+    let route = route_toast(native_toast_can_deliver(), || {
         let mut notif = app.notification().builder().title(title);
         if let Some(b) = body {
             notif = notif.body(b);
         }
-        let _ = notif.show();
+        notif.show()
+    });
+    if route == ToastRoute::Native {
         return;
     }
 
