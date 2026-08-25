@@ -80,6 +80,17 @@ pub const CODETERM_CLI: &str = include_str!("../prompts/codeterm_cli.md");
 /// Compact CodeTerm control contract prepended to non-General agent launches.
 pub const AGENT_CODETERM_PRIMER: &str = include_str!("../prompts/agent_codeterm_primer.md");
 
+/// The load-bearing half of the notify restriction: rare, and only for the two
+/// cases the primer names. Pinned here so a rewrite that softens the escalation
+/// into an invitation fails a test instead of shipping.
+pub const NOTIFY_RARE_ESCALATION_RULE: &str =
+    "a rare user-attention escalation, valid in exactly two cases";
+
+/// The ask clause carried by every surface that teaches notify. One sentence,
+/// one source: an escalation that already earned its rarity may ask instead of
+/// announce, and this is the grammar for asking.
+pub const NOTIFY_ASK_CLAUSE: &str = "An escalation may ask rather than announce: repeat `--choice \"Label\"` once per option (no cap) and the tapped label returns to the tab that asked; blank and duplicate labels are refused.";
+
 /// Compact control context placed after a Worker's task-owned identity.
 pub const WORKER_CODETERM_CONTEXT: &str = include_str!("../prompts/worker_codeterm_context.md");
 
@@ -995,6 +1006,96 @@ mod tests {
         assert!(PLAN_SKILLS_WORKER_LINE.contains("codeterm plan skill new"));
         assert!(PLAN_SKILLS_REGISTRY_LINE.contains("{n}"));
         assert!(PLAN_SKILLS_REGISTRY_LINE.contains("codeterm plan skill show <slug> | new | edit."));
+    }
+
+    /// The seeded `codeterm` skill body is compiled into codeterm-mem, which
+    /// `test-one app` cannot reach. Read the one file both crates load, so this
+    /// stays a single-crate gate on the same bytes mem seeds from.
+    const SEED_SKILL_CODETERM: &str = include_str!("../prompts/seed/skill_codeterm.md");
+
+    /// The long flag the ask clause teaches, named once so the clause and the
+    /// manifest are compared against the same token rather than two spellings.
+    const ASK_FLAG: &str = "--choice";
+
+    /// Every surface that teaches an agent when to escalate to the user. The
+    /// primer reaches composed launch prompts through the seam already asserted
+    /// in service::orchestrator::prompt_compose::tests, so a clause present in
+    /// the fragment is a clause present in what an agent receives.
+    fn notify_escalation_surfaces() -> [(&'static str, &'static str); 3] {
+        [
+            ("codeterm_rule.md", CODETERM_RULE),
+            ("agent_codeterm_primer.md", AGENT_CODETERM_PRIMER),
+            ("seed/skill_codeterm.md", SEED_SKILL_CODETERM),
+        ]
+    }
+
+    /// Delivery, by constant identity. The clause is an opaque token here: what
+    /// it says belongs to the .md files, and that each surface receives it once
+    /// is the only mechanism this test owns.
+    #[test]
+    fn notify_ask_guidance_reaches_every_escalation_surface() {
+        let clause = NOTIFY_ASK_CLAUSE;
+        assert!(
+            !clause.trim().is_empty(),
+            "an empty fragment proves nothing"
+        );
+
+        for (name, surface) in notify_escalation_surfaces() {
+            assert_eq!(
+                surface.matches(clause).count(),
+                1,
+                "{name} must carry the ask clause exactly once"
+            );
+        }
+    }
+
+    /// The clause names a flag; the committed manifest is the authority on
+    /// whether that flag exists. Guidance cannot document a flag the CLI lacks.
+    #[test]
+    fn notify_ask_guidance_names_a_flag_the_manifest_has() {
+        let root: serde_json::Value =
+            serde_json::from_str(CLI_MANIFEST).expect("cli-manifest.json must parse");
+        let send = subcommand(&root, "notify")
+            .and_then(|notify| subcommand(notify, "send"))
+            .expect("the manifest must carry notify send");
+
+        assert!(NOTIFY_ASK_CLAUSE.contains(ASK_FLAG));
+        assert!(
+            flag_names(send).contains(&ASK_FLAG.trim_start_matches('-')),
+            "notify send must accept the flag the ask clause teaches"
+        );
+    }
+
+    /// The addition is a clause on a restriction, never a replacement for it:
+    /// the surface that carries the clause must still state the rule that keeps
+    /// the escalation rare. Both are named by constant, not by their sentences.
+    #[test]
+    fn notify_ask_guidance_leaves_the_rare_escalation_rule_standing() {
+        assert!(!NOTIFY_RARE_ESCALATION_RULE.trim().is_empty());
+        assert_eq!(
+            AGENT_CODETERM_PRIMER
+                .matches(NOTIFY_RARE_ESCALATION_RULE)
+                .count(),
+            1
+        );
+        assert!(AGENT_CODETERM_PRIMER.contains(NOTIFY_ASK_CLAUSE));
+    }
+
+    /// Worker and Planner tabs never notify the user directly, so their role
+    /// surfaces must not gain the clause. A copy there would read as an
+    /// invitation to the one role the restriction excludes.
+    #[test]
+    fn notify_ask_guidance_stays_out_of_surfaces_that_never_notify() {
+        for (name, surface) in [
+            ("worker_suffix.md", WORKER_SUFFIX),
+            ("worker_codeterm_context.md", WORKER_CODETERM_CONTEXT),
+            ("planner_suffix.md", PLANNER_SUFFIX),
+        ] {
+            assert!(
+                !surface.contains(NOTIFY_ASK_CLAUSE),
+                "{name} must not restate the ask clause"
+            );
+        }
     }
 
     #[test]

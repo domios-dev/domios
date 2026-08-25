@@ -28,3 +28,4 @@ Routine completion is never a notification.
 waiting on the user, `failure` means it broke and you stopped. Without a level,
 or with a level the user switched off, the notification is filed in the bell and
 never alerts. Name the level that is true; whether it interrupts is the user's setting, not yours.
+An escalation may ask rather than announce: repeat `--choice "Label"` once per option (no cap) and the tapped label returns to the tab that asked; blank and duplicate labels are refused.
