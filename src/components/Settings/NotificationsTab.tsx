@@ -1,10 +1,36 @@
+import { useEffect, useState } from "react";
 import { Bell } from "lucide-react";
+import { invoke } from "../../lib/bridge";
 import type { AppConfig } from "../../lib/types";
+import type { PushChannelDescriptor } from "../../lib/notifyDestinations";
 import { ProviderNotifications } from "./ProviderNotifications";
 import { NotificationDestinations } from "./NotificationDestinations";
 import { NotificationSurfaces } from "./NotificationSurfaces";
-import { TelegramNotifications } from "./TelegramNotifications";
+import { PushChannelSettings } from "./PushChannelSettings";
 import { SettingsCard, Toggle } from "./shared";
+
+/** The daemon's channel registry. A roster it cannot answer for is empty
+ *  rather than guessed at: the grid then draws its two local surfaces, which
+ *  is honest about what this build could resolve. */
+export function usePushChannels(): PushChannelDescriptor[] {
+  const [channels, setChannels] = useState<PushChannelDescriptor[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    invoke<{ channels?: PushChannelDescriptor[] }>("push_channel_roster")
+      .then((roster) => {
+        if (!cancelled) setChannels(roster?.channels ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setChannels([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return channels;
+}
 
 export function NotificationsOverview({
   config,
@@ -15,6 +41,8 @@ export function NotificationsOverview({
   onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void;
   onUpdateFullConfig: (next: AppConfig) => void;
 }) {
+  const channels = usePushChannels();
+
   return (
     <div className="flex flex-col gap-5" data-testid="settings-notifications-overview">
       <SettingsCard
@@ -35,9 +63,9 @@ export function NotificationsOverview({
         <h4 className="text-[var(--ct-muted-fg)] text-xs font-medium pt-1">
           Where each level may go
         </h4>
-        <NotificationDestinations config={config} onUpdate={onUpdate} />
+        <NotificationDestinations config={config} channels={channels} onUpdate={onUpdate} />
 
-        <TelegramNotifications config={config} onUpdate={onUpdate} />
+        <PushChannelSettings channels={channels} config={config} onUpdate={onUpdate} />
 
         <ProviderNotifications
           fullConfig={config}

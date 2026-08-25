@@ -555,8 +555,14 @@ fn telegram_marker_carries_reply_route() {
 #[test]
 fn unsupported_bridge_service_is_rejected() {
     assert_eq!(ensure_supported_service("telegram"), Ok(()));
+    // Registered, but this build has no transport for it: the refusal names
+    // that rather than claiming the service does not exist.
     assert_eq!(
         ensure_supported_service("discord"),
+        Err("service has no outbound transport in this build")
+    );
+    assert_eq!(
+        ensure_supported_service("a-service-nobody-registered"),
         Err("service unsupported")
     );
 }

@@ -3,6 +3,7 @@ mod action_provenance;
 pub mod answer;
 pub mod answer_delivery;
 pub mod bell;
+pub mod channels;
 pub mod dedupe;
 pub mod desktop;
 pub mod push;
@@ -42,13 +43,15 @@ pub fn notify(
     ))
 }
 
-/// Whether the Telegram push opt-in may be offered in settings at all.
+/// The push channels this build registers, and whether each one's own controls
+/// may be offered in settings. The grid's channel columns come from here, so a
+/// channel the registry gains appears without anyone editing a column list.
 #[tauri::command]
-pub fn telegram_push_gate(
+pub fn push_channel_roster(
     svc: State<'_, crate::service::ServiceState>,
 ) -> Result<serde_json::Value, String> {
     Ok(serde_json::json!({
-        "control_available": svc.telegram_push_control_available(),
+        "channels": crate::api::notification_routes::render_channel_standings(svc.inner()),
     }))
 }
 

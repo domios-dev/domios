@@ -24,7 +24,8 @@ export function defaultConfig(): AppConfig {
     toast_duration: 5,
     // The bell has always been drawn; until the daemon answers, it stays drawn.
     show_bell: true,
-    telegram: { enabled: false, recipients: [], per_scope_limit: 12 },
+    // The daemon owns which channels exist; until it answers there are none.
+    channels: {},
     // The daemon owns the level set; until it answers there is nothing to
     // claim the user controls.
     agent_levels: [],

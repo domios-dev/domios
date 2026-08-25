@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use serde::{Deserialize, Serialize};
 
@@ -256,7 +256,10 @@ pub struct NotificationConfig {
     /// off hides the indicator while every record is still kept, which is why
     /// it stays distinguishable from every row having its bell column off.
     pub show_bell: bool,
-    pub telegram: TelegramNotifyConfig,
+    /// Per-channel push opt-in, keyed by the channel's service id. Core keeps
+    /// the map and never a channel's name; a channel whose audience lives in
+    /// its own integration config simply has no entry here.
+    pub channels: BTreeMap<String, PushChannelConfig>,
     /// One row per level of the shared set, each naming where that level may
     /// go. An agent notification naming no level stays in the bell.
     pub agent_levels: Vec<AgentLevelChoice>,
@@ -269,7 +272,7 @@ impl Default for NotificationConfig {
             sound: false,
             toast_duration: 5,
             show_bell: true,
-            telegram: TelegramNotifyConfig::default(),
+            channels: BTreeMap::new(),
             agent_levels: default_agent_levels(),
         }
     }
@@ -285,52 +288,61 @@ pub struct AgentLevelChoice {
     pub bell: bool,
     #[serde(default = "routed_by_default")]
     pub desktop: bool,
-    #[serde(default = "routed_by_default")]
-    pub telegram: bool,
+    /// One flag per push channel, keyed by the channel's service id. Flattened,
+    /// so a row keeps the exact shape it had when a channel was a named field,
+    /// and a channel the registry gains needs no migration to become a column.
+    #[serde(flatten)]
+    pub channels: BTreeMap<String, bool>,
 }
 
 /// An absent column is today's behaviour: every destination the surrounding
 /// switches already allowed stays allowed, so a config that never named the
-/// grid reads exactly as it did before the grid existed.
+/// grid reads exactly as it did before the grid existed. A channel key absent
+/// from a row reads the same way, which is what makes a new channel arrive
+/// open instead of silently closed.
 fn routed_by_default() -> bool {
     true
 }
 
 impl AgentLevelChoice {
     /// All destinations open, which is what an install that never opened the
-    /// panel has always done.
+    /// panel has always done. No channel is listed: absent is open.
     pub fn open(level: &str) -> Self {
         Self {
             level: level.to_string(),
             bell: true,
             desktop: true,
-            telegram: true,
+            channels: BTreeMap::new(),
         }
     }
 
-    /// Dispatch over the closed destination set, so no caller restates the
-    /// columns to read one.
-    pub fn allows(&self, destination: NotifyDestination) -> bool {
+    /// Read one column. The two local surfaces are fields; a channel is a
+    /// keyed lookup, so no arm here spells a channel's name.
+    pub fn allows(&self, destination: NotifyDestination<'_>) -> bool {
         match destination {
             NotifyDestination::Bell => self.bell,
             NotifyDestination::Desktop => self.desktop,
-            NotifyDestination::Telegram => self.telegram,
+            NotifyDestination::Channel(service) => {
+                self.channels.get(service).copied().unwrap_or_else(routed_by_default)
+            }
         }
     }
 
-    pub fn set(&mut self, destination: NotifyDestination, routed: bool) {
+    pub fn set(&mut self, destination: NotifyDestination<'_>, routed: bool) {
         match destination {
             NotifyDestination::Bell => self.bell = routed,
             NotifyDestination::Desktop => self.desktop = routed,
-            NotifyDestination::Telegram => self.telegram = routed,
+            NotifyDestination::Channel(service) => {
+                self.channels.insert(service.to_string(), routed);
+            }
         }
     }
 
-    /// A level that reaches nothing. Valid, never a validation error.
-    pub fn reaches_nothing(&self) -> bool {
-        NotifyDestination::ALL
-            .into_iter()
-            .all(|destination| !self.allows(destination))
+    /// A level that reaches nothing. Valid, never a validation error. The
+    /// caller supplies the resolved columns, because which channels exist is
+    /// the registry's answer and not this row's.
+    pub fn reaches_nothing(&self, columns: &[NotifyDestination<'_>]) -> bool {
+        columns.iter().all(|column| !self.allows(*column))
     }
 }
 
@@ -368,11 +380,12 @@ fn default_per_scope_limit() -> u32 {
     12
 }
 
-/// Opt-in push channel. `recipients` is an audience and is deliberately not
-/// `integrations.telegram_allowed_users`, which is an inbound admission list.
+/// One channel's opt-in push audience, keyed in `notifications.channels` by
+/// the channel's service id. `recipients` is an audience and is deliberately
+/// not an integration's allow list, which admits inbound senders instead.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-pub struct TelegramNotifyConfig {
+pub struct PushChannelConfig {
     pub enabled: bool,
     #[serde(deserialize_with = "deserialize_user_id_list")]
     pub recipients: Vec<String>,
@@ -381,7 +394,7 @@ pub struct TelegramNotifyConfig {
     pub per_scope_limit: u32,
 }
 
-impl Default for TelegramNotifyConfig {
+impl Default for PushChannelConfig {
     fn default() -> Self {
         Self {
             enabled: false,
