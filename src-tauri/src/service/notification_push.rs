@@ -1,149 +1,223 @@
-//! Telegram push sink and the daemon-side policy that gates it.
+//! Where a levelled notification is routed, and the daemon-side policy that
+//! decides it.
+//!
+//! The push side is a registry: the grid's channel columns, the routing, and
+//! the delivery all resolve a channel by service id. Nothing here names one.
 
 use super::notification::{PushEnvelope, PushIntent};
 use super::ServiceContext;
 use crate::bridge::manager::OutboundMessage;
-use crate::bridge::traits::OutboundContent;
-use crate::notification::push;
-use codeterm_types::config::schema::NotificationConfig;
+use crate::notification::channels::{
+    self, Audience, ChannelHost, ChannelReadiness, PushChannel, RegisteredChannel,
+};
+use codeterm_types::config::schema::AppConfig;
 use codeterm_types::notification::{NotifyDestination, NotifyLevel};
 
-/// A caller that named no level never reached the channel and still does not.
-/// A level with no readable row is refused rather than widened into a pass.
-fn routed_to_telegram(cfg: &NotificationConfig, declared: Option<NotifyLevel>) -> bool {
-    let Some(level) = declared else {
-        return false;
-    };
-    cfg.agent_levels
-        .iter()
-        .filter(|row| NotifyLevel::parse(&row.level) == Some(level))
-        .any(|row| row.allows(NotifyDestination::Telegram))
+/// One channel this notification is actually going to, with the audience that
+/// channel resolved for it.
+pub(crate) struct PushTarget {
+    pub service: &'static str,
+    pub channel: &'static dyn PushChannel,
+    pub audience: Audience,
 }
 
-impl ServiceContext {
-    /// Resolve the opt-in. Without an audience the category is dropped, so an
-    /// install that never opted in takes exactly the pre-existing code path.
-    pub(crate) fn resolve_push_policy(&self, intent: PushIntent) -> (PushIntent, u32, Vec<i64>) {
-        let notifications = crate::config::load_config().notifications;
-        let audience = push::resolve_audience(&notifications.telegram);
-        if audience.is_empty() {
-            return (PushIntent::default(), 0, audience);
+/// A channel the level was routed to that cannot carry it right now. Kept
+/// rather than dropped: a refusal is reported, never absorbed into silence.
+pub(crate) struct PushRefusal {
+    pub service: String,
+    pub reason: String,
+}
+
+/// The daemon's whole answer for one notification's push leg.
+pub(crate) struct PushPlan {
+    pub intent: PushIntent,
+    pub per_scope_limit: u32,
+    pub targets: Vec<PushTarget>,
+    pub refusals: Vec<PushRefusal>,
+}
+
+impl PushPlan {
+    /// Nothing was routed anywhere. Byte-identical to the path an install with
+    /// no opt-in has always taken.
+    fn inert() -> Self {
+        Self {
+            intent: PushIntent::default(),
+            per_scope_limit: 0,
+            targets: Vec::new(),
+            refusals: Vec::new(),
         }
-        // The grid's Telegram column is the same standing answer the bell and
-        // the toast read: a level routed away from Telegram clears its intent,
-        // which is exactly the code path an install with no audience takes.
-        if !routed_to_telegram(&notifications, intent.level) {
-            return (PushIntent::default(), 0, Vec::new());
-        }
-        (intent, notifications.telegram.per_scope_limit, audience)
     }
 
-    /// Best-effort fan to the explicit audience. Every send names its chat id:
-    /// `user_id: None` would fall back to the bridge's last speaker.
-    pub(crate) fn deliver_telegram_push(
-        &self,
-        audience: &[i64],
-        envelope: &PushEnvelope,
-    ) -> Result<(), String> {
-        if audience.is_empty() {
-            return Err("no explicit recipients configured".to_string());
+    fn reaches_nothing(&self) -> bool {
+        self.targets.is_empty() && self.refusals.is_empty()
+    }
+}
+
+/// Resolve a level's routing against the registry. Pure: it reads config and
+/// the roster, and asks each channel about itself.
+pub(crate) fn plan_push(
+    cfg: &AppConfig,
+    roster: &[RegisteredChannel],
+    host: &dyn ChannelHost,
+    intent: PushIntent,
+) -> PushPlan {
+    // A caller that named no level never reached a channel and still does not.
+    let Some(level) = intent.level else {
+        return PushPlan::inert();
+    };
+    // A level with no readable row is refused rather than widened into a pass.
+    let Some(row) = cfg
+        .notifications
+        .agent_levels
+        .iter()
+        .find(|row| NotifyLevel::parse(&row.level) == Some(level))
+    else {
+        return PushPlan::inert();
+    };
+
+    let mut targets = Vec::new();
+    let mut refusals = Vec::new();
+    for registered in roster {
+        if !row.allows(NotifyDestination::Channel(registered.id())) {
+            continue;
+        }
+        match registered.channel.readiness(cfg, host) {
+            // The user never opted in here: nothing was routed, so nothing is
+            // lost and there is nothing to report.
+            ChannelReadiness::OptedOut => {}
+            ChannelReadiness::Unavailable(reason) => refusals.push(PushRefusal {
+                service: registered.id().to_string(),
+                reason,
+            }),
+            ChannelReadiness::Ready(audience) => targets.push(PushTarget {
+                service: registered.id(),
+                channel: registered.channel,
+                audience,
+            }),
+        }
+    }
+
+    // A stored column naming a channel this build cannot resolve. The user
+    // turned that column on deliberately, so it is reported rather than
+    // quietly skipped into nothing.
+    for (service, _) in row.channels.iter().filter(|(_, routed)| **routed) {
+        if let Err(reason) = channels::resolve_in(roster, service) {
+            refusals.push(PushRefusal {
+                service: service.clone(),
+                reason,
+            });
+        }
+    }
+
+    let per_scope_limit = targets
+        .iter()
+        .map(|target| target.channel.per_scope_limit(cfg))
+        .max()
+        .unwrap_or(0);
+
+    let plan = PushPlan {
+        intent,
+        per_scope_limit,
+        targets,
+        refusals,
+    };
+    if plan.reaches_nothing() {
+        return PushPlan::inert();
+    }
+    plan
+}
+
+/// Fan one rendered push to every resolved target. A refusal recorded at plan
+/// time counts as a failure here, so a level routed to a channel that cannot
+/// carry it degrades into a reported failure rather than into nothing.
+pub(crate) fn deliver_plan(
+    targets: &[PushTarget],
+    refusals: &[PushRefusal],
+    host: &dyn ChannelHost,
+    envelope: &PushEnvelope,
+) -> Result<(), String> {
+    let mut failures: Vec<String> = refusals
+        .iter()
+        .map(|refusal| format!("{}: {}", refusal.service, refusal.reason))
+        .collect();
+
+    for target in targets {
+        if let Err(reason) = target
+            .channel
+            .deliver(host, &target.audience, &envelope.text)
+        {
+            failures.push(format!("{}: {reason}", target.service));
+        }
+    }
+
+    if failures.is_empty() {
+        return Ok(());
+    }
+    Err(failures.join("; "))
+}
+
+/// One channel's standing in the settings surface.
+pub(crate) struct ChannelStanding {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub control_available: bool,
+}
+
+impl ChannelHost for ServiceContext {
+    /// Only a service the roster says this build can send on, and only while
+    /// the bridge is actually carrying traffic. A registered service with no
+    /// transport answers honestly instead of looking live.
+    fn service_ready(&self, service: &str) -> bool {
+        codeterm_bridge::services::find(service).is_some_and(|descriptor| descriptor.outbound)
+            && self.bridge_supervisor.is_active()
+    }
+
+    fn enqueue(&self, service: &str, message: OutboundMessage) -> Result<(), String> {
+        let Some(descriptor) = codeterm_bridge::services::find(service) else {
+            return Err(format!("unknown service '{service}'"));
+        };
+        if !descriptor.outbound {
+            return Err(format!(
+                "this build carries no outbound transport for {service}"
+            ));
         }
         if !self.bridge_supervisor.is_active() {
-            return Err("telegram bridge is not active".to_string());
+            return Err(format!("the {service} bridge is not active"));
         }
         let outbound = self.bridge_outbound.lock();
         let Some(tx) = outbound.as_ref() else {
-            return Err("telegram outbound channel is closed".to_string());
+            return Err(format!("the {service} outbound channel is closed"));
         };
+        tx.send(message)
+            .map_err(|_| format!("the {service} outbound channel rejected the message"))
+    }
+}
 
-        let rejected = audience
-            .iter()
-            .filter(|chat_id| {
-                tx.send(OutboundMessage {
-                    user_id: Some(**chat_id),
-                    content: OutboundContent::Text {
-                        text: envelope.text.clone(),
-                    },
-                    append: false,
-                    buttons: None,
-                })
-                .is_err()
-            })
-            .count();
-
-        if rejected > 0 {
-            return Err(format!(
-                "{rejected}/{} telegram sends rejected for {}",
-                audience.len(),
-                envelope.level.as_str()
-            ));
-        }
-        Ok(())
+impl ServiceContext {
+    /// Resolve the opt-in for one notification. Without a routed, reachable
+    /// channel the category is dropped, so an install that never opted in takes
+    /// exactly the pre-existing code path.
+    pub(crate) fn resolve_push_plan(&self, intent: PushIntent) -> PushPlan {
+        let cfg = crate::config::load_config();
+        plan_push(&cfg, &channels::roster(), self, intent)
     }
 
-    /// UI affordance gate: a live bridge plus a non-empty inbound allow list.
-    pub fn telegram_push_control_available(&self) -> bool {
-        let allow_list_len = crate::config::load_config()
-            .integrations
-            .telegram_allowed_users
-            .len();
-        push::control_available(self.bridge_supervisor.is_active(), allow_list_len)
+    /// What settings may offer per channel, in roster order.
+    pub(crate) fn push_channel_standings(&self) -> Vec<ChannelStanding> {
+        let cfg = crate::config::load_config();
+        channels::roster()
+            .into_iter()
+            .map(|registered| ChannelStanding {
+                id: registered.id(),
+                label: registered.label(),
+                control_available: registered.channel.control_available(&cfg, self),
+            })
+            .collect()
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use codeterm_types::config::schema::AgentLevelChoice;
+mod tests;
 
-    fn config_routing(level: NotifyLevel, telegram: bool) -> NotificationConfig {
-        NotificationConfig {
-            agent_levels: NotifyLevel::ALL
-                .into_iter()
-                .map(|candidate| {
-                    let mut row = AgentLevelChoice::open(candidate.as_str());
-                    if candidate == level {
-                        row.set(NotifyDestination::Telegram, telegram);
-                    }
-                    row
-                })
-                .collect(),
-            ..NotificationConfig::default()
-        }
-    }
-
-    #[test]
-    fn notification_settings_telegram_column_gates_only_its_own_level() {
-        let cfg = config_routing(NotifyLevel::Verbose, false);
-        assert!(!routed_to_telegram(&cfg, Some(NotifyLevel::Verbose)));
-        assert!(routed_to_telegram(&cfg, Some(NotifyLevel::ActionNeeded)));
-        assert!(routed_to_telegram(&cfg, Some(NotifyLevel::Failure)));
-    }
-
-    #[test]
-    fn notification_settings_absent_grid_routes_every_level_to_telegram() {
-        let cfg = NotificationConfig::default();
-        for level in NotifyLevel::ALL {
-            assert!(
-                routed_to_telegram(&cfg, Some(level)),
-                "{} reached an opted-in audience before the grid existed",
-                level.as_str()
-            );
-        }
-        assert!(
-            !routed_to_telegram(&cfg, None),
-            "naming no level never reached the channel"
-        );
-    }
-
-    #[test]
-    fn notification_settings_level_with_no_readable_row_is_refused() {
-        let cfg = NotificationConfig {
-            agent_levels: vec![AgentLevelChoice::open("milestone")],
-            ..NotificationConfig::default()
-        };
-        for level in NotifyLevel::ALL {
-            assert!(!routed_to_telegram(&cfg, Some(level)));
-        }
-    }
-}
+#[cfg(test)]
+mod delivery_tests;

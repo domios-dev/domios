@@ -1,34 +1,17 @@
-import { useEffect, useState } from "react";
-import { invoke } from "../../lib/bridge";
-import type { AppConfig, TelegramNotifyConfig } from "../../lib/types";
+import { useState } from "react";
+import type { AppConfig } from "../../lib/types";
+import { channelAudience, channelPatch, parseRecipients } from "../../lib/pushChannels";
 import { Toggle } from "./shared";
 
-export function parseRecipients(text: string): string[] {
-  return text
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-}
-
-export function telegramPatch(
-  current: TelegramNotifyConfig | undefined,
-  next: Partial<TelegramNotifyConfig>,
-): { telegram: TelegramNotifyConfig } {
-  return {
-    telegram: {
-      enabled: current?.enabled ?? false,
-      recipients: current?.recipients ?? [],
-      per_scope_limit: current?.per_scope_limit ?? 12,
-      ...next,
-    },
-  };
-}
+/** The service id this editor belongs to, and the same id the daemon's registry
+ *  and `codeterm bridge send --service` use. */
+export const TELEGRAM_CHANNEL_ID = "telegram";
 
 /**
- * Opt-in Telegram push for agent notifications.
+ * Telegram's own push settings.
  *
- * The control renders only when the daemon says a push could physically be
- * carried: a live bridge supervisor AND a non-empty inbound allow list. The
+ * Whether this renders at all is the registry's answer, not this component's:
+ * it is mounted only for a channel the daemon reported as offerable. The
  * recipient list here is an audience and is deliberately separate from
  * `integrations.telegram_allowed_users`, which admits inbound senders.
  */
@@ -39,37 +22,23 @@ export function TelegramNotifications({
   config: AppConfig;
   onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void;
 }) {
-  const telegram = config.notifications?.telegram;
-  const [controlAvailable, setControlAvailable] = useState(false);
-  const [recipientsText, setRecipientsText] = useState((telegram?.recipients ?? []).join(", "));
+  const audience = channelAudience(config, TELEGRAM_CHANNEL_ID);
+  const [recipientsText, setRecipientsText] = useState((audience?.recipients ?? []).join(", "));
 
-  useEffect(() => {
-    let cancelled = false;
-    invoke<{ control_available?: boolean }>("telegram_push_gate")
-      .then((gate) => {
-        if (!cancelled) setControlAvailable(Boolean(gate?.control_available));
-      })
-      .catch(() => {
-        if (!cancelled) setControlAvailable(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  if (!controlAvailable) return null;
-
-  const patch = (next: Partial<TelegramNotifyConfig>) =>
-    onUpdate("notifications", telegramPatch(telegram, next));
+  const patch = (next: Parameters<typeof channelPatch>[2]) =>
+    onUpdate(
+      "notifications",
+      channelPatch(config.notifications?.channels, TELEGRAM_CHANNEL_ID, next),
+    );
 
   return (
     <div className="flex flex-col gap-2" data-testid="settings-telegram-notifications">
       <Toggle
         label="Send agent alerts to Telegram"
-        checked={telegram?.enabled ?? false}
+        checked={audience?.enabled ?? false}
         onChange={(value) => patch({ enabled: value })}
       />
-      {telegram?.enabled && (
+      {audience?.enabled && (
         <>
           <div className="space-y-1">
             <label

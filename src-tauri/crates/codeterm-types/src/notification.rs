@@ -343,52 +343,69 @@ impl AnswerSlot {
     }
 }
 
-/// Where a notification may go. The user answers this per level, so the pair
-/// (level, destination) is the whole routing decision and neither axis is
-/// restated anywhere else.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum NotifyDestination {
+/// Where a notification may go. `Bell` and `Desktop` are surfaces this app
+/// draws itself, so they are named here. A push channel is carried as the
+/// service id a registry resolved: core routes to it without ever holding a
+/// variant, a constant, or a match arm that spells one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum NotifyDestination<'a> {
     /// The in-app indicator and its panel.
     Bell,
     /// The OS notification centre.
     Desktop,
-    /// The opt-in Telegram push channel.
-    Telegram,
+    /// A resolved push channel, addressed by the same service id
+    /// `codeterm bridge send --service <id>` takes.
+    Channel(&'a str),
 }
 
-impl NotifyDestination {
-    /// The whole set, in column order. Every list of destinations anywhere
-    /// derives from this constant instead of restating it.
-    pub const ALL: [Self; 3] = [Self::Bell, Self::Desktop, Self::Telegram];
+impl<'a> NotifyDestination<'a> {
+    /// The surfaces this app draws itself, in column order. Push channels are
+    /// deliberately absent: there is no closed set of them to state here.
+    pub const LOCAL: [Self; 2] = [Self::Bell, Self::Desktop];
 
-    /// Unknown input is a rejection, never a pass-through string.
-    pub fn parse(raw: &str) -> Option<Self> {
+    /// A local surface by wire value. A name that is not a surface is *not*
+    /// widened into a channel: core has no roster to check it against, so
+    /// claiming to know it would be a guess.
+    pub fn parse_local(raw: &str) -> Option<Self> {
         let raw = raw.trim();
-        Self::ALL.into_iter().find(|known| known.as_str() == raw)
+        Self::LOCAL.into_iter().find(|known| known.as_str() == raw)
     }
 
-    pub fn as_str(self) -> &'static str {
+    pub fn as_str(self) -> &'a str {
         match self {
             Self::Bell => "bell",
             Self::Desktop => "desktop",
-            Self::Telegram => "telegram",
+            Self::Channel(service) => service,
         }
     }
 
-    /// Human-facing copy for the settings column. Exhaustive over the set, so
-    /// a destination added later cannot ship without a name.
-    pub fn label(self) -> &'static str {
+    /// Human-facing copy for the two surfaces core owns. A channel's column
+    /// name belongs to its registry entry, which is the only thing that knows
+    /// it, so this answers `None` rather than inventing one.
+    pub fn local_label(self) -> Option<&'static str> {
         match self {
-            Self::Bell => "Ring the bell",
-            Self::Desktop => "System notification",
-            Self::Telegram => "Telegram",
+            Self::Bell => Some("Ring the bell"),
+            Self::Desktop => Some("System notification"),
+            Self::Channel(_) => None,
         }
     }
 
-    /// Wire values of the whole set, derived rather than restated.
-    pub fn wire_values() -> Vec<&'static str> {
-        Self::ALL.into_iter().map(Self::as_str).collect()
+    pub fn is_channel(self) -> bool {
+        matches!(self, Self::Channel(_))
+    }
+
+    /// The grid's columns: the local surfaces first, then whichever channels
+    /// the caller resolved. Nothing here knows how many there are.
+    pub fn columns(channels: impl IntoIterator<Item = &'a str>) -> Vec<Self> {
+        Self::LOCAL
+            .into_iter()
+            .chain(channels.into_iter().map(Self::Channel))
+            .collect()
+    }
+
+    /// Wire values of a resolved column set, derived rather than restated.
+    pub fn wire_values(columns: &[Self]) -> Vec<&'a str> {
+        columns.iter().map(|column| column.as_str()).collect()
     }
 }
 
@@ -462,62 +479,67 @@ mod tests {
     }
 
     #[test]
-    fn notification_settings_destination_all_is_the_single_source_of_the_columns() {
-        assert_eq!(NotifyDestination::ALL.len(), 3);
+    fn notification_settings_local_surfaces_are_the_only_named_columns() {
+        assert_eq!(NotifyDestination::LOCAL.len(), 2);
+        for surface in NotifyDestination::LOCAL {
+            assert!(!surface.is_channel(), "a local surface is not a channel");
+            assert_eq!(NotifyDestination::parse_local(surface.as_str()), Some(surface));
+            assert!(
+                surface.local_label().is_some_and(|copy| !copy.trim().is_empty()),
+                "{} needs user-facing copy for its column",
+                surface.as_str()
+            );
+        }
+        // A channel name is not a surface, and core refuses to guess at one
+        // rather than widening the parse into a pass-through.
+        for outside in ["toast", "sound", "", "   ", "Bell", "email"] {
+            assert_eq!(NotifyDestination::parse_local(outside), None);
+        }
+    }
+
+    /// Core carries a channel it was handed and can neither name nor caption
+    /// it. That is the whole point: the roster decides membership.
+    #[test]
+    fn notification_settings_a_channel_column_is_carried_never_named() {
+        let invented = "a-service-core-has-never-heard-of";
+        let column = NotifyDestination::Channel(invented);
+        assert!(column.is_channel());
+        assert_eq!(column.as_str(), invented);
         assert_eq!(
-            NotifyDestination::wire_values(),
-            NotifyDestination::ALL
-                .into_iter()
-                .map(NotifyDestination::as_str)
-                .collect::<Vec<_>>()
+            column.local_label(),
+            None,
+            "core has no copy for a channel; its registry entry owns that"
+        );
+        assert_eq!(
+            NotifyDestination::parse_local(invented),
+            None,
+            "resolving a channel is the registry's job, not a parse in core"
+        );
+    }
+
+    #[test]
+    fn notification_settings_grid_is_the_product_of_the_level_set_and_the_columns() {
+        let resolved = ["one-channel", "another-channel"];
+        let columns = NotifyDestination::columns(resolved);
+        assert_eq!(columns.len(), NotifyDestination::LOCAL.len() + resolved.len());
+        assert_eq!(
+            NotifyDestination::wire_values(&columns),
+            columns.iter().map(|c| c.as_str()).collect::<Vec<_>>()
         );
         let distinct: std::collections::HashSet<&str> =
-            NotifyDestination::wire_values().into_iter().collect();
-        assert_eq!(
-            distinct.len(),
-            NotifyDestination::ALL.len(),
-            "destination wire values collide"
-        );
-    }
+            NotifyDestination::wire_values(&columns).into_iter().collect();
+        assert_eq!(distinct.len(), columns.len(), "a column wire value collides");
 
-    #[test]
-    fn notification_settings_destination_round_trips_and_rejects_unknown_input() {
-        for destination in NotifyDestination::ALL {
-            assert_eq!(
-                NotifyDestination::parse(destination.as_str()),
-                Some(destination)
-            );
-            assert!(
-                !destination.label().trim().is_empty(),
-                "{} needs user-facing copy for its column",
-                destination.as_str()
-            );
-        }
-        for rejected in ["toast", "sound", "", "   ", "Bell", "email"] {
-            assert_eq!(
-                NotifyDestination::parse(rejected),
-                None,
-                "{rejected} is outside the closed destination set"
-            );
-        }
-    }
-
-    #[test]
-    fn notification_settings_grid_is_the_product_of_the_two_closed_axes() {
-        let cells: Vec<(NotifyLevel, NotifyDestination)> = NotifyLevel::ALL
+        let cells: Vec<(NotifyLevel, NotifyDestination<'_>)> = NotifyLevel::ALL
             .into_iter()
-            .flat_map(|level| {
-                NotifyDestination::ALL
-                    .into_iter()
-                    .map(move |destination| (level, destination))
-            })
+            .flat_map(|level| columns.iter().map(move |column| (level, *column)))
             .collect();
         assert_eq!(
             cells.len(),
-            NotifyLevel::ALL.len() * NotifyDestination::ALL.len(),
-            "the grid is ALL x ALL, never a hand-written cell list"
+            NotifyLevel::ALL.len() * columns.len(),
+            "the grid is levels x resolved columns, never a hand-written cell list"
         );
-        let distinct: std::collections::HashSet<(NotifyLevel, NotifyDestination)> =
+        let distinct: std::collections::HashSet<(NotifyLevel, NotifyDestination<'_>)> =
             cells.iter().copied().collect();
         assert_eq!(distinct.len(), cells.len(), "a cell is named twice");
     }

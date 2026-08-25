@@ -100,13 +100,31 @@ pub async fn create_notification(
     Ok(Json(serde_json::json!({"id": id})))
 }
 
-pub async fn telegram_push_gate(
+/// One row per registered push channel: its service id, its column caption,
+/// and whether its own controls may be offered. Rendered once so the Tauri
+/// command and the REST route cannot describe the roster differently.
+pub fn render_channel_standings(svc: &crate::service::ServiceState) -> serde_json::Value {
+    serde_json::Value::Array(
+        svc.push_channel_standings()
+            .into_iter()
+            .map(|standing| {
+                serde_json::json!({
+                    "id": standing.id,
+                    "label": standing.label,
+                    "control_available": standing.control_available,
+                })
+            })
+            .collect(),
+    )
+}
+
+pub async fn push_channel_roster(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     Ok(Json(serde_json::json!({
-        "control_available": state.svc.telegram_push_control_available(),
+        "channels": render_channel_standings(&state.svc),
     })))
 }
 
