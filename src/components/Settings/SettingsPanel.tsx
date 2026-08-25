@@ -22,6 +22,7 @@ import { KeybindGroup } from "./KeybindGroup";
 import { UpdateSection } from "./UpdateSection";
 import { ShellDiagnosticsBanner } from "./ShellDiagnosticsBanner";
 import { AgentsOverview, AgentProviderScreen } from "./AgentsTab";
+import { NotificationsOverview } from "./NotificationsTab";
 import { IntegrationsTab } from "./IntegrationsTab";
 import { SecretsTab } from "./SecretsTab";
 import { LogsTab } from "./LogsTab";
@@ -40,7 +41,7 @@ interface SettingsPanelProps {
   config: AppConfig;
   onUpdateConfig: (config: AppConfig) => Promise<void>;
   onClose: () => void;
-  initialSection?: SectionId | "notifications";
+  initialSection?: SectionId;
   initialHelpSection?: HelpSectionId;
 }
 
@@ -408,16 +409,25 @@ export function SettingsPanel({
               </SettingsPage>
             )}
 
-            {top.kind === "section" && top.id === "agents" && (
-              <SettingsPage title="Agents" subtitle="General Agent, notifications, and per-provider configuration.">
-                <AgentsOverview
+            {top.kind === "section" && top.id === "notifications" && (
+              <SettingsPage title="Notifications" subtitle="The bell, desktop alerts, sound, and where each level may go.">
+                <NotificationsOverview
                   config={localConfig}
                   onUpdate={(section, patch) => update(section, patch)}
-                  onOpenProvider={(providerId) => push({ kind: "agent-provider", providerId })}
                   onUpdateFullConfig={(next) => {
                     setLocalConfig(next);
                     onUpdateConfig(next).catch(() => {});
                   }}
+                />
+              </SettingsPage>
+            )}
+
+            {top.kind === "section" && top.id === "agents" && (
+              <SettingsPage title="Agents" subtitle="General Agent, agent access, and per-provider configuration.">
+                <AgentsOverview
+                  config={localConfig}
+                  onUpdate={(section, patch) => update(section, patch)}
+                  onOpenProvider={(providerId) => push({ kind: "agent-provider", providerId })}
                 />
               </SettingsPage>
             )}
