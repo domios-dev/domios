@@ -27,6 +27,7 @@ import {
   pass,
   row,
   setupDom,
+  type AdmittedId,
   type UpdateCall,
 } from "./harness";
 
@@ -78,7 +79,7 @@ async function openingTheColumnPreselectsNobodyWhenSeveralAreConfigured() {
 /** Picking two of three stores those two, in the order they were offered. */
 async function theStoredAudienceIsExactlyWhatWasPicked() {
   let config = configWith({ levels: [row(LEVEL, true)] });
-  const picked = [ADMITTED[0], ADMITTED[2]];
+  const picked: readonly AdmittedId[] = [ADMITTED[0], ADMITTED[2]];
 
   for (const id of picked) {
     const updates: UpdateCall[] = [];
