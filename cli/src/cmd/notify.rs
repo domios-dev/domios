@@ -16,7 +16,16 @@ pub fn send_params(
             std::process::exit(1);
         })
     });
-    params_from_body(title, severity, level, event_key, body, choices).unwrap_or_else(|e| {
+    params_from_body(
+        title,
+        severity,
+        level,
+        event_key,
+        body,
+        choices,
+        crate::nonempty_env("CODETERM_TAB_ID").as_deref(),
+    )
+    .unwrap_or_else(|e| {
         eprintln!("Error: {e}");
         std::process::exit(1);
     })
@@ -38,6 +47,7 @@ fn params_from_body(
     event_key: Option<&str>,
     body: Option<String>,
     choices: &[String],
+    caller_tab_id: Option<&str>,
 ) -> Result<serde_json::Value, String> {
     let mut params = serde_json::json!({ "title": title, "severity": severity });
     if let Some(body) = body {
@@ -52,6 +62,13 @@ fn params_from_body(
     if let Some(actions) = choice_actions(choices)? {
         params["actions"] = serde_json::to_value(actions)
             .map_err(|e| format!("choices are not serializable: {e}"))?;
+        // The answer goes back to the tab that asked, and the daemon records that
+        // tab when the notification is created — so a question sent without it
+        // renders its buttons and has nowhere to deliver the tap. Every other
+        // tab-scoped CLI command already attaches this; notify did not.
+        if let Some(tab_id) = caller_tab_id {
+            params["caller_tab_id"] = serde_json::Value::String(tab_id.to_string());
+        }
     }
     Ok(params)
 }

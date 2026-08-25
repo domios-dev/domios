@@ -39,20 +39,19 @@ pub(super) fn dispatch(
             };
             // The CLI reaches the daemon here, so `--choice` is parsed on this
             // path too, into the caller-facing set that has no invoke variant.
-            let actions =
-                match params.as_ref().and_then(|p| p.get("actions")) {
-                    None | Some(Value::Null) => None,
-                    Some(raw) => Some(
-                        serde_json::from_value::<
-                            Vec<codeterm_types::notification::CallerAction>,
-                        >(raw.clone())
-                        .map_err(|e| JsonRpcError {
-                            code: -32602,
-                            message: format!("Invalid notification actions: {e}"),
-                            data: None,
-                        })?,
-                    ),
-                };
+            let actions = match params.as_ref().and_then(|p| p.get("actions")) {
+                None | Some(Value::Null) => None,
+                Some(raw) => Some(
+                    serde_json::from_value::<Vec<codeterm_types::notification::CallerAction>>(
+                        raw.clone(),
+                    )
+                    .map_err(|e| JsonRpcError {
+                        code: -32602,
+                        message: format!("Invalid notification actions: {e}"),
+                        data: None,
+                    })?,
+                ),
+            };
             let actions =
                 crate::api::notification_routes::vet_actions(actions).map_err(|message| {
                     JsonRpcError {

@@ -23,8 +23,16 @@ fn notify_pad_body_round_trips_byte_for_byte() {
     fs::write(pad.join("message.md"), authored).unwrap();
 
     let body = read_from_pad_root(&pad, "message.md").expect("a pad-relative body resolves");
-    let params = params_from_body("Needs a decision", "warning", None, None, Some(body), &[])
-        .expect("a body with no choices is legal");
+    let params = params_from_body(
+        "Needs a decision",
+        "warning",
+        None,
+        None,
+        Some(body),
+        &[],
+        None,
+    )
+    .expect("a body with no choices is legal");
 
     assert_eq!(params["body"], serde_json::json!(authored));
     assert_eq!(params["title"], serde_json::json!("Needs a decision"));
@@ -59,6 +67,7 @@ fn notify_pad_body_absent_leaves_no_body_key() {
         None,
         None,
         &[],
+        None,
     )
     .expect("a title-only notification is legal");
     assert!(params.get("body").is_none());
@@ -77,6 +86,7 @@ fn notify_answer_choice_labels_round_trip_into_the_actions() {
         None,
         None,
         &labels(&["Rebase", "Merge", "Neither"]),
+        None,
     )
     .expect("distinct non-empty labels are a legal choice set");
 
@@ -113,7 +123,7 @@ fn notify_answer_choice_labels_round_trip_into_the_actions() {
 /// byte-for-byte what it was before choices existed.
 #[test]
 fn notify_answer_no_choice_leaves_no_actions_key() {
-    let params = params_from_body("Build complete", "info", None, None, None, &[])
+    let params = params_from_body("Build complete", "info", None, None, None, &[], None)
         .expect("a notification without choices is legal");
     assert!(params.get("actions").is_none());
     assert_eq!(choice_actions(&[]).unwrap(), None);
@@ -130,7 +140,7 @@ fn notify_answer_choice_refuses_blank_and_duplicate_labels() {
         labels(&["Rebase", " rebase "]),
     ] {
         assert!(
-            params_from_body("Which branch?", "info", None, None, None, &rejected).is_err(),
+            params_from_body("Which branch?", "info", None, None, None, &rejected, None).is_err(),
             "{rejected:?} must be refused before it is sent"
         );
         assert!(choice_actions(&rejected).is_err());
@@ -142,7 +152,7 @@ fn notify_answer_choice_refuses_blank_and_duplicate_labels() {
 #[test]
 fn notify_answer_choice_labels_are_carried_verbatim() {
     let awkward = labels(&["Yes, $NOW", "No `never`"]);
-    let params = params_from_body("Proceed?", "info", None, None, None, &awkward)
+    let params = params_from_body("Proceed?", "info", None, None, None, &awkward, None)
         .expect("punctuation is not a reason to refuse a label");
     let carried: Vec<String> = params["actions"]
         .as_array()
@@ -151,4 +161,40 @@ fn notify_answer_choice_labels_are_carried_verbatim() {
         .map(|action| action["label"].as_str().unwrap().to_string())
         .collect();
     assert_eq!(carried, awkward);
+}
+
+/// A question's answer travels back to the tab that asked, and the daemon records
+/// that tab from what the caller sent. Without it the buttons render and the tap
+/// has nowhere to go — the chat card never appears at all, because there is no
+/// tab to draw it in. Every other tab-scoped CLI command already attaches this.
+#[test]
+fn notify_answer_choices_carry_the_asking_tab() {
+    let params = params_from_body(
+        "Which branch?",
+        "info",
+        Some(NotifyLevel::ActionNeeded),
+        None,
+        None,
+        &labels(&["Rebase", "Merge"]),
+        Some("tab-7"),
+    )
+    .expect("a legal choice set");
+    assert_eq!(params["caller_tab_id"], serde_json::json!("tab-7"));
+}
+
+/// A notification that offers nothing to answer needs no return address, so it
+/// does not carry one — the field means "where an answer goes", not "who sent it".
+#[test]
+fn notify_without_choices_carries_no_asking_tab() {
+    let params = params_from_body(
+        "Build complete",
+        "info",
+        None,
+        None,
+        None,
+        &[],
+        Some("tab-7"),
+    )
+    .expect("a title-only notification is legal");
+    assert!(params.get("caller_tab_id").is_none());
 }
