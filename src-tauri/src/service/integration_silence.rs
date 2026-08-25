@@ -220,7 +220,9 @@ impl ServiceContext {
         match evaluate(provider_id, &facts) {
             LaunchVerdict::Registering => {
                 let condition = provider_integration_missing_condition(provider_id);
-                self.notif.lock().observe_condition_absent(MACHINE_SCOPE, &condition);
+                self.notif
+                    .lock()
+                    .observe_condition_absent(MACHINE_SCOPE, &condition);
             }
             LaunchVerdict::Unreadable => {
                 log::warn!(

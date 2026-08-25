@@ -202,7 +202,9 @@ fn integration_silence_unconsented_provider_announces_at_launch() {
     );
     assert_eq!(
         silence.remedy,
-        IntegrationRemedy::GrantConsentAndInstall { target: Some(FIXTURE_TARGET.to_string()) },
+        IntegrationRemedy::GrantConsentAndInstall {
+            target: Some(FIXTURE_TARGET.to_string())
+        },
         "the remedy names the consent-granting install path and the target the fixture supplied"
     );
     assert_eq!(silence.remedy.next_step(), IntegrationRemedy::INSTALL_PATH);
@@ -313,12 +315,18 @@ fn integration_silence_announcement_routes_through_the_level_destination_matrix(
     );
 
     assert_eq!(
-        bell::admit(Some(silence.level), &BellPolicy::from_config(&closed_config)),
+        bell::admit(
+            Some(silence.level),
+            &BellPolicy::from_config(&closed_config)
+        ),
         bell::BellAdmission::LevelDisabled(silence.level),
         "the refusal names the level, so the gate is the shipped one"
     );
     assert_eq!(
-        desktop::admit(Some(silence.level), &DesktopPolicy::from_config(&closed_config)),
+        desktop::admit(
+            Some(silence.level),
+            &DesktopPolicy::from_config(&closed_config)
+        ),
         desktop::DesktopAdmission::LevelDisabled(silence.level),
     );
 }
@@ -373,7 +381,9 @@ fn integration_silence_announces_on_transition_not_on_every_launch() {
         "fixture-other-provider",
     );
     assert_eq!(
-        store.lock().observe_condition_present(MACHINE_SCOPE, &other_condition),
+        store
+            .lock()
+            .observe_condition_present(MACHINE_SCOPE, &other_condition),
         ConditionTransition::Announce,
         "a different provider's gap is a different condition"
     );
@@ -416,7 +426,9 @@ fn integration_silence_keys_on_declared_capability_not_a_provider_id() {
     let (facts, _) = read_provider_facts(&registry, "fixture-gamma", true).unwrap();
     assert_eq!(
         silence_of(evaluate("fixture-gamma", &facts)).remedy,
-        IntegrationRemedy::ReinstallIntegration { target: Some(FIXTURE_TARGET.to_string()) },
+        IntegrationRemedy::ReinstallIntegration {
+            target: Some(FIXTURE_TARGET.to_string())
+        },
     );
 
     assert_eq!(
