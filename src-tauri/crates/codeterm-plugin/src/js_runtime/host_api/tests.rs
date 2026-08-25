@@ -793,3 +793,49 @@ fn host_install_idempotent_across_reload() {
     let p2: String = crate::js_runtime::vm::call_json(&vm, "go", &[]).unwrap();
     assert_eq!(p2, format!("{p1}!"));
 }
+
+/// A tree wider than the budget is truncated AT the budget rather than walked
+/// whole: the depth limit alone bounds nothing, which is how one provider
+/// session root pegged a daemon's CPU and starved everything behind it (#319).
+#[test]
+fn walk_truncates_a_wide_tree_at_the_entry_budget() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    let over = WALK_ENTRY_BUDGET + 25;
+    for i in 0..over {
+        std::fs::write(root.join(format!("f{i}.jsonl")), b"x").unwrap();
+    }
+
+    let walked: Vec<serde_json::Value> =
+        serde_json::from_str(&walk_dir_json(root.to_str().unwrap(), 8).unwrap()).unwrap();
+    assert_eq!(
+        walked.len(),
+        WALK_ENTRY_BUDGET,
+        "a walk must stop at its budget, not at the end of a wide directory"
+    );
+}
+
+/// Under the budget nothing changes: every entry is still reported, so bounding
+/// the walk did not quietly shrink an ordinary result.
+#[test]
+fn walk_under_the_budget_reports_every_entry() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    std::fs::create_dir(root.join("nested")).unwrap();
+    std::fs::write(root.join("a.jsonl"), b"x").unwrap();
+    std::fs::write(root.join("nested").join("b.jsonl"), b"x").unwrap();
+
+    let walked: Vec<serde_json::Value> =
+        serde_json::from_str(&walk_dir_json(root.to_str().unwrap(), 8).unwrap()).unwrap();
+    let names: Vec<&str> = walked
+        .iter()
+        .filter_map(|entry| entry.get("name").and_then(|n| n.as_str()))
+        .collect();
+    assert_eq!(walked.len(), 3, "two files and one directory");
+    for expected in ["a.jsonl", "nested", "b.jsonl"] {
+        assert!(
+            names.contains(&expected),
+            "{expected} missing from {names:?}"
+        );
+    }
+}
