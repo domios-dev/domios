@@ -22,6 +22,8 @@ export const WEB_UNSUPPORTED: Record<string, string> = {
     "Desktop startup readiness generation has no browser equivalent",
   get_rest_api_status:
     "REST listener recovery is owned by the desktop supervisor",
+  respond_provider_update_prompt:
+    "Applying a provider update is a desktop-host action with no REST route; the web mirror shows the prompt and answers it on the machine that owns the install",
   restart_rest_api:
     "An HTTP client cannot restart the listener carrying its own request",
   check_provider_integration:
