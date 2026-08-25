@@ -1,6 +1,12 @@
 // Run: npx tsx src/components/Settings/sections.test.ts
 
-import { SETTINGS_SECTIONS, sectionTitle, type SectionId } from "./sections";
+import {
+  SECTION_ICONS,
+  SETTINGS_SECTIONS,
+  normalizeSection,
+  sectionTitle,
+  type SectionId,
+} from "./sections";
 
 type TestFn = () => void;
 const tests: Array<[string, TestFn]> = [];
@@ -23,6 +29,43 @@ test("guide section sits between logs and about", () => {
 
 test("guide section title resolves", () => {
   assert(sectionTitle("guide" as SectionId) === "Guide", "guide title");
+});
+
+test("notification_settings_home: notifications sits between general and agents", () => {
+  const ids = SETTINGS_SECTIONS.map((s) => s.id);
+  const generalIdx = ids.indexOf("general");
+  const notificationsIdx = ids.indexOf("notifications");
+  const agentsIdx = ids.indexOf("agents");
+  assert(generalIdx >= 0 && notificationsIdx >= 0 && agentsIdx >= 0, "missing nav ids");
+  assert(notificationsIdx === generalIdx + 1, "notifications should follow general");
+  assert(agentsIdx === notificationsIdx + 1, "agents should follow notifications");
+});
+
+test("notification_settings_home: notifications section title and icon resolve", () => {
+  assert(sectionTitle("notifications" as SectionId) === "Notifications", "notifications title");
+  assert(SECTION_ICONS.notifications, "notifications icon");
+});
+
+test("notification_settings_home: no nav id resolves to a different section", () => {
+  for (const section of SETTINGS_SECTIONS) {
+    assert(normalizeSection(section.id) === section.id, `${section.id} maps to itself`);
+  }
+  assert(normalizeSection(undefined) === undefined, "no section stays no section");
+});
+
+test("notification_settings_home: the agents description no longer claims notifications", () => {
+  const agents = SETTINGS_SECTIONS.find((s) => s.id === "agents");
+  assert(agents, "agents entry");
+  assert(!agents.desc.toLowerCase().includes("notification"), `stale copy: ${agents.desc}`);
+});
+
+test("every nav id has an icon and a unique label", () => {
+  const labels = new Set<string>();
+  for (const section of SETTINGS_SECTIONS) {
+    assert(SECTION_ICONS[section.id], `${section.id} needs an icon`);
+    assert(!labels.has(section.label), `duplicate nav label ${section.label}`);
+    labels.add(section.label);
+  }
 });
 
 let failed = 0;
