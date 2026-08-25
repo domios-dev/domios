@@ -11,7 +11,7 @@ Use `codeterm` to control tabs, workspaces, agents, mesh peers, mem, and system 
 - `codeterm mem search/get/save/wake-up` — unified memory (search runs FTS + embeddings hybrid in one call)
 - `codeterm mem worker spawn --intent "enrich" --task "..."` — spawn a headless graph worker for custom enrichment
 - `codeterm mem sync` — trigger librarian file sync for source-tracked items
-- `codeterm notify send "Done" --level action_needed` — user-attention escalation (rare; `send` is required). `--level` is the closed set verbose/action_needed/failure; naming no level files in the bell without alerting
+- `codeterm notify send "Done" --level action_needed` — user-attention escalation (rare; `send` is required). `--level` is the closed set verbose/action_needed/failure; naming no level files in the bell without alerting. An escalation may ask rather than announce: repeat `--choice "Label"` once per option (no cap) and the tapped label returns to the tab that asked; blank and duplicate labels are refused.
 - `codeterm keepawake start --duration-secs N [--display]` / `stop` / `status` — prevent sleep cross-platform (do NOT call `caffeinate`, `powercfg`, `systemd-inhibit`)
 
 Always use the CLI from inside CodeTerm via Bash. Do not curl the REST API directly.
