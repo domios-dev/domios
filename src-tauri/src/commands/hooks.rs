@@ -124,7 +124,7 @@ fn install_provider_integration_body(
             let mut updated = current.clone();
             let provider = updated.agents.entry(provider_id.clone()).or_default();
             provider.extra.insert(
-                "integration_consent_granted".into(),
+                crate::config::schema::INTEGRATION_CONSENT_GRANTED.into(),
                 toml::Value::Boolean(true),
             );
             provider.extra.insert(

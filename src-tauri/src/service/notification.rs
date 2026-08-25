@@ -129,7 +129,7 @@ fn resolve_origin(
 mod notify_gate_tests;
 
 #[derive(Debug)]
-enum NotificationAdmission {
+pub(crate) enum NotificationAdmission {
     Diagnostic,
     /// Explicitly requested (CLI/REST/frontend): stored, emitted, native best-effort.
     Explicit,
@@ -147,7 +147,7 @@ fn notification_severity(severity: Option<&str>) -> NotificationSeverity {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn create_notification_with_delivery(
+pub(crate) fn create_notification_with_delivery(
     admission: NotificationAdmission,
     store: &NotifState,
     deliver_native: impl FnOnce(&str, Option<&str>),
