@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { listen } from "../lib/bridge";
 import {
+  chimeContext,
   openChimeContext,
   playArrivalChime,
   shouldSoundArrival,
@@ -16,6 +17,9 @@ const ARRIVAL_EVENT = "notification-created";
  * The subscription is the whole trigger — nothing polls, nothing is scheduled,
  * and no other code path reaches the player. A level the user routed away from
  * the bell never produces this event, so it can never produce a sound.
+ *
+ * The player reuses the context the enabling gesture established, which is what
+ * makes the first arrival after enabling audible without a second click.
  */
 export function useNotificationSound(enabled: boolean): void {
   const enabledRef = useRef(enabled);
@@ -27,7 +31,7 @@ export function useNotificationSound(enabled: boolean): void {
     let dropped = false;
     void listen<{ level?: string | null }>(ARRIVAL_EVENT, (event) => {
       if (!shouldSoundArrival(enabledRef.current, event.payload?.level)) return;
-      const context = contextRef.current ?? openChimeContext();
+      const context = contextRef.current ?? chimeContext() ?? openChimeContext();
       if (!context) return;
       contextRef.current = context;
       playArrivalChime(context);
