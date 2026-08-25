@@ -252,11 +252,19 @@ mod no_inference {
         "update/failure_report.rs",
     ];
 
-    /// Every file permitted to open an explicit notification record. Each is a
-    /// transport for the `codeterm notify` verb; none observes agent output.
-    const EXPLICIT_CREATORS: [&str; 4] = [
+    /// Every file permitted to open an explicit notification record. Three are
+    /// transports for the `codeterm notify` verb; the other two are the daemon
+    /// speaking for itself. NONE observes agent output, which is the line this
+    /// gate actually holds — a record must come from a declared fact, never from
+    /// reading what an agent printed.
+    ///
+    /// `service/integration_silence.rs` qualifies on that rule: it reads the
+    /// stored consent flag and the provider's own install report, latches the
+    /// condition so ten launches announce once, and reads no clock and no output.
+    const EXPLICIT_CREATORS: [&str; 5] = [
         "api/notification_routes.rs",
         "notification/mod.rs",
+        "service/integration_silence.rs",
         "service/notification.rs",
         "socket/server/notification.rs",
     ];
@@ -284,6 +292,16 @@ mod no_inference {
                 continue;
             }
             if path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
+                continue;
+            }
+            // A test naming the creator is not a production path to it. Without
+            // this the gate grows an allowlist entry every time a slice covers
+            // its own seam, and the list stops meaning what it says.
+            let is_test_file = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name == "tests.rs" || name.ends_with("_tests.rs"));
+            if is_test_file || path.components().any(|part| part.as_os_str() == "tests") {
                 continue;
             }
             let Ok(source) = fs::read_to_string(&path) else {
