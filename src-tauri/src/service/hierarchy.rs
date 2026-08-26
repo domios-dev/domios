@@ -7,7 +7,7 @@ mod planner_delivery;
 mod report_attribution;
 mod report_event;
 mod report_persistence;
-mod report_plan_ctx;
+pub(crate) mod report_plan_ctx;
 mod status;
 mod team_plan_creation;
 mod worker_handoff;
@@ -824,7 +824,9 @@ impl ServiceContext {
             "text": ms_text,
             "from": serde_json::to_value(&from_ref).unwrap_or_default(),
         }));
-        let body = serde_json::json!({ "ops": ops });
+        // The relay is a caller of the HTTP batch entrance like any other, so it
+        // names the tab it writes for instead of arriving unidentified.
+        let body = serde_json::json!({ "ops": ops, "caller_tab_id": from_ref.tab_id });
         let cmd = crate::mesh::types::RelayCommand {
             method: "POST".into(),
             path: format!("/api/plans/{}/batch", plan_id),
