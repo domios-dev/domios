@@ -2,6 +2,7 @@
 
 pub mod inbound_buffer;
 pub mod manager;
+mod markdown;
 pub mod response;
 pub mod sanitize;
 pub mod supervisor;

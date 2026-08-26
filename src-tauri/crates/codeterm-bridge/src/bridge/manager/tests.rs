@@ -741,6 +741,65 @@ async fn integration_send_message_no_fallback_for_valid_html() {
     assert_eq!(captured.lock().len(), 1);
 }
 
+#[tokio::test]
+async fn notification_markdown_reaches_telegram_as_safe_html_without_plain_fallback() {
+    let captured = Arc::new(PLMutex::new(Vec::new()));
+    let base = spawn_fake_telegram_with_methods(captured.clone()).await;
+    let client = reqwest::Client::new();
+    let mut chat_states = HashMap::new();
+    let markdown = "**bold** with `inline` code\n\n- first\n- second\n\nVec<T> and <date>";
+
+    let placed = route_text_outbound(
+        &client,
+        &base,
+        "FAKETOKEN",
+        100000001,
+        markdown,
+        false,
+        None,
+        &mut chat_states,
+    )
+    .await;
+
+    assert_eq!(placed, Some(42), "the HTML request is accepted");
+    let recorded = captured.lock();
+    assert_eq!(
+        recorded.len(),
+        1,
+        "safe HTML must not trigger the silent plain-text retry: {:?}",
+        *recorded
+    );
+    let request = &recorded[0].1;
+    assert_eq!(
+        request.get("parse_mode").and_then(|value| value.as_str()),
+        Some("HTML"),
+        "the only request keeps HTML parse mode"
+    );
+    let text = request.get("text").and_then(|value| value.as_str()).unwrap();
+    assert!(text.contains("<strong>bold</strong>"), "bold is formatted: {text}");
+    assert!(text.contains("<code>inline</code>"), "inline code is formatted: {text}");
+    assert!(
+        text.contains("• first") && text.contains("• second"),
+        "list items remain readable: {text}"
+    );
+    assert!(
+        text.contains("Vec&lt;T&gt;") && text.contains("&lt;date&gt;"),
+        "stray angle-bracket text is escaped before Telegram parses it: {text}"
+    );
+    assert!(!text.contains("Vec<T>") && !text.contains("<date>"));
+
+    assert_eq!(
+        super::super::markdown::markdown_to_sanitized_html("plain body unchanged"),
+        "plain body unchanged",
+        "plain text renders exactly as before"
+    );
+    assert_eq!(
+        super::super::markdown::markdown_to_sanitized_html("# Heading"),
+        "<strong>Heading</strong>",
+        "a heading degrades to Telegram's supported bold emphasis"
+    );
+}
+
 /// A fake Telegram that fails the first `editMessageText` the way Telegram
 /// fails an unparseable body, then accepts the plain-text retry.
 async fn spawn_fake_telegram_rejecting_first_parse(
