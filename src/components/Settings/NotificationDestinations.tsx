@@ -49,6 +49,9 @@ export function destinationCellUpdate(
   };
 }
 
+/** Every column closed. The record is still kept and still reaches the panel —
+ *  these columns are the destinations that INTERRUPT, and naming none of them is
+ *  a configuration rather than an error. */
 export function reachesNothing(
   choice: AgentLevelChoice,
   columns: readonly DestinationColumn[],
@@ -60,13 +63,13 @@ export function reachesNothing(
  * Where each level may go.
  *
  * Rows come from the daemon's own closed level set, so a level added there
- * appears here without anyone editing a list. The two local surfaces are two
- * fixed things and keep a toggle each. The push side is not a fixed set — it is
- * a registry — so it is ONE control per level that names the channels that level
+ * appears here without anyone editing a list. The system notification is a fixed
+ * surface and keeps its toggle. The push side is not a fixed set — it is a
+ * registry — so it is ONE control per level that names the channels that level
  * reaches, and a channel the registry gains widens that control instead of
  * adding a row to every level. Only a channel that can carry a message is
  * offered. A level that picks nothing is a configuration rather than an error:
- * it simply reaches nothing.
+ * it is kept in the panel and interrupts nowhere.
  */
 export function NotificationDestinations({
   config,
@@ -122,7 +125,7 @@ export function NotificationDestinations({
               </span>
               {meaning && <span className="text-[11px] text-[var(--ct-muted-fg)]">{meaning}</span>}
               {reachesNothing(choice, columns) && (
-                <span className="text-[10px] text-[var(--ct-muted)]">reaches nothing</span>
+                <span className="text-[10px] text-[var(--ct-muted)]">panel only</span>
               )}
             </div>
             {local.map((destination) => (
@@ -150,8 +153,9 @@ export function NotificationDestinations({
         );
       })}
       <p className="text-[10px] text-[var(--ct-muted)] leading-relaxed">
-        A message that names no level is kept and rings the bell. It never reaches the system or
-        any push channel — there is no fallback level and no way to widen this set from here.
+        Every level is kept in the panel; these choose what else it reaches. A message that names
+        no level is kept too, and never reaches the system or any push channel — there is no
+        fallback level and no way to widen this set from here.
       </p>
     </div>
   );

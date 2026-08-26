@@ -239,7 +239,7 @@ async function togglingACellPersistsAndAllOffRoundTrips() {
     "all-off round-trips instead of being refused or reset",
   );
   assert(
-    closed.textContent?.includes("reaches nothing"),
+    closed.textContent?.includes("panel only"),
     "the user is told what all-off means rather than being blocked",
   );
   assert(
@@ -253,8 +253,8 @@ async function togglingACellPersistsAndAllOffRoundTrips() {
   await view.done();
 }
 
-/** 3. The master switch removes the surface, and is a different config state
- *  from every level having its bell column closed. */
+/** 3. The master switch removes the indicator, and is a different config state
+ *  from every level having its one routable surface closed. */
 async function masterSwitchHidesTheSurfaceAndStaysDistinguishable() {
   const titlebar = source("../Titlebar/Titlebar.tsx");
   assert(
@@ -271,23 +271,29 @@ async function masterSwitchHidesTheSurfaceAndStaysDistinguishable() {
     "the switch the settings panel writes is the switch the titlebar reads",
   );
 
-  // The two states are different config, not the same config twice.
+  // The two states are different config, not the same config twice. Hiding the
+  // indicator is presentation; closing a column is routing, and the panel keeps
+  // every record under either.
   const hidden = { show_bell: false, agent_levels: DAEMON_ROWS.map((row) => ({ ...row })) };
   const columnsClosed = {
     show_bell: true,
-    agent_levels: DAEMON_ROWS.map((row) => ({ ...row, bell: false })),
+    agent_levels: DAEMON_ROWS.map((row) => ({ ...row, desktop: false })),
   };
   assert(
     JSON.stringify(hidden) !== JSON.stringify(columnsClosed),
-    "a hidden surface and an unreachable column must not serialise alike",
+    "a hidden indicator and an unreachable column must not serialise alike",
   );
   assert(
-    hidden.agent_levels.every((row) => row.bell),
-    "hiding the surface routes nothing away from it, so the log stays complete",
+    hidden.agent_levels.every((row) => row.desktop),
+    "hiding the indicator routes nothing away from anything",
   );
   assert(
-    columnsClosed.show_bell && columnsClosed.agent_levels.every((row) => !row.bell),
-    "closing every column leaves the surface drawn and empty",
+    columnsClosed.show_bell && columnsClosed.agent_levels.every((row) => !row.desktop),
+    "closing every column leaves the indicator drawn and the log complete",
+  );
+  assert(
+    columnsClosed.agent_levels.every((row) => row.bell === true),
+    "and neither state moves the retained bell field, which routes nothing",
   );
 
   // The switch itself: the shared row, writing the section that already exists.
@@ -337,17 +343,20 @@ async function absentConfigDrawsNothingAndAnUnnamedColumnIsOff() {
 
   // A row written before a column existed reads that column as off, exactly as
   // the daemon reads it: a column nobody named is a column nobody chose.
-  const unnamed = { level: "verbose", bell: true, desktop: false } as AgentLevelChoice;
+  const unnamed = { level: "verbose", bell: true, desktop: true } as AgentLevelChoice;
   assert(!isRouted(unnamed, "telegram"), "an unnamed channel column is off");
-  assert(isRouted(unnamed, "bell"), "the column it did name keeps the answer it gave");
-  assert(!isRouted(unnamed, "desktop"), "as does the one it named false");
+  assert(isRouted(unnamed, "desktop"), "the column it did name keeps the answer it gave");
   assert(
     !reachesNothing(unnamed, COLUMNS),
-    "the bell is still standing, so the level is not an empty row",
+    "the toast is still standing, so the level interrupts somewhere",
   );
   assert(
     reachesNothing({ level: "verbose" } as AgentLevelChoice, COLUMNS),
-    "a row that named no column at all falls through to nothing",
+    "a row that named no column at all interrupts nowhere, and is still kept",
+  );
+  assert(
+    reachesNothing({ level: "verbose", bell: true } as AgentLevelChoice, COLUMNS),
+    "and the retained bell field is not a column, so it cannot rescue that row",
   );
 
   // And the grid draws that reading rather than a second opinion about it.
@@ -433,36 +442,46 @@ async function everyControlIsNamedAndIsTheSharedToggle() {
   );
 }
 
-/** The columns cannot drift from the row shape the daemon serialises. */
+/** The columns cannot drift from the row shape the daemon serialises, and the
+ *  one field that is deliberately NOT a column stays out of it. */
 async function destinationsMatchTheRowShape() {
   const shape = Object.keys(open("verbose")).filter((key) => key !== "level");
   const columns = COLUMNS.map((destination) => destination.id);
   assert(
-    JSON.stringify(columns) === JSON.stringify(shape),
-    `columns must be the row's destination fields, got ${JSON.stringify(columns)}`,
+    columns.every((id) => shape.includes(id)),
+    `every column is a field of the row, got ${JSON.stringify(columns)}`,
   );
   assert(
-    JSON.stringify(LOCAL_DESTINATIONS.map((surface) => surface.id)) ===
-      JSON.stringify(["bell", "desktop"]),
-    "the local surfaces are the only columns this side names",
+    JSON.stringify(shape.filter((key) => !columns.includes(key))) === JSON.stringify(["bell"]),
+    `the only field that is not a column is the retained bell, got ${JSON.stringify(shape)}`,
+  );
+  assert(
+    !LOCAL_DESTINATIONS.some((surface) => surface.id === ("bell" as string)),
+    "the panel is not offered as a destination: it keeps every record either way",
   );
   assert(
     !LOCAL_DESTINATIONS.some((surface) => DAEMON_CHANNELS.some((c) => c.id === surface.id)),
     "a channel is never restated as a local surface",
   );
   const channel = PUSH[0];
-  const bell = LOCAL[0];
+  const local = LOCAL[0];
   const setter = setLevelDestination(DAEMON_ROWS, "action_needed", channel, false);
   assert(
     !(channel.id in setter[1]) && setter[1].bell && setter[1].desktop,
     "closing a channel drops its key rather than storing a false the daemon reads the same way",
   );
   assert(
-    setLevelDestination(DAEMON_ROWS, "action_needed", bell, false)[1].bell === false,
+    setLevelDestination(DAEMON_ROWS, "action_needed", local, false)[1][local.id] === false,
     "while a local surface keeps an explicit answer in its own named field",
   );
   assert(
-    JSON.stringify(setLevelDestination(DAEMON_ROWS, "progress", bell, false)) ===
+    DAEMON_ROWS.every(
+      (row) => setLevelDestination(DAEMON_ROWS, row.level, channel, true)[0].bell === true,
+    ),
+    "and no edit from this surface ever moves the retained bell field",
+  );
+  assert(
+    JSON.stringify(setLevelDestination(DAEMON_ROWS, "progress", local, false)) ===
       JSON.stringify(DAEMON_ROWS),
     "a level the daemon never shipped cannot be added from the UI",
   );

@@ -2,11 +2,11 @@
  * The completion sound.
  *
  * Sound is not a destination: it holds no record, cannot be read later and
- * cannot be answered, so it is presentation on a bell arrival alongside
- * `show_bell`, never a fourth column of the levels grid. That is also what
- * stops it disagreeing with routing — the daemon emits `notification-created`
- * inside the bell gate's admitted arm and nowhere else, so a level routed away
- * from the bell produces no arrival, and no arrival is no sound.
+ * cannot be answered, so it is presentation on a record's arrival alongside
+ * `show_bell`, never a column of the levels grid. There is nothing for it to
+ * disagree with either — the daemon emits `notification-created` for every
+ * record, so what sounds is decided by the LEVEL alone and never by a routing
+ * column that could drift from it.
  */
 import type { NotifyLevelName } from "./notifyLevels";
 

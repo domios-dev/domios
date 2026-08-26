@@ -9,7 +9,6 @@ use crate::notification::{
     answer::AnswerAdmission,
     answer_delivery::{self, AnswerDeliveryOutcome},
     authority::{self, SurfaceOffer},
-    bell::{self, BellPolicy},
     channel_ask::{self, PushMessage},
     dedupe::DeliveryAdmission,
     desktop::{self, DesktopPolicy},
@@ -66,25 +65,25 @@ impl PushDispatch<fn(PushEnvelope) -> Result<(), String>> {
     }
 }
 
-/// The two in-app legs of one notification: what the caller declared, and the
-/// user's standing policy for each surface it may reach. Deliberately not
-/// folded into `PushDispatch` — the push opt-in clears its own intent when
-/// nobody is subscribed, while the declared level still governs the toast and
-/// the bell.
+/// The in-app leg of one notification: what the caller declared, and the user's
+/// standing policy for the one surface that can refuse. Deliberately not folded
+/// into `PushDispatch` — the push opt-in clears its own intent when nobody is
+/// subscribed, while the declared level still governs the toast.
+///
+/// The panel is not represented here. It is the complete log and takes every
+/// record unconditionally, so there is no policy for it to consult.
 pub struct SurfaceDispatch {
     pub declared: Option<NotifyLevel>,
-    pub bell: BellPolicy,
     pub desktop: DesktopPolicy,
 }
 
 impl SurfaceDispatch {
     /// Routes that raise no toast at all: internal diagnostics and the in-app
-    /// provider-update prompt. They still reach the bell, which is where they
+    /// provider-update prompt. They still reach the panel, which is where they
     /// have always landed — silence is about interrupting, not about recording.
     pub fn silent() -> Self {
         Self {
             declared: None,
-            bell: BellPolicy::open(),
             desktop: DesktopPolicy::silent(),
         }
     }
@@ -190,7 +189,7 @@ pub(crate) fn create_notification_with_delivery(
         NotificationAdmission::Diagnostic => unreachable!(),
         NotificationAdmission::Explicit => match push.intent.level {
             // An identical live message is the same message: it keeps its
-            // record and reaches neither the native sink nor the bell again.
+            // record and reaches neither the native sink nor the panel again.
             // Push routing may clear its own intent (nothing routed anywhere);
             // the caller's declared level still stands and is what gets stored.
             None => match store.lock().add_deduped(
@@ -292,7 +291,7 @@ pub(crate) fn create_notification_with_delivery(
         payload["sticky"] = serde_json::json!(s);
     }
     // Dedupe already decided this message is new; the gates decide where it may
-    // go. Unlevelled keeps its record and its bell event, and stops.
+    // go. Unlevelled keeps its record and its panel arrival, and stops.
     if let Some(pass) = desktop::admit(surfaces.declared, &surfaces.desktop).pass() {
         log::debug!(
             "[notify-gate] desktop toast admitted as {}",
@@ -303,15 +302,11 @@ pub(crate) fn create_notification_with_delivery(
             payload["body"].as_str(),
         );
     }
-    // The bell column is routing: a level the user routed away from the bell
-    // keeps its record and simply never arrives there. The master switch is a
-    // separate, presentation-only decision and never reaches this gate.
-    match bell::admit(surfaces.declared, &surfaces.bell) {
-        bell::BellAdmission::Allowed => emit(payload),
-        bell::BellAdmission::LevelDisabled(level) => {
-            log::debug!("[notify-gate] bell refused {}", level.as_str());
-        }
-    }
+    // The panel is the complete log, so every record reaches it: this event is
+    // the only live path to it, and gating it would leave the panel silently
+    // lagging behind a store that already holds the record. `show_bell` is a
+    // presentation choice about the indicator and never reaches this gate.
+    emit(payload);
     id
 }
 

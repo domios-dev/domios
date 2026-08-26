@@ -44,18 +44,19 @@ copy_on_select = false
 
 [notifications]
 desktop = false  # opt-in; the per-level grid below still decides which levels toast
-sound = false  # opt-in chime on a bell arrival that says the agent stopped
+sound = false  # opt-in chime on an arrival that says the agent stopped
 toast_duration = 5  # seconds
 show_bell = true  # false hides the indicator; every record is still kept
-# Where each level may go. Rows are generated from the shared level set, so a
-# level added later appears here on its own. A fresh install ships the bell and
-# nothing else, at every level. Any combination is legal, including none — that
-# level simply reaches nothing. A column nobody named is off, so opting a level
-# into a destination means writing that column out. A notification naming no
-# level is kept and rings the bell, and never reaches the system or a channel.
+# Where each level may go BEYOND the panel, which keeps every record whatever
+# is written here. Rows are generated from the shared level set, so a level
+# added later appears here on its own. A fresh install interrupts nowhere, at
+# every level. Any combination is legal, including none. A column nobody named
+# is off, so opting a level into a destination means writing that column out. A
+# notification naming no level is kept too, and never reaches the system or a
+# channel. `bell` is retained and inert: nothing routes on it, and it stays a
+# named field so the flattened channel keys never read it back as a channel.
 # [[notifications.agent_levels]]
 # level = "action_needed"
-# bell = true
 # desktop = true
 # telegram = true
 
