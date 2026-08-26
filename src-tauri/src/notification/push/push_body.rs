@@ -23,6 +23,16 @@ const WITHHELD: [&str; 6] = [
     WORKSPACE_ID,
 ];
 
+/// The body line of an assembled push. A character count belongs to the body:
+/// the title and the provenance label carry letters of their own, so counting
+/// across the whole message makes the assertion depend on the fixture's wording.
+fn body_line(rendered: &str) -> &str {
+    rendered
+        .lines()
+        .nth(1)
+        .expect("the body is the line between the title and the label")
+}
+
 fn provenance() -> NotificationProvenance {
     NotificationProvenance {
         tab_id: Some(TAB_ID.into()),
@@ -139,13 +149,13 @@ fn the_bound_is_the_carrying_channels_own_not_one_global_constant() {
     );
 
     assert_eq!(
-        wide.matches('q').count(),
+        body_line(&wide).matches('q').count(),
         body.chars().count(),
         "the wider channel carries the whole body"
     );
     assert!(!wide.contains(OVERFLOW_NOTE));
     assert_eq!(
-        narrow.matches('q').count(),
+        body_line(&narrow).matches('q').count(),
         narrow_bounds.body - OVERFLOW_NOTE.chars().count(),
         "the narrower channel cuts at its own bound, never at the other one's"
     );
