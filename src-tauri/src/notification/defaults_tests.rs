@@ -66,6 +66,8 @@ impl PushChannel for FixtureChannel {
                 },
                 append: false,
                 buttons: None,
+                edit: None,
+                receipt: None,
             },
         )
     }

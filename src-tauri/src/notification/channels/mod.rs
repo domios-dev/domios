@@ -86,6 +86,26 @@ pub trait PushChannel: Send + Sync {
         audience: &Audience,
         message: &PushMessage,
     ) -> Result<(), String>;
+
+    /// Rewrite a message this channel placed, so a question answered once
+    /// stops presenting live controls here. The locator is this channel's own,
+    /// handed back exactly as it was reported.
+    ///
+    /// Presentation only. The answer is already recorded and already owed to
+    /// the tab that asked, so a refusal here is reported and never propagated
+    /// into the answer. Default: this channel cannot rewrite what it sent, said
+    /// plainly rather than reported as a rewrite that happened.
+    fn spend(
+        &self,
+        _host: &dyn ChannelHost,
+        _locator: &str,
+        _message: &PushMessage,
+    ) -> Result<(), String> {
+        Err(format!(
+            "{} cannot rewrite a message it has already sent",
+            self.service()
+        ))
+    }
 }
 
 /// A channel paired with the bridge service it rides. Ids and user-facing

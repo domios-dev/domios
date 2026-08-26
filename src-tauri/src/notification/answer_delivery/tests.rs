@@ -234,3 +234,127 @@ fn answer_delivery_failure_surfaces_as_not_delivered() {
             .delivered
     );
 }
+
+/// A question that was actually pushed to a channel, and the placement that
+/// channel reported for the message carrying its buttons.
+fn pushed_to_channel(locator: &str) -> (NotifState, String) {
+    let mut store = NotificationStore::new(10);
+    let id = store.add_ext(
+        QUESTION.into(),
+        None,
+        NotificationSeverity::Info,
+        NotificationProvenance {
+            tab_id: Some(ASKING_TAB.to_string()),
+            ..Default::default()
+        },
+        crate::notification::store::Ask::offering(Some(choices(&[CHOSEN, "Merge"]))),
+        None,
+        Some(crate::notification::push::NotifyLevel::ActionNeeded),
+    );
+    store.remember_channel_placement(&id, "a-channel-with-a-message-to-rewrite", locator);
+    (Arc::new(Mutex::new(store)), id)
+}
+
+/// A tap in the panel records the answer on the record, not on the surface that
+/// showed it, so the channel that also showed it stops showing it as open.
+#[test]
+fn spent_question_answered_in_the_panel_still_spends_the_channel() {
+    let (store, id) = pushed_to_channel("chat-9:message-4");
+    // Nothing here goes near a channel: this is the in-app answer path.
+    store.lock().record_answer(&id, CHOSEN);
+
+    let spy = Spy::default();
+    let spent: RefCell<Vec<(String, String, String)>> = RefCell::new(Vec::new());
+    let outcome = settle(
+        &store,
+        &id,
+        |to_tab, envelope, body| spy.accept(to_tab, envelope, body),
+        |spent_question| {
+            for placement in &spent_question.placements {
+                spent.borrow_mut().push((
+                    placement.service.clone(),
+                    placement.locator.clone(),
+                    spent_question.message.text.clone(),
+                ));
+            }
+        },
+    );
+
+    assert_eq!(outcome, AnswerDeliveryOutcome::Delivered);
+    let rewrites = spent.borrow().clone();
+    assert_eq!(rewrites.len(), 1, "the one placed message is rewritten once");
+    assert_eq!(rewrites[0].1, "chat-9:message-4");
+    assert!(
+        rewrites[0].2.contains(CHOSEN),
+        "the chosen label the test supplied reaches the rewritten message"
+    );
+    assert!(
+        !store
+            .lock()
+            .spent_question(&id)
+            .expect("a spent question still describes itself")
+            .message
+            .offers_choices(),
+        "a spent question carries no options to draw"
+    );
+}
+
+/// The tap is the user's decision; the rewrite is presentation. A channel that
+/// refuses the rewrite cannot take the decision back.
+#[test]
+fn spent_question_a_refused_rewrite_still_records_and_delivers_the_answer() {
+    let (store, id) = pushed_to_channel("chat-9:message-4");
+    store.lock().record_answer(&id, CHOSEN);
+
+    let spy = Spy::default();
+    let refusals: RefCell<Vec<String>> = RefCell::new(Vec::new());
+    let outcome = settle(
+        &store,
+        &id,
+        |to_tab, envelope, body| spy.accept(to_tab, envelope, body),
+        |spent_question| {
+            for placement in &spent_question.placements {
+                // Exactly what a channel with no rewrite of its own answers.
+                refusals
+                    .borrow_mut()
+                    .push(format!("{} cannot rewrite", placement.service));
+            }
+        },
+    );
+
+    assert_eq!(
+        outcome,
+        AnswerDeliveryOutcome::Delivered,
+        "a refused rewrite leaves the delivery outcome untouched"
+    );
+    assert_eq!(refusals.borrow().len(), 1, "the rewrite was attempted");
+    assert_eq!(
+        store.lock().answer_slot(&id).and_then(|s| s.answered.clone()),
+        Some(CHOSEN.to_string()),
+        "the answer is still recorded"
+    );
+    assert!(
+        store.lock().answer_slot(&id).is_some_and(|s| s.delivered),
+        "the answer still reached the tab that asked"
+    );
+    assert_eq!(spy.calls().len(), 1);
+}
+
+/// A question nobody carried to a channel has nothing to spend there.
+#[test]
+fn spent_question_a_record_no_channel_carried_rewrites_nothing() {
+    let (store, id) = asked_from(Some(ASKING_TAB));
+    store.lock().record_answer(&id, CHOSEN);
+
+    let spy = Spy::default();
+    let attempts = RefCell::new(0);
+    let outcome = settle(
+        &store,
+        &id,
+        |to_tab, envelope, body| spy.accept(to_tab, envelope, body),
+        |_| *attempts.borrow_mut() += 1,
+    );
+
+    assert_eq!(outcome, AnswerDeliveryOutcome::Delivered);
+    assert_eq!(*attempts.borrow(), 0, "nothing was placed, so nothing is rewritten");
+}

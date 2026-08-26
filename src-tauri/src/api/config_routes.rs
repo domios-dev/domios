@@ -346,6 +346,8 @@ pub async fn bridge_send_api(
         },
         append,
         buttons,
+        edit: None,
+        receipt: None,
     })
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Send failed"))?;
 

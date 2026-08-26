@@ -31,6 +31,20 @@ fn user_allowed(allowed: &[String], user_id: i64) -> bool {
     !allowed.is_empty() && allowed.contains(&user_id.to_string())
 }
 
+/// Where Telegram put one message, written and read in exactly one place so
+/// the transport that sends it and the channel that rewrites it cannot spell
+/// it differently. Opaque above this module.
+pub fn locator(chat_id: i64, message_id: i64) -> String {
+    format!("{chat_id}:{message_id}")
+}
+
+/// Read a locator back. Anything else answers `None`, so an entry another
+/// channel wrote is never addressed as a Telegram message.
+pub fn parse_locator(raw: &str) -> Option<(i64, i64)> {
+    let (chat_id, message_id) = raw.trim().rsplit_once(':')?;
+    Some((chat_id.parse().ok()?, message_id.parse().ok()?))
+}
+
 pub fn telegram_api_base() -> String {
     std::env::var("TELEGRAM_API_BASE").unwrap_or_else(|_| "https://api.telegram.org".to_string())
 }
