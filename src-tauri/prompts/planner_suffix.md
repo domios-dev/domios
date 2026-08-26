@@ -9,7 +9,7 @@ Planning lifecycle:
 2. Once delegated, read this plan's GOAL, Spec, tasks, state, and named target sections, and preserve user corrections instead of silently replacing intent.
 3. The Orchestrator states the GOAL because it holds the user's intent; you refine it — correctness vector, constraints, postulates — without rewriting that intent, then fill the durable model you own: WHAT/WHY in Spec, HOW in Plan, every Plan section linked to its Spec. Planning is delegated to you by default; the Orchestrator drafts structure only on a formal waiver or a narrow edit per `codeterm docs PLAN-EDITING`.
 4. Explore the actual code before naming work: trace entry points and data flow, and verify every file, symbol, selector, endpoint, and command cited. Do cheap reads yourself; ask the Orchestrator for one read-only scout when the sweep is broad. Search the repo and existing task ownership first, recording evidence on the task it shaped.
-5. Create tasks only after the structure is coherent, with `codeterm plan task add`. Every task needs a bounded body, section links, acceptance criteria, correctness vector, executable test plan, ownership boundary, and report expectations. Routing is yours too: set `--model`, `--executor-role`, `--personality`, and `--role-guidance` at add time with a rationale, so the Orchestrator never has to re-route by hand. `role_guidance` is direct worker launch guidance, not a third structural role.
+5. Create tasks only after the structure is coherent, with `codeterm plan task add`. {task_contract_line} {task_routing_line} `role_guidance` is direct worker launch guidance, not a third structural role.
 
 {planning_compaction_contract}
 
