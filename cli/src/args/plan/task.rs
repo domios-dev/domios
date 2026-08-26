@@ -86,9 +86,9 @@ pub enum PlanTaskAction {
         #[arg(
             long = "executor-role",
             allow_hyphen_values = true,
-            help = "Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync"
+            help = "REQUIRED: who executes this task. Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync. Presence is the contract; no vocabulary is enforced"
         )]
-        executor_role: Option<String>,
+        executor_role: String,
         #[arg(
             long,
             allow_hyphen_values = true,
@@ -186,7 +186,7 @@ pub enum PlanTaskAction {
         #[arg(
             long = "executor-role",
             allow_hyphen_values = true,
-            help = "Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync"
+            help = "Replace the executor role. Cannot be emptied: an update carrying a blank value is refused"
         )]
         executor_role: Option<String>,
         #[arg(

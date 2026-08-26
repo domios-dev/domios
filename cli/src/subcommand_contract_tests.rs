@@ -515,8 +515,18 @@ fn task_read_leaves_are_preserved() {
 
 #[test]
 fn plan_task_add_is_unchanged() {
-    let parsed = Cli::try_parse_from(["codeterm", "plan", "task", "add", "pl_x", "--name", "y"])
-        .expect("plan task add still parses");
+    let parsed = Cli::try_parse_from([
+        "codeterm",
+        "plan",
+        "task",
+        "add",
+        "pl_x",
+        "--name",
+        "y",
+        "--executor-role",
+        "rust-backend-dev",
+    ])
+    .expect("plan task add still parses");
     assert!(matches!(
         parsed.command,
         Commands::Plan {

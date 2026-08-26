@@ -102,6 +102,11 @@ impl PlanStore {
         lane: Option<super::TaskLaneUpdate>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
+        // Presence, not vocabulary: any lexical floor is satisfiable by a longer
+        // shrug, and what makes a role real is not machine-checkable.
+        if executor_role.is_some_and(|role| role.is_none_or(|s| s.trim().is_empty())) {
+            return Err(PlanError::ExecutorRoleRequired);
+        }
         let expected_sections = section_ids.clone();
         let expected_lane = lane.clone();
         let write = self.with_plan(plan_id, now_ms, |p| {

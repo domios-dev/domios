@@ -165,7 +165,10 @@ a draft, so the Orchestrator never has to re-route by hand.
   `Alex`, `Emma`, `Leo`). Gives the worker a consistent character and
   makes lanes legible in the UI.
 - `--executor-role <role>` — the specialization (e.g. `rust-backend-dev`,
-  `frontend-dev`, `docs-sync`). Scopes what surface they own.
+  `frontend-dev`, `docs-sync`). Scopes what surface they own. **Required by
+  `plan task add`**, and `plan task update` refuses to blank it. The check is
+  presence only — no vocabulary is enforced, because any lexical floor is
+  satisfiable by a longer shrug. A plan holding a roleless task does not approve.
 - `--role-guidance "<brief>"` — a **second-person brief**, not abstract
   principles. Say who the worker IS, what EXACTLY they do on this task, and
   their personal RED LINE (what counts as failing it). Write it as "You are …":
@@ -206,4 +209,4 @@ a draft, so the Orchestrator never has to re-route by hand.
 The full CLI reference (plans, specs, sections, tasks, mem, sessions) is the
 `codeterm` skill. If it is not already loaded, find it:
 `codeterm mem search "codeterm skill"` and read the returned `SKILL.md`.
-<!-- revision: 16 -->
+<!-- revision: 17 -->

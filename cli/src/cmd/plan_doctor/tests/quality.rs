@@ -649,7 +649,7 @@ fn planner_unpaired_escalates_to_error_at_approval() {
         .any(|f| f["kind"] == "planner_unpaired" && f["severity"] == "warning"));
 
     let mut escalated = report.clone();
-    escalate_planner_unpaired_for_approval(&mut escalated);
+    escalate_approval_blocking_warnings(&mut escalated);
     assert!(!escalated["ok"].as_bool().unwrap());
     assert!(escalated["findings"]
         .as_array()
@@ -922,4 +922,100 @@ fn add_time_missing_body_hint_matches_doctor_verdict() {
             && !add_time_hint.contains("correctness vector"),
         "add-time hint should only flag body: {add_time_hint}"
     );
+}
+
+// The convergence point: `plan task add` requires a role, but HTTP and socket
+// callers never pass through that flag, so approval checks the field again.
+#[test]
+fn executor_role_required_approval_refuses_a_plan_holding_a_roleless_task() {
+    let dir = tempfile::tempdir().unwrap();
+    let plan_dir = dir.path().join(".codeterm/plans/active/pl_1");
+    write_v2_plan(&plan_dir, &roleless_task_plan());
+
+    let mut report = doctor_report(
+        Some("pl_1".into()),
+        Some(dir.path().display().to_string()),
+        "quality",
+    )
+    .unwrap();
+    assert!(
+        report["ok"].as_bool().unwrap(),
+        "standalone doctor only reports it: {report}"
+    );
+    assert!(report["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|f| f["kind"] == "missing_executor_role" && f["severity"] == "warning"));
+
+    escalate_approval_blocking_warnings(&mut report);
+    assert!(!report["ok"].as_bool().unwrap(), "approval must refuse");
+    assert!(report["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|f| f["kind"] == "missing_executor_role" && f["severity"] == "error"));
+}
+
+// An invented role is worse than an absent one: absence is honest, a fabricated
+// role is something the Orchestrator would route on.
+#[test]
+fn executor_role_required_preexisting_roleless_tasks_are_reported_not_filled() {
+    let dir = tempfile::tempdir().unwrap();
+    let plan_dir = dir.path().join(".codeterm/plans/active/pl_1");
+    write_v2_plan(&plan_dir, &roleless_task_plan());
+    let task_path = plan_dir.join("tasks").join("task_1.yaml");
+    let before = std::fs::read_to_string(&task_path).unwrap();
+
+    let report = doctor_report(
+        Some("pl_1".into()),
+        Some(dir.path().display().to_string()),
+        "quality",
+    )
+    .unwrap();
+    let finding = report["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["kind"] == "missing_executor_role")
+        .expect("expected the roleless task to be surfaced");
+    assert_eq!(finding["task_id"], "task_1");
+
+    let after = std::fs::read_to_string(&task_path).unwrap();
+    assert_eq!(before, after, "the doctor must never write a role in");
+    let stored: Value = serde_yaml::from_str(&after).unwrap();
+    assert!(
+        stored
+            .get("executor_role")
+            .and_then(Value::as_str)
+            .is_none_or(str::is_empty),
+        "stored value changed: {stored:?}"
+    );
+}
+
+fn roleless_task_plan() -> Value {
+    json!({
+        "id": "pl_1",
+        "title": "Plan",
+        "status": "active",
+        "mode": "approved",
+        "goal": {"vector": "ship"},
+        "primary_spec_id": "sp_1",
+        "sections": [{
+            "id": "sec_1",
+            "title": "Execution",
+            "body": "File ownership map with exact paths. Approval gate. Verification map: build.sh check. Wave sequencing: discovery is intermediate, then synthesis creates remaining tasks."
+        }],
+        "tasks": [{
+            "id": "task_1",
+            "name": "Do work",
+            "type": "implement",
+            "status": "pending",
+            "section_ids": ["sec_1"],
+            "body": "Implement the scoped change.",
+            "acceptance_criteria": ["criterion"],
+            "test_plan": "Run `cargo test plan::scoped_change` and assert the new path is covered; then `codeterm plan doctor pl_1 --kind quality` round-trips with zero findings.",
+            "correctness": "matches spec"
+        }]
+    })
 }
