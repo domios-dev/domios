@@ -140,6 +140,38 @@ export function chimeContext(): ChimeContext | null {
   return established;
 }
 
+/** The events a browser accepts as the user gesture that may start audio. */
+export const CHIME_GESTURE_EVENTS = ["pointerdown", "keydown"] as const;
+
+export interface GestureTarget {
+  addEventListener(type: string, handler: () => void): void;
+  removeEventListener(type: string, handler: () => void): void;
+}
+
+/**
+ * Establish the chime from the first user gesture anywhere in the app.
+ *
+ * The enabling click is a gesture, but a stored opt-in never passes through it:
+ * on every restart the sound is already on and nothing has been clicked, so a
+ * context opened later — inside a daemon event — starts suspended and stays
+ * silent. The listener closes that gap and then removes itself, because there
+ * is exactly one context to establish and nothing to keep watching for.
+ */
+export function establishChimeOnFirstGesture(target: GestureTarget): () => void {
+  let listening = true;
+  const stop = () => {
+    if (!listening) return;
+    listening = false;
+    for (const event of CHIME_GESTURE_EVENTS) target.removeEventListener(event, onGesture);
+  };
+  function onGesture(): void {
+    stop();
+    establishChimeContext();
+  }
+  for (const event of CHIME_GESTURE_EVENTS) target.addEventListener(event, onGesture);
+  return stop;
+}
+
 export function __resetChimeContextForTest(): void {
   established = null;
 }

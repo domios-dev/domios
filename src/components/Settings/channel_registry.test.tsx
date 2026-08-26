@@ -1,7 +1,9 @@
 // Run: npx tsx src/components/Settings/channel_registry.test.tsx
 //
-// The grid side of the push-channel registry: columns come from the daemon's
-// roster, so a channel it gains becomes a column with nothing here to edit.
+// The surface side of the push-channel registry: what the picker offers comes
+// from the daemon's roster, so a channel it gains widens one control instead of
+// adding a row to every level — and a channel it lists but cannot carry is not
+// offered at all.
 
 import { act, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
@@ -14,6 +16,8 @@ import {
   destinationColumns,
   isRouted,
   LOCAL_DESTINATIONS,
+  offerableChannels,
+  pushDestinations,
   type PushChannelDescriptor,
 } from "../../lib/notifyDestinations";
 import { levelLabel } from "../../lib/notifyLevels";
@@ -51,14 +55,22 @@ setupDom();
 
 const GRID = '[data-testid="settings-notification-destinations"]';
 const ROW = '[data-testid="settings-notification-level"]';
+const PICKER = '[data-testid="settings-destination-picker-trigger"]';
 const TELEGRAM_EDITOR = '[data-testid="settings-channel-audience"][data-channel="telegram"]';
+const DISCORD_EDITOR = '[data-testid="settings-channel-audience"][data-channel="discord"]';
 
 const ONE_CHANNEL: PushChannelDescriptor[] = [
   { id: "telegram", label: "Telegram", control_available: true },
 ];
 
-/** The second member, exactly as the daemon reports it: registry data only. */
-const TWO_CHANNELS: PushChannelDescriptor[] = [
+/** A second member the daemon can actually deliver through. */
+const TWO_CARRIERS: PushChannelDescriptor[] = [
+  ...ONE_CHANNEL,
+  { id: "slack", label: "Slack", control_available: true },
+];
+
+/** Registered, listed, and with no transport in this build. */
+const WITH_UNAVAILABLE: PushChannelDescriptor[] = [
   ...ONE_CHANNEL,
   { id: "discord", label: "Discord", control_available: false },
 ];
@@ -71,14 +83,33 @@ const ROWS: AgentLevelChoice[] = [
   { level: "failure", bell: false, desktop: true },
 ];
 
-function configWith(agent_levels: AgentLevelChoice[]): AppConfig {
-  return { notifications: { agent_levels, show_bell: true } } as unknown as AppConfig;
-}
+/** Two admitted ids per channel, so an audience surface has something to ask. */
+const ADMITTED = ["100000001", "100000002"] as const;
 
-type UpdateCall = { section: string; patch: Record<string, unknown> };
+function configWith(agent_levels: AgentLevelChoice[]): AppConfig {
+  return {
+    notifications: { agent_levels, show_bell: true },
+    integrations: {
+      telegram_enabled: true,
+      telegram_allowed_users: [...ADMITTED],
+      slack_enabled: true,
+      slack_allowed_users: [...ADMITTED],
+      discord_enabled: true,
+      discord_allowed_users: [...ADMITTED],
+    },
+  } as unknown as AppConfig;
+}
 
 function switches(scope: Element): HTMLButtonElement[] {
   return Array.from(scope.querySelectorAll('button[role="switch"]')) as HTMLButtonElement[];
+}
+
+function pickers(scope: Element): HTMLButtonElement[] {
+  return Array.from(scope.querySelectorAll(PICKER)) as HTMLButtonElement[];
+}
+
+function pickerOptions(scope: Element): HTMLButtonElement[] {
+  return Array.from(scope.querySelectorAll('button[role="checkbox"]')) as HTMLButtonElement[];
 }
 
 async function mount(element: ReactElement) {
@@ -93,6 +124,15 @@ async function mount(element: ReactElement) {
       host.remove();
     },
   };
+}
+
+async function openFirstPicker(host: Element): Promise<Element> {
+  const row = host.querySelector(ROW);
+  assert(row, "a level row is rendered");
+  const trigger = row.querySelector(PICKER) as HTMLButtonElement | null;
+  assert(trigger, "the level offers a push control");
+  await act(async () => trigger.click());
+  return row;
 }
 
 async function withDaemon(
@@ -116,49 +156,45 @@ async function check(name: string, run: () => Promise<void> | void) {
   console.log(`  ok ${cases.length} - ${name}`);
 }
 
-/** 1. A second channel becomes a column because the roster carries it. */
-async function aSecondChannelBecomesAColumnWithNoEditHere() {
-  const updates: UpdateCall[] = [];
+/** 1. A second channel widens one control rather than adding a row per level. */
+async function aSecondChannelWidensTheControlWithNoEditHere() {
   const one = await mount(
-    <NotificationDestinations
-      config={configWith(ROWS)}
-      channels={ONE_CHANNEL}
-      onUpdate={(section, patch) =>
-        updates.push({ section, patch: patch as Record<string, unknown> })
-      }
-    />,
+    <NotificationDestinations config={configWith(ROWS)} channels={ONE_CHANNEL} onUpdate={() => {}} />,
   );
-  const before = switches(one.host.querySelector(GRID)!).length;
+  const oneGrid = one.host.querySelector(GRID);
+  assert(oneGrid, "the surface renders");
   assert(
-    before === ROWS.length * (LOCAL_DESTINATIONS.length + ONE_CHANNEL.length),
-    `columns are the surfaces plus the roster, got ${before}`,
+    switches(oneGrid).length === ROWS.length * LOCAL_DESTINATIONS.length,
+    "the local surfaces are one toggle per level each",
   );
+  assert(
+    pickers(one.host).length === ROWS.length,
+    `one push control per level, got ${pickers(one.host).length}`,
+  );
+  const oneRow = await openFirstPicker(one.host);
+  assert(pickerOptions(oneRow).length === 1, "offering the single registered channel");
   await one.done();
 
   const two = await mount(
-    <NotificationDestinations
-      config={configWith(ROWS)}
-      channels={TWO_CHANNELS}
-      onUpdate={() => {}}
-    />,
+    <NotificationDestinations config={configWith(ROWS)} channels={TWO_CARRIERS} onUpdate={() => {}} />,
   );
-  const grid = two.host.querySelector(GRID);
-  assert(grid, "the grid renders");
   assert(
-    switches(grid).length === ROWS.length * (LOCAL_DESTINATIONS.length + TWO_CHANNELS.length),
-    "a roster that gained a member gained a column per row",
+    pickers(two.host).length === ROWS.length,
+    "a roster that gained a member did NOT gain a control per level",
   );
-  const named = switches(grid).map((control) => control.getAttribute("aria-label"));
+  const twoRow = await openFirstPicker(two.host);
+  const named = pickerOptions(twoRow).map((control) => control.getAttribute("aria-label"));
   assert(
-    named.includes(`${levelLabel("verbose")}: Discord`),
-    `the new column carries the caption the registry gave it, got ${JSON.stringify(named)}`,
+    JSON.stringify(named) ===
+      JSON.stringify(TWO_CARRIERS.map((channel) => `${levelLabel("verbose")}: ${channel.label}`)),
+    `it widened the one control instead, got ${JSON.stringify(named)}`,
   );
   await two.done();
 }
 
-/** 2. Bell and desktop keep their meaning and their order. */
+/** 2. Bell and desktop keep their meaning, their order, and their own toggles. */
 async function bellAndDesktopStayTheFirstTwoLocalSurfaces() {
-  const columns = destinationColumns(TWO_CHANNELS);
+  const columns = destinationColumns(TWO_CARRIERS);
   assert(
     JSON.stringify(columns.slice(0, 2).map((column) => column.id)) ===
       JSON.stringify(["bell", "desktop"]),
@@ -166,13 +202,17 @@ async function bellAndDesktopStayTheFirstTwoLocalSurfaces() {
   );
 
   const view = await mount(
-    <NotificationDestinations config={configWith(ROWS)} channels={TWO_CHANNELS} onUpdate={() => {}} />,
+    <NotificationDestinations config={configWith(ROWS)} channels={TWO_CARRIERS} onUpdate={() => {}} />,
   );
   for (const row of Array.from(view.host.querySelectorAll(ROW))) {
     const level = row.getAttribute("data-notification-level");
     const shipped = ROWS.find((candidate) => candidate.level === level);
     assert(shipped, `${level} came from the fixture`);
     const controls = switches(row);
+    assert(
+      controls.length === LOCAL_DESTINATIONS.length,
+      `${level}: the local surfaces are the only switches on the row`,
+    );
     assert(
       controls[0].getAttribute("aria-checked") === String(shipped.bell),
       `${level}: the bell cell reads its own field`,
@@ -185,10 +225,10 @@ async function bellAndDesktopStayTheFirstTwoLocalSurfaces() {
   await view.done();
 }
 
-/** 3. A row written before a channel existed still reaches it. */
+/** 3. A row written before a channel existed reads that channel as closed. */
 async function anAbsentChannelKeyReadsAsClosed() {
   for (const row of ROWS) {
-    for (const channel of TWO_CHANNELS) {
+    for (const channel of TWO_CARRIERS) {
       assert(
         !isRouted(row, channel.id),
         `${row.level} names no ${channel.id} key, so it does not reach it`,
@@ -196,7 +236,7 @@ async function anAbsentChannelKeyReadsAsClosed() {
     }
   }
   assert(
-    !reachesNothing(ROWS[0], destinationColumns(TWO_CHANNELS)),
+    !reachesNothing(ROWS[0], destinationColumns(TWO_CARRIERS)),
     "a row with an open surface reaches something even with every channel unnamed",
   );
   const shut: AgentLevelChoice = { level: "verbose", bell: false, desktop: false };
@@ -205,49 +245,57 @@ async function anAbsentChannelKeyReadsAsClosed() {
     "with no channels registered, both surfaces closed is reaching nothing",
   );
   assert(
-    reachesNothing(shut, destinationColumns(TWO_CHANNELS)),
+    reachesNothing(shut, destinationColumns(TWO_CARRIERS)),
     "an unnamed channel column is closed, so the level still reaches nothing",
   );
-  // Named is what routes: opting the column in is the whole difference.
+  // Named is what routes: picking the channel is the whole difference.
   assert(
-    isRouted({ ...shut, discord: true }, "discord"),
-    "the column someone switched on reaches its channel",
+    isRouted({ ...shut, slack: true }, "slack"),
+    "the channel someone picked reaches its channel",
   );
 }
 
-/** 4. An unavailable channel is still routable, but offers no controls. */
-async function anUnavailableChannelIsAColumnWithoutControls() {
+/** 4. A channel the daemon cannot deliver through is offered nowhere. */
+async function anUnavailableChannelIsOfferedNowhere() {
+  assert(
+    WITH_UNAVAILABLE.some((channel) => channel.id === "discord"),
+    "the roster carries the unavailable channel, so its absence below is the filter",
+  );
+  assert(
+    JSON.stringify(offerableChannels(WITH_UNAVAILABLE).map((channel) => channel.id)) ===
+      JSON.stringify(["telegram"]),
+    "and only one of the two can carry a message",
+  );
+  assert(
+    pushDestinations(destinationColumns(WITH_UNAVAILABLE)).length === 1,
+    "so it is not a push destination either",
+  );
+
   const view = await mount(
-    <PushChannelSettings channels={TWO_CHANNELS} config={configWith(ROWS)} onUpdate={() => {}} />,
+    <PushChannelSettings channels={WITH_UNAVAILABLE} config={configWith(ROWS)} onUpdate={() => {}} />,
   );
   assert(
     view.host.querySelector(TELEGRAM_EDITOR),
-    "an offerable channel gets its own settings surface",
+    "an offerable channel with a real audience question gets its own settings surface",
+  );
+  assert(
+    view.host.querySelector(DISCORD_EDITOR) === null,
+    "a channel the daemon cannot offer draws no controls, however many ids it admits",
   );
   await view.done();
 
-  const none = await mount(
-    <PushChannelSettings
-      channels={TWO_CHANNELS.map((channel) => ({ ...channel, control_available: false }))}
+  const grid = await mount(
+    <NotificationDestinations
       config={configWith(ROWS)}
+      channels={WITH_UNAVAILABLE}
       onUpdate={() => {}}
     />,
   );
+  const row = await openFirstPicker(grid.host);
+  const named = pickerOptions(row).map((control) => control.getAttribute("aria-label"));
   assert(
-    none.host.querySelector(TELEGRAM_EDITOR) === null,
-    "a channel the daemon cannot offer draws no controls",
-  );
-  await none.done();
-
-  // The column itself survives: routing to an unavailable channel stays
-  // expressible, which is what makes the daemon's refusal visible later.
-  const grid = await mount(
-    <NotificationDestinations config={configWith(ROWS)} channels={TWO_CHANNELS} onUpdate={() => {}} />,
-  );
-  const named = switches(grid.host.querySelector(GRID)!).map((c) => c.getAttribute("aria-label"));
-  assert(
-    named.includes(`${levelLabel("failure")}: Discord`),
-    "an unavailable channel is still a column of the grid",
+    JSON.stringify(named) === JSON.stringify([`${levelLabel("verbose")}: Telegram`]),
+    `and it is not one of the destinations offered, got ${JSON.stringify(named)}`,
   );
   await grid.done();
 }
@@ -269,10 +317,14 @@ async function anUnansweredRosterDrawsOnlyTheLocalSurfaces() {
         />,
       );
       const grid = view.host.querySelector(GRID);
-      assert(grid, "the grid still renders its local surfaces");
+      assert(grid, "the surface still renders its local surfaces");
       assert(
         switches(grid).length === ROWS.length * LOCAL_DESTINATIONS.length,
-        "an unanswered roster draws no channel column rather than guessing one",
+        "an unanswered roster draws no channel rather than guessing one",
+      );
+      assert(
+        pickers(grid).length === 0,
+        "and offers no push control at all, rather than an empty one",
       );
       assert(
         view.host.querySelector(TELEGRAM_EDITOR) === null,
@@ -284,7 +336,7 @@ async function anUnansweredRosterDrawsOnlyTheLocalSurfaces() {
 
   await withDaemon(
     async (command) => {
-      if (command === "push_channel_roster") return { channels: TWO_CHANNELS };
+      if (command === "push_channel_roster") return { channels: TWO_CARRIERS };
       if (command === "list_agent_providers") return [];
       return null;
     },
@@ -297,10 +349,11 @@ async function anUnansweredRosterDrawsOnlyTheLocalSurfaces() {
         />,
       );
       const grid = view.host.querySelector(GRID);
-      assert(grid, "the grid renders");
+      assert(grid, "the surface renders");
       assert(
-        switches(grid).length === ROWS.length * (LOCAL_DESTINATIONS.length + TWO_CHANNELS.length),
-        "the answered roster is what the grid draws",
+        switches(grid).length === ROWS.length * LOCAL_DESTINATIONS.length &&
+          pickers(grid).length === ROWS.length,
+        "the answered roster is what the surface draws",
       );
       await view.done();
     },
@@ -309,8 +362,8 @@ async function anUnansweredRosterDrawsOnlyTheLocalSurfaces() {
 
 async function main() {
   await check(
-    "channel_registry: a second channel becomes a column with no edit here",
-    aSecondChannelBecomesAColumnWithNoEditHere,
+    "channel_registry: a second channel widens the control with no edit here",
+    aSecondChannelWidensTheControlWithNoEditHere,
   );
   await check(
     "channel_registry: bell and desktop stay the first two local surfaces",
@@ -321,8 +374,8 @@ async function main() {
     anAbsentChannelKeyReadsAsClosed,
   );
   await check(
-    "channel_registry: an unavailable channel is a column without controls",
-    anUnavailableChannelIsAColumnWithoutControls,
+    "channel_registry: an unavailable channel is offered nowhere",
+    anUnavailableChannelIsOfferedNowhere,
   );
   await check(
     "channel_registry: an unanswered roster draws only the local surfaces",

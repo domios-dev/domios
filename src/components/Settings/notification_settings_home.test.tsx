@@ -10,11 +10,7 @@ import { act, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
-import {
-  NotificationDestinations,
-  reachesNothing,
-  setLevelDestination,
-} from "./NotificationDestinations";
+import { NotificationDestinations, reachesNothing } from "./NotificationDestinations";
 import { AgentsOverview } from "./AgentsTab";
 import { NotificationsOverview } from "./NotificationsTab";
 import {
@@ -30,6 +26,10 @@ import {
   destinationCellLabel,
   destinationColumns,
   isRouted,
+  localDestinations,
+  pushDestinations,
+  pushPickerLabel,
+  setLevelDestination,
   LOCAL_DESTINATIONS,
   type PushChannelDescriptor,
 } from "../../lib/notifyDestinations";
@@ -73,6 +73,10 @@ const DAEMON_CHANNELS: PushChannelDescriptor[] = [
   { id: "telegram", label: "Telegram", control_available: true },
 ];
 const COLUMNS = destinationColumns(DAEMON_CHANNELS);
+/** The two fixed surfaces, which keep a toggle each, and the registry side,
+ *  which is one picker per level however many members it has. */
+const LOCAL = localDestinations(COLUMNS);
+const PUSH = pushDestinations(COLUMNS);
 
 function open(level: string): AgentLevelChoice {
   return { level, bell: true, desktop: true, telegram: true };
@@ -86,8 +90,15 @@ const DAEMON_ROWS: AgentLevelChoice[] = [
   { level: "failure", bell: true, desktop: true, telegram: false },
 ];
 
+/** Two admitted ids, so the channel's audience is a real question and its
+ *  surface is drawn — the case the notifications home is asserted against. */
+const ADMITTED = ["100000001", "100000002"] as const;
+
 function configWith(agent_levels?: AgentLevelChoice[]): AppConfig {
-  return { notifications: { agent_levels } } as unknown as AppConfig;
+  return {
+    notifications: { agent_levels },
+    integrations: { telegram_enabled: true, telegram_allowed_users: [...ADMITTED] },
+  } as unknown as AppConfig;
 }
 
 type UpdateCall = { section: string; patch: Record<string, unknown> };
@@ -126,6 +137,13 @@ function switches(scope: Element): HTMLButtonElement[] {
   return Array.from(scope.querySelectorAll('button[role="switch"]')) as HTMLButtonElement[];
 }
 
+/** One per level: the whole push side, whatever the roster holds. */
+function pushControls(scope: Element): HTMLButtonElement[] {
+  return Array.from(
+    scope.querySelectorAll('[data-testid="settings-destination-picker-trigger"]'),
+  ) as HTMLButtonElement[];
+}
+
 const cases: string[] = [];
 async function check(name: string, run: () => Promise<void> | void) {
   await run();
@@ -157,8 +175,12 @@ async function rowsDeriveFromTheSharedLevelSet() {
   const grownGrid = view.host.querySelector(GRID);
   assert(grownGrid, "the grown grid is still rendered");
   assert(
-    switches(grownGrid).length === grown.length * COLUMNS.length,
-    "the grid is levels x destinations, never a fixed cell count",
+    switches(grownGrid).length === grown.length * LOCAL.length,
+    "the local surfaces are one toggle per level each, never a fixed cell count",
+  );
+  assert(
+    pushControls(grownGrid).length === grown.length,
+    "and the push side is one control per level, whatever the registry holds",
   );
   assert(
     view.host.textContent?.includes("Attention soon"),
@@ -178,7 +200,7 @@ async function togglingACellPersistsAndAllOffRoundTrips() {
   const verbose = view.host.querySelector(`${ROW}[data-notification-level="verbose"]`);
   assert(verbose, "the verbose row is present");
 
-  const desktopIndex = COLUMNS.findIndex((column) => column.id === "desktop");
+  const desktopIndex = LOCAL.findIndex((column) => column.id === "desktop");
   await act(async () => switches(verbose)[desktopIndex].click());
 
   assert(updates.length === 1, `one patch per cell, got ${updates.length}`);
@@ -206,7 +228,7 @@ async function togglingACellPersistsAndAllOffRoundTrips() {
   // All-off is a configuration, not a validation error.
   let allOff = patched;
   for (const destination of COLUMNS) {
-    allOff = setLevelDestination(allOff, "verbose", destination.id, false);
+    allOff = setLevelDestination(allOff, "verbose", destination, false);
   }
   assert(reachesNothing(allOff[0], COLUMNS), "every column closed is expressible");
   await view.draw(configWith(allOff));
@@ -221,8 +243,12 @@ async function togglingACellPersistsAndAllOffRoundTrips() {
     "the user is told what all-off means rather than being blocked",
   );
   assert(
-    switches(closed).length === COLUMNS.length,
-    "every cell stays togglable when the level reaches nothing",
+    switches(closed).length === LOCAL.length,
+    "every local surface stays togglable when the level reaches nothing",
+  );
+  assert(
+    pushControls(closed).length === (PUSH.length > 0 ? 1 : 0),
+    "and the push side is still one control offering the registry",
   );
   await view.done();
 }
@@ -330,8 +356,12 @@ async function absentConfigDrawsNothingAndAnUnnamedColumnIsOff() {
   assert(row, "the row is drawn");
   const states = switches(row).map((control) => control.getAttribute("aria-checked"));
   assert(
-    states.join(",") === "true,false,false",
-    `the unnamed column is drawn off, got ${states.join(",")}`,
+    states.join(",") === LOCAL.map((column) => String(isRouted(unnamed, column.id))).join(","),
+    `the local surfaces are drawn as stored, got ${states.join(",")}`,
+  );
+  assert(
+    pushControls(row).length === 1 && pushControls(row)[0].getAttribute("aria-expanded") === "false",
+    "and the unnamed channel is behind one closed picker rather than a row of its own",
   );
   await drawn.done();
 }
@@ -353,13 +383,19 @@ async function everyControlIsNamedAndIsTheSharedToggle() {
     );
     const controls = switches(row);
     assert(
-      controls.length === COLUMNS.length,
-      `one control per destination on ${level}, got ${controls.length}`,
+      controls.length === LOCAL.length,
+      `one toggle per local surface on ${level}, got ${controls.length}`,
+    );
+    const picker = pushControls(row);
+    assert(
+      picker.length === 1 &&
+        picker[0].getAttribute("aria-label") === pushPickerLabel(levelLabel(level)),
+      `${level}'s push side is one named control, got ${picker.length}`,
     );
     const shipped = DAEMON_ROWS.find((candidate) => candidate.level === level);
     assert(shipped, `${level} came from the fixture`);
     controls.forEach((control, index) => {
-      const destination = COLUMNS[index];
+      const destination = LOCAL[index];
       const expected = destinationCellLabel(levelLabel(level), destination.label);
       assert(
         control.getAttribute("aria-label") === expected,
@@ -414,13 +450,19 @@ async function destinationsMatchTheRowShape() {
     !LOCAL_DESTINATIONS.some((surface) => DAEMON_CHANNELS.some((c) => c.id === surface.id)),
     "a channel is never restated as a local surface",
   );
-  const setter = setLevelDestination(DAEMON_ROWS, "action_needed", "telegram", false);
+  const channel = PUSH[0];
+  const bell = LOCAL[0];
+  const setter = setLevelDestination(DAEMON_ROWS, "action_needed", channel, false);
   assert(
-    setter[1].telegram === false && setter[1].bell && setter[1].desktop,
-    "the setter moves one cell of one row",
+    !(channel.id in setter[1]) && setter[1].bell && setter[1].desktop,
+    "closing a channel drops its key rather than storing a false the daemon reads the same way",
   );
   assert(
-    JSON.stringify(setLevelDestination(DAEMON_ROWS, "progress", "bell", false)) ===
+    setLevelDestination(DAEMON_ROWS, "action_needed", bell, false)[1].bell === false,
+    "while a local surface keeps an explicit answer in its own named field",
+  );
+  assert(
+    JSON.stringify(setLevelDestination(DAEMON_ROWS, "progress", bell, false)) ===
       JSON.stringify(DAEMON_ROWS),
     "a level the daemon never shipped cannot be added from the UI",
   );
@@ -527,8 +569,12 @@ async function theNavExposesNotificationsAndTheMatrixLivesThere() {
       "the moved matrix still draws one row per shipped level",
     );
     assert(
-      switches(grid).length === DAEMON_ROWS.length * COLUMNS.length,
-      "levels x destinations survived the move intact",
+      switches(grid).length === DAEMON_ROWS.length * LOCAL.length,
+      "the local surfaces survived the move intact",
+    );
+    assert(
+      pushControls(grid).length === DAEMON_ROWS.length,
+      "and so did the one push control per level",
     );
     assert(
       view.host.querySelector(TELEGRAM),

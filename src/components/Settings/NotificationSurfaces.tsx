@@ -17,6 +17,8 @@ import { establishChimeContext } from "../../lib/notificationSound";
  * first send — the OS prompt belongs to the click that asked for the surface,
  * and an audio context only starts running inside one. A refusal therefore
  * leaves the switch reading off instead of promising a toast that never comes.
+ * Enabling here is one such gesture, never the only one: a sound already on in
+ * stored config is established by the first gesture anywhere in the app.
  */
 export function NotificationSurfaces({
   config,
@@ -61,17 +63,13 @@ export function NotificationSurfaces({
         </p>
       )}
       <Toggle
-        label="Sound when an agent stops"
+        label="Notification sounds"
         checked={config.notifications.sound}
         onChange={(v) => {
           if (v) establishChimeContext();
           onUpdate("notifications", { sound: v });
         }}
       />
-      <p className="text-[10px] text-[var(--ct-muted)] leading-relaxed">
-        Opt-in, and it rides the bell: it sounds only for an arrival the bell already admits, and
-        only when that arrival says the agent stopped — never for progress.
-      </p>
     </>
   );
 }

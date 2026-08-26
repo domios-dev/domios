@@ -26,6 +26,19 @@ export function levelTone(level: string): string {
   return LEVEL_TONE[level] ?? UNLEVELLED_TONE;
 }
 
+/** What each level claims, in the vocabulary the settings design uses. A level
+ *  the set gains has nothing to claim here until someone writes it, so it gets
+ *  no line rather than a guessed one. */
+const LEVEL_MEANING: Record<string, string> = {
+  verbose: "Progress, nothing waiting",
+  action_needed: "The agent is waiting on you",
+  failure: "It broke and the agent stopped",
+};
+
+export function levelMeaning(level: string): string | null {
+  return LEVEL_MEANING[level] ?? null;
+}
+
 /** The record's own level, or `null` when it carries none. `severity` is a
  *  separate wire axis and is never read here: tone must agree with routing. */
 export function notificationLevel(notification: Notification): NotifyLevelName | null {

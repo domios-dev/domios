@@ -54,6 +54,15 @@ export function preselectedAudience(configured: readonly string[]): string[] {
   return configured.length === 1 ? [configured[0]] : [];
 }
 
+/** Whether asking about the audience is a real question. One admitted id is
+ *  answered by picking the channel at all, and none is not offerable in the
+ *  first place; only several make a choice worth a surface. The stored audience
+ *  is still explicit in every case — this decides who is ASKED, never who the
+ *  empty answer means. */
+export function audienceIsAChoice(configured: readonly string[]): boolean {
+  return configured.length > 1;
+}
+
 /** Add or drop one id, keeping the rest of the selection as it stands. */
 export function toggleRecipient(
   current: readonly string[],
