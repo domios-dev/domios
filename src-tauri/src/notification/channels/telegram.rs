@@ -4,7 +4,8 @@
 //! config entry holds its audience, what makes its control offerable, and how a
 //! rendered push becomes an outbound bridge message.
 
-use codeterm_bridge::bridge::manager::OutboundMessage;
+use codeterm_bridge::bridge::manager::{OutboundEdit, OutboundMessage, PlacementReceipt};
+use codeterm_bridge::bridge::telegram as transport;
 use codeterm_bridge::bridge::traits::{InlineButton, InlineKeyboard, OutboundContent};
 use codeterm_types::config::schema::AppConfig;
 
@@ -104,6 +105,12 @@ impl PushChannel for TelegramChannel {
             return Err(format!("{SERVICE}: no explicit recipients configured"));
         }
         let buttons = keyboard(message);
+        // Only a message that draws options is worth finding again: a push with
+        // nothing to tap has nothing that could go stale.
+        let receipt = message.offers_choices().then(|| PlacementReceipt {
+            service: SERVICE.to_string(),
+            tag: message.record.clone(),
+        });
         let rejected = chat_ids
             .iter()
             .filter(|chat_id| {
@@ -116,6 +123,8 @@ impl PushChannel for TelegramChannel {
                         },
                         append: false,
                         buttons: buttons.clone(),
+                        edit: None,
+                        receipt: receipt.clone(),
                     },
                 )
                 .is_err()
@@ -129,5 +138,32 @@ impl PushChannel for TelegramChannel {
             ));
         }
         Ok(())
+    }
+
+    /// Rewrite the placed message in place. The keyboard is always restated:
+    /// a spent question draws no options, and an omitted markup would leave
+    /// the ones it drew before.
+    fn spend(
+        &self,
+        host: &dyn ChannelHost,
+        locator: &str,
+        message: &PushMessage,
+    ) -> Result<(), String> {
+        let Some((chat_id, message_id)) = transport::parse_locator(locator) else {
+            return Err(format!("{SERVICE}: '{locator}' is not a {SERVICE} message"));
+        };
+        host.enqueue(
+            SERVICE,
+            OutboundMessage {
+                user_id: Some(chat_id),
+                content: OutboundContent::Text {
+                    text: message.text.clone(),
+                },
+                append: false,
+                buttons: Some(keyboard(message).unwrap_or_default()),
+                edit: Some(OutboundEdit { message_id }),
+                receipt: None,
+            },
+        )
     }
 }

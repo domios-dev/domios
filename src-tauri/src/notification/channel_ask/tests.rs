@@ -163,6 +163,7 @@ fn channel_ask_options_ride_the_channel_and_the_tapped_label_returns_to_the_aski
     let message = PushMessage {
         text: "rendered".to_string(),
         choices: store.offered_choices_for_channel(&id),
+        record: id.clone(),
     };
     assert_eq!(
         message

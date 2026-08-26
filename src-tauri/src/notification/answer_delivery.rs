@@ -7,6 +7,7 @@
 
 use crate::service::messenger::MessageEnvelope;
 
+use super::channel_placement::SpentQuestion;
 use super::store::Notification;
 use super::NotifState;
 
@@ -142,6 +143,27 @@ pub fn deliver(
         }
         Err(detail) => AnswerDeliveryOutcome::Failed(detail),
     }
+}
+
+/// The whole consequence of one recorded answer: the tab that asked receives
+/// it, and every channel that showed the question stops showing it as open.
+///
+/// The order is the guarantee. Delivery decides the outcome and runs first;
+/// `spend` runs after and returns nothing, so a channel that cannot rewrite
+/// what it sent — or one whose rewrite is refused — cannot subtract from an
+/// answer the user has already given.
+pub fn settle(
+    store: &NotifState,
+    id: &str,
+    send: impl FnOnce(&str, MessageEnvelope, &str) -> Result<(), String>,
+    spend: impl FnOnce(&SpentQuestion),
+) -> AnswerDeliveryOutcome {
+    let outcome = deliver(store, id, send);
+    let spent = { store.lock().spent_question(id) };
+    if let Some(spent) = spent {
+        spend(&spent);
+    }
+    outcome
 }
 
 #[cfg(test)]
