@@ -225,6 +225,16 @@ optional `empty_reason`. Its `kind` is `plan_not_found`, `plan_archived`,
 `all_tasks_inactive`, or `no_match_for_filters`. The field is absent when tasks
 exist; consumers ignore unknown kinds and never invent a local explanation.
 
+Batch writes (socket `plan.batch`, REST `POST /api/plans/{id}/batch`, both
+reached by `codeterm plan record`) cross the same boundary, from either
+entrance: an op naming a task that some other tab holds is refused unless the
+caller is that holder or the plan's owner tab. Callers name themselves with
+`caller_tab_id` in the params/body; an unidentified caller cannot claim a hold.
+The refusal carries `STALE TASK BINDING` (socket `-32003`, REST `403`) with
+`type: "stale_task_binding"` plus `attempted_by_tab`, `plan_id` and `task_id`,
+and nothing is written. A bearer token proves a client is permitted, never that
+it holds the task.
+
 A live authenticated Plan owner may recover `update`, `assign`, `respawn`, or
 `close` after its tab disappears; retirement and recovery commit atomically.
 Mutating dispatch into canonical or another task's lane is refused with `-32013`;
@@ -232,4 +242,4 @@ competition provisions one lane per competitor. Advisory findings ride successfu
 results in `safety_nudges` and `_hints`. See `codeterm docs ORCHESTRATION`.
 Related: `codeterm docs API-TABS`, `API-INTEGRATIONS`, `API-MEMORY`, `API-AGENTS`,
 `API-TRANSPORT`, and `API-CLI`.
-<!-- revision: 123 -->
+<!-- revision: 124 -->

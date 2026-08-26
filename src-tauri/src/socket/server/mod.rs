@@ -18,7 +18,7 @@ mod notification;
 mod orchestration;
 mod orchestrator;
 mod persona;
-mod plan;
+pub(crate) mod plan;
 mod plan_archive;
 mod plan_attachments;
 mod plan_competition;
