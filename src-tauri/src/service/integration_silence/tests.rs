@@ -12,7 +12,6 @@ use super::*;
 use crate::agent::provider::{
     AgentLaunchParams, AgentProvider, ReadinessStrategy, SystemPromptDelivery, TaskDelivery,
 };
-use crate::notification::bell::{self, BellPolicy};
 use crate::notification::desktop::{self, DesktopPolicy};
 use crate::notification::store::NotificationStore;
 use crate::notification::NotifState;
@@ -163,7 +162,6 @@ impl Sinks {
             PushDispatch::inert(),
             SurfaceDispatch {
                 declared,
-                bell: BellPolicy::from_config(cfg),
                 desktop: DesktopPolicy::from_config(cfg),
             },
             |payload| self.emitted.lock().push(payload),
@@ -281,7 +279,8 @@ fn integration_silence_installed_integration_announces_nothing() {
 }
 
 /// The announcement is subject to the user's per-level destination grid, not
-/// delivered around it.
+/// delivered around it — and the panel, which is the complete log, keeps it
+/// either way.
 #[test]
 fn integration_silence_announcement_routes_through_the_level_destination_matrix() {
     let registry = registry_with(FixtureProvider::new(
@@ -298,7 +297,7 @@ fn integration_silence_announcement_routes_through_the_level_destination_matrix(
     assert_eq!(
         open.emitted.lock().len(),
         1,
-        "with the level's row open the bell receives it"
+        "with the level's row open the panel receives it"
     );
     assert_eq!(open.native.lock().len(), 1);
 
@@ -310,23 +309,16 @@ fn integration_silence_announcement_routes_through_the_level_destination_matrix(
         1,
         "the record is kept: routing decides where it goes, not whether it exists"
     );
-    assert!(
-        closed.emitted.lock().is_empty(),
-        "a level the user routed away from the bell never arrives there"
+    assert_eq!(
+        closed.emitted.lock().len(),
+        1,
+        "and it still reaches the panel, which is the log rather than a destination"
     );
     assert!(
         closed.native.lock().is_empty(),
-        "nor at the system notification"
+        "while the system notification, which can refuse, does"
     );
 
-    assert_eq!(
-        bell::admit(
-            Some(silence.level),
-            &BellPolicy::from_config(&closed_config)
-        ),
-        bell::BellAdmission::LevelDisabled(silence.level),
-        "the refusal names the level, so the gate is the shipped one"
-    );
     assert_eq!(
         desktop::admit(
             Some(silence.level),

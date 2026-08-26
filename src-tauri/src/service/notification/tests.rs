@@ -28,7 +28,6 @@ fn declared(level: NotifyLevel) -> SurfaceDispatch {
     let cfg = opted_in_config();
     SurfaceDispatch {
         declared: Some(level),
-        bell: BellPolicy::from_config(&cfg),
         desktop: DesktopPolicy::from_config(&cfg),
     }
 }
@@ -40,7 +39,6 @@ fn undeclared() -> SurfaceDispatch {
     let cfg = opted_in_config();
     SurfaceDispatch {
         declared: None,
-        bell: BellPolicy::from_config(&cfg),
         desktop: DesktopPolicy::from_config(&cfg),
     }
 }

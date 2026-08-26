@@ -281,11 +281,16 @@ impl Default for NotificationConfig {
 
 /// One row of the levels-by-destinations grid. Settings render this list rather
 /// than restating the level set, so the UI cannot drift from it. Every column
-/// off is a legitimate answer: that level simply reaches nothing, which is also
-/// where every column but the bell starts.
+/// off is a legitimate answer: that level then interrupts nowhere, which is also
+/// where every column starts. The record is kept regardless — the panel is the
+/// complete log and is not one of these columns.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentLevelChoice {
     pub level: String,
+    /// Retained and inert. No policy reads it: every record reaches the panel,
+    /// so this answers nothing. It stays a named field because `channels` is
+    /// flattened — drop it and every stored `bell = true` deserialises into that
+    /// map as a push channel called "bell" that no registry will ever resolve.
     #[serde(default = "routed_by_default")]
     pub bell: bool,
     #[serde(default = "routed_by_default")]
@@ -300,17 +305,18 @@ pub struct AgentLevelChoice {
 /// A column nobody named is a column nobody chose, so it reads closed. This one
 /// answer serves both the shipped default and the read of a stored row that
 /// omits a column, so a config written before the grid existed no longer reads
-/// as everything the surrounding switches allowed then - it reads as the bell
-/// alone. A channel key absent from a row reads the same way: a channel the
-/// registry gains arrives closed and stays closed until someone opts into it.
+/// as everything the surrounding switches allowed then - it reads as nothing
+/// interrupting. A channel key absent from a row reads the same way: a channel
+/// the registry gains arrives closed and stays closed until someone opts into it.
 fn routed_by_default() -> bool {
     false
 }
 
 impl AgentLevelChoice {
-    /// The bell and nothing else: the in-app record, with nothing that
-    /// interrupts. What a fresh install ships for every level, and what a level
-    /// the shared set gains arrives as.
+    /// The record and nothing else: nothing that interrupts, nothing that
+    /// leaves the machine. What a fresh install ships for every level, and what
+    /// a level the shared set gains arrives as. `bell` is set for the field's
+    /// own sake; it routes nothing.
     pub fn bell_only(level: &str) -> Self {
         Self {
             level: level.to_string(),
@@ -334,8 +340,9 @@ impl AgentLevelChoice {
         }
     }
 
-    /// Read one column. The two local surfaces are fields; a channel is a
-    /// keyed lookup, so no arm here spells a channel's name.
+    /// Read one column. The two local fields are named; a channel is a keyed
+    /// lookup, so no arm here spells a channel's name. `Bell` answers off the
+    /// retained field, which nothing routes on.
     pub fn allows(&self, destination: NotifyDestination<'_>) -> bool {
         match destination {
             NotifyDestination::Bell => self.bell,
@@ -374,8 +381,8 @@ pub fn default_agent_levels() -> Vec<AgentLevelChoice> {
 }
 
 /// Reconcile stored rows against the shared level set: a level the user already
-/// answered keeps its answer, a level the set gained arrives at the bell alone,
-/// and a row naming no known level is dropped. This is what stops a fourth
+/// answered keeps its answer, a level the set gained arrives interrupting
+/// nowhere, and a row naming no known level is dropped. This is what stops a fourth
 /// level from desyncing the grid without a migration.
 pub fn reconcile_agent_levels(stored: &[AgentLevelChoice]) -> Vec<AgentLevelChoice> {
     NotifyLevel::ALL

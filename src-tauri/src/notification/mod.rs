@@ -5,7 +5,6 @@ mod defaults_tests;
 pub mod answer;
 pub mod answer_delivery;
 pub mod authority;
-pub mod bell;
 pub mod channel_ask;
 pub mod channels;
 pub mod dedupe;
