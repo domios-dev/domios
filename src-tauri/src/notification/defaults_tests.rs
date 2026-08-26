@@ -13,9 +13,11 @@ use codeterm_types::notification::{NotifyDestination, NotifyLevel};
 use parking_lot::Mutex;
 
 use crate::notification::channels::{
-    Audience, ChannelHost, ChannelReadiness, PushChannel, RegisteredChannel,
+    Audience, ChannelHost, ChannelReadiness, PushBounds, PushChannel, RegisteredChannel,
 };
 use crate::notification::desktop::{self, DesktopPolicy};
+use crate::notification::push::PushContent;
+use crate::notification::store::NotificationProvenance;
 use crate::service::notification::{PushEnvelope, PushIntent};
 use crate::service::notification_push::{deliver_plan, plan_push};
 
@@ -45,6 +47,10 @@ impl PushChannel for FixtureChannel {
 
     fn per_scope_limit(&self, _cfg: &AppConfig) -> u32 {
         7
+    }
+
+    fn bounds(&self) -> PushBounds {
+        PushBounds::for_ceiling(1000)
     }
 
     fn control_available(&self, _cfg: &AppConfig, _host: &dyn ChannelHost) -> bool {
@@ -279,14 +285,24 @@ fn notify_defaults_an_explicitly_enabled_destination_still_routes() {
 
         let text = format!("{wire} left the machine");
         let envelope = PushEnvelope {
-            level,
-            message: crate::notification::channel_ask::PushMessage::text(text.clone()),
+            content: PushContent {
+                level,
+                title: text.clone(),
+                body: None,
+                provenance: NotificationProvenance::default(),
+            },
+            choices: Vec::new(),
+            record: String::new(),
         };
         assert_eq!(
             deliver_plan(&plan.targets, &plan.refusals, &host, &envelope),
             Ok(())
         );
-        expected.push(format!("{}:{text}", FIXTURE_SERVICE.id));
+        expected.push(format!(
+            "{}:[{}] {text}",
+            FIXTURE_SERVICE.id,
+            level.label()
+        ));
     }
 
     assert_eq!(

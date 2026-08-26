@@ -8,10 +8,16 @@
 use codeterm_bridge::bridge::manager::OutboundMessage;
 use codeterm_types::config::schema::AppConfig;
 
-use super::{stored_audience, Audience, ChannelHost, ChannelReadiness, PushChannel, PushMessage};
+use super::{
+    stored_audience, Audience, ChannelHost, ChannelReadiness, PushBounds, PushChannel, PushMessage,
+};
 use crate::notification::push;
 
 const SERVICE: &str = "discord";
+
+/// Discord's own ceiling for one message, in characters — a different number
+/// from Telegram's, and the reason the bound is not one constant in core.
+const MESSAGE_CEILING: usize = 2000;
 
 pub static CHANNEL: DiscordChannel = DiscordChannel;
 
@@ -45,6 +51,10 @@ impl PushChannel for DiscordChannel {
 
     fn per_scope_limit(&self, cfg: &AppConfig) -> u32 {
         stored_audience(cfg, SERVICE).per_scope_limit
+    }
+
+    fn bounds(&self) -> PushBounds {
+        PushBounds::for_ceiling(MESSAGE_CEILING)
     }
 
     fn control_available(&self, cfg: &AppConfig, host: &dyn ChannelHost) -> bool {

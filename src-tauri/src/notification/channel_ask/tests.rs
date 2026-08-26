@@ -20,7 +20,7 @@ use crate::notification::answer_delivery::AnswerDeliveryPlan;
 use crate::notification::authority::{
     self, admit_unattended_change, adopt_offer, apply, tap_proof, SurfaceOffer, SurfaceTarget,
 };
-use crate::notification::channels::{self, ChannelHost, PushChannel};
+use crate::notification::channels::{self, telegram, ChannelHost, PushChannel};
 use crate::notification::push;
 use crate::notification::store::{
     Ask, NotificationProvenance, NotificationSeverity, NotificationStore, PushRequest,
@@ -197,9 +197,16 @@ fn channel_ask_options_ride_the_channel_and_the_tapped_label_returns_to_the_aski
     );
     assert_eq!(plan.targets.len(), 1, "exactly the opted-in channel routed");
     let envelope = PushEnvelope {
-        level: NotifyLevel::ActionNeeded,
-        message: message.clone(),
+        content: push::PushContent {
+            level: NotifyLevel::ActionNeeded,
+            title: "rendered".to_string(),
+            body: None,
+            provenance: NotificationProvenance::default(),
+        },
+        choices: message.choices.clone(),
+        record: message.record.clone(),
     };
+    let carried_text = envelope.message_for(telegram::CHANNEL.bounds()).text;
     deliver_plan(&plan.targets, &plan.refusals, &host, &envelope)
         .expect("a carrying channel accepts the message");
 
@@ -236,7 +243,10 @@ fn channel_ask_options_ride_the_channel_and_the_tapped_label_returns_to_the_aski
     let OutboundContent::Text { text } = &carried[0].content else {
         panic!("a push is text plus its options");
     };
-    assert_eq!(text, &message.text);
+    assert_eq!(
+        text, &carried_text,
+        "the channel carried the text it rendered at its own bound"
+    );
 
     // The far end: the first option is tapped and its token comes home.
     let tapped = decode(&carried_tokens[0]).expect("the carried token reads back");
