@@ -6,9 +6,11 @@ use codeterm_types::notification::{adopt_caller_actions, answer_actions, Notific
 use parking_lot::Mutex;
 
 use super::*;
+use crate::notification::push::PushBounds;
 use crate::notification::store::{NotificationProvenance, NotificationSeverity, NotificationStore};
 use crate::service::messenger::Messenger;
 
+const BOUNDS: PushBounds = PushBounds::for_ceiling(4096);
 const QUESTION: &str = "Which branch?";
 const CHOSEN: &str = "Rebase";
 const ASKING_TAB: &str = "tab-asking-7";
@@ -274,7 +276,7 @@ fn spent_question_answered_in_the_panel_still_spends_the_channel() {
                 spent.borrow_mut().push((
                     placement.service.clone(),
                     placement.locator.clone(),
-                    spent_question.message.text.clone(),
+                    spent_question.message_for(BOUNDS).text,
                 ));
             }
         },
@@ -293,7 +295,7 @@ fn spent_question_answered_in_the_panel_still_spends_the_channel() {
             .lock()
             .spent_question(&id)
             .expect("a spent question still describes itself")
-            .message
+            .message_for(BOUNDS)
             .offers_choices(),
         "a spent question carries no options to draw"
     );

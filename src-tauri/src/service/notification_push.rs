@@ -146,11 +146,11 @@ pub(crate) fn deliver_plan(
         .map(|refusal| format!("{}: {}", refusal.service, refusal.reason))
         .collect();
 
+    // Rendered per target: the length bound belongs to the transport carrying
+    // the message, so one channel's ceiling never cuts another channel's copy.
     for target in targets {
-        if let Err(reason) = target
-            .channel
-            .deliver(host, &target.audience, &envelope.message)
-        {
+        let message = envelope.message_for(target.channel.bounds());
+        if let Err(reason) = target.channel.deliver(host, &target.audience, &message) {
             failures.push(format!("{}: {reason}", target.service));
         }
     }
