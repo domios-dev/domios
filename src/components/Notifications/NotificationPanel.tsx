@@ -100,7 +100,7 @@ export function NotificationPanel({
               <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between gap-2">
                   <span
-                    className={`${notif.read ? UI_TEXT.meta : "font-medium text-[var(--ct-fg)]"} truncate`}
+                    className={`truncate text-[11px] font-medium ${notif.read ? "text-[var(--ct-muted-fg)]" : "text-[var(--ct-fg)]"}`}
                   >
                     {notif.title}
                   </span>
