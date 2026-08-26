@@ -231,3 +231,89 @@ fn notify_without_choices_carries_no_asking_tab() {
     .expect("a title-only notification is legal");
     assert!(params.get("caller_tab_id").is_none());
 }
+
+/// `notify_unseen` — the daemon's report reaching the caller, and staying away
+/// on the ordinary case.
+mod notify_unseen {
+    use super::super::{handle_send, unseen_notice, without_unseen};
+    use crate::client::{RpcClient, SocketCallError};
+
+    fn reported() -> serde_json::Value {
+        serde_json::json!({
+            "id": "notice-1",
+            "unseen": {
+                "closed": [
+                    { "surface": "bell", "reason": "the bell indicator is hidden" },
+                    { "surface": "desktop", "reason": "desktop notifications are off" },
+                    { "surface": "push", "reason": "no push channel is routed" },
+                ]
+            }
+        })
+    }
+
+    struct Recorder {
+        answer: serde_json::Value,
+        calls: Vec<String>,
+    }
+
+    impl RpcClient for Recorder {
+        fn call_detailed(
+            &mut self,
+            method: &str,
+            _params: Option<serde_json::Value>,
+        ) -> Result<serde_json::Value, SocketCallError> {
+            self.calls.push(method.to_string());
+            Ok(self.answer.clone())
+        }
+    }
+
+    #[test]
+    fn notify_unseen_is_absent_on_the_ordinary_result() {
+        let ordinary = serde_json::json!({ "id": "notice-1" });
+        assert!(
+            unseen_notice(&ordinary).is_none(),
+            "a notification something will show says nothing extra"
+        );
+    }
+
+    #[test]
+    fn notify_unseen_reaches_the_caller_with_a_reason_per_surface() {
+        let notice = unseen_notice(&reported()).expect("the report travels to the caller");
+        for surface in ["bell", "desktop", "push"] {
+            assert!(
+                notice.contains(surface),
+                "the notice names the {surface} surface, got: {notice}"
+            );
+        }
+        assert!(
+            notice.contains("the bell indicator is hidden"),
+            "the notice carries the daemon's own reason rather than restating one: {notice}"
+        );
+    }
+
+    /// The id is what the caller came for and it survives the report — the
+    /// notification was accepted, so nothing about this reads as a failure.
+    #[test]
+    fn notify_unseen_never_displaces_the_id() {
+        let trimmed = without_unseen(&reported());
+        assert_eq!(trimmed["id"], serde_json::json!("notice-1"));
+        assert!(
+            trimmed.get("unseen").is_none(),
+            "the human rendering of the result stays the id it has always been"
+        );
+    }
+
+    /// Both shapes go down the same accepted path: one call, no early exit,
+    /// nothing that turns an accepted record into an error.
+    #[test]
+    fn notify_unseen_leaves_the_send_path_successful() {
+        for answer in [serde_json::json!({ "id": "notice-1" }), reported()] {
+            let mut client = Recorder {
+                answer,
+                calls: Vec::new(),
+            };
+            handle_send(&mut client, false, serde_json::json!({ "title": "done" }));
+            assert_eq!(client.calls, vec!["notification.create".to_string()]);
+        }
+    }
+}

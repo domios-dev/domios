@@ -336,7 +336,7 @@ fn notify_level_parser() -> impl clap::builder::TypedValueParser<Value = NotifyL
 
 #[derive(Subcommand)]
 pub enum NotifyAction {
-    /// Send a notification. The body is read only from the calling tab's AgentPad.
+    /// Send a notification. The body is read only from the calling tab's AgentPad. Reports when no surface will show it.
     Send {
         /// Notification title
         title: String,

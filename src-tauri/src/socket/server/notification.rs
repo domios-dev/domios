@@ -86,7 +86,7 @@ pub(super) fn dispatch(
                 message,
                 data: None,
             })?;
-            let id = svc.create_notification_ext(
+            let (id, unseen) = svc.create_notification_ext_reported(
                 title,
                 body,
                 Some(severity_str),
@@ -97,7 +97,7 @@ pub(super) fn dispatch(
                 offer,
             );
 
-            Ok(serde_json::json!({"id": id}))
+            Ok(crate::api::notification_routes::created_result(&id, unseen))
         }
 
         "notification.list" => {
