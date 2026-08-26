@@ -28,14 +28,18 @@ export function NotificationPanel({
   onAnswer,
   onClose,
 }: NotificationPanelProps) {
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
   const sorted = [...notifications].sort((a, b) => b.timestamp - a.timestamp);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => {
+    const newestWithBody = sorted.find((notification) => notification.body);
+    return newestWithBody ? new Set([newestWithBody.id]) : new Set();
+  });
 
   const handleClick = useCallback(
     (notif: Notification) => {
       if (!notif.read) onMarkRead(notif.id);
+      if (notif.tab_id) onJumpToTab(notif.tab_id, notif.workspace_id);
     },
-    [onMarkRead],
+    [onJumpToTab, onMarkRead],
   );
   const headerBtnClass = `${UI_BUTTON.ghost} ${UI_BUTTON.compact} h-6 px-1.5 text-[10px] disabled:pointer-events-none disabled:opacity-35`;
   const rowClass = `group flex items-start gap-2 border-b border-[var(--ct-border)] px-3 py-2.5 transition-colors hover:bg-[var(--ct-hover)]`;
@@ -103,6 +107,8 @@ export function NotificationPanel({
           sorted.map((notif) => (
             <div
               key={notif.id}
+              data-testid="notification-row"
+              data-notification-id={notif.id}
               onClick={() => handleClick(notif)}
               className={`${rowClass} ${!notif.read ? "border-l-2 border-l-[var(--ct-accent)]" : "border-l-2 border-l-transparent"}`}
             >
