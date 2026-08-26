@@ -16,6 +16,7 @@ PUBLIC_REFERENCE = re.compile(
 REPOSITORY_REFERENCE = re.compile(
     r"(?:^|(?<=\s))Repository-Issue: rollacode/codeterm#([1-9][0-9]*)$"
 )
+INLINE_CODE_SPAN = re.compile(r"`[^`]*`")
 PUBLIC_REFERENCE_MARKER = re.compile(r"Public-Issue:", re.IGNORECASE)
 REPOSITORY_REFERENCE_MARKER = re.compile(r"Repository-Issue:", re.IGNORECASE)
 REPOSITORY_CLOSE = re.compile(r"^Closes #([1-9][0-9]*)$")
@@ -62,6 +63,10 @@ def parse_metadata(
                 target.append(reference)
         # Text before a trailing declaration is still prose, held to the same rules.
         remainder = line[: declaration.start()] if declaration else line
+        # A backticked span quotes the syntax rather than using it. Without this a
+        # commit that documents the contract fails the contract, permanently: a
+        # message on master cannot be edited, so every later release re-reads it.
+        remainder = INLINE_CODE_SPAN.sub(" ", remainder)
         if PUBLIC_REFERENCE_MARKER.search(remainder):
             errors.append(f"line {line_number}: malformed Public-Issue metadata")
         elif REPOSITORY_REFERENCE_MARKER.search(remainder):
