@@ -24,6 +24,7 @@ import {
   fail,
   mount,
   named,
+  openPush,
   pass,
   row,
   setupDom,
@@ -59,6 +60,7 @@ async function openingTheColumnPreselectsNobodyWhenSeveralAreConfigured() {
       }
     />,
   );
+  await openPush(view.host, LEVEL);
   await act(async () =>
     named(view.host, destinationCellLabel(levelLabel(LEVEL), CHANNEL.label)).click(),
   );

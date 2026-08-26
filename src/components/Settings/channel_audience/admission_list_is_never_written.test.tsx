@@ -19,6 +19,7 @@ import {
   fail,
   mount,
   named,
+  openPush,
   pass,
   row,
   setupDom,
@@ -53,6 +54,7 @@ async function nothingHereWritesTheAdmissionList() {
   const grid = await mount(
     <NotificationDestinations config={config} channels={[CHANNEL]} onUpdate={record} />,
   );
+  await openPush(grid.host, LEVEL);
   await act(async () =>
     named(grid.host, destinationCellLabel(levelLabel(LEVEL), CHANNEL.label)).click(),
   );

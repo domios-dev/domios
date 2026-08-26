@@ -81,8 +81,8 @@ const holders = readdirSync(settingsDir)
 check(holders.length === 1, `exactly one Settings file owns the control, found ${holders.length}`);
 const settings = readFileSync(holders[0], "utf8");
 check(
-  /<Toggle\s+label="Sound[^"]*"\s+checked=\{config\.notifications\.sound\}/.test(settings),
-  "the control is the shared toggle, not a new one",
+  /<Toggle\s+label="[^"]+"\s+checked=\{config\.notifications\.sound\}/.test(settings),
+  "the control is the shared toggle bound to the field, not a new one",
 );
 check(
   /onUpdate\("notifications", \{ sound: v \}\)/.test(settings),

@@ -1,38 +1,33 @@
 import type { AgentLevelChoice, AppConfig } from "../../lib/types";
 import {
+  PUSH_DESTINATION_LABEL,
   destinationCellLabel,
   destinationColumns,
+  destinationSummary,
   isRouted,
+  localDestinations,
+  pushDestinations,
+  pushPickerLabel,
+  setLevelDestination,
   type DestinationColumn,
   type PushChannelDescriptor,
 } from "../../lib/notifyDestinations";
-import { levelLabel, levelTone } from "../../lib/notifyLevels";
+import { levelLabel, levelMeaning, levelTone } from "../../lib/notifyLevels";
 import {
   channelPatch,
   channelRecipients,
   configuredUsers,
   preselectedAudience,
 } from "../../lib/pushChannels";
+import { DestinationPicker, type DestinationOption } from "./DestinationPicker";
 import { Toggle } from "./shared";
 
-export function setLevelDestination(
-  current: AgentLevelChoice[],
-  level: string,
-  destination: string,
-  routed: boolean,
-): AgentLevelChoice[] {
-  return current.map((choice) => {
-    if (choice.level !== level) return choice;
-    return { ...choice, [destination]: routed };
-  });
-}
-
 /**
- * One cell, flipped. Opening a channel's column is the whole of whether that
- * level reaches the channel; it also answers who when the answer is
- * unambiguous, so a single configured id needs nothing typed. With several the
- * audience stays untouched — a preselected everyone would make one flip a
- * broadcast — and an audience already chosen is never overwritten.
+ * One destination, moved. Opening a channel is the whole of whether that level
+ * reaches the channel; it also answers who when the answer is unambiguous, so a
+ * single admitted id needs nothing confirmed. With several the audience stays
+ * untouched — a preselected everyone would make one pick a broadcast — and an
+ * audience already chosen is never overwritten.
  */
 export function destinationCellUpdate(
   config: AppConfig,
@@ -41,7 +36,7 @@ export function destinationCellUpdate(
   column: DestinationColumn,
   routed: boolean,
 ): Partial<AppConfig["notifications"]> {
-  const agent_levels = setLevelDestination(levels, level, column.id, routed);
+  const agent_levels = setLevelDestination(levels, level, column, routed);
   if (column.kind !== "channel" || !routed) return { agent_levels };
   if (channelRecipients(config, column.id).length > 0) return { agent_levels };
   const preselected = preselectedAudience(configuredUsers(config, column.id));
@@ -62,16 +57,16 @@ export function reachesNothing(
 }
 
 /**
- * The levels-by-destinations grid.
+ * Where each level may go.
  *
  * Rows come from the daemon's own closed level set, so a level added there
- * appears here without anyone editing a list. Columns come from the daemon's
- * channel registry the same way: this component never names a channel, so a
- * channel the registry gains becomes a column with nothing here to change.
- * Every cell is independent, and a level with every column closed is a
- * configuration rather than an error — it simply reaches nothing. A channel's
- * column is the whole of whether that level reaches it; who receives it is that
- * channel's own audience surface, never a second switch agreeing with this one.
+ * appears here without anyone editing a list. The two local surfaces are two
+ * fixed things and keep a toggle each. The push side is not a fixed set — it is
+ * a registry — so it is ONE control per level that names the channels that level
+ * reaches, and a channel the registry gains widens that control instead of
+ * adding a row to every level. Only a channel that can carry a message is
+ * offered. A level that picks nothing is a configuration rather than an error:
+ * it simply reaches nothing.
  */
 export function NotificationDestinations({
   config,
@@ -85,12 +80,26 @@ export function NotificationDestinations({
   const levels = config.notifications?.agent_levels ?? [];
   if (levels.length === 0) return null;
   const columns = destinationColumns(channels);
+  const local = localDestinations(columns);
+  const push = pushDestinations(columns);
 
   return (
     <div className="flex flex-col gap-4" data-testid="settings-notification-destinations">
       {levels.map((choice) => {
         const label = levelLabel(choice.level);
         const tone = levelTone(choice.level);
+        const meaning = levelMeaning(choice.level);
+        const options: DestinationOption[] = push.map((destination) => ({
+          id: destination.id,
+          label: destination.label,
+          name: destinationCellLabel(label, destination.label),
+          selected: isRouted(choice, destination.id),
+          onToggle: (selected) =>
+            onUpdate(
+              "notifications",
+              destinationCellUpdate(config, levels, choice.level, destination, selected),
+            ),
+        }));
         return (
           <div
             key={choice.level}
@@ -111,11 +120,12 @@ export function NotificationDestinations({
               >
                 {label}
               </span>
+              {meaning && <span className="text-[11px] text-[var(--ct-muted-fg)]">{meaning}</span>}
               {reachesNothing(choice, columns) && (
                 <span className="text-[10px] text-[var(--ct-muted)]">reaches nothing</span>
               )}
             </div>
-            {columns.map((destination) => (
+            {local.map((destination) => (
               <Toggle
                 key={destination.id}
                 label={destinationCellLabel(label, destination.label)}
@@ -128,6 +138,14 @@ export function NotificationDestinations({
                 }
               />
             ))}
+            {push.length > 0 && (
+              <DestinationPicker
+                name={pushPickerLabel(label)}
+                label={PUSH_DESTINATION_LABEL}
+                summary={destinationSummary(push.filter((d) => isRouted(choice, d.id)))}
+                options={options}
+              />
+            )}
           </div>
         );
       })}

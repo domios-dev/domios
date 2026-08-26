@@ -71,10 +71,29 @@ export function switches(scope: Element): HTMLButtonElement[] {
   return Array.from(scope.querySelectorAll('button[role="switch"]')) as HTMLButtonElement[];
 }
 
+/** Every control that carries a checked state, whichever role expresses it: the
+ *  local surfaces are switches and the push picker's channels are checkboxes. */
+export function controls(scope: Element): HTMLButtonElement[] {
+  return Array.from(
+    scope.querySelectorAll('button[role="switch"], button[role="checkbox"]'),
+  ) as HTMLButtonElement[];
+}
+
 export function named(scope: Element, label: string): HTMLButtonElement {
-  const control = switches(scope).find((entry) => entry.getAttribute("aria-label") === label);
+  const control = controls(scope).find((entry) => entry.getAttribute("aria-label") === label);
   assert(control, `no control is named "${label}"`);
   return control;
+}
+
+/** Open one level's push picker, so the channels it offers become reachable.
+ *  The push side is one control per level, so its options exist only while it
+ *  is open — which is the whole point of the shape. */
+export async function openPush(host: Element, level: string): Promise<void> {
+  const trigger = host.querySelector(
+    `[data-notification-level="${level}"] [data-testid="settings-destination-picker-trigger"]`,
+  ) as HTMLButtonElement | null;
+  assert(trigger, `the ${level} row offers a push picker`);
+  await act(async () => trigger.click());
 }
 
 /** A row whose channel column is stated outright in both directions, so no
