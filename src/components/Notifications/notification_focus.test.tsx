@@ -124,9 +124,12 @@ async function widthFollowsDefaultOpenState() {
   const panel = await render([current]);
   const control = disclosure(panel, current.title);
 
-  assert(panel.dataset.expanded === "true" && width(panel) === "560px", "an open newest card widens the panel on arrival");
+  const onArrival = panel.dataset.expanded;
+  assert(onArrival === "true" && width(panel) === "560px", "an open newest card widens the panel on arrival");
   await act(async () => control.click());
-  assert(panel.dataset.expanded === "false" && width(panel) === "360px", "closing the only open card restores the compact panel");
+  // Read again rather than re-testing the narrowed value the assert above left behind.
+  const afterClosing = panel.dataset.expanded;
+  assert(afterClosing === "false" && width(panel) === "360px", "closing the only open card restores the compact panel");
 }
 
 async function goneTabNeverSubstitutesAnotherIdentity() {
