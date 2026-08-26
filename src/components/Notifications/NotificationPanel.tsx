@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { RichMarkdown } from "@codeterm/chat-ui";
 import type { Notification } from "../../lib/types";
 import { runNotificationAction } from "../../lib/notificationActions";
 import { Bell, Check, ChevronDown, Trash2, X } from "lucide-react";
@@ -148,7 +149,7 @@ export function NotificationPanel({
                         role="region"
                         tabIndex={0}
                         aria-label={`Message from ${notif.title}`}
-                        className="mt-1.5 whitespace-pre-wrap break-words rounded border border-[var(--ct-border)] px-2 py-1.5 text-[12px] leading-5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ct-accent)]"
+                        className="mt-1.5 break-words rounded border border-[var(--ct-border)] px-2 py-1.5 text-[12px] leading-5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ct-accent)]"
                         style={{
                           color: "var(--ct-fg)",
                           backgroundColor: "var(--ct-bg)",
@@ -157,7 +158,7 @@ export function NotificationPanel({
                           overscrollBehavior: "contain",
                         }}
                       >
-                        {notif.body}
+                        <RichMarkdown text={notif.body} />
                       </div>
                     )}
                   </>
