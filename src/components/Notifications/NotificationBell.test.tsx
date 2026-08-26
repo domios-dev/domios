@@ -106,17 +106,17 @@ async function run() {
     calls.invoked[0]?.command === "respond_provider_update_prompt",
     "Update should invoke the provider update command",
   );
-  assert(!panel.textContent?.includes(item.body!), "complete message should start collapsed");
+  assert(panel.textContent?.includes(item.body!), "the newest complete message should start open");
 
   const expand = panel.querySelector<HTMLButtonElement>('[aria-label="Show complete message for Agent needs input"]');
   assert(expand, "bell entry should expose an accessible expand control");
   await act(async () => expand.click());
-  assert(panel.textContent?.includes("First line\nSecond line"), "expanded entry should preserve the complete message");
-  assert(expand.getAttribute("aria-expanded") === "true", "expand control should expose expanded state");
+  assert(!panel.textContent?.includes(item.body!), "closing should hide the complete message");
+  assert(expand.getAttribute("aria-expanded") === "false", "collapse should expose collapsed state");
 
   await act(async () => expand.click());
-  assert(!panel.textContent?.includes(item.body!), "expanded entry should collapse again");
-  assert(expand.getAttribute("aria-expanded") === "false", "collapse should expose collapsed state");
+  assert(panel.textContent?.includes("First line\nSecond line"), "reopening should preserve the complete message");
+  assert(expand.getAttribute("aria-expanded") === "true", "reopening should expose expanded state");
 
   await act(async () => {
     (Array.from(panel.querySelectorAll("button")).find((button) => button.textContent?.includes("Read all")) as HTMLElement).click();
