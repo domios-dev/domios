@@ -23,6 +23,53 @@ pub const PLANNER_SUFFIX: &str = include_str!("../prompts/planner_suffix.md");
 
 pub const PLANNER_DOC: &str = include_str!("../../docs/PLANNER.md");
 
+/// The executor-role member of [`PLANNER_TASK_MANDATORY_FIELDS`]. It lives in
+/// that list, not in a sentence beside it: a list member cannot be delivered
+/// with its requirement edited out.
+pub const PLANNER_TASK_EXECUTOR_ROLE_FIELD: &str = "an `--executor-role` naming who executes it";
+
+/// Every field a task must carry at creation. The prompt sentence is composed
+/// from this list, so a field is obliged by membership rather than by prose.
+pub const PLANNER_TASK_MANDATORY_FIELDS: &[&str] = &[
+    "a bounded body",
+    "section links",
+    "acceptance criteria",
+    "a correctness vector",
+    "an executable test plan",
+    "an ownership boundary",
+    "report expectations",
+    PLANNER_TASK_EXECUTOR_ROLE_FIELD,
+];
+
+/// Routing that stays optional — out of the mandatory scope, not out of the product.
+pub const PLANNER_TASK_ROUTING_FLAGS: &[&str] =
+    &["`--model`", "`--personality`", "`--role-guidance`"];
+
+fn oxford_join(items: &[&str]) -> String {
+    match items {
+        [] => String::new(),
+        [only] => (*only).to_string(),
+        [first, second] => format!("{first} and {second}"),
+        [head @ .., last] => format!("{}, and {last}", head.join(", ")),
+    }
+}
+
+/// Fills `{task_contract_line}` in [`PLANNER_SUFFIX`].
+pub fn planner_task_contract_line() -> String {
+    format!(
+        "Every task needs {}. The executor role is required at add time, cannot be cleared by a later update, and blocks approval when unset.",
+        oxford_join(PLANNER_TASK_MANDATORY_FIELDS)
+    )
+}
+
+/// Fills `{task_routing_line}` in [`PLANNER_SUFFIX`].
+pub fn planner_task_routing_line() -> String {
+    format!(
+        "Routing is yours too: set {} at add time with a rationale, so the Orchestrator never has to re-route by hand.",
+        oxford_join(PLANNER_TASK_ROUTING_FLAGS)
+    )
+}
+
 /// Shared bounce-unwinding contract exposed through embedded docs and fixtures.
 pub const BOUNCE_UNWINDING_CONTRACT: &str = include_str!("../prompts/bounce_unwinding_contract.md");
 
@@ -33,6 +80,10 @@ pub const TEST_AUTHOR_GUIDANCE: &str = "You are a test-author. docs/contributing
 pub const ORCHESTRATOR_SUFFIX: &str = include_str!("../prompts/orchestrator_suffix.md");
 
 pub const ORCHESTRATION_DOC: &str = include_str!("../../docs/ORCHESTRATION.md");
+
+/// Fills `{roleless_draft_rejection}` in [`ORCHESTRATOR_SUFFIX`], inside the
+/// instruction where drafts are already accepted, revised, or rejected.
+pub const ORCH_ROLELESS_DRAFT_REJECTION: &str = "reject any task that names no executor role";
 
 /// Task-decomposition contract shared by both planning surfaces. One source so
 /// the Planner that cuts the graph and the Orchestrator that judges it agree.
@@ -204,6 +255,7 @@ pub fn peer_pairing_mandate_full(spawn_cmd: &str) -> String {
 
 pub fn orchestrator_suffix() -> String {
     let role_prompt = ORCHESTRATOR_SUFFIX
+        .replace("{roleless_draft_rejection}", ORCH_ROLELESS_DRAFT_REJECTION)
         .replace(
             "{planning_compaction_contract}",
             PLANNING_COMPACTION_CONTRACT.trim(),
@@ -260,6 +312,8 @@ pub fn orchestrator_first_message(tab_id: &str, team_id: &str, plan_id: Option<&
 
 pub fn planner_suffix() -> String {
     let role_prompt = PLANNER_SUFFIX
+        .replace("{task_contract_line}", &planner_task_contract_line())
+        .replace("{task_routing_line}", &planner_task_routing_line())
         .replace("{test_author_guidance}", TEST_AUTHOR_GUIDANCE)
         .replace(
             "{planning_compaction_contract}",
