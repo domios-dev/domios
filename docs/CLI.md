@@ -2109,7 +2109,7 @@ Add a task to a plan (carries model/why routing + quality fields)
 - `--depends-on` — Task this one waits on; repeatable. Accepts a full task id (task_xxxxxx), a unique id prefix, or a task handle (see --handle)
 - `--destination`
 - `--execution-intent`
-- `--executor-role` — Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync
+- `--executor-role` — REQUIRED: who executes this task. Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync. Presence is the contract; no vocabulary is enforced
 - `--external-ref` — GitHub issue reference; repeatable. Accepts a full issue URL or owner/repository#number
 - `--force`
 - `--group`
@@ -2298,7 +2298,7 @@ Update task metadata, status, quality fields, or lane assignment
 - `--criterion-file` — Read acceptance criteria from a file: a JSON string array, or one criterion per line. Appends to --criterion
 - `--depends-on` — Add a dependency; repeatable. Appends to existing dependencies (dedup). Accepts a full task id (task_xxxxxx), a unique id prefix, or a task handle. Use --replace-dependencies for wholesale replacement
 - `--destination`
-- `--executor-role` — Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync
+- `--executor-role` — Replace the executor role. Cannot be emptied: an update carrying a blank value is refused
 - `--external-ref` — GitHub issue reference to add; repeatable. Accepts a full issue URL or owner/repository#number
 - `--group`
 - `--handle`
