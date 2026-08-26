@@ -667,8 +667,7 @@ const plugin: PluginModule = {
         if (!Array.isArray(hooks)) continue;
         for (let j = 0; j < hooks.length; j++) {
           const hook = hooks[j];
-          if (hook && hook._source === CODETERM_HOOK_MARKER
-              && typeof hook.command === "string"
+          if (hook && typeof hook.command === "string"
               && hook.command.indexOf("CODETERM_TAB_ID") !== -1
               && hook.command.indexOf("CODETERM_API_URL") !== -1
               && hook.command.indexOf("CODETERM_API_TOKEN") !== -1
@@ -688,7 +687,7 @@ const plugin: PluginModule = {
         if (!Array.isArray(hooks)) continue;
         for (let j = 0; j < hooks.length; j++) {
           const h = hooks[j];
-          if (h && h._source === CODETERM_HOOK_MARKER && typeof h.command === "string"
+          if (h && typeof h.command === "string"
               && h.command.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1
               && h.command.indexOf("CODETERM_TAB_ID") !== -1
               && h.command.indexOf("CODETERM_API_URL") !== -1
