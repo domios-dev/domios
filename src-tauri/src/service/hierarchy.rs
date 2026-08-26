@@ -3,6 +3,8 @@
 mod plan_reminder_nudge;
 mod planner_binding;
 mod planner_delivery;
+#[cfg(test)]
+mod report_attribution;
 mod report_event;
 mod report_persistence;
 mod report_plan_ctx;
@@ -403,10 +405,12 @@ impl ServiceContext {
         let mut report_requirement = worker_handoff::claim_explicit_report(&self.gateway, tab_id);
 
         let mut notices: Vec<String> = Vec::new();
+        let mut binding_refused = false;
         let (eff_plan_id, eff_task_id) =
             match resolve_plan_ctx(&self.plan_store, tab_id, plan_id, task_id, &mut notices) {
                 Ok(context) => context,
                 Err(cause) => {
+                    binding_refused = true;
                     task_transition_refusal = Some(match task_transition_refusal {
                         Some(existing) => format!("{existing}\n{cause}"),
                         None => cause,
@@ -466,15 +470,26 @@ impl ServiceContext {
             _ => None,
         };
 
-        let target_opt = eff_plan_id
+        // A refused binding is not authority over the destination either. The plan a
+        // stale hint names may be owned by a tab that no longer manages this
+        // reporter, so the owner override is withheld and the recipient falls
+        // through to `resolve_report_target`'s live parent -> report_target ->
+        // spawned_by chain — the same resolution an unhinted report already uses,
+        // and the reason a moved agent stops reporting to its old Orchestrator.
+        let plan_owner_target = eff_plan_id
             .as_deref()
+            .filter(|_| !binding_refused)
             .and_then(|id| self.plan_store.owner_of(id))
             .and_then(|owner| owner.tab_id)
             .filter(|target| !target.is_empty() && target != tab_id)
-            .map(ReportTarget::Local)
-            .or(default_target_opt);
-        let target = target_opt.ok_or_else(|| {
-            "No report target for this tab. You are not attached to an orchestrator, report target, or spawning tab. Ask for the target tab id, then use `codeterm send [--mesh <peer>] --tab <tab-or-alias> \"...\"`, or spawn with a report target.".to_string()
+            .map(ReportTarget::Local);
+        let target = plan_owner_target.or(default_target_opt).ok_or_else(|| {
+            report_plan_ctx::nowhere_to_deliver_refusal(
+                tab_id,
+                rejected_task_transition
+                    .as_ref()
+                    .map(|rejection| rejection.cause.as_str()),
+            )
         })?;
 
         let foreign = is_explicit_plan_foreign(plan_id, eff_plan_id.as_deref());
@@ -578,10 +593,9 @@ impl ServiceContext {
             |rejection| rejected_report_delivery_message(&rejection.cause, message),
         );
         if rejected_task_transition.is_some() {
-            notices.push(
-                "task transition was rejected; the report was still recorded and delivered, so do not resend it"
-                    .to_string(),
-            );
+            notices.push(format!(
+                "task transition was rejected and this report is NOT attributed to that task; the report itself was recorded and delivered to '{storage_key}', resolved live from this tab's own hierarchy - so do not resend it"
+            ));
         }
         let report = self.report_store.lock().add_detailed_with_model_identity(
             &storage_key,
