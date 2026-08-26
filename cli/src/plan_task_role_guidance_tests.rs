@@ -12,6 +12,8 @@ fn plan_task_add_and_update_parse_role_guidance_flags() {
         "pl_1",
         "--name",
         "Planner lane",
+        "--executor-role",
+        "docs-sync",
         "--role-guidance",
         "Act as planner",
         "--role-guidance-file",
@@ -78,7 +80,7 @@ fn plan_task_add_and_update_parse_executor_role_flags() {
                 PlanAction::Task {
                     action: crate::args::plan::PlanTaskAction::Add { executor_role, .. },
                 },
-        } => assert_eq!(executor_role.as_deref(), Some("rust-backend-dev")),
+        } => assert_eq!(executor_role, "rust-backend-dev"),
         _ => panic!("expected plan task add"),
     }
 

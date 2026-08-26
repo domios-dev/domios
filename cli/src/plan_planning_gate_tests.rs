@@ -27,7 +27,16 @@ fn plan_mode_commands_parse() {
 #[test]
 fn plan_task_add_force_and_rm_all_parse() {
     let parsed = Cli::try_parse_from([
-        "codeterm", "plan", "task", "add", "pl_1", "--name", "Draft", "--force",
+        "codeterm",
+        "plan",
+        "task",
+        "add",
+        "pl_1",
+        "--name",
+        "Draft",
+        "--executor-role",
+        "rust-backend-dev",
+        "--force",
     ])
     .expect("plan task add --force parses");
     match parsed.command {
