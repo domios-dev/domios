@@ -10,6 +10,7 @@ pub mod channels;
 pub mod dedupe;
 pub mod desktop;
 pub mod push;
+pub mod reach;
 pub mod store;
 
 use std::sync::Arc;

@@ -7,6 +7,7 @@ use codeterm_types::notification::{validate_answer_labels, CallerAction};
 use serde::Deserialize;
 
 use crate::api::routes::{check_auth, AppState};
+use crate::notification::reach::Unseen;
 
 #[derive(Deserialize)]
 pub(crate) struct ListNotifQuery {
@@ -146,7 +147,7 @@ pub async fn create_notification(
         intent.level,
     )
     .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
-    let id = state.svc.create_notification_ext(
+    let (id, unseen) = state.svc.create_notification_ext_reported(
         body.title,
         body.body,
         body.severity.as_deref(),
@@ -156,7 +157,18 @@ pub async fn create_notification(
         intent,
         offer,
     );
-    Ok(Json(serde_json::json!({"id": id})))
+    Ok(Json(created_result(&id, unseen)))
+}
+
+/// The one shape `notification.create` answers with, on every transport. The
+/// id is unconditional — the record was opened — and `unseen` appears only when
+/// no surface will show it, so its presence is itself the signal.
+pub fn created_result(id: &str, unseen: Option<Unseen>) -> serde_json::Value {
+    let mut result = serde_json::json!({ "id": id });
+    if let Some(unseen) = unseen {
+        result["unseen"] = serde_json::to_value(unseen).unwrap_or_default();
+    }
+    result
 }
 
 /// One row per registered push channel: its service id, its column caption,
@@ -306,5 +318,47 @@ mod tests {
         let allowed = crate::paths::data_dir();
         let inside = allowed.join("config.toml");
         assert!(inside.starts_with(&allowed));
+    }
+
+    /// `notify_unseen` — the result seam every transport answers through: the
+    /// id is unconditional, and the report travels only when there is one.
+    mod notify_unseen {
+        use crate::notification::reach::{ClosedSurface, Unseen, BELL};
+
+        #[test]
+        fn notify_unseen_absent_on_the_ordinary_result() {
+            let result = super::super::created_result("notice-1", None);
+            assert_eq!(result["id"], "notice-1");
+            assert!(
+                result.get("unseen").is_none(),
+                "a notification something will show carries no report: {result}"
+            );
+        }
+
+        #[test]
+        fn notify_unseen_travels_on_the_result_with_its_reasons() {
+            let report = Unseen {
+                closed: vec![ClosedSurface {
+                    surface: BELL,
+                    reason: "the bell indicator is hidden".to_string(),
+                }],
+            };
+            let result = super::super::created_result("notice-2", Some(report));
+            assert_eq!(
+                result["id"], "notice-2",
+                "the record was still opened, so the id is still returned"
+            );
+            let closed = result["unseen"]["closed"]
+                .as_array()
+                .expect("the report travels as a list of shut surfaces");
+            assert_eq!(closed.len(), 1);
+            assert_eq!(closed[0]["surface"], BELL);
+            assert!(
+                closed[0]["reason"]
+                    .as_str()
+                    .is_some_and(|reason| !reason.is_empty()),
+                "each shut surface carries its reason to the caller"
+            );
+        }
     }
 }

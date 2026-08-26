@@ -329,21 +329,25 @@ fn main_impl() {
                 offer,
                 offer_accept,
                 ..
-            } => client.call(
-                "notification.create",
-                Some(cmd::notify::send_params(
-                    &title,
-                    &severity,
-                    level,
-                    event_key.as_deref(),
-                    from_pad.as_deref(),
-                    &choice,
-                    cmd::notify::Offer {
-                        surface: offer.as_deref(),
-                        accept: offer_accept.as_deref(),
-                    },
-                )),
-            ),
+            } => {
+                cmd::notify::handle_send(
+                    &mut client,
+                    cli.json,
+                    cmd::notify::send_params(
+                        &title,
+                        &severity,
+                        level,
+                        event_key.as_deref(),
+                        from_pad.as_deref(),
+                        &choice,
+                        cmd::notify::Offer {
+                            surface: offer.as_deref(),
+                            accept: offer_accept.as_deref(),
+                        },
+                    ),
+                );
+                return;
+            }
             NotifyAction::List { unread } => client.call(
                 "notification.list",
                 Some(serde_json::json!({ "unread_only": unread })),

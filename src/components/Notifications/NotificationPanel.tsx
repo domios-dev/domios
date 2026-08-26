@@ -39,12 +39,22 @@ export function NotificationPanel({
   );
   const headerBtnClass = `${UI_BUTTON.ghost} ${UI_BUTTON.compact} h-6 px-1.5 text-[10px] disabled:pointer-events-none disabled:opacity-35`;
   const rowClass = `group flex items-start gap-2 border-b border-[var(--ct-border)] px-3 py-2.5 transition-colors hover:bg-[var(--ct-hover)]`;
+  // The card cannot widen past the panel it lives in, so reading room is the
+  // panel's to give: it grows while anything is open and returns when nothing is.
+  const anyExpanded = expandedIds.size > 0;
 
   return (
     <div
       data-testid="notification-panel"
-      className="flex w-[min(360px,calc(100vw-16px))] max-w-[calc(100vw-16px)] flex-col overflow-hidden rounded-md border border-[var(--ct-border)] bg-[var(--ct-surface)] shadow-2xl ct-float"
-      style={{ maxHeight: "min(520px, calc(100dvh - var(--ct-safe-top, 0px) - var(--ct-safe-bottom, 0px) - 48px))" }}
+      data-expanded={anyExpanded ? "true" : "false"}
+      className="flex max-w-[calc(100vw-16px)] flex-col overflow-hidden rounded-md border border-[var(--ct-border)] bg-[var(--ct-surface)] shadow-2xl ct-float"
+      style={{
+        width: anyExpanded
+          ? "min(560px, calc(100vw - 16px))"
+          : "min(360px, calc(100vw - 16px))",
+        transition: "width var(--ct-duration-normal) var(--ct-ease-out-expo)",
+        maxHeight: "min(520px, calc(100dvh - var(--ct-safe-top, 0px) - var(--ct-safe-bottom, 0px) - 48px))",
+      }}
     >
       <div className="flex min-h-9 shrink-0 items-center justify-between border-b border-[var(--ct-border)] px-2.5 py-1">
         <span className="flex items-center gap-1.5 text-[11px] font-medium text-[var(--ct-fg)]">
@@ -133,7 +143,20 @@ export function NotificationPanel({
                       {expandedIds.has(notif.id) ? "Hide message" : "Show message"}
                     </button>
                     {expandedIds.has(notif.id) && (
-                      <div className="mt-1 whitespace-pre-wrap break-words text-[12px] leading-5 text-[var(--ct-muted-fg)]">
+                      <div
+                        data-testid="notification-expanded-body"
+                        role="region"
+                        tabIndex={0}
+                        aria-label={`Message from ${notif.title}`}
+                        className="mt-1.5 whitespace-pre-wrap break-words rounded border border-[var(--ct-border)] px-2 py-1.5 text-[12px] leading-5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ct-accent)]"
+                        style={{
+                          color: "var(--ct-fg)",
+                          backgroundColor: "var(--ct-bg)",
+                          maxHeight: "min(14rem, 40dvh)",
+                          overflowY: "auto",
+                          overscrollBehavior: "contain",
+                        }}
+                      >
                         {notif.body}
                       </div>
                     )}
