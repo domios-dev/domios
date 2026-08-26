@@ -6,6 +6,7 @@
 //! holds it. The hint may disambiguate among the tasks a tab holds; it may never
 //! name a task the tab does not hold.
 
+use crate::plan::Task;
 use crate::service::plan::PlanStore;
 
 /// Marks the refusal class so a wrong-task report stays distinguishable from the
@@ -16,6 +17,18 @@ pub(crate) const STALE_TASK_HINT_REFUSAL: &str = "STALE TASK BINDING";
 /// an open competition attempt on it — competition is the one shape where
 /// several tabs legitimately hold one task at once. A lingering non-competitive
 /// attempt does not count: it survives a rebind and would launder a stale hint.
+///
+/// The batch-write boundary asks the same question, so both ask it here.
+pub(crate) fn tab_holds(task: &Task, tab_id: &str) -> bool {
+    task.assigned_tab_id.as_deref() == Some(tab_id)
+        || task.execution_attempts.iter().any(|attempt| {
+            attempt.executor_tab_id == tab_id
+                && attempt.closed_at.is_none()
+                && attempt.retired_at.is_none()
+                && attempt.competition_group_id.is_some()
+        })
+}
+
 fn tab_holds_task(plan_store: &PlanStore, tab_id: &str, plan_id: &str, task_id: &str) -> bool {
     let Some(plan) = plan_store.get(plan_id) else {
         return false;
@@ -23,15 +36,7 @@ fn tab_holds_task(plan_store: &PlanStore, tab_id: &str, plan_id: &str, task_id: 
     plan.tasks
         .iter()
         .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
-        .is_some_and(|task| {
-            task.assigned_tab_id.as_deref() == Some(tab_id)
-                || task.execution_attempts.iter().any(|attempt| {
-                    attempt.executor_tab_id == tab_id
-                        && attempt.closed_at.is_none()
-                        && attempt.retired_at.is_none()
-                        && attempt.competition_group_id.is_some()
-                })
-        })
+        .is_some_and(|task| tab_holds(task, tab_id))
 }
 
 /// Names both sides of the mismatch — the task the caller pointed at, and what
