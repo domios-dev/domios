@@ -627,12 +627,16 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             } else {
                 None
             };
+            let report_base = crate::cmd::report_attribution::ReportBase::classify(
+                base,
+                std::env::var("CODETERM_LANE_BASE").ok(),
+            );
             let (branch, sha, changed_files) = match crate::cmd::report_guard::enrich_ready_report(
                 task_scope.as_ref(),
                 status,
                 branch,
                 sha,
-                base,
+                report_base,
                 changed_files,
                 acknowledge_dirty,
             ) {

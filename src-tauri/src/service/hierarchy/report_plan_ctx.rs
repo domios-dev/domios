@@ -12,6 +12,27 @@ use crate::service::plan::PlanStore;
 /// neighbouring nonce and epoch refusals in logs and in the delivered report.
 pub(crate) const STALE_TASK_HINT_REFUSAL: &str = "STALE TASK BINDING";
 
+/// The same typed-refusal family, one step further down the path: the task write
+/// was refused, and live resolution then named no recipient either. A stale plan
+/// owner is not a fallback and a vanished report is not a delivery, so the only
+/// honest outcome left is to say the words landed nowhere.
+pub(crate) const NOWHERE_TO_DELIVER_REFUSAL: &str = "NOWHERE TO DELIVER";
+
+/// Names what did NOT happen, so a caller cannot read the failure as a delivery
+/// that merely missed its task. When a task write was refused too, that cause is
+/// carried through — otherwise the sender learns only half of why it landed nowhere.
+pub(crate) fn nowhere_to_deliver_refusal(tab_id: &str, refused_task_write: Option<&str>) -> String {
+    let mut message = format!(
+        "{NOWHERE_TO_DELIVER_REFUSAL}: tab '{tab_id}' resolves to no live recipient - no parent, no report target, no spawning tab. NOTHING was delivered and NOTHING was recorded; these words landed nowhere and must not be treated as sent. Ask for the target tab id, then use `codeterm send [--mesh <peer>] --tab <tab-or-alias> \"...\"`, or re-dispatch with a report target."
+    );
+    if let Some(cause) = refused_task_write {
+        message.push_str(&format!(
+            "\nThe task write was refused as well, so no plan record carries them either: {cause}"
+        ));
+    }
+    message
+}
+
 /// The plan record still names this tab as the task's assignee, or the tab runs
 /// an open competition attempt on it — competition is the one shape where
 /// several tabs legitimately hold one task at once. A lingering non-competitive

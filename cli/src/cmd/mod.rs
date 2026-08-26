@@ -49,6 +49,7 @@ pub mod plan_task_retag;
 pub mod plan_task_update;
 pub mod plugin;
 pub mod print;
+pub mod report_attribution;
 pub mod report_body;
 pub mod report_guard;
 pub mod report_lane;

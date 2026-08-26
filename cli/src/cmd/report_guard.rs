@@ -95,7 +95,7 @@ pub fn enrich_ready_report(
     status: Option<ReportStatusArg>,
     branch: Option<String>,
     sha: Option<String>,
-    base: Option<String>,
+    base: crate::cmd::report_attribution::ReportBase,
     changed_files: Option<Vec<String>>,
     acknowledge_dirty: bool,
 ) -> Result<(Option<String>, Option<String>, Option<Vec<String>>), ReportRefusal> {
@@ -117,7 +117,10 @@ pub fn enrich_ready_report(
     {
         return Err(unresolved_lane_refusal());
     }
-    let base = base.or_else(|| task_scope.and_then(|scope| scope.base.clone()));
+    // The live attempt base is what this tab is working from now; the dispatch
+    // environment is a snapshot of the attempt that launched the shell and does
+    // not move with a re-dispatch. Attribution follows the live interval.
+    let base = base.resolve(task_scope.and_then(|scope| scope.base.clone()));
     enrich_ready_report_in_scope(
         ReadinessScope {
             pane_cwd: Path::new("."),
@@ -1042,7 +1045,7 @@ mod tests {
             None,
             false,
         )
-        .expect("lane-owned sha and CODETERM_LANE_BASE must resolve in the lane worktree");
+        .expect("lane-owned sha and base must resolve in the lane worktree");
 
         assert_eq!(sha.as_deref(), Some(owned.as_str()));
         assert_eq!(branch.as_deref(), Some("lane/report"));
