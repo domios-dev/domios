@@ -2,6 +2,7 @@
 
 #[cfg(test)]
 mod dreaming_cron_tests;
+mod worker_spawn_spec;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -233,27 +234,17 @@ pub fn spawn_headless_worker(
         let intent_for_spawn = intent.clone();
         let intent_title = intent_for_spawn.clone();
         let spawn_result = tokio::task::spawn_blocking(move || {
-            use crate::service::spawn::{AgentSpawnSpec, SpawnTabSpec, TabCommand, TabVisibility};
-            let spec = SpawnTabSpec {
-                visibility: TabVisibility::Hidden,
-                audience: crate::multiplexer::types::TabAudience::Automation,
-                title: Some(format!("mem:{}", intent_title)),
-                description: None,
-                command: TabCommand::Agent(AgentSpawnSpec {
-                    provider: agent_for_spawn,
-                    planned_model: None,
-                    model: if model_for_spawn.is_empty() {
-                        None
-                    } else {
-                        Some(model_for_spawn)
-                    },
-                    task: Some(task),
-                    worker_id: Some(worker_id_blocking.clone()),
-                    spawned_by: Some(spawned_by_for_spawn),
-                    ..Default::default()
-                }),
-                ..Default::default()
-            };
+            let spec = worker_spawn_spec::build_mem_worker_spawn_spec(
+                svc_blocking.chatbackend_registry.as_ref(),
+                worker_spawn_spec::MemWorkerSpawnInputs {
+                    agent_provider: agent_for_spawn,
+                    model: model_for_spawn,
+                    task,
+                    worker_id: worker_id_blocking,
+                    spawned_by: spawned_by_for_spawn,
+                    intent: intent_title,
+                },
+            )?;
             svc_blocking.spawn_tab(spec)
         })
         .await;

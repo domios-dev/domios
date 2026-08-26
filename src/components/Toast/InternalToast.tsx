@@ -78,7 +78,7 @@ export function InternalToast({ pendingPrompt, tabId, agentType }: InternalToast
           </span>
           <button
             onClick={() => dismiss(toast.id)}
-            className="ml-1 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--ct-muted)] transition-colors hover:bg-[var(--ct-hover-bg)] hover:text-[var(--ct-fg)]"
+            className="ml-1 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--ct-muted)] transition-colors hover:bg-[var(--ct-bg-hover)] hover:text-[var(--ct-fg)]"
             aria-label="Dismiss"
           >
             <X size={11} strokeWidth={1.8} />

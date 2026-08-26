@@ -1,15 +1,12 @@
 import { useCallback, useState } from "react";
-import type { Notification, NotificationAction } from "../../lib/types";
-import { invoke } from "../../lib/bridge";
-import { Bell, ChevronDown, Trash2, X } from "lucide-react";
+import { RichMarkdown } from "@codeterm/chat-ui";
+import type { Notification } from "../../lib/types";
+import { runNotificationAction } from "../../lib/notificationActions";
+import { Bell, Check, ChevronDown, Trash2, X } from "lucide-react";
 import { timeAgo } from "../../lib/formatters";
+import { isAnswerUndeliverable, isAnswerUndelivered } from "../../lib/notificationAnswer";
+import { notificationLevel, notificationTone } from "../../lib/notifyLevels";
 import { UI_BUTTON, UI_TEXT } from "../shared/design";
-
-const LEVEL_COLORS: Record<Notification["level"], string> = {
-  Info: "var(--ct-accent)",
-  Warning: "var(--ct-yellow)",
-  Error: "var(--ct-red)",
-};
 
 interface NotificationPanelProps {
   notifications: Notification[];
@@ -18,6 +15,7 @@ interface NotificationPanelProps {
   onDelete: (id: string) => void;
   onClearAll: () => void;
   onJumpToTab: (tabId: string, workspaceId: string | null) => void;
+  onAnswer?: (id: string, label: string) => void;
   onClose: () => void;
 }
 
@@ -28,36 +26,40 @@ export function NotificationPanel({
   onDelete,
   onClearAll,
   onJumpToTab,
+  onAnswer,
   onClose,
 }: NotificationPanelProps) {
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
   const sorted = [...notifications].sort((a, b) => b.timestamp - a.timestamp);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => {
+    const newestWithBody = sorted.find((notification) => notification.body);
+    return newestWithBody ? new Set([newestWithBody.id]) : new Set();
+  });
 
   const handleClick = useCallback(
     (notif: Notification) => {
       if (!notif.read) onMarkRead(notif.id);
+      if (notif.tab_id) onJumpToTab(notif.tab_id, notif.workspace_id);
     },
-    [onMarkRead],
+    [onJumpToTab, onMarkRead],
   );
-  const runAction = useCallback(async (action: NotificationAction) => {
-    try {
-      if (action.type === "url" && action.value) {
-        window.open(action.value, "_blank");
-      } else if (action.type === "invoke" && action.value) {
-        await invoke(action.value, action.args ?? {});
-      }
-    } catch (error) {
-      console.warn(`Notification action '${action.value ?? action.type}' failed:`, error);
-    }
-  }, []);
   const headerBtnClass = `${UI_BUTTON.ghost} ${UI_BUTTON.compact} h-6 px-1.5 text-[10px] disabled:pointer-events-none disabled:opacity-35`;
   const rowClass = `group flex items-start gap-2 border-b border-[var(--ct-border)] px-3 py-2.5 transition-colors hover:bg-[var(--ct-hover)]`;
+  // The card cannot widen past the panel it lives in, so reading room is the
+  // panel's to give: it grows while anything is open and returns when nothing is.
+  const anyExpanded = expandedIds.size > 0;
 
   return (
     <div
       data-testid="notification-panel"
-      className="flex w-[min(360px,calc(100vw-16px))] max-w-[calc(100vw-16px)] flex-col overflow-hidden rounded-md border border-[var(--ct-border)] bg-[var(--ct-surface)] shadow-2xl ct-float"
-      style={{ maxHeight: "min(520px, calc(100dvh - var(--ct-safe-top, 0px) - var(--ct-safe-bottom, 0px) - 48px))" }}
+      data-expanded={anyExpanded ? "true" : "false"}
+      className="flex max-w-[calc(100vw-16px)] flex-col overflow-hidden rounded-md border border-[var(--ct-border)] bg-[var(--ct-surface)] shadow-2xl ct-float"
+      style={{
+        // A plain width, clamped by the `max-w` above rather than by a `min()`
+        // wrapped around it — same rendering, one fewer expression to read.
+        width: anyExpanded ? "560px" : "360px",
+        transition: "width var(--ct-duration-normal) var(--ct-ease-out-expo)",
+        maxHeight: "min(520px, calc(100dvh - var(--ct-safe-top, 0px) - var(--ct-safe-bottom, 0px) - 48px))",
+      }}
     >
       <div className="flex min-h-9 shrink-0 items-center justify-between border-b border-[var(--ct-border)] px-2.5 py-1">
         <span className="flex items-center gap-1.5 text-[11px] font-medium text-[var(--ct-fg)]">
@@ -106,14 +108,16 @@ export function NotificationPanel({
           sorted.map((notif) => (
             <div
               key={notif.id}
+              data-testid="notification-row"
+              data-notification-id={notif.id}
               onClick={() => handleClick(notif)}
               className={`${rowClass} ${!notif.read ? "border-l-2 border-l-[var(--ct-accent)]" : "border-l-2 border-l-transparent"}`}
             >
-              <LevelDot level={notif.level} />
+              <LevelDot notification={notif} />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between gap-2">
                   <span
-                    className={`${notif.read ? UI_TEXT.meta : "font-medium text-[var(--ct-fg)]"} truncate`}
+                    className={`truncate text-[11px] font-medium ${notif.read ? "text-[var(--ct-muted-fg)]" : "text-[var(--ct-fg)]"}`}
                   >
                     {notif.title}
                   </span>
@@ -146,8 +150,21 @@ export function NotificationPanel({
                       {expandedIds.has(notif.id) ? "Hide message" : "Show message"}
                     </button>
                     {expandedIds.has(notif.id) && (
-                      <div className="mt-1 whitespace-pre-wrap break-words text-[12px] leading-5 text-[var(--ct-muted-fg)]">
-                        {notif.body}
+                      <div
+                        data-testid="notification-expanded-body"
+                        role="region"
+                        tabIndex={0}
+                        aria-label={`Message from ${notif.title}`}
+                        className="mt-1.5 break-words rounded border border-[var(--ct-border)] px-2 py-1.5 text-[12px] leading-5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ct-accent)]"
+                        style={{
+                          color: "var(--ct-fg)",
+                          backgroundColor: "var(--ct-bg)",
+                          maxHeight: "min(14rem, 40dvh)",
+                          overflowY: "auto",
+                          overscrollBehavior: "contain",
+                        }}
+                      >
+                        <RichMarkdown text={notif.body} />
                       </div>
                     )}
                   </>
@@ -165,22 +182,54 @@ export function NotificationPanel({
                     Show Tab
                   </button>
                 )}
-                {(notif.actions?.length ?? 0) > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {notif.actions!.map((action, index) => (
-                      <button
-                        type="button"
-                        key={`${action.label}-${index}`}
-                        className="rounded border border-[var(--ct-border)] px-2 py-1 text-[10px] text-[var(--ct-fg)] hover:bg-[var(--ct-hover)]"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void runAction(action);
-                        }}
-                      >
-                        {action.label}
-                      </button>
-                    ))}
+                {notif.answer?.answered ? (
+                  isAnswerUndelivered(notif.answer) ? (
+                    <div
+                      data-testid="notification-answer-undelivered"
+                      className="mt-2 text-[11px] text-[var(--ct-yellow)]"
+                    >
+                      You answered: {notif.answer.answered} — it could not be delivered to
+                      the tab that asked.
+                    </div>
+                  ) : (
+                    <div
+                      data-testid="notification-answered"
+                      className="mt-2 inline-flex items-center gap-1 text-[11px] text-[var(--ct-green)]"
+                    >
+                      <Check size={12} aria-hidden />
+                      <span>You answered: {notif.answer.answered}</span>
+                    </div>
+                  )
+                ) : notif.answer && isAnswerUndeliverable(notif.answer) ? (
+                  <div
+                    data-testid="notification-undeliverable"
+                    className="mt-2 text-[11px] text-[var(--ct-muted-fg)]"
+                  >
+                    The tab that asked is gone — this can no longer be answered.
                   </div>
+                ) : (
+                  (notif.actions?.length ?? 0) > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {notif.actions!.map((action, index) => (
+                        <button
+                          type="button"
+                          key={`${action.label}-${index}`}
+                          className={
+                            action.type === "answer" && index === 0
+                              ? "rounded border border-[var(--ct-accent)] px-2 py-1 text-[10px] text-[var(--ct-accent)] hover:bg-[var(--ct-hover)]"
+                              : "rounded border border-[var(--ct-border)] px-2 py-1 text-[10px] text-[var(--ct-fg)] hover:bg-[var(--ct-hover)]"
+                          }
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            if (action.type === "answer") onAnswer?.(notif.id, action.label);
+                            else void runNotificationAction(action);
+                          }}
+                        >
+                          {action.label}
+                        </button>
+                      ))}
+                    </div>
+                  )
                 )}
               </div>
               <button
@@ -203,11 +252,14 @@ export function NotificationPanel({
   );
 }
 
-function LevelDot({ level }: { level: Notification["level"] }) {
+function LevelDot({ notification }: { notification: Notification }) {
   return (
     <span
+      data-testid="notification-level-dot"
+      data-notification-level={notificationLevel(notification) ?? ""}
+      aria-hidden
       className="inline-block w-2 h-2 rounded-full shrink-0 mt-1"
-      style={{ backgroundColor: LEVEL_COLORS[level] }}
+      style={{ backgroundColor: notificationTone(notification) }}
     />
   );
 }

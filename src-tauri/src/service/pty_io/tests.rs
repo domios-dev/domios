@@ -2,11 +2,11 @@ use super::send;
 use super::*;
 use crate::plan::{OrchestratorRef, Plan, TaskLaneMetadata};
 use crate::service::plan::{NewTask, PlanStore, TaskLaneUpdate};
-use crate::service::pty_io::lifecycle::{active_tab_lane_base, tab_task_env};
 use crate::service::pty_io::lifecycle::{
     claim_restored_launch, claim_restored_pty_boot, restore_and_schedule_launch,
     restore_materialization_core,
 };
+use crate::service::pty_io::tab_env::{active_tab_lane_base, tab_task_env};
 
 fn apply_enter(text: &str, enter: bool) -> String {
     if enter && !text.ends_with('\r') && !text.ends_with('\n') {
@@ -507,7 +507,9 @@ fn no_false_positive_mid_line_dollar() {
     assert!(!screen_has_shell_prompt(screen));
 }
 
-fn store_with_bound_task(lane_base: &str) -> (tempfile::TempDir, PlanStore, String, String) {
+pub(super) fn store_with_bound_task(
+    lane_base: &str,
+) -> (tempfile::TempDir, PlanStore, String, String) {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());
     let mut plan = Plan::new(

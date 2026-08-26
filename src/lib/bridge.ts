@@ -31,6 +31,7 @@ export { IS_WEB };
 export interface ProviderIntegrationHealth {
   hooks_installed?: boolean;
   precompact_hook?: boolean;
+  stop_hook?: boolean;
   session_start_hook?: boolean;
   plugin_installed?: boolean;
   plugin_file_current?: boolean;
@@ -147,7 +148,7 @@ const HTTP_MAP: Record<string, Mapper> = {
     return config;
   },
   list_notifications: () => webJson("GET", "/api/notifications"),
-  telegram_push_gate: () => webJson("GET", "/api/notifications/telegram-gate"),
+  push_channel_roster: () => webJson("GET", "/api/notifications/channels"),
   notify: (a) =>
     webJson("POST", "/api/notifications", {
       title: a.title,
@@ -155,9 +156,13 @@ const HTTP_MAP: Record<string, Mapper> = {
       level: a.level,
       tab_id: a.tabId,
       workspace_id: a.workspaceId,
+      category: a.category,
+      event_key: a.eventKey,
     }),
   mark_notification_read: (a) =>
     webJson("POST", `/api/notifications/${enc(s(a, "id"))}/read`),
+  answer_notification: (a) =>
+    webJson("POST", `/api/notifications/${enc(s(a, "id"))}/answer`, { label: s(a, "label") }),
   clear_notifications: (a) =>
     a.id
       ? webJson("DELETE", `/api/notifications/${enc(s(a, "id"))}`)

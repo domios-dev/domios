@@ -168,6 +168,33 @@ async function main(): Promise<void> {
     "the orchestrator hid a report",
   );
 
+  // (v) the ingest boundary owns the timestamp unit: daemon epoch-seconds
+  // normalize to milliseconds exactly once, milliseconds pass through, and a
+  // missing stamp stays null.
+  const stamped = readAgentReportProjection(WORKER_TAB).outbound;
+  assert(
+    stamped.find((card) => card.reportId === REJECTED_REPORT.report.id)?.timestamp
+      === 1_770_000_000_000,
+    "an epoch-seconds report timestamp was not normalized to ms at ingest",
+  );
+  assert(
+    stamped.find((card) => card.reportId === UNTASKED_REPORT.report.id)?.timestamp === null,
+    "a report without a timestamp did not stay unpositioned",
+  );
+  const msStampedId = "3d9a6f0b-8e21-4f6a-b1d5-7c4e9a2f5b60";
+  assert(
+    ingestAgentReport({
+      ...UNTASKED_REPORT,
+      report: { id: msStampedId, timestamp: 1_770_000_200_000 },
+    }),
+    "a millisecond-stamped report was not projected",
+  );
+  assert(
+    readAgentReportProjection(WORKER_TAB).outbound
+      .find((card) => card.reportId === msStampedId)?.timestamp === 1_770_000_200_000,
+    "an already-milliseconds timestamp did not pass through unchanged",
+  );
+
   // Remount safety: the store outlives every subscriber, so a Chat that
   // unmounts and mounts again re-reads the same single card per report_id.
   const outboundBeforeRemount = readAgentReportProjection(WORKER_TAB).outbound.length;

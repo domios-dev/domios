@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use codeterm_types::config::schema::{TextHooksConfig, VoiceTranscribeConfig};
 
-use crate::bridge::manager::OutboundSender;
+use crate::bridge::manager::{OutboundSender, PlacementReceipt};
 use crate::transcribe::TranscribeRegistry;
 
 pub use codeterm_plugin::chatpreprocessor::{
@@ -32,6 +32,14 @@ pub trait BridgeTabPort: Send + Sync {
         agent_type: Option<&str>,
     ) -> Result<(), String>;
     fn queue_inbound(&self, tab_id: &str, prefixed: String);
+    /// Offer one tapped button's opaque payload to the daemon. `true` means the
+    /// daemon claimed it as an answer to a question it asked, so nothing is
+    /// pasted into a tab; `false` means it was ordinary channel traffic.
+    fn claim_channel_answer(&self, callback_data: &str) -> bool;
+    /// A send that carried a receipt has landed. The locator is the channel's
+    /// own address for that message; the daemon stores it and hands it back to
+    /// the same channel later, never reading it.
+    fn record_channel_placement(&self, receipt: &PlacementReceipt, locator: &str);
     fn telegram_token(&self) -> Option<String>;
     fn telegram_token_path(&self) -> PathBuf;
 }

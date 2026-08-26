@@ -25,6 +25,12 @@ persistent custom role-template registry. Each task also carries an
 `code-reviewer`) that lets the Orchestrator name the expected agent personality
 for that task without altering the two-value `AgentRole` hierarchy. Execution
 tasks without `executor_role` are flagged by `codeterm plan doctor --kind quality`.
+The field is a contract, enforced where the paths converge: `plan task add`
+requires it, `plan task update` refuses to blank it, and approval refuses a plan
+holding a roleless task. Enforcement is presence only — no allowlist, minimum
+length, or banned-word list. Tasks that predate the contract are reported and
+never filled in; an invented role is worse than an absent one, because the
+Orchestrator would route on it.
 
 ## Role Model
 
@@ -170,4 +176,4 @@ Prompt templates compiled into the binary live under `src-tauri/prompts/`:
 
 The Rust loader is `src-tauri/src/prompts.rs`.
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->

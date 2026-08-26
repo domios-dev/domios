@@ -6,7 +6,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { expect, test, type TabCleanup, type Page } from "../../helpers/fixtures";
+import { expect, test, type SpawnAgent, type TabCleanup, type Page } from "../../helpers/fixtures";
+import { isStubTransportActive } from "../../helpers/stub-gate";
 import type { ApiClient } from "../../helpers/api-client";
 
 interface CreatePlanResponse {
@@ -45,18 +46,27 @@ async function openMockChatTab(
   await api.focusTab(tab.id);
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
-  if (tab.tab_id) {
-    const tab = page.locator(`[data-testid="tab-item"][data-tab-id="${tab.tab_id}"]`).first();
-    if (await tab.isVisible({ timeout: 5_000 })) {
-      await tab.click();
-    }
-  }
+  const row = page.locator(`[data-testid="tab-item"][data-tab-id="${tab.id}"]`).first();
+  await expect(row).toBeVisible({ timeout: 30_000 });
+  await row.click();
   const chat = page.locator(`[data-testid="tab-session-chat"][data-tab-id="${tab.id}"]`);
   await expect(chat).toBeVisible({ timeout: 30_000 });
   return tab.id;
 }
 
-async function seedCrossWorkspacePlan(api: ApiClient) {
+const ownedWorkspaces: string[] = [];
+const ownedPlans: string[] = [];
+
+test.afterEach(async ({ api }) => {
+  for (const planId of ownedPlans.splice(0)) {
+    await api.deletePlan(planId).catch(() => {});
+  }
+  for (const workspaceId of ownedWorkspaces.splice(0)) {
+    await api.closeWorkspace(workspaceId).catch(() => {});
+  }
+});
+
+async function seedCrossWorkspacePlan(api: ApiClient, spawnAgent: SpawnAgent) {
   const projectA = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "codeterm-chat-plan-a-")));
   const projectB = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "codeterm-chat-plan-b-")));
   await api.createWorkspace("chat plan links A", projectA);
@@ -65,13 +75,19 @@ async function seedCrossWorkspacePlan(api: ApiClient) {
   const workspaceA = workspaces.find((w) => w.cwd === projectA);
   const workspaceB = workspaces.find((w) => w.cwd === projectB);
   if (!workspaceA || !workspaceB) throw new Error("expected both workspaces to exist");
+  ownedWorkspaces.push(workspaceA.id, workspaceB.id);
 
+  // A Team Plan's owner must be a real tab that anchors a Team
+  // (service/hierarchy/team_plan_creation.rs:233,235) -- an invented id is a 400.
+  const owner = await spawnAgent({ agent: "claude", workspace_id: workspaceB.id, title: "Chat plan orchestrator" });
+  await api.post(`/tabs/${owner.tab_id}/role`, { role: "Orchestrator" });
   const created = await api.post<CreatePlanResponse>("/plans", {
     title: "Owner workspace plan",
     project_path: projectB,
-    owner: { tab_id: "chat-plan-orchestrator", session_id: null, title: "Chat plan orchestrator" },
+    owner: { tab_id: owner.tab_id, session_id: null, title: "Chat plan orchestrator" },
     kinds: "progress:#38bdf8",
   });
+  ownedPlans.push(created.plan_id);
   const section = await api.post<CreateSectionResponse>(`/plans/${created.plan_id}/sections`, {
     title: "Cross workspace section",
     body: "Section body",
@@ -111,13 +127,18 @@ async function pushAssistantMessage(page: Page, tabId: string, content: string, 
   );
 }
 
-test("@golden chat-task-link cross-workspace Enter opens plan-view-shell and focuses task", async ({ api, ui, tabCleanup }) => {
+test("@golden chat-task-link cross-workspace Enter opens plan-view-shell and focuses task", async ({ api, ui, tabCleanup, spawnAgent }) => {
   test.setTimeout(180_000);
   await ui.reconnect();
-  const hasTestHook = await ui.page.evaluate(() => typeof window.__codetermTestChat !== "undefined");
-  test.skip(!hasTestHook, "__codetermTestChat not available in this build");
+  test.skip(
+    !(await isStubTransportActive(api)),
+    "the plan owner must be a team-anchoring tab with a live session binding, which needs the stub agent transport",
+  );
+  await expect
+    .poll(async () => ui.page.evaluate(() => typeof window.__codetermTestChat), { timeout: 30_000 })
+    .toBe("object");
 
-  const { workspaceA, workspaceB, planId, taskId } = await seedCrossWorkspacePlan(api);
+  const { workspaceA, workspaceB, planId, taskId } = await seedCrossWorkspacePlan(api, spawnAgent);
   await api.focusWorkspace(workspaceA.id);
   const tabId = await openMockChatTab(api, tabCleanup, ui.page, workspaceA.id);
 
@@ -153,6 +174,8 @@ test("@golden chat-task-link cross-workspace Enter opens plan-view-shell and foc
   const missingPlanId = "pl_missingplan";
   await api.focusWorkspace(workspaceA.id);
   await ui.page.reload({ waitUntil: "domcontentloaded" });
+  await ui.page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
+  await expect(chat).toBeVisible({ timeout: 30_000 });
   await pushAssistantMessage(ui.page, tabId, `Missing ref ${missingPlanId}`, "pw-plan-link-missing");
   const missingLink = chat.locator('[data-testid="chat-plan-link"]').filter({ hasText: missingPlanId }).first();
   await expect(missingLink).toBeVisible({ timeout: 30_000 });
@@ -164,13 +187,18 @@ test("@golden chat-task-link cross-workspace Enter opens plan-view-shell and foc
   await expect(ui.page.locator('[data-testid="plan-view-shell"]').first()).toHaveCount(0);
 });
 
-test("@golden chat-plan-link mobile Space switches workspace and opens plan-view-shell", async ({ api, ui, tabCleanup }) => {
+test("@golden chat-plan-link mobile Space switches workspace and opens plan-view-shell", async ({ api, ui, tabCleanup, spawnAgent }) => {
   test.setTimeout(180_000);
   await ui.reconnect();
-  const hasTestHook = await ui.page.evaluate(() => typeof window.__codetermTestChat !== "undefined");
-  test.skip(!hasTestHook, "__codetermTestChat not available in this build");
+  test.skip(
+    !(await isStubTransportActive(api)),
+    "the plan owner must be a team-anchoring tab with a live session binding, which needs the stub agent transport",
+  );
+  await expect
+    .poll(async () => ui.page.evaluate(() => typeof window.__codetermTestChat), { timeout: 30_000 })
+    .toBe("object");
 
-  const { workspaceA, workspaceB, planId } = await seedCrossWorkspacePlan(api);
+  const { workspaceA, workspaceB, planId } = await seedCrossWorkspacePlan(api, spawnAgent);
   await api.focusWorkspace(workspaceA.id);
   await ui.page.setViewportSize({ width: 390, height: 844 });
   const tabId = await openMockChatTab(api, tabCleanup, ui.page, workspaceA.id);

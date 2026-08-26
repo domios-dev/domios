@@ -388,6 +388,7 @@ pub async fn resume_session_api(
         args: None,
         cwd: Some(cwd.clone()),
         provisioned_cwd: None,
+        lane_setup_command: None,
         title: body.title.or_else(|| {
             meta.title
                 .clone()

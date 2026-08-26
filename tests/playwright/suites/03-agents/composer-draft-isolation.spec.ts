@@ -113,8 +113,12 @@ test.describe("@golden composer draft isolation", () => {
 
     const picker = page.getByRole("dialog", { name: "Start a session" });
     await expect(picker).toBeVisible({ timeout: 10_000 });
-    await picker.getByRole("button", { name: /Orchestrat/ }).first().click();
-    await picker.getByRole("button", { name: "Start orchestration" }).click();
+    // Drive the picker by its own testids: the confirm label flips with the
+    // mode ("Start team" / "Start session"), so a name match tracks state.
+    await picker.locator('[data-testid="picker-mode-orchestration"]').click();
+    const confirm = picker.locator('[data-testid="picker-confirm"]');
+    await expect(confirm).toBeEnabled({ timeout: 10_000 });
+    await confirm.click();
     await expect(picker).toBeHidden({ timeout: 60_000 });
 
     const newTabIds = await pollUntil(

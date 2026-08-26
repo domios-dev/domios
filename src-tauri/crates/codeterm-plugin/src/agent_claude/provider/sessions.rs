@@ -51,6 +51,10 @@ fn read_session_cwd(file_path: &Path) -> Option<String> {
 }
 
 pub(super) fn session_file_path(cwd: &str, session_id: &str) -> Option<PathBuf> {
+    // Hook-reported evidence wins over id-based reconstruction; absence falls through.
+    if let Some(stored) = crate::session_evidence::stored_transcript_path(session_id) {
+        return Some(stored);
+    }
     let dir = sessions_dir(cwd)?;
     Some(dir.join(format!("{}.jsonl", session_id)))
 }
@@ -638,6 +642,8 @@ pub(super) fn enumerate_sessions() -> Vec<SessionMetadata> {
                 title,
                 summary,
                 file_path: file_path_buf.to_string_lossy().to_string(),
+                transcript_path: crate::session_evidence::stored_transcript_path(stem)
+                    .map(|p| p.to_string_lossy().to_string()),
                 created_ts,
                 modified_ts,
             });
@@ -883,6 +889,58 @@ mod tests {
         assert!(path_str.contains(".claude"));
         assert!(path_str.contains("projects"));
         assert!(path_str.contains("-home-user-project"));
+    }
+
+    #[test]
+    fn session_file_path_prefers_stored_transcript_path_over_reconstruction() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut env = codeterm_util::test_env::EnvGuard::lock();
+        env.set(
+            crate::session_evidence::EVIDENCE_DIR_ENV,
+            tmp.path().join("store"),
+        );
+
+        // Stored transcript whose filename differs from the session id; the
+        // reconstructed <sid>.jsonl is never created — reads must not need it.
+        let sid = "aaaa1111-read-pref-4aaa-8aaa-aaaaaaaaaaaa";
+        let stored = tmp.path().join("vendor-drifted-uuid.jsonl");
+        std::fs::write(&stored, "{\"cwd\":\"x\"}\n").unwrap();
+        assert!(crate::session_evidence::record(
+            sid,
+            stored.to_str().unwrap()
+        ));
+
+        let cwd = tmp.path().to_string_lossy().to_string();
+        let resolved = session_file_path(&cwd, sid).expect("stored path resolves");
+        assert_eq!(resolved, stored, "stored path wins over reconstruction");
+        let reconstructed = sessions_dir(&cwd).unwrap().join(format!("{sid}.jsonl"));
+        assert!(
+            !reconstructed.exists(),
+            "fixture layout: the reconstructed path must not exist"
+        );
+        assert!(
+            std::fs::read_to_string(&resolved).is_ok(),
+            "the stored file itself is readable through the preferred path"
+        );
+    }
+
+    #[test]
+    fn session_file_path_without_transcript_path_evidence_reconstructs_as_today() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut env = codeterm_util::test_env::EnvGuard::lock();
+        env.set(
+            crate::session_evidence::EVIDENCE_DIR_ENV,
+            tmp.path().join("empty-store"),
+        );
+
+        let cwd = tmp.path().to_string_lossy().to_string();
+        let sid = "bbbb2222-no-evidence-4bbb-8bbb-bbbbbbbbbbbb";
+        let resolved = session_file_path(&cwd, sid).expect("reconstruction resolves");
+        let reconstructed = sessions_dir(&cwd).unwrap().join(format!("{sid}.jsonl"));
+        assert_eq!(
+            resolved, reconstructed,
+            "absence of evidence keeps today's reconstruction byte-for-byte"
+        );
     }
 
     #[test]

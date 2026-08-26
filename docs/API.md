@@ -12,6 +12,12 @@ The CLI's local socket dispatches internal `api.request` JSON-RPC through Axum
 without TCP. Unix peer credentials or the Windows process-token SID restrict it
 to the daemon's OS user; the daemon owns authentication, signing, and transport.
 
+Every socket and mesh RPC request envelope carries the control-plane
+`protocol_version` integer. Dispatch refuses an older (or versionless) client
+with typed error `-32002` carrying both versions and the recovery command, and
+the CLI prints that message verbatim; the mesh relay forwards it untranslated.
+See `codeterm docs API-TRANSPORT` for the wire shape.
+
 Human `codeterm workspace list` shows authoritative tab counts, cwd, state, Teams,
 active Plans, and tabs in stable creation order. Inspect one tab with `codeterm tab
 inspect <id>`; whole-list JSON remains automation-only.
@@ -98,16 +104,7 @@ runtime workers available for health, tab, and relay requests.
 #### Workspaces
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
-| GET | `/api/workspaces` | — | List all workspaces |
-| POST | `/api/workspaces` | `{name, cwd?}` | Create workspace. When `cwd` matches an existing workspace, the existing workspace is returned with `existing: true`; no new workspace is created and the requested name is ignored. |
-| POST | `/api/workspaces/{id}/focus` | — | Switch to workspace |
-| POST | `/api/workspaces/{id}/rename` | `{name}` | Rename workspace |
-| POST | `/api/workspaces/{id}/close` | — | Delete workspace |
-| GET | `/api/workspaces/{id}/recently-closed` | — | List recently-closed tab entries for this workspace. Returns `ClosedTab[]` (see [Closed History & Restore](#closed-history--restore)). |
-| POST | `/api/workspaces/{id}/reopen-closed` | `{index?}` | Reopen a recently-closed tab (browser Ctrl+Shift+T). `index` selects the ring entry (0 = most recent, default). Returns `TabInfo {id, title, tab_id}`. |
-| POST | `/api/workspaces/{id}/tabs` | — | Create tab |
-| POST | `/api/workspaces/{id}/tabs/{tab_id}/rename` | `{name}` | Rename tab |
-| POST | `/api/workspaces/{id}/tabs/{tab_id}/move` | `{to_workspace_id}` | Move tab between workspaces |
+| * | `/api/workspaces/...` | *(per route)* | Workspace and workspace-scoped tab routes: list, create, focus, rename, close, recently-closed, reopen, and tab create/rename/move — all in API-TABS |
 
 #### Closed History & Restore
 
@@ -153,9 +150,7 @@ and response shapes are documented in the API-TRANSPORT reference.
 | PATCH | `/api/delayed-messages/{id}` | `{text?, scheduledAtMs?}` | Edit a queued or failed delayed message |
 | DELETE | `/api/delayed-messages/{id}` | — | Delete a queued or failed delayed message |
 | POST | `/api/delayed-messages/{id}/send-now` | — | Deliver a queued or failed delayed message immediately |
-| POST | `/api/tabs/{id}/hook/permission` | `{question?, options?: [{label, value}]}` | Notify that tab is showing a permission prompt (see below) |
-| POST | `/api/tabs/{id}/hook/stop` | `{}` | Notify that the agent finished its turn (see below) |
-| POST | `/api/tabs/{id}/hook/session_start` | *(Claude SessionStart JSON, forwarded from stdin)* | Persist the agent-reported `session_id` on the tab; covers `/new` and `/clear` inside the TUI (see below) |
+| POST | `/api/tabs/{id}/hook/{permission,session_state,stop,session_start}` | *(per-hook, see below)* | Agent lifecycle hooks for one tab. Payloads, modes, nonce rejection and responses live in API-TABS |
 | POST | `/api/tabs/{id}/agent/restart` | `{force?: bool, grace_secs?: u64}` | Restart the agent in this tab; resumes only when the recorded session is valid. See [Agent Restart](#agent-restart-post-apitabsidagentrestart). |
 
 #### Chat attachment authority
@@ -189,7 +184,7 @@ snapshot on reactivation or event-stream resync.
 | POST | `/api/tabs/{id}/prompt/clear` | — | Clear a pending permission prompt |
 | GET | `/api/agents/providers` | — | List registered agent providers **and open agent shells**. Each entry carries `id`, `display_name`, `available_models`, `default_model`, `reasoning_efforts` (declared launch-time effort levels — empty ⇒ no effort selector), `default_reasoning_effort`, `settings_schema`, etc. plus a **`kind`** field: `"agent"` (PTY providers — claude/codex/opencode) or `"shell"` (installed `chatBackend` plugins, e.g. lmstudio). Shell entries also carry `presets` and `supports_chat_ui: true`. Single source of truth for "what agents and shells does this CodeTerm instance know about" — frontend dropdowns, CLI `agent providers/models`, and cron/mem job dialogs all read from here. |
 | GET | `/api/providers` | — | Authenticated provider list alias for agent/provider selectors |
-| POST | `/api/agents/spawn` | `{agent?, agent_name?, title?, description?, cwd?, role?, role_profile?, parent_tab_id?, can_spawn?, task?, args?, workspace_id?, model?, reasoning_effort? (alias `reasoning-effort`), system_prompt? (alias `system`), preset?, charter?, tick_interval_secs?, nudge_cooldown_secs?, max_actions_per_tick?, audience?, report_to?, origin_peer?, team_id?, creator_tab_id?}` | One-call agent spawn (see below). `audience` accepts `user` (default) or `automation`; automation-owned prompts remain available to the harness but never raise user-visible Input-needed notifications. `description` follows the same trim/empty-clear/200-char validation as tab description. `reasoning_effort` is capability-validated against the provider's `reasoning_efforts`: an unsupported value is rejected with a structured error and **no agent launch** (never silently downgraded); the resolved effort and its `{planned,requested,resolved,actual}` provenance ride back on the spawn result. Routing is **by capability, not identity**: if `agent` matches a `chatBackend` shell id, the request opens an open agent shell (threading `system_prompt`/`preset`/`model` and watcher `mode`/`engine` fields into the shell's `openSession` ctx); otherwise the PTY agent path. `role` accepts `Orchestrator`, `Manager`, `Worker`, plus `Planner`/`Watcher` sugar that maps to `Manager` with `role_profile`. Watcher spawns require a watcher-capable `chatBackend` shell and `charter`; policy fields are clamped by the host. An unknown id errors with the available agent **and** shell ids. `report_to` sets where the worker's `agent report` lands (Tab id or `main`/`general` alias). `origin_peer` is **never client-supplied** — the mesh relay stamps it from the authenticated sender so a worker spawned via `agent spawn --mesh PEER` reports back across the mesh; see *Remote mesh workers*. `team_id` + `creator_tab_id` (`codeterm agent spawn --team`) attach a ROLELESS agent to an existing Team: `creator_tab_id` must already belong to `team_id`, and the pair is rejected alongside `role` or `plan_task`. Membership is checked before the tab is created, so a non-member caller leaves nothing behind. Socket `team.adopt_agent` applies the same check to an already-running tab; see `codeterm docs API-TRANSPORT`. |
+| POST | `/api/agents/spawn` | `{agent?, agent_name?, title?, description?, cwd?, role?, role_profile?, parent_tab_id?, can_spawn?, task?, args?, workspace_id?, model?, reasoning_effort? (alias `reasoning-effort`), system_prompt? (alias `system`), preset?, charter?, tick_interval_secs?, nudge_cooldown_secs?, max_actions_per_tick?, audience?, report_to?, origin_peer?, team_id?, creator_tab_id?}` | One-call agent spawn (see below). `audience` accepts `user` (default) or `automation`; automation-owned prompts remain available to the harness but never raise user-visible Input-needed notifications. `description` follows the same trim/empty-clear/200-char validation as tab description. `reasoning_effort` is capability-validated against the provider's `reasoning_efforts`: an unsupported value is rejected with a structured error and **no agent launch** (never silently downgraded); the resolved effort and its `{planned,requested,resolved,actual}` provenance ride back on the spawn result. Routing is **by capability, not identity**: if `agent` matches a `chatBackend` shell id, the request opens an open agent shell (threading `system_prompt`/`preset`/`model` and watcher `mode`/`engine` fields into the shell's `openSession` ctx); otherwise the PTY agent path. `role` accepts `Orchestrator`, `Manager`, `Worker`, plus `Planner`/`Watcher` sugar that maps to `Manager` with `role_profile`. Watcher spawns require a watcher-capable `chatBackend` shell and `charter`; policy fields are clamped by the host. An unknown id errors with the available agent **and** shell ids. `report_to` sets where the worker's `agent report` lands (Tab id or `main`/`general` alias). `origin_peer` is **never client-supplied** — the mesh relay stamps it from the authenticated sender so a worker spawned via `agent spawn --mesh PEER` reports back across the mesh; see *Remote mesh workers*. `team_id` + `creator_tab_id` (`codeterm agent spawn --team`) attach a ROLELESS agent to an existing Team: `creator_tab_id` must already belong to `team_id`, and the pair is rejected alongside `role` or `plan_task`. Membership is checked before the tab is created, so a non-member caller leaves nothing behind. Socket `team.adopt_agent` applies the same check to an already-running tab; see API-TRANSPORT. |
 | GET | `/api/remote-workers` | `?tab=<id>` | Orchestrator-side view of remote (cross-mesh) workers, populated from inbound mesh reports. With `?tab=` returns that orchestrator's workers; otherwise the full `{ tab_id: RemoteWorker[] }` map. `RemoteWorker = {peer, remote_tab, title, model, status, last_message, last_seen_ms}`. Live updates via the `remote-workers-changed` event. |
 
 #### Interactive chat prompts (#162)
@@ -230,6 +225,16 @@ optional `empty_reason`. Its `kind` is `plan_not_found`, `plan_archived`,
 `all_tasks_inactive`, or `no_match_for_filters`. The field is absent when tasks
 exist; consumers ignore unknown kinds and never invent a local explanation.
 
+Batch writes (socket `plan.batch`, REST `POST /api/plans/{id}/batch`, both
+reached by `codeterm plan record`) cross the same boundary, from either
+entrance: an op naming a task that some other tab holds is refused unless the
+caller is that holder or the plan's owner tab. Callers name themselves with
+`caller_tab_id` in the params/body; an unidentified caller cannot claim a hold.
+The refusal carries `STALE TASK BINDING` (socket `-32003`, REST `403`) with
+`type: "stale_task_binding"` plus `attempted_by_tab`, `plan_id` and `task_id`,
+and nothing is written. A bearer token proves a client is permitted, never that
+it holds the task.
+
 A live authenticated Plan owner may recover `update`, `assign`, `respawn`, or
 `close` after its tab disappears; retirement and recovery commit atomically.
 Mutating dispatch into canonical or another task's lane is refused with `-32013`;
@@ -237,4 +242,4 @@ competition provisions one lane per competitor. Advisory findings ride successfu
 results in `safety_nudges` and `_hints`. See `codeterm docs ORCHESTRATION`.
 Related: `codeterm docs API-TABS`, `API-INTEGRATIONS`, `API-MEMORY`, `API-AGENTS`,
 `API-TRANSPORT`, and `API-CLI`.
-<!-- revision: 121 -->
+<!-- revision: 124 -->

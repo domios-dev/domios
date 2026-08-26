@@ -5,7 +5,10 @@ use std::sync::{Arc, Weak};
 use std::time::Duration;
 
 use super::*;
-use crate::agent::provider::{AgentLaunchParams, AgentProvider, ReadinessStrategy, TaskDelivery};
+use crate::agent::provider::{
+    AgentLaunchParams, AgentProvider, HookEventBinding, HookIngestionRoute, ProviderStateVerdict,
+    ReadinessStrategy, TaskDelivery,
+};
 use crate::agent::registry::AgentRegistry;
 use crate::multiplexer::commands::MuxState;
 use crate::multiplexer::state::MultiplexerState;
@@ -27,7 +30,7 @@ impl AgentProvider for HookProvider {
     }
 
     fn display_name(&self) -> &str {
-        self.id
+        &self.id
     }
 
     fn build_launch_command(&self, _: &AgentLaunchParams) -> String {
@@ -72,6 +75,9 @@ impl AgentProvider for HookProvider {
         true
     }
 }
+
+mod permission_request_tests;
+mod roster_tests;
 
 fn registry(ids: &[&'static str]) -> AgentRegistry {
     registry_with_sessions(
@@ -369,6 +375,109 @@ fn reconnect_full_sequence_hook_accepted_with_chat_metadata() {
     let tab = snapshot.tabs.get(&tab_id).unwrap();
     assert_eq!(tab.agent_type.as_deref(), Some("claude"));
     assert_eq!(tab.agent_session_id.as_deref(), Some("fresh-session"));
+}
+
+#[test]
+fn transcript_path_ingestion_round_trips_into_session_evidence() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut env = codeterm_util::test_env::EnvGuard::lock();
+    env.set(
+        codeterm_plugin::session_evidence::EVIDENCE_DIR_ENV,
+        tmp.path().join("store"),
+    );
+
+    let supplied = tmp
+        .path()
+        .join("drifted-transcript-name.jsonl")
+        .to_string_lossy()
+        .to_string();
+    let body = serde_json::json!({
+        "session_id": "ingest-sid-1",
+        "source": "startup",
+        "transcript_path": supplied,
+    });
+
+    let reported = reported_transcript_path(&body).expect("field extracted from body");
+    assert!(codeterm_plugin::session_evidence::record(
+        "ingest-sid-1",
+        &reported
+    ));
+    let stored = codeterm_plugin::session_evidence::stored_transcript_path("ingest-sid-1")
+        .expect("evidence journaled for the session");
+    assert_eq!(
+        stored.to_string_lossy().replace('\\', "/"),
+        supplied.replace('\\', "/"),
+        "the supplied value lands in the journaled session metadata, separators normalized"
+    );
+
+    // Codex-shaped wrapped payload extracts through the same helper.
+    let wrapped = serde_json::json!({
+        "payload": { "session_id": "x", "transcript_path": "/tmp/wrapped.jsonl" }
+    });
+    assert_eq!(
+        reported_transcript_path(&wrapped).as_deref(),
+        Some("/tmp/wrapped.jsonl")
+    );
+}
+
+#[test]
+fn session_start_without_transcript_path_leaves_evidence_absent() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut env = codeterm_util::test_env::EnvGuard::lock();
+    env.set(
+        codeterm_plugin::session_evidence::EVIDENCE_DIR_ENV,
+        tmp.path().join("store"),
+    );
+
+    let body = serde_json::json!({ "session_id": "plain-sid", "source": "startup" });
+    assert_eq!(
+        reported_transcript_path(&body),
+        None,
+        "payload without the field must not fabricate evidence"
+    );
+    assert_eq!(
+        codeterm_plugin::session_evidence::stored_transcript_path("plain-sid"),
+        None,
+        "metadata unchanged — readers keep reconstruction, today's behavior"
+    );
+}
+
+#[test]
+fn mismatched_nonce_rejects_wholesale_before_transcript_path_persist() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut env = codeterm_util::test_env::EnvGuard::lock();
+    env.set(
+        codeterm_plugin::session_evidence::EVIDENCE_DIR_ENV,
+        tmp.path().join("store"),
+    );
+
+    let (mux, tab_id) = shared_mux();
+    {
+        let mut g = mux.write();
+        let tab = g.get_tab_mut(&tab_id).unwrap();
+        tab.cwd = Some("/tmp/project".into());
+        tab.session_binding_nonce = Some("nonce-1".into());
+    }
+    let registry = registry(&["claude"]);
+
+    // The handler persists transcript evidence only after this claim succeeds;
+    // a mismatched nonce rejects the report wholesale, new field included.
+    let err = bind_reported_session(&mux, &registry, &tab_id, "claude", "sid-a", Some("wrong"))
+        .unwrap_err();
+    assert_eq!(err.0, StatusCode::CONFLICT);
+    assert_eq!(
+        mux.read()
+            .get_tab(&tab_id)
+            .unwrap()
+            .agent_session_id
+            .as_deref(),
+        None
+    );
+    assert_eq!(
+        codeterm_plugin::session_evidence::stored_transcript_path("sid-a"),
+        None,
+        "a rejected report must not leave transcript evidence behind"
+    );
 }
 
 #[test]
@@ -687,7 +796,7 @@ impl AgentProvider for LockProbeProvider {
         self.id
     }
     fn display_name(&self) -> &str {
-        self.id
+        &self.id
     }
     fn build_launch_command(&self, _: &AgentLaunchParams) -> String {
         self.id.to_string()

@@ -1452,8 +1452,9 @@ EOF
     node node_modules/knip/bin/knip.js --workspace @codeterm/chat-core --exports
     node scripts/run-ts-unit-tests.mjs
     node scripts/run-plugin-tests.mjs
-    python3 -m unittest scripts.tests.test_release_issue_contract
+    "$(command -v python3 || command -v python)" -m unittest scripts.tests.test_release_issue_contract
     node --test scripts/tests/updater-manifest.test.mjs
+    node --test scripts/tests/bundled-cli-name.test.mjs
     node node_modules/@biomejs/biome/bin/biome check .
     ;;
   test)
@@ -1557,7 +1558,9 @@ EOF
       echo "ERROR: local installer missing after build: $INSTALLER" >&2
       exit 1
     fi
-    FRESH_CLI="src-tauri/bundled-cli/codeterm.exe"
+    # Whatever bundle-cli.js staged — the name carries the host triple, so do not
+    # second-guess it here.
+    FRESH_CLI="$(ls src-tauri/bundled-cli/codeterm*.exe 2>/dev/null | head -1)"
     if [ ! -x "$FRESH_CLI" ]; then
       echo "ERROR: freshly bundled CLI missing after build: $FRESH_CLI" >&2
       exit 1

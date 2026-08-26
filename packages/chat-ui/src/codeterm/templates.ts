@@ -202,8 +202,8 @@ function commandObject(command: string | undefined): string | undefined {
   return command.trim().split(/\s+/).slice(0, 3).join(" ");
 }
 
-function reportFields(inv: CodetermInvocation): Array<{ label: string; value: string }> {
-  const rawBody = flagText(inv, "text") ?? inv.positionals.find((value) => /(?:^|\n|\\n)(?:STATUS|CHANGES|TESTS RUN|GATES REQUESTED|FOLLOWUP):/i.test(value));
+function reportFields(inv: CodetermInvocation, result?: string): Array<{ label: string; value: string }> {
+  const rawBody = resolvedText(result) ?? flagText(inv, "text") ?? inv.positionals.find((value) => /(?:^|\n|\\n)(?:STATUS|CHANGES|TESTS RUN|GATES REQUESTED|FOLLOWUP):/i.test(value));
   const body = rawBody ? decodeCliMessageText(rawBody) : undefined;
   const fields = new Map<string, string>();
   for (const line of body?.split(/\r?\n/) ?? []) {
@@ -316,7 +316,7 @@ export function describeAction(inv: CodetermInvocation, result?: string, resolve
         lead: "report",
         object: task ? `${task} · ${status ?? "report"}` : status ?? "report",
         chips: sha ? [sha] : [],
-        fields: reportFields(inv),
+        fields: reportFields(inv, result),
       };
     }
     const object = action === "spawn" ? [role, provider].filter(Boolean).join(" · ") : action === "list" ? resultCount(result, "live") ?? "roster" : firstRef(TASK_RE, inv, result) ?? flagText(inv, "status") ?? provider;
@@ -411,7 +411,7 @@ export function parseSend(
   else recipient = resolve?.(p) ?? `tab ${p}`;
   const meshRef = typeof inv.flags.mesh === "string" ? inv.flags.mesh : undefined;
   const mesh = meshRef ? friendlyPeerName(meshRef, resolvePeer) : undefined;
-  const resolved = resolvedSendText(result);
+  const resolved = resolvedText(result);
   const typed = decodeCliMessageText(inv.positionals[0] ?? "");
   const fromPad = inv.flags["from-pad"];
   const staged =
@@ -436,7 +436,8 @@ function sendBodyDescriptor(inv: CodetermInvocation): string {
   return "Message content unavailable.";
 }
 
-function resolvedSendText(result?: string): string | undefined {
+/** The body the CLI actually delivered, echoed by every staged delivery path. */
+function resolvedText(result?: string): string | undefined {
   const encoded = result?.match(/^CODETERM_RESOLVED_TEXT=(.+)$/m)?.[1];
   if (!encoded) return undefined;
   try {

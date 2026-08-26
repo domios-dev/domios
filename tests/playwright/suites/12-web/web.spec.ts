@@ -62,6 +62,8 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
   const stub = new MeshStub({ services: 1, webToken: STUB_TOKEN, daemonBase: API_BASE });
   stub.muxDelayMs = 500;
   let peerId: string | undefined;
+  const selfWorkspaceName = `${stub.instanceName}-self-host`;
+  let selfWorkspaceId: string | undefined;
 
   // before its cleanup — drop them so selectors stay unambiguous.
   const existing = await api.get<{ paired: { instance_id: string; instance_name: string }[] }>(
@@ -74,6 +76,8 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
   }
 
   try {
+    await api.createWorkspace(selfWorkspaceName);
+    selfWorkspaceId = (await api.workspaces()).find((w) => w.name === selfWorkspaceName)?.id;
     // has every field it expects when pointed at the stub.
     stub.configPayload = await api.get("/config");
     await stub.start("happy");
@@ -113,10 +117,27 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
     await expect(page.locator('[data-testid="web-token-input"]')).toHaveCount(0);
     await expect(page.locator(`[data-tab-id="${oldTabId}"]`)).toHaveCount(0);
 
+    // Prove WHICH state we reached before asserting how it renders, so a missing
+    // card cannot masquerade as a switch that never happened.
     await expect(
-      page.locator(`[data-testid="workspace-item"][data-workspace-name="${stub.instanceName}-workspace"]`),
+      page.locator('[data-testid="peer-picker-button"]'),
+      "host switch never landed on the stub peer",
+    ).toContainText(stub.instanceName, { timeout: 20_000 });
+
+    // A peer reports a protected General plus ordinary workspaces; the sidebar
+    // partitions on `protected`, so only the ordinary one is a card.
+    await expect(
+      page.locator(`[data-testid="workspace-item"][data-workspace-name="${stub.workspaceName}"]`),
+      "peer's ordinary workspace did not render as a sidebar workspace card",
     ).toBeVisible({ timeout: 20_000 });
-    await expect(page.locator('[data-testid="peer-picker-button"]')).toContainText(stub.instanceName);
+    await expect(
+      page.locator(`[data-testid="workspace-item"][data-workspace-name="${stub.generalWorkspaceName}"]`),
+      "peer's protected General belongs in the general section, never in a card",
+    ).toHaveCount(0);
+    await expect(
+      page.locator(`[data-testid="general-section"][aria-label="${stub.generalWorkspaceName} workspace contents"]`),
+      "peer's protected General did not render as the general section",
+    ).toHaveCount(1);
     expect(stub.requests.length, "stub saw no web traffic after switch").toBeGreaterThan(before);
     expect(
       stub.requests.some(
@@ -136,85 +157,152 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
       "new peer received a request for the old peer tab",
     ).toEqual([]);
 
-    // Switch back to self: real workspaces return, no stub data leaks.
+    // Switch back to self: real workspaces return, no stub data leaks. Wait on
+    // THIS host's own ordinary workspace — a fresh instance holds only the
+    // protected General, which renders in general-section and never as a card.
     await page.click('[data-testid="peer-picker-button"]');
     await page.click('[data-testid="peer-picker-self"]');
-    await page.waitForSelector('[data-testid="workspace-item"]', { timeout: 20_000 });
     await expect(
-      page.locator(`[data-testid="workspace-item"][data-workspace-name="${stub.instanceName}-workspace"]`),
+      page.locator(`[data-testid="workspace-item"][data-workspace-name="${selfWorkspaceName}"]`),
+      "self host's own workspace did not return after switch-back",
+    ).toBeVisible({ timeout: 20_000 });
+    await expect(
+      page.locator(`[data-testid="workspace-item"][data-workspace-name="${stub.workspaceName}"]`),
+      "stub workspace leaked into the self host after switch-back",
     ).toHaveCount(0);
     const host = await page.evaluate(() => sessionStorage.getItem("codeterm-web-host"));
     expect(host, "switch-back must clear the host override").toBeNull();
     await page.context().close();
   } finally {
     if (peerId) await api.post(`/mesh/peers/disconnect/${peerId}`).catch(() => {});
+    if (selfWorkspaceId) await api.closeWorkspace(selfWorkspaceId).catch(() => {});
     await stub.stop();
   }
 });
 
-test("@golden unreachable peer fails gracefully at the gate, back-to-self recovers", async ({ webBrowser }) => {
-  const page = await newWebPage(webBrowser);
-  await page.goto(WEB_URL, { waitUntil: "domcontentloaded" });
-  await page.evaluate((token) => {
-    const self = window.location.origin;
-    localStorage.setItem(`codeterm-web-token:${self}`, token);
-    localStorage.setItem(`codeterm-web-relay-peer:${self}`, "unreachable-peer");
-    localStorage.setItem(`codeterm-web-relay-peer-name:${self}`, "unreachable peer");
-  }, readDevToken());
-  await page.reload({ waitUntil: "domcontentloaded" });
+const RELAY_KEY = "codeterm-web-relay-peer";
 
-  const backToSelf = page.locator('[data-testid="web-token-back-to-self"]');
-  await expect(page.locator('[data-testid="web-token-error"]')).toBeVisible();
-  await expect(backToSelf).toBeVisible();
-  await expect(backToSelf).toContainText("Back to");
-  await backToSelf.click();
-
-  await expect(page.locator('[data-testid="peer-picker-button"]')).toBeVisible();
-  await expect(page.locator('[data-testid="peer-picker-button"]')).toContainText("this host");
-  await expect(page.locator('[data-testid="workspace-item"]').first()).toBeVisible();
-  const relayPeer = await page.evaluate(() =>
-    localStorage.getItem(`codeterm-web-relay-peer:${window.location.origin}`),
+async function seedGateStorage(page: Page, token: string, relayPeerId: string): Promise<void> {
+  await page.evaluate(
+    ({ token: value, relayPeerId: peer }) => {
+      const self = window.location.origin;
+      localStorage.setItem(`codeterm-web-token:${self}`, value);
+      localStorage.setItem(`codeterm-web-relay-peer:${self}`, peer);
+      localStorage.setItem(`codeterm-web-relay-peer-name:${self}`, "unreachable peer");
+    },
+    { token, relayPeerId },
   );
-  expect(relayPeer).toBeNull();
-  await page.context().close();
+}
+
+function storedRelayPeer(page: Page): Promise<string | null> {
+  return page.evaluate(
+    (key) => localStorage.getItem(`${key}:${window.location.origin}`),
+    RELAY_KEY,
+  );
+}
+
+test("@golden stale relay target is dropped at boot; when it survives, back-to-self recovers", async ({ api, webBrowser }) => {
+  // A target left in localStorage outlives pairing, presence and protocol. The
+  // gate re-checks it against the LOCAL daemon's paired list and discards it
+  // before anything can be relayed into a dead peer (WebGate.tsx bootstrap).
+  const dropped = await newWebPage(webBrowser);
+  try {
+    await dropped.goto(WEB_URL, { waitUntil: "domcontentloaded" });
+    await seedGateStorage(dropped, readDevToken(), "unreachable-peer");
+    await dropped.reload({ waitUntil: "domcontentloaded" });
+
+    const mesh = await api.get<{ local_instance_name: string }>("/mesh/peers");
+    await expect(
+      dropped.locator('[data-testid="peer-picker-button"]'),
+      "a stale relay target must not strand the user at the gate",
+    ).toBeVisible({ timeout: 20_000 });
+    await expect(dropped.locator('[data-testid="web-token-input"]')).toHaveCount(0);
+    await expect(dropped.locator('[data-testid="peer-picker-button"]')).toContainText(
+      mesh.local_instance_name,
+    );
+    expect(await storedRelayPeer(dropped), "stale relay target survived the boot check").toBeNull();
+  } finally {
+    await dropped.context().close();
+  }
+
+  // When the daemon cannot be asked WHICH peers are usable, the gate keeps the
+  // stored target rather than guessing — so a rejected token must still offer the
+  // way back, and taking it must clear the target.
+  const stranded = await newWebPage(webBrowser);
+  try {
+    await stranded.route(/\/api\/mesh\/peers(\?|$)/, (route) => route.abort());
+    await stranded.goto(WEB_URL, { waitUntil: "domcontentloaded" });
+    await seedGateStorage(stranded, "definitely-wrong-token", "unreachable-peer");
+    await stranded.reload({ waitUntil: "domcontentloaded" });
+
+    await expect(stranded.locator('[data-testid="web-token-error"]')).toBeVisible({ timeout: 20_000 });
+    const backToSelf = stranded.locator('[data-testid="web-token-back-to-self"]');
+    await expect(backToSelf).toContainText("Back to");
+    await backToSelf.click();
+
+    await expect(stranded.locator('[data-testid="web-token-input"]')).toBeVisible({ timeout: 20_000 });
+    await expect(
+      stranded.locator('[data-testid="web-token-back-to-self"]'),
+      "back-to-self must disappear once the target is cleared",
+    ).toHaveCount(0);
+    expect(await storedRelayPeer(stranded), "back-to-self must clear the relay target").toBeNull();
+  } finally {
+    await stranded.context().close();
+  }
 });
 
 test("@golden mobile viewport: no horizontal scroll, sidebar overlays, picker reachable", async ({ webBrowser }) => {
   const page = await newWebPage(webBrowser, { width: 390, height: 844 });
-  await page.goto(WEB_URL, { waitUntil: "domcontentloaded" });
-  await passTokenGate(page);
+  try {
+    await page.goto(WEB_URL, { waitUntil: "domcontentloaded" });
+    await passTokenGate(page);
 
-  const scrollW = await page.evaluate(() => document.documentElement.scrollWidth);
-  expect(scrollW, "horizontal scroll on phone viewport").toBeLessThanOrEqual(390);
+    const scrollW = await page.evaluate(() => document.documentElement.scrollWidth);
+    expect(scrollW, "horizontal scroll on phone viewport").toBeLessThanOrEqual(390);
 
-  const burger = page.locator('[data-testid="web-sidebar-open"]');
-  const picker = page.locator('[data-testid="peer-picker-button"]');
-  await expect(burger).toBeVisible({ timeout: 10_000 });
-  await expect(picker).toBeVisible({ timeout: 10_000 });
-  const box = await picker.boundingBox();
-  expect(box && box.height >= 40, `picker touch target ${box?.height}px`).toBe(true);
+    const burger = page.locator('[data-testid="web-sidebar-open"]');
+    const picker = page.locator('[data-testid="peer-picker-button"]');
+    await expect(burger).toBeVisible({ timeout: 10_000 });
+    // The picker moved into the sidebar's GENERAL header (Sidebar.tsx), and phones
+    // do not mount the sidebar until the hamburger asks for it (App.tsx) — so it is
+    // reachable through the drawer, never from the titlebar row.
+    await expect(picker, "phone titlebar must not carry the peer picker").toHaveCount(0);
 
-  const burgerBox = await burger.boundingBox();
-  const optionalBox = async (selector: string) => {
-    const control = page.locator(selector).first();
-    return (await control.isVisible().catch(() => false)) ? control.boundingBox() : null;
-  };
-  const reconnectBox = await optionalBox('[data-testid="chat-reconnect"]');
-  const modeBox = await optionalBox('[data-testid="tab-mode-switch"]');
-  const overlaps = (
-    a: { x: number; y: number; width: number; height: number },
-    b: { x: number; y: number; width: number; height: number },
-  ) => a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
-  if (box && burgerBox) expect(overlaps(box, burgerBox), "peer picker overlaps hamburger").toBe(false);
-  if (burgerBox && reconnectBox) expect(overlaps(burgerBox, reconnectBox), "hamburger overlaps reconnect").toBe(false);
-  if (burgerBox && modeBox) expect(overlaps(burgerBox, modeBox), "hamburger overlaps mode switch").toBe(false);
+    const burgerBox = await burger.boundingBox();
+    const optionalBox = async (selector: string) => {
+      const control = page.locator(selector).first();
+      return (await control.isVisible().catch(() => false)) ? control.boundingBox() : null;
+    };
+    const reconnectBox = await optionalBox('[data-testid="chat-reconnect"]');
+    const modeBox = await optionalBox('[data-testid="tab-mode-switch"]');
+    const overlaps = (
+      a: { x: number; y: number; width: number; height: number },
+      b: { x: number; y: number; width: number; height: number },
+    ) => a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+    if (burgerBox && reconnectBox) expect(overlaps(burgerBox, reconnectBox), "hamburger overlaps reconnect").toBe(false);
+    if (burgerBox && modeBox) expect(overlaps(burgerBox, modeBox), "hamburger overlaps mode switch").toBe(false);
 
-  const navMesh = page.locator('[data-testid="nav-mesh"]');
-  await burger.click();
-  await expect(navMesh).toBeVisible({ timeout: 5_000 });
-  await navMesh.click();
-  await expect(page.locator('[data-testid="mesh-tab-network"]')).toBeVisible({ timeout: 10_000 });
-  await page.context().close();
+    const navMesh = page.locator('[data-testid="nav-mesh"]');
+    await burger.click();
+    await expect(picker, "peer picker unreachable from the phone drawer").toBeVisible({ timeout: 10_000 });
+    const pickerBox = await picker.boundingBox();
+    expect(pickerBox, "peer picker has no box in the open drawer").toBeTruthy();
+    if (pickerBox) {
+      expect(pickerBox.x, "peer picker left").toBeGreaterThanOrEqual(-1);
+      expect(pickerBox.x + pickerBox.width, "peer picker right").toBeLessThanOrEqual(391);
+    }
+    // The drawer overlays; it must never widen the document.
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth),
+      "open drawer widened the phone viewport",
+    ).toBeLessThanOrEqual(390);
+
+    await expect(navMesh).toBeVisible({ timeout: 5_000 });
+    await navMesh.click();
+    await expect(page.locator('[data-testid="mesh-tab-network"]')).toBeVisible({ timeout: 10_000 });
+  } finally {
+    await page.context().close();
+  }
 });
 
 test("@golden mobile sidebar stays open for workspace cards and closes for tabs", async ({ api, webBrowser, tabCleanup }) => {
@@ -334,44 +422,68 @@ test("@golden share link: a bad token falls through to the gate error path", asy
 
 // ── web chrome strip + mobile viewport hardening ─────────────────────
 
-test("@golden web chrome: titlebar present, hosts peer picker + keep-awake (parity decision A)", async ({ webBrowser }) => {
+test("@golden web chrome: titlebar hosts keep-awake, the peer picker sits in the sidebar GENERAL header", async ({ webBrowser }) => {
   const page = await newWebPage(webBrowser);
-  await page.goto(`${WEB_URL}#token=${readDevToken()}`, { waitUntil: "domcontentloaded" });
-  await page.waitForSelector('[data-testid="peer-picker-button"]', { timeout: 20_000 });
+  try {
+    await page.goto(`${WEB_URL}#token=${readDevToken()}`, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector('[data-testid="peer-picker-button"]', { timeout: 20_000 });
 
-  // asserts the same for the Tauri window).
-  const titlebar = page.locator('[data-testid="titlebar"]');
-  await expect(titlebar).toBeVisible();
-  // The peer picker occupies the traffic-lights corner; keep-awake lives in the tray.
-  await expect(titlebar.locator('[data-testid="peer-picker-button"]')).toBeVisible();
-  await expect(titlebar.locator('[data-testid="keepawake-tray"]')).toBeVisible();
+    // asserts the same for the Tauri window).
+    const titlebar = page.locator('[data-testid="titlebar"]');
+    await expect(titlebar).toBeVisible();
+    // Keep-awake lives in the titlebar tray; the host switcher moved down into the
+    // sidebar's GENERAL structural header (Sidebar.tsx renders <WebPeerPicker compact/>
+    // there), so the titlebar must no longer carry it.
+    await expect(titlebar.locator('[data-testid="keepawake-tray"]')).toBeVisible();
+    await expect(titlebar.locator('[data-testid="peer-picker-button"]')).toHaveCount(0);
+    await expect(
+      page.locator('[data-testid="general-section"] [data-testid="peer-picker-button"]'),
+      "peer picker is not in the sidebar GENERAL header",
+    ).toBeVisible();
 
-  // Viewport is locked: no pinch zoom, notch-aware, keyboard resizes content.
-  const meta = await page.getAttribute('meta[name="viewport"]', "content");
-  for (const directive of [
-    "user-scalable=no",
-    "maximum-scale=1.0",
-    "viewport-fit=cover",
-    "interactive-widget=resizes-content",
-  ]) {
-    expect(meta, `viewport meta missing ${directive}`).toContain(directive);
+    // Viewport is locked: no pinch zoom, notch-aware, keyboard resizes content.
+    const meta = await page.getAttribute('meta[name="viewport"]', "content");
+    for (const directive of [
+      "user-scalable=no",
+      "maximum-scale=1.0",
+      "viewport-fit=cover",
+      "interactive-widget=resizes-content",
+    ]) {
+      expect(meta, `viewport meta missing ${directive}`).toContain(directive);
+    }
+  } finally {
+    await page.context().close();
   }
-  await page.context().close();
 });
 
-test("@golden web mobile: hamburger reopens the dismissed sidebar overlay", async ({ webBrowser }) => {
+test("@golden web mobile: hamburger reopens the dismissed sidebar overlay", async ({ api, webBrowser }) => {
+  // A fresh instance holds only the protected General, which renders in
+  // general-section and NEVER as a workspace-item card — so this test seeds the
+  // ordinary workspace whose card it waits on, and takes it away again.
+  const workspaceName = `pw-mobile-reopen-${Date.now()}`;
+  await api.createWorkspace(workspaceName);
+  const workspaceId = (await api.workspaces()).find((w) => w.name === workspaceName)?.id;
+  expect(workspaceId, "sidebar fixture workspace was not created").toBeTruthy();
+
   const page = await newWebPage(webBrowser, { width: 375, height: 812 });
-  await page.goto(`${WEB_URL}#token=${readDevToken()}`, { waitUntil: "domcontentloaded" });
-  // only way in, so its absence bricks mobile navigation.
-  const burger = page.locator('[data-testid="web-sidebar-open"]');
-  await expect(burger).toBeVisible({ timeout: 20_000 });
-  await burger.click();
-  await expect(page.locator('[data-testid="peer-picker-button"]')).toBeVisible({ timeout: 10_000 });
-  await expect(page.locator('[data-testid="workspace-item"]').first()).toBeVisible({ timeout: 10_000 });
-  // Tapping the backdrop dismisses; the hamburger must come back.
-  await page.mouse.click(370, 400);
-  await expect(burger).toBeVisible({ timeout: 10_000 });
-  await page.context().close();
+  try {
+    await page.goto(`${WEB_URL}#token=${readDevToken()}`, { waitUntil: "domcontentloaded" });
+    // only way in, so its absence bricks mobile navigation.
+    const burger = page.locator('[data-testid="web-sidebar-open"]');
+    await expect(burger).toBeVisible({ timeout: 20_000 });
+    await burger.click();
+    await expect(page.locator('[data-testid="peer-picker-button"]')).toBeVisible({ timeout: 10_000 });
+    await expect(
+      page.locator(`[data-testid="workspace-item"][data-workspace-name="${workspaceName}"]`),
+      "seeded ordinary workspace did not render as a sidebar card",
+    ).toBeVisible({ timeout: 10_000 });
+    // Tapping the backdrop dismisses; the hamburger must come back.
+    await page.mouse.click(370, 400);
+    await expect(burger).toBeVisible({ timeout: 10_000 });
+  } finally {
+    await page.context().close();
+    if (workspaceId) await api.closeWorkspace(workspaceId).catch(() => {});
+  }
 });
 
 // ── close-sync: actions propagate between web and desktop UIs ────────
@@ -400,23 +512,29 @@ test("@golden close sync: web close updates the desktop window, desktop close up
     }
 
     // 1) Close A through the WEB sidebar UI (⋮ → Close Tab).
+    await expect(webTab(a.tab_id), "web row for A before its menu").toBeVisible({ timeout: 15_000 });
     await webTab(a.tab_id).hover();
     const webActions = webTab(a.tab_id).locator('[title="Tab actions"]');
     await webActions.scrollIntoViewIfNeeded();
     await expect(webActions).toBeVisible({ timeout: 5_000 });
     await webActions.click();
-    await page.getByText(/^Close (Tab|Session)$/).first().click();
+    // The menu item carries `tab-menu-close` (TabItem.tsx). Its LABEL is
+    // "Close Session" or "Close Tab" depending on whether the tab has an agent,
+    // and the same words also appear on a CommandPalette entry — so a page-wide
+    // text match could act on a different tab entirely.
+    await page.getByTestId("tab-menu-close").click();
     await expect(webTab(a.tab_id)).toHaveCount(0, { timeout: 15_000 });
     // …and the DESKTOP window follows via mux-state-changed.
     await expect(deskTab(a.tab_id)).toHaveCount(0, { timeout: 15_000 });
 
     // 2) Close B through the DESKTOP sidebar UI.
+    await expect(deskTab(b.tab_id), "desktop row for B before its menu").toBeVisible({ timeout: 15_000 });
     await deskTab(b.tab_id).hover();
     const deskActions = deskTab(b.tab_id).locator('[title="Tab actions"]');
     await deskActions.scrollIntoViewIfNeeded();
     await expect(deskActions).toBeVisible({ timeout: 5_000 });
     await deskActions.click();
-    await ui.page.getByText(/^Close (Tab|Session)$/).first().click();
+    await ui.page.getByTestId("tab-menu-close").click();
     await expect(deskTab(b.tab_id)).toHaveCount(0, { timeout: 15_000 });
     // …and the WEB mirror follows via SSE.
     await expect(webTab(b.tab_id)).toHaveCount(0, { timeout: 15_000 });
@@ -443,10 +561,13 @@ test("@golden web chat: a live assistant reply streams in AND history survives a
   const page = await newWebPage(webBrowser);
   try {
     // until then chat-raw/start 409s.
+    // chat-raw/start REQUIRES its subscriber id (ChatSubscriptionBody, camelCase);
+    // a bodyless call 400s forever and the catch turns that into a readiness lie.
+    const subscriptionId = `pw-web-chat-${tabId}`;
     await pollUntil(async () => {
       try {
-        await api.post(`/tabs/${tabId}/chat-raw/start`);
-        await api.post(`/tabs/${tabId}/chat-raw/stop`);
+        await api.post(`/tabs/${tabId}/chat-raw/start`, { subscriptionId });
+        await api.post(`/tabs/${tabId}/chat-raw/stop`, { subscriptionId });
         return true;
       } catch {
         return undefined;

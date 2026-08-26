@@ -305,13 +305,20 @@ fn retained_spellings_still_parse() {
         }
     ));
 
-    let send = Cli::try_parse_from(["codeterm", "notify", "send", "hello", "--level", "warning"])
-        .expect("notify send parses");
+    let send = Cli::try_parse_from([
+        "codeterm",
+        "notify",
+        "send",
+        "hello",
+        "--severity",
+        "warning",
+    ])
+    .expect("notify send parses");
     assert!(matches!(
         send.command,
         Commands::Notify {
-            action: NotifyAction::Send { ref title, ref level, .. }
-        } if title == "hello" && level == "warning"
+            action: NotifyAction::Send { ref title, ref severity, .. }
+        } if title == "hello" && severity == "warning"
     ));
 
     let list = Cli::try_parse_from(["codeterm", "notify", "list", "--unread"])
@@ -360,13 +367,13 @@ fn retained_spellings_still_parse() {
 // silently, and there is no positional+optional-subcommand precedent in the tree.
 #[test]
 fn notify_send_is_canonical_and_bare_title_is_rejected() {
-    let send = Cli::try_parse_from(["codeterm", "notify", "send", "Done", "--level", "info"])
+    let send = Cli::try_parse_from(["codeterm", "notify", "send", "Done", "--severity", "info"])
         .expect("notify send parses");
     assert!(matches!(
         send.command,
         Commands::Notify {
-            action: NotifyAction::Send { ref title, ref level, body: None, .. }
-        } if title == "Done" && level == "info"
+            action: NotifyAction::Send { ref title, ref severity, body: None, .. }
+        } if title == "Done" && severity == "info"
     ));
     // The intuitive bare form must stay a hard error, not silently do the wrong thing.
     assert!(
@@ -375,43 +382,41 @@ fn notify_send_is_canonical_and_bare_title_is_rejected() {
     );
 }
 
-// The push category is a closed value_enum: an invented category must fail at
-// parse time rather than reach the daemon as a runtime string.
+// The level axis is closed and derived from the daemon's own set: an invented
+// level must fail at parse time rather than reach the daemon as a runtime string.
 #[test]
-fn notify_category_is_closed_and_progress_is_unexpressible() {
-    use crate::args::misc::NotifyCategory;
+fn notify_level_flag_is_closed_and_derived_from_the_shared_set() {
+    use codeterm_types::notification::NotifyLevel;
 
-    for (flag, expected) in [
-        ("milestone", NotifyCategory::Milestone),
-        ("blocker", NotifyCategory::Blocker),
-        ("failure", NotifyCategory::Failure),
-    ] {
-        let parsed =
-            Cli::try_parse_from(["codeterm", "notify", "send", "Done", "--category", flag])
-                .unwrap_or_else(|e| panic!("--category {flag} must parse: {e}"));
+    // Derivation, not a restated triple: every member of ALL must parse.
+    for expected in NotifyLevel::ALL {
+        let flag = expected.as_str();
+        let parsed = Cli::try_parse_from(["codeterm", "notify", "send", "Done", "--level", flag])
+            .unwrap_or_else(|e| panic!("--level {flag} must parse: {e}"));
         assert!(matches!(
             parsed.command,
             Commands::Notify {
-                action: NotifyAction::Send { category: Some(c), .. }
-            } if c == expected
+                action: NotifyAction::Send { level: Some(l), .. }
+            } if l == expected
         ));
     }
 
-    for rejected in ["progress", "update", "info", "milestones"] {
+    // The retired taxonomy must not survive as an accepted flag value.
+    for rejected in ["milestone", "blocker", "progress", "update", "info"] {
         assert!(
-            Cli::try_parse_from(["codeterm", "notify", "send", "Done", "--category", rejected])
+            Cli::try_parse_from(["codeterm", "notify", "send", "Done", "--level", rejected])
                 .is_err(),
-            "--category {rejected} must be a parse error, not a pass-through string"
+            "--level {rejected} must be a parse error, not a pass-through string"
         );
     }
 
-    let uncategorised = Cli::try_parse_from(["codeterm", "notify", "send", "Done"])
-        .expect("category stays optional");
+    let unlevelled =
+        Cli::try_parse_from(["codeterm", "notify", "send", "Done"]).expect("level stays optional");
     assert!(matches!(
-        uncategorised.command,
+        unlevelled.command,
         Commands::Notify {
             action: NotifyAction::Send {
-                category: None,
+                level: None,
                 event_key: None,
                 ..
             }
@@ -510,8 +515,18 @@ fn task_read_leaves_are_preserved() {
 
 #[test]
 fn plan_task_add_is_unchanged() {
-    let parsed = Cli::try_parse_from(["codeterm", "plan", "task", "add", "pl_x", "--name", "y"])
-        .expect("plan task add still parses");
+    let parsed = Cli::try_parse_from([
+        "codeterm",
+        "plan",
+        "task",
+        "add",
+        "pl_x",
+        "--name",
+        "y",
+        "--executor-role",
+        "rust-backend-dev",
+    ])
+    .expect("plan task add still parses");
     assert!(matches!(
         parsed.command,
         Commands::Plan {
@@ -666,6 +681,7 @@ fn removed_docs_selectors_and_alias_are_rejected() {
     }
 }
 
+mod notify;
 mod plan;
 
 #[test]

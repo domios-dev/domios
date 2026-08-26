@@ -7,14 +7,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { expect, test } from "../../helpers/fixtures";
-import {
-  closeWorkspaceTabs,
-  expandWorkspaceSidebar,
-  openSidebarIfNeeded,
-} from "../../helpers/canvas-inspect";
+import { expandWorkspaceSidebar, openSidebarIfNeeded } from "../../helpers/canvas-inspect";
 import { closeCanvasWebSession, openCanvasWebPage } from "../../helpers/canvas-web-page";
 import type { Browser, Page } from "@playwright/test";
 import type { ApiClient } from "../../helpers/api-client";
+import type { TabCleanup } from "../../helpers/fixtures";
 
 const BANNER_SEL =
   '[data-testid="canvas-reconnecting"], [data-testid="mission-control-reconnecting"], [data-testid="plan-board-reconnecting"], [data-testid="plan-list-reconnecting"]';
@@ -23,6 +20,13 @@ const PLANS_GLOB = "**/api/plans**";
 
 interface CreatePlanResponse {
   plan_id: string;
+  team_id: string;
+  plan: { id: string; title: string };
+}
+
+interface TabResponse {
+  id: string;
+  title?: string;
 }
 
 async function bannerCount(page: Page): Promise<number> {
@@ -33,8 +37,12 @@ async function kickRefetch(page: Page): Promise<void> {
   await page.evaluate(() => window.dispatchEvent(new Event("codeterm-web-boot-changed")));
 }
 
+// The plan owner must be a live Orchestrator tab: POST /api/plans routes through
+// create_team_plan_for_orchestrator, which rejects an unknown id with
+// 400 "Tab <id> not found" and a known non-anchor with "is not an Orchestrator".
 async function seedRealPlanAndOpenBoard(
   api: ApiClient,
+  tabCleanup: TabCleanup,
   webBrowser: Browser,
 ): Promise<{ page: Page; workspaceId: string; close: () => Promise<void> }> {
   const projectPath = fs.realpathSync(
@@ -44,10 +52,17 @@ async function seedRealPlanAndOpenBoard(
   const workspace = (await api.workspaces()).find((w) => w.cwd === projectPath);
   if (!workspace) throw new Error("created workspace was not listed");
 
+  const ownerTab = await tabCleanup.createTab<TabResponse>({
+    workspace_id: workspace.id,
+    cwd: projectPath,
+    title: "Reconnecting Orchestrator",
+  });
+  await api.post(`/tabs/${ownerTab.id}/role`, { role: "Orchestrator" });
+
   const created = await api.post<CreatePlanResponse>("/plans", {
     title: "Reconnecting Banner Synthetic Plan",
     project_path: projectPath,
-    owner: { tab_id: "reconnecting-orchestrator", session_id: null, title: "Reconnecting Orchestrator" },
+    owner: { tab_id: ownerTab.id, session_id: null, title: "Reconnecting Orchestrator" },
     kinds: "progress:#38bdf8",
   });
   const section = await api.post<{ section_id: string }>(`/plans/${created.plan_id}/sections`, {
@@ -64,7 +79,6 @@ async function seedRealPlanAndOpenBoard(
   });
 
   await api.focusWorkspace(workspace.id);
-  await closeWorkspaceTabs(api, workspace.id);
   await expect
     .poll(async () => {
       const body = await api.get<{ plans: Array<{ file_path?: string; task_count?: number }> }>("/plans");
@@ -84,11 +98,14 @@ async function seedRealPlanAndOpenBoard(
   await wsItem.click();
   await expandWorkspaceSidebar(page, workspace.id);
 
-  const entry = page.locator(
-    `div:has([data-workspace-id="${workspace.id}"]) [data-testid="workspace-plan-entry"]`,
-  );
-  await expect(entry).toBeVisible({ timeout: 30_000 });
-  await entry.click();
+  // A plan's only sidebar home is its Team card; the accessible name is
+  // "Open <plan title>", read off the plan the API just created.
+  const teamUnit = page.locator(`[data-testid="team-unit"][data-team-id="${created.team_id}"]`);
+  await expect(teamUnit).toBeVisible({ timeout: 30_000 });
+  const activation = teamUnit.getByTestId("team-card-activation");
+  await expect(activation).toHaveAttribute("aria-label", `Open ${created.plan.title}`);
+  await activation.click();
+
   await expect(page.locator('[data-testid="plan-view-shell"]').first()).toBeVisible({ timeout: 30_000 });
   await expect(page.locator('[data-testid="plan-board-view"]')).toBeVisible({ timeout: 30_000 });
 
@@ -97,10 +114,11 @@ async function seedRealPlanAndOpenBoard(
 
 test("@golden @canvas-reconnecting healthy board never flashes reconnecting", async ({
   api,
+  tabCleanup,
   webBrowser,
 }) => {
   test.setTimeout(180_000);
-  const board = await seedRealPlanAndOpenBoard(api, webBrowser);
+  const board = await seedRealPlanAndOpenBoard(api, tabCleanup, webBrowser);
   try {
     const { page } = board;
     // must be absent every time (no lifecycle-driven flashing on refetch).
@@ -117,10 +135,11 @@ test("@golden @canvas-reconnecting healthy board never flashes reconnecting", as
 
 test("@golden @canvas-reconnecting one failure is silent, two show, recovery clears", async ({
   api,
+  tabCleanup,
   webBrowser,
 }) => {
   test.setTimeout(180_000);
-  const board = await seedRealPlanAndOpenBoard(api, webBrowser);
+  const board = await seedRealPlanAndOpenBoard(api, tabCleanup, webBrowser);
   try {
     const { page } = board;
 

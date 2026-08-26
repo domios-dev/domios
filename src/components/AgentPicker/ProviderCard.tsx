@@ -66,7 +66,12 @@ export function ProviderInstallPanel({
 }: ProviderInstallPanelProps) {
   const installCommand = provider.install_command;
   return (
-    <Card data-testid={`agent-picker-install-${provider.id}`} className="p-4 space-y-2">
+    <Card
+      role="group"
+      aria-label={`Install ${provider.display_name}`}
+      data-testid={`agent-picker-install-${provider.id}`}
+      className="p-4 space-y-2"
+    >
       <div className="flex items-center gap-2">
         <AgentIcon providerId={provider.id} className="text-lg" />
         <div className="min-w-0">

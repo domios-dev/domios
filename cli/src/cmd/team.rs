@@ -61,10 +61,17 @@ pub fn handle(client: &mut dyn RpcClient, json_output: bool, action: TeamAction)
         ),
         Ok(value) => print_human(&value),
         Err(error) => {
-            eprintln!("Error: {error}");
+            eprintln!("{}", render_daemon_error(&error));
             std::process::exit(1);
         }
     }
+}
+
+/// The daemon's refusal is forwarded byte-for-byte. A Team refusal carries a
+/// stable violation id and the command that fixes the situation; rewording or
+/// truncating it here would leave the operator a failure with no next step.
+pub(crate) fn render_daemon_error(error: &str) -> String {
+    format!("Error: {error}")
 }
 
 fn handle_pair(
@@ -83,7 +90,7 @@ fn handle_pair(
         ),
         Ok(value) => print_pair(&value),
         Err(error) => {
-            eprintln!("Error: {error}");
+            eprintln!("{}", render_daemon_error(&error));
             std::process::exit(1);
         }
     }
@@ -281,6 +288,25 @@ mod tests {
             let error = adopt_agent_params("team".into(), "tab_seven".into(), caller).unwrap_err();
             assert!(error.contains("CODETERM_TAB_ID"));
         }
+    }
+
+    #[test]
+    fn general_agent_team_guard_refusal_reaches_the_cli_unedited() {
+        // Opaque on purpose: the CLI must forward whatever the daemon says, so
+        // a reworded refusal here would hide the violation id and the fix.
+        let refusal = "some.violation.id: Tab tab_x is refused. Do this instead:\n  \
+                       codeterm team pair --orchestrator alpha --planner beta --workspace ws_7";
+        let rendered = render_daemon_error(refusal);
+        assert!(rendered.ends_with(refusal), "{rendered}");
+        assert_eq!(rendered.len(), refusal.len() + "Error: ".len());
+    }
+
+    #[test]
+    fn general_agent_team_guard_pair_params_carry_the_workspace_the_refusal_teaches() {
+        let params = pair_params("alpha", "beta", Some("ws_7".into()), None);
+        assert_eq!(params["orchestrator_agent"], "alpha");
+        assert_eq!(params["planner_agent"], "beta");
+        assert_eq!(params["workspace_id"], "ws_7");
     }
 
     #[test]

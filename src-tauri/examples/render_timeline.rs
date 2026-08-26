@@ -16,11 +16,12 @@ use std::path::Path;
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use codeterm_lib::agent::attributed_screen::detect_picker;
+use codeterm_lib::agent::classify_input::{ClassifyInputBuilder, StatusBarRows};
 use codeterm_lib::agent::motion_decoder::{MotionDecoder, MotionFrame};
 use codeterm_lib::agent::offline_state_classifier::{
     classify_signals, extract_completion_summary, extract_status_line, TabVerdict, TimelineState,
 };
-use codeterm_lib::agent::signal_extractor::{SignalExtractor, StreamSignals, VolatileHint};
+use codeterm_lib::agent::signal_extractor::{SignalExtractor, StreamSignals};
 use serde_json::{json, Value};
 
 const DEFAULT_SAMPLE_MS: u64 = 75; // ~13.3 fps
@@ -58,15 +59,19 @@ struct DetectorOverlay {
     /// The previous frame's verdict, threaded so the replay runs the SAME stateful
     /// `classify_state` (grace + stuck-working safety net) the live path runs.
     previous: TabVerdict,
+    /// The SAME shared builder the live path uses. This renderer has no registry,
+    /// so `--status-bar-rows` is required fixture data rather than a default.
+    builder: ClassifyInputBuilder,
 }
 
-impl Default for DetectorOverlay {
-    fn default() -> Self {
+impl DetectorOverlay {
+    fn new(builder: ClassifyInputBuilder) -> Self {
         DetectorOverlay {
             previous: TabVerdict {
                 state: TimelineState::Idle,
                 subtype: None,
             },
+            builder,
         }
     }
 }
@@ -195,7 +200,7 @@ fn detector_json(
     card: Value,
     overlay: &mut DetectorOverlay,
 ) -> Value {
-    let verdict = classify_signals(extractor, sig, overlay.previous);
+    let verdict = classify_signals(extractor, sig, overlay.previous, &overlay.builder);
     overlay.previous = verdict;
 
     let status = extract_status_line(&sig.screen.lines);
@@ -348,7 +353,7 @@ fn main() {
     let argv: Vec<String> = std::env::args().collect();
     let pos: Vec<&String> = argv[1..].iter().filter(|a| !a.starts_with("--")).collect();
     if pos.len() < 2 {
-        eprintln!("usage: render_timeline <in.cast> <out.json> [--sample-ms N] [--from-ms N|--from-frame N] [--to-ms N|--to-frame N] [--native-picker] [--meta m.json] [--phases p.json]");
+        eprintln!("usage: render_timeline <in.cast> <out.json> --status-bar-rows N [--sample-ms N] [--from-ms N|--from-frame N] [--to-ms N|--to-frame N] [--native-picker] [--meta m.json] [--phases p.json]");
         std::process::exit(2);
     }
     let in_path = Path::new(pos[0]);
@@ -365,6 +370,14 @@ fn main() {
     let meta = flag("--meta").and_then(|p| read_json(&p));
     let phases = flag("--phases").and_then(|p| read_json(&p));
     let include_native_picker = argv.iter().any(|a| a == "--native-picker");
+    // Required, no default: replaying with a fictional band would render a
+    // timeline for a program nobody runs.
+    let Some(status_bar_rows) = flag("--status-bar-rows").and_then(|s| s.parse::<u16>().ok())
+    else {
+        eprintln!("--status-bar-rows N is required: the replayed provider's chrome band");
+        std::process::exit(2);
+    };
+    let builder = ClassifyInputBuilder::for_rows(StatusBarRows::fixture(status_bar_rows));
 
     let cast = parse_cast(in_path);
     let cast_last_t = cast.events.iter().map(ev_t).max().unwrap_or(0);
@@ -397,14 +410,14 @@ fn main() {
     let cols = flag("--cols")
         .and_then(|s| s.parse().ok())
         .unwrap_or(cast.width);
-    let mut ex = SignalExtractor::new(rows, cols, VolatileHint::default());
+    let mut ex = SignalExtractor::new(rows, cols, builder.volatile_hint());
     let mut motion = MotionDecoder::new();
 
     let mut frames: Vec<Value> = Vec::new();
     let mut inputs: Vec<Value> = Vec::new();
     let mut next_sample = 0u64;
     let mut frame_index = 0u64;
-    let mut overlay = DetectorOverlay::default();
+    let mut overlay = DetectorOverlay::new(builder);
 
     for ev in &cast.events {
         let t = ev_t(ev);

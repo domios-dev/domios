@@ -7,7 +7,18 @@ pub struct StatusLine {
     pub elapsed_ms: Option<u64>,
 }
 
+/// Glyphs distinctive enough to IDENTIFY a status widget. Deliberately narrow:
+/// a middle dot separates fields in almost every status line, so admitting one
+/// here would make any line carrying an elapsed time look like a spinner.
 const STATUS_SPINNERS: &[char] = &['✻', '✳', '✢', '✶', '✷', '✺', '✽', '●', '∗', '⋆'];
+
+/// Every frame a spinner is known to render, for STRIPPING only. Claude's cycle
+/// includes a plain ASCII `*`, and missing it let that one frame leak into the
+/// text — so the line appeared to flicker a character in and out several times a
+/// second. Wider than the identifying set on purpose, and never used to detect.
+const STATUS_SPINNER_FRAMES: &[char] = &[
+    '✻', '✳', '✢', '✶', '✷', '✺', '✽', '●', '∗', '⋆', '*', '•', '◦', '+', '⁕', '✱',
+];
 const STATUS_MESSAGE_MAX_CHARS: usize = 80;
 
 fn compact_status_message(line: &str) -> String {
@@ -94,7 +105,7 @@ pub fn extract_status_line(screen_lines: &[String]) -> Option<StatusLine> {
             continue;
         }
         let line = row.trim_start_matches(|c: char| {
-            STATUS_SPINNERS.contains(&c) || c == '·' || c.is_whitespace()
+            STATUS_SPINNER_FRAMES.contains(&c) || c == '·' || c.is_whitespace()
         });
         return Some(StatusLine {
             line: compact_status_message(line),

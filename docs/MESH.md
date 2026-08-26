@@ -106,6 +106,11 @@ RPC endpoint to the peer's in-process plan dispatcher. Implicit local Tab identi
 and working-directory defaults are not forwarded; explicit project paths refer to
 the target machine. Mutations require `Full` peer access and carry an idempotency ID.
 
+Mesh RPC requests carry the control-plane `protocol_version` integer. A peer on a
+newer protocol refuses an older (or versionless) caller with the typed
+version-skew error (`-32002`, both versions + recovery command), and the relay
+forwards that error untranslated — see `codeterm docs API-TRANSPORT`.
+
 ## Cross-mesh worker reports (spawn + explicit bind)
 
 `plan task dispatch` is **local-only**: it has no `--mesh`/`--peer` flag. It spawns
@@ -228,4 +233,4 @@ When `config.mesh.enabled = false`, the auth middleware short-circuits every `/a
 
 Service registry, health, and peer management endpoints: `codeterm docs MESH-SERVICES`.
 
-<!-- revision: 15 -->
+<!-- revision: 16 -->

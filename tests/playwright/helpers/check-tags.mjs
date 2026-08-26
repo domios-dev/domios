@@ -2,8 +2,11 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { delimiter, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
+import { providerGateFindings } from "./provider-gate-rule.mjs";
+import { helperSourceFiles, scanTimerViolations } from "./timer-rules.mjs";
 
 const suitesDir = fileURLToPath(new URL("../suites", import.meta.url));
+const helpersDir = fileURLToPath(new URL(".", import.meta.url));
 const baselinePath = fileURLToPath(new URL("./check-tags-baseline.txt", import.meta.url));
 const tagRe = /@(smoke|golden|perf|live|stub|quarantine)/;
 const quarantineTaskRe = /(?:task_[a-z0-9]+|#[0-9]+)/i;
@@ -52,9 +55,17 @@ function scopedSpecs() {
     });
 }
 
+function toLabel(file) {
+  return relative(process.cwd(), file).split("\\").join("/");
+}
+
+function fileLocation(file, line) {
+  return toLabel(file) + ":" + line;
+}
+
 function location(source, file, node) {
   const pos = source.getLineAndCharacterOfPosition(node.getStart(source));
-  return relative(process.cwd(), file).split("\\").join("/") + ":" + (pos.line + 1);
+  return fileLocation(file, pos.line + 1);
 }
 
 function titleFromArg(node) {
@@ -71,22 +82,74 @@ function isTestCall(node) {
   return ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "test";
 }
 
-function hasExpect(node) {
-  let found = false;
+/// Names called inside `node`, plus whether `expect` itself is called there.
+function callsWithin(node) {
+  const called = new Set();
+  let expectsDirectly = false;
 
   function visit(child) {
-    if (found) {
-      return;
-    }
-    if (ts.isCallExpression(child) && ts.isIdentifier(child.expression) && child.expression.text === "expect") {
-      found = true;
-      return;
+    if (ts.isCallExpression(child) && ts.isIdentifier(child.expression)) {
+      if (child.expression.text === "expect") {
+        expectsDirectly = true;
+      } else {
+        called.add(child.expression.text);
+      }
     }
     ts.forEachChild(child, visit);
   }
 
   ts.forEachChild(node, visit);
-  return found;
+  return { called, expectsDirectly };
+}
+
+/// Local functions that assert, directly or by calling another that does. A test
+/// delegating its checks to one of these is asserting; requiring a literal
+/// `expect` in the test body would flag real coverage and reward inlining it.
+function assertingHelpers(source) {
+  const bodies = new Map();
+  function collect(node) {
+    if (ts.isFunctionDeclaration(node) && node.name && node.body) {
+      bodies.set(node.name.text, callsWithin(node.body));
+    } else if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer &&
+      (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer))) {
+      bodies.set(node.name.text, callsWithin(node.initializer));
+    }
+    ts.forEachChild(node, collect);
+  }
+  collect(source);
+
+  const asserting = new Set();
+  for (const [name, body] of bodies) {
+    if (body.expectsDirectly) asserting.add(name);
+  }
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const [name, body] of bodies) {
+      if (asserting.has(name)) continue;
+      for (const callee of body.called) {
+        if (asserting.has(callee)) {
+          asserting.add(name);
+          grew = true;
+          break;
+        }
+      }
+    }
+  }
+  return asserting;
+}
+
+function hasExpect(node, asserting) {
+  const { called, expectsDirectly } = callsWithin(node);
+  if (expectsDirectly) {
+    return true;
+  }
+  for (const callee of called) {
+    if (asserting.has(callee)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function isTrueLiteral(node) {
@@ -121,6 +184,7 @@ function isPlaywrightForceOption(node) {
 function checkFile(file) {
   const text = readFileSync(file, "utf8");
   const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const asserting = assertingHelpers(source);
 
   function add(node, reason) {
     violations.push(location(source, file, node) + " " + reason);
@@ -144,7 +208,7 @@ function checkFile(file) {
         add(node, "Quarantined Playwright test title must include task_<id> or #<issue>.");
       }
 
-      if (strictEnabled && !hasExpect(node)) {
+      if (strictEnabled && !hasExpect(node, asserting)) {
         add(node, "Playwright test has no expect() assertion.");
       }
     }
@@ -188,10 +252,24 @@ function checkFile(file) {
   }
 
   visit(source);
+
+  if (strictEnabled) {
+    for (const finding of providerGateFindings(text, file)) {
+      violations.push(fileLocation(file, finding.line) + " " + finding.reason);
+    }
+  }
 }
 
 for (const file of scopedSpecs()) {
   checkFile(file);
+}
+
+// helpers/ hid the harness's own sleeps from both checkers; the timer rules
+// walk it under the same strict switch and the same baseline file.
+if (strictEnabled) {
+  for (const file of helperSourceFiles(helpersDir)) {
+    violations.push(...scanTimerViolations(readFileSync(file, "utf8"), toLabel(file)));
+  }
 }
 
 if (violations.length) {

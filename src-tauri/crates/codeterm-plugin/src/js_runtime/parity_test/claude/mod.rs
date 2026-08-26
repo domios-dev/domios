@@ -8,6 +8,7 @@ pub(crate) use crate::agent_claude::provider::ClaudeProvider;
 mod catalog;
 mod commands;
 mod core;
+mod permission_request;
 mod sessions;
 
 fn pair() -> (ClaudeProvider, JsProvider) {

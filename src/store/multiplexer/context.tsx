@@ -48,6 +48,7 @@ export interface MultiplexerActionsContextType {
   markAllRead: () => void;
   deleteNotification: (id: string) => void;
   clearNotifications: () => void;
+  answerNotification: (id: string, label: string) => void;
   dismissToast: (id: string) => void;
   setTabTitle: (workspaceId: string, tabId: string, title: string) => void;
   setAgentType: (tabId: string, agentType: string | null) => void;

@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+pub mod general_agent_membership;
+
 /// Team lifecycle. Shaped to later support ephemeral orchestration; only manual
 /// transitions ship in this phase.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]

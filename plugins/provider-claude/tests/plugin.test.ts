@@ -525,6 +525,46 @@ for (const [name, fixture] of [
   eq(files.get(settingsPath), original, "Claude restore reproduces exact original bytes");
 }
 
+console.log("--- permission_request ingestion ---");
+{
+  const settingsPath = "/tmp/.claude/settings.json";
+  const files = new Map<string, string>([[settingsPath, "{}"]]);
+  const p = loadClaudeWithHost(baseHost({
+    expandHome: () => settingsPath,
+    fileExists: (path: string) => files.has(path),
+    removeFile: (path: string) => files.delete(path),
+    fs: {
+      readFile: (path: string) => files.get(path) ?? null,
+      readJson: (path: string) => {
+        const value = files.get(path);
+        return value === undefined ? null : JSON.parse(value);
+      },
+      writeFile: (path: string, value: string) => { files.set(path, value); return true; },
+      writeJson: (path: string, value: unknown) => { files.set(path, JSON.stringify(value)); return true; },
+    },
+  }));
+  assert(p.installIntegration(7686, { consent: true, precompact_memory_export: false }).ok === true, "Claude install for permission_request succeeds");
+  const installed = JSON.parse(files.get(settingsPath) || "{}");
+  for (const key of ["PermissionRequest", "Notification"]) {
+    const cmd = installed.hooks?.[key]?.[0]?.hooks?.[0]?.command as string | undefined;
+    assert(typeof cmd === "string", `${key} hook is installed by the shipped plugin`);
+    assert((cmd as string).indexOf("--data-binary @-") !== -1, `${key} forwards the stdin payload`);
+    assert((cmd as string).indexOf("-d '{}'") === -1, `${key} never posts an empty body`);
+    assert((cmd as string).indexOf("/hook/permission") !== -1, `${key} targets the existing permission route`);
+    assert((cmd as string).indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1, `${key} carries the binding nonce`);
+  }
+  eq(installed.hooks?.PermissionRequest?.[0]?.matcher, "*", "PermissionRequest fires per tool");
+  eq(installed.hooks?.Notification?.[0]?.matcher, "permission_prompt", "Notification keeps the vendor matcher");
+
+  const status = p.checkIntegration() as Record<string, unknown>;
+  assert(status.permission_request_hook === true, "checkIntegration reports the PermissionRequest hook");
+  assert(status.hooks_installed === true, "hooks_installed requires the new hook too");
+
+  assert(p.uninstallIntegration().ok === true, "Claude uninstall succeeds");
+  const cleaned = JSON.parse(files.get(settingsPath) || "{}");
+  eq((cleaned.hooks?.PermissionRequest || []).length, 0, "uninstall removes the PermissionRequest hook");
+}
+
 console.log("\n--- Windows task launch shape ---\n");
 {
   const p = loadClaudeWithHost(baseHost({
@@ -765,6 +805,55 @@ console.log("\n--- claude_alias_catalog_matches_model_picker_r3 ---\n");
     );
     assert(typeof m.description === "string" && m.description.length > 0, `${m.id} keeps a description`);
   }
+}
+
+
+// A previously-installed hook whose command uses $CODETERM_API_URL (no literal
+// host:port) has to be recognised as ours, or every install appends a duplicate
+// instead of replacing it — which is how one machine accumulated ten copies of
+// every hook and fired ten POSTs per session start.
+{
+  const settingsPath = "/home/test/.claude/settings.json";
+  const legacy = {
+    hooks: {
+      SessionStart: [
+        {
+          matcher: "",
+          hooks: [
+            {
+              type: "command",
+              // The shipped shape: env-var URL, no port literal, no _source marker.
+              command:
+                'if [ -n "${CODETERM_API_URL:-}" ]; then curl -s -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start"; fi',
+              timeout: 5000,
+            },
+          ],
+        },
+      ],
+    },
+  };
+  let written: any = null;
+  const p = loadClaudeWithHost(baseHost({
+    expandHome: () => settingsPath,
+    fileExists: () => true,
+    fs: {
+      readFile: () => JSON.stringify(legacy),
+      readJson: () => JSON.parse(JSON.stringify(legacy)),
+      writeFile: () => true,
+      writeJson: (_path: string, value: unknown) => { written = value; return true; },
+    },
+  }));
+
+  const result = p.installIntegration(7686, { consent: true, precompact_memory_export: false });
+  assert(result.ok === true, "install over a marker-less hook succeeds");
+  const sessionStart = written?.hooks?.SessionStart ?? [];
+  eq(sessionStart.length, 1, "an install replaces the previous hook instead of appending a duplicate");
+  const commands = sessionStart.flatMap((entry: any) => entry.hooks ?? []);
+  eq(commands.length, 1, "exactly one SessionStart command survives");
+  assert(
+    commands[0]._source && String(commands[0]._source).indexOf("codeterm-hook") === 0,
+    "the surviving hook carries the marker so the next check recognises it",
+  );
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

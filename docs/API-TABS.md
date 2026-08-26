@@ -59,6 +59,21 @@ ID [--mesh PEER]`, or `codeterm agent report` for a Worker). Reading the
 recipient's visible terminal text is not a delivery signal and must not be used
 as one.
 
+### Workspace routes
+
+| Method | Path | Body | Description |
+|---|---|---|---|
+| GET | `/api/workspaces` | — | List all workspaces |
+| POST | `/api/workspaces` | `{name, cwd?}` | Create workspace. When `cwd` matches an existing workspace, the existing workspace is returned with `existing: true`; no new workspace is created and the requested name is ignored. |
+| POST | `/api/workspaces/{id}/focus` | — | Switch to workspace |
+| POST | `/api/workspaces/{id}/rename` | `{name}` | Rename workspace |
+| POST | `/api/workspaces/{id}/close` | — | Delete workspace |
+| GET | `/api/workspaces/{id}/recently-closed` | — | List recently-closed tab entries for this workspace. Returns `ClosedTab[]` (see [Closed History & Restore](#closed-history--restore)). |
+| POST | `/api/workspaces/{id}/reopen-closed` | `{index?}` | Reopen a recently-closed tab (browser Ctrl+Shift+T). `index` selects the ring entry (0 = most recent, default). Returns `TabInfo {id, title, tab_id}`. |
+| POST | `/api/workspaces/{id}/tabs` | — | Create tab |
+| POST | `/api/workspaces/{id}/tabs/{tab_id}/rename` | `{name}` | Rename tab |
+| POST | `/api/workspaces/{id}/tabs/{tab_id}/move` | `{to_workspace_id}` | Move tab between workspaces |
+
 #### Permission Hook (POST /api/tabs/{id}/hook/permission)
 
 Called by Claude Code hooks (or any agent integration) to notify CodeTerm that the agent is showing a permission prompt. This is a faster path than PTY auto-detection and bypasses the cooldown period.
@@ -67,6 +82,7 @@ Called by Claude Code hooks (or any agent integration) to notify CodeTerm that t
 
 1. **Explicit prompt** -- provide `question` and `options` in the body. CodeTerm uses them directly.
 2. **Auto-parse** -- send an empty body `{}`. CodeTerm reads the terminal screen content and runs structural fingerprint detection to extract the prompt.
+3. **Per-tool payload** -- send the provider's own `PermissionRequest`: `tool_name`, `tool_input` and `permission_suggestions[]` are kept verbatim and the vendor's suggestions become the surfaced options. No screen scraping and no late `Notification` wait. A body without `tool_name` keeps modes 1 and 2. A report whose binding nonce disagrees with the tab's launch nonce is rejected with 409.
 
 ```bash
 # Auto-parse (most common — Claude hooks just ping the endpoint)
@@ -90,6 +106,10 @@ curl -X POST "http://host:7685/api/tabs/$TAB/hook/stop" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $CODETERM_API_TOKEN" -d '{}'
 ```
+
+#### Session State Hook (POST /api/tabs/{id}/hook/session_state)
+
+Provider-reported live turn state: `{event, provider_id?, session_id?, binding_nonce?}`. The `event` is resolved against the reporting provider's declared `hookEventRoster`, so an event the provider never declared changes nothing, and a binding nonce that disagrees with the tab's launch nonce is rejected with 409. A binding on this route carries a `working` or `idle` verdict — OpenCode declares `session.status` as Working and `session.idle` as Idle. Core reads the declaration, never a provider id.
 
 #### SessionStart Hook (POST /api/tabs/{id}/hook/session_start)
 
@@ -120,9 +140,10 @@ Response: `{"ok": true, "changed": true}` when the persisted id changed, `{"ok":
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
 | GET | `/api/notifications` | `?unread=true` | List notifications |
-| POST | `/api/notifications` | `{title, body?, level?, actions?, sticky?, tab_id?, category?, event_key?}` | Create notification (+ OS toast if unfocused). Navigation provenance is daemon-resolved: `X-CodeTerm-Tab-Id` outranks a body `tab_id`, an id naming no live tab is dropped (the notification still lands, without a Show Tab target), and `tab_title`/`workspace_id` come from the multiplexer. Mesh-relayed calls lose every tab claim and carry the signed peer name instead. `category` is the closed set `milestone` / `blocker` / `failure`; anything else is `400`, and omitting it means local-only. Telegram delivery outcome is never returned. |
+| POST | `/api/notifications` | `{title, body?, severity?, actions?, sticky?, tab_id?, level?, event_key?}` | Create notification (+ desktop toast when the level gate admits it). Navigation provenance is daemon-resolved: `X-CodeTerm-Tab-Id` outranks a body `tab_id`, an id naming no live tab is dropped (the notification still lands, without a Show Tab target), and `tab_title`/`workspace_id` come from the multiplexer. Mesh-relayed calls lose every tab claim and carry the signed peer name instead. `level` is the closed set `verbose` / `action_needed` / `failure`; anything else is `400`. It gates the interrupting sinks: a notification naming no level is stored and reaches the panel but raises no desktop toast and no push. A fresh install interrupts nowhere; the desktop and every push channel are opt-in. The panel is not gated at all — it is the complete log, and every record reaches it live. Each interrupting destination additionally honours its own column in the per-level rows of `notifications.agent_levels` (`desktop`, then one key per registered push channel, keyed by its service id; an absent channel key reads as closed), and desktop still honours the `notifications.desktop` master. The row's `bell` field is retained and inert: nothing routes on it, and it stays a named field only so the flattened channel keys never read it back as a channel. The row's `sound` field is named for the same reason and is NOT inert: it is whether that level chimes in the app, `true`/`false` is the user's answer and an omitted key falls back to what shipped (`action_needed` and `failure` chime, `verbose` does not), with `notifications.sound` as the master mute over all of them. The chime is not a destination and gates nothing on this endpoint. The desktop toast additionally requires the OS permission CodeTerm asks for when the surface is switched on: without a grant, and whenever the native send itself fails, the toast is not claimed delivered and the in-app fallback window carries the notification instead. A level with every column closed interrupts nowhere and is still recorded, which is a configuration rather than an error. `notifications.show_bell` is presentation only: it hides the indicator without changing what is recorded — but when it is off AND no toast is admitted AND no push channel carries the record, the response adds `unseen: {closed:[{surface,reason}]}` naming why each surface is shut, so a caller is not left believing it told somebody something. The record is still opened and the response is still `200` with its `id`; the key is absent whenever any surface is open. `severity` (`info`/`warning`/`error`) is toast styling only and gates nothing. Push delivery outcome is never returned; a channel that is opted in but cannot carry the message is logged and marks the record failed rather than dropping it silently. `actions` is the CALLER-facing closed set — `{type:"url",label,value}`, `{type:"dismiss",label}`, `{type:"answer",label}`; an unknown kind or an unknown field is refused at parse. There is deliberately no caller `invoke` kind: `invoke` actions are constructed by the daemon alone, name a command from a fixed daemon allowlist (`{type:"invoke",label,command,args?}`, where `command` is currently only `respond_provider_update_prompt`), and are emitted on read but never accepted on write — an `invoke` in a request body is `400` on every transport. A stored row carrying an `invoke` outside that allowlist loads with the action stripped and the message kept. `answer` is the only kind an agent may offer: it carries a label and nothing else, and a notification carrying one records the resolved asking tab at creation. Blank or duplicate choice labels are `400`. |
+| POST | `/api/notifications/{id}/answer` | `{label}` | Record the user's choice. The label must be one the notification offered; the answer goes to the tab captured when the question was sent, never to a tab resolved now. Exactly one answer per notification: a later call returns the standing `{answered}` unchanged. The recorded answer is then carried to that tab as an ordinary host message through the existing envelope, exactly once. The response is `{answered, delivered}` (plus `deliveryError` when the send was refused): recording an answer and carrying it back are separate facts, so a refused send reads as `delivered:false` on the record rather than as answered-and-delivered. `409` when the label was never offered or the asking tab is gone. |
 | POST | `/api/notifications/clear` | — | Clear all |
-| GET | `/api/notifications/telegram-gate` | — | `{control_available}` — whether the settings opt-in may be offered (live bridge supervisor AND non-empty `telegram_allowed_users`). |
+| GET | `/api/notifications/channels` | — | `{channels:[{id,label,control_available}]}` — the registered push channels, in registry order. `id` is the bridge service id, `label` is the settings column caption, and `control_available` says whether that channel's own controls may be offered (for Telegram: a live bridge supervisor AND a non-empty `telegram_allowed_users`). The settings grid draws its channel columns from this list, so a channel the registry gains appears without a client change. |
 
 #### Webhooks
 | Method | Path | Body | Description |
@@ -199,4 +220,4 @@ The `connect`, `approve`, `reject`, and `disconnect` endpoints are high-level �
 
 Memory item, graph, calibration, and worker endpoints: `codeterm docs API-MEMORY`.
 
-<!-- revision: 5 -->
+<!-- revision: 16 -->

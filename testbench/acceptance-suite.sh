@@ -37,8 +37,10 @@ if [ "$REGEN" = 1 ]; then
     d="$(dirname "$cast")"; out="$d/timeline.json"
     [ -f "$d/meta.json" ] && meta="--meta $d/meta.json" || meta=""
     [ -f "$d/phases.json" ] && phases="--phases $d/phases.json" || phases=""
+    # Synthetic casts have no provider plugin; their band is declared, not defaulted.
+    rows="$(python3 testbench/provider_rows.py "$d" --fixture-rows 0)" || continue
     # shellcheck disable=SC2086
-    "$RT" "$cast" "$out" $meta $phases >/dev/null 2>&1 && n=$((n+1))
+    "$RT" "$cast" "$out" --status-bar-rows "$rows" $meta $phases >/dev/null 2>&1 && n=$((n+1))
   done < <(find testbench/replays -name raw.cast)
   echo "regenerated $n timelines from raw.cast"
 fi

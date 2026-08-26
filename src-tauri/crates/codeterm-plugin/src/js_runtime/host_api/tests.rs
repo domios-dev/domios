@@ -39,6 +39,138 @@ fn sandbox_restricted_scopes_fs_and_blocks_secret_env() {
 }
 
 #[test]
+fn granted_cwd_root_widens_reads_only_on_its_own_sandbox() {
+    let tmp = tempfile::tempdir().unwrap();
+    let t = tmp.path().join("ws");
+    std::fs::create_dir_all(t.join("a").join(".git")).unwrap();
+    let file = t.join("a").join(".git").join("HEAD");
+    std::fs::write(&file, "ref: refs/heads/main").unwrap();
+    let file_str = file.to_string_lossy().into_owned();
+
+    let granted = PluginSandbox::restricted(vec![], vec![]);
+    let bystander = PluginSandbox::restricted(vec![], vec![]);
+    assert!(!granted.can_read(&file_str), "no grant yet → denied");
+
+    granted.grant_cwd_read_root(t.to_str().unwrap());
+    assert!(granted.can_read(&file_str));
+    assert!(
+        !bystander.can_read(&file_str),
+        "a grant on one sandbox instance must not leak to another"
+    );
+    assert!(!granted.can_write(&file_str), "cwd grants are read-only");
+
+    // Relative paths are never recorded as roots.
+    granted.grant_cwd_read_root("relative/dir");
+    assert!(!granted.can_read("relative/dir/x"));
+
+    // Unrestricted sandboxes need no grants and record none.
+    let full = PluginSandbox::unrestricted();
+    full.grant_cwd_read_root(t.to_str().unwrap());
+    assert!(full.granted_read_roots.lock().is_empty());
+
+    #[cfg(windows)]
+    {
+        // OSC7-style forward-slash cwd must cover native backslash targets.
+        let fwd = t.to_string_lossy().replace('\\', "/");
+        let sb = PluginSandbox::restricted(vec![], vec![]);
+        sb.grant_cwd_read_root(&fwd);
+        assert!(
+            sb.can_read(&file_str),
+            "forward-slash grant covers {file_str}"
+        );
+    }
+}
+
+#[test]
+fn granted_cwd_roots_are_bounded_and_lru_refreshed() {
+    let tmp = tempfile::tempdir().unwrap();
+    let sb = PluginSandbox::restricted(vec![], vec![]);
+    for i in 0..=PluginSandbox::MAX_GRANTED_CWD_ROOTS {
+        let d = tmp.path().join(format!("d{i}"));
+        std::fs::create_dir_all(d.join("inner")).unwrap();
+        sb.grant_cwd_read_root(d.to_str().unwrap());
+    }
+    let first_inner = tmp.path().join("d0").join("inner");
+    assert!(
+        !sb.can_read(first_inner.to_str().unwrap()),
+        "oldest grant is evicted past the cap"
+    );
+    let last_inner = tmp
+        .path()
+        .join(format!("d{}", PluginSandbox::MAX_GRANTED_CWD_ROOTS))
+        .join("inner");
+    assert!(sb.can_read(last_inner.to_str().unwrap()));
+
+    // Re-granting an existing root refreshes it in place, no duplicate entry.
+    let last_root = tmp
+        .path()
+        .join(format!("d{}", PluginSandbox::MAX_GRANTED_CWD_ROOTS));
+    let len_before = sb.granted_read_roots.lock().len();
+    sb.grant_cwd_read_root(last_root.to_str().unwrap());
+    assert_eq!(sb.granted_read_roots.lock().len(), len_before);
+}
+
+/// The diagnosis mechanism test: temp tree T/a/.git, T/b/.git, T/c; grant T →
+/// `host.listChildDirs(T)` yields a,b,c (dirs only, names only, no recursion)
+/// and the `.git` probes pass. Negative controls prove the gate: no grant →
+/// denied, ungranted sibling → denied even while T is granted.
+#[test]
+fn list_child_dirs_gated_by_cwd_grant_with_negative_controls() {
+    let tmp = tempfile::tempdir().unwrap();
+    let t = tmp.path().join("granted-ws");
+    std::fs::create_dir_all(t.join("a").join(".git")).unwrap();
+    std::fs::create_dir_all(t.join("b").join(".git")).unwrap();
+    std::fs::create_dir_all(t.join("c")).unwrap();
+    std::fs::write(t.join("not-a-dir.txt"), "x").unwrap();
+    let sibling = tmp.path().join("ungranted-ws");
+    std::fs::create_dir_all(sibling.join("x").join(".git")).unwrap();
+
+    const SRC: &str = r#"
+        module.exports.default = {
+            list(p) { return host.listChildDirs(p); },
+            exists(p) { return host.fileExists(p); }
+        };
+    "#;
+    let sandbox = Arc::new(PluginSandbox::restricted(vec![], vec![]));
+    let vm = PluginVm::from_source_sandboxed("confined", SRC.to_string(), None, sandbox.clone())
+        .unwrap();
+    let t_str = t.to_string_lossy().into_owned();
+    let t_git = t.join("a").join(".git").to_string_lossy().into_owned();
+
+    // NEGATIVE CONTROL: with no grant recorded, listing T is denied and the probe is false.
+    let denied: Option<Vec<String>> =
+        crate::js_runtime::vm::call_json(&vm, "list", &[json!(t_str)]).unwrap();
+    assert_eq!(denied, None, "without a grant the listing must be denied");
+    let probe: bool = crate::js_runtime::vm::call_json(&vm, "exists", &[json!(t_git)]).unwrap();
+    assert!(!probe, "without a grant the .git probe must be false");
+
+    sandbox.grant_cwd_read_root(&t_str);
+    let names: Option<Vec<String>> =
+        crate::js_runtime::vm::call_json(&vm, "list", &[json!(t_str)]).unwrap();
+    assert_eq!(
+        names,
+        Some(vec!["a".to_string(), "b".to_string(), "c".to_string()]),
+        "child directory names only: no files, no nested .git entries"
+    );
+    let probe: bool = crate::js_runtime::vm::call_json(&vm, "exists", &[json!(t_git)]).unwrap();
+    assert!(probe, "granted cwd root must let the .git probe pass");
+
+    // NEGATIVE CONTROL: ungranted sibling stays denied even while T is granted.
+    let sib_str = sibling.to_string_lossy().into_owned();
+    let sib_git = sibling
+        .join("x")
+        .join(".git")
+        .to_string_lossy()
+        .into_owned();
+    let sib: Option<Vec<String>> =
+        crate::js_runtime::vm::call_json(&vm, "list", &[json!(sib_str)]).unwrap();
+    assert_eq!(sib, None, "ungranted sibling listing must stay denied");
+    let sib_probe: bool =
+        crate::js_runtime::vm::call_json(&vm, "exists", &[json!(sib_git)]).unwrap();
+    assert!(!sib_probe, "ungranted sibling .git probe must stay false");
+}
+
+#[test]
 fn host_api_v2_gating_by_allowlist() {
     use crate::js_runtime::manifest::{NetworkPermission, PermissionsConfig, SubprocessPermission};
     let perms = PermissionsConfig {
@@ -660,4 +792,50 @@ fn host_install_idempotent_across_reload() {
     .unwrap();
     let p2: String = crate::js_runtime::vm::call_json(&vm, "go", &[]).unwrap();
     assert_eq!(p2, format!("{p1}!"));
+}
+
+/// A tree wider than the budget is truncated AT the budget rather than walked
+/// whole: the depth limit alone bounds nothing, which is how one provider
+/// session root pegged a daemon's CPU and starved everything behind it (#319).
+#[test]
+fn walk_truncates_a_wide_tree_at_the_entry_budget() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    let over = WALK_ENTRY_BUDGET + 25;
+    for i in 0..over {
+        std::fs::write(root.join(format!("f{i}.jsonl")), b"x").unwrap();
+    }
+
+    let walked: Vec<serde_json::Value> =
+        serde_json::from_str(&walk_dir_json(root.to_str().unwrap(), 8).unwrap()).unwrap();
+    assert_eq!(
+        walked.len(),
+        WALK_ENTRY_BUDGET,
+        "a walk must stop at its budget, not at the end of a wide directory"
+    );
+}
+
+/// Under the budget nothing changes: every entry is still reported, so bounding
+/// the walk did not quietly shrink an ordinary result.
+#[test]
+fn walk_under_the_budget_reports_every_entry() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    std::fs::create_dir(root.join("nested")).unwrap();
+    std::fs::write(root.join("a.jsonl"), b"x").unwrap();
+    std::fs::write(root.join("nested").join("b.jsonl"), b"x").unwrap();
+
+    let walked: Vec<serde_json::Value> =
+        serde_json::from_str(&walk_dir_json(root.to_str().unwrap(), 8).unwrap()).unwrap();
+    let names: Vec<&str> = walked
+        .iter()
+        .filter_map(|entry| entry.get("name").and_then(|n| n.as_str()))
+        .collect();
+    assert_eq!(walked.len(), 3, "two files and one directory");
+    for expected in ["a.jsonl", "nested", "b.jsonl"] {
+        assert!(
+            names.contains(&expected),
+            "{expected} missing from {names:?}"
+        );
+    }
 }

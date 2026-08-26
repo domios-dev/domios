@@ -44,9 +44,6 @@ curl -N "http://host:7685/api/tabs/$TAB/output/stream"
 ### Examples
 
 ```bash
-# Health check
-curl http://host:7685/api/health
-
 # Create workspace + tab
 WS=$(curl -s -X POST http://host:7685/api/workspaces \
   -H "Content-Type: application/json" \
@@ -73,26 +70,8 @@ curl -X POST http://host:7685/api/webhooks \
   -H "Content-Type: application/json" \
   -d '{"url": "https://my-orchestrator/done", "events": ["agent.task_complete"], "once": true, "tab_id": "'"$TAB"'"}'
 
-# Network info
-curl http://host:7685/api/network
-# {"local_ip":"192.168.1.195","tailscale_ip":"100.84.159.37","api_url":"http://192.168.1.195:7685"}
 ```
-
-#### Updates
-| Method | Path | Body / Query | Description |
-|--------|------|------|-------------|
-| GET | `/api/update/status` | — | Current updater state and last update result |
-
-#### Git
-| Method | Path | Body / Query | Description |
-|--------|------|------|-------------|
-| GET | `/api/git/graph` | — | Commit graph for configured repositories |
-| GET | `/api/git/commit/{sha}/files` | — | Files changed by a commit |
-| GET | `/api/git/commit/{sha}/diff` | — | Diff for a commit |
-| GET | `/api/git/workdir-diff` | — | Current working tree diff |
-| GET | `/api/git/workdir-files` | — | Current working tree changed-file list |
-| POST | `/api/git/revert-file` | `{path}` | Revert one file through the API guardrails |
-| GET | `/api/git/repos` | — | Known repositories |
+The updater and Git surfaces are not transport; they live in API-INTEGRATIONS.
 
 ## Socket API (JSON-RPC v2)
 
@@ -104,8 +83,41 @@ curl http://host:7685/api/network
 ### Protocol
 Newline-delimited JSON:
 ```json
-{"jsonrpc":"2.0","id":1,"method":"system.identify","params":null}
+{"jsonrpc":"2.0","id":1,"method":"system.identify","params":null,"protocol_version":1}
 ```
+
+#### Protocol version skew
+
+Every request envelope carries the control-plane `protocol_version` integer
+(one value, embedded in both `cli/src/protocol.rs` and
+`src-tauri/src/socket/server/protocol.rs`). Dispatch compares it before
+routing: a client presenting an older integer — or none at all, which is
+treated as the oldest protocol, never crashed on — receives one typed error
+instead of method-level parse noise:
+
+```json
+{"code": -32002,
+ "message": "client protocol v0, server requires >=1 — run ./build.sh cli",
+ "data": {"type": "version_skew", "client_protocol": 0, "server_protocol": 1,
+          "recovery": "./build.sh cli"}}
+```
+
+`recovery` is `./build.sh cli` on dev builds and `codeterm update install --auto`
+on release builds. The CLI prints the daemon-composed message verbatim.
+Same-version requests take the unchanged dispatch path with zero added
+round-trips. `POST /api/mesh/rpc` accepts the same `protocol_version` field and
+returns the same typed error; the mesh relay forwards it untranslated, so a
+mismatched peer fails with the same actionable one-liner. A newer client
+against an older daemon is not refused by this gate; a method the old daemon
+lacks still fails as `-32601`, which the CLI enriches with both app versions.
+
+**1.10.0 release note:** pre-1.10 CLIs and mesh peers send no
+`protocol_version`, so the moment a 1.10 daemon starts, every pre-1.10
+`codeterm` binary — including a mesh peer's relayed `agent report` — is
+hard-refused with this typed version-skew error on every socket and mesh
+dispatch until it is updated. There is no grace mode: update the CLIs on all
+mesh peers together with the daemon (the error's `recovery` field carries the
+exact command).
 
 ### Methods
 
@@ -185,7 +197,7 @@ Newline-delimited JSON:
 | `mem.graph.repair.orphan_blobs` | `{dry_run?, actor?}` | Find/delete unreferenced blob files. |
 
 `codeterm mem` routes its full item/history/taxonomy/tail/learn/wake-up/sync/skill/worker/calibration/graph surface over these socket methods — HTTP is no longer attempted for any of it, so a live socket with a dead HTTP API no longer breaks `mem`. A handful of `mem graph` subcommands (route, purge-invalidated, revive-broken, introduce-topic, hubs, islands, orphans, get) are local-only by design — the CLI opens `knowledge.db` directly and never touches either transport. `mem secret` is the one deliberate holdout: `mem.secret.*` gets an explicit `-32004` rejection over the socket (see `secret_socket_rejection` in `socket/server/mem/mod.rs`) because it's the only mem surface that can return plaintext credentials and the socket has no auth gate, so it stays on the bearer-token-gated `/api/secrets/*` HTTP API by design, not because it's unmigrated.
-| `notification.create` | `{title, body?, level?, caller_tab_id?, tab_id?, category?, event_key?}` | Create notification. Both ids are hints: the daemon resolves the caller first, falls back to `tab_id`, and stores navigation provenance (`tab_id`, `tab_title`, `workspace_id`) only for a tab that is still live. An unresolvable or closed tab is dropped and the notification still lands without a Show Tab target. `workspace_id` is derived, never accepted. `category` is one of `milestone`, `blocker`, `failure` — any other value is rejected with `-32602`, and an omitted category means local-only (no Telegram push). `event_key` is a coalescing hint; the daemon derives one when it is absent. |
+| `notification.create` | `{title, body?, severity?, caller_tab_id?, tab_id?, level?, event_key?}` | Create notification. Both ids are hints: the daemon resolves the caller first, falls back to `tab_id`, and stores navigation provenance (`tab_id`, `tab_title`, `workspace_id`) only for a tab that is still live. An unresolvable or closed tab is dropped and the notification still lands without a Show Tab target. `workspace_id` is derived, never accepted. `level` is one of `verbose`, `action_needed`, `failure` — any other value is rejected with `-32602`, and an omitted level means local-only (no Telegram push). `severity` (`info`/`warning`/`error`) is toast styling only and gates nothing. `event_key` is a coalescing hint; the daemon derives one when it is absent. The result is `{id}`, plus `unseen: {closed:[{surface,reason}]}` when NO surface will show the record — the bell indicator hidden by `notifications.show_bell = false`, no desktop toast admitted, and no push channel carrying it. It is information, not an error: the record was opened and the id is returned either way, and the key is absent whenever any surface is open. |
 | `notification.list` | `{unread_only?}` | List notifications |
 | `notification.clear` | `{id?}` | Clear notifications |
 | `agent.list` | — | List all tabs with roles |
@@ -225,4 +237,4 @@ Newline-delimited JSON:
 
 For `team.rename` and `team.close`, omitted `caller_tab_id` is the trusted direct-user path on the local socket. `team.adopt_plan` requires a non-empty caller belonging to the destination Team as its Orchestrator or planner-profile Manager; missing callers, Workers, and foreign tabs are rejected before mutation. Adoption preserves the structured `team_already_has_active_plan` conflict when the Team already owns another active plan. Events are emitted only after persistence succeeds.
 
-<!-- revision: 4 -->
+<!-- revision: 9 -->

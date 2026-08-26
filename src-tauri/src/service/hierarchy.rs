@@ -3,14 +3,18 @@
 mod plan_reminder_nudge;
 mod planner_binding;
 mod planner_delivery;
+#[cfg(test)]
+mod report_attribution;
 mod report_event;
 mod report_persistence;
+pub(crate) mod report_plan_ctx;
 mod status;
 mod team_plan_creation;
 mod worker_handoff;
 pub(crate) use worker_handoff::WorkerTurnSignal;
 
 pub(crate) use planner_binding::clear_planner_bindings_for_lifecycle_exit;
+pub(crate) use report_plan_ctx::resolve_plan_ctx;
 pub use status::TabStatusInfo;
 pub(crate) use team_plan_creation::{TeamPlanCaller, TeamPlanCreationError};
 
@@ -378,7 +382,8 @@ impl ServiceContext {
     /// NEVER routes back to the reporter's own tab; errors when none resolve.
     ///
     /// Plan/task resolution order:
-    /// 1. Explicit `plan_id`/`task_id` from the caller — validated against live store.
+    /// 1. Explicit `plan_id`/`task_id` from the caller — the plan is validated
+    ///    against the live store and the task against the caller's hold on it.
     /// 2. If provided ids are stale (plan not found) — falls back to tab assignment.
     /// 3. Daemon-side tab assignment lookup (`task_bindings_with_name_for_tab`).
     /// 4. Ambiguous (>1 assignment) — errors with candidate list.
@@ -400,10 +405,12 @@ impl ServiceContext {
         let mut report_requirement = worker_handoff::claim_explicit_report(&self.gateway, tab_id);
 
         let mut notices: Vec<String> = Vec::new();
+        let mut binding_refused = false;
         let (eff_plan_id, eff_task_id) =
             match resolve_plan_ctx(&self.plan_store, tab_id, plan_id, task_id, &mut notices) {
                 Ok(context) => context,
                 Err(cause) => {
+                    binding_refused = true;
                     task_transition_refusal = Some(match task_transition_refusal {
                         Some(existing) => format!("{existing}\n{cause}"),
                         None => cause,
@@ -463,15 +470,26 @@ impl ServiceContext {
             _ => None,
         };
 
-        let target_opt = eff_plan_id
+        // A refused binding is not authority over the destination either. The plan a
+        // stale hint names may be owned by a tab that no longer manages this
+        // reporter, so the owner override is withheld and the recipient falls
+        // through to `resolve_report_target`'s live parent -> report_target ->
+        // spawned_by chain — the same resolution an unhinted report already uses,
+        // and the reason a moved agent stops reporting to its old Orchestrator.
+        let plan_owner_target = eff_plan_id
             .as_deref()
+            .filter(|_| !binding_refused)
             .and_then(|id| self.plan_store.owner_of(id))
             .and_then(|owner| owner.tab_id)
             .filter(|target| !target.is_empty() && target != tab_id)
-            .map(ReportTarget::Local)
-            .or(default_target_opt);
-        let target = target_opt.ok_or_else(|| {
-            "No report target for this tab. You are not attached to an orchestrator, report target, or spawning tab. Ask for the target tab id, then use `codeterm send [--mesh <peer>] --tab <tab-or-alias> \"...\"`, or spawn with a report target.".to_string()
+            .map(ReportTarget::Local);
+        let target = plan_owner_target.or(default_target_opt).ok_or_else(|| {
+            report_plan_ctx::nowhere_to_deliver_refusal(
+                tab_id,
+                rejected_task_transition
+                    .as_ref()
+                    .map(|rejection| rejection.cause.as_str()),
+            )
         })?;
 
         let foreign = is_explicit_plan_foreign(plan_id, eff_plan_id.as_deref());
@@ -575,10 +593,9 @@ impl ServiceContext {
             |rejection| rejected_report_delivery_message(&rejection.cause, message),
         );
         if rejected_task_transition.is_some() {
-            notices.push(
-                "task transition was rejected; the report was still recorded and delivered, so do not resend it"
-                    .to_string(),
-            );
+            notices.push(format!(
+                "task transition was rejected and this report is NOT attributed to that task; the report itself was recorded and delivered to '{storage_key}', resolved live from this tab's own hierarchy - so do not resend it"
+            ));
         }
         let report = self.report_store.lock().add_detailed_with_model_identity(
             &storage_key,
@@ -807,7 +824,9 @@ impl ServiceContext {
             "text": ms_text,
             "from": serde_json::to_value(&from_ref).unwrap_or_default(),
         }));
-        let body = serde_json::json!({ "ops": ops });
+        // The relay is a caller of the HTTP batch entrance like any other, so it
+        // names the tab it writes for instead of arriving unidentified.
+        let body = serde_json::json!({ "ops": ops, "caller_tab_id": from_ref.tab_id });
         let cmd = crate::mesh::types::RelayCommand {
             method: "POST".into(),
             path: format!("/api/plans/{}/batch", plan_id),
@@ -1095,60 +1114,6 @@ fn resolve_peer_client_by_name(
         .find(|(_, p)| p.instance_name.eq_ignore_ascii_case(name))
         .map(|(id, _)| id.clone())?;
     mesh.client_for(&id)
-}
-
-/// Resolve the effective (plan_id, task_id) for a report, following the priority chain:
-/// 1. Provided `plan_id_hint` validated against live store.
-/// 2. If stale (plan not found), falls back to daemon-side tab assignment.
-/// 3. If no `plan_id_hint`, tries tab assignment directly.
-/// 4. Ambiguous (>1 assignment) — errors with candidate list.
-/// 5. No assignment — returns (None, None) so the report proceeds without a milestone.
-pub(crate) fn resolve_plan_ctx(
-    plan_store: &crate::service::plan::PlanStore,
-    tab_id: &str,
-    plan_id_hint: Option<&str>,
-    task_id_hint: Option<&str>,
-    notices: &mut Vec<String>,
-) -> Result<(Option<String>, Option<String>), String> {
-    let valid_plan = plan_id_hint
-        .filter(|s| !s.trim().is_empty())
-        .and_then(|id| {
-            if plan_store.get(id).is_some() {
-                Some(id.to_string())
-            } else {
-                notices.push(format!(
-                    "plan '{}' not found in active plans — ignoring, checking tab assignment",
-                    id
-                ));
-                None
-            }
-        });
-
-    if valid_plan.is_some() {
-        return Ok((valid_plan, task_id_hint.map(str::to_string)));
-    }
-
-    let bindings = plan_store.task_bindings_with_name_for_tab(tab_id);
-    match bindings.len() {
-        0 => Ok((None, None)),
-        1 => {
-            let (p, t, _name) = bindings.into_iter().next().unwrap();
-            Ok((Some(p), Some(t)))
-        }
-        _ => {
-            let list = bindings
-                .iter()
-                .map(|(p, t, n)| format!("  {t} «{n}» in plan {p}"))
-                .collect::<Vec<_>>()
-                .join("\n");
-            Err(format!(
-                "ambiguous: tab {} is assigned to {} tasks — pass --plan and --task to disambiguate:\n{}",
-                tab_id,
-                bindings.len(),
-                list
-            ))
-        }
-    }
 }
 
 /// Whether a dying leaf tab needs a synthetic death report, and to whom.

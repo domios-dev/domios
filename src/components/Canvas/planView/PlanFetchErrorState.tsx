@@ -31,7 +31,7 @@ export function PlanFetchErrorState({
       <div
         data-testid={testId}
         className={`plan-fetch-state plan-fetch-error flex flex-col items-center gap-2 px-4 text-center text-sm ${className}`.trim()}
-        style={{ color: "var(--ct-error, #f87171)" }}
+        style={{ color: "var(--ct-red)" }}
       >
         <p>{error}</p>
         {onRetry && (

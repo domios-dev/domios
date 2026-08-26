@@ -72,7 +72,7 @@ export function RemoteTabPicker({ onAttach, onClose }: RemoteTabPickerProps) {
         </header>
         <div className="max-h-[min(60vh,420px)] min-h-40 overflow-y-auto p-2">
           {loading && <div role="status" aria-label="Loading" className="flex h-32 items-center justify-center text-[var(--ct-muted-fg)]"><BusySpinner size={17} icon={LoaderCircle} /></div>}
-          {!loading && error && <div role="alert" className="px-3 py-8 text-center text-[12px] text-[var(--ct-danger)]">{error}</div>}
+          {!loading && error && <div role="alert" className="px-3 py-8 text-center text-[12px] text-[var(--ct-red)]">{error}</div>}
           {!loading && !error && !selectedPeer && peers.map((peer) => (
             <button key={peer.instance_id} type="button" onClick={() => choosePeer(peer)} className="flex w-full items-center gap-3 rounded px-3 py-2 text-left hover:bg-[var(--ct-hover)]">
               <Laptop size={15} className="text-[var(--ct-muted-fg)]" />

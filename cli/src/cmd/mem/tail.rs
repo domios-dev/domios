@@ -1,7 +1,7 @@
-use crate::client::SocketClient;
+use crate::client::RpcClient;
 
 fn fetch_tail(
-    client: &mut SocketClient,
+    client: &mut dyn RpcClient,
     since: Option<&str>,
     limit: usize,
 ) -> Result<Vec<serde_json::Value>, String> {
@@ -16,7 +16,13 @@ fn fetch_tail(
         .unwrap_or_default())
 }
 
-pub(crate) fn run_mem_tail(client: &mut SocketClient, json_mode: bool, follow: bool, limit: usize) {
+pub(crate) fn run_mem_tail(
+    client: &mut dyn RpcClient,
+    json_mode: bool,
+    follow: bool,
+    limit: usize,
+    since: Option<String>,
+) {
     let print_row = |row: &serde_json::Value| {
         let ts = row
             .get("updated_at")
@@ -43,7 +49,7 @@ pub(crate) fn run_mem_tail(client: &mut SocketClient, json_mode: bool, follow: b
         );
     };
 
-    match fetch_tail(client, None, limit) {
+    match fetch_tail(client, since.as_deref(), limit) {
         Ok(rows) => {
             if json_mode {
                 println!("{}", serde_json::to_string_pretty(&rows).unwrap());
@@ -97,5 +103,49 @@ pub(crate) fn run_mem_tail(client: &mut SocketClient, json_mode: bool, follow: b
             eprintln!("Error: {}", e);
             std::process::exit(1);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fetch_tail;
+    use crate::client::{RpcClient, SocketCallError};
+
+    struct FakeRpc {
+        last_params: Option<serde_json::Value>,
+    }
+
+    impl RpcClient for FakeRpc {
+        fn call_detailed(
+            &mut self,
+            method: &str,
+            params: Option<serde_json::Value>,
+        ) -> Result<serde_json::Value, SocketCallError> {
+            assert_eq!(method, "mem.tail");
+            self.last_params = params;
+            Ok(serde_json::json!({ "rows": [] }))
+        }
+    }
+
+    #[test]
+    fn mem_tail_fetch_forwards_since_on_initial_call() {
+        let mut rpc = FakeRpc { last_params: None };
+
+        fetch_tail(&mut rpc, Some("2026-08-01T00:00:00Z"), 20).unwrap();
+
+        let params = rpc.last_params.expect("mem.tail called");
+        assert_eq!(params["since"], "2026-08-01T00:00:00Z");
+        assert_eq!(params["limit"], 20);
+    }
+
+    #[test]
+    fn mem_tail_fetch_sends_null_since_when_absent() {
+        let mut rpc = FakeRpc { last_params: None };
+
+        fetch_tail(&mut rpc, None, 20).unwrap();
+
+        let params = rpc.last_params.expect("mem.tail called");
+        assert!(params["since"].is_null());
+        assert_eq!(params["limit"], 20);
     }
 }
