@@ -118,7 +118,7 @@ export interface MountedGesture {
   listening(): number;
   /** One real user gesture, dispatched on the window the app listens to. */
   gesture(type?: (typeof CHIME_GESTURE_EVENTS)[number]): Promise<void>;
-  /** One daemon arrival, exactly as the bell gate emits it. */
+  /** One daemon arrival, exactly as the daemon emits it. */
   arrive(level: string | null): Promise<void>;
   done(): Promise<void>;
 }

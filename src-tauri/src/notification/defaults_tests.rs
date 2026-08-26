@@ -1,8 +1,9 @@
 //! `notify_defaults` — what a fresh install does before anyone opens the panel.
 //!
-//! One claim, held at every level: it rings the bell, and it does nothing else.
-//! No toast, no push, no sound. Every other destination is opt-in, and opting
-//! into one still works — the change is to the default, never to the mechanism.
+//! One claim, held at every level: the record is kept and nothing interrupts.
+//! No toast, no push, no sound. Every destination that can refuse is opt-in, and
+//! opting into one still works — the change is to the default, never to the
+//! mechanism. The panel is not among them: it is the log, and takes every record.
 
 use codeterm_bridge::bridge::manager::OutboundMessage;
 use codeterm_bridge::bridge::traits::OutboundContent;
@@ -11,7 +12,6 @@ use codeterm_types::config::schema::{default_agent_levels, AppConfig, Notificati
 use codeterm_types::notification::{NotifyDestination, NotifyLevel};
 use parking_lot::Mutex;
 
-use crate::notification::bell::{self, BellPolicy};
 use crate::notification::channels::{
     Audience, ChannelHost, ChannelReadiness, PushChannel, RegisteredChannel,
 };
@@ -122,15 +122,24 @@ fn columns() -> Vec<NotifyDestination<'static>> {
     NotifyDestination::columns([FIXTURE_SERVICE.id])
 }
 
-/// The whole task in one test: a config nobody has touched reaches the bell at
-/// every level, and reaches nothing else. Before the default changed this
-/// failed on the very first non-bell assertion, because every column of every
-/// row shipped open.
+/// The destinations a row can actually be routed away from. `Bell` is not one:
+/// it is a name core still knows, so an agent offering to switch it on can be
+/// refused by name, but it stopped being a column a level answers.
+fn interrupting_columns() -> Vec<NotifyDestination<'static>> {
+    columns()
+        .into_iter()
+        .filter(|column| *column != NotifyDestination::Bell)
+        .collect()
+}
+
+/// The whole task in one test: a config nobody has touched interrupts nowhere,
+/// at every level, while keeping every record. Before the default changed this
+/// failed on the very first assertion, because every column of every row shipped
+/// open.
 #[test]
-fn notify_defaults_a_fresh_config_reaches_the_bell_alone_at_every_level() {
+fn notify_defaults_a_fresh_config_interrupts_nowhere_at_every_level() {
     let cfg = AppConfig::default();
     let notifications = &cfg.notifications;
-    let bell_policy = BellPolicy::from_config(notifications);
     let desktop_policy = DesktopPolicy::from_config(notifications);
     let roster = fixture_roster();
     let host = RecordingHost::carrying_everything();
@@ -154,12 +163,6 @@ fn notify_defaults_a_fresh_config_reaches_the_bell_alone_at_every_level() {
             .find(|row| NotifyLevel::parse(&row.level) == Some(level))
             .unwrap_or_else(|| panic!("{wire} has a row"));
 
-        assert!(row.allows(NotifyDestination::Bell), "{wire} rings the bell");
-        assert!(
-            bell::admit(Some(level), &bell_policy).reaches_bell(),
-            "{wire} reaches the bell surface"
-        );
-
         assert!(
             !row.allows(NotifyDestination::Desktop),
             "{wire} must not be routed to the desktop"
@@ -180,8 +183,8 @@ fn notify_defaults_a_fresh_config_reaches_the_bell_alone_at_every_level() {
         );
 
         assert!(
-            !row.reaches_nothing(&columns()),
-            "{wire} still reaches the bell, so the row is not an empty row"
+            row.reaches_nothing(&interrupting_columns()),
+            "{wire} interrupts nowhere on a config nobody touched"
         );
     }
 
@@ -210,7 +213,7 @@ level = "verbose"
     )
     .expect("a row that names only its level parses");
     let row = &partial.agent_levels[0];
-    assert!(!row.bell, "an unnamed bell column is off");
+    assert!(!row.bell, "an unnamed bell field is off, as it always was");
     assert!(!row.desktop, "an unnamed desktop column is off");
     assert!(
         !row.allows(NotifyDestination::Channel(FIXTURE_SERVICE.id)),
@@ -232,16 +235,15 @@ desktop = true
     .expect("a row that names one column parses");
     let row = &named.agent_levels[0];
     assert!(row.desktop, "the named column keeps the answer it was given");
-    assert!(!row.bell, "and the columns it left unnamed stay off");
+    assert!(!row.bell, "and the fields it left unnamed stay off");
 
     // An absent grid is a different thing from a grid that named no column: it
-    // is the shipped default, which is the bell alone rather than nothing.
+    // is the shipped default, which interrupts nowhere while keeping every record.
     let absent: NotificationConfig = toml::from_str("").expect("an empty config parses");
     assert_eq!(absent.agent_levels, default_agent_levels());
     for row in &absent.agent_levels {
-        assert!(row.bell, "{} rings the bell", row.level);
         assert!(!row.desktop, "{} raises no toast", row.level);
-        assert!(!row.reaches_nothing(&columns()));
+        assert!(row.reaches_nothing(&interrupting_columns()));
     }
 }
 
@@ -309,7 +311,7 @@ fn notify_defaults_an_explicitly_enabled_destination_still_routes() {
     assert!(untouched.delivered().is_empty());
 }
 
-/// Sound is presentation riding a bell arrival, not a column of the grid, so
+/// Sound is presentation riding a record's arrival, not a column of the grid, so
 /// "off at every level" is one switch that starts off and that no row can
 /// reach. It stays reachable by hand — off is the default, not a removal.
 #[test]

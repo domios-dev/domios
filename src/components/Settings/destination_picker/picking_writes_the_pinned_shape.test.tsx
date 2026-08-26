@@ -143,8 +143,9 @@ async function noNeighbouringRowMoves() {
   }
 }
 
-/** The local surfaces are unchanged: their own toggles, their own named fields,
- *  and an explicit answer in both directions rather than a vanishing key. */
+/** The local surface is unchanged: its own toggle, its own named field, and an
+ *  explicit answer in both directions rather than a vanishing key. The retained
+ *  `bell` field rides along untouched, because nothing on this surface writes it. */
 async function theLocalSurfacesKeepTheirOwnTogglesAndFields() {
   const start = configWith({ levels: rows(), admitted: ADMITTED });
   for (const surface of LOCAL_DESTINATIONS) {
@@ -181,8 +182,12 @@ async function theLocalSurfacesKeepTheirOwnTogglesAndFields() {
     );
     assert(
       JSON.stringify(flipped) ===
-        JSON.stringify({ level: LEVEL, bell: surface.id !== "bell", desktop: surface.id !== "desktop" }),
+        JSON.stringify({ level: LEVEL, bell: true, desktop: surface.id !== "desktop" }),
       `only the flipped surface moved, got ${JSON.stringify(flipped)}`,
+    );
+    assert(
+      flipped.bell === true,
+      "and the retained bell field, which this surface never offers, is carried through",
     );
   }
 }

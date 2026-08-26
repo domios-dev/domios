@@ -206,9 +206,9 @@ fn discord_allowed_users_also_tolerant() {
 }
 
 /// Absent config is the whole default contract: an install that never opened
-/// the panel reaches the bell, at every level, and reaches nothing else.
+/// the panel keeps every record and interrupts nowhere, at every level.
 #[test]
-fn notification_settings_absent_config_is_the_bell_alone() {
+fn notification_settings_absent_config_interrupts_nowhere() {
     let empty: NotificationConfig = toml::from_str("").unwrap();
     let default = NotificationConfig::default();
 
@@ -227,8 +227,8 @@ fn notification_settings_absent_config_is_the_bell_alone() {
     );
     for row in &empty.agent_levels {
         assert!(
-            row.allows(NotifyDestination::Bell),
-            "{} rings the bell",
+            row.bell,
+            "{} still carries the retained field, which routes nothing",
             row.level
         );
         for destination in fixture_columns() {
@@ -242,10 +242,6 @@ fn notification_settings_absent_config_is_the_bell_alone() {
                 destination.as_str()
             );
         }
-        assert!(
-            !row.reaches_nothing(&fixture_columns()),
-            "the bell is still standing, so the row is not an empty row"
-        );
     }
 
     // A row that names only its level named no column at all, so it reaches
@@ -281,8 +277,8 @@ fn notification_settings_rows_derive_from_the_shared_level_set() {
         "the shipped grid is the shared set mapped, not a hand-written triple"
     );
 
-    // Stored answers survive reconciliation; a level nobody answered arrives at
-    // the bell alone.
+    // Stored answers survive reconciliation; a level nobody answered arrives
+    // interrupting nowhere.
     let mut only_failure =
         AgentLevelChoice::open(NotifyLevel::Failure.as_str(), &[FIXTURE_CHANNEL]);
     only_failure.desktop = false;
@@ -348,47 +344,57 @@ fn notification_settings_all_off_for_a_level_is_accepted_and_round_trips() {
     );
 }
 
-/// A hidden bell surface and an unreachable bell column are different states.
-/// Config must be able to tell them apart, in both directions.
+/// The `bell` field is retained and inert, and retaining it is not sentiment:
+/// `channels` is flattened, so a row that stopped naming the field would read a
+/// stored `bell = true` back as a push channel called "bell" that no registry
+/// will ever resolve. This pins both halves — the round trip, and the map
+/// staying clean — so removing the field fails here rather than in someone's
+/// config.
 #[test]
-fn notification_settings_hidden_bell_is_distinct_from_every_bell_column_off() {
-    let mut hidden = NotificationConfig::default();
-    hidden.show_bell = false;
-
-    let mut columns_off = NotificationConfig::default();
-    for row in &mut columns_off.agent_levels {
-        row.set(NotifyDestination::Bell, false);
-    }
-
-    assert!(!hidden.show_bell);
+fn notification_settings_the_retained_bell_field_never_becomes_a_channel_key() {
+    let stored: NotificationConfig = toml::from_str(
+        r#"
+[[agent_levels]]
+level = "failure"
+bell = true
+desktop = false
+"#,
+    )
+    .expect("a stored row that names the field parses");
+    let row = &stored.agent_levels[0];
+    assert!(row.bell, "the field is read back as itself");
     assert!(
-        hidden
-            .agent_levels
-            .iter()
-            .all(|row| row.allows(NotifyDestination::Bell)),
-        "hiding the surface routes nothing away from it"
+        row.channels.is_empty(),
+        "and never lands in the flattened channel map: {:?}",
+        row.channels
+    );
+    assert!(
+        !row.allows(NotifyDestination::Channel("bell")),
+        "so nothing resolves it as a channel either"
     );
 
-    assert!(columns_off.show_bell, "the surface is still rendered");
-    assert!(columns_off
-        .agent_levels
-        .iter()
-        .all(|row| !row.allows(NotifyDestination::Bell)));
+    let encoded = toml::to_string(&stored).expect("it serialises");
+    let decoded: NotificationConfig = toml::from_str(&encoded).expect("and parses back");
+    assert_eq!(
+        decoded.agent_levels, stored.agent_levels,
+        "and round-trips unchanged"
+    );
 
+    // Inert, not absent. `show_bell` is the one bell answer config still makes,
+    // it is a different field on a different struct, and moving it moves no row.
+    let hidden = NotificationConfig {
+        show_bell: false,
+        ..NotificationConfig::default()
+    };
+    assert!(
+        hidden.agent_levels.iter().all(|row| row.bell),
+        "hiding the indicator routes nothing away from anything"
+    );
     assert_ne!(
         toml::to_string(&hidden).unwrap(),
-        toml::to_string(&columns_off).unwrap(),
-        "the two states must not serialise to the same config"
+        toml::to_string(&NotificationConfig::default()).unwrap(),
+        "and it is still a state config can express on its own"
     );
-
-    // And both compose: the surface can be hidden while the column stays open.
-    let mut both = columns_off.clone();
-    both.show_bell = false;
-    assert!(!both.show_bell);
-    assert!(both
-        .agent_levels
-        .iter()
-        .all(|row| !row.allows(NotifyDestination::Bell)));
 }
 
 /// `allows`/`set` dispatch per column, so a column the roster gains cannot

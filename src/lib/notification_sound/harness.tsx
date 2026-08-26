@@ -71,7 +71,7 @@ function installFakeAudio(): Recorder {
 
 export interface Mounted {
   recorder: Recorder;
-  /** Deliver one daemon arrival, exactly as the bell gate emits it. */
+  /** Deliver one daemon arrival, exactly as the daemon emits it. */
   arrive(level: string | null): Promise<void>;
   done(): Promise<void>;
 }

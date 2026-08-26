@@ -10,7 +10,7 @@ import {
   type GestureTarget,
 } from "../lib/notificationSound";
 
-/** The one arrival event, emitted by the daemon only for a level the bell admitted. */
+/** The one arrival event. The daemon emits it for every record it keeps. */
 const ARRIVAL_EVENT = "notification-created";
 
 /** The app's own window, or nothing when there is no DOM to listen on. */
@@ -20,11 +20,11 @@ function gestureTarget(): GestureTarget | null {
 }
 
 /**
- * Sound the chime on a bell arrival that says the agent stopped.
+ * Sound the chime on an arrival that says the agent stopped.
  *
  * The subscription is the whole trigger — nothing polls, nothing is scheduled,
- * and no other code path reaches the player. A level the user routed away from
- * the bell never produces this event, so it can never produce a sound.
+ * and no other code path reaches the player. Which arrivals sound is the level's
+ * answer alone; there is no routing column that could disagree with it.
  *
  * The player reuses the context a user gesture established. Enabling the sound
  * is one such gesture; so is the first click or key anywhere in the app, which

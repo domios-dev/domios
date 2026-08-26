@@ -98,7 +98,6 @@ fn opted_in(declared: Option<NotifyLevel>) -> SurfaceDispatch {
     let cfg = opted_in_config();
     SurfaceDispatch {
         declared,
-        bell: BellPolicy::from_config(&cfg),
         desktop: DesktopPolicy::from_config(&cfg),
     }
 }
@@ -142,7 +141,6 @@ fn notify_gate_user_disabled_level_keeps_the_record_but_not_the_toast() {
     let sinks = Sinks::new();
     let only_failures = |declared| SurfaceDispatch {
         declared: Some(declared),
-        bell: BellPolicy::open(),
         desktop: policy_allowing(&[NotifyLevel::Failure]),
     };
 
@@ -176,7 +174,6 @@ fn notify_gate_master_desktop_toggle_off_silences_every_level() {
             level.as_str(),
             SurfaceDispatch {
                 declared: Some(level),
-                bell: BellPolicy::open(),
                 desktop: DesktopPolicy::from_config(&cfg),
             },
         );
@@ -272,3 +269,53 @@ fn notify_gate_and_dedupe_are_separate_decisions() {
     );
     assert_eq!(sinks.records(), 2);
 }
+
+/// The panel is the complete log, and this event is the ONLY live path into it —
+/// the frontend's other ingress is `list_notifications`, which runs at mount.
+/// Gating it on a stored `bell` column therefore did not mean "this level does
+/// not reach the bell": it meant the record existed while the panel silently
+/// lagged until the next mount. Every level reaches the panel, whatever the
+/// column that used to gate it still holds.
+#[test]
+fn notify_gate_a_stored_bell_of_false_still_reaches_the_panel_at_every_level() {
+    let sinks = Sinks::new();
+    let mut cfg = opted_in_config();
+    for row in &mut cfg.agent_levels {
+        row.set(codeterm_types::notification::NotifyDestination::Bell, false);
+    }
+    assert!(
+        cfg.agent_levels
+            .iter()
+            .all(|row| !row.allows(codeterm_types::notification::NotifyDestination::Bell)),
+        "the fixture stores the column closed on every row, so what follows means something"
+    );
+
+    let mut ids = Vec::new();
+    for level in NotifyLevel::ALL {
+        ids.push(notify(
+            &sinks,
+            level.as_str(),
+            SurfaceDispatch {
+                declared: Some(level),
+                desktop: DesktopPolicy::from_config(&cfg),
+            },
+        ));
+    }
+
+    assert_eq!(
+        sinks.records(),
+        NotifyLevel::ALL.len(),
+        "every level kept its record, as it always did"
+    );
+    let emitted = sinks.emitted.lock();
+    assert_eq!(
+        emitted.len(),
+        NotifyLevel::ALL.len(),
+        "and every one of them reached the panel live rather than waiting for a remount"
+    );
+    for (index, level) in NotifyLevel::ALL.into_iter().enumerate() {
+        assert_eq!(emitted[index]["id"], ids[index], "{} arrived", level.as_str());
+        assert_eq!(emitted[index]["level"], level.as_str());
+    }
+}
+
