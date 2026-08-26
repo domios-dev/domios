@@ -7,7 +7,7 @@ import { ProviderNotifications } from "./ProviderNotifications";
 import { NotificationDestinations } from "./NotificationDestinations";
 import { NotificationSurfaces } from "./NotificationSurfaces";
 import { PushChannelSettings } from "./PushChannelSettings";
-import { SettingsCard, Toggle } from "./shared";
+import { SettingsCard } from "./shared";
 
 /** The daemon's channel registry. A roster it cannot answer for is empty
  *  rather than guessed at: the grid then draws its two local surfaces, which
@@ -50,23 +50,11 @@ export function NotificationsOverview({
         title="Notifications"
         description="Get alerted when an agent finishes a task or needs your attention. Hooks auto-install on startup."
       >
-        <Toggle
-          label="Show the bell"
-          checked={config.notifications.show_bell !== false}
-          onChange={(v) => onUpdate("notifications", { show_bell: v })}
-        />
-        <p className="text-[10px] text-[var(--ct-muted)] leading-relaxed">
-          Off hides the indicator entirely. History is still kept, and the panel stays the complete
-          log.
-        </p>
-        <NotificationSurfaces config={config} onUpdate={onUpdate} />
-        <h4 className="text-[var(--ct-muted-fg)] text-xs font-medium pt-1">
-          Where each level may go
-        </h4>
-        <NotificationDestinations config={config} channels={channels} onUpdate={onUpdate} />
-
-        <PushChannelSettings channels={channels} config={config} onUpdate={onUpdate} />
-
+        <div className="flex flex-col gap-5">
+          <NotificationSurfaces config={config} onUpdate={onUpdate} />
+          <NotificationDestinations config={config} channels={channels} onUpdate={onUpdate} />
+          <PushChannelSettings channels={channels} config={config} onUpdate={onUpdate} />
+        </div>
         <ProviderNotifications
           fullConfig={config}
           onUpdateFullConfig={onUpdateFullConfig}

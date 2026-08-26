@@ -1235,6 +1235,8 @@ button,
 
 .ct-liquid-toggle {
   position: relative;
+  display: inline-block;
+  flex-shrink: 0;
   width: 3.4rem;
   height: 1.85rem;
   padding: 0;
@@ -1247,7 +1249,8 @@ button,
     background var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
     border-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
 }
-.ct-liquid-toggle[aria-checked="true"] {
+.ct-liquid-toggle[aria-checked="true"],
+.ct-liquid-toggle[data-checked="true"] {
   border-color: color-mix(in srgb, var(--ct-accent) 55%, transparent);
   background: color-mix(in srgb, var(--ct-accent) 32%, transparent);
 }
@@ -1262,8 +1265,25 @@ button,
   box-shadow: 0 2px 6px color-mix(in srgb, var(--ct-bg) 45%, transparent);
   transform: translate(0, -50%);
 }
-.ct-liquid-toggle[aria-checked="true"] .ct-liquid-toggle__knob {
+.ct-liquid-toggle[aria-checked="true"] .ct-liquid-toggle__knob,
+.ct-liquid-toggle[data-checked="true"] .ct-liquid-toggle__knob {
   transform: translate(1.55rem, -50%);
+}
+
+/* Half the shipped area, so the switch reads as a mark beside its label
+   rather than furniture parked at the far edge of a row. */
+.ct-liquid-toggle--compact {
+  width: 34px;
+  height: 18px;
+}
+.ct-liquid-toggle--compact .ct-liquid-toggle__knob {
+  left: 2px;
+  width: 12px;
+  height: 12px;
+}
+.ct-liquid-toggle--compact[aria-checked="true"] .ct-liquid-toggle__knob,
+.ct-liquid-toggle--compact[data-checked="true"] .ct-liquid-toggle__knob {
+  transform: translate(16px, -50%);
 }
 .ct-liquid-toggle__knob--travel {
   animation: ct-liquid-control-knob var(--ct-duration-liquid-toggle) both;
@@ -1306,6 +1326,77 @@ button,
   transition: color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
 }
 .ct-liquid-flip__word[data-active="true"] { color: var(--ct-fg); }
+
+/* A settings section: a small-caps header and a hairline that runs to the
+   edge, so one panel reads as several answerable questions. */
+.ct-settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5625rem;
+}
+.ct-settings-section__header {
+  display: flex;
+  align-items: center;
+  gap: 0.5625rem;
+}
+.ct-settings-section__label {
+  font-size: 0.625rem;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ct-muted);
+}
+.ct-settings-section__rule {
+  flex: 1;
+  height: 1px;
+  background: color-mix(in srgb, var(--ct-border) 70%, transparent);
+}
+
+/* The whole tile is the hit target, so the switch never travels away from the
+   words that name it. */
+.ct-switch-tile {
+  display: flex;
+  gap: 0.5625rem;
+  width: 100%;
+  padding: 0.5625rem 0.625rem;
+  border: 1px solid var(--ct-border);
+  border-radius: 7px;
+  background: var(--ct-surface);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
+}
+.ct-switch-tile:hover {
+  border-color: color-mix(in srgb, var(--ct-fg) 6%, var(--ct-border));
+}
+.ct-switch-tile[aria-checked="true"] {
+  border-color: color-mix(in srgb, var(--ct-accent) 34%, transparent);
+}
+.ct-switch-tile--dense {
+  align-items: center;
+  padding: 0.4375rem 0.5625rem;
+}
+.ct-switch-tile:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--ct-bg), 0 0 0 4px color-mix(in srgb, var(--ct-accent) 60%, transparent);
+}
+
+/* A level owns its own controls, so they sit inside its card rather than
+   beside it. */
+.ct-level-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.625rem 0.6875rem 0.6875rem;
+  border: 1px solid var(--ct-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--ct-surface) 86%, var(--ct-bg));
+}
+.ct-level-card__switches {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.4375rem;
+}
 
 .ct-liquid-segmented__option:focus-visible,
 .ct-liquid-tab-rail__tab:focus-visible,

@@ -21,7 +21,7 @@ import {
   preselectedAudience,
 } from "../../lib/pushChannels";
 import { DestinationPicker, type DestinationOption } from "./DestinationPicker";
-import { Toggle } from "./shared";
+import { SettingsSection, SwitchTile } from "./shared";
 
 /**
  * One destination, moved. Opening a channel is the whole of whether that level
@@ -61,20 +61,23 @@ export function reachesNothing(
 }
 
 /**
- * Where each level may go, and whether it chimes.
+ * What each level may interrupt, and whether it chimes.
  *
- * Rows come from the daemon's own closed level set, so a level added there
- * appears here without anyone editing a list. The system notification is a fixed
- * surface and keeps its toggle. The push side is not a fixed set — it is a
- * registry — so it is ONE control per level that names the channels that level
- * reaches, and a channel the registry gains widens that control instead of
- * adding a row to every level. Only a channel that can carry a message is
- * offered. A level that picks nothing is a configuration rather than an error:
- * it is kept in the panel and interrupts nowhere.
+ * A LEVEL IS A CARD, and its controls live inside that card: the pill and the
+ * one line of what the level means are its header, and everything that answers
+ * for the level sits under them rather than beside them. Cards come from the
+ * daemon's own closed level set, so a level added there appears here without
+ * anyone editing a list. The system notification is a fixed surface and keeps
+ * its switch. The push side is not a fixed set — it is a registry — so it is
+ * ONE control per level that names the channels that level reaches, and a
+ * channel the registry gains widens that control instead of adding a control to
+ * every level. Only a channel that can carry a message is offered. A level that
+ * picks nothing is a configuration rather than an error: it is kept in the
+ * panel and interrupts nowhere.
  *
- * The chime sits on the row rather than in the destination columns: it is not a
- * place a message goes, but it IS this level's own answer, and it reads the
- * effective answer so an unanswered row shows the chime it actually makes.
+ * The chime sits in the card rather than in the destination columns: it is not
+ * a place a message goes, but it IS this level's own answer, and it reads the
+ * effective answer so an unanswered level shows the chime it actually makes.
  */
 export function NotificationDestinations({
   config,
@@ -92,86 +95,97 @@ export function NotificationDestinations({
   const push = pushDestinations(columns);
 
   return (
-    <div className="flex flex-col gap-4" data-testid="settings-notification-destinations">
-      {levels.map((choice) => {
-        const label = levelLabel(choice.level);
-        const tone = levelTone(choice.level);
-        const meaning = levelMeaning(choice.level);
-        const options: DestinationOption[] = push.map((destination) => ({
-          id: destination.id,
-          label: destination.label,
-          name: destinationCellLabel(label, destination.label),
-          selected: isRouted(choice, destination.id),
-          onToggle: (selected) =>
-            onUpdate(
-              "notifications",
-              destinationCellUpdate(config, levels, choice.level, destination, selected),
-            ),
-        }));
-        return (
-          <div
-            key={choice.level}
-            role="group"
-            aria-label={label}
-            data-testid="settings-notification-level"
-            data-notification-level={choice.level}
-            className="flex flex-col gap-2.5"
-          >
-            <div className="flex items-center gap-2">
-              <span
-                aria-hidden="true"
-                className="inline-flex h-[15px] items-center rounded px-1.5 text-[9px] font-medium tracking-wide uppercase"
-                style={{
-                  color: tone,
-                  background: `color-mix(in srgb, ${tone} 14%, transparent)`,
-                }}
-              >
-                {label}
-              </span>
-              {meaning && <span className="text-[11px] text-[var(--ct-muted-fg)]">{meaning}</span>}
-              {reachesNothing(choice, columns) && (
-                <span className="text-[10px] text-[var(--ct-muted)]">panel only</span>
+    <SettingsSection title="What each level may interrupt">
+      <div
+        className="flex flex-col gap-2.5"
+        data-testid="settings-notification-destinations"
+      >
+        {levels.map((choice) => {
+          const label = levelLabel(choice.level);
+          const tone = levelTone(choice.level);
+          const meaning = levelMeaning(choice.level);
+          const options: DestinationOption[] = push.map((destination) => ({
+            id: destination.id,
+            label: destination.label,
+            name: destinationCellLabel(label, destination.label),
+            selected: isRouted(choice, destination.id),
+            onToggle: (selected) =>
+              onUpdate(
+                "notifications",
+                destinationCellUpdate(config, levels, choice.level, destination, selected),
+              ),
+          }));
+          return (
+            <div
+              key={choice.level}
+              role="group"
+              aria-label={label}
+              data-testid="settings-notification-level"
+              data-notification-level={choice.level}
+              className="ct-level-card"
+            >
+              <div className="flex items-baseline gap-2">
+                <span
+                  aria-hidden="true"
+                  className="inline-flex h-[15px] shrink-0 items-center rounded px-1.5 text-[9px] font-medium tracking-wide uppercase"
+                  style={{
+                    color: tone,
+                    background: `color-mix(in srgb, ${tone} 14%, transparent)`,
+                  }}
+                >
+                  {label}
+                </span>
+                {meaning && (
+                  <span className="min-w-0 text-[11px] text-[var(--ct-muted-fg)]">{meaning}</span>
+                )}
+                {reachesNothing(choice, columns) && (
+                  <span className="shrink-0 text-[10px] text-[var(--ct-muted)]">panel only</span>
+                )}
+              </div>
+              <div className="ct-level-card__switches">
+                {local.map((destination) => (
+                  <SwitchTile
+                    key={destination.id}
+                    dense
+                    label={destinationCellLabel(label, destination.label)}
+                    checked={isRouted(choice, destination.id)}
+                    onChange={(value) =>
+                      onUpdate(
+                        "notifications",
+                        destinationCellUpdate(config, levels, choice.level, destination, value),
+                      )
+                    }
+                  />
+                ))}
+                <SwitchTile
+                  dense
+                  label={destinationCellLabel(label, SOUND_CHOICE_LABEL)}
+                  checked={levelSounds(choice, choice.level)}
+                  onChange={(value) =>
+                    onUpdate("notifications", {
+                      agent_levels: setLevelSound(levels, choice.level, value),
+                    })
+                  }
+                />
+              </div>
+              {push.length > 0 && (
+                <DestinationPicker
+                  name={pushPickerLabel(label)}
+                  label={PUSH_DESTINATION_LABEL}
+                  summary={destinationSummary(push.filter((d) => isRouted(choice, d.id)))}
+                  options={options}
+                />
               )}
             </div>
-            {local.map((destination) => (
-              <Toggle
-                key={destination.id}
-                label={destinationCellLabel(label, destination.label)}
-                checked={isRouted(choice, destination.id)}
-                onChange={(value) =>
-                  onUpdate(
-                    "notifications",
-                    destinationCellUpdate(config, levels, choice.level, destination, value),
-                  )
-                }
-              />
-            ))}
-            <Toggle
-              label={destinationCellLabel(label, SOUND_CHOICE_LABEL)}
-              checked={levelSounds(choice, choice.level)}
-              onChange={(value) =>
-                onUpdate("notifications", {
-                  agent_levels: setLevelSound(levels, choice.level, value),
-                })
-              }
-            />
-            {push.length > 0 && (
-              <DestinationPicker
-                name={pushPickerLabel(label)}
-                label={PUSH_DESTINATION_LABEL}
-                summary={destinationSummary(push.filter((d) => isRouted(choice, d.id)))}
-                options={options}
-              />
-            )}
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
       <p className="text-[10px] text-[var(--ct-muted)] leading-relaxed">
         Every level is kept in the panel; these choose what else it reaches, and which of them
         chime. A message that names no level is kept too, and never reaches the system, any push
         channel, or the speakers — there is no fallback level and no way to widen this set from
         here. Notification sounds above mutes every chime at once without changing these answers.
       </p>
-    </div>
+    </SettingsSection>
   );
 }
