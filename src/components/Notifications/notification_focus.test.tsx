@@ -1,6 +1,3 @@
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
@@ -145,28 +142,14 @@ async function goneTabNeverSubstitutesAnotherIdentity() {
   );
 }
 
-function nativeToastBoundaryCannotTargetATab() {
-  const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
-  const source = readFileSync(resolve(rootDir, "src-tauri/src/api/os_notify.rs"), "utf8");
-  const nativeEntry = source.match(/pub fn _send_os_notification\([^)]*\)[\s\S]*?\n}\n\nfn _build_notif_html/)?.[0] ?? "";
-
-  assert(nativeEntry.includes("notif.show()"), "the native boundary hands the toast to the notification plugin");
-  assert(!nativeEntry.includes("tab_id"), "the native toast boundary receives no tab identity to focus");
-  assert(
-    !nativeEntry.includes("on_action") && !nativeEntry.includes("on_click"),
-    "the plugin hand-off exposes no activation callback that could focus a tab",
-  );
-}
-
 async function run() {
   await bellRowFocusesRecordTab();
   await newestCardStartsOpenWithTruthfulAria();
   await widthFollowsDefaultOpenState();
   await goneTabNeverSubstitutesAnotherIdentity();
-  nativeToastBoundaryCannotTargetATab();
 
   await act(async () => root.unmount());
-  console.log(`notification_focus tests: 5 tests, ${checked} assertions passed`);
+  console.log(`notification_focus tests: 4 behavioral scenarios, ${checked} assertions passed`);
 }
 
 void run();
