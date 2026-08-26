@@ -19,4 +19,11 @@ impl ServiceContext {
             desktop: DesktopPolicy::from_config(&notifications),
         }
     }
+
+    /// Whether the bell indicator is drawn at all. Not a routing policy — the
+    /// panel keeps every record either way — but it is the difference between a
+    /// record a user is shown and one they must go looking for.
+    pub(crate) fn bell_visible(&self) -> bool {
+        crate::config::load_config().notifications.show_bell
+    }
 }
