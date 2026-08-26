@@ -5183,7 +5183,7 @@
         },
         {
           "name": "send",
-          "about": "Send a notification. The body is read only from the calling tab's AgentPad",
+          "about": "Send a notification. The body is read only from the calling tab's AgentPad. Reports when no surface will show it",
           "aliases": [],
           "args": [
             {

@@ -1185,7 +1185,7 @@ List notifications
 
 #### `codeterm notify send`
 
-Send a notification. The body is read only from the calling tab's AgentPad
+Send a notification. The body is read only from the calling tab's AgentPad. Reports when no surface will show it
 
 - `<body>` — REFUSED: an inline body is mangled by the shell — stage it in the pad
 - `--choice` — Offer one tappable choice; repeat for each. Labels only — a notification takes a chosen label back, never typed text
