@@ -302,7 +302,7 @@ async fn route_text_outbound(
             .map(|s| s.sent_at.elapsed().as_secs() < AUTO_EDIT_WINDOW_SECS)
             .unwrap_or(false);
 
-    let sanitized = super::sanitize::sanitize_html_for_telegram(&final_text);
+    let sanitized = super::markdown::markdown_to_sanitized_html(&final_text);
 
     if can_edit && sanitized.len() <= super::telegram::TELEGRAM_MAX_LEN {
         let msg_id = chat_states[&chat_id].message_id;
@@ -362,7 +362,7 @@ async fn rewrite_message(
     text: &str,
     buttons: Option<&InlineKeyboard>,
 ) -> bool {
-    let sanitized = super::sanitize::sanitize_html_for_telegram(text);
+    let sanitized = super::markdown::markdown_to_sanitized_html(text);
     let markup = serde_json::json!({
         "inline_keyboard": buttons.cloned().unwrap_or_default(),
     });
@@ -560,7 +560,7 @@ async fn send_media(
         OutboundContent::Sticker { file } => ("sendSticker", file.as_str(), None, None),
         OutboundContent::Text { .. } => return Err("send_media called with Text content".into()),
     };
-    let sanitized_caption = raw_caption.map(super::sanitize::sanitize_html_for_telegram);
+    let sanitized_caption = raw_caption.map(super::markdown::markdown_to_sanitized_html);
     let caption = sanitized_caption.as_deref();
 
     let file_bytes = tokio::fs::read(file_path)
