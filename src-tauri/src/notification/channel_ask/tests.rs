@@ -198,7 +198,6 @@ fn channel_ask_options_ride_the_channel_and_the_tapped_label_returns_to_the_aski
     assert_eq!(plan.targets.len(), 1, "exactly the opted-in channel routed");
     let envelope = PushEnvelope {
         level: NotifyLevel::ActionNeeded,
-        notification_id: id.clone(),
         message: message.clone(),
     };
     deliver_plan(&plan.targets, &plan.refusals, &host, &envelope)
