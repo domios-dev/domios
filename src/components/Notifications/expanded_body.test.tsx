@@ -5,6 +5,12 @@
 // given more room by the panel it lives in. Every assertion reads the style the
 // element actually renders, never a class name, so a rename cannot silently
 // retire the guarantee.
+//
+// The width is read as a plain length. happy-dom's value parser drops a
+// declaration it cannot represent rather than storing it verbatim, so a nested
+// `calc()` inside `min()` would leave `width` unreadable here and the assertion
+// unfalsifiable. `readableWidth` asserts the environment can see the value
+// before anything compares two of them.
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
@@ -71,10 +77,22 @@ function declarations(element: Element): Map<string, string> {
   return map;
 }
 
-/** The largest pixel length a CSS length expression names. */
-function widestPx(value: string): number {
-  const found = value.match(/(\d+(?:\.\d+)?)px/g) ?? [];
-  return found.reduce((widest, raw) => Math.max(widest, Number.parseFloat(raw)), 0);
+/** The panel's own width, in px, refusing a value this environment cannot read.
+ *  A silently dropped declaration would otherwise read as "no widening". */
+function readableWidth(panel: HTMLElement): number {
+  const declared = declarations(panel).get("width") ?? "";
+  const px = declared.match(/^(\d+(?:\.\d+)?)px$/);
+  if (!px) {
+    throw new Error(
+      `the panel must declare a width this environment can read, got "${declared}"`,
+    );
+  }
+  return Number.parseFloat(px[1]);
+}
+
+/** The panel's own report of whether anything is open. */
+function openState(panel: HTMLElement): string | null {
+  return panel.getAttribute("data-expanded");
 }
 
 function toggle(panel: HTMLElement): HTMLElement {
@@ -92,8 +110,8 @@ function bodyRegion(panel: HTMLElement): HTMLElement | null {
 async function run() {
   const panel = await render();
 
-  const collapsed = declarations(panel).get("width") ?? "";
-  assert(collapsed !== "", "the panel renders its own width, so a widening is observable");
+  const collapsed = readableWidth(panel);
+  assert(openState(panel) === "false", "nothing is open before anything is expanded");
   assert(bodyRegion(panel) === null, "a collapsed card renders no body region");
 
   await act(async () => toggle(panel).click());
@@ -144,19 +162,20 @@ async function run() {
     "focus leaves the scroll region freely — it never traps",
   );
 
-  // ROOM: the panel is what widens, and only while something is open.
-  const expanded = declarations(panel).get("width") ?? "";
+  // ROOM: the panel is what widens, and the width is DERIVED from the open
+  // state — so both are asserted, and asserted as moving together.
+  const expanded = readableWidth(panel);
+  assert(openState(panel) === "true", "the panel reports that something is open");
   assert(
-    widestPx(expanded) > widestPx(collapsed),
-    `an expanded card widens the panel it lives in, got ${collapsed} then ${expanded}`,
+    expanded > collapsed,
+    `an expanded card widens the panel it lives in, got ${collapsed}px then ${expanded}px`,
   );
-  assert(panel.getAttribute("data-expanded") === "true", "the panel reports something is open");
 
   await act(async () => toggle(panel).click());
+  assert(openState(panel) === "false", "closing the card returns the panel to closed");
   assert(
-    (declarations(panel).get("width") ?? "") === collapsed &&
-      panel.getAttribute("data-expanded") === "false",
-    "collapsing returns the panel to its resting width",
+    readableWidth(panel) === collapsed,
+    "the width follows the open state back down — it is derived from it, not latched",
   );
 
   await act(async () => root.unmount());
