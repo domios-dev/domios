@@ -110,20 +110,62 @@ fn toast_can_deliver(permission: PermissionState, channel_open: bool) -> bool {
     channel_open && permission == PermissionState::Granted
 }
 
-/// The platform half only. Windows silently discards a toast from a binary run
-/// out of `target/`, because the plugin declines to set an AppUserModelID there.
+/// The platform half only: Windows discards a toast that carries no
+/// AppUserModelID, and every toast at all while the user's master switch is off.
 fn platform_toast_channel_open() -> bool {
     #[cfg(windows)]
     {
-        match tauri::utils::platform::current_exe() {
+        let addressed = match tauri::utils::platform::current_exe() {
             Ok(exe) => windows_toast_reaches_the_shell(exe.parent()),
             Err(_) => false,
-        }
+        };
+        addressed && shell_presents_toasts(read_user_toast_switch())
     }
     #[cfg(not(windows))]
     {
         true
     }
+}
+
+/// The shell's own switch, read as a value instead of inferred from a send that
+/// cannot fail. An absent entry is the factory state; only an explicit 0 discards.
+#[cfg(any(windows, test))]
+fn shell_presents_toasts(user_toast_switch: Option<u32>) -> bool {
+    user_toast_switch != Some(0)
+}
+
+/// Where Windows records the master Notifications switch. With it off the shell
+/// accepts every toast and presents none, and no send Result ever says so.
+#[cfg(windows)]
+fn read_user_toast_switch() -> Option<u32> {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Foundation::ERROR_SUCCESS;
+    use windows_sys::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
+
+    fn wide(text: &str) -> Vec<u16> {
+        OsStr::new(text)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect()
+    }
+
+    let subkey = wide(r"SOFTWARE\Microsoft\Windows\CurrentVersion\PushNotifications");
+    let value = wide("ToastEnabled");
+    let mut switch: u32 = 0;
+    let mut size = std::mem::size_of::<u32>() as u32;
+    let status = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            subkey.as_ptr(),
+            value.as_ptr(),
+            RRF_RT_REG_DWORD,
+            std::ptr::null_mut(),
+            std::ptr::addr_of_mut!(switch).cast(),
+            &mut size,
+        )
+    };
+    (status == ERROR_SUCCESS).then_some(switch)
 }
 
 fn native_toast_can_deliver() -> bool {
@@ -151,8 +193,8 @@ enum ToastRoute {
     FallbackWindow,
 }
 
-/// The whole send decision. A closed gate is never sent through, and a send that
-/// failed is not a delivery — both answer `FallbackWindow` rather than success.
+/// The whole send decision. A desktop send answers `Ok` on hand-off and never on
+/// arrival, so delivery rests on the gate; a real failure still routes to fallback.
 fn route_toast<E>(can_deliver: bool, send: impl FnOnce() -> Result<(), E>) -> ToastRoute {
     if can_deliver && send().is_ok() {
         return ToastRoute::Native;
@@ -197,6 +239,9 @@ mod delivery_tests {
 
 #[cfg(test)]
 mod notify_permission_tests;
+
+#[cfg(test)]
+mod toast_delivery_tests;
 
 /// Single notification popup via system notification API.
 /// Uses tauri-plugin-notification on all platforms — clicking focuses the app.
