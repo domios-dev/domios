@@ -82,7 +82,9 @@ test("notification_markdown bell panel renders the shared markdown result", asyn
     button.getAttribute("aria-label")?.includes("complete message"),
   );
   assert(toggle, "the complete-message control must exist");
-  await act(async () => toggle.click());
+  if (toggle.getAttribute("aria-expanded") !== "true") {
+    await act(async () => toggle.click());
+  }
   const body = host.querySelector('[data-testid="notification-expanded-body"]');
   assert(body, "the expanded bell body must exist");
   assertFormatted(body, "bell panel");
