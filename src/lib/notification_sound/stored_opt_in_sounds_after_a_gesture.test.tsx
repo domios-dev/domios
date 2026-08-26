@@ -38,18 +38,25 @@ async function main() {
   await stored.done();
 
   // 2. The fixture is faithful, so the defect is observable: with NO gesture the
-  //    same arrival is silent, because a context opened inside a daemon event
-  //    starts suspended. This is the browser's rule, and it is why case 1 is a
-  //    real claim rather than a stub agreeing with a stub.
+  //    same arrival is silent, because only a gesture can start a context that
+  //    makes a sound. This is the browser's rule, and it is why case 1 is a real
+  //    claim rather than a stub agreeing with a stub.
+  //
+  //    That it is silence from the missing gesture, and not the arrival being
+  //    filtered out on its way to the player, is shown by giving that same
+  //    arrival a gesture: it is heard. (Opening a context here instead was the
+  //    OTHER defect — see level_sound/an_early_arrival_does_not_poison_the_chime.)
   const ungestured = await mountStoredSound(ENABLED);
   await ungestured.arrive(STOPPED);
   check(
     ungestured.recorder.notes.length === 0,
-    "without a gesture the context is suspended and nothing is heard",
+    "without a gesture nothing is heard",
   );
+  await ungestured.gesture();
+  await ungestured.arrive(STOPPED);
   check(
-    ungestured.recorder.created > 0,
-    "and it is silence from suspension, not from never reaching the player",
+    ungestured.recorder.notes.length > 0,
+    "and the same arrival after a gesture is heard, so it was reaching the player all along",
   );
   await ungestured.done();
 

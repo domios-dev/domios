@@ -160,9 +160,10 @@ async function theLocalSurfacesKeepTheirOwnTogglesAndFields() {
       />,
     );
     const scope = levelRow(view.host, LEVEL);
+    // The chime is a switch on the row too, and is not one of the destinations.
     assert(
-      switches(scope).length === LOCAL_DESTINATIONS.length,
-      `each local surface keeps its own switch, got ${switches(scope).length}`,
+      switches(scope).length === LOCAL_DESTINATIONS.length + 1,
+      `each local surface keeps its own switch beside the chime, got ${switches(scope).length}`,
     );
     const control = named(scope, destinationCellLabel(levelLabel(LEVEL), surface.label));
     assert(

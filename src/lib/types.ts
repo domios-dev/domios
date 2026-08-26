@@ -509,9 +509,9 @@ export interface TerminalConfigSettings {
 
 export interface NotificationConfig {
   desktop: boolean;
-  /** Whether a bell arrival that says the agent stopped also makes a sound.
-   *  Presentation like `show_bell`, never a destination: it carries no record
-   *  and cannot widen where a level goes, so it is not a column of the grid. */
+  /** The chime's master mute. Which levels chime is each level's own answer on
+   *  its row; this silences all of them at once without destroying those
+   *  answers, and is the gesture the browser's audio permission hangs off. */
   sound: boolean;
   toast_duration: number;
   /** Whether the bell surface is drawn at all. Presentation, not routing: off
@@ -526,18 +526,22 @@ export interface NotificationConfig {
   agent_levels: AgentLevelChoice[];
 }
 
-/** One row of the levels-by-destinations grid: where this level may go BEYOND
- *  the panel, which keeps every record unconditionally. The two local fields are
- *  named; every other key is a push channel's service id, flattened into the
+/** One row of the levels grid: where this level may go BEYOND the panel, which
+ *  keeps every record unconditionally, and whether it chimes. The named fields
+ *  are named; every other key is a push channel's service id, flattened into the
  *  row. `bell` is retained and inert — nothing routes on it, and it stays a
- *  named field so the flattened map never reads it back as a channel. An absent
- *  channel key reads as closed, which is how a channel the registry gains
- *  arrives off. Every column off is a legitimate answer: that level is kept in
- *  the panel and interrupts nowhere, and every column starts there. */
+ *  named field so the flattened map never reads it back as a channel. `sound` is
+ *  named for the same reason and is not inert: it is this level's own chime
+ *  answer, and `undefined` is unanswered rather than off, so a row written
+ *  before the field keeps the chime it had. An absent channel key reads as
+ *  closed, which is how a channel the registry gains arrives off. Every column
+ *  off is a legitimate answer: that level is kept in the panel and interrupts
+ *  nowhere, and every column starts there. */
 export interface AgentLevelChoice {
   level: string;
   bell: boolean;
   desktop: boolean;
+  sound?: boolean;
   [channel: string]: string | boolean | undefined;
 }
 
