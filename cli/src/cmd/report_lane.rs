@@ -97,6 +97,7 @@ fn nonempty(value: Option<&Value>) -> Option<String> {
 mod tests {
     use super::*;
     use crate::args::agent::ReportStatusArg;
+    use crate::cmd::report_attribution::ReportBase;
     use serde_json::json;
     use std::fs;
     use std::path::Path;
@@ -314,7 +315,7 @@ mod tests {
             Some(ReportStatusArg::InReview),
             None,
             Some(owned_sha.clone()),
-            None,
+            ReportBase::default(),
             None,
             false,
         )
@@ -338,7 +339,7 @@ mod tests {
             Some(ReportStatusArg::InReview),
             None,
             Some(owned_sha),
-            None,
+            ReportBase::default(),
             None,
             false,
         )
@@ -362,7 +363,7 @@ mod tests {
             Some(ReportStatusArg::InReview),
             None,
             Some(owned_sha),
-            None,
+            ReportBase::default(),
             None,
             false,
         )
@@ -386,7 +387,7 @@ mod tests {
             Some(ReportStatusArg::InReview),
             None,
             Some(owned_sha.clone()),
-            Some(base),
+            ReportBase::classify(Some(base), None),
             None,
             false,
         )
