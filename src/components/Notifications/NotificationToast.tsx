@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { createPortal } from "react-dom";
+import { RichMarkdown } from "@codeterm/chat-ui";
 import { runNotificationAction } from "../../lib/notificationActions";
 import type { Notification, NotificationAction } from "../../lib/types";
 import { Check, X } from "lucide-react";
@@ -79,7 +80,11 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate, embedded }
         <span className="truncate font-medium text-[var(--ct-fg)]">
           {notification.title}
         </span>
-        {notification.body && <span className="min-w-0 truncate text-[var(--ct-muted-fg)]">{notification.body}</span>}
+        {notification.body && (
+          <div className="min-w-0 truncate text-[var(--ct-muted-fg)] [&_p]:m-0 [&_p]:inline">
+            <RichMarkdown text={notification.body} />
+          </div>
+        )}
       </div>
       {hasActions && (
         <div className="flex shrink-0 gap-1">
@@ -145,8 +150,8 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate, embedded }
               <div className="min-w-0 flex-1">
                 <div className="font-medium text-[var(--ct-fg)]">{notification.title}</div>
                 {notification.body && (
-                  <div className="mt-2 max-h-[min(420px,60vh)] overflow-y-auto whitespace-pre-wrap break-words text-[12px] leading-5 text-[var(--ct-muted-fg)]">
-                    {notification.body}
+                  <div className="mt-2 max-h-[min(420px,60vh)] overflow-y-auto break-words text-[12px] leading-5 text-[var(--ct-muted-fg)]">
+                    <RichMarkdown text={notification.body} />
                   </div>
                 )}
                 <div className="mt-3 flex flex-wrap gap-1.5">
