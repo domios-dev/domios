@@ -4,8 +4,9 @@ use super::plan_refs;
 use super::{get_string_param, JsonRpcError};
 use crate::plan::{OrchestratorRef, PlanStatus, PlannerRef};
 use crate::service::plan::adopt::AdoptPlanExt;
-use crate::service::plan::batch::BatchRequest;
-use crate::service::plan::{hints, PlanError};
+use crate::service::plan::batch::{BatchRequest, BatchResult};
+use crate::service::plan::{hints, PlanError, PlanStore};
+use crate::service::plan_batch_authority::{apply_batch_from_socket, BatchWriteError};
 use crate::service::{ServiceState, TeamPlanCreationError};
 use serde_json::{json, Value};
 use tauri::AppHandle;
@@ -17,6 +18,48 @@ pub(super) fn plan_rpc_err(e: PlanError) -> JsonRpcError {
         data: Some(data),
     }
 }
+
+fn batch_write_rpc_err(error: BatchWriteError) -> JsonRpcError {
+    match error {
+        BatchWriteError::Plan(e) => plan_rpc_err(e),
+        BatchWriteError::Refused(refusal) => JsonRpcError {
+            code: -32003,
+            data: Some(refusal.to_json()),
+            message: refusal.message,
+        },
+    }
+}
+
+/// The `plan.batch` verb's whole write: parse the ops, cross the authority
+/// boundary, apply. The dispatch arm adds only plan resolution and the event.
+pub(crate) fn apply_batch_rpc(
+    store: &PlanStore,
+    plan_id: &str,
+    body: &Value,
+    now_ms: u64,
+) -> Result<BatchResult, JsonRpcError> {
+    let request = BatchRequest {
+        key: body.get("key").and_then(|v| v.as_str()).map(str::to_string),
+        ops: body
+            .get("ops")
+            .cloned()
+            .ok_or(JsonRpcError {
+                code: -32602,
+                message: "Missing required parameter: ops".to_string(),
+                data: None,
+            })
+            .and_then(|v| {
+                serde_json::from_value(v).map_err(|e| JsonRpcError {
+                    code: -32602,
+                    message: format!("invalid batch ops: {e}"),
+                    data: None,
+                })
+            })?,
+    };
+    apply_batch_from_socket(store, plan_id, Some(body), request, now_ms)
+        .map_err(batch_write_rpc_err)
+}
+
 pub(super) fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
     crate::api::events::emit_everywhere(app, "plan-changed", json!({ "plan_id": plan_id }));
 }
@@ -91,25 +134,7 @@ pub(super) fn dispatch(
                 message: "params required".to_string(),
                 data: None,
             })?;
-            let request = BatchRequest {
-                key: body.get("key").and_then(|v| v.as_str()).map(str::to_string),
-                ops: body
-                    .get("ops")
-                    .cloned()
-                    .ok_or(JsonRpcError {
-                        code: -32602,
-                        message: "Missing required parameter: ops".to_string(),
-                        data: None,
-                    })
-                    .and_then(|v| {
-                        serde_json::from_value(v).map_err(|e| JsonRpcError {
-                            code: -32602,
-                            message: format!("invalid batch ops: {e}"),
-                            data: None,
-                        })
-                    })?,
-            };
-            let result = store.apply_batch(&id, request, now).map_err(plan_rpc_err)?;
+            let result = apply_batch_rpc(store, &id, body, now)?;
             emit_plan_changed(app, &id);
             serde_json::to_value(result).map_err(|e| JsonRpcError {
                 code: -32603,

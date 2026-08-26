@@ -293,6 +293,7 @@ fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
         args: None,
         cwd: None,
         provisioned_cwd: None,
+        lane_setup_command: None,
         title: None,
         title_provenance: None,
         description: None,

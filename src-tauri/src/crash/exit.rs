@@ -49,7 +49,10 @@ pub fn persist_state(app: &tauri::AppHandle) {
     {
         let snapshot = mux.write().to_session_snapshot();
         match session.lock().save(&snapshot) {
-            Ok(_) => log::info!("[shutdown] session snapshot saved"),
+            Ok(outcome) => {
+                log::info!("[shutdown] session snapshot saved");
+                crate::session::scrollback_sync::sync_scrollback_sidecars_after_save(app, &outcome);
+            }
             Err(e) => log::error!("[shutdown] session save failed: {}", e),
         }
     }
@@ -79,8 +82,9 @@ pub fn declare_clean_exit(app: &tauri::AppHandle) {
     crate::webview2_reap::clear_journal_for_exit();
 }
 
-/// Full graceful exit for routes that already know the quit is genuine
-/// (tray Quit, caught SIGTERM/SIGINT, updater teardown).
+/// Signal-driven graceful exit. Tray Quit and the macOS terminate hook reach
+/// `handle_run_exit` instead, so only the unix signal handlers need this.
+#[cfg(unix)]
 pub fn graceful_exit_cleanup(app: &tauri::AppHandle) {
     declare_clean_exit(app);
     persist_state(app);

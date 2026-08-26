@@ -70,6 +70,9 @@ export function toggleWorkspacesSectionExpanded(expanded: boolean): boolean {
   return !expanded;
 }
 
+/** Stable target for the collapse handle's aria-controls — the sidebar is a singleton region. */
+export const SIDEBAR_REGION_ID = "codeterm-sidebar";
+
 interface SidebarProps {
   onCollapse?: () => void;
   onOpenMemory?: () => void;
@@ -192,7 +195,8 @@ export function Sidebar({
         workspace_id: workspaceId,
         title: "Orchestration pair failed",
         body: e instanceof Error ? e.message : String(e),
-        level: "Error",
+        severity: "Error",
+        level: "failure",
         sticky: true,
       });
     });
@@ -530,6 +534,8 @@ export function Sidebar({
         >
         <aside
           ref={sidebarRef}
+          id={SIDEBAR_REGION_ID}
+          aria-label="Sidebar"
           data-testid="sidebar"
           data-touch-mode={touchMode ? "true" : "false"}
           className="shrink-0 h-full min-h-0 bg-[var(--ct-sidebar-bg)] border-r border-[var(--ct-border)] flex flex-col select-none overflow-x-hidden overflow-y-hidden relative"
@@ -786,9 +792,14 @@ export function Sidebar({
                 />
               );
             })()}
-            <div className={`sidebar-footer ${isCompact ? "px-1 py-2 flex flex-col items-center" : "flex flex-col"}`}>
+            <div
+              role="navigation"
+              aria-label="Sidebar views"
+              className={`sidebar-footer ${isCompact ? "px-1 py-2 flex flex-col items-center" : "flex flex-col"}`}
+            >
               <button
                 data-testid="nav-extensions"
+                aria-current={mainView === "extensions" ? "page" : undefined}
                 onClick={onOpenExtensions}
                 className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 w-full px-2 ${touchMode ? "min-h-[44px] py-2.5" : "py-1.5"}`} rounded-md transition-colors ${
                   mainView === "extensions"
@@ -802,6 +813,7 @@ export function Sidebar({
               </button>
               <button
                 data-testid="nav-memory"
+                aria-current={mainView === "memory" ? "page" : undefined}
                 onClick={onOpenMemory}
                 className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 w-full px-2 ${touchMode ? "min-h-[44px] py-2.5" : "py-1.5"}`} rounded-md transition-colors ${
                   mainView === "memory"
@@ -824,6 +836,7 @@ export function Sidebar({
               <div className={`flex items-center ${isCompact ? "justify-center" : "gap-1 w-full"}`}>
                 <button
                   data-testid="nav-mesh"
+                  aria-current={mainView === "mesh" ? "page" : undefined}
                   onClick={onOpenMesh}
                   className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 flex-1 min-w-0 px-2 ${touchMode ? "min-h-[44px] py-2.5" : "py-1.5"}`} rounded-md transition-colors ${
                     mainView === "mesh"
@@ -861,6 +874,8 @@ export function Sidebar({
       </aside>
       <button
         type="button"
+        aria-controls={SIDEBAR_REGION_ID}
+        aria-expanded={!isSidebarCollapsed}
         onMouseDown={handleSidebarDragStart}
         onClick={handleSidebarGrabClick}
         className={`absolute top-1/2 z-20 flex -translate-y-1/2 cursor-col-resize items-center justify-center rounded-r !border border-l-0 !border-[var(--ct-border)] bg-[color-mix(in_srgb,var(--ct-surface)_78%,transparent)] text-[var(--ct-muted-fg)] shadow-sm transition-colors hover:border-[var(--ct-accent)] hover:bg-[var(--ct-surface)] hover:text-[var(--ct-fg)] max-sm:hidden ${isSidebarCollapsed ? "left-0 h-8 w-2.5" : "left-[100%] -ml-[2px] h-9 w-3"}`}

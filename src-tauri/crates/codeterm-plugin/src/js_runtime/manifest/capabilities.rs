@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::provider::ContextOwner;
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ChatPreprocessorCap {
     pub enabled: bool,
@@ -75,6 +77,9 @@ pub struct ChatBackendCap {
     /// The backend accepts host-composed instructions in the `openSession`
     /// systemPrompt context.
     pub session_config: bool,
+    /// Who composes the context this backend sends. Absent ⇒ `Plugin`, today's
+    /// exact behaviour; an unrecognized string fails the parse.
+    pub context_owner: ContextOwner,
 }
 
 impl ChatBackendCap {
@@ -92,6 +97,10 @@ impl ChatBackendCap {
 
     pub fn session_config(&self) -> bool {
         self.session_config
+    }
+
+    pub fn context_owner(&self) -> ContextOwner {
+        self.context_owner
     }
 }
 
@@ -111,6 +120,8 @@ impl<'de> Deserialize<'de> for ChatBackendCap {
                 watcher: bool,
                 #[serde(default, rename = "sessionConfig")]
                 session_config: bool,
+                #[serde(default, rename = "contextOwner")]
+                context_owner: Option<String>,
             },
         }
         Ok(match Raw::deserialize(d)? {
@@ -119,17 +130,34 @@ impl<'de> Deserialize<'de> for ChatBackendCap {
                 spawnable: false,
                 watcher: false,
                 session_config: false,
+                context_owner: ContextOwner::default(),
             },
             Raw::Obj {
                 spawnable,
                 watcher,
                 session_config,
-            } => Self {
-                enabled: true,
-                spawnable,
-                watcher,
-                session_config,
-            },
+                context_owner,
+            } => {
+                let context_owner = match context_owner {
+                    None => ContextOwner::default(),
+                    Some(declared) => match ContextOwner::parse(&declared) {
+                        Some(owner) => owner,
+                        // A typo resolving to `plugin` would reinstate an unverifiable promise.
+                        None => {
+                            return Err(serde::de::Error::custom(format!(
+                                "unknown chatBackend contextOwner '{declared}': expected \"plugin\" or \"host\""
+                            )))
+                        }
+                    },
+                };
+                Self {
+                    enabled: true,
+                    spawnable,
+                    watcher,
+                    session_config,
+                    context_owner,
+                }
+            }
         })
     }
 }
@@ -141,11 +169,14 @@ impl Serialize for ChatBackendCap {
     where
         S: serde::Serializer,
     {
-        if self.enabled && (self.spawnable || self.watcher || self.session_config) {
+        let host_context = !self.context_owner.is_plugin();
+        let declares = self.spawnable || self.watcher || self.session_config || host_context;
+        if self.enabled && declares {
             use serde::ser::SerializeMap;
             let len = (if self.spawnable { 1 } else { 0 })
                 + (if self.watcher { 1 } else { 0 })
-                + (if self.session_config { 1 } else { 0 });
+                + (if self.session_config { 1 } else { 0 })
+                + (if host_context { 1 } else { 0 });
             let mut m = s.serialize_map(Some(len))?;
             if self.spawnable {
                 m.serialize_entry("spawnable", &true)?;
@@ -155,6 +186,9 @@ impl Serialize for ChatBackendCap {
             }
             if self.session_config {
                 m.serialize_entry("sessionConfig", &true)?;
+            }
+            if host_context {
+                m.serialize_entry("contextOwner", &self.context_owner)?;
             }
             m.end()
         } else {

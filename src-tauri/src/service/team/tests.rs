@@ -113,7 +113,7 @@ fn multiple_orchestrators_keep_team_membership_and_spawner_routing_separate() {
     let prepared = prepare_team_member_spawn(
         &mux,
         &team_id,
-        &first_orchestrator,
+        Some(&first_orchestrator),
         AddTeamMemberParams {
             provider: "spawn-capable".into(),
             role: "orchestrator".into(),
@@ -143,7 +143,7 @@ fn multiple_orchestrators_keep_team_membership_and_spawner_routing_separate() {
         &mut mux,
         &events,
         &team_id,
-        &first_orchestrator,
+        Some(&first_orchestrator),
         &second_orchestrator,
         &prepared.expected_role,
         &prepared.expected_profile,
@@ -838,6 +838,63 @@ fn spawn_fixture_member(
 }
 
 #[test]
+fn bootstrap_add_places_an_anchoring_manager_with_no_caller() {
+    let (mux, team_id, _manager, _planner, _worker) = team_members();
+    let prepared = prepare_team_member_spawn(
+        &mux,
+        &team_id,
+        None,
+        AddTeamMemberParams {
+            provider: "claude".into(),
+            role: "orchestrator".into(),
+            title: None,
+            task: None,
+            model: None,
+        },
+    )
+    .expect("an orchestrator anchors, so it needs no caller to parent it");
+    let params = prepared.spawn_params;
+    assert_eq!(
+        params.parent_tab_id, None,
+        "an anchoring role takes no parent"
+    );
+    assert_eq!(
+        params.report_target_tab_id, None,
+        "there is no caller to report to"
+    );
+    assert_eq!(
+        params.workspace_id.as_deref(),
+        mux.get_team(&team_id)
+            .map(|team| team.workspace_id.as_str()),
+        "the workspace comes from the Team when no caller supplies one"
+    );
+}
+
+#[test]
+fn bootstrap_add_refuses_a_role_that_needs_a_parent() {
+    let (mux, team_id, _manager, _planner, _worker) = team_members();
+    for role in ["worker", "planner"] {
+        let error = prepare_team_member_spawn(
+            &mux,
+            &team_id,
+            None,
+            AddTeamMemberParams {
+                provider: "claude".into(),
+                role: role.into(),
+                title: None,
+                task: None,
+                model: None,
+            },
+        )
+        .expect_err("a parented role cannot be placed without a spawning member");
+        assert!(
+            error.contains("needs a Team member that can spawn"),
+            "the refusal must name what is missing, got: {error}"
+        );
+    }
+}
+
+#[test]
 fn add_team_member_uses_existing_manager_and_team() {
     let (mut mux, team_id, manager, _, _) = team_members();
     let workspace_id = mux.find_workspace_for_tab(&manager).unwrap();
@@ -845,7 +902,7 @@ fn add_team_member_uses_existing_manager_and_team() {
     let prepared = prepare_team_member_spawn(
         &mux,
         &team_id,
-        &manager,
+        Some(&manager),
         AddTeamMemberParams {
             provider: "spawn-capable".into(),
             role: "worker".into(),
@@ -861,7 +918,7 @@ fn add_team_member_uses_existing_manager_and_team() {
         &mut mux,
         &events,
         &team_id,
-        &manager,
+        Some(&manager),
         &tab_id,
         &prepared.expected_role,
         &prepared.expected_profile,
@@ -885,7 +942,7 @@ fn manual_team_worker_has_system_identity_and_no_starter_turn() {
     let prepared = prepare_team_member_spawn(
         &mux,
         &team_id,
-        &manager,
+        Some(&manager),
         AddTeamMemberParams {
             provider: "spawn-capable".into(),
             role: "worker".into(),
@@ -937,7 +994,7 @@ fn new_explicit_task_worker_gets_exactly_one_assigned_starter() {
     let prepared = prepare_team_member_spawn(
         &mux,
         &team_id,
-        &manager,
+        Some(&manager),
         AddTeamMemberParams {
             provider: "spawn-capable".into(),
             role: "worker".into(),
@@ -970,7 +1027,7 @@ fn whitespace_team_task_is_normalized_to_manual_creation() {
     let prepared = prepare_team_member_spawn(
         &mux,
         &team_id,
-        &manager,
+        Some(&manager),
         AddTeamMemberParams {
             provider: "spawn-capable".into(),
             role: "worker".into(),
@@ -995,7 +1052,7 @@ fn add_team_member_sets_exact_planner_role_and_emits_one_state_change() {
     let prepared = prepare_team_member_spawn(
         &mux,
         &team_id,
-        &manager,
+        Some(&manager),
         AddTeamMemberParams {
             provider: "spawn-capable".into(),
             role: "planner".into(),
@@ -1018,7 +1075,7 @@ fn add_team_member_sets_exact_planner_role_and_emits_one_state_change() {
         &mut mux,
         &events,
         &team_id,
-        &manager,
+        Some(&manager),
         &tab_id,
         &prepared.expected_role,
         &prepared.expected_profile,
@@ -1051,7 +1108,7 @@ fn add_team_member_rejects_worker_foreign_and_unspawnable_without_mutation() {
         assert!(prepare_team_member_spawn_with_provider_validation(
             &mux,
             &team_id,
-            caller,
+            Some(caller),
             AddTeamMemberParams {
                 provider: "unknown-provider".into(),
                 role: "worker".into(),
@@ -1067,7 +1124,7 @@ fn add_team_member_rejects_worker_foreign_and_unspawnable_without_mutation() {
         let error = prepare_team_member_spawn_with_provider_validation(
             &mux,
             &team_id,
-            &manager,
+            Some(&manager),
             AddTeamMemberParams {
                 provider: provider.into(),
                 role: "worker".into(),
@@ -1088,7 +1145,7 @@ fn add_team_member_rejects_worker_foreign_and_unspawnable_without_mutation() {
     let expected = prepare_team_member_spawn_with_provider_validation(
         &mux,
         &team_id,
-        &manager,
+        Some(&manager),
         AddTeamMemberParams {
             provider: "spawn-capable".into(),
             role: "worker".into(),
@@ -1107,7 +1164,7 @@ fn add_team_member_rejects_worker_foreign_and_unspawnable_without_mutation() {
         &mut mux,
         &events,
         &team_id,
-        &manager,
+        Some(&manager),
         &tab_id,
         &expected.expected_role,
         &expected.expected_profile

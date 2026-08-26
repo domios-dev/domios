@@ -1,0 +1,221 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: "Inter", "Segoe UI", "Avenir Next", sans-serif; background: #0d1117; }
+    a { color: #58a6ff; } a:hover { color: #79c0ff; }
+    * { box-sizing: border-box; }
+    button { font-family: inherit; cursor: pointer; }
+    .ct-notif-list::-webkit-scrollbar { width: 10px; }
+    .ct-notif-list::-webkit-scrollbar-track { background: transparent; }
+    .ct-notif-list::-webkit-scrollbar-thumb { border: 3px solid transparent; border-radius: 999px; background-clip: content-box; background-color: #232930; }
+    .ct-notif-list:hover::-webkit-scrollbar-thumb { background-color: color-mix(in srgb, #232930 70%, #c9d1d9 30%); }
+  </style>
+</helmet>
+
+<div style="padding: 24px; display: flex; flex-direction: column; gap: 10px">
+
+  <div style="display: flex; flex-direction: column; gap: 3px; margin-bottom: 2px">
+    <div style="font-size: 11px; font-weight: 500; color: #c9d1d9">Notification panel</div>
+    <div style="font-size: 11px; color: #828a92; line-height: 1.45">Show detail expands a long body. Answering routes the choice back to the tab that asked. The list scrolls at 520px; the header and the count stay put.</div>
+  </div>
+
+  <div style="width: 360px; max-height: 520px; display: flex; flex-direction: column; overflow: hidden; border-radius: 8px; border: 1px solid #232930; background: #141b24; box-shadow: 0 8px 16px rgba(0,0,0,0.35), 0 24px 64px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.06)">
+
+    <div style="display: flex; min-height: 36px; flex-shrink: 0; align-items: center; justify-content: space-between; border-bottom: 1px solid #232930; padding: 4px 10px">
+      <span style="display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 500; color: #c9d1d9">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        Notifications
+        <span style="font-weight: 400; color: #484f58">{{count}}</span>
+      </span>
+      <div style="display: flex; align-items: center; gap: 4px">
+        <button style="border: 0; background: none; padding: 2px 4px; font-size: 10px; color: #828a92">Mark all read</button>
+        <button style="border: 0; background: none; padding: 2px 4px; font-size: 10px; color: #828a92">Clear</button>
+      </div>
+    </div>
+
+    <div class="ct-notif-list" style="flex: 1; overflow-y: auto">
+
+      <sc-for list="{{cards}}" as="card" hint-placeholder-count="6">
+        <div style="display: flex; gap: 8px; border-bottom: 1px solid #232930; padding: 9px 10px 10px; background: {{card.bg}}">
+
+          <div style="display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 4px">
+
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px">
+              <span style="display: flex; align-items: center; gap: 6px; min-width: 0">
+                <span style="flex-shrink: 0; display: inline-flex; align-items: center; height: 15px; padding: 0 5px; border-radius: 4px; font-size: 9px; font-weight: 500; letter-spacing: 0.02em; color: {{card.tagFg}}; background: {{card.tagBg}}">{{card.tag}}</span>
+                <span style="font-size: 11px; font-weight: 500; color: #c9d1d9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{card.title}}</span>
+              </span>
+              <span style="flex-shrink: 0; font-size: 10px; color: #484f58">{{card.age}}</span>
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 5px; font-size: 10px; color: #828a92">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9h6"/></svg>
+              <span>{{card.origin}}</span>
+            </div>
+
+            <sc-if value="{{card.hasBody}}" hint-placeholder-val="{{ true }}">
+              <div>
+                <button onClick="{{card.toggle}}" style="display: inline-flex; align-items: center; gap: 4px; border: 0; background: none; padding: 0; font-size: 11px; color: #828a92">
+                  <span>{{card.toggleLabel}}</span>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="transform: {{card.chevron}}"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+                <sc-if value="{{card.open}}" hint-placeholder-val="{{ true }}">
+                  <div style="margin-top: 5px; white-space: pre-line; word-break: break-word; font-size: 12px; line-height: 1.45; color: #828a92">{{card.body}}</div>
+                </sc-if>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{card.hasAnswers}}" hint-placeholder-val="{{ true }}">
+              <div style="margin-top: 3px; display: flex; flex-direction: column; gap: 6px">
+                <sc-if value="{{card.answered}}" hint-placeholder-val="{{ false }}">
+                  <div style="display: flex; align-items: center; gap: 6px; border-radius: 4px; border: 1px solid #1e324a; background: color-mix(in srgb, #141b24 92%, #7ee787 8%); padding: 6px 8px; font-size: 11px; color: #c9d1d9">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#7ee787" stroke-width="2.2" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>
+                    <span>Answered <strong style="font-weight: 500">{{card.chosen}}</strong> &middot; sent to {{card.answerTarget}}</span>
+                  </div>
+                </sc-if>
+                <sc-if value="{{card.unanswered}}" hint-placeholder-val="{{ true }}">
+                  <div style="display: flex; flex-direction: column; gap: 5px">
+                    <div style="font-size: 10px; color: #484f58">Your answer goes to {{card.answerTarget}}</div>
+                    <div style="display: flex; flex-wrap: wrap; gap: 6px">
+                      <sc-for list="{{card.answers}}" as="answer" hint-placeholder-count="2">
+                        <button onClick="{{answer.pick}}" style="min-height: 26px; border-radius: 4px; border: 1px solid {{answer.border}}; background: {{answer.bg}}; padding: 0 10px; font-size: 11px; color: {{answer.fg}}">{{answer.label}}</button>
+                      </sc-for>
+                    </div>
+                  </div>
+                </sc-if>
+              </div>
+            </sc-if>
+
+          </div>
+        </div>
+      </sc-for>
+
+    </div>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"$preview":{"width":420,"height":660}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { open: {}, chosen: {} };
+  }
+
+  renderVals() {
+    const seed = [
+      {
+        id: "ask",
+        tag: "ACTION NEEDED",
+        tagFg: "#d29922",
+        tagBg: "color-mix(in srgb, #141b24 88%, #d29922 12%)",
+        title: "Delete the stale win32 baselines?",
+        origin: "Orchestrator · Release 1.10.0",
+        age: "just now",
+        body: "The run wrote four win32 PNGs as a side effect. Left in place, the next run passes against baselines nobody reviewed.\n\nI can delete them and report the five specs as honestly failing, or keep them and mark the suite unproven.",
+        answers: [
+          { label: "Delete them", primary: true },
+          { label: "Keep, mark unproven" },
+        ],
+      },
+      {
+        id: "fail",
+        tag: "FAILURE",
+        tagFg: "#ff7b72",
+        tagBg: "color-mix(in srgb, #141b24 88%, #ff7b72 12%)",
+        title: "Lane refused its own readiness report",
+        origin: "Worker · pw15-speed",
+        age: "6m",
+        body: "",
+        answers: [],
+      },
+      {
+        id: "verbose",
+        tag: "VERBOSE",
+        tagFg: "#828a92",
+        tagBg: "color-mix(in srgb, #141b24 88%, #828a92 12%)",
+        title: "Gate 4 of 7 green",
+        origin: "Worker · 13-canvas repairs",
+        age: "12m",
+        body: "plan-card-metadata 5 passed\nplan-done-heavy 3 passed\nplan-detail-overlay 3 passed\nvisual-regression pending win32 baselines",
+        answers: [],
+      },
+      {
+        id: "ask2",
+        tag: "ACTION NEEDED",
+        tagFg: "#d29922",
+        tagBg: "color-mix(in srgb, #141b24 88%, #d29922 12%)",
+        title: "Narrow the guard to self-creation only?",
+        origin: "Planner · Release 1.10.0",
+        age: "18m",
+        body: "",
+        answers: [
+          { label: "Keep membership", primary: true },
+          { label: "Narrow it" },
+        ],
+      },
+      {
+        id: "verbose2",
+        tag: "VERBOSE",
+        tagFg: "#828a92",
+        tagBg: "color-mix(in srgb, #141b24 88%, #828a92 12%)",
+        title: "Disk reclaimed, 58 GB free",
+        origin: "General Agent",
+        age: "31m",
+        body: "",
+        answers: [],
+      },
+      {
+        id: "fail2",
+        tag: "FAILURE",
+        tagFg: "#ff7b72",
+        tagBg: "color-mix(in srgb, #141b24 88%, #ff7b72 12%)",
+        title: "npm run test:plugins cannot resolve tsx",
+        origin: "Orchestrator · Release 1.10.0",
+        age: "44m",
+        body: "All 19 suites fail identically. The suites pass when invoked directly, so the wrapper layer is the broken one.",
+        answers: [],
+      },
+    ];
+
+    const cards = seed.map((card) => {
+      const open = this.state.open[card.id] === true;
+      const chosen = this.state.chosen[card.id];
+      const hasBody = card.body.length > 0;
+      const target = card.origin.split(" · ")[0];
+      return {
+        ...card,
+        bg: card.answers.length > 0 && !chosen ? "color-mix(in srgb, #141b24 96%, #d29922 4%)" : "transparent",
+        hasBody,
+        open,
+        chevron: open ? "rotate(180deg)" : "none",
+        toggleLabel: open ? "Hide detail" : "Show detail",
+        toggle: () => this.setState({ open: { ...this.state.open, [card.id]: !open } }),
+        hasAnswers: card.answers.length > 0,
+        answered: Boolean(chosen),
+        unanswered: !chosen,
+        chosen,
+        answerTarget: target,
+        answers: card.answers.map((answer) => ({
+          label: answer.label,
+          border: answer.primary ? "#58a6ff" : "#232930",
+          bg: answer.primary ? "color-mix(in srgb, #141b24 80%, #58a6ff 20%)" : "transparent",
+          fg: answer.primary ? "#c9d1d9" : "#828a92",
+          pick: () => this.setState({ chosen: { ...this.state.chosen, [card.id]: answer.label } }),
+        })),
+      };
+    });
+
+    return { cards, count: String(cards.length) };
+  }
+}
+</script>
+</body>
+</html>

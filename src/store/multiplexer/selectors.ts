@@ -1,4 +1,4 @@
-import type { Tab, Team } from "../../lib/types";
+import type { Notification, Tab, Team } from "../../lib/types";
 import type { ExtendedState } from "./tree";
 
 const TITLE_SPINNER_PREFIX = /^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u;
@@ -159,4 +159,27 @@ export function planNavContextEqual(a: PlanNavContext, b: PlanNavContext): boole
     }
   }
   return true;
+}
+
+/** The questions this tab asked. The transcript card and the bell panel both
+ *  read these records, so neither surface holds an answer of its own. */
+export function selectTabAsks(state: ExtendedState, tabId: string): Notification[] {
+  return state.notifications.filter((notification) => notification.answer?.asked_from_tab === tabId);
+}
+
+export function tabAsksEqual(a: Notification[], b: Notification[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  return a.every((ask, index) => {
+    const other = b[index];
+    return ask.id === other.id
+      && ask.timestamp === other.timestamp
+      && ask.title === other.title
+      && ask.body === other.body
+      && ask.severity === other.severity
+      && ask.level === other.level
+      && ask.actions === other.actions
+      && ask.answer?.answered === other.answer?.answered
+      && ask.answer?.asked_from_tab === other.answer?.asked_from_tab;
+  });
 }

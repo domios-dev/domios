@@ -185,7 +185,7 @@ export function CanvasSwarmCluster({ roster, onFlyToTask, reserveTopRight }: Can
               width: 6,
               height: 6,
               borderRadius: "50%",
-              background: roster.liveCount > 0 ? "var(--ct-success, #2f9e7e)" : "color-mix(in srgb, var(--ct-fg) 35%, transparent)",
+              background: roster.liveCount > 0 ? "var(--ct-green)" : "color-mix(in srgb, var(--ct-fg) 35%, transparent)",
             }}
           />
           <span style={{ fontSize: 11, fontWeight: 700, color: "var(--ct-fg)", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>

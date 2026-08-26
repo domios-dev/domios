@@ -97,6 +97,7 @@ const claudeMessages: NormalizedChatMessage[] = [
     toolResult: "docs/review-2026-06/tasks/README.md: report per protocol",
   },
   {
+    content: "",
     id: "claude-tool-call-2",
     provider: "claude",
     type: "tool_call",
@@ -216,6 +217,7 @@ const codexMessages: NormalizedChatMessage[] = [
     toolResult: "Exit code: 0\nWall time: 1.2 seconds",
   },
   {
+    content: "",
     id: "codex-tool-call-2",
     provider: "codex",
     type: "tool_call",
@@ -259,6 +261,7 @@ export const codexStructuredEditMessages: NormalizedChatMessage[] = [
     toolDetail: 'rg -n "mem_post_request" cli/src',
   },
   {
+    content: "",
     id: "codex-structured-apply-patch",
     provider: "codex",
     type: "tool_call",
@@ -362,6 +365,7 @@ const opencodeMessages: NormalizedChatMessage[] = [
     ].join("\n"),
   },
   {
+    content: "",
     id: "opencode-tool-call-2",
     provider: "opencode",
     type: "tool_call",

@@ -4,6 +4,7 @@ pub mod cast;
 pub mod login_shell;
 pub mod manager;
 pub mod screen_state;
+pub mod scrollback_capture;
 pub mod shell_integration;
 mod spawn_gate;
 mod teardown;

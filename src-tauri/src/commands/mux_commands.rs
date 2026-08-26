@@ -69,12 +69,11 @@ pub fn mux_rename_team_core(
     name: String,
     caller_tab_id: Option<String>,
 ) -> Result<Team, String> {
-    let caller_tab_id = require_team_rename_caller(caller_tab_id)?;
     crate::service::rename_team_core(
         mux,
         &team_id,
         name,
-        &TeamMutationCaller::AgentTab(caller_tab_id),
+        &TeamMutationCaller::from_tab(caller_tab_id.as_deref()),
     )
 }
 
@@ -84,12 +83,11 @@ pub(crate) fn mux_rename_team_service_core(
     name: String,
     caller_tab_id: Option<String>,
 ) -> Result<Team, String> {
-    let caller_tab_id = require_team_rename_caller(caller_tab_id)?;
-    svc.rename_team(&team_id, name, TeamMutationCaller::AgentTab(caller_tab_id))
-}
-
-fn require_team_rename_caller(caller_tab_id: Option<String>) -> Result<String, String> {
-    caller_tab_id.ok_or_else(|| "callerTabId is required to rename a Team".into())
+    svc.rename_team(
+        &team_id,
+        name,
+        TeamMutationCaller::from_tab(caller_tab_id.as_deref()),
+    )
 }
 
 /// Rename a Team through the service boundary so authorization and the state
@@ -99,9 +97,9 @@ pub fn mux_rename_team(
     svc: State<'_, ServiceState>,
     team_id: String,
     name: String,
-    caller_tab_id: String,
+    caller_tab_id: Option<String>,
 ) -> Result<Team, String> {
-    mux_rename_team_service_core(svc.inner(), team_id, name, Some(caller_tab_id))
+    mux_rename_team_service_core(svc.inner(), team_id, name, caller_tab_id)
 }
 
 pub(crate) fn mux_close_team_service_core(
@@ -135,11 +133,11 @@ pub(crate) async fn mux_add_team_member_service_core(
     task: Option<String>,
     model: Option<String>,
 ) -> Result<crate::service::AddTeamMemberResult, String> {
-    let caller_tab_id =
-        caller_tab_id.ok_or_else(|| "callerTabId is required to add a Team member".to_string())?;
+    // No caller is the bootstrap door: a human placing the first manager into a Team
+    // whose members cannot spawn. The service refuses it for any non-anchoring role.
     svc.add_team_member(
         &team_id,
-        &caller_tab_id,
+        caller_tab_id.as_deref(),
         crate::service::AddTeamMemberParams {
             provider,
             role,
@@ -204,12 +202,23 @@ mod tests {
         (mux, team_id, orchestrator, planner, worker)
     }
 
+    /// Renaming needs no spawner. The old gate demanded a caller tab, so a Team
+    /// whose only manager could not spawn had no way to be renamed either — a
+    /// requirement `rename_team_core` never imposed.
     #[test]
-    fn mux_rename_team_rejects_missing_caller() {
-        assert_eq!(
-            require_team_rename_caller(None).unwrap_err(),
-            "callerTabId is required to rename a Team"
-        );
+    fn mux_rename_team_accepts_a_human_caller() {
+        let (mut mux, team_id, orchestrator, _planner, _worker) = team_members();
+        let renamed = mux_rename_team_core(&mut mux, team_id.clone(), "Renamed".into(), None)
+            .expect("a human rename carries no caller tab");
+        assert_eq!(renamed.name.as_deref(), Some("Renamed"));
+        let by_agent = mux_rename_team_core(
+            &mut mux,
+            team_id,
+            "By the manager".into(),
+            Some(orchestrator),
+        )
+        .expect("an agent caller still renames");
+        assert_eq!(by_agent.name.as_deref(), Some("By the manager"));
     }
 
     #[test]

@@ -24,6 +24,7 @@ Use `codeterm docs <NAME>`; it returns the complete document. Use `codeterm docs
 | Narrow plan edits | `codeterm docs PLAN-EDITING` |
 | Bounce evidence and retry limits | `codeterm docs BOUNCE` |
 | Test authoring | `codeterm docs TEST-AUTHORING` |
+| Verification, integration, heartbeat, closeout | `codeterm docs ORCHESTRATION-OPERATIONS` |
 | CLI syntax | `codeterm <command> --help` |
 
 ## Durable model
@@ -56,37 +57,34 @@ Never substitute a loose roleless agent: an agent outside the Team and outside
 the plan owns no task, appears in no plan state, and reports to nobody, so its
 work is invisible to every gate that would otherwise catch it.
 
-### Lane safety: two hard stops, everything else advisory
-
-A **mutating** Worker dispatch is refused before any tab is created when its
-resolved worktree is the canonical checkout, or is the lane another task owns.
-Both would destroy work in progress, so both are hard stops carrying a stable
-violation id (`lane.mutating_write_in_canonical_checkout`,
-`lane.mutating_write_in_foreign_lane`) and the exact `plan task update` command
-that supplies an isolated lane. A dispatch with no recorded lane is *not*
-refused — the dispatcher provisions an isolated lane for it, committing Team
-workspace identity and lane isolation as one value.
-
-Every other lane finding is a **non-blocking nudge**: the operation succeeds and
-the response carries `safety_nudges`, each with a stable id, why it matters, and
-the exact fix. Read-only dispatch, General-Agent creation, and plain shell tabs
-are never obstructed, including in canonical.
-
-Competition has no CLI verb; use the `plan.task.compete` route printed by `codeterm plan task show` for competition-enabled tasks. Each
-**mutating** competitor gets its own worktree, branch, and base before spawning,
-so competitors never share a checkout or fall back to canonical. Partial
-provisioning/spawn failures remove lanes created by that call. Read-only
-competition is unchanged.
+Lane safety has two hard stops and otherwise only advisory nudges; the rules,
+violation ids and fixes are in the lanes playbook the table above names.
 
 ### Recovering a tab-gone task
 
 When a Worker's tab is gone, its owner epoch is stale by definition — so the
 epoch is not allowed to block recovery. The **live authenticated Plan owner**
-may `cancel`, `pend`, reassign, or respawn such a task. That recovery retires
+may `cancel`, `pend`, reassign, respawn, **dispatch, pause, or resume** such a
+task — every verb that actually meets the tab-gone state. That recovery retires
 the stale attempt in the *same* transition that clears the dead owner identity,
 so no half-applied state is observable and a `dispatch_ready` arriving later for
 the retired attempt is rejected instead of resurrecting ownership. The widening
 is for the Plan owner only: a non-owner, non-epoch caller is still refused.
+
+Plan ownership itself is proven against the caller's **live tab binding** —
+tab present, agent session live, binding nonce both stored and reported back,
+and that tab recorded as the plan's owner with Team-Orchestrator authority. It
+is never proven from the owner record's `session_id`, which only the agent
+restart path refreshes; an Orchestrator whose session moved by restore,
+compaction, or provider relaunch stays its own plan's owner.
+
+Both Plan-owner paths are gated on **closed verb allowlists**: recovery verbs
+are a subset of the verbs where the Plan owner has authority over a task it does
+not itself hold. A verb that asserts the *caller's own* task binding — a Worker
+report — is on neither list, so it is validated only against that binding and
+can never ride the recovery hatch to transition a task the caller is not bound
+to. Refusals carry a stable `data.type` discriminant naming the state that
+blocked them, so a tab-gone task is never reported as a stale epoch.
 
 Archiving a plan with no retrospective **succeeds** and emits the advisory
 `plan.retrospective_unrecorded`. Write the retrospective before normal closure
@@ -233,8 +231,4 @@ codeterm plan review reconcile-credit <plan> --reason "<incident evidence>"
 
 Both mutations require the live bound Orchestrator session and record an
 immutable plan stride.
-
-## Related documents
-
-Verification, integration, heartbeat, and closeout: `codeterm docs ORCHESTRATION-OPERATIONS`.
-<!-- revision: 64 -->
+<!-- revision: 65 -->

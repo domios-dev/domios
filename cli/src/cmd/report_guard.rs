@@ -17,21 +17,39 @@ pub struct ReportRefusal {
     pub dirty_files: Vec<String>,
 }
 
+/// Copied verbatim by an agent that has just lost a report, so every line must be
+/// runnable: an inline body is mangled by the shell before the report is sent.
+pub const REPORT_NEXT_COMMANDS: &[&str] = &[
+    "git status --short",
+    "git add <files>",
+    "git commit -m \"<message>\"",
+    "cat > \"$(codeterm pad path)/report.md\" <<'EOF'",
+    "STATUS: in_review",
+    "CHANGES: files touched or 'none'",
+    "TESTS RUN: 'deferred to Orchestrator canonical QA' unless explicitly authorized in canonical",
+    "GATES REQUESTED: exact QA/test-runner commands needed, or 'none'",
+    "FOLLOWUP: Orchestrator reviews and closes the task",
+    "EOF",
+    "codeterm agent report --status in_review --sha YOUR_OWN_COMMIT_SHA --from-pad report.md",
+    "# work in progress instead:",
+    "cat > \"$(codeterm pad path)/report.md\" <<'EOF'",
+    "STATUS: partial",
+    "CHANGES: completed progress",
+    "TESTS RUN: narrow evidence, or 'none - isolated lane, no gate executed'",
+    "GATES REQUESTED: none",
+    "FOLLOWUP: exact remaining work",
+    "EOF",
+    "codeterm agent report --status partial --from-pad report.md",
+];
+
 impl ReportRefusal {
     pub fn message(&self) -> String {
-        let mut lines = vec![
-            self.reason.clone(),
-            "Next commands:".to_string(),
-            "  git status --short".to_string(),
-            "  git add <files>".to_string(),
-            "  git commit -m \"<message>\"".to_string(),
-            "  codeterm agent report --status in_review --sha YOUR_OWN_COMMIT_SHA \"...\""
-                .to_string(),
+        let mut lines = vec![self.reason.clone(), "Next commands:".to_string()];
+        lines.extend(REPORT_NEXT_COMMANDS.iter().copied().map(str::to_string));
+        lines.push(
             "Replace YOUR_OWN_COMMIT_SHA with your own owned commit SHA as a hexadecimal literal, never a shell expression, variable, or HEAD. Never use another Worker's newer HEAD."
                 .to_string(),
-            "Or report WIP with:".to_string(),
-            "  codeterm agent report --status partial \"...\"".to_string(),
-        ];
+        );
         if !self.dirty_files.is_empty() {
             lines.push("Dirty lane files:".to_string());
             lines.extend(self.dirty_files.iter().map(|file| format!("  {file}")));
@@ -77,7 +95,7 @@ pub fn enrich_ready_report(
     status: Option<ReportStatusArg>,
     branch: Option<String>,
     sha: Option<String>,
-    base: Option<String>,
+    base: crate::cmd::report_attribution::ReportBase,
     changed_files: Option<Vec<String>>,
     acknowledge_dirty: bool,
 ) -> Result<(Option<String>, Option<String>, Option<Vec<String>>), ReportRefusal> {
@@ -99,7 +117,10 @@ pub fn enrich_ready_report(
     {
         return Err(unresolved_lane_refusal());
     }
-    let base = base.or_else(|| task_scope.and_then(|scope| scope.base.clone()));
+    // The live attempt base is what this tab is working from now; the dispatch
+    // environment is a snapshot of the attempt that launched the shell and does
+    // not move with a re-dispatch. Attribution follows the live interval.
+    let base = base.resolve(task_scope.and_then(|scope| scope.base.clone()));
     enrich_ready_report_in_scope(
         ReadinessScope {
             pane_cwd: Path::new("."),
@@ -449,6 +470,7 @@ fn git_lines(cwd: &Path, args: &[&str]) -> Result<Vec<String>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cmd::report_attribution::ReportBase;
     use std::fs;
     use tempfile::TempDir;
 
@@ -766,7 +788,7 @@ mod tests {
             Some(ReportStatusArg::Partial),
             None,
             None,
-            None,
+            ReportBase::default(),
             Some(vec!["manual.rs".into()]),
             false,
         )
@@ -971,7 +993,7 @@ mod tests {
             Some(ReportStatusArg::InReview),
             None,
             Some(owned.clone()),
-            None,
+            ReportBase::default(),
             None,
             false,
         )
@@ -994,7 +1016,7 @@ mod tests {
             Some(ReportStatusArg::InReview),
             None,
             Some("0123456789abcdef0123456789abcdef01234567".into()),
-            None,
+            ReportBase::default(),
             None,
             false,
         )
@@ -1024,7 +1046,7 @@ mod tests {
             None,
             false,
         )
-        .expect("lane-owned sha and CODETERM_LANE_BASE must resolve in the lane worktree");
+        .expect("lane-owned sha and base must resolve in the lane worktree");
 
         assert_eq!(sha.as_deref(), Some(owned.as_str()));
         assert_eq!(branch.as_deref(), Some("lane/report"));

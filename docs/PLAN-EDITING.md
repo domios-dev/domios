@@ -60,4 +60,10 @@ atomic write. Prefer it over N separate `task update` calls when closing out
 work. (`plan.batch` RPC carries arbitrary op lists; a general CLI wrapper is
 planned.)
 
-<!-- revision: 1 -->
+Record from the tab that holds the task. A batch op naming a task another tab
+holds is refused with `STALE TASK BINDING` and writes nothing — the plan's owner
+tab is the one caller allowed to write tasks it does not execute. A shell
+carrying a task id the daemon has moved should drop `--task` and let the daemon
+resolve its live binding.
+
+<!-- revision: 2 -->

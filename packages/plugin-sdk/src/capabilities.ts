@@ -92,6 +92,69 @@ export interface ParsedPrompt {
   selectedValues?: string[];
 }
 
+// ── tab-state classification (mirrors codeterm-plugin tab_state.rs) ──
+
+export type TabState =
+  | "working"
+  | "waiting_on_auth"
+  | "update_prompt"
+  | "provider_update_completed"
+  | "rate_limited"
+  | "clarifying_question"
+  | "idle_stuck"
+  | "unknown";
+
+/** Host-built snapshot of the tab's OWN session/screen handed to classifyTabState. */
+export interface TabStateSnapshot {
+  tabId: string;
+  agentType: string;
+  sessionId?: string | null;
+  cwd?: string | null;
+  /** Recent rendered screen tail (provider fingerprints match against this). */
+  screenText: string;
+}
+
+export interface DelayedResume {
+  /** ISO-8601 wall-clock time to fire the resume. */
+  at: string;
+  text: string;
+  thenKeys?: string[];
+}
+
+/** The action a classifier recommends; the host reactor branches only on these generic fields. */
+export interface TabStateAction {
+  /** Key names to inject, e.g. ["down", "enter"]. */
+  keys?: string[];
+  delayedResume?: DelayedResume;
+  /** A user-facing surface: `kind` names the card template, `payload` its body. */
+  surface?: { kind: string; payload: unknown };
+  providerUpdate?: { installKeys: string[]; declineKeys: string[] };
+}
+
+export interface TabStateClassification {
+  state: TabState;
+  /** Ensemble vote score in 0.0..=1.0. */
+  confidence: number;
+  data?: { resetAt?: string; questions?: string[] };
+  action?: TabStateAction;
+}
+
+// ── declarative settings schema (mirrors codeterm-plugin provider/settings.rs) ──
+
+/** One field of the declarative settings UI, tagged by `kind` (section, toggle, text, …). */
+export interface SettingField {
+  kind: string;
+  [key: string]: unknown;
+}
+
+// ── provider self-update (mirrors codeterm-plugin provider/capabilities.rs) ──
+
+export interface ProviderSelfUpdateCapability {
+  inSession: boolean;
+  restartRequired: boolean;
+  completionSignal?: "provider_classification";
+}
+
 export interface AgentProvider {
   starterPromptText?(prompt: "no_starter" | "assigned_task" | "idle_wakeup" | "team_bootstrap"): string | undefined;
   detectFromTitle?(title: string): boolean;
@@ -139,6 +202,14 @@ export interface AgentProvider {
   ensureIntegrationOnStartup?(apiPort: number): unknown;
   installBridgeRule?(payload: string): unknown;
   uninstallBridgeRule?(): unknown;
+  /** Classify the tab's lifecycle state from its own screen snapshot. */
+  classifyTabState?(snapshot: TabStateSnapshot): TabStateClassification | null;
+  /** Extract interactive prompt elements from one rich chat message; requires manifest spawn.interactiveEvents. */
+  parseInteractiveEvents?(msg: unknown): unknown[];
+  /** Provider-specific settings sections; absent ⇒ manifest-derived sections. */
+  settingsSchema?(): SettingField[];
+  notificationsSchema?(): SettingField[];
+  providerSelfUpdateCapability?(): ProviderSelfUpdateCapability | null;
 }
 
 // ── secretBackend (mirrors the bitwarden plugin + JsSecretBackend) ──

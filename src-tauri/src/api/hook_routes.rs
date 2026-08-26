@@ -3,8 +3,11 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Json,
 };
+use std::collections::BTreeMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::agent::provider::{HookEventBinding, HookIngestionRoute};
+use crate::agent::registry::AgentRegistry;
 use crate::api::routes::{resolve_tab, AppState};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -21,6 +24,30 @@ fn epoch_ms() -> u64 {
         .unwrap_or(0)
 }
 
+/// The hook route table core registers: each provider's declared roster,
+/// verbatim. Nothing undeclared appears here, so nothing undeclared routes.
+fn registered_hook_routes(registry: &AgentRegistry) -> BTreeMap<String, Vec<HookEventBinding>> {
+    registry
+        .provider_ids()
+        .into_iter()
+        .filter_map(|id| {
+            let roster = registry.with_provider(&id, |p| p.hook_event_roster())?;
+            (!roster.is_empty()).then_some((id, roster))
+        })
+        .collect()
+}
+
+/// Sole provider whose roster declares `route` — the owning descriptor hook
+/// ingestion may attribute to. Unclaimed or contested routes yield None.
+fn sole_hook_route_declarer(registry: &AgentRegistry, route: HookIngestionRoute) -> Option<String> {
+    let mut declarers = registered_hook_routes(registry)
+        .into_iter()
+        .filter(|(_, roster)| roster.iter().any(|binding| binding.route == route))
+        .map(|(id, _)| id);
+    let sole = declarers.next()?;
+    declarers.next().is_none().then_some(sole)
+}
+
 /// Ensure agent state is set when a hook fires.
 /// Hooks are authoritative — if a hook calls us, an agent IS running.
 /// This fixes detection on restored tabs, Windows (PowerShell doesn't reset title), etc.
@@ -34,19 +61,22 @@ fn ensure_agent_state(state: &AppState, tab_id: &str) {
         };
         tab.agent_type.clone()
     };
-
-    let agent_changed = agent_type.is_none();
-    if agent_changed {
-        // its own hook endpoints.
-        state
-            .svc
-            .set_and_lock_tab_agent_type(tab_id, "claude".to_string());
-        log::info!("[hook] set agent_type=claude for Tab {}", tab_id);
+    if agent_type.is_some() {
+        return;
     }
 
-    if agent_changed {
-        state.svc.emit_state_changed();
-    }
+    let Some(owner) =
+        sole_hook_route_declarer(&state.svc.agent_registry, HookIngestionRoute::Permission)
+    else {
+        log::warn!(
+            "[hook] Tab {} fired the permission route without a sole declaring provider; agent_type left unset",
+            tab_id
+        );
+        return;
+    };
+    state.svc.set_and_lock_tab_agent_type(tab_id, owner.clone());
+    log::info!("[hook] set agent_type={} for Tab {}", owner, tab_id);
+    state.svc.emit_state_changed();
 }
 
 /// Hook endpoint: agent reports it needs permission.
@@ -59,11 +89,27 @@ fn ensure_agent_state(state: &AppState, tab_id: &str) {
 pub async fn hook_permission(
     AxumState(state): AxumState<AppState>,
     Path(raw_tab_id): Path<String>,
+    headers: HeaderMap,
     body: Option<Json<serde_json::Value>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let tab_id = resolve_tab(&state, &raw_tab_id).map_err(|(s, m)| (s, m.to_string()))?;
     // Hook firing = authoritative proof that an agent is running in this tab.
     ensure_agent_state(&state, &tab_id);
+
+    // The per-tool payload the vendor already sent beats anything scraped back
+    // off the screen, so it is ingested before the parsing fallbacks.
+    if let Some(Json(raw)) = body.as_ref() {
+        if let Some(signal) = crate::agent::permission_request::parse_permission_request(raw) {
+            reject_foreign_binding_nonce(&state, &tab_id, &headers, raw)?;
+            let decision = state
+                .svc
+                .prompt_detector
+                .lock()
+                .hook_detected_permission_request(&tab_id, signal);
+            state.svc.apply_prompt_decision(&decision);
+            return Ok(Json(serde_json::json!({"ok": true, "ingested": true})));
+        }
+    }
 
     let explicit_prompt = body.and_then(|Json(b)| {
         let question = b.get("question")?.as_str()?.to_string();
@@ -182,14 +228,57 @@ pub async fn hook_permission(
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
-/// Hook endpoint: agent stopped (task complete).
-/// Called by Claude Code hook (Stop matcher).
+/// Verdict for a provider-reported Stop POST. A carried nonce must equal the
+/// tab's own launch nonce (completion-via-report); a nonce-less POST stays on
+/// the legacy inference-tolerant path; anything else is a foreign reporter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StopReportVerdict {
+    Verified,
+    Legacy,
+    Foreign,
+}
+
+fn stop_report_verdict(
+    launch_nonce: Option<&str>,
+    report_nonce: Option<&str>,
+) -> StopReportVerdict {
+    match (launch_nonce, report_nonce) {
+        (Some(expected), Some(got)) if got == expected => StopReportVerdict::Verified,
+        (_, Some(_)) => StopReportVerdict::Foreign,
+        (_, None) => StopReportVerdict::Legacy,
+    }
+}
+
+/// Hook endpoint: agent stopped (task complete). Called by the Stop hook of
+/// whichever provider declares the stop route in its roster.
 pub async fn hook_stop(
     AxumState(state): AxumState<AppState>,
     Path(raw_tab_id): Path<String>,
+    headers: HeaderMap,
+    body: Option<Json<serde_json::Value>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let tab_id = resolve_tab(&state, &raw_tab_id).map_err(|(s, m)| (s, m.to_string()))?;
     log::debug!("[hook_stop] fired for Tab {}", tab_id);
+    let body = body.map(|Json(v)| v).unwrap_or(serde_json::Value::Null);
+    let report_nonce = body
+        .get("binding_nonce")
+        .and_then(|v| v.as_str())
+        .or_else(|| header_str(&headers, "x-codeterm-binding-nonce"))
+        .map(|s| s.to_string());
+    let launch_nonce = state
+        .svc
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .and_then(|tab| tab.session_binding_nonce.clone());
+    let verdict = stop_report_verdict(launch_nonce.as_deref(), report_nonce.as_deref());
+    if verdict == StopReportVerdict::Foreign {
+        log::warn!(
+            "[hook_stop] rejecting stop for Tab {}: binding nonce mismatch",
+            tab_id
+        );
+        return Err((StatusCode::CONFLICT, "binding nonce mismatch".to_string()));
+    }
     let title = state
         .svc
         .mux
@@ -217,11 +306,19 @@ pub async fn hook_stop(
     }
     state.svc.emit_state_changed();
 
-    // Hidden worker/cron runs (now ordinary interactive claude) finish on Stop if they didn't explicitly report. No-op for visible tabs / already-reported runs.
-    state
-        .svc
-        .run_watcher
-        .complete_via_stop_hook(&state.svc, &tab_id);
+    // Hidden worker/cron runs finish on Stop if they didn't explicitly report.
+    // A nonce-verified report is the completion-via-report path; a nonce-less
+    // legacy post keeps today's tab-keyed behavior. No-op for visible tabs.
+    match (verdict, report_nonce.as_deref()) {
+        (StopReportVerdict::Verified, Some(nonce)) => state
+            .svc
+            .run_watcher
+            .complete_via_stop_report(&state.svc, &tab_id, nonce),
+        _ => state
+            .svc
+            .run_watcher
+            .complete_via_stop_hook(&state.svc, &tab_id),
+    }
     state.svc.complete_worker_turn_without_report(
         &tab_id,
         crate::service::WorkerTurnSignal::ProviderStop,
@@ -280,9 +377,17 @@ pub async fn hook_session_start(
             .write()
             .get_tab(&tab_id)
             .and_then(|p| p.agent_type.clone());
+        // Identity ladder: report > tab > the route's sole declaring descriptor
+        // > configured default. Never a provider-id literal.
         provider_id
             .or(existing)
-            .unwrap_or_else(|| "claude".to_string())
+            .or_else(|| {
+                sole_hook_route_declarer(
+                    &state.svc.agent_registry,
+                    HookIngestionRoute::SessionStart,
+                )
+            })
+            .unwrap_or_else(crate::config::default_agent_provider)
     };
 
     let claim = bind_reported_session(
@@ -338,6 +443,21 @@ pub async fn hook_session_start(
 
     // while it runs — not only after completion.
     propagate_run_session(&state, &tab_id, &sid);
+    if let Some(reported_transcript) = reported_transcript_path(&body) {
+        let evidence_sid = sid.clone();
+        let persisted = tokio::task::spawn_blocking(move || {
+            codeterm_plugin::session_evidence::record(&evidence_sid, &reported_transcript)
+        })
+        .await
+        .unwrap_or(false);
+        if !persisted {
+            log::warn!(
+                "[hook_session_start] tab={} could not persist reported transcript_path for {}",
+                tab_id,
+                sid
+            );
+        }
+    }
     let transcript_progress =
         durable_transcript_progress(&state, &tab_id, &provider_id, &sid).await;
     state
@@ -474,6 +594,46 @@ fn acknowledge_authenticated_launch(
     binding.is_some_and(|binding| crate::service::record_provider_session(tab_id, &binding))
 }
 
+/// A report carrying a binding nonce that disagrees with the tab's own launch
+/// nonce is a foreign or stale reporter: reject it so it affects no tab. A
+/// report with no nonce keeps the pre-existing tolerance.
+fn reject_foreign_binding_nonce(
+    state: &AppState,
+    tab_id: &str,
+    headers: &HeaderMap,
+    body: &serde_json::Value,
+) -> Result<(), (StatusCode, String)> {
+    let reported = crate::agent::permission_request::body_binding_nonce(body)
+        .or_else(|| header_str(headers, "x-codeterm-binding-nonce"))
+        .map(str::trim)
+        .filter(|nonce| !nonce.is_empty());
+    let Some(reported) = reported else {
+        return Ok(());
+    };
+    if binding_nonce_scoped(&state.svc.mux, tab_id, reported) {
+        return Ok(());
+    }
+    log::warn!("[hook] rejecting report for Tab {tab_id}: binding nonce mismatch");
+    Err((StatusCode::CONFLICT, "binding nonce mismatch".to_string()))
+}
+
+/// True when the reported nonce matches the tab's launch nonce, or the tab has
+/// no launch nonce to compare against.
+fn binding_nonce_scoped(
+    mux: &crate::multiplexer::commands::MuxState,
+    tab_id: &str,
+    reported: &str,
+) -> bool {
+    match mux
+        .read()
+        .get_tab(tab_id)
+        .and_then(|tab| tab.session_binding_nonce.clone())
+    {
+        Some(expected) => expected == reported,
+        None => true,
+    }
+}
+
 fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
     headers.get(name).and_then(|v| v.to_str().ok())
 }
@@ -487,6 +647,13 @@ fn session_start_string(body: &serde_json::Value, path: &[&str]) -> Option<Strin
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(String::from)
+}
+
+/// Provider-reported transcript path riding the SessionStart body. Persisted
+/// only after the report was accepted for this tab's own session above.
+fn reported_transcript_path(body: &serde_json::Value) -> Option<String> {
+    session_start_string(body, &["transcript_path"])
+        .or_else(|| session_start_string(body, &["payload", "transcript_path"]))
 }
 
 /// Push the just-bound session id (+cwd) onto whatever hidden run owns this tab

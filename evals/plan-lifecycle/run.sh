@@ -96,6 +96,7 @@ pass "added implementation section $IMPL_SECTION"
 TASK_ID="$(dc plan task add "$PLAN_ID" \
   --name "Implement fixture task" \
   --type implement \
+  --executor-role rust-backend-dev \
   --sections "$SPEC_SECTION,$IMPL_SECTION" \
   --body="Touch both sections" \
   --intent="Keep the eval scoped")"
@@ -147,7 +148,7 @@ assert_error_contains "unknown plan teaching" \
 
 assert_error_contains "dash-leading text teaching" \
   "--field=value or --field-file" \
-  dc plan task add "$PLAN_ID" --name "dash body" --body - starts-with-dash
+  dc plan task add "$PLAN_ID" --name "dash body" --executor-role docs-sync --body - starts-with-dash
 
 assert_error_contains "loop budget teaching" \
   "codeterm plan loop set $LOOP_ID --budget N" \

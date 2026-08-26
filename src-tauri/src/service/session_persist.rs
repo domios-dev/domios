@@ -41,7 +41,9 @@ pub(crate) fn write_session_snapshot_with_intent(
         let store = session.lock();
         store.save_with_intent(&snapshot, intent)
     };
-    save_result.map_err(|e| format!("save session: {}", e))
+    let outcome = save_result.map_err(|e| format!("save session: {}", e))?;
+    crate::session::scrollback_sync::sync_scrollback_sidecars_after_save(app, &outcome);
+    Ok(outcome)
 }
 
 /// Prompt save after a deliberate removal (close verb, policy close, cleanup)

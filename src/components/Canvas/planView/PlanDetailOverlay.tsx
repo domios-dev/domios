@@ -208,7 +208,7 @@ export function PlanDetailOverlay({
           border: "1px solid var(--ct-border-default)",
           borderRight: isTask ? "none" : "1px solid var(--ct-border-default)",
           background: "var(--ct-bg)",
-          boxShadow: "0 24px 80px -20px color-mix(in srgb, var(--ct-shadow, #000) 65%, transparent)",
+          boxShadow: "0 24px 80px -20px rgba(0, 0, 0, 0.65)",
           overflow: "hidden",
           outline: "none",
           pointerEvents: "auto",

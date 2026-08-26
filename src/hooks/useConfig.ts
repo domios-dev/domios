@@ -19,10 +19,17 @@ export function defaultConfig(): AppConfig {
     copy_on_select: false,
   },
   notifications: {
-    desktop: true,
+    // Off until someone opts in; until the daemon answers, nothing interrupts.
+    desktop: false,
     sound: false,
     toast_duration: 5,
-    telegram: { enabled: false, recipients: [], per_scope_limit: 12 },
+    // The bell has always been drawn; until the daemon answers, it stays drawn.
+    show_bell: true,
+    // The daemon owns which channels exist; until it answers there are none.
+    channels: {},
+    // The daemon owns the level set; until it answers there is nothing to
+    // claim the user controls.
+    agent_levels: [],
   },
   keybindings: {
     reopen_tab: "Ctrl+Shift+T",

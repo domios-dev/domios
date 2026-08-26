@@ -139,12 +139,44 @@ pub(crate) struct PatchConfigBody {
     partial: serde_json::Map<String, serde_json::Value>,
 }
 
+/// THE AUTHORITY RULE at the config seam. A write that names one key is the
+/// shape an agent's own CLI makes, and a write that arrives from inside a tab
+/// came from something running in one — either way nobody tapped anything, so
+/// neither may move where notifications go. An agent offers instead, and the
+/// tapped answer is what applies it.
+pub(crate) fn admit_config_write(
+    caller_tab: Option<&str>,
+    key: Option<&str>,
+    partial: &serde_json::Map<String, serde_json::Value>,
+) -> Result<(), String> {
+    use crate::notification::authority::{admit_unattended_change, SURFACE_ROOT};
+    if let Some(key) = key {
+        return admit_unattended_change(key);
+    }
+    if caller_tab.is_some() && partial.contains_key(SURFACE_ROOT) {
+        return admit_unattended_change(SURFACE_ROOT);
+    }
+    Ok(())
+}
+
 pub async fn patch_config_api(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Json(body): Json<PatchConfigBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
+    if admit_config_write(
+        crate::api::tab_routes::caller_tab_header(&headers).as_deref(),
+        body.key.as_deref(),
+        &body.partial,
+    )
+    .is_err()
+    {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Where notifications go changes only on a tapped answer",
+        ));
+    }
     let cfg = state.config.lock().clone();
     let mut cfg_json = serde_json::to_value(&cfg)
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Serialization failed"))?;
@@ -314,6 +346,8 @@ pub async fn bridge_send_api(
         },
         append,
         buttons,
+        edit: None,
+        receipt: None,
     })
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Send failed"))?;
 

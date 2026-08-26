@@ -28,7 +28,8 @@ export function providerIntegrationState(
 ): Exclude<ProviderIntegrationState, "checking" | "error"> {
   if (!health) return "unknown";
   if (typeof health.session_start_hook === "boolean") {
-    return health.session_start_hook ? "healthy" : "needs-repair";
+    const stopHookMissing = health.stop_hook === false;
+    return health.session_start_hook && !stopHookMissing ? "healthy" : "needs-repair";
   }
   if (typeof health.hooks_installed === "boolean") {
     return health.hooks_installed ? "healthy" : "needs-repair";
@@ -114,6 +115,11 @@ export function ProviderIntegrationHealthCard({
 
   const busy = action !== null || phase === "checking";
   const staleSessionStart = health?.session_start_hook === false;
+  const staleStopHook = health?.stop_hook === false;
+  const staleHooks = [
+    ...(staleSessionStart ? ["session-start"] : []),
+    ...(staleStopHook ? ["stop"] : []),
+  ];
 
   return (
     <SettingsCard
@@ -131,11 +137,14 @@ export function ProviderIntegrationHealthCard({
         {phase === "needs-repair" && (
           <div
             role="alert"
+            data-provider-integration-stale-hooks={staleHooks.join(",")}
             className="rounded border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-[var(--ct-fg)]"
           >
             {staleSessionStart
               ? "The session-start hook is missing or stale. Repair the integration before starting a new agent session."
-              : "The provider hook integration is incomplete and needs repair."}
+              : staleStopHook
+                ? "The stop hook is missing or stale. Repair the integration to restore agent stop callbacks."
+                : "The provider hook integration is incomplete and needs repair."}
           </div>
         )}
 

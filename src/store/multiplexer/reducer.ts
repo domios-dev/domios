@@ -32,6 +32,7 @@ export type Action =
   | { type: "HYDRATE_NOTIFICATIONS"; notifications: Notification[] }
   | { type: "UPSERT_TOAST"; toast: Notification }
   | { type: "MARK_READ"; id: string }
+  | { type: "ANSWER_NOTIFICATION"; id: string; answered: string; delivered: boolean }
   | { type: "MARK_ALL_READ" }
   | { type: "DELETE_NOTIFICATION"; id: string }
   | { type: "CLEAR_NOTIFICATIONS" }
@@ -207,7 +208,8 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
             workspace_id: null,
             title: tab.title || "Agent",
             body: "Needs your attention",
-            level: "Warning" as const,
+            severity: "Warning" as const,
+            level: "action_needed" as const,
             read: false,
             sticky: false,
             timestamp: Date.now(),
@@ -517,6 +519,29 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
       const toasts = [...state.toasts];
       toasts[existingIndex] = action.toast;
       return { ...state, toasts };
+    }
+
+    // The one-answer invariant lives in the store; this only reflects what the
+    // daemon recorded, so a second tap can never overwrite it here either.
+    case "ANSWER_NOTIFICATION": {
+      // The label is written once; whether it reached the tab may still change,
+      // because a standing answer the envelope path refused can be carried later.
+      const withAnswer = (entry: Notification): Notification =>
+        entry.id !== action.id || !entry.answer
+          ? entry
+          : {
+              ...entry,
+              answer: {
+                ...entry.answer,
+                answered: entry.answer.answered ?? action.answered,
+                delivered: action.delivered,
+              },
+            };
+      return {
+        ...state,
+        notifications: state.notifications.map(withAnswer),
+        toasts: state.toasts.map(withAnswer),
+      };
     }
 
     case "MARK_READ":

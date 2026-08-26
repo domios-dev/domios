@@ -208,9 +208,9 @@ export function PluginDetailPanel({
           data-testid="extensions-reload-required"
           style={{
             fontSize: 12,
-            color: "var(--ct-warn, #f59e0b)",
-            background: "var(--ct-warn-bg, rgba(245, 158, 11, 0.12))",
-            border: "1px solid var(--ct-warn, #f59e0b)",
+            color: "var(--ct-warn)",
+            background: "color-mix(in srgb, var(--ct-yellow) 12%, transparent)",
+            border: "1px solid var(--ct-warn)",
             borderRadius: 8,
             padding: "8px 12px",
             marginBottom: 14,

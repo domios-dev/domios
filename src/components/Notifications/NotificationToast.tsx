@@ -1,16 +1,12 @@
 import { useState, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { invoke } from "../../lib/bridge";
+import { RichMarkdown } from "@codeterm/chat-ui";
+import { runNotificationAction } from "../../lib/notificationActions";
 import type { Notification, NotificationAction } from "../../lib/types";
 import { Check, X } from "lucide-react";
-import { InfoIcon, WarningIcon, ErrorIcon } from "../Icons";
 import { PluginIcon } from "../Extensions/PluginIcon";
-
-const LEVEL_STYLES: Record<Notification["level"], { accent: string; icon: string }> = {
-  Info: { accent: "var(--ct-accent)", icon: "text-[var(--ct-accent)]" },
-  Warning: { accent: "var(--ct-yellow)", icon: "text-[var(--ct-yellow)]" },
-  Error: { accent: "var(--ct-red)", icon: "text-[var(--ct-red)]" },
-};
+import { notificationLevel, notificationTone } from "../../lib/notifyLevels";
+import { levelIcon } from "./levelIcon";
 
 const AUTO_DISMISS_MS = 5000;
 const MAX_VISIBLE_TOASTS = 2;
@@ -26,7 +22,10 @@ interface ToastItemProps {
 function ToastItem({ notification, onDismiss, onMarkRead, onNavigate, embedded }: ToastItemProps) {
   const [closing, setClosing] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const hasActions = (notification.actions?.length ?? 0) > 0;
+  // A choice is answered from the bell and the chat card, which keep it as a
+  // log of decisions; a toast that vanishes must not offer one.
+  const runnable = notification.actions?.filter((action) => action.type !== "answer") ?? [];
+  const hasActions = runnable.length > 0;
   const sticky = notification.sticky || hasActions || expanded;
 
   const dismiss = useCallback((e: React.MouseEvent) => {
@@ -40,16 +39,7 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate, embedded }
   }, [notification.id, notification.read, onMarkRead]);
 
   const runAction = useCallback(async (action: NotificationAction) => {
-    if (action.type === "dismiss") {
-    } else if (action.type === "url" && action.value) {
-      try { window.open(action.value, "_blank"); } catch {}
-    } else if (action.type === "invoke" && action.value) {
-      try {
-        await invoke(action.value, action.args ?? {});
-      } catch (e) {
-        console.warn(`Notification action '${action.value}' failed:`, e);
-      }
-    }
+    await runNotificationAction(action);
     setClosing(true);
   }, []);
 
@@ -66,7 +56,9 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate, embedded }
       ? "ct-toast-enter"
       : "ct-toast-timed";
 
-  const styles = LEVEL_STYLES[notification.level];
+  const level = notificationLevel(notification);
+  const tone = notificationTone(notification);
+  const LevelIcon = levelIcon(level);
   const hasCustomIcon = Boolean(notification.icon_svg || notification.icon_hint || notification.icon_color);
   const content = (
     <>
@@ -82,24 +74,28 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate, embedded }
           />
         </span>
       ) : (
-        <LevelIcon level={notification.level} className={`shrink-0 ${styles.icon}`} />
+        <LevelIcon className="shrink-0" style={{ color: tone }} />
       )}
       <div className="min-w-0 flex flex-1 items-baseline gap-1.5">
         <span className="truncate font-medium text-[var(--ct-fg)]">
           {notification.title}
         </span>
-        {notification.body && <span className="min-w-0 truncate text-[var(--ct-muted-fg)]">{notification.body}</span>}
+        {notification.body && (
+          <div className="min-w-0 truncate text-[var(--ct-muted-fg)] [&_p]:m-0 [&_p]:inline">
+            <RichMarkdown text={notification.body} />
+          </div>
+        )}
       </div>
       {hasActions && (
         <div className="flex shrink-0 gap-1">
-          {notification.actions!.map((action, i) => (
+          {runnable.map((action, i) => (
             <button
               key={i}
               onClick={(e) => { e.stopPropagation(); runAction(action); }}
               className={
                 i === 0
                   ? "h-5 rounded border border-[var(--toast-accent)]/35 bg-[var(--toast-accent)]/12 px-1.5 text-[10px] text-[var(--ct-fg)] hover:bg-[var(--toast-accent)]/18"
-                  : "h-5 rounded border border-[var(--ct-border)]/70 px-1.5 text-[10px] text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover-bg)] hover:text-[var(--ct-fg)]"
+                  : "h-5 rounded border border-[var(--ct-border)]/70 px-1.5 text-[10px] text-[var(--ct-muted-fg)] hover:bg-[var(--ct-bg-hover)] hover:text-[var(--ct-fg)]"
               }
             >
               {action.label}
@@ -109,7 +105,7 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate, embedded }
       )}
       <button
         onClick={dismiss}
-        className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover-bg)] hover:text-[var(--ct-fg)]"
+        className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--ct-muted-fg)] hover:bg-[var(--ct-bg-hover)] hover:text-[var(--ct-fg)]"
         aria-label="Dismiss"
       >
         <X size={12} strokeWidth={1.8} />
@@ -125,10 +121,11 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate, embedded }
           data-testid="notification-toast"
           data-notification-id={notification.id}
           data-notification-key={notification.key ?? ""}
-          data-notification-level={notification.level}
+          data-notification-severity={notification.severity}
+          data-notification-level={level ?? ""}
           role="status"
           style={{
-            ["--toast-accent" as string]: styles.accent,
+            ["--toast-accent" as string]: tone,
             ["--ct-toast-duration" as string]: `${AUTO_DISMISS_MS}ms`,
           }}
           className="ct-toast-inline cursor-pointer"
@@ -145,16 +142,16 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate, embedded }
             role="dialog"
             aria-label={notification.title}
             className="fixed right-2 top-[calc(2rem+var(--ct-safe-top,0px)+6px)] z-[70] w-[min(420px,calc(100vw-16px))] rounded-md border border-[var(--ct-border)] bg-[var(--ct-surface)] p-3 shadow-2xl ct-float"
-            style={{ ["--toast-accent" as string]: styles.accent }}
+            style={{ ["--toast-accent" as string]: tone }}
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-start gap-2">
-              <LevelIcon level={notification.level} className={`mt-0.5 shrink-0 ${styles.icon}`} />
+              <LevelIcon className="mt-0.5 shrink-0" style={{ color: tone }} />
               <div className="min-w-0 flex-1">
                 <div className="font-medium text-[var(--ct-fg)]">{notification.title}</div>
                 {notification.body && (
-                  <div className="mt-2 max-h-[min(420px,60vh)] overflow-y-auto whitespace-pre-wrap break-words text-[12px] leading-5 text-[var(--ct-muted-fg)]">
-                    {notification.body}
+                  <div className="mt-2 max-h-[min(420px,60vh)] overflow-y-auto break-words text-[12px] leading-5 text-[var(--ct-muted-fg)]">
+                    <RichMarkdown text={notification.body} />
                   </div>
                 )}
                 <div className="mt-3 flex flex-wrap gap-1.5">
@@ -167,7 +164,7 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate, embedded }
                       Show Tab
                     </button>
                   )}
-                  {notification.actions?.map((action, index) => (
+                  {runnable.map((action, index) => (
                     <button
                       type="button"
                       key={`${action.label}-${index}`}
@@ -201,10 +198,11 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate, embedded }
       data-testid="notification-toast"
       data-notification-id={notification.id}
       data-notification-key={notification.key ?? ""}
-      data-notification-level={notification.level}
+      data-notification-severity={notification.severity}
+      data-notification-level={level ?? ""}
       role="status"
       style={{
-        ["--toast-accent" as string]: styles.accent,
+        ["--toast-accent" as string]: tone,
         ["--ct-toast-duration" as string]: `${AUTO_DISMISS_MS}ms`,
       }}
       onAnimationEnd={handleAnimationEnd}
@@ -281,12 +279,4 @@ export function NotificationToastContainer({
       ))}
     </div>
   );
-}
-
-function LevelIcon({ level, className }: { level: Notification["level"]; className?: string }) {
-  switch (level) {
-    case "Info": return <InfoIcon className={className} />;
-    case "Warning": return <WarningIcon className={className} />;
-    case "Error": return <ErrorIcon className={className} />;
-  }
 }

@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use codeterm_bridge::bridge::manager::PlacementReceipt;
 use codeterm_bridge::ports::{
     AttachmentStorePort, BridgeTabPort, ChatPreprocessorPort, ChatPreprocessorProvider,
 };
@@ -116,6 +117,17 @@ impl BridgeTabPort for ServiceBridgeTabPort {
 
     fn queue_inbound(&self, tab_id: &str, prefixed: String) {
         codeterm_bridge::bridge::inbound_buffer::push(tab_id, prefixed);
+    }
+
+    fn claim_channel_answer(&self, callback_data: &str) -> bool {
+        self.0.claim_channel_answer(callback_data)
+    }
+
+    fn record_channel_placement(&self, receipt: &PlacementReceipt, locator: &str) {
+        self.0
+            .notif
+            .lock()
+            .remember_channel_placement(&receipt.tag, &receipt.service, locator);
     }
 
     fn telegram_token(&self) -> Option<String> {

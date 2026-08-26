@@ -61,6 +61,26 @@ pub fn test_notification(_app: tauri::AppHandle) {
     }
 }
 
+/// What the OS says about desktop toasts right now, without raising a prompt.
+#[tauri::command]
+pub async fn notify_permission_state(app: tauri::AppHandle) -> String {
+    tokio::task::spawn_blocking(move || crate::api::os_notify::toast_permission(&app).to_string())
+        .await
+        .unwrap_or_else(|_| "unknown".to_string())
+}
+
+/// The enabling gesture: switching the surface on asks the OS, switching it off
+/// asks nothing and just reports what is already known. Off the runtime, because
+/// a real OS prompt waits on the user and would otherwise starve every tab.
+#[tauri::command]
+pub async fn establish_notify_permission(app: tauri::AppHandle, enabling: bool) -> String {
+    tokio::task::spawn_blocking(move || {
+        crate::api::os_notify::establish_toast_permission(&app, enabling).to_string()
+    })
+    .await
+    .unwrap_or_else(|_| "unknown".to_string())
+}
+
 #[tauri::command]
 pub fn open_url(url: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]

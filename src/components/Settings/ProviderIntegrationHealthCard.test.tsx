@@ -105,6 +105,55 @@ async function testHealthyHookHasNoRepairAction() {
   });
 }
 
+async function testMissingStopHookIsDegraded() {
+  await withInvoke(async () => (
+    { hooks_installed: false, precompact_hook: true, stop_hook: false, session_start_hook: true }
+  ), async () => {
+    const { host, root } = await renderCard();
+    await flush();
+    assert(
+      host.querySelector('[data-provider-integration-state="needs-repair"]'),
+      "a missing stop hook must expose the needs-repair state even when session-start is healthy",
+    );
+    const alert = host.querySelector("[data-provider-integration-stale-hooks]");
+    assert(
+      alert?.getAttribute("data-provider-integration-stale-hooks") === "stop",
+      "the degraded surface must name the stop hook as the stale field",
+    );
+    const repair = host.querySelector('[data-provider-integration-action="repair"]') as HTMLButtonElement | null;
+    assert(repair && !repair.disabled, "a missing stop hook must expose an enabled repair control");
+    await cleanup(root);
+  });
+}
+
+async function testStopHookHealthyWithSessionStart() {
+  await withInvoke(async () => (
+    { hooks_installed: true, stop_hook: true, session_start_hook: true }
+  ), async () => {
+    const { host, root } = await renderCard();
+    await flush();
+    assert(
+      host.querySelector('[data-provider-integration-state="healthy"]'),
+      "stop and session-start hooks both installed must resolve healthy",
+    );
+    assert(!host.querySelector("[data-provider-integration-stale-hooks]"), "healthy integration must not surface stale hooks");
+    await cleanup(root);
+  });
+}
+
+async function testAbsentStopHookFieldIsNotDegraded() {
+  await withInvoke(async () => ({ hooks_installed: true, session_start_hook: true }), async () => {
+    const { host, root } = await renderCard();
+    await flush();
+    assert(
+      host.querySelector('[data-provider-integration-state="healthy"]'),
+      "a provider that does not report stop_hook must not be marked degraded for it",
+    );
+    assert(!host.querySelector("[data-provider-integration-stale-hooks]"), "an absent stop_hook field must render no stale-hook surface");
+    await cleanup(root);
+  });
+}
+
 async function testRepairRefetchesIntoHealthyState() {
   const commands: string[] = [];
   let checks = 0;
@@ -165,6 +214,9 @@ async function main() {
   await testCapabilitySelectsIntegrationProviders();
   await testStaleHookIsActionable();
   await testHealthyHookHasNoRepairAction();
+  await testMissingStopHookIsDegraded();
+  await testStopHookHealthyWithSessionStart();
+  await testAbsentStopHookFieldIsNotDegraded();
   await testRepairRefetchesIntoHealthyState();
   await testBridgeWrappersUseRegisteredCommands();
   console.log("PASS provider integration health and reactive repair");

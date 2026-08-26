@@ -30,8 +30,10 @@ pnpm test:pw:lint    # fail if any Playwright test has no tier tag
 pnpm test:pw:smoke   # @smoke project
 pnpm test:pw:golden  # @golden project, one retry and 5min timeout
 pnpm test:pw:perf    # @perf stub-provider latency budget project
+pnpm test:pw:stub    # @stub project — recorded-provider transport, no provider credit
 pnpm test:pw:full    # all non-quarantined tests
 pnpm test:pw:live-pair # bounded real-Claude orchestration launch gate
+pnpm test:pw:instance # start the named instance and leave it standing
 pnpm test:pw:report  # open the last HTML report
 pnpm test:pw:trace -- tests/playwright/artifacts/test-results/<trace.zip>
 pnpm test:pw:debug   # run the suite with Playwright Inspector
@@ -39,18 +41,30 @@ pnpm test:pw:debug   # run the suite with Playwright Inspector
 
 ### Fast isolated check against an existing test console
 
-When the named Playwright instance is already healthy, use the adopt-only runner
-to run one exact spec and title without rebuilding, restarting, or tearing it down:
+`test:pw:one` is **adopt-only: it requires a standing named instance and never
+starts one.** From a cold machine, stand the instance up first — this command
+starts it and leaves it running:
+
+```bash
+pnpm test:pw:instance
+```
+
+Then run one exact spec and title against it, without rebuilding, restarting, or
+tearing it down:
 
 ```bash
 pnpm test:pw:one -- --file tests/playwright/suites/01-smoke/smoke.spec.ts \
   --grep "real UI renders" --project smoke
 ```
 
+Both `pnpm test:pw:one -- --file ...` and `pnpm test:pw:one --file ...` work: the
+runner ignores the leading `--` that `pnpm run` forwards verbatim. (This is
+unlike `test:pw:perf` below, where the post-`--` flags reach Playwright itself.)
+
 It verifies the named instance identity, API health, and CDP/WebView readiness
 before launching Playwright. It always applies a 30-second per-test cap and a
-10-minute global cap. If preflight fails, it exits nonzero and leaves every
-instance untouched; use the normal harness when a clean start is actually needed.
+10-minute global cap. If preflight fails, it exits nonzero, names the missing
+precondition, and leaves every instance untouched.
 
 Parallel execution is opt-in. `CT_E2E_WORKERS=N` starts `pw1..pwN` with
 separate API, Vite, CDP, identifier, token, and `.codeterm-dev-pwN` state.
@@ -66,6 +80,46 @@ CT_E2E_WORKERS=2 npx playwright test --config=tests/playwright/playwright.config
   tests/playwright/suites/06-mem tests/playwright/suites/11-api \
   tests/playwright/suites/13-canvas/plan-view-mode.spec.ts
 ```
+
+### Many specs against an existing test console (`test:pw:selection`)
+
+`test:pw:one` adopts a standing instance but takes exactly one file;
+`test:pw:bounded` takes many files but kills, stands up, and tears down again.
+`test:pw:selection` is the pair that was missing: many specs, adopt-only, no
+lifecycle change. Stand the instance up once with `pnpm test:pw:instance`, then:
+
+```bash
+pnpm test:pw:selection -- --project golden \
+  --grep "@smoke|close sync|peer switching|does not bounce"
+```
+
+You never pass file paths. The runner asks Playwright which tests the
+`--project`/`--grep` selection resolves to, scopes the run to exactly those
+files, and then compares what ran against what was discovered. A hand-written
+file list is refused on purpose: a spec missing from one reads as covered when
+it never ran, and a zero-match filter exits 0, so the exit code proves nothing.
+A test that was discovered but never reported fails the run **by name**, and so
+does a selection that matched nothing.
+
+**The saving is the reuse, not the scoping.** MEASURED on this machine, warm,
+12 tests across 4 files: `test:pw:bounded` 105.8 s against `test:pw:selection`
+14.2 s and 12.9 s. All of that comes from skipping kill + standup + teardown.
+Scoping the run to the derived files is worth **210-333 ms** (a run loading all
+65 spec files against one loading a single file), and deriving the list costs a
+discovery pass of about 0.8-1.0 s — so file scoping is a small net LOSS in
+wall-clock. It is here for the count oracle, not for speed. Standing the
+instance up costs 52.5 s once and is then amortised over every later run.
+
+**Do not start `--grep` with `/` in Git Bash.** MSYS rewrites any argument
+beginning with `/` into a Windows path before the process sees it, so
+`-g "/api/health is ok"` arrives as `C:/Program Files/Git/api/health is ok` and
+silently matches nothing. In an alternation only the first alternative is
+mangled, so the selection quietly loses one test and every count still agrees
+with itself. Order the pattern so it does not begin with `/`.
+`MSYS2_ARG_CONV_EXCL='*'` fixes the grep and breaks pnpm, whose corepack shim
+needs the same conversion. **No count oracle can catch this** — discovery and
+the run receive the same mangled argument and agree perfectly on a selection
+that was already wrong. Read the derived list and check the names you expect.
 
 ### @perf capped run
 
@@ -235,11 +289,24 @@ checks this before a test can land unnoticed.
   test, run with `pnpm test:pw:golden`.
 - `@perf`: deterministic stub-provider latency budgets, run with the dedicated
   `perf` project.
+- `@stub`: agent flows over the recorded-provider transport
+  (`CODETERM_STUB_AGENT_CMD` → `fixtures/stub-agent/replay.mjs`). Run with
+  `pnpm test:pw:stub`. The `golden` project inverts this tag, so a mock-only
+  result can never be reported as a golden pass.
+- `@live`: real-provider flows, run on their own cadence outside `golden`.
 - `@quarantine`: excluded from `pnpm test:pw:full`; document entries in
   [`QUARANTINE.md`](QUARANTINE.md).
 
 Non-tier tags such as `@edge`, `@failure`, or `@regression` may still describe
 coverage, but they do not satisfy the lint by themselves.
+
+### Provider source is declared, not implied
+
+A test that spawns a real agent must declare exactly one provider source:
+`@stub` (or an in-scope `isStubTransportActive` gate, which is what actually
+routes the spawn through the substitute) or `@live`. `check-tags.mjs` enforces
+this; the rule itself lives in `helpers/provider-gate-rule.mjs` and is covered,
+defect-first, by `helpers/provider-gate-rule.test.mjs`.
 
 ## Deferred lint guardrails
 
@@ -323,4 +390,4 @@ server-spawned tabs do). Each throws a clear
 - Suites assert **UI DOM state**, not just API JSON, wherever the action
   has a user-visible effect.
 
-<!-- revision: 8 -->
+<!-- revision: 11 -->

@@ -165,4 +165,19 @@ Schedule format: 5-field cron expressions (`min hour dom mon dow`). Examples: `*
 
 Service registration, health, usage, logs, and activity: `codeterm docs API-SERVICES`. Notifications and webhooks: `codeterm docs API-TABS`. Secret storage used by bridge startup: `codeterm docs API-STATE`.
 
-<!-- revision: 3 -->
+#### Updates
+| Method | Path | Body / Query | Description |
+|--------|------|------|-------------|
+| GET | `/api/update/status` | — | Current updater state and last update result |
+#### Git
+| Method | Path | Body / Query | Description |
+|--------|------|------|-------------|
+| GET | `/api/git/graph` | — | Commit graph for configured repositories |
+| GET | `/api/git/commit/{sha}/files` | — | Files changed by a commit |
+| GET | `/api/git/commit/{sha}/diff` | — | Diff for a commit |
+| GET | `/api/git/workdir-diff` | — | Current working tree diff |
+| GET | `/api/git/workdir-files` | — | Current working tree changed-file list |
+| POST | `/api/git/revert-file` | `{path}` | Revert one file through the API guardrails |
+| GET | `/api/git/repos` | — | Known repositories |
+
+<!-- revision: 4 -->

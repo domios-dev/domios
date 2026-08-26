@@ -20,8 +20,13 @@ export function LogsFilterBar({
   onRangeChange: (r: RangeKey) => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-3" data-testid="settings-logs-filter-bar">
-      <div className="flex items-center gap-1.5">
+    <div
+      role="group"
+      aria-label="Log filters"
+      className="flex flex-wrap items-center gap-3"
+      data-testid="settings-logs-filter-bar"
+    >
+      <div role="group" aria-label="Log levels" className="flex items-center gap-1.5">
         {ALL_LEVELS.map((l) => {
           const active = levels.has(l);
           const tone = LEVEL_TONE[l];
@@ -32,6 +37,7 @@ export function LogsFilterBar({
               key={l}
               data-testid="settings-logs-level-filter"
               data-log-level={l}
+              aria-pressed={active}
               onClick={() => onToggleLevel(l)}
               className="text-[10px] uppercase tracking-wider"
             >
@@ -58,7 +64,11 @@ export function LogsFilterBar({
         </datalist>
       </div>
 
-      <div className="inline-flex items-center rounded-md border border-[var(--ct-border)] overflow-hidden">
+      <div
+        role="group"
+        aria-label="Time range"
+        className="inline-flex items-center rounded-md border border-[var(--ct-border)] overflow-hidden"
+      >
         {RANGE_OPTIONS.map((opt) => {
           const active = range === opt.key;
           return (
@@ -68,6 +78,7 @@ export function LogsFilterBar({
               key={opt.key}
               data-testid="settings-logs-range-filter"
               data-log-range={opt.key}
+              aria-pressed={active}
               onClick={() => onRangeChange(opt.key)}
               className="rounded-none border-0 text-[10px] uppercase tracking-wider"
             >

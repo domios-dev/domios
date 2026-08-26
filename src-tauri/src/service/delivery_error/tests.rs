@@ -173,6 +173,54 @@ fn opaque_boot_refusal_is_recognised_as_zero_byte() {
     assert!(!err.bytes_written());
 }
 
+mod payload_preflight_bound_tests {
+    use super::super::{preflight_payload_size, SendOrigin, PROGRAMMATIC_SEND_MAX_BYTES};
+
+    #[test]
+    fn payload_preflight_bound_is_exactly_sixteen_megabytes() {
+        assert_eq!(PROGRAMMATIC_SEND_MAX_BYTES, 16 * 1024 * 1024);
+    }
+
+    #[test]
+    fn payload_preflight_refuses_only_over_bound_programmatic() {
+        let over = PROGRAMMATIC_SEND_MAX_BYTES + 1;
+        let err = preflight_payload_size("p1", SendOrigin::Programmatic, over).unwrap_err();
+        assert_eq!(err.code(), "payload_too_large");
+        assert_eq!(err.tab, "p1");
+        assert_eq!(err.payload_bytes, over);
+        assert_eq!(err.max_bytes, PROGRAMMATIC_SEND_MAX_BYTES);
+        assert_eq!(
+            preflight_payload_size("p1", SendOrigin::Programmatic, PROGRAMMATIC_SEND_MAX_BYTES),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn payload_preflight_exempts_user_origin_at_any_size() {
+        assert_eq!(
+            preflight_payload_size("p1", SendOrigin::User, PROGRAMMATIC_SEND_MAX_BYTES + 1),
+            Ok(())
+        );
+        assert_eq!(
+            preflight_payload_size("p1", SendOrigin::User, usize::MAX),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn payload_preflight_refusal_json_claims_zero_bytes() {
+        let err = preflight_payload_size("p1", SendOrigin::Programmatic, usize::MAX).unwrap_err();
+        let json = err.to_json();
+        assert_eq!(json["ok"], serde_json::json!(false));
+        assert_eq!(
+            json["error"]["code"],
+            serde_json::json!("payload_too_large")
+        );
+        assert_eq!(json["error"]["bytes_written"], serde_json::json!(false));
+        assert_eq!(json["error"]["tab"], serde_json::json!("p1"));
+    }
+}
+
 #[test]
 fn json_surface_carries_code_and_write_state() {
     let err = DeliveryError::from_injection("53854ac8", submit_never_confirmed());

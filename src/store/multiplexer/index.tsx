@@ -21,9 +21,11 @@ import { uid } from "../../lib/uid";
 import { setPendingCommand, setPendingCwd } from "../../lib/pendingCommands";
 import { defaultSpawnProviderId } from "../../lib/agentDescriptorCache";
 import { TitleLevel } from "../../lib/types";
+import { adoptStoredActions } from "../../lib/notificationActions";
 import type {
   MultiplexerState,
   Notification,
+  NotificationAnswer,
   TabStatus,
   AtomicSpawn,
   OrchestrationPairInput,
@@ -190,7 +192,17 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         console.warn("Failed to load backend state, using local state:", err);
       });
     invoke<Notification[]>("list_notifications", { unreadOnly: false })
-      .then((notifications) => dispatch({ type: "HYDRATE_NOTIFICATIONS", notifications }))
+      .then((notifications) =>
+        dispatch({
+          type: "HYDRATE_NOTIFICATIONS",
+          // Ingress for stored rows: an action written before actions carried
+          // daemon provenance loads with its invoke stripped, never accepted.
+          notifications: notifications.map((notification) => ({
+            ...notification,
+            actions: adoptStoredActions(notification.actions),
+          })),
+        }),
+      )
       .catch((err) => console.warn("Failed to load notification history:", err));
   }, [applyBackendState]);
 
@@ -251,8 +263,10 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       workspace_id: string | null;
       title: string;
       body: string | null;
-      level: "Info" | "Warning" | "Error";
-      actions?: Array<{ label: string; type: "invoke" | "url" | "dismiss"; value?: string; args?: Record<string, unknown> }>;
+      severity: "Info" | "Warning" | "Error";
+      level?: "verbose" | "action_needed" | "failure";
+      actions?: unknown;
+      answer?: NotificationAnswer;
       sticky?: boolean;
     }>("notification-created", (event) => {
       dispatch({
@@ -263,14 +277,29 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
           workspace_id: event.payload.workspace_id,
           title: event.payload.title,
           body: event.payload.body,
+          severity: event.payload.severity,
           level: event.payload.level,
           timestamp: Date.now(),
           read: false,
-          actions: event.payload.actions,
+          actions: adoptStoredActions(event.payload.actions),
+          answer: event.payload.answer,
           sticky: event.payload.sticky,
         },
       });
     }).then((unlisten) => unlisteners.push(unlisten));
+
+    listen<{ id: string; answered: string; delivered?: boolean }>(
+      "notification-answered",
+      (event) => {
+        if (!event.payload?.id) return;
+        dispatch({
+          type: "ANSWER_NOTIFICATION",
+          id: event.payload.id,
+          answered: event.payload.answered,
+          delivered: event.payload.delivered === true,
+        });
+      },
+    ).then((unlisten) => unlisteners.push(unlisten));
 
     listen<{ id: string }>("notification-resolved", (event) => {
       if (!event.payload?.id) return;
@@ -582,7 +611,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         workspace_id: workspaceId,
         title: providerMissing ? "Provider not installed" : `Failed to spawn ${agentId}`,
         body: message,
-        level: "Error",
+        severity: "Error",
+        level: "failure",
         timestamp: Date.now(),
         read: false,
         sticky: providerMissing,
@@ -805,6 +835,27 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // The chosen label is all that travels: the tab it answers to was recorded on
+  // the notification when the question was sent. Nothing is rendered optimistically
+  // — the answer shown is the one the store recorded, which on a second tap is
+  // still the first one.
+  const answerNotification = useCallback((id: string, label: string) => {
+    void invoke<{ answered?: string; delivered?: boolean }>("answer_notification", { id, label })
+      .then((result) => {
+        if (result?.answered) {
+          dispatch({
+            type: "ANSWER_NOTIFICATION",
+            id,
+            answered: result.answered,
+            delivered: result.delivered === true,
+          });
+        }
+      })
+      .catch((err) => {
+        console.warn("Failed to record notification answer:", err);
+      });
+  }, []);
+
   const clearNotifications = useCallback(() => {
     dispatch({ type: "CLEAR_NOTIFICATIONS" });
     void invoke("clear_notifications").catch((err) => {
@@ -864,6 +915,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       markAllRead,
       deleteNotification,
       clearNotifications,
+      answerNotification,
       dismissToast,
       setTabTitle,
       setAgentType,
@@ -896,6 +948,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       markAllRead,
       deleteNotification,
       clearNotifications,
+      answerNotification,
       dismissToast,
       setTabTitle,
       setAgentType,

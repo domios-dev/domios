@@ -1,18 +1,13 @@
 // Run: npx tsx src/components/Sidebar/SidebarWorkspaceTabs.test.tsx
 
-import { readFileSync } from "node:fs";
-import { Window } from "happy-dom";
-import type { Root } from "react-dom/client";
-import type { Tab, TabStatus, ProviderDescriptor, Workspace } from "../../lib/types";
-import type { PlanIndexEntry } from "../Canvas/plansApi";
+import type { Tab, TabStatus, Workspace } from "../../lib/types";
 import { TaskStatus, type Plan } from "../Canvas/types";
 import { PLAN_STATUS_COLORS } from "../shared/SegmentedDonut";
-import { SidebarDnd } from "./sortable";
 import { canvasFocusStore } from "../Canvas/canvasFocusStore";
+import { SidebarDnd } from "./sortable";
 import { SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
-import type { TeamMemberRole } from "../../lib/teamActions";
 import { forwardTerminalFallback } from "../../lib/terminalFallbackInput";
-import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
+import { __setInvokeForTest } from "../../lib/bridge";
 import {
   plan,
   planIndexEntry,
@@ -20,144 +15,19 @@ import {
   task,
   TEAM,
 } from "./SidebarWorkspaceTabs.fixtures.testdata";
+import {
+  act,
+  assert,
+  createRoot,
+  createSuite,
+  openTabActionsMenu,
+  renderSidebar,
+  setupDom,
+  sidebarStyles,
+  useState,
+} from "./SidebarWorkspaceTabs.testkit";
 
-let act: typeof import("react").act;
-let useState: typeof import("react").useState;
-let createRoot: typeof import("react-dom/client").createRoot;
-
-type TestFn = () => void | Promise<void>;
-const tests: Array<[string, TestFn]> = [];
-
-function test(name: string, fn: TestFn) {
-  tests.push([name, fn]);
-}
-
-function assert(condition: unknown, message: string): asserts condition {
-  if (!condition) throw new Error(message);
-}
-
-function setupDom() {
-  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  const window = new Window({ url: "http://localhost/" });
-  Object.defineProperty(globalThis, "window", { value: window, configurable: true });
-  Object.defineProperty(globalThis, "document", { value: window.document, configurable: true });
-  Object.defineProperty(globalThis, "navigator", { value: window.navigator, configurable: true });
-  Object.defineProperty(globalThis, "HTMLElement", { value: window.HTMLElement, configurable: true });
-  Object.defineProperty(globalThis, "HTMLInputElement", { value: window.HTMLInputElement, configurable: true });
-  Object.defineProperty(globalThis, "SVGElement", { value: window.SVGElement, configurable: true });
-  Object.defineProperty(globalThis, "Element", { value: window.Element, configurable: true });
-  Object.defineProperty(globalThis, "Node", { value: window.Node, configurable: true });
-  Object.defineProperty(globalThis, "Event", { value: window.Event, configurable: true });
-  Object.defineProperty(globalThis, "CustomEvent", { value: window.CustomEvent, configurable: true });
-  Object.defineProperty(globalThis, "MouseEvent", { value: window.MouseEvent, configurable: true });
-  Object.defineProperty(globalThis, "KeyboardEvent", { value: window.KeyboardEvent, configurable: true });
-  (globalThis as { requestAnimationFrame: (cb: FrameRequestCallback) => number }).requestAnimationFrame =
-    (callback) => {
-      callback(0);
-      return 0;
-    };
-  (globalThis as { cancelAnimationFrame: (id: number) => void }).cancelAnimationFrame = () => {};
-}
-
-const sidebarStyles = readFileSync(new URL("../../styles/globals.css", import.meta.url), "utf8");
-
-async function openTabActionsMenu(tabRow: Element): Promise<void> {
-  const trigger = tabRow.querySelector('button[title="Tab actions"]');
-  assert(trigger?.parentElement, "tab actions trigger present");
-  await act(async () => {
-    trigger.parentElement!.dispatchEvent(new Event("pointerdown", { bubbles: true }));
-  });
-}
-
-async function renderSidebar({
-  tabs,
-  sortedTabs = Object.values(tabs).map((item) => item.id),
-  plans = [],
-  planIndex = [],
-  statuses = {},
-  providers = [],
-  activeTabId,
-  onActivateTab = () => {},
-  onCloseTab = () => {},
-  onRenameTab = () => {},
-  onRenameTeam,
-  onAddTeamMember,
-  onCloseTeam = () => {},
-  newSessionDisabled = false,
-}: {
-  tabs: Record<string, Tab>;
-  sortedTabs?: string[];
-  plans?: Plan[];
-  planIndex?: PlanIndexEntry[];
-  statuses?: Record<string, "Working" | "Waiting" | "Idle" | "Dead">;
-  providers?: ProviderDescriptor[];
-  activeTabId?: string | null;
-  onActivateTab?: (tabId: string) => void;
-  onCloseTab?: (tabId: string) => void;
-  onRenameTab?: (tabId: string, title: string) => void;
-  onRenameTeam?: (teamId: string, name: string, managerTabId: string) => void | Promise<void>;
-  onAddTeamMember?: (
-    teamId: string,
-    role: TeamMemberRole,
-    providerId: string,
-    managerTabId: string,
-    model?: string,
-  ) => void;
-  onCloseTeam?: (teamId: string) => void;
-  newSessionDisabled?: boolean;
-}): Promise<{
-  host: HTMLDivElement;
-  root: Root;
-  rerender: (nextPlans: Plan[], nextPlanIndex?: PlanIndexEntry[]) => Promise<void>;
-}> {
-  const workspace: Workspace = {
-    id: "workspace",
-    name: "Workspace",
-    tabs: sortedTabs,
-    active_tab_id: activeTabId ?? sortedTabs[0] ?? null,
-    cwd: "/workspace",
-  };
-  const host = document.createElement("div");
-  document.body.appendChild(host);
-  const root = createRoot(host);
-  const rerender = async (nextPlans: Plan[], nextPlanIndex = planIndex) => act(async () => {
-    root.render(
-      <SidebarDnd handlers={{ reorderTabs: () => {}, reorderWorkspaces: () => {} }}>
-        <SidebarWorkspaceTabs
-          workspace={workspace}
-          activeTabId={workspace.active_tab_id}
-          sortedTabs={sortedTabs.map((tabId) => tabs[tabId]).filter(Boolean)}
-          tabs={tabs}
-          tabStatuses={statuses}
-          teams={[TEAM]}
-          planIndex={nextPlanIndex}
-          plans={nextPlans}
-          activeWork={null}
-          providers={providers}
-          closingTabIds={new Set()}
-          appearingTabIds={new Set()}
-          isActiveVisual={true}
-          workspaceCanvasActive={false}
-          touchMode={true}
-          compact={false}
-          sidebarActionText="text-xs"
-          orchestrators={Object.values(tabs).filter((member) => member.role_profile === "orchestrator")}
-          onBeforeOpenPlan={() => {}}
-          onActivateTab={onActivateTab}
-          onCloseTab={onCloseTab}
-          onRenameTab={onRenameTab}
-          onNewSession={() => {}}
-          newSessionDisabled={newSessionDisabled}
-          onRenameTeam={onRenameTeam}
-          onAddTeamMember={onAddTeamMember}
-          onCloseTeam={onCloseTeam}
-        />
-      </SidebarDnd>,
-    );
-  });
-  await rerender(plans, planIndex);
-  return { host, root, rerender };
-}
+const { test, run } = createSuite("SidebarWorkspaceTabs");
 
 setupDom();
 
@@ -257,336 +127,6 @@ test("plans have only a Team-owned sidebar home", async () => {
   await act(async () => root.unmount());
 });
 
-test("team menu enables staffing only for a Team with a manager", async () => {
-  const closed: string[] = [];
-  const tabs = {
-    manager: tab({ id: "manager", title: "Manager", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }),
-  };
-  canvasFocusStore.closeWorkspace();
-  const { host, root } = await renderSidebar({
-    tabs,
-    sortedTabs: [tab("tab-manager", "manager", 0)],
-    onRenameTeam: () => {},
-    onAddTeamMember: () => {},
-    onCloseTeam: (teamId) => closed.push(teamId),
-  });
-  const trigger = host.querySelector('[data-testid="team-menu-trigger"]') as HTMLButtonElement | null;
-  assert(trigger, "team menu trigger exists");
-  assert(trigger.classList.contains("sidebar-team-kebab"), "team menu uses the same-slot kebab control");
-  assert(trigger.tabIndex === 0, "team menu trigger remains keyboard reachable for the focus swap");
-  assert(/\.sidebar-team-unit\s*\{[^}]*margin:\s*4px 0;[^}]*background:\s*color-mix\(in srgb, var\(--ct-fg\) 3%, transparent\);/.test(sidebarStyles), "Team cards use lighter tint and compact vertical cadence");
-  assert(/\.sidebar-team-header\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) auto;[^}]*gap:\s*6px;[^}]*margin:\s*0;[^}]*padding:\s*6px 7px 4px 10px;/.test(sidebarStyles), "Team header reclaims the former chevron column");
-  assert(/\.sidebar-team-disclosure-bar\s*\{[^}]*position:\s*relative;[^}]*display:\s*block;[^}]*width:\s*100%;[^}]*height:\s*14px;/.test(sidebarStyles), "Team disclosure is a compact full-width bottom handle");
-  assert(/\.sidebar-team-disclosure-glyph\s*\{[^}]*left:\s*50%;[^}]*transform:\s*translate\(-50%, -50%\);/.test(sidebarStyles), "Team disclosure glyph stays geometrically centered");
-  assert(/\.sidebar-team-disclosure-glyph::before,\s*\.sidebar-team-disclosure-glyph::after\s*\{[^}]*width:\s*17px;[^}]*height:\s*1px;/.test(sidebarStyles), "Team disclosure uses a thin, restrained line");
-  assert(sidebarStyles.includes("right: calc(50% - 0.5px);") && sidebarStyles.includes("left: calc(50% - 0.5px);"), "Team disclosure overlaps its two segments at the joint");
-  assert(sidebarStyles.includes("transform: rotate(-8deg);"), "Team disclosure uses a gentle arrow transition");
-  assert(/\.sidebar-team-disclosure-label,\s*\.sidebar-team-disclosure-count\s*\{[^}]*left:\s*calc\(50% \+ 24px\);/.test(sidebarStyles), "Team disclosure text cannot shift the centered glyph");
-  assert(/\.ct-plan-status-breakdown\s*\{[^}]*flex-wrap:\s*nowrap;[^}]*white-space:\s*nowrap;/.test(sidebarStyles), "status breakdown stays on one line");
-  const header = host.querySelector('.sidebar-team-header') as HTMLDivElement | null;
-  const chevron = host.querySelector('[data-testid="team-collapse-toggle"]') as HTMLButtonElement | null;
-  assert(!header?.hasAttribute("role") && header?.tabIndex === -1, "Team header is a non-interactive control container");
-  assert(chevron?.getAttribute("aria-expanded") === "true", "Team bottom handle exposes the expanded state");
-  assert(chevron?.querySelector(".sidebar-team-disclosure-glyph"), "Team bottom handle renders the animated line glyph");
-  assert(chevron?.querySelector(".sidebar-team-disclosure-label")?.textContent?.trim() === "Hide", "expanded Team exposes the hover Hide label");
-  const managersSection = host.querySelector('[data-testid="managers-section"]');
-  assert(Boolean(chevron && managersSection && (managersSection.compareDocumentPosition(chevron) & Node.DOCUMENT_POSITION_FOLLOWING)), "Team disclosure remains below the manager section");
-  await act(async () => chevron?.click());
-  assert(chevron?.getAttribute("aria-expanded") === "false", "bottom handle click collapses Team");
-  assert(chevron?.querySelector(".sidebar-team-disclosure-label")?.textContent?.trim() === "Show", "collapsed Team exposes the hover Show label");
-  assert(chevron?.querySelector(".sidebar-team-disclosure-count")?.textContent?.trim() === "1 tab", "collapsed Team shows its tab count beside the centered handle");
-  await act(async () => chevron?.click());
-  assert(chevron?.getAttribute("aria-expanded") === "true", "bottom handle click expands Team");
-  assert(/\.sidebar-team-progress-slot\s*\{[^}]*width:\s*24px;[^}]*height:\s*20px;/.test(sidebarStyles), "done/total and kebab share one fixed slot");
-  assert(/\.ct-plan-status-breakdown-separator\s*\{[^}]*margin:\s*0 2px;/.test(sidebarStyles), "status separators have explicit spacing");
-  assert(/\.sidebar-team-menu-root \.sidebar-team-kebab\s*\{[^}]*opacity:\s*0;/.test(sidebarStyles), "kebab hides by opacity without removing its slot");
-  assert(/\.sidebar-team-menu-root \.sidebar-team-kebab\s*\{[^}]*opacity:\s*0;[^}]*pointer-events:\s*none;/.test(sidebarStyles), "hidden kebab ignores accidental pointer clicks");
-  assert(sidebarStyles.includes(".sidebar-team-header:hover .sidebar-team-menu-root .sidebar-team-kebab"), "CSS hover swaps the kebab into the fixed slot");
-  assert(sidebarStyles.includes('.sidebar-team-header:not([data-menu-dismissed="true"]):focus-within .sidebar-team-menu-root .sidebar-team-kebab'), "keyboard focus swaps the kebab into the fixed slot unless an outside pointer dismisses it");
-  assert(sidebarStyles.includes("[data-touch-mode=\"true\"] .sidebar-team-menu-root .sidebar-team-kebab"), "touch mode persistently exposes the same-slot kebab");
-  assert(!sidebarStyles.includes("data-menu-revealed"), "hover visibility has no React state attribute");
-  const outsideFocus = document.createElement("button");
-  host.appendChild(outsideFocus);
-  await act(async () => {
-    outsideFocus.focus();
-    trigger.focus();
-  });
-  assert(!header?.hasAttribute("data-menu-dismissed"), "keyboard focus inside the header keeps the menu reveal eligible");
-  await act(async () => document.body.dispatchEvent(new Event("pointerdown", { bubbles: true })));
-  assert(header?.getAttribute("data-menu-dismissed") === "true", "outside pointerdown dismisses the menu despite retained header focus");
-  await act(async () => {
-    outsideFocus.focus();
-    trigger.focus();
-  });
-  assert(!header?.hasAttribute("data-menu-dismissed"), "a later keyboard focus restores the focus-within reveal");
-  await act(async () => trigger.click());
-  const menu = document.querySelector('[data-testid="team-menu"]');
-  assert(menu?.textContent?.includes("Rename"), "supported rename remains available");
-  assert(menu?.textContent?.includes("Add worker"), "worker staffing is enabled with a handler and manager");
-  assert(menu?.textContent?.includes("Add planner"), "planner staffing is enabled with a handler and manager");
-  assert(menu?.textContent?.includes("Add orchestrator"), "orchestrator staffing is enabled with a handler and manager");
-  assert(!menu?.textContent?.includes("Create effort"), "humans cannot create efforts from Team UI");
-  assert(!menu?.textContent?.includes("Open effort"), "no effort action is shown without a plan");
-  const close = Array.from(menu?.querySelectorAll("button") ?? []).find((button) => button.textContent?.includes("Close Team")) as HTMLButtonElement | undefined;
-  assert(close, "Close Team action is available");
-  await act(async () => close.click());
-  assert(closed.join(",") === TEAM.id, "Close Team reports the exact Team id");
-  assert(host.querySelector('[data-testid="team-icon"]'), "Team identity remains visible without a plan");
-  assert(!host.querySelector('[data-testid="team-plan-button"]'), "no plan button is rendered without a plan");
-  assert(!host.querySelector('[data-testid="team-status-tally"]'), "no plan tally is rendered without a plan");
-  canvasFocusStore.closeWorkspace();
-  await act(async () => root.unmount());
-});
-
-test("managerless Team hides staffing and makes no request", async () => {
-  const requests: unknown[] = [];
-  const tabs = { worker: tab({ id: "worker", title: "Worker", role: "Worker", team_id: TEAM.id }) };
-  const { host, root } = await renderSidebar({
-    tabs,
-    sortedTabs: [tab("tab-worker", "worker", 0)],
-    onAddTeamMember: (...args) => requests.push(args),
-  });
-  const trigger = host.querySelector('[data-testid="team-menu-trigger"]') as HTMLButtonElement | null;
-  assert(trigger, "team menu trigger exists");
-  await act(async () => trigger.click());
-  const menu = document.querySelector('[data-testid="team-menu"]');
-  for (const role of ["worker", "planner", "orchestrator"])
-    assert(!menu?.textContent?.includes(`Add ${role}`), `managerless Team hides ${role} staffing`);
-  assert(!menu?.textContent?.includes("Rename"), "managerless Team hides rename");
-  assert(requests.length === 0, "managerless Team does not issue a staffing request");
-  await act(async () => root.unmount());
-});
-
-test("staffing selects the first eligible manager in visible Orchestrator-first order", async () => {
-  const requests: Array<[string, TeamMemberRole, string, string]> = [];
-  const tabs = {
-    unrelated: tab({ id: "unrelated", title: "Unrelated Tab", role: "Worker" }),
-    "a-O2": tab({ id: "a-O2", title: "Orchestrator Two", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }),
-    "p-P1": tab({ id: "p-P1", title: "Planner One", role: "Manager", role_profile: "planner", team_id: TEAM.id }),
-    "z-O1": tab({ id: "z-O1", title: "Orchestrator One", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }),
-  };
-  const providers = [{
-    id: "registry-provider",
-    display_name: "Registry provider",
-    transport: "pty",
-  }, {
-    id: "not-spawn-capable",
-    display_name: "Unsupported provider",
-    transport: "unsupported",
-  }] as ProviderDescriptor[];
-  const { host, root } = await renderSidebar({
-    tabs,
-    sortedTabs: [tab("tab-unrelated", "unrelated", 0), tab("tab-O1", "z-O1", 1), tab("tab-O2", "a-O2", 2), tab("tab-P1", "p-P1", 3)],
-    activeTabId: "tab-unrelated",
-    providers,
-    onAddTeamMember: (teamId, role, providerId, managerTabId) => {
-      requests.push([teamId, role, providerId, managerTabId]);
-    },
-  });
-  const trigger = host.querySelector('[data-testid="team-menu-trigger"]') as HTMLButtonElement | null;
-  assert(trigger, "team menu trigger exists");
-  await act(async () => trigger.click());
-  const worker = Array.from(document.querySelectorAll('[data-testid="team-menu"] button'))
-    .find((button) => button.textContent?.includes("Add worker")) as HTMLButtonElement | undefined;
-  assert(worker, "worker staffing action exists");
-  await act(async () => worker.click());
-  const provider = Array.from(document.querySelectorAll('[data-testid="team-menu"] button'))
-    .find((button) => button.textContent?.includes("Registry provider")) as HTMLButtonElement | undefined;
-  assert(provider, "spawn-capable registry provider is offered");
-  assert(
-    !document.querySelector('[data-testid="team-menu"]')?.textContent?.includes("Unsupported provider"),
-    "non-spawn-capable registry providers are absent",
-  );
-  await act(async () => provider.click());
-  assert(
-    JSON.stringify(requests) === JSON.stringify([[TEAM.id, "worker", "registry-provider", "z-O1"]]),
-    "the first visible Orchestrator is passed as caller identity while an unrelated tab is active",
-  );
-  await act(async () => root.unmount());
-});
-
-test("staffing selects a planner when no Orchestrator is eligible", async () => {
-  const requests: Array<[string, TeamMemberRole, string, string]> = [];
-  const tabs = {
-    watcher: tab({ id: "A0", title: "Watcher", role: "Manager", role_profile: "watcher", team_id: TEAM.id }),
-    planner: tab({ id: "P1", title: "Planner", role: "Manager", role_profile: "planner", team_id: TEAM.id, can_spawn: true }),
-  };
-  const providers = [{ id: "registry-provider", display_name: "Registry provider", transport: "pty" }] as ProviderDescriptor[];
-  const { host, root } = await renderSidebar({
-    tabs,
-    sortedTabs: [tab("tab-watcher", "watcher", 0), tab("tab-planner", "planner", 1)],
-    providers,
-    onAddTeamMember: (teamId, role, providerId, managerTabId) => requests.push([teamId, role, providerId, managerTabId]),
-  });
-  const trigger = host.querySelector('[data-testid="team-menu-trigger"]') as HTMLButtonElement;
-  await act(async () => trigger.click());
-  const worker = Array.from(document.querySelectorAll('[data-testid="team-menu"] button'))
-    .find((button) => button.textContent?.includes("Add worker")) as HTMLButtonElement;
-  await act(async () => worker.click());
-  const provider = Array.from(document.querySelectorAll('[data-testid="team-menu"] button'))
-    .find((button) => button.textContent?.includes("Registry provider")) as HTMLButtonElement;
-  await act(async () => provider.click());
-  assert(
-    JSON.stringify(requests) === JSON.stringify([[TEAM.id, "worker", "registry-provider", "P1"]]),
-    "a spawn-capable planner is selected while a leaf manager is skipped",
-  );
-  await act(async () => root.unmount());
-});
-
-test("staffing picker uses descriptor icons and requires a descriptor model choice", async () => {
-  const requests: Array<[string, TeamMemberRole, string, string, string?]> = [];
-  const tabs = {
-    manager: tab({ id: "manager", title: "Manager", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }),
-  };
-  const providers = [{
-    id: "provider-a",
-    display_name: "Provider A",
-    transport: "pty",
-    icon_svg: '<svg id="provider-a-icon"/>',
-    icon_color: "#d97757",
-    available_models: [{ id: "model-one", display_name: "Model one" }, { id: "model-two", display_name: "Model two" }],
-    default_model: "model-one",
-    behavior_config: { model: "own_prompt_set" },
-  }, {
-    id: "provider-b",
-    display_name: "Provider B",
-    transport: "chat_backend",
-    icon_hint: "B",
-    behavior_config: { model: "none" },
-  }, {
-    id: "not-spawn-capable",
-    display_name: "Unsupported provider",
-    transport: "unsupported",
-  }] as ProviderDescriptor[];
-  const { host, root } = await renderSidebar({
-    tabs,
-    sortedTabs: [tab("tab-manager", "manager", 0)],
-    providers,
-    onAddTeamMember: (teamId, role, providerId, managerTabId, model) => requests.push([teamId, role, providerId, managerTabId, model]),
-  });
-  await act(async () => (host.querySelector('[data-testid="team-menu-trigger"]') as HTMLButtonElement).click());
-  const worker = Array.from(document.querySelectorAll('[data-testid="team-menu"] button'))
-    .find((button) => button.textContent?.includes("Add worker")) as HTMLButtonElement;
-  await act(async () => worker.click());
-  const providerA = Array.from(document.querySelectorAll('[data-testid="team-menu"] button'))
-    .find((button) => button.textContent?.includes("Provider A")) as HTMLButtonElement;
-  assert(providerA.querySelector("svg#provider-a-icon"), "provider SVG comes from its descriptor");
-  const providerB = Array.from(document.querySelectorAll('[data-testid="team-menu"] button'))
-    .find((button) => button.textContent?.includes("Provider B")) as HTMLButtonElement;
-  assert(providerB.querySelector(".agent-icon")?.textContent === "B", "provider hint is the descriptor icon fallback");
-  assert(!document.querySelector('[data-testid="team-menu"]')?.textContent?.includes("Unsupported provider"), "non-spawn-capable providers are absent");
-  await act(async () => providerA.click());
-  const defaultModel = document.querySelector('[data-testid="team-picker-model-model-one"]') as HTMLButtonElement;
-  assert(defaultModel.getAttribute("aria-checked") === "true", "descriptor default model is preselected");
-  const modelTwo = document.querySelector('[data-testid="team-picker-model-model-two"]') as HTMLButtonElement;
-  await act(async () => modelTwo.click());
-  assert(JSON.stringify(requests) === JSON.stringify([[TEAM.id, "worker", "provider-a", "manager", "model-two"]]), "model selection preserves manager caller identity");
-  await act(async () => (host.querySelector('[data-testid="team-menu-trigger"]') as HTMLButtonElement).click());
-  const workerAgain = Array.from(document.querySelectorAll('[data-testid="team-menu"] button'))
-    .find((button) => button.textContent?.includes("Add worker")) as HTMLButtonElement;
-  await act(async () => workerAgain.click());
-  const providerAgain = Array.from(document.querySelectorAll('[data-testid="team-menu"] button'))
-    .find((button) => button.textContent?.includes("Provider A")) as HTMLButtonElement;
-  await act(async () => providerAgain.click());
-  const back = Array.from(document.querySelectorAll('[data-testid="team-menu"] button'))
-    .find((button) => button.textContent?.includes("Back")) as HTMLButtonElement;
-  await act(async () => back.click());
-  const restoredProvider = Array.from(document.querySelectorAll('[data-testid="team-menu"] button'))
-    .find((button) => button.textContent?.includes("Provider A")) as HTMLButtonElement;
-  assert(document.activeElement === restoredProvider, "Back restores focus to the selected provider");
-  await act(async () => restoredProvider.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
-  const restoredProviderB = Array.from(document.querySelectorAll('[data-testid="team-menu"] button'))
-    .find((button) => button.textContent?.includes("Provider B")) as HTMLButtonElement;
-  assert(document.activeElement === restoredProviderB, "arrow navigation reaches every provider row");
-  await act(async () => restoredProviderB.click());
-  assert(JSON.stringify(requests) === JSON.stringify([
-    [TEAM.id, "worker", "provider-a", "manager", "model-two"],
-    [TEAM.id, "worker", "provider-b", "manager", undefined],
-  ]), "model:none provider skips model selection and omits model from the request");
-  await act(async () => (host.querySelector('[data-testid="team-menu-trigger"]') as HTMLButtonElement).click());
-  const menu = document.querySelector('[data-testid="team-menu"]') as HTMLDivElement;
-  await act(async () => menu.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
-  assert(!document.querySelector('[data-testid="team-menu"]'), "Escape closes the picker without another request");
-  await act(async () => root.unmount());
-});
-
-test("staffing failure stays visible without local mutation or refetch", async () => {
-  const tabs = {
-    manager: tab({ id: "manager", title: "Manager", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }),
-  };
-  const tabsBefore = JSON.stringify(tabs);
-  const providers = [{ id: "registry-provider", display_name: "Registry provider", transport: "pty" }] as ProviderDescriptor[];
-  const originalFetch = globalThis.fetch;
-  let fetches = 0;
-  globalThis.fetch = async () => {
-    fetches += 1;
-    throw new Error("unexpected refetch");
-  };
-  try {
-    const { host, root } = await renderSidebar({
-      tabs,
-      sortedTabs: [tab("tab-manager", "manager", 0)],
-      providers,
-      onAddTeamMember: async () => {
-        throw new Error("Team manager permission denied (403)");
-      },
-    });
-    const trigger = host.querySelector('[data-testid="team-menu-trigger"]') as HTMLButtonElement;
-    await act(async () => trigger.click());
-    const worker = Array.from(document.querySelectorAll('[data-testid="team-menu"] button'))
-      .find((button) => button.textContent?.includes("Add worker")) as HTMLButtonElement;
-    await act(async () => worker.click());
-    const provider = Array.from(document.querySelectorAll('[data-testid="team-menu"] button'))
-      .find((button) => button.textContent?.includes("Registry provider")) as HTMLButtonElement;
-    await act(async () => provider.click());
-    assert(
-      document.querySelector('[data-testid="team-menu-error"]')?.textContent?.includes("403"),
-      "403 staffing rejection is shown inline",
-    );
-    assert(JSON.stringify(tabs) === tabsBefore, "staffing rejection does not mutate local Tab state");
-    assert(fetches === 0, "staffing rejection does not refetch or poll");
-    await act(async () => root.unmount());
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-test("staffing provider action ignores an immediate double click", async () => {
-  let invocations = 0;
-  let finish: (() => void) | undefined;
-  const tabs = {
-    manager: tab({ id: "manager", title: "Manager", role: "Manager", role_profile: "orchestrator", team_id: TEAM.id }),
-  };
-  const providers = [{ id: "registry-provider", display_name: "Registry provider", transport: "pty" }] as ProviderDescriptor[];
-  const { host, root } = await renderSidebar({
-    tabs,
-    sortedTabs: [tab("tab-manager", "manager", 0)],
-    providers,
-    onAddTeamMember: () => {
-      invocations += 1;
-      return new Promise<void>((resolve) => {
-        finish = resolve;
-      });
-    },
-  });
-  const trigger = host.querySelector('[data-testid="team-menu-trigger"]') as HTMLButtonElement;
-  await act(async () => trigger.click());
-  const worker = Array.from(document.querySelectorAll('[data-testid="team-menu"] button'))
-    .find((button) => button.textContent?.includes("Add worker")) as HTMLButtonElement;
-  await act(async () => worker.click());
-  const provider = Array.from(document.querySelectorAll('[data-testid="team-menu"] button'))
-    .find((button) => button.textContent?.includes("Registry provider")) as HTMLButtonElement;
-  await act(async () => {
-    provider.click();
-    provider.click();
-  });
-  assert(invocations === 1, "two immediate clicks issue exactly one staffing request");
-  assert(provider.disabled, "provider action is disabled while staffing is pending");
-  finish?.();
-  await act(async () => {});
-  assert(!document.querySelector('[data-testid="team-menu"]'), "menu closes after successful staffing");
-  await act(async () => root.unmount());
-});
 
 test("teamless_tabs_render_plain", async () => {
   const tabs = {
@@ -977,7 +517,9 @@ test("working team worker keeps activity dots without status rail", async () => 
   await act(async () => root.unmount());
 });
 
-test("team worker and manager descriptions do not add row lines", async () => {
+test("team worker and manager descriptions render as one subtitle line", async () => {
+  const managerDescription = "planning the release cut";
+  const workerDescription = "compiling shaders";
   const tabs: Record<string, Tab> = {
     orchestrator: tab({
       id: "orchestrator",
@@ -988,7 +530,7 @@ test("team worker and manager descriptions do not add row lines", async () => {
     manager: tab({
       id: "manager",
       title: "Planner",
-      description: "manager description must stay tooltip-only",
+      description: managerDescription,
       role: "Manager",
       role_profile: "planner",
       team_id: TEAM.id,
@@ -996,7 +538,7 @@ test("team worker and manager descriptions do not add row lines", async () => {
     worker: tab({
       id: "worker",
       title: "Worker",
-      description: "worker description must stay tooltip-only",
+      description: workerDescription,
       role: "Worker",
       team_id: TEAM.id,
     }),
@@ -1007,11 +549,22 @@ test("team worker and manager descriptions do not add row lines", async () => {
     tab("tab-worker", "worker", 2),
   ];
   const { host, root } = await renderSidebar({ tabs, sortedTabs });
+  const orchestratorRow = host.querySelector('[data-tab-id="orchestrator"]');
   const managerRow = host.querySelector('[data-tab-id="manager"]');
   const workerRow = host.querySelector('[data-tab-id="worker"]');
-  assert(!managerRow?.textContent?.includes("manager description"), "manager description is not a row line");
-  assert(!workerRow?.textContent?.includes("worker description"), "worker description is not a row line");
-  assert(!workerRow?.querySelector('[data-testid="tab-subline"]'), "worker remains a single-line row");
+  const subtitles = (row: Element | null | undefined) =>
+    Array.from(row?.querySelectorAll('[data-testid="tab-description-subtitle"]') ?? []);
+  assert(
+    subtitles(managerRow).map((node) => node.textContent).join("|") === managerDescription,
+    "manager description is exactly one subtitle line",
+  );
+  assert(
+    subtitles(workerRow).map((node) => node.textContent).join("|") === workerDescription,
+    "worker description is exactly one subtitle line",
+  );
+  assert(subtitles(orchestratorRow).length === 0, "a tab without a description gains no subtitle line");
+  assert(managerRow?.getAttribute("title")?.includes(managerDescription), "full description stays in the row tooltip");
+  assert(!workerRow?.querySelector('[data-testid="tab-subline"]'), "worker still has no role subline");
   assert(managerRow?.querySelectorAll('[data-testid="tab-subline"]').length === 1, "manager has only its role subline");
   await act(async () => root.unmount());
 });
@@ -1171,26 +724,4 @@ test("team manager close control calls onCloseTab", async () => {
   await act(async () => root.unmount());
 });
 
-async function main() {
-  __setListenForTest(async () => () => {});
-  ({ act, useState } = await import("react"));
-  ({ createRoot } = await import("react-dom/client"));
-
-  let failed = 0;
-  for (const [name, fn] of tests) {
-    try {
-      window.localStorage.clear();
-      await fn();
-      console.log(`✓ ${name}`);
-    } catch (error) {
-      failed += 1;
-      console.error(`✗ ${name}`);
-      console.error(error);
-    }
-  }
-  if (failed > 0) process.exit(1);
-  __setListenForTest(null);
-  console.log(`\n✓ ${tests.length}/${tests.length} SidebarWorkspaceTabs tests passed`);
-}
-
-void main();
+void run();

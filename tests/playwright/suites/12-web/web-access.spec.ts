@@ -41,6 +41,10 @@ async function openWebUiWithNetwork(browser: Browser, net: NetShape): Promise<{ 
     .waitFor({ timeout: 20_000 });
 
   await page.click('[data-testid="nav-mesh"]');
+  // The header exposes one control: the QR/link surface is a menu item inside
+  // `mesh-web-ui-menu`, not a top-level button (MeshWebUiControl.tsx).
+  await page.click('[data-testid="mesh-web-ui-menu-trigger"]');
+  await page.waitForSelector('[data-testid="mesh-web-ui-menu"]', { timeout: 10_000 });
   await page.click('[data-testid="mesh-web-ui-surface"]');
   await page.waitForSelector('[data-testid="web-ui-modal"]', { timeout: 10_000 });
   return { page, close: () => ctx.close() };

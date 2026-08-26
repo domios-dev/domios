@@ -13,6 +13,7 @@
 import http from "node:http";
 import { generateKeyPairSync, sign as edSign, randomUUID, type KeyObject } from "node:crypto";
 import { RELAY_PROTOCOL_VERSION } from "../../../src/lib/types";
+import { resolveHarnessDaemonBase } from "./daemon-base";
 
 export type StubMode = "happy" | "wedged" | "liar";
 
@@ -25,6 +26,12 @@ export class MeshStub {
    *  `crown`/`Uuid::parse_str` accepts — never the placeholder. */
   instanceId = randomUUID();
   readonly instanceName = "pw-mesh-stub";
+  /** A real peer reports a protected General AND ordinary workspaces; serving only
+   *  the protected one describes a peer shape the product cannot produce. */
+  readonly generalWorkspaceId = `${this.instanceName}-general-ws`;
+  readonly generalWorkspaceName = `${this.instanceName}-general`;
+  readonly workspaceId = `${this.instanceName}-ws`;
+  readonly workspaceName = `${this.instanceName}-workspace`;
   /** Real Ed25519 identity so the daemon accepts our signed announce (crown auth)
    *  and, via it, bumps our relay_protocol_version — required for versioned
    *  relay-stream / relay-to. Random-key stubs can only pair + answer pings. */
@@ -33,8 +40,9 @@ export class MeshStub {
   /** method+path log so tests can assert what the daemon actually called. */
   readonly requests: string[] = [];
   private serviceCount: number;
-  /** Daemon base for the pair-accept callback. */
-  private daemonBase: string;
+  /** Daemon base for the pair-accept callback; resolved from the harness
+   *  instance, never a hardcoded port. */
+  readonly daemonBase: string;
   private pairAcceptCompleted = false;
   private pairAcceptError: Error | null = null;
   private pairAcceptWaiters = new Set<{ resolve: () => void; reject: (error: Error) => void }>();
@@ -73,7 +81,7 @@ export class MeshStub {
 
   constructor(opts: { services?: number; daemonBase?: string; webToken?: string } = {}) {
     this.serviceCount = opts.services ?? 3;
-    this.daemonBase = opts.daemonBase ?? "http://127.0.0.1:7686";
+    this.daemonBase = resolveHarnessDaemonBase({ explicit: opts.daemonBase });
     this.webToken = opts.webToken ?? null;
     const { publicKey, privateKey } = generateKeyPairSync("ed25519");
     this.signingKey = privateKey;
@@ -121,13 +129,45 @@ export class MeshStub {
     }
   }
 
+  private workspaceShapes(): Array<{ id: string; name: string; isProtected: boolean }> {
+    return [
+      { id: this.generalWorkspaceId, name: this.generalWorkspaceName, isProtected: true },
+      { id: this.workspaceId, name: this.workspaceName, isProtected: false },
+    ];
+  }
+
+  /** Workspaces as the peer's mux state reports them. */
+  muxWorkspaces(): Array<Record<string, unknown>> {
+    return this.workspaceShapes().map((workspace) => ({
+      id: workspace.id,
+      name: workspace.name,
+      tabs: [],
+      active_tab_id: null,
+      cwd: null,
+      protected: workspace.isProtected,
+    }));
+  }
+
+  /** The same set in the flatter `/api/workspaces` shape. */
+  listWorkspaces(): Array<Record<string, unknown>> {
+    return this.workspaceShapes().map((workspace) => ({
+      id: workspace.id,
+      name: workspace.name,
+      is_active: workspace.id === this.workspaceId,
+      tab_count: 0,
+      cwd: null,
+      protected: workspace.isProtected,
+      tab_ids: [],
+    }));
+  }
+
   /** The projected remote tab as the peer's `/api/tabs` would report it. */
   tabPayload(): Record<string, unknown> {
     return {
       id: this.remoteTabId,
       tab_id: this.remoteTabId,
       title: "PW Remote Shared",
-      workspace_id: "stub-ws",
+      workspace_id: this.generalWorkspaceId,
       pty_id: this.remotePtyId,
       agent_type: "claude",
       agent_session_id: this.sourceSessionId,
@@ -439,18 +479,9 @@ export class MeshStub {
                   ok: true,
                   status: 200,
                   data: {
-                    workspaces: [
-                      {
-                        id: "stub-ws",
-                        name: `${this.instanceName}-workspace`,
-                        tabs: [],
-                        active_tab_id: null,
-                        cwd: null,
-                        protected: true,
-                      },
-                    ],
+                    workspaces: this.muxWorkspaces(),
                     tabs: {},
-                    active_workspace_id: "stub-ws",
+                    active_workspace_id: this.workspaceId,
                     focused_tab_id: null,
                   },
                   error: null,
@@ -541,32 +572,13 @@ export class MeshStub {
         json(200, { status: "ok", build: "stub", version: "0.0.0" });
         break;
       case "/api/workspaces":
-        json(200, [
-          {
-            id: "stub-ws",
-            name: `${this.instanceName}-workspace`,
-            is_active: true,
-            tab_count: 0,
-            cwd: null,
-            protected: true,
-            tab_ids: [],
-          },
-        ]);
+        json(200, this.listWorkspaces());
         break;
       case "/api/mux/state":
         json(200, {
-          workspaces: [
-            {
-              id: "stub-ws",
-              name: `${this.instanceName}-workspace`,
-              tabs: [],
-              active_tab_id: null,
-              cwd: null,
-              protected: true,
-            },
-          ],
+          workspaces: this.muxWorkspaces(),
           tabs: {},
-          active_workspace_id: "stub-ws",
+          active_workspace_id: this.workspaceId,
           focused_tab_id: null,
         });
         break;

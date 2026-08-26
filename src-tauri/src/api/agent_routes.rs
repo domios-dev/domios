@@ -249,6 +249,7 @@ pub async fn spawn_agent(
         args: body.args,
         cwd: body.cwd,
         provisioned_cwd: None,
+        lane_setup_command: None,
         title: body.title,
         title_provenance: Some(crate::service::SpawnIdentityProvenance::UserSupplied),
         description: body.description,

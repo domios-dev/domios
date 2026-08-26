@@ -88,6 +88,7 @@ fn session(id: &str, file: &str, modified_ts: i64) -> SessionMetadata {
         title: None,
         summary: None,
         file_path: file.into(),
+        transcript_path: None,
         created_ts: None,
         modified_ts: Some(modified_ts),
     }

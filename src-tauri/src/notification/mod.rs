@@ -1,4 +1,17 @@
+#[cfg(test)]
+mod action_provenance;
+#[cfg(test)]
+mod defaults_tests;
+pub mod answer;
+pub mod answer_delivery;
+pub mod authority;
+pub mod channel_ask;
+pub mod channel_placement;
+pub mod channels;
+pub mod dedupe;
+pub mod desktop;
 pub mod push;
+pub mod reach;
 pub mod store;
 
 use std::sync::Arc;
@@ -11,33 +24,40 @@ use store::{Notification, NotificationStore};
 /// Shared notification state, thread-safe.
 pub type NotifState = Arc<Mutex<NotificationStore>>;
 
-/// Create a notification.
+/// Create a notification. `level` names the closed set; omitting it keeps
+/// the notification in the inbox instead of raising a desktop alert.
 #[tauri::command]
 pub fn notify(
     svc: State<'_, crate::service::ServiceState>,
     title: String,
     body: Option<String>,
-    level: Option<String>,
+    severity: Option<String>,
     tab_id: Option<String>,
+    level: Option<String>,
+    event_key: Option<String>,
 ) -> Result<String, String> {
+    let intent = crate::api::notification_routes::parse_push_intent(level.as_deref(), event_key)?;
     Ok(svc.create_notification_ext(
         title,
         body,
-        level.as_deref(),
+        severity.as_deref(),
         None,
         None,
         crate::service::notification::NotificationOrigin::claimed(tab_id),
-        crate::service::notification::PushIntent::default(),
+        intent,
+        None,
     ))
 }
 
-/// Whether the Telegram push opt-in may be offered in settings at all.
+/// The push channels this build registers, and whether each one's own controls
+/// may be offered in settings. The grid's channel columns come from here, so a
+/// channel the registry gains appears without anyone editing a column list.
 #[tauri::command]
-pub fn telegram_push_gate(
+pub fn push_channel_roster(
     svc: State<'_, crate::service::ServiceState>,
 ) -> Result<serde_json::Value, String> {
     Ok(serde_json::json!({
-        "control_available": svc.telegram_push_control_available(),
+        "channels": crate::api::notification_routes::render_channel_standings(svc.inner()),
     }))
 }
 
@@ -50,6 +70,17 @@ pub fn list_notifications(
     let s = store.lock();
     let unread = unread_only.unwrap_or(false);
     Ok(s.list(unread).into_iter().cloned().collect())
+}
+
+/// Record the user's choice on a notification. The caller names the record and
+/// the chosen label; it cannot name a command, arguments, or a target tab.
+#[tauri::command]
+pub fn answer_notification(
+    svc: State<'_, crate::service::ServiceState>,
+    id: String,
+    label: String,
+) -> Result<serde_json::Value, String> {
+    svc.answer_notification(&id, &label)
 }
 
 /// Mark a single notification as read.

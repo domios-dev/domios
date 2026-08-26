@@ -7,13 +7,21 @@ import path from "node:path";
 import fs from "node:fs";
 import { expect, test } from "../../helpers/fixtures";
 import {
+  assertPlanSurfaceNotEmpty,
   CANVAS_ART_DIR,
   seedPerfFixtureAndOpenInlineCanvas,
 } from "../../helpers/canvas-inspect";
 import type { ApiClient } from "../../helpers/api-client";
 import { pollUntil } from "../../helpers/poll";
+import { buildDoneHeavyPerfFixturePlans } from "../../../../src/components/Canvas/perfFixture";
+import { DONE_COLUMN_COLLAPSED_LIMIT } from "../../../../src/components/Canvas/planView/boardModel";
+import { TaskStatus } from "../../../../src/components/Canvas/types";
 
 const DONE_HEAVY_KEY = "canvas.perfFixtureProfile";
+
+// Read the oracle off the fixture that owns it, never a number retyped here.
+const DONE_HEAVY_PLAN = buildDoneHeavyPerfFixturePlans()[0];
+const DONE_TASK_COUNT = DONE_HEAVY_PLAN.tasks.filter((t) => t.status === TaskStatus.Done).length;
 
 async function screenshot(page: import("@playwright/test").Page, name: string): Promise<string> {
   fs.mkdirSync(CANVAS_ART_DIR, { recursive: true });
@@ -38,6 +46,7 @@ test(
       await page.evaluate((key) => window.localStorage.setItem(key, "done-heavy"), DONE_HEAVY_KEY);
       await page.reload({ waitUntil: "domcontentloaded" });
       await page.waitForSelector('[data-testid="plan-view-shell"]', { state: "visible", timeout: 30_000 });
+      await assertPlanSurfaceNotEmpty(page);
 
       const shell = page.locator('[data-testid="plan-view-shell"]');
       const modeSwitch = page.locator('[data-testid="plan-view-mode-switch"]');
@@ -49,29 +58,28 @@ test(
 
       const doneColumn = boardView.locator('[data-testid="plan-board-column"][data-column="done"]');
 
-      const doneCount = await doneColumn.locator('[data-testid="plan-board-column-count"]').textContent().catch(() => null);
-      if (!doneCount || parseInt(doneCount, 10) === 0) {
-        await screenshot(page, "plan-view-board-done-heavy-nodone");
-        test.skip(true, "done-heavy fixture produced no done tasks — skip done-column assertions");
-        return;
-      }
+      // The fixture is deterministic: DONE_TASK_COUNT done tasks, well over the
+      // collapse limit, so the count and both toggle labels are exact.
+      await expect(doneColumn.locator('[data-testid="plan-board-column-count"]')).toHaveText(
+        String(DONE_TASK_COUNT),
+      );
+      expect(DONE_TASK_COUNT, "fixture must exceed the collapse limit for this test to mean anything")
+        .toBeGreaterThan(DONE_COLUMN_COLLAPSED_LIMIT);
+      await expect(doneColumn.locator('[data-testid="plan-board-task-card"]')).toHaveCount(
+        DONE_COLUMN_COLLAPSED_LIMIT,
+      );
 
       const showAllBtn = doneColumn.locator('[data-testid="plan-board-done-toggle"]').first();
-      const showAllVisible = await showAllBtn.isVisible().catch(() => false);
+      await expect(showAllBtn).toHaveText(`Show all ${DONE_TASK_COUNT}`);
 
       await screenshot(page, "plan-view-board-done-heavy");
 
-      if (showAllVisible) {
-        await expect(showAllBtn).toContainText(/show all/i);
-
-        await showAllBtn.click();
-        const collapseBtn = doneColumn.locator('[data-testid="plan-board-done-toggle"]').first();
-        await expect(collapseBtn).toContainText(/show recent/i, { timeout: 5_000 });
-        await screenshot(page, "plan-view-board-done-heavy-expanded");
-      } else {
-        const countInt = parseInt(doneCount, 10);
-        expect(countInt, "done count should be ≤ 5 when no toggle shown").toBeLessThanOrEqual(5);
-      }
+      await showAllBtn.click();
+      await expect(doneColumn.locator('[data-testid="plan-board-done-toggle"]').first()).toHaveText(
+        `Show recent ${DONE_COLUMN_COLLAPSED_LIMIT}`,
+      );
+      await expect(doneColumn.locator('[data-testid="plan-board-task-card"]')).toHaveCount(DONE_TASK_COUNT);
+      await screenshot(page, "plan-view-board-done-heavy-expanded");
     } finally {
       await canvas.close();
     }
@@ -94,6 +102,7 @@ test(
       await page.evaluate((key) => window.localStorage.setItem(key, "done-heavy"), DONE_HEAVY_KEY);
       await page.reload({ waitUntil: "domcontentloaded" });
       await page.waitForSelector('[data-testid="plan-view-shell"]', { state: "visible", timeout: 30_000 });
+      await assertPlanSurfaceNotEmpty(page);
 
       const modeSwitch = page.locator('[data-testid="plan-view-mode-switch"]');
       await modeSwitch.getByRole("tab", { name: /list/i }).click();
@@ -105,20 +114,13 @@ test(
 
       await screenshot(page, "plan-view-list-done-heavy");
 
+      // The list groups by status, and the all-done "Done" group starts collapsed
+      // (defaultSectionExpanded → !allTasksDone), so exactly one rollup row shows
+      // the fixture's done count.
       const rollups = listView.locator('[data-testid="plan-list-done-rollup"]');
-      const rollupCount = await rollups.count();
-
-      if (rollupCount > 0) {
-        await expect(rollups.first()).toBeVisible();
-        await screenshot(page, "plan-view-list-done-heavy-rollup");
-      } else {
-        // Sections may not be done-only if the fixture spreads statuses.
-        // Verify at minimum that the list has rows.
-        const rows = listView.locator('[data-testid="plan-list-task"], [data-testid="plan-list-section"]');
-        const rowCount = await rows.count();
-        expect(rowCount, "list view must have rows with done-heavy fixture").toBeGreaterThan(0);
-        await screenshot(page, "plan-view-list-done-heavy-rows");
-      }
+      await expect(rollups).toHaveCount(1);
+      await expect(rollups.first()).toHaveText(`${DONE_TASK_COUNT} done`);
+      await screenshot(page, "plan-view-list-done-heavy-rollup");
     } finally {
       await canvas.close();
     }
@@ -141,6 +143,7 @@ test(
       await page.evaluate((key) => window.localStorage.setItem(key, "done-heavy"), DONE_HEAVY_KEY);
       await page.reload({ waitUntil: "domcontentloaded" });
       await page.waitForSelector('[data-testid="plan-view-shell"]', { state: "visible", timeout: 30_000 });
+      await assertPlanSurfaceNotEmpty(page);
 
       const modeSwitch = page.locator('[data-testid="plan-view-mode-switch"]');
       await modeSwitch.getByRole("tab", { name: /canvas/i }).click();
@@ -158,13 +161,9 @@ test(
       );
       await screenshot(page, "plan-view-canvas-done-heavy");
 
-      const doneCountText = await doneStation.locator(".mc-flow-count").textContent();
-      const doneCount = Number(doneCountText?.trim() ?? "0");
-      if (doneCount === 0) {
-        test.skip(true, "done-heavy fixture produced no done tasks for canvas shelf");
-        return;
-      }
-      expect(doneCount).toBeGreaterThan(5);
+      // Every non-cancelled done task becomes a done_shelf station (no cap in
+      // buildMissionControlModel), so the shelf count equals the fixture's.
+      await expect(doneStation.locator(".mc-flow-count")).toHaveText(String(DONE_TASK_COUNT));
       await screenshot(page, "plan-view-canvas-done-heavy-shelf");
     } finally {
       await canvas.close();

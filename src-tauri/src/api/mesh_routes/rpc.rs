@@ -5,6 +5,7 @@ use axum::{extract::State as AxumState, Json};
 use serde::{Deserialize, Serialize};
 
 use crate::api::routes::AppState;
+use crate::socket::server::protocol;
 
 const CACHE_CAPACITY: usize = 512;
 
@@ -13,6 +14,9 @@ pub struct MeshRpcRequest {
     method: String,
     params: Option<serde_json::Value>,
     request_id: String,
+    /// Lenient by design: any non-integer value gates as the oldest protocol.
+    #[serde(default)]
+    protocol_version: Option<serde_json::Value>,
 }
 
 #[derive(Clone, Serialize)]
@@ -119,6 +123,16 @@ pub async fn mesh_rpc(
             }),
         });
     }
+    if let Some(error) = protocol::version_skew_gate(
+        protocol::client_protocol_version(request.protocol_version.as_ref()),
+        protocol::PROTOCOL_VERSION,
+        protocol::RECOVERY_COMMAND,
+    ) {
+        return Json(MeshRpcResponse {
+            result: None,
+            error: Some(error),
+        });
+    }
     let (entry, owns_dispatch) = response_cache()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -209,6 +223,48 @@ mod tests {
         ] {
             assert!(!method_allowed(method), "{method}");
         }
+    }
+
+    #[test]
+    fn version_skew_error_serializes_untranslated_over_mesh_rpc() {
+        use crate::socket::server::protocol;
+        let error = protocol::version_skew_gate(2, 6, "recover --here")
+            .expect("older mesh client is refused");
+        let response = super::MeshRpcResponse {
+            result: None,
+            error: Some(error),
+        };
+
+        let wire = serde_json::to_value(&response).expect("mesh RPC response serializes");
+        assert_eq!(wire["error"]["code"], protocol::VERSION_SKEW);
+        assert_eq!(wire["error"]["data"]["type"], "version_skew");
+        assert_eq!(wire["error"]["data"]["client_protocol"], 2);
+        assert_eq!(wire["error"]["data"]["server_protocol"], 6);
+        assert_eq!(wire["error"]["data"]["recovery"], "recover --here");
+    }
+
+    #[test]
+    fn version_skew_mesh_request_parses_with_and_without_the_version_field() {
+        use crate::socket::server::protocol;
+        let versioned: super::MeshRpcRequest = serde_json::from_str(&format!(
+            r#"{{"method":"plan.get","params":null,"request_id":"r1","protocol_version":{}}}"#,
+            protocol::PROTOCOL_VERSION
+        ))
+        .unwrap();
+        assert!(protocol::version_skew_gate(
+            protocol::client_protocol_version(versioned.protocol_version.as_ref()),
+            protocol::PROTOCOL_VERSION,
+            protocol::RECOVERY_COMMAND,
+        )
+        .is_none());
+
+        let legacy: super::MeshRpcRequest =
+            serde_json::from_str(r#"{"method":"plan.get","params":null,"request_id":"r2"}"#)
+                .expect("a peer without the version field must not fail parsing");
+        assert_eq!(
+            protocol::client_protocol_version(legacy.protocol_version.as_ref()),
+            0
+        );
     }
 
     #[test]

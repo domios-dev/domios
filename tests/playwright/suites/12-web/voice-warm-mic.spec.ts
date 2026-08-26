@@ -4,6 +4,7 @@
  * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test, type Page, API_BASE, readDevToken } from "../../helpers/fixtures";
+import { isStubTransportActive } from "../../helpers/stub-gate";
 
 const WEB_URL = `${API_BASE}/`;
 
@@ -40,8 +41,14 @@ async function holdVoice(page: Page): Promise<void> {
   await page.mouse.up();
 }
 
-test("@golden mic stream is warm: two recordings → getUserMedia called exactly once", async ({ api, webBrowser, tabCleanup, spawnAgent, mediaMocks }) => {
+test("@stub mic stream is warm: two recordings → getUserMedia called exactly once", async ({ api, webBrowser, tabCleanup, spawnAgent, mediaMocks }) => {
   test.setTimeout(180_000);
+  // The warm-stream reuse, not the provider, is under test — spawn through the
+  // stub transport so the assertion never depends on provider credit.
+  test.skip(
+    !(await isStubTransportActive(api)),
+    "dev daemon is not running with CODETERM_STUB_AGENT_CMD",
+  );
   const ctx = await webBrowser.newContext({ viewport: { width: 375, height: 812 } });
   const page = await ctx.newPage();
   await mediaMocks.installVoiceRecorder(page, FAKE_MEDIA);

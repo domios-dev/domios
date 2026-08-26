@@ -111,6 +111,8 @@ pub struct AgentSpawnSpec {
     pub extra_args: Vec<String>,
     #[serde(default, skip_deserializing)]
     pub provisioned_cwd: Option<String>,
+    #[serde(default, skip_deserializing)]
+    pub(crate) lane_setup_command: Option<String>,
     #[serde(default)]
     pub role: Option<String>,
     #[serde(default)]
@@ -617,6 +619,10 @@ impl ServiceContext {
             role_suffixed_task.as_deref(),
             launch_session_id.as_deref(),
             &self.agent_registry,
+        );
+        let launch_cmd = super::worker_lane::compose_launch_with_setup(
+            agent.lane_setup_command.as_deref(),
+            launch_cmd,
         );
         launch_agent_in_background_with_env(
             self.clone(),

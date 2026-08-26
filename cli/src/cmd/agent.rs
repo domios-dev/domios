@@ -149,13 +149,7 @@ pub(crate) fn join_cli_words(value: Option<Vec<String>>) -> Option<String> {
 }
 
 fn refusal_next_commands() -> Vec<&'static str> {
-    vec![
-        "git status --short",
-        "git add <files>",
-        "git commit -m \"<message>\"",
-        "codeterm agent report --status in_review --sha $(git rev-parse HEAD) \"...\"",
-        "codeterm agent report --status partial \"...\"",
-    ]
+    crate::cmd::report_guard::REPORT_NEXT_COMMANDS.to_vec()
 }
 
 fn refusal_report_message(refusal: &ReportRefusal, original: &str) -> String {
@@ -561,34 +555,18 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                     }
                 }
             }
+            crate::cmd::payload_source::refuse_oversize_inline(
+                text.as_deref().or(message.as_deref()),
+            );
             let tab_id = resolve_tab(client, tab);
-            let mut message = if let Some(path) = from_pad {
-                crate::cmd::payload_source::read_from_pad(&path).unwrap_or_else(|e| {
-                    eprintln!("Error: {e}");
-                    std::process::exit(1);
-                })
-            } else {
-                let inline = text.or(message).unwrap_or_default();
-                crate::cmd::send_text::nudge_report_body(json, &inline);
-                inline
-            };
-            if let Some(path) = doc {
-                let doc_text = match std::fs::read_to_string(&path) {
-                    Ok(text) => text,
-                    Err(e) => {
-                        eprintln!("Error: failed to read --doc {}: {}", path, e);
-                        std::process::exit(1);
-                    }
-                };
-                if !message.is_empty() {
-                    message.push_str("\n\n");
-                }
-                message.push_str(&format!("doc: {path}\n\n{doc_text}"));
-            }
+            let message =
+                crate::cmd::report_body::read_report_body(message, text, from_pad, doc, json);
             if message.is_empty() {
                 eprintln!("Error: report message, --text, or --doc is required");
                 std::process::exit(1);
             }
+            let resolved_echo =
+                (!json).then(|| crate::cmd::resolved_text::resolved_text_echo(&message));
             let plan = env_default(plan, "CODETERM_PLAN_ID");
             let task = env_default(task, "CODETERM_TASK_ID");
             if status.is_some() && (plan.is_none() || task.is_none()) {
@@ -649,12 +627,16 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             } else {
                 None
             };
+            let report_base = crate::cmd::report_attribution::ReportBase::classify(
+                base,
+                std::env::var("CODETERM_LANE_BASE").ok(),
+            );
             let (branch, sha, changed_files) = match crate::cmd::report_guard::enrich_ready_report(
                 task_scope.as_ref(),
                 status,
                 branch,
                 sha,
-                base,
+                report_base,
                 changed_files,
                 acknowledge_dirty,
             ) {
@@ -723,7 +705,13 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             if let Ok(ref val) = result {
                 print_report_notices(json, val);
             }
+            let delivered = result.is_ok();
             handle_result(json, result);
+            if delivered {
+                if let Some(line) = resolved_echo {
+                    println!("{line}");
+                }
+            }
         }
         AgentAction::Ack { tab, plan, task } => {
             let tab_id = super::local_io::resolve_caller_tab(tab, "agent ack");

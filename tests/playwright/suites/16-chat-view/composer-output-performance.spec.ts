@@ -98,15 +98,14 @@ declare global {
   }
 }
 
-async function createFixture(api: ApiClient, tabCleanup: TabCleanup): Promise<{ tabIds: string[]; tabIds: string[] }> {
-  const tabIds: string[] = [];
+async function createFixture(api: ApiClient, tabCleanup: TabCleanup): Promise<{ tabIds: string[] }> {
   const tabIds: string[] = [];
   for (let i = 0; i < TAB_COUNT; i += 1) {
-    const tab = await tabCleanup.createTab<{ id: string; tab_id?: string }>({
+    const tab = await tabCleanup.createTab<{ id: string }>({
       title: `pw-composer-perf-${String(i).padStart(2, "0")}`,
     });
     tabIds.push(tab.id);
-    if (tab.tab_id) tabIds.push(tab.tab_id);
+    
     await api.post(`/tabs/${tab.id}/agent-type`, { agent_type: "claude" });
     await api.post(`/tabs/${tab.id}/chat-view`, { enabled: true });
     if (i === 0) {
@@ -116,7 +115,7 @@ async function createFixture(api: ApiClient, tabCleanup: TabCleanup): Promise<{ 
     }
   }
   await api.focusTab(tabIds[0]);
-  return { tabIds, tabIds };
+  return { tabIds };
 }
 
 async function openWebPage(browser: Browser): Promise<Page> {
@@ -135,7 +134,7 @@ async function openWebPage(browser: Browser): Promise<Page> {
   return page;
 }
 
-async function openFixturePage(page: Page, tabIds: string[], tabIds: string[]): Promise<void> {
+async function openFixturePage(page: Page, tabIds: string[]): Promise<void> {
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.waitForSelector("#root > *", { state: "attached", timeout: WEB_MOUNT_CAP_MS });
   if (tabIds[0]) {
@@ -337,8 +336,8 @@ async function writeArtifact(testInfo: { outputPath: (...pathSegments: string[])
   console.log(`COMPOSER_PERF_${summary.mode.toUpperCase()} ${JSON.stringify(summary)}`);
 }
 
-async function runScenario(page: Page, mode: PerfSummary["mode"], tabIds: string[], tabIds: string[], testInfo: { outputPath: (...pathSegments: string[]) => string }): Promise<void> {
-  await openFixturePage(page, tabIds, tabIds);
+async function runScenario(page: Page, mode: PerfSummary["mode"], tabIds: string[], testInfo: { outputPath: (...pathSegments: string[]) => string }): Promise<void> {
+  await openFixturePage(page, tabIds);
   const hasTestHook = await page.evaluate(() => typeof window.__codetermTestChat !== "undefined");
   test.skip(!hasTestHook, "VITE_CODETERM_TEST hooks are required for deterministic transcript churn");
   await installPerfCollectors(page);
@@ -377,10 +376,10 @@ test("@perf composer stays next-frame under 25-tab WebView2 load", async ({
   await ui.page.context().grantPermissions(["clipboard-read", "clipboard-write"], {
     origin: new URL(API_BASE).origin,
   });
-  const { tabIds, tabIds } = await createFixture(api, tabCleanup);
+  const { tabIds } = await createFixture(api, tabCleanup);
   expect(tabIds).toHaveLength(TAB_COUNT);
   expect(tabIds).toHaveLength(TAB_COUNT);
-  await runScenario(ui.page, "webview2", tabIds, tabIds, testInfo);
+  await runScenario(ui.page, "webview2", tabIds, testInfo);
 });
 
 test("@perf composer stays next-frame under 25-tab web-mode load", async ({
@@ -388,12 +387,12 @@ test("@perf composer stays next-frame under 25-tab web-mode load", async ({
   webBrowser,
   tabCleanup,
 }, testInfo) => {
-  const { tabIds, tabIds } = await createFixture(api, tabCleanup);
+  const { tabIds } = await createFixture(api, tabCleanup);
   expect(tabIds).toHaveLength(TAB_COUNT);
   expect(tabIds).toHaveLength(TAB_COUNT);
   const page = await openWebPage(webBrowser);
   try {
-    await runScenario(page, "web", tabIds, tabIds, testInfo);
+    await runScenario(page, "web", tabIds, testInfo);
   } finally {
     await page.context().close();
   }

@@ -195,6 +195,10 @@ pub struct SessionMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
     pub file_path: String,
+    /// Hook-reported transcript path (provider-owned evidence, see
+    /// `crate::session_evidence`); absent ⇒ readers reconstruct from the id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transcript_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_ts: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -244,39 +248,6 @@ pub struct ReasoningEffortInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 }
-
-/// Structured rejection when a requested reasoning effort is not supported by a
-/// provider. Carries the exact supported set so callers surface an honest error
-/// instead of silently downgrading. Serializable for API/CLI/report payloads.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub struct ReasoningEffortRejection {
-    pub provider: String,
-    pub requested: String,
-    pub supported: Vec<String>,
-}
-
-impl std::fmt::Display for ReasoningEffortRejection {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.supported.is_empty() {
-            write!(
-                f,
-                "provider '{}' does not support reasoning-effort selection (requested '{}')",
-                self.provider, self.requested
-            )
-        } else {
-            write!(
-                f,
-                "provider '{}' does not support reasoning effort '{}'; supported: {}",
-                self.provider,
-                self.requested,
-                self.supported.join(", ")
-            )
-        }
-    }
-}
-
-impl std::error::Error for ReasoningEffortRejection {}
 
 /// Severity flavor for `SettingField::Info` notes.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -397,6 +368,10 @@ pub struct ProviderDescriptor {
     pub compact_command: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub self_update: Option<ProviderSelfUpdateCapability>,
+    /// Optional `integration.trust_grant` capability. Absent ⇒ integration
+    /// install needs no provider-owned trust grant step.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub integration_trust_grant: Option<IntegrationTrustGrantCapability>,
     /// `true` when this provider declares a stop_keystroke — UI shows
     /// a Stop button on the tab that POSTs to `/api/tabs/:id/stop`.
     #[serde(default)]
@@ -436,10 +411,15 @@ pub struct ProviderDescriptor {
     pub presets: Vec<crate::chatbackend_provider::PresetInfo>,
     /// How a system prompt reaches the provider.
     pub system_prompt_delivery: SystemPromptDelivery,
+    /// Who composes this provider's conversational context. Skipped on the wire
+    /// while `Plugin`, so a provider that never declares it serializes exactly
+    /// as it did before the field existed.
+    #[serde(default, skip_serializing_if = "ContextOwner::is_plugin")]
+    pub context_owner: ContextOwner,
 }
 
 /// Current `ProviderDescriptor` schema version. Bump on breaking change.
-pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 13;
+pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 14;
 
 /// Trait for agent backend providers (Claude, Codex, Aider, etc.)
 #[async_trait]
@@ -667,6 +647,17 @@ pub trait AgentProvider: Send + Sync {
         false
     }
 
+    /// Declared hook event roster: (event name → ingestion route) pairs core
+    /// registers verbatim — an undeclared event routes nowhere. Default:
+    /// hooked providers post the SessionStart binding event; hookless none.
+    fn hook_event_roster(&self) -> Vec<HookEventBinding> {
+        if self.has_hooks() {
+            session_start_hook_roster()
+        } else {
+            Vec::new()
+        }
+    }
+
     /// Build raw bytes to navigate to and confirm a prompt option.
     /// `option_index` is 0-based (0 = first option). `screen` is the cleaned
     /// terminal text the prompt is on — providers whose highlight isn't the top
@@ -867,8 +858,8 @@ pub trait AgentProvider: Send + Sync {
     }
 
     /// Raw key bytes the host writes into the PTY to interrupt the
-    /// agent's current generation without exiting. Most TUIs accept
-    /// Esc (`""`); cursor-agent listens for Ctrl+C (`""`).
+    /// agent's current generation without exiting — the provider's
+    /// declared stopKey (Esc for all bundled providers).
     /// Returning `None` means the provider has no in-tab stop hook
     /// and the UI should hide the Stop affordance for that tab.
     fn stop_keystroke(&self) -> Option<&str> {
@@ -938,6 +929,18 @@ pub trait AgentProvider: Send + Sync {
 
     fn restore_integration(&self) -> Result<(), String> {
         Err("provider integration has no recoverable backup".into())
+    }
+
+    /// Optional `integration.trust_grant` declaration; default `None` — the
+    /// provider's hooks need no trust grant.
+    fn integration_trust_grant_capability(&self) -> Option<IntegrationTrustGrantCapability> {
+        None
+    }
+
+    /// Provider-owned hook-trust grant scoped to the declared managed key(s).
+    /// The provider CLI is the only hash authority; failure degrades honestly.
+    fn grant_integration_trust(&self, _managed_keys: &[String]) -> serde_json::Value {
+        serde_json::json!({ "granted": false, "degraded": true, "reason": "provider declares no trust grant capability" })
     }
 
     /// Startup checks are read-only; global provider config is never repaired implicitly.
@@ -1053,6 +1056,7 @@ pub trait AgentProvider: Send + Sync {
             fresh_context_command: self.fresh_context_command().map(|s| s.to_string()),
             compact_command: self.compact_command().map(|s| s.to_string()),
             self_update: self.provider_self_update_capability(),
+            integration_trust_grant: self.integration_trust_grant_capability(),
             supports_stop: self.stop_keystroke().is_some(),
             supports_chat_ui: self.supports_chat_ui(),
             supports_structured_prompts: self.supports_structured_prompts(),
@@ -1062,6 +1066,7 @@ pub trait AgentProvider: Send + Sync {
             behavior_config: self.behavior_config(),
             presets: Vec::new(),
             system_prompt_delivery: self.system_prompt_delivery(),
+            context_owner: ContextOwner::Plugin,
         }
     }
 

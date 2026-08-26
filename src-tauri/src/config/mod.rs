@@ -1,4 +1,5 @@
 mod agent_access;
+pub mod lane;
 pub mod schema;
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
@@ -42,9 +43,27 @@ scrollback = 10000
 copy_on_select = false
 
 [notifications]
-desktop = true
-sound = false
+desktop = false  # opt-in; the per-level grid below still decides which levels toast
+sound = false  # the chime's master mute; each level below says whether it chimes
 toast_duration = 5  # seconds
+show_bell = true  # false hides the indicator; every record is still kept
+# Where each level may go BEYOND the panel, which keeps every record whatever
+# is written here. Rows are generated from the shared level set, so a level
+# added later appears here on its own. A fresh install interrupts nowhere, at
+# every level. Any combination is legal, including none. A column nobody named
+# is off, so opting a level into a destination means writing that column out. A
+# notification naming no level is kept too, and never reaches the system or a
+# channel. `bell` is retained and inert: nothing routes on it, and it stays a
+# named field so the flattened channel keys never read it back as a channel.
+# `sound` is a named field too, and IS chosen per level: write it to say whether
+# that level chimes. Omit it and the level keeps the chime that shipped -
+# action_needed and failure chime, verbose does not. `notifications.sound` above
+# is the master mute over all of them.
+# [[notifications.agent_levels]]
+# level = "action_needed"
+# desktop = true
+# sound = false
+# telegram = true
 
 [keybindings]
 new_tab = "Ctrl+T"
@@ -345,6 +364,10 @@ fn normalize_runtime_defaults(config: &mut AppConfig) {
     if config.mesh.instance_name.trim().is_empty() {
         config.mesh.instance_name = default_mesh_instance_name();
     }
+    // The grid is the shared level set mapped. Reconciling on read is what lets
+    // a level join the set without a migration and without the panel drifting.
+    config.notifications.agent_levels =
+        schema::reconcile_agent_levels(&config.notifications.agent_levels);
 }
 
 fn default_mesh_instance_name() -> String {
@@ -479,6 +502,70 @@ mod tests {
         let (url, port) = api_callback_url(&api);
         assert_eq!(url, "http://192.168.1.5:7691");
         assert_eq!(port, "7691");
+    }
+
+    /// The chime answers survive the app's own read path. Reconciliation runs on
+    /// every load and rebuilds the row list, so an answer dropped there would be
+    /// re-defaulted on restart and the user's choice would silently expire.
+    #[test]
+    fn notification_level_sound_answers_survive_the_config_read() {
+        use codeterm_types::notification::NotifyLevel;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("config.toml");
+        std::fs::write(
+            &path,
+            r#"
+[notifications]
+sound = true
+
+[[notifications.agent_levels]]
+level = "verbose"
+sound = true
+
+[[notifications.agent_levels]]
+level = "action_needed"
+sound = false
+"#,
+        )
+        .unwrap();
+
+        let cache: ConfigCache = Mutex::new(None);
+        let config = load_config_cached(&path, &cache);
+        let row = |level: NotifyLevel| {
+            config
+                .notifications
+                .agent_levels
+                .iter()
+                .find(|candidate| candidate.level == level.as_str())
+                .unwrap_or_else(|| panic!("{} has a row", level.as_str()))
+        };
+
+        assert!(config.notifications.sound, "the master mute is read back");
+        assert!(
+            row(NotifyLevel::Verbose).sounds(),
+            "progress chimes because the file says so, against the shipped rule"
+        );
+        assert!(
+            !row(NotifyLevel::ActionNeeded).sounds(),
+            "and the level the shipped rule chimed for stays silent because the file says so"
+        );
+        assert!(
+            row(NotifyLevel::Failure).sounds(),
+            "a level the file never mentions is reconciled in with the shipped chime"
+        );
+        assert_eq!(
+            row(NotifyLevel::Failure).sound,
+            None,
+            "and stays unanswered rather than being frozen to the fallback"
+        );
+        for stored in &config.notifications.agent_levels {
+            assert!(
+                !stored.channels.contains_key("sound"),
+                "no sound key reached the flattened channel map: {:?}",
+                stored.channels
+            );
+        }
     }
 
     #[test]

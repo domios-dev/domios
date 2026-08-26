@@ -19,6 +19,7 @@ mod instructions;
 pub(crate) mod launch_lock;
 mod lifecycle;
 mod state;
+pub mod team_membership;
 mod watchdog;
 mod workspace;
 
@@ -34,9 +35,13 @@ pub use lifecycle::{
     claim_general_agent_tab_retry, restart_general_agent, restart_general_agent_tab,
     start_general_agent, validate_general_agent_tab_retry,
 };
+pub use team_membership::{
+    refuse_general_agent_team_membership, refuse_parenting_under_general_agent, shape_for_tab,
+};
 pub use watchdog::start_watchdog;
 pub use workspace::{
     apply_general_chat_view_default, default_chat_view_for_provider, ensure_general_workspace,
+    general_workspace_id,
 };
 
 pub const GENERAL_ALIAS: &str = "general";

@@ -1,6 +1,28 @@
 # Lane Lifecycle Standard
 
-<!-- revision: 7 -->
+### Lane safety: two hard stops, everything else advisory
+
+A **mutating** Worker dispatch is refused before any tab is created when its
+resolved worktree is the canonical checkout, or is the lane another task owns.
+Both would destroy work in progress, so both are hard stops carrying a stable
+violation id (`lane.mutating_write_in_canonical_checkout`,
+`lane.mutating_write_in_foreign_lane`) and the exact `plan task update` command
+that supplies an isolated lane. A dispatch with no recorded lane is *not*
+refused — the dispatcher provisions an isolated lane for it, committing Team
+workspace identity and lane isolation as one value.
+
+Every other lane finding is a **non-blocking nudge**: the operation succeeds and
+the response carries `safety_nudges`, each with a stable id, why it matters, and
+the exact fix. Read-only dispatch, General-Agent creation, and plain shell tabs
+are never obstructed, including in canonical.
+
+Competition has no CLI verb; use the `plan.task.compete` route printed by `codeterm plan task show` for competition-enabled tasks. Each
+**mutating** competitor gets its own worktree, branch, and base before spawning,
+so competitors never share a checkout or fall back to canonical. Partial
+provisioning/spawn failures remove lanes created by that call. Read-only
+competition is unchanged.
+
+<!-- revision: 8 -->
 
 This is the portable contract for orchestrated branch work in any project. It is
 about lifecycle and evidence, not CodeTerm's own repository layout.

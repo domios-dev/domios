@@ -203,6 +203,43 @@ impl RunWatcherRegistry {
         self.runs.lock().remove(pty_id);
     }
 
+    /// Completion-via-report: a provider Stop POST that carried the tab's
+    /// binding nonce. Claims and completes the nonce-matching tab's run only;
+    /// any other nonce claims nothing, leaving every classifier-fallback
+    /// completion path (semantic idle, idle backstop, scanner) in charge.
+    pub fn complete_via_stop_report(&self, svc: &ServiceContext, tab_id: &str, report_nonce: &str) {
+        let Some(state) = self.claim_stop_report_run(&svc.mux, tab_id, report_nonce) else {
+            return;
+        };
+        log::info!("[run-watcher] stop-report complete: tab={}", tab_id);
+        finish_run(svc, &state, true, "(provider reported stop)".to_string());
+        self.runs.lock().remove(&state.pty_id);
+    }
+
+    /// The nonce gate: a run is claimable only when the report nonce equals
+    /// the tab's own launch nonce at claim time. Rejection touches nothing.
+    fn claim_stop_report_run(
+        &self,
+        mux: &crate::multiplexer::commands::MuxState,
+        tab_id: &str,
+        report_nonce: &str,
+    ) -> Option<Arc<RunState>> {
+        let launch_nonce = mux
+            .read()
+            .get_tab(tab_id)
+            .and_then(|tab| tab.session_binding_nonce.clone())?;
+        if launch_nonce != report_nonce {
+            return None;
+        }
+        let state = self
+            .runs
+            .lock()
+            .values()
+            .find(|s| s.tab_id == tab_id)
+            .cloned()?;
+        (!state.completed.swap(true, Ordering::AcqRel)).then_some(state)
+    }
+
     /// Stop hook fired = the agent finished its turn. For a hidden worker/cron
     /// run that didn't explicitly report, treat this as success completion —
     /// faster and cleaner than the 30s idle backstop. No-op for visible tabs
@@ -223,6 +260,31 @@ impl RunWatcherRegistry {
         log::info!("[run-watcher] stop-hook complete: tab={}", tab_id);
         finish_run(svc, &state, true, "(agent stopped)".to_string());
         self.runs.lock().remove(&state.pty_id);
+    }
+
+    /// Test seam: register a run without spawning the watchdog loop.
+    #[cfg(test)]
+    fn insert_run_for_test(&self, pty_id: &str, tab_id: &str) -> Arc<RunState> {
+        let state = Arc::new(RunState {
+            pty_id: pty_id.to_string(),
+            tab_id: tab_id.to_string(),
+            kind: AgentRunKind::MemWorker {
+                worker_id: format!("worker-{pty_id}"),
+            },
+            scanner: Mutex::new(ResultEventScanner::new()),
+            started_at: Instant::now(),
+            last_byte_at: Mutex::new(Instant::now()),
+            completed: AtomicBool::new(false),
+            armed: AtomicBool::new(false),
+            saw_working: AtomicBool::new(false),
+            saw_post_session_progress: AtomicBool::new(false),
+            nudge_count: AtomicU32::new(0),
+            restart_count: AtomicU32::new(0),
+            last_restart_at: Mutex::new(Instant::now()),
+            resume_system_prompt: None,
+        });
+        self.runs.lock().insert(pty_id.to_string(), state.clone());
+        state
     }
 
     pub fn feed(&self, svc: &ServiceContext, pty_id: &str, bytes: &[u8]) {
@@ -744,6 +806,113 @@ fn find_balanced_end(s: &str, start: usize) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use codeterm_util::lock_hold::TimedRwLock;
+
+    type TestMux = crate::multiplexer::commands::MuxState;
+
+    fn mux_with_nonce(nonce: Option<&str>) -> (TestMux, String) {
+        let (state, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+        let mux: TestMux = Arc::new(TimedRwLock::new("mux-test", state));
+        if let Some(nonce) = nonce {
+            mux.write()
+                .get_tab_mut(&tab_id)
+                .unwrap()
+                .session_binding_nonce = Some(nonce.into());
+        }
+        (mux, tab_id)
+    }
+
+    fn add_tab_with_nonce(mux: &TestMux, sibling_tab: &str, nonce: &str) -> String {
+        let workspace_id = mux.read().find_workspace_for_tab(sibling_tab).unwrap();
+        let tab_id = mux.write().create_tab(&workspace_id).unwrap();
+        mux.write()
+            .get_tab_mut(&tab_id)
+            .unwrap()
+            .session_binding_nonce = Some(nonce.into());
+        tab_id
+    }
+
+    #[test]
+    fn codex_stop_report_completes_only_the_nonce_matching_tab_run() {
+        let (mux, tab_a) = mux_with_nonce(Some("nonce-a"));
+        let tab_b = add_tab_with_nonce(&mux, &tab_a, "nonce-b");
+        let registry = RunWatcherRegistry::new();
+        let run_a = registry.insert_run_for_test("pty-a", &tab_a);
+        let run_b = registry.insert_run_for_test("pty-b", &tab_b);
+
+        let claimed = registry
+            .claim_stop_report_run(&mux, &tab_a, "nonce-a")
+            .expect("nonce-matching stop report claims the tab's run");
+        assert_eq!(claimed.tab_id, tab_a);
+        assert!(run_a.completed.load(Ordering::Acquire));
+        assert!(
+            !run_b.completed.load(Ordering::Acquire),
+            "another tab's run must stay untouched"
+        );
+        assert!(
+            registry
+                .claim_stop_report_run(&mux, &tab_a, "nonce-a")
+                .is_none(),
+            "a claimed run is complete — a duplicate report claims nothing"
+        );
+    }
+
+    #[test]
+    fn codex_stop_foreign_nonce_is_rejected_and_completes_nothing() {
+        let (mux, tab_a) = mux_with_nonce(Some("nonce-a"));
+        let tab_b = add_tab_with_nonce(&mux, &tab_a, "nonce-b");
+        let registry = RunWatcherRegistry::new();
+        let run_a = registry.insert_run_for_test("pty-a", &tab_a);
+        let run_b = registry.insert_run_for_test("pty-b", &tab_b);
+
+        // Another tab's nonce, an unknown nonce: neither claims anything.
+        assert!(registry
+            .claim_stop_report_run(&mux, &tab_a, "nonce-b")
+            .is_none());
+        assert!(registry
+            .claim_stop_report_run(&mux, &tab_a, "nonce-unknown")
+            .is_none());
+        assert!(!run_a.completed.load(Ordering::Acquire));
+        assert!(!run_b.completed.load(Ordering::Acquire));
+
+        // A tab that never armed a nonce can't be completed via report at all.
+        let (nonceless_mux, nonceless_tab) = mux_with_nonce(None);
+        let run = registry.insert_run_for_test("pty-c", &nonceless_tab);
+        assert!(registry
+            .claim_stop_report_run(&nonceless_mux, &nonceless_tab, "nonce-a")
+            .is_none());
+        assert!(!run.completed.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn codex_stop_hook_channel_loss_leaves_classifier_fallback_completion_intact() {
+        // DNC-12: the report path upgrades the signal, it never removes the
+        // safety net. A dead hook channel (no report) or a rejected foreign
+        // report leaves the run unclaimed, so the classifier-driven paths
+        // (semantic idle, idle backstop, scanner) still own completion.
+        let (mux, tab_id) = mux_with_nonce(Some("nonce-a"));
+        let registry = RunWatcherRegistry::new();
+        let run = registry.insert_run_for_test("pty-a", &tab_id);
+
+        assert!(registry
+            .claim_stop_report_run(&mux, &tab_id, "nonce-foreign")
+            .is_none());
+        assert!(
+            !run.completed.load(Ordering::Acquire),
+            "a rejected report must leave the run claimable by the fallback"
+        );
+        assert!(
+            registry.runs.lock().contains_key("pty-a"),
+            "the run stays registered for the classifier-driven watchdog"
+        );
+        // The classifier-fallback completion gate takes no hook input at all:
+        // armed + saw_working + durable progress + classifier idle + bound.
+        assert!(can_complete_on_semantic_idle(true, true, true, true, true));
+        // Channel restored later: the same run is still completable by report.
+        assert!(registry
+            .claim_stop_report_run(&mux, &tab_id, "nonce-a")
+            .is_some());
+    }
 
     #[test]
     fn screen_working_defers_idle_reap() {

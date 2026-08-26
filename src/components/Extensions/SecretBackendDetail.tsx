@@ -258,13 +258,13 @@ export function SecretBackendDetail({
               <div style={{ fontSize: 11, color: "var(--ct-muted)", marginTop: 4 }}>
                 New secrets are filed here by default.
               </div>
-              {scopeError && <div style={{ color: "var(--ct-err, #e57373)", fontSize: 12, marginTop: 8 }} data-testid="extensions-secret-scope-error">{scopeError}</div>}
+              {scopeError && <div style={{ color: "var(--ct-err)", fontSize: 12, marginTop: 8 }} data-testid="extensions-secret-scope-error">{scopeError}</div>}
             </>
           )}
         </>
       )}
 
-      {error && <div style={{ color: "var(--ct-err, #e57373)", fontSize: 12, marginTop: 4 }} data-testid="extensions-secret-error">{error}</div>}
+      {error && <div style={{ color: "var(--ct-err)", fontSize: 12, marginTop: 4 }} data-testid="extensions-secret-error">{error}</div>}
     </div>
   );
 }

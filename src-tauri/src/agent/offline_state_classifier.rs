@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use super::attributed_screen::{detect_picker, PickerDetection};
-use super::signal_extractor::{Motion, SignalExtractor, StreamSignals, VolatileHint};
+use super::classify_input::{ClassifyInputBuilder, ClassifyParts, StatusBarRows};
+use super::signal_extractor::{Motion, SignalExtractor, StreamSignals};
 
 mod status;
 
@@ -49,6 +50,9 @@ impl CastEvent {
 pub struct CastTimelineInput {
     pub width: u16,
     pub height: u16,
+    /// Required, never defaulted: the replayed provider's chrome band. Offline
+    /// gates the semantic clock with exactly the band live excludes.
+    pub status_bar_rows: StatusBarRows,
     pub events: Vec<CastEvent>,
 }
 
@@ -59,7 +63,11 @@ pub struct CastTimelineInput {
 /// - the live PTY path passes the already-surfaced pending prompt's question so
 ///   it never re-parses the picker, and derives `screen_lines`/`tail` from the
 ///   existing per-tab `ScreenState` parser (no second vt100).
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ClassifyInput<'a> {
+    /// Resolved provider chrome band. Required input, no default: it is built
+    /// only via `classify_input::ClassifyInputBuilder`.
+    pub status_bar_rows: StatusBarRows,
     /// Pre-detected picker question, if a picker is on screen.
     pub picker_question: Option<&'a str>,
     /// Trimmed per-row screen text (text-question + ready-prompt fingerprints).
@@ -94,51 +102,6 @@ pub fn composer_cursor_ready(cursor_visible: bool, cursor_row: u16, rows: u16) -
     cursor_visible && rows > 0 && cursor_row + BOTTOM_REGION_ROWS >= rows
 }
 
-/// Veto for the idle fast-paths: the BOTTOM row is a horizontal option/button
-/// block (a possibly-uncaught PTY question), so a glyph/visible-cursor must NOT be
-/// read as an idle composer and mask it. Scope is deliberately narrow:
-/// - VERTICAL numbered/checkbox menus are NOT vetoed here — an ACTIVE one is already
-///   classified Question by `classify_terminal_menu_question` (runs earlier), and an
-///   ANSWERED one sits in scrollback ABOVE the composer (cursor's `[x] A / [ ] B`
-///   poll), which must still resolve Idle. Vetoing those would re-strand cursor.
-/// - HORIZONTAL buttons (a `❯/›` marker row laid out in COLUMNS, ≥2 multi-space
-///   gaps like `❯ Yes      No      Always`, or a row with ≥2 bracketed tokens) ARE
-///   vetoed: they are not caught elsewhere and are a real selection surface. The
-///   column-gap test separates them from a composer holding free text
-///   (`› еще раз а ты можешь…`, single-spaced), which is never vetoed.
-fn looks_like_options_block(screen_lines: &[String]) -> bool {
-    let Some(bottom) = screen_lines
-        .iter()
-        .map(|r| r.trim())
-        .filter(|r| !r.is_empty())
-        .next_back()
-    else {
-        return false;
-    };
-    let starts_marker = bottom.starts_with('❯') || bottom.starts_with('›');
-    (starts_marker && multi_space_gaps(bottom) >= 2) || bottom.matches('[').count() >= 2
-}
-
-/// Count maximal runs of ≥2 spaces — column separators in a TUI button/menu row.
-fn multi_space_gaps(s: &str) -> usize {
-    let mut gaps = 0usize;
-    let mut run = 0usize;
-    for c in s.chars() {
-        if c == ' ' {
-            run += 1;
-        } else {
-            if run >= 2 {
-                gaps += 1;
-            }
-            run = 0;
-        }
-    }
-    if run >= 2 {
-        gaps += 1;
-    }
-    gaps
-}
-
 /// The 3-state classification core — the ONE place the verdict is decided.
 ///
 /// Order: picker question → structural working → parked terminal-menu question
@@ -152,8 +115,7 @@ pub fn classify_state(input: &ClassifyInput, previous: TabVerdict) -> TabVerdict
         };
     }
 
-    let options_block = looks_like_options_block(input.screen_lines);
-    let ready_prompt_visible = !options_block && ready_prompt_glyph(input.screen_lines);
+    let ready_prompt_visible = ready_prompt_glyph(input.screen_lines);
     let live_status_widget = extract_status_line(input.screen_lines).is_some();
     let active_footer = active_turn_footer(input.screen_lines);
     let completed_status_repaint =
@@ -211,7 +173,6 @@ pub fn classify_state(input: &ClassifyInput, previous: TabVerdict) -> TabVerdict
         };
     }
 
-    // A horizontal/vertical options block at the bottom (e.g. `❯ Yes  No  Always`)
     if ready_prompt_visible {
         return TabVerdict {
             state: TimelineState::Idle,
@@ -220,7 +181,7 @@ pub fn classify_state(input: &ClassifyInput, previous: TabVerdict) -> TabVerdict
     }
 
     // (full-screen OR primary-screen TUI composer with no glyph, e.g. opencode).
-    if input.composer_ready && !options_block {
+    if input.composer_ready {
         return TabVerdict {
             state: TimelineState::Idle,
             subtype: None,
@@ -254,7 +215,8 @@ pub struct BoundarySignals {
 }
 
 pub fn classify_timeline(cast: &CastTimelineInput) -> Vec<ClassifiedSegment> {
-    let mut extractor = SignalExtractor::new(cast.height, cast.width, VolatileHint::default());
+    let builder = ClassifyInputBuilder::for_rows(cast.status_bar_rows);
+    let mut extractor = SignalExtractor::new(cast.height, cast.width, builder.volatile_hint());
     let mut samples = Vec::new();
     let mut previous = TabVerdict {
         state: TimelineState::Idle,
@@ -267,7 +229,7 @@ pub fn classify_timeline(cast: &CastTimelineInput) -> Vec<ClassifiedSegment> {
             let mut tick = last_ms + TICK_MS;
             while tick < event.now_ms() {
                 let signals = extractor.step(b"", tick);
-                previous = classify_signals(&extractor, &signals, previous);
+                previous = classify_signals(&extractor, &signals, previous, &builder);
                 samples.push((tick, previous));
                 tick += TICK_MS;
             }
@@ -280,7 +242,7 @@ pub fn classify_timeline(cast: &CastTimelineInput) -> Vec<ClassifiedSegment> {
             }
             CastEvent::Output { now_ms, bytes } => {
                 let signals = extractor.step(bytes, *now_ms);
-                previous = classify_signals(&extractor, &signals, previous);
+                previous = classify_signals(&extractor, &signals, previous, &builder);
                 samples.push((*now_ms, previous));
                 last_ms = *now_ms;
             }
@@ -291,7 +253,7 @@ pub fn classify_timeline(cast: &CastTimelineInput) -> Vec<ClassifiedSegment> {
     let mut tick = last_ms + TICK_MS;
     while tick <= end_ms {
         let signals = extractor.step(b"", tick);
-        previous = classify_signals(&extractor, &signals, previous);
+        previous = classify_signals(&extractor, &signals, previous, &builder);
         samples.push((tick, previous));
         tick += TICK_MS;
     }
@@ -300,7 +262,8 @@ pub fn classify_timeline(cast: &CastTimelineInput) -> Vec<ClassifiedSegment> {
 }
 
 pub fn render_signals_at(cast: &CastTimelineInput, at_ms: u64) -> BoundarySignals {
-    let mut extractor = SignalExtractor::new(cast.height, cast.width, VolatileHint::default());
+    let builder = ClassifyInputBuilder::for_rows(cast.status_bar_rows);
+    let mut extractor = SignalExtractor::new(cast.height, cast.width, builder.volatile_hint());
 
     for event in &cast.events {
         if event.now_ms() > at_ms {
@@ -326,6 +289,7 @@ pub fn render_signals_at(cast: &CastTimelineInput, at_ms: u64) -> BoundarySignal
             state: TimelineState::Idle,
             subtype: None,
         },
+        &builder,
     );
     BoundarySignals {
         state: verdict.state,
@@ -347,6 +311,7 @@ pub fn classify_signals(
     extractor: &SignalExtractor,
     signals: &StreamSignals,
     previous: TabVerdict,
+    builder: &ClassifyInputBuilder,
 ) -> TabVerdict {
     let attributed = extractor.attributed_screen();
     let active_working_chrome = extract_status_line(&signals.screen.lines).is_some()
@@ -358,7 +323,7 @@ pub fn classify_signals(
         .flatten()
         .filter(|picker| offline_picker_is_coherent(picker, signals));
     classify_state(
-        &ClassifyInput {
+        &builder.build(ClassifyParts {
             picker_question: picker.as_ref().map(|p| p.question.as_str()),
             screen_lines: &signals.screen.lines,
             tail: &signals.tail,
@@ -371,7 +336,7 @@ pub fn classify_signals(
                 signals.cursor.row,
                 signals.rows,
             ),
-        },
+        }),
         previous,
     )
 }
@@ -406,11 +371,6 @@ pub fn classify_terminal_menu_question(
             checkbox += 1;
         }
     }
-    let confirm_footer = confirm_style_footer(screen_lines);
-    let has_options = numbered >= 2 || checkbox >= 2;
-    if has_options && confirm_footer {
-        return Some(QuestionSubtype::Unknown);
-    }
     if !cursor_hidden {
         return None;
     }
@@ -419,28 +379,6 @@ pub fn classify_terminal_menu_question(
         || (numbered >= 2 && has_choice_footer)
         || (checkbox >= 2 && has_choice_footer))
         .then_some(QuestionSubtype::Unknown)
-}
-
-/// A confirm/choose key-hint footer: the same line tells the user how to navigate
-/// (arrows / "up/down" / space), confirm (enter), and cancel (esc). Broader than
-/// [`choice_key_footer`] (which demands the exact "submit"/"dismiss" tokens) so it
-/// also matches confirm-style permission prompts (`… Enter to confirm, Esc to
-/// cancel`). Key-hint structure, paired with on-screen options — not free prose.
-fn confirm_style_footer(screen_lines: &[String]) -> bool {
-    screen_lines.iter().rev().take(8).any(|line| {
-        let lower = line.to_lowercase();
-        let has_nav = line.contains('↑')
-            || line.contains('↓')
-            || lower.contains("up/down")
-            || lower.contains("up / down")
-            || lower.contains("arrow")
-            || lower.contains("space")
-            || lower.contains("choose")
-            || lower.contains("select");
-        let has_confirm = lower.contains("enter") || lower.contains("return");
-        let has_cancel = lower.contains("esc"); // esc / escape
-        has_nav && has_confirm && has_cancel
-    })
 }
 
 fn terminal_menu_payload(line: &str) -> (bool, &str) {

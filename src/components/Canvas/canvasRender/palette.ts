@@ -33,12 +33,12 @@ export function resolveCanvasPalette(root?: HTMLElement | null): CanvasPalette {
   const s = window.getComputedStyle(root);
   return {
     bg: readVar(s, "--ct-bg", FALLBACK.bg),
-    cardBg: readVar(s, "--ct-bg-secondary", readVar(s, "--ct-bg", FALLBACK.cardBg)),
+    cardBg: readVar(s, "--ct-surface", FALLBACK.cardBg),
     cardBgElev: readVar(s, "--ct-bg-elev", FALLBACK.cardBgElev),
     border: readVar(s, "--ct-border", readVar(s, "--ct-border-default", FALLBACK.border)),
     borderStrong: readVar(s, "--ct-border-focus", FALLBACK.borderStrong),
     fg: readVar(s, "--ct-fg", FALLBACK.fg),
-    fgMuted: readVar(s, "--ct-muted-fg", readVar(s, "--ct-fg-subtle", FALLBACK.fgMuted)),
+    fgMuted: readVar(s, "--ct-muted-fg", FALLBACK.fgMuted),
     chipBg: readVar(s, "--ct-bg-hover", FALLBACK.chipBg),
     accent: readVar(s, "--ct-accent", FALLBACK.accent),
   };

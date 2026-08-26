@@ -619,6 +619,9 @@ pub(crate) fn launch_agent_in_background_with_env(
         if !launch.emit(&svc, BootStage::PtySpawned) {
             return;
         }
+        // Off the boot critical path: reading the provider's install report
+        // touches disk, and the tab is already up by here.
+        svc.announce_integration_silence(&tab_id, &agent_cmd);
 
         let mut reader_monitor = match reader_readiness.wait(std::time::Duration::from_secs(10)) {
             Ok(monitor) => monitor,
