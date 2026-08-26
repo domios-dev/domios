@@ -13,6 +13,7 @@ import { Window } from "happy-dom";
 import { __setListenForTest } from "./bridge";
 import { __resetChimeContextForTest, establishChimeContext } from "./notificationSound";
 import { useNotificationSound } from "../hooks/useNotificationSound";
+import type { AgentLevelChoice } from "./types";
 
 let checked = 0;
 function check(condition: unknown, message: string): asserts condition {
@@ -122,8 +123,17 @@ async function settle(): Promise<void> {
   for (let turn = 0; turn < 4; turn++) await act(async () => {});
 }
 
+/** Rows as the daemon ships them: present, and answering nothing for the chime,
+ *  so each level falls back to what shipped. Which levels chime is level_sound's
+ *  claim; this file is about the browser's permission. */
+const LEVELS: AgentLevelChoice[] = ["verbose", "action_needed", "failure"].map((level) => ({
+  level,
+  bell: true,
+  desktop: false,
+}));
+
 function Harness({ enabled }: { enabled: boolean }) {
-  useNotificationSound(enabled);
+  useNotificationSound(enabled, LEVELS);
   return null;
 }
 

@@ -1,12 +1,15 @@
 // Run: npm run test:unit -- notification_sound
 //
-// The sound cannot disagree with routing, and the reason changed: it used to be
-// that the arrival event was minted inside the bell gate's admitted arm, so a
-// level routed away from the bell had no path to a sound. That gate is gone —
-// it was gating the panel's only live path, not a destination — and the arrival
-// is now unconditional. What replaced the old guarantee is a stronger one:
-// there is no routing input to the sound at all. The LEVEL decides, and nothing
-// else can.
+// The sound cannot disagree with routing, and the reason has changed twice. It
+// used to be that the arrival event was minted inside the bell gate's admitted
+// arm, so a level routed away from the bell had no path to a sound. That gate is
+// gone — it was gating the panel's only live path, not a destination — and the
+// arrival is now unconditional.
+//
+// What holds today: the sound reads the LEVEL ROWS and nothing else. It is not a
+// destination column, no roster can grow one, and the row it reads is the one
+// naming the arriving level. So there is still exactly one input, and it is the
+// level's own answer.
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
@@ -91,14 +94,19 @@ async function main() {
     "and the caller is the arrival subscription",
   );
 
-  // 4. The decision module reads no routing config of its own, so the level is
-  //    genuinely the whole input rather than one of two answers that could drift.
+  // 4. The decision module reads the level rows and NOTHING about where a level
+  //    is routed, so the two cannot drift into disagreement. It is one input, and
+  //    it is the row naming the arriving level.
   const decision = read("../notificationSound.ts");
-  check(!decision.includes("agent_levels"), "the sound never reads the levels grid");
-  check(!decision.includes("notifyDestinations"), "and never reads the destination set");
+  check(!decision.includes("notifyDestinations"), "the sound never reads the destination set");
+  check(!decision.includes("isRouted"), "and never asks whether a level is routed anywhere");
+  check(
+    (decision.match(/levels\.find\(/g) ?? []).length === 1,
+    "and it selects that row in exactly one place",
+  );
 
-  // 5. Nor is it a column anyone could set: `sound` is not a destination, at any
-  //    roster size, and the bell is no longer one either.
+  // 5. Nor is it a column anyone could set: `sound` is a NAMED field of the row,
+  //    never a destination at any roster size, and the bell is no longer one either.
   check(
     destinationColumns([{ id: "telegram", label: "Telegram", control_available: true }]).every(
       (destination) => destination.id !== ("sound" as string),

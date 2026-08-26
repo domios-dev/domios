@@ -19,6 +19,11 @@ import { establishChimeContext } from "../../lib/notificationSound";
  * leaves the switch reading off instead of promising a toast that never comes.
  * Enabling here is one such gesture, never the only one: a sound already on in
  * stored config is established by the first gesture anywhere in the app.
+ *
+ * The sound switch is the MASTER MUTE, not the whole answer: which levels chime
+ * is each level's own row. It is retained rather than retired because muting
+ * everything must not destroy those answers, and because it is the one moment
+ * the browser's audio permission has a gesture to hang off.
  */
 export function NotificationSurfaces({
   config,

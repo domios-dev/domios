@@ -2,13 +2,13 @@ import { useEffect, useRef } from "react";
 import { listen } from "../lib/bridge";
 import {
   chimeContext,
+  chimeIsAudible,
   establishChimeOnFirstGesture,
-  openChimeContext,
   playArrivalChime,
   shouldSoundArrival,
-  type ChimeContext,
   type GestureTarget,
 } from "../lib/notificationSound";
+import type { AgentLevelChoice } from "../lib/types";
 
 /** The one arrival event. The daemon emits it for every record it keeps. */
 const ARRIVAL_EVENT = "notification-created";
@@ -20,24 +20,31 @@ function gestureTarget(): GestureTarget | null {
 }
 
 /**
- * Sound the chime on an arrival that says the agent stopped.
+ * Sound the chime on an arrival the arriving level's own row says to sound.
  *
  * The subscription is the whole trigger — nothing polls, nothing is scheduled,
  * and no other code path reaches the player. Which arrivals sound is the level's
- * answer alone; there is no routing column that could disagree with it.
+ * stored answer; the old hardcoded table is only what an unanswered row falls
+ * back to.
  *
- * The player reuses the context a user gesture established. Enabling the sound
- * is one such gesture; so is the first click or key anywhere in the app, which
- * is the only thing that can establish it when the opt-in came from stored
- * config. Nothing is opened while the sound is off.
+ * The player uses the context a USER GESTURE established, and nothing else.
+ * Opening one here instead would produce a context the browser starts suspended
+ * — silence — and cache it ahead of the running one a later gesture establishes,
+ * which is permanent silence rather than a missed first chime. An arrival before
+ * any gesture is therefore silent and leaves no trace; the listener is still
+ * armed, so the next arrival after a gesture is heard.
  */
-export function useNotificationSound(enabled: boolean): void {
+export function useNotificationSound(
+  enabled: boolean,
+  levels: readonly AgentLevelChoice[],
+): void {
   const enabledRef = useRef(enabled);
   enabledRef.current = enabled;
-  const contextRef = useRef<ChimeContext | null>(null);
+  const levelsRef = useRef(levels);
+  levelsRef.current = levels;
 
   useEffect(() => {
-    if (!enabled || chimeContext()) return;
+    if (!enabled || chimeIsAudible()) return;
     const target = gestureTarget();
     if (!target) return;
     return establishChimeOnFirstGesture(target);
@@ -47,10 +54,9 @@ export function useNotificationSound(enabled: boolean): void {
     let unlisten: (() => void) | null = null;
     let dropped = false;
     void listen<{ level?: string | null }>(ARRIVAL_EVENT, (event) => {
-      if (!shouldSoundArrival(enabledRef.current, event.payload?.level)) return;
-      const context = contextRef.current ?? chimeContext() ?? openChimeContext();
+      if (!shouldSoundArrival(enabledRef.current, levelsRef.current, event.payload?.level)) return;
+      const context = chimeContext();
       if (!context) return;
-      contextRef.current = context;
       playArrivalChime(context);
     }).then((off) => {
       if (dropped) off();

@@ -1,6 +1,6 @@
 use super::{
-    reconcile_agent_levels, AgentLevelChoice, IntegrationsConfig, MemoryConfig, NotificationConfig,
-    OrchestrationConfig, PushChannelConfig, UiConfig, UsageConfig,
+    reconcile_agent_levels, shipped_sound, AgentLevelChoice, IntegrationsConfig, MemoryConfig,
+    NotificationConfig, OrchestrationConfig, PushChannelConfig, UiConfig, UsageConfig,
 };
 use crate::notification::{NotifyDestination, NotifyLevel};
 
@@ -419,4 +419,127 @@ fn notification_settings_every_destination_is_independently_togglable() {
         }
         assert!(!row.reaches_nothing(&columns));
     }
+}
+
+/// THE DEFECT TEST, storage side. The chime used to key on a hardcoded table
+/// that no configuration could contradict. Now every level answers for itself,
+/// and the answer wins even where it disagrees with what shipped — which is the
+/// whole point, so both directions of disagreement are exercised here.
+#[test]
+fn notification_level_sound_is_chosen_per_level_and_beats_the_shipped_rule() {
+    for level in NotifyLevel::ALL {
+        let unanswered = AgentLevelChoice::bell_only(level.as_str());
+        assert_eq!(
+            unanswered.sounds(),
+            shipped_sound(level),
+            "an unanswered {} falls back to what shipped",
+            level.as_str()
+        );
+
+        // The inverse of the shipped answer, stated by the user. It must win.
+        let chosen = !shipped_sound(level);
+        let mut row = AgentLevelChoice::bell_only(level.as_str());
+        row.sound = Some(chosen);
+        assert_eq!(
+            row.sounds(),
+            chosen,
+            "{} must honour the choice, not the table it disagrees with",
+            level.as_str()
+        );
+    }
+
+    // Concretely, so a table that quietly returned would still be caught: the
+    // levels the old rule sounded are silenced, and the one it silenced sounds.
+    let mut verbose = AgentLevelChoice::bell_only(NotifyLevel::Verbose.as_str());
+    verbose.sound = Some(true);
+    assert!(verbose.sounds(), "progress sounds when the user says so");
+    for stopped in [NotifyLevel::ActionNeeded, NotifyLevel::Failure] {
+        let mut row = AgentLevelChoice::bell_only(stopped.as_str());
+        row.sound = Some(false);
+        assert!(
+            !row.sounds(),
+            "{} stays silent when the user says so",
+            stopped.as_str()
+        );
+    }
+
+    // A level outside the set has no shipped answer to fall back to, so an
+    // unanswered row for it is silent rather than guessed at.
+    let unknown = AgentLevelChoice::bell_only("attention_soon");
+    assert!(!unknown.sounds());
+}
+
+/// The stored shape. `channels` is flattened, so a `sound` key that was not a
+/// NAMED field would deserialise into that map as a push channel called
+/// "sound" — the exact bite the retained `bell` field exists to avoid. This
+/// pins the round trip and the map staying clean, in both answers and unanswered.
+#[test]
+fn notification_level_sound_round_trips_and_never_lands_in_the_channel_map() {
+    let stored: NotificationConfig = toml::from_str(
+        r#"
+sound = true
+
+[[agent_levels]]
+level = "verbose"
+bell = true
+desktop = false
+sound = true
+
+[[agent_levels]]
+level = "action_needed"
+bell = true
+desktop = false
+sound = false
+fixture = true
+
+[[agent_levels]]
+level = "failure"
+bell = true
+desktop = false
+"#,
+    )
+    .expect("rows that answer the chime parse");
+
+    assert!(stored.sound, "the master mute is a field of its own section");
+    let rows = &stored.agent_levels;
+    assert_eq!(rows[0].sound, Some(true), "an answer is read back as itself");
+    assert_eq!(rows[1].sound, Some(false), "including an answer of false");
+    assert_eq!(rows[2].sound, None, "and an omitted answer stays unanswered");
+
+    for row in rows {
+        assert!(
+            !row.channels.contains_key("sound"),
+            "no sound key reached the flattened channel map: {:?}",
+            row.channels
+        );
+        assert!(
+            !row.allows(NotifyDestination::Channel("sound")),
+            "so nothing resolves the chime as a channel either"
+        );
+    }
+    assert_eq!(
+        rows[1].channels.get(FIXTURE_CHANNEL),
+        Some(&true),
+        "a real channel key still lands in the map beside the named field"
+    );
+
+    // The answers survive the write, the read, and the reconcile that runs on
+    // every load — a level answered once must not be re-defaulted on restart.
+    let encoded = toml::to_string(&stored).expect("it serialises");
+    let decoded: NotificationConfig = toml::from_str(&encoded).expect("and parses back");
+    assert_eq!(decoded.agent_levels, stored.agent_levels, "round-trips unchanged");
+    assert_eq!(
+        reconcile_agent_levels(&decoded.agent_levels),
+        stored.agent_levels,
+        "and reconciliation keeps every answer, including the unanswered row"
+    );
+
+    // Unanswered is absent, not `false`: the default row writes no key at all,
+    // which is what lets the shipped fallback stay reachable after a save.
+    let fresh = toml::to_string(&NotificationConfig::default()).expect("the default serialises");
+    let rows_only = &fresh[fresh.find("[[agent_levels]]").expect("rows are written")..];
+    assert!(
+        !rows_only.contains("sound"),
+        "an unanswered row writes no sound key: {rows_only}"
+    );
 }
