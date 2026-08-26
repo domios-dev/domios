@@ -1,7 +1,7 @@
 // Run: npx tsx src/components/Settings/notification_settings_home.test.tsx
 //
-// The levels-by-destinations grid, the master bell switch, and the one home
-// they now live in.
+// The levels grid — where each level goes and whether it chimes — the master
+// bell switch, and the one home they now live in.
 
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -21,6 +21,7 @@ import {
   type SectionId,
 } from "./sections";
 import { levelLabel, levelTone } from "../../lib/notifyLevels";
+import { SOUND_CHOICE_LABEL, levelSounds } from "../../lib/notificationSound";
 import { Toggle } from "./shared";
 import {
   destinationCellLabel,
@@ -77,6 +78,9 @@ const COLUMNS = destinationColumns(DAEMON_CHANNELS);
  *  which is one picker per level however many members it has. */
 const LOCAL = localDestinations(COLUMNS);
 const PUSH = pushDestinations(COLUMNS);
+/** Every row also carries its own chime switch. It is NOT a destination column —
+ *  the chime is not a place a message goes — so it is counted separately here. */
+const SWITCHES_PER_ROW = LOCAL.length + 1;
 
 function open(level: string): AgentLevelChoice {
   return { level, bell: true, desktop: true, telegram: true };
@@ -175,8 +179,8 @@ async function rowsDeriveFromTheSharedLevelSet() {
   const grownGrid = view.host.querySelector(GRID);
   assert(grownGrid, "the grown grid is still rendered");
   assert(
-    switches(grownGrid).length === grown.length * LOCAL.length,
-    "the local surfaces are one toggle per level each, never a fixed cell count",
+    switches(grownGrid).length === grown.length * SWITCHES_PER_ROW,
+    "the local surfaces and the chime are one toggle per level each, never a fixed cell count",
   );
   assert(
     pushControls(grownGrid).length === grown.length,
@@ -235,7 +239,9 @@ async function togglingACellPersistsAndAllOffRoundTrips() {
   const closed = view.host.querySelector(`${ROW}[data-notification-level="verbose"]`);
   assert(closed, "a level that reaches nothing still renders its row");
   assert(
-    switches(closed).every((control) => control.getAttribute("aria-checked") === "false"),
+    switches(closed)
+      .slice(0, LOCAL.length)
+      .every((control) => control.getAttribute("aria-checked") === "false"),
     "all-off round-trips instead of being refused or reset",
   );
   assert(
@@ -243,8 +249,8 @@ async function togglingACellPersistsAndAllOffRoundTrips() {
     "the user is told what all-off means rather than being blocked",
   );
   assert(
-    switches(closed).length === LOCAL.length,
-    "every local surface stays togglable when the level reaches nothing",
+    switches(closed).length === SWITCHES_PER_ROW,
+    "every local surface stays togglable when the level reaches nothing, and so does the chime",
   );
   assert(
     pushControls(closed).length === (PUSH.length > 0 ? 1 : 0),
@@ -363,7 +369,9 @@ async function absentConfigDrawsNothingAndAnUnnamedColumnIsOff() {
   const drawn = await renderGrid(configWith([unnamed]), updates);
   const row = drawn.host.querySelector(ROW);
   assert(row, "the row is drawn");
-  const states = switches(row).map((control) => control.getAttribute("aria-checked"));
+  const states = switches(row)
+    .slice(0, LOCAL.length)
+    .map((control) => control.getAttribute("aria-checked"));
   assert(
     states.join(",") === LOCAL.map((column) => String(isRouted(unnamed, column.id))).join(","),
     `the local surfaces are drawn as stored, got ${states.join(",")}`,
@@ -392,8 +400,8 @@ async function everyControlIsNamedAndIsTheSharedToggle() {
     );
     const controls = switches(row);
     assert(
-      controls.length === LOCAL.length,
-      `one toggle per local surface on ${level}, got ${controls.length}`,
+      controls.length === SWITCHES_PER_ROW,
+      `one toggle per local surface plus the chime on ${level}, got ${controls.length}`,
     );
     const picker = pushControls(row);
     assert(
@@ -403,7 +411,21 @@ async function everyControlIsNamedAndIsTheSharedToggle() {
     );
     const shipped = DAEMON_ROWS.find((candidate) => candidate.level === level);
     assert(shipped, `${level} came from the fixture`);
-    controls.forEach((control, index) => {
+    const sound = controls[LOCAL.length];
+    const soundName = destinationCellLabel(levelLabel(level), SOUND_CHOICE_LABEL);
+    assert(
+      sound.getAttribute("aria-label") === soundName,
+      `expected "${soundName}", got "${sound.getAttribute("aria-label")}"`,
+    );
+    assert(
+      sound.getAttribute("aria-checked") === String(levelSounds(shipped, level)),
+      `${soundName} reports the chime the level actually makes, answered or not`,
+    );
+    assert(
+      sound.className.includes("ct-liquid-toggle") && sound.getAttribute("type") === "button",
+      `${soundName} is the shared toggle, not a control of its own`,
+    );
+    controls.slice(0, LOCAL.length).forEach((control, index) => {
       const destination = LOCAL[index];
       const expected = destinationCellLabel(levelLabel(level), destination.label);
       assert(
@@ -445,15 +467,21 @@ async function everyControlIsNamedAndIsTheSharedToggle() {
 /** The columns cannot drift from the row shape the daemon serialises, and the
  *  one field that is deliberately NOT a column stays out of it. */
 async function destinationsMatchTheRowShape() {
-  const shape = Object.keys(open("verbose")).filter((key) => key !== "level");
+  const answered: AgentLevelChoice = { ...open("verbose"), sound: true };
+  const shape = Object.keys(answered).filter((key) => key !== "level");
   const columns = COLUMNS.map((destination) => destination.id);
   assert(
     columns.every((id) => shape.includes(id)),
     `every column is a field of the row, got ${JSON.stringify(columns)}`,
   );
   assert(
-    JSON.stringify(shape.filter((key) => !columns.includes(key))) === JSON.stringify(["bell"]),
-    `the only field that is not a column is the retained bell, got ${JSON.stringify(shape)}`,
+    JSON.stringify(shape.filter((key) => !columns.includes(key))) ===
+      JSON.stringify(["bell", "sound"]),
+    `the fields that are not columns are the retained bell and the chime, got ${JSON.stringify(shape)}`,
+  );
+  assert(
+    !LOCAL_DESTINATIONS.some((surface) => surface.id === ("sound" as string)),
+    "the chime is a field of the row but never a destination: it is not a place a message goes",
   );
   assert(
     !LOCAL_DESTINATIONS.some((surface) => surface.id === ("bell" as string)),

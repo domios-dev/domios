@@ -13,6 +13,8 @@ import { Window } from "happy-dom";
 import { __setListenForTest } from "../bridge";
 import { CHIME_GESTURE_EVENTS, __resetChimeContextForTest } from "../notificationSound";
 import { useNotificationSound } from "../../hooks/useNotificationSound";
+import { unansweredLevels } from "./harness";
+import type { AgentLevelChoice } from "../types";
 
 type ListenHandler = (event: { payload: unknown }) => void;
 
@@ -123,14 +125,17 @@ export interface MountedGesture {
   done(): Promise<void>;
 }
 
-function Harness({ enabled }: { enabled: boolean }) {
-  useNotificationSound(enabled);
+function Harness({ enabled, levels }: { enabled: boolean; levels: AgentLevelChoice[] }) {
+  useNotificationSound(enabled, levels);
   return null;
 }
 
 /** Mount with the opt-in ALREADY in stored config: no settings surface is
  *  rendered and nothing is clicked, which is every restart. */
-export async function mountStoredSound(enabled: boolean): Promise<MountedGesture> {
+export async function mountStoredSound(
+  enabled: boolean,
+  levels: AgentLevelChoice[] = unansweredLevels(),
+): Promise<MountedGesture> {
   const window = setupDom();
   insideGesture = 0;
   __resetChimeContextForTest();
@@ -147,7 +152,7 @@ export async function mountStoredSound(enabled: boolean): Promise<MountedGesture
   document.body.appendChild(host);
   const root: Root = createRoot(host);
   await act(async () => {
-    root.render(<Harness enabled={enabled} />);
+    root.render(<Harness enabled={enabled} levels={levels} />);
   });
   await act(async () => {});
 

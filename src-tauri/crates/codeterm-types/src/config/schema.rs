@@ -247,9 +247,9 @@ impl Default for TerminalConfig {
 #[serde(default)]
 pub struct NotificationConfig {
     pub desktop: bool,
-    /// Whether a bell arrival that says the agent stopped also makes a sound.
-    /// Presentation like `show_bell`, never a destination: it carries no record
-    /// and cannot widen where a level goes, so it is not a column of the grid.
+    /// The chime's master mute. Which levels chime is each level's own answer
+    /// on its row; this silences all of them at once without destroying those
+    /// answers, and is the one gesture the browser's audio permission hangs off.
     pub sound: bool,
     pub toast_duration: u32,
     /// Whether the bell surface is rendered at all. Presentation, not routing:
@@ -295,6 +295,14 @@ pub struct AgentLevelChoice {
     pub bell: bool,
     #[serde(default = "routed_by_default")]
     pub desktop: bool,
+    /// Whether this level chimes. A NAMED field, never a key of the flattened
+    /// map below, which would read a stored `sound` back as a push channel.
+    ///
+    /// `None` is unanswered and falls back to [`shipped_sound`], so a row
+    /// written before this field keeps exactly the chime it had. An answer of
+    /// either kind wins over that fallback: the old rule is a default, not a rule.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sound: Option<bool>,
     /// One flag per push channel, keyed by the channel's service id. Flattened,
     /// so a row keeps the exact shape it had when a channel was a named field,
     /// and a channel the registry gains needs no migration to become a column.
@@ -322,17 +330,20 @@ impl AgentLevelChoice {
             level: level.to_string(),
             bell: true,
             desktop: false,
+            sound: None,
             channels: BTreeMap::new(),
         }
     }
 
     /// Every column open, including each channel the caller resolved. Channels
-    /// must be named here because an unnamed column reads closed.
+    /// must be named here because an unnamed column reads closed. The chime is
+    /// not a column, so it is left unanswered rather than forced open.
     pub fn open(level: &str, channels: &[&str]) -> Self {
         Self {
             level: level.to_string(),
             bell: true,
             desktop: true,
+            sound: None,
             channels: channels
                 .iter()
                 .map(|service| ((*service).to_string(), true))
@@ -363,11 +374,29 @@ impl AgentLevelChoice {
         }
     }
 
+    /// Whether this level chimes. The stored answer decides; an unanswered row
+    /// falls back to what shipped, and a level outside the set chimes for
+    /// nothing because there is no shipped answer to fall back to.
+    pub fn sounds(&self) -> bool {
+        self.sound
+            .unwrap_or_else(|| NotifyLevel::parse(&self.level).is_some_and(shipped_sound))
+    }
+
     /// A level that reaches nothing. Valid, never a validation error. The
     /// caller supplies the resolved columns, because which channels exist is
     /// the registry's answer and not this row's.
     pub fn reaches_nothing(&self, columns: &[NotifyDestination<'_>]) -> bool {
         columns.iter().all(|column| !self.allows(*column))
+    }
+}
+
+/// The chime a level makes before anyone answers for it, and nothing more: an
+/// answered row never consults this. Exhaustive over the level set, so a level
+/// added later cannot compile until it says whether it chimes.
+pub fn shipped_sound(level: NotifyLevel) -> bool {
+    match level {
+        NotifyLevel::Verbose => false,
+        NotifyLevel::ActionNeeded | NotifyLevel::Failure => true,
     }
 }
 
