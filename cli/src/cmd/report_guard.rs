@@ -470,6 +470,7 @@ fn git_lines(cwd: &Path, args: &[&str]) -> Result<Vec<String>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cmd::report_attribution::ReportBase;
     use std::fs;
     use tempfile::TempDir;
 
@@ -787,7 +788,7 @@ mod tests {
             Some(ReportStatusArg::Partial),
             None,
             None,
-            None,
+            ReportBase::default(),
             Some(vec!["manual.rs".into()]),
             false,
         )
@@ -992,7 +993,7 @@ mod tests {
             Some(ReportStatusArg::InReview),
             None,
             Some(owned.clone()),
-            None,
+            ReportBase::default(),
             None,
             false,
         )
@@ -1015,7 +1016,7 @@ mod tests {
             Some(ReportStatusArg::InReview),
             None,
             Some("0123456789abcdef0123456789abcdef01234567".into()),
-            None,
+            ReportBase::default(),
             None,
             false,
         )
