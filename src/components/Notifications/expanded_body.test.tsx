@@ -110,9 +110,18 @@ function bodyRegion(panel: HTMLElement): HTMLElement | null {
 async function run() {
   const panel = await render();
 
-  const collapsed = readableWidth(panel);
-  assert(openState(panel) === "false", "nothing is open before anything is expanded");
-  assert(bodyRegion(panel) === null, "a collapsed card renders no body region");
+  const expandedOnArrival = readableWidth(panel);
+  assert(openState(panel) === "true", "the newest card is open when the panel arrives");
+  assert(bodyRegion(panel), "an open card renders its body region on arrival");
+
+  await act(async () => toggle(panel).click());
+
+  assert(openState(panel) === "false", "closing the card reports nothing open");
+  assert(bodyRegion(panel) === null, "a closed card renders no body region");
+  assert(
+    readableWidth(panel) < expandedOnArrival,
+    "closing the only open card returns the panel to its compact width",
+  );
 
   await act(async () => toggle(panel).click());
 
@@ -167,14 +176,14 @@ async function run() {
   const expanded = readableWidth(panel);
   assert(openState(panel) === "true", "the panel reports that something is open");
   assert(
-    expanded > collapsed,
-    `an expanded card widens the panel it lives in, got ${collapsed}px then ${expanded}px`,
+    expanded === expandedOnArrival,
+    `an expanded card keeps the arrival width, got ${expandedOnArrival}px then ${expanded}px`,
   );
 
   await act(async () => toggle(panel).click());
   assert(openState(panel) === "false", "closing the card returns the panel to closed");
   assert(
-    readableWidth(panel) === collapsed,
+    readableWidth(panel) < expanded,
     "the width follows the open state back down — it is derived from it, not latched",
   );
 

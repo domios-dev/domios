@@ -177,10 +177,19 @@ async function run() {
     '[aria-label="Show complete message for Which branch?"]',
   );
   assert(expand, "the existing expand control should survive");
+  assert(
+    panel.textContent?.includes("Rebase keeps history linear."),
+    "the newest complete message should be visible on arrival",
+  );
+  await act(async () => expand.click());
+  assert(
+    !panel.textContent?.includes("Rebase keeps history linear."),
+    "closing the default-open message should hide it",
+  );
   await act(async () => expand.click());
   assert(
     panel.textContent?.includes("Rebase keeps history linear."),
-    "expanding should still reveal the complete message",
+    "reopening should still reveal the complete message",
   );
 
   await act(async () => root.unmount());
