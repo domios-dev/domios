@@ -91,6 +91,11 @@ mount — not "this level does not reach the bell", which is why the column is g
 `show_bell` is the bell answer config still makes, and it is presentation:
 `show_bell = false` removes the indicator from the titlebar while every
 notification is still recorded, so turning it back on reveals the complete log.
+Because it takes the panel with it, it is also the one switch that can leave a
+record with no surface at all: with the indicator hidden, no desktop toast
+admitted and no push channel carrying it, `codeterm notify send` says so under
+the id it returns, naming which surface is shut and why. The record is still
+kept and the exit code is still `0` — that is information, not a failure.
 
 Everything under `notifications` is set from Settings, not from `codeterm
 config set`. Where a notification may go is your standing answer, so an agent
@@ -274,4 +279,4 @@ When a Worker lane worktree is created, each declared directory that exists in t
 
 Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`.
 
-<!-- revision: 50 -->
+<!-- revision: 51 -->

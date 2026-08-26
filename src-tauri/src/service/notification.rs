@@ -13,6 +13,7 @@ use crate::notification::{
     dedupe::DeliveryAdmission,
     desktop::{self, DesktopPolicy},
     push::{self, NotifyLevel},
+    reach::{self, Unseen},
     store::{Ask, DedupAdmission, NotificationProvenance, NotificationSeverity, PushRequest},
     NotifState,
 };
@@ -400,6 +401,27 @@ impl ServiceContext {
         intent: PushIntent,
         offer: Option<SurfaceOffer>,
     ) -> String {
+        self.create_notification_ext_reported(
+            title, body, severity, actions, sticky, origin, intent, offer,
+        )
+        .0
+    }
+
+    /// The same explicit notification, plus the honest answer to "will anyone
+    /// see this". The record is opened either way — the report is information
+    /// for the caller, never a refusal.
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_notification_ext_reported(
+        &self,
+        title: String,
+        body: Option<String>,
+        severity: Option<&str>,
+        actions: Option<Vec<CallerAction>>,
+        sticky: Option<bool>,
+        origin: NotificationOrigin,
+        intent: PushIntent,
+        offer: Option<SurfaceOffer>,
+    ) -> (String, Option<Unseen>) {
         // The provenance seam: a caller-supplied set becomes stored actions
         // here, through a conversion with no invoke arm to reach.
         let actions = actions.map(adopt_caller_actions);
@@ -414,7 +436,21 @@ impl ServiceContext {
             refusals,
         } = self.resolve_push_plan(intent);
         let surfaces = self.resolve_surface_dispatch(declared);
-        create_notification_with_delivery(
+        // Judged before the plan is moved into the sink, off the same targets
+        // the sink will use — so the report cannot disagree with the delivery.
+        let unseen = reach::unseen(reach::Reach {
+            show_bell: self.bell_visible(),
+            declared,
+            desktop: &surfaces.desktop,
+            push: reach::PushReach {
+                carrying: targets.len(),
+                refused: refusals
+                    .iter()
+                    .map(|refusal| refusal.service.clone())
+                    .collect(),
+            },
+        });
+        let id = create_notification_with_delivery(
             NotificationAdmission::Explicit,
             &self.notif,
             |title, body| {
@@ -436,7 +472,8 @@ impl ServiceContext {
             },
             surfaces,
             |payload| self.notify_event("notification-created", payload),
-        )
+        );
+        (id, unseen)
     }
 
     /// Record the user's choice. The command carries the record and the chosen
