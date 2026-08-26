@@ -30,6 +30,7 @@ fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
         | PlanError::HeartbeatRequiresExecution
         | PlanError::InProgressRequiresTab
         | PlanError::BlockedRequiresLabel
+        | PlanError::ExecutorRoleRequired
         | PlanError::TaskPauseRequiresReason
         | PlanError::PauseRequiresReason
         | PlanError::QaNoteRequired
