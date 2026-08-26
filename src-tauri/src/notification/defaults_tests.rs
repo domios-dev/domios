@@ -281,7 +281,6 @@ fn notify_defaults_an_explicitly_enabled_destination_still_routes() {
         let envelope = PushEnvelope {
             level,
             message: crate::notification::channel_ask::PushMessage::text(text.clone()),
-            notification_id: format!("notif-{wire}"),
         };
         assert_eq!(
             deliver_plan(&plan.targets, &plan.refusals, &host, &envelope),
