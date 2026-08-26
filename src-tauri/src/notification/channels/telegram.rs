@@ -9,11 +9,17 @@ use codeterm_bridge::bridge::telegram as transport;
 use codeterm_bridge::bridge::traits::{InlineButton, InlineKeyboard, OutboundContent};
 use codeterm_types::config::schema::AppConfig;
 
-use super::{stored_audience, Audience, ChannelHost, ChannelReadiness, PushChannel, PushMessage};
+use super::{
+    stored_audience, Audience, ChannelHost, ChannelReadiness, PushBounds, PushChannel, PushMessage,
+};
 use crate::notification::push;
 
 /// The bridge service this channel rides.
 const SERVICE: &str = "telegram";
+
+/// Telegram's own ceiling for one text message, in characters. It is the
+/// transport's number, so it lives with the transport.
+const MESSAGE_CEILING: usize = 4096;
 
 pub static CHANNEL: TelegramChannel = TelegramChannel;
 
@@ -83,6 +89,10 @@ impl PushChannel for TelegramChannel {
 
     fn per_scope_limit(&self, cfg: &AppConfig) -> u32 {
         stored_audience(cfg, SERVICE).per_scope_limit
+    }
+
+    fn bounds(&self) -> PushBounds {
+        PushBounds::for_ceiling(MESSAGE_CEILING)
     }
 
     fn control_available(&self, cfg: &AppConfig, host: &dyn ChannelHost) -> bool {

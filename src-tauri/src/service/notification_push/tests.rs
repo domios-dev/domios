@@ -2,10 +2,12 @@
 
 use super::*;
 use crate::notification::channels::{
-    self, discord, Audience, ChannelHost, ChannelReadiness, PushChannel,
+    self, discord, Audience, ChannelHost, ChannelReadiness, PushBounds, PushChannel,
 };
 use codeterm_bridge::bridge::manager::OutboundMessage;
 use crate::notification::channel_ask::PushMessage;
+use crate::notification::push::PushContent;
+use crate::notification::store::NotificationProvenance;
 use codeterm_bridge::bridge::traits::OutboundContent;
 use codeterm_bridge::services::ServiceDescriptor;
 use codeterm_types::config::schema::{AgentLevelChoice, AppConfig, PushChannelConfig};
@@ -84,6 +86,10 @@ impl PushChannel for FixtureChannel {
         7
     }
 
+    fn bounds(&self) -> PushBounds {
+        PushBounds::for_ceiling(1000)
+    }
+
     fn control_available(&self, _cfg: &AppConfig, host: &dyn ChannelHost) -> bool {
         host.service_ready(FIXTURE_SERVICE.id)
     }
@@ -122,6 +128,22 @@ fn intent(level: NotifyLevel) -> PushIntent {
         level: Some(level),
         event_key: Some("release-42".to_string()),
     }
+}
+
+/// A push with nothing but a title, and the text a channel will render from it.
+fn titled(level: NotifyLevel, title: &str) -> (PushEnvelope, String) {
+    let envelope = PushEnvelope {
+        content: PushContent {
+            level,
+            title: title.to_string(),
+            body: None,
+            provenance: NotificationProvenance::default(),
+        },
+        choices: Vec::new(),
+        record: String::new(),
+    };
+    let rendered = format!("[{}] {title}", level.label());
+    (envelope, rendered)
 }
 
 /// Every level routed to every column the real registry resolves. Each channel
@@ -230,21 +252,14 @@ fn channel_registry_second_channel_routes_without_touching_the_enum_or_the_grid(
     // channel's module runs here — its audience, its readiness, its ceiling,
     // its delivery — so the module that is this design's evidence is exercised
     // rather than merely compiled.
-    let envelope = PushEnvelope {
-        level: NotifyLevel::Failure,
-        message: PushMessage::text("a rendered push"),
-    };
+    let (envelope, rendered) = titled(NotifyLevel::Failure, "a rendered push");
     assert_eq!(
         deliver_plan(&plan.targets, &plan.refusals, &host, &envelope),
         Ok(())
     );
     assert_eq!(
         host.texts(),
-        vec![(
-            "discord".to_string(),
-            None,
-            "a rendered push".to_string()
-        )],
+        vec![("discord".to_string(), None, rendered)],
         "the message left through the second channel's own module"
     );
     assert_eq!(
@@ -341,21 +356,14 @@ fn channel_registry_resolving_a_channel_never_requires_core_to_name_one() {
         "the ceiling comes from the channel, not from a constant in core"
     );
 
-    let envelope = PushEnvelope {
-        level: NotifyLevel::Verbose,
-        message: PushMessage::text("a rendered push"),
-    };
+    let (envelope, rendered) = titled(NotifyLevel::Verbose, "a rendered push");
     assert_eq!(
         deliver_plan(&plan.targets, &plan.refusals, &host, &envelope),
         Ok(())
     );
     assert_eq!(
         host.texts(),
-        vec![(
-            unknown_to_core.to_string(),
-            None,
-            "a rendered push".to_string()
-        )]
+        vec![(unknown_to_core.to_string(), None, rendered)]
     );
 }
 
@@ -406,10 +414,7 @@ fn channel_registry_unknown_or_unavailable_channel_degrades_honestly() {
         plan.intent.level.is_some(),
         "a refusal keeps the push leg so the record can be marked failed"
     );
-    let envelope = PushEnvelope {
-        level: NotifyLevel::Failure,
-        message: PushMessage::text("text"),
-    };
+    let (envelope, _) = titled(NotifyLevel::Failure, "text");
     let outcome = deliver_plan(&plan.targets, &plan.refusals, &dead, &envelope);
     assert!(
         outcome.is_err_and(|reason| reason.contains("discord")),

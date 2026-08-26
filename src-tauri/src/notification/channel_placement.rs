@@ -52,11 +52,29 @@ pub fn placements(notifications: &[Notification], id: &str) -> Vec<ChannelPlacem
 }
 
 /// One spent question, and every channel message that still presents it as
-/// open. The message carries no choices: that is what makes it spent.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// open. The rewrite carries no choices: that is what makes it spent.
+///
+/// Held unrendered for the same reason a push is: the length bound belongs to
+/// the channel doing the rewrite, not to whoever answered.
+#[derive(Debug, Clone)]
 pub struct SpentQuestion {
     pub placements: Vec<ChannelPlacement>,
-    pub message: PushMessage,
+    content: push::PushContent,
+    label: String,
+    record: String,
+}
+
+impl SpentQuestion {
+    /// The rewrite one channel receives, bounded by that channel. The answer
+    /// line is reserved out of the budget so appending it cannot overrun.
+    pub fn message_for(&self, bounds: push::PushBounds) -> PushMessage {
+        let reserved = spent_text("", &self.label).chars().count();
+        PushMessage {
+            text: spent_text(&self.content.render(bounds.reserving(reserved)), &self.label),
+            choices: Vec::new(),
+            record: self.record.clone(),
+        }
+    }
 }
 
 /// What one record owes the channels that carried it, now that it holds an
@@ -68,24 +86,21 @@ pub fn spent_question(notifications: &[Notification], id: &str) -> Option<SpentQ
         return None;
     }
     let label = target.answer.as_ref()?.answered.as_deref()?;
-    let carried = push::render_push(
-        target.level?,
-        &target.title,
-        target.body.as_deref(),
-        &NotificationProvenance {
-            tab_id: target.tab_id.clone(),
-            tab_title: target.tab_title.clone(),
-            workspace_id: target.workspace_id.clone(),
-            peer_name: target.peer_name.clone(),
-        },
-    );
     Some(SpentQuestion {
         placements: target.placements.clone(),
-        message: PushMessage {
-            text: spent_text(&carried, label),
-            choices: Vec::new(),
-            record: target.id.clone(),
+        content: push::PushContent {
+            level: target.level?,
+            title: target.title.clone(),
+            body: target.body.clone(),
+            provenance: NotificationProvenance {
+                tab_id: target.tab_id.clone(),
+                tab_title: target.tab_title.clone(),
+                workspace_id: target.workspace_id.clone(),
+                peer_name: target.peer_name.clone(),
+            },
         },
+        label: label.to_string(),
+        record: target.id.clone(),
     })
 }
 
@@ -99,8 +114,11 @@ pub fn spent_text(carried: &str, label: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::notification::push::PushBounds;
     use crate::notification::store::{NotificationSeverity, NotificationStore};
     use codeterm_types::notification::{adopt_caller_actions, answer_actions};
+
+    const BOUNDS: PushBounds = PushBounds::for_ceiling(4096);
 
     fn one_record() -> (NotificationStore, String) {
         let mut store = NotificationStore::new(10);
@@ -154,8 +172,9 @@ mod tests {
 
         store.record_answer(&id, "Ship it");
         let spent = store.spent_question(&id).expect("an answered question is spent");
-        assert!(spent.message.text.contains("Ship it"));
-        assert!(!spent.message.offers_choices());
+        let rewrite = spent.message_for(BOUNDS);
+        assert!(rewrite.text.contains("Ship it"));
+        assert!(!rewrite.offers_choices());
         assert_eq!(spent.placements.len(), 1);
     }
 

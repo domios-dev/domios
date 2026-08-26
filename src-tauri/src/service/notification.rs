@@ -9,7 +9,7 @@ use crate::notification::{
     answer::AnswerAdmission,
     answer_delivery::{self, AnswerDeliveryOutcome},
     authority::{self, SurfaceOffer},
-    channel_ask::{self, PushMessage},
+    channel_ask::{self, ChannelChoice, PushMessage},
     channel_placement::SpentQuestion,
     channels::{self, PushChannel},
     dedupe::DeliveryAdmission,
@@ -31,17 +31,28 @@ pub struct PushIntent {
 /// What a push sink receives. Its `Result` is consumed by the daemon and never
 /// travels back to the caller — failure feedback invites retry, and retry is
 /// the spam vector.
+///
+/// The text is deliberately not rendered here: a channel's length bound is the
+/// transport's, so the material travels unrendered and each channel renders it
+/// at its own ceiling.
 pub struct PushEnvelope {
-    pub level: NotifyLevel,
-    /// The rendered text and the offered options, each carrying the opaque
-    /// token that names it. A channel draws them; the tapped token comes back
-    /// through the one answer path the in-app card already uses.
-    pub message: PushMessage,
+    pub content: push::PushContent,
+    /// The offered options, each carrying the opaque token that names it. A
+    /// channel draws them; the tapped token comes back through the one answer
+    /// path the in-app card already uses. Same on every channel.
+    pub choices: Vec<ChannelChoice>,
+    /// The record this renders, echoed by a channel and never read by one.
+    pub record: String,
 }
 
 impl PushEnvelope {
-    pub fn text(&self) -> &str {
-        &self.message.text
+    /// This push as one channel will carry it, bounded by that channel.
+    pub fn message_for(&self, bounds: push::PushBounds) -> PushMessage {
+        PushMessage {
+            text: self.content.render(bounds),
+            choices: self.choices.clone(),
+            record: self.record.clone(),
+        }
     }
 }
 
@@ -224,14 +235,16 @@ pub(crate) fn create_notification_with_delivery(
                 }
                 if admitted.should_push() {
                     let envelope = PushEnvelope {
-                        level,
-                        message: PushMessage {
-                            text: push::render_push(level, &title, body.as_deref(), &provenance),
-                            // Read off the record: the position a token names
-                            // is the position that record will resolve it at.
-                            choices: store.lock().offered_choices_for_channel(admitted.id()),
-                            record: admitted.id().to_string(),
+                        content: push::PushContent {
+                            level,
+                            title: title.clone(),
+                            body: body.clone(),
+                            provenance: provenance.clone(),
                         },
+                        // Read off the record: the position a token names is
+                        // the position that record will resolve it at.
+                        choices: store.lock().offered_choices_for_channel(admitted.id()),
+                        record: admitted.id().to_string(),
                     };
                     if let Err(reason) = (push.deliver)(envelope) {
                         log::warn!(
@@ -577,9 +590,11 @@ impl ServiceContext {
         let roster = channels::roster();
         for placement in &spent.placements {
             let attempt = channels::resolve_in(&roster, &placement.service).and_then(|registered| {
-                registered
-                    .channel
-                    .spend(self, &placement.locator, &spent.message)
+                registered.channel.spend(
+                    self,
+                    &placement.locator,
+                    &spent.message_for(registered.channel.bounds()),
+                )
             });
             if let Err(reason) = attempt {
                 log::warn!(
