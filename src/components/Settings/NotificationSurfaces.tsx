@@ -69,7 +69,7 @@ export function NotificationSurfaces({
       {permission === "denied" && (
         <p
           data-testid="settings-desktop-permission-refused"
-          className="text-[10px] text-[var(--ct-warning,#d29922)] leading-relaxed"
+          className="text-[10px] text-[var(--ct-yellow)] leading-relaxed"
         >
           The system refused notifications for CodeTerm, so this stays off until you allow them in
           system settings.

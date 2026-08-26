@@ -104,7 +104,7 @@ export function CanvasEmptyActions({ api, projectPath }: CanvasEmptyActionsProps
         {busy ? "Creating…" : "Create Team plan"}
       </button>
       {error && (
-        <div className="text-xs text-center max-w-sm" style={{ color: "var(--ct-error, #f87171)" }}>
+        <div className="text-xs text-center max-w-sm" style={{ color: "var(--ct-red)" }}>
           {error}
         </div>
       )}

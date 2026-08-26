@@ -192,7 +192,7 @@ function MemoryListTabImpl({ api, nodes, onViewInGraph, onSelectItem, removeNode
           return (
             <div
               key={n.id}
-              className="border-b border-white/[0.04] hover:bg-[var(--ct-hover-bg)] transition-colors duration-75"
+              className="border-b border-white/[0.04] hover:bg-[var(--ct-bg-hover)] transition-colors duration-75"
               data-testid="memory-list-item"
               data-memory-id={n.id}
               data-memory-kind={n.kind}
@@ -217,7 +217,7 @@ function MemoryListTabImpl({ api, nodes, onViewInGraph, onSelectItem, removeNode
                   </div>
                   <div className="flex items-center gap-2 pl-[18px] mt-0.5 flex-wrap">
                     <span className="px-1.5 py-px rounded-[3px] text-[10px] font-semibold" style={{ background: `${color}22`, color }}>{n.kind}</span>
-                    {n.area && <><span className="text-[10px] text-[var(--ct-muted-fg)]">&middot;</span><span className="px-1.5 py-px rounded-[3px] text-[10px] bg-[var(--ct-hover-bg)] text-[var(--ct-muted-fg)]">{n.area}</span></>}
+                    {n.area && <><span className="text-[10px] text-[var(--ct-muted-fg)]">&middot;</span><span className="px-1.5 py-px rounded-[3px] text-[10px] bg-[var(--ct-bg-hover)] text-[var(--ct-muted-fg)]">{n.area}</span></>}
                     {(n.recurrence_count ?? 0) > 0 && (
                       <>
                         <span className="text-[10px] text-[var(--ct-muted-fg)]">&middot;</span>

@@ -476,7 +476,7 @@ button,
 .agent-provider-card[data-selected="yes"] {
   --ct-liquid-base-transform: translate3d(0, -3px, 0);
   border-color: var(--ct-accent);
-  background: color-mix(in srgb, var(--ct-accent) 16%, var(--ct-panel));
+  background: color-mix(in srgb, var(--ct-accent) 16%, var(--ct-surface));
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--ct-accent) 75%, transparent),
     0 10px 28px color-mix(in srgb, var(--ct-accent) 22%, transparent);
@@ -692,7 +692,7 @@ button,
 }
 
 .ct-panel-card--soft {
-  background: color-mix(in srgb, var(--ct-bg) 76%, var(--ct-bg-secondary, #ffffff) 24%);
+  background: color-mix(in srgb, var(--ct-bg) 85%, var(--ct-fg) 15%);
   border-style: dashed;
 }
 
@@ -3123,7 +3123,7 @@ button,
   text-align: center;
 }
 .plan-board-error {
-  color: var(--ct-error, #f87171);
+  color: var(--ct-red);
 }
 .plan-board-single {
   display: flex;
@@ -3259,7 +3259,7 @@ button,
   outline: none;
 }
 .plan-switcher-menu-item-danger {
-  color: var(--ct-error, #f87171);
+  color: var(--ct-red);
 }
 
 /* ── Overflow mode: combo trigger + popover listbox ─────────────────────── */
@@ -3598,13 +3598,13 @@ button,
   letter-spacing: 0.01em;
 }
 .plan-state-chip.plan-state-approved {
-  border-color: color-mix(in srgb, var(--ct-success, #3fb950) 60%, var(--ct-border));
-  background: color-mix(in srgb, var(--ct-success, #3fb950) 16%, var(--ct-bg));
+  border-color: color-mix(in srgb, var(--ct-green) 60%, var(--ct-border));
+  background: color-mix(in srgb, var(--ct-green) 16%, var(--ct-bg));
 }
 .plan-state-chip.plan-state-drafting,
 .plan-state-chip.plan-state-structure_ready {
-  border-color: color-mix(in srgb, var(--ct-warning, #d29922) 55%, var(--ct-border));
-  background: color-mix(in srgb, var(--ct-warning, #d29922) 12%, var(--ct-bg));
+  border-color: color-mix(in srgb, var(--ct-yellow) 55%, var(--ct-border));
+  background: color-mix(in srgb, var(--ct-yellow) 12%, var(--ct-bg));
 }
 .plan-parked-chip {
   font-weight: 700;
@@ -3655,7 +3655,7 @@ button,
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 0.72rem;
-  color: var(--ct-danger, #f85149);
+  color: var(--ct-red);
 }
 button.plan-peer-chip {
   cursor: pointer;
