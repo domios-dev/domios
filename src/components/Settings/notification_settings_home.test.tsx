@@ -22,7 +22,7 @@ import {
 } from "./sections";
 import { levelLabel, levelTone } from "../../lib/notifyLevels";
 import { SOUND_CHOICE_LABEL, levelSounds } from "../../lib/notificationSound";
-import { Toggle } from "./shared";
+import { SwitchTile } from "./shared";
 import {
   destinationCellLabel,
   destinationColumns,
@@ -309,7 +309,7 @@ async function masterSwitchHidesTheSurfaceAndStaysDistinguishable() {
   const root = createRoot(host);
   await act(async () =>
     root.render(
-      <Toggle
+      <SwitchTile
         label="Show the bell"
         checked
         onChange={(value) =>
@@ -330,10 +330,10 @@ async function masterSwitchHidesTheSurfaceAndStaysDistinguishable() {
   await act(async () => root.unmount());
   host.remove();
 
-  const settings = source("./NotificationsTab.tsx");
+  const settings = source("./NotificationSurfaces.tsx");
   assert(
     settings.includes('onUpdate("notifications", { show_bell: v })'),
-    "the panel writes the master switch into the existing notifications section",
+    "the surfaces section writes the master switch into the existing notifications section",
   );
 }
 
@@ -422,8 +422,8 @@ async function everyControlIsNamedAndIsTheSharedToggle() {
       `${soundName} reports the chime the level actually makes, answered or not`,
     );
     assert(
-      sound.className.includes("ct-liquid-toggle") && sound.getAttribute("type") === "button",
-      `${soundName} is the shared toggle, not a control of its own`,
+      sound.querySelector(".ct-liquid-toggle") !== null && sound.getAttribute("type") === "button",
+      `${soundName} draws the shared toggle inside it, not a control of its own`,
     );
     controls.slice(0, LOCAL.length).forEach((control, index) => {
       const destination = LOCAL[index];
@@ -437,8 +437,8 @@ async function everyControlIsNamedAndIsTheSharedToggle() {
         `${expected} reports the state it was given`,
       );
       assert(
-        control.className.includes("ct-liquid-toggle"),
-        `${expected} is rendered by the shared LiquidToggle`,
+        control.querySelector(".ct-liquid-toggle") !== null,
+        `${expected} draws the shared LiquidToggle inside it`,
       );
       assert(
         control.getAttribute("type") === "button",
@@ -451,16 +451,20 @@ async function everyControlIsNamedAndIsTheSharedToggle() {
   // Structural: no second toggle was authored, and the shared one is imported.
   const component = source("./NotificationDestinations.tsx");
   assert(
-    component.includes('import { Toggle } from "./shared"'),
-    "the grid uses the shared Settings toggle row",
+    /import \{[^}]*\bSwitchTile\b[^}]*\} from "\.\/shared"/.test(component),
+    "the grid uses the shared Settings switch tile",
   );
   for (const authored of ["ct-liquid-toggle", 'role="switch"', "<input", "checkbox"]) {
     assert(!component.includes(authored), `the grid must not restate the toggle (${authored})`);
   }
   const shared = source("./shared.tsx");
   assert(
-    shared.includes('import { LiquidToggle } from "../shared/LiquidToggle"'),
-    "the shared row still delegates to the shared toggle",
+    /import \{[^}]*\bLiquidToggle\b[^}]*\} from "\.\.\/shared\/LiquidToggle"/.test(shared),
+    "the shared rows still delegate to the shared toggle",
+  );
+  assert(
+    /import \{[^}]*\bLiquidToggleTrack\b[^}]*\} from "\.\.\/shared\/LiquidToggle"/.test(shared),
+    "and the tile draws that same control rather than a switch of its own",
   );
 }
 
