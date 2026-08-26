@@ -9,8 +9,10 @@ pub fn markdown_to_sanitized_html(markdown: &str) -> String {
     for event in parser {
         match event {
             Event::Start(Tag::Paragraph | Tag::List(_)) => {}
+            // A paragraph break is a blank line, not a wrapped line: single-spacing
+            // here silently reflows the shape the author wrote.
             Event::End(TagEnd::Paragraph | TagEnd::List(_)) => {
-                telegram_events.push(Event::Text(CowStr::Borrowed("\n")));
+                telegram_events.push(Event::Text(CowStr::Borrowed("\n\n")));
             }
             Event::Start(Tag::Item) => {
                 telegram_events.push(Event::Text(CowStr::Borrowed("• ")));

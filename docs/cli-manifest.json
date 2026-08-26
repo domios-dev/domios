@@ -9508,11 +9508,11 @@
                 {
                   "name": "executor-role",
                   "positional": false,
-                  "required": false,
+                  "required": true,
                   "value_name": "EXECUTOR_ROLE",
                   "possible_values": [],
                   "default": null,
-                  "help": "Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync",
+                  "help": "REQUIRED: who executes this task. Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync. Presence is the contract; no vocabulary is enforced",
                   "aliases": []
                 },
                 {
@@ -10691,7 +10691,7 @@
                   "value_name": "EXECUTOR_ROLE",
                   "possible_values": [],
                   "default": null,
-                  "help": "Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync",
+                  "help": "Replace the executor role. Cannot be emptied: an update carrying a blank value is refused",
                   "aliases": []
                 },
                 {
