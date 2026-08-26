@@ -314,7 +314,11 @@ mod notification_provenance {
 
 mod push_render {
     use super::*;
-    use crate::notification::push::MAX_BODY_CHARS;
+    use crate::notification::push::{OVERFLOW_NOTE as CUT_NOTE, PushBounds};
+
+    /// One channel's bound, stated by this test rather than borrowed from a
+    /// global: what a sink receives is rendered per channel.
+    const BOUNDS: PushBounds = PushBounds::for_ceiling(4096);
 
     fn live_tab(candidate: &str) -> Option<NotificationProvenance> {
         (candidate == "tab_worker").then(|| NotificationProvenance {
@@ -358,7 +362,7 @@ mod push_render {
             NotificationOrigin::claimed(Some("tab_worker".into())),
             live_tab,
             dispatch(NotifyLevel::Verbose, |envelope: PushEnvelope| {
-                attempted.lock().push(envelope.text().to_string());
+                attempted.lock().push(envelope.message_for(BOUNDS).text);
                 Err("chat unreachable".to_string())
             }),
             declared(NotifyLevel::Verbose),
@@ -388,7 +392,7 @@ mod push_render {
     #[test]
     fn a_delivered_push_carries_capped_text_and_leaves_the_record_clean() {
         let store = Arc::new(Mutex::new(NotificationStore::new(10)));
-        let oversized = "b".repeat(MAX_BODY_CHARS + 200);
+        let oversized = "q".repeat(BOUNDS.body + 200);
         let sent = Mutex::new(Vec::new());
 
         let id = create_notification_with_delivery(
@@ -403,7 +407,7 @@ mod push_render {
             NotificationOrigin::claimed(Some("tab_worker".into())),
             live_tab,
             dispatch(NotifyLevel::ActionNeeded, |envelope: PushEnvelope| {
-                sent.lock().push(envelope.text().to_string());
+                sent.lock().push(envelope.message_for(BOUNDS).text);
                 Ok(())
             }),
             declared(NotifyLevel::ActionNeeded),
@@ -413,9 +417,9 @@ mod push_render {
         let delivered = sent.lock();
         assert_eq!(delivered.len(), 1);
         assert_eq!(
-            delivered[0].matches('b').count(),
-            MAX_BODY_CHARS,
-            "the agent body is truncated to the cap constant, not rejected"
+            delivered[0].matches('q').count(),
+            BOUNDS.body - CUT_NOTE.chars().count(),
+            "the agent body is truncated to the channel's own bound, not rejected"
         );
         assert!(delivered[0].contains("via Worker lane"));
         assert!(!delivered[0].contains("tab_worker"));
@@ -445,7 +449,7 @@ mod push_render {
                 intent: PushIntent::default(),
                 per_scope_limit: 10,
                 deliver: |envelope: PushEnvelope| {
-                    sent.lock().push(envelope.text().to_string());
+                    sent.lock().push(envelope.message_for(BOUNDS).text);
                     Ok(())
                 },
             },

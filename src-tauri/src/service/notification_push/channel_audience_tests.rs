@@ -8,6 +8,8 @@
 
 use super::*;
 use crate::notification::channels::{self, ChannelHost};
+use crate::notification::push::PushContent;
+use crate::notification::store::NotificationProvenance;
 use codeterm_bridge::bridge::manager::OutboundMessage;
 use codeterm_types::config::schema::{AgentLevelChoice, AppConfig, PushChannelConfig};
 use parking_lot::Mutex;
@@ -85,8 +87,14 @@ fn intent() -> PushIntent {
 
 fn envelope() -> PushEnvelope {
     PushEnvelope {
-        level: NotifyLevel::Failure,
-        message: crate::notification::channel_ask::PushMessage::text("a rendered push"),
+        content: PushContent {
+            level: NotifyLevel::Failure,
+            title: "a rendered push".to_string(),
+            body: None,
+            provenance: NotificationProvenance::default(),
+        },
+        choices: Vec::new(),
+        record: String::new(),
     }
 }
 

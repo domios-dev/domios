@@ -17,6 +17,8 @@ use codeterm_bridge::bridge::manager::OutboundMessage;
 use codeterm_bridge::services::ServiceDescriptor;
 use codeterm_types::config::schema::{AppConfig, PushChannelConfig};
 
+pub use super::push::PushBounds;
+
 /// One channel's stored audience entry, keyed by its service id. Absent is an
 /// audience nobody has chosen yet, which resolves to nobody rather than to that
 /// service's inbound admission list.
@@ -75,6 +77,10 @@ pub trait PushChannel: Send + Sync {
     fn readiness(&self, cfg: &AppConfig, host: &dyn ChannelHost) -> ChannelReadiness;
     /// Lifetime push ceiling per originating tab, as this channel configures it.
     fn per_scope_limit(&self, cfg: &AppConfig) -> u32;
+    /// The length budget of this channel's own transport. Stated here because
+    /// the ceiling belongs to whatever carries the message, and a body cut to
+    /// one channel's limit would be cut for every other channel too.
+    fn bounds(&self) -> PushBounds;
     /// Whether settings may offer this channel's own controls at all.
     fn control_available(&self, cfg: &AppConfig, host: &dyn ChannelHost) -> bool;
     /// Carry one rendered notification. The message holds the text every

@@ -18,7 +18,7 @@ use codeterm_types::config::schema::{AgentLevelChoice, AppConfig, PushChannelCon
 use parking_lot::Mutex as PLMutex;
 
 use super::*;
-use crate::notification::channels::{self, ChannelHost};
+use crate::notification::channels::{self, telegram, ChannelHost, PushChannel};
 use crate::notification::push;
 use crate::notification::store::{NotificationProvenance, NotificationStore};
 use crate::service::notification::{
@@ -160,8 +160,12 @@ async fn push_delivery_reaches_the_send_endpoint_end_to_end() {
         title,
         Some(body),
         &NotificationProvenance::default(),
+        telegram::CHANNEL.bounds(),
     );
-    assert_eq!(text, expected, "the queued text is the rendered push");
+    assert_eq!(
+        text, expected,
+        "the queued text is the push rendered at this channel's own bound"
+    );
 
     // And that message becomes the API call Telegram would receive.
     let telegram = TelegramService::with_base(
