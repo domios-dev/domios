@@ -49,9 +49,9 @@ export function NotificationPanel({
       data-expanded={anyExpanded ? "true" : "false"}
       className="flex max-w-[calc(100vw-16px)] flex-col overflow-hidden rounded-md border border-[var(--ct-border)] bg-[var(--ct-surface)] shadow-2xl ct-float"
       style={{
-        width: anyExpanded
-          ? "min(560px, calc(100vw - 16px))"
-          : "min(360px, calc(100vw - 16px))",
+        // A plain width, clamped by the `max-w` above rather than by a `min()`
+        // wrapped around it — same rendering, one fewer expression to read.
+        width: anyExpanded ? "560px" : "360px",
         transition: "width var(--ct-duration-normal) var(--ct-ease-out-expo)",
         maxHeight: "min(520px, calc(100dvh - var(--ct-safe-top, 0px) - var(--ct-safe-bottom, 0px) - 48px))",
       }}
