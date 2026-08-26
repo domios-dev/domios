@@ -6,6 +6,9 @@ use crate::plan::AgentRef;
 use crate::service::plan::batch::{BatchOp, BatchRequest};
 use crate::service::plan::task_attempts::BoundWorkerReport;
 use crate::service::plan::PlanStore;
+use crate::service::plan_batch_authority::{
+    apply_batch_with_authority, BatchAuthority, BatchWriteError,
+};
 use crate::service::ServiceContext;
 
 pub(super) fn report_persistence_incident(
@@ -260,9 +263,21 @@ fn persist_explicit_report(
         key: None,
         links: vec![],
     });
-    let result = store
-        .apply_batch(plan_id, BatchRequest { key: None, ops }, now_ms)
-        .map_err(|error| error.to_string())?;
+    // Declared, never exempt by omission: this path authenticated the caller tab,
+    // session and binding nonce, and resolved the task hold, before composing ops.
+    let result = apply_batch_with_authority(
+        store,
+        plan_id,
+        BatchRequest { key: None, ops },
+        now_ms,
+        BatchAuthority::EstablishedUpstream {
+            established_by: "agent.report: caller binding authenticated and task hold resolved",
+        },
+    )
+    .map_err(|error| match error {
+        BatchWriteError::Plan(e) => e.to_string(),
+        BatchWriteError::Refused(refusal) => refusal.message,
+    })?;
     let milestone_id = result
         .milestone_ids
         .first()

@@ -293,6 +293,8 @@ fn find_section_mut<'a>(sections: &'a mut [Section], id: &str) -> Option<&'a mut
 }
 
 impl PlanStore {
+    /// Applies ops as given: it does not check who is asking. Every entrance goes
+    /// through `service::plan_batch_authority` first, and a new one must too.
     pub fn apply_batch(
         &self,
         plan_id: &str,
