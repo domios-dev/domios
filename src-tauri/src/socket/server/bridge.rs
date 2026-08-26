@@ -121,6 +121,8 @@ pub(super) fn dispatch(
                     content,
                     append,
                     buttons,
+                    edit: None,
+                    receipt: None,
                 };
                 tx.send(msg).map_err(|e| JsonRpcError {
                     code: -32603,

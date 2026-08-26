@@ -10,6 +10,8 @@ use crate::notification::{
     answer_delivery::{self, AnswerDeliveryOutcome},
     authority::{self, SurfaceOffer},
     channel_ask::{self, PushMessage},
+    channel_placement::SpentQuestion,
+    channels::{self, PushChannel},
     dedupe::DeliveryAdmission,
     desktop::{self, DesktopPolicy},
     push::{self, NotifyLevel},
@@ -30,7 +32,6 @@ pub struct PushIntent {
 /// the spam vector.
 pub struct PushEnvelope {
     pub level: NotifyLevel,
-    pub notification_id: String,
     /// The rendered text and the offered options, each carrying the opaque
     /// token that names it. A channel draws them; the tapped token comes back
     /// through the one answer path the in-app card already uses.
@@ -228,8 +229,8 @@ pub(crate) fn create_notification_with_delivery(
                             // Read off the record: the position a token names
                             // is the position that record will resolve it at.
                             choices: store.lock().offered_choices_for_channel(admitted.id()),
+                            record: admitted.id().to_string(),
                         },
-                        notification_id: admitted.id().to_string(),
                     };
                     if let Err(reason) = (push.deliver)(envelope) {
                         log::warn!(
@@ -531,13 +532,40 @@ impl ServiceContext {
         );
     }
 
+    /// A question answered once stops presenting live controls on every channel
+    /// that carried it. Each placement goes back to the channel that reported
+    /// it; a channel that cannot rewrite what it sent says so and is logged,
+    /// because presentation may never cost the user their recorded answer.
+    fn spend_on_channels(&self, id: &str, spent: &SpentQuestion) {
+        let roster = channels::roster();
+        for placement in &spent.placements {
+            let attempt = channels::resolve_in(&roster, &placement.service).and_then(|registered| {
+                registered
+                    .channel
+                    .spend(self, &placement.locator, &spent.message)
+            });
+            if let Err(reason) = attempt {
+                log::warn!(
+                    "[notify-answer] {id} is answered but its {} message still shows the question: {reason}",
+                    placement.service
+                );
+            }
+        }
+    }
+
     /// Carry the standing answer to the tab that asked, as a caller of the
     /// existing envelope path, and report what actually happened. A refused
     /// send leaves the record answered-but-undelivered, never delivered.
     fn settle_answer(&self, id: &str, standing: String) -> serde_json::Value {
-        let outcome = answer_delivery::deliver(&self.notif, id, |to_tab, envelope, body| {
-            crate::service::messenger::Messenger::deliver(self, to_tab, envelope, body).map(|_| ())
-        });
+        let outcome = answer_delivery::settle(
+            &self.notif,
+            id,
+            |to_tab, envelope, body| {
+                crate::service::messenger::Messenger::deliver(self, to_tab, envelope, body)
+                    .map(|_| ())
+            },
+            |spent| self.spend_on_channels(id, spent),
+        );
         if let Some(detail) = outcome.failure() {
             log::warn!("[notify-answer] {id} recorded but not delivered: {detail}");
         }

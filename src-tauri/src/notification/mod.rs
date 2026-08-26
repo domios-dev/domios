@@ -6,6 +6,7 @@ pub mod answer;
 pub mod answer_delivery;
 pub mod authority;
 pub mod channel_ask;
+pub mod channel_placement;
 pub mod channels;
 pub mod dedupe;
 pub mod desktop;

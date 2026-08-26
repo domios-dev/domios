@@ -740,3 +740,173 @@ async fn integration_send_message_no_fallback_for_valid_html() {
     assert_eq!(result, Some(42));
     assert_eq!(captured.lock().len(), 1);
 }
+
+/// A fake Telegram that fails the first `editMessageText` the way Telegram
+/// fails an unparseable body, then accepts the plain-text retry.
+async fn spawn_fake_telegram_rejecting_first_parse(
+    captured: Arc<PLMutex<Vec<(String, serde_json::Value)>>>,
+) -> String {
+    use axum::{body, http::Request, Json, Router};
+
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let app = Router::new().fallback(move |req: Request<body::Body>| {
+        let captured = captured.clone();
+        let attempts = attempts.clone();
+        async move {
+            let path = req.uri().path().to_string();
+            let bytes = body::to_bytes(req.into_body(), 1024 * 1024).await.unwrap();
+            let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            captured.lock().push((path, body));
+            if attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+                return Json(serde_json::json!({
+                    "ok": false,
+                    "description": "Bad Request: can't parse entities"
+                }));
+            }
+            Json(serde_json::json!({"ok": true, "result": {"message_id": 42}}))
+        }
+    });
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    format!("http://{}", addr)
+}
+
+fn markup(request: &serde_json::Value) -> Option<&Vec<serde_json::Value>> {
+    request
+        .get("reply_markup")?
+        .get("inline_keyboard")?
+        .as_array()
+}
+
+/// THE defect: a rewrite that leaves `reply_markup` out reads to Telegram as
+/// "keep the keyboard", so the buttons survive under spent text. The empty
+/// keyboard must be on the wire, not merely intended.
+#[tokio::test]
+async fn spent_question_rewrite_clears_the_inline_keyboard_on_the_wire() {
+    let captured = Arc::new(PLMutex::new(Vec::new()));
+    let base = spawn_fake_telegram_with_methods(captured.clone()).await;
+    let client = reqwest::Client::new();
+
+    let rewritten = rewrite_message(
+        &client,
+        &base,
+        "FAKETOKEN",
+        100000001,
+        77,
+        "Deploy?\n\nAnswered: Ship it",
+        None,
+    )
+    .await;
+    assert!(rewritten, "the fake accepts the rewrite");
+
+    let recorded = captured.lock();
+    assert_eq!(recorded.len(), 1, "requests: {:?}", *recorded);
+    assert!(recorded[0].0.ends_with("/editMessageText"));
+    assert_eq!(
+        recorded[0].1.get("message_id").and_then(|v| v.as_i64()),
+        Some(77),
+        "the rewrite addresses the message that carried the buttons"
+    );
+    assert_eq!(
+        markup(&recorded[0].1).map(|rows| rows.len()),
+        Some(0),
+        "reply_markup must carry an empty inline_keyboard, not be absent: {:?}",
+        recorded[0].1
+    );
+}
+
+/// The chosen label survives into the message the chat is left holding.
+#[tokio::test]
+async fn spent_question_rewrite_carries_the_chosen_label_to_the_wire() {
+    let captured = Arc::new(PLMutex::new(Vec::new()));
+    let base = spawn_fake_telegram_with_methods(captured.clone()).await;
+    let client = reqwest::Client::new();
+
+    rewrite_message(
+        &client,
+        &base,
+        "FAKETOKEN",
+        100000001,
+        77,
+        "Deploy?\n\nAnswered: Ship it",
+        None,
+    )
+    .await;
+
+    let recorded = captured.lock();
+    let text = recorded[0].1.get("text").and_then(|v| v.as_str()).unwrap();
+    assert!(
+        text.contains("Ship it"),
+        "the label the caller supplied must reach the wire; got: {text}"
+    );
+}
+
+/// The plain-text retry is a second request on the wire. Dropping the markup
+/// there would restore the very buttons the rewrite exists to remove.
+#[tokio::test]
+async fn spent_question_rewrite_restates_the_empty_keyboard_on_the_plain_retry() {
+    let captured = Arc::new(PLMutex::new(Vec::new()));
+    let base = spawn_fake_telegram_rejecting_first_parse(captured.clone()).await;
+    let client = reqwest::Client::new();
+
+    let rewritten = rewrite_message(
+        &client,
+        &base,
+        "FAKETOKEN",
+        100000001,
+        77,
+        "Deploy?\n\nAnswered: Ship it",
+        None,
+    )
+    .await;
+    assert!(rewritten, "the retry succeeded");
+
+    let recorded = captured.lock();
+    assert_eq!(recorded.len(), 2, "requests: {:?}", *recorded);
+    assert!(
+        recorded[1].1.get("parse_mode").is_none(),
+        "the retry is the plain-text one"
+    );
+    assert_eq!(
+        markup(&recorded[1].1).map(|rows| rows.len()),
+        Some(0),
+        "the retry restates the empty keyboard: {:?}",
+        recorded[1].1
+    );
+}
+
+/// An ordinary send reports where it landed, which is the only thing a later
+/// rewrite has to address it by.
+#[tokio::test]
+async fn spent_question_a_placed_message_reports_where_it_landed() {
+    let captured = Arc::new(PLMutex::new(Vec::new()));
+    let base = spawn_fake_telegram_with_methods(captured.clone()).await;
+    let client = reqwest::Client::new();
+    let mut chat_states = HashMap::new();
+
+    let placed = route_text_outbound(
+        &client,
+        &base,
+        "FAKETOKEN",
+        100000001,
+        "Deploy?",
+        false,
+        None,
+        &mut chat_states,
+    )
+    .await;
+
+    assert_eq!(placed, Some(42), "the send reports the message it created");
+    assert_eq!(
+        super::super::telegram::parse_locator(&super::super::telegram::locator(
+            100000001,
+            placed.unwrap()
+        )),
+        Some((100000001, 42)),
+        "a locator round-trips through the one place that spells it"
+    );
+}

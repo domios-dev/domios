@@ -293,6 +293,8 @@ pub async fn bridge_announce(
         content: crate::bridge::traits::OutboundContent::Text { text: body.text },
         append: false,
         buttons: None,
+        edit: None,
+        receipt: None,
     })
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Send failed"))?;
 
