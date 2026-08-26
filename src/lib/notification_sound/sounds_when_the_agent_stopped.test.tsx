@@ -1,15 +1,17 @@
 // Run: npm run test:unit -- notification_sound
 //
-// The defect test. "Finished" is not a level on the shipped
-// verbose/action_needed/failure axis, so the sound keys on the two levels that
-// already mean the agent is no longer working: `action_needed` (it is waiting
-// on the user) and `failure` (it broke and stopped). Progress never sounds,
+// What an UNANSWERED level chimes. "Finished" is not a level on the shipped
+// verbose/action_needed/failure axis, so the fallback keys on the two levels
+// that already mean the agent is no longer working: `action_needed` (it is
+// waiting on the user) and `failure` (it broke and stopped). Progress does not,
 // because an agent still working has not finished, and an arrival naming no
 // level claims nothing and so claims no completion either.
 //
-// This file is the one the level mapping lives or dies by: flip `action_needed`
-// to false in AGENT_STOPPED and the first assertion below is what breaks.
-import { assert, mountSound, report } from "./harness";
+// This is now a DEFAULT and no longer a rule: a row that answers for itself
+// never reaches it, which is level_sound/the_choice_beats_the_shipped_rule's
+// claim. This file owns the fallback — flip `action_needed` in SHIPPED_SOUND and
+// the first assertion below is what breaks.
+import { assert, mountSound, report, unansweredLevels } from "./harness";
 
 let checked = 0;
 function check(condition: unknown, message: string): void {
@@ -20,7 +22,7 @@ function check(condition: unknown, message: string): void {
 const OPTED_IN = true;
 
 async function main() {
-  const stopped = await mountSound(OPTED_IN);
+  const stopped = await mountSound(OPTED_IN, unansweredLevels());
   await stopped.arrive("action_needed");
   const afterActionNeeded = stopped.recorder.notes.length;
   check(afterActionNeeded > 0, "an agent waiting on the user is an agent that stopped, and sounds");
@@ -32,7 +34,7 @@ async function main() {
   );
   await stopped.done();
 
-  const working = await mountSound(OPTED_IN);
+  const working = await mountSound(OPTED_IN, unansweredLevels());
   await working.arrive("verbose");
   check(
     working.recorder.notes.length === 0,

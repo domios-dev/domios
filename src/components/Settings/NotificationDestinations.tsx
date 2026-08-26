@@ -13,6 +13,7 @@ import {
   type PushChannelDescriptor,
 } from "../../lib/notifyDestinations";
 import { levelLabel, levelMeaning, levelTone } from "../../lib/notifyLevels";
+import { SOUND_CHOICE_LABEL, levelSounds, setLevelSound } from "../../lib/notificationSound";
 import {
   channelPatch,
   channelRecipients,
@@ -60,7 +61,7 @@ export function reachesNothing(
 }
 
 /**
- * Where each level may go.
+ * Where each level may go, and whether it chimes.
  *
  * Rows come from the daemon's own closed level set, so a level added there
  * appears here without anyone editing a list. The system notification is a fixed
@@ -70,6 +71,10 @@ export function reachesNothing(
  * adding a row to every level. Only a channel that can carry a message is
  * offered. A level that picks nothing is a configuration rather than an error:
  * it is kept in the panel and interrupts nowhere.
+ *
+ * The chime sits on the row rather than in the destination columns: it is not a
+ * place a message goes, but it IS this level's own answer, and it reads the
+ * effective answer so an unanswered row shows the chime it actually makes.
  */
 export function NotificationDestinations({
   config,
@@ -141,6 +146,15 @@ export function NotificationDestinations({
                 }
               />
             ))}
+            <Toggle
+              label={destinationCellLabel(label, SOUND_CHOICE_LABEL)}
+              checked={levelSounds(choice, choice.level)}
+              onChange={(value) =>
+                onUpdate("notifications", {
+                  agent_levels: setLevelSound(levels, choice.level, value),
+                })
+              }
+            />
             {push.length > 0 && (
               <DestinationPicker
                 name={pushPickerLabel(label)}
@@ -153,9 +167,10 @@ export function NotificationDestinations({
         );
       })}
       <p className="text-[10px] text-[var(--ct-muted)] leading-relaxed">
-        Every level is kept in the panel; these choose what else it reaches. A message that names
-        no level is kept too, and never reaches the system or any push channel — there is no
-        fallback level and no way to widen this set from here.
+        Every level is kept in the panel; these choose what else it reaches, and which of them
+        chime. A message that names no level is kept too, and never reaches the system, any push
+        channel, or the speakers — there is no fallback level and no way to widen this set from
+        here. Notification sounds above mutes every chime at once without changing these answers.
       </p>
     </div>
   );

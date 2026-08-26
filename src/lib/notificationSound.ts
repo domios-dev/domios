@@ -1,43 +1,81 @@
 /**
  * The completion sound.
  *
- * Sound is not a destination: it holds no record, cannot be read later and
- * cannot be answered, so it is presentation on a record's arrival alongside
- * `show_bell`, never a column of the levels grid. There is nothing for it to
- * disagree with either — the daemon emits `notification-created` for every
- * record, so what sounds is decided by the LEVEL alone and never by a routing
- * column that could drift from it.
+ * Sound used to be deliberately kept OUT of the levels grid. The argument was
+ * concrete: a column would let a user write `verbose: {bell: false, sound: true}`
+ * — a level routed to reach nothing that still makes a noise, where the noise is
+ * its only trace. That argument is OBSOLETE. The bell gate has been retired and
+ * EVERY level now reaches the panel unconditionally, because the panel is the
+ * complete log. No configuration can make a level sound while reaching nothing,
+ * so every chime has a record behind it and a per-level chime is coherent.
+ *
+ * What each level does is therefore the level's own stored answer. The old
+ * hardcoded table survives only as the answer an UNANSWERED row falls back to,
+ * and any stated answer beats it in both directions.
  */
+import type { AgentLevelChoice } from "./types";
 import type { NotifyLevelName } from "./notifyLevels";
 
 /**
- * Whether a level says the agent has stopped. "Finished" is not a level on the
- * shipped axis, so the sound keys on the two levels that already mean the agent
- * is no longer working and wants the user. Exhaustive over the level union: a
- * level added later cannot compile until it answers here.
+ * The chime a level makes before anyone answers for it. Exhaustive over the
+ * level union: a level added later cannot compile until it answers here. This
+ * is a DEFAULT and never an override — a row that states an answer never
+ * reaches it.
  */
-const AGENT_STOPPED: Record<NotifyLevelName, boolean> = {
+const SHIPPED_SOUND: Record<NotifyLevelName, boolean> = {
   verbose: false,
   action_needed: true,
   failure: true,
 };
 
-/** An arrival naming no level claims nothing about the agent, so it stays silent. */
-function announcesAgentStopped(level: string | null | undefined): boolean {
+export function shippedSound(level: string | null | undefined): boolean {
   if (!level) return false;
-  return AGENT_STOPPED[level as NotifyLevelName] === true;
+  return SHIPPED_SOUND[level as NotifyLevelName] === true;
+}
+
+/** This level's own answer, or the shipped one while it has none. */
+export function levelSounds(
+  choice: Pick<AgentLevelChoice, "level" | "sound"> | undefined,
+  level: string | null | undefined,
+): boolean {
+  const answer: boolean | undefined = choice?.sound;
+  return answer === undefined ? shippedSound(level) : answer;
+}
+
+/** The row governing one level, if the daemon has shipped one for it yet. */
+export function levelChoice(
+  levels: readonly AgentLevelChoice[],
+  level: string | null | undefined,
+): AgentLevelChoice | undefined {
+  if (!level) return undefined;
+  return levels.find((choice) => choice.level === level);
+}
+
+/** The caption of one level's chime control, and the tail of its accessible name. */
+export const SOUND_CHOICE_LABEL = "Sound";
+
+/** Move one level's chime answer. Writes the named field and nothing else, so a
+ *  chime can never be mistaken for a push channel of the same name. */
+export function setLevelSound(
+  current: readonly AgentLevelChoice[],
+  level: string,
+  sound: boolean,
+): AgentLevelChoice[] {
+  return current.map((choice) => (choice.level === level ? { ...choice, sound } : choice));
 }
 
 /**
- * The whole decision, as one predicate: an opted-in user, and an arrival that
- * says the agent stopped. There is no level configuration of its own to drift
- * from the grid — the arrival itself is the routing decision, already made.
+ * The whole decision: the master mute is on, and the arriving level's own row
+ * says it chimes. An arrival naming no level has no row and therefore no answer,
+ * so it stays silent rather than borrowing one.
  */
 export function shouldSoundArrival(
   enabled: boolean | undefined,
+  levels: readonly AgentLevelChoice[],
   level: string | null | undefined,
 ): boolean {
-  return enabled === true && announcesAgentStopped(level);
+  if (enabled !== true || !level) return false;
+  return levelSounds(levelChoice(levels, level), level);
 }
 
 interface ChimeParam {
@@ -78,7 +116,7 @@ function resumeIfSuspended(context: ChimeContext): void {
 
 const NOTE_HZ = [660, 880];
 const NOTE_SECONDS = 0.09;
-const PEAK_GAIN = 0.09;
+const PEAK_GAIN = 0.24;
 const FLOOR_GAIN = 0.0001;
 
 /**
@@ -140,6 +178,15 @@ export function chimeContext(): ChimeContext | null {
   return established;
 }
 
+/**
+ * Whether we hold a context that can actually be heard. A suspended context is
+ * silence, so holding one is not the same as being established — the difference
+ * is what keeps the gesture listener armed until a gesture really lands.
+ */
+export function chimeIsAudible(): boolean {
+  return established !== null && established.state !== "suspended";
+}
+
 /** The events a browser accepts as the user gesture that may start audio. */
 export const CHIME_GESTURE_EVENTS = ["pointerdown", "keydown"] as const;
 
@@ -156,6 +203,10 @@ export interface GestureTarget {
  * context opened later — inside a daemon event — starts suspended and stays
  * silent. The listener closes that gap and then removes itself, because there
  * is exactly one context to establish and nothing to keep watching for.
+ *
+ * It removes itself on an AUDIBLE context, not merely on having tried: a
+ * gesture that failed to produce a running context has established nothing, and
+ * giving up on it would leave the chime permanently silent.
  */
 export function establishChimeOnFirstGesture(target: GestureTarget): () => void {
   let listening = true;
@@ -165,8 +216,8 @@ export function establishChimeOnFirstGesture(target: GestureTarget): () => void 
     for (const event of CHIME_GESTURE_EVENTS) target.removeEventListener(event, onGesture);
   };
   function onGesture(): void {
-    stop();
     establishChimeContext();
+    if (chimeIsAudible()) stop();
   }
   for (const event of CHIME_GESTURE_EVENTS) target.addEventListener(event, onGesture);
   return stop;

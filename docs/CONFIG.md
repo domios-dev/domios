@@ -30,7 +30,7 @@ copy_on_select = false
 
 [notifications]
 desktop = false     # opt-in; the per-level grid below still decides which levels toast
-sound = false       # opt-in chime on an arrival that says the agent stopped
+sound = false       # the chime's master mute; each level below says whether it chimes
 toast_duration = 5  # seconds
 show_bell = true    # false removes the indicator; every record is still kept
 
@@ -48,10 +48,18 @@ show_bell = true    # false removes the indicator; every record is still kept
 # row, so dropping it would make a stored `bell = true` read back as a push
 # channel called "bell" that no registry will ever resolve. `notifications.
 # show_bell` is a different field and still works: it hides the indicator.
-# `sound` is presentation, not a destination: it has no column here and cannot
-# widen where a level goes. It rides a record's arrival, and since every record
-# arrives, what sounds is the level alone — only `action_needed` and `failure`,
-# the levels that mean the agent stopped, sound at all.
+# `sound` on a ROW is that level's own chime answer, and is a named field for the
+# same reason `bell` is: a `sound` key in the flattened map would read back as a
+# push channel called "sound". Omit it and the level keeps the chime that shipped
+# — `action_needed` and `failure` chime, `verbose` does not — so a config written
+# before the field sounds exactly as it did. Write it and the answer wins, in
+# both directions. `notifications.sound` above is the master mute over all of
+# them; it is not a destination and cannot widen where a level goes.
+# This used to be argued the other way: a per-level chime was refused because it
+# would allow a level that reaches nothing yet still makes a noise, with the noise
+# as its only trace. The bell gate has since been retired and EVERY level reaches
+# the panel unconditionally, so no such configuration exists any more and the
+# objection is gone.
 # Settings offers the system notification as a toggle and the push channels as
 # ONE picker per level, so a registered channel widens that picker instead of
 # adding a row. Only a channel the daemon reports as able to carry a message is
@@ -65,6 +73,7 @@ desktop = false
 level = "action_needed"
 bell = true
 desktop = false
+# sound = false        # omit to keep the chime that shipped for this level
 # telegram = true      # one flag per registered push channel, keyed by service id
 [[notifications.agent_levels]]
 level = "failure"

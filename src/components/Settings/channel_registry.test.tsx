@@ -100,6 +100,10 @@ function configWith(agent_levels: AgentLevelChoice[]): AppConfig {
   } as unknown as AppConfig;
 }
 
+/** Every row also carries its own chime switch, which is not a destination
+ *  column: the grid's switch count is the local surfaces plus that one. */
+const SWITCHES_PER_ROW = LOCAL_DESTINATIONS.length + 1;
+
 function switches(scope: Element): HTMLButtonElement[] {
   return Array.from(scope.querySelectorAll('button[role="switch"]')) as HTMLButtonElement[];
 }
@@ -164,7 +168,7 @@ async function aSecondChannelWidensTheControlWithNoEditHere() {
   const oneGrid = one.host.querySelector(GRID);
   assert(oneGrid, "the surface renders");
   assert(
-    switches(oneGrid).length === ROWS.length * LOCAL_DESTINATIONS.length,
+    switches(oneGrid).length === ROWS.length * SWITCHES_PER_ROW,
     "the local surfaces are one toggle per level each",
   );
   assert(
@@ -217,8 +221,8 @@ async function theSystemNotificationKeepsItsOwnToggleAndField() {
     assert(shipped, `${level} came from the fixture`);
     const controls = switches(row);
     assert(
-      controls.length === LOCAL_DESTINATIONS.length,
-      `${level}: the local surface is the only switch on the row, got ${controls.length}`,
+      controls.length === SWITCHES_PER_ROW,
+      `${level}: the local surface and the chime are the switches on the row, got ${controls.length}`,
     );
     assert(
       controls[0].getAttribute("aria-checked") === String(shipped.desktop),
@@ -326,7 +330,7 @@ async function anUnansweredRosterDrawsOnlyTheLocalSurfaces() {
       const grid = view.host.querySelector(GRID);
       assert(grid, "the surface still renders its local surfaces");
       assert(
-        switches(grid).length === ROWS.length * LOCAL_DESTINATIONS.length,
+        switches(grid).length === ROWS.length * SWITCHES_PER_ROW,
         "an unanswered roster draws no channel rather than guessing one",
       );
       assert(
@@ -358,7 +362,7 @@ async function anUnansweredRosterDrawsOnlyTheLocalSurfaces() {
       const grid = view.host.querySelector(GRID);
       assert(grid, "the surface renders");
       assert(
-        switches(grid).length === ROWS.length * LOCAL_DESTINATIONS.length &&
+        switches(grid).length === ROWS.length * SWITCHES_PER_ROW &&
           pickers(grid).length === ROWS.length,
         "the answered roster is what the surface draws",
       );
