@@ -586,6 +586,9 @@ fn prompt_placeholders_are_fully_substituted() {
             "{planning_compaction_contract}",
             "{team_creation_contract}",
             "{test_author_guidance}",
+            "{task_contract_line}",
+            "{task_routing_line}",
+            "{roleless_draft_rejection}",
             "{orchestrator_suffix}",
             "{planner_spawn_cmd}",
             "{spawn_cmd}",
@@ -986,5 +989,134 @@ fn every_prompt_md_has_a_loader() {
         orphans.is_empty(),
         "orphaned prompt files with no include_str!() loader: {:?}",
         orphans
+    );
+}
+
+/// The seven fields the mandatory list held before the executor role joined it.
+/// Named here so "nothing was lost in the move" is checkable against a baseline
+/// rather than against the list under test.
+const MANDATORY_FIELDS_BEFORE_THE_MOVE: [&str; 7] = [
+    "a bounded body",
+    "section links",
+    "acceptance criteria",
+    "a correctness vector",
+    "an executable test plan",
+    "an ownership boundary",
+    "report expectations",
+];
+
+/// The defect was placement, not absence: the field sat in the routing sentence
+/// beside three genuinely optional flags and inherited their optionality.
+#[test]
+fn executor_role_prompt_field_is_a_member_of_the_mandatory_list() {
+    assert!(
+        PLANNER_TASK_MANDATORY_FIELDS.contains(&PLANNER_TASK_EXECUTOR_ROLE_FIELD),
+        "the executor role must be obliged by membership in the mandatory list"
+    );
+    assert!(
+        !PLANNER_TASK_ROUTING_FLAGS.contains(&PLANNER_TASK_EXECUTOR_ROLE_FIELD),
+        "a member of the optional routing set inherits its optionality"
+    );
+
+    let contract = planner_task_contract_line();
+    assert!(contract.contains(PLANNER_TASK_EXECUTOR_ROLE_FIELD));
+
+    let rendered = planner_suffix();
+    assert_eq!(
+        rendered.matches(contract.as_str()).count(),
+        1,
+        "the Planner surface must carry the mandatory-field fragment exactly once"
+    );
+    assert!(!rendered.contains("{task_contract_line}"));
+}
+
+/// A move, not a rewrite. Both lists must still hold every member they held.
+#[test]
+fn executor_role_prompt_move_drops_nothing_from_either_list() {
+    for field in MANDATORY_FIELDS_BEFORE_THE_MOVE {
+        assert!(
+            PLANNER_TASK_MANDATORY_FIELDS.contains(&field),
+            "the move dropped the mandatory field {field}"
+        );
+    }
+    assert_eq!(
+        PLANNER_TASK_MANDATORY_FIELDS.len(),
+        MANDATORY_FIELDS_BEFORE_THE_MOVE.len() + 1,
+        "the list gained the executor role and nothing else"
+    );
+
+    // Ruled out of the MANDATORY scope, not out of the product.
+    for flag in ["`--model`", "`--personality`", "`--role-guidance`"] {
+        assert!(
+            PLANNER_TASK_ROUTING_FLAGS.contains(&flag),
+            "the routing set lost {flag}"
+        );
+    }
+    assert_eq!(PLANNER_TASK_ROUTING_FLAGS.len(), 3);
+
+    let rendered = planner_suffix();
+    for member in PLANNER_TASK_MANDATORY_FIELDS
+        .iter()
+        .chain(PLANNER_TASK_ROUTING_FLAGS)
+    {
+        assert!(
+            rendered.contains(member),
+            "the Planner surface no longer delivers {member}"
+        );
+    }
+    assert!(!rendered.contains("{task_routing_line}"));
+}
+
+/// Delivery by constant identity: the duty is stated inside the instruction
+/// where the Orchestrator already judges drafts, never as a separate rule.
+#[test]
+fn executor_role_prompt_rejection_duty_reaches_the_orchestrator_surface() {
+    assert!(
+        !ORCH_ROLELESS_DRAFT_REJECTION.trim().is_empty(),
+        "an empty fragment proves nothing"
+    );
+
+    let rendered = orchestrator_suffix();
+    assert_eq!(
+        rendered.matches(ORCH_ROLELESS_DRAFT_REJECTION).count(),
+        1,
+        "the Orchestrator surface must carry the rejection duty exactly once"
+    );
+    assert!(!rendered.contains("{roleless_draft_rejection}"));
+}
+
+/// A rule about authoring tasks has no business in the prompt of an agent that
+/// executes them. The Watcher is not a fourth surface to keep clean:
+/// `builtin_guidance` hands it the Planner's, asserted here so the negative
+/// control cannot silently start covering a surface that does not exist.
+#[test]
+fn executor_role_prompt_stays_off_the_surfaces_that_only_execute() {
+    use codeterm_types::agent::role_kind::builtins;
+
+    for (name, surface) in [
+        ("worker_suffix", worker_suffix()),
+        ("worker_codeterm_context", WORKER_CODETERM_CONTEXT.to_string()),
+        ("worker_task_preamble", WORKER_TASK_PREAMBLE.to_string()),
+        ("agent_codeterm_primer", AGENT_CODETERM_PRIMER.to_string()),
+    ] {
+        assert!(
+            !surface.contains(PLANNER_TASK_EXECUTOR_ROLE_FIELD),
+            "{name} must not carry the task-authoring field"
+        );
+        assert!(
+            !surface.contains(ORCH_ROLELESS_DRAFT_REJECTION),
+            "{name} must not carry the draft-rejection duty"
+        );
+    }
+
+    let worker = crate::service::role_preset::builtin_guidance(builtins::WORKER)
+        .expect("the Worker kind has bundled guidance");
+    assert!(!worker.contains(PLANNER_TASK_EXECUTOR_ROLE_FIELD));
+    assert!(!worker.contains(ORCH_ROLELESS_DRAFT_REJECTION));
+
+    assert_eq!(
+        crate::service::role_preset::builtin_guidance(builtins::WATCHER),
+        crate::service::role_preset::builtin_guidance(builtins::PLANNER),
+        "the Watcher has no surface of its own; it is handed the Planner's"
     );
 }
