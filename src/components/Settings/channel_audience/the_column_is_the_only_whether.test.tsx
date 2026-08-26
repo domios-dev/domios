@@ -20,6 +20,7 @@ import {
   fail,
   mount,
   named,
+  openPush,
   pass,
   row,
   setupDom,
@@ -60,6 +61,7 @@ async function theColumnDecidesWhetherAndTheAudienceDecidesWho() {
     const view = await mount(
       <NotificationDestinations config={config} channels={[CHANNEL]} onUpdate={() => {}} />,
     );
+    await openPush(view.host, LEVEL);
     assert(
       named(view.host, destinationCellLabel(levelLabel(LEVEL), CHANNEL.label)).getAttribute(
         "aria-checked",
@@ -84,6 +86,7 @@ async function closingTheColumnLeavesTheAudienceIntact() {
       }
     />,
   );
+  await openPush(view.host, LEVEL);
   await act(async () =>
     named(view.host, destinationCellLabel(levelLabel(LEVEL), CHANNEL.label)).click(),
   );

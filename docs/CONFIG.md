@@ -45,6 +45,11 @@ show_bell = true    # false removes the indicator; every record is still kept
 # widen where a level goes. It rides the bell arrival, so a level whose `bell`
 # column is false never sounds, and only `action_needed` and `failure` — the
 # levels that mean the agent stopped — sound at all.
+# Settings offers the two local surfaces as a toggle each and the push channels
+# as ONE picker per level, so a registered channel widens that picker instead of
+# adding a row. Only a channel the daemon reports as able to carry a message is
+# offered. Unpicking a channel REMOVES its key from the row rather than writing
+# `false`; both read as closed, which is what an unnamed channel has always been.
 [[notifications.agent_levels]]
 level = "verbose"
 bell = true
@@ -256,4 +261,4 @@ When a Worker lane worktree is created, each declared directory that exists in t
 
 Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`.
 
-<!-- revision: 48 -->
+<!-- revision: 49 -->
