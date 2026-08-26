@@ -7,7 +7,7 @@ import {
   recipientLabel,
   toggleRecipient,
 } from "../../lib/pushChannels";
-import { Toggle } from "./shared";
+import { SettingsSection, SwitchTile } from "./shared";
 
 /**
  * One channel's own settings surface, which answers WHO and never a second
@@ -33,35 +33,35 @@ export function ChannelAudience({
   const selected = channelRecipients(config, channel.id);
 
   return (
-    <div
-      className="flex flex-col gap-2"
-      data-testid="settings-channel-audience"
-      data-channel={channel.id}
-      role="group"
-      aria-label={`${channel.label} recipients`}
-    >
-      <h4 className="text-[var(--ct-muted-fg)] text-xs font-medium">
-        {`${channel.label} recipients`}
-      </h4>
-      {offered.map((id) => (
-        <Toggle
-          key={id}
-          label={recipientLabel(channel.label, id)}
-          checked={selected.includes(id)}
-          onChange={(value) =>
-            onUpdate(
-              "notifications",
-              channelPatch(config.notifications?.channels, channel.id, {
-                recipients: toggleRecipient(selected, id, value),
-              }),
-            )
-          }
-        />
-      ))}
+    <SettingsSection title={`Who ${channel.label} writes to`}>
+      <div
+        className="flex flex-col gap-2"
+        data-testid="settings-channel-audience"
+        data-channel={channel.id}
+        role="group"
+        aria-label={`${channel.label} recipients`}
+      >
+        {offered.map((id) => (
+          <SwitchTile
+            key={id}
+            dense
+            label={recipientLabel(channel.label, id)}
+            checked={selected.includes(id)}
+            onChange={(value) =>
+              onUpdate(
+                "notifications",
+                channelPatch(config.notifications?.channels, channel.id, {
+                  recipients: toggleRecipient(selected, id, value),
+                }),
+              )
+            }
+          />
+        ))}
+      </div>
       <p className="text-[10px] text-[var(--ct-muted)] leading-relaxed">
         Selecting nobody means nobody. This list never falls back to everyone the
         bridge admits, and which levels arrive here is the picker above.
       </p>
-    </div>
+    </SettingsSection>
   );
 }

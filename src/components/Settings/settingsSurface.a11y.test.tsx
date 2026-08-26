@@ -2,7 +2,7 @@
 
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, finish, it } from "../../test/standaloneTest";
-import { SettingsCard, SettingsPage, Toggle } from "./shared";
+import { SettingsCard, SettingsPage, SettingsSection, SwitchTile, Toggle } from "./shared";
 
 /** Resolve an aria-labelledby the way an AT does: follow the id to its text. */
 function labelledByText(html: string, container: RegExp): string | null {
@@ -65,6 +65,42 @@ describe("settings page and card accessibility surface", () => {
       );
       const name = html.match(/role="switch"[^>]*aria-label="([^"]*)"|aria-label="([^"]*)"[^>]*role="switch"/);
       expect(name?.[1] ?? name?.[2]).toBe(label);
+    }
+  });
+
+  it("names each switch tile from the label it was given, never from its hint", () => {
+    for (const label of ["Show the bell", "Notification sounds"]) {
+      const html = renderToStaticMarkup(
+        <SwitchTile
+          label={label}
+          hint="an explanation that is not the question"
+          checked={false}
+          onChange={() => undefined}
+        />,
+      );
+      expect(html.match(/aria-label="([^"]*)"/)?.[1]).toBe(label);
+      expect(html).toContain('role="switch"');
+    }
+  });
+
+  it("gives a switch tile exactly one focusable control and hides the drawn switch", () => {
+    const html = renderToStaticMarkup(
+      <SwitchTile label="Desktop notifications" checked onChange={() => undefined} />,
+    );
+    expect((html.match(/<button/g) ?? []).length).toBe(1);
+    expect((html.match(/role="switch"/g) ?? []).length).toBe(1);
+    expect(html).toContain('aria-hidden="true"');
+    expect(html).toContain('aria-checked="true"');
+  });
+
+  it("names each settings section from the title it was given", () => {
+    for (const title of ["Surfaces", "What each level may interrupt"]) {
+      const html = renderToStaticMarkup(
+        <SettingsSection title={title}>
+          <span>body</span>
+        </SettingsSection>,
+      );
+      expect(labelledByText(html, /<section aria-labelledby="([^"]*)"/)).toBe(title);
     }
   });
 

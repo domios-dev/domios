@@ -88,16 +88,16 @@ const holders = readdirSync(settingsDir)
 check(holders.length === 1, `exactly one Settings file owns the control, found ${holders.length}`);
 const settings = readFileSync(holders[0], "utf8");
 check(
-  /<Toggle\s+label="[^"]+"\s+checked=\{config\.notifications\.sound\}/.test(settings),
-  "the control is the shared toggle bound to the field, not a new one",
+  /<SwitchTile\s[\s\S]{0,240}?checked=\{config\.notifications\.sound\}/.test(settings),
+  "the control is the shared switch tile bound to the field, not a new one",
 );
 check(
   /onUpdate\("notifications", \{ sound: v \}\)/.test(settings),
   "and it writes the bare field, never a grid row",
 );
 check(
-  /import \{[^}]*\bToggle\b[^}]*\} from "\.\/shared"/.test(settings),
-  "the toggle comes from the shared settings rows",
+  /import \{[^}]*\bSwitchTile\b[^}]*\} from "\.\/shared"/.test(settings),
+  "the control comes from the shared settings rows",
 );
 const shared = read("../../components/Settings/shared.tsx");
 check(shared.includes("LiquidToggle"), "the shared toggle is still the liquid toggle");
