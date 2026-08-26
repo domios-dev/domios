@@ -72,6 +72,8 @@ impl PushChannel for DiscordChannel {
                 },
                 append: false,
                 buttons: None,
+                edit: None,
+                receipt: None,
             },
         )
     }

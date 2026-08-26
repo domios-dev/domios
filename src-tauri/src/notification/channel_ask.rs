@@ -29,6 +29,10 @@ pub struct ChannelChoice {
 pub struct PushMessage {
     pub text: String,
     pub choices: Vec<ChannelChoice>,
+    /// The record this renders. A channel tags its send with it so the
+    /// placement that comes back names the question it belongs to; the channel
+    /// echoes it and never reads it.
+    pub record: String,
 }
 
 impl PushMessage {
@@ -36,6 +40,7 @@ impl PushMessage {
         Self {
             text: text.into(),
             choices: Vec::new(),
+            record: String::new(),
         }
     }
 

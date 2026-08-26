@@ -103,6 +103,8 @@ impl PushChannel for FixtureChannel {
                 },
                 append: false,
                 buttons: None,
+                edit: None,
+                receipt: None,
             },
         )
     }
@@ -231,7 +233,6 @@ fn channel_registry_second_channel_routes_without_touching_the_enum_or_the_grid(
     let envelope = PushEnvelope {
         level: NotifyLevel::Failure,
         message: PushMessage::text("a rendered push"),
-        notification_id: "notif".to_string(),
     };
     assert_eq!(
         deliver_plan(&plan.targets, &plan.refusals, &host, &envelope),
@@ -343,7 +344,6 @@ fn channel_registry_resolving_a_channel_never_requires_core_to_name_one() {
     let envelope = PushEnvelope {
         level: NotifyLevel::Verbose,
         message: PushMessage::text("a rendered push"),
-        notification_id: "notif".to_string(),
     };
     assert_eq!(
         deliver_plan(&plan.targets, &plan.refusals, &host, &envelope),
@@ -409,7 +409,6 @@ fn channel_registry_unknown_or_unavailable_channel_degrades_honestly() {
     let envelope = PushEnvelope {
         level: NotifyLevel::Failure,
         message: PushMessage::text("text"),
-        notification_id: "notif".to_string(),
     };
     let outcome = deliver_plan(&plan.targets, &plan.refusals, &dead, &envelope);
     assert!(
@@ -498,4 +497,108 @@ fn notification_settings_level_with_no_readable_row_is_refused() {
         let plan = plan_push(&cfg, &roster, &host, intent(level));
         assert!(plan.targets.is_empty() && plan.refusals.is_empty());
     }
+}
+
+/// The whole outbound leg of spending a question on the one channel that can
+/// rewrite: the placement it reports on delivery, and the rewrite it enqueues
+/// for that exact message.
+#[test]
+fn spent_question_the_telegram_channel_rewrites_the_message_it_placed() {
+    let host = FakeHost::carrying(&["telegram"]);
+    let asked = PushMessage {
+        text: "[action needed] Deploy?".to_string(),
+        choices: vec![
+            crate::notification::channel_ask::ChannelChoice {
+                label: "Ship it".to_string(),
+                token: "na:record-1:0".to_string(),
+            },
+            crate::notification::channel_ask::ChannelChoice {
+                label: "Hold".to_string(),
+                token: "na:record-1:1".to_string(),
+            },
+        ],
+        record: "record-1".to_string(),
+    };
+
+    channels::telegram::CHANNEL
+        .deliver(&host, &Audience(vec!["4242".to_string()]), &asked)
+        .expect("a ready telegram channel carries the question");
+
+    let placed = host.sent.lock().pop().expect("the question was enqueued");
+    assert!(
+        placed.1.receipt.is_some(),
+        "a message that draws options is tagged so its placement can come back"
+    );
+    let receipt = placed.1.receipt.clone().expect("tagged");
+    assert_eq!(receipt.service, "telegram");
+    assert_eq!(
+        receipt.tag, "record-1",
+        "the placement names the record the channel was handed"
+    );
+
+    // What the bridge reports back for that send, spelled by the transport.
+    let locator = codeterm_bridge::bridge::telegram::locator(4242, 77);
+    let spent = PushMessage {
+        text: "[action needed] Deploy?\n\nAnswered: Ship it".to_string(),
+        choices: Vec::new(),
+        record: "record-1".to_string(),
+    };
+    channels::telegram::CHANNEL
+        .spend(&host, &locator, &spent)
+        .expect("the channel rewrites the message it placed");
+
+    let rewrite = host.sent.lock().pop().expect("the rewrite was enqueued");
+    assert_eq!(rewrite.0, "telegram");
+    assert_eq!(rewrite.1.user_id, Some(4242));
+    let edit = rewrite.1.edit.as_ref().expect("a rewrite names a message");
+    assert_eq!(
+        edit.message_id, 77,
+        "the rewrite addresses the message the placement reported"
+    );
+    assert_eq!(
+        rewrite.1.buttons.as_ref().map(|kb| kb.len()),
+        Some(0),
+        "a spent question restates an empty keyboard rather than omitting it"
+    );
+    match &rewrite.1.content {
+        OutboundContent::Text { text } => assert!(
+            text.contains("Ship it"),
+            "the chosen label reaches the rewritten message"
+        ),
+        other => panic!("expected text, got {other:?}"),
+    }
+}
+
+/// A locator this channel did not write is refused rather than addressed as
+/// one of its own messages.
+#[test]
+fn spent_question_a_foreign_locator_is_refused_rather_than_guessed() {
+    let host = FakeHost::carrying(&["telegram"]);
+    let refusal = channels::telegram::CHANNEL
+        .spend(&host, "not-a-telegram-message", &PushMessage::text("spent"))
+        .expect_err("an unreadable locator cannot be addressed");
+    assert!(refusal.contains("telegram"));
+    assert!(host.sent.lock().is_empty(), "nothing was enqueued");
+}
+
+/// A channel with no rewrite of its own says so. Nothing above it may read a
+/// missing capability as a rewrite that happened.
+#[test]
+fn spent_question_a_channel_that_cannot_rewrite_degrades_honestly() {
+    let host = FakeHost::carrying(&["discord", FIXTURE_SERVICE.id]);
+
+    let discord_refusal = discord::CHANNEL
+        .spend(&host, "anything", &PushMessage::text("spent"))
+        .expect_err("this build carries no discord rewrite");
+    assert!(discord_refusal.contains("discord"));
+
+    let fixture_refusal = FIXTURE_CHANNEL
+        .spend(&host, "anything", &PushMessage::text("spent"))
+        .expect_err("a channel that never implemented one cannot rewrite");
+    assert!(fixture_refusal.contains(FIXTURE_SERVICE.id));
+
+    assert!(
+        host.sent.lock().is_empty(),
+        "a channel that cannot rewrite enqueues nothing"
+    );
 }
