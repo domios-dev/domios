@@ -115,7 +115,7 @@ export function ToolOutputCard({
             </button>
           </div>
           <pre
-            className="ct-tool-output-full max-w-full overflow-auto rounded bg-[var(--ct-bg-alt,rgba(255,255,255,0.03))] p-2 text-[10px] whitespace-pre-wrap text-[var(--ct-muted-fg)]"
+            className="ct-tool-output-full max-w-full overflow-auto rounded bg-[var(--ct-bg-elev)] p-2 text-[10px] whitespace-pre-wrap text-[var(--ct-muted-fg)]"
             data-testid="tool-output-full"
             tabIndex={0}
             style={{ maxHeight: "min(240px, 45vh)", overflowWrap: "anywhere" }}

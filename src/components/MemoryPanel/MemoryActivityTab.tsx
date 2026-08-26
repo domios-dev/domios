@@ -238,7 +238,7 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
                     </div>
                   )}
                   <div
-                    className="flex items-start gap-2.5 px-3 py-1.5 border-b border-white/[0.04] hover:bg-[var(--ct-hover-bg)] transition-colors duration-75"
+                    className="flex items-start gap-2.5 px-3 py-1.5 border-b border-white/[0.04] hover:bg-[var(--ct-bg-hover)] transition-colors duration-75"
                     data-testid="memory-activity-event"
                     data-memory-op={ev.op}
                   >

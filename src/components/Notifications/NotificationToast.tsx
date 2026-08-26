@@ -90,7 +90,7 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate, embedded }
               className={
                 i === 0
                   ? "h-5 rounded border border-[var(--toast-accent)]/35 bg-[var(--toast-accent)]/12 px-1.5 text-[10px] text-[var(--ct-fg)] hover:bg-[var(--toast-accent)]/18"
-                  : "h-5 rounded border border-[var(--ct-border)]/70 px-1.5 text-[10px] text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover-bg)] hover:text-[var(--ct-fg)]"
+                  : "h-5 rounded border border-[var(--ct-border)]/70 px-1.5 text-[10px] text-[var(--ct-muted-fg)] hover:bg-[var(--ct-bg-hover)] hover:text-[var(--ct-fg)]"
               }
             >
               {action.label}
@@ -100,7 +100,7 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate, embedded }
       )}
       <button
         onClick={dismiss}
-        className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover-bg)] hover:text-[var(--ct-fg)]"
+        className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--ct-muted-fg)] hover:bg-[var(--ct-bg-hover)] hover:text-[var(--ct-fg)]"
         aria-label="Dismiss"
       >
         <X size={12} strokeWidth={1.8} />

@@ -226,7 +226,7 @@ export function ExtensionsView({
           <div
             role="alert"
             data-testid="extensions-error"
-            style={{ fontSize: 12.5, color: "var(--ct-err, #e57373)", border: "1px solid var(--ct-err, rgba(229,115,115,0.4))", borderRadius: 8, padding: "9px 12px", marginBottom: 12, flex: "none" }}
+            style={{ fontSize: 12.5, color: "var(--ct-err)", border: "1px solid color-mix(in srgb, var(--ct-err) 40%, transparent)", borderRadius: 8, padding: "9px 12px", marginBottom: 12, flex: "none" }}
           >
             {error}
           </div>

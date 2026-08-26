@@ -132,7 +132,7 @@ export function PlanCompanionBubble({
               <div className="truncate text-[13px] font-semibold" style={{ color: "var(--ct-fg)" }}>
                 {name}
               </div>
-              <div className="truncate text-[11px]" style={{ color: "var(--ct-fg-muted)" }}>
+              <div className="truncate text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>
                 {kindLabel} · {statusText(tab)}
               </div>
             </div>

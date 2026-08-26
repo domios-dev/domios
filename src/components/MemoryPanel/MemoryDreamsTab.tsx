@@ -425,7 +425,7 @@ function SkeletonDream() {
   return (
     <div
       data-dream-card
-      className="snap-start shrink-0 w-[260px] h-[280px] rounded-2xl border border-[var(--ct-border)] bg-[var(--ct-hover-bg)]/30 animate-pulse overflow-hidden flex flex-col"
+      className="snap-start shrink-0 w-[260px] h-[280px] rounded-2xl border border-[var(--ct-border)] bg-[var(--ct-bg-hover)]/30 animate-pulse overflow-hidden flex flex-col"
     >
       <div className="flex items-start justify-between px-4 pt-4">
         <div className="w-9 h-9 rounded-lg bg-[var(--ct-border)]" />
@@ -492,7 +492,7 @@ function RecentSessionsList({
         data-testid="memory-dream-session"
         data-worker-id={w.worker_id}
         data-worker-status={w.status}
-        className="flex items-center gap-3 px-3 py-1.5 rounded-md bg-[var(--ct-hover-bg)]/60 border border-[var(--ct-border)] hover:border-[var(--ct-accent)] cursor-pointer transition-colors"
+        className="flex items-center gap-3 px-3 py-1.5 rounded-md bg-[var(--ct-bg-hover)]/60 border border-[var(--ct-border)] hover:border-[var(--ct-accent)] cursor-pointer transition-colors"
       >
         <span className="text-[10px] uppercase tracking-wider w-[60px] shrink-0" style={{ color }}>
           {isDone ? w.status : "running"}
