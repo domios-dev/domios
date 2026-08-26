@@ -26,7 +26,7 @@ interface ForkSite {
 }
 
 const INVENTORY: ForkSite[] = [
-  { file: "src/App.tsx", line: 69, cls: "capability-gate", note: "frontend-ready generation handshake belongs to the native shell" },
+  { file: "src/App.tsx", line: 74, cls: "capability-gate", note: "frontend-ready generation handshake belongs to the native shell" },
   { file: "src/components/MeshPanel/MeshPanel.tsx", line: 208, cls: "transport-shim", note: "spawn setup chat via webJson vs local fetch" },
   { file: "src/components/Terminal/NewSessionPicker.tsx", line: 152, cls: "platform-adaptation", note: "new-workspace: native folder dialog on desktop vs name-input fallback on web" },
   { file: "src/components/Sidebar/Sidebar.tsx", line: 160, cls: "platform-adaptation", note: "web folder-picker modal vs native Tauri dialog" },
