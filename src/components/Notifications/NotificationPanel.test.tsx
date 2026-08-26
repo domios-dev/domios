@@ -174,7 +174,7 @@ async function run() {
 
   // The expand control the panel already had is reused, not replaced.
   const expand = panel.querySelector<HTMLButtonElement>(
-    '[aria-label="Show complete message for Which branch?"]',
+    '[aria-label$="complete message for Which branch?"]',
   );
   assert(expand, "the existing expand control should survive");
   assert(
