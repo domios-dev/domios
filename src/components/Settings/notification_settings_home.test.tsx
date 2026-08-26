@@ -616,7 +616,7 @@ async function theNavExposesNotificationsAndTheMatrixLivesThere() {
       "the moved matrix still draws one row per shipped level",
     );
     assert(
-      switches(grid).length === DAEMON_ROWS.length * LOCAL.length,
+      switches(grid).length === DAEMON_ROWS.length * SWITCHES_PER_ROW,
       "the local surfaces survived the move intact",
     );
     assert(
