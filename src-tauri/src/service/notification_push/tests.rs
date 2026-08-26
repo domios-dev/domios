@@ -265,51 +265,46 @@ fn channel_registry_second_channel_routes_without_touching_the_enum_or_the_grid(
     assert!(plan.targets.is_empty() && plan.refusals.is_empty());
 }
 
-/// Bell and desktop are local surfaces and mean exactly what they meant. Their
-/// policies read their own fields, and no channel column can move them.
+/// The desktop surface means exactly what it meant. Its policy reads its own
+/// field, and no channel column can move it — nor the stored `bell` field beside
+/// it, which routes nothing now but must still survive a channel edit untouched.
 #[test]
-fn channel_registry_bell_and_desktop_stay_unchanged_local_surfaces() {
+fn channel_registry_the_local_fields_stay_unchanged_by_channel_columns() {
     let cfg = open_config();
-    let bell_before = crate::notification::bell::BellPolicy::from_config(&cfg.notifications);
     let desktop_before =
         crate::notification::desktop::DesktopPolicy::from_config(&cfg.notifications);
-    assert_eq!(bell_before, crate::notification::bell::BellPolicy::open());
     assert_eq!(desktop_before.allowed.len(), NotifyLevel::ALL.len());
     assert!(desktop_before.enabled);
 
-    // Close every channel column on every row; the two local surfaces are
-    // byte-identical afterwards.
+    // Close every channel column on every row; the local fields are identical
+    // afterwards.
     let mut channels_closed = cfg.clone();
     for row in &mut channels_closed.notifications.agent_levels {
         for id in registered_ids() {
             row.set(NotifyDestination::Channel(id), false);
         }
-        assert!(row.bell && row.desktop, "a channel column moved a surface");
+        assert!(row.bell && row.desktop, "a channel column moved a local field");
     }
-    assert_eq!(
-        crate::notification::bell::BellPolicy::from_config(&channels_closed.notifications),
-        bell_before
-    );
     assert_eq!(
         crate::notification::desktop::DesktopPolicy::from_config(&channels_closed.notifications),
         desktop_before
     );
 
-    // And closing a surface does not touch a channel.
+    // And closing a local field does not touch a channel.
     let mut bell_closed = cfg.clone();
     for row in &mut bell_closed.notifications.agent_levels {
         row.set(NotifyDestination::Bell, false);
         for id in registered_ids() {
             assert!(
                 row.allows(NotifyDestination::Channel(id)),
-                "closing the bell moved {id}"
+                "closing the bell field moved {id}"
             );
         }
     }
-    assert!(
-        crate::notification::bell::BellPolicy::from_config(&bell_closed.notifications)
-            .allowed
-            .is_empty()
+    assert_eq!(
+        crate::notification::desktop::DesktopPolicy::from_config(&bell_closed.notifications),
+        desktop_before,
+        "and it does not move the one local surface that still has a policy"
     );
 }
 
@@ -322,11 +317,6 @@ fn channel_registry_resolving_a_channel_never_requires_core_to_name_one() {
     let column = NotifyDestination::Channel(unknown_to_core);
     assert!(column.is_channel());
     assert_eq!(column.as_str(), unknown_to_core);
-    assert_eq!(
-        column.local_label(),
-        None,
-        "core has no caption for a channel; the roster entry owns that"
-    );
     assert_eq!(
         NotifyDestination::parse_local(unknown_to_core),
         None,

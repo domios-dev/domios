@@ -192,13 +192,20 @@ async function aSecondChannelWidensTheControlWithNoEditHere() {
   await two.done();
 }
 
-/** 2. Bell and desktop keep their meaning, their order, and their own toggles. */
-async function bellAndDesktopStayTheFirstTwoLocalSurfaces() {
+/** 2. The system notification keeps its meaning, its place, and its own toggle,
+ *  and the panel is offered as no column at all. */
+async function theSystemNotificationKeepsItsOwnToggleAndField() {
   const columns = destinationColumns(TWO_CARRIERS);
   assert(
-    JSON.stringify(columns.slice(0, 2).map((column) => column.id)) ===
-      JSON.stringify(["bell", "desktop"]),
-    "the local surfaces stay first and unchanged",
+    JSON.stringify(columns.map((column) => column.id)) ===
+      JSON.stringify(["desktop", ...TWO_CARRIERS.map((channel) => channel.id)]),
+    `the local surface stays first, then the roster, got ${JSON.stringify(
+      columns.map((column) => column.id),
+    )}`,
+  );
+  assert(
+    !columns.some((column) => column.id === ("bell" as string)),
+    "and the panel is not among them: every record reaches it regardless",
   );
 
   const view = await mount(
@@ -211,15 +218,15 @@ async function bellAndDesktopStayTheFirstTwoLocalSurfaces() {
     const controls = switches(row);
     assert(
       controls.length === LOCAL_DESTINATIONS.length,
-      `${level}: the local surfaces are the only switches on the row`,
+      `${level}: the local surface is the only switch on the row, got ${controls.length}`,
     );
     assert(
-      controls[0].getAttribute("aria-checked") === String(shipped.bell),
-      `${level}: the bell cell reads its own field`,
-    );
-    assert(
-      controls[1].getAttribute("aria-checked") === String(shipped.desktop),
+      controls[0].getAttribute("aria-checked") === String(shipped.desktop),
       `${level}: the desktop cell reads its own field`,
+    );
+    assert(
+      !switches(row).some((control) => control.getAttribute("aria-label")?.includes("bell")),
+      `${level}: nothing on the row asks about the bell`,
     );
   }
   await view.done();
@@ -366,8 +373,8 @@ async function main() {
     aSecondChannelWidensTheControlWithNoEditHere,
   );
   await check(
-    "channel_registry: bell and desktop stay the first two local surfaces",
-    bellAndDesktopStayTheFirstTwoLocalSurfaces,
+    "channel_registry: the system notification keeps its own toggle and field",
+    theSystemNotificationKeepsItsOwnToggleAndField,
   );
   await check(
     "channel_registry: an absent channel key reads as closed",

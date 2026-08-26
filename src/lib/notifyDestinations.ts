@@ -1,10 +1,12 @@
 import type { AgentLevelChoice } from "./types";
 
-/** Mirrors `NotifyDestination::LOCAL` in `codeterm-types`: the surfaces the app
- *  draws itself, in column order. Push channels are deliberately absent —
- *  there is no closed set of them to restate here. */
+/** The locally drawn surfaces a level can be routed AWAY from. The panel is not
+ *  one of them: it is the complete log and takes every record, so there was
+ *  never a choice to offer — the column that pretended otherwise only decided
+ *  whether the panel heard about the record it already held. Whether the
+ *  indicator is drawn at all is `show_bell`, a presentation switch of its own.
+ *  Push channels are deliberately absent: there is no closed set to restate. */
 export const LOCAL_DESTINATIONS = [
-  { id: "bell", label: "Ring the bell" },
   { id: "desktop", label: "System notification" },
 ] as const;
 

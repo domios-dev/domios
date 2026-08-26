@@ -30,23 +30,30 @@ copy_on_select = false
 
 [notifications]
 desktop = false     # opt-in; the per-level grid below still decides which levels toast
-sound = false       # opt-in chime on a bell arrival that says the agent stopped
+sound = false       # opt-in chime on an arrival that says the agent stopped
 toast_duration = 5  # seconds
 show_bell = true    # false removes the indicator; every record is still kept
 
-# Where each level may go. Rows are generated from the same closed level set the
-# push channels use, and are reconciled on read — a level added to that set
-# appears here on its own, and a row naming no known level is dropped. Any
-# combination of columns is legal, including none: that level reaches nothing.
-# A fresh install ships what is written below — the bell, at every level, and
-# nothing else. An agent notification that names no level is kept and rings the
-# bell, and never reaches the system or a push channel.
+# Where each level may go BEYOND the panel. The panel is the complete log and
+# keeps every record whatever is written here — there is no column for it, and
+# no way to route a level away from it. Rows are generated from the same closed
+# level set the push channels use, and are reconciled on read: a level added to
+# that set appears here on its own, and a row naming no known level is dropped.
+# Any combination of columns is legal, including none — that level is kept in
+# the panel and interrupts nowhere. A fresh install ships what is written below,
+# which interrupts nowhere at every level. An agent notification that names no
+# level is kept too, and never reaches the system or a push channel.
+# `bell` is RETAINED AND INERT. Nothing routes on it and settings does not offer
+# it; it stays a named field because the channel keys are flattened into the
+# row, so dropping it would make a stored `bell = true` read back as a push
+# channel called "bell" that no registry will ever resolve. `notifications.
+# show_bell` is a different field and still works: it hides the indicator.
 # `sound` is presentation, not a destination: it has no column here and cannot
-# widen where a level goes. It rides the bell arrival, so a level whose `bell`
-# column is false never sounds, and only `action_needed` and `failure` — the
-# levels that mean the agent stopped — sound at all.
-# Settings offers the two local surfaces as a toggle each and the push channels
-# as ONE picker per level, so a registered channel widens that picker instead of
+# widen where a level goes. It rides a record's arrival, and since every record
+# arrives, what sounds is the level alone — only `action_needed` and `failure`,
+# the levels that mean the agent stopped, sound at all.
+# Settings offers the system notification as a toggle and the push channels as
+# ONE picker per level, so a registered channel widens that picker instead of
 # adding a row. Only a channel the daemon reports as able to carry a message is
 # offered. Unpicking a channel REMOVES its key from the row rather than writing
 # `false`; both read as closed, which is what an unnamed channel has always been.
@@ -64,20 +71,26 @@ level = "failure"
 bell = true
 desktop = false
 
-`bell` and `desktop` are the two local surfaces. Every other key on a row is a
-push channel's service id, and a channel key that is absent reads as closed —
+`desktop` is the one local surface a row routes to. Every other key on a row is
+a push channel's service id, and a channel key that is absent reads as closed —
 a column nobody named is a column nobody chose, so a channel the registry gains
 arrives off and stays off until someone opts into it. The same answer serves the
 shipped default, which is why a config written before the grid existed now reads
-as the bell alone rather than as whatever the surrounding switches allowed then.
+as interrupting nowhere rather than as whatever the surrounding switches allowed
+then.
 
-`show_bell` and the `bell` column answer different questions and never stand in
-for each other. `show_bell = false` removes the indicator from the titlebar
-while every notification is still recorded, so turning it back on reveals the
-complete log. `bell = false` on a row is routing: that level never arrives at
-the bell, which stays drawn and simply has nothing from that level in it. They
-compose rather than override — hiding the surface changes no row, and closing
-every row leaves the surface visible.
+`bell` on a row is **retained and inert**. It is written above because the field
+still exists in the stored shape, and it is deliberately not removed: the channel
+keys are flattened onto the row, so a row that stopped naming `bell` would read
+a stored `bell = true` back as a push channel called `bell` that no registry will
+ever resolve. Nothing routes on it, settings does not offer it, and changing it
+changes nothing. It used to gate the panel's only live event, which meant a
+`bell = false` level was recorded while the panel silently lagged until the next
+mount — not "this level does not reach the bell", which is why the column is gone.
+
+`show_bell` is the bell answer config still makes, and it is presentation:
+`show_bell = false` removes the indicator from the titlebar while every
+notification is still recorded, so turning it back on reveals the complete log.
 
 Everything under `notifications` is set from Settings, not from `codeterm
 config set`. Where a notification may go is your standing answer, so an agent
@@ -261,4 +274,4 @@ When a Worker lane worktree is created, each declared directory that exists in t
 
 Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`.
 
-<!-- revision: 49 -->
+<!-- revision: 50 -->

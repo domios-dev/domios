@@ -343,10 +343,14 @@ impl AnswerSlot {
     }
 }
 
-/// Where a notification may go. `Bell` and `Desktop` are surfaces this app
-/// draws itself, so they are named here. A push channel is carried as the
-/// service id a registry resolved: core routes to it without ever holding a
+/// A surface a notification can be spoken of by name. `Bell` and `Desktop` are
+/// drawn by this app, so they are named here; a push channel is carried as the
+/// service id a registry resolved, and core routes to it without ever holding a
 /// variant, a constant, or a match arm that spells one.
+///
+/// Naming a surface is not the same as routing to one. `Bell` is still named —
+/// it is how an agent offering to switch the bell on is refused by name — but
+/// nothing routes on it: the panel is the complete log and takes every record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NotifyDestination<'a> {
     /// The in-app indicator and its panel.
@@ -359,8 +363,10 @@ pub enum NotifyDestination<'a> {
 }
 
 impl<'a> NotifyDestination<'a> {
-    /// The surfaces this app draws itself, in column order. Push channels are
-    /// deliberately absent: there is no closed set of them to state here.
+    /// The surfaces this app draws itself, in column order — every local surface
+    /// core knows by name, which is a larger set than the columns settings
+    /// offers: `Bell` is here so it can be recognised and refused, never routed
+    /// to. Push channels are deliberately absent: there is no closed set here.
     pub const LOCAL: [Self; 2] = [Self::Bell, Self::Desktop];
 
     /// A local surface by wire value. A name that is not a surface is *not*
@@ -376,17 +382,6 @@ impl<'a> NotifyDestination<'a> {
             Self::Bell => "bell",
             Self::Desktop => "desktop",
             Self::Channel(service) => service,
-        }
-    }
-
-    /// Human-facing copy for the two surfaces core owns. A channel's column
-    /// name belongs to its registry entry, which is the only thing that knows
-    /// it, so this answers `None` rather than inventing one.
-    pub fn local_label(self) -> Option<&'static str> {
-        match self {
-            Self::Bell => Some("Ring the bell"),
-            Self::Desktop => Some("System notification"),
-            Self::Channel(_) => None,
         }
     }
 
@@ -479,11 +474,6 @@ mod tests {
         for surface in NotifyDestination::LOCAL {
             assert!(!surface.is_channel(), "a local surface is not a channel");
             assert_eq!(NotifyDestination::parse_local(surface.as_str()), Some(surface));
-            assert!(
-                surface.local_label().is_some_and(|copy| !copy.trim().is_empty()),
-                "{} needs user-facing copy for its column",
-                surface.as_str()
-            );
         }
         // A channel name is not a surface, and core refuses to guess at one
         // rather than widening the parse into a pass-through.
@@ -500,11 +490,6 @@ mod tests {
         let column = NotifyDestination::Channel(invented);
         assert!(column.is_channel());
         assert_eq!(column.as_str(), invented);
-        assert_eq!(
-            column.local_label(),
-            None,
-            "core has no copy for a channel; its registry entry owns that"
-        );
         assert_eq!(
             NotifyDestination::parse_local(invented),
             None,

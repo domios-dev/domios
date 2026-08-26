@@ -1,10 +1,12 @@
 // Run: npm run test:unit -- notification_sound
 //
-// The sound cannot disagree with routing, and this pins the mechanism rather
-// than a coincidence of the current defaults: the daemon produces the arrival
-// event ONLY inside the bell gate's admitted arm, and the arrival event is the
-// only thing that reaches the player. A level routed away from the bell
-// therefore has no path to a sound at all — there is nothing to keep in sync.
+// The sound cannot disagree with routing, and the reason changed: it used to be
+// that the arrival event was minted inside the bell gate's admitted arm, so a
+// level routed away from the bell had no path to a sound. That gate is gone —
+// it was gating the panel's only live path, not a destination — and the arrival
+// is now unconditional. What replaced the old guarantee is a stronger one:
+// there is no routing input to the sound at all. The LEVEL decides, and nothing
+// else can.
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
@@ -30,28 +32,28 @@ function productionFiles(directory: string, found: string[] = []): string[] {
       continue;
     }
     if (!/\.tsx?$/.test(entry.name)) continue;
-    if (/\.test\.tsx?$/.test(entry.name) || entry.name === "harness.tsx") continue;
+    if (/\.test\.tsx?$/.test(entry.name) || /harness\.tsx$/.test(entry.name)) continue;
     found.push(full);
   }
   return found;
 }
 
 async function main() {
-  // 1. The daemon side: one emit, and it lives in the admitted arm. A level the
-  //    user routed away from the bell reaches the refused arm, which emits nothing.
+  // 1. The daemon side: one emit, and nothing stands in front of it. A gate here
+  //    would be a gate on the panel's only live path, which is the defect that
+  //    retired it — so this pins that no successor gate grew back.
   const gate = read("../../../src-tauri/src/service/notification.rs");
   check(
-    /bell::BellAdmission::Allowed\s*=>\s*emit\(payload\)/.test(gate),
-    "the arrival event is emitted from the bell-admitted arm",
+    (gate.match(/\bemit\(payload\)/g) ?? []).length === 1,
+    "the arrival event is emitted from exactly one place",
   );
   check(
-    (gate.match(/\bemit\(/g) ?? []).length === 1,
-    "and that is the only emit in the gate, so a refused level cannot reach one",
+    /^ {4}emit\(payload\);$/m.test(gate),
+    "at the function body's own indentation, so it sits in no branch",
   );
-  const refused = gate.slice(gate.indexOf("BellAdmission::LevelDisabled"));
   check(
-    refused.length > 0 && !refused.includes("emit("),
-    "the refused arm logs the level and stops",
+    !/BellPolicy|bell::admit|BellAdmission/.test(gate),
+    "and the policy that used to stand in front of it is gone, not merely bypassed",
   );
 
   // 2. Nothing else on the daemon side mints that event name.
@@ -75,7 +77,7 @@ async function main() {
   );
   check(
     /const ARRIVAL_EVENT = "notification-created";/.test(hook),
-    "and that subscription is the daemon's bell arrival",
+    "and that subscription is the daemon's arrival",
   );
   const callers = productionFiles(src).filter((file) =>
     readFileSync(file, "utf8").includes("playArrivalChime"),
@@ -89,21 +91,24 @@ async function main() {
     "and the caller is the arrival subscription",
   );
 
-  // 4. The decision module reads no routing config of its own, so there is no
-  //    second answer to "where may this level go" that could drift from the grid.
+  // 4. The decision module reads no routing config of its own, so the level is
+  //    genuinely the whole input rather than one of two answers that could drift.
   const decision = read("../notificationSound.ts");
   check(!decision.includes("agent_levels"), "the sound never reads the levels grid");
   check(!decision.includes("notifyDestinations"), "and never reads the destination set");
 
-  // 5. The config cannot even express "sound for a level that reaches nothing":
-  //    there is no fourth column to set.
+  // 5. Nor is it a column anyone could set: `sound` is not a destination, at any
+  //    roster size, and the bell is no longer one either.
   check(
     destinationColumns([{ id: "telegram", label: "Telegram", control_available: true }]).every(
       (destination) => destination.id !== ("sound" as string),
     ),
     "sound is not a destination, so it has no column",
   );
-  check(LOCAL_DESTINATIONS.length === 2, "the local surfaces are unchanged");
+  check(
+    LOCAL_DESTINATIONS.every((surface) => surface.id !== ("bell" as string)),
+    "and the bell is not one either: the panel takes every record, so nothing is offered",
+  );
 
   // 6. And behaviourally: opted in, mounted, with no arrival delivered, nothing
   //    sounds. The event is the whole trigger.
@@ -111,7 +116,7 @@ async function main() {
   check(idle.recorder.notes.length === 0, "no arrival, no sound");
   await idle.done();
 
-  report("notification_sound/silenced_level_cannot_sound", checked);
+  report("notification_sound/sound_is_decided_by_the_level_alone", checked);
 }
 
 main().catch((error) => {
