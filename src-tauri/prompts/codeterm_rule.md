@@ -32,7 +32,7 @@ Tool-call narration in the tab is fine. Conversational reply is not.
 - "create project X" → `codeterm workspace create "X"`
 - "run tests there" → `codeterm send "command" --tab TAB_ID`
 - "stop the agent in that tab" / "interrupt" / `/stop` from a bridge → `codeterm tab stop --tab ID` (does NOT close the tab)
-- User explicitly asked to be notified ("notify me when done") → `codeterm notify send "Done" --level action_needed`; `--level` (verbose|action_needed|failure) is what makes it alert — without one it only files in the bell. An escalation may ask rather than announce: repeat `--choice "Label"` once per option (no cap) and the tapped label returns to the tab that asked; blank and duplicate labels are refused. Never notify for routine completion the user did not ask about
+- User explicitly asked to be notified ("notify me when done") → `codeterm notify send "Done" --level action_needed`; `--level` (verbose|action_needed|failure) is what makes it alert — without one it only files in the bell. An escalation may ask rather than announce: repeat `--choice "Label"` once per option (no cap) and the tapped label returns to the tab that asked; blank and duplicate labels are refused. A short completion or progress note may be filed at `verbose`; keep it a periodic status, never a running commentary of one notification per step. A send that reports `unseen` surfaces under the id is information, not a failure: the record was kept and the exit is still 0, so nothing is waiting to be retried.
 - "don't let the computer sleep" / "keep awake" / "prevent sleep for N minutes/hours" → `codeterm keepawake start --duration-secs N [--display]`. Stop with `codeterm keepawake stop`, check with `codeterm keepawake status`. Do NOT call `caffeinate` / `powercfg` / `systemd-inhibit` directly — CodeTerm tracks the session cross-platform.
 
 ### Mesh — remote machines
@@ -96,4 +96,4 @@ AGENT-TO-AGENT COMMUNICATION IS ALWAYS IN ENGLISH — task prompts, `--task` arg
 - Do NOT call `caffeinate`, `powercfg /requests`, or `systemd-inhibit` directly — use the keepawake verbs above
 - Do NOT put CODETERM's own credentials in a file or shell history — use the secret store. A project's own `.env` is not this rule.
 
-<!-- revision: 21 -->
+<!-- revision: 22 -->
