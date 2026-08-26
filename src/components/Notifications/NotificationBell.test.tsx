@@ -108,7 +108,7 @@ async function run() {
   );
   assert(panel.textContent?.includes(item.body!), "the newest complete message should start open");
 
-  const expand = panel.querySelector<HTMLButtonElement>('[aria-label="Show complete message for Agent needs input"]');
+  const expand = panel.querySelector<HTMLButtonElement>('[aria-label$="complete message for Agent needs input"]');
   assert(expand, "bell entry should expose an accessible expand control");
   await act(async () => expand.click());
   assert(!panel.textContent?.includes(item.body!), "closing should hide the complete message");

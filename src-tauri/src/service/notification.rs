@@ -11,7 +11,7 @@ use crate::notification::{
     authority::{self, SurfaceOffer},
     channel_ask::{self, ChannelChoice, PushMessage},
     channel_placement::SpentQuestion,
-    channels::{self, PushChannel},
+    channels,
     dedupe::DeliveryAdmission,
     desktop::{self, DesktopPolicy},
     push::{self, NotifyLevel},
