@@ -5,7 +5,7 @@
  * `@tauri-apps/api`. In the Tauri webview both delegate to the real APIs
  * (zero behavior change). In WEB mode (`IS_WEB`) invoke() routes through
  * the daemon's REST API via a command map, and listen() rides the
- * daemon's SSE event stream (with a polling tick as belt-and-braces).
+ * daemon's replayable SSE event stream.
  *
  * Unmapped commands fail LOUDLY with a clear error — honest errors over
  * silent fallbacks. Commands that are meaningless in a browser (window
@@ -842,8 +842,12 @@ export async function listen<T>(
   const remote = subscribeRemoteTabEvent(event, counted);
   if (remote) return remote;
   if (listenForTest) return listenForTest(event, counted);
-  if (!IS_WEB) {
+  if (localListenBranch(IS_WEB) === "tauri") {
     return tauriListen<T>(event, counted);
   }
   return webListen(event, counted as (e: { payload: unknown }) => void);
+}
+
+export function localListenBranch(isWeb: boolean): "tauri" | "web" {
+  return isWeb ? "web" : "tauri";
 }
