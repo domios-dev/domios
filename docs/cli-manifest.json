@@ -14024,6 +14024,16 @@
           "aliases": [],
           "args": [
             {
+              "name": "force",
+              "positional": false,
+              "required": false,
+              "value_name": "FORCE",
+              "possible_values": [],
+              "default": null,
+              "help": "Explicitly acknowledge destroying agent tabs in this workspace",
+              "aliases": []
+            },
+            {
               "name": "id",
               "positional": true,
               "required": true,
@@ -14031,16 +14041,6 @@
               "possible_values": [],
               "default": null,
               "help": "Workspace ID",
-              "aliases": []
-            },
-            {
-              "name": "force",
-              "positional": false,
-              "required": false,
-              "value_name": "FORCE",
-              "possible_values": [],
-              "default": null,
-              "help": "Explicitly acknowledge destroying agent tabs in this workspace.",
               "aliases": []
             }
           ],
