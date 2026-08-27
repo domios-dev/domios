@@ -314,7 +314,7 @@ mod notification_provenance {
 
 mod push_render {
     use super::*;
-    use crate::notification::push::{OVERFLOW_NOTE as CUT_NOTE, PushBounds};
+    use crate::notification::push::{PushBounds, OVERFLOW_NOTE as CUT_NOTE};
 
     /// One channel's bound, stated by this test rather than borrowed from a
     /// global: what a sink receives is rendered per channel.

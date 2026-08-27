@@ -856,7 +856,10 @@ fn surfaces_that_never_notify() -> [(&'static str, &'static str); 3] {
 #[test]
 fn verbose_completion_relaxation_reaches_every_notify_surface() {
     let clause = NOTIFY_VERBOSE_COMPLETION_CLAUSE;
-    assert!(!clause.trim().is_empty(), "an empty fragment proves nothing");
+    assert!(
+        !clause.trim().is_empty(),
+        "an empty fragment proves nothing"
+    );
 
     for (name, surface) in notify_escalation_surfaces() {
         assert_eq!(
@@ -872,7 +875,10 @@ fn verbose_completion_relaxation_reaches_every_notify_surface() {
 #[test]
 fn verbose_completion_unseen_clause_reaches_every_notify_surface() {
     let clause = NOTIFY_UNSEEN_CLAUSE;
-    assert!(!clause.trim().is_empty(), "an empty fragment proves nothing");
+    assert!(
+        !clause.trim().is_empty(),
+        "an empty fragment proves nothing"
+    );
 
     for (name, surface) in notify_escalation_surfaces() {
         assert_eq!(
@@ -1095,7 +1101,10 @@ fn executor_role_prompt_stays_off_the_surfaces_that_only_execute() {
 
     for (name, surface) in [
         ("worker_suffix", worker_suffix()),
-        ("worker_codeterm_context", WORKER_CODETERM_CONTEXT.to_string()),
+        (
+            "worker_codeterm_context",
+            WORKER_CODETERM_CONTEXT.to_string(),
+        ),
         ("worker_task_preamble", WORKER_TASK_PREAMBLE.to_string()),
         ("agent_codeterm_primer", AGENT_CODETERM_PRIMER.to_string()),
     ] {

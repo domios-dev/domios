@@ -473,7 +473,10 @@ mod tests {
         assert_eq!(NotifyDestination::LOCAL.len(), 2);
         for surface in NotifyDestination::LOCAL {
             assert!(!surface.is_channel(), "a local surface is not a channel");
-            assert_eq!(NotifyDestination::parse_local(surface.as_str()), Some(surface));
+            assert_eq!(
+                NotifyDestination::parse_local(surface.as_str()),
+                Some(surface)
+            );
         }
         // A channel name is not a surface, and core refuses to guess at one
         // rather than widening the parse into a pass-through.
@@ -501,12 +504,19 @@ mod tests {
     fn notification_settings_grid_is_the_product_of_the_level_set_and_the_columns() {
         let resolved = ["one-channel", "another-channel"];
         let columns = NotifyDestination::columns(resolved);
-        assert_eq!(columns.len(), NotifyDestination::LOCAL.len() + resolved.len());
+        assert_eq!(
+            columns.len(),
+            NotifyDestination::LOCAL.len() + resolved.len()
+        );
         // A channel that took a surface's wire value would silently shadow that
         // surface's cell, so the whole column set must stay distinct.
         let distinct: std::collections::HashSet<&str> =
             columns.iter().map(|column| column.as_str()).collect();
-        assert_eq!(distinct.len(), columns.len(), "a column wire value collides");
+        assert_eq!(
+            distinct.len(),
+            columns.len(),
+            "a column wire value collides"
+        );
 
         let cells: Vec<(NotifyLevel, NotifyDestination<'_>)> = NotifyLevel::ALL
             .into_iter()

@@ -500,11 +500,21 @@ desktop = false
     )
     .expect("rows that answer the chime parse");
 
-    assert!(stored.sound, "the master mute is a field of its own section");
+    assert!(
+        stored.sound,
+        "the master mute is a field of its own section"
+    );
     let rows = &stored.agent_levels;
-    assert_eq!(rows[0].sound, Some(true), "an answer is read back as itself");
+    assert_eq!(
+        rows[0].sound,
+        Some(true),
+        "an answer is read back as itself"
+    );
     assert_eq!(rows[1].sound, Some(false), "including an answer of false");
-    assert_eq!(rows[2].sound, None, "and an omitted answer stays unanswered");
+    assert_eq!(
+        rows[2].sound, None,
+        "and an omitted answer stays unanswered"
+    );
 
     for row in rows {
         assert!(
@@ -527,7 +537,10 @@ desktop = false
     // every load — a level answered once must not be re-defaulted on restart.
     let encoded = toml::to_string(&stored).expect("it serialises");
     let decoded: NotificationConfig = toml::from_str(&encoded).expect("and parses back");
-    assert_eq!(decoded.agent_levels, stored.agent_levels, "round-trips unchanged");
+    assert_eq!(
+        decoded.agent_levels, stored.agent_levels,
+        "round-trips unchanged"
+    );
     assert_eq!(
         reconcile_agent_levels(&decoded.agent_levels),
         stored.agent_levels,

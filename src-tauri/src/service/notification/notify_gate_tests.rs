@@ -314,8 +314,12 @@ fn notify_gate_a_stored_bell_of_false_still_reaches_the_panel_at_every_level() {
         "and every one of them reached the panel live rather than waiting for a remount"
     );
     for (index, level) in NotifyLevel::ALL.into_iter().enumerate() {
-        assert_eq!(emitted[index]["id"], ids[index], "{} arrived", level.as_str());
+        assert_eq!(
+            emitted[index]["id"],
+            ids[index],
+            "{} arrived",
+            level.as_str()
+        );
         assert_eq!(emitted[index]["level"], level.as_str());
     }
 }
-

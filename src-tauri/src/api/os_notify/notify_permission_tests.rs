@@ -6,7 +6,9 @@ use std::cell::Cell;
 
 #[test]
 fn notify_permission_a_failed_send_is_not_reported_as_delivered() {
-    let route = route_toast(true, || Err::<(), &str>("the toast never reached the shell"));
+    let route = route_toast(true, || {
+        Err::<(), &str>("the toast never reached the shell")
+    });
     assert_eq!(
         route,
         ToastRoute::FallbackWindow,

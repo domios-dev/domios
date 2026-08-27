@@ -176,7 +176,9 @@ fn notify_defaults_a_fresh_config_interrupts_nowhere_at_every_level() {
             "{wire} must not be routed to the desktop"
         );
         assert!(
-            desktop::admit(Some(level), &desktop_policy).pass().is_none(),
+            desktop::admit(Some(level), &desktop_policy)
+                .pass()
+                .is_none(),
             "{wire} must not raise a toast"
         );
 
@@ -242,7 +244,10 @@ desktop = true
     )
     .expect("a row that names one column parses");
     let row = &named.agent_levels[0];
-    assert!(row.desktop, "the named column keeps the answer it was given");
+    assert!(
+        row.desktop,
+        "the named column keeps the answer it was given"
+    );
     assert!(!row.bell, "and the fields it left unnamed stay off");
 
     // An absent grid is a different thing from a grid that named no column: it
@@ -275,7 +280,9 @@ fn notify_defaults_an_explicitly_enabled_destination_still_routes() {
     for level in NotifyLevel::ALL {
         let wire = level.as_str();
         assert!(
-            desktop::admit(Some(level), &desktop_policy).pass().is_some(),
+            desktop::admit(Some(level), &desktop_policy)
+                .pass()
+                .is_some(),
             "{wire} was switched on, so it reaches the desktop sink"
         );
 
@@ -298,11 +305,7 @@ fn notify_defaults_an_explicitly_enabled_destination_still_routes() {
             deliver_plan(&plan.targets, &plan.refusals, &host, &envelope),
             Ok(())
         );
-        expected.push(format!(
-            "{}:[{}] {text}",
-            FIXTURE_SERVICE.id,
-            level.label()
-        ));
+        expected.push(format!("{}:[{}] {text}", FIXTURE_SERVICE.id, level.label()));
     }
 
     assert_eq!(

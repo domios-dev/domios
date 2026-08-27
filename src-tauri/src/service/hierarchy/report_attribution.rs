@@ -82,7 +82,9 @@ fn moved_worker(attached: bool) -> Moved {
     store
         .assign_task(&plan.id, &stale, "someone-else", None, 3)
         .unwrap();
-    store.assign_task(&plan.id, &held, &caller, None, 4).unwrap();
+    store
+        .assign_task(&plan.id, &held, &caller, None, 4)
+        .unwrap();
     store
         .update_attempt_executor_identity(
             &plan.id,

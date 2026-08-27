@@ -147,16 +147,18 @@ fn channels() -> Vec<&'static dyn PushChannel> {
 pub fn roster() -> Vec<RegisteredChannel> {
     channels()
         .into_iter()
-        .filter_map(|channel| match codeterm_bridge::services::find(channel.service()) {
-            Some(service) => Some(RegisteredChannel { channel, service }),
-            None => {
-                log::error!(
-                    "[notify-channels] channel rides unknown bridge service '{}'; not routable",
-                    channel.service()
-                );
-                None
-            }
-        })
+        .filter_map(
+            |channel| match codeterm_bridge::services::find(channel.service()) {
+                Some(service) => Some(RegisteredChannel { channel, service }),
+                None => {
+                    log::error!(
+                        "[notify-channels] channel rides unknown bridge service '{}'; not routable",
+                        channel.service()
+                    );
+                    None
+                }
+            },
+        )
         .collect()
 }
 
