@@ -53,6 +53,22 @@ where
     Err(format!("all addresses failed: {}", errors.join("; ")))
 }
 
+/// Floor for trivial control calls; the two requests that can outlive it name
+/// their own budget below.
+const CLIENT_DEFAULT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Liveness probe budget. A peer under load answers a trivial GET in seconds
+/// rather than milliseconds; declaring it dead at 5s painted a reachable machine
+/// offline while its own outbound traffic kept arriving (#319). Paired with the
+/// two-miss threshold in `health`, a peer has to stay unreachable for two full
+/// rounds before it flips.
+const PING_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// A relayed command carries real work on the peer — a build, a test run, a CLI
+/// call — so it is bounded by patience with a stalled peer, not by how long the
+/// work may legitimately take.
+const RELAY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
 /// HTTP client for communicating with a paired peer.
 pub struct PeerClient {
     client: reqwest::Client,
@@ -65,7 +81,7 @@ impl PeerClient {
     pub fn new_signed_url(base_url: String, signed_token: &str) -> Self {
         Self {
             client: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(5))
+                .timeout(CLIENT_DEFAULT_TIMEOUT)
                 .build()
                 .unwrap_or_default(),
             base_url,
@@ -82,7 +98,7 @@ impl PeerClient {
     pub fn new_unauthenticated(address: &str, port: u16) -> Self {
         Self {
             client: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(5))
+                .timeout(CLIENT_DEFAULT_TIMEOUT)
                 .build()
                 .unwrap_or_default(),
             base_url: format!("http://{}:{}", address, port),
@@ -99,7 +115,8 @@ impl PeerClient {
     /// Ping a peer — returns true if reachable.
     pub async fn ping(&self) -> bool {
         let url = format!("{}/api/mesh/ping", self.base_url);
-        matches!(self.client.get(&url).send().await, Ok(resp) if resp.status().is_success())
+        let req = self.client.get(&url).timeout(PING_TIMEOUT);
+        matches!(req.send().await, Ok(resp) if resp.status().is_success())
     }
 
     /// Authenticated POST, returns parsed JSON.
@@ -125,10 +142,23 @@ impl PeerClient {
         path: &str,
         body: &impl serde::Serialize,
     ) -> Result<reqwest::Response, String> {
+        self.auth_post_within(path, body, None).await
+    }
+
+    /// `timeout` overrides the client default for this one request.
+    async fn auth_post_within(
+        &self,
+        path: &str,
+        body: &impl serde::Serialize,
+        timeout: Option<std::time::Duration>,
+    ) -> Result<reqwest::Response, String> {
         let url = format!("{}{}", self.base_url, path);
         let mut req = self.client.post(&url);
         if let Some((k, v)) = self.auth_header() {
             req = req.header(&k, &v);
+        }
+        if let Some(timeout) = timeout {
+            req = req.timeout(timeout);
         }
         req.json(body)
             .send()
@@ -141,7 +171,9 @@ impl PeerClient {
         &self,
         payload: &super::types::MeshSyncPayload,
     ) -> Result<super::types::MeshSyncPayload, String> {
-        let resp = self.auth_post("/api/mesh/sync", payload).await?;
+        let resp = self
+            .auth_post_within("/api/mesh/sync", payload, Some(PING_TIMEOUT))
+            .await?;
         if resp.status().is_success() {
             resp.json()
                 .await
@@ -156,7 +188,9 @@ impl PeerClient {
         &self,
         cmd: &super::types::RelayCommand,
     ) -> Result<super::types::RelayResponse, String> {
-        let resp = self.auth_post("/api/mesh/relay", cmd).await?;
+        let resp = self
+            .auth_post_within("/api/mesh/relay", cmd, Some(RELAY_TIMEOUT))
+            .await?;
         if resp.status().is_success() {
             resp.json()
                 .await
@@ -206,5 +240,31 @@ impl PeerClient {
         } else {
             Err("Unpair failed".to_string())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The client default is the floor for trivial control calls. A liveness
+    /// probe has to outlive it, or a peer that is merely loaded gets declared
+    /// dead — which is what painted a 1ms-away machine offline (#319).
+    #[test]
+    fn a_probe_outlives_the_default_control_budget() {
+        assert!(
+            PING_TIMEOUT > CLIENT_DEFAULT_TIMEOUT,
+            "a probe that expires with an ordinary control call cannot tell a slow peer from a dead one"
+        );
+    }
+
+    /// A relayed command carries the peer's actual work, so its budget is about
+    /// patience with a stall — never about how long the work may take.
+    #[test]
+    fn a_relayed_command_outlives_a_probe() {
+        assert!(
+            RELAY_TIMEOUT > PING_TIMEOUT,
+            "relayed work bounded by the probe budget turns a slow peer into a 502"
+        );
     }
 }

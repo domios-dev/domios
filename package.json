@@ -1,6 +1,6 @@
 {
   "name": "codeterm",
-  "version": "1.9.6",
+  "version": "1.10.0",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -22,9 +22,12 @@
     "test:pw:smoke": "playwright test -c tests/playwright --project=smoke",
     "test:pw:golden": "playwright test -c tests/playwright --project=golden",
     "test:pw:perf": "playwright test -c tests/playwright --project=perf",
+    "test:pw:stub": "playwright test -c tests/playwright --project=stub",
     "test:pw:live-pair": "playwright test -c tests/playwright --project=live tests/playwright/suites/20-new-session/picker-live.spec.ts --timeout=30000 --global-timeout=600000 --reporter=line",
+    "test:pw:instance": "tsx scripts/start-playwright-instance.ts",
     "test:pw:one": "tsx scripts/run-playwright-isolated.ts",
     "test:pw:bounded": "tsx scripts/run-playwright-bounded.ts",
+    "test:pw:selection": "tsx scripts/run-playwright-selection.ts",
     "test:pw:visual:regen": "bash scripts/regenerate-visual-goldens.sh",
     "test:pw:full": "playwright test -c tests/playwright --project=full",
     "test:pw:lint": "node scripts/check-playwright-spec-headers.mjs && node scripts/playwright-coverage-map.mjs --check && node tests/playwright/helpers/check-tags.mjs",

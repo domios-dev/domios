@@ -9,6 +9,7 @@ use std::time::Duration;
 use std::time::Instant;
 
 use super::ServiceContext;
+use crate::agent::classify_input::{ClassifyParts, StatusBarRows};
 use crate::agent::detector::AgentEvent;
 use crate::agent::prompt::PromptDecision;
 use crate::agent::status::TabStatus;
@@ -127,20 +128,33 @@ impl ServiceContext {
 
         self.process_shell_markers(pty_id, tab_id.as_deref(), shell_nonce, data);
 
-        let exclude_rows = agent_type
-            .as_deref()
-            .map(|at| self.agent_registry.status_bar_rows(at))
-            .unwrap_or(0);
-        let (prev_status, screen_changed) = {
-            let screen_hash = self
-                .screen_state
-                .lock()
-                .get_content_hash(pty_id, exclude_rows)
-                .unwrap_or([0u8; 32]);
-            let mut t = self.agent_tracker.lock();
-            let prev = t.get_status(pty_id);
-            let changed = t.update_output(pty_id, screen_hash);
-            (prev, changed)
+        // The volatile band the semantic clock ignores. A shell tab has no
+        // provider chrome; an unresolvable provider has UNKNOWN chrome, and we
+        // refuse to hash rather than measure against a fictional zero.
+        let status_bar_rows = match agent_type.as_deref() {
+            None => Ok(StatusBarRows::NO_STATUS_BAR),
+            Some(at) => StatusBarRows::resolve(&*self.agent_registry, at),
+        };
+        let (prev_status, screen_changed) = match &status_bar_rows {
+            Err(err) => {
+                log::warn!(
+                    "[output] {}: {err}; screen-change tracking refused",
+                    &pty_id[..pty_id.len().min(8)]
+                );
+                let prev = self.agent_tracker.lock().get_status(pty_id);
+                (prev, false)
+            }
+            Ok(rows) => {
+                let screen_hash = self
+                    .screen_state
+                    .lock()
+                    .get_content_hash(pty_id, rows.get())
+                    .unwrap_or([0u8; 32]);
+                let mut t = self.agent_tracker.lock();
+                let prev = t.get_status(pty_id);
+                let changed = t.update_output(pty_id, screen_hash);
+                (prev, changed)
+            }
         };
         if screen_changed {
             if let Some(ref pid) = tab_id {
@@ -212,7 +226,8 @@ impl ServiceContext {
                     None
                 };
                 // Structured handles (SSE/API) win; the native attributed-grid detector
-                // is the PTY fallback. Tier order + chrome/prose negatives: native_prompt tests.
+                // is the PTY fallback. Resolution carries the provenance, so a scrape
+                // is never recorded as structured.
                 let parsed = crate::agent::prompt::parse_prompt_safely(|| {
                     crate::agent::native_prompt::resolve_pending_prompt(
                         structured,
@@ -301,12 +316,12 @@ impl ServiceContext {
     pub(crate) fn recompute_agent_state(&self, pty_id: &str) {
         use crate::agent::offline_state_classifier::{
             classify_state, extract_completion_summary, extract_question_message,
-            extract_status_line, AgentLiveState, ClassifyInput, TabVerdict, TimelineState,
+            extract_status_line, AgentLiveState, TabVerdict, TimelineState,
         };
         use crate::agent::signal_extractor::Motion;
 
         // mux (1): the tab's identity + agent gate + picker question + previous.
-        let (tab_id, prompt_question, previous) = {
+        let (tab_id, agent_type, prompt_question, previous) = {
             let mux = self.mux.read();
             let Some(tab_id) = mux.tab_id_for_pty(pty_id) else {
                 return;
@@ -314,9 +329,9 @@ impl ServiceContext {
             let Some(tab) = mux.get_tab(&tab_id) else {
                 return;
             };
-            if tab.agent_type.is_none() {
+            let Some(agent_type) = tab.agent_type.clone() else {
                 return;
-            }
+            };
             let prompt_question = tab.pending_prompt.as_ref().map(|p| p.question.clone());
             let previous = tab
                 .agent_state
@@ -326,7 +341,7 @@ impl ServiceContext {
                     state: TimelineState::Idle,
                     subtype: None,
                 });
-            (tab_id, prompt_question, previous)
+            (tab_id, agent_type, prompt_question, previous)
         };
         if Self::is_agent_stop_suppressed(pty_id) {
             self.force_agent_idle_for_tab(&tab_id);
@@ -370,19 +385,33 @@ impl ServiceContext {
             return;
         };
 
-        let verdict = classify_state(
-            &ClassifyInput {
-                picker_question: prompt_question.as_deref(),
-                screen_lines: &lines,
-                tail: &tail,
-                byte_idle_ms,
-                semantic_idle_ms,
-                motion: Motion::Still,
-                cursor_hidden,
-                composer_ready,
+        // Resolve first, classify second: an unresolvable provider refuses here
+        // and no verdict is produced at all.
+        let verdict = match crate::agent::classify_input::with_resolved_rows(
+            &*self.agent_registry,
+            &agent_type,
+            |builder| {
+                classify_state(
+                    &builder.build(ClassifyParts {
+                        picker_question: prompt_question.as_deref(),
+                        screen_lines: &lines,
+                        tail: &tail,
+                        byte_idle_ms,
+                        semantic_idle_ms,
+                        motion: Motion::Still,
+                        cursor_hidden,
+                        composer_ready,
+                    }),
+                    previous,
+                )
             },
-            previous,
-        );
+        ) {
+            Ok(verdict) => verdict,
+            Err(err) => {
+                log::warn!("[state] {tab_id}: {err}; classification refused");
+                return;
+            }
+        };
         let became_idle =
             previous.state != TimelineState::Idle && verdict.state == TimelineState::Idle;
         let mut new_state: AgentLiveState = verdict.into();

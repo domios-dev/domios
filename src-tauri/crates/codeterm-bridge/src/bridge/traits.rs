@@ -75,6 +75,9 @@ pub struct InboundMessage {
     pub attachments: Vec<InboundAttachment>,
     /// Telegram message_id (for reactions, replies).
     pub message_id: Option<i64>,
+    /// The opaque payload of a tapped inline button, when this arrived as one.
+    /// Never the visible text: what the daemon reads back is the token it sent.
+    pub callback_data: Option<String>,
     pub reply_ctx: ReplyContext,
 }
 

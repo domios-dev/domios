@@ -2,6 +2,7 @@ mod client;
 mod cmd;
 mod local_api;
 mod mesh_cli;
+mod protocol;
 mod stdout;
 mod transport;
 
@@ -320,22 +321,32 @@ fn main_impl() {
         Commands::Notify { action } => match action {
             NotifyAction::Send {
                 title,
-                body,
+                from_pad,
+                severity,
                 level,
-                category,
                 event_key,
+                choice,
+                offer,
+                offer_accept,
+                ..
             } => {
-                let mut params = serde_json::json!({ "title": title, "level": level });
-                if let Some(b) = body {
-                    params["body"] = serde_json::Value::String(b);
-                }
-                if let Some(c) = category {
-                    params["category"] = serde_json::Value::String(c.as_str().to_string());
-                }
-                if let Some(k) = event_key {
-                    params["event_key"] = serde_json::Value::String(k);
-                }
-                client.call("notification.create", Some(params))
+                cmd::notify::handle_send(
+                    &mut client,
+                    cli.json,
+                    cmd::notify::send_params(
+                        &title,
+                        &severity,
+                        level,
+                        event_key.as_deref(),
+                        from_pad.as_deref(),
+                        &choice,
+                        cmd::notify::Offer {
+                            surface: offer.as_deref(),
+                            accept: offer_accept.as_deref(),
+                        },
+                    ),
+                );
+                return;
             }
             NotifyAction::List { unread } => client.call(
                 "notification.list",
@@ -865,6 +876,8 @@ mod plan_ref_contract_tests;
 mod plan_skill_cli_tests;
 #[cfg(test)]
 mod plan_task_attempt_tests;
+#[cfg(test)]
+mod plan_task_executor_role_tests;
 #[cfg(test)]
 mod plan_task_role_guidance_tests;
 #[cfg(test)]

@@ -165,11 +165,9 @@ test("@golden General Settings chat default updates picker order and survives re
 
     await ui.page.reload({ waitUntil: "domcontentloaded" });
     await ui.page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
-    if (tab.tab_id) {
-      const tab = ui.page.locator(`[data-testid="tab-item"][data-tab-id="${tab.tab_id}"]`).first();
-      await expect(tab).toBeVisible({ timeout: 30_000 });
-      await tab.click();
-    }
+    const row = ui.page.locator(`[data-testid="tab-item"][data-tab-id="${tab.id}"]`).first();
+    await expect(row).toBeVisible({ timeout: 30_000 });
+    await row.click();
     await expectTabModeSwitch(ui, tab.id, { order: ["Terminal", "Chat"], selected: "Terminal" });
 
     await ui.page.evaluate((id) => {
@@ -194,11 +192,9 @@ test("@golden General Settings chat default updates picker order and survives re
 
     await ui.page.reload({ waitUntil: "domcontentloaded" });
     await ui.page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
-    if (tab.tab_id) {
-      const tab = ui.page.locator(`[data-testid="tab-item"][data-tab-id="${tab.tab_id}"]`).first();
-      await expect(tab).toBeVisible({ timeout: 30_000 });
-      await tab.click();
-    }
+    const rowAfterReload = ui.page.locator(`[data-testid="tab-item"][data-tab-id="${tab.id}"]`).first();
+    await expect(rowAfterReload).toBeVisible({ timeout: 30_000 });
+    await rowAfterReload.click();
     await expectTabModeSwitch(ui, tab.id, { order: ["Chat", "Terminal"], selected: "Chat" });
   } finally {
     await restoreConfig(api, original);

@@ -8,6 +8,10 @@ Cache lives under ~/.cache/codeterm-evals/ — durable across sessions.
 Each entry is a tiny JSON file named <sha256>.json. No TTL; the cache
 is content-addressed so prompt edits invalidate naturally. Use
 `prune` or `nuke` for explicit eviction.
+
+`salt` is part of the key but not part of the payload sent to the model.
+The runner uses it to give every repeated sample its own slot, so
+`--runs N` cannot collapse into one entry replayed N times.
 """
 from __future__ import annotations
 
@@ -32,7 +36,13 @@ def cache_dir() -> Path:
     return _DEFAULT_DIR
 
 
-def _key(model: str, system_prompt: str, user_prompt: str, namespace: str) -> str:
+def _key(
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    namespace: str,
+    salt: str = "",
+) -> str:
     h = hashlib.sha256()
     h.update(namespace.encode("utf-8"))
     h.update(b"\x00")
@@ -41,7 +51,25 @@ def _key(model: str, system_prompt: str, user_prompt: str, namespace: str) -> st
     h.update(system_prompt.encode("utf-8"))
     h.update(b"\x00")
     h.update(user_prompt.encode("utf-8"))
+    h.update(b"\x00")
+    h.update(salt.encode("utf-8"))
     return h.hexdigest()
+
+
+def sample_salt(run_idx: int) -> str:
+    """Salt that gives sample `run_idx` of a repeated measurement its own slot."""
+    return f"sample={run_idx}"
+
+
+def key(
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    namespace: str = "agent",
+    salt: str = "",
+) -> str:
+    """Public key accessor — callers use it as a sample identity."""
+    return _key(model, system_prompt, user_prompt, namespace, salt)
 
 
 @dataclass
@@ -58,9 +86,15 @@ def stats() -> CacheStats:
     return _stats
 
 
-def get(model: str, system_prompt: str, user_prompt: str, namespace: str = "agent") -> str | None:
+def get(
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    namespace: str = "agent",
+    salt: str = "",
+) -> str | None:
     """Return cached response text, or None on miss."""
-    path = cache_dir() / f"{_key(model, system_prompt, user_prompt, namespace)}.json"
+    path = cache_dir() / f"{_key(model, system_prompt, user_prompt, namespace, salt)}.json"
     try:
         with _lock:
             data = json.loads(path.read_text(encoding="utf-8"))
@@ -79,9 +113,10 @@ def put(
     user_prompt: str,
     response: str,
     namespace: str = "agent",
+    salt: str = "",
 ) -> None:
-    path = cache_dir() / f"{_key(model, system_prompt, user_prompt, namespace)}.json"
-    payload = {"model": model, "namespace": namespace, "response": response}
+    path = cache_dir() / f"{_key(model, system_prompt, user_prompt, namespace, salt)}.json"
+    payload = {"model": model, "namespace": namespace, "salt": salt, "response": response}
     tmp = path.with_suffix(".tmp")
     try:
         with _lock:

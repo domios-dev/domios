@@ -40,12 +40,84 @@ pub(super) fn authorize_draft_mutation(
 pub(super) const RECOVERY_METHODS: &[&str] = &[
     "plan.task.update",
     "plan.task.assign",
+    "plan.task.dispatch",
+    "plan.task.pause",
+    "plan.task.resume",
     "plan.task.respawn",
     "plan.task.close",
 ];
 
+/// Verbs where the live Plan owner is an authority over a task it does not hold
+/// itself. Closed on purpose: a verb newly routed through this seam to assert the
+/// CALLER's own task binding inherits neither the shortcut nor recovery.
+pub(super) const PLAN_OWNER_AUTHORITY_METHODS: &[&str] = &[
+    "task.take",
+    "task.drop",
+    "plan.task.update",
+    "plan.task.attach",
+    "plan.task.close",
+    "plan.task.pause",
+    "plan.task.resume",
+    "plan.task.assign",
+    "plan.task.dispatch",
+    "plan.task.respawn",
+    "plan.task.compete",
+    "plan.task.judge",
+    "plan.task.rm",
+    "plan.task.link",
+    "plan.task.relink",
+];
+
 pub(super) fn is_recovery_method(method: &str) -> bool {
     RECOVERY_METHODS.contains(&method)
+}
+
+pub(super) fn is_plan_owner_authority_method(method: &str) -> bool {
+    PLAN_OWNER_AUTHORITY_METHODS.contains(&method)
+}
+
+/// Stable discriminants for task-authority refusals, carried as `data.type`.
+/// Gates and tests key off these so the prose stays free to change.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum TaskAuthorityRefusal {
+    OwnerEpochStale,
+    CallerBindingStale,
+    OwnerGoneVerbNotRecoverable,
+    CallerNotTaskOwner,
+}
+
+impl TaskAuthorityRefusal {
+    pub(super) fn discriminant(self) -> &'static str {
+        match self {
+            Self::OwnerEpochStale => "task_owner_epoch_stale",
+            Self::CallerBindingStale => "task_mutation_binding_stale",
+            Self::OwnerGoneVerbNotRecoverable => "task_owner_gone_verb_not_recoverable",
+            Self::CallerNotTaskOwner => "caller_is_not_task_owner_or_plan_owner",
+        }
+    }
+
+    fn message(self) -> &'static str {
+        match self {
+            Self::OwnerEpochStale => {
+                "the presented owner epoch is not this task's current owner epoch"
+            }
+            Self::CallerBindingStale => "task mutation caller binding is stale or rebound",
+            Self::OwnerGoneVerbNotRecoverable => {
+                "the task's owning tab is gone and this verb is not recovery-eligible"
+            }
+            Self::CallerNotTaskOwner => {
+                "the caller is neither this task's live owner session nor the live Plan owner"
+            }
+        }
+    }
+}
+
+fn authority_refusal(kind: TaskAuthorityRefusal) -> JsonRpcError {
+    JsonRpcError {
+        code: -32603,
+        message: kind.message().into(),
+        data: Some(serde_json::json!({ "type": kind.discriminant() })),
+    }
 }
 
 fn plan_caller(params: &Option<Value>) -> crate::service::AuthenticatedPlanCaller {
@@ -69,10 +141,7 @@ pub(super) fn plan_orchestrator_close_override(
     svc: &ServiceState,
     plan_id: &str,
 ) -> bool {
-    method == "plan.task.close"
-        && svc
-            .authorize_plan_orchestrator(plan_id, &plan_caller(params))
-            .is_ok()
+    method == "plan.task.close" && caller_is_live_plan_owner(svc, plan_id, params)
 }
 
 /// The recovered status a `plan.task.update` asks for, so cancel and pend land
@@ -127,8 +196,7 @@ pub(super) fn plan_owner_may_recover(
     if owner_session_is_live(svc, owner_tab_id, owner_session_id) {
         return false;
     }
-    svc.authorize_plan_orchestrator(plan_id, &plan_caller(params))
-        .is_ok()
+    caller_is_live_plan_owner(svc, plan_id, params)
 }
 
 pub(super) fn verify_owner_epoch_for_task_mutation(
@@ -182,7 +250,7 @@ pub(super) fn verify_owner_epoch_for_task_mutation(
     }
     let authority = task_mutation_authority(params, svc)?;
     if detail.task.interruption.owner_epoch != authority.owner_epoch {
-        return Err(rpc_error("task mutation owner epoch is stale"));
+        return Err(authority_refusal(TaskAuthorityRefusal::OwnerEpochStale));
     }
     let binding_matches = svc
         .mux
@@ -195,18 +263,13 @@ pub(super) fn verify_owner_epoch_for_task_mutation(
                     == Some(&authority.session_binding_nonce)
         });
     if !binding_matches {
-        return Err(rpc_error(
-            "task mutation caller binding is stale or rebound",
-        ));
+        return Err(authority_refusal(TaskAuthorityRefusal::CallerBindingStale));
     }
-    let orchestrator = svc
-        .plan_store
-        .owner_of(&detail.plan_id)
-        .is_some_and(|owner| {
-            owner.tab_id.as_deref() == Some(&authority.tab_id)
-                && owner.session_id.as_deref() == Some(&authority.session_id)
-        });
-    if orchestrator {
+    // Plan ownership is proven against the LIVE tab, never against the owner
+    // record's session field, which only the agent-restart path ever refreshes.
+    if is_plan_owner_authority_method(method)
+        && caller_is_live_plan_owner(svc, &detail.plan_id, params)
+    {
         return Ok(());
     }
     svc.verify_task_owner_session(
@@ -215,7 +278,36 @@ pub(super) fn verify_owner_epoch_for_task_mutation(
         &authority.session_id,
         authority.owner_epoch,
     )
-    .map_err(rpc_error)
+    .map_err(|_| {
+        authority_refusal(unrecognized_authority(
+            svc,
+            &detail.plan_id,
+            params,
+            detail.task.interruption.owner_tab_id.as_deref(),
+            detail.task.interruption.owner_session_id.as_deref(),
+        ))
+    })
+}
+
+fn caller_is_live_plan_owner(svc: &ServiceState, plan_id: &str, params: &Option<Value>) -> bool {
+    svc.authorize_plan_orchestrator(plan_id, &plan_caller(params))
+        .is_ok()
+}
+
+/// Names the state that actually blocked the caller: a Plan owner held off a
+/// tab-gone task by verb eligibility, or a caller with no claim on the task.
+fn unrecognized_authority(
+    svc: &ServiceState,
+    plan_id: &str,
+    params: &Option<Value>,
+    owner_tab_id: Option<&str>,
+    owner_session_id: Option<&str>,
+) -> TaskAuthorityRefusal {
+    let owner_gone = !owner_session_is_live(svc, owner_tab_id, owner_session_id);
+    if owner_gone && caller_is_live_plan_owner(svc, plan_id, params) {
+        return TaskAuthorityRefusal::OwnerGoneVerbNotRecoverable;
+    }
+    TaskAuthorityRefusal::CallerNotTaskOwner
 }
 
 pub(super) fn task_mutation_authority(
@@ -254,7 +346,7 @@ pub(super) fn task_mutation_authority(
                     == Some(session_binding_nonce.as_str()))
             .then(|| live_session.to_string())
         })
-        .ok_or_else(|| rpc_error("task mutation caller binding is stale or rebound"))?;
+        .ok_or_else(|| authority_refusal(TaskAuthorityRefusal::CallerBindingStale))?;
     Ok(TaskMutationAuthority {
         tab_id,
         session_id,
@@ -285,3 +377,6 @@ fn rpc_error(message: impl ToString) -> JsonRpcError {
         data: None,
     }
 }
+
+#[cfg(test)]
+mod tests;

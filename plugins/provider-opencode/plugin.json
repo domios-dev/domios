@@ -1,6 +1,6 @@
 {
   "id": "opencode",
-  "version": "1.9.6",
+  "version": "1.10.0",
   "minCodeterm": "1.0.0",
   "hostApi": 2,
   "displayName": "OpenCode",
@@ -27,6 +27,22 @@
     "agentStateStatusReconciliation": true,
     "supportsLazySkills": false,
     "hasHooks": true,
+    "hookEventRoster": [
+      {
+        "event": "SessionStart",
+        "route": "session_start"
+      },
+      {
+        "event": "session.status",
+        "route": "session_state",
+        "verdict": "working"
+      },
+      {
+        "event": "session.idle",
+        "route": "session_state",
+        "verdict": "idle"
+      }
+    ],
     "supportsStructuredPrompts": true,
     "structuredPromptServer": true
   },

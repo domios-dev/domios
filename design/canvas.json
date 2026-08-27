@@ -1,0 +1,55 @@
+{
+  "artboards": [
+    {
+      "file": "Main.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 420,
+      "h": 660,
+      "title": "Panel \u2014 ask, expand, answer"
+    },
+    {
+      "file": "Chat.dc.html",
+      "x": 520,
+      "y": 0,
+      "w": 944,
+      "h": 560,
+      "title": "The ask inside the chat"
+    },
+    {
+      "file": "Routing.dc.html",
+      "x": 1560,
+      "y": 0,
+      "w": 608,
+      "h": 700,
+      "title": "What the button does"
+    },
+    {
+      "file": "Settings.dc.html",
+      "x": 0,
+      "y": 780,
+      "w": 488,
+      "h": 880,
+      "title": "Settings \u2014 real toggle rows"
+    }
+  ],
+  "annotations": [
+    {
+      "id": "already-there",
+      "x": 2270,
+      "y": 0,
+      "w": 300,
+      "text": "Already in the product:\n\n\u00b7 the panel expands long bodies (chevron + expandedIds)\n\u00b7 it renders an action row from notif.actions\n\nMissing:\n\u00b7 the CLI cannot create an action\n\u00b7 no action kind routes an answer to a tab"
+    },
+    {
+      "id": "level-naming",
+      "x": 580,
+      "y": 780,
+      "w": 300,
+      "text": "Three levels, not severities.\n\nThe question a level answers is \"does this stop the agent, and does it need me?\" \u2014 not \"how bad is it\".\n\nfailure and action-needed are both urgent and belong in different rows, because one wants an answer and the other wants attention."
+    }
+  ],
+  "launch": {
+    "view": "canvas"
+  }
+}

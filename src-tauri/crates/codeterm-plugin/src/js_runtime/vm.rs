@@ -74,6 +74,8 @@ const PLUGIN_PREAMBLE: &str = r#"
     },
   };
   host.manifest = function () { return parseJson(host.manifestJson()); };
+  // null = denied/unreadable; [] = readable but no child dirs.
+  host.listChildDirs = function (p) { return parseJson(host.listChildDirsJson(p)); };
 
   // sync per step). Not Promise-wrapped: QuickJS can't drain a Promise in a sync `call_json` dispatch.
   host.mem = {
@@ -104,6 +106,28 @@ const PLUGIN_PREAMBLE: &str = r#"
   host.exec.start = function (opts) { return parseJson(host.execStart(JSON.stringify(opts))); };
   host.exec.poll = function (jobId) { return parseJson(host.execPoll(jobId)); };
   host.exec.close = function (jobId) { host.execClose(jobId); };
+  // Return `host.awaitJob(job, then)` from a plugin method instead of blocking in
+  // it: the frame unwinds, the host waits for the job with the VM released, and
+  // re-enters this context to run `then`. Nothing enters mid-frame.
+  var __awaitSeq__ = 0;
+  var __awaits__ = {};
+  globalThis.__ct_await_take__ = function (k) {
+    var f = __awaits__[k];
+    delete __awaits__[k];
+    return f;
+  };
+  host.awaitJob = function (jobId, then) {
+    if (typeof then !== "function") { throw new Error("host.awaitJob requires a continuation function"); }
+    if (typeof jobId !== "string" || jobId === "") { return then({ error: "host.awaitJob: missing job id" }); }
+    var k = String(++__awaitSeq__);
+    __awaits__[k] = then;
+    return { __ctAwait__: { job: jobId, k: k } };
+  };
+  host.exec.async = function (opts, then) {
+    var j = host.exec.start(opts);
+    if (!j || typeof j.jobId !== "string") { return then({ error: (j && j.error) || "exec.start failed" }); }
+    return host.awaitJob(j.jobId, then);
+  };
 })();
 "#;
 
@@ -119,6 +143,16 @@ globalThis.__ct_invoke__ = function () {
     }
     return JSON.stringify(out === undefined ? null : out);
 };
+globalThis.__ct_resume__ = function () {
+    var take = globalThis.__ct_await_take__;
+    var fn = typeof take === 'function' ? take(globalThis.__ct_await_k__) : undefined;
+    if (typeof fn !== 'function') { throw new Error('await continuation is gone'); }
+    var out = fn(JSON.parse(globalThis.__ct_await_result__));
+    if (out && typeof out.then === 'function') {
+        throw new Error('await continuation returned a Promise; plugin methods must be synchronous');
+    }
+    return JSON.stringify(out === undefined ? null : out);
+};
 globalThis.__ct_has__ = function () {
     var p = globalThis.__plugin__;
     return (typeof p === 'object' && p !== null
@@ -130,6 +164,9 @@ use std::cell::Cell;
 
 thread_local! {
     static SOURCE_COMPILES: Cell<u64> = const { Cell::new(0) };
+    /// Set when the in-flight call released the VM to wait for a host job, so
+    /// the slow-call warning can still mean "held the context this long".
+    static CALL_YIELDED: Cell<bool> = const { Cell::new(false) };
 }
 
 #[cfg(test)]
@@ -196,6 +233,10 @@ impl std::error::Error for VmError {
 /// `Arc<PluginVm>`.
 pub struct PluginVm {
     inner: Mutex<Inner>,
+    /// Outside `inner` on purpose. Nothing here needs the context, so reading it
+    /// must not queue behind a slow call; and `host.exec` jobs are keyed by this
+    /// identity, so awaiting one must not read it through the lock it releases.
+    sandbox: std::sync::Arc<super::host_api::PluginSandbox>,
     plugin_id: String,
 }
 
@@ -208,8 +249,6 @@ struct Inner {
     bundle_source: String,
     // Manifest JSON string returned to the plugin via `host.manifest()`. Preserved across reload so the post-reload plugin still sees its declared paths.
     manifest_json: Option<String>,
-    // FS/env policy for this plugin's host calls. Preserved across reload.
-    sandbox: std::sync::Arc<super::host_api::PluginSandbox>,
 }
 
 impl PluginVm {
@@ -279,7 +318,9 @@ impl PluginVm {
             plugin_id,
             bundle_source,
             manifest_json,
-            std::sync::Arc::new(super::host_api::PluginSandbox::unrestricted()),
+            std::sync::Arc::new(
+                super::host_api::PluginSandbox::unrestricted().with_identity(plugin_id),
+            ),
         )
     }
 
@@ -331,8 +372,8 @@ impl PluginVm {
                 _rt: rt,
                 bundle_source,
                 manifest_json,
-                sandbox,
             }),
+            sandbox,
             plugin_id: plugin_id.to_string(),
         })
     }
@@ -343,23 +384,28 @@ impl PluginVm {
 
     /// Late-bind the host `ServiceContext` (the VM is built before it exists). First write wins.
     pub fn set_service(&self, svc: std::sync::Weak<dyn crate::host_traits::PluginHostCtx>) -> bool {
-        self.inner.lock().sandbox.set_service(svc)
+        self.sandbox.set_service(svc)
     }
 
     /// Resolve the live host context, if one has been bound.
     pub fn service(&self) -> Option<std::sync::Arc<dyn crate::host_traits::PluginHostCtx>> {
-        self.inner.lock().sandbox.service()
+        self.sandbox.service()
     }
 
     /// Whether this plugin holds the `agent_commands` grant — drives inverse-seam handler registration.
     pub fn agent_commands_allowed(&self) -> bool {
-        self.inner.lock().sandbox.agent_commands_allowed()
+        self.sandbox.agent_commands_allowed()
+    }
+
+    /// Record a host-supplied tab cwd as a sandbox read-root (no-op when unrestricted).
+    pub fn grant_cwd_read_root(&self, cwd: &str) {
+        self.sandbox.grant_cwd_read_root(cwd);
     }
 
     /// Re-stamp the plugin's settings into the existing sandbox without rebuilding the
     /// VM, so a config-only reload preserves in-memory state (open chatBackend sessions).
     pub fn reload_settings(&self, settings_json: String) {
-        self.inner.lock().sandbox.set_settings(settings_json);
+        self.sandbox.set_settings(settings_json);
     }
 
     /// Re-load the plugin from a fresh source string. Used by the
@@ -383,7 +429,7 @@ impl PluginVm {
             source = new_source
         );
         let manifest_for_install = inner.manifest_json.clone();
-        let sandbox_for_install = inner.sandbox.clone();
+        let sandbox_for_install = self.sandbox.clone();
         ctx.with(|ctx| -> Result<(), VmError> {
             super::host_api::install(&ctx, manifest_for_install.as_deref(), sandbox_for_install)?;
             eval_source::<(), _>(&ctx, PLUGIN_PREAMBLE)
@@ -406,8 +452,18 @@ impl PluginVm {
 
 impl Drop for PluginVm {
     fn drop(&mut self) {
-        super::host_net::drop_plugin_jobs(&self.plugin_id);
-        super::host_exec::drop_plugin_jobs(&self.plugin_id);
+        // The sandbox's id, not the VM's: that is what `host.exec`/`host.fetch`
+        // keyed the jobs by when the plugin started them.
+        super::host_net::drop_plugin_jobs(self.sandbox.plugin_id());
+        super::host_exec::drop_plugin_jobs(self.sandbox.plugin_id());
+    }
+}
+
+/// Record a host-composed `ctx.cwd` as a read-root grant on the plugin's
+/// sandbox. Callers must only pass ctx objects the host itself assembled.
+pub(super) fn grant_ctx_cwd(vm: &PluginVm, ctx: &serde_json::Value) {
+    if let Some(cwd) = ctx.get("cwd").and_then(|v| v.as_str()) {
+        vm.grant_cwd_read_root(cwd);
     }
 }
 
@@ -421,19 +477,67 @@ impl Drop for PluginVm {
 ///
 /// This lives as a free function (not a method) so callers can pass an
 /// `Arc<PluginVm>` cheaply and not borrow the whole vm for the duration.
+/// A call past this is worth a line: the VM mutex is held for the whole call, so
+/// a plugin that blocks in a synchronous `host.exec` is not merely slow for its
+/// own caller — every other call into that plugin waits behind it. Reported in
+/// release builds too, because that is where a user meets it (#319, #4). A call
+/// that yielded via `host.awaitJob` did not hold the VM and is not reported.
+const SLOW_CALL_THRESHOLD: std::time::Duration = std::time::Duration::from_secs(1);
+
 pub fn call_json<R: serde::de::DeserializeOwned>(
     vm: &PluginVm,
     method: &str,
     args: &[serde_json::Value],
 ) -> Result<R, VmError> {
+    let started = std::time::Instant::now();
+    CALL_YIELDED.with(|y| y.set(false));
     // bad drop-in can't unwind through the host and take the daemon down (#16).
     let run = std::panic::AssertUnwindSafe(|| call_json_inner::<R>(vm, method, args));
-    match std::panic::catch_unwind(run) {
+    let result = match std::panic::catch_unwind(run) {
         Ok(res) => res,
         Err(_) => Err(VmError::Script(format!(
             "{method}: plugin panicked (caught — provider isolated)"
         ))),
+    };
+    let held = started.elapsed();
+    if held >= SLOW_CALL_THRESHOLD && !CALL_YIELDED.with(|y| y.get()) {
+        log::warn!(
+            "[plugin-vm] {}.{} held the VM for {}ms — other calls into this plugin queued behind it",
+            vm.plugin_id,
+            method,
+            held.as_millis()
+        );
     }
+    result
+}
+
+/// A method that returned `host.awaitJob(job, then)` instead of a value. Matched by
+/// exact shape (sole key, two string fields) so an ordinary object return is
+/// never mistaken for one.
+struct AwaitRequest {
+    job: String,
+    continuation: String,
+}
+
+const AWAIT_MARKER_PREFIX: &str = "{\"__ctAwait__\":";
+
+fn parse_await(result_json: &str) -> Option<AwaitRequest> {
+    if !result_json.starts_with(AWAIT_MARKER_PREFIX) {
+        return None;
+    }
+    let value: serde_json::Value = serde_json::from_str(result_json).ok()?;
+    let outer = value.as_object()?;
+    if outer.len() != 1 {
+        return None;
+    }
+    let marker = outer.get("__ctAwait__")?.as_object()?;
+    if marker.len() != 2 {
+        return None;
+    }
+    Some(AwaitRequest {
+        job: marker.get("job")?.as_str()?.to_string(),
+        continuation: marker.get("k")?.as_str()?.to_string(),
+    })
 }
 
 fn call_json_inner<R: serde::de::DeserializeOwned>(
@@ -441,8 +545,26 @@ fn call_json_inner<R: serde::de::DeserializeOwned>(
     method: &str,
     args: &[serde_json::Value],
 ) -> Result<R, VmError> {
+    let args_json =
+        serde_json::to_string(args).map_err(|e| VmError::ArgSerialize(method.to_string(), e))?;
+    let mut result_json = enter_call(vm, method, &args_json)?;
+    while let Some(pending) = parse_await(&result_json) {
+        CALL_YIELDED.with(|y| y.set(true));
+        // No guard is held here: the frame unwound to produce the marker, so the
+        // context is idle and this wait costs no other caller.
+        let job_result = super::host_exec::wait_json(vm.sandbox.plugin_id(), &pending.job);
+        result_json = resume_call(vm, method, &pending.continuation, &job_result)?;
+    }
+    serde_json::from_str(&result_json)
+        .map_err(|e| VmError::InvalidJson(method.to_string(), e.to_string()))
+}
+
+/// One entry into the context, guard taken and released around it. Every entry
+/// into `_ctx` goes through `enter_call` or `resume_call`, which is what keeps a
+/// single JS frame live at a time.
+fn enter_call(vm: &PluginVm, method: &str, args_json: &str) -> Result<String, VmError> {
     let inner = vm.inner.lock();
-    let result_json: String = inner._ctx.with(|ctx| -> Result<String, VmError> {
+    inner._ctx.with(|ctx| -> Result<String, VmError> {
         let plugin_obj: Value = ctx
             .globals()
             .get("__plugin__")
@@ -456,8 +578,6 @@ fn call_json_inner<R: serde::de::DeserializeOwned>(
             .catch(&ctx)
             .map_err(|_| VmError::MissingFunction(method.to_string()))?;
 
-        let args_json = serde_json::to_string(args)
-            .map_err(|e| VmError::ArgSerialize(method.to_string(), e))?;
         let globals = ctx.globals();
         globals
             .set("__ct_method__", method)
@@ -476,11 +596,36 @@ fn call_json_inner<R: serde::de::DeserializeOwned>(
             .catch(&ctx)
             .map_err(|e| VmError::Script(format!("{method}: {e:?}")))?;
         Ok(result)
-    })?;
-    // Drop the lock before parsing.
-    drop(inner);
-    serde_json::from_str(&result_json)
-        .map_err(|e| VmError::InvalidJson(method.to_string(), e.to_string()))
+    })
+}
+
+fn resume_call(
+    vm: &PluginVm,
+    method: &str,
+    continuation: &str,
+    job_result: &str,
+) -> Result<String, VmError> {
+    let inner = vm.inner.lock();
+    inner._ctx.with(|ctx| -> Result<String, VmError> {
+        let globals = ctx.globals();
+        globals
+            .set("__ct_await_k__", continuation)
+            .catch(&ctx)
+            .map_err(|e| VmError::Script(format!("setting await key failed: {e:?}")))?;
+        globals
+            .set("__ct_await_result__", job_result)
+            .catch(&ctx)
+            .map_err(|e| VmError::Script(format!("setting await result failed: {e:?}")))?;
+        let resume: Function = globals
+            .get("__ct_resume__")
+            .catch(&ctx)
+            .map_err(|e| VmError::Script(format!("__ct_resume__ missing: {e:?}")))?;
+        let result: String = resume
+            .call(())
+            .catch(&ctx)
+            .map_err(|e| VmError::Script(format!("{method}: {e:?}")))?;
+        Ok(result)
+    })
 }
 
 /// Whether the plugin exports `method` as a function. Lets the host tell
@@ -509,371 +654,4 @@ pub fn has_method(vm: &PluginVm, method: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    fn fixture(src: &str) -> PluginVm {
-        PluginVm::from_source("test", src.to_string()).expect("load")
-    }
-
-    #[test]
-    fn round_trip_string_arg_and_return() {
-        let vm = fixture(
-            r#"
-            module.exports.default = {
-                upper(s) { return s.toUpperCase(); }
-            };
-        "#,
-        );
-        let out: String = call_json(&vm, "upper", &[json!("hi")]).unwrap();
-        assert_eq!(out, "HI");
-    }
-
-    #[test]
-    fn round_trip_object_arg_and_return() {
-        let vm = fixture(
-            r#"
-            module.exports.default = {
-                meta() { return { id: "x", displayName: "X" }; }
-            };
-        "#,
-        );
-        let out: serde_json::Value = call_json(&vm, "meta", &[]).unwrap();
-        assert_eq!(out["id"], "x");
-        assert_eq!(out["displayName"], "X");
-    }
-
-    #[test]
-    fn round_trip_array_return() {
-        let vm = fixture(
-            r#"
-            module.exports.default = {
-                things() { return [1, 2, 3]; }
-            };
-        "#,
-        );
-        let out: Vec<i32> = call_json(&vm, "things", &[]).unwrap();
-        assert_eq!(out, vec![1, 2, 3]);
-    }
-
-    #[test]
-    fn missing_function_errors() {
-        let vm = fixture("module.exports.default = {};");
-        let err = call_json::<()>(&vm, "nope", &[]).unwrap_err();
-        match err {
-            VmError::Script(_) | VmError::MissingFunction(_) => {}
-            other => panic!("unexpected: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn plugin_throw_surfaces_as_script_error() {
-        let vm = fixture(
-            r#"
-            module.exports.default = {
-                kaboom() { throw new Error('nope'); }
-            };
-        "#,
-        );
-        let err = call_json::<()>(&vm, "kaboom", &[]).unwrap_err();
-        assert!(matches!(err, VmError::Script(_)));
-    }
-
-    #[test]
-    fn returning_undefined_becomes_null_in_rust() {
-        let vm = fixture(
-            r#"
-            module.exports.default = {
-                nothing() { /* implicit undefined */ }
-            };
-        "#,
-        );
-        let out: Option<i32> = call_json(&vm, "nothing", &[]).unwrap();
-        assert_eq!(out, None);
-    }
-
-    #[test]
-    fn promise_return_rejected() {
-        let vm = fixture(
-            r#"
-            module.exports.default = {
-                async slow() { return 1; }
-            };
-        "#,
-        );
-        let err = call_json::<i32>(&vm, "slow", &[]).unwrap_err();
-        assert!(matches!(err, VmError::Script(_)));
-    }
-
-    #[test]
-    fn boolean_return() {
-        let vm = fixture(
-            r#"
-            module.exports.default = {
-                yes() { return true; },
-                no()  { return false; }
-            };
-        "#,
-        );
-        let yes: bool = call_json(&vm, "yes", &[]).unwrap();
-        let no: bool = call_json(&vm, "no", &[]).unwrap();
-        assert!(yes);
-        assert!(!no);
-    }
-
-    #[test]
-    fn hot_path_no_per_call_recompile() {
-        // try_call("hasEventMarkers") -> call_json, fired per output chunk (#186).
-        let vm = fixture(
-            r#"
-            module.exports.default = {
-                hasEventMarkers(chunk) {
-                    return chunk.includes("❯")
-                        || chunk.includes("Proceed?")
-                        || (chunk.includes("1.") && chunk.includes("2."));
-                }
-            };
-        "#,
-        );
-        let chunk = "\u{1b}[2mthinking...\u{1b}[0m\n\u{276f} 1. Yes  2. No\nProceed?";
-        // Warm one call so lazy state settles before the snapshot.
-        let _: bool = call_json(&vm, "hasEventMarkers", &[json!(chunk)]).unwrap();
-        let before = source_compiles();
-        let n = 20_000u64;
-        let t0 = std::time::Instant::now();
-        for _ in 0..n {
-            let hit: bool = call_json(&vm, "hasEventMarkers", &[json!(chunk)]).unwrap();
-            assert!(hit);
-        }
-        let elapsed = t0.elapsed();
-        let compiles = source_compiles() - before;
-        eprintln!(
-            "[#186 hot-path load] {n} calls in {elapsed:?} -> {:.3} us/call, {:.0} calls/sec; \
-             source recompiles during loop = {compiles}",
-            elapsed.as_micros() as f64 / n as f64,
-            n as f64 / elapsed.as_secs_f64(),
-        );
-        assert_eq!(
-            compiles, 0,
-            "per-call JS source recompile detected (#186): call_json must invoke a cached \
-             wrapper Function, not ctx.eval(source) on every call"
-        );
-    }
-
-    #[test]
-    fn esm_export_default_style() {
-        // esbuild output for `export default { ... }` produces `module.exports.default = ...` after the bootstrap interpret.
-        let vm = fixture(
-            r#"
-            Object.defineProperty(module.exports, "__esModule", { value: true });
-            module.exports.default = {
-                hello() { return "world"; }
-            };
-        "#,
-        );
-        let out: String = call_json(&vm, "hello", &[]).unwrap();
-        assert_eq!(out, "world");
-    }
-
-    #[test]
-    fn preamble_exposes_host_fs_and_host_manifest() {
-        // would be undefined and these calls would throw TypeError.
-        let vm = PluginVm::from_source_with(
-            "test",
-            r#"
-            module.exports.default = {
-                listNames(p) { return host.fs.readDir(p).map(e => e.name).sort(); },
-                getManifestId() {
-                    var m = host.manifest();
-                    return m ? m.id : null;
-                },
-                wrap(s) { return host.shell.quote(s); }
-            };
-            "#
-            .to_string(),
-            Some(r#"{"id":"X","version":"0","displayName":"X","spawn":{"readinessStrategy":{"kind":"fixed_delay","durationMs":0},"taskDelivery":"pty_input","verifySubmit":{"kind":"none"}}}"#.to_string()),
-        )
-        .unwrap();
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("a"), "1").unwrap();
-        std::fs::write(dir.path().join("b"), "2").unwrap();
-        let names: Vec<String> =
-            call_json(&vm, "listNames", &[json!(dir.path().to_string_lossy())]).unwrap();
-        assert_eq!(names, vec!["a".to_string(), "b".to_string()]);
-        let id: Option<String> = call_json(&vm, "getManifestId", &[]).unwrap();
-        assert_eq!(id.as_deref(), Some("X"));
-        let q: String = call_json(&vm, "wrap", &[json!("can't")]).unwrap();
-        assert_eq!(q, "'can'\\''t'");
-    }
-
-    #[test]
-    fn preamble_exposes_host_toolcall_parse() {
-        let vm = fixture(
-            r#"
-            module.exports.default = {
-                parse(raw, schema) { return host.toolcall.parse(raw, schema); }
-            };
-            "#,
-        );
-        let schema = r#"{
-            "tools":[{"name":"exec","args":["cmd"]}],
-            "aliases":{"command":"cmd"}
-        }"#;
-        let raw = r#"```codeterm-tool
-{"tool":"exec","args":{"command":"ls"}}
-```"#;
-
-        let via_host: String = call_json(&vm, "parse", &[json!(raw), json!(schema)]).unwrap();
-        let native = super::super::toolcall_parse::parse_to_json(raw, schema);
-        assert_eq!(via_host, native);
-        let parsed: serde_json::Value = serde_json::from_str(&via_host).unwrap();
-        assert_eq!(parsed["tool"], "exec");
-        assert_eq!(parsed["args"]["cmd"], "ls");
-    }
-
-    #[test]
-    fn preamble_compute_is_fully_synchronous() {
-        // All compute binds return their result directly, never a Promise (undrainable in a sync dispatch). Assert the shape.
-        let vm = fixture(
-            r#"
-            module.exports.default = {
-                shape() {
-                    var mem = host.mem.search({ query: "q" });
-                    var start = host.worker.start({ task: "t" });
-                    var send = host.agent.send("s", "t");
-                    return {
-                        memIsFn:       typeof host.mem.search === "function",
-                        wsEnsureIsFn:  typeof host.workspace.ensure === "function",
-                        wsTabsIsFn:   typeof host.workspace.tabs === "function",
-                        // every result is a plain object, NOT a thenable.
-                        memSync:       mem !== null && typeof mem === "object" && mem.then === undefined,
-                        memError:      typeof mem.error === "string",
-                        workerSync:    start !== null && typeof start === "object" && start.then === undefined,
-                        agentSync:     send !== null && typeof send === "object" && send.then === undefined,
-                    };
-                }
-            };
-            "#,
-        );
-        let v: serde_json::Value = call_json(&vm, "shape", &[]).unwrap();
-        assert_eq!(v["memIsFn"], true);
-        assert_eq!(v["wsEnsureIsFn"], true);
-        assert_eq!(v["wsTabsIsFn"], true);
-        assert_eq!(v["memSync"], true, "host.mem.search must be synchronous");
-        assert_eq!(
-            v["memError"], true,
-            "svc-absent must surface an error envelope"
-        );
-        assert_eq!(
-            v["workerSync"], true,
-            "host.worker.start must be synchronous (no Promise wrapper)"
-        );
-        assert_eq!(
-            v["agentSync"], true,
-            "host.agent.send must be synchronous (no Promise wrapper)"
-        );
-    }
-
-    #[test]
-    fn host_compute_perms_gate_workspace_and_agent() {
-        // host.workspace* needs manage_workspaces, host.agent* needs spawn_agents: without the grant the bind denies; with it, the gate is crossed.
-        use crate::js_runtime::host_api::PluginSandbox;
-        use crate::js_runtime::manifest::PermissionsConfig;
-        use std::sync::Arc;
-        const SRC: &str = r#"
-            module.exports.default = {
-                ws() { return host.workspaceEnsure("{}"); },
-                ag() { return host.agentSpawn("w", "{}"); }
-            };
-        "#;
-
-        let denied = Arc::new(
-            PluginSandbox::restricted(vec![], vec![])
-                .with_identity_and_perms("p", &PermissionsConfig::default()),
-        );
-        let vm = PluginVm::from_source_sandboxed("p", SRC.to_string(), None, denied).unwrap();
-        let ws: String = call_json(&vm, "ws", &[]).unwrap();
-        assert!(ws.contains("manage_workspaces permission required"), "{ws}");
-        let ag: String = call_json(&vm, "ag", &[]).unwrap();
-        assert!(ag.contains("spawn_agents permission required"), "{ag}");
-
-        let perms = PermissionsConfig {
-            manage_workspaces: true,
-            spawn_agents: true,
-            ..Default::default()
-        };
-        let granted = Arc::new(
-            PluginSandbox::restricted(vec![], vec![]).with_identity_and_perms("p", &perms),
-        );
-        let vm2 = PluginVm::from_source_sandboxed("p", SRC.to_string(), None, granted).unwrap();
-        let ws2: String = call_json(&vm2, "ws", &[]).unwrap();
-        assert!(
-            ws2.contains("host service unavailable"),
-            "granted ws: {ws2}"
-        );
-        let ag2: String = call_json(&vm2, "ag", &[]).unwrap();
-        assert!(
-            ag2.contains("host service unavailable"),
-            "granted ag: {ag2}"
-        );
-    }
-
-    #[test]
-    fn fetch_stream_preamble_is_sync_and_uses_fetch_allowlist() {
-        use crate::js_runtime::host_api::PluginSandbox;
-        use crate::js_runtime::manifest::PermissionsConfig;
-        use std::sync::Arc;
-
-        const SRC: &str = r#"
-            module.exports.default = {
-                shape() {
-                    var result = host.fetch.stream({ url: "http://blocked.example.test/stream" });
-                    return {
-                        streamIsFn: typeof host.fetch.stream === "function",
-                        pollIsFn: typeof host.fetch.streamPoll === "function",
-                        closeIsFn: typeof host.fetch.streamClose === "function",
-                        sync: !(result && typeof result.then === "function"),
-                        error: result && result.error,
-                    };
-                }
-            };
-        "#;
-
-        let sandbox = Arc::new(
-            PluginSandbox::restricted(vec![], vec![])
-                .with_identity_and_perms("p", &PermissionsConfig::default()),
-        );
-        let vm = PluginVm::from_source_sandboxed("p", SRC.to_string(), None, sandbox).unwrap();
-        let shape: serde_json::Value = call_json(&vm, "shape", &[]).unwrap();
-        assert_eq!(shape["streamIsFn"], true);
-        assert_eq!(shape["pollIsFn"], true);
-        assert_eq!(shape["closeIsFn"], true);
-        assert_eq!(shape["sync"], true);
-        assert_eq!(
-            shape["error"], "fetch denied: blocked.example.test",
-            "stream must share host.fetch's network allowlist denial"
-        );
-    }
-
-    #[test]
-    fn reload_swaps_implementation() {
-        let vm = fixture(
-            r#"
-            module.exports.default = { v() { return 1; } };
-        "#,
-        );
-        let v1: i32 = call_json(&vm, "v", &[]).unwrap();
-        assert_eq!(v1, 1);
-
-        vm.reload(
-            r#"
-            module.exports.default = { v() { return 2; } };
-        "#
-            .to_string(),
-        )
-        .unwrap();
-        let v2: i32 = call_json(&vm, "v", &[]).unwrap();
-        assert_eq!(v2, 2);
-    }
-}
+mod tests;

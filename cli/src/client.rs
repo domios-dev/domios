@@ -43,6 +43,7 @@ struct JsonRpcRequest<'a> {
     method: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     params: Option<serde_json::Value>,
+    protocol_version: u64,
 }
 
 #[derive(Deserialize)]
@@ -94,6 +95,9 @@ impl std::fmt::Display for SocketCallError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             SocketCallError::Transport(message) => write!(f, "{message}"),
+            SocketCallError::Rpc(err) if crate::protocol::is_version_skew(err.code) => {
+                write!(f, "{}", err.message)
+            }
             SocketCallError::Rpc(err) => write!(f, "RPC error {}: {}", err.code, err.message),
         }
     }
@@ -155,43 +159,7 @@ impl SocketClient {
         method: &str,
         params: Option<serde_json::Value>,
     ) -> Result<serde_json::Value, SocketCallError> {
-        if is_version_sensitive_method(method) {
-            if let Some(daemon_version) = self.daemon_version() {
-                let cli_version = env!("CARGO_PKG_VERSION");
-                if daemon_version != cli_version {
-                    return Err(SocketCallError::Transport(render_protocol_mismatch(
-                        method,
-                        None,
-                        cli_version,
-                        &daemon_version,
-                    )));
-                }
-            }
-        }
-        match self.call_raw(method, params) {
-            Err(SocketCallError::Rpc(error)) if error.code == -32601 => {
-                let Some(daemon_version) = self.daemon_version() else {
-                    return Err(SocketCallError::Rpc(error));
-                };
-                let cli_version = env!("CARGO_PKG_VERSION");
-                if daemon_version == cli_version {
-                    return Err(SocketCallError::Rpc(error));
-                }
-                Err(SocketCallError::Transport(render_protocol_mismatch(
-                    method,
-                    Some(&error),
-                    cli_version,
-                    &daemon_version,
-                )))
-            }
-            result => result,
-        }
-    }
-
-    fn daemon_version(&mut self) -> Option<String> {
-        self.call_raw("system.identify", None)
-            .ok()
-            .and_then(|value| value.get("version")?.as_str().map(str::to_string))
+        call_with_version_fallback(|m, p| self.call_raw(m, p), method, params)
     }
 
     fn call_raw(
@@ -204,6 +172,7 @@ impl SocketClient {
             id: self.next_id,
             method,
             params,
+            protocol_version: crate::protocol::PROTOCOL_VERSION,
         };
         self.next_id += 1;
 
@@ -252,30 +221,50 @@ impl SocketClient {
     }
 }
 
-fn is_version_sensitive_method(method: &str) -> bool {
-    method.starts_with("tab.") || method == "agent.spawn"
+/// Skew against a NEWER daemon is refused server-side with the typed
+/// version-skew error before dispatch, so the same-version path is exactly one
+/// request. This fallback covers the one direction the daemon cannot: a newer
+/// CLI calling an OLDER daemon that lacks the method entirely (-32601).
+fn call_with_version_fallback<F>(
+    mut raw: F,
+    method: &str,
+    params: Option<serde_json::Value>,
+) -> Result<serde_json::Value, SocketCallError>
+where
+    F: FnMut(&str, Option<serde_json::Value>) -> Result<serde_json::Value, SocketCallError>,
+{
+    match raw(method, params) {
+        Err(SocketCallError::Rpc(error)) if error.code == -32601 => {
+            let daemon_version = raw("system.identify", None)
+                .ok()
+                .and_then(|value| value.get("version")?.as_str().map(str::to_string));
+            let Some(daemon_version) = daemon_version else {
+                return Err(SocketCallError::Rpc(error));
+            };
+            let cli_version = env!("CARGO_PKG_VERSION");
+            if daemon_version == cli_version {
+                return Err(SocketCallError::Rpc(error));
+            }
+            Err(SocketCallError::Transport(render_protocol_mismatch(
+                method,
+                cli_version,
+                &daemon_version,
+            )))
+        }
+        result => result,
+    }
 }
 
-fn render_protocol_mismatch(
-    method: &str,
-    error: Option<&RpcError>,
-    cli_version: &str,
-    daemon_version: &str,
-) -> String {
+fn render_protocol_mismatch(method: &str, cli_version: &str, daemon_version: &str) -> String {
     let ordering = compare_versions(cli_version, daemon_version);
     let direction = match ordering {
         Some(std::cmp::Ordering::Greater) => "CLI is newer than daemon",
         Some(std::cmp::Ordering::Less) => "daemon is newer than CLI",
         _ => "CLI and daemon versions differ",
     };
-    let incompatible = if error.is_some_and(|error| error.code == -32601) {
-        format!("method '{method}' is unavailable")
-    } else {
-        format!("method '{method}' cannot be used across this version boundary")
-    };
     format!(
         "CodeTerm CLI/daemon protocol mismatch: {direction} \
-         (CLI {cli_version}, daemon {daemon_version}); {incompatible}. \
+         (CLI {cli_version}, daemon {daemon_version}); method '{method}' is unavailable. \
          Restart or update CodeTerm so the running daemon and installed CLI versions match."
     )
 }
@@ -723,28 +712,146 @@ mod tests {
         assert!(is_dev_socket("codeterm-dev.sock"));
     }
 
-    #[test]
-    fn unknown_tab_method_names_version_skew_and_recovery() {
-        let error = RpcError {
+    fn method_not_found() -> SocketCallError {
+        SocketCallError::Rpc(RpcError {
             code: -32601,
             message: "Method not found".into(),
             data: None,
-        };
-
-        let rendered = render_protocol_mismatch("tab.list", Some(&error), "1.7.8", "1.7.7");
-
-        assert!(rendered.contains("CLI is newer than daemon"));
-        assert!(rendered.contains("CLI 1.7.8, daemon 1.7.7"));
-        assert!(rendered.contains("method 'tab.list' is unavailable"));
-        assert!(rendered.contains("Restart or update CodeTerm"));
+        })
     }
 
     #[test]
-    fn bound_spawn_is_refused_before_cross_version_dispatch() {
-        let rendered = render_protocol_mismatch("agent.spawn", None, "1.7.8", "1.7.7");
+    fn version_skew_same_version_call_makes_exactly_one_request() {
+        let mut seen: Vec<(String, Option<serde_json::Value>)> = Vec::new();
+        let params = serde_json::json!({"tab_id": "t1"});
 
-        assert!(rendered.contains("cannot be used across this version boundary"));
-        assert!(rendered.contains("Restart or update CodeTerm"));
+        let result = call_with_version_fallback(
+            |method, params| {
+                seen.push((method.to_string(), params));
+                Ok(serde_json::json!({"ok": true}))
+            },
+            "tab.list",
+            Some(params.clone()),
+        )
+        .unwrap();
+
+        assert_eq!(result["ok"], true);
+        assert_eq!(seen, vec![("tab.list".to_string(), Some(params))]);
+    }
+
+    #[test]
+    fn version_skew_typed_error_passes_through_untranslated() {
+        let mut calls = 0;
+        let outcome = call_with_version_fallback(
+            |_, _| {
+                calls += 1;
+                Err(SocketCallError::Rpc(RpcError {
+                    code: crate::protocol::VERSION_SKEW_CODE,
+                    message: "client protocol v1, server requires >=2 — run rebuild".into(),
+                    data: Some(serde_json::json!({
+                        "type": "version_skew",
+                        "client_protocol": 1,
+                        "server_protocol": 2,
+                        "recovery": "rebuild",
+                    })),
+                }))
+            },
+            "agent.report",
+            None,
+        );
+
+        let SocketCallError::Rpc(error) = outcome.unwrap_err() else {
+            panic!("the typed error must stay an RPC error");
+        };
+        assert_eq!(calls, 1, "a skew refusal must not trigger extra requests");
+        assert_eq!(error.code, crate::protocol::VERSION_SKEW_CODE);
+        let data = error.data.expect("typed data crosses untranslated");
+        assert_eq!(data["client_protocol"], 1);
+        assert_eq!(data["server_protocol"], 2);
+        assert_eq!(data["recovery"], "rebuild");
+    }
+
+    #[test]
+    fn version_skew_error_renders_the_daemon_message_verbatim() {
+        let message = "client protocol v3, server requires >=5 — run ./fix";
+
+        let rendered = SocketCallError::Rpc(RpcError {
+            code: crate::protocol::VERSION_SKEW_CODE,
+            message: message.into(),
+            data: None,
+        })
+        .to_string();
+        assert_eq!(rendered, message);
+
+        let other = SocketCallError::Rpc(RpcError {
+            code: -32601,
+            message: message.into(),
+            data: None,
+        })
+        .to_string();
+        assert_ne!(other, message, "only version skew renders bare");
+    }
+
+    #[test]
+    fn version_skew_request_envelope_carries_the_protocol_integer() {
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0",
+            id: 1,
+            method: "tab.list",
+            params: None,
+            protocol_version: crate::protocol::PROTOCOL_VERSION,
+        };
+        let wire: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&req).unwrap()).unwrap();
+        assert_eq!(wire["protocol_version"], crate::protocol::PROTOCOL_VERSION);
+    }
+
+    #[test]
+    fn version_skew_unknown_method_fallback_names_both_versions() {
+        let mut seen: Vec<String> = Vec::new();
+        let outcome = call_with_version_fallback(
+            |method, _| {
+                seen.push(method.to_string());
+                if method == "system.identify" {
+                    Ok(serde_json::json!({"version": "0.0.1"}))
+                } else {
+                    Err(method_not_found())
+                }
+            },
+            "tab.list",
+            None,
+        );
+
+        assert_eq!(
+            seen,
+            vec!["tab.list".to_string(), "system.identify".to_string()]
+        );
+        let SocketCallError::Transport(rendered) = outcome.unwrap_err() else {
+            panic!("cross-version -32601 becomes a transport explanation");
+        };
+        assert!(rendered.contains("0.0.1"), "{rendered}");
+        assert!(rendered.contains(env!("CARGO_PKG_VERSION")), "{rendered}");
+        assert!(rendered.contains("tab.list"), "{rendered}");
+    }
+
+    #[test]
+    fn version_skew_unknown_method_on_same_version_daemon_stays_method_not_found() {
+        let outcome = call_with_version_fallback(
+            |method, _| {
+                if method == "system.identify" {
+                    Ok(serde_json::json!({"version": env!("CARGO_PKG_VERSION")}))
+                } else {
+                    Err(method_not_found())
+                }
+            },
+            "tab.list",
+            None,
+        );
+
+        let SocketCallError::Rpc(error) = outcome.unwrap_err() else {
+            panic!("same-version -32601 is a real missing method, not skew");
+        };
+        assert_eq!(error.code, -32601);
     }
 
     fn restore_env(key: &str, value: Option<String>) {

@@ -28,10 +28,21 @@ export default defineConfig({
     // Daemon kill/restart tests run only in the serial `restart` project, so
     // every other shard keeps its daemon alive for the whole run.
     { name: "smoke", grep: /@smoke/, grepInvert: /@quarantine|@restart/, retries: 0 },
+    // @stub is inverted here: a mock-only result must never report as a golden
+    // pass, even if a test carries both tags.
     {
       name: "golden",
       grep: /@golden/,
-      grepInvert: /@quarantine|@restart|@live|@perf/,
+      grepInvert: /@quarantine|@restart|@live|@perf|@stub/,
+      retries: 0,
+      timeout: 300_000,
+    },
+    // Recorded-provider transport (CODETERM_STUB_AGENT_CMD → replay.mjs): real
+    // spawn/detection/parse pipeline, no provider credit.
+    {
+      name: "stub",
+      grep: /@stub/,
+      grepInvert: /@quarantine|@restart|@live/,
       retries: 0,
       timeout: 300_000,
     },

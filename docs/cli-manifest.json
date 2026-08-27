@@ -4589,6 +4589,16 @@
               "default": "20",
               "help": "Max rows per fetch (default 20)",
               "aliases": []
+            },
+            {
+              "name": "since",
+              "positional": false,
+              "required": false,
+              "value_name": "SINCE",
+              "possible_values": [],
+              "default": null,
+              "help": "ISO8601 lower-bound for the initial fetch (rows created at/after this time)",
+              "aliases": []
             }
           ],
           "subcommands": []
@@ -5173,31 +5183,27 @@
         },
         {
           "name": "send",
-          "about": "Send a notification",
+          "about": "Send a notification. The body is read only from the calling tab's AgentPad. Reports when no surface will show it",
           "aliases": [],
           "args": [
             {
               "name": "body",
-              "positional": false,
+              "positional": true,
               "required": false,
               "value_name": "BODY",
               "possible_values": [],
               "default": null,
-              "help": "Notification body",
+              "help": "REFUSED: an inline body is mangled by the shell — stage it in the pad",
               "aliases": []
             },
             {
-              "name": "category",
+              "name": "choice",
               "positional": false,
               "required": false,
-              "value_name": "CATEGORY",
-              "possible_values": [
-                "milestone",
-                "blocker",
-                "failure"
-              ],
+              "value_name": "LABEL",
+              "possible_values": [],
               "default": null,
-              "help": "Opt-in push category. Omit for a local-only notification",
+              "help": "Offer one tappable choice; repeat for each. Labels only — a notification takes a chosen label back, never typed text",
               "aliases": []
             },
             {
@@ -5211,13 +5217,77 @@
               "aliases": []
             },
             {
+              "name": "from-file",
+              "positional": false,
+              "required": false,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": "REFUSED: a file outside the pad has no provenance — stage it in the pad",
+              "aliases": []
+            },
+            {
+              "name": "from-pad",
+              "positional": false,
+              "required": false,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": "Read the notification body from a relative file in the calling tab's pad",
+              "aliases": []
+            },
+            {
+              "name": "from-stdin",
+              "positional": false,
+              "required": false,
+              "value_name": "FROM_STDIN",
+              "possible_values": [],
+              "default": null,
+              "help": "REFUSED: stdin is a shell pipe — stage the body in the pad",
+              "aliases": []
+            },
+            {
               "name": "level",
               "positional": false,
               "required": false,
               "value_name": "LEVEL",
+              "possible_values": [
+                "verbose",
+                "action_needed",
+                "failure"
+              ],
+              "default": null,
+              "help": "What this notification is, on the one level axis. Omit to file it in the bell only",
+              "aliases": []
+            },
+            {
+              "name": "offer",
+              "positional": false,
+              "required": false,
+              "value_name": "SURFACE",
+              "possible_values": [],
+              "default": null,
+              "help": "Offer to turn one notification surface on: `desktop`, or a push channel's service id. The change waits for the tap — an agent may offer to be louder, never make itself louder",
+              "aliases": []
+            },
+            {
+              "name": "offer-accept",
+              "positional": false,
+              "required": false,
+              "value_name": "LABEL",
+              "possible_values": [],
+              "default": null,
+              "help": "Which of this notification's own choices accepts the offer",
+              "aliases": []
+            },
+            {
+              "name": "severity",
+              "positional": false,
+              "required": false,
+              "value_name": "SEVERITY",
               "possible_values": [],
               "default": "info",
-              "help": "Notification level: info, warning, error",
+              "help": "Record identity axis: info, warning, error. Tone comes from --level",
               "aliases": []
             },
             {
@@ -9438,11 +9508,11 @@
                 {
                   "name": "executor-role",
                   "positional": false,
-                  "required": false,
+                  "required": true,
                   "value_name": "EXECUTOR_ROLE",
                   "possible_values": [],
                   "default": null,
-                  "help": "Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync",
+                  "help": "REQUIRED: who executes this task. Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync. Presence is the contract; no vocabulary is enforced",
                   "aliases": []
                 },
                 {
@@ -10621,7 +10691,7 @@
                   "value_name": "EXECUTOR_ROLE",
                   "possible_values": [],
                   "default": null,
-                  "help": "Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync",
+                  "help": "Replace the executor role. Cannot be emptied: an update carrying a blank value is refused",
                   "aliases": []
                 },
                 {
@@ -11465,6 +11535,24 @@
             }
           ],
           "subcommands": []
+        },
+        {
+          "name": "validate",
+          "about": "Validate a plugin directory without installing it: strict manifest parse (the daemon's deny-unknown-fields PluginManifest), a real QuickJS load of the entry script, then a report of which AgentProvider exports plugin.js implements and which fallbacks serve the rest. Exits non-zero on the first failure, naming it",
+          "aliases": [],
+          "args": [
+            {
+              "name": "dir",
+              "positional": true,
+              "required": true,
+              "value_name": "DIR",
+              "possible_values": [],
+              "default": null,
+              "help": "Path to the plugin directory (the folder containing plugin.json)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
         }
       ]
     },
@@ -11552,7 +11640,7 @@
           "value_name": "TAB",
           "possible_values": [],
           "default": null,
-          "help": "Target tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)",
+          "help": "Target tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback). Comma-separated ids address several tabs in one call — the same payload is delivered per tab, every target is reported, and the call exits non-zero if any of them failed. Multi-target does not accept mesh ids: run it on the owning peer, one peer per call",
           "aliases": []
         },
         {
@@ -13194,7 +13282,7 @@
         },
         {
           "name": "stop",
-          "about": "Interrupt the agent's current generation (NOT a clean exit). Sends the provider's declared stop_keystroke — Esc for Claude/Codex/OpenCode, Ctrl+C for Cursor. Plain shells get a 200 with {stopped:false} (no key). Designed for mesh/CLI/bot drivers — type `/stop` in a Telegram bridge and have it map straight here",
+          "about": "Interrupt the agent's current generation (NOT a clean exit). Sends the provider's declared stopKey (Esc for all bundled providers). Plain shells get a 200 with {stopped:false} (no key). Designed for mesh/CLI/bot drivers — type `/stop` in a Telegram bridge and have it map straight here",
           "aliases": [],
           "args": [
             {

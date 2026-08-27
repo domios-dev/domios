@@ -4,10 +4,19 @@ import test from "node:test";
 import {
   assertDevConsoleStopped,
   emitDevConsoleProgress,
+  evaluateHealth,
+  healthMismatchMessage,
   isWebUiDocument,
   nonAdoptableCdpError,
+  parseResidualProbeOutput,
+  powershellExe,
+  recoverUnreadyInstance,
+  residualProbeFailure,
   runProcessStreaming,
+  stopVerificationFailure,
+  testedHeadSha,
   windowsCleanupArgs,
+  type HealthBody,
 } from "./dev-console";
 import { devInstanceForSlot, type DevInstance } from "./dev-instance";
 import { DEV_FIXTURE_TIMEOUT_MS } from "./fixtures";
@@ -132,6 +141,129 @@ test("child output is forwarded before the streaming launch completes", async ()
     socket?.destroy();
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }
+});
+
+function health(target: DevInstance, buildSha: string): HealthBody {
+  return {
+    status: "ok",
+    build_sha: buildSha,
+    instance: {
+      name: target.name,
+      api_port: target.apiPort,
+      vite_port: target.vitePort,
+      cdp_port: target.cdpPort,
+      identifier: target.identifier,
+    },
+  };
+}
+
+const TESTED_SHA = "a".repeat(40);
+const OTHER_SHA = "b".repeat(40);
+
+test("an instance at the tested HEAD is adoptable", () => {
+  const target = instance(7900);
+  assert.deepEqual(evaluateHealth(health(target, TESTED_SHA), target, TESTED_SHA), { ok: true });
+});
+
+test("an instance built at a different HEAD is refused, not silently adopted", () => {
+  const target = instance(7900);
+  const verdict = evaluateHealth(health(target, OTHER_SHA), target, TESTED_SHA);
+  assert.deepEqual(verdict, { ok: false, reason: "build", actual: OTHER_SHA, expected: TESTED_SHA });
+  const message = healthMismatchMessage(target, verdict);
+  assert.ok(message.includes(OTHER_SHA) && message.includes(TESTED_SHA), message);
+});
+
+test("a health payload with no build_sha cannot prove the build", () => {
+  const target = instance(7900);
+  const body = health(target, TESTED_SHA);
+  delete body.build_sha;
+  assert.deepEqual(evaluateHealth(body, target, TESTED_SHA), {
+    ok: false,
+    reason: "build",
+    actual: "absent",
+    expected: TESTED_SHA,
+  });
+});
+
+test("identity still outranks the build comparison", () => {
+  const target = instance(7900);
+  const body = health(target, TESTED_SHA);
+  body.instance = { ...body.instance, identifier: "playwright-someone-else" };
+  assert.deepEqual(evaluateHealth(body, target, TESTED_SHA), { ok: false, reason: "identity" });
+  assert.deepEqual(evaluateHealth({ ...body, status: "error" }, target, TESTED_SHA), {
+    ok: false,
+    reason: "status",
+  });
+});
+
+test("the tested HEAD is a discovered 40-hex commit, never a pinned constant", () => {
+  const sha = testedHeadSha();
+  assert.match(sha, /^[0-9a-f]{40}$/);
+  assert.equal(testedHeadSha(), sha);
+});
+
+test("an unready app is restarted for real, not merely prescribed a restart", async () => {
+  const target = instance(7900);
+  let restarts = 0;
+  await recoverUnreadyInstance(target, "no CDP page carries #root > *", async () => {
+    restarts += 1;
+  });
+  assert.equal(restarts, 1, "exactly one real restart, the count is the oracle");
+});
+
+test("a restart that also fails is loud and carries both reasons", async () => {
+  const target = instance(7900);
+  const reason = "unready-reason-token";
+  const restartError = "restart-failure-token";
+  let restarts = 0;
+  await assert.rejects(
+    () =>
+      recoverUnreadyInstance(target, reason, async () => {
+        restarts += 1;
+        throw new Error(restartError);
+      }),
+    (error: unknown) => {
+      const message = String(error);
+      assert.ok(message.includes(reason), message);
+      assert.ok(message.includes(restartError), message);
+      assert.ok(message.includes(target.name), message);
+      return true;
+    },
+  );
+  assert.equal(restarts, 1, "the failure follows a real restart attempt, not a refusal to try");
+});
+
+test("a residual-process probe that cannot run reports itself, never a leak", () => {
+  const failure = residualProbeFailure(new Error("spawn powershell ENOENT"));
+  assert.match(failure, /^cannot determine residual processes: /);
+  assert.ok(failure.includes("spawn powershell ENOENT"), failure);
+  assert.ok(!/leak/i.test(failure), failure);
+
+  const unparsable = parseResidualProbeOutput("powershell: command not found");
+  assert.equal(unparsable.ok, false);
+  assert.match(unparsable.ok ? "" : unparsable.failure, /^cannot determine residual processes: /);
+  assert.deepEqual(parseResidualProbeOutput('{"selected_processes":[4242]}'), { ok: true, processes: [4242] });
+  assert.deepEqual(parseResidualProbeOutput("{}"), { ok: true, processes: [] });
+});
+
+test("stop verification names what it measured, and what it could not", () => {
+  const target = instance(7900);
+  const leaked = stopVerificationFailure(target, [7900], { ok: true, processes: [4242] });
+  assert.ok(leaked.includes("leaked listeners [7900]"), leaked);
+  assert.ok(leaked.includes("leaked processes [4242]"), leaked);
+
+  const blind = stopVerificationFailure(target, [], { ok: false, failure: residualProbeFailure("ENOENT") });
+  assert.ok(blind.includes("cannot determine residual processes: ENOENT"), blind);
+  assert.ok(!/leaked processes/.test(blind), "a failed probe must not claim a leak it never measured");
+  assert.ok(!/leaked listeners/.test(blind), blind);
+});
+
+test("the residual probe pins PowerShell instead of trusting PATH", () => {
+  const pinned = powershellExe({ SystemRoot: "C:\\Windows" });
+  if (process.platform === "win32") {
+    assert.match(pinned, /System32[\\/]WindowsPowerShell[\\/]v1\.0[\\/]powershell\.exe$/);
+  }
+  assert.equal(powershellExe({}), "powershell");
 });
 
 test("web UI adoption accepts only the application document", () => {

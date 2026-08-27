@@ -276,7 +276,7 @@ export function CommandPalette({ commands }: CommandPaletteProps) {
           <kbd
             style={{
               fontSize: 11,
-              fontFamily: "var(--ct-mono, monospace)",
+              fontFamily: "var(--ct-font-mono)",
               opacity: 0.35,
               padding: "2px 6px",
               borderRadius: 4,
@@ -386,7 +386,7 @@ export function CommandPalette({ commands }: CommandPaletteProps) {
                         <span
                           style={{
                             fontSize: 11,
-                            fontFamily: "var(--ct-mono, monospace)",
+                            fontFamily: "var(--ct-font-mono)",
                             opacity: 0.5,
                             flexShrink: 0,
                           }}

@@ -990,6 +990,7 @@ pub async fn task_respawn(
             &tid,
             &created.attempt.id,
             respawn_spawn_command(&id, &tid, &draft.source_attempt.id),
+            std::time::Duration::ZERO,
         );
     }
     emit_plan_changed(&state, &id);

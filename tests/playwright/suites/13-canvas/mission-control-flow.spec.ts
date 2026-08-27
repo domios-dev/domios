@@ -6,7 +6,7 @@
 import path from "node:path";
 import { expect, test } from "../../helpers/fixtures";
 import {
-  isEmpty,
+  assertPlanSurfaceNotEmpty,
   MISSION_CONTROL_LIVE_SEL,
   MISSION_CONTROL_PLAN_SURFACE_SEL,
   openInlineWorkspaceCanvas,
@@ -28,7 +28,7 @@ async function toCanvasMode(page: Page, workspaceId: string): Promise<void> {
   await expect(page.locator(MISSION_CONTROL_LIVE_SEL)).toBeVisible({ timeout: 15_000 });
 }
 
-test("@golden @mission-control-flow flow river + group milestone + all-plans toggle", async ({ api, webBrowser }) => {
+test("@golden @mission-control-flow flow river + group milestone + measured curves", async ({ api, webBrowser }) => {
   test.setTimeout(180_000);
   const canvas = await seedWorldStateAndOpenInlineCanvas(
     webBrowser,
@@ -37,10 +37,7 @@ test("@golden @mission-control-flow flow river + group milestone + all-plans tog
   );
   try {
     const { page } = canvas;
-    if (await isEmpty(page)) {
-      test.skip(true, "canvas empty — perf fixture did not inject");
-      return;
-    }
+    await assertPlanSurfaceNotEmpty(page);
     await toCanvasMode(page, canvas.workspaceId);
 
     await expect(page.locator(MISSION_CONTROL_PLAN_SURFACE_SEL)).toBeVisible();
@@ -52,7 +49,8 @@ test("@golden @mission-control-flow flow river + group milestone + all-plans tog
     await expect(river.locator('[data-testid="flow-station-milestone"]')).toBeVisible();
     await expect(river.locator('[data-testid="flow-station-done"]')).toBeVisible();
 
-    // Milestone derives from task groups (perf fixture: Layout / Navigation / Isolation).
+    // The tab-tree world has a pending task, so the milestone station is present
+    // (PlanRiver: frontier.count > 0) and names itself either way.
     const milestone = river.locator('[data-testid="flow-station-milestone"]');
     await expect(milestone).toContainText(/Milestone/i);
     // Measured flow curves connect the stations (F2: derived from station rects).
@@ -60,19 +58,11 @@ test("@golden @mission-control-flow flow river + group milestone + all-plans tog
 
     await page.screenshot({ path: path.join(CANVAS_ART_DIR, "mission-control-flow.png"), fullPage: false });
 
-    // All-plans toggle lifts the workspace filter.
-    const ws = page.locator('[data-testid="mc-scope-workspace"]');
-    const all = page.locator('[data-testid="mc-scope-all-plans"]');
-    await expect(ws).toBeVisible();
-    await expect(all).toBeVisible();
-    await expect(ws).toHaveAttribute("data-active", "true");
-    await all.click();
-    await expect(all).toHaveAttribute("data-active", "true");
-    await expect(ws).not.toHaveAttribute("data-active", "true");
-    // Rivers still render after lifting the filter.
-    await expect(page.locator('[data-testid^="plan-river-"]').first()).toBeVisible();
-    await ws.click();
-    await expect(ws).toHaveAttribute("data-active", "true");
+    // NOT COVERED: the workspace/all-plans scope toggle. The control was deleted —
+    // MissionControlPlanSurface.test.tsx now asserts "workspace surface has no
+    // all-plans escape hatch", so there is no escape hatch left to drive. Its
+    // absence is owned by that unit test; re-asserting it here would only restate
+    // a contract this suite cannot observe changing.
   } finally {
     await canvas.close();
   }
@@ -87,10 +77,7 @@ test("@golden @mission-control-flow 60fps pan probe — transform layer, no refl
   );
   try {
     const { page } = canvas;
-    if (await isEmpty(page)) {
-      test.skip(true, "canvas empty — perf fixture did not inject");
-      return;
-    }
+    await assertPlanSurfaceNotEmpty(page);
     await toCanvasMode(page, canvas.workspaceId);
 
     const viewport = page.locator(`${MISSION_CONTROL_LIVE_SEL} .mc-live-viewport`).first();

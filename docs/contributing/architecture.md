@@ -72,7 +72,7 @@ The provider boundary is the project's load-bearing seam: native providers, JS d
 
 ### 1. Core asks capabilities, never identities
 
-Core code branches on a *capability*, never on a provider id or display string. Examples that are correct: `provider.supports_chat_ui()` gates the chat-UI default; `provider.available_models()` feeds spawn-time model validation; `provider.parse_interactive_events(&msg)` (#162) lets each provider surface its own answerable prompts (Claude's AskUserQuestion, etc.) out of the chat stream — core enriches every message through the capability and never knows the tool exists; a future `model_switch_strategy()` picks slash-command vs restart. Examples that are leaks: `if agent_cmd == "codex"`, matching `"OpenCode Zen"` in a generic component. A hardcoded id list means the next provider (or a JS drop-in) silently gets the wrong behavior, and nobody added it to the list. If you need per-provider behavior, add a capability method to the trait and let each provider answer for itself. The matching provider-side parser keys off the *tool name + arg shape* (a structural fingerprint), never display copy — see Detection below.
+Core code branches on a *capability*, never on a provider id or display string. Examples that are correct: `provider.supports_chat_ui()` gates the chat-UI default; `provider.available_models()` feeds spawn-time model validation; `provider.parse_interactive_events(&msg)` (#162) lets each provider surface its own answerable prompts (Claude's AskUserQuestion, etc.) out of the chat stream — core enriches every message through the capability and never knows the tool exists; `provider.hook_event_roster()` declares which hook events a provider posts and which core ingestion route each targets (JS drop-ins declare it as `spawn.hookEventRoster` data; an unknown route fails registration closed at install and is reported via `check_integration`), so hook ingestion attributes agent identity to the route's sole declaring descriptor instead of a hardcoded id; a future `model_switch_strategy()` picks slash-command vs restart. Examples that are leaks: `if agent_cmd == "codex"`, matching `"OpenCode Zen"` in a generic component. A hardcoded id list means the next provider (or a JS drop-in) silently gets the wrong behavior, and nobody added it to the list. If you need per-provider behavior, add a capability method to the trait and let each provider answer for itself. The matching provider-side parser keys off the *tool name + arg shape* (a structural fingerprint), never display copy — see Detection below.
 
 ### 2. Native + JS parity in lockstep
 
@@ -106,4 +106,4 @@ than half of that threshold. Signal kinds, strongest first:
 - layout shapes such as footer lines with multiple segments or prompt-character columns
 - literal copy strings, which are weak signals and never the sole gate
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->

@@ -7,6 +7,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from provider_rows import rows_for_replay  # noqa: E402
 from status_hygiene import scan_frames  # noqa: E402
 
 
@@ -77,6 +78,8 @@ def render_timeline(
             str(meta),
             "--phases",
             str(phases),
+            "--status-bar-rows",
+            str(rows_for_replay(replay_dir, fixture_rows=0)),
         ]
         + ([] if rows is None else ["--rows", str(rows)])
         + ([] if cols is None else ["--cols", str(cols)])

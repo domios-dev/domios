@@ -129,7 +129,7 @@ export function AgentRunLogPopup({ worker, api, onClose }: Props) {
         <div
           ref={scrollRef}
           className="flex-1 overflow-auto px-4 py-3 text-[11px] leading-relaxed text-[var(--ct-fg)] font-mono"
-          style={{ background: "var(--ct-terminal-bg, var(--ct-bg))" }}
+          style={{ background: "var(--ct-bg)" }}
         >
           {error && (
             <div className="text-[var(--ct-red)] mb-2">stream error: {error}</div>

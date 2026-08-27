@@ -11,21 +11,30 @@
 // (read-modify-write race across the 3 independent release workflows). The base
 // is only folded when its version matches the fragments' version — a stale
 // previous-release manifest is discarded, never merged with mismatched URLs.
+//
+// --overlay <dir> applies the fragments this runner just signed LAST. Everything
+// else here was round-tripped through the release assets, where a re-run reads
+// its own replaced asset back through a cache and can resurrect the previous
+// run's signature for artifacts it has since rebuilt (v1.9.6: macOS shipped
+// run-1 signatures over run-2 bytes, so every client refused the update).
 
 const fs = require('node:fs');
 const path = require('node:path');
 
 function parseArgs(argv) {
-  const args = { in: null, out: null, base: null };
+  const args = { in: null, out: null, base: null, overlay: null };
   for (let i = 2; i < argv.length; i++) {
     const flag = argv[i];
     if (flag === '--in') args.in = argv[++i];
     else if (flag === '--out') args.out = argv[++i];
     else if (flag === '--base') args.base = argv[++i];
+    else if (flag === '--overlay') args.overlay = argv[++i];
     else throw new Error(`Unknown argument: ${flag}`);
   }
   if (!args.in || !args.out) {
-    throw new Error('Usage: merge-latest-json.js --in <dir> --out <file> [--base <latest.json>]');
+    throw new Error(
+      'Usage: merge-latest-json.js --in <dir> --out <file> [--base <latest.json>] [--overlay <dir>]',
+    );
   }
   return args;
 }
@@ -36,7 +45,11 @@ function findFragments(root) {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) walk(full);
-      else if (entry.isFile() && entry.name === 'latest.json') out.push(full);
+      // An overlay dir holds the fragments a lane wrote itself, under their own
+      // `updater-<target>.json` names — no subdir-per-fragment ritual needed.
+      else if (entry.isFile() && (entry.name === 'latest.json' || /^updater-.*\.json$/.test(entry.name))) {
+        out.push(full);
+      }
     }
   }
   walk(root);
@@ -82,6 +95,30 @@ function main() {
   for (const file of fragments) {
     const data = JSON.parse(fs.readFileSync(file, 'utf8'));
     if (data.platforms) Object.assign(merged.platforms, data.platforms);
+  }
+
+  if (args.overlay) {
+    if (!fs.existsSync(args.overlay)) {
+      throw new Error(`Overlay directory not found: ${args.overlay}`);
+    }
+    const overlays = findFragments(args.overlay);
+    if (overlays.length === 0) throw new Error(`No fragments found under ${args.overlay}`);
+    for (const file of overlays) {
+      const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+      if (data.version && data.version !== merged.version) {
+        throw new Error(
+          `Overlay ${path.basename(file)} is v${data.version}, fragments are v${merged.version}`,
+        );
+      }
+      for (const [key, entry] of Object.entries(data.platforms ?? {})) {
+        const previous = merged.platforms[key];
+        if (previous && previous.signature !== entry.signature) {
+          console.log(`Overlay replaced a stale ${key} signature (locally signed wins)`);
+        }
+        merged.platforms[key] = entry;
+      }
+      if (data.pub_date) merged.pub_date = data.pub_date;
+    }
   }
 
   if (Object.keys(merged.platforms).length === 0) {

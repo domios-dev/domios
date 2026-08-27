@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import path from "node:path";
 import test from "node:test";
 import { parseIsolatedPlaywrightArgs, playwrightArgs } from "../../../scripts/run-playwright-isolated";
 
@@ -9,7 +8,9 @@ test("isolated runner requires one explicit spec, title, and project", () => {
   const parsed = parseIsolatedPlaywrightArgs(["--file", FILE, "--grep", "real UI", "--project", "smoke"]);
   assert.equal(parsed.grep, "real UI");
   assert.equal(parsed.project, "smoke");
-  assert.ok(parsed.file.endsWith(path.join("01-smoke", "smoke.spec.ts")));
+  // Forward slashes, never a native separator: the value is a regex to Playwright.
+  assert.equal(parsed.file, FILE);
+  assert.ok(!parsed.file.includes("\\"));
   assert.deepEqual(playwrightArgs(parsed).slice(-7), [
     `--project=smoke`,
     parsed.file,
@@ -19,6 +20,18 @@ test("isolated runner requires one explicit spec, title, and project", () => {
     "--global-timeout=600000",
     "--reporter=line",
   ]);
+});
+
+test("the documented pnpm form works: a forwarded leading -- is ignored", () => {
+  const documented = ["--", "--file", FILE, "--grep", "real UI", "--project", "smoke"];
+  assert.deepEqual(parseIsolatedPlaywrightArgs(documented), parseIsolatedPlaywrightArgs(documented.slice(1)));
+});
+
+test("only the leading separator is tolerated; a stray -- is still refused", () => {
+  assert.throws(
+    () => parseIsolatedPlaywrightArgs(["--file", FILE, "--", "--grep", "x", "--project", "smoke"]),
+    /unsupported option/,
+  );
 });
 
 test("isolated runner rejects broad and out-of-tree invocations", () => {

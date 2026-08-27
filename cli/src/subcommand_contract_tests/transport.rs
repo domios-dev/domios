@@ -414,37 +414,27 @@ fn api_map_still_builds_identical_rest_bodies() {
 
     // Body shape is asserted through parsed JSON so key order is not the test.
     let (method, path, body) = cli_command_to_api(&parse(&[
-        "codeterm", "notify", "send", "hello", "--level", "info",
+        "codeterm",
+        "notify",
+        "send",
+        "hello",
+        "--severity",
+        "info",
     ]));
     assert_eq!(method.as_str(), "POST");
     assert_eq!(path.as_str(), "/api/notifications");
     let body: serde_json::Value =
         serde_json::from_str(&body.expect("notify send must carry a body")).unwrap();
     assert_eq!(body["title"], serde_json::json!("hello"));
-    assert_eq!(body["level"], serde_json::json!("info"));
+    assert_eq!(body["severity"], serde_json::json!("info"));
     assert_eq!(body["body"], serde_json::Value::Null);
-    assert_eq!(body["category"], serde_json::Value::Null);
+    assert_eq!(body["level"], serde_json::Value::Null);
     assert_eq!(body["event_key"], serde_json::Value::Null);
     assert_eq!(
         body.as_object().map(|map| map.len()),
         Some(5),
         "notify send body gained or lost a field"
     );
-
-    let (_, _, categorised) = cli_command_to_api(&parse(&[
-        "codeterm",
-        "notify",
-        "send",
-        "hello",
-        "--category",
-        "blocker",
-        "--event-key",
-        "approval-7",
-    ]));
-    let categorised: serde_json::Value =
-        serde_json::from_str(&categorised.expect("notify send must carry a body")).unwrap();
-    assert_eq!(categorised["category"], serde_json::json!("blocker"));
-    assert_eq!(categorised["event_key"], serde_json::json!("approval-7"));
 
     let (method, path, body) = cli_command_to_api(&parse(&[
         "codeterm",
@@ -463,6 +453,35 @@ fn api_map_still_builds_identical_rest_bodies() {
     assert_eq!(body["orchestrator_model"], serde_json::json!("opus"));
     assert_eq!(body["planner_agent"], serde_json::json!("codex"));
     assert!(body.get("planner_model").is_none());
+}
+
+// Round-trip: a level set through the CLI flag must arrive at the sink as the
+// same level. The value is supplied by the test, so this asserts the mechanism
+// rather than a constant baked into the assertion.
+#[test]
+fn notify_level_round_trips_from_the_cli_flag_to_the_request_body() {
+    for supplied in codeterm_types::notification::NotifyLevel::ALL {
+        let (method, path, body) = cli_command_to_api(&parse(&[
+            "codeterm",
+            "notify",
+            "send",
+            "hello",
+            "--level",
+            supplied.as_str(),
+            "--event-key",
+            "approval-7",
+        ]));
+        assert_eq!(method.as_str(), "POST");
+        assert_eq!(path.as_str(), "/api/notifications");
+        let body: serde_json::Value =
+            serde_json::from_str(&body.expect("notify send must carry a body")).unwrap();
+        assert_eq!(
+            body["level"],
+            serde_json::json!(supplied.as_str()),
+            "the level the caller named is the level the sink receives"
+        );
+        assert_eq!(body["event_key"], serde_json::json!("approval-7"));
+    }
 }
 
 #[test]

@@ -137,26 +137,25 @@ the doc is out of date.
 
 ## 4. Public mirror + latest.json verification
 
+**Reachability is not installability.** HTTP 200 on every URL proves only that bytes exist; the
+client verifies the manifest signature against those bytes, so a manifest carrying an earlier
+run's signature 200s everywhere and then fails in every client with
+`The signature verification failed`. The release lanes run this check themselves; run it by hand
+whenever you touch a published manifest or artifact:
+
 ```bash
 .agents/skills/github-release/scripts/release-status.sh "$VER"   # one-shot: assets + manifest coverage + CI state
 
-curl -sIL https://github.com/rollacode/codeterm-releases/releases/latest/download/latest.json \
-  | grep -E '^HTTP' | tail -1     # -> HTTP/2 200
-
-# per-platform URL reachability + version match
-python3 - <<'PY'
-import json, urllib.request
-m = json.load(urllib.request.urlopen(
-    "https://github.com/rollacode/codeterm-releases/releases/latest/download/latest.json"))
-print("version:", m["version"])
-for platform, entry in m["platforms"].items():
-    req = urllib.request.Request(entry["url"], method="HEAD")
-    print(platform, urllib.request.urlopen(req).status, entry["url"])
-PY
+# THE check: every platform signature verified against the bytes actually served.
+# Cache-bust the manifest URL - GitHub serves a replaced asset stale for a few minutes.
+node scripts/verify-updater-manifest.mjs \
+  --manifest "https://github.com/rollacode/codeterm-releases/releases/download/v$VER/latest.json?cb=$(date +%s)"
+# -> "all N platform signature(s) verify against the served bytes"; exit 1 names each bad platform.
 ```
 
-`python3` is not on every builder's PATH (confirm with `which python3` first) — fall back to
-`curl -sIL <url> | grep '^HTTP'` per platform URL if it's missing.
+The key defaults to `src-tauri/tauri.conf.json`'s updater pubkey - the one the shipped app uses,
+so the check cannot pass against a key no client has. `--local <dir>` verifies files on disk
+before publishing; `--platform <key>` narrows to one entry.
 
 ## 5. Rerunning a failed workflow — without retagging
 
@@ -164,6 +163,17 @@ A failed or cancelled run at the **same commit** the tag already points at does 
 tag. Retagging (`git tag -f` + `--force` push) is only for moving the trigger to a **different**
 commit, and is unilaterally allowed only **pre-publish** (no artifacts public yet for that
 version). Once anything has published, cut a new patch version instead of moving the tag.
+
+**A rerun that reaches the build step rebuilds the artifacts, and rebuilt bytes are new bytes.**
+That is what broke v1.9.6: the macOS lane reran, republished `.app.tar.gz`, and the merged
+manifest still carried run 1's signatures, so no macOS client could update. After ANY rerun that
+republished an artifact, verify signatures against the served bytes (section 4) before calling the
+release done.
+
+Each lane merges its own freshly signed fragments with `merge-latest-json.js --overlay <dir>`,
+applied after both the round-tripped fragments and the previous manifest. Never drop that flag:
+without it a lane reads its own just-replaced asset back through GitHub's cache and can resurrect
+the previous run's signature for an artifact it has since rebuilt.
 
 Safe, no-retag options, in order of preference:
 
@@ -188,6 +198,7 @@ yet.
 
 | Symptom | Cause | Fix |
 |---|---|---|
+| Client refuses the update with `The signature verification failed`, while every URL 200s | A lane reran and republished a rebuilt artifact, but the merged manifest kept the previous run's signature for it - signatures sign the artifact bytes, not the manifest | Rebuild the manifest from the per-platform `updater-*.json` fragments of the run that produced the served bytes, upload with `--clobber` to both repos, and confirm with `node scripts/verify-updater-manifest.mjs --manifest <mirror url>?cb=$(date +%s)`. Prevention: every lane merges with `--overlay <its own fragment dir>` and verifies signatures post-publish |
 | PR CI fails during `pnpm install` with `ERR_PNPM_OUTDATED_LOCKFILE` | A workspace manifest changed without regenerating the root lockfile, so CI's implicit frozen-lockfile check rejects it before tests run | Run `pnpm install --no-frozen-lockfile`, commit `pnpm-lock.yaml`, then verify locally with `pnpm install --frozen-lockfile` before rerunning CI |
 | Release frontend preflight fails with TS2722 on `this.buildResumeCommand(...)` inside a provider's context-aware resume method | The shared plugin interface declares the legacy resume capability as optional even when that provider implements both methods in the same object | Assert the provider-local method's presence at the call site, regenerate the provider bundle, and rerun `build.ps1 frontend`; do not weaken the shared optional capability contract. |
 | Linux Rust PR job fails at `fmt` before compilation | A broad Rust rename/refactor was committed without applying both workspace formatters | Run `cargo fmt --manifest-path src-tauri/Cargo.toml` and `cargo fmt --manifest-path cli/Cargo.toml`, commit the mechanical formatting, then require both commands with `-- --check` before rerunning CI |
@@ -373,4 +384,4 @@ The minisign updater key (`~/.tauri/codeterm.key`, empty password; its public ha
 the `github-release` skill lists the exact ids and restore paths. A builder without the minisign
 key produces artifacts the updater can't verify.
 
-<!-- revision: 27 -->
+<!-- revision: 28 -->

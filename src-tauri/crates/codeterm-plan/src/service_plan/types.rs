@@ -38,6 +38,7 @@ pub enum PlanError {
     PauseRequiresReason,
     InProgressRequiresTab,
     BlockedRequiresLabel,
+    ExecutorRoleRequired,
     QaNoteRequired,
     QaSlotUnavailable,
     QaNotRunning,
@@ -181,6 +182,10 @@ impl fmt::Display for PlanError {
             PlanError::BlockedRequiresLabel => write!(
                 f,
                 "blocked is a claim, not a holding state: pass --status-label \"<what unblocks it>\" or open a decision gate"
+            ),
+            PlanError::ExecutorRoleRequired => write!(
+                f,
+                "executor_role names who executes this task and cannot be emptied; pass --executor-role \"<role>\" with a value"
             ),
             PlanError::TaskPauseRequiresReason => write!(
                 f,
@@ -356,6 +361,9 @@ impl PlanError {
             }
             PlanError::BlockedRequiresLabel => {
                 serde_json::json!({ "type": "blocked_requires_label" })
+            }
+            PlanError::ExecutorRoleRequired => {
+                serde_json::json!({ "type": "executor_role_required" })
             }
             PlanError::TaskPauseRequiresReason => {
                 serde_json::json!({ "type": "task_pause_requires_reason" })

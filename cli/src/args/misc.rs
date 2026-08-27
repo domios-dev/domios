@@ -1,4 +1,6 @@
+use clap::builder::TypedValueParser;
 use clap::Subcommand;
+use codeterm_types::notification::NotifyLevel;
 
 #[derive(Subcommand)]
 pub enum WorkspaceAction {
@@ -203,10 +205,10 @@ pub enum TabAction {
         pattern: String,
     },
     /// Interrupt the agent's current generation (NOT a clean exit). Sends the
-    /// provider's declared stop_keystroke — Esc for Claude/Codex/OpenCode,
-    /// Ctrl+C for Cursor. Plain shells get a 200 with {stopped:false} (no key).
-    /// Designed for mesh/CLI/bot drivers — type `/stop` in a Telegram bridge
-    /// and have it map straight here.
+    /// provider's declared stopKey (Esc for all bundled providers). Plain
+    /// shells get a 200 with {stopped:false} (no key). Designed for
+    /// mesh/CLI/bot drivers — type `/stop` in a Telegram bridge and have it
+    /// map straight here.
     Stop {
         /// Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
         #[arg(long = "tab", value_name = "TAB")]
@@ -324,50 +326,65 @@ pub enum PasteAction {
     },
 }
 
-/// The complete set of push-eligible categories. Routine progress has no
-/// variant, so an invented category is a parse error, not a runtime string.
-#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
-pub enum NotifyCategory {
-    /// A material milestone worth interrupting for
-    Milestone,
-    /// Blocked, or waiting on an approval
-    Blocker,
-    /// A terminal failure
-    Failure,
-}
-
-impl NotifyCategory {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Milestone => "milestone",
-            Self::Blocker => "blocker",
-            Self::Failure => "failure",
-        }
-    }
+/// Accepted values come straight from the daemon-shared set, so the CLI cannot
+/// know a level the daemon rejects, and no triple is restated here.
+fn notify_level_parser() -> impl clap::builder::TypedValueParser<Value = NotifyLevel> {
+    clap::builder::PossibleValuesParser::new(NotifyLevel::wire_values()).map(|raw| {
+        NotifyLevel::parse(&raw).expect("possible values are derived from NotifyLevel::ALL")
+    })
 }
 
 #[derive(Subcommand)]
 pub enum NotifyAction {
-    /// Send a notification
+    /// Send a notification. The body is read only from the calling tab's AgentPad. Reports when no surface will show it.
     Send {
         /// Notification title
         title: String,
 
-        /// Notification body
-        #[arg(long)]
+        /// Read the notification body from a relative file in the calling tab's pad
+        #[arg(long, value_name = "PATH", conflicts_with_all = ["body", "from_file", "from_stdin"])]
+        from_pad: Option<String>,
+
+        // The refused sources stay declared so their use is a clap-level conflict with
+        // the always-present title — a parse error cannot be reached past at runtime.
+        /// REFUSED: an inline body is mangled by the shell — stage it in the pad
+        #[arg(hide = true, conflicts_with_all = ["title", "from_pad"])]
         body: Option<String>,
 
-        /// Notification level: info, warning, error
-        #[arg(long, default_value = "info")]
-        level: String,
+        /// REFUSED: a file outside the pad has no provenance — stage it in the pad
+        #[arg(long, value_name = "PATH", hide = true, conflicts_with_all = ["title", "from_pad"])]
+        from_file: Option<String>,
 
-        /// Opt-in push category. Omit for a local-only notification.
-        #[arg(long, value_enum)]
-        category: Option<NotifyCategory>,
+        /// REFUSED: stdin is a shell pipe — stage the body in the pad
+        #[arg(long, hide = true, conflicts_with_all = ["title", "from_pad"])]
+        from_stdin: bool,
+
+        /// Record identity axis: info, warning, error. Tone comes from --level
+        #[arg(long, default_value = "info")]
+        severity: String,
+
+        /// What this notification is, on the one level axis. Omit to file it in the bell only.
+        #[arg(long, value_parser = notify_level_parser())]
+        level: Option<NotifyLevel>,
 
         /// Stable identity for coalescing. Derived from the title when omitted.
         #[arg(long)]
         event_key: Option<String>,
+
+        /// Offer one tappable choice; repeat for each. Labels only — a
+        /// notification takes a chosen label back, never typed text.
+        #[arg(long = "choice", value_name = "LABEL")]
+        choice: Vec<String>,
+
+        /// Offer to turn one notification surface on: `desktop`, or a push
+        /// channel's service id. The change waits for the tap — an agent may
+        /// offer to be louder, never make itself louder.
+        #[arg(long = "offer", value_name = "SURFACE", requires = "offer_accept")]
+        offer: Option<String>,
+
+        /// Which of this notification's own choices accepts the offer.
+        #[arg(long = "offer-accept", value_name = "LABEL", requires = "offer")]
+        offer_accept: Option<String>,
     },
     /// List notifications
     List {

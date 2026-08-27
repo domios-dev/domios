@@ -355,6 +355,10 @@ Pointing macOS `latest.json` at `.dmg` makes `codeterm update install --auto` fa
 
 ```bash
 .agents/skills/github-release/scripts/release-status.sh "$VER"
+
+# Reachability is not installability — verify signatures against the served bytes.
+node scripts/verify-updater-manifest.mjs \
+  --manifest "https://github.com/rollacode/codeterm-releases/releases/download/v$VER/latest.json?cb=$(date +%s)"
 ```
 
 **Manual mirror fallback:** use only when CI produced source assets but the public mirror failed (usually `PACKAGE_REPOS_TOKEN` 403 or a workflow script bug). This is what keeps the release shippable without rebuilding all platforms.
@@ -591,6 +595,7 @@ Force-retag pre-publish is unilaterally allowed per `rule_blackstar_mac_release_
 | `notarytool store-credentials` → HTTP 401 | keychain creds expired OR used `APPLE_PASSWORD` instead of `APPLE_APP_SPECIFIC_PASSWORD` | source the env file, use correct var name |
 | `git push origin master` → non-fast-forward | master diverged (e.g. previous release merged differently) | `git pull origin master --no-rebase --no-edit` then push again |
 | `codeterm update install --auto` → "invalid gzip header" | macOS `latest.json` URL points at raw `.dmg` instead of `.app.tar.gz` | rebuild manifest with `.app.tar.gz` URLs — see Step 7b |
+| `update install` → "The signature verification failed" on one platform while all URLs 200 | a lane reran and republished a **rebuilt** artifact, but the merged manifest kept the earlier run's signature for it (signatures sign artifact bytes, not the manifest) | rebuild `latest.json` from the `updater-*.json` fragments of the run that produced the served bytes, `--clobber` to both repos, then `node scripts/verify-updater-manifest.mjs --manifest "<mirror>/latest.json?cb=$(date +%s)"` must report all platforms OK |
 | tauri-plugin-updater unpack on Windows → "Compression method not supported" | `.nsis.zip` built with 7z default (Deflate64); zip-rs only supports Deflate/Store | regenerate with `7z a -tzip -mm=Copy` (Store compression) |
 | tauri-plugin-updater unpack on macOS → "failed to unpack ._CodeTerm.app" | macOS `tar` includes AppleDouble metadata files (`._*`) by default | `COPYFILE_DISABLE=1 tar -czf ...` |
 | BLACKSTAR build: `UNKNOWN error opening node_modules/sigma/package.json` | Windows filesystem race on freshly added dep | `rm -rf node_modules && pnpm install` on BLACKSTAR |

@@ -8,8 +8,15 @@ from pathlib import Path
 
 PUBLIC_REPOSITORY = "rollacode/codeterm-releases"
 SOURCE_REPOSITORY = "rollacode/codeterm"
-PUBLIC_REFERENCE = re.compile(r"^Public-Issue: rollacode/codeterm-releases#([1-9][0-9]*)$")
-REPOSITORY_REFERENCE = re.compile(r"^Repository-Issue: rollacode/codeterm#([1-9][0-9]*)$")
+# A declaration may close a prose line: commit messages are immutable, so a
+# trailing marker must resolve instead of failing every range that contains it.
+PUBLIC_REFERENCE = re.compile(
+    r"(?:^|(?<=\s))Public-Issue: rollacode/codeterm-releases#([1-9][0-9]*)$"
+)
+REPOSITORY_REFERENCE = re.compile(
+    r"(?:^|(?<=\s))Repository-Issue: rollacode/codeterm#([1-9][0-9]*)$"
+)
+INLINE_CODE_SPAN = re.compile(r"`[^`]*`")
 PUBLIC_REFERENCE_MARKER = re.compile(r"Public-Issue:", re.IGNORECASE)
 REPOSITORY_REFERENCE_MARKER = re.compile(r"Repository-Issue:", re.IGNORECASE)
 REPOSITORY_CLOSE = re.compile(r"^Closes #([1-9][0-9]*)$")
@@ -41,27 +48,34 @@ def parse_metadata(
     seen: set[str] = set()
     errors: list[str] = []
     for line_number, line in enumerate(body.splitlines(), 1):
-        public_match = PUBLIC_REFERENCE.fullmatch(line)
-        repository_match = REPOSITORY_REFERENCE.fullmatch(line)
+        public_match = PUBLIC_REFERENCE.search(line)
+        repository_match = REPOSITORY_REFERENCE.search(line)
         repository_close = REPOSITORY_CLOSE.fullmatch(line) if allow_repository_closes else None
-        if public_match or repository_match or repository_close:
+        declaration = public_match or repository_match or repository_close
+        if declaration:
             repository = PUBLIC_REPOSITORY if public_match else SOURCE_REPOSITORY
-            number = (public_match or repository_match or repository_close).group(1)
-            reference = f"{repository}#{number}"
+            reference = f"{repository}#{declaration.group(1)}"
             if reference in seen:
                 errors.append(f"line {line_number}: duplicate {reference}")
             else:
                 seen.add(reference)
                 target = public_references if public_match else repository_references
                 target.append(reference)
-            continue
-        if PUBLIC_REFERENCE_MARKER.search(line):
+        # Text before a trailing declaration is still prose, held to the same rules.
+        remainder = line[: declaration.start()] if declaration else line
+        # A backticked span quotes the syntax rather than using it. Without this a
+        # commit that documents the contract fails the contract, permanently: a
+        # message on master cannot be edited, so every later release re-reads it.
+        remainder = INLINE_CODE_SPAN.sub(" ", remainder)
+        if PUBLIC_REFERENCE_MARKER.search(remainder):
             errors.append(f"line {line_number}: malformed Public-Issue metadata")
-        elif REPOSITORY_REFERENCE_MARKER.search(line):
+        elif REPOSITORY_REFERENCE_MARKER.search(remainder):
             errors.append(f"line {line_number}: malformed Repository-Issue metadata")
-        elif reject_incidental_references and CLOSING_KEYWORD.search(line):
+        elif reject_incidental_references and CLOSING_KEYWORD.search(remainder):
             errors.append(f"line {line_number}: GitHub closing keywords are forbidden")
-        elif reject_incidental_references and (ISSUE_LIKE.search(line) or PUBLIC_ISSUE_URL.search(line)):
+        elif reject_incidental_references and (
+            ISSUE_LIKE.search(remainder) or PUBLIC_ISSUE_URL.search(remainder)
+        ):
             errors.append(f"line {line_number}: issue references must use issue metadata")
     if errors:
         raise ContractError("\n".join(errors))

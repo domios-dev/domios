@@ -36,9 +36,9 @@ const POLL_MS = 8000;
 const TONE: Record<Tone, string> = {
   default: "var(--ct-fg)",
   muted: "var(--ct-muted)",
-  ok: "var(--ct-ok, #4caf50)",
-  warn: "var(--ct-warn, #e0a030)",
-  danger: "var(--ct-err, #e57373)",
+  ok: "var(--ct-ok)",
+  warn: "var(--ct-warn)",
+  danger: "var(--ct-err)",
   accent: "var(--ct-accent, #5b8cff)",
 };
 

@@ -2,12 +2,12 @@ use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use codeterm_types::agent::chat_types::StructuredChat;
+use codeterm_types::agent::chat_types::{ChatMsg, StructuredChat};
 use parking_lot::RwLock;
 
 use crate::model_catalog::{self, RegisteredDefaults};
 use crate::provider::{
-    BehaviorConfig, ModelInfo, ProviderDescriptor, ProviderTransport, ProviderTrust,
+    BehaviorConfig, ContextOwner, ModelInfo, ProviderDescriptor, ProviderTransport, ProviderTrust,
     SystemPromptDelivery, PROVIDER_DESCRIPTOR_SCHEMA_VERSION,
 };
 
@@ -25,6 +25,28 @@ pub struct ChatSessionInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
 }
+
+/// One user entry plus everything the assistant produced in response to it, in
+/// source order. The window's atomic unit: a tool call and its result are never
+/// individually addressable, so a boundary cannot split the pair.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TurnGroup {
+    pub entries: Vec<ChatMsg>,
+}
+
+/// One host-composed turn. `system` is a sibling field of `groups`, never an
+/// element of it — no slice, filter, or index over the counted collection can
+/// reach the role brief.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct HostTurn {
+    pub system: String,
+    pub groups: Vec<TurnGroup>,
+}
+
+/// Refusal a backend that does not own host context returns from `send_turn`.
+pub const CONTEXT_OWNER_UNSUPPORTED: &str = "this chatBackend does not own host context";
 
 #[derive(Debug)]
 pub enum ChatBackendError {
@@ -76,6 +98,26 @@ pub trait ChatBackendProvider: Send + Sync {
 
     /// Deliver one user turn to the session.
     fn send_message(&self, session_id: &str, text: &str) -> Result<(), ChatBackendError>;
+
+    /// Who composes this backend's context. `Plugin` (default) ⇒ the backend
+    /// owns its own history, which is today's behaviour for every provider.
+    fn context_owner(&self) -> ContextOwner {
+        ContextOwner::Plugin
+    }
+
+    /// Whether this backend actually implements [`send_turn`](Self::send_turn).
+    /// Declaring host ownership without it is refused at session open rather
+    /// than downgraded to `send_message` at send time.
+    fn supports_send_turn(&self) -> bool {
+        false
+    }
+
+    /// Deliver one host-composed turn. Optional — a backend that does not own
+    /// host context refuses, so it can never be silently routed into this path.
+    fn send_turn(&self, session_id: &str, turn: HostTurn) -> Result<(), ChatBackendError> {
+        let _ = (session_id, turn);
+        Err(ChatBackendError::Call(CONTEXT_OWNER_UNSUPPORTED.into()))
+    }
 
     /// Advance in-flight async work, called by the poll loop each tick before
     /// [`poll`](Self::poll) so an async chatBackend progresses on the real daemon.
@@ -168,6 +210,7 @@ pub trait ChatBackendProvider: Send + Sync {
             fresh_context_command: None,
             compact_command: None,
             self_update: None,
+            integration_trust_grant: None,
             supports_stop: false,
             supports_chat_ui: true,
             supports_structured_prompts: false,
@@ -181,6 +224,7 @@ pub trait ChatBackendProvider: Send + Sync {
             } else {
                 SystemPromptDelivery::External
             },
+            context_owner: self.context_owner(),
         }
     }
 }
@@ -324,6 +368,13 @@ impl ChatBackendRegistry {
         if self.entries.write().remove(id).is_some() {
             model_catalog::unregister(id);
         }
+    }
+
+    /// Drop the entry but keep its models. A reload re-registers immediately and
+    /// resolves the new models asynchronously; clearing the catalog first leaves
+    /// a window where the plugin is registered and answers with none.
+    pub fn unregister_for_reload(&self, id: &str) {
+        self.entries.write().remove(id);
     }
 
     pub fn get(&self, id: &str) -> Option<Arc<dyn ChatBackendProvider>> {

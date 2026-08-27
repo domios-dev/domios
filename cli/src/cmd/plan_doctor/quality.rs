@@ -317,8 +317,8 @@ fn inspect_task_quality(path: &Path, plan: &Value, task: &Value, findings: &mut 
             plan_id: plan_id(plan, path),
             path: path.display().to_string(),
             task_id: Some(task_id.clone()),
-            detail: "execution task has no executor_role; orchestrator cannot route agent personality declaratively".into(),
-            fix: "set --executor-role <slug> (e.g. rust-backend-dev, frontend-dev, code-reviewer) on the task".into(),
+            detail: "execution task has no executor_role; orchestrator cannot route agent personality declaratively. A task carries no marker of the contract it was created under, so this check cannot tell a task created before `plan task add` required a role from one created after and still missing it — both look identical here".into(),
+            fix: "set --executor-role <slug> (e.g. rust-backend-dev, frontend-dev, code-reviewer) on the task. Nothing fills this in for you: an invented role is worse than an absent one, because the Orchestrator would route on it".into(),
         });
     }
     inspect_test_author_report(path, plan, task, &task_id, findings);

@@ -385,6 +385,11 @@ pub(super) fn run_task(
         } => {
             let why_text = resolve_text(why, why_file)?;
             let body_text = resolve_text(body, body_file)?;
+            if executor_role.trim().is_empty() {
+                return Err(
+                    "--executor-role names who executes this task and cannot be blank".to_string(),
+                );
+            }
             let role_guidance_text = resolve_text(role_guidance, role_guidance_file)?;
             let intent_text = resolve_text(intent, intent_file)?;
             let qa_plan_text = resolve_text(qa_plan, qa_plan_file)?;
@@ -438,9 +443,7 @@ pub(super) fn run_task(
             if let Some(guidance) = role_guidance_text {
                 params["role_guidance"] = json!(guidance);
             }
-            if let Some(role) = executor_role {
-                params["executor_role"] = json!(role);
-            }
+            params["executor_role"] = json!(executor_role);
             if let Some(name) = personality {
                 params["personality"] = json!(name);
             }

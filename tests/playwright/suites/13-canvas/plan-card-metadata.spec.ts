@@ -7,10 +7,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { expect, test, type Page } from "../../helpers/fixtures";
 import {
+  assertPlanSurfaceNotEmpty,
   CANVAS_ART_DIR,
   CARD_METADATA_PROFILE,
   CARD_METADATA_PROFILE_KEY,
-  isEmpty,
   seedPerfFixtureAndOpenInlineCanvas,
 } from "../../helpers/canvas-inspect";
 import type { ApiClient } from "../../helpers/api-client";
@@ -69,13 +69,11 @@ async function expectWorkingOnChipValue(
 async function openBoardWithFixture(api: ApiClient, webBrowser: import("@playwright/test").Browser) {
   const canvas = await seedPerfFixtureAndOpenInlineCanvas(webBrowser, api as unknown as ApiClient, 1);
   const { page } = canvas;
-  if (await isEmpty(page)) {
-    return { canvas, ready: false as const };
-  }
+  await assertPlanSurfaceNotEmpty(page);
   await activateCardMetadataFixture(page);
   await switchPlanMode(page, "board");
   await expect(page.locator('[data-testid="plan-board-view"]:visible')).toBeVisible({ timeout: 15_000 });
-  return { canvas, ready: true as const, page };
+  return { canvas, page };
 }
 
 async function expectCardsContained(page: Page): Promise<void> {
@@ -108,10 +106,6 @@ test(
     test.setTimeout(TEST_TIMEOUT);
     const opened = await openBoardWithFixture(api as unknown as ApiClient, webBrowser);
     try {
-      if (!opened.ready) {
-        test.skip(true, "canvas empty — card-metadata fixture did not inject");
-        return;
-      }
       const { page } = opened;
       await page.setViewportSize(DESKTOP);
       await expect(page.locator('[data-testid="plan-board-task-card"]').first()).toBeVisible();
@@ -138,10 +132,6 @@ test(
     test.setTimeout(TEST_TIMEOUT);
     const opened = await openBoardWithFixture(api as unknown as ApiClient, webBrowser);
     try {
-      if (!opened.ready) {
-        test.skip(true, "canvas empty — card-metadata fixture did not inject");
-        return;
-      }
       const { page } = opened;
       await page.setViewportSize(PHONE);
       await expect(page.locator('[data-testid="plan-board-task-card"]').first()).toBeVisible();
@@ -164,10 +154,6 @@ test(
     test.setTimeout(TEST_TIMEOUT);
     const opened = await openBoardWithFixture(api as unknown as ApiClient, webBrowser);
     try {
-      if (!opened.ready) {
-        test.skip(true, "canvas empty — card-metadata fixture did not inject");
-        return;
-      }
       const { page } = opened;
       await page.setViewportSize(DESKTOP);
 
@@ -213,10 +199,6 @@ for (const viewport of [DESKTOP, PHONE]) {
     async ({ api, webBrowser }) => {
       const opened = await openBoardWithFixture(api as unknown as ApiClient, webBrowser);
       try {
-        if (!opened.ready) {
-          test.skip(true, "canvas empty — card-metadata fixture did not inject");
-          return;
-        }
         const { page } = opened;
         await page.setViewportSize(viewport);
         await expectCardsContained(page);

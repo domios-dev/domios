@@ -4,6 +4,7 @@ import { ComposerActions } from "./ComposerActions";
 import { isDuplicateSend } from "./chatSendGuard";
 import { invoke, listen } from "../../lib/bridge";
 import { quotePathForPaste } from "../../lib/clipboardPaste";
+import { formatModelSwitch } from "../../lib/modelSwitch";
 import { usePersistentDraft } from "../../lib/usePersistentDraft";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
@@ -24,6 +25,13 @@ import type { ModelInfo, PendingPrompt } from "../../lib/types";
 import { ModelSuggestionPicker } from "./ModelSuggestionPicker";
 import { TabTaskStrip } from "./TabTaskStrip";
 import { COMPOSER_MIN_HEIGHT, applyComposerAutosize } from "./composerAutosize";
+import {
+  beginComposition,
+  compositionDefersAutosize,
+  createCompositionGate,
+  endComposition,
+  isImeKeyEvent,
+} from "./composerComposition";
 import { sendTrackedChatMessage, type ChatSendStatus } from "./chatSendStatus";
 
 const AUDIO_ATTACHMENT_RE = /\.(webm|ogg|oga|opus|mp3|wav|m4a|aac|mp4|flac)$/i;
@@ -57,12 +65,6 @@ function cliFallbackCommandPayload(text: string): string | null {
   const trimmed = text.trim();
   if (!CLI_FALLBACK_COMMANDS.has(trimmed)) return null;
   return `${trimmed}\r`;
-}
-
-function formatModelSwitch(format: string, modelId: string): string {
-  return format.includes("{model}")
-    ? format.replaceAll("{model}", modelId)
-    : `${format} ${modelId}`;
 }
 
 function AttachmentChip({ path, onRemove }: { path: string; onRemove: () => void }) {
@@ -315,6 +317,7 @@ function ChatComposerImpl({
     [providerDescriptor],
   );
   const touchMode = useTouchOptimizedUi();
+  const compositionGate = useRef(createCompositionGate()).current;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
   const lastSendRef = useRef<{ text: string; at: number }>({ text: "", at: 0 });
@@ -377,9 +380,10 @@ function ChatComposerImpl({
   useLayoutEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
+    if (compositionDefersAutosize(compositionGate)) return;
     applyComposerAutosize(el, shellRef.current);
     recordComposerPaint();
-  }, [input]);
+  }, [input, compositionGate]);
 
   useEffect(() => {
     if (modelSuggestionDismissedFor && modelSuggestionDismissedFor !== firstLine) {
@@ -844,7 +848,7 @@ function ChatComposerImpl({
             }}
             onKeyDown={(e) => {
               recordComposerIgnoredKey(e.key);
-              if (e.nativeEvent.isComposing) return;
+              if (isImeKeyEvent(compositionGate, e.nativeEvent.isComposing, e.nativeEvent.keyCode)) return;
               if (touchMode && e.key === "Enter" && !e.shiftKey) {
                 setPickerOpen(false);
                 setModelPickerOpen(false);
@@ -935,9 +939,15 @@ function ChatComposerImpl({
               }
             }}
             onCompositionStart={() => {
+              beginComposition(compositionGate);
               if (typeof window !== "undefined") window.__composerPerf?.compositionEvents.push("start");
             }}
-            onCompositionEnd={() => {
+            onCompositionEnd={(e) => {
+              endComposition(compositionGate);
+              // Commit the finished draft once and run the autosize the gate
+              // deferred; both are no-ops when state already mirrors the DOM.
+              setInput(e.currentTarget.value);
+              applyComposerAutosize(e.currentTarget, shellRef.current);
               if (typeof window !== "undefined") window.__composerPerf?.compositionEvents.push("end");
             }}
             onPaste={(e) => void handlePasteEvent(e.nativeEvent)}

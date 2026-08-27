@@ -2,6 +2,7 @@ pub mod agent;
 pub mod config;
 pub mod mesh;
 pub mod message_markers;
+pub mod notification;
 pub mod plan;
 pub mod pty;
 pub mod startup_records;

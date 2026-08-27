@@ -115,6 +115,14 @@ export interface InstanceLifecycle {
   assertStopped: (instance: DevInstance) => Promise<void>;
 }
 
+// An AggregateError prints only its summary, so every sub-error is inlined.
+export function teardownFailureMessage(failures: unknown[]): string {
+  const described = failures.map(
+    (failure, index) => `  ${index + 1}. ${failure instanceof Error ? failure.message : String(failure)}`,
+  );
+  return [`Playwright instance teardown failed (${failures.length}):`, ...described].join("\n");
+}
+
 // Reverse start order; a per-instance kill/assert failure never aborts the
 // sweep — every instance is torn down and failures surface together.
 export async function teardownInstances(
@@ -135,7 +143,7 @@ export async function teardownInstances(
     }
   }
   if (failures.length > 0) {
-    throw new AggregateError(failures, "Playwright instance teardown leaked processes");
+    throw new AggregateError(failures, teardownFailureMessage(failures));
   }
 }
 

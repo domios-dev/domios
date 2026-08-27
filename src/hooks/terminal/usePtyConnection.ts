@@ -20,6 +20,10 @@ import {
   completeInitialTerminalHistory,
   type TerminalHistoryClaim,
 } from "./terminalHistoryReplay";
+import {
+  replayScrollbackBeforeLiveAttach,
+  shouldReplayScrollbackSidecar,
+} from "./scrollbackReplay";
 
 async function fetchTabHistory(tabId: string): Promise<string> {
   try {
@@ -254,6 +258,29 @@ export function usePtyConnection({
             completeInitialTerminalHistory(claim);
             historyClaim = null;
           }
+        }
+      } else if (shouldReplayScrollbackSidecar(ptyId, IS_WEB, isRemote)) {
+        // Daemon-restart restore: the sidecar tail must settle into the display
+        // buffer before the live transport below starts.
+        const claim = claimInitialTerminalHistory(tabId, term);
+        if (claim) {
+          historyClaim = claim;
+          historySettled = false;
+          const outcome = await replayScrollbackBeforeLiveAttach({
+            loadTail: async () => {
+              const tail = await invoke<number[] | null>("load_scrollback_tail", { tabId });
+              return tail && tail.length > 0 ? new Uint8Array(tail) : null;
+            },
+            isDisposed: () => disposed,
+            replay: (tail, onComplete, onCancel) =>
+              replayHistory(term, tail, { followOutput: true, line: 0 }, onComplete, onCancel),
+          });
+          if (outcome === "cancelled") abandonInitialTerminalHistory(claim);
+          else completeInitialTerminalHistory(claim);
+          historyClaim = null;
+          historySettled = true;
+          reportConnectionReady();
+          if (disposed) return;
         }
       }
 

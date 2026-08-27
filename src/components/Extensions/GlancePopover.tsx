@@ -138,7 +138,7 @@ export function GlancePopover({
         </button>
       </div>
       {error ? (
-        <div style={{ fontSize: 12, color: "var(--ct-err, #e57373)" }}>{error}</div>
+        <div style={{ fontSize: 12, color: "var(--ct-err)" }}>{error}</div>
       ) : view ? (
         <GlanceBody view={view} onAction={onAction} />
       ) : (

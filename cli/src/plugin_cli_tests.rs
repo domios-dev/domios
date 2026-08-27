@@ -88,4 +88,10 @@ fn plugin_subcommands_parse() {
             command: PluginChannelAction::Remove { name, force: true }
         } if name == "codeterm-core"
     ));
+
+    // `validate` must resolve as the built-in verb, not the `<id> <verb>` passthrough.
+    assert!(matches!(
+        parse_plugin(&["validate", "./provider-demo"]),
+        PluginAction::Validate { dir } if dir == "./provider-demo"
+    ));
 }

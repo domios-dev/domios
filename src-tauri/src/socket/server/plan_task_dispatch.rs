@@ -42,6 +42,9 @@ fn dispatch_reasoning_effort(p: Option<&Value>) -> (Option<String>, Option<Strin
 }
 
 const DISPATCH_READY_TIMEOUT: Duration = Duration::from_secs(60);
+/// A queued `lane.setup_command` runs before the agent boots, so the ready
+/// deadline must leave room for it. Failure bound only, never a readiness signal.
+const LANE_SETUP_READY_ALLOWANCE: Duration = Duration::from_secs(540);
 
 fn dispatch_failed(stage: &str, message: String) -> JsonRpcError {
     JsonRpcError {
@@ -106,6 +109,8 @@ fn lane_metadata_for_dispatch(
         lane.branch = None;
         lane.base = None;
         lane.cleanup_status = None;
+        lane.bootstrap_links = Vec::new();
+        lane.bootstrap_warnings = Vec::new();
         return lane;
     }
     lane.worktree_path = Some(provenance.worktree_path.clone());
@@ -293,6 +298,7 @@ pub(super) fn arm_worker_ack_deadline(
     task_id: &str,
     attempt_id: &str,
     spawn_command: String,
+    startup_allowance: Duration,
 ) {
     svc.arm_worker_ack_deadline(
         parent_tab_id,
@@ -302,6 +308,7 @@ pub(super) fn arm_worker_ack_deadline(
         task_id,
         attempt_id,
         spawn_command,
+        startup_allowance,
     );
 }
 
@@ -342,8 +349,21 @@ pub(super) struct DispatchStartup {
 }
 
 impl DispatchStartup {
+    fn lane_setup_allowance(&self) -> Duration {
+        let setup_command_queued = self
+            .provisioned_lane
+            .as_ref()
+            .is_some_and(|lane| lane.bootstrap.setup_command.is_some());
+        if setup_command_queued {
+            LANE_SETUP_READY_ALLOWANCE
+        } else {
+            Duration::ZERO
+        }
+    }
+
     pub(super) fn run(self, ready_rx: tokio::sync::oneshot::Receiver<Result<(), String>>) {
-        let deadline = Instant::now() + DISPATCH_READY_TIMEOUT;
+        let startup_allowance = self.lane_setup_allowance();
+        let deadline = Instant::now() + DISPATCH_READY_TIMEOUT + startup_allowance;
         let provisioned_lane = self.provisioned_lane;
         let outcome = complete_dispatch_transaction(
             deadline,
@@ -379,6 +399,8 @@ impl DispatchStartup {
                             metadata.branch = None;
                             metadata.base = None;
                             metadata.cleanup_status = None;
+                            metadata.bootstrap_links = Vec::new();
+                            metadata.bootstrap_warnings = Vec::new();
                             metadata
                         }),
                 );
@@ -426,6 +448,7 @@ impl DispatchStartup {
                     &self.task_id,
                     &self.attempt_id,
                     self.spawn_command.clone(),
+                    startup_allowance,
                 );
                 emit_plan_changed(&self.app, &self.plan_id);
                 publish_startup_report(
@@ -898,6 +921,14 @@ pub(super) fn dispatch(
         lane_for_commit.workspace_id.get_or_insert(workspace_id);
         lane_for_commit.workspace_name.get_or_insert(workspace_name);
     }
+    // A freshly provisioned lane owns the bootstrap record; stale entries from
+    // a prior attempt must not survive into this dispatch's record.
+    if let Some(lane) = provisioned_lane.as_ref() {
+        lane_for_commit.bootstrap_links = lane.bootstrap.links.clone();
+        lane_for_commit.bootstrap_warnings = lane.bootstrap.warnings.clone();
+    }
+    let bootstrap_links = lane_for_commit.bootstrap_links.clone();
+    let bootstrap_warnings = lane_for_commit.bootstrap_warnings.clone();
     let starting_lane = initial_provenance
         .as_ref()
         .map(|provenance| lane_metadata_for_dispatch(&lane_for_commit, provenance))
@@ -907,6 +938,8 @@ pub(super) fn dispatch(
             lane.branch = None;
             lane.base = None;
             lane.cleanup_status = None;
+            lane.bootstrap_links = Vec::new();
+            lane.bootstrap_warnings = Vec::new();
             lane
         });
     // Team identity rides the same committed value as the isolated lane, so no
@@ -1047,6 +1080,12 @@ pub(super) fn dispatch(
             "workspace_id": detail.task.lane.workspace_id,
             "workspace_name": detail.task.lane.workspace_name,
         });
+        if !bootstrap_links.is_empty() {
+            result["lane"]["bootstrap_links"] = json!(bootstrap_links);
+        }
+        if !bootstrap_warnings.is_empty() {
+            result["lane"]["bootstrap_warnings"] = json!(bootstrap_warnings);
+        }
     }
     apply_dispatch_starting_contract(&mut result, &tab_id, &spawn);
     apply_safety_nudges(&mut result, &nudges);

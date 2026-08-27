@@ -30,6 +30,29 @@ pub struct OutboundMessage {
     pub append: bool,
     /// Optional inline keyboard buttons.
     pub buttons: Option<InlineKeyboard>,
+    /// Rewrite one already-sent message instead of sending a new one.
+    pub edit: Option<OutboundEdit>,
+    /// Report back where this message landed, so its sender can address it
+    /// again later. Absent means the sender never needs to find it.
+    pub receipt: Option<PlacementReceipt>,
+}
+
+/// Which already-sent message to rewrite. A rewrite always restates the
+/// keyboard: an omitted `reply_markup` means "keep what is there", so leaving
+/// it out would leave live buttons under rewritten text.
+#[derive(Debug, Clone)]
+pub struct OutboundEdit {
+    pub message_id: i64,
+}
+
+/// What the sender attached to a send so it recognises the placement report.
+/// Both fields are opaque here: the bridge echoes them and reads neither.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlacementReceipt {
+    /// The channel the sender believes it enqueued to.
+    pub service: String,
+    /// Whatever the sender needs to know which of its records this was.
+    pub tag: String,
 }
 
 pub type OutboundSender = Arc<Mutex<Option<tokio::sync::mpsc::UnboundedSender<OutboundMessage>>>>;
@@ -42,11 +65,14 @@ pub fn create_outbound_channel() -> (
     (Arc::new(Mutex::new(Some(tx))), rx)
 }
 
+/// Gate the send path on the service roster. A service nobody registered is
+/// unknown; a registered service with no transport in this build says exactly
+/// that, so the caller is never told a real channel does not exist.
 pub fn ensure_supported_service(service: &str) -> Result<(), &'static str> {
-    if service == "telegram" {
-        Ok(())
-    } else {
-        Err("service unsupported")
+    match crate::services::find(service) {
+        Some(descriptor) if descriptor.outbound => Ok(()),
+        Some(_) => Err("service has no outbound transport in this build"),
+        None => Err("service unsupported"),
     }
 }
 
@@ -117,6 +143,14 @@ impl BridgeManager {
                     return;
                 }
                 Some(msg) = rx.recv() => {
+                    // A tapped button may be answering a question the daemon
+                    // asked. It is offered whole and unmerged: an answer is one
+                    // event, and debouncing it into neighbouring text would
+                    // paste the token into a tab instead of answering with it.
+                    if msg.callback_data.as_deref().is_some_and(|data| tab.claim_channel_answer(data)) {
+                        log::info!("[bridge] inbound tap answered a notification");
+                        continue;
+                    }
                     // Debounce: collect rapid-fire messages (user splitting text, Telegram auto-split)
                     let mut messages = vec![msg];
                     let debounce_until = tokio::time::Instant::now() + std::time::Duration::from_millis(300);
@@ -154,6 +188,7 @@ impl BridgeManager {
                         text: merged_text,
                         attachments: merged_attachments,
                         message_id: first.message_id,
+                        callback_data: first.callback_data.clone(),
                         reply_ctx: first.reply_ctx.clone(),
                     };
 
@@ -178,9 +213,26 @@ impl BridgeManager {
 
                     match out_msg.content {
                         OutboundContent::Text { ref text } => {
+                            // A rewrite addresses one already-sent message, so
+                            // it never touches the last-message state the
+                            // append path keeps.
+                            if let Some(edit) = out_msg.edit.as_ref() {
+                                log::info!("[bridge-outbound] rewriting message {} in {}", edit.message_id, chat_id);
+                                rewrite_message(
+                                    &client,
+                                    &api_base,
+                                    &token,
+                                    chat_id,
+                                    edit.message_id,
+                                    text,
+                                    out_msg.buttons.as_ref(),
+                                )
+                                .await;
+                                continue;
+                            }
                             log::info!("[bridge-outbound] {} {} chars to {}",
                                 if out_msg.append { "appending" } else { "sending" }, text.len(), chat_id);
-                            route_text_outbound(
+                            let placed = route_text_outbound(
                                 &client,
                                 &api_base,
                                 &token,
@@ -191,6 +243,12 @@ impl BridgeManager {
                                 &mut chat_states,
                             )
                             .await;
+                            if let (Some(receipt), Some(message_id)) = (out_msg.receipt.as_ref(), placed) {
+                                tab.record_channel_placement(
+                                    receipt,
+                                    &super::telegram::locator(chat_id, message_id),
+                                );
+                            }
                         }
                         ref media_content => {
                             log::info!("[bridge-outbound] sending media {:?} to {}", std::mem::discriminant(media_content), chat_id);
@@ -221,7 +279,7 @@ async fn route_text_outbound(
     append: bool,
     buttons: Option<&InlineKeyboard>,
     chat_states: &mut HashMap<i64, ChatState>,
-) {
+) -> Option<i64> {
     // Build final text — append to previous or replace.
     let final_text = if append {
         if let Some(state) = chat_states.get(&chat_id) {
@@ -244,13 +302,14 @@ async fn route_text_outbound(
             .map(|s| s.sent_at.elapsed().as_secs() < AUTO_EDIT_WINDOW_SECS)
             .unwrap_or(false);
 
-    let sanitized = super::sanitize::sanitize_html_for_telegram(&final_text);
+    let sanitized = super::markdown::markdown_to_sanitized_html(&final_text);
 
     if can_edit && sanitized.len() <= super::telegram::TELEGRAM_MAX_LEN {
         let msg_id = chat_states[&chat_id].message_id;
-        let edited = edit_message(client, api_base, token, chat_id, msg_id, &sanitized).await;
+        let edited = edit_message(client, api_base, token, chat_id, msg_id, &sanitized, None).await;
         if !edited {
-            if let Some(new_id) = send_message(client, api_base, token, chat_id, &sanitized).await {
+            let resent = send_message(client, api_base, token, chat_id, &sanitized).await;
+            if let Some(new_id) = resent {
                 chat_states.insert(
                     chat_id,
                     ChatState {
@@ -260,10 +319,13 @@ async fn route_text_outbound(
                     },
                 );
             }
-        } else if let Some(state) = chat_states.get_mut(&chat_id) {
+            return resent;
+        }
+        if let Some(state) = chat_states.get_mut(&chat_id) {
             state.sent_at = Instant::now();
             state.text = final_text;
         }
+        Some(msg_id)
     } else {
         let chunks: Vec<String> =
             super::response::chunk_message(&sanitized, super::telegram::TELEGRAM_MAX_LEN);
@@ -284,7 +346,36 @@ async fn route_text_outbound(
                 },
             );
         }
+        last_id
     }
+}
+
+/// Rewrite one already-sent message, always restating its keyboard. An omitted
+/// `reply_markup` leaves the existing buttons in place, so no options is an
+/// empty keyboard here and never an absent field.
+async fn rewrite_message(
+    client: &reqwest::Client,
+    base: &str,
+    token: &str,
+    chat_id: i64,
+    message_id: i64,
+    text: &str,
+    buttons: Option<&InlineKeyboard>,
+) -> bool {
+    let sanitized = super::markdown::markdown_to_sanitized_html(text);
+    let markup = serde_json::json!({
+        "inline_keyboard": buttons.cloned().unwrap_or_default(),
+    });
+    edit_message(
+        client,
+        base,
+        token,
+        chat_id,
+        message_id,
+        &sanitized,
+        Some(&markup),
+    )
+    .await
 }
 
 fn tg_url(base: &str, token: &str, method: &str) -> String {
@@ -366,6 +457,7 @@ async fn send_message_with_buttons(
         .and_then(|v| v.as_i64())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn edit_message(
     client: &reqwest::Client,
     base: &str,
@@ -373,16 +465,21 @@ async fn edit_message(
     chat_id: i64,
     message_id: i64,
     text: &str,
+    markup: Option<&serde_json::Value>,
 ) -> bool {
+    let mut payload = serde_json::json!({
+        "chat_id": chat_id,
+        "message_id": message_id,
+        "text": text,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": true,
+    });
+    if let Some(markup) = markup {
+        payload["reply_markup"] = markup.clone();
+    }
     let resp = client
         .post(tg_url(base, token, "editMessageText"))
-        .json(&serde_json::json!({
-            "chat_id": chat_id,
-            "message_id": message_id,
-            "text": text,
-            "parse_mode": "HTML",
-            "disable_web_page_preview": true,
-        }))
+        .json(&payload)
         .timeout(std::time::Duration::from_secs(10))
         .send()
         .await;
@@ -401,14 +498,20 @@ async fn edit_message(
                 return true;
             }
             if desc.contains("parse") {
+                // The retry restates the markup too: dropping it here would
+                // leave the buttons a rewrite exists to remove.
+                let mut plain = serde_json::json!({
+                    "chat_id": chat_id,
+                    "message_id": message_id,
+                    "text": text,
+                    "disable_web_page_preview": true,
+                });
+                if let Some(markup) = markup {
+                    plain["reply_markup"] = markup.clone();
+                }
                 let resp2 = client
                     .post(tg_url(base, token, "editMessageText"))
-                    .json(&serde_json::json!({
-                        "chat_id": chat_id,
-                        "message_id": message_id,
-                        "text": text,
-                        "disable_web_page_preview": true,
-                    }))
+                    .json(&plain)
                     .timeout(std::time::Duration::from_secs(10))
                     .send()
                     .await;
@@ -457,7 +560,7 @@ async fn send_media(
         OutboundContent::Sticker { file } => ("sendSticker", file.as_str(), None, None),
         OutboundContent::Text { .. } => return Err("send_media called with Text content".into()),
     };
-    let sanitized_caption = raw_caption.map(super::sanitize::sanitize_html_for_telegram);
+    let sanitized_caption = raw_caption.map(super::markdown::markdown_to_sanitized_html);
     let caption = sanitized_caption.as_deref();
 
     let file_bytes = tokio::fs::read(file_path)
@@ -669,6 +772,8 @@ async fn apply_hook(
                     content: OutboundContent::Text { text: reply.text },
                     append: false,
                     buttons: None,
+                    edit: None,
+                    receipt: None,
                 };
                 if let Some(ref tx) = *outbound.lock() {
                     if let Err(e) = tx.send(out) {

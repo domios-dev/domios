@@ -165,6 +165,7 @@ async function drivePan(page: Page, durationMs: number): Promise<void> {
   while (Date.now() < end) {
     const dir = Math.floor(i / 8) % 2 === 0 ? 1 : -1;
     await page.mouse.wheel(90 * dir, 36 * dir);
+    // PW_JUSTIFIED_SLEEP: stimulus — input pacing IS the pan gesture being measured.
     await page.waitForTimeout(16);
     i++;
   }
@@ -189,6 +190,7 @@ async function driveZoom(page: Page, durationMs: number): Promise<void> {
         clientY: r.top + r.height / 2,
       }));
     }, deltaY);
+    // PW_JUSTIFIED_SLEEP: stimulus — input pacing IS the zoom gesture being measured.
     await page.waitForTimeout(16);
     i++;
   }
@@ -204,7 +206,8 @@ export async function measureCanvasBaseline(page: Page, fixtureNodes: number): P
   await waitForCanvasSettled(page);
 
   await startSampler(page);
-  await page.waitForTimeout(1200); // fixed idle-measurement window, not a wait
+  // PW_JUSTIFIED_SLEEP: probe — the window IS the idle measurement, not a wait.
+  await page.waitForTimeout(1200);
   const idle = await stopSampler(page);
 
   await startSampler(page);

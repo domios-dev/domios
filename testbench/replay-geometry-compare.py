@@ -4,9 +4,12 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from provider_rows import rows_for_replay  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 GEOMETRIES = [(32, 120), (30, 100), (40, 160), (50, 120)]
@@ -31,6 +34,8 @@ def run_render(replay_dir: Path, rows: int, cols: int, sample_ms: int) -> dict:
                 str(rows),
                 "--cols",
                 str(cols),
+                "--status-bar-rows",
+                str(rows_for_replay(replay_dir, fixture_rows=0)),
             ],
             cwd=ROOT,
             check=True,

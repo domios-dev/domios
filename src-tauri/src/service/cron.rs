@@ -161,8 +161,6 @@ impl ServiceContext {
     }
 
     pub fn cron_trigger(&self, cron: &CronState, id: &str) -> Result<CronRunInfo, String> {
-        use crate::service::spawn::{AgentSpawnSpec, SpawnTabSpec, TabCommand, TabVisibility};
-
         let (
             agent,
             model,
@@ -242,32 +240,24 @@ impl ServiceContext {
             (!resolved.is_empty()).then_some(resolved)
         });
 
-        let spec = SpawnTabSpec {
-            workspace_id: if workspace_id.is_empty() {
-                None
-            } else {
-                Some(workspace_id)
-            },
-            parent_tab_id: None,
-            team_id,
-            creator_tab_id,
-            cwd,
-            title: Some(format!("cron:{}", job_name)),
-            description: None,
-            visibility: TabVisibility::Hidden,
-            audience: crate::multiplexer::types::TabAudience::Automation,
-            eager: false,
-            command: TabCommand::Agent(AgentSpawnSpec {
-                provider: agent,
-                planned_model: None,
+        // Same builder as the scheduler's automatic fire: one routing decision, so a
+        // triggered run and a scheduled run cannot disagree about the runtime.
+        let spec = crate::cron::spawn_spec::build_cron_spawn_spec(
+            self.chatbackend_registry.as_ref(),
+            crate::cron::spawn_spec::CronSpawnInputs {
+                job_id: id.to_string(),
+                job_name,
+                agent,
                 model,
-                task: Some(task_text),
+                task_text,
                 role,
+                cwd,
+                workspace_id: (!workspace_id.is_empty()).then_some(workspace_id),
+                team_id,
+                creator_tab_id,
                 report_target_tab_id,
-                spawned_by: Some(format!("cron:{}", id)),
-                ..Default::default()
-            }),
-        };
+            },
+        );
 
         match self.spawn_tab(spec) {
             Ok(handle) => {

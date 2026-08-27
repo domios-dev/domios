@@ -26,6 +26,9 @@
 
 .ct-agent-row--chat {
   padding: 4px 0 8px;
+  /* The Stop button is 2px taller than the status text, so the row grew by that
+     much the moment it appeared. Reserve the taller height in every state. */
+  min-height: calc(22px + 12px);
 }
 
 /* Steady block caret — kept only beside the question title. */
@@ -202,9 +205,9 @@
 }
 .ct-agent-stop:hover,
 .ct-agent-stop:focus-visible {
-  color: var(--ct-err, var(--ct-red, #f85149));
-  border-color: color-mix(in srgb, var(--ct-err, #f85149) 45%, transparent);
-  background: color-mix(in srgb, var(--ct-err, #f85149) 12%, transparent);
+  color: var(--ct-err);
+  border-color: color-mix(in srgb, var(--ct-err) 45%, transparent);
+  background: color-mix(in srgb, var(--ct-err) 12%, transparent);
   outline: none;
 }
 
@@ -229,9 +232,9 @@
 }
 .ct-agent-cancel:hover,
 .ct-agent-cancel:focus-visible {
-  color: var(--ct-err, var(--ct-red, #f85149));
-  border-color: color-mix(in srgb, var(--ct-err, #f85149) 45%, transparent);
-  background: color-mix(in srgb, var(--ct-err, #f85149) 10%, transparent);
+  color: var(--ct-err);
+  border-color: color-mix(in srgb, var(--ct-err) 45%, transparent);
+  background: color-mix(in srgb, var(--ct-err) 10%, transparent);
   outline: none;
 }
 

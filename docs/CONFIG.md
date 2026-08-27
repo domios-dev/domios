@@ -28,15 +28,9 @@ cursor_blink = true
 scrollback = 10000
 copy_on_select = false
 
-[notifications]
-desktop = true
-sound = false
-toast_duration = 5  # seconds
+# [notifications] — levels, surfaces, sound, push channels.
+# Its own reference, it outgrew this file: codeterm docs NOTIFICATIONS
 
-[notifications.telegram]
-enabled = false        # opt-in push; off on a fresh install
-recipients = []        # explicit audience (chat ids) — NOT telegram_allowed_users
-per_scope_limit = 12   # lifetime push ceiling per originating tab (a count, not a rate)
 
 [orchestration]
 plan_reminders = true
@@ -181,8 +175,20 @@ When enabled, CodeTerm starts with a single "General" workspace instead of the d
 
 Settings UI: Settings > Agents > General Agent section (enable, auto-restart toggles).
 
+## Per-repo lane bootstrap
+
+A repository can declare lane bootstrap in `<repo>/.codeterm/config.toml` (repo-level, separate from `~/.codeterm/config.toml`). Exactly two keys:
+
+```toml
+[lane]
+shared_directories = ["node_modules"]  # gitignored dirs linked from the primary checkout
+setup_command = "npm install"          # queued as the lane's first shell command
+```
+
+When a Worker lane worktree is created, each declared directory that exists in the primary checkout **and** is gitignored in the lane is linked into the lane (symlink; directory junction fallback on Windows). A name that is not gitignored is refused — the link must stay invisible to `git status` so `git add -A` cannot stage it. Link problems are recorded as warnings in the lane-dispatch record and never fail the dispatch. The setup command runs before the agent launch as an ordinary shell command; its failure is visible in the lane tab. Bounded parse: at most 100 entries; absolute paths, drive-letter paths, `..`/`.` segments, and `.git` are rejected. Deleting the keys restores current behavior.
+
 ## Related documents
 
-Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`.
+Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`.
 
-<!-- revision: 41 -->
+<!-- revision: 52 -->

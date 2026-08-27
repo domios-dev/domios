@@ -125,3 +125,81 @@ fn adopt_agent_refuses_a_role_bearing_tab() {
     let error = adopt_agent_into_team(&mut mux, &team_id, &worker, &orchestrator).unwrap_err();
     assert!(error.contains("roleless"), "{error}");
 }
+
+// ── General Agent membership guard ──────────────────────────────────
+
+use codeterm_types::team::general_agent_membership::GENERAL_AGENT_TEAM_MEMBERSHIP_VIOLATION;
+
+use crate::service::general_agent::identity::apply_general_agent_kind;
+
+fn general_agent_tab(mux: &mut MultiplexerState, workspace_id: &str) -> String {
+    let tab_id = mux.create_tab(workspace_id).unwrap();
+    apply_general_agent_kind(mux.get_tab_mut(&tab_id).unwrap());
+    tab_id
+}
+
+#[test]
+fn general_agent_team_guard_refuses_the_shared_attachment_write_without_mutating() {
+    let (mut mux, team_id, orchestrator, workspace_id) = anchored_team();
+    let general = general_agent_tab(&mut mux, &workspace_id);
+    let attachment =
+        authorize_team_attachment(&mux, &team_id, &orchestrator, &workspace_id).unwrap();
+
+    let error = apply_team_attachment(&mut mux, &attachment, &general)
+        .expect_err("the shared attach write refuses the General Agent kind");
+
+    assert!(
+        error.contains(GENERAL_AGENT_TEAM_MEMBERSHIP_VIOLATION),
+        "refusal must carry the stable violation id, got: {error}"
+    );
+    let tab = mux.get_tab(&general).unwrap();
+    assert_eq!(tab.team_id, None, "the refused write must bind no Team");
+    assert_eq!(tab.parent_tab_id, None);
+    assert_eq!(tab.depth, 1);
+}
+
+#[test]
+fn general_agent_team_guard_refuses_adoption_into_an_existing_team() {
+    let (mut mux, team_id, orchestrator, workspace_id) = anchored_team();
+    let general = general_agent_tab(&mut mux, &workspace_id);
+
+    let error = adopt_agent_into_team(&mut mux, &team_id, &general, &orchestrator)
+        .expect_err("adoption is the other membership door and refuses identically");
+
+    assert!(
+        error.contains(GENERAL_AGENT_TEAM_MEMBERSHIP_VIOLATION),
+        "refusal must carry the stable violation id, got: {error}"
+    );
+    assert_eq!(mux.get_tab(&general).unwrap().team_id, None);
+}
+
+#[test]
+fn general_agent_team_guard_refuses_a_general_agent_caller_attaching_others() {
+    let (mut mux, team_id, _orchestrator, workspace_id) = anchored_team();
+    let general = general_agent_tab(&mut mux, &workspace_id);
+    mux.get_tab_mut(&general).unwrap().team_id = Some(team_id.clone());
+
+    let error = authorize_team_attachment(&mux, &team_id, &general, &workspace_id)
+        .expect_err("membership authority is refused to the General Agent kind");
+
+    assert!(
+        error.contains(GENERAL_AGENT_TEAM_MEMBERSHIP_VIOLATION),
+        "refusal must carry the stable violation id, got: {error}"
+    );
+}
+
+#[test]
+fn general_agent_team_guard_keeps_ordinary_attachment_unchanged() {
+    let (mut mux, team_id, orchestrator, workspace_id) = anchored_team();
+    let ordinary = mux.create_tab(&workspace_id).unwrap();
+    let attachment =
+        authorize_team_attachment(&mux, &team_id, &orchestrator, &workspace_id).unwrap();
+
+    apply_team_attachment(&mut mux, &attachment, &ordinary)
+        .expect("a roleless tab still attaches exactly as before");
+
+    let tab = mux.get_tab(&ordinary).unwrap();
+    assert_eq!(tab.team_id.as_deref(), Some(team_id.as_str()));
+    assert_eq!(tab.parent_tab_id.as_deref(), Some(orchestrator.as_str()));
+    assert_eq!(tab.depth, 2);
+}

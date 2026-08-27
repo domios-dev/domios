@@ -38,7 +38,14 @@ impl CapabilityRegistries {
     pub fn register_plugin(&self, manifest: &PluginManifest, vm: &Arc<super::PluginVm>) {
         let id = &manifest.id;
         let caps = &manifest.capabilities;
-        self.deregister_plugin(id);
+        // Keep the models only when this manifest still declares the capability:
+        // they are about to be replaced. A manifest that drops chatBackend is a
+        // removal, and its models must go with it.
+        if caps.chat_backend.enabled() {
+            self.deregister_plugin_keeping_models(id);
+        } else {
+            self.deregister_plugin(id);
+        }
         if caps.transcriber {
             self.transcribe.register(
                 id.clone(),
@@ -96,6 +103,19 @@ impl CapabilityRegistries {
     }
 
     pub fn deregister_plugin(&self, id: &str) {
+        self.deregister_common(id);
+        self.chatbackend.unregister(id);
+    }
+
+    /// The reload variant: the plugin is re-registered on the next line, and its
+    /// models resolve asynchronously afterwards, so the catalog must be swapped
+    /// rather than emptied and refilled.
+    fn deregister_plugin_keeping_models(&self, id: &str) {
+        self.deregister_common(id);
+        self.chatbackend.unregister_for_reload(id);
+    }
+
+    fn deregister_common(&self, id: &str) {
         self.transcribe.unregister(id);
         if let Some(reg) = &self.secret {
             reg.unregister_secret_backend(id);
@@ -103,7 +123,6 @@ impl CapabilityRegistries {
         self.glance.unregister(id);
         self.bubble.unregister(id);
         self.view.unregister(id);
-        self.chatbackend.unregister(id);
         self.chat_preprocessor.unregister(id);
         self.agent_command.unregister(id);
     }

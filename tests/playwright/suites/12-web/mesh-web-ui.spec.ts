@@ -9,8 +9,24 @@
  * viewports.
  */
 import { expect, test, type Browser, type Page, API_BASE, readDevToken } from "../../helpers/fixtures";
+import { RELAY_PROTOCOL_VERSION } from "../../../../src/lib/types";
 
 let token: string;
+
+/** The Serve URL every `ready` fixture publishes. Both the header control's access
+ *  link and each peer's relay link are derived from THIS host's snapshot url, so
+ *  the expectations below read it from here instead of restating the literal. */
+const READY_URL = "https://blackstar.test.ts.net/";
+
+/** Every affordance MeshWebUiControl can render, all of them inside the menu. */
+const MENU_ACTIONS = [
+  "mesh-web-ui-open",
+  "mesh-web-ui-setup",
+  "mesh-web-ui-repair",
+  "mesh-web-ui-copy-url",
+  "mesh-web-ui-surface",
+  "mesh-web-ui-disable",
+] as const;
 
 test.beforeAll(async () => {
   token = readDevToken();
@@ -40,7 +56,7 @@ async function openedUrl(page: Page): Promise<string | undefined> {
 function buildSnapshot({ state, overrides = {} }: SnapshotFixture): Json {
   const base: Json = {
     state,
-    url: state === "ready" ? "https://blackstar.test.ts.net/" : null,
+    url: state === "ready" ? READY_URL : null,
     api_port: 7685,
     desired_https_port: 443,
     chosen_https_port: state === "ready" ? 443 : null,
@@ -91,9 +107,18 @@ function pairedPeerFixture(over: Json = {}): Json {
     is_primary: false,
     access_level: "full",
     version: "1.7.2",
-    https_url: null,
+    // MeshCanvas gates a peer's Web UI link on `online` AND a matching relay
+    // protocol version, then builds the link from THIS host's Serve url — the
+    // peer's own https_url is not read any more.
+    relay_protocol_version: RELAY_PROTOCOL_VERSION,
     ...over,
   };
+}
+
+/** The link MeshCanvas hands a peer card: this host's Serve url, our token, and
+ *  the peer as the relay target (webLinkWithTokenAndRelay). */
+function peerRelayUrl(instanceId: string): string {
+  return `${READY_URL}#token=${encodeURIComponent(token)}&relay=${instanceId}`;
 }
 
 async function mockMeshBackend(
@@ -212,6 +237,31 @@ const STATES: SnapshotFixture["state"][] = [
   "unhealthy",
 ];
 
+/**
+ * Read straight off `deriveWebUiView` (src/components/Titlebar/meshWebUi.ts), the
+ * single place the control's affordances are decided: `url` gates open + copy,
+ * `ownsRoute` gates disable, and the state gates setup vs repair. Only `ready`
+ * publishes a url and an owned route in these fixtures, so only `ready` offers
+ * open/copy/disable. The QR surface is unconditional.
+ */
+const EXPECTED_ACTIONS: Record<SnapshotFixture["state"], readonly string[]> = {
+  ready: ["mesh-web-ui-open", "mesh-web-ui-copy-url", "mesh-web-ui-surface", "mesh-web-ui-disable"],
+  setup_required: ["mesh-web-ui-setup", "mesh-web-ui-surface"],
+  operator_bootstrap_required: ["mesh-web-ui-setup", "mesh-web-ui-surface"],
+  conflict: ["mesh-web-ui-repair", "mesh-web-ui-surface"],
+  unhealthy: ["mesh-web-ui-repair", "mesh-web-ui-surface"],
+};
+
+async function expectMenuOffers(page: Page, expected: readonly string[], label: string): Promise<void> {
+  for (const testid of MENU_ACTIONS) {
+    const wanted = expected.includes(testid);
+    await expect(
+      page.locator(`[data-testid="${testid}"]`),
+      `${label}: ${testid} must ${wanted ? "be offered" : "not be offered"}`,
+    ).toHaveCount(wanted ? 1 : 0);
+  }
+}
+
 for (const state of STATES) {
   test(`@golden mesh-web-ui: header projects backend state "${state}" with exact action set`, async ({ webBrowser }) => {
     const { page, close } = await gotoMesh(webBrowser, { snapshot: buildSnapshot({ state }) });
@@ -219,9 +269,15 @@ for (const state of STATES) {
       const action = page.locator('[data-testid="mesh-web-ui-action"]');
       await expect(action).toHaveAttribute("data-web-ui-state", state);
 
-      await expect(page.locator('[data-testid="mesh-web-ui-surface"]')).toBeVisible();
-      await expect(page.locator('[data-testid="mesh-web-ui-menu-trigger"]')).toBeVisible();
-      await expect(page.locator('[data-testid="mesh-web-ui-open"]')).toHaveCount(0);
+      // The header exposes exactly ONE control; every affordance lives behind it,
+      // so none of them may leak into the header while the menu is shut.
+      const trigger = page.locator('[data-testid="mesh-web-ui-menu-trigger"]');
+      await expect(trigger).toBeVisible();
+      await expectMenuOffers(page, [], `${state} menu closed`);
+
+      await trigger.click();
+      await expect(page.locator('[data-testid="mesh-web-ui-menu"]')).toBeVisible();
+      await expectMenuOffers(page, EXPECTED_ACTIONS[state], `${state} menu open`);
     } finally {
       await close();
     }
@@ -233,8 +289,13 @@ test("@golden mesh-web-ui: loading shows Checking chip before the first snapshot
   try {
     const action = page.locator('[data-testid="mesh-web-ui-action"]');
     await expect(action).toHaveAttribute("data-web-ui-state", "loading");
-    await expect(page.locator('[data-testid="mesh-web-ui-open"]')).toHaveCount(0);
-    await expect(page.locator('[data-testid="mesh-web-ui-menu-trigger"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="mesh-web-ui-chip"]')).toContainText("Checking…");
+
+    // With no snapshot yet, deriveWebUiView grants no capability at all: the menu
+    // opens onto the QR surface and nothing that could act on unknown state.
+    await page.locator('[data-testid="mesh-web-ui-menu-trigger"]').click();
+    await expect(page.locator('[data-testid="mesh-web-ui-menu"]')).toBeVisible();
+    await expectMenuOffers(page, ["mesh-web-ui-surface"], "loading menu open");
   } finally {
     await close();
   }
@@ -243,7 +304,7 @@ test("@golden mesh-web-ui: loading shows Checking chip before the first snapshot
 test("@golden mesh-web-ui: no tiny canvas-only Web UI label remains", async ({ webBrowser }) => {
   const { page, close } = await gotoMesh(webBrowser, {
     snapshot: buildSnapshot({ state: "ready" }),
-    peers: [pairedPeerFixture({ https_url: "https://peer.test.ts.net/" })],
+    peers: [pairedPeerFixture()],
   });
   try {
     await expect(page.locator('[data-testid="web-ui-trigger"]')).toHaveCount(0);
@@ -280,6 +341,7 @@ test("@golden mesh-web-ui: ready surface opens the access dialog and launches it
   const { page, close } = await gotoMesh(webBrowser, { snapshot: buildSnapshot({ state: "ready" }) });
   try {
     await captureOpenedUrl(page);
+    await page.click('[data-testid="mesh-web-ui-menu-trigger"]');
     await page.click('[data-testid="mesh-web-ui-surface"]');
     const dialog = page.getByRole("dialog", { name: "Web UI access" });
     await expect(dialog).toBeVisible();
@@ -290,28 +352,43 @@ test("@golden mesh-web-ui: ready surface opens the access dialog and launches it
   }
 });
 
-test("@golden peer-web-ui-open: appears only for a peer with a verified URL", async ({ webBrowser }) => {
+test("@golden peer-web-ui-open: enabled only for a peer that can actually be relayed to", async ({ webBrowser }) => {
   const { page, close } = await gotoMesh(webBrowser, {
     snapshot: buildSnapshot({ state: "ready" }),
     peers: [
-      pairedPeerFixture({ instance_id: "peer-verified", instance_name: "verified-peer", https_url: "https://verified-peer.test.ts.net/" }),
-      pairedPeerFixture({ instance_id: "peer-unverified", instance_name: "unverified-peer", https_url: null }),
+      pairedPeerFixture({ instance_id: "peer-verified", instance_name: "verified-peer" }),
+      // Same peer, one version behind: MeshCanvas refuses to hand it a relay link.
+      pairedPeerFixture({
+        instance_id: "peer-stale",
+        instance_name: "stale-peer",
+        relay_protocol_version: RELAY_PROTOCOL_VERSION - 1,
+      }),
     ],
   });
   try {
     await captureOpenedUrl(page);
-    await expect(page.locator('[data-testid="peer-web-ui-open"]')).toHaveCount(1);
-    const btn = page.locator('[data-testid="peer-web-ui-open"]');
-    await expect(btn).toHaveAttribute("data-peer-web-url", "https://verified-peer.test.ts.net/");
+    const button = (relayTarget: string) =>
+      page.locator(`[data-testid="peer-web-ui-open"][data-peer-web-url="${peerRelayUrl(relayTarget)}"]`);
 
-    await btn.click();
-    expect(await openedUrl(page)).toBe("https://verified-peer.test.ts.net/");
+    // Every card carries the control; only a reachable peer on the current relay
+    // protocol gets a URL, and only then is the control enabled.
+    const verified = button("peer-verified");
+    await expect(verified).toBeEnabled();
+    await expect(button("self"), "this machine's own card links to itself").toBeEnabled();
+    const stale = page.locator('[data-testid="peer-web-ui-open"]:not([data-peer-web-url])');
+    await expect(stale, "a peer that cannot be relayed to must not offer a URL").toHaveCount(1);
+    await expect(stale).toBeDisabled();
+
+    await verified.click();
+    // The link is THIS host's Web UI with the peer as the relay target — not the
+    // peer's own address (webLinkWithTokenAndRelay in src/lib/webAccess.ts).
+    expect(await openedUrl(page)).toBe(peerRelayUrl("peer-verified"));
   } finally {
     await close();
   }
 });
 
-test("@golden mesh-web-ui: desktop and mobile header selectors do not overlap", async ({ webBrowser }) => {
+test("@golden mesh-web-ui: the Web UI control and the mesh tab rail never overlap, desktop or mobile", async ({ webBrowser }) => {
   for (const viewport of [{ width: 1280, height: 800 }, { width: 375, height: 812 }]) {
     const { page, close } = await gotoMesh(
       webBrowser,
@@ -323,9 +400,19 @@ test("@golden mesh-web-ui: desktop and mobile header selectors do not overlap", 
       const tabsBox = await page.locator('[data-testid="mesh-tab-map"]').boundingBox();
       expect(webUiBox, `web ui control visible at ${viewport.width}px`).toBeTruthy();
       expect(tabsBox, `tabs visible at ${viewport.width}px`).toBeTruthy();
-      if (webUiBox && tabsBox) {
-        const noOverlap = webUiBox.x + webUiBox.width <= tabsBox.x || tabsBox.x + tabsBox.width <= webUiBox.x;
-        expect(noOverlap, `mesh-web-ui-action and mesh-tab-map must not overlap at ${viewport.width}px`).toBe(true);
+      if (!webUiBox || !tabsBox) return;
+      // The control moved out of the toolbar into the map layer, so the rail can
+      // legitimately share its x-range; what must never happen is the two
+      // rectangles intersecting. Test that directly instead of projecting onto x.
+      const intersects =
+        webUiBox.x < tabsBox.x + tabsBox.width &&
+        webUiBox.x + webUiBox.width > tabsBox.x &&
+        webUiBox.y < tabsBox.y + tabsBox.height &&
+        webUiBox.y + webUiBox.height > tabsBox.y;
+      expect(intersects, `mesh-web-ui-action and mesh-tab-map must not overlap at ${viewport.width}px`).toBe(false);
+      for (const [name, box] of [["mesh-web-ui-action", webUiBox], ["mesh-tab-map", tabsBox]] as const) {
+        expect(box.x, `${name} left at ${viewport.width}px`).toBeGreaterThanOrEqual(-1);
+        expect(box.x + box.width, `${name} right at ${viewport.width}px`).toBeLessThanOrEqual(viewport.width + 1);
       }
     } finally {
       await close();

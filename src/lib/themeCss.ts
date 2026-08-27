@@ -70,6 +70,10 @@ export function themeToCSS(theme: ThemeConfig): Record<string, string> {
     "--ct-red": theme.red,
     "--ct-green": theme.green,
     "--ct-yellow": theme.yellow,
+    // Semantic trio forwarded to plugin iframes by PluginView.THEME_VARS.
+    "--ct-ok": theme.green,
+    "--ct-warn": theme.yellow,
+    "--ct-err": theme.red,
     "--ct-orange": theme.red,
     "--ct-blue": theme.blue,
     "--ct-magenta": theme.magenta,

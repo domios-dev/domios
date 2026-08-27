@@ -126,7 +126,7 @@ function PresencePin({
                     color: "var(--ct-fg)",
                     background: "color-mix(in srgb, var(--ct-bg) 90%, transparent)",
                     border: `1px solid color-mix(in srgb, ${color} 55%, transparent)`,
-                    boxShadow: "0 1px 4px color-mix(in srgb, var(--ct-shadow, #000) 22%, transparent)",
+                    boxShadow: "0 1px 4px rgba(0, 0, 0, 0.22)",
                   }}
                 >
                   <span style={{ maxWidth: 168, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontSize: 11, fontWeight: 700, lineHeight: 1.2 }}>

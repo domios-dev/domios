@@ -146,24 +146,49 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
         Commands::Notify { action } => match action {
             crate::NotifyAction::Send {
                 title,
-                body,
+                from_pad,
+                severity,
                 level,
-                category,
                 event_key,
-            } => (
-                "POST".into(),
-                "/api/notifications".into(),
-                Some(
-                    serde_json::json!({
-                        "title": title,
-                        "body": body,
-                        "level": level,
-                        "category": category.map(|c| c.as_str()),
-                        "event_key": event_key,
-                    })
-                    .to_string(),
-                ),
-            ),
+                choice,
+                offer,
+                offer_accept,
+                ..
+            } => {
+                let mut body = serde_json::json!({
+                    "title": title,
+                    "body": from_pad.as_ref().map(|path| {
+                        crate::cmd::payload_source::read_from_pad(path).unwrap_or_else(|e| {
+                            eprintln!("Error: {e}");
+                            std::process::exit(1)
+                        })
+                    }),
+                    "severity": severity,
+                    "level": level.map(|l| l.as_str()),
+                    "event_key": event_key,
+                });
+                // Inserted only when offered, because the local path omits the key
+                // rather than sending null — the two bodies have to stay identical.
+                if let Some(actions) = crate::cmd::notify::choice_actions(choice).unwrap_or_else(|e| {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1)
+                }) {
+                    body["actions"] = serde_json::to_value(actions).unwrap_or_default();
+                }
+                // Same reason: the local path omits these keys rather than
+                // sending null, so the two bodies stay identical.
+                if let Some(surface) = offer {
+                    body["offer"] = serde_json::Value::String(surface.clone());
+                }
+                if let Some(accept) = offer_accept {
+                    body["offer_accept"] = serde_json::Value::String(accept.clone());
+                }
+                (
+                    "POST".into(),
+                    "/api/notifications".into(),
+                    Some(body.to_string()),
+                )
+            }
             crate::NotifyAction::List { unread } => {
                 let qs = if *unread { "?unread=true" } else { "" };
                 ("GET".into(), format!("/api/notifications{}", qs), None)

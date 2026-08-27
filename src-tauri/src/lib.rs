@@ -227,6 +227,8 @@ pub fn run() {
             commands::open_folder,
             commands::open_url,
             commands::test_notification,
+            commands::notify_permission_state,
+            commands::establish_notify_permission,
             commands::get_autostart_enabled,
             commands::set_autostart_enabled,
             commands::mux_commands::mux_get_state,
@@ -293,9 +295,10 @@ pub fn run() {
             commands::mux_commands::mux_respond_prompt,
             commands::mux_commands::mux_batch,
             notification::notify,
-            notification::telegram_push_gate,
+            notification::push_channel_roster,
             notification::list_notifications,
             notification::mark_notification_read,
+            notification::answer_notification,
             notification::clear_notifications,
             config::get_config,
             config::update_config,
@@ -316,6 +319,7 @@ pub fn run() {
             session::save_session_named,
             session::list_saved_sessions,
             session::load_session,
+            session::load_scrollback_tail,
             commands::cron_list,
             commands::cron_get,
             commands::cron_create,
@@ -1030,9 +1034,11 @@ pub fn run() {
                     app.try_state::<SessionState>(),
                 ) {
                     let snapshot = mux.write().to_session_snapshot();
-                    if let Err(e) = session.lock().save(&snapshot) {
+                    let saved = session.lock().save(&snapshot);
+                    if let Err(e) = saved {
                         log::error!("Failed to save session: {}", e);
                     } else {
+                        session::scrollback_sync::sync_scrollback_sidecars(&app);
                         log::info!("Session saved (close-to-tray)");
                     }
                 }

@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 
 use parking_lot::{Condvar, Mutex, RwLock};
 
+use super::classify_input::StatusBarRowsSource;
 use super::provider::{AgentProvider, SessionMetadata};
 
 pub use super::registry_search::{
@@ -269,9 +270,11 @@ impl AgentRegistry {
             .map_or_else(Vec::new, |p| p.detect_events(text))
     }
 
-    pub fn status_bar_rows(&self, agent_type: &str) -> u16 {
+    /// `None` when the id resolves to no provider. Never a zero standing in for
+    /// "unknown" — a caller that needs the band must handle the refusal.
+    pub fn try_status_bar_rows(&self, agent_type: &str) -> Option<u16> {
         let guard = self.providers.read();
-        guard.get(agent_type).map_or(0, |p| p.status_bar_rows())
+        guard.get(agent_type).map(|p| p.status_bar_rows())
     }
 
     pub fn parse_prompt(
@@ -705,5 +708,11 @@ mod tests {
         let json = serde_json::to_value(&descs).expect("serialize");
         assert!(json.is_array());
         assert_eq!(json.as_array().unwrap().len(), 1);
+    }
+}
+
+impl StatusBarRowsSource for AgentRegistry {
+    fn status_bar_rows_for(&self, agent_type: &str) -> Option<u16> {
+        self.try_status_bar_rows(agent_type)
     }
 }

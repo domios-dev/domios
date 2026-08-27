@@ -82,13 +82,12 @@ test("@golden two chat tabs exchange a cross-tab message, origin rendered", asyn
   expect(onB.content, "recipient B lost the cross-tab wire prefix").toContain("-=-codeterm:tab");
   expect(onA.content, "recipient A lost the cross-tab wire prefix").toContain("-=-codeterm:tab");
 
-  const tabIdOf = async (tabId: string): Promise<string> => {
-    const tab = (await api.tabs()).find((p) => p.id === tabId) as
-      | { tab_id?: string }
-      | undefined;
-    const tabId = tab?.tab_id;
-    if (!tabId) throw new Error(`tab ${tabId} has no tab_id`);
-    return tabId;
+  // The sidebar row keys off the tab's own id; panes no longer exist. Kept as a
+  // lookup so a vanished tab fails here instead of as a selector timeout.
+  const tabIdOf = async (wanted: string): Promise<string> => {
+    const tab = (await api.tabs()).find((t) => t.id === wanted);
+    if (!tab) throw new Error(`tab ${wanted} not found in /tabs`);
+    return tab.id;
   };
   for (const { id, marker } of [
     { id: tabB, marker: aToB },

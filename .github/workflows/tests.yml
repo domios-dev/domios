@@ -19,11 +19,22 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Formatting is platform-independent, so it does not belong inside a platform
+  # lane: gating that lane off silences the check with it, which is how 22 files
+  # drifted unseen. Its own job on the fastest runner, seconds long.
+  fmt:
+    name: fmt
+    runs-on: [self-hosted, codeterm-builder]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: cargo fmt --check
+        run: |
+          cargo fmt --manifest-path src-tauri/Cargo.toml --check
+          cargo fmt --manifest-path cli/Cargo.toml --check
+
   rust-linux:
     name: rust (linux)
-    # Linux CI disabled for now (user decision, 2026-08-18) — the linux-build
-    # runner is offline; drop this `if: false` to re-enable the lane.
-    if: false
     runs-on: [self-hosted, linux-build]
     timeout-minutes: 40
     steps:
@@ -63,11 +74,6 @@ jobs:
           cargo build --manifest-path src-tauri/Cargo.toml --bin codeterm-embed
           file src-tauri/target/debug/codeterm-embed | grep -q ELF
           cp src-tauri/target/debug/codeterm-embed "$RUNNER_TEMP/codeterm-embed-runtime"
-
-      - name: fmt
-        run: |
-          cargo fmt --manifest-path src-tauri/Cargo.toml --check
-          cargo fmt --manifest-path cli/Cargo.toml --check
 
       - name: File-size discipline
         run: bash scripts/check-file-sizes.sh --fail
@@ -245,6 +251,12 @@ jobs:
 
       - name: Run plugin tests
         run: pnpm test:plugins
+
+      - name: Release metadata contract tests
+        run: python3 -m unittest scripts.tests.test_release_issue_contract
+
+      - name: Updater manifest merge + signature tests
+        run: node --test scripts/tests/updater-manifest.test.mjs
 
       - name: Biome (TS lint)
         run: pnpm lint

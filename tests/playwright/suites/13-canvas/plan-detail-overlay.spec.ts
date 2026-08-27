@@ -6,7 +6,7 @@
 import path from "node:path";
 import { expect, test } from "../../helpers/fixtures";
 import {
-  isEmpty,
+  assertPlanSurfaceNotEmpty,
   seedPerfFixtureAndOpenInlineCanvas,
   CANVAS_ART_DIR,
 } from "../../helpers/canvas-inspect";
@@ -31,10 +31,7 @@ test(
     );
     try {
       const { page } = canvas;
-      if (await isEmpty(page)) {
-        test.skip(true, "canvas empty — perf fixture did not inject");
-        return;
-      }
+      await assertPlanSurfaceNotEmpty(page);
 
       const shell = page.locator('[data-testid="plan-view-shell"]');
       const modeSwitch = page.locator('[data-testid="plan-view-mode-switch"]');
@@ -74,10 +71,7 @@ test(
     const canvas = await seedPerfFixtureAndOpenInlineCanvas(webBrowser, api as unknown as ApiClient);
     try {
       const { page } = canvas;
-      if (await isEmpty(page)) {
-        test.skip(true, "canvas empty — perf fixture did not inject");
-        return;
-      }
+      await assertPlanSurfaceNotEmpty(page);
 
       const shell = page.locator('[data-testid="plan-view-shell"]');
       const modeSwitch = page.locator('[data-testid="plan-view-mode-switch"]');
@@ -125,10 +119,7 @@ test(
     const canvas = await seedPerfFixtureAndOpenInlineCanvas(webBrowser, api as unknown as ApiClient);
     try {
       const { page } = canvas;
-      if (await isEmpty(page)) {
-        test.skip(true, "canvas empty — perf fixture did not inject");
-        return;
-      }
+      await assertPlanSurfaceNotEmpty(page);
 
       const shell = page.locator('[data-testid="plan-view-shell"]');
       const modeSwitch = page.locator('[data-testid="plan-view-mode-switch"]');
@@ -139,13 +130,10 @@ test(
       const missionControl = page.locator('[data-testid="mission-control-live"]');
       await expect(missionControl).toBeVisible({ timeout: 15_000 });
 
-      const taskCard = missionControl.locator('[data-testid^="task-"]').first();
-      const hasCards = await taskCard.isVisible({ timeout: 10_000 }).catch(() => false);
-      if (!hasCards) {
-        await screenshot(page, "plan-view-canvas-overview");
-        test.skip(true, "no mission-control task cards visible");
-        return;
-      }
+      // Mission control renders flow chips (PlanRiver ChipView), not the
+      // `task-<id>` TaskCard, which only the prototype gallery mounts.
+      const taskCard = missionControl.locator('[data-testid^="flow-chip-"]').first();
+      await expect(taskCard).toBeVisible({ timeout: 15_000 });
 
       await screenshot(page, "plan-view-canvas-before-detail");
       await taskCard.click();

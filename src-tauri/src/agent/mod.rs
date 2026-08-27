@@ -1,5 +1,6 @@
 pub mod attributed_screen;
 pub mod chat_types;
+pub mod classify_input;
 pub mod command_detection;
 pub mod detector;
 pub mod keys;
@@ -12,9 +13,12 @@ pub mod models;
 pub mod motion_decoder;
 pub mod native_prompt;
 pub mod offline_state_classifier;
+pub mod permission_request;
 pub mod plugin_registrar;
 pub mod prompt;
 pub mod provider;
+#[cfg(test)]
+mod question_removal_tests;
 pub mod recovered_seat_auth;
 pub mod registry;
 pub mod registry_search;
@@ -23,6 +27,7 @@ pub mod run_watcher;
 pub mod semantic_marker;
 pub mod signal_extractor;
 pub mod state_reactor;
+pub mod state_verdict;
 #[allow(dead_code)]
 pub mod status;
 pub mod structured_prompt;

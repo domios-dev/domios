@@ -48,10 +48,21 @@ pub(crate) fn classify_chatbackend_instruction_delivery(
     }
 }
 
+/// A backend declaring host context ownership without the `sendTurn` entry
+/// point is refused here — a silent fallback to `send_message` would reinstate
+/// an unverifiable window undetectably.
 fn open_chatbackend_session(
     provider: &dyn ChatBackendProvider,
     ctx: serde_json::Value,
 ) -> Result<String, String> {
+    if !provider.context_owner().is_plugin() && !provider.supports_send_turn() {
+        return Err(serde_json::json!({
+            "code": "chat_backend_context_owner_unsupported",
+            "delivery": "blocked",
+            "transport": "chat_backend"
+        })
+        .to_string());
+    }
     match classify_chatbackend_instruction_delivery(&provider.describe(), &ctx) {
         ChatBackendInstructionDelivery::SessionConfig => provider
             .open_session(ctx)
@@ -234,6 +245,28 @@ fn build_chatbackend_open_session_ctx(
     serde_json::Value::Object(ctx)
 }
 
+/// The one place core asks who owns context, reached by both send entry points.
+/// The question is a capability, never an identity — no provider id appears in
+/// the expression, so none can leak into core.
+pub(crate) fn dispatch_chatbackend_send(
+    provider: &dyn ChatBackendProvider,
+    plugin_id: &str,
+    session_id: &str,
+    text: &str,
+) -> Result<(), String> {
+    use crate::agent::provider::ContextOwner;
+    match provider.context_owner() {
+        ContextOwner::Plugin => provider
+            .send_message(session_id, text)
+            .map_err(|e| e.to_string()),
+        ContextOwner::Host => {
+            crate::service::tab_chat::host_context::deliver_host_turn_for_session(
+                provider, plugin_id, session_id, text,
+            )
+        }
+    }
+}
+
 pub struct ChatBackendTransport<'a> {
     pub(crate) svc: &'a ServiceContext,
     pub(crate) tab_id: String,
@@ -409,9 +442,8 @@ impl ServiceContext {
                 "this Tab is a watcher (read-only); its inputs come from the tick scheduler".into(),
             );
         }
-        self.chatbackend_provider(plugin_id)?
-            .send_message(session_id, text)
-            .map_err(|e| e.to_string())
+        let provider = self.chatbackend_provider(plugin_id)?;
+        dispatch_chatbackend_send(provider.as_ref(), plugin_id, session_id, text)
     }
 
     fn chatbackend_session_is_watcher(&self, plugin_id: &str, session_id: &str) -> bool {
@@ -506,6 +538,8 @@ impl ServiceContext {
 
 #[cfg(test)]
 mod tests {
+    mod context_owner;
+
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::{Arc, Barrier};
 
