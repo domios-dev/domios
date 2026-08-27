@@ -79,6 +79,13 @@ pub(crate) fn render_plan_error(data: &Value, params: &Value) -> Option<String> 
             "✗ invalid task priority.\nvalid priorities: p0|p1|p2|p3\nfix: codeterm plan task update {plan_id} {} --priority p2",
             task_id.unwrap_or("<task_id>")
         )),
+        "executor_role_required" => Some(format!(
+            "✗ a task must name who executes it, and an update cannot empty that.\n\
+fix: codeterm plan task update {plan_id} {} --executor-role <role>\n\
+presence is the contract; no vocabulary is enforced, so name the specialization \
+that scopes the surface they own, e.g. rust-backend-dev",
+            task_id.unwrap_or("<task_id>")
+        )),
         "not_found" => Some(render_not_found(plan_id, loop_id, params)),
         "task_not_found" => Some(with_cross_daemon_hint(format!(
             "✗ no task '{}' was found in plan '{plan_id}'.\nfix: codeterm plan list --active",

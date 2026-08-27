@@ -42,6 +42,11 @@ pub(crate) const DOCS: &[EmbeddedDoc] = &[
         "../../../docs/CONFIG.md"
     ),
     doc!(
+        "NOTIFICATIONS",
+        "Notification levels, per-level surfaces, sound, and push channels",
+        "../../../docs/NOTIFICATIONS.md"
+    ),
+    doc!(
         "INTEGRATIONS",
         "Messaging, hooks, transcription, and secret-backed integration settings",
         "../../../docs/INTEGRATIONS.md"
