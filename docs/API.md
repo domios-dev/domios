@@ -12,28 +12,25 @@ The CLI's local socket dispatches internal `api.request` JSON-RPC through Axum
 without TCP. Unix peer credentials or the Windows process-token SID restrict it
 to the daemon's OS user; the daemon owns authentication, signing, and transport.
 
-Every socket and mesh RPC request envelope carries the control-plane
-`protocol_version` integer. Dispatch refuses an older (or versionless) client
-with typed error `-32002` carrying both versions and the recovery command, and
-the CLI prints that message verbatim; the mesh relay forwards it untranslated.
-See `codeterm docs API-TRANSPORT` for the wire shape.
+Every socket and mesh RPC envelope carries a `protocol_version`; an older or
+versionless client is refused with `-32002`. Wire shape: `codeterm docs
+API-TRANSPORT`.
 
 Human `codeterm workspace list` shows authoritative tab counts, cwd, state, Teams,
 active Plans, and tabs in stable creation order. Inspect one tab with `codeterm tab
 inspect <id>`; whole-list JSON remains automation-only.
-`workspace current --json` returns `{ "id", "source" }`, where `source` is
-`explicit`, `caller-tab`, `workspace-env`, or `focus-fallback`. Resolution is never
-positional: `--workspace`, `$CODETERM_TAB_ID` joined through workspace membership,
-a validated `$CODETERM_WORKSPACE_ID`, then the active workspace. When no rung
-resolves, stdout stays empty and the command exits 1 (`--json` puts the error
-envelope on stdout).
+`workspace current --json` returns `{ "id", "source" }` with `source` one of
+`explicit`, `caller-tab`, `workspace-env`, `focus-fallback`. Resolution is never
+positional: `--workspace`, `$CODETERM_TAB_ID` through workspace membership, a
+validated `$CODETERM_WORKSPACE_ID`, then the active workspace. With no rung,
+stdout stays empty and the command exits 1 (`--json` puts the error on stdout).
 
 ## REST API
 
 Base URL: `http://<host>:7685/api`
-**Public vs internal REST surfaces.** This reference documents agent-facing and operator-facing
-REST routes. Browser mirror plumbing, debug-clock endpoints, upload/PTY mirror routes, and other
-web-only internals live in `src-tauri/src/api/web_routes.rs` and `src-tauri/src/api/routes.rs`.
+**Public vs internal REST surfaces.** This reference documents agent- and operator-facing routes.
+Browser mirror plumbing, debug-clock endpoints, upload/PTY mirror routes and other web-only
+internals live in `src-tauri/src/api/web_routes.rs` and `routes.rs`.
 
 ### Authentication
 CodeTerm generates and persists a Bearer token on first load. Control endpoints
@@ -95,11 +92,9 @@ Each successful outage transition also owns a monotonic recovery id. Recovery
 events are queued, so two worker stalls recovered within one listener generation
 each produce one mesh resync while observing an event twice produces none.
 
-The representative worker-starvation cause is provider transcript parsing, not
-the listener: session JSONL can be hundreds of MiB. REST chat/transcript routes
-run the bounded 4 MiB tail parser on blocking workers, leaving all four REST
-runtime workers available for health, tab, and relay requests.
-
+The representative worker-starvation cause is provider transcript parsing, not the
+listener: session JSONL can be hundreds of MiB. REST chat/transcript routes run the
+bounded 4 MiB tail parser on blocking workers, leaving all four runtime workers free.
 
 #### Workspaces
 | Method | Path | Body | Description |
@@ -226,12 +221,12 @@ optional `empty_reason`. Its `kind` is `plan_not_found`, `plan_archived`,
 exist; consumers ignore unknown kinds and never invent a local explanation.
 
 Batch writes (socket `plan.batch`, REST `POST /api/plans/{id}/batch`, both
-reached by `codeterm plan record`) cross the same boundary, from either
-entrance: an op naming a task that some other tab holds is refused unless the
-caller is that holder or the plan's owner tab. Callers name themselves with
-`caller_tab_id` in the params/body; an unidentified caller cannot claim a hold.
-The refusal carries `STALE TASK BINDING` (socket `-32003`, REST `403`) with
-`type: "stale_task_binding"` plus `attempted_by_tab`, `plan_id` and `task_id`,
+reached by `codeterm plan record`) cross the same boundary from either entrance:
+an op naming a task another tab holds is refused unless the caller is that holder
+or the plan's owner. Callers name themselves with `caller_tab_id`; an
+unidentified caller cannot claim a hold. The refusal carries `STALE TASK BINDING`
+(socket `-32003`, REST `403`) with `type: "stale_task_binding"` plus
+`attempted_by_tab`, `plan_id` and `task_id`,
 and nothing is written. A bearer token proves a client is permitted, never that
 it holds the task.
 
@@ -242,4 +237,4 @@ competition provisions one lane per competitor. Advisory findings ride successfu
 results in `safety_nudges` and `_hints`. See `codeterm docs ORCHESTRATION`.
 Related: `codeterm docs API-TABS`, `API-INTEGRATIONS`, `API-MEMORY`, `API-AGENTS`,
 `API-TRANSPORT`, and `API-CLI`.
-<!-- revision: 124 -->
+<!-- revision: 125 -->

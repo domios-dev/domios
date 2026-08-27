@@ -385,6 +385,7 @@ mod tests {
     /// The closed loop: with no session ever registered there is no lineage to
     /// prove, so the repair could never run. Presenting the tab's own launch
     /// nonce establishes the binding (#316).
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     #[test]
     fn rebind_establishes_a_first_binding_from_the_tabs_own_nonce() {
         let (fixture, _plan_id, owner, _planner) = fixture();
@@ -420,6 +421,7 @@ mod tests {
     }
 
     /// The bootstrap must never mask a live provider session.
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     #[test]
     fn rebind_does_not_bootstrap_over_a_registered_session() {
         let (fixture, _plan_id, owner, _planner) = fixture();
@@ -444,6 +446,7 @@ mod tests {
     }
 
     /// A caller without this tab's launch nonce is still refused.
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     #[test]
     fn rebind_refuses_a_bootstrap_from_a_foreign_nonce() {
         let (fixture, _plan_id, owner, _planner) = fixture();
@@ -469,6 +472,7 @@ mod tests {
     }
 
     /// After the bootstrap the write gate accepts the tab, which is the point.
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     #[test]
     fn a_tab_attested_binding_authorizes_plan_writes() {
         let (fixture, plan_id, owner, _planner) = fixture();
