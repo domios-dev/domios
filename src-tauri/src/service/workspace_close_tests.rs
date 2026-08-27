@@ -25,13 +25,14 @@ fn protected_workspace() -> (ServiceFixture, String, String) {
     (ServiceFixture::new(mux), workspace_id, coordinator)
 }
 
-fn workspace_with_agent_tab() -> (ServiceFixture, String, String) {
-    let (mut mux, initial_tab) = MultiplexerState::new();
-    let workspace_id = mux.find_workspace_for_tab(&initial_tab).unwrap();
-    let tab = mux.get_tab_mut(&initial_tab).unwrap();
+fn workspace_with_agent_tab() -> (ServiceFixture, String, String, String) {
+    let (mut mux, caller_tab) = MultiplexerState::new();
+    let workspace_id = mux.create_workspace("Agent workspace".into(), None).id;
+    let tab_id = mux.create_tab(&workspace_id).unwrap();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
     tab.agent_type = Some("fixture".into());
     tab.title = "Release guard agent".into();
-    (ServiceFixture::new(mux), workspace_id, initial_tab)
+    (ServiceFixture::new(mux), workspace_id, tab_id, caller_tab)
 }
 
 #[test]
@@ -40,11 +41,11 @@ fn workspace_with_agent_tab() -> (ServiceFixture, String, String) {
     ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
 )]
 fn workspace_close_guard_unconfirmed_agent_tabs_remain() {
-    let (fixture, workspace_id, tab_id) = workspace_with_agent_tab();
+    let (fixture, workspace_id, tab_id, caller_tab) = workspace_with_agent_tab();
 
     assert!(fixture
         .service
-        .close_workspace_guarded(None, &workspace_id, false)
+        .close_workspace_guarded(Some(&caller_tab), &workspace_id, false)
         .is_err());
     let mux = fixture.service.mux.read();
     assert!(mux.get_workspace(&workspace_id).is_some());
@@ -57,11 +58,11 @@ fn workspace_close_guard_unconfirmed_agent_tabs_remain() {
     ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
 )]
 fn workspace_close_guard_confirmed_agent_tabs_close() {
-    let (fixture, workspace_id, tab_id) = workspace_with_agent_tab();
+    let (fixture, workspace_id, tab_id, caller_tab) = workspace_with_agent_tab();
 
     fixture
         .service
-        .close_workspace_guarded(None, &workspace_id, true)
+        .close_workspace_guarded(Some(&caller_tab), &workspace_id, true)
         .unwrap();
     let mux = fixture.service.mux.read();
     assert!(mux.get_workspace(&workspace_id).is_none());
@@ -91,7 +92,7 @@ fn workspace_close_guard_empty_workspace_stays_frictionless() {
     ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
 )]
 fn workspace_close_guard_mesh_requires_force() {
-    let (fixture, workspace_id, tab_id) = workspace_with_agent_tab();
+    let (fixture, workspace_id, tab_id, _) = workspace_with_agent_tab();
 
     assert!(fixture
         .service
