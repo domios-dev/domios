@@ -589,13 +589,14 @@ impl ServiceContext {
     fn spend_on_channels(&self, id: &str, spent: &SpentQuestion) {
         let roster = channels::roster();
         for placement in &spent.placements {
-            let attempt = channels::resolve_in(&roster, &placement.service).and_then(|registered| {
-                registered.channel.spend(
-                    self,
-                    &placement.locator,
-                    &spent.message_for(registered.channel.bounds()),
-                )
-            });
+            let attempt =
+                channels::resolve_in(&roster, &placement.service).and_then(|registered| {
+                    registered.channel.spend(
+                        self,
+                        &placement.locator,
+                        &spent.message_for(registered.channel.bounds()),
+                    )
+                });
             if let Err(reason) = attempt {
                 log::warn!(
                     "[notify-answer] {id} is answered but its {} message still shows the question: {reason}",

@@ -358,9 +358,11 @@ impl AgentLevelChoice {
         match destination {
             NotifyDestination::Bell => self.bell,
             NotifyDestination::Desktop => self.desktop,
-            NotifyDestination::Channel(service) => {
-                self.channels.get(service).copied().unwrap_or_else(routed_by_default)
-            }
+            NotifyDestination::Channel(service) => self
+                .channels
+                .get(service)
+                .copied()
+                .unwrap_or_else(routed_by_default),
         }
     }
 

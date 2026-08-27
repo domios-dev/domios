@@ -1,13 +1,13 @@
 //! Routing over the push-channel registry, and one member proved to deliver.
 
 use super::*;
+use crate::notification::channel_ask::PushMessage;
 use crate::notification::channels::{
     self, discord, Audience, ChannelHost, ChannelReadiness, PushBounds, PushChannel,
 };
-use codeterm_bridge::bridge::manager::OutboundMessage;
-use crate::notification::channel_ask::PushMessage;
 use crate::notification::push::PushContent;
 use crate::notification::store::NotificationProvenance;
+use codeterm_bridge::bridge::manager::OutboundMessage;
 use codeterm_bridge::bridge::traits::OutboundContent;
 use codeterm_bridge::services::ServiceDescriptor;
 use codeterm_types::config::schema::{AgentLevelChoice, AppConfig, PushChannelConfig};
@@ -176,7 +176,10 @@ fn fixture_open_config() -> AppConfig {
 /// routes per notification through `plan_push`, and the grid gets its columns
 /// from the roster endpoint — so this belongs to the tests that check columns.
 fn registered_ids() -> Vec<&'static str> {
-    channels::roster().into_iter().map(|entry| entry.id()).collect()
+    channels::roster()
+        .into_iter()
+        .map(|entry| entry.id())
+        .collect()
 }
 
 /// Admitted inbound and chosen as an audience are two different answers, so
@@ -244,7 +247,9 @@ fn channel_registry_second_channel_routes_without_touching_the_enum_or_the_grid(
     let host = FakeHost::carrying(&["discord"]);
     let plan = plan_push(&cfg, &roster, &host, intent(NotifyLevel::Failure));
     assert!(
-        plan.targets.iter().any(|target| target.service == "discord"),
+        plan.targets
+            .iter()
+            .any(|target| target.service == "discord"),
         "discord is routable from registry data plus its own audience entry"
     );
 
@@ -299,7 +304,10 @@ fn channel_registry_the_local_fields_stay_unchanged_by_channel_columns() {
         for id in registered_ids() {
             row.set(NotifyDestination::Channel(id), false);
         }
-        assert!(row.bell && row.desktop, "a channel column moved a local field");
+        assert!(
+            row.bell && row.desktop,
+            "a channel column moved a local field"
+        );
     }
     assert_eq!(
         crate::notification::desktop::DesktopPolicy::from_config(&channels_closed.notifications),
@@ -386,7 +394,10 @@ fn channel_registry_unknown_or_unavailable_channel_degrades_honestly() {
     // not skipped: the user turned that column on deliberately.
     let mut stale = open_config();
     for row in &mut stale.notifications.agent_levels {
-        row.set(NotifyDestination::Channel("a-service-nobody-registered"), true);
+        row.set(
+            NotifyDestination::Channel("a-service-nobody-registered"),
+            true,
+        );
     }
     let stale_plan = plan_push(
         &stale,

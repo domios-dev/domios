@@ -50,8 +50,25 @@ fn update_role(
     now_ms: u64,
 ) -> Result<(), PlanError> {
     store.update_task(
-        plan_id, task_id, None, None, None, None, None, None, None, None, None, role, None, None,
-        None, &[], None, None, now_ms,
+        plan_id,
+        task_id,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        role,
+        None,
+        None,
+        None,
+        &[],
+        None,
+        None,
+        now_ms,
     )
 }
 

@@ -70,7 +70,10 @@ impl SpentQuestion {
     pub fn message_for(&self, bounds: push::PushBounds) -> PushMessage {
         let reserved = spent_text("", &self.label).chars().count();
         PushMessage {
-            text: spent_text(&self.content.render(bounds.reserving(reserved)), &self.label),
+            text: spent_text(
+                &self.content.render(bounds.reserving(reserved)),
+                &self.label,
+            ),
             choices: Vec::new(),
             record: self.record.clone(),
         }
@@ -168,10 +171,15 @@ mod tests {
             Some(crate::notification::push::NotifyLevel::ActionNeeded),
         );
         store.remember_channel_placement(&id, "telegram", "5:9");
-        assert!(store.spent_question(&id).is_none(), "an open question is not spent");
+        assert!(
+            store.spent_question(&id).is_none(),
+            "an open question is not spent"
+        );
 
         store.record_answer(&id, "Ship it");
-        let spent = store.spent_question(&id).expect("an answered question is spent");
+        let spent = store
+            .spent_question(&id)
+            .expect("an answered question is spent");
         let rewrite = spent.message_for(BOUNDS);
         assert!(rewrite.text.contains("Ship it"));
         assert!(!rewrite.offers_choices());

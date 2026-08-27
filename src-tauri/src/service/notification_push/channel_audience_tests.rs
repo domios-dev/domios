@@ -48,7 +48,9 @@ impl ChannelHost for RecordingHost {
     }
 
     fn enqueue(&self, service: &str, message: OutboundMessage) -> Result<(), String> {
-        self.sent.lock().push((service.to_string(), message.user_id));
+        self.sent
+            .lock()
+            .push((service.to_string(), message.user_id));
         Ok(())
     }
 }
@@ -58,8 +60,7 @@ impl ChannelHost for RecordingHost {
 fn config_with(admitted: &[&str], chosen: &[&str]) -> AppConfig {
     let mut cfg = AppConfig::default();
     cfg.integrations.telegram_enabled = true;
-    cfg.integrations.telegram_allowed_users =
-        admitted.iter().map(|id| id.to_string()).collect();
+    cfg.integrations.telegram_allowed_users = admitted.iter().map(|id| id.to_string()).collect();
     cfg.notifications.agent_levels = NotifyLevel::ALL
         .into_iter()
         .map(|level| {

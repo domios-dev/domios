@@ -8,7 +8,13 @@ use crate::{Cli, Commands, PlanAction};
 #[test]
 fn executor_role_required_add_refuses_a_task_without_a_role() {
     let parsed = Cli::try_parse_from([
-        "codeterm", "plan", "task", "add", "pl_1", "--name", "Roleless lane",
+        "codeterm",
+        "plan",
+        "task",
+        "add",
+        "pl_1",
+        "--name",
+        "Roleless lane",
     ]);
     assert!(
         parsed.is_err(),

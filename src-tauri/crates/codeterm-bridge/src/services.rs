@@ -52,7 +52,11 @@ mod tests {
         assert_eq!(distinct.len(), SERVICES.len(), "a service id collides");
         for service in SERVICES {
             assert_eq!(find(service.id).map(|found| found.id), Some(service.id));
-            assert!(!service.label.trim().is_empty(), "{} needs copy", service.id);
+            assert!(
+                !service.label.trim().is_empty(),
+                "{} needs copy",
+                service.id
+            );
         }
         assert_eq!(find("  telegram  ").map(|s| s.id), Some("telegram"));
         assert!(find("a-service-nobody-registered").is_none());

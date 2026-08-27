@@ -284,7 +284,11 @@ fn spent_question_answered_in_the_panel_still_spends_the_channel() {
 
     assert_eq!(outcome, AnswerDeliveryOutcome::Delivered);
     let rewrites = spent.borrow().clone();
-    assert_eq!(rewrites.len(), 1, "the one placed message is rewritten once");
+    assert_eq!(
+        rewrites.len(),
+        1,
+        "the one placed message is rewritten once"
+    );
     assert_eq!(rewrites[0].1, "chat-9:message-4");
     assert!(
         rewrites[0].2.contains(CHOSEN),
@@ -331,7 +335,10 @@ fn spent_question_a_refused_rewrite_still_records_and_delivers_the_answer() {
     );
     assert_eq!(refusals.borrow().len(), 1, "the rewrite was attempted");
     assert_eq!(
-        store.lock().answer_slot(&id).and_then(|s| s.answered.clone()),
+        store
+            .lock()
+            .answer_slot(&id)
+            .and_then(|s| s.answered.clone()),
         Some(CHOSEN.to_string()),
         "the answer is still recorded"
     );
@@ -358,5 +365,9 @@ fn spent_question_a_record_no_channel_carried_rewrites_nothing() {
     );
 
     assert_eq!(outcome, AnswerDeliveryOutcome::Delivered);
-    assert_eq!(*attempts.borrow(), 0, "nothing was placed, so nothing is rewritten");
+    assert_eq!(
+        *attempts.borrow(),
+        0,
+        "nothing was placed, so nothing is rewritten"
+    );
 }

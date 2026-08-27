@@ -775,9 +775,18 @@ async fn notification_markdown_reaches_telegram_as_safe_html_without_plain_fallb
         Some("HTML"),
         "the only request keeps HTML parse mode"
     );
-    let text = request.get("text").and_then(|value| value.as_str()).unwrap();
-    assert!(text.contains("<strong>bold</strong>"), "bold is formatted: {text}");
-    assert!(text.contains("<code>inline</code>"), "inline code is formatted: {text}");
+    let text = request
+        .get("text")
+        .and_then(|value| value.as_str())
+        .unwrap();
+    assert!(
+        text.contains("<strong>bold</strong>"),
+        "bold is formatted: {text}"
+    );
+    assert!(
+        text.contains("<code>inline</code>"),
+        "inline code is formatted: {text}"
+    );
     assert!(
         text.contains("• first") && text.contains("• second"),
         "list items remain readable: {text}"

@@ -169,7 +169,10 @@ fn read_user_toast_switch() -> Option<u32> {
 }
 
 fn native_toast_can_deliver() -> bool {
-    toast_can_deliver(established_toast_permission(), platform_toast_channel_open())
+    toast_can_deliver(
+        established_toast_permission(),
+        platform_toast_channel_open(),
+    )
 }
 
 /// Mirrors the plugin's own AppUserModelID condition: it sets the id only outside

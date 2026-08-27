@@ -1,7 +1,5 @@
 #[cfg(test)]
 mod action_provenance;
-#[cfg(test)]
-mod defaults_tests;
 pub mod answer;
 pub mod answer_delivery;
 pub mod authority;
@@ -9,6 +7,8 @@ pub mod channel_ask;
 pub mod channel_placement;
 pub mod channels;
 pub mod dedupe;
+#[cfg(test)]
+mod defaults_tests;
 pub mod desktop;
 pub mod push;
 pub mod reach;
