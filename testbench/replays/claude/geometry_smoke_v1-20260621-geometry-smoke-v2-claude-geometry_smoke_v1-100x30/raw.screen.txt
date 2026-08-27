@@ -1,4 +1,4 @@
-kandrey@ROC-6W49K3GN ct-replay-claude-geometry_smoke_v1-89ryyd76 % bash /tmp/codeterm-spawn-0aa100df-5422-412d-b31a-8d537055cc0f.sh
+user@ROC-6W49K3GN ct-replay-claude-geometry_smoke_v1-89ryyd76 % bash /tmp/codeterm-spawn-0aa100df-5422-412d-b31a-8d537055cc0f.sh
 ╭─── Claude Code v2.1.185 ─────────────────────────────────────────────────────────────────────────╮
 │                                                    │ Tips for getting started                    │
 │                Welcome back Andrey!                │ Ask Claude to create a new app or clone a … │

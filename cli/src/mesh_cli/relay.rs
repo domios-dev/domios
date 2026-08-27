@@ -620,7 +620,7 @@ mod mesh_spawn_failure_tests {
     fn peer_api_url_prefers_verified_tailscale_https() {
         let peer = serde_json::json!({
             "api_port": 7685,
-            "addresses": [{"ip": "100.84.159.37"}],
+            "addresses": [{"ip": "100.100.100.100"}],
             "web_ui": {
                 "protocol_version": 1,
                 "endpoints": [{
@@ -641,7 +641,7 @@ mod mesh_spawn_failure_tests {
     fn peer_api_url_rejects_untrusted_https_host_and_uses_ip() {
         let peer = serde_json::json!({
             "api_port": 7685,
-            "addresses": [{"ip": "100.84.159.37"}],
+            "addresses": [{"ip": "100.100.100.100"}],
             "web_ui": {
                 "protocol_version": 1,
                 "endpoints": [{
@@ -654,7 +654,7 @@ mod mesh_spawn_failure_tests {
 
         assert_eq!(
             peer_api_url(&peer).as_deref(),
-            Some("http://100.84.159.37:7685")
+            Some("http://100.100.100.100:7685")
         );
     }
 
@@ -664,12 +664,12 @@ mod mesh_spawn_failure_tests {
             "api_port": 7685,
             "addresses": [
                 {"ip": "192.168.1.195", "is_tailscale": false},
-                {"ip": "100.84.159.37", "is_tailscale": true}
+                {"ip": "100.100.100.100", "is_tailscale": true}
             ]
         });
         assert_eq!(
             peer_api_url(&peer).as_deref(),
-            Some("http://100.84.159.37:7685")
+            Some("http://100.100.100.100:7685")
         );
 
         let lan_only = serde_json::json!({

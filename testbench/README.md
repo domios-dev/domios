@@ -18,7 +18,7 @@ expected result on the saved input.
 ## Run
 
 ```bash
-export CARGO_TARGET_DIR=/Users/kandrey/Developer/.psetup-target
+export CARGO_TARGET_DIR=/Users/user/Developer/.psetup-target
 bash testbench/run.sh
 ```
 

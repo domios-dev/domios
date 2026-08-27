@@ -2,10 +2,10 @@
   {
     "t_ms": 0,
     "event": "capture_start",
-    "cast": "/Users/kandrey/Developer/codeterm-alpha/testbench/replays/opencode/terminal_questions_choice_v1-20260621-question-choice-v1-opencode-terminal_questions_choice_v1-120x32/raw.cast",
+    "cast": "/Users/user/Developer/codeterm-alpha/testbench/replays/opencode/terminal_questions_choice_v1-20260621-question-choice-v1-opencode-terminal_questions_choice_v1-120x32/raw.cast",
     "capture_start_result": {
       "ok": true,
-      "out": "/Users/kandrey/Developer/codeterm-alpha/testbench/replays/opencode/terminal_questions_choice_v1-20260621-question-choice-v1-opencode-terminal_questions_choice_v1-120x32/raw.cast",
+      "out": "/Users/user/Developer/codeterm-alpha/testbench/replays/opencode/terminal_questions_choice_v1-20260621-question-choice-v1-opencode-terminal_questions_choice_v1-120x32/raw.cast",
       "width": 120,
       "height": 40
     }
@@ -301,8 +301,8 @@
     "event": "capture_stop",
     "capture_stop_result": {
       "ok": true,
-      "cast": "/Users/kandrey/Developer/codeterm-alpha/testbench/replays/opencode/terminal_questions_choice_v1-20260621-question-choice-v1-opencode-terminal_questions_choice_v1-120x32/raw.cast",
-      "screen": "/Users/kandrey/Developer/codeterm-alpha/testbench/replays/opencode/terminal_questions_choice_v1-20260621-question-choice-v1-opencode-terminal_questions_choice_v1-120x32/raw.screen.txt"
+      "cast": "/Users/user/Developer/codeterm-alpha/testbench/replays/opencode/terminal_questions_choice_v1-20260621-question-choice-v1-opencode-terminal_questions_choice_v1-120x32/raw.cast",
+      "screen": "/Users/user/Developer/codeterm-alpha/testbench/replays/opencode/terminal_questions_choice_v1-20260621-question-choice-v1-opencode-terminal_questions_choice_v1-120x32/raw.screen.txt"
     }
   }
 ]

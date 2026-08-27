@@ -10,7 +10,7 @@ ROOT="$(git rev-parse --show-toplevel)"
 # shellcheck source=/dev/null
 source "$ROOT/evals/_lib/lib.sh"   # auto dev_env; never aborts when dev is down
 
-export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-/Users/kandrey/Developer/.psetup-target}"
+export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-/Users/user/Developer/.psetup-target}"
 
 cd "$ROOT/src-tauri"
 exec cargo test --test agent_state_replay -- --nocapture

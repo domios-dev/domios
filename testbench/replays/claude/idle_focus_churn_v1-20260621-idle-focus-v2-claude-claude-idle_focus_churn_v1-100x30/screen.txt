@@ -1,4 +1,4 @@
-kandrey@ROC-6W49K3GN ct-replay-claude-idle_focus_churn_v1-8s1g1r9p % bash /tmp/codeterm-spawn-1a9f40d3-3662-4b48-9c80-6a29db8178bf.sh
+user@ROC-6W49K3GN ct-replay-claude-idle_focus_churn_v1-8s1g1r9p % bash /tmp/codeterm-spawn-1a9f40d3-3662-4b48-9c80-6a29db8178bf.sh
 ╭─── Claude Code v2.1.185 ─────────────────────────────────────────────────────────────────────────╮
 │                                                    │ Tips for getting started                    │
 │                Welcome back Andrey!                │ Ask Claude to create a new app or clone a … │

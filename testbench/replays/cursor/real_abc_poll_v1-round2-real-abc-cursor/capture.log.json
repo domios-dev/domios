@@ -2,10 +2,10 @@
   {
     "t_ms": 0,
     "event": "capture_start",
-    "cast": "/Users/kandrey/Developer/codeterm-alpha/testbench/replays/cursor/real_abc_poll_v1-round2-real-abc-cursor/raw.cast",
+    "cast": "/Users/user/Developer/codeterm-alpha/testbench/replays/cursor/real_abc_poll_v1-round2-real-abc-cursor/raw.cast",
     "capture_start_result": {
       "ok": true,
-      "out": "/Users/kandrey/Developer/codeterm-alpha/testbench/replays/cursor/real_abc_poll_v1-round2-real-abc-cursor/raw.cast",
+      "out": "/Users/user/Developer/codeterm-alpha/testbench/replays/cursor/real_abc_poll_v1-round2-real-abc-cursor/raw.cast",
       "width": 120,
       "height": 40
     }
@@ -207,8 +207,8 @@
     "event": "capture_stop",
     "capture_stop_result": {
       "ok": true,
-      "cast": "/Users/kandrey/Developer/codeterm-alpha/testbench/replays/cursor/real_abc_poll_v1-round2-real-abc-cursor/raw.cast",
-      "screen": "/Users/kandrey/Developer/codeterm-alpha/testbench/replays/cursor/real_abc_poll_v1-round2-real-abc-cursor/raw.screen.txt"
+      "cast": "/Users/user/Developer/codeterm-alpha/testbench/replays/cursor/real_abc_poll_v1-round2-real-abc-cursor/raw.cast",
+      "screen": "/Users/user/Developer/codeterm-alpha/testbench/replays/cursor/real_abc_poll_v1-round2-real-abc-cursor/raw.screen.txt"
     }
   }
 ]

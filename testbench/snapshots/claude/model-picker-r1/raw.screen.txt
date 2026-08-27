@@ -1,4 +1,4 @@
-kandrey@ROC-6W49K3GN codeterm-harvest-model % bash /tmp/codeterm-spawn-23fea289-adbf-4c2c-9e61-49cbe4fdff73.sh
+user@ROC-6W49K3GN codeterm-harvest-model % bash /tmp/codeterm-spawn-23fea289-adbf-4c2c-9e61-49cbe4fdff73.sh
 ╭─── Claude Code v2.1.185 ─────────────────────────────────────────────────────────────────────────────────────────────╮
 │                                                    │ Tips for getting started                                        │
 │                Welcome back Andrey!                │ Ask Claude to create a new app or clone a repository            │

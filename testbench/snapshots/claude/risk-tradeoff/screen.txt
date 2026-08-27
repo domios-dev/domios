@@ -1,4 +1,4 @@
-kandrey@ROC-6W49K3GN codeterm-snapshot-testbench % bash /tmp/codeterm-spawn-9a6b397d-93a3-4cd0-89e8-3bff042c3f00.sh
+user@ROC-6W49K3GN codeterm-snapshot-testbench % bash /tmp/codeterm-spawn-9a6b397d-93a3-4cd0-89e8-3bff042c3f00.sh
 ╭─── Claude Code v2.1.183 ─────────────────────────────────────────────────────────────────────────────────────────────╮
 │                                                    │ Tips for getting started                                        │
 │                Welcome back Andrey!                │ Ask Claude to create a new app or clone a repository            │

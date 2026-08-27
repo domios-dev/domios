@@ -229,7 +229,7 @@ test("Claude system-shaped user rows render neutral after normalization", async 
 
 test("Codex injected transcript rows render as collapsed neutral artifacts", async () => {
   const agentInstructions = [
-    "# AGENTS.md instructions for /Users/kandrey/Developer/codeterm-alpha",
+    "# AGENTS.md instructions for /Users/user/Developer/codeterm-alpha",
     "",
     "<INSTRUCTIONS>",
     "Full instructions visible only after expansion.",

@@ -1136,7 +1136,7 @@ Per-peer address management
 
 #### `codeterm mesh peer set-addr`
 
-Manually override our cached address for a paired peer. Useful when auto-detection is wrong or you want to point at a specific interface. Format: ip[:port]. Examples: codeterm mesh peer set-addr BLACKSTAR 100.84.159.37 codeterm mesh peer set-addr BLACKSTAR 192.168.1.42:7685
+Manually override our cached address for a paired peer. Useful when auto-detection is wrong or you want to point at a specific interface. Format: ip[:port]. Examples: codeterm mesh peer set-addr PEER-NAME 100.100.100.100 codeterm mesh peer set-addr PEER-NAME 192.168.1.42:7685
 
 - `<addr>` — New address as ip[:port]
 - `<peer>` — Target peer (instance_id or name)

@@ -567,7 +567,7 @@ assert(warned === 1, "parseSessionDelta emits one warning for a session with inv
 
 {
   const agentsText = [
-    "# AGENTS.md instructions for /Users/kandrey/Developer/codeterm-alpha",
+    "# AGENTS.md instructions for /Users/user/Developer/codeterm-alpha",
     "",
     "<INSTRUCTIONS>",
     "# CodeTerm",

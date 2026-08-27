@@ -1,4 +1,4 @@
-kandrey@ROC-6W49K3GN codeterm-snapshot-testbench % bash /tmp/codeterm-spawn-abf037b9-9185-4836-bd39-b18ef1ef4141.sh
+user@ROC-6W49K3GN codeterm-snapshot-testbench % bash /tmp/codeterm-spawn-abf037b9-9185-4836-bd39-b18ef1ef4141.sh
 
 
   Cursor Agent
