@@ -188,6 +188,7 @@ fn command_round_trips_through_json() {
         Command::WorkspaceClose {
             workspace_id: "w".into(),
             caller_tab_id: None,
+            force: false,
         },
         Command::WorkspaceList,
         Command::PtyResize {

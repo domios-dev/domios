@@ -67,7 +67,7 @@ as one.
 | POST | `/api/workspaces` | `{name, cwd?}` | Create workspace. When `cwd` matches an existing workspace, the existing workspace is returned with `existing: true`; no new workspace is created and the requested name is ignored. |
 | POST | `/api/workspaces/{id}/focus` | — | Switch to workspace |
 | POST | `/api/workspaces/{id}/rename` | `{name}` | Rename workspace |
-| POST | `/api/workspaces/{id}/close` | — | Delete workspace |
+| POST | `/api/workspaces/{id}/close` | `{force?}` | Delete workspace. Agent tabs require `force: true`; without it the response identifies the affected tabs and leaves the workspace open. |
 | GET | `/api/workspaces/{id}/recently-closed` | — | List recently-closed tab entries for this workspace. Returns `ClosedTab[]` (see [Closed History & Restore](#closed-history--restore)). |
 | POST | `/api/workspaces/{id}/reopen-closed` | `{index?}` | Reopen a recently-closed tab (browser Ctrl+Shift+T). `index` selects the ring entry (0 = most recent, default). Returns `TabInfo {id, title, tab_id}`. |
 | POST | `/api/workspaces/{id}/tabs` | — | Create tab |
@@ -220,4 +220,4 @@ The `connect`, `approve`, `reject`, and `disconnect` endpoints are high-level �
 
 Memory item, graph, calibration, and worker endpoints: `codeterm docs API-MEMORY`.
 
-<!-- revision: 16 -->
+<!-- revision: 17 -->

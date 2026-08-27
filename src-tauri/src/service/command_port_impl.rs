@@ -58,8 +58,13 @@ impl CommandPort for ServiceContext {
         ServiceContext::rename_workspace(self, ws_id, name)
     }
 
-    fn close_workspace_guarded(&self, caller: Option<&str>, ws_id: &str) -> Result<(), String> {
-        ServiceContext::close_workspace_guarded(self, caller, ws_id)
+    fn close_workspace_guarded(
+        &self,
+        caller: Option<&str>,
+        ws_id: &str,
+        force: bool,
+    ) -> Result<(), String> {
+        ServiceContext::close_workspace_guarded(self, caller, ws_id, force)
     }
 
     fn list_workspaces(&self) -> Vec<WorkspaceInfo> {

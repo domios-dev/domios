@@ -64,6 +64,17 @@ pub fn ensure_general_workspace(
     let mut duplicates_closed = 0usize;
     if protected_ws.len() > 1 {
         for ws in &protected_ws[1..] {
+            let has_agent_tab = ws
+                .tab_ids
+                .iter()
+                .any(|tab_id| mux.get_tab(tab_id).is_some_and(|tab| tab.agent_type.is_some()));
+            if has_agent_tab {
+                log::warn!(
+                    "[general-agent] Leaving duplicate protected workspace {} because it contains agent tabs",
+                    ws.id
+                );
+                continue;
+            }
             mux.set_workspace_protected(&ws.id, false);
             if mux.close_workspace(&ws.id).is_ok() {
                 duplicates_closed += 1;

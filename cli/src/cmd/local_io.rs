@@ -192,8 +192,8 @@ pub(crate) fn handle_workspace_action(
             "workspace.rename",
             Some(serde_json::json!({ "workspace_id": id, "name": name })),
         )),
-        WorkspaceAction::Close { id } => {
-            let mut params = serde_json::json!({ "workspace_id": id });
+        WorkspaceAction::Close { id, force } => {
+            let mut params = serde_json::json!({ "workspace_id": id, "force": force });
             crate::cmd::plan::caller_context::CallerContext::from_env()
                 .apply_caller_tab(&mut params);
             Some(client.call("workspace.close", Some(params)))
