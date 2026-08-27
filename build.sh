@@ -1440,6 +1440,7 @@ EOF
     cargo fmt --manifest-path src-tauri/Cargo.toml --all --check
     cargo fmt --manifest-path cli/Cargo.toml --all --check
     bash scripts/check-file-sizes.sh --fail
+    bash scripts/check-empty-array-expansion.sh
     node scripts/check-plugin-bundles.mjs
     node scripts/sync-plugin-versions.mjs --check
     cargo check --manifest-path src-tauri/Cargo.toml
@@ -1491,6 +1492,7 @@ EOF
     cargo check --manifest-path src-tauri/Cargo.toml
     run_workspace_lib_tests
     bash scripts/check-file-sizes.sh --fail
+    bash scripts/check-empty-array-expansion.sh
     ;;
   worktree-check)
     prepare_exceptional_worktree_target

@@ -24,7 +24,7 @@ for cf in $GLOB; do
       "$HARNESS_DIR/run-case.sh" "$cf" "$id" "$prov" "$RUNS_DIR" &
       pids+=($!)
     done
-    for p in "${pids[@]}"; do wait "$p" || true; done
+    for p in ${pids[@]+"${pids[@]}"}; do wait "$p" || true; done
     echo "done: $id"
   done
 done
