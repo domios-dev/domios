@@ -149,8 +149,7 @@ fn the_socket_entrance_refuses_a_stale_caller_and_writes_nothing() {
         &socket_params(&fx.foreign, "SOCKET_HIJACK", Some(WORKER)),
         10,
     )
-    .err()
-    .expect("a tab that no longer holds the task must not write it");
+    .expect_err("a tab that no longer holds the task must not write it");
 
     assert!(
         error.message.contains(STALE_TASK_HINT_REFUSAL),
@@ -176,8 +175,7 @@ fn the_http_entrance_refuses_the_same_stale_caller_and_writes_nothing() {
         &http_body(&fx.foreign, "HTTP_HIJACK", Some(WORKER)),
         11,
     )
-    .err()
-    .expect("a permitted client is not thereby the task's holder");
+    .expect_err("a permitted client is not thereby the task's holder");
 
     assert_eq!(status, axum::http::StatusCode::FORBIDDEN);
     assert!(payload.0["error"]
@@ -298,8 +296,7 @@ fn the_refusal_leaves_a_trace_naming_the_attempting_tab() {
         &socket_params(&fx.foreign, "TRACE", Some(WORKER)),
         15,
     )
-    .err()
-    .expect("refused");
+    .expect_err("refused");
     let socket_trace = socket.data.expect("the refusal must carry structured data");
     assert_eq!(socket_trace["type"], json!(super::STALE_TASK_BINDING_TYPE));
     assert_eq!(socket_trace["attempted_by_tab"], json!(WORKER));
@@ -313,8 +310,7 @@ fn the_refusal_leaves_a_trace_naming_the_attempting_tab() {
         &http_body(&fx.foreign, "TRACE", Some(WORKER)),
         16,
     )
-    .err()
-    .expect("refused");
+    .expect_err("refused");
     assert_eq!(payload.0["plan_error"], socket_trace);
 
     // An unidentified caller is traced as such rather than passing anonymously.
@@ -324,8 +320,7 @@ fn the_refusal_leaves_a_trace_naming_the_attempting_tab() {
         &socket_params(&fx.foreign, "TRACE_ANON", None),
         17,
     )
-    .err()
-    .expect("refused");
+    .expect_err("refused");
     assert_eq!(
         anonymous.data.expect("structured data")["attempted_by_tab"],
         Value::Null
