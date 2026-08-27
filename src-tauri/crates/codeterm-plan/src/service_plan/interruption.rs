@@ -29,10 +29,24 @@ pub(crate) fn authorize_task_mutation(
         && task.interruption.owner_tab_id.as_deref() == Some(&authority.tab_id)
         && task.interruption.owner_session_id.as_deref() == Some(&authority.session_id);
     if orchestrator || worker {
-        Ok(())
-    } else {
-        Err(PlanError::Io("stale task mutation authority".into()))
+        return Ok(());
     }
+    // Name what was compared. A refusal that says only "stale" leaves the reader
+    // guessing which half moved, and the stored ids are exposed by no command,
+    // so the field evidence for this refusal has to come from the refusal.
+    let same_tab = task.interruption.owner_tab_id.as_deref() == Some(&authority.tab_id);
+    Err(PlanError::Io(format!(
+        "stale task mutation authority: caller tab {} session {}; task owner tab {} session {}{}",
+        authority.tab_id,
+        authority.session_id,
+        task.interruption.owner_tab_id.as_deref().unwrap_or("-"),
+        task.interruption.owner_session_id.as_deref().unwrap_or("-"),
+        if same_tab {
+            " (same tab, session moved)"
+        } else {
+            ""
+        },
+    )))
 }
 
 #[cfg(test)]
