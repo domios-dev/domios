@@ -370,6 +370,13 @@ impl ChatBackendRegistry {
         }
     }
 
+    /// Drop the entry but keep its models. A reload re-registers immediately and
+    /// resolves the new models asynchronously; clearing the catalog first leaves
+    /// a window where the plugin is registered and answers with none.
+    pub fn unregister_for_reload(&self, id: &str) {
+        self.entries.write().remove(id);
+    }
+
     pub fn get(&self, id: &str) -> Option<Arc<dyn ChatBackendProvider>> {
         self.entries
             .read()
