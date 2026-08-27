@@ -19,6 +19,20 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Formatting is platform-independent, so it does not belong inside a platform
+  # lane: gating that lane off silences the check with it, which is how 22 files
+  # drifted unseen. Its own job on the fastest runner, seconds long.
+  fmt:
+    name: fmt
+    runs-on: [self-hosted, codeterm-builder]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: cargo fmt --check
+        run: |
+          cargo fmt --manifest-path src-tauri/Cargo.toml --check
+          cargo fmt --manifest-path cli/Cargo.toml --check
+
   rust-linux:
     name: rust (linux)
     runs-on: [self-hosted, linux-build]
@@ -60,11 +74,6 @@ jobs:
           cargo build --manifest-path src-tauri/Cargo.toml --bin codeterm-embed
           file src-tauri/target/debug/codeterm-embed | grep -q ELF
           cp src-tauri/target/debug/codeterm-embed "$RUNNER_TEMP/codeterm-embed-runtime"
-
-      - name: fmt
-        run: |
-          cargo fmt --manifest-path src-tauri/Cargo.toml --check
-          cargo fmt --manifest-path cli/Cargo.toml --check
 
       - name: File-size discipline
         run: bash scripts/check-file-sizes.sh --fail
