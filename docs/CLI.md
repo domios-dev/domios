@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 44 -->
+<!-- revision: 45 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -3039,6 +3039,7 @@ Workspace management
 
 Close/delete a workspace
 
+- `--force` — Explicitly acknowledge destroying agent tabs in this workspace
 - `<id>` — Workspace ID
 
 #### `codeterm workspace create`

@@ -217,8 +217,8 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 format!("/api/workspaces/{}/rename", id),
                 Some(serde_json::json!({"name": name}).to_string()),
             ),
-            crate::WorkspaceAction::Close { id } => {
-                ("POST".into(), format!("/api/workspaces/{}/close", id), None)
+            crate::WorkspaceAction::Close { id, force } => {
+                ("POST".into(), format!("/api/workspaces/{}/close", id), Some(serde_json::json!({"force": force}).to_string()))
             }
             crate::WorkspaceAction::MoveTab { tab_id, from, to } => (
                 "POST".into(),
