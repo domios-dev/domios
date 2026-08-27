@@ -7,10 +7,11 @@
  */
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { expect, test, type Browser, type Page, type TabCleanup, API_BASE, readDevToken } from "../../helpers/fixtures";
+import { expect, test, type Browser, type Page, type SpawnAgent, type TabCleanup, API_BASE, readDevToken } from "../../helpers/fixtures";
 import type { ApiClient } from "../../helpers/api-client";
 import { auditKnownSurfaces, collectViewportOffenders, INTERACTIVE, revealOwnedHorizontalSurface, type ReachabilityMode } from "../../helpers/mobile-overflow";
 import { tempSpawnCwd } from "../../helpers/spawn-cwd";
+import { isStubTransportActive } from "../../helpers/stub-gate";
 
 const VIEWPORTS = [
   { width: 320, height: 568, name: "320x568" },
@@ -33,7 +34,9 @@ type MuxState = {
   workspaces: Array<{
     id: string;
     cwd?: string | null;
-    tabs: Array<{ id: string; tab_id: string }>;
+    /** `Workspace.tabs` is a list of tab ids (src/lib/types.ts `tabs: string[]`),
+     *  never objects carrying `tab_id`. */
+    tabs: string[];
   }>;
 };
 type Health = {
@@ -143,10 +146,21 @@ async function auditViewport(page: Page, label: string, options: { reachability?
   }
 }
 
+/**
+ * A role is only assignable to a tab whose agent already has a VERIFIED live
+ * session: both `make-orchestrator` and `POST /tabs/{id}/role` transition with
+ * `require_verified_session: true`, and `agent_transition.rs` then demands an
+ * `agent_session_id` plus a session-binding nonce the agent has REPORTED back.
+ * `POST /tabs/{id}/agent-type` only declares a type — it spawns nothing — so a
+ * bare tab can never be promoted. `spawn_agent` is the one path that does not
+ * require a prior session, because it establishes one; a Team anchor therefore
+ * has to be spawned with its role, not created bare and promoted afterwards.
+ */
 async function prepareTargetTab(
   api: ApiClient,
   tabCleanup: TabCleanup,
   seedTeam: boolean,
+  spawnAgent?: SpawnAgent,
 ): Promise<TargetTab> {
   const tabTitle = `pw-mobile-layer-${Date.now()}`;
   let fixtureWorkspaceId: string | undefined;
@@ -157,33 +171,51 @@ async function prepareTargetTab(
     fixtureWorkspaceId = (await api.workspaces()).find((workspace) => workspace.cwd === fixtureCwd)?.id;
     if (!fixtureWorkspaceId) throw new Error(`project-backed Team workspace was not created for ${fixtureCwd}`);
   }
-  const tab = await tabCleanup.createTab<CreatedTab>({
-    title: tabTitle,
-    eager: true,
-    ...(fixtureWorkspaceId ? { workspace_id: fixtureWorkspaceId, cwd: fixtureCwd } : {}),
+
+  let tabId: string;
+  if (seedTeam) {
+    if (!spawnAgent) throw new Error("a seeded Team needs the spawnAgent fixture to create its anchor");
+    const spawned = await spawnAgent({
+      agent: "claude",
+      role: "Orchestrator",
+      title: tabTitle,
+      workspace_id: fixtureWorkspaceId,
+      cwd: fixtureCwd,
+      skip_permissions: true,
+      activate: true,
+    });
+    tabId = spawned.tab_id;
+    tabCleanup.track(tabId);
+  } else {
+    const tab = await tabCleanup.createTab<CreatedTab>({ title: tabTitle, eager: true });
+    tabId = tab.id;
+    await api.post(`/tabs/${tabId}/agent-type`, { agent_type: "claude" });
+  }
+  await api.post(`/tabs/${tabId}/chat-view`, { enabled: true });
+  // chat-raw/start installs a per-subscriber tailer and REQUIRES its id:
+  // `ChatSubscriptionBody { subscription_id }` is `#[serde(rename_all = "camelCase")]`
+  // with no default, so an absent body is rejected before the handler runs. The
+  // frontend sends the same field (bridge.ts `chat_start`).
+  const chat = await api.post<ChatStart>(`/tabs/${tabId}/chat-raw/start`, {
+    subscriptionId: `pw-mobile-overflow-${tabId}`,
   });
-  await api.post(`/tabs/${tab.id}/agent-type`, { agent_type: "claude" });
-  await api.post(`/tabs/${tab.id}/make-orchestrator`, {});
-  await api.post(`/tabs/${tab.id}/chat-view`, { enabled: true });
-  const chat = await api.post<ChatStart>(`/tabs/${tab.id}/chat-raw/start`);
   expect(chat.pending, "authenticated chat-raw/start returns a ready transcript").toBe(false);
-  await api.focusTab(tab.id);
+  await api.focusTab(tabId);
 
   const mux = await api.get<MuxState>("/mux/state");
   for (const workspace of mux.workspaces) {
     if (fixtureWorkspaceId && workspace.id !== fixtureWorkspaceId) continue;
-    const tab = workspace.tabs.find((candidate) => candidate.tab_id === tab.id);
-    if (!tab) continue;
-    if (!seedTeam) return { tabId: tab.id, tabTitle, workspaceId: workspace.id };
+    if (!workspace.tabs.includes(tabId)) continue;
+    if (!seedTeam) return { tabId, tabTitle, workspaceId: workspace.id };
     if (!workspace.cwd) throw new Error(`Team fixture workspace ${workspace.id} has no cwd`);
     const plan = await api.post<{ plan_id: string; team_id: string }>("/plans", {
       title: `pw-mobile-team-${Date.now()}`,
       project_path: workspace.cwd,
-      owner: { tab_id: tab.id, session_id: null, title: tabTitle },
+      owner: { tab_id: tabId, session_id: null, title: tabTitle },
       kinds: "implement:#38bdf8",
     });
     return {
-      tabId: tab.id,
+      tabId,
       tabTitle,
       workspaceId: workspace.id,
       planId: plan.plan_id,
@@ -191,7 +223,7 @@ async function prepareTargetTab(
       fixtureWorkspaceId,
     };
   }
-  throw new Error(`created tab ${tab.id} has no owning tab in mux state`);
+  throw new Error(`created tab ${tabId} has no owning workspace in mux state`);
 }
 
 async function waitSidebarClosed(page: Page): Promise<void> {
@@ -1014,7 +1046,9 @@ for (const vp of VIEWPORTS) {
     const health = await assertHealthMatchesHead();
     await testInfo.attach("health.json", { body: JSON.stringify(health, null, 2), contentType: "application/json" });
 
-    const target = await prepareTargetTab(api, tabCleanup, vp.name === "390x844");
+    // Pure layout: no role, no Team, no agent runtime. The Team-manager surface
+    // needs a live anchor and lives in its own gated test below.
+    const target = await prepareTargetTab(api, tabCleanup, false);
     const page = await newWebPage(webBrowser, vp);
     try {
       await openApp(page);
@@ -1041,10 +1075,6 @@ for (const vp of VIEWPORTS) {
       await auditSidebarDrawer(page, `${vp.name} closed sidebar`, false);
 
       await openSidebar(page);
-      if (vp.name === "390x844") {
-        await assertActiveManagerReadable(api, page, target, `${vp.name} Team manager`);
-        await openSidebar(page);
-      }
       await auditSidebarDrawer(page, `${vp.name} open sidebar`, true);
       await auditViewport(page, `${vp.name} open sidebar`, { reachability: "open-drawer" });
       await clickSidebarScrimAndAssertClosed(page, `${vp.name} open sidebar`);
@@ -1100,9 +1130,22 @@ for (const vp of VIEWPORTS) {
       await page.locator('[data-testid="nav-mesh"]').click();
       const meshTab = page.locator('[data-testid="mesh-tab-network"]');
       await meshTab.waitFor({ state: "visible", timeout: 10_000 });
-      const meshToolbar = page.locator(".ct-hscroll").filter({ has: meshTab });
-      await expect(meshToolbar, `${vp.name} mesh exact hscroll toolbar owner`).toHaveCount(1);
+      // The mesh section no longer owns a horizontal scroller: `.ct-section-toolbar`
+      // WRAPS below 640px and gives the tab rail the full width (globals.css), so
+      // the rail must already be whole inside the viewport with nothing to reveal.
+      const meshToolbar = page.locator(".ct-section-toolbar").filter({ has: meshTab });
+      await expect(meshToolbar, `${vp.name} mesh exact toolbar owner`).toHaveCount(1);
+      await expect(
+        page.locator(".ct-hscroll").filter({ has: meshTab }),
+        `${vp.name} mesh rail must not need a horizontal scroller`,
+      ).toHaveCount(0);
       await revealOwnedHorizontalSurface(page, meshTab, `${vp.name} mesh`);
+      const railBox = await meshTab.boundingBox();
+      expect(railBox, `${vp.name} mesh rail box`).toBeTruthy();
+      if (railBox) {
+        expect(railBox.x, `${vp.name} mesh rail left`).toBeGreaterThanOrEqual(-1);
+        expect(railBox.x + railBox.width, `${vp.name} mesh rail right`).toBeLessThanOrEqual(vp.width + 1);
+      }
       await settleLayout(page);
       await auditKnownSurfaces(page, `${vp.name} mesh`);
       await auditViewport(page, `${vp.name} mesh`);
@@ -1115,3 +1158,31 @@ for (const vp of VIEWPORTS) {
     }
   });
 }
+
+// The one phone surface that cannot be reached without a live agent: a Team's
+// managers section only renders tabs whose role ANCHORS the Team, and a role
+// requires a verified live session. It is split from the layout viewports above
+// so those keep no agent-runtime dependency at all.
+test("@golden mobile web Team managers stay readable in the phone drawer", async ({ webBrowser, api, tabCleanup, spawnAgent }) => {
+  test.skip(
+    !(await isStubTransportActive(api)),
+    "dev daemon is not running with CODETERM_STUB_AGENT_CMD",
+  );
+  const vp = { width: 390, height: 844, name: "390x844" } as const;
+  const target = await prepareTargetTab(api, tabCleanup, true, spawnAgent);
+  const page = await newWebPage(webBrowser, vp);
+  try {
+    await openApp(page);
+    await settleLayout(page);
+    await openSidebarAndSelectTargetTab(api, page, target, `${vp.name} initial target`);
+    await openSidebar(page);
+    await assertActiveManagerReadable(api, page, target, `${vp.name} Team manager`);
+    await openSidebar(page);
+    await auditSidebarDrawer(page, `${vp.name} Team manager drawer`, true);
+    await auditViewport(page, `${vp.name} Team manager drawer`, { reachability: "open-drawer" });
+  } finally {
+    await page.context().close();
+    if (target.planId) await api.deletePlan(target.planId).catch(() => {});
+    if (target.fixtureWorkspaceId) await api.closeWorkspace(target.fixtureWorkspaceId).catch(() => {});
+  }
+});

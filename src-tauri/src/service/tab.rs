@@ -200,9 +200,13 @@ impl ServiceContext {
         let post_focus = self.mux.read().get_focused_tab_id().map(str::to_string);
         self.kill_ptys(&pty_ids);
         self.finish_tab_close(tab_id)?;
-        self.notif
-            .lock()
-            .close_push_scope(&crate::notification::push::tab_scope(tab_id));
+        {
+            let mut notif = self.notif.lock();
+            notif.close_push_scope(&crate::notification::push::tab_scope(tab_id));
+            // An unanswered question outlives its tab as a visibly undeliverable
+            // card, never as buttons that would quietly do nothing.
+            notif.forget_answer_tab(tab_id);
+        }
         session_persist::persist_session_after_close(self);
         self.emit_state_changed();
         if pre_focus != post_focus {

@@ -340,12 +340,16 @@ pub fn create_router(state: AppState) -> Router {
             post(notification_routes::clear_notifications),
         )
         .route(
-            "/api/notifications/telegram-gate",
-            get(notification_routes::telegram_push_gate),
+            "/api/notifications/channels",
+            get(notification_routes::push_channel_roster),
         )
         .route(
             "/api/notifications/{id}/read",
             post(notification_routes::mark_notification_read),
+        )
+        .route(
+            "/api/notifications/{id}/answer",
+            post(notification_routes::answer_notification),
         )
         .route(
             "/api/notifications/{id}",

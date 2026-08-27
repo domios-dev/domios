@@ -1,3 +1,5 @@
+use codeterm_types::team::general_agent_membership::MembershipAttempt;
+
 use crate::multiplexer::commands::MuxState;
 use crate::multiplexer::types::AgentRole;
 use crate::plan::{MilestoneKind, OrchestratorRef, Plan};
@@ -237,6 +239,16 @@ pub(crate) fn create_team_plan_for_orchestrator(
             "Tab {owner_tab_id} is not an Orchestrator"
         )));
     }
+    // Membership door 4: minting a plan's Team writes it onto the owner Tab,
+    // and the General Agent kind anchors, so it would qualify without this.
+    let shape = crate::service::general_agent::shape_for_tab(&state, &owner_tab_id);
+    crate::service::general_agent::refuse_general_agent_team_membership(
+        &state,
+        &owner_tab_id,
+        MembershipAttempt::Join,
+        &shape,
+    )
+    .map_err(|refusal| TeamPlanCreationError::Team(refusal.to_string()))?;
     let team = state
         .resolve_or_mint_team_for_parent(&owner_tab_id)
         .map_err(TeamPlanCreationError::Team)?;

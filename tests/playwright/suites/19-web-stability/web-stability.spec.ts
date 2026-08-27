@@ -24,7 +24,8 @@ type MuxState = {
   workspaces: {
     id: string;
     name: string;
-    tabs: { id: string; title?: string; tab_id?: string; children?: unknown[] }[];
+    /** A list of tab IDS (`Workspace.tabs: string[]`); titles live on `tabs`. */
+    tabs: string[];
     active_tab_id?: string | null;
   }[];
   tabs: Record<string, { id: string; title?: string; pending_prompt?: { question?: string } | null }>;
@@ -66,14 +67,23 @@ async function focusTab(page: Page, tabId: string): Promise<void> {
 async function waitDomMarker(page: Page, marker: string, tabId?: string, timeout = 60_000): Promise<void> {
   await page.waitForFunction(
     ({ marker: expected, tabId: id }) => {
-      const scope = id ? document.querySelector(`[data-tab-id="${id}"]`) : document;
-      if (!scope) return false;
-      const text = Array.from(
-        scope.querySelectorAll(".xterm-accessibility, .xterm-accessibility-tree, .xterm-rows, [data-testid='chat-message']"),
-      )
-        .map((el) => (el as HTMLElement).innerText || el.textContent || "")
-        .join("\n");
-      return text.includes(expected);
+      // The sidebar row (TabItem) and the terminal/chat hosts ALL carry
+      // data-tab-id, and the sidebar comes first in document order — so a bare
+      // querySelector scoped every search to a node that can never hold terminal
+      // text. Search every host that owns this tab.
+      const roots: ParentNode[] = id
+        ? Array.from(document.querySelectorAll(`[data-tab-id="${id}"]`))
+        : [document];
+      if (roots.length === 0) return false;
+      const chunks: string[] = [];
+      for (const root of roots) {
+        for (const el of Array.from(
+          root.querySelectorAll(".xterm-accessibility, .xterm-accessibility-tree, .xterm-rows, [data-testid='chat-message']"),
+        )) {
+          chunks.push((el as HTMLElement).innerText || el.textContent || "");
+        }
+      }
+      return chunks.join("\n").includes(expected);
     },
     { marker, tabId },
     { timeout, polling: 500 },
@@ -106,8 +116,9 @@ async function sendShell(api: ApiClient, tabId: string, text: string, enter = tr
 async function waitMuxTabTitle(api: ApiClient, tabId: string, title: string): Promise<void> {
   await pollUntil(async () => {
     const mux = await api.get<MuxState>("/mux/state");
-    return mux.workspaces.some((ws) =>
-      ws.tabs.some((tab) => tab.id === tabId && (tab.title === title || (tab.tab_id && mux.tabs[tab.tab_id]?.title === title))),
+    return (
+      mux.workspaces.some((ws) => ws.tabs.includes(tabId)) &&
+      mux.tabs[tabId]?.title === title
     ) || undefined;
   }, 20_000, 500, `mux tab title ${title}`);
 }
@@ -649,13 +660,19 @@ test.describe("@golden web stability verification", () => {
         port: stub.port,
       });
       peerId = added.instance_id;
-      stub.instanceId = peerId;
+      // Pairing rejects non-UUID identities and remaps the daemon's
+      // manual-<uuid> placeholder to the peer's real id — the stub must present
+      // its own UUID, so never overwrite it with the placeholder.
       await api.post("/mesh/connect", { instance_id: peerId });
       await stub.waitForPairAccept();
       await pollUntil(async () => {
         const peers = await api.get<{ paired: { instance_id: string }[] }>("/mesh/peers");
-        return peers.paired.some((p) => p.instance_id === peerId) || undefined;
+        return peers.paired.some((p) => p.instance_id === stub.instanceId) || undefined;
       }, 20_000, 500, "stub peer pairs");
+      peerId = stub.instanceId;
+      // The version-skew guard disables peers that have not announced the
+      // current relay protocol version.
+      await stub.announce();
 
       await openWeb(page);
       await page.click('[data-testid="peer-picker-button"]');
@@ -663,13 +680,13 @@ test.describe("@golden web stability verification", () => {
       await expect(item).toBeVisible({ timeout: 20_000 });
       await expect(item).toHaveAttribute("data-peer-online", "true");
       await item.click();
-      try {
-        await expect(
-          page.locator(`[data-testid="workspace-item"][data-workspace-name="${stub.instanceName}-workspace"]`),
-        ).toBeVisible({ timeout: 5_000 });
-      } catch {
-        test.skip(true, "GATE-4 feature gap: MeshStub peer is listed online, but switched-peer workspace does not render in this branch");
-      }
+      // Read the name off the stub; recomposing it here is how a fixture rename
+      // becomes a spec bug. Budget matches the peer-switching golden — the same
+      // relay round-trip needs the same allowance.
+      await expect(
+        page.locator(`[data-testid="workspace-item"][data-workspace-name="${stub.workspaceName}"]`),
+        "switched-peer ordinary workspace did not render as a sidebar card",
+      ).toBeVisible({ timeout: 20_000 });
       expect(stub.requests.some((r) => r.includes("/api/mux/state") || r.includes("/api/workspaces"))).toBe(true);
     } finally {
       if (peerId) await api.post(`/mesh/peers/disconnect/${peerId}`).catch(() => {});

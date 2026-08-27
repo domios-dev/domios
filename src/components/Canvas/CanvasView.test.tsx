@@ -5,7 +5,8 @@ import { Window } from "happy-dom";
 import { __setListenForTest } from "../../lib/bridge";
 import type { Workspace } from "../../lib/types";
 import { FIXTURE_PLAN, FIXTURE_SECTION, FIXTURE_TASK } from "./cards/fixtures.testdata";
-import { CanvasViewInner } from "./CanvasView";
+import { bindFixtureOwnersToWorkspace, CanvasViewInner, fixtureOwnerTabIds } from "./CanvasView";
+import { filterPlansForCanvas } from "./planTabMatch";
 import type { RenderReadbackNode } from "./canvasRender/drawScene";
 import type { Plan } from "./types";
 
@@ -204,6 +205,47 @@ test("canvas spec node reflects spec sections loaded from the API", async () => 
   assert(spec?.sectionTitles.includes("Extra section"), "loaded spec sections appear in the spec card");
   Object.defineProperty(globalThis, "fetch", { configurable: true, value: originalFetch });
   await act(async () => root.unmount());
+});
+
+const OTHER_WS_ID = "ws-other";
+const TWO_WORKSPACES: Workspace[] = [
+  ...WORKSPACES,
+  { id: OTHER_WS_ID, name: "Other", tabs: ["orch-other"], active_tab_id: null, cwd: null },
+];
+const FIXTURE_OWNED_PLAN: Plan = {
+  ...FIXTURE_PLAN,
+  id: "perf_plan",
+  owner: { tab_id: "perf_orch", session_id: null, title: null },
+};
+const FOREIGN_PLAN: Plan = {
+  ...FIXTURE_PLAN,
+  id: "foreign_plan",
+  owner: { tab_id: "orch-other", session_id: null, title: null },
+};
+const scopeOpts = (workspaces: Workspace[]) => ({ workspaceId: WS_ID, workspaces, teams: [], tabs: {} });
+
+// NEGATIVE CONTROL: no fixture active must leave workspace scoping exactly as it was.
+test("no fixture active: workspaces are untouched and a foreign-workspace plan is still filtered out", () => {
+  const bound = bindFixtureOwnersToWorkspace(TWO_WORKSPACES, WS_ID, fixtureOwnerTabIds([], [FOREIGN_PLAN]));
+  assert(bound === TWO_WORKSPACES, "no fixture owners → the same workspaces array is handed down");
+  const kept = filterPlansForCanvas([FOREIGN_PLAN], "workspace", scopeOpts(bound));
+  assert(kept.length === 0, `foreign-workspace plan must not reach the canvas, got ${kept.length}`);
+});
+
+test("fixture active: the fixture plan is admitted and a foreign-workspace plan is still filtered out", () => {
+  const ownerIds = fixtureOwnerTabIds([FIXTURE_OWNED_PLAN], [FIXTURE_OWNED_PLAN, FOREIGN_PLAN]);
+  assert(ownerIds.join(",") === "perf_orch", `fixture owner ids, got ${ownerIds.join(",")}`);
+  const bound = bindFixtureOwnersToWorkspace(TWO_WORKSPACES, WS_ID, ownerIds);
+  const kept = filterPlansForCanvas([FIXTURE_OWNED_PLAN, FOREIGN_PLAN], "workspace", scopeOpts(bound));
+  assert(kept.length === 1 && kept[0].id === "perf_plan", `only the fixture plan is scoped in, got ${kept.map((p) => p.id).join(",")}`);
+  const other = TWO_WORKSPACES.find((w) => w.id === OTHER_WS_ID)!;
+  const boundOther = bound.find((w) => w.id === OTHER_WS_ID)!;
+  assert(boundOther.tabs.join(",") === other.tabs.join(","), "other workspaces keep their own tab list");
+});
+
+test("fixture plans that the shell did not receive contribute no owner binding", () => {
+  const ownerIds = fixtureOwnerTabIds([FIXTURE_OWNED_PLAN], [FOREIGN_PLAN]);
+  assert(ownerIds.length === 0, `unshown fixture plans bind nothing, got ${ownerIds.join(",")}`);
 });
 
 async function main() {

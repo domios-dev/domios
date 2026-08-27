@@ -263,7 +263,7 @@ pub struct SessionBackupInfo {
 }
 
 pub struct SessionStore {
-    session_dir: PathBuf,
+    pub(crate) session_dir: PathBuf,
 }
 
 impl SessionStore {

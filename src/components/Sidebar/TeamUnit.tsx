@@ -21,12 +21,15 @@ import {
 import { loadTeamDisclosureState, persistTeamDisclosureState } from "./teamDisclosureState";
 
 export interface SidebarTeamActions {
-  onRenameTeam?: (teamId: string, name: string, managerTabId: string) => void | Promise<void>;
+  /// `managerTabId` is null when the Team holds no member that can spawn. The
+  /// daemon accepts that for an anchoring role and refuses it for any other, so
+  /// a stalled Team can still receive the manager it is told to route through.
+  onRenameTeam?: (teamId: string, name: string, managerTabId: string | null) => void | Promise<void>;
   onAddTeamMember?: (
     teamId: string,
     role: TeamMemberRole,
     providerId: string,
-    managerTabId: string,
+    managerTabId: string | null,
     model?: string,
   ) => void | Promise<void>;
   onCloseTeam?: (teamId: string) => void | Promise<void>;
@@ -125,6 +128,7 @@ interface TeamMenuProps {
   contextMenuTargetRef: RefObject<HTMLElement | null>;
   onOpenPlan?: () => void;
   onRename?: () => void;
+  addableRoles?: readonly TeamMemberRole[];
   onAddMember?: (role: TeamMemberRole, providerId: string, model?: string) => void | Promise<void>;
   onCloseTeam?: () => void;
 }
@@ -135,6 +139,7 @@ function TeamMenu({
   contextMenuTargetRef,
   onOpenPlan,
   onRename,
+  addableRoles,
   onAddMember,
   onCloseTeam,
 }: TeamMenuProps) {
@@ -338,7 +343,7 @@ function TeamMenu({
             <>
               {onOpenPlan && <button type="button" role="menuitem" onClick={() => run(onOpenPlan)}><ClipboardList size={11} /> Open Plan</button>}
               {onRename && <button type="button" role="menuitem" onClick={() => run(onRename)}>Rename</button>}
-              {onAddMember && (["orchestrator", "planner", "worker"] as const).map((role) => (
+              {onAddMember && (addableRoles ?? (["orchestrator", "planner", "worker"] as const)).map((role) => (
                 <button type="button" role="menuitem" aria-haspopup="menu" key={role} onClick={() => setProviderRole(role)}>
                   Add {role} <ChevronRight size={11} className="ml-auto" />
                 </button>
@@ -376,6 +381,7 @@ export interface TeamUnitProps {
   providersLoading?: boolean;
   onRenameTeam?: (teamId: string, name: string) => void | Promise<void>;
   onOpenEffort: (target: TeamEffortTarget) => void;
+  addableRoles?: readonly TeamMemberRole[];
   onAddMember?: (role: TeamMemberRole, providerId: string, model?: string) => void | Promise<void>;
   onCloseTeam?: (teamId: string) => void;
 }
@@ -402,6 +408,7 @@ export function TeamUnit({
   providers,
   providersLoading,
   onRenameTeam,
+  addableRoles,
   onOpenEffort,
   onAddMember,
   onCloseTeam,
@@ -563,6 +570,7 @@ export function TeamUnit({
 
   return (
     <section
+      aria-label={displayTitle}
       data-testid="team-unit"
       data-team-id={team.id}
       data-expanded={expanded ? "true" : "false"}
@@ -602,6 +610,7 @@ export function TeamUnit({
                 setRenameError(null);
                 setEditing(true);
               } : undefined}
+              addableRoles={addableRoles}
               onAddMember={onAddMember}
               onCloseTeam={onCloseTeam ? () => onCloseTeam(team.id) : undefined}
             />
@@ -619,13 +628,23 @@ export function TeamUnit({
       {expanded && (
         <div className="sidebar-team-body">
           {managerCount > 0 && (
-            <div data-testid="managers-section" className="sidebar-team-section">
+            <div
+              role="group"
+              aria-label={`${displayTitle} managers`}
+              data-testid="managers-section"
+              className="sidebar-team-section"
+            >
               <div className="sidebar-team-section-label">MANAGERS {managerCount}</div>
               <div className="sidebar-team-member-list">{managers}</div>
             </div>
           )}
           {workerCount > 0 && (
-            <div data-testid="workers-section" className="sidebar-team-section">
+            <div
+              role="group"
+              aria-label={`${displayTitle} workers`}
+              data-testid="workers-section"
+              className="sidebar-team-section"
+            >
               <SidebarDisclosure
                 data-testid="workers-collapse-toggle"
                 expanded={workersExpanded}
@@ -646,7 +665,12 @@ export function TeamUnit({
             </div>
           )}
           {terminalCount > 0 && (
-            <div data-testid="terminals-section" className="sidebar-team-section">
+            <div
+              role="group"
+              aria-label={`${displayTitle} utility shells`}
+              data-testid="terminals-section"
+              className="sidebar-team-section"
+            >
               <SidebarDisclosure
                 data-testid="terminals-collapse-toggle"
                 expanded={terminalsExpanded}
@@ -661,7 +685,12 @@ export function TeamUnit({
             </div>
           )}
           {cronCount > 0 && (
-            <div data-testid="crons-section" className="sidebar-team-section">
+            <div
+              role="group"
+              aria-label={`${displayTitle} scheduled jobs`}
+              data-testid="crons-section"
+              className="sidebar-team-section"
+            >
               <SidebarDisclosure
                 data-testid="crons-collapse-toggle"
                 expanded={cronsExpanded}

@@ -18,7 +18,7 @@ mod notification;
 mod orchestration;
 mod orchestrator;
 mod persona;
-mod plan;
+pub(crate) mod plan;
 mod plan_archive;
 mod plan_attachments;
 mod plan_competition;
@@ -43,6 +43,7 @@ mod plan_task_authority;
 mod plan_task_dispatch;
 mod plan_task_rpc;
 mod plan_time;
+pub(crate) mod protocol;
 mod safety_nudge;
 mod services;
 mod spec;
@@ -87,6 +88,9 @@ struct JsonRpcRequest {
     id: Option<serde_json::Value>,
     method: String,
     params: Option<serde_json::Value>,
+    /// Lenient by design: any non-integer value gates as the oldest protocol.
+    #[serde(default)]
+    protocol_version: Option<serde_json::Value>,
 }
 
 #[derive(Serialize)]
@@ -519,54 +523,7 @@ fn handle_connection(
                 }
 
                 let response = match serde_json::from_str::<JsonRpcRequest>(trimmed) {
-                    Ok(req) => {
-                        let id = req.id.clone();
-                        let id_for_panic = id.clone();
-                        let method = req.method.clone();
-                        // catch_unwind so a panic inside any dispatch handler does not silently drop the socket and leave the CLI with an "EOF while parsing" mystery.
-                        // We surface a real JSON-RPC error instead.
-                        let dispatched =
-                            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                dispatch::dispatch(
-                                    &req.method,
-                                    req.params,
-                                    mux,
-                                    pty,
-                                    notif,
-                                    app,
-                                    output_buf,
-                                    svc,
-                                )
-                            }));
-                        match dispatched {
-                            Ok(Ok(result)) => JsonRpcResponse::success(id, result),
-                            Ok(Err(err)) => JsonRpcResponse {
-                                jsonrpc: "2.0".to_string(),
-                                id,
-                                result: None,
-                                error: Some(err),
-                            },
-                            Err(panic) => {
-                                let panic_msg = if let Some(s) = panic.downcast_ref::<&str>() {
-                                    (*s).to_string()
-                                } else if let Some(s) = panic.downcast_ref::<String>() {
-                                    s.clone()
-                                } else {
-                                    "non-string panic payload".to_string()
-                                };
-                                log::error!(
-                                    "JSON-RPC dispatch panicked for method '{}': {}",
-                                    method,
-                                    panic_msg
-                                );
-                                JsonRpcResponse::error(
-                                    id_for_panic,
-                                    -32603,
-                                    format!("internal panic in '{}': {}", method, panic_msg),
-                                )
-                            }
-                        }
-                    }
+                    Ok(req) => respond_to_request(req, mux, pty, notif, app, output_buf, svc),
                     Err(e) => JsonRpcResponse::error(None, -32700, format!("Parse error: {}", e)),
                 };
 
@@ -580,6 +537,76 @@ fn handle_connection(
                 log::error!("Socket read error: {}", e);
                 break;
             }
+        }
+    }
+}
+
+/// Gate the request on the control-plane protocol integer, then dispatch.
+fn respond_to_request(
+    req: JsonRpcRequest,
+    mux: &MuxState,
+    pty: &PtyState,
+    notif: &NotifState,
+    app: &AppHandle,
+    output_buf: &OutputBufferState,
+    svc: &ServiceState,
+) -> JsonRpcResponse {
+    if let Some(error) = protocol::version_skew_gate(
+        protocol::client_protocol_version(req.protocol_version.as_ref()),
+        protocol::PROTOCOL_VERSION,
+        protocol::RECOVERY_COMMAND,
+    ) {
+        return JsonRpcResponse {
+            jsonrpc: "2.0".to_string(),
+            id: req.id,
+            result: None,
+            error: Some(error),
+        };
+    }
+
+    let id = req.id.clone();
+    let id_for_panic = id.clone();
+    let method = req.method.clone();
+    // catch_unwind so a panic inside any dispatch handler does not silently drop the socket and leave the CLI with an "EOF while parsing" mystery.
+    // We surface a real JSON-RPC error instead.
+    let dispatched = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        dispatch::dispatch(
+            &req.method,
+            req.params,
+            mux,
+            pty,
+            notif,
+            app,
+            output_buf,
+            svc,
+        )
+    }));
+    match dispatched {
+        Ok(Ok(result)) => JsonRpcResponse::success(id, result),
+        Ok(Err(err)) => JsonRpcResponse {
+            jsonrpc: "2.0".to_string(),
+            id,
+            result: None,
+            error: Some(err),
+        },
+        Err(panic) => {
+            let panic_msg = if let Some(s) = panic.downcast_ref::<&str>() {
+                (*s).to_string()
+            } else if let Some(s) = panic.downcast_ref::<String>() {
+                s.clone()
+            } else {
+                "non-string panic payload".to_string()
+            };
+            log::error!(
+                "JSON-RPC dispatch panicked for method '{}': {}",
+                method,
+                panic_msg
+            );
+            JsonRpcResponse::error(
+                id_for_panic,
+                -32603,
+                format!("internal panic in '{}': {}", method, panic_msg),
+            )
         }
     }
 }
@@ -685,6 +712,47 @@ mod tests {
                 "{kind:?} should close only the client connection"
             );
         }
+    }
+
+    #[test]
+    fn version_skew_socket_gate_reads_the_request_envelope() {
+        let stale: JsonRpcRequest = serde_json::from_str(
+            r#"{"jsonrpc":"2.0","id":7,"method":"tab.list","protocol_version":"not-an-integer"}"#,
+        )
+        .expect("a malformed version field must not fail request parsing");
+        let error = protocol::version_skew_gate(
+            protocol::client_protocol_version(stale.protocol_version.as_ref()),
+            protocol::PROTOCOL_VERSION,
+            protocol::RECOVERY_COMMAND,
+        )
+        .expect("oldest client is refused with the typed error");
+        assert_eq!(error.code, protocol::VERSION_SKEW);
+        let data = error.data.expect("typed error carries structured data");
+        assert_eq!(data["client_protocol"], 0);
+        assert_eq!(data["server_protocol"], protocol::PROTOCOL_VERSION);
+
+        let absent: JsonRpcRequest =
+            serde_json::from_str(r#"{"jsonrpc":"2.0","id":8,"method":"tab.list"}"#)
+                .expect("an absent version field must not fail request parsing");
+        assert_eq!(
+            protocol::client_protocol_version(absent.protocol_version.as_ref()),
+            0
+        );
+    }
+
+    #[test]
+    fn version_skew_same_version_request_passes_the_gate_unchanged() {
+        let request = format!(
+            r#"{{"jsonrpc":"2.0","id":9,"method":"tab.list","protocol_version":{}}}"#,
+            protocol::PROTOCOL_VERSION
+        );
+        let current: JsonRpcRequest = serde_json::from_str(&request).unwrap();
+        assert!(protocol::version_skew_gate(
+            protocol::client_protocol_version(current.protocol_version.as_ref()),
+            protocol::PROTOCOL_VERSION,
+            protocol::RECOVERY_COMMAND,
+        )
+        .is_none());
     }
 
     #[test]

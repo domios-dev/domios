@@ -1,6 +1,7 @@
 use super::*;
 use crate::provider::{
-    BusySubmitStrategy, ProviderReadinessStrategy, ReadinessStrategy, VerifySubmitStrategy,
+    BusySubmitStrategy, ContextOwner, ProviderReadinessStrategy, ReadinessStrategy,
+    VerifySubmitStrategy,
 };
 
 #[test]
@@ -96,6 +97,60 @@ fn parse_full_manifest() {
         m.spawn.session_id_injection,
         SerdeSessionIdInjection::FreshAndFork
     ));
+}
+
+#[test]
+fn integration_trust_grant_manifest_mapping() {
+    let json = r#"{
+            "id": "demo",
+            "version": "0.1.0",
+            "displayName": "Demo CLI",
+            "spawn": {
+                "readinessStrategy": { "kind": "fixed_delay", "durationMs": 0 },
+                "taskDelivery": "pty_input",
+                "verifySubmit": { "kind": "none" }
+            },
+            "integration": {
+                "kind": "provider_managed",
+                "settingsPath": "~/.demo/hooks.json",
+                "trust_grant": { "managedKeys": ["session_start"] }
+            }
+        }"#;
+    let m: PluginManifest = serde_json::from_str(json).expect("parse");
+    let grant = m
+        .integration
+        .as_ref()
+        .and_then(|integration| integration.trust_grant.as_ref())
+        .expect("trust_grant declaration must map");
+    assert_eq!(grant.managed_keys, vec!["session_start".to_string()]);
+
+    let camel = json.replace("trust_grant", "trustGrant");
+    let m: PluginManifest = serde_json::from_str(&camel).expect("parse camelCase alias");
+    assert!(m
+        .integration
+        .expect("integration")
+        .trust_grant
+        .is_some_and(|grant| grant.managed_keys == vec!["session_start".to_string()]));
+}
+
+#[test]
+fn integration_trust_grant_absent_by_default() {
+    let json = r#"{
+            "id": "demo",
+            "version": "0.1.0",
+            "displayName": "Demo CLI",
+            "spawn": {
+                "readinessStrategy": { "kind": "fixed_delay", "durationMs": 0 },
+                "taskDelivery": "pty_input",
+                "verifySubmit": { "kind": "none" }
+            },
+            "integration": {
+                "kind": "provider_managed",
+                "settingsPath": "~/.demo/hooks.json"
+            }
+        }"#;
+    let m: PluginManifest = serde_json::from_str(json).expect("parse");
+    assert!(m.integration.expect("integration").trust_grant.is_none());
 }
 
 #[test]
@@ -225,6 +280,7 @@ fn chat_backend_round_trips_symmetrically() {
         spawnable: true,
         watcher: false,
         session_config: false,
+        context_owner: ContextOwner::Plugin,
     };
     let v = serde_json::to_value(&spawnable).unwrap();
     assert_eq!(v, serde_json::json!({ "spawnable": true }));
@@ -236,6 +292,7 @@ fn chat_backend_round_trips_symmetrically() {
         spawnable: false,
         watcher: true,
         session_config: false,
+        context_owner: ContextOwner::Plugin,
     };
     let v = serde_json::to_value(&watcher).unwrap();
     assert_eq!(v, serde_json::json!({ "watcher": true }));
@@ -247,11 +304,143 @@ fn chat_backend_round_trips_symmetrically() {
         spawnable: false,
         watcher: false,
         session_config: true,
+        context_owner: ContextOwner::Plugin,
     };
     let v = serde_json::to_value(&session_config).unwrap();
     assert_eq!(v, serde_json::json!({ "sessionConfig": true }));
     let back: ChatBackendCap = serde_json::from_value(v).unwrap();
     assert!(back.enabled() && back.session_config());
+
+    let host_context = ChatBackendCap {
+        enabled: true,
+        spawnable: false,
+        watcher: false,
+        session_config: false,
+        context_owner: ContextOwner::Host,
+    };
+    let v = serde_json::to_value(&host_context).unwrap();
+    assert_eq!(v, serde_json::json!({ "contextOwner": "host" }));
+    let back: ChatBackendCap = serde_json::from_value(v).unwrap();
+    assert!(back.enabled() && back.context_owner() == ContextOwner::Host);
+}
+
+/// Independent reimplementation of the serializer as it stood before
+/// `contextOwner` existed. Byte-comparing against it is what proves the new
+/// field costs an already-shipped manifest nothing.
+fn chat_backend_serialization_before_context_owner(cap: &ChatBackendCap) -> String {
+    if cap.enabled() && (cap.spawnable() || cap.watcher() || cap.session_config()) {
+        let mut entries: Vec<&str> = Vec::new();
+        if cap.spawnable() {
+            entries.push(r#""spawnable":true"#);
+        }
+        if cap.watcher() {
+            entries.push(r#""watcher":true"#);
+        }
+        if cap.session_config() {
+            entries.push(r#""sessionConfig":true"#);
+        }
+        format!("{{{}}}", entries.join(","))
+    } else if cap.enabled() {
+        "true".to_string()
+    } else {
+        "false".to_string()
+    }
+}
+
+fn assert_context_owner_absent_is_byte_equivalent(source: &str, cap: &ChatBackendCap) {
+    assert_eq!(
+        cap.context_owner(),
+        ContextOwner::Plugin,
+        "{source}: a manifest without the key must stay provider-owned"
+    );
+    assert_eq!(
+        serde_json::to_string(cap).expect("serialize cap"),
+        chat_backend_serialization_before_context_owner(cap),
+        "{source}: serialization must be byte-equivalent to the pre-change bytes"
+    );
+}
+
+#[test]
+fn context_owner_absent_manifest_parses_byte_equivalent_to_today() {
+    let shipped_root =
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../..")).join("plugins");
+    let mut shipped = 0usize;
+    for entry in std::fs::read_dir(&shipped_root).expect("shipped plugins dir") {
+        let manifest_path = entry.expect("plugin dir entry").path().join("plugin.json");
+        if !manifest_path.exists() {
+            continue;
+        }
+        let raw = std::fs::read_to_string(&manifest_path).expect("read shipped manifest");
+        let manifest: PluginManifest = serde_json::from_str(&raw)
+            .unwrap_or_else(|e| panic!("parse {}: {e}", manifest_path.display()));
+        assert_context_owner_absent_is_byte_equivalent(
+            &manifest_path.display().to_string(),
+            &manifest.capabilities.chat_backend,
+        );
+        shipped += 1;
+    }
+    assert!(
+        shipped > 0,
+        "no shipped manifest was parsed — the fixture set must not be empty"
+    );
+
+    for declaration in [
+        "true",
+        "false",
+        r#"{ "spawnable": true }"#,
+        r#"{ "watcher": true }"#,
+        r#"{ "sessionConfig": true }"#,
+        r#"{ "spawnable": true, "watcher": true }"#,
+        r#"{ "spawnable": true, "watcher": true, "sessionConfig": true }"#,
+    ] {
+        let json = format!(
+            r#"{{ "id":"cap-shape-fixture","version":"0.1.0","displayName":"Cap shape fixture",
+                  "capabilities": {{ "chatBackend": {declaration} }} }}"#
+        );
+        let manifest: PluginManifest =
+            serde_json::from_str(&json).unwrap_or_else(|e| panic!("parse {declaration}: {e}"));
+        assert_context_owner_absent_is_byte_equivalent(
+            declaration,
+            &manifest.capabilities.chat_backend,
+        );
+    }
+}
+
+#[test]
+fn parse_chat_backend_context_owner_host() {
+    let json = r#"{
+            "id": "context-owner-fixture",
+            "version": "0.1.0",
+            "displayName": "Context owner fixture",
+            "capabilities": { "chatBackend": { "spawnable": true, "contextOwner": "host" } }
+        }"#;
+    let m: PluginManifest = serde_json::from_str(json).expect("parse host context owner");
+    assert_eq!(
+        m.capabilities.chat_backend.context_owner(),
+        ContextOwner::Host
+    );
+    assert!(m.capabilities.chat_backend_spawnable());
+
+    let explicit_plugin = json.replace(r#""host""#, r#""plugin""#);
+    let m: PluginManifest = serde_json::from_str(&explicit_plugin).expect("parse explicit plugin");
+    assert_eq!(
+        m.capabilities.chat_backend.context_owner(),
+        ContextOwner::Plugin
+    );
+}
+
+#[test]
+fn unknown_context_owner_fails_the_parse_instead_of_defaulting() {
+    // A typo silently meaning "plugin" would reinstate an unverifiable promise.
+    for declared in ["hosr", "Host", "HOST", "native", ""] {
+        let json = format!(
+            r#"{{ "id":"context-owner-typo-fixture","version":"0.1.0","displayName":"Typo fixture",
+                  "capabilities": {{ "chatBackend": {{ "contextOwner": "{declared}" }} }} }}"#
+        );
+        serde_json::from_str::<PluginManifest>(&json).expect_err(&format!(
+            "'{declared}' must fail the parse, never fall back"
+        ));
+    }
 }
 
 #[test]
@@ -352,5 +541,97 @@ fn busy_submit_conversion() {
     assert_eq!(
         BusySubmitStrategy::from(&strategy),
         BusySubmitStrategy::Key("tab".into())
+    );
+}
+
+#[test]
+fn hook_event_roster_parses_and_resolves_declared_routes() {
+    use crate::provider::{HookEventBinding, HookIngestionRoute, ProviderStateVerdict};
+
+    let json = r#"{
+            "id": "roster-demo",
+            "version": "0.1.0",
+            "displayName": "Roster Demo",
+            "spawn": {
+                "readinessStrategy": { "kind": "fixed_delay", "durationMs": 0 },
+                "taskDelivery": "pty_input",
+                "verifySubmit": { "kind": "none" },
+                "hasHooks": true,
+                "hookEventRoster": [
+                    { "event": "Stop", "route": "stop" },
+                    { "event": "SessionStart", "route": "session_start" },
+                    { "event": "PreCompact", "route": "mem_flush" },
+                    { "event": "Notification", "route": "permission" },
+                    { "event": "session.idle", "route": "session_state", "verdict": "idle" }
+                ]
+            }
+        }"#;
+    let manifest: PluginManifest = serde_json::from_str(json).expect("parse");
+    let declared = manifest.spawn.hook_event_roster.expect("roster declared");
+    let resolved = resolve_hook_event_roster(&declared).expect("all routes known");
+    assert_eq!(
+        resolved,
+        vec![
+            HookEventBinding {
+                event: "Stop".into(),
+                route: HookIngestionRoute::Stop,
+                verdict: None,
+            },
+            HookEventBinding {
+                event: "SessionStart".into(),
+                route: HookIngestionRoute::SessionStart,
+                verdict: None,
+            },
+            HookEventBinding {
+                event: "PreCompact".into(),
+                route: HookIngestionRoute::MemFlush,
+                verdict: None,
+            },
+            HookEventBinding {
+                event: "Notification".into(),
+                route: HookIngestionRoute::Permission,
+                verdict: None,
+            },
+            HookEventBinding {
+                event: "session.idle".into(),
+                route: HookIngestionRoute::SessionState,
+                verdict: Some(ProviderStateVerdict::Idle),
+            },
+        ]
+    );
+}
+
+#[test]
+fn hook_event_roster_resolution_rejects_unknown_route() {
+    let declared = vec![
+        SerdeHookEventBinding {
+            event: "Stop".into(),
+            route: "stop".into(),
+            verdict: None,
+        },
+        SerdeHookEventBinding {
+            event: "Warp".into(),
+            route: "warp_core".into(),
+            verdict: None,
+        },
+    ];
+    let error = resolve_hook_event_roster(&declared).expect_err("unknown route fails the roster");
+    assert!(
+        error.contains("Warp") && error.contains("warp_core"),
+        "{error}"
+    );
+}
+
+#[test]
+fn permission_request_roster_resolution_rejects_unknown_verdict() {
+    let declared = vec![SerdeHookEventBinding {
+        event: "session.status".into(),
+        route: "session_state".into(),
+        verdict: Some("busy".into()),
+    }];
+    let error = resolve_hook_event_roster(&declared).expect_err("unknown verdict fails the roster");
+    assert!(
+        error.contains("session.status") && error.contains("busy"),
+        "{error}"
     );
 }

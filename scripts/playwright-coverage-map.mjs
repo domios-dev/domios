@@ -76,6 +76,8 @@ function main() {
   console.log(`Wrote ${toPosix(relative(root, outputPath))}`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// `file://${argv[1]}` only ever matched by coincidence on POSIX; a Windows argv[1]
+// carries a drive letter and backslashes, so this guarded main() out of existence.
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
   main();
 }

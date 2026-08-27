@@ -53,6 +53,9 @@ pub(super) struct PluginSandbox {
     unrestricted: bool,
     read_roots: Vec<PathBuf>,
     write_roots: Vec<PathBuf>,
+    /// Read-roots granted at runtime for tab cwds the HOST hands the plugin
+    /// (bubble/glance ctx). Never fed from plugin-authored values (view args).
+    granted_read_roots: parking_lot::Mutex<Vec<PathBuf>>,
     /// Plugin id — namespaces the per-plugin secret bucket, so `host.secret*` is isolated.
     plugin_id: String,
     /// `host.exec` binary allowlist (host_api v2). Empty unless declared.
@@ -81,6 +84,7 @@ impl PluginSandbox {
             unrestricted: true,
             read_roots: Vec::new(),
             write_roots: Vec::new(),
+            granted_read_roots: parking_lot::Mutex::new(Vec::new()),
             plugin_id: String::new(),
             exec_allow: Vec::new(),
             net_allow: Vec::new(),
@@ -98,6 +102,7 @@ impl PluginSandbox {
             unrestricted: false,
             read_roots,
             write_roots,
+            granted_read_roots: parking_lot::Mutex::new(Vec::new()),
             plugin_id: String::new(),
             exec_allow: Vec::new(),
             net_allow: Vec::new(),
@@ -124,6 +129,14 @@ impl PluginSandbox {
         self.agent_commands_allowed = self.unrestricted || perms.agent_commands;
         self.manage_workspaces_allowed = self.unrestricted || perms.manage_workspaces;
         self.spawn_agents_allowed = self.unrestricted || perms.spawn_agents;
+        self
+    }
+
+    /// Stamp the plugin identity without touching permissions. The VM and its
+    /// sandbox must agree on this: `host.exec`/`host.fetch` jobs are keyed by
+    /// the sandbox's id, and the VM awaits and reaps them by the same one.
+    pub(super) fn with_identity(mut self, plugin_id: &str) -> Self {
+        self.plugin_id = plugin_id.to_string();
         self
     }
 
@@ -220,8 +233,33 @@ impl PluginSandbox {
         })
     }
 
+    /// Oldest grant is evicted past this; a tab rarely visits this many cwds.
+    const MAX_GRANTED_CWD_ROOTS: usize = 32;
+
+    /// Record a host-supplied tab cwd so reads under it pass `can_read`.
+    /// Callers must only pass paths the host itself assembled (bubble/glance
+    /// ctx) — never plugin-authored values, or the sandbox self-widens.
+    pub(super) fn grant_cwd_read_root(&self, cwd: &str) {
+        if self.unrestricted || !Path::new(cwd).is_absolute() {
+            return;
+        }
+        let path = PathBuf::from(cwd);
+        let mut roots = self.granted_read_roots.lock();
+        if let Some(pos) = roots.iter().position(|p| p == &path) {
+            let refreshed = roots.remove(pos);
+            roots.push(refreshed);
+            return;
+        }
+        roots.push(path);
+        if roots.len() > Self::MAX_GRANTED_CWD_ROOTS {
+            roots.remove(0);
+        }
+    }
+
     fn can_read(&self, path: &str) -> bool {
-        self.unrestricted || Self::path_under(&self.read_roots, path)
+        self.unrestricted
+            || Self::path_under(&self.read_roots, path)
+            || Self::path_under(&self.granted_read_roots.lock(), path)
     }
 
     fn can_write(&self, path: &str) -> bool {
@@ -361,6 +399,14 @@ pub(super) fn install(
             return None;
         }
         read_dir_json(&path)
+    });
+    let sb = sandbox.clone();
+    bind!("listChildDirsJson", move |path: String| -> Option<String> {
+        if !sb.can_read(&path) {
+            log::warn!("[plugin] denied listChildDirs outside sandbox: {path}");
+            return None;
+        }
+        list_child_dirs_json(&path)
     });
     let sb = sandbox.clone();
     bind!("walkDirJson", move |path: String,
@@ -527,6 +573,9 @@ pub(super) fn install(
     // host compute base (host.worker/agent/workspace/mem) — lives in `host_compute` to keep this bind table flat.
     super::host_compute::install_handles(&host, &sandbox)?;
 
+    #[cfg(test)]
+    super::call_gate::install(&host, &sandbox)?;
+
     ctx.globals()
         .set(HOST_GLOBAL, host)
         .catch(ctx)
@@ -594,36 +643,84 @@ fn read_dir_json(path: &str) -> Option<String> {
         out.push(dir_entry_to_json(
             &e.path(),
             &e.file_name().to_string_lossy(),
+            e.metadata().ok(),
         ));
     }
     serde_json::to_string(&out).ok()
 }
 
+/// Immediate child DIRECTORY names only — no files, no recursion, no metadata.
+fn list_child_dirs_json(path: &str) -> Option<String> {
+    let entries = std::fs::read_dir(path).ok()?;
+    let mut names: Vec<String> = entries
+        .flatten()
+        .filter(|e| e.file_type().map(|ft| ft.is_dir()).unwrap_or(false))
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    serde_json::to_string(&names).ok()
+}
+
+/// Entries one walk may visit. The depth limit alone bounds nothing on a wide
+/// tree: a provider session root with tens of thousands of files was walked on
+/// every poll, pegging a long-lived daemon at 95-120% CPU and starving the mesh
+/// relay behind it (#319). A truncated walk is reported, never silently short.
+const WALK_ENTRY_BUDGET: usize = 20_000;
+
 fn walk_dir_json(path: &str, max_depth: usize) -> Option<String> {
     let mut out: Vec<serde_json::Value> = Vec::new();
-    walk_recursive(Path::new(path), 0, max_depth, &mut out);
+    let started = std::time::Instant::now();
+    let mut budget = WALK_ENTRY_BUDGET;
+    walk_recursive(Path::new(path), 0, max_depth, &mut out, &mut budget);
+    let elapsed = started.elapsed();
+    if budget == 0 {
+        log::warn!(
+            "[host-api] walk of {path} hit the {WALK_ENTRY_BUDGET}-entry budget after {}ms;              the result is truncated",
+            elapsed.as_millis()
+        );
+    } else if elapsed >= std::time::Duration::from_millis(250) {
+        log::warn!(
+            "[host-api] walk of {path} visited {} entries in {}ms",
+            out.len(),
+            elapsed.as_millis()
+        );
+    }
     serde_json::to_string(&out).ok()
 }
 
-fn walk_recursive(path: &Path, depth: usize, max_depth: usize, out: &mut Vec<serde_json::Value>) {
-    if depth > max_depth {
+fn walk_recursive(
+    path: &Path,
+    depth: usize,
+    max_depth: usize,
+    out: &mut Vec<serde_json::Value>,
+    budget: &mut usize,
+) {
+    if depth > max_depth || *budget == 0 {
         return;
     }
     let Ok(entries) = std::fs::read_dir(path) else {
         return;
     };
     for e in entries.flatten() {
+        if *budget == 0 {
+            return;
+        }
+        *budget -= 1;
         let p = e.path();
         let name = e.file_name().to_string_lossy().into_owned();
-        out.push(dir_entry_to_json(&p, &name));
+        // `DirEntry::metadata` reuses what the directory scan already read where
+        // the platform allows it; `fs::metadata` always pays a fresh lookup.
+        out.push(dir_entry_to_json(&p, &name, e.metadata().ok()));
         if e.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
-            walk_recursive(&p, depth + 1, max_depth, out);
+            walk_recursive(&p, depth + 1, max_depth, out, budget);
         }
     }
 }
 
-fn dir_entry_to_json(p: &Path, name: &str) -> serde_json::Value {
-    let meta = std::fs::metadata(p).ok();
+/// `meta` is the caller's already-read metadata where it had one; `None` costs
+/// a fresh lookup, which is why the walk passes what the scan gave it.
+fn dir_entry_to_json(p: &Path, name: &str, meta: Option<std::fs::Metadata>) -> serde_json::Value {
+    let meta = meta.or_else(|| std::fs::metadata(p).ok());
     let is_file = meta.as_ref().map(|m| m.is_file()).unwrap_or(false);
     let is_dir = meta.as_ref().map(|m| m.is_dir()).unwrap_or(false);
     let size = meta.as_ref().map(|m| m.len() as i64).unwrap_or(0);

@@ -30,6 +30,19 @@ pub fn apply_general_chat_view_default(
     }
 }
 
+/// The workspace holding the General tab — the surface the user watches by
+/// default, and where a user-facing service tab must be raised.
+pub fn general_workspace_id(mux: &crate::multiplexer::state::MultiplexerState) -> Option<String> {
+    mux.resolve_tab_id(GENERAL_ALIAS)
+        .and_then(|tab_id| mux.find_workspace_for_tab(&tab_id))
+        .or_else(|| {
+            mux.list_workspaces()
+                .iter()
+                .find(|workspace| workspace.protected)
+                .map(|workspace| workspace.id.clone())
+        })
+}
+
 /// Ensure General workspace + tab exist in MultiplexerState.
 /// Called BEFORE mux is wrapped in Arc<Mutex<>> — no locking needed.
 /// This avoids the deadlock that occurs when creating workspace from a background thread.

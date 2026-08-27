@@ -1,0 +1,162 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: "Inter", "Segoe UI", "Avenir Next", sans-serif; background: #0d1117; }
+    a { color: #58a6ff; } a:hover { color: #79c0ff; }
+    * { box-sizing: border-box; }
+
+    /* ct-liquid-toggle, resolved for github-dark: --ct-border #232930,
+       --ct-surface #141b24, --ct-accent #58a6ff, --ct-on-accent #000000 */
+    .ct-liquid-toggle {
+      position: relative;
+      width: 3.4rem;
+      height: 1.85rem;
+      flex-shrink: 0;
+      padding: 0;
+      border: 1px solid #232930;
+      border-radius: 999px;
+      background: rgba(20, 27, 36, 0.85);
+      cursor: pointer;
+      transition: background 380ms cubic-bezier(0.16, 1, 0.3, 1), border-color 380ms cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .ct-liquid-toggle[aria-checked="true"] {
+      border-color: rgba(88, 166, 255, 0.55);
+      background: rgba(88, 166, 255, 0.32);
+    }
+    .ct-liquid-toggle__knob {
+      position: absolute;
+      top: 50%;
+      left: 3px;
+      width: 1.45rem;
+      height: 1.45rem;
+      border-radius: 50%;
+      background: #000000;
+      box-shadow: 0 2px 6px rgba(13, 17, 23, 0.45);
+      transform: translate(0, -50%);
+      transition: transform 380ms cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .ct-liquid-toggle[aria-checked="true"] .ct-liquid-toggle__knob {
+      transform: translate(1.55rem, -50%);
+    }
+  </style>
+</helmet>
+
+<div style="padding: 24px; display: flex; flex-direction: column; gap: 22px; width: 440px">
+
+  <div style="display: flex; flex-direction: column; gap: 3px">
+    <div style="font-size: 11px; font-weight: 500; color: #c9d1d9">Settings &rsaquo; Notifications</div>
+    <div style="font-size: 11px; color: #828a92; line-height: 1.45">Rows and toggles as everywhere else in Settings. Each level decides where it may go.</div>
+  </div>
+
+  <div>
+    <h3 style="margin: 0 0 8px; font-size: 14px; font-weight: 500; color: #828a92">Indicator</h3>
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <label style="display: flex; cursor: pointer; align-items: center; justify-content: space-between">
+        <span style="font-size: 12px; color: #828a92">Show the bell</span>
+        <button onClick="{{bell.toggle}}" role="switch" aria-checked="{{bell.checked}}" aria-label="Show the bell" class="ct-liquid-toggle">
+          <span aria-hidden="true" class="ct-liquid-toggle__knob"></span>
+        </button>
+      </label>
+      <p style="margin: 0; font-size: 10px; color: #484f58; line-height: 1.45">Off hides the indicator entirely. History is still kept, and the panel stays the complete log.</p>
+    </div>
+  </div>
+
+  <sc-for list="{{levels}}" as="level" hint-placeholder-count="3">
+    <div>
+      <h3 style="margin: 0 0 8px; display: flex; align-items: center; gap: 7px; font-size: 14px; font-weight: 500; color: #828a92">
+        <span style="display: inline-flex; align-items: center; height: 15px; padding: 0 5px; border-radius: 4px; font-size: 9px; font-weight: 500; letter-spacing: 0.02em; color: {{level.tagFg}}; background: {{level.tagBg}}">{{level.tag}}</span>
+        <span>{{level.what}}</span>
+      </h3>
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <sc-for list="{{level.rows}}" as="row" hint-placeholder-count="3">
+          <label style="display: flex; cursor: pointer; align-items: center; justify-content: space-between">
+            <span style="font-size: 12px; color: #828a92">{{row.label}}</span>
+            <button onClick="{{row.toggle}}" role="switch" aria-checked="{{row.checked}}" aria-label="{{row.label}}" class="ct-liquid-toggle">
+              <span aria-hidden="true" class="ct-liquid-toggle__knob"></span>
+            </button>
+          </label>
+        </sc-for>
+        <p style="margin: 0; font-size: 10px; color: #484f58; line-height: 1.45">{{level.example}}</p>
+      </div>
+    </div>
+  </sc-for>
+
+  <div style="display: flex; gap: 7px; border-radius: 8px; border: 1px solid #232930; background: #141b24; padding: 10px 12px">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#484f58" stroke-width="2" stroke-linecap="round" style="flex-shrink: 0; margin-top: 1px"><circle cx="12" cy="12" r="9"/><path d="M12 8v.01M12 11v5"/></svg>
+    <span style="font-size: 10px; color: #484f58; line-height: 1.45">A message that names no level is kept and rings the bell. It never reaches the system or Telegram &mdash; there is no fallback level and no way to widen this set from here.</span>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"$preview":{"width":488,"height":880}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = {
+      bell: true,
+      grid: {
+        verbose: [true, false, false],
+        action: [true, true, true],
+        failure: [true, true, false],
+      },
+    };
+  }
+
+  renderVals() {
+    const meta = [
+      {
+        id: "verbose",
+        tag: "VERBOSE",
+        tagFg: "#828a92",
+        tagBg: "color-mix(in srgb, #141b24 88%, #828a92 12%)",
+        what: "Progress, nothing waiting",
+        example: "“Gate 4 of 7 green” — a periodic status, never one per step.",
+      },
+      {
+        id: "action",
+        tag: "ACTION NEEDED",
+        tagFg: "#d29922",
+        tagBg: "color-mix(in srgb, #141b24 88%, #d29922 12%)",
+        what: "The agent is waiting on you",
+        example: "A question with answer buttons. Work is stopped until you choose.",
+      },
+      {
+        id: "failure",
+        tag: "FAILURE",
+        tagFg: "#ff7b72",
+        tagBg: "color-mix(in srgb, #141b24 88%, #ff7b72 12%)",
+        what: "It broke and the agent stopped",
+        example: "A gate failed, a lane was refused. Nothing is waiting on your answer.",
+      },
+    ];
+    const labels = ["Ring the bell", "System notification", "Telegram"];
+
+    const levels = meta.map((level) => ({
+      ...level,
+      rows: this.state.grid[level.id].map((checked, index) => ({
+        label: labels[index],
+        checked,
+        toggle: () => {
+          const next = this.state.grid[level.id].slice();
+          next[index] = !next[index];
+          this.setState({ grid: { ...this.state.grid, [level.id]: next } });
+        },
+      })),
+    }));
+
+    return {
+      levels,
+      bell: { checked: this.state.bell, toggle: () => this.setState({ bell: !this.state.bell }) },
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -8,6 +8,7 @@ import { Sidebar } from "./components/Sidebar/Sidebar";
 import { TabContent } from "./components/Terminal/TabContent";
 import { SettingsPanel } from "./components/Settings/SettingsPanel";
 import type { SectionId } from "./components/Settings/sections";
+import type { AgentLevelChoice } from "./lib/types";
 import { MemoryPanel, type MemoryInitialState } from "./components/MemoryPanel/MemoryPanel";
 import { MeshPanel } from "./components/MeshPanel/MeshPanel";
 import { ExtensionsView } from "./components/Extensions/ExtensionsView";
@@ -26,6 +27,7 @@ import { canvasFocusStore, useCanvasFocusOpen, useCanvasFocusTarget, useCanvasWo
 import { CronWorkspaceView } from "./components/Cron/CronWorkspaceView";
 import { cronSelectionStore, useCronSelection } from "./components/Cron/cronSelectionStore";
 import { useConfig } from "./hooks/useConfig";
+import { useNotificationSound } from "./hooks/useNotificationSound";
 import { useKeyboardInset } from "./hooks/useKeyboardInset";
 import { useTabPrewarm } from "./hooks/terminal/useTabPrewarm";
 import { usageTrackingOverrides } from "./components/Terminal/usageTracking";
@@ -46,6 +48,10 @@ import { cacheThemeSnapshot, isLightColor, themeToCSS } from "./lib/themeCss";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { fontSizeToUiFontScale } from "./lib/uiFontScale";
 // TODO: Agent Swarm Visualization — future feature import { SwarmOverlay } from "./components/Swarm/SwarmOverlay";
+
+/** One stable empty list, so a config still loading does not hand the chime a
+ *  fresh array on every render. */
+const EMPTY_LEVELS: AgentLevelChoice[] = [];
 
 const MemoizedTabContent = memo(TabContent);
 
@@ -169,6 +175,10 @@ function AppInner() {
   const stableTerminalConfig = useStableJsonValue(config.terminal);
   const stableApiConfig = useStableJsonValue(config.api);
   const uiFontScale = fontSizeToUiFontScale(stableFontConfig.size);
+  useNotificationSound(
+    Boolean(config.notifications?.sound),
+    config.notifications?.agent_levels ?? EMPTY_LEVELS,
+  );
 
   // events on its own (the per-bubble `useConfig` was multiplying invokes by tab count and made the webview unresponsive after many resumes).
   const computedUsageEnabledByProvider = useMemo(() => {
@@ -189,6 +199,7 @@ function AppInner() {
     markAllRead,
     deleteNotification,
     clearNotifications,
+    answerNotification,
     dismissToast,
     spawnClaudeTab,
   } = useMultiplexer();
@@ -526,11 +537,13 @@ function AppInner() {
         onOpenSettings={(section) => { setSettingsSection(section); setSettingsOpen(true); }}
         onOpenExtensions={() => { setExtensionsOpen(true); }}
         notifications={state.notifications}
+        showBell={config.notifications?.show_bell !== false}
         toasts={state.toasts}
         onMarkNotificationRead={markRead}
         onMarkAllNotificationsRead={markAllRead}
         onDeleteNotification={deleteNotification}
         onClearNotifications={clearNotifications}
+        onAnswerNotification={answerNotification}
         onDismissToast={dismissToast}
         onNavigateToast={navigateToNotificationTab}
       />

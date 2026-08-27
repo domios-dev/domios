@@ -25,7 +25,9 @@ export function parsePlaywrightSpec(fileArgument: string): string {
   if (!fs.statSync(file, { throwIfNoEntry: false })?.isFile()) {
     throw new Error(`Playwright spec does not exist: ${fileArgument}`);
   }
-  return file;
+  // Playwright reads the positional filter as a REGEX. A Windows path turns
+  // `\suites` into a whitespace class, so it can never match its own file.
+  return path.relative(REPO_ROOT, file).split(path.sep).join("/");
 }
 
 function requiredOption(args: string[], name: string): string {
@@ -36,7 +38,13 @@ function requiredOption(args: string[], name: string): string {
   return values[0];
 }
 
-export function parseIsolatedPlaywrightArgs(args: string[]): IsolatedPlaywrightArgs {
+/** `pnpm run <script> -- --file X` forwards the separator verbatim; drop it. */
+export function stripArgumentSeparator(args: string[]): string[] {
+  return args[0] === "--" ? args.slice(1) : args;
+}
+
+export function parseIsolatedPlaywrightArgs(rawArgs: string[]): IsolatedPlaywrightArgs {
+  const args = stripArgumentSeparator(rawArgs);
   const fileArgument = requiredOption(args, "--file");
   const project = requiredOption(args, "--project");
   const grep = requiredOption(args, "--grep");

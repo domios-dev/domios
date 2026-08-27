@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { CheckIcon, CopyIcon } from "../Icons";
 import { isMac } from "../../lib/keybindings";
 import type { LucideIcon } from "lucide-react";
@@ -7,7 +7,7 @@ import { Button } from "../shared/Button";
 import { Card } from "../shared/Card";
 import { Chip, type ChipVariant } from "../shared/Chip";
 import { FormRow } from "../shared/FormRow";
-import { LiquidToggle } from "../shared/LiquidToggle";
+import { LiquidToggle, LiquidToggleTrack, useLiquidTravel } from "../shared/LiquidToggle";
 
 function testIdPart(value: string): string {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -31,10 +31,17 @@ export function SettingsPage({
   subtitle?: ReactNode;
   children: ReactNode;
 }) {
+  const titleId = useId();
   return (
-    <div className="max-w-[720px] mx-auto flex flex-col gap-5" data-testid="settings-page" data-settings-page={testIdPart(title)}>
+    <div
+      role="region"
+      aria-labelledby={titleId}
+      className="max-w-[720px] mx-auto flex flex-col gap-5"
+      data-testid="settings-page"
+      data-settings-page={testIdPart(title)}
+    >
       {/* Title already shown in the nav header — keep it for screen readers only, no visual duplicate. */}
-      <h1 className="sr-only">{title}</h1>
+      <h1 id={titleId} className="sr-only">{title}</h1>
       {subtitle && (
         <p className="text-sm text-[var(--ct-muted-fg)] -mt-1">{subtitle}</p>
       )}
@@ -58,15 +65,18 @@ export function SettingsCard({
   children?: ReactNode;
   className?: string;
 }) {
+  const titleId = useId();
   return (
     <Card
+      role="group"
+      aria-labelledby={titleId}
       className={`p-4 ${className ?? ""}`}
       data-testid="settings-card"
     >
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-[var(--ct-fg)] text-sm font-medium min-w-0">
           {icon}
-          <span className="truncate">{title}</span>
+          <span id={titleId} className="truncate">{title}</span>
         </div>
         {headerRight && <div className="shrink-0">{headerRight}</div>}
       </div>
@@ -123,12 +133,88 @@ export function Toggle({ label, checked, onChange }: { label: string; checked: b
     <label className="flex items-center justify-between cursor-pointer" data-testid="settings-toggle-row" data-settings-toggle={testIdPart(label)}>
       <span className="text-xs text-[var(--ct-muted-fg)]">{label}</span>
       <LiquidToggle
+        // A role="switch" button is not labelable, so the wrapping <label> never named it.
+        aria-label={label}
         data-testid="settings-toggle"
         data-settings-toggle={testIdPart(label)}
         checked={checked}
         onCheckedChange={onChange}
       />
     </label>
+  );
+}
+
+/**
+ * One answerable question, with its own header and hairline. A panel that asks
+ * several unrelated things is several sections rather than one flat list.
+ */
+export function SettingsSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  const titleId = useId();
+  return (
+    <section
+      aria-labelledby={titleId}
+      className="ct-settings-section"
+      data-testid="settings-section"
+      data-settings-section={testIdPart(title)}
+    >
+      <div className="ct-settings-section__header">
+        <span id={titleId} className="ct-settings-section__label">{title}</span>
+        <span aria-hidden className="ct-settings-section__rule" />
+      </div>
+      {children}
+    </section>
+  );
+}
+
+/**
+ * A switch and the words it governs, as ONE control.
+ *
+ * The tile is the switch: it carries the role, the state and the name, and the
+ * liquid track inside it is decorative. That is what keeps the two attached —
+ * a row with the control pushed to the far edge reads as a switch that belongs
+ * to nothing, and a tile that rendered its own focusable switch would meet a
+ * reader twice. The hint is deliberately outside the accessible name: it
+ * explains the answer, it is not the question.
+ */
+export function SwitchTile({
+  label,
+  hint,
+  checked,
+  onChange,
+  dense,
+}: {
+  label: string;
+  hint?: ReactNode;
+  checked: boolean;
+  onChange: (value: boolean) => void;
+  dense?: boolean;
+}) {
+  const { flip, travel, finishTravel } = useLiquidTravel(checked, onChange);
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      onClick={flip}
+      className={`ct-switch-tile${dense ? " ct-switch-tile--dense" : ""}`}
+      data-testid="settings-switch-tile"
+      data-settings-toggle={testIdPart(label)}
+    >
+      <LiquidToggleTrack checked={checked} travel={travel} onTravelEnd={finishTravel} />
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <span className="text-xs text-[var(--ct-fg)]">{label}</span>
+        {hint && (
+          <span className="text-[10px] leading-[1.4] text-[var(--ct-muted)]">{hint}</span>
+        )}
+      </span>
+    </button>
   );
 }
 

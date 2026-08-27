@@ -64,6 +64,15 @@ pub enum PluginAction {
         #[arg(long = "revoke", value_name = "PERMISSION")]
         revoke: Vec<String>,
     },
+    /// Validate a plugin directory without installing it: strict manifest parse
+    /// (the daemon's deny-unknown-fields PluginManifest), a real QuickJS load of
+    /// the entry script, then a report of which AgentProvider exports plugin.js
+    /// implements and which fallbacks serve the rest. Exits non-zero on the
+    /// first failure, naming it.
+    Validate {
+        /// Path to the plugin directory (the folder containing plugin.json).
+        dir: String,
+    },
     /// Passthrough to a plugin's `onAgentCommand`: `codeterm plugin <id> <verb>
     /// [args…]`. Routes the reserved `plugin:<id>.<verb>` socket method to the
     /// owning plugin (requires its `agent_commands` grant). Catch-all for any

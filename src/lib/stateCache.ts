@@ -7,6 +7,7 @@
  * mismatch, and degrades to no-op if storage is unavailable (private
  * browsing).
  */
+import { buildHash } from "./buildStamp";
 import type { MultiplexerState } from "./types";
 import { IS_WEB, apiHost, currentToken, relayTarget } from "./webApi";
 
@@ -20,14 +21,6 @@ interface CachedPayload {
   buildHash: string;
   savedAt: number;
   state: MultiplexerState;
-}
-
-function currentBuildHash(): string {
-  try {
-    return (globalThis as unknown as { __BUILD_HASH__?: string }).__BUILD_HASH__ ?? "dev";
-  } catch {
-    return "dev";
-  }
 }
 
 // deterministic per host+identity pair.
@@ -52,7 +45,7 @@ function isValid(payload: CachedPayload | null | undefined): payload is CachedPa
   return (
     !!payload &&
     payload.schemaVersion === SCHEMA_VERSION &&
-    payload.buildHash === currentBuildHash()
+    payload.buildHash === buildHash()
   );
 }
 
@@ -185,7 +178,7 @@ export function saveStateSnapshot(state: MultiplexerState): void {
   if (!key) return;
   const payload: CachedPayload = {
     schemaVersion: SCHEMA_VERSION,
-    buildHash: currentBuildHash(),
+    buildHash: buildHash(),
     savedAt: Date.now(),
     state,
   };

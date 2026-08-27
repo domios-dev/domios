@@ -25,16 +25,18 @@ pub mod cron;
 pub mod delivery_error;
 pub mod general_agent;
 pub mod health;
-mod hierarchy;
+pub(crate) mod hierarchy;
 pub mod inject_verify;
 pub mod input_parser;
+pub(crate) mod integration_silence;
 mod kpi_hooks;
 pub(crate) mod launch_delivery;
 pub(crate) mod launch_diagnostics;
 pub mod message_gateway;
 pub mod messenger;
 pub mod notification;
-mod notification_push;
+mod notification_desktop;
+pub(crate) mod notification_push;
 mod orchestration_pair;
 mod orchestrator;
 pub(crate) use orchestrator::{build_agent_command, provider_launch_task};
@@ -47,6 +49,7 @@ pub(crate) mod permission_policy;
 pub(crate) mod persona;
 pub mod plan;
 mod plan_authority;
+pub(crate) mod plan_batch_authority;
 mod plan_reconcile;
 pub mod plugin_host;
 pub mod provider_update;
@@ -67,6 +70,7 @@ pub mod session_persist;
 mod shell_restart;
 pub mod smart_add;
 pub mod spawn;
+pub(crate) mod spawn_capability;
 mod spawn_chatbackend;
 mod spawn_cli;
 mod spawn_factory;
@@ -145,7 +149,8 @@ pub(crate) use orchestrator::{
     arm_provider_session_for_test, spawn_onboarding_task, LaunchGeneration,
 };
 pub(crate) use orchestrator::{
-    record_provider_session, ProviderSessionBinding, TaskLaunchAuthority,
+    move_chatbackend_task_to_system_prompt, record_provider_session, ProviderSessionBinding,
+    TaskLaunchAuthority,
 };
 pub use orchestrator::{
     BatchOp, RefreshOutcome, RefreshRequest, RefreshTrigger, RefreshTuning, SpawnAgentParams,

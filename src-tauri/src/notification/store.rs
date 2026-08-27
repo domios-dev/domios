@@ -3,7 +3,17 @@ use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
-use super::push::PushCategory;
+use codeterm_types::notification::{AnswerSlot, NotificationAction};
+
+use super::answer::{self, AnswerAdmission};
+use super::answer_delivery::{self, AnswerDeliveryPlan};
+use super::authority::SurfaceOffer;
+use super::channel_ask;
+use super::channel_placement::{self, ChannelPlacement, SpentQuestion};
+use super::dedupe::{
+    ConditionLedger, ConditionTransition, DeliveryAdmission, DeliveryLedger, NotificationIdentity,
+};
+use super::push::NotifyLevel;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Notification {
@@ -16,16 +26,33 @@ pub struct Notification {
     pub peer_name: Option<String>,
     pub title: String,
     pub body: Option<String>,
-    pub level: NotificationLevel,
+    pub severity: NotificationSeverity,
+    /// The axis a caller may name explicitly, independent of `severity`. Absent
+    /// is a legal, distinct state, never defaulted from `severity` here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub level: Option<NotifyLevel>,
     pub timestamp: u64,
     pub read: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub actions: Option<serde_json::Value>,
+    pub actions: Option<Vec<NotificationAction>>,
+    /// Opened when the record offers a choice. Carries the asking tab captured
+    /// at send time and the one answer it may ever hold.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub answer: Option<AnswerSlot>,
+    /// The surface this question offers to turn on, and the one label that
+    /// turns it on. Daemon-constructed, and read only when an answer is
+    /// recorded — an untapped offer changes nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub surface_offer: Option<SurfaceOffer>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sticky: Option<bool>,
     /// Set when the push sink refused the record. Never surfaced to the caller.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub push_failed: Option<bool>,
+    /// Where each channel put the message that carried this record, in that
+    /// channel's own terms. Written by the channel, read by the same channel.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub placements: Vec<ChannelPlacement>,
 }
 
 /// Daemon-owned origin of a notification. Every field is resolved against live
@@ -38,8 +65,8 @@ pub struct NotificationProvenance {
     pub peer_name: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
-pub enum NotificationLevel {
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, Hash)]
+pub enum NotificationSeverity {
     Info,
     Warning,
     Error,
@@ -84,17 +111,38 @@ impl PushAdmission {
     }
 }
 
+/// What one notification asks: the buttons it offers, and — when it is an
+/// offer to be louder — the surface a tap would turn on. One value, so the
+/// choice set and the offer that rides on it cannot be stored apart.
+#[derive(Debug, Clone, Default)]
+pub struct Ask {
+    pub actions: Option<Vec<NotificationAction>>,
+    pub offer: Option<SurfaceOffer>,
+}
+
+impl Ask {
+    pub fn offering(actions: Option<Vec<NotificationAction>>) -> Self {
+        Self {
+            actions,
+            offer: None,
+        }
+    }
+}
+
 /// A push-eligible request. `scope` and `event_key` are daemon-derived; the
 /// caller cannot opt out of either.
 pub struct PushRequest {
     pub scope: String,
-    pub category: PushCategory,
+    pub level: NotifyLevel,
     pub event_key: String,
     pub title: String,
     pub body: Option<String>,
-    pub level: NotificationLevel,
+    pub severity: NotificationSeverity,
     pub provenance: NotificationProvenance,
     pub per_scope_limit: u32,
+    /// A levelled notification carries its question too: an escalation that
+    /// asks must be answerable on the channel it reached.
+    pub ask: Ask,
 }
 
 struct PushSlot {
@@ -106,11 +154,15 @@ pub struct NotificationStore {
     notifications: Vec<Notification>,
     provider_updates: HashMap<String, String>,
     max_notifications: usize,
-    /// One open coalescing slot per (scope, category). Closed on read, clear,
+    /// One open coalescing slot per (scope, level). Closed on read, clear,
     /// eviction or tab close — never by elapsed time.
-    push_slots: HashMap<(String, PushCategory), PushSlot>,
+    push_slots: HashMap<(String, NotifyLevel), PushSlot>,
     /// Lifetime push count per scope. A count, so no clock can advance it.
     push_counts: HashMap<String, u32>,
+    /// Live identities of unread records: the same message twice opens one.
+    deliveries: DeliveryLedger,
+    /// Standing conditions already announced, so re-observation stays quiet.
+    conditions: ConditionLedger,
 }
 
 impl NotificationStore {
@@ -121,6 +173,8 @@ impl NotificationStore {
             max_notifications: max,
             push_slots: HashMap::new(),
             push_counts: HashMap::new(),
+            deliveries: DeliveryLedger::default(),
+            conditions: ConditionLedger::default(),
         }
     }
 
@@ -129,39 +183,46 @@ impl NotificationStore {
         &mut self,
         title: String,
         body: Option<String>,
-        level: NotificationLevel,
+        severity: NotificationSeverity,
         tab_id: Option<String>,
         workspace_id: Option<String>,
     ) -> String {
         self.add_ext(
             title,
             body,
-            level,
+            severity,
             NotificationProvenance {
                 tab_id,
                 workspace_id,
                 ..Default::default()
             },
+            Ask::default(),
             None,
             None,
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn add_ext(
         &mut self,
         title: String,
         body: Option<String>,
-        level: NotificationLevel,
+        severity: NotificationSeverity,
         provenance: NotificationProvenance,
-        actions: Option<serde_json::Value>,
+        ask: Ask,
         sticky: Option<bool>,
+        level: Option<NotifyLevel>,
     ) -> String {
+        let Ask { actions, offer } = ask;
         let id = Uuid::new_v4().to_string();
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as u64;
 
+        // Send-time capture: the asking tab is read from the provenance this
+        // record is being created with, never resolved when an answer is tapped.
+        let answer = answer::slot_for(actions.as_deref(), provenance.tab_id.as_deref());
         let notification = Notification {
             id: id.clone(),
             tab_id: provenance.tab_id,
@@ -170,12 +231,16 @@ impl NotificationStore {
             peer_name: provenance.peer_name,
             title,
             body,
+            severity,
             level,
             timestamp,
             read: false,
             actions,
+            answer,
+            surface_offer: offer,
             sticky,
             push_failed: None,
+            placements: Vec::new(),
         };
 
         self.notifications.push(notification);
@@ -183,15 +248,53 @@ impl NotificationStore {
         while self.notifications.len() > self.max_notifications {
             let evicted = self.notifications.remove(0);
             self.close_push_slot_for(&evicted.id);
+            self.deliveries.release(&evicted.id);
         }
 
         id
     }
 
+    /// Add a notification unless an identical one is already live. Identity is
+    /// derived here, so no caller can opt out of it.
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_deduped(
+        &mut self,
+        title: String,
+        body: Option<String>,
+        severity: NotificationSeverity,
+        provenance: NotificationProvenance,
+        ask: Ask,
+        sticky: Option<bool>,
+        level: Option<NotifyLevel>,
+    ) -> DeliveryAdmission {
+        let identity = NotificationIdentity::of(&provenance, &severity, &title, body.as_deref());
+        if let Some(id) = self.deliveries.existing(&identity) {
+            return DeliveryAdmission::Duplicate(id);
+        }
+        let id = self.add_ext(title, body, severity, provenance, ask, sticky, level);
+        self.deliveries.bind(identity, id.clone());
+        DeliveryAdmission::Deliver(id)
+    }
+
+    /// Observe a condition that stays true. Only the absent -> present edge is
+    /// news; every later observation of the same condition is the same news.
+    pub fn observe_condition_present(
+        &mut self,
+        scope: &str,
+        condition: &str,
+    ) -> ConditionTransition {
+        self.conditions.observe_present(scope, condition)
+    }
+
+    /// The condition resolved, so a later recurrence is a fresh transition.
+    pub fn observe_condition_absent(&mut self, scope: &str, condition: &str) {
+        self.conditions.observe_absent(scope, condition);
+    }
+
     /// Admit a push-eligible notification. Dedup and coalescing are decided
     /// here so no caller can opt out of them.
     pub fn add_push(&mut self, request: PushRequest) -> PushAdmission {
-        let slot_key = (request.scope.clone(), request.category);
+        let slot_key = (request.scope.clone(), request.level);
         let open = self.push_slots.get(&slot_key).map(|slot| {
             (
                 slot.event_key == request.event_key,
@@ -205,23 +308,35 @@ impl NotificationStore {
 
         let PushRequest {
             scope,
+            level,
             event_key,
             title,
             body,
-            level,
+            severity,
             provenance,
             per_scope_limit,
-            ..
+            ask,
         } = request;
 
+        // A record that offers a choice is never a coalescing target: rewriting
+        // a standing question in place would retract it under the user's
+        // finger, and the tap that arrived would answer something else.
         let reused = open.and_then(|(_, id)| {
-            self.rewrite_in_place(&id, title.clone(), body.clone(), level.clone(), &provenance)
-                .then_some(id)
+            (!self.offers_choice(&id)
+                && self.rewrite_in_place(
+                    &id,
+                    title.clone(),
+                    body.clone(),
+                    severity.clone(),
+                    &provenance,
+                    level,
+                ))
+            .then_some(id)
         });
         let is_supersede = reused.is_some();
         let id = match reused {
             Some(id) => id,
-            None => self.add_ext(title, body, level, provenance, None, None),
+            None => self.add_ext(title, body, severity, provenance, ask, None, Some(level)),
         };
 
         self.push_slots.insert(
@@ -246,20 +361,23 @@ impl NotificationStore {
 
     /// Content-only rewrite: the coalesced record keeps its id, position and
     /// opening timestamp so it reads as one event, not a new one.
+    #[allow(clippy::too_many_arguments)]
     fn rewrite_in_place(
         &mut self,
         id: &str,
         title: String,
         body: Option<String>,
-        level: NotificationLevel,
+        severity: NotificationSeverity,
         provenance: &NotificationProvenance,
+        level: NotifyLevel,
     ) -> bool {
         let Some(target) = self.notifications.iter_mut().find(|n| n.id == id) else {
             return false;
         };
         target.title = title;
         target.body = body;
-        target.level = level;
+        target.severity = severity;
+        target.level = Some(level);
         target.tab_id = provenance.tab_id.clone();
         target.tab_title = provenance.tab_title.clone();
         target.workspace_id = provenance.workspace_id.clone();
@@ -287,6 +405,8 @@ impl NotificationStore {
         self.push_slots
             .retain(|(slot_scope, _), _| slot_scope != scope);
         self.push_counts.remove(scope);
+        self.deliveries.release_scope(scope);
+        self.conditions.close_scope(scope);
     }
 
     fn close_push_slot_for(&mut self, id: &str) {
@@ -298,7 +418,7 @@ impl NotificationStore {
         prompt_id: String,
         title: String,
         body: String,
-        actions: serde_json::Value,
+        actions: Vec<NotificationAction>,
         provenance: NotificationProvenance,
     ) -> DedupAdmission {
         if let Some(id) = self.provider_updates.get(&prompt_id) {
@@ -307,10 +427,11 @@ impl NotificationStore {
         let id = self.add_ext(
             title,
             Some(body),
-            NotificationLevel::Info,
+            NotificationSeverity::Info,
             provenance,
-            Some(actions),
+            Ask::offering(Some(actions)),
             Some(true),
+            None,
         );
         self.provider_updates.insert(prompt_id, id.clone());
         DedupAdmission::Added(id)
@@ -334,6 +455,7 @@ impl NotificationStore {
         if let Some(n) = self.notifications.iter_mut().find(|n| n.id == id) {
             n.read = true;
             self.close_push_slot_for(id);
+            self.deliveries.release(id);
             true
         } else {
             false
@@ -346,13 +468,116 @@ impl NotificationStore {
                 self.notifications.retain(|n| n.id != id);
                 self.provider_updates.retain(|_, value| value != id);
                 self.close_push_slot_for(id);
+                self.deliveries.release(id);
             }
             None => {
                 self.notifications.clear();
                 self.provider_updates.clear();
                 self.push_slots.clear();
+                self.deliveries.clear();
             }
         }
+    }
+
+    /// The one answer this notification may hold, and the tab it was asked
+    /// from. Read-only: recording goes through `record_answer`.
+    pub fn answer_slot(&self, id: &str) -> Option<&AnswerSlot> {
+        self.notifications
+            .iter()
+            .find(|n| n.id == id)?
+            .answer
+            .as_ref()
+    }
+
+    /// Whether this record still stands as a question.
+    pub fn offers_choice(&self, id: &str) -> bool {
+        self.notifications
+            .iter()
+            .find(|n| n.id == id)
+            .and_then(|n| n.actions.as_deref())
+            .is_some_and(|actions| !channel_ask::offered_labels(actions).is_empty())
+    }
+
+    /// The label at one offered position of this record. A tapped token names
+    /// a position, and only the record decides which labels it ever offered —
+    /// so a token cannot name a label this notification never carried.
+    pub fn offered_choice(&self, id: &str, index: usize) -> Option<String> {
+        let actions = self
+            .notifications
+            .iter()
+            .find(|n| n.id == id)?
+            .actions
+            .as_deref()?;
+        channel_ask::label_at(actions, index).map(str::to_string)
+    }
+
+    /// The options a channel carries for this record, each with the opaque
+    /// token that names its position back to this very store.
+    pub fn offered_choices_for_channel(&self, id: &str) -> Vec<channel_ask::ChannelChoice> {
+        match self
+            .notifications
+            .iter()
+            .find(|n| n.id == id)
+            .and_then(|n| n.actions.as_deref())
+        {
+            Some(actions) => channel_ask::choices_for(id, actions),
+            None => Vec::new(),
+        }
+    }
+
+    /// The surface this record offers to turn on, if it is an offer at all.
+    pub fn surface_offer(&self, id: &str) -> Option<SurfaceOffer> {
+        self.notifications
+            .iter()
+            .find(|n| n.id == id)?
+            .surface_offer
+            .clone()
+    }
+
+    /// The level the caller declared for this record, if any. Read-only: the
+    /// emitted payload reads this back so it never drifts from what is stored.
+    pub fn level(&self, id: &str) -> Option<NotifyLevel> {
+        self.notifications.iter().find(|n| n.id == id)?.level
+    }
+
+    /// Record the user's choice. The invariant lives here, not in any surface:
+    /// the same question renders in more than one place, and a per-surface
+    /// guard would let it take two answers.
+    pub fn record_answer(&mut self, id: &str, label: &str) -> AnswerAdmission {
+        answer::record(&mut self.notifications, id, label)
+    }
+
+    /// What one record owes the tab that asked. Read-only: the send itself
+    /// happens outside the guard, through the existing envelope path.
+    pub fn answer_delivery_plan(&self, id: &str) -> AnswerDeliveryPlan {
+        answer_delivery::plan(&self.notifications, id)
+    }
+
+    /// The standing answer reached the asking tab.
+    pub fn mark_answer_delivered(&mut self, id: &str) -> bool {
+        answer_delivery::mark_delivered(&mut self.notifications, id)
+    }
+
+    /// A channel reported where it put this record's message. Stored verbatim:
+    /// a locator means whatever the channel that wrote it means by it.
+    pub fn remember_channel_placement(&mut self, id: &str, service: &str, locator: &str) -> bool {
+        channel_placement::remember(&mut self.notifications, id, service, locator)
+    }
+
+    pub fn channel_placements(&self, id: &str) -> Vec<ChannelPlacement> {
+        channel_placement::placements(&self.notifications, id)
+    }
+
+    /// What this record owes the channels that carried it once it holds an
+    /// answer. Read-only: the rewriting happens outside the guard.
+    pub fn spent_question(&self, id: &str) -> Option<SpentQuestion> {
+        channel_placement::spent_question(&self.notifications, id)
+    }
+
+    /// The tab that asked has closed. Its unanswered questions become visibly
+    /// undeliverable; answers already recorded stay exactly as they were.
+    pub fn forget_answer_tab(&mut self, tab_id: &str) {
+        answer::forget_tab(&mut self.notifications, tab_id);
     }
 
     pub fn unread_count(&self) -> usize {
@@ -361,472 +586,4 @@ impl NotificationStore {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_add_notification() {
-        let mut store = NotificationStore::new(100);
-        let id = store.add("Test".into(), None, NotificationLevel::Info, None, None);
-        assert!(!id.is_empty());
-        assert_eq!(store.list(false).len(), 1);
-    }
-
-    #[test]
-    fn test_notification_defaults_unread() {
-        let mut store = NotificationStore::new(100);
-        store.add("Test".into(), None, NotificationLevel::Info, None, None);
-        assert_eq!(store.unread_count(), 1);
-        assert_eq!(store.list(true).len(), 1);
-    }
-
-    #[test]
-    fn test_mark_read() {
-        let mut store = NotificationStore::new(100);
-        let id = store.add("Test".into(), None, NotificationLevel::Info, None, None);
-        assert!(store.mark_read(&id));
-        assert_eq!(store.unread_count(), 0);
-        assert_eq!(store.list(true).len(), 0);
-        assert_eq!(store.list(false).len(), 1);
-    }
-
-    #[test]
-    fn test_mark_read_nonexistent() {
-        let mut store = NotificationStore::new(100);
-        assert!(!store.mark_read("nonexistent"));
-    }
-
-    #[test]
-    fn test_clear_specific() {
-        let mut store = NotificationStore::new(100);
-        let id1 = store.add("A".into(), None, NotificationLevel::Info, None, None);
-        let _id2 = store.add("B".into(), None, NotificationLevel::Info, None, None);
-        store.clear(Some(&id1));
-        assert_eq!(store.list(false).len(), 1);
-        assert_eq!(store.list(false)[0].title, "B");
-    }
-
-    #[test]
-    fn test_clear_all() {
-        let mut store = NotificationStore::new(100);
-        store.add("A".into(), None, NotificationLevel::Info, None, None);
-        store.add("B".into(), None, NotificationLevel::Info, None, None);
-        store.clear(None);
-        assert_eq!(store.list(false).len(), 0);
-    }
-
-    #[test]
-    fn test_eviction() {
-        let mut store = NotificationStore::new(3);
-        store.add("A".into(), None, NotificationLevel::Info, None, None);
-        store.add("B".into(), None, NotificationLevel::Info, None, None);
-        store.add("C".into(), None, NotificationLevel::Info, None, None);
-        store.add("D".into(), None, NotificationLevel::Info, None, None);
-        assert_eq!(store.list(false).len(), 3);
-        let titles: Vec<&str> = store.list(false).iter().map(|n| n.title.as_str()).collect();
-        assert_eq!(titles, vec!["B", "C", "D"]);
-    }
-
-    #[test]
-    fn test_notification_levels() {
-        let mut store = NotificationStore::new(100);
-        store.add("Info".into(), None, NotificationLevel::Info, None, None);
-        store.add("Warn".into(), None, NotificationLevel::Warning, None, None);
-        store.add("Err".into(), None, NotificationLevel::Error, None, None);
-        let levels: Vec<&NotificationLevel> = store.list(false).iter().map(|n| &n.level).collect();
-        assert_eq!(
-            levels,
-            vec![
-                &NotificationLevel::Info,
-                &NotificationLevel::Warning,
-                &NotificationLevel::Error
-            ]
-        );
-    }
-
-    #[test]
-    fn test_notification_with_body_and_tab() {
-        let mut store = NotificationStore::new(100);
-        store.add(
-            "Title".into(),
-            Some("Body text".into()),
-            NotificationLevel::Info,
-            Some("tab-1".into()),
-            Some("ws-1".into()),
-        );
-        let n = &store.list(false)[0];
-        assert_eq!(n.title, "Title");
-        assert_eq!(n.body.as_deref(), Some("Body text"));
-        assert_eq!(n.tab_id.as_deref(), Some("tab-1"));
-        assert_eq!(n.workspace_id.as_deref(), Some("ws-1"));
-    }
-
-    #[test]
-    fn provider_update_notification_is_actionable_deduplicated_and_resolvable() {
-        let mut store = NotificationStore::new(100);
-        let actions = serde_json::json!([{"label":"Update","type":"invoke"}]);
-        let provenance = NotificationProvenance {
-            tab_id: Some("tab-1".into()),
-            tab_title: Some("Build".into()),
-            workspace_id: Some("workspace-1".into()),
-            peer_name: None,
-        };
-        let first = store.add_provider_update(
-            "prompt-1".into(),
-            "Update available".into(),
-            "Install separately".into(),
-            actions.clone(),
-            provenance.clone(),
-        );
-        let second = store.add_provider_update(
-            "prompt-1".into(),
-            "Duplicate".into(),
-            "Duplicate".into(),
-            actions.clone(),
-            provenance,
-        );
-        let id = match first {
-            DedupAdmission::Added(id) => id,
-            _ => panic!("first provider update must be added"),
-        };
-        assert_eq!(second, DedupAdmission::Duplicate(id.clone()));
-        assert_eq!(store.list(false).len(), 1);
-        assert_eq!(store.list(false)[0].actions, Some(actions));
-        assert_eq!(store.resolve_provider_update("prompt-1"), Some(id));
-        assert!(store.list(false).is_empty());
-    }
-
-    /// Every test here is synchronous and clock-free by construction: needing a
-    /// runtime or a time advance would prove a timer, not the mechanism.
-    mod notification_admission {
-        use super::*;
-        use crate::notification::push;
-        use std::collections::HashSet;
-
-        const GENEROUS_LIMIT: u32 = 50;
-
-        fn provenance_for(tab_id: &str) -> NotificationProvenance {
-            NotificationProvenance {
-                tab_id: Some(tab_id.to_string()),
-                tab_title: Some("Worker lane".into()),
-                workspace_id: Some("ws_lanes".into()),
-                peer_name: None,
-            }
-        }
-
-        fn request(
-            tab_id: &str,
-            category: PushCategory,
-            supplied_key: Option<&str>,
-            title: &str,
-            body: &str,
-            per_scope_limit: u32,
-        ) -> PushRequest {
-            let provenance = provenance_for(tab_id);
-            PushRequest {
-                scope: push::scope_key(&provenance),
-                category,
-                event_key: push::event_key(supplied_key, title),
-                title: title.to_string(),
-                body: Some(body.to_string()),
-                level: NotificationLevel::Info,
-                provenance,
-                per_scope_limit,
-            }
-        }
-
-        #[test]
-        fn same_event_key_while_unread_is_a_duplicate() {
-            const KEY: &str = "release-build";
-            const FIRST_TITLE: &str = "Build started";
-            const SECOND_TITLE: &str = "Build finished";
-            const FIRST_BODY: &str = "compiling the workspace";
-            const SECOND_BODY: &str = "artifacts are on disk";
-            assert_ne!(
-                FIRST_TITLE, SECOND_TITLE,
-                "the two calls must differ in text so a text-hash dedup cannot pass this"
-            );
-            assert_ne!(FIRST_BODY, SECOND_BODY);
-
-            let mut store = NotificationStore::new(10);
-            let first = store.add_push(request(
-                "tab_a",
-                PushCategory::Milestone,
-                Some(KEY),
-                FIRST_TITLE,
-                FIRST_BODY,
-                GENEROUS_LIMIT,
-            ));
-            let second = store.add_push(request(
-                "tab_a",
-                PushCategory::Milestone,
-                Some(KEY),
-                SECOND_TITLE,
-                SECOND_BODY,
-                GENEROUS_LIMIT,
-            ));
-
-            assert!(matches!(first, PushAdmission::Deliver(_)));
-            assert_eq!(second, PushAdmission::Duplicate(first.id().to_string()));
-            assert!(!second.should_push());
-            assert!(!second.opened_or_changed_record());
-            assert_eq!(store.list(false).len(), 1, "no second record is created");
-            assert_eq!(
-                store.list(false)[0].title,
-                FIRST_TITLE,
-                "a duplicate leaves the open record untouched"
-            );
-        }
-
-        #[test]
-        fn reading_the_record_closes_the_boundary_for_the_same_key() {
-            const KEY: &str = "release-build";
-            let mut store = NotificationStore::new(10);
-            let first = store.add_push(request(
-                "tab_a",
-                PushCategory::Milestone,
-                Some(KEY),
-                "Build started",
-                "one",
-                GENEROUS_LIMIT,
-            ));
-            assert!(store.mark_read(first.id()));
-
-            let after_read = store.add_push(request(
-                "tab_a",
-                PushCategory::Milestone,
-                Some(KEY),
-                "Build started again",
-                "two",
-                GENEROUS_LIMIT,
-            ));
-            assert!(
-                matches!(after_read, PushAdmission::Deliver(_)),
-                "read closes the coalescing boundary — no timer does"
-            );
-            assert_ne!(after_read.id(), first.id());
-            assert_eq!(store.list(false).len(), 2);
-        }
-
-        #[test]
-        fn different_event_key_supersedes_in_place() {
-            let mut store = NotificationStore::new(10);
-            let first = store.add_push(request(
-                "tab_a",
-                PushCategory::Milestone,
-                Some("step-1"),
-                "Step one done",
-                "first body",
-                GENEROUS_LIMIT,
-            ));
-            let second = store.add_push(request(
-                "tab_a",
-                PushCategory::Milestone,
-                Some("step-2"),
-                "Step two done",
-                "second body",
-                GENEROUS_LIMIT,
-            ));
-
-            assert!(matches!(second, PushAdmission::Supersede(_)));
-            assert!(second.should_push());
-            assert_eq!(
-                second.id(),
-                first.id(),
-                "in place means the same record id, not a new one"
-            );
-            let listed = store.list(false);
-            assert_eq!(listed.len(), 1, "the inbox does not grow");
-            assert_eq!(listed[0].title, "Step two done");
-            assert_eq!(listed[0].body.as_deref(), Some("second body"));
-            assert!(!listed[0].read);
-        }
-
-        #[test]
-        fn per_tab_ceiling_suppresses_novel_event_keys() {
-            const LIMIT: u32 = 3;
-            let mut store = NotificationStore::new(10);
-            let mut keys: Vec<String> = Vec::new();
-            let mut outcomes: Vec<PushAdmission> = Vec::new();
-
-            for step in 0..(LIMIT + 2) {
-                let key = format!("novel-event-{step}");
-                keys.push(key.clone());
-                outcomes.push(store.add_push(request(
-                    "tab_a",
-                    PushCategory::Milestone,
-                    Some(&key),
-                    &format!("Milestone {step}"),
-                    "body",
-                    LIMIT,
-                )));
-            }
-
-            let unique: HashSet<&String> = keys.iter().collect();
-            assert_eq!(
-                unique.len(),
-                keys.len(),
-                "every key is novel, so the dedup branch cannot absorb any of them"
-            );
-            assert!(
-                !outcomes
-                    .iter()
-                    .any(|o| matches!(o, PushAdmission::Duplicate(_))),
-                "no admission may take the dedup branch in this fixture"
-            );
-            assert!(
-                outcomes[..LIMIT as usize].iter().all(|o| o.should_push()),
-                "everything under the ceiling still pushes"
-            );
-            assert!(
-                outcomes[LIMIT as usize..]
-                    .iter()
-                    .all(|o| matches!(o, PushAdmission::Suppressed(_)) && !o.should_push()),
-                "novel keys past the ceiling are suppressed"
-            );
-            assert_eq!(
-                store.list(false).len(),
-                1,
-                "the durable record still lands and stays coalesced"
-            );
-        }
-
-        #[test]
-        fn clearing_the_inbox_does_not_reset_the_lifetime_ceiling() {
-            const LIMIT: u32 = 1;
-            let mut store = NotificationStore::new(10);
-            let first = store.add_push(request(
-                "tab_a",
-                PushCategory::Milestone,
-                Some("event-1"),
-                "One",
-                "body",
-                LIMIT,
-            ));
-            assert!(first.should_push());
-            store.clear(None);
-
-            let after_clear = store.add_push(request(
-                "tab_a",
-                PushCategory::Milestone,
-                Some("event-2"),
-                "Two",
-                "body",
-                LIMIT,
-            ));
-            assert!(
-                matches!(after_clear, PushAdmission::Suppressed(_)),
-                "the ceiling is a lifetime count, so clearing cannot buy more pushes"
-            );
-        }
-
-        #[test]
-        fn closing_the_tab_scope_releases_its_slot_and_counter() {
-            const LIMIT: u32 = 1;
-            let mut store = NotificationStore::new(10);
-            let scope = push::scope_key(&provenance_for("tab_a"));
-            store.add_push(request(
-                "tab_a",
-                PushCategory::Milestone,
-                Some("event-1"),
-                "One",
-                "body",
-                LIMIT,
-            ));
-            store.close_push_scope(&scope);
-
-            let reopened = store.add_push(request(
-                "tab_a",
-                PushCategory::Milestone,
-                Some("event-2"),
-                "Two",
-                "body",
-                LIMIT,
-            ));
-            assert!(matches!(reopened, PushAdmission::Deliver(_)));
-            assert_eq!(store.list(false).len(), 2);
-        }
-
-        #[test]
-        fn missing_event_key_still_dedups_by_derived_identity() {
-            let mut store = NotificationStore::new(10);
-            let first = store.add_push(request(
-                "tab_a",
-                PushCategory::Blocker,
-                None,
-                "Approval required",
-                "first body",
-                GENEROUS_LIMIT,
-            ));
-            let second = store.add_push(request(
-                "tab_a",
-                PushCategory::Blocker,
-                None,
-                "Approval required",
-                "second body",
-                GENEROUS_LIMIT,
-            ));
-
-            assert_eq!(
-                second,
-                PushAdmission::Duplicate(first.id().to_string()),
-                "omitting the key derives one, so dedup is never opt-in"
-            );
-            assert_eq!(store.list(false).len(), 1);
-        }
-
-        #[test]
-        fn categories_and_scopes_do_not_share_a_slot() {
-            let mut store = NotificationStore::new(10);
-            let milestone = store.add_push(request(
-                "tab_a",
-                PushCategory::Milestone,
-                Some("shared"),
-                "A",
-                "body",
-                GENEROUS_LIMIT,
-            ));
-            let blocker = store.add_push(request(
-                "tab_a",
-                PushCategory::Blocker,
-                Some("shared"),
-                "B",
-                "body",
-                GENEROUS_LIMIT,
-            ));
-            let other_tab = store.add_push(request(
-                "tab_b",
-                PushCategory::Milestone,
-                Some("shared"),
-                "C",
-                "body",
-                GENEROUS_LIMIT,
-            ));
-
-            assert!(matches!(milestone, PushAdmission::Deliver(_)));
-            assert!(matches!(blocker, PushAdmission::Deliver(_)));
-            assert!(matches!(other_tab, PushAdmission::Deliver(_)));
-            assert_eq!(store.list(false).len(), 3);
-        }
-
-        #[test]
-        fn a_failed_push_marks_the_record_without_removing_it() {
-            let mut store = NotificationStore::new(10);
-            let admitted = store.add_push(request(
-                "tab_a",
-                PushCategory::Failure,
-                Some("event-1"),
-                "Terminal failure",
-                "body",
-                GENEROUS_LIMIT,
-            ));
-            assert!(store.mark_push_failed(admitted.id()));
-            assert!(!store.mark_push_failed("never-existed"));
-
-            let listed = store.list(false);
-            assert_eq!(listed.len(), 1);
-            assert_eq!(listed[0].id, admitted.id());
-            assert_eq!(listed[0].push_failed, Some(true));
-        }
-    }
-}
+mod tests;

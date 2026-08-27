@@ -6,7 +6,7 @@
 import path from "node:path";
 import { expect, test } from "../../helpers/fixtures";
 import {
-  isEmpty,
+  assertPlanSurfaceNotEmpty,
   MISSION_CONTROL_LIVE_SEL,
   MISSION_CONTROL_PLAN_SURFACE_SEL,
   CANVAS_ART_DIR,
@@ -37,10 +37,7 @@ test(
     );
     try {
       const { page } = canvas;
-      if (await isEmpty(page)) {
-        test.skip(true, "canvas empty — perf fixture did not inject");
-        return;
-      }
+      await assertPlanSurfaceNotEmpty(page);
 
       await clearMode(page);
       await page.reload({ waitUntil: "domcontentloaded" });
@@ -73,7 +70,12 @@ test(
       await expect(shell).toHaveAttribute("data-plan-view-mode", "canvas");
       await expect(page.locator(MISSION_CONTROL_PLAN_SURFACE_SEL)).toBeVisible();
       await expect(page.locator(MISSION_CONTROL_LIVE_SEL)).toBeVisible();
-      await expect(page.locator('[data-testid="canvas-view"]:visible')).toHaveCount(0);
+      // NOT COVERED: "canvas mode does not mount the legacy WebGL canvas view".
+      // `canvas-view` lives only in CanvasViewInner, which no longer has a mount
+      // point in the app (PlanViewShell's canvas surface IS
+      // MissionControlPlanSurface), so the old toHaveCount(0) could never fail.
+      // A vacuous assertion is worse than an absent one; the contract now holds
+      // structurally and is not observable from this suite.
       await expect(page.locator('[data-testid="plan-board-view"]')).toBeHidden();
       await expect(page.locator('[data-testid="plan-list-view"]')).toBeHidden();
 
@@ -96,10 +98,7 @@ test(
     );
     try {
       const { page } = canvas;
-      if (await isEmpty(page)) {
-        test.skip(true, "canvas empty — perf fixture did not inject");
-        return;
-      }
+      await assertPlanSurfaceNotEmpty(page);
 
       await clearMode(page);
       await page.reload({ waitUntil: "domcontentloaded" });

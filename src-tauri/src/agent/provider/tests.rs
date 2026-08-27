@@ -110,6 +110,9 @@ fn provider_descriptor_round_trip() {
                 restart_required: true,
                 completion_signal: Some(ProviderUpdateCompletionSignal::ProviderClassification),
             }),
+            integration_trust_grant: Some(IntegrationTrustGrantCapability {
+                managed_keys: vec!["session_start".into()],
+            }),
             supports_stop: true,
             supports_chat_ui: true,
             supports_structured_prompts: true,
@@ -123,6 +126,7 @@ fn provider_descriptor_round_trip() {
                 description: Some("a preset".into()),
             }],
             system_prompt_delivery: SystemPromptDelivery::CliFlag("--system".into()),
+            context_owner: ContextOwner::Host,
         };
 
     let json = serde_json::to_string(&original).expect("serialize");

@@ -156,7 +156,7 @@ function Thinking({ text }: { text: string }) {
         )}
       </button>
       {open && (
-        <pre className="mt-1 p-2 bg-[var(--ct-bg-alt,rgba(255,255,255,0.03))] rounded text-[10px] whitespace-pre-wrap break-words">
+        <pre className="mt-1 p-2 bg-[var(--ct-bg-elev)] rounded text-[10px] whitespace-pre-wrap break-words">
           {text}
         </pre>
       )}

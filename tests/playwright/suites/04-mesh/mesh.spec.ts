@@ -4,6 +4,7 @@
  * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test } from "../../helpers/fixtures";
+import type { ApiClient } from "../../helpers/api-client";
 import { MeshStub } from "../../helpers/mesh-stub";
 import { pollUntil } from "../../helpers/poll";
 
@@ -20,6 +21,17 @@ interface MeshPeers {
 async function pairedPeer(api: { get<T>(p: string): Promise<T> }, id: string): Promise<MeshPeer | undefined> {
   const peers = await api.get<MeshPeers>("/mesh/peers");
   return peers.paired.find((p) => p.instance_id === id);
+}
+
+/** A crashed earlier run can leave a same-named stub paired at a dead port; drop it so
+ *  `data-peer-id` selectors and the cleanup assertion stay unambiguous. */
+async function dropStalePeersNamed(api: ApiClient, instanceName: string): Promise<void> {
+  const peers = await api.get<MeshPeers>("/mesh/peers");
+  for (const peer of peers.paired) {
+    if (peer.instance_name === instanceName) {
+      await api.post(`/mesh/peers/disconnect/${peer.instance_id}`).catch(() => {});
+    }
+  }
 }
 
 async function dismissRecoveryBannerIfPresent(page: {
@@ -44,26 +56,28 @@ test("@golden stub peer: pair → online → wedged → offline (hysteresis) →
   let peerId: string | undefined;
 
   try {
+    await dropStalePeersNamed(api, stub.instanceName);
     await stub.start("happy");
 
-    // which the stub must echo in its pair-accept (identity guard).
     const added = await api.post<{ instance_id: string }>("/mesh/peers/add-manual", {
       address: "127.0.0.1",
       port: stub.port,
     });
     peerId = added.instance_id;
-    stub.instanceId = peerId;
-
+    // Pairing rejects non-UUID identities and remaps the daemon's manual-<uuid>
+    // placeholder to the peer's real id — the stub must present its own UUID.
     await api.post("/mesh/connect", { instance_id: peerId });
+    await stub.waitForPairAccept();
 
     // Pairing completes via the stub's async accept callback.
     const paired = await pollUntil(
-      () => pairedPeer(api, peerId!),
+      () => pairedPeer(api, stub.instanceId),
       20_000,
       500,
       "stub appears in paired list",
     );
     if (!paired) throw new Error("stub did not appear in paired list");
+    peerId = stub.instanceId;
     expect(paired.online, "freshly paired peer must start online").toBe(true);
     expect(
       stub.requests.some((r) => r === "POST /api/mesh/pair/request"),
@@ -154,15 +168,19 @@ test("@golden liar peer: alive but its services endpoint errors honestly", async
   const stub = new MeshStub({ services: 3 });
   let peerId: string | undefined;
   try {
+    await dropStalePeersNamed(api, stub.instanceName);
     await stub.start("liar");
     const added = await api.post<{ instance_id: string }>("/mesh/peers/add-manual", {
       address: "127.0.0.1",
       port: stub.port,
     });
     peerId = added.instance_id;
-    stub.instanceId = peerId;
+    // The stub must present its OWN uuid; the daemon remaps its manual-<uuid>
+    // placeholder onto it. Overwriting it here is what produced the 502.
     await api.post("/mesh/connect", { instance_id: peerId });
-    await pollUntil(() => pairedPeer(api, peerId!), 20_000, 500, "liar pairs");
+    await stub.waitForPairAccept();
+    await pollUntil(() => pairedPeer(api, stub.instanceId), 20_000, 500, "liar pairs");
+    peerId = stub.instanceId;
 
     // The stub's own surface behaves as scripted: ping fine, services 500.
     const ping = await fetch(`http://127.0.0.1:${stub.port}/api/mesh/ping`);

@@ -12,6 +12,71 @@ pub enum SendOrigin {
     Programmatic,
 }
 
+/// Byte bound for a single programmatic send payload (16MB).
+pub const PROGRAMMATIC_SEND_MAX_BYTES: usize = 16 * 1024 * 1024;
+
+/// Pre-write refusal of an over-bound programmatic payload. Raised at the
+/// public callers before any delivery machinery runs — nothing was written.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PayloadTooLarge {
+    pub tab: String,
+    pub payload_bytes: usize,
+    pub max_bytes: usize,
+}
+
+impl PayloadTooLarge {
+    pub fn code(&self) -> &'static str {
+        "payload_too_large"
+    }
+
+    pub fn ledger_message(&self) -> String {
+        format!("{}: {self}", self.code())
+    }
+
+    pub fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "ok": false,
+            "error": {
+                "code": self.code(),
+                "tab": self.tab,
+                "bytes_written": false,
+                "payload_bytes": self.payload_bytes,
+                "max_bytes": self.max_bytes,
+                "message": self.to_string(),
+            }
+        })
+    }
+}
+
+impl std::fmt::Display for PayloadTooLarge {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Tab {} refused programmatic payload of {} bytes (max {}); nothing written",
+            self.tab, self.payload_bytes, self.max_bytes
+        )
+    }
+}
+
+impl std::error::Error for PayloadTooLarge {}
+
+/// Refuse an over-bound programmatic payload before any delivery machinery
+/// runs. User-origin sends are exempt; the check is byte length only.
+pub fn preflight_payload_size(
+    tab: &str,
+    origin: SendOrigin,
+    payload_bytes: usize,
+) -> Result<(), PayloadTooLarge> {
+    if origin == SendOrigin::Programmatic && payload_bytes > PROGRAMMATIC_SEND_MAX_BYTES {
+        return Err(PayloadTooLarge {
+            tab: tab.to_string(),
+            payload_bytes,
+            max_bytes: PROGRAMMATIC_SEND_MAX_BYTES,
+        });
+    }
+    Ok(())
+}
+
 /// Structured outcome of a tab delivery, carried verbatim across the mesh relay
 /// boundary. The `bytes_written` flag is the load-bearing part: a caller may
 /// never be told "not found" for a tab that already holds the text.

@@ -1,27 +1,59 @@
 //! Notification creation with OS toast support.
 
+use codeterm_types::notification::{
+    adopt_caller_actions, CallerAction, DaemonCommand, NotificationAction,
+};
+
 use super::ServiceContext;
 use crate::notification::{
-    push::{self, PushCategory},
-    store::{DedupAdmission, NotificationLevel, NotificationProvenance, PushRequest},
+    answer::AnswerAdmission,
+    answer_delivery::{self, AnswerDeliveryOutcome},
+    authority::{self, SurfaceOffer},
+    channel_ask::{self, ChannelChoice, PushMessage},
+    channel_placement::SpentQuestion,
+    channels,
+    dedupe::DeliveryAdmission,
+    desktop::{self, DesktopPolicy},
+    push::{self, NotifyLevel},
+    reach::{self, Unseen},
+    store::{Ask, DedupAdmission, NotificationProvenance, NotificationSeverity, PushRequest},
     NotifState,
 };
 
-/// Caller-side push intent. `category` is the closed enum, so routine progress
+/// Caller-side push intent. `level` is the closed enum, so routine progress
 /// has nothing to name; `event_key` is a hint the daemon derives when absent.
 #[derive(Debug, Clone, Default)]
 pub struct PushIntent {
-    pub category: Option<PushCategory>,
+    pub level: Option<NotifyLevel>,
     pub event_key: Option<String>,
 }
 
 /// What a push sink receives. Its `Result` is consumed by the daemon and never
 /// travels back to the caller — failure feedback invites retry, and retry is
 /// the spam vector.
+///
+/// The text is deliberately not rendered here: a channel's length bound is the
+/// transport's, so the material travels unrendered and each channel renders it
+/// at its own ceiling.
 pub struct PushEnvelope {
-    pub category: PushCategory,
-    pub text: String,
-    pub notification_id: String,
+    pub content: push::PushContent,
+    /// The offered options, each carrying the opaque token that names it. A
+    /// channel draws them; the tapped token comes back through the one answer
+    /// path the in-app card already uses. Same on every channel.
+    pub choices: Vec<ChannelChoice>,
+    /// The record this renders, echoed by a channel and never read by one.
+    pub record: String,
+}
+
+impl PushEnvelope {
+    /// This push as one channel will carry it, bounded by that channel.
+    pub fn message_for(&self, bounds: push::PushBounds) -> PushMessage {
+        PushMessage {
+            text: self.content.render(bounds),
+            choices: self.choices.clone(),
+            record: self.record.clone(),
+        }
+    }
 }
 
 /// Intent plus the daemon-owned policy and sink for one notification.
@@ -36,12 +68,36 @@ fn inert_sink(_: PushEnvelope) -> Result<(), String> {
 }
 
 impl PushDispatch<fn(PushEnvelope) -> Result<(), String>> {
-    /// No opt-in, no audience, or no category: behaves exactly as before.
+    /// No opt-in, no audience, or no level: behaves exactly as before.
     pub fn inert() -> Self {
         Self {
             intent: PushIntent::default(),
             per_scope_limit: 0,
             deliver: inert_sink,
+        }
+    }
+}
+
+/// The in-app leg of one notification: what the caller declared, and the user's
+/// standing policy for the one surface that can refuse. Deliberately not folded
+/// into `PushDispatch` — the push opt-in clears its own intent when nobody is
+/// subscribed, while the declared level still governs the toast.
+///
+/// The panel is not represented here. It is the complete log and takes every
+/// record unconditionally, so there is no policy for it to consult.
+pub struct SurfaceDispatch {
+    pub declared: Option<NotifyLevel>,
+    pub desktop: DesktopPolicy,
+}
+
+impl SurfaceDispatch {
+    /// Routes that raise no toast at all: internal diagnostics and the in-app
+    /// provider-update prompt. They still reach the panel, which is where they
+    /// have always landed — silence is about interrupting, not about recording.
+    pub fn silent() -> Self {
+        Self {
+            declared: None,
+            desktop: DesktopPolicy::silent(),
         }
     }
 }
@@ -94,8 +150,11 @@ fn resolve_origin(
         .unwrap_or_default()
 }
 
+#[cfg(test)]
+mod notify_gate_tests;
+
 #[derive(Debug)]
-enum NotificationAdmission {
+pub(crate) enum NotificationAdmission {
     Diagnostic,
     /// Explicitly requested (CLI/REST/frontend): stored, emitted, native best-effort.
     Explicit,
@@ -104,60 +163,71 @@ enum NotificationAdmission {
     },
 }
 
-fn notification_level(level: Option<&str>) -> NotificationLevel {
-    match level {
-        Some("warning") | Some("Warning") => NotificationLevel::Warning,
-        Some("error") | Some("Error") => NotificationLevel::Error,
-        _ => NotificationLevel::Info,
+fn notification_severity(severity: Option<&str>) -> NotificationSeverity {
+    match severity {
+        Some("warning") | Some("Warning") => NotificationSeverity::Warning,
+        Some("error") | Some("Error") => NotificationSeverity::Error,
+        _ => NotificationSeverity::Info,
     }
 }
 
 #[allow(clippy::too_many_arguments)]
-fn create_notification_with_delivery(
+pub(crate) fn create_notification_with_delivery(
     admission: NotificationAdmission,
     store: &NotifState,
     deliver_native: impl FnOnce(&str, Option<&str>),
     title: String,
     body: Option<String>,
-    level: Option<&str>,
-    actions: Option<serde_json::Value>,
+    severity: Option<&str>,
+    ask: Ask,
     sticky: Option<bool>,
     origin: NotificationOrigin,
     resolve_tab: impl FnOnce(&str) -> Option<NotificationProvenance>,
     push: PushDispatch<impl FnOnce(PushEnvelope) -> Result<(), String>>,
+    surfaces: SurfaceDispatch,
     emit: impl FnOnce(serde_json::Value),
 ) -> String {
     if matches!(admission, NotificationAdmission::Diagnostic) {
         return uuid::Uuid::new_v4().to_string();
     }
+    let actions = ask.actions.clone();
     let provenance = resolve_origin(&origin, resolve_tab);
-    let parsed_level = notification_level(level);
-    let level_str = match &parsed_level {
-        NotificationLevel::Warning => "Warning",
-        NotificationLevel::Error => "Error",
+    let parsed_severity = notification_severity(severity);
+    let severity_str = match &parsed_severity {
+        NotificationSeverity::Warning => "Warning",
+        NotificationSeverity::Error => "Error",
         _ => "Info",
     };
     let id = match admission {
         NotificationAdmission::Diagnostic => unreachable!(),
-        NotificationAdmission::Explicit => match push.intent.category {
-            None => store.lock().add_ext(
+        NotificationAdmission::Explicit => match push.intent.level {
+            // An identical live message is the same message: it keeps its
+            // record and reaches neither the native sink nor the panel again.
+            // Push routing may clear its own intent (nothing routed anywhere);
+            // the caller's declared level still stands and is what gets stored.
+            None => match store.lock().add_deduped(
                 title.clone(),
                 body.clone(),
-                parsed_level,
+                parsed_severity,
                 provenance.clone(),
-                actions.clone(),
+                ask,
                 sticky,
-            ),
-            Some(category) => {
+                surfaces.declared,
+            ) {
+                DeliveryAdmission::Deliver(id) => id,
+                DeliveryAdmission::Duplicate(id) => return id,
+            },
+            Some(level) => {
                 let admitted = store.lock().add_push(PushRequest {
                     scope: push::scope_key(&provenance),
-                    category,
+                    level,
                     event_key: push::event_key(push.intent.event_key.as_deref(), &title),
                     title: title.clone(),
                     body: body.clone(),
-                    level: parsed_level,
+                    severity: parsed_severity,
                     provenance: provenance.clone(),
                     per_scope_limit: push.per_scope_limit,
+                    ask,
                 });
                 // A duplicate reuses an open record: nothing new to toast or emit.
                 if !admitted.opened_or_changed_record() {
@@ -165,9 +235,16 @@ fn create_notification_with_delivery(
                 }
                 if admitted.should_push() {
                     let envelope = PushEnvelope {
-                        category,
-                        text: push::render_push(category, &title, body.as_deref(), &provenance),
-                        notification_id: admitted.id().to_string(),
+                        content: push::PushContent {
+                            level,
+                            title: title.clone(),
+                            body: body.clone(),
+                            provenance: provenance.clone(),
+                        },
+                        // Read off the record: the position a token names is
+                        // the position that record will resolve it at.
+                        choices: store.lock().offered_choices_for_channel(admitted.id()),
+                        record: admitted.id().to_string(),
                     };
                     if let Err(reason) = (push.deliver)(envelope) {
                         log::warn!(
@@ -191,7 +268,7 @@ fn create_notification_with_delivery(
                 prompt_id,
                 title.clone(),
                 body.clone().unwrap_or_default(),
-                actions.clone().unwrap_or_else(|| serde_json::json!([])),
+                actions.clone().unwrap_or_default(),
                 provenance.clone(),
             ) {
                 DedupAdmission::Added(id) => id,
@@ -200,26 +277,50 @@ fn create_notification_with_delivery(
         }
     };
 
+    // The answer slot the store just built, so every surface renders the same
+    // capture rather than deriving its own.
+    let answer = store.lock().answer_slot(&id).cloned();
+    // Read back off the record rather than reusing `surfaces.declared`: the
+    // payload must always agree with what was actually stored.
+    let level = store.lock().level(&id);
     let mut payload = serde_json::json!({
         "id": id,
         "title": title,
         "body": body,
-        "level": level_str,
+        "severity": severity_str,
         "tab_id": provenance.tab_id.clone(),
         "workspace_id": provenance.workspace_id.clone(),
         "tab_title": provenance.tab_title.clone(),
         "peer_name": provenance.peer_name.clone(),
     });
     if let Some(ref acts) = actions {
-        payload["actions"] = acts.clone();
+        payload["actions"] = serde_json::to_value(acts).unwrap_or_default();
+    }
+    if let Some(ref slot) = answer {
+        payload["answer"] = serde_json::to_value(slot).unwrap_or_default();
+    }
+    if let Some(level) = level {
+        payload["level"] = serde_json::json!(level.as_str());
     }
     if let Some(s) = sticky {
         payload["sticky"] = serde_json::json!(s);
     }
-    deliver_native(
-        payload["title"].as_str().unwrap_or_default(),
-        payload["body"].as_str(),
-    );
+    // Dedupe already decided this message is new; the gates decide where it may
+    // go. Unlevelled keeps its record and its panel arrival, and stops.
+    if let Some(pass) = desktop::admit(surfaces.declared, &surfaces.desktop).pass() {
+        log::debug!(
+            "[notify-gate] desktop toast admitted as {}",
+            pass.level().as_str()
+        );
+        deliver_native(
+            payload["title"].as_str().unwrap_or_default(),
+            payload["body"].as_str(),
+        );
+    }
+    // The panel is the complete log, so every record reaches it: this event is
+    // the only live path to it, and gating it would leave the panel silently
+    // lagging behind a store that already holds the record. `show_bell` is a
+    // presentation choice about the indicator and never reaches this gate.
     emit(payload);
     id
 }
@@ -245,20 +346,12 @@ impl ServiceContext {
         message: String,
         tab_id: String,
     ) -> String {
-        let actions = serde_json::json!([
-            {
-                "label": "Update",
-                "type": "invoke",
-                "value": "respond_provider_update_prompt",
-                "args": { "promptId": prompt_id, "accept": true }
-            },
-            {
-                "label": "Not now",
-                "type": "invoke",
-                "value": "respond_provider_update_prompt",
-                "args": { "promptId": prompt_id, "accept": false }
-            }
-        ]);
+        let respond = |label: &str, accept: bool| NotificationAction::Invoke {
+            label: label.to_string(),
+            command: DaemonCommand::RespondProviderUpdatePrompt,
+            args: Some(serde_json::json!({ "promptId": prompt_id, "accept": accept })),
+        };
+        let actions = vec![respond("Update", true), respond("Not now", false)];
         create_notification_with_delivery(
             NotificationAdmission::ProviderUpdate {
                 prompt_id: prompt_id.clone(),
@@ -268,11 +361,12 @@ impl ServiceContext {
             format!("{provider_name} update available"),
             Some(message),
             Some("info"),
-            Some(actions),
+            Ask::offering(Some(actions)),
             Some(true),
             NotificationOrigin::local_tab(tab_id),
             |candidate| self.resolve_tab_provenance(candidate),
             PushDispatch::inert(),
+            SurfaceDispatch::silent(),
             |payload| self.notify_event("notification-created", payload),
         )
     }
@@ -289,7 +383,7 @@ impl ServiceContext {
         &self,
         title: String,
         body: Option<String>,
-        level: Option<&str>,
+        severity: Option<&str>,
     ) -> String {
         create_notification_with_delivery(
             NotificationAdmission::Diagnostic,
@@ -297,12 +391,13 @@ impl ServiceContext {
             |_, _| {},
             title,
             body,
-            level,
-            None,
+            severity,
+            Ask::default(),
             None,
             NotificationOrigin::default(),
             |_| None,
             PushDispatch::inert(),
+            SurfaceDispatch::silent(),
             |_| {},
         )
     }
@@ -313,14 +408,63 @@ impl ServiceContext {
         &self,
         title: String,
         body: Option<String>,
-        level: Option<&str>,
-        actions: Option<serde_json::Value>,
+        severity: Option<&str>,
+        actions: Option<Vec<CallerAction>>,
         sticky: Option<bool>,
         origin: NotificationOrigin,
         intent: PushIntent,
+        offer: Option<SurfaceOffer>,
     ) -> String {
-        let (intent, per_scope_limit, audience) = self.resolve_push_policy(intent);
-        create_notification_with_delivery(
+        self.create_notification_ext_reported(
+            title, body, severity, actions, sticky, origin, intent, offer,
+        )
+        .0
+    }
+
+    /// The same explicit notification, plus the honest answer to "will anyone
+    /// see this". The record is opened either way — the report is information
+    /// for the caller, never a refusal.
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_notification_ext_reported(
+        &self,
+        title: String,
+        body: Option<String>,
+        severity: Option<&str>,
+        actions: Option<Vec<CallerAction>>,
+        sticky: Option<bool>,
+        origin: NotificationOrigin,
+        intent: PushIntent,
+        offer: Option<SurfaceOffer>,
+    ) -> (String, Option<Unseen>) {
+        // The provenance seam: a caller-supplied set becomes stored actions
+        // here, through a conversion with no invoke arm to reach.
+        let actions = actions.map(adopt_caller_actions);
+        let ask = Ask { actions, offer };
+        // The declared level outlives the push policy: an install whose
+        // channels resolve to nobody still has a desktop gate to satisfy.
+        let declared = intent.level;
+        let super::notification_push::PushPlan {
+            intent,
+            per_scope_limit,
+            targets,
+            refusals,
+        } = self.resolve_push_plan(intent);
+        let surfaces = self.resolve_surface_dispatch(declared);
+        // Judged before the plan is moved into the sink, off the same targets
+        // the sink will use — so the report cannot disagree with the delivery.
+        let unseen = reach::unseen(reach::Reach {
+            show_bell: self.bell_visible(),
+            declared,
+            desktop: &surfaces.desktop,
+            push: reach::PushReach {
+                carrying: targets.len(),
+                refused: refusals
+                    .iter()
+                    .map(|refusal| refusal.service.clone())
+                    .collect(),
+            },
+        });
+        let id = create_notification_with_delivery(
             NotificationAdmission::Explicit,
             &self.notif,
             |title, body| {
@@ -328,8 +472,8 @@ impl ServiceContext {
             },
             title,
             body,
-            level,
-            actions,
+            severity,
+            ask,
             sticky,
             origin,
             |candidate| self.resolve_tab_provenance(candidate),
@@ -337,427 +481,162 @@ impl ServiceContext {
                 intent,
                 per_scope_limit,
                 deliver: move |envelope: PushEnvelope| {
-                    self.deliver_telegram_push(&audience, &envelope)
+                    super::notification_push::deliver_plan(&targets, &refusals, self, &envelope)
                 },
             },
+            surfaces,
             |payload| self.notify_event("notification-created", payload),
-        )
+        );
+        (id, unseen)
+    }
+
+    /// Record the user's choice. The command carries the record and the chosen
+    /// label only — the tab it answers to was captured when the question was
+    /// sent, so nothing is resolved here.
+    pub fn answer_notification(&self, id: &str, label: &str) -> Result<serde_json::Value, String> {
+        // The guard is dropped before the event fans out: nothing downstream of
+        // an emit may re-enter the store while it is still held.
+        let admission = self.notif.lock().record_answer(id, label);
+        // THE AUTHORITY RULE, at the one place a surface may widen: the proof
+        // exists only for a first-and-only recording, so an offer applies on
+        // the tap that answered it and on nothing else.
+        if let Some(proof) = authority::tap_proof(&admission) {
+            self.apply_surface_offer(id, label, proof);
+        }
+        match admission {
+            // Carrying the answer back is an ordered consequence of recording
+            // it: the send happens before this call returns.
+            AnswerAdmission::Recorded(chosen) => Ok(self.settle_answer(id, chosen)),
+            // A second tap is not an error to the user: the standing answer is
+            // what the question holds, and it is unchanged. A retry may still
+            // finish a delivery the first attempt could not.
+            AnswerAdmission::AlreadyAnswered(standing) => Ok(self.settle_answer(id, standing)),
+            AnswerAdmission::Undeliverable => {
+                Err("The tab that asked this question is gone".to_string())
+            }
+            AnswerAdmission::NotOffered => {
+                Err("That choice was not offered by this notification".to_string())
+            }
+        }
+    }
+
+    /// An answer arrived on a push channel. The token names a position on one
+    /// record; the label is resolved off that record and then walks the very
+    /// same answer path an in-app tap walks, so the tapped label returns to the
+    /// tab that asked and no second answer route exists. `false` means this was
+    /// ordinary channel traffic and nothing was claimed.
+    pub fn claim_channel_answer(&self, callback_data: &str) -> bool {
+        let Some(tapped) = channel_ask::decode(callback_data) else {
+            return false;
+        };
+        // The guard is taken and dropped before the answer path runs: that path
+        // takes the same store lock, and parking_lot is not reentrant.
+        let resolved = {
+            self.notif
+                .lock()
+                .offered_choice(&tapped.notification_id, tapped.index)
+        };
+        let Some(label) = resolved else {
+            log::warn!(
+                "[notify-answer] a channel tap named no offered choice on {}",
+                tapped.notification_id
+            );
+            return true;
+        };
+        if let Err(reason) = self.answer_notification(&tapped.notification_id, &label) {
+            log::warn!(
+                "[notify-answer] a channel tap on {} was refused: {reason}",
+                tapped.notification_id
+            );
+        }
+        true
+    }
+
+    /// Apply whatever this record offered, and only when the tapped label is
+    /// the one it named. An untapped or declined offer never reaches here, and
+    /// what changes is the one field `authority::apply` writes.
+    fn apply_surface_offer(&self, id: &str, label: &str, proof: authority::TapProof) {
+        // The level is read off the record the tap answered, never passed in
+        // beside it: what the tap grants is the kind of notification the
+        // question itself demonstrated, and only the record knows which that was.
+        let standing = {
+            let store = self.notif.lock();
+            store.surface_offer(id).zip(store.level(id))
+        };
+        let Some((offer, level)) = standing else {
+            return;
+        };
+        if !offer.accepted_by(label) {
+            return;
+        }
+        let mut cfg = crate::config::load_config();
+        authority::apply(proof, &mut cfg.notifications, &offer.target, level);
+        if let Err(reason) = crate::config::save_config_pub(&cfg) {
+            log::error!("[notify-offer] accepted offer on {id} could not be saved: {reason}");
+            return;
+        }
+        crate::api::events::emit_everywhere(
+            &self.app_handle,
+            "config-changed",
+            serde_json::to_value(&cfg).unwrap_or_default(),
+        );
+    }
+
+    /// A question answered once stops presenting live controls on every channel
+    /// that carried it. Each placement goes back to the channel that reported
+    /// it; a channel that cannot rewrite what it sent says so and is logged,
+    /// because presentation may never cost the user their recorded answer.
+    fn spend_on_channels(&self, id: &str, spent: &SpentQuestion) {
+        let roster = channels::roster();
+        for placement in &spent.placements {
+            let attempt =
+                channels::resolve_in(&roster, &placement.service).and_then(|registered| {
+                    registered.channel.spend(
+                        self,
+                        &placement.locator,
+                        &spent.message_for(registered.channel.bounds()),
+                    )
+                });
+            if let Err(reason) = attempt {
+                log::warn!(
+                    "[notify-answer] {id} is answered but its {} message still shows the question: {reason}",
+                    placement.service
+                );
+            }
+        }
+    }
+
+    /// Carry the standing answer to the tab that asked, as a caller of the
+    /// existing envelope path, and report what actually happened. A refused
+    /// send leaves the record answered-but-undelivered, never delivered.
+    fn settle_answer(&self, id: &str, standing: String) -> serde_json::Value {
+        let outcome = answer_delivery::settle(
+            &self.notif,
+            id,
+            |to_tab, envelope, body| {
+                crate::service::messenger::Messenger::deliver(self, to_tab, envelope, body)
+                    .map(|_| ())
+            },
+            |spent| self.spend_on_channels(id, spent),
+        );
+        if let Some(detail) = outcome.failure() {
+            log::warn!("[notify-answer] {id} recorded but not delivered: {detail}");
+        }
+        let delivered = outcome.reached_tab();
+        self.notify_event(
+            "notification-answered",
+            serde_json::json!({ "id": id, "answered": standing, "delivered": delivered }),
+        );
+        match outcome {
+            AnswerDeliveryOutcome::Failed(detail) => serde_json::json!({
+                "answered": standing,
+                "delivered": false,
+                "deliveryError": detail,
+            }),
+            _ => serde_json::json!({ "answered": standing, "delivered": delivered }),
+        }
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::notification::store::NotificationStore;
-    use parking_lot::Mutex;
-    use std::sync::Arc;
-
-    #[test]
-    fn explicit_notification_persists_emits_and_requests_native_delivery() {
-        let store = Arc::new(Mutex::new(NotificationStore::new(10)));
-        let emitted = Mutex::new(Vec::new());
-        let native = Mutex::new(Vec::new());
-
-        let id = create_notification_with_delivery(
-            NotificationAdmission::Explicit,
-            &store,
-            |title, body| {
-                assert_eq!(
-                    store.lock().list(false).len(),
-                    1,
-                    "durable history is written before the native sink runs"
-                );
-                native
-                    .lock()
-                    .push((title.to_string(), body.map(str::to_string)));
-            },
-            "Build finished".into(),
-            Some("release artifacts ready".into()),
-            Some("warning"),
-            None,
-            None,
-            NotificationOrigin::default(),
-            |_| None,
-            PushDispatch::inert(),
-            |payload| emitted.lock().push(payload),
-        );
-
-        let guard = store.lock();
-        let listed = guard.list(false);
-        assert_eq!(listed.len(), 1);
-        assert_eq!(listed[0].id, id, "returned id names the stored record");
-        assert_eq!(listed[0].title, "Build finished");
-        assert_eq!(listed[0].body.as_deref(), Some("release artifacts ready"));
-        assert_eq!(listed[0].level, NotificationLevel::Warning);
-        assert!(!listed[0].read);
-        drop(guard);
-
-        assert_eq!(
-            native.lock().as_slice(),
-            &[(
-                "Build finished".to_string(),
-                Some("release artifacts ready".to_string())
-            )]
-        );
-        let events = emitted.lock();
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0]["id"], id);
-    }
-
-    #[test]
-    fn native_sink_failure_does_not_drop_durable_history() {
-        let store = Arc::new(Mutex::new(NotificationStore::new(10)));
-        let emitted = Mutex::new(Vec::new());
-
-        // Denied permission / unsupported platform: the sink drops the toast.
-        let id = create_notification_with_delivery(
-            NotificationAdmission::Explicit,
-            &store,
-            |_, _| {},
-            "Escalation".into(),
-            Some("user attention required".into()),
-            Some("error"),
-            None,
-            None,
-            NotificationOrigin::default(),
-            |_| None,
-            PushDispatch::inert(),
-            |payload| emitted.lock().push(payload),
-        );
-
-        let mut guard = store.lock();
-        assert_eq!(guard.list(false).len(), 1);
-        assert_eq!(guard.list(false)[0].id, id);
-        assert_eq!(emitted.lock().len(), 1, "bell route still fires");
-
-        guard.clear(Some(&id));
-        assert!(
-            guard.list(false).is_empty(),
-            "explicit clear is the only way the record leaves history"
-        );
-    }
-
-    #[test]
-    fn diagnostic_callers_never_enter_notification_history() {
-        let store = Arc::new(Mutex::new(NotificationStore::new(20)));
-        let emitted = Mutex::new(Vec::new());
-        let native = Mutex::new(Vec::new());
-        let sources = [
-            "service/spawn.rs:289",
-            "service/spawn.rs:703",
-            "cron/notify.rs",
-            "cron/scheduler.rs",
-            "service/orchestrator/refresh/driver.rs",
-            "service/orchestrator/batch.rs",
-            "service/output.rs",
-            "service/tab.rs",
-            "service/spawn_chatbackend.rs",
-        ];
-
-        for source in sources {
-            create_notification_with_delivery(
-                NotificationAdmission::Diagnostic,
-                &store,
-                |title, body| {
-                    native
-                        .lock()
-                        .push((title.to_string(), body.map(str::to_string)))
-                },
-                format!("Diagnostic from {source}"),
-                Some("warning or error detail".into()),
-                Some("warning"),
-                None,
-                None,
-                NotificationOrigin::default(),
-                |_| None,
-                PushDispatch::inert(),
-                |payload| emitted.lock().push(payload),
-            );
-        }
-
-        assert_eq!(store.lock().list(false).len(), 0);
-        assert_eq!(emitted.lock().len(), 0);
-        assert_eq!(native.lock().len(), 0);
-    }
-
-    mod notification_provenance {
-        use super::*;
-
-        /// Stand-in for the live multiplexer: only ids present here resolve, and
-        /// title plus workspace come from the registry, never from the caller.
-        const LIVE_TABS: [(&str, &str, &str); 2] = [
-            ("tab_caller", "Worker lane", "ws_lanes"),
-            ("tab_bystander", "Unrelated shell", "ws_scratch"),
-        ];
-
-        fn live_registry(candidate: &str) -> Option<NotificationProvenance> {
-            LIVE_TABS
-                .iter()
-                .find(|(id, _, _)| *id == candidate)
-                .map(|(id, title, workspace)| NotificationProvenance {
-                    tab_id: Some((*id).to_string()),
-                    tab_title: Some((*title).to_string()),
-                    workspace_id: Some((*workspace).to_string()),
-                    peer_name: None,
-                })
-        }
-
-        #[test]
-        fn unresolvable_claimed_tab_is_dropped_not_stored() {
-            let store = Arc::new(Mutex::new(NotificationStore::new(10)));
-            let emitted = Mutex::new(Vec::new());
-            assert!(
-                live_registry("tab_bystander").is_some(),
-                "the fixture keeps an unrelated live tab so an empty registry cannot short-circuit"
-            );
-
-            let id = create_notification_with_delivery(
-                NotificationAdmission::Explicit,
-                &store,
-                |_, _| {},
-                "Attention".into(),
-                Some("agent needs input".into()),
-                Some("warning"),
-                None,
-                None,
-                NotificationOrigin::claimed(Some("tab_never_existed".into())),
-                live_registry,
-                PushDispatch::inert(),
-                |payload| emitted.lock().push(payload),
-            );
-
-            let guard = store.lock();
-            let listed = guard.list(false);
-            assert_eq!(listed.len(), 1, "the notification still lands");
-            assert_eq!(listed[0].id, id);
-            assert_eq!(listed[0].tab_id, None, "the claim is dropped, not stored");
-            assert_eq!(listed[0].workspace_id, None);
-            assert_eq!(listed[0].tab_title, None);
-            drop(guard);
-
-            let events = emitted.lock();
-            assert_eq!(events.len(), 1);
-            assert_eq!(events[0]["tab_id"], serde_json::Value::Null);
-        }
-
-        #[test]
-        fn resolved_tab_overrides_a_conflicting_claim() {
-            let store = Arc::new(Mutex::new(NotificationStore::new(10)));
-            let emitted = Mutex::new(Vec::new());
-            let origin = NotificationOrigin {
-                caller_tab_id: Some("tab_caller".into()),
-                claimed_tab_id: Some("tab_bystander".into()),
-                peer_name: None,
-            };
-            assert_ne!(
-                origin.caller_tab_id, origin.claimed_tab_id,
-                "claim and resolution must differ for this assertion to mean anything"
-            );
-            assert!(
-                live_registry("tab_bystander").is_some(),
-                "the losing claim is itself a live tab, so only precedence can decide"
-            );
-
-            create_notification_with_delivery(
-                NotificationAdmission::Explicit,
-                &store,
-                |_, _| {},
-                "Attention".into(),
-                None,
-                Some("info"),
-                None,
-                None,
-                origin,
-                live_registry,
-                PushDispatch::inert(),
-                |payload| emitted.lock().push(payload),
-            );
-
-            let guard = store.lock();
-            let listed = guard.list(false);
-            assert_eq!(listed[0].tab_id.as_deref(), Some("tab_caller"));
-            assert_eq!(listed[0].tab_title.as_deref(), Some("Worker lane"));
-            assert_eq!(listed[0].workspace_id.as_deref(), Some("ws_lanes"));
-            drop(guard);
-
-            assert_eq!(emitted.lock()[0]["tab_id"], "tab_caller");
-        }
-
-        #[test]
-        fn mesh_peer_origin_never_stores_a_tab() {
-            let store = Arc::new(Mutex::new(NotificationStore::new(10)));
-            let origin = NotificationOrigin {
-                caller_tab_id: None,
-                claimed_tab_id: Some("tab_caller".into()),
-                peer_name: Some("BLACKSTAR".into()),
-            };
-
-            create_notification_with_delivery(
-                NotificationAdmission::Explicit,
-                &store,
-                |_, _| {},
-                "Remote build finished".into(),
-                None,
-                Some("info"),
-                None,
-                None,
-                origin,
-                live_registry,
-                PushDispatch::inert(),
-                |_| {},
-            );
-
-            let guard = store.lock();
-            let listed = guard.list(false);
-            assert_eq!(listed[0].tab_id, None);
-            assert_eq!(listed[0].workspace_id, None);
-            assert_eq!(listed[0].peer_name.as_deref(), Some("BLACKSTAR"));
-        }
-    }
-
-    mod telegram_render {
-        use super::*;
-        use crate::notification::push::MAX_BODY_CHARS;
-
-        fn live_tab(candidate: &str) -> Option<NotificationProvenance> {
-            (candidate == "tab_worker").then(|| NotificationProvenance {
-                tab_id: Some("tab_worker".into()),
-                tab_title: Some("Worker lane".into()),
-                workspace_id: Some("ws_lanes".into()),
-                peer_name: None,
-            })
-        }
-
-        fn dispatch<F>(category: PushCategory, deliver: F) -> PushDispatch<F>
-        where
-            F: FnOnce(PushEnvelope) -> Result<(), String>,
-        {
-            PushDispatch {
-                intent: PushIntent {
-                    category: Some(category),
-                    event_key: Some("release-42".into()),
-                },
-                per_scope_limit: 10,
-                deliver,
-            }
-        }
-
-        #[test]
-        fn telegram_send_failure_does_not_change_the_returned_id() {
-            let store = Arc::new(Mutex::new(NotificationStore::new(10)));
-            let emitted = Mutex::new(Vec::new());
-            let attempted = Mutex::new(Vec::new());
-
-            // Bot blocked / chat unreachable: the sink refuses the envelope.
-            let id = create_notification_with_delivery(
-                NotificationAdmission::Explicit,
-                &store,
-                |_, _| {},
-                "Release cut".into(),
-                Some("artifacts uploaded".into()),
-                Some("info"),
-                None,
-                None,
-                NotificationOrigin::claimed(Some("tab_worker".into())),
-                live_tab,
-                dispatch(PushCategory::Milestone, |envelope: PushEnvelope| {
-                    attempted.lock().push(envelope.text.clone());
-                    Err("chat unreachable".to_string())
-                }),
-                |payload| emitted.lock().push(payload),
-            );
-
-            assert_eq!(attempted.lock().len(), 1, "the sink was actually invoked");
-            let guard = store.lock();
-            let listed = guard.list(false);
-            assert_eq!(listed.len(), 1, "durable history survives a refused push");
-            assert_eq!(
-                listed[0].id, id,
-                "the caller's id names the stored record whether or not the push landed"
-            );
-            assert_eq!(
-                listed[0].push_failed,
-                Some(true),
-                "the failure is recorded on the record, not returned"
-            );
-            drop(guard);
-
-            let events = emitted.lock();
-            assert_eq!(events.len(), 1, "the local routes still fire");
-            assert_eq!(events[0]["id"], id);
-        }
-
-        #[test]
-        fn a_delivered_push_carries_capped_text_and_leaves_the_record_clean() {
-            let store = Arc::new(Mutex::new(NotificationStore::new(10)));
-            let oversized = "b".repeat(MAX_BODY_CHARS + 200);
-            let sent = Mutex::new(Vec::new());
-
-            let id = create_notification_with_delivery(
-                NotificationAdmission::Explicit,
-                &store,
-                |_, _| {},
-                "Approval required".into(),
-                Some(oversized.clone()),
-                Some("warning"),
-                None,
-                None,
-                NotificationOrigin::claimed(Some("tab_worker".into())),
-                live_tab,
-                dispatch(PushCategory::Blocker, |envelope: PushEnvelope| {
-                    sent.lock().push(envelope.text.clone());
-                    Ok(())
-                }),
-                |_| {},
-            );
-
-            let delivered = sent.lock();
-            assert_eq!(delivered.len(), 1);
-            assert_eq!(
-                delivered[0].matches('b').count(),
-                MAX_BODY_CHARS,
-                "the agent body is truncated to the cap constant, not rejected"
-            );
-            assert!(delivered[0].contains("via Worker lane"));
-            assert!(!delivered[0].contains("tab_worker"));
-            drop(delivered);
-
-            assert_eq!(store.lock().list(false)[0].push_failed, None);
-            assert_eq!(store.lock().list(false)[0].id, id);
-        }
-
-        #[test]
-        fn an_uncategorised_notification_never_reaches_the_push_sink() {
-            let store = Arc::new(Mutex::new(NotificationStore::new(10)));
-            let sent = Mutex::new(Vec::new());
-
-            create_notification_with_delivery(
-                NotificationAdmission::Explicit,
-                &store,
-                |_, _| {},
-                "Still working".into(),
-                Some("step 4 of 9".into()),
-                Some("info"),
-                None,
-                None,
-                NotificationOrigin::claimed(Some("tab_worker".into())),
-                live_tab,
-                PushDispatch {
-                    intent: PushIntent::default(),
-                    per_scope_limit: 10,
-                    deliver: |envelope: PushEnvelope| {
-                        sent.lock().push(envelope.text.clone());
-                        Ok(())
-                    },
-                },
-                |_| {},
-            );
-
-            assert!(
-                sent.lock().is_empty(),
-                "routine progress has no category, so it cannot reach the channel"
-            );
-            assert_eq!(store.lock().list(false).len(), 1);
-        }
-    }
-}
+mod tests;

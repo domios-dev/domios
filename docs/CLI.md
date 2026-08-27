@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 42 -->
+<!-- revision: 44 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -23,7 +23,7 @@ Agents join a Team two ways, both authorized against the caller's own membership
 
 `codeterm plan task dispatch` refuses a **mutating** dispatch before any tab exists when the resolved worktree is the canonical checkout or another task's lane; the error carries a stable `violation_id` (`lane.mutating_write_in_canonical_checkout`, `lane.mutating_write_in_foreign_lane`) plus the exact `plan task update --worktree/--branch/--base` command that supplies an isolated lane. A task with no recorded lane is not refused — the dispatcher provisions one and commits Team workspace identity together with the lane. Every other lane finding is advisory: the dispatch succeeds and prints a `safety_nudges` block on stderr, each line carrying a stable id and the exact fix. Read-only dispatch, General-Agent creation, and plain shell tabs are never obstructed, including in canonical.
 
-`codeterm plan task update --status pending|cancelled`, `plan task assign`, `plan task close`, and `plan task respawn` are available to the live Plan owner even when the former Worker's owner epoch is stale, which is the normal state once that tab is gone. The recovery retires the stale attempt in the same transition that clears the dead owner, so a late `dispatch_ready` cannot resurrect it. A non-owner caller is still refused. `codeterm plan archive` **succeeds** without a retrospective and emits the advisory `plan.retrospective_unrecorded` plus durable incident evidence; write the retrospective before normal closure, but it is a nudge, never a gate.
+`codeterm plan task update --status pending|cancelled`, `plan task assign`, `plan task dispatch`, `plan task pause`, `plan task resume`, `plan task close`, and `plan task respawn` are available to the live Plan owner even when the former Worker's owner epoch is stale, which is the normal state once that tab is gone. The recovery retires the stale attempt in the same transition that clears the dead owner, so a late `dispatch_ready` cannot resurrect it. A non-owner caller is still refused. The live Plan owner is recognised from its own live tab binding, not from the owner record's session field, so an Orchestrator whose session moved without an `agent restart` is not locked out of its own plan. Refusals carry a stable discriminant in `data.type` — `task_owner_epoch_stale`, `task_mutation_binding_stale`, `task_owner_gone_verb_not_recoverable`, `caller_is_not_task_owner_or_plan_owner` — so a tab-gone task never reports a stale epoch for a verb-eligibility problem. `codeterm plan archive` **succeeds** without a retrospective and emits the advisory `plan.retrospective_unrecorded` plus durable incident evidence; write the retrospective before normal closure, but it is a nudge, never a gate.
 
 Competition has no `codeterm plan task` verb — it is driven by the `plan.task.compete` route, which `codeterm plan task show` prints for any competition-enabled task. That route gives each **mutating** competitor its own provisioned worktree/branch/base before spawn, so N competitors never share a checkout and never fall back to canonical; lanes created earlier in the call are removed if a later competitor fails. Read-only competition is unchanged.
 
@@ -1006,6 +1006,7 @@ Show recent mem writes (newest first). With --follow, poll for new rows
 
 - `--follow` — Follow mode: poll every 500ms and print new rows as they appear
 - `--limit` — Max rows per fetch (default 20)
+- `--since` — ISO8601 lower-bound for the initial fetch (rows created at/after this time)
 
 #### `codeterm mem taxonomy`
 
@@ -1184,12 +1185,18 @@ List notifications
 
 #### `codeterm notify send`
 
-Send a notification
+Send a notification. The body is read only from the calling tab's AgentPad. Reports when no surface will show it
 
-- `--body` — Notification body
-- `--category` — Opt-in push category. Omit for a local-only notification
+- `<body>` — REFUSED: an inline body is mangled by the shell — stage it in the pad
+- `--choice` — Offer one tappable choice; repeat for each. Labels only — a notification takes a chosen label back, never typed text
 - `--event-key` — Stable identity for coalescing. Derived from the title when omitted
-- `--level` — Notification level: info, warning, error
+- `--from-file` — REFUSED: a file outside the pad has no provenance — stage it in the pad
+- `--from-pad` — Read the notification body from a relative file in the calling tab's pad
+- `--from-stdin` — REFUSED: stdin is a shell pipe — stage the body in the pad
+- `--level` — What this notification is, on the one level axis. Omit to file it in the bell only
+- `--offer` — Offer to turn one notification surface on: `desktop`, or a push channel's service id. The change waits for the tap — an agent may offer to be louder, never make itself louder
+- `--offer-accept` — Which of this notification's own choices accepts the offer
+- `--severity` — Record identity axis: info, warning, error. Tone comes from --level
 - `<title>` — Notification title
 
 #### `codeterm orchestrator`
@@ -2102,7 +2109,7 @@ Add a task to a plan (carries model/why routing + quality fields)
 - `--depends-on` — Task this one waits on; repeatable. Accepts a full task id (task_xxxxxx), a unique id prefix, or a task handle (see --handle)
 - `--destination`
 - `--execution-intent`
-- `--executor-role` — Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync
+- `--executor-role` — REQUIRED: who executes this task. Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync. Presence is the contract; no vocabulary is enforced
 - `--external-ref` — GitHub issue reference; repeatable. Accepts a full issue URL or owner/repository#number
 - `--force`
 - `--group`
@@ -2291,7 +2298,7 @@ Update task metadata, status, quality fields, or lane assignment
 - `--criterion-file` — Read acceptance criteria from a file: a JSON string array, or one criterion per line. Appends to --criterion
 - `--depends-on` — Add a dependency; repeatable. Appends to existing dependencies (dedup). Accepts a full task id (task_xxxxxx), a unique id prefix, or a task handle. Use --replace-dependencies for wholesale replacement
 - `--destination`
-- `--executor-role` — Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync
+- `--executor-role` — Replace the executor role. Cannot be emptied: an update carrying a blank value is refused
 - `--external-ref` — GitHub issue reference to add; repeatable. Accepts a full issue URL or owner/repository#number
 - `--group`
 - `--handle`
@@ -2456,6 +2463,12 @@ Update bundled system provider plugins from the official plugin channel
 
 - `<id>`
 
+#### `codeterm plugin validate`
+
+Validate a plugin directory without installing it: strict manifest parse (the daemon's deny-unknown-fields PluginManifest), a real QuickJS load of the entry script, then a report of which AgentProvider exports plugin.js implements and which fallbacks serve the rest. Exits non-zero on the first failure, naming it
+
+- `<dir>` — Path to the plugin directory (the folder containing plugin.json)
+
 #### `codeterm send`
 
 Send text to a tab (default: current tab)
@@ -2467,7 +2480,7 @@ Send text to a tab (default: current tab)
 - `--from-pad` — Read text from a relative file in the current agent tab's pad
 - `--require-agent` — Refuse unless the target tab has an agent attached. Guards task dispatch so prose never lands in a raw shell (issue #8)
 - `--stdin` — Read text from stdin. Pair with a single-quoted heredoc to bypass the shell entirely: codeterm send --tab X --stdin <<'EOF' any `backticks`, $vars, etc — zero interpolation EOF
-- `--tab` — Target tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
+- `--tab` — Target tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback). Comma-separated ids address several tabs in one call — the same payload is delivered per tab, every target is reported, and the call exits non-zero if any of them failed. Multi-target does not accept mesh ids: run it on the owning peer, one peer per call
 - `<text>` — Text to send (positional, or omit and use --from-file/--stdin)
 - `--to-shell` — Override the raw-shell prose guard and deliver text verbatim to a shell tab (the shell will execute it). Alias: --force
 
@@ -2833,7 +2846,7 @@ Show agent status for a tab (type, provider session, prompt)
 
 #### `codeterm tab stop`
 
-Interrupt the agent's current generation (NOT a clean exit). Sends the provider's declared stop_keystroke — Esc for Claude/Codex/OpenCode, Ctrl+C for Cursor. Plain shells get a 200 with {stopped:false} (no key). Designed for mesh/CLI/bot drivers — type `/stop` in a Telegram bridge and have it map straight here
+Interrupt the agent's current generation (NOT a clean exit). Sends the provider's declared stopKey (Esc for all bundled providers). Plain shells get a 200 with {stopped:false} (no key). Designed for mesh/CLI/bot drivers — type `/stop` in a Telegram bridge and have it map straight here
 
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 

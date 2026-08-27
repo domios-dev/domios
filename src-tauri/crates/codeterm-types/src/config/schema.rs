@@ -1,6 +1,8 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use serde::{Deserialize, Serialize};
+
+use crate::notification::{NotifyDestination, NotifyLevel};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -114,6 +116,10 @@ pub struct ProviderConfig {
     #[serde(flatten)]
     pub extra: HashMap<String, toml::Value>,
 }
+
+/// The `extra` key the consent-granting install path records and the
+/// launch-time integration check reads. One name, two readers.
+pub const INTEGRATION_CONSENT_GRANTED: &str = "integration_consent_granted";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -241,32 +247,203 @@ impl Default for TerminalConfig {
 #[serde(default)]
 pub struct NotificationConfig {
     pub desktop: bool,
+    /// The chime's master mute. Which levels chime is each level's own answer
+    /// on its row; this silences all of them at once without destroying those
+    /// answers, and is the one gesture the browser's audio permission hangs off.
     pub sound: bool,
     pub toast_duration: u32,
-    pub telegram: TelegramNotifyConfig,
+    /// Whether the bell surface is rendered at all. Presentation, not routing:
+    /// off hides the indicator while every record is still kept, which is why
+    /// it stays distinguishable from every row having its bell column off.
+    pub show_bell: bool,
+    /// Per-channel push opt-in, keyed by the channel's service id. Core keeps
+    /// the map and never a channel's name; a channel whose audience lives in
+    /// its own integration config simply has no entry here.
+    pub channels: BTreeMap<String, PushChannelConfig>,
+    /// One row per level of the shared set, each naming where that level may
+    /// go. A fresh install names the bell and nothing else, at every level; an
+    /// agent notification naming no level stays in the bell.
+    pub agent_levels: Vec<AgentLevelChoice>,
 }
 
 impl Default for NotificationConfig {
     fn default() -> Self {
         Self {
-            desktop: true,
+            desktop: false,
             sound: false,
             toast_duration: 5,
-            telegram: TelegramNotifyConfig::default(),
+            show_bell: true,
+            channels: BTreeMap::new(),
+            agent_levels: default_agent_levels(),
         }
     }
+}
+
+/// One row of the levels-by-destinations grid. Settings render this list rather
+/// than restating the level set, so the UI cannot drift from it. Every column
+/// off is a legitimate answer: that level then interrupts nowhere, which is also
+/// where every column starts. The record is kept regardless — the panel is the
+/// complete log and is not one of these columns.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentLevelChoice {
+    pub level: String,
+    /// Retained and inert. No policy reads it: every record reaches the panel,
+    /// so this answers nothing. It stays a named field because `channels` is
+    /// flattened — drop it and every stored `bell = true` deserialises into that
+    /// map as a push channel called "bell" that no registry will ever resolve.
+    #[serde(default = "routed_by_default")]
+    pub bell: bool,
+    #[serde(default = "routed_by_default")]
+    pub desktop: bool,
+    /// Whether this level chimes. A NAMED field, never a key of the flattened
+    /// map below, which would read a stored `sound` back as a push channel.
+    ///
+    /// `None` is unanswered and falls back to [`shipped_sound`], so a row
+    /// written before this field keeps exactly the chime it had. An answer of
+    /// either kind wins over that fallback: the old rule is a default, not a rule.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sound: Option<bool>,
+    /// One flag per push channel, keyed by the channel's service id. Flattened,
+    /// so a row keeps the exact shape it had when a channel was a named field,
+    /// and a channel the registry gains needs no migration to become a column.
+    #[serde(flatten)]
+    pub channels: BTreeMap<String, bool>,
+}
+
+/// A column nobody named is a column nobody chose, so it reads closed. This one
+/// answer serves both the shipped default and the read of a stored row that
+/// omits a column, so a config written before the grid existed no longer reads
+/// as everything the surrounding switches allowed then - it reads as nothing
+/// interrupting. A channel key absent from a row reads the same way: a channel
+/// the registry gains arrives closed and stays closed until someone opts into it.
+fn routed_by_default() -> bool {
+    false
+}
+
+impl AgentLevelChoice {
+    /// The record and nothing else: nothing that interrupts, nothing that
+    /// leaves the machine. What a fresh install ships for every level, and what
+    /// a level the shared set gains arrives as. `bell` is set for the field's
+    /// own sake; it routes nothing.
+    pub fn bell_only(level: &str) -> Self {
+        Self {
+            level: level.to_string(),
+            bell: true,
+            desktop: false,
+            sound: None,
+            channels: BTreeMap::new(),
+        }
+    }
+
+    /// Every column open, including each channel the caller resolved. Channels
+    /// must be named here because an unnamed column reads closed. The chime is
+    /// not a column, so it is left unanswered rather than forced open.
+    pub fn open(level: &str, channels: &[&str]) -> Self {
+        Self {
+            level: level.to_string(),
+            bell: true,
+            desktop: true,
+            sound: None,
+            channels: channels
+                .iter()
+                .map(|service| ((*service).to_string(), true))
+                .collect(),
+        }
+    }
+
+    /// Read one column. The two local fields are named; a channel is a keyed
+    /// lookup, so no arm here spells a channel's name. `Bell` answers off the
+    /// retained field, which nothing routes on.
+    pub fn allows(&self, destination: NotifyDestination<'_>) -> bool {
+        match destination {
+            NotifyDestination::Bell => self.bell,
+            NotifyDestination::Desktop => self.desktop,
+            NotifyDestination::Channel(service) => self
+                .channels
+                .get(service)
+                .copied()
+                .unwrap_or_else(routed_by_default),
+        }
+    }
+
+    pub fn set(&mut self, destination: NotifyDestination<'_>, routed: bool) {
+        match destination {
+            NotifyDestination::Bell => self.bell = routed,
+            NotifyDestination::Desktop => self.desktop = routed,
+            NotifyDestination::Channel(service) => {
+                self.channels.insert(service.to_string(), routed);
+            }
+        }
+    }
+
+    /// Whether this level chimes. The stored answer decides; an unanswered row
+    /// falls back to what shipped, and a level outside the set chimes for
+    /// nothing because there is no shipped answer to fall back to.
+    pub fn sounds(&self) -> bool {
+        self.sound
+            .unwrap_or_else(|| NotifyLevel::parse(&self.level).is_some_and(shipped_sound))
+    }
+
+    /// A level that reaches nothing. Valid, never a validation error. The
+    /// caller supplies the resolved columns, because which channels exist is
+    /// the registry's answer and not this row's.
+    pub fn reaches_nothing(&self, columns: &[NotifyDestination<'_>]) -> bool {
+        columns.iter().all(|column| !self.allows(*column))
+    }
+}
+
+/// The chime a level makes before anyone answers for it, and nothing more: an
+/// answered row never consults this. Exhaustive over the level set, so a level
+/// added later cannot compile until it says whether it chimes.
+pub fn shipped_sound(level: NotifyLevel) -> bool {
+    match level {
+        NotifyLevel::Verbose => false,
+        NotifyLevel::ActionNeeded | NotifyLevel::Failure => true,
+    }
+}
+
+/// Generated from the shared definition, never restated, so the grid rows and
+/// the push channel cannot know different levels.
+pub fn default_agent_levels() -> Vec<AgentLevelChoice> {
+    NotifyLevel::ALL
+        .into_iter()
+        .map(|level| AgentLevelChoice::bell_only(level.as_str()))
+        .collect()
+}
+
+/// Reconcile stored rows against the shared level set: a level the user already
+/// answered keeps its answer, a level the set gained arrives interrupting
+/// nowhere, and a row naming no known level is dropped. This is what stops a fourth
+/// level from desyncing the grid without a migration.
+pub fn reconcile_agent_levels(stored: &[AgentLevelChoice]) -> Vec<AgentLevelChoice> {
+    NotifyLevel::ALL
+        .into_iter()
+        .map(|level| {
+            stored
+                .iter()
+                .find(|row| NotifyLevel::parse(&row.level) == Some(level))
+                .cloned()
+                .map(|mut row| {
+                    row.level = level.as_str().to_string();
+                    row
+                })
+                .unwrap_or_else(|| AgentLevelChoice::bell_only(level.as_str()))
+        })
+        .collect()
 }
 
 fn default_per_scope_limit() -> u32 {
     12
 }
 
-/// Opt-in push channel. `recipients` is an audience and is deliberately not
-/// `integrations.telegram_allowed_users`, which is an inbound admission list.
+/// One channel's push audience, keyed in `notifications.channels` by the
+/// channel's service id. `recipients` is an audience and is deliberately not
+/// an integration's inbound admission list, which admits senders rather than
+/// naming an audience. Empty means nobody, never everyone admitted. Whether a
+/// level reaches this channel at all is that channel's column of the grid.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-pub struct TelegramNotifyConfig {
-    pub enabled: bool,
+pub struct PushChannelConfig {
     #[serde(deserialize_with = "deserialize_user_id_list")]
     pub recipients: Vec<String>,
     /// Lifetime push ceiling per originating tab. A count, never a rate.
@@ -274,10 +451,9 @@ pub struct TelegramNotifyConfig {
     pub per_scope_limit: u32,
 }
 
-impl Default for TelegramNotifyConfig {
+impl Default for PushChannelConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
             recipients: Vec::new(),
             per_scope_limit: default_per_scope_limit(),
         }

@@ -944,6 +944,73 @@ fn session_owned_reasoning_effort_native_js_parity() {
     }
 }
 
+/// DN-2 read-preference parity: a stored transcript path whose filename
+/// differs from the session id must be what BOTH the native and JS readers
+/// resolve — neither may consult id-based reconstruction. The JS fixture's own
+/// resolver is a reconstruction decoy: if the evidence preference were skipped
+/// on the JS path, the decoy path would come back instead of the stored file.
+#[test]
+fn transcript_path_evidence_native_js_read_parity() {
+    let tmp = tempfile::tempdir().unwrap();
+    let evidence_dir = tmp.path().join("evidence");
+    let _env = EnvGuard::new(&[(
+        crate::session_evidence::EVIDENCE_DIR_ENV,
+        evidence_dir.to_str().unwrap(),
+    )]);
+
+    let sid = "parity-evidence-sid-4aaa-8aaa-aaaaaaaaaaaa";
+    let stored = tmp.path().join("vendor-named-differently.jsonl");
+    std::fs::write(&stored, "{\"cwd\":\"x\"}\n").unwrap();
+    assert!(crate::session_evidence::record(
+        sid,
+        stored.to_str().unwrap()
+    ));
+
+    let cwd = tmp.path().to_string_lossy().to_string();
+
+    let native = crate::agent_claude::provider::ClaudeProvider::new();
+    let native_path = native
+        .session_file_path(&cwd, sid)
+        .expect("native reader resolves the stored path");
+    assert_eq!(native_path, stored, "native reader prefers the stored file");
+
+    let js = load_inline_js(
+        "transcript-evidence-fixture",
+        r#"module.exports.default = {
+            sessionFilePath(cwd, sessionId) { return cwd + "/" + sessionId + ".jsonl"; }
+        };"#,
+    );
+    let js_path = js
+        .session_file_path(&cwd, sid)
+        .expect("js reader resolves the stored path");
+    assert_eq!(
+        js_path, native_path,
+        "native and JS readers agree on the stored file"
+    );
+    assert_ne!(
+        js_path,
+        PathBuf::from(format!("{cwd}/{sid}.jsonl")),
+        "the JS reconstruction decoy was not consulted"
+    );
+    assert_eq!(
+        js.session_jsonl_path(&cwd, sid).as_deref(),
+        Some(native_path.as_path()),
+        "the chat-tail resolver honors the same stored path"
+    );
+    assert!(
+        std::fs::read_to_string(&js_path).is_ok(),
+        "both readers read the stored file itself"
+    );
+
+    // Absence control: no evidence ⇒ the JS resolver's own answer comes back.
+    let plain_sid = "parity-no-evidence-sid";
+    assert_eq!(
+        js.session_file_path(&cwd, plain_sid),
+        Some(PathBuf::from(format!("{cwd}/{plain_sid}.jsonl"))),
+        "absence of evidence keeps today's resolution byte-for-byte"
+    );
+}
+
 #[test]
 fn model_catalog_override_applies_reasoning_efforts() {
     use std::sync::Arc;
@@ -1005,10 +1072,8 @@ description = "Maximum reasoning depth."
 /// provider — they are two reads of the same capability and a split would show
 /// a Stop button that sends nothing (or hide one that works). This is the
 /// drift class that hid the R1 native-Claude bug; here it guards the JS path.
-/// NOTE: all four bundled manifests currently declare Esc as the stop key — see
-/// the loop report for the cursor doc/manifest discrepancy (trait doc says
-/// cursor-agent listens for Ctrl+C) which needs live-CLI verification, not a
-/// blind patch, so this test asserts the invariant rather than the raw byte.
+/// NOTE: all four bundled manifests declare Esc as the stop key; the byte is a
+/// manifest choice, so this test asserts the invariant rather than the raw byte.
 #[test]
 fn supports_stop_matches_stop_keystroke() {
     if require_plugins().is_none() {
@@ -1039,6 +1104,10 @@ fn permission_bypass_descriptor_matches_provider_capability() {
     }
 }
 
+// Hook event roster parity + fail-closed registration (DN-3 stage 1).
+
+mod hook_event_roster;
+
 /// #16 parity (discipline rule #2): a capability method a provider doesn't
 /// implement must SKIP-not-recurse and return the SAME sane default on BOTH the
 /// native and JS runtimes when there is no native fallback to delegate to. The
@@ -1048,5 +1117,8 @@ fn permission_bypass_descriptor_matches_provider_capability() {
 mod no_native_fallback_recursion;
 
 mod codex;
+mod context_owner;
 mod cursor;
+mod manifest_launch_template;
 mod opencode;
+mod trust_grant;

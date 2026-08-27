@@ -130,7 +130,7 @@ that calls the corresponding `plugin.js` export. The exports a plugin provides:
 | `secretBackend`| `secretStatus`, `secretUnlock`, `secretGet`, `secretSet`, … | provider-specific |
 | `transcriber`  | `transcribe(path, lang?)` | `{ text }` or `{ error }` |
 | `chatBackend`  | `openSession(ctx)`, `sendMessage`, `pump?`, `poll`, `closeSession`, `listModels?`, `listPresets?` | an **open agent shell** — see below |
-| `agentProvider`| `detectFromTitle`, `parseSessionDelta`, `buildLaunchCommand`, `checkIntegration`, `installIntegration`, … | see `plugins/provider-*/src/plugin.ts` |
+| `agentProvider`| `detectFromTitle`, `parseSessionDelta`, `buildLaunchCommand`, `checkIntegration`, `installIntegration`, … | full manifest schema + export/fallback tables: [contributing/providers.md](contributing/providers.md) |
 
 `ctx` for bubble/glance carries the Tab's `cwd`. `action: "openTabl:view:<id>"` opens
 the plugin's own iframe view; `"openTabl:<name>"` opens a built-in tabl.
@@ -138,6 +138,16 @@ the plugin's own iframe view; `"openTabl:<name>"` opens a built-in tabl.
 ### Host API (`host.*`, synchronous, inside QuickJS)
 
 - `host.exec(json)` → run an allow-listed subprocess (`{bin, args}`) → `{stdout, stderr, code}`.
+  **Blocks the whole plugin.** One QuickJS context per plugin, entered under one
+  mutex, so the seconds this spends waiting on a subprocess are seconds every
+  other call into the same plugin spends queued (#319, plugins#4).
+- `host.exec.async(opts, then)` → the same command without that cost: it returns
+  `then(result)`, but the wait happens in the host with the context released.
+  `return` it from the plugin method — it yields the frame rather than blocking
+  in it. `host.awaitJob(jobId, then)` is the same yield over any `host.exec.start`
+  job. The frame fully unwinds before the host waits, so two calls still never
+  run inside one context; a plugin that yields does let an unrelated call be
+  served before its own continuation, which is the point.
 - `host.fetch(json)` → HTTP to an allow-listed host (full body buffered).
 - `host.fetchStream(json)` → `{jobId}`; `host.fetchStreamPoll(jobId)` → `{chunks, done, status?, error?}`; `host.fetchStreamClose(jobId)` — chunked streaming GET/POST (token streaming for shells). Same network allowlist as `host.fetch`.
 - `host.fs.{fileExists, readFile, readJson, writeFile, writeJson}`, `host.makeDirs`.
@@ -559,8 +569,10 @@ file/multipart capability — there is no long-lived-daemon host API to lean on.
 
 - `npx tsx plugins/<id>/plugin.test.cjs` — pure parser/logic tests (mock `host`).
 - `bash scripts/plugin-tests.sh` — aggregate runner for all plugin suites.
-- `src-tauri/src/plugin/js_runtime/parity_test.rs` — for any `AgentProvider` method a JS
-  drop-in implements, asserts the native and JS paths agree on shared fixtures.
+- `src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test.rs` — for any `AgentProvider`
+  method a JS drop-in implements, asserts the native and JS paths agree on shared fixtures
+  (bundled drop-ins only — what JS-only authors owe instead is in
+  [contributing/providers.md](contributing/providers.md)).
 - Live: `curl --noproxy '*' -H "Authorization: Bearer <token>" \
   http://127.0.0.1:7686/api/plugins/snapshot` lists plugins + capabilities + load errors;
   `POST /api/plugins/{bubble,glance,view-call}` exercises the capabilities.
@@ -649,4 +661,4 @@ share these consent, backup, merge, uninstall, and restore semantics.
      release the app first/together** (see "App + plugin ship together"). Test
      path: install the new app, then `codeterm plugin install <id>`.
 
-<!-- revision: 17 -->
+<!-- revision: 19 -->

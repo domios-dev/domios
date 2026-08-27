@@ -5,7 +5,10 @@ import type { Notification } from "../../lib/types";
 import { __setInvokeForTest } from "../../lib/bridge";
 import { NotificationBell } from "./NotificationBell";
 
+let checked = 0;
+
 function assert(condition: unknown, message: string): asserts condition {
+  checked++;
   if (!condition) throw new Error(message);
 }
 
@@ -25,14 +28,14 @@ const item: Notification = {
   workspace_id: "workspace-1",
   title: "Agent needs input",
   body: "First line\nSecond line",
-  level: "Warning",
+  severity: "Warning",
   timestamp: Date.now(),
   read: false,
   actions: [
     {
       label: "Update",
       type: "invoke",
-      value: "respond_provider_update_prompt",
+      command: "respond_provider_update_prompt",
       args: { promptId: "prompt-1", accept: true },
     },
   ],
@@ -68,12 +71,27 @@ async function run() {
     );
   });
 
-  assert(host.textContent?.includes("+1"), "bell should show the themed unread increment");
-  assert(host.querySelector(".ct-notification-bell-ring"), "new unread notification should ring the bell");
-  assert(host.querySelector(".ct-notification-badge-pop"), "new unread notification should pop the badge");
+  const bell = host.querySelector('[data-testid="notification-bell"]') as HTMLElement;
+  assert(host.querySelector('[data-testid="notification-unread-dot"]'), "arrival should render the dot");
+  assert(!/\d/.test(host.textContent ?? ""), "the bell should render no numeric count at all");
+  assert(host.querySelector(".ct-notification-bell-ring"), "arrival should set the bell animation state");
+  assert(host.querySelector(".ct-notification-dot-pop"), "arrival should set the dot animation state");
+  const status = host.querySelector('[role="status"]');
+  assert(status, "unread state should stay semantically available without a count");
+  assert(status.textContent === "Unread notifications", "the status region should name the unread state");
+  assert(
+    bell.getAttribute("aria-label") === "Notifications"
+      && bell.getAttribute("aria-describedby") === status.getAttribute("id"),
+    "the bell should keep its accessible name and describe the unread state",
+  );
+
   await act(async () => {
-    (host.querySelector('[data-testid="notification-bell"]') as HTMLElement).click();
+    bell.click();
   });
+  assert(!host.querySelector('[data-testid="notification-unread-dot"]'), "looking should remove the dot");
+  assert(!host.querySelector(".ct-notification-bell-ring"), "looking should clear the animation state");
+  assert(!bell.getAttribute("aria-describedby"), "a looked-at bell should describe nothing unread");
+  assert(host.querySelector('[role="status"]')?.textContent === "", "the status region should fall silent");
   const panel = document.querySelector('[data-testid="notification-panel"]');
   assert(panel, "bell should open a portal panel");
   assert(panel.className.includes("max-w-[calc(100vw-16px)]"), "panel should stay within the mobile viewport width");
@@ -88,17 +106,17 @@ async function run() {
     calls.invoked[0]?.command === "respond_provider_update_prompt",
     "Update should invoke the provider update command",
   );
-  assert(!panel.textContent?.includes(item.body!), "complete message should start collapsed");
+  assert(panel.textContent?.includes(item.body!), "the newest complete message should start open");
 
-  const expand = panel.querySelector<HTMLButtonElement>('[aria-label="Show complete message for Agent needs input"]');
+  const expand = panel.querySelector<HTMLButtonElement>('[aria-label$="complete message for Agent needs input"]');
   assert(expand, "bell entry should expose an accessible expand control");
   await act(async () => expand.click());
-  assert(panel.textContent?.includes("First line\nSecond line"), "expanded entry should preserve the complete message");
-  assert(expand.getAttribute("aria-expanded") === "true", "expand control should expose expanded state");
+  assert(!panel.textContent?.includes(item.body!), "closing should hide the complete message");
+  assert(expand.getAttribute("aria-expanded") === "false", "collapse should expose collapsed state");
 
   await act(async () => expand.click());
-  assert(!panel.textContent?.includes(item.body!), "expanded entry should collapse again");
-  assert(expand.getAttribute("aria-expanded") === "false", "collapse should expose collapsed state");
+  assert(panel.textContent?.includes("First line\nSecond line"), "reopening should preserve the complete message");
+  assert(expand.getAttribute("aria-expanded") === "true", "reopening should expose expanded state");
 
   await act(async () => {
     (Array.from(panel.querySelectorAll("button")).find((button) => button.textContent?.includes("Read all")) as HTMLElement).click();
@@ -116,9 +134,46 @@ async function run() {
     "Show Tab should navigate through the owning workspace and tab",
   );
 
+  const later: Notification = { ...item, id: "notice-2", timestamp: item.timestamp + 1 };
+  await act(async () => {
+    root.render(
+      <NotificationBell
+        notifications={[item, later]}
+        onMarkRead={(id) => calls.read.push(id)}
+        onMarkAllRead={() => calls.readAll++}
+        onDelete={(id) => calls.deleted.push(id)}
+        onClearAll={() => calls.clearedAll++}
+        onNavigate={(tabId, workspaceId) => calls.navigated.push([tabId, workspaceId])}
+      />,
+    );
+  });
+  assert(host.querySelector('[data-testid="notification-unread-dot"]'), "a later arrival should raise the dot again");
+  assert(host.querySelector(".ct-notification-bell-ring"), "a later arrival should re-ring the bell");
+  assert(!/\d/.test(host.textContent ?? ""), "two unread notifications still render no count");
+
+  await act(async () => {
+    root.render(
+      <NotificationBell
+        notifications={[{ ...item, read: true }, { ...later, read: true }]}
+        onMarkRead={(id) => calls.read.push(id)}
+        onMarkAllRead={() => calls.readAll++}
+        onDelete={(id) => calls.deleted.push(id)}
+        onClearAll={() => calls.clearedAll++}
+        onNavigate={(tabId, workspaceId) => calls.navigated.push([tabId, workspaceId])}
+      />,
+    );
+  });
+  assert(!host.querySelector('[data-testid="notification-unread-dot"]'), "no unread means no dot");
+  assert(!host.querySelector(".ct-notification-bell-ring"), "no unread means no animation state");
+  assert(
+    (host.querySelector('[data-testid="notification-bell"]') as HTMLElement).getAttribute("aria-label")
+      === "Notifications",
+    "the accessible name survives the count removal",
+  );
+
   await act(async () => root.unmount());
   __setInvokeForTest(null);
-  console.log("NotificationBell tests: 1/1 passed");
+  console.log(`NotificationBell tests: ${checked} assertions passed`);
 }
 
 void run();

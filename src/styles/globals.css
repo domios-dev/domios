@@ -476,7 +476,7 @@ button,
 .agent-provider-card[data-selected="yes"] {
   --ct-liquid-base-transform: translate3d(0, -3px, 0);
   border-color: var(--ct-accent);
-  background: color-mix(in srgb, var(--ct-accent) 16%, var(--ct-panel));
+  background: color-mix(in srgb, var(--ct-accent) 16%, var(--ct-surface));
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--ct-accent) 75%, transparent),
     0 10px 28px color-mix(in srgb, var(--ct-accent) 22%, transparent);
@@ -692,7 +692,7 @@ button,
 }
 
 .ct-panel-card--soft {
-  background: color-mix(in srgb, var(--ct-bg) 76%, var(--ct-bg-secondary, #ffffff) 24%);
+  background: color-mix(in srgb, var(--ct-bg) 85%, var(--ct-fg) 15%);
   border-style: dashed;
 }
 
@@ -943,11 +943,11 @@ button,
   }
 }
 
-.ct-notification-badge-pop {
-  animation: ct-notification-badge-pop 360ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+.ct-notification-dot-pop {
+  animation: ct-notification-dot-pop 360ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
-@keyframes ct-notification-badge-pop {
+@keyframes ct-notification-dot-pop {
   0% {
     opacity: 0;
     transform: scale(0.5);
@@ -966,7 +966,7 @@ button,
   .ct-toast-enter,
   .ct-toast-exit,
   .ct-notification-bell-ring,
-  .ct-notification-badge-pop,
+  .ct-notification-dot-pop,
   .ct-toast-pending {
     animation: none;
   }
@@ -1235,6 +1235,8 @@ button,
 
 .ct-liquid-toggle {
   position: relative;
+  display: inline-block;
+  flex-shrink: 0;
   width: 3.4rem;
   height: 1.85rem;
   padding: 0;
@@ -1247,7 +1249,8 @@ button,
     background var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
     border-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
 }
-.ct-liquid-toggle[aria-checked="true"] {
+.ct-liquid-toggle[aria-checked="true"],
+.ct-liquid-toggle[data-checked="true"] {
   border-color: color-mix(in srgb, var(--ct-accent) 55%, transparent);
   background: color-mix(in srgb, var(--ct-accent) 32%, transparent);
 }
@@ -1262,8 +1265,25 @@ button,
   box-shadow: 0 2px 6px color-mix(in srgb, var(--ct-bg) 45%, transparent);
   transform: translate(0, -50%);
 }
-.ct-liquid-toggle[aria-checked="true"] .ct-liquid-toggle__knob {
+.ct-liquid-toggle[aria-checked="true"] .ct-liquid-toggle__knob,
+.ct-liquid-toggle[data-checked="true"] .ct-liquid-toggle__knob {
   transform: translate(1.55rem, -50%);
+}
+
+/* Half the shipped area, so the switch reads as a mark beside its label
+   rather than furniture parked at the far edge of a row. */
+.ct-liquid-toggle--compact {
+  width: 34px;
+  height: 18px;
+}
+.ct-liquid-toggle--compact .ct-liquid-toggle__knob {
+  left: 2px;
+  width: 12px;
+  height: 12px;
+}
+.ct-liquid-toggle--compact[aria-checked="true"] .ct-liquid-toggle__knob,
+.ct-liquid-toggle--compact[data-checked="true"] .ct-liquid-toggle__knob {
+  transform: translate(16px, -50%);
 }
 .ct-liquid-toggle__knob--travel {
   animation: ct-liquid-control-knob var(--ct-duration-liquid-toggle) both;
@@ -1306,6 +1326,77 @@ button,
   transition: color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
 }
 .ct-liquid-flip__word[data-active="true"] { color: var(--ct-fg); }
+
+/* A settings section: a small-caps header and a hairline that runs to the
+   edge, so one panel reads as several answerable questions. */
+.ct-settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5625rem;
+}
+.ct-settings-section__header {
+  display: flex;
+  align-items: center;
+  gap: 0.5625rem;
+}
+.ct-settings-section__label {
+  font-size: 0.625rem;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ct-muted);
+}
+.ct-settings-section__rule {
+  flex: 1;
+  height: 1px;
+  background: color-mix(in srgb, var(--ct-border) 70%, transparent);
+}
+
+/* The whole tile is the hit target, so the switch never travels away from the
+   words that name it. */
+.ct-switch-tile {
+  display: flex;
+  gap: 0.5625rem;
+  width: 100%;
+  padding: 0.5625rem 0.625rem;
+  border: 1px solid var(--ct-border);
+  border-radius: 7px;
+  background: var(--ct-surface);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
+}
+.ct-switch-tile:hover {
+  border-color: color-mix(in srgb, var(--ct-fg) 6%, var(--ct-border));
+}
+.ct-switch-tile[aria-checked="true"] {
+  border-color: color-mix(in srgb, var(--ct-accent) 34%, transparent);
+}
+.ct-switch-tile--dense {
+  align-items: center;
+  padding: 0.4375rem 0.5625rem;
+}
+.ct-switch-tile:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--ct-bg), 0 0 0 4px color-mix(in srgb, var(--ct-accent) 60%, transparent);
+}
+
+/* A level owns its own controls, so they sit inside its card rather than
+   beside it. */
+.ct-level-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.625rem 0.6875rem 0.6875rem;
+  border: 1px solid var(--ct-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--ct-surface) 86%, var(--ct-bg));
+}
+.ct-level-card__switches {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.4375rem;
+}
 
 .ct-liquid-segmented__option:focus-visible,
 .ct-liquid-tab-rail__tab:focus-visible,
@@ -3032,7 +3123,7 @@ button,
   text-align: center;
 }
 .plan-board-error {
-  color: var(--ct-error, #f87171);
+  color: var(--ct-red);
 }
 .plan-board-single {
   display: flex;
@@ -3168,7 +3259,7 @@ button,
   outline: none;
 }
 .plan-switcher-menu-item-danger {
-  color: var(--ct-error, #f87171);
+  color: var(--ct-red);
 }
 
 /* ── Overflow mode: combo trigger + popover listbox ─────────────────────── */
@@ -3507,13 +3598,13 @@ button,
   letter-spacing: 0.01em;
 }
 .plan-state-chip.plan-state-approved {
-  border-color: color-mix(in srgb, var(--ct-success, #3fb950) 60%, var(--ct-border));
-  background: color-mix(in srgb, var(--ct-success, #3fb950) 16%, var(--ct-bg));
+  border-color: color-mix(in srgb, var(--ct-green) 60%, var(--ct-border));
+  background: color-mix(in srgb, var(--ct-green) 16%, var(--ct-bg));
 }
 .plan-state-chip.plan-state-drafting,
 .plan-state-chip.plan-state-structure_ready {
-  border-color: color-mix(in srgb, var(--ct-warning, #d29922) 55%, var(--ct-border));
-  background: color-mix(in srgb, var(--ct-warning, #d29922) 12%, var(--ct-bg));
+  border-color: color-mix(in srgb, var(--ct-yellow) 55%, var(--ct-border));
+  background: color-mix(in srgb, var(--ct-yellow) 12%, var(--ct-bg));
 }
 .plan-parked-chip {
   font-weight: 700;
@@ -3564,7 +3655,7 @@ button,
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 0.72rem;
-  color: var(--ct-danger, #f85149);
+  color: var(--ct-red);
 }
 button.plan-peer-chip {
   cursor: pointer;

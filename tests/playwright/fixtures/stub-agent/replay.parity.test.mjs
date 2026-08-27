@@ -8,28 +8,24 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSyn
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { DEFAULT_CASTS, castOutput } from "./replay-cast.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.join(HERE, "..", "..", "..", "..");
 
-const CASTS = {
-  claude:
-    "testbench/replays/claude/geometry_smoke_v1-20260621-geometry-smoke-v2-claude-geometry_smoke_v1-100x30/raw.cast",
-  codex:
-    "testbench/replays/codex/codex_prompt_idle_regression_v1-20260621-codex-prompt-idle-v1/raw.cast",
-  opencode:
-    "testbench/replays/opencode/geometry_smoke_v1-20260621-geometry-smoke-v2-opencode-geometry_smoke_v1-100x30/raw.cast",
-};
+// The replayer truncates at CODETERM_STUB_REPLAY_BYTE_CAP; lift it past the
+// largest default cast so the gate compares whole transcripts, not prefixes.
+const FULL_TRANSCRIPT_CAP = 8_000_000;
 
 function castBytes(castPath) {
-  const lines = readFileSync(path.join(REPO, castPath), "utf8").split("\n").slice(1);
-  let out = "";
-  for (const line of lines) {
-    if (!line.trim()) continue;
-    const [, kind, data] = JSON.parse(line);
-    if (kind === "o") out += data;
-  }
-  return out;
+  return castOutput(readFileSync(path.join(REPO, castPath), "utf8"), FULL_TRANSCRIPT_CAP);
+}
+
+// An ambient CODETERM_STUB_CAST would silently replace the map under test.
+function replayEnv(extra = {}) {
+  const env = { ...process.env, ...extra };
+  delete env.CODETERM_STUB_CAST;
+  return env;
 }
 
 function encodeClaudeCwd(cwd) {
@@ -38,12 +34,17 @@ function encodeClaudeCwd(cwd) {
     .join("");
 }
 
-for (const [provider, castPath] of Object.entries(CASTS)) {
+for (const [provider, castPath] of Object.entries(DEFAULT_CASTS)) {
   test(`${provider}: stub boot replays the recorded real transcript byte-for-byte`, () => {
     const stdout = execFileSync(
       process.execPath,
       [path.join(HERE, "replay.mjs"), "--stub-provider", provider, "--", provider, "--model", "x"],
-      { input: "", encoding: "utf8", maxBuffer: 32 * 1024 * 1024 },
+      {
+        input: "",
+        encoding: "utf8",
+        maxBuffer: 64 * 1024 * 1024,
+        env: replayEnv({ CODETERM_STUB_REPLAY_BYTE_CAP: String(FULL_TRANSCRIPT_CAP) }),
+      },
     );
     const recorded = castBytes(castPath);
     assert.ok(recorded.length > 1000, "recorded cast is non-trivial");

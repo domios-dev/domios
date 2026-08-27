@@ -319,6 +319,14 @@ Issue and commit titles use `<scope>: description` (`fix`, `feat`, `mem`, `mesh`
 
 **CLI contract changes require a consumer audit.** Review and update affected docs, prompts, skills, cards/examples, and contract tests; never change Clap syntax, output, or behavior in isolation.
 
+**Name the issue you were working on — in the commit AND in the PR.** Work that
+came from an issue says so, so the issue's history shows the change that closed
+it without anyone reconstructing the link later. Put a GitHub closing keyword in
+the body — `Closes #N` (or `Closes owner/repo#N` across repositories) — in the
+commit that carries the fix and in the PR that merges it. This applies to every
+repository, this one and the plugin repos alike. Referencing an issue you did not
+fix is worse than none: use `Refs #N` for context, never a closing keyword.
+
 PRs that target a non-default integration branch declare each fixed source-repo issue with one exact line: `Repository-Issue: rollacode/codeterm#N`. Do not use `Closes`/`Fixes` there: GitHub ignores closing keywords outside the default branch. Before opening the final `develop` → `master` PR, render those declarations with `python3 scripts/release_issue_contract.py repository-closes --body-file <release-pr-body.md>` and put the resulting `Closes #N` lines in the final PR body. Public `codeterm-releases` issues remain separate `Public-Issue:` metadata and close only after verified artifact publication; see `docs/RELEASE.md`.
 
 ## Documentation

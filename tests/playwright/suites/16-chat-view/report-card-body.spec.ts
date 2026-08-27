@@ -4,18 +4,14 @@
  * ORACLE: The real Curie status-plus-multiline payload shows its status chip AND body lines, local and mesh-stamped.
  */
 import { expect, test, type Page } from "../../helpers/fixtures";
+import { CURIE_PARTIAL_REPORT_BODY_MARKERS } from "../../../../packages/chat-ui/src/codeterm/inboundReportFixtures.testdata";
 
-const BODY_LINES = [
-  "REPORT NOT SENT",
-  "readiness report refused: this git worktree has uncommitted lane changes.",
-  "src-tauri/src/service/pty_io/submit_transaction.rs",
-  "Original readiness report that was refused locally:",
-];
 const mountedPages = new Set<Page>();
 
 declare global {
   interface Window {
     __inboundReportTest?: { root?: { unmount: () => void } };
+    __codetermInboundReportHarness?: { mount: (host: HTMLElement) => { unmount: () => void } };
   }
 }
 
@@ -38,6 +34,11 @@ test.afterEach(async () => {
   for (const page of pages) {
     if (page.isClosed()) continue;
     await page.evaluate(() => window.__inboundReportTest?.root?.unmount());
+    // Mounting replaced document.body, so unmounting frees React but leaves the
+    // page with no app. The ui session is worker-scoped: restore the app root or
+    // every later test in this worker inherits a blank surface.
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
   }
 });
 
@@ -49,12 +50,20 @@ test("@golden report card body renders with the status chip for local and mesh r
     await expect(card).toBeVisible();
     await expect(card).toContainText("Partial");
 
+    // The card lands collapsed; the body is behind its own disclosure.
     const body = card.locator('[data-testid="chat-inbound-report-body"]');
+    await expect(body).toHaveCount(0);
+    await card.getByRole("button", { name: "Show report Details" }).click();
+
     await expect(body).toBeVisible();
-    for (const line of BODY_LINES) {
+    for (const line of CURIE_PARTIAL_REPORT_BODY_MARKERS) {
       await expect(body).toContainText(line);
     }
-    // The body is the message, not a status echo: it must outweigh the chip.
-    await expect.poll(() => body.evaluate((element) => (element.textContent ?? "").length)).toBeGreaterThan(200);
+    // The body is the message, not a status echo: it must outweigh everything
+    // else the card renders (chip, header, structured fields).
+    const cardLength = await card.evaluate((element) => (element.textContent ?? "").length);
+    const bodyLength = await body.evaluate((element) => (element.textContent ?? "").length);
+    expect(bodyLength, `${variant} report body must outweigh its structured chrome`)
+      .toBeGreaterThan(cardLength - bodyLength);
   }
 });

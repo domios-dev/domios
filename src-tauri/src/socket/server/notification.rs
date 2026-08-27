@@ -18,9 +18,9 @@ pub(super) fn dispatch(
                 .and_then(|p| p.get("body"))
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
-            let level_str = params
+            let severity_str = params
                 .as_ref()
-                .and_then(|p| p.get("level"))
+                .and_then(|p| p.get("severity"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("info");
             let string_param = |key: &str| {
@@ -37,27 +37,67 @@ pub(super) fn dispatch(
                 claimed_tab_id: string_param("tab_id"),
                 peer_name: None,
             };
-            let category = string_param("category");
+            // The CLI reaches the daemon here, so `--choice` is parsed on this
+            // path too, into the caller-facing set that has no invoke variant.
+            let actions = match params.as_ref().and_then(|p| p.get("actions")) {
+                None | Some(Value::Null) => None,
+                Some(raw) => Some(
+                    serde_json::from_value::<Vec<codeterm_types::notification::CallerAction>>(
+                        raw.clone(),
+                    )
+                    .map_err(|e| JsonRpcError {
+                        code: -32602,
+                        message: format!("Invalid notification actions: {e}"),
+                        data: None,
+                    })?,
+                ),
+            };
+            let actions =
+                crate::api::notification_routes::vet_actions(actions).map_err(|message| {
+                    JsonRpcError {
+                        code: -32602,
+                        message,
+                        data: None,
+                    }
+                })?;
+            let level = string_param("level");
             let intent = crate::api::notification_routes::parse_push_intent(
-                category.as_deref(),
+                level.as_deref(),
                 string_param("event_key"),
             )
             .map_err(|message| JsonRpcError {
                 code: -32602,
-                message: message.to_string(),
+                message,
                 data: None,
             })?;
-            let id = svc.create_notification_ext(
+            // The offer rides the same seam as the choices, because the offer
+            // IS one of them: the surface applies on the label that was tapped,
+            // for the level this notification carries. Vetted after the intent
+            // because a level-less offer could only ever open nothing.
+            let offer = crate::api::notification_routes::vet_offer(
+                svc,
+                string_param("offer"),
+                string_param("offer_accept"),
+                actions.as_deref(),
+                intent.level,
+            )
+            .map_err(|message| JsonRpcError {
+                code: -32602,
+                message,
+                data: None,
+            })?;
+            let (id, unseen) = svc.create_notification_ext_reported(
                 title,
                 body,
-                Some(level_str),
-                None,
+                Some(severity_str),
+                actions,
                 None,
                 origin,
                 intent,
+                offer,
             );
 
-            Ok(serde_json::json!({"id": id}))
+            Ok(crate::api::notification_routes::created_result(&id, unseen))
         }
 
         "notification.list" => {

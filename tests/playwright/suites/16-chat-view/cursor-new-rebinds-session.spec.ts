@@ -4,12 +4,15 @@
  * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import crypto from "crypto";
-import { existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, realpathSync, rmSync, writeFileSync } from "fs";
 import os from "os";
 import path from "path";
+import { CURSOR_AGENT_BIN_ENV, discoverCursorAgent } from "../../helpers/agent-binary";
 import { expect, test } from "../../helpers/fixtures";
 
-const CURSOR_AGENT_BIN = "/Users/dev/.local/bin/cursor-agent";
+// Discovered, not hardcoded: a machine-specific path skipped this spec forever
+// on every other machine, reporting success while asserting nothing.
+const CURSOR_AGENT_BIN = discoverCursorAgent();
 const REPLY_1 = "pw-cursor-reply-1";
 const REPLY_2 = "pw-cursor-reply-2";
 
@@ -58,7 +61,10 @@ function assistantJsonl(text: string): string {
 test(
   "@live cursor /new re-binds chat to the new session",
   async ({ api, ui, tabCleanup }) => {
-    test.skip(!existsSync(CURSOR_AGENT_BIN), "cursor-agent not installed on this machine");
+    test.skip(
+      CURSOR_AGENT_BIN === null,
+      `cursor-agent not found on PATH or in a known install dir; set ${CURSOR_AGENT_BIN_ENV} to point at it`,
+    );
 
     const nowMs = Date.now();
     const rawTestCwd = path.join(os.tmpdir(), `codeterm-cursor-pw-${nowMs}`);

@@ -458,7 +458,7 @@ export function SecretsTab({
                   </div>
                 ) : (
                   <div className="pt-1 space-y-1">
-                    <div className="text-[11px] text-[var(--ct-amber)]">
+                    <div className="text-[11px] text-[var(--ct-yellow)]">
                       ⚠ Master password not saved — daemon will lock and prompt on restart.
                     </div>
                     <form onSubmit={submitPasswordLogin} className="flex gap-2">

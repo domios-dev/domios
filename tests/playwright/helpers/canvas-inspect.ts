@@ -86,7 +86,8 @@ export interface RenderReadbackNode {
 }
 
 interface MuxTabState {
-  workspaces: Array<{ id: string; tabs: Array<{ id: string }> }>;
+  // /mux/state serialises Workspace.tabs as Vec<String> — ids, not objects.
+  workspaces: Array<{ id: string; tabs: string[] }>;
   active_workspace_id?: string;
 }
 
@@ -110,8 +111,8 @@ export async function closeWorkspaceTabs(api: ApiClient, workspaceId: string): P
     const ws = mux.workspaces.find((w) => w.id === workspaceId);
     const tabs = [...(ws?.tabs ?? [])];
     if (tabs.length === 0) return;
-    for (const tab of tabs) {
-      await api.post(`/workspaces/${workspaceId}/tabs/${tab.id}/close`);
+    for (const tabId of tabs) {
+      await api.post(`/workspaces/${workspaceId}/tabs/${tabId}/close`);
     }
   }
   const mux = await api.get<MuxTabState>("/mux/state");
@@ -322,31 +323,30 @@ export async function closeTabPlanCanvas(page: Page, _tabId?: string): Promise<v
   await expect(page.locator('[data-testid="tab-plan-overlay"]')).toHaveCount(0);
 }
 
-// Inline workspace canvas (mode=workspace) mounts when the active workspace has no tab.
-export async function openInlineWorkspaceCanvas(page: Page, workspaceId?: string): Promise<void> {
+/** Mission control has resolved either way: a live board, or the empty state. */
+const PLAN_CANVAS_LIVE_OR_EMPTY_SEL = `${MISSION_CONTROL_LIVE_SEL}, [data-testid="mission-control-empty"]`;
+
+/** Inline workspace canvas (mode=workspace) auto-mounts when the active workspace
+ *  has no tab (App.tsx showInlineWorkspaceCanvas), so there is nothing to click.
+ *  Resolving to live-or-empty keeps an empty board a spec assertion instead of a
+ *  30s timeout buried in this helper. */
+export async function openInlineWorkspaceCanvas(page: Page, _workspaceId?: string): Promise<void> {
   await openSidebarIfNeeded(page);
-  await expect(page.locator('[data-testid="tab-plan-overlay"]')).toHaveCount(0);
-  const visible = page.locator(`${PLAN_CANVAS_VISIBLE_SEL}:visible`).first();
-  if (!(await visible.isVisible().catch(() => false))) {
-    if (workspaceId) await expandWorkspaceSidebar(page, workspaceId);
-    const entry = workspaceId
-      ? page.locator(`div:has([data-workspace-id="${workspaceId}"]) [data-testid="workspace-plan-entry"]`)
-      : page.locator('[data-testid="workspace-plan-entry"]').first();
-    if (await entry.isVisible().catch(() => false)) {
-      await entry.click({ timeout: 1_500 }).catch(async () => {
-        await entry.click({ force: true });
-      });
-    } else {
-      const btn = page.locator('[data-testid="canvas-toolbar-button"]');
-      if ((await btn.count()) > 0 && (await btn.getAttribute("aria-pressed")) !== "true") {
-        await btn.click().catch(() => {});
-      }
-    }
-  }
   await page.locator(PLAN_SURFACE_OR_EMPTY_SEL).first().waitFor({ state: "visible", timeout: 30_000 });
   await switchPlanSurfaceToCanvas(page);
-  await waitForVisiblePlanCanvas(page);
-  await waitForBoardSurface(page);
+  await page.locator(PLAN_CANVAS_LIVE_OR_EMPTY_SEL).first().waitFor({ state: "visible", timeout: 30_000 });
+  await waitForCanvasSettled(page);
+}
+
+/** The seeded fixture world reached the plan surface. `mission-control-empty`
+ *  means workspace scoping dropped every plan — a fixture/product defect, never a
+ *  reason to skip. */
+export async function assertPlanSurfaceNotEmpty(page: Page): Promise<void> {
+  await expect(
+    page.locator('[data-testid="mission-control-empty"]'),
+    "seeded plans must pass workspace scoping and reach the plan surface",
+  ).toHaveCount(0);
+  await expect(page.locator(MISSION_CONTROL_LIVE_SEL)).not.toHaveCount(0);
 }
 
 export async function openWorkspaceCanvasOverlay(page: Page): Promise<void> {

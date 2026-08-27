@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::provider::{
-    BusySubmitStrategy, ModelInfo, ProviderReadinessStrategy, ReadinessStrategy,
-    ReasoningEffortInfo, SessionIdInjection, SystemPromptDelivery, TaskDelivery,
-    VerifySubmitStrategy,
+    BusySubmitStrategy, HookEventBinding, HookIngestionRoute, ModelInfo, ProviderReadinessStrategy,
+    ProviderStateVerdict, ReadinessStrategy, ReasoningEffortInfo, SessionIdInjection,
+    SystemPromptDelivery, TaskDelivery, VerifySubmitStrategy,
 };
 
 /// Hosts/origins a plugin may reach via `host.fetch`.
@@ -44,6 +44,10 @@ pub struct SpawnConfig {
     pub supports_lazy_skills: bool,
     #[serde(default)]
     pub has_hooks: bool,
+    /// Declared hook event roster (event name → core ingestion route).
+    /// Absent ⇒ default roster: native fallback's declaration, else SessionStart-only when hooked.
+    #[serde(default)]
+    pub hook_event_roster: Option<Vec<SerdeHookEventBinding>>,
     /// Plugin exports `parseInteractiveEvents` — host calls it to extract
     /// interactive prompts. When false the native fallback handles it.
     #[serde(default)]
@@ -253,6 +257,50 @@ impl From<SerdeSessionIdInjection> for SessionIdInjection {
     }
 }
 
+/// One declared hook event in `spawn.hookEventRoster`. `route` resolves
+/// against the closed core ingestion set; unknown names fail closed at install.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct SerdeHookEventBinding {
+    pub event: String,
+    pub route: String,
+    /// Only meaningful on the `session_state` route; unknown names fail closed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verdict: Option<String>,
+}
+
+/// Resolve a manifest-declared roster against the closed ingestion-route set.
+/// Any unknown route fails the whole roster — never a silent partial drop.
+pub fn resolve_hook_event_roster(
+    entries: &[SerdeHookEventBinding],
+) -> Result<Vec<HookEventBinding>, String> {
+    entries
+        .iter()
+        .map(|entry| {
+            let route = HookIngestionRoute::parse(&entry.route).ok_or_else(|| {
+                format!(
+                    "hook event '{}' declares unknown ingestion route '{}'",
+                    entry.event, entry.route
+                )
+            })?;
+            let verdict = match entry.verdict.as_deref() {
+                None => None,
+                Some(name) => Some(ProviderStateVerdict::parse(name).ok_or_else(|| {
+                    format!(
+                        "hook event '{}' declares unknown state verdict '{}'",
+                        entry.event, name
+                    )
+                })?),
+            };
+            Ok(HookEventBinding {
+                event: entry.event.clone(),
+                route,
+                verdict,
+            })
+        })
+        .collect()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct SessionsConfig {
@@ -293,6 +341,17 @@ pub struct IntegrationConfig {
     pub kind: IntegrationKind,
     /// Where the integration is stored (e.g. `~/.claude/settings.json`).
     pub settings_path: String,
+    /// Optional `integration.trust_grant` capability declaration: managed hook
+    /// key(s) core passes to the plugin's `grantIntegrationTrust` per install.
+    #[serde(default, rename = "trust_grant", alias = "trustGrant")]
+    pub trust_grant: Option<TrustGrantConfig>,
+}
+
+/// Manifest mirror of `crate::provider::IntegrationTrustGrantCapability`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct TrustGrantConfig {
+    pub managed_keys: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -355,6 +414,62 @@ pub struct CommandsConfig {
     /// scriptable reasoning-effort launch flag even if it lists effort levels.
     #[serde(default)]
     pub reasoning_effort_launch_args_format: Vec<String>,
+    /// `launchArgsFormat`: full launch command template, used only when the
+    /// plugin exports no `buildLaunchCommand`. See LAUNCH_TEMPLATE_PLACEHOLDERS.
+    #[serde(default)]
+    pub launch_args_format: Option<String>,
+    /// `resumeArgsFormat`: resume counterpart for a missing
+    /// `buildResumeCommand`. See RESUME_TEMPLATE_PLACEHOLDERS.
+    #[serde(default)]
+    pub resume_args_format: Option<String>,
+}
+
+/// Closed placeholder set for `launchArgsFormat`. `{skipPermissions}` expands
+/// to the manifest's `autoApproveFlags`; model/effort flags arrive via `{args}`.
+pub const LAUNCH_TEMPLATE_PLACEHOLDERS: &[&str] = &["task", "args", "skipPermissions", "sessionId"];
+
+/// Closed placeholder set for `resumeArgsFormat`.
+pub const RESUME_TEMPLATE_PLACEHOLDERS: &[&str] = &["sessionId", "skipPermissions"];
+
+/// First `{name}` in `template` outside `allowed`, or an unterminated `{`.
+/// `None` means every placeholder resolves.
+pub fn unknown_template_placeholder(template: &str, allowed: &[&str]) -> Option<String> {
+    let mut rest = template;
+    while let Some(open) = rest.find('{') {
+        let tail = &rest[open + 1..];
+        let Some(close) = tail.find('}') else {
+            return Some(rest[open..].to_string());
+        };
+        let name = &tail[..close];
+        if !allowed.contains(&name) {
+            return Some(name.to_string());
+        }
+        rest = &tail[close + 1..];
+    }
+    None
+}
+
+/// Single-pass `{name}` → value substitution — no conditionals, no quoting,
+/// and substituted values are never re-scanned for further placeholders.
+pub fn substitute_template(template: &str, values: &[(&str, &str)]) -> String {
+    let mut out = String::with_capacity(template.len());
+    let mut rest = template;
+    while let Some(open) = rest.find('{') {
+        out.push_str(&rest[..open]);
+        let tail = &rest[open + 1..];
+        let Some(close) = tail.find('}') else {
+            out.push_str(&rest[open..]);
+            return out;
+        };
+        let name = &tail[..close];
+        match values.iter().find(|(key, _)| *key == name) {
+            Some((_, value)) => out.push_str(value),
+            None => out.push_str(&rest[open..open + close + 2]),
+        }
+        rest = &tail[close + 1..];
+    }
+    out.push_str(rest);
+    out
 }
 
 /// CamelCase-friendly mirror of `ModelInfo` for plugin.json authors.

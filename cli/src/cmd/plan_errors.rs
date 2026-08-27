@@ -6,6 +6,7 @@ pub(crate) const CROSS_DAEMON_HINT: &str = "hint: if this plan lives on the dev 
 
 pub(crate) fn render_plan_call_error(err: SocketCallError, params: &Value) -> String {
     match err {
+        SocketCallError::Rpc(rpc) if crate::protocol::is_version_skew(rpc.code) => rpc.message,
         SocketCallError::Rpc(rpc) => {
             let rendered = rpc
                 .data
@@ -76,6 +77,13 @@ pub(crate) fn render_plan_error(data: &Value, params: &Value) -> Option<String> 
         )),
         "bad_priority" => Some(format!(
             "✗ invalid task priority.\nvalid priorities: p0|p1|p2|p3\nfix: codeterm plan task update {plan_id} {} --priority p2",
+            task_id.unwrap_or("<task_id>")
+        )),
+        "executor_role_required" => Some(format!(
+            "✗ a task must name who executes it, and an update cannot empty that.\n\
+fix: codeterm plan task update {plan_id} {} --executor-role <role>\n\
+presence is the contract; no vocabulary is enforced, so name the specialization \
+that scopes the surface they own, e.g. rust-backend-dev",
             task_id.unwrap_or("<task_id>")
         )),
         "not_found" => Some(render_not_found(plan_id, loop_id, params)),
@@ -570,6 +578,26 @@ mod tests {
             message: message.into(),
             data,
         })
+    }
+
+    #[test]
+    fn version_skew_plan_call_renders_the_daemon_message_verbatim() {
+        let message = "client protocol v1, server requires >=4 — run ./refresh";
+        let rendered = render_plan_call_error(
+            rpc_failure(
+                crate::protocol::VERSION_SKEW_CODE,
+                message,
+                Some(json!({
+                    "type": "version_skew",
+                    "client_protocol": 1,
+                    "server_protocol": 4,
+                    "recovery": "./refresh",
+                })),
+            ),
+            &json!({"plan_id": "pl_1"}),
+        );
+
+        assert_eq!(rendered, message);
     }
 
     #[test]

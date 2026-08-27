@@ -5,6 +5,7 @@
  */
 import { expect, test, type SpawnAgent } from "../../helpers/fixtures";
 import { pollUntil } from "../../helpers/poll";
+import { spawnBoundAgent } from "../../helpers/session-binding";
 
 // ── @smoke: no LLM involved ──────────────────────────────────────────
 
@@ -28,34 +29,48 @@ test("@smoke spawn with an unknown provider errors honestly", async ({
 
 test("@smoke report IPC primitive: child report lands in parent inbox (no LLM)", async ({
   api,
-  tabCleanup,
 }) => {
-  const parent = await tabCleanup.createTab({ title: "pw-report-parent" });
-  const child = await tabCleanup.createTab({ title: "pw-report-child" });
+  test.skip(
+    !(await isStubTransportActive(api)),
+    "roles need a verified session binding, which only a spawned agent reports",
+  );
+  test.setTimeout(240_000);
+  const workspaceId = (await api.workspaces())[0]?.id;
+  expect(workspaceId, "a workspace is required to pin an Orchestrator").toBeTruthy();
+
   // 2-level hierarchy: a Worker's parent must be an Orchestrator.
-  await api.post(`/tabs/${parent.id}/role`, { role: "Orchestrator" });
-  await api.post(`/tabs/${child.id}/role`, {
+  const parentId = await spawnBoundAgent(api, {
+    role: "Orchestrator",
+    workspace_id: workspaceId,
+    title: "pw-report-parent",
+  });
+  const childId = await spawnBoundAgent(api, {
     role: "Worker",
-    parent_tab_id: parent.id,
+    parent_tab_id: parentId,
+    report_target_tab_id: parentId,
+    title: "pw-report-child",
   });
 
   const marker = `pw-report-${Date.now()}`;
-  const submitted = await api.post<{ ok: boolean; report_id: string }>(
-    `/tabs/${child.id}/report`,
-    { message: marker },
-  );
-  expect(submitted.ok).toBe(true);
-  expect(submitted.report_id).toBeTruthy();
+  try {
+    const submitted = await api.post<{ ok: boolean; report_id: string }>(
+      `/tabs/${childId}/report`,
+      { message: marker },
+    );
+    expect(submitted.ok).toBe(true);
+    expect(submitted.report_id).toBeTruthy();
 
-  const reports = await api.get<unknown>(
-    `/tabs/${parent.id}/reports?clear=true`,
-  );
-  const text = JSON.stringify(reports);
-  expect(
-    text,
-    `parent inbox missing the report: ${text.slice(0, 300)}`,
-  ).toContain(marker);
-  expect(text, "report must carry the reporting tab id").toContain(child.id);
+    const reports = await api.get<unknown>(`/tabs/${parentId}/reports?clear=true`);
+    const text = JSON.stringify(reports);
+    expect(
+      text,
+      `parent inbox missing the report: ${text.slice(0, 300)}`,
+    ).toContain(marker);
+    expect(text, "report must carry the reporting tab id").toContain(childId);
+  } finally {
+    await api.closeTab(childId).catch(() => {});
+    await api.closeTab(parentId).catch(() => {});
+  }
 });
 
 test("@smoke tab status endpoint answers for a live tab and 404s for a dead id", async ({
@@ -93,35 +108,42 @@ test("@smoke make-orchestrator rejects plain shell tabs", async ({
 
 test("@smoke make-orchestrator promotes agent tab and surfaces onboarding", async ({
   api,
-  tabCleanup,
 }) => {
-  const tab = await tabCleanup.createTab({
-    title: "pw-make-orch-agent",
-    eager: true,
-  });
-  await api.post(`/tabs/${tab.id}/agent-type`, { agent_type: "claude" });
+  test.skip(
+    !(await isStubTransportActive(api)),
+    "promotion needs a verified session binding, which only a spawned agent reports",
+  );
+  test.setTimeout(240_000);
+  // Setting agent_type is metadata; only a launched agent reports the session
+  // binding that make_orchestrator verifies.
+  const tabId = await spawnBoundAgent(api, { title: "pw-make-orch-agent" });
 
   const promoted = await api.post<{ ok: boolean }>(
-    `/tabs/${tab.id}/make-orchestrator`,
+    `/tabs/${tabId}/make-orchestrator`,
     {},
   );
   expect(promoted.ok).toBe(true);
 
   const state = await api.get<{
-    tabs: Record<string, { role?: string; can_spawn?: boolean }>;
+    tabs: Record<string, { role?: string; role_profile?: string; can_spawn?: boolean }>;
   }>("/mux/state");
-  const live = state.tabs[tab.id];
-  expect(live?.role).toBe("Orchestrator");
+  const live = state.tabs[tabId];
+  expect(live?.role_profile).toBe("orchestrator");
   expect(live?.can_spawn).toBe(true);
 
+  // ChatSubscriptionBody requires subscriptionId (camelCase); `{}` is rejected
+  // with "missing field subscriptionId" before the handler runs.
   const chat = await api.post<{ messages?: { content?: string }[] }>(
-    `/tabs/${tab.id}/chat-raw/start`,
-    {},
+    `/tabs/${tabId}/chat-raw/start`,
+    { subscriptionId: `pw-agents-${tabId}` },
   );
   const greeting = JSON.stringify(chat.messages ?? []);
-  expect(greeting).toContain("You are now the Orchestrator");
-  expect(greeting).toContain("codeterm doc orchestration");
-  expect(greeting).toContain(`codeterm agent spawn --parent ${tab.id}`);
+  // Substitution, not wording: the onboarding is addressed to THIS tab, so the id
+  // it carries is a value this test supplied. Asserting the copy instead would
+  // fail on every rewrite and pass while delivery was broken.
+  expect(greeting, "onboarding must be addressed to the promoted tab").toContain(tabId);
+  expect(greeting, "no unsubstituted placeholder may survive").not.toMatch(/\{\{|\$\{|<TAB_ID>/);
+  await api.closeTab(tabId).catch(() => {});
 });
 
 // ── @golden: stub transport (real spawn/report/DOM pipeline, no LLM) ──

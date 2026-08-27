@@ -154,8 +154,6 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
     }
 
     // Spawn agent via the unified spawn_tab surface.
-    use crate::service::spawn::{AgentSpawnSpec, SpawnTabSpec, TabCommand, TabVisibility};
-
     let skill_block = spec.skill.as_deref().map(crate::commands::cron_skill_block);
     let task_text = crate::cron::task_text::build_cron_task_text(
         task,
@@ -190,37 +188,27 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
         .get(job_id)
         .map(|j| j.name.clone())
         .unwrap_or_else(|| job_id.to_string());
-    let tab_title = format!("cron:{}", job_name);
 
-    let spec = SpawnTabSpec {
-        workspace_id: if workspace_id.is_empty() {
-            None
-        } else {
-            Some(workspace_id.to_string())
-        },
-        parent_tab_id: None,
-        team_id: spec.team_id.clone(),
-        creator_tab_id: spec.creator_tab_id.clone(),
-        cwd: cwd.map(|s| s.to_string()),
-        title: Some(tab_title),
-        description: None,
-        // Hidden — user observes cron runs via the cron history log viewer, not as a live tab. Mirrors the mem worker pattern.
-        visibility: TabVisibility::Hidden,
-        audience: crate::multiplexer::types::TabAudience::Automation,
-        eager: false,
-        command: TabCommand::Agent(AgentSpawnSpec {
-            provider: agent.to_string(),
-            planned_model: None,
+    // Routes through SpawnTabSpec::from_agent_params_with_chatbackends so a scheduled
+    // agent and a CLI-spawned one agree on which runtime serves the provider.
+    let spawn_spec = crate::cron::spawn_spec::build_cron_spawn_spec(
+        service.chatbackend_registry.as_ref(),
+        crate::cron::spawn_spec::CronSpawnInputs {
+            job_id: job_id.to_string(),
+            job_name,
+            agent: agent.to_string(),
             model,
-            task: Some(task_text),
+            task_text,
             role: role.map(|s| s.to_string()),
+            cwd: cwd.map(|s| s.to_string()),
+            workspace_id: (!workspace_id.is_empty()).then(|| workspace_id.to_string()),
+            team_id: spec.team_id.clone(),
+            creator_tab_id: spec.creator_tab_id.clone(),
             report_target_tab_id: report_target_tab_id.map(str::to_string),
-            spawned_by: Some(format!("cron:{}", job_id)),
-            ..Default::default()
-        }),
-    };
+        },
+    );
 
-    match service.spawn_tab(spec) {
+    match service.spawn_tab(spawn_spec) {
         Ok(handle) => {
             log::info!(
                 "Cron agent spawned: job={}, tab={}, tab={}",

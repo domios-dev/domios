@@ -95,6 +95,7 @@ impl SpawnTabSpec {
                 agent_name: params.agent_name.clone(),
                 extra_args: params.args.clone().unwrap_or_default(),
                 provisioned_cwd: params.provisioned_cwd.clone(),
+                lane_setup_command: params.lane_setup_command.clone(),
                 role: params.role.clone(),
                 role_profile: params.role_profile.clone(),
                 can_spawn: params.can_spawn,
@@ -142,6 +143,7 @@ impl SpawnTabSpec {
             args: if args.is_empty() { None } else { Some(args) },
             cwd: self.cwd.clone(),
             provisioned_cwd: None,
+            lane_setup_command: agent.lane_setup_command.clone(),
             title: self.title.clone(),
             title_provenance: None,
             description: self.description.clone(),
@@ -260,13 +262,13 @@ impl ServiceContext {
                 "Agent provider '{}' is still loading; retry shortly",
                 provider_id
             )),
-            crate::agent::registry::ProviderStartupStatus::Unknown => {
-                let available = self.available_agent_or_shell_ids().join(", ");
-                Err(format!(
-                    "Unknown agent provider: '{}'. Available: [{}]",
-                    provider_id, available
-                ))
-            }
+            crate::agent::registry::ProviderStartupStatus::Unknown => Err(
+                super::spawn_capability::classify_unavailable_agent_provider(
+                    provider_id,
+                    self.available_agent_or_shell_ids(),
+                )
+                .into(),
+            ),
         }
     }
 

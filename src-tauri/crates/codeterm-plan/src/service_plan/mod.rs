@@ -79,6 +79,8 @@ mod canonical_path_tests;
 #[cfg(test)]
 mod core_tests;
 #[cfg(test)]
+mod executor_role_tests;
+#[cfg(test)]
 mod goal_tests;
 #[cfg(test)]
 mod heartbeat_tests;

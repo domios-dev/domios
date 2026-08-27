@@ -7,7 +7,7 @@ use axum::{
 use serde::Deserialize;
 
 use crate::api::routes::{check_auth, resolve_tab};
-use crate::service::delivery_error::DeliveryError;
+use crate::service::delivery_error::{DeliveryError, PayloadTooLarge, SendOrigin};
 
 use super::AppState;
 
@@ -107,6 +107,36 @@ impl From<DeliveryError> for SendRejection {
             body: err.to_json(),
         }
     }
+}
+
+impl From<PayloadTooLarge> for SendRejection {
+    fn from(err: PayloadTooLarge) -> Self {
+        Self {
+            status: StatusCode::PAYLOAD_TOO_LARGE,
+            body: err.to_json(),
+        }
+    }
+}
+
+/// Route-level origin from the existing request markers: a service push token,
+/// a sender tab, or a mesh peer classifies the send as programmatic.
+fn route_send_origin(
+    is_service_push: bool,
+    has_source_tab: bool,
+    has_source_peer: bool,
+) -> SendOrigin {
+    if is_service_push || has_source_tab || has_source_peer {
+        SendOrigin::Programmatic
+    } else {
+        SendOrigin::User
+    }
+}
+
+/// Byte length of everything this send would write: plain/raw text plus batch
+/// bodies. Length only — the content is never inspected.
+fn route_payload_bytes(text: Option<&str>, batch: Option<&[BatchCommand]>) -> usize {
+    text.map_or(0, str::len)
+        + batch.map_or(0, |items| items.iter().map(|c| c.text.len()).sum::<usize>())
 }
 
 pub(super) use self::await_pty_link as wait_for_pty_link;
@@ -249,6 +279,19 @@ pub async fn send_text(
         resolve_tab(&state, &raw_tab_id).map_err(|_| DeliveryError::TabNotReachableOnPeer {
             tab: raw_tab_id.clone(),
         })?;
+
+    // Refuse over-bound programmatic payloads (16MB bound) before any delivery
+    // machinery runs; user-origin sends keep today's behavior.
+    let origin = route_send_origin(
+        svc_token_match.is_some(),
+        body.source_tab.is_some(),
+        body.source_peer.as_deref().is_some_and(|p| !p.is_empty()),
+    );
+    crate::service::delivery_error::preflight_payload_size(
+        &tab_id,
+        origin,
+        route_payload_bytes(body.text.as_deref(), body.batch.as_deref()),
+    )?;
 
     let transport = if state.svc.tab_chat_backing(&tab_id).is_some() {
         TabInputTransport::ChatBackend
@@ -600,5 +643,92 @@ mod action_delivery_tests {
         .unwrap();
         assert_eq!(raw_writes, [b"up".to_vec(), b"esc".to_vec()]);
         assert_eq!(deadlines, [std::time::Duration::from_millis(25)]);
+    }
+}
+
+#[cfg(test)]
+mod payload_preflight_tests {
+    use super::{route_payload_bytes, route_send_origin, BatchCommand};
+    use crate::service::delivery_error::{
+        preflight_payload_size, SendOrigin, PROGRAMMATIC_SEND_MAX_BYTES,
+    };
+
+    /// The route seam: the preflight decision gates the delivery closure — a
+    /// refusal must leave the closure uninvoked (zero delivery-path invocation).
+    fn route_gate(origin: SendOrigin, payload_bytes: usize) -> (bool, bool) {
+        let mut delivered = false;
+        let passed = preflight_payload_size("53854ac8", origin, payload_bytes)
+            .map(|()| delivered = true)
+            .is_ok();
+        (passed, delivered)
+    }
+
+    #[test]
+    fn api_route_payload_preflight_refuses_over_bound_programmatic_without_delivery() {
+        // Every existing programmatic marker: service push, source tab, mesh peer.
+        for (push, src, peer) in [
+            (true, false, false),
+            (false, true, false),
+            (false, false, true),
+        ] {
+            let origin = route_send_origin(push, src, peer);
+            assert_eq!(origin, SendOrigin::Programmatic);
+            let (passed, delivered) = route_gate(origin, PROGRAMMATIC_SEND_MAX_BYTES + 1);
+            assert!(!passed);
+            assert!(!delivered, "refused send must never reach delivery");
+        }
+    }
+
+    #[test]
+    fn api_route_payload_preflight_refusal_is_the_typed_pre_write_error() {
+        let err = preflight_payload_size(
+            "53854ac8",
+            route_send_origin(false, true, false),
+            PROGRAMMATIC_SEND_MAX_BYTES + 1,
+        )
+        .unwrap_err();
+        assert_eq!(err.code(), "payload_too_large");
+        assert_eq!(err.tab, "53854ac8");
+        assert_eq!(err.payload_bytes, PROGRAMMATIC_SEND_MAX_BYTES + 1);
+        assert_eq!(err.max_bytes, PROGRAMMATIC_SEND_MAX_BYTES);
+    }
+
+    #[test]
+    fn api_route_payload_preflight_passes_at_bound_programmatic_send() {
+        let (passed, delivered) = route_gate(
+            route_send_origin(false, true, false),
+            PROGRAMMATIC_SEND_MAX_BYTES,
+        );
+        assert!(passed);
+        assert!(delivered);
+    }
+
+    #[test]
+    fn api_route_payload_preflight_exempts_user_origin_over_bound_send() {
+        // No marker on the request ⇒ the existing classification is a user turn.
+        let origin = route_send_origin(false, false, false);
+        assert_eq!(origin, SendOrigin::User);
+        let (passed, delivered) = route_gate(origin, PROGRAMMATIC_SEND_MAX_BYTES + 1);
+        assert!(passed);
+        assert!(delivered);
+    }
+
+    #[test]
+    fn api_route_payload_preflight_measures_text_and_batch_byte_length() {
+        assert_eq!(route_payload_bytes(None, None), 0);
+        // Byte length, not char count.
+        assert_eq!(route_payload_bytes(Some("абв"), None), 6);
+        let batch = [
+            BatchCommand {
+                text: "12345".into(),
+                delay_ms: None,
+            },
+            BatchCommand {
+                text: "678".into(),
+                delay_ms: Some(1),
+            },
+        ];
+        assert_eq!(route_payload_bytes(None, Some(&batch)), 8);
+        assert_eq!(route_payload_bytes(Some("ab"), Some(&batch)), 10);
     }
 }
