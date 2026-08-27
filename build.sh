@@ -1314,7 +1314,7 @@ CodeTerm build commands
   test-one <app|plan|pty|types|mem|mesh|plugin|cli> NAME
                               Run one focused Rust test
   test                        Run the application Rust unit suite
-  verify                      Run check, tests, and source-size gate
+  verify                      Run app/CLI tests, TypeScript check, and source gates
   qa-prep                     Prepare a worktree for QA
   install-local               Build and install locally
   build                       Build production artifacts
@@ -1488,9 +1488,12 @@ EOF
     enter_build_gateway "$CMD ${*:2}"
     prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
+    ensure_deps
     ct_configure_sccache
     cargo check --manifest-path src-tauri/Cargo.toml
     run_workspace_lib_tests
+    scripts/test-capped.sh --manifest-path cli/Cargo.toml
+    node node_modules/typescript/bin/tsc --noEmit
     bash scripts/check-file-sizes.sh --fail
     bash scripts/check-empty-array-expansion.sh
     ;;
