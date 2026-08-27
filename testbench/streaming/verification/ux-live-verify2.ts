@@ -21,7 +21,7 @@ import {
   isSmoothPreviewTransition,
   stabilizePreview,
   uncoveredPreviewTail,
-} from "/Users/dev/Developer/codeterm-worktrees/lane-streaming-consilium/src/components/Terminal/streamPreviewMatch.ts";
+} from "/Users/user/Developer/codeterm-worktrees/lane-streaming-consilium/src/components/Terminal/streamPreviewMatch.ts";
 
 const MAX_RENDER_ROWS = 8;
 const BASE = "http://127.0.0.1:7686";

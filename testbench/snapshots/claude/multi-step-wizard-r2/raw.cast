@@ -1,5 +1,5 @@
 {"version": 2, "width": 120, "height": 40, "timestamp": 1781997159}
-[0.000346958,"o","\r\u001b[0m\u001b[27m\u001b[24m\u001b[J\u001b]633;A\u0007dev@workstation codeterm-snapshot-testbench % \u001b]633;B\u0007\u001b[K\u001b[?2004h"]
+[0.000346958,"o","\r\u001b[0m\u001b[27m\u001b[24m\u001b[J\u001b]633;A\u0007user@workstation codeterm-snapshot-testbench % \u001b]633;B\u0007\u001b[K\u001b[?2004h"]
 [0.004681583,"o","b"]
 [0.008499916,"o","\bbash /tmp/codeterm-spawn-e3a40b29-dc46-434c-86b2-673e90c21d32.sh\u001b[?2004l\r\r\n"]
 [0.039878208,"o","\u001b]633;E;bash /tmp/codeterm-spawn-e3a40b29-dc46-434c-86b2-673e90c21d32.sh;\u0007"]

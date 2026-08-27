@@ -5056,7 +5056,7 @@
           "subcommands": [
             {
               "name": "set-addr",
-              "about": "Manually override our cached address for a paired peer. Useful when auto-detection is wrong or you want to point at a specific interface. Format: ip[:port]. Examples: codeterm mesh peer set-addr BLACKSTAR 100.64.10.1 codeterm mesh peer set-addr BLACKSTAR 192.168.1.42:7685",
+              "about": "Manually override our cached address for a paired peer. Useful when auto-detection is wrong or you want to point at a specific interface. Format: ip[:port]. Examples: codeterm mesh peer set-addr PEER-NAME 100.100.100.100 codeterm mesh peer set-addr PEER-NAME 192.168.1.42:7685",
               "aliases": [],
               "args": [
                 {

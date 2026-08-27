@@ -1,4 +1,4 @@
-dev@workstation codeterm-state-capture-cursor-model-picker-1-92724 % bash /tmp/codeterm-spawn-3d54c99b-f212-46cd-8d94-f77c1dbd1346.sh
+user@workstation codeterm-state-capture-cursor-model-picker-1-92724 % bash /tmp/codeterm-spawn-3d54c99b-f212-46cd-8d94-f77c1dbd1346.sh
 
 
   Cursor Agent

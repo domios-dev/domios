@@ -1,5 +1,5 @@
-dev@workstation cursortrust-gate.4KjAF6 % bash /tmp/codeterm-spawn-4b5bfd71-1112-40d3-ae65-4cdcf71fa567.sh
-/tmp/codeterm-spawn-4b5bfd71-1112-40d3-ae65-4cdcf71fa567.sh: line 3: /Users/dev/.cursor/projects/private-tmp-cursortrust-gate-4KjAF6/.workspace-trusted: Permission denied
+user@workstation cursortrust-gate.4KjAF6 % bash /tmp/codeterm-spawn-4b5bfd71-1112-40d3-ae65-4cdcf71fa567.sh
+/tmp/codeterm-spawn-4b5bfd71-1112-40d3-ae65-4cdcf71fa567.sh: line 3: /Users/user/.cursor/projects/private-tmp-cursortrust-gate-4KjAF6/.workspace-trusted: Permission denied
 
   ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
   │                                                                                                                  │

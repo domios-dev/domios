@@ -232,9 +232,9 @@ fn can_exec_accepts_full_path_by_basename() {
 
     assert!(sb.can_exec("ffmpeg"));
     assert!(sb.can_exec("whisper-cli"));
-    assert!(sb.can_exec("/Users/dev/.codeterm/transcriber/bin/ffmpeg"));
+    assert!(sb.can_exec("/Users/user/.codeterm/transcriber/bin/ffmpeg"));
     assert!(sb.can_exec("/opt/homebrew/bin/ffmpeg"));
-    assert!(sb.can_exec("/Users/dev/.codeterm/transcriber/bin/whisper-cli"));
+    assert!(sb.can_exec("/Users/user/.codeterm/transcriber/bin/whisper-cli"));
     assert!(!sb.can_exec("rm"));
     assert!(!sb.can_exec("/bin/rm"));
     assert!(!sb.can_exec("/usr/bin/ffmpeg-evil"));

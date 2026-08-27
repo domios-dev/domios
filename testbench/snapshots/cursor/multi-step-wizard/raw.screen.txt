@@ -5,20 +5,20 @@
     [Complete TESTING document returned.]
 
     Grepped 2 greps
-    Grepped "picker" in /Users/dev/.claude/skills/codeterm
+    Grepped "picker" in /Users/user/.claude/skills/codeterm
     Grepped "" in .
 
   $ codeterm identify 2>/dev/null; echo "---"; ls -la
     /private/var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/codeterm-msw-cursor/ 2>/dev/null; echo "---"; env | grep
     -i codeterm 542ms
     … 34 output lines hidden · ctrl+o to expand
-    AGENT_TRANSCRIPTS=/Users/dev/.cursor/projects/private-var-folders-5w-xh9wzz-​j7l14jcqmty0hf6rm0000gp-T-codeterm
+    AGENT_TRANSCRIPTS=/Users/user/.cursor/projects/private-var-folders-5w-xh9wzz-​j7l14jcqmty0hf6rm0000gp-T-codeterm
     -msw-cursor/agent-transcripts
     OLDPWD=/private/var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/codeterm-msw-cur​sor
 
     Grepped, globbed, read 3 greps, 1 glob, 5 files
     … 6 earlier items hidden
-    Grepped "multi-step|select-all|select all" in /Users/dev/Developer/codeterm-alpha
+    Grepped "multi-step|select-all|select all" in /Users/user/Developer/codeterm-alpha
     Read ...h/snapshots/cursor/multi-step-wizard/screen.txt
     Read ...nch/snapshots/cursor/multi-step-wizard/raw.cast
 

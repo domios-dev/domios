@@ -1,7 +1,7 @@
 {"version": 2, "width": 120, "height": 40, "timestamp": 1781983919}
 [0.013985125,"o","\u001b]633;P;Cwd=/private/var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/codeterm-snapshot-testbench\u0007"]
 [0.018085875,"o","\u001b]7;file://workstation/private/var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/codeterm-snapshot-testbench\u001b\\"]
-[0.022027417,"o","\r\u001b[0m\u001b[27m\u001b[24m\u001b[J\u001b]633;A\u0007dev@workstation codeterm-snapshot-testbench % \u001b]633;B\u0007\u001b[K\u001b[?2004h"]
+[0.022027417,"o","\r\u001b[0m\u001b[27m\u001b[24m\u001b[J\u001b]633;A\u0007user@workstation codeterm-snapshot-testbench % \u001b]633;B\u0007\u001b[K\u001b[?2004h"]
 [0.0268095,"o","b"]
 [0.03062425,"o","\bbash /tmp/codeterm-spawn-660e50b6-3faa-4494-8c2b-5b67f418ff13.sh\u001b[?2004l\r\r\n"]
 [0.058287417,"o","\u001b]633;E;bash /tmp/codeterm-spawn-660e50b6-3faa-4494-8c2b-5b67f418ff13.sh;\u0007"]

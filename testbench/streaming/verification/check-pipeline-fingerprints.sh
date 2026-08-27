@@ -4,7 +4,7 @@
 # Usage: ./check-pipeline-fingerprints.sh <merged-sha>
 set -u
 SHA="${1:?usage: check-pipeline-fingerprints.sh <merged-sha>}"
-REPO=/Users/dev/Developer/codeterm-worktrees/lane-streaming-consilium
+REPO=/Users/user/Developer/codeterm-worktrees/lane-streaming-consilium
 FILES=(
   src/components/Terminal/streamPreviewMatch.ts
   src/components/Terminal/useStreamPreview.ts

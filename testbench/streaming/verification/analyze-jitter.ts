@@ -7,7 +7,7 @@ import {
   canonicalBlob,
   displayablePreview,
   uncoveredPreviewTail,
-} from "/Users/dev/Developer/codeterm-worktrees/lane-streaming-consilium/src/components/Terminal/streamPreviewMatch.ts";
+} from "/Users/user/Developer/codeterm-worktrees/lane-streaming-consilium/src/components/Terminal/streamPreviewMatch.ts";
 
 function isSmoothTransition(prev: string[], next: string[]): boolean {
   if (prev.length === 0 || next.length === 0) return true;

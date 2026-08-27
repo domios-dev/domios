@@ -115,10 +115,10 @@ test("an absent binary resolves to null, never to a guessed path", () => {
   );
 });
 
-// The defect: the spec hardcoded /Users/dev/.local/bin/cursor-agent, so a
+// The defect: the spec hardcoded /Users/user/.local/bin/cursor-agent, so a
 // Windows machine with cursor-agent installed still skipped, forever.
 test("a Windows install is discovered where the hardcoded macOS path could not be", () => {
-  const macOnlyPath = "/Users/dev/.local/bin/cursor-agent";
+  const macOnlyPath = "/Users/user/.local/bin/cursor-agent";
   const installed = path.join(cursorAgentDirs("C:\\Users\\pw")[0], "cursor-agent.exe");
   const exists = fakeFs(installed);
   assert.equal(exists(macOnlyPath), false);

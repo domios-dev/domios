@@ -7,13 +7,13 @@
       "cols": 100,
       "rows": 30
     },
-    "replay_dir": "/Users/dev/Developer/codeterm-alpha/testbench/replays/claude/geometry_smoke_v1-20260621-geometry-smoke-v2-claude-geometry_smoke_v1-100x30",
+    "replay_dir": "/Users/user/Developer/codeterm-alpha/testbench/replays/claude/geometry_smoke_v1-20260621-geometry-smoke-v2-claude-geometry_smoke_v1-100x30",
     "gate": {
       "ok": true,
       "stage": "gate",
-      "render": "wrote /Users/dev/Developer/codeterm-alpha/testbench/replays/claude/geometry_smoke_v1-20260621-geometry-smoke-v2-claude-geometry_smoke_v1-100x30/timeline.json (475 frames @ 75ms, 4 input anchors, window 0..35580ms)\n",
-      "analyze": "timeline: /Users/dev/Developer/codeterm-alpha/testbench/replays/claude/geometry_smoke_v1-20260621-geometry-smoke-v2-claude-geometry_smoke_v1-100x30/timeline.json\nsummary: frames=475 duration_ms=35550 inputs=4\ndetector: states={'idle': 362, 'working': 113} working_frames=113 status_line_frames=68 card_frames=0 transitions=3 idle_runs=2 short_idle_blips=0\nper_turn:\n  turn=1 frames=140 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n  turn=1 frames=67 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n  turn=2 frames=166 working_pct=68.1 status_frames=68 card_frames=0 timed_out=False\n",
-      "doctor": "wrote /var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/ct-replay-doctor-yn42rrmg/timeline.json (143 frames @ 250ms, 4 input anchors, window 0..35580ms)\nreplay: /Users/dev/Developer/codeterm-alpha/testbench/replays/claude/geometry_smoke_v1-20260621-geometry-smoke-v2-claude-geometry_smoke_v1-100x30\ncast: inputs=4 outputs=116 o+b64=0 resize=1 bad=0 last_t=33.580214667\nphases: 4\nscreen_compare: rows=cast cols=cast\ntimeline: frames=475 working=113 status_line=68 cards=0\nOK replay doctor passed\n"
+      "render": "wrote /Users/user/Developer/codeterm-alpha/testbench/replays/claude/geometry_smoke_v1-20260621-geometry-smoke-v2-claude-geometry_smoke_v1-100x30/timeline.json (475 frames @ 75ms, 4 input anchors, window 0..35580ms)\n",
+      "analyze": "timeline: /Users/user/Developer/codeterm-alpha/testbench/replays/claude/geometry_smoke_v1-20260621-geometry-smoke-v2-claude-geometry_smoke_v1-100x30/timeline.json\nsummary: frames=475 duration_ms=35550 inputs=4\ndetector: states={'idle': 362, 'working': 113} working_frames=113 status_line_frames=68 card_frames=0 transitions=3 idle_runs=2 short_idle_blips=0\nper_turn:\n  turn=1 frames=140 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n  turn=1 frames=67 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n  turn=2 frames=166 working_pct=68.1 status_frames=68 card_frames=0 timed_out=False\n",
+      "doctor": "wrote /var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/ct-replay-doctor-yn42rrmg/timeline.json (143 frames @ 250ms, 4 input anchors, window 0..35580ms)\nreplay: /Users/user/Developer/codeterm-alpha/testbench/replays/claude/geometry_smoke_v1-20260621-geometry-smoke-v2-claude-geometry_smoke_v1-100x30\ncast: inputs=4 outputs=116 o+b64=0 resize=1 bad=0 last_t=33.580214667\nphases: 4\nscreen_compare: rows=cast cols=cast\ntimeline: frames=475 working=113 status_line=68 cards=0\nOK replay doctor passed\n"
     },
     "ok": true
   },
@@ -25,13 +25,13 @@
       "cols": 160,
       "rows": 40
     },
-    "replay_dir": "/Users/dev/Developer/codeterm-alpha/testbench/replays/claude/geometry_smoke_v1-20260621-geometry-smoke-v2-claude-geometry_smoke_v1-160x40",
+    "replay_dir": "/Users/user/Developer/codeterm-alpha/testbench/replays/claude/geometry_smoke_v1-20260621-geometry-smoke-v2-claude-geometry_smoke_v1-160x40",
     "gate": {
       "ok": true,
       "stage": "gate",
-      "render": "wrote /Users/dev/Developer/codeterm-alpha/testbench/replays/claude/geometry_smoke_v1-20260621-geometry-smoke-v2-claude-geometry_smoke_v1-160x40/timeline.json (608 frames @ 75ms, 4 input anchors, window 0..45572ms)\n",
-      "analyze": "timeline: /Users/dev/Developer/codeterm-alpha/testbench/replays/claude/geometry_smoke_v1-20260621-geometry-smoke-v2-claude-geometry_smoke_v1-160x40/timeline.json\nsummary: frames=608 duration_ms=45525 inputs=4\ndetector: states={'idle': 542, 'working': 66} working_frames=66 status_line_frames=66 card_frames=0 transitions=3 idle_runs=2 short_idle_blips=0\nper_turn:\n  turn=1 frames=140 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n  turn=1 frames=67 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n  turn=2 frames=138 working_pct=47.8 status_frames=66 card_frames=0 timed_out=False\n  turn=2 frames=80 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n",
-      "doctor": "wrote /var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/ct-replay-doctor-wvor8cfn/timeline.json (183 frames @ 250ms, 4 input anchors, window 0..45572ms)\nWARN final replay frame does not match screen.txt/raw.screen.txt at NonexNone\nreplay: /Users/dev/Developer/codeterm-alpha/testbench/replays/claude/geometry_smoke_v1-20260621-geometry-smoke-v2-claude-geometry_smoke_v1-160x40\ncast: inputs=4 outputs=110 o+b64=0 resize=1 bad=0 last_t=43.572263167\nphases: 4\nscreen_compare: rows=cast cols=cast\ntimeline: frames=608 working=66 status_line=66 cards=0\nOK replay doctor passed\n"
+      "render": "wrote /Users/user/Developer/codeterm-alpha/testbench/replays/claude/geometry_smoke_v1-20260621-geometry-smoke-v2-claude-geometry_smoke_v1-160x40/timeline.json (608 frames @ 75ms, 4 input anchors, window 0..45572ms)\n",
+      "analyze": "timeline: /Users/user/Developer/codeterm-alpha/testbench/replays/claude/geometry_smoke_v1-20260621-geometry-smoke-v2-claude-geometry_smoke_v1-160x40/timeline.json\nsummary: frames=608 duration_ms=45525 inputs=4\ndetector: states={'idle': 542, 'working': 66} working_frames=66 status_line_frames=66 card_frames=0 transitions=3 idle_runs=2 short_idle_blips=0\nper_turn:\n  turn=1 frames=140 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n  turn=1 frames=67 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n  turn=2 frames=138 working_pct=47.8 status_frames=66 card_frames=0 timed_out=False\n  turn=2 frames=80 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n",
+      "doctor": "wrote /var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/ct-replay-doctor-wvor8cfn/timeline.json (183 frames @ 250ms, 4 input anchors, window 0..45572ms)\nWARN final replay frame does not match screen.txt/raw.screen.txt at NonexNone\nreplay: /Users/user/Developer/codeterm-alpha/testbench/replays/claude/geometry_smoke_v1-20260621-geometry-smoke-v2-claude-geometry_smoke_v1-160x40\ncast: inputs=4 outputs=110 o+b64=0 resize=1 bad=0 last_t=43.572263167\nphases: 4\nscreen_compare: rows=cast cols=cast\ntimeline: frames=608 working=66 status_line=66 cards=0\nOK replay doctor passed\n"
     },
     "ok": true
   },
@@ -43,13 +43,13 @@
       "cols": 100,
       "rows": 30
     },
-    "replay_dir": "/Users/dev/Developer/codeterm-alpha/testbench/replays/opencode/geometry_smoke_v1-20260621-geometry-smoke-v2-opencode-geometry_smoke_v1-100x30",
+    "replay_dir": "/Users/user/Developer/codeterm-alpha/testbench/replays/opencode/geometry_smoke_v1-20260621-geometry-smoke-v2-opencode-geometry_smoke_v1-100x30",
     "gate": {
       "ok": true,
       "stage": "gate",
-      "render": "wrote /Users/dev/Developer/codeterm-alpha/testbench/replays/opencode/geometry_smoke_v1-20260621-geometry-smoke-v2-opencode-geometry_smoke_v1-100x30/timeline.json (447 frames @ 75ms, 5 input anchors, window 0..33456ms)\n",
-      "analyze": "timeline: /Users/dev/Developer/codeterm-alpha/testbench/replays/opencode/geometry_smoke_v1-20260621-geometry-smoke-v2-opencode-geometry_smoke_v1-100x30/timeline.json\nsummary: frames=447 duration_ms=33450 inputs=5\ndetector: states={'idle': 447} working_frames=0 status_line_frames=0 card_frames=0 transitions=1 idle_runs=1 short_idle_blips=0\nper_turn:\n  turn=1 frames=179 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n  turn=1 frames=66 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n  turn=2 frames=100 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n",
-      "doctor": "wrote /var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/ct-replay-doctor-5h6ap6z_/timeline.json (134 frames @ 250ms, 5 input anchors, window 0..33456ms)\nreplay: /Users/dev/Developer/codeterm-alpha/testbench/replays/opencode/geometry_smoke_v1-20260621-geometry-smoke-v2-opencode-geometry_smoke_v1-100x30\ncast: inputs=5 outputs=476 o+b64=0 resize=1 bad=0 last_t=31.456410959\nphases: 4\nscreen_compare: rows=cast cols=cast\ntimeline: frames=447 working=0 status_line=0 cards=0\nOK replay doctor passed\n"
+      "render": "wrote /Users/user/Developer/codeterm-alpha/testbench/replays/opencode/geometry_smoke_v1-20260621-geometry-smoke-v2-opencode-geometry_smoke_v1-100x30/timeline.json (447 frames @ 75ms, 5 input anchors, window 0..33456ms)\n",
+      "analyze": "timeline: /Users/user/Developer/codeterm-alpha/testbench/replays/opencode/geometry_smoke_v1-20260621-geometry-smoke-v2-opencode-geometry_smoke_v1-100x30/timeline.json\nsummary: frames=447 duration_ms=33450 inputs=5\ndetector: states={'idle': 447} working_frames=0 status_line_frames=0 card_frames=0 transitions=1 idle_runs=1 short_idle_blips=0\nper_turn:\n  turn=1 frames=179 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n  turn=1 frames=66 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n  turn=2 frames=100 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n",
+      "doctor": "wrote /var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/ct-replay-doctor-5h6ap6z_/timeline.json (134 frames @ 250ms, 5 input anchors, window 0..33456ms)\nreplay: /Users/user/Developer/codeterm-alpha/testbench/replays/opencode/geometry_smoke_v1-20260621-geometry-smoke-v2-opencode-geometry_smoke_v1-100x30\ncast: inputs=5 outputs=476 o+b64=0 resize=1 bad=0 last_t=31.456410959\nphases: 4\nscreen_compare: rows=cast cols=cast\ntimeline: frames=447 working=0 status_line=0 cards=0\nOK replay doctor passed\n"
     },
     "ok": true
   },
@@ -61,13 +61,13 @@
       "cols": 160,
       "rows": 40
     },
-    "replay_dir": "/Users/dev/Developer/codeterm-alpha/testbench/replays/opencode/geometry_smoke_v1-20260621-geometry-smoke-v2-opencode-geometry_smoke_v1-160x40",
+    "replay_dir": "/Users/user/Developer/codeterm-alpha/testbench/replays/opencode/geometry_smoke_v1-20260621-geometry-smoke-v2-opencode-geometry_smoke_v1-160x40",
     "gate": {
       "ok": false,
       "stage": "gate",
-      "render": "wrote /Users/dev/Developer/codeterm-alpha/testbench/replays/opencode/geometry_smoke_v1-20260621-geometry-smoke-v2-opencode-geometry_smoke_v1-160x40/timeline.json (2750 frames @ 75ms, 5 input anchors, window 0..206189ms)\n",
-      "analyze": "timeline: /Users/dev/Developer/codeterm-alpha/testbench/replays/opencode/geometry_smoke_v1-20260621-geometry-smoke-v2-opencode-geometry_smoke_v1-160x40/timeline.json\nsummary: frames=2750 duration_ms=206175 inputs=5\ndetector: states={'idle': 2750} working_frames=0 status_line_frames=0 card_frames=0 transitions=1 idle_runs=1 short_idle_blips=0\nper_turn:\n  turn=1 frames=1202 working_pct=0.0 status_frames=0 card_frames=0 timed_out=True\n  turn=1 frames=67 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n  turn=2 frames=1206 working_pct=0.0 status_frames=0 card_frames=0 timed_out=True\n  turn=2 frames=80 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n",
-      "doctor": "wrote /var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/ct-replay-doctor-de39rbvp/timeline.json (825 frames @ 250ms, 5 input anchors, window 0..206189ms)\nWARN final replay frame does not match screen.txt/raw.screen.txt at NonexNone\nreplay: /Users/dev/Developer/codeterm-alpha/testbench/replays/opencode/geometry_smoke_v1-20260621-geometry-smoke-v2-opencode-geometry_smoke_v1-160x40\ncast: inputs=5 outputs=2748 o+b64=0 resize=1 bad=0 last_t=204.188823792\nphases: 4\nscreen_compare: rows=cast cols=cast\ntimeline: frames=2750 working=0 status_line=0 cards=0\nBAD 2 phase(s) timed out during capture\n"
+      "render": "wrote /Users/user/Developer/codeterm-alpha/testbench/replays/opencode/geometry_smoke_v1-20260621-geometry-smoke-v2-opencode-geometry_smoke_v1-160x40/timeline.json (2750 frames @ 75ms, 5 input anchors, window 0..206189ms)\n",
+      "analyze": "timeline: /Users/user/Developer/codeterm-alpha/testbench/replays/opencode/geometry_smoke_v1-20260621-geometry-smoke-v2-opencode-geometry_smoke_v1-160x40/timeline.json\nsummary: frames=2750 duration_ms=206175 inputs=5\ndetector: states={'idle': 2750} working_frames=0 status_line_frames=0 card_frames=0 transitions=1 idle_runs=1 short_idle_blips=0\nper_turn:\n  turn=1 frames=1202 working_pct=0.0 status_frames=0 card_frames=0 timed_out=True\n  turn=1 frames=67 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n  turn=2 frames=1206 working_pct=0.0 status_frames=0 card_frames=0 timed_out=True\n  turn=2 frames=80 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n",
+      "doctor": "wrote /var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/ct-replay-doctor-de39rbvp/timeline.json (825 frames @ 250ms, 5 input anchors, window 0..206189ms)\nWARN final replay frame does not match screen.txt/raw.screen.txt at NonexNone\nreplay: /Users/user/Developer/codeterm-alpha/testbench/replays/opencode/geometry_smoke_v1-20260621-geometry-smoke-v2-opencode-geometry_smoke_v1-160x40\ncast: inputs=5 outputs=2748 o+b64=0 resize=1 bad=0 last_t=204.188823792\nphases: 4\nscreen_compare: rows=cast cols=cast\ntimeline: frames=2750 working=0 status_line=0 cards=0\nBAD 2 phase(s) timed out during capture\n"
     },
     "ok": false
   },
@@ -79,13 +79,13 @@
       "cols": 100,
       "rows": 30
     },
-    "replay_dir": "/Users/dev/Developer/codeterm-alpha/testbench/replays/codex/geometry_smoke_v1-20260621-geometry-smoke-v2-codex-geometry_smoke_v1-100x30",
+    "replay_dir": "/Users/user/Developer/codeterm-alpha/testbench/replays/codex/geometry_smoke_v1-20260621-geometry-smoke-v2-codex-geometry_smoke_v1-100x30",
     "gate": {
       "ok": true,
       "stage": "gate",
-      "render": "wrote /Users/dev/Developer/codeterm-alpha/testbench/replays/codex/geometry_smoke_v1-20260621-geometry-smoke-v2-codex-geometry_smoke_v1-100x30/timeline.json (403 frames @ 75ms, 4 input anchors, window 0..30205ms)\n",
-      "analyze": "timeline: /Users/dev/Developer/codeterm-alpha/testbench/replays/codex/geometry_smoke_v1-20260621-geometry-smoke-v2-codex-geometry_smoke_v1-100x30/timeline.json\nsummary: frames=403 duration_ms=30150 inputs=4\ndetector: states={'idle': 403} working_frames=0 status_line_frames=0 card_frames=0 transitions=1 idle_runs=1 short_idle_blips=0\nper_turn:\n  turn=1 frames=153 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n  turn=1 frames=66 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n  turn=2 frames=82 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n",
-      "doctor": "wrote /var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/ct-replay-doctor-6he3h1wd/timeline.json (121 frames @ 250ms, 4 input anchors, window 0..30205ms)\nreplay: /Users/dev/Developer/codeterm-alpha/testbench/replays/codex/geometry_smoke_v1-20260621-geometry-smoke-v2-codex-geometry_smoke_v1-100x30\ncast: inputs=4 outputs=243 o+b64=0 resize=1 bad=0 last_t=28.205396458\nphases: 4\nscreen_compare: rows=cast cols=cast\ntimeline: frames=403 working=0 status_line=0 cards=0\nOK replay doctor passed\n"
+      "render": "wrote /Users/user/Developer/codeterm-alpha/testbench/replays/codex/geometry_smoke_v1-20260621-geometry-smoke-v2-codex-geometry_smoke_v1-100x30/timeline.json (403 frames @ 75ms, 4 input anchors, window 0..30205ms)\n",
+      "analyze": "timeline: /Users/user/Developer/codeterm-alpha/testbench/replays/codex/geometry_smoke_v1-20260621-geometry-smoke-v2-codex-geometry_smoke_v1-100x30/timeline.json\nsummary: frames=403 duration_ms=30150 inputs=4\ndetector: states={'idle': 403} working_frames=0 status_line_frames=0 card_frames=0 transitions=1 idle_runs=1 short_idle_blips=0\nper_turn:\n  turn=1 frames=153 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n  turn=1 frames=66 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n  turn=2 frames=82 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n",
+      "doctor": "wrote /var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/ct-replay-doctor-6he3h1wd/timeline.json (121 frames @ 250ms, 4 input anchors, window 0..30205ms)\nreplay: /Users/user/Developer/codeterm-alpha/testbench/replays/codex/geometry_smoke_v1-20260621-geometry-smoke-v2-codex-geometry_smoke_v1-100x30\ncast: inputs=4 outputs=243 o+b64=0 resize=1 bad=0 last_t=28.205396458\nphases: 4\nscreen_compare: rows=cast cols=cast\ntimeline: frames=403 working=0 status_line=0 cards=0\nOK replay doctor passed\n"
     },
     "ok": true
   },
@@ -97,13 +97,13 @@
       "cols": 160,
       "rows": 40
     },
-    "replay_dir": "/Users/dev/Developer/codeterm-alpha/testbench/replays/codex/geometry_smoke_v1-20260621-geometry-smoke-v2-codex-geometry_smoke_v1-160x40",
+    "replay_dir": "/Users/user/Developer/codeterm-alpha/testbench/replays/codex/geometry_smoke_v1-20260621-geometry-smoke-v2-codex-geometry_smoke_v1-160x40",
     "gate": {
       "ok": true,
       "stage": "gate",
-      "render": "wrote /Users/dev/Developer/codeterm-alpha/testbench/replays/codex/geometry_smoke_v1-20260621-geometry-smoke-v2-codex-geometry_smoke_v1-160x40/timeline.json (409 frames @ 75ms, 5 input anchors, window 0..30617ms)\n",
-      "analyze": "timeline: /Users/dev/Developer/codeterm-alpha/testbench/replays/codex/geometry_smoke_v1-20260621-geometry-smoke-v2-codex-geometry_smoke_v1-160x40/timeline.json\nsummary: frames=409 duration_ms=30600 inputs=5\ndetector: states={'idle': 409} working_frames=0 status_line_frames=0 card_frames=0 transitions=1 idle_runs=1 short_idle_blips=0\nper_turn:\n  turn=1 frames=153 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n  turn=1 frames=66 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n  turn=2 frames=88 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n",
-      "doctor": "wrote /var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/ct-replay-doctor-993ebi37/timeline.json (123 frames @ 250ms, 5 input anchors, window 0..30617ms)\nWARN final replay frame does not match screen.txt/raw.screen.txt at NonexNone\nreplay: /Users/dev/Developer/codeterm-alpha/testbench/replays/codex/geometry_smoke_v1-20260621-geometry-smoke-v2-codex-geometry_smoke_v1-160x40\ncast: inputs=5 outputs=279 o+b64=0 resize=1 bad=0 last_t=28.617017667\nphases: 4\nscreen_compare: rows=cast cols=cast\ntimeline: frames=409 working=0 status_line=0 cards=0\nOK replay doctor passed\n"
+      "render": "wrote /Users/user/Developer/codeterm-alpha/testbench/replays/codex/geometry_smoke_v1-20260621-geometry-smoke-v2-codex-geometry_smoke_v1-160x40/timeline.json (409 frames @ 75ms, 5 input anchors, window 0..30617ms)\n",
+      "analyze": "timeline: /Users/user/Developer/codeterm-alpha/testbench/replays/codex/geometry_smoke_v1-20260621-geometry-smoke-v2-codex-geometry_smoke_v1-160x40/timeline.json\nsummary: frames=409 duration_ms=30600 inputs=5\ndetector: states={'idle': 409} working_frames=0 status_line_frames=0 card_frames=0 transitions=1 idle_runs=1 short_idle_blips=0\nper_turn:\n  turn=1 frames=153 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n  turn=1 frames=66 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n  turn=2 frames=88 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n",
+      "doctor": "wrote /var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/ct-replay-doctor-993ebi37/timeline.json (123 frames @ 250ms, 5 input anchors, window 0..30617ms)\nWARN final replay frame does not match screen.txt/raw.screen.txt at NonexNone\nreplay: /Users/user/Developer/codeterm-alpha/testbench/replays/codex/geometry_smoke_v1-20260621-geometry-smoke-v2-codex-geometry_smoke_v1-160x40\ncast: inputs=5 outputs=279 o+b64=0 resize=1 bad=0 last_t=28.617017667\nphases: 4\nscreen_compare: rows=cast cols=cast\ntimeline: frames=409 working=0 status_line=0 cards=0\nOK replay doctor passed\n"
     },
     "ok": true
   },
@@ -115,13 +115,13 @@
       "cols": 100,
       "rows": 30
     },
-    "replay_dir": "/Users/dev/Developer/codeterm-alpha/testbench/replays/cursor/geometry_smoke_v1-20260621-geometry-smoke-v2-cursor-geometry_smoke_v1-100x30",
+    "replay_dir": "/Users/user/Developer/codeterm-alpha/testbench/replays/cursor/geometry_smoke_v1-20260621-geometry-smoke-v2-cursor-geometry_smoke_v1-100x30",
     "gate": {
       "ok": true,
       "stage": "gate",
-      "render": "wrote /Users/dev/Developer/codeterm-alpha/testbench/replays/cursor/geometry_smoke_v1-20260621-geometry-smoke-v2-cursor-geometry_smoke_v1-100x30/timeline.json (583 frames @ 75ms, 4 input anchors, window 0..43699ms)\n",
-      "analyze": "timeline: /Users/dev/Developer/codeterm-alpha/testbench/replays/cursor/geometry_smoke_v1-20260621-geometry-smoke-v2-cursor-geometry_smoke_v1-100x30/timeline.json\nsummary: frames=583 duration_ms=43650 inputs=4\ndetector: states={'idle': 583} working_frames=0 status_line_frames=0 card_frames=0 transitions=1 idle_runs=1 short_idle_blips=0\nper_turn:\n  turn=1 frames=249 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n  turn=1 frames=66 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n  turn=2 frames=97 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n  turn=2 frames=69 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n",
-      "doctor": "wrote /var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/ct-replay-doctor-dqqrxybf/timeline.json (175 frames @ 250ms, 4 input anchors, window 0..43699ms)\nWARN final replay frame does not match screen.txt/raw.screen.txt at NonexNone\nreplay: /Users/dev/Developer/codeterm-alpha/testbench/replays/cursor/geometry_smoke_v1-20260621-geometry-smoke-v2-cursor-geometry_smoke_v1-100x30\ncast: inputs=4 outputs=182 o+b64=0 resize=1 bad=0 last_t=41.698576667\nphases: 4\nscreen_compare: rows=cast cols=cast\ntimeline: frames=583 working=0 status_line=0 cards=0\nOK replay doctor passed\n"
+      "render": "wrote /Users/user/Developer/codeterm-alpha/testbench/replays/cursor/geometry_smoke_v1-20260621-geometry-smoke-v2-cursor-geometry_smoke_v1-100x30/timeline.json (583 frames @ 75ms, 4 input anchors, window 0..43699ms)\n",
+      "analyze": "timeline: /Users/user/Developer/codeterm-alpha/testbench/replays/cursor/geometry_smoke_v1-20260621-geometry-smoke-v2-cursor-geometry_smoke_v1-100x30/timeline.json\nsummary: frames=583 duration_ms=43650 inputs=4\ndetector: states={'idle': 583} working_frames=0 status_line_frames=0 card_frames=0 transitions=1 idle_runs=1 short_idle_blips=0\nper_turn:\n  turn=1 frames=249 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n  turn=1 frames=66 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n  turn=2 frames=97 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n  turn=2 frames=69 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n",
+      "doctor": "wrote /var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/ct-replay-doctor-dqqrxybf/timeline.json (175 frames @ 250ms, 4 input anchors, window 0..43699ms)\nWARN final replay frame does not match screen.txt/raw.screen.txt at NonexNone\nreplay: /Users/user/Developer/codeterm-alpha/testbench/replays/cursor/geometry_smoke_v1-20260621-geometry-smoke-v2-cursor-geometry_smoke_v1-100x30\ncast: inputs=4 outputs=182 o+b64=0 resize=1 bad=0 last_t=41.698576667\nphases: 4\nscreen_compare: rows=cast cols=cast\ntimeline: frames=583 working=0 status_line=0 cards=0\nOK replay doctor passed\n"
     },
     "ok": true
   },
@@ -133,13 +133,13 @@
       "cols": 160,
       "rows": 40
     },
-    "replay_dir": "/Users/dev/Developer/codeterm-alpha/testbench/replays/cursor/geometry_smoke_v1-20260621-geometry-smoke-v2-cursor-geometry_smoke_v1-160x40",
+    "replay_dir": "/Users/user/Developer/codeterm-alpha/testbench/replays/cursor/geometry_smoke_v1-20260621-geometry-smoke-v2-cursor-geometry_smoke_v1-160x40",
     "gate": {
       "ok": true,
       "stage": "gate",
-      "render": "wrote /Users/dev/Developer/codeterm-alpha/testbench/replays/cursor/geometry_smoke_v1-20260621-geometry-smoke-v2-cursor-geometry_smoke_v1-160x40/timeline.json (625 frames @ 75ms, 4 input anchors, window 0..46870ms)\n",
-      "analyze": "timeline: /Users/dev/Developer/codeterm-alpha/testbench/replays/cursor/geometry_smoke_v1-20260621-geometry-smoke-v2-cursor-geometry_smoke_v1-160x40/timeline.json\nsummary: frames=625 duration_ms=46800 inputs=4\ndetector: states={'idle': 625} working_frames=0 status_line_frames=0 card_frames=0 transitions=1 idle_runs=1 short_idle_blips=0\nper_turn:\n  turn=1 frames=331 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n  turn=1 frames=66 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n  turn=2 frames=126 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n",
-      "doctor": "wrote /var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/ct-replay-doctor-ho81kta8/timeline.json (188 frames @ 250ms, 4 input anchors, window 0..46870ms)\nWARN final replay frame does not match screen.txt/raw.screen.txt at NonexNone\nreplay: /Users/dev/Developer/codeterm-alpha/testbench/replays/cursor/geometry_smoke_v1-20260621-geometry-smoke-v2-cursor-geometry_smoke_v1-160x40\ncast: inputs=4 outputs=288 o+b64=0 resize=1 bad=0 last_t=44.870370417\nphases: 4\nscreen_compare: rows=cast cols=cast\ntimeline: frames=625 working=0 status_line=0 cards=0\nOK replay doctor passed\n"
+      "render": "wrote /Users/user/Developer/codeterm-alpha/testbench/replays/cursor/geometry_smoke_v1-20260621-geometry-smoke-v2-cursor-geometry_smoke_v1-160x40/timeline.json (625 frames @ 75ms, 4 input anchors, window 0..46870ms)\n",
+      "analyze": "timeline: /Users/user/Developer/codeterm-alpha/testbench/replays/cursor/geometry_smoke_v1-20260621-geometry-smoke-v2-cursor-geometry_smoke_v1-160x40/timeline.json\nsummary: frames=625 duration_ms=46800 inputs=4\ndetector: states={'idle': 625} working_frames=0 status_line_frames=0 card_frames=0 transitions=1 idle_runs=1 short_idle_blips=0\nper_turn:\n  turn=1 frames=331 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n  turn=1 frames=66 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n  turn=2 frames=126 working_pct=0.0 status_frames=0 card_frames=0 timed_out=False\n",
+      "doctor": "wrote /var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/ct-replay-doctor-ho81kta8/timeline.json (188 frames @ 250ms, 4 input anchors, window 0..46870ms)\nWARN final replay frame does not match screen.txt/raw.screen.txt at NonexNone\nreplay: /Users/user/Developer/codeterm-alpha/testbench/replays/cursor/geometry_smoke_v1-20260621-geometry-smoke-v2-cursor-geometry_smoke_v1-160x40\ncast: inputs=4 outputs=288 o+b64=0 resize=1 bad=0 last_t=44.870370417\nphases: 4\nscreen_compare: rows=cast cols=cast\ntimeline: frames=625 working=0 status_line=0 cards=0\nOK replay doctor passed\n"
     },
     "ok": true
   }

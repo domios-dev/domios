@@ -1,4 +1,4 @@
-dev@workstation ct-replay-cursor-real_abc_poll_v1-abd34shi % bash /tmp/codeterm-spawn-43dc6ed6-c480-4f9d-ae9d-7c549b701b3e.sh
+user@workstation ct-replay-cursor-real_abc_poll_v1-abd34shi % bash /tmp/codeterm-spawn-43dc6ed6-c480-4f9d-ae9d-7c549b701b3e.sh
   Cursor Agent
   v2026.06.19-20-24-33-653a7fb
   Use /plan to iterate on an implementation plan before code changes.

@@ -2,7 +2,7 @@
   {
     "t_ms": 0,
     "event": "capture_start",
-    "cast": "/Users/dev/Developer/codeterm-alpha/testbench/replays/claude/geometry_smoke_v1-20260621-geometry-smoke-prefill-claude-100x30c/raw.cast"
+    "cast": "/Users/user/Developer/codeterm-alpha/testbench/replays/claude/geometry_smoke_v1-20260621-geometry-smoke-prefill-claude-100x30c/raw.cast"
   },
   {
     "t_ms": 5024,
