@@ -38,6 +38,9 @@ pub enum WorkspaceAction {
     Close {
         /// Workspace ID
         id: String,
+        /// Explicitly acknowledge destroying agent tabs in this workspace.
+        #[arg(long)]
+        force: bool,
     },
     /// Move a tab to another workspace
     MoveTab {

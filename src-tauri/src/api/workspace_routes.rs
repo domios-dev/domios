@@ -84,6 +84,12 @@ fn map_rename_error(e: String) -> (StatusCode, String) {
     }
 }
 
+#[derive(Deserialize, Default)]
+pub(crate) struct CloseWorkspaceBody {
+    #[serde(default)]
+    force: bool,
+}
+
 pub async fn rename_workspace(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -103,12 +109,14 @@ pub async fn close_workspace(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(id): Path<String>,
+    body: Option<Json<CloseWorkspaceBody>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let caller_tab_id = crate::api::tab_routes::caller_tab_header(&headers);
     let cmd = crate::dispatch::Command::WorkspaceClose {
         workspace_id: id,
         caller_tab_id,
+        force: body.map(|body| body.force).unwrap_or(false),
     };
     let result = crate::dispatch::dispatch(&cmd, state.svc.as_ref())
         .map_err(crate::api::tab_routes::map_close_error)?;
