@@ -158,7 +158,7 @@ If the Planner is intentionally waived, record that explicitly on the plan.
 ```text
 pending → in_progress → in_review → done
               ↘ blocked
-pending/in_progress/blocked/in_review → paused
+pending/in_progress/blocked → paused
 any open state → cancelled
 ```
 
@@ -169,7 +169,9 @@ any open state → cancelled
 - `codeterm agent report --status in_review` atomically records the handoff,
   moves the bound task to `in_review`, and pushes the report into the
   Orchestrator tab. Workers never poll or separately update task status.
-- The Orchestrator alone turns `in_review` into `done` or bounces it.
+- The Orchestrator alone accepts, bounces, or holds an `in_review` task. `hold`
+  records a reason while preserving its assignment and lane; `bounce` returns it
+  to the assigned Worker for another pass.
 - `paused` requires a reason and is excluded from heartbeat open work.
 - Dependencies express sequencing; pause is an operator hold, not a queue.
 
@@ -224,9 +226,11 @@ codeterm plan review authorize-capacity <plan> <task> --class canonical_gate
 
 Generic task updates, pauses, decision gates, and removals cannot move a task
 out of `in_review`; use `codeterm plan review accept <plan> <task> --note "…"`
-or `codeterm plan review bounce <plan> <task> --note "…"` (the verdict flag is
-`--note` and is required — not `--reason`). Historical credit leaked by older
-builds is repaired explicitly and auditably with:
+or `codeterm plan review bounce <plan> <task> --note "…"`. To keep the review
+open without returning work to the Worker, use `codeterm plan review hold <plan>
+<task> --note "…"`; every verdict requires `--note`, never `--reason`.
+Historical credit leaked by older builds is repaired explicitly and auditably
+with:
 
 ```bash
 codeterm plan review reconcile-credit <plan> --reason "<incident evidence>"
@@ -234,4 +238,4 @@ codeterm plan review reconcile-credit <plan> --reason "<incident evidence>"
 
 Both mutations require the live bound Orchestrator session and record an
 immutable plan stride.
-<!-- revision: 66 -->
+<!-- revision: 68 -->
