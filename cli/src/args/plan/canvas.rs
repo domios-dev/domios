@@ -146,6 +146,13 @@ pub enum PlanReviewAction {
         #[arg(long)]
         distinct_oracle: bool,
     },
+    /// HOLD: records a review hold without releasing the task assignment or lane
+    Hold {
+        plan_id: Option<String>,
+        task_id: String,
+        #[arg(long, allow_hyphen_values = true)]
+        note: String,
+    },
 }
 
 #[derive(Subcommand)]

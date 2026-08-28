@@ -87,10 +87,7 @@ impl PlanStore {
                 });
             }
             if p.tasks[idx].status == TaskStatus::InReview {
-                return Err(PlanError::TransitionDenied {
-                    from: TaskStatus::InReview,
-                    to: TaskStatus::Paused,
-                });
+                return Err(PlanError::ReviewHoldRequired);
             }
             mid = crate::plan::ids::mint_id("ms", |c| plan_contains_id(p, c));
             let task = &mut p.tasks[idx];
