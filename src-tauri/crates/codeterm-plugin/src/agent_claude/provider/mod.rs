@@ -339,6 +339,10 @@ impl AgentProvider for ClaudeProvider {
         integration::check_integration()
     }
 
+    fn has_installable_integration(&self) -> bool {
+        true
+    }
+
     fn install_integration(
         &self,
         api_port: u16,
