@@ -121,6 +121,8 @@ pub(crate) use worker_lane::{
 mod worker_persona;
 mod workspace;
 
+pub(crate) const AGENT_TAB_CLOSE_REFUSAL_PREFIX: &str = "workspace close refused";
+
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 

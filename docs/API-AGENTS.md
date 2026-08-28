@@ -4,7 +4,7 @@ REST endpoints for agent lifecycle, plans, teams, updates, batches, and orchestr
 
 #### Agent Restart (POST /api/tabs/{id}/agent/restart)
 
-Restart the agent in a tab. Default behaviour is graceful: send the provider-specific exit command and wait up to `grace_secs` for the shell-ready event. CodeTerm then tears down the old PTY, creates a replacement PTY, and relaunches. If the recorded provider session still exists on disk, the provider resume command is used; otherwise CodeTerm launches a fresh session.
+Restart the agent in a tab. The body is optional; no body uses the defaults below. Default behaviour is graceful: send the provider-specific exit command and wait up to `grace_secs` for the shell-ready event. CodeTerm then tears down the old PTY, creates a replacement PTY, and relaunches. If the recorded provider session still exists on disk, the provider resume command is used; otherwise CodeTerm launches a fresh session.
 
 ```json
 {"force": false, "grace_secs": 10}
@@ -94,7 +94,7 @@ Prevents the machine from sleeping (and optionally from dimming the display) whi
 
 **GET /api/keepawake** — returns the current `KeepAwakeStatus`. When no session is active, `active=false`, `display=false`, `expires_at=null`.
 
-**POST /api/keepawake/start** — request body (all fields optional):
+**POST /api/keepawake/start** — request body is optional; when present, all fields are optional:
 ```json
 {"duration_secs": 3600, "display": false}
 ```
@@ -218,4 +218,4 @@ On error, individual commands return `{"error": "message", "method": "..."}` but
 | `can-spawn` | `tab_id` | `can_spawn` (default: true) |
 | `report` | `tab_id`, `message` | — |
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->

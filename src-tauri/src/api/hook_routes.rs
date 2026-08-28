@@ -8,7 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::agent::provider::{HookEventBinding, HookIngestionRoute};
 use crate::agent::registry::AgentRegistry;
-use crate::api::routes::{resolve_tab, AppState};
+use crate::api::{optional_json::OptionalJson, routes::{resolve_tab, AppState}};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SessionStartClaim {
@@ -98,7 +98,7 @@ pub async fn hook_permission(
     AxumState(state): AxumState<AppState>,
     Path(raw_tab_id): Path<String>,
     headers: HeaderMap,
-    body: Option<Json<serde_json::Value>>,
+    OptionalJson(body): OptionalJson<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let tab_id = resolve_tab(&state, &raw_tab_id).map_err(|(s, m)| (s, m.to_string()))?;
     // Hook firing = authoritative proof that an agent is running in this tab.
@@ -106,7 +106,7 @@ pub async fn hook_permission(
 
     // The per-tool payload the vendor already sent beats anything scraped back
     // off the screen, so it is ingested before the parsing fallbacks.
-    if let Some(Json(raw)) = body.as_ref() {
+    if let Some(raw) = body.as_ref() {
         if let Some(signal) = crate::agent::permission_request::parse_permission_request(raw) {
             reject_foreign_binding_nonce(&state, &tab_id, &headers, raw)?;
             let decision = state
@@ -119,7 +119,7 @@ pub async fn hook_permission(
         }
     }
 
-    let explicit_prompt = body.and_then(|Json(b)| {
+    let explicit_prompt = body.and_then(|b| {
         let question = b.get("question")?.as_str()?.to_string();
         let options = b
             .get("options")?
@@ -263,7 +263,7 @@ pub async fn hook_stop(
     AxumState(state): AxumState<AppState>,
     Path(raw_tab_id): Path<String>,
     headers: HeaderMap,
-    body: Option<Json<serde_json::Value>>,
+    OptionalJson(body): OptionalJson<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let tab_id = resolve_tab(&state, &raw_tab_id).map_err(|(s, m)| (s, m.to_string()))?;
     log::debug!("[hook_stop] fired for Tab {}", tab_id);
@@ -343,10 +343,10 @@ pub async fn hook_session_start(
     AxumState(state): AxumState<AppState>,
     Path(raw_tab_id): Path<String>,
     headers: HeaderMap,
-    body: Option<Json<serde_json::Value>>,
+    OptionalJson(body): OptionalJson<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let tab_id = resolve_tab(&state, &raw_tab_id).map_err(|(s, m)| (s, m.to_string()))?;
-    let body = body.map(|Json(v)| v).unwrap_or(serde_json::Value::Null);
+    let body = body.unwrap_or(serde_json::Value::Null);
     let session_id = session_start_string(&body, &["session_id"])
         .or_else(|| session_start_string(&body, &["payload", "session_id"]))
         .or_else(|| session_start_string(&body, &["payload", "id"]));
