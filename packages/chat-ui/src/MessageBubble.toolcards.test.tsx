@@ -68,7 +68,7 @@ test("chatBackend exec tool_call renders command card and attached result", asyn
       expandDetails.dispatchEvent(new windowAny.MouseEvent("click", { bubbles: true }));
     });
     await waitForEffects();
-    assert(!textOf(host).includes("cwd /repo/app"), "expanded exec card should honor global command visibility");
+    assertIncludes(host, "cwd /repo/app", "command_card_reveal expanded exec card command");
     assertIncludes(host, "Tests passed", "expanded exec card result");
     const execCard = host.querySelector('[data-testid="chat-tool-call"]');
     assert(execCard, "expected exec card root");
