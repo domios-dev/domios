@@ -1,7 +1,9 @@
 import type { NormalizedChatMessage as ChatMessage } from "@codeterm/chat-core";
+import type { TabStatus } from "../../lib/types";
 import type { ChatMsgEvent } from "./chatSessionAuthority";
 
 export const TEST_CHAT_REPLY_EVENT = "codeterm:test-chat-reply";
+export const TEST_TAB_STATUS_EVENT = "codeterm:test-tab-status";
 const TEST_CHAT_BASE_TIME_MS = 1_700_000_000_000;
 
 type FrontendTestEnv = {
@@ -21,9 +23,15 @@ export interface TestChatReplyDetail {
   sessionBindingNonce?: string | null;
 }
 
+export interface TestTabStatusDetail {
+  tabId: string;
+  status: TabStatus;
+}
+
 export interface TestChatHandle {
   reply: (tabId: string, content: string, options?: Omit<TestChatReplyDetail, "tabId" | "content" | "messages">) => void;
   pushMessages: (tabId: string, messages: ChatMessage[]) => void;
+  status: (tabId: string, status: TabStatus) => void;
   resetClock: () => void;
 }
 
@@ -34,6 +42,7 @@ declare global {
 }
 
 export type ChatEventCommit = (payload: ChatMsgEvent) => void;
+export type TabStatusEventCommit = (status: TabStatus) => void;
 
 let testChatSequence = 0;
 const testChatListenerCounts = new Map<string, number>();
@@ -108,6 +117,11 @@ export function installCodeTermTestChatHandle(testMode = isCodeTermFrontendTestM
     pushMessages(tabId, messages) {
       dispatchOrQueueTestChatReply({ tabId, messages });
     },
+    status(tabId, status) {
+      window.dispatchEvent(new CustomEvent(TEST_TAB_STATUS_EVENT, {
+        detail: { tabId, status } satisfies TestTabStatusDetail,
+      }));
+    },
     resetClock: resetTestChatClockForCodeTerm,
   };
 }
@@ -123,6 +137,10 @@ function dispatchOrQueueTestChatReply(detail: TestChatReplyDetail): void {
 
 function dispatchTestChatReply(detail: TestChatReplyDetail): void {
   window.dispatchEvent(new CustomEvent(TEST_CHAT_REPLY_EVENT, { detail }));
+}
+
+function isTestTabStatus(status: unknown): status is TabStatus {
+  return status === "Working" || status === "Waiting" || status === "Idle" || status === "Dead";
 }
 
 function drainPendingTestChatReplies(tabId: string, commit: ChatEventCommit): void {
@@ -157,4 +175,34 @@ export function listenForTestChatReplies(
     else testChatListenerCounts.set(tabId, nextCount);
     window.removeEventListener(TEST_CHAT_REPLY_EVENT, handler);
   };
+}
+
+export function listenForTestChatGrowth(
+  tabId: string,
+  commit: ChatEventCommit,
+): (() => void) | null {
+  if (!isCodeTermFrontendTestMode() || typeof window === "undefined") return null;
+  installCodeTermTestChatHandle();
+  const handler = (event: Event) => {
+    const detail = (event as CustomEvent<TestChatReplyDetail>).detail;
+    if (!detail || detail.tabId !== tabId) return;
+    commit(testChatReplyPayload(detail));
+  };
+  window.addEventListener(TEST_CHAT_REPLY_EVENT, handler);
+  return () => window.removeEventListener(TEST_CHAT_REPLY_EVENT, handler);
+}
+
+export function listenForTestTabStatus(
+  tabId: string,
+  commit: TabStatusEventCommit,
+): (() => void) | null {
+  if (!isCodeTermFrontendTestMode() || typeof window === "undefined") return null;
+  installCodeTermTestChatHandle();
+  const handler = (event: Event) => {
+    const detail = (event as CustomEvent<TestTabStatusDetail>).detail;
+    if (!detail || detail.tabId !== tabId || !isTestTabStatus(detail.status)) return;
+    commit(detail.status);
+  };
+  window.addEventListener(TEST_TAB_STATUS_EVENT, handler);
+  return () => window.removeEventListener(TEST_TAB_STATUS_EVENT, handler);
 }

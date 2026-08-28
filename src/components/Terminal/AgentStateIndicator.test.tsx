@@ -63,6 +63,14 @@ async function main(): Promise<void> {
   await act(async () => { terminal.click(); cancel.click(); });
   assert(terminalCalls === 1 && cancelCalls === 1, "question actions invoke their handlers once");
 
+  await act(async () => idle.root.render(
+    <AgentStateIndicator state={{ state: "quiet" }} providerName="Codex" model="gpt-5.6-sol" />,
+  ));
+  const quiet = idle.host.querySelector('[data-testid="agent-state"]');
+  assert(quiet?.getAttribute("data-agent-state") === "quiet", "quiet state keeps the status rail hook");
+  assert(quiet?.getAttribute("role") === "status", "quiet state keeps the accessible status role");
+  assert(quiet?.getAttribute("aria-label")?.includes("rebind"), "quiet state names the recovery action");
+
   await act(async () => idle.root.unmount());
   idle.host.remove();
   console.log("agent status row checks passed");
