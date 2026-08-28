@@ -306,7 +306,8 @@ fn worker_ack_transitions_exact_pending_task_to_in_progress() {
     let (root, project) = git_project();
     let resolved = resolve_dispatch_lane(
         None,
-        project.to_str().unwrap(),
+        Some(project.to_str().unwrap()),
+        None,
         &TaskLaneMetadata::default(),
         LaneProtection::Enforced,
     )
