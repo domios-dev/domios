@@ -10,16 +10,16 @@ export interface SessionQuietState {
   sessionId: string | null;
   status: TabStatus | null;
   sawGrowth: boolean;
-  nonIdleStatusSeenSinceGrowth: boolean;
+  workingObservationSeen: boolean;
   quiet: boolean;
 }
 
 export function initialSessionQuietState(tabId: string, sessionId: string | null): SessionQuietState {
-  return { tabId, sessionId, status: null, sawGrowth: false, nonIdleStatusSeenSinceGrowth: false, quiet: false };
+  return { tabId, sessionId, status: null, sawGrowth: false, workingObservationSeen: false, quiet: false };
 }
 
-function isNonIdle(status: TabStatus): boolean {
-  return status === "Working" || status === "Waiting";
+function isWorking(status: TabStatus): boolean {
+  return status === "Working";
 }
 
 export function reduceSessionQuiet(
@@ -32,15 +32,15 @@ export function reduceSessionQuiet(
     if (!event.hasMessages || event.sourceSessionId == null || event.sourceSessionId !== state.sessionId) {
       return state;
     }
-    return { ...state, sawGrowth: true, nonIdleStatusSeenSinceGrowth: false, quiet: false };
+    return { ...state, sawGrowth: true, quiet: false };
   }
 
-  if (!isNonIdle(event.status)) {
-    return { ...state, status: event.status, sawGrowth: false, nonIdleStatusSeenSinceGrowth: false, quiet: false };
+  if (!isWorking(event.status)) {
+    return { ...state, status: event.status, sawGrowth: false, workingObservationSeen: false, quiet: false };
   }
 
-  const quiet = state.sawGrowth && state.nonIdleStatusSeenSinceGrowth;
-  return { ...state, status: event.status, nonIdleStatusSeenSinceGrowth: true, quiet };
+  const quiet = state.sessionId !== null && state.workingObservationSeen && !state.sawGrowth;
+  return { ...state, status: event.status, workingObservationSeen: true, quiet };
 }
 
 export function sessionQuietEventFromChat(tabId: string, event: ChatMsgEvent): SessionQuietEvent {
