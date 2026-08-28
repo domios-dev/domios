@@ -10,12 +10,13 @@ export interface SessionQuietState {
   sessionId: string | null;
   status: TabStatus | null;
   sawGrowth: boolean;
-  workingObservationSeen: boolean;
+  workingSinceRest: boolean;
+  silentTurnObserved: boolean;
   quiet: boolean;
 }
 
 export function initialSessionQuietState(tabId: string, sessionId: string | null): SessionQuietState {
-  return { tabId, sessionId, status: null, sawGrowth: false, workingObservationSeen: false, quiet: false };
+  return { tabId, sessionId, status: null, sawGrowth: false, workingSinceRest: false, silentTurnObserved: false, quiet: false };
 }
 
 function isWorking(status: TabStatus): boolean {
@@ -32,15 +33,26 @@ export function reduceSessionQuiet(
     if (!event.hasMessages || event.sourceSessionId == null || event.sourceSessionId !== state.sessionId) {
       return state;
     }
-    return { ...state, sawGrowth: true, quiet: false };
+    return { ...state, sawGrowth: true, silentTurnObserved: false, quiet: false };
   }
 
-  if (!isWorking(event.status)) {
-    return { ...state, status: event.status, sawGrowth: false, workingObservationSeen: false, quiet: false };
+  if (isWorking(event.status)) {
+    const quiet = state.sessionId !== null && state.silentTurnObserved;
+    return { ...state, status: event.status, sawGrowth: false, workingSinceRest: true, quiet };
   }
 
-  const quiet = state.sessionId !== null && state.workingObservationSeen && !state.sawGrowth;
-  return { ...state, status: event.status, workingObservationSeen: true, quiet };
+  if (event.status === "Waiting") {
+    const completedSilentTurn = state.sessionId !== null && state.workingSinceRest && !state.sawGrowth;
+    return {
+      ...state,
+      status: event.status,
+      sawGrowth: false,
+      workingSinceRest: false,
+      silentTurnObserved: state.silentTurnObserved || completedSilentTurn,
+    };
+  }
+
+  return { ...state, status: event.status, sawGrowth: false, workingSinceRest: false, silentTurnObserved: false, quiet: false };
 }
 
 export function sessionQuietEventFromChat(tabId: string, event: ChatMsgEvent): SessionQuietEvent {
