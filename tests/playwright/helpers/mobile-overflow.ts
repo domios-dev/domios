@@ -154,6 +154,8 @@ export async function collectViewportOffenders(page: Page, reachabilityMode: Rea
         } else if (mode === "peer-picker-menu") {
           if (inPeerPickerMenu) {
             layerReachabilityOk = reachable;
+          } else if (!openDrawer && !openBackdrop) {
+            layerReachabilityOk = reachable || (!reachable && hitInPeerPickerMenu);
           } else if (inOpenDrawer) {
             layerReachabilityOk = reachable || (!reachable && hitInPeerPickerMenu);
           } else {
