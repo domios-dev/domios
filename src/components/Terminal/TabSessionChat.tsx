@@ -43,6 +43,7 @@ import { useMeshPeerNameResolver } from "./useMeshPeerNameResolver";
 import { useAgentReportProjection } from "./agentReportProjection";
 import { messageTimeMs, normalizeEpochMs, placeOutboundReports } from "./outboundReportPlacement";
 import { ChatAskCard } from "../Notifications/ChatAskCard";
+import { useSessionQuietDetection } from "./useSessionQuietDetection";
 
 interface Props {
   tabId: string;
@@ -134,6 +135,7 @@ export function TabSessionChat({
   const agentSessionId = tab?.agent_session_id ?? null;
   const currentPtyId = tab?.pty_id ?? null;
   const backendState = tab?.agent_state ?? null;
+  const sessionQuietState = useSessionQuietDetection(tabId, agentSessionId);
   const chatBacking = tab?.backing?.kind === "chat_backend" ? tab.backing : null;
   const effectiveChatBackend = chatBackend || chatBacking !== null;
   const watcherSpec = tab?.watcher ?? null;
@@ -588,8 +590,11 @@ export function TabSessionChat({
         ),
       };
     }
+    if (sessionQuietState.quiet && liveAgentState.state !== "question") {
+      return { state: "quiet" };
+    }
     return liveAgentState;
-  }, [bootSetupView.kind, chatChannelLoading, error, hasTranscript, liveAgentState, provider?.displayName, tab]);
+  }, [bootSetupView.kind, chatChannelLoading, error, hasTranscript, liveAgentState, provider?.displayName, sessionQuietState.quiet, tab]);
   const showEmptyState = setupView.kind === "none"
     && !chatLoading
     && renderedEnrichedMessages.length === 0
