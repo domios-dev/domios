@@ -36,7 +36,7 @@ async function openChatTab(api: ApiClient, tabCleanup: TabCleanup, page: Page): 
 
 // Quarantined: injected rows race requestAttach reset and the authoritative chat_start snapshot.
 // Follow-up: replace injection with a real stub-backed transcript.
-test("@golden @wave-1-10-3 @quarantine command card reveals the full command inside a scrolling region", async ({
+test("@golden @wave-1-10-3 @quarantine task_61yctm command card reveals the full command inside a scrolling region", async ({
   api,
   ui,
   tabCleanup,
