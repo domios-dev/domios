@@ -101,10 +101,15 @@ fn lane_metadata_for_dispatch(
     provenance: &WorkerLaneProvenance,
 ) -> TaskLaneMetadata {
     let mut lane = original.clone();
-    if crate::service::ServiceContext::paths_equal(
-        &provenance.worktree_path,
-        &provenance.canonical_cwd,
-    ) {
+    let recorded_worktree = original.worktree_path.as_deref().is_some_and(|recorded| {
+        crate::service::ServiceContext::paths_equal(recorded, &provenance.worktree_path)
+    });
+    if !recorded_worktree
+        && crate::service::ServiceContext::paths_equal(
+            &provenance.worktree_path,
+            &provenance.canonical_cwd,
+        )
+    {
         lane.worktree_path = None;
         lane.branch = None;
         lane.base = None;
@@ -809,6 +814,7 @@ pub(super) fn dispatch(
     let brief = build_brief_with_manifest(&detail.task, &detail.sections, &plan_id, &manifest);
 
     let explicit_cwd = owned_str(p, "cwd");
+    let caller_tab_id = owned_str(p, "caller_tab_id");
     let canonical_cwd = if plan.canonical_project_path.trim().is_empty() {
         plan.project_path.clone()
     } else {
@@ -819,11 +825,26 @@ pub(super) fn dispatch(
     let requires_repository = detail.task.execution_intent.requires_repository();
     let lane_protection = LaneProtection::for_dispatch_intent(&execution_intent);
     let lane_resolution = if requires_repository {
-        verify_worker_lane(&canonical_cwd, &canonical_cwd, None, None, lane_protection)
-            .map_err(checkout_required)?;
+        let workspace_cwd = {
+            let mux = svc.mux.read();
+            let workspace_id = owned_str(p, "workspace_id");
+            workspace_id
+                .as_deref()
+                .and_then(|id| mux.get_workspace(id))
+                .and_then(|workspace| workspace.cwd.clone())
+                .or_else(|| Some(canonical_cwd.clone()))
+        };
+        let caller_cwd = {
+            let mux = svc.mux.read();
+            caller_tab_id
+                .as_deref()
+                .and_then(|tab_id| mux.get_tab(tab_id))
+                .and_then(|tab| tab.cwd.clone())
+        };
         Some(resolve_dispatch_lane(
             explicit_cwd.as_deref(),
-            &canonical_cwd,
+            workspace_cwd.as_deref(),
+            caller_cwd.as_deref(),
             &detail.task.lane,
             lane_protection,
         )?)
