@@ -21,7 +21,6 @@ const VIEWPORTS = [
 
 type CanvasLayerExpectation = "overlay" | "inline";
 
-type CreatedTab = { id: string; tab_id?: string };
 type TargetTab = {
   tabId: string;
   tabTitle: string;
@@ -43,9 +42,6 @@ type Health = {
   build_sha?: string;
   build?: string;
   instance?: { identifier?: string };
-};
-type ChatStart = {
-  pending?: boolean;
 };
 
 async function newWebPage(browser: Browser, viewport: { width: number; height: number }): Promise<Page> {
@@ -160,7 +156,7 @@ async function prepareTargetTab(
   api: ApiClient,
   tabCleanup: TabCleanup,
   seedTeam: boolean,
-  spawnAgent?: SpawnAgent,
+  spawnAgent: SpawnAgent,
 ): Promise<TargetTab> {
   const tabTitle = `pw-mobile-layer-${Date.now()}`;
   let fixtureWorkspaceId: string | undefined;
@@ -174,7 +170,6 @@ async function prepareTargetTab(
 
   let tabId: string;
   if (seedTeam) {
-    if (!spawnAgent) throw new Error("a seeded Team needs the spawnAgent fixture to create its anchor");
     const spawned = await spawnAgent({
       agent: "claude",
       role: "Orchestrator",
@@ -187,19 +182,15 @@ async function prepareTargetTab(
     tabId = spawned.tab_id;
     tabCleanup.track(tabId);
   } else {
-    const tab = await tabCleanup.createTab<CreatedTab>({ title: tabTitle, eager: true });
-    tabId = tab.id;
-    await api.post(`/tabs/${tabId}/agent-type`, { agent_type: "claude" });
+    const spawned = await spawnAgent({
+      agent: "claude",
+      title: tabTitle,
+      skip_permissions: true,
+      activate: true,
+    });
+    tabId = spawned.tab_id;
   }
   await api.post(`/tabs/${tabId}/chat-view`, { enabled: true });
-  // chat-raw/start installs a per-subscriber tailer and REQUIRES its id:
-  // `ChatSubscriptionBody { subscription_id }` is `#[serde(rename_all = "camelCase")]`
-  // with no default, so an absent body is rejected before the handler runs. The
-  // frontend sends the same field (bridge.ts `chat_start`).
-  const chat = await api.post<ChatStart>(`/tabs/${tabId}/chat-raw/start`, {
-    subscriptionId: `pw-mobile-overflow-${tabId}`,
-  });
-  expect(chat.pending, "authenticated chat-raw/start returns a ready transcript").toBe(false);
   await api.focusTab(tabId);
 
   const mux = await api.get<MuxState>("/mux/state");
@@ -224,6 +215,25 @@ async function prepareTargetTab(
     };
   }
   throw new Error(`created tab ${tabId} has no owning workspace in mux state`);
+}
+
+async function assertTargetChatReady(
+  page: Page,
+  target: Pick<TargetTab, "tabId" | "tabTitle">,
+  label: string,
+): Promise<void> {
+  await expect(
+    page.getByRole("region", { name: `Tab chat: ${target.tabTitle}` }),
+    `${label} authenticated tab chat ready`,
+  ).toBeVisible({ timeout: 10_000 });
+  await expect(
+    page.locator(`[data-tab-id="${target.tabId}"]`).getByText("Loading chat…", { exact: true }),
+    `${label} chat must not remain loading`,
+  ).toHaveCount(0);
+  await expect(
+    page.locator(`[data-testid="tab-session-chat"][data-tab-id="${target.tabId}"]`),
+    `${label} target tab chat visible before canvas`,
+  ).toBeVisible({ timeout: 10_000 });
 }
 
 async function waitSidebarClosed(page: Page): Promise<void> {
@@ -1042,30 +1052,20 @@ test("@golden mobile web primary surfaces stay inside the viewport audit helper 
 });
 
 for (const vp of VIEWPORTS) {
-  test(`@golden mobile web primary surfaces stay inside the viewport ${vp.name}`, async ({ webBrowser, api, tabCleanup }, testInfo) => {
+  test(`@golden mobile web primary surfaces stay inside the viewport ${vp.name}`, async ({ webBrowser, api, tabCleanup, spawnAgent }, testInfo) => {
     const health = await assertHealthMatchesHead();
     await testInfo.attach("health.json", { body: JSON.stringify(health, null, 2), contentType: "application/json" });
 
-    // Pure layout: no role, no Team, no agent runtime. The Team-manager surface
-    // needs a live anchor and lives in its own gated test below.
-    const target = await prepareTargetTab(api, tabCleanup, false);
+    // The layout assertions need the chat surface mounted, so the fixture owns
+    // a spawned tab and waits for its visible ready state before auditing layout.
+    const target = await prepareTargetTab(api, tabCleanup, false, spawnAgent);
     const page = await newWebPage(webBrowser, vp);
     try {
       await openApp(page);
       await assertBuildIdentity(page, health);
       await settleLayout(page);
       await openSidebarAndSelectTargetTab(api, page, target, `${vp.name} initial target`);
-      await expect(
-        page.getByRole("region", { name: `Tab chat: ${target.tabTitle}` }),
-        `${vp.name} authenticated tab chat ready`,
-      ).toBeVisible({ timeout: 10_000 });
-      await expect(
-        page.locator(`[data-tab-id="${target.tabId}"]`).getByText("Loading chat…", { exact: true }),
-      ).toHaveCount(0);
-      await expect(
-        page.locator(`[data-testid="tab-session-chat"][data-tab-id="${target.tabId}"]`),
-        `${vp.name} target tab chat visible before canvas`,
-      ).toBeVisible({ timeout: 10_000 });
+      await assertTargetChatReady(page, target, vp.name);
       await openWorkspaceCanvasOverlay(page, `${vp.name} before tab transition`);
       await assertCanvasStateBeforeTabTransition(page, target.tabId, "overlay", `${vp.name} before tab transition`);
       await openSidebarAndSelectTargetTab(api, page, target, `${vp.name} canvas-to-workspace`);
@@ -1159,10 +1159,20 @@ for (const vp of VIEWPORTS) {
   });
 }
 
-// The one phone surface that cannot be reached without a live agent: a Team's
-// managers section only renders tabs whose role ANCHORS the Team, and a role
-// requires a verified live session. It is split from the layout viewports above
-// so those keep no agent-runtime dependency at all.
+test("@golden mobile-overflow chat readiness fails when absent", async ({ webBrowser }) => {
+  const page = await newWebPage(webBrowser, VIEWPORTS[0]);
+  try {
+    await page.setContent("<main></main>");
+    await expect(
+      assertTargetChatReady(page, { tabId: "missing-tab", tabTitle: "missing tab" }, "missing readiness"),
+    ).rejects.toThrow();
+  } finally {
+    await page.context().close();
+  }
+});
+
+// A Team's managers section additionally needs an anchor role and its verified
+// live session, so it remains split from the ordinary chat-surface viewports.
 test("@golden mobile web Team managers stay readable in the phone drawer", async ({ webBrowser, api, tabCleanup, spawnAgent }) => {
   test.skip(
     !(await isStubTransportActive(api)),
