@@ -10,6 +10,7 @@ fn integration_options(
     crate::provider::IntegrationInstallOptions {
         consent: true,
         precompact_memory_export,
+        repair: false,
     }
 }
 

@@ -668,12 +668,7 @@ const plugin: PluginModule = {
         for (let j = 0; j < hooks.length; j++) {
           const hook = hooks[j];
           if (hook && typeof hook.command === "string"
-              && hook.command.indexOf("CODETERM_TAB_ID") !== -1
-              && hook.command.indexOf("CODETERM_API_URL") !== -1
-              && hook.command.indexOf("CODETERM_API_TOKEN") !== -1
-              && hook.command.indexOf("CODETERM_API_PORT") === -1
-              && hook.command.indexOf("CODETERM_PANE_ID") === -1
-              && hook.command.indexOf("/api/panes/") === -1) return true;
+              && hook._source === CODETERM_HOOK_MARKER) return true;
         }
       }
       return false;
@@ -688,13 +683,7 @@ const plugin: PluginModule = {
         for (let j = 0; j < hooks.length; j++) {
           const h = hooks[j];
           if (h && typeof h.command === "string"
-              && h.command.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1
-              && h.command.indexOf("CODETERM_TAB_ID") !== -1
-              && h.command.indexOf("CODETERM_API_URL") !== -1
-              && h.command.indexOf("CODETERM_API_TOKEN") !== -1
-              && h.command.indexOf("CODETERM_API_PORT") === -1
-              && h.command.indexOf("CODETERM_PANE_ID") === -1
-              && h.command.indexOf("/api/panes/") === -1) return true;
+              && h._source === CODETERM_HOOK_MARKER) return true;
         }
       }
       return false;
@@ -720,7 +709,7 @@ const plugin: PluginModule = {
 
   installIntegration(
     _apiPort: number,
-    options?: { consent?: boolean; precompact_memory_export?: boolean },
+    options?: { consent?: boolean; precompact_memory_export?: boolean; repair?: boolean },
   ): unknown {
     if (!options || options.consent !== true) {
       return { ok: false, error: "provider integration installation requires explicit local-user consent" };
@@ -796,13 +785,18 @@ const plugin: PluginModule = {
 
     // Remove existing codeterm hooks before appending to avoid stale leftovers.
     const keys = INTEGRATION_HOOK_KEYS;
+    let preservedUnclassified = 0;
     for (let i = 0; i < keys.length; i++) {
       const k = keys[i];
       if (json.hooks[k] !== undefined && !Array.isArray(json.hooks[k])) {
         return { ok: false, error: "hooks." + k + " is not an array" };
       }
       const existing = Array.isArray(json.hooks[k])
-        ? json.hooks[k].filter((entry) => !isCodetermHook(entry))
+        ? json.hooks[k].filter((entry) => {
+          const owned = isCodetermHook(entry);
+          if (!owned) preservedUnclassified++;
+          return !owned;
+        })
         : [];
       if (newHooks[k]) {
         existing.push(newHooks[k]);
@@ -818,6 +812,9 @@ const plugin: PluginModule = {
     }
     const ok = host.fs.writeJson(path, json);
     if (ok) {
+      if (options.repair === true && preservedUnclassified > 0) {
+        host.log("warn", "[claude-plugin] repair preserved " + preservedUnclassified + " foreign or unclassifiable hook entries at " + path);
+      }
       host.log("info", "[claude-plugin] hooks installed at " + path);
       return { ok: true };
     }
@@ -981,26 +978,8 @@ function isCodetermHook(entry: HookEntry): boolean {
   for (let i = 0; i < hooks.length; i++) {
     const h = hooks[i];
     if (!h) continue;
-    if (typeof h._source === "string"
-        && (h._source.indexOf("codeterm-hook") === 0 || h._source === "codeterm")) {
+    if (typeof h._source === "string" && h._source.indexOf("codeterm-hook-") === 0) {
       return true;
-    }
-    const cmd = h.command;
-    if (typeof cmd === "string") {
-      // The command stopped carrying a literal host:port when it moved to
-      // $CODETERM_API_URL, and this recogniser never followed — so an install
-      // could not find its own previous hooks, removed nothing, and appended a
-      // duplicate every time. Accept either form.
-      const isUrl = cmd.indexOf("7685") !== -1
-        || cmd.indexOf("7686") !== -1
-        || cmd.indexOf("CODETERM_API_URL") !== -1;
-      const isPath = cmd.indexOf("/api/notifications") !== -1
-        || cmd.indexOf("/api/tabs/") !== -1
-        || cmd.indexOf("/hook/permission") !== -1
-        || cmd.indexOf("/hook/stop") !== -1
-        || cmd.indexOf("/hook/session_start") !== -1
-        || cmd.indexOf("/api/mem/flush") !== -1;
-      if (isUrl && isPath) return true;
     }
   }
   return false;
