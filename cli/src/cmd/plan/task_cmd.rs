@@ -233,7 +233,7 @@ const EMPTY_REASON_NO_MATCH_FOR_FILTERS: &str = "no_match_for_filters";
 
 /// Renders the daemon's verdict verbatim. The CLI cannot resolve project
 /// identity — a linked worktree is a distinct directory but the same project.
-fn render_empty_reason(reason: &Value) -> Option<String> {
+pub(crate) fn render_empty_reason(reason: &Value) -> Option<String> {
     let field = |key: &str| reason.get(key).and_then(Value::as_str).unwrap_or("?");
     match reason.get("kind").and_then(Value::as_str)? {
         EMPTY_REASON_PLAN_NOT_FOUND => Some(format!("Plan {} was not found.", field("plan_id"))),

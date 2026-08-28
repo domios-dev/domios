@@ -219,7 +219,12 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
         action: super::TabAction::Search { pattern },
     } = &cli.command
     {
-        let tabs = relay::mesh_relay_fetch_json(target, "GET", "/api/tabs", None);
+        let tabs = relay::mesh_relay_fetch_json(
+            target,
+            "GET",
+            "/api/tabs?all_workspaces=true",
+            None,
+        );
         let arr = tabs.as_array().cloned().unwrap_or_default();
         crate::cmd::tab::print_tab_find_results(cli.json, pattern, &arr);
         return;

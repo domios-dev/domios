@@ -235,7 +235,9 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 let mut query = vec![format!("agents={agents}")];
                 if let Some(workspace) = workspace {
                     query.push(format!("workspace_id={}", urlencoding::encode(workspace)));
-                } else if !all_workspaces {
+                } else if *all_workspaces {
+                    query.push("all_workspaces=true".into());
+                } else {
                     query.push("focused_workspace=true".into());
                 }
                 ("GET".into(), format!("/api/tabs?{}", query.join("&")), None)
