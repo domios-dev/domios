@@ -99,6 +99,7 @@
 - [tests/playwright/suites/16-chat-view/chat-picker-default.spec.ts](../../tests/playwright/suites/16-chat-view/chat-picker-default.spec.ts) - A tab's opening view follows chat capability until the user chooses otherwise.
 - [tests/playwright/suites/16-chat-view/chat-plan-links.spec.ts](../../tests/playwright/suites/16-chat-view/chat-plan-links.spec.ts) - Structured chat plan/task refs resolve through the global plan index and deep-link across workspaces.
 - [tests/playwright/suites/16-chat-view/chat-rendering.spec.ts](../../tests/playwright/suites/16-chat-view/chat-rendering.spec.ts) - Chat view renders empty, user, assistant, code, and image message shapes.
+- [tests/playwright/suites/16-chat-view/command-card-visibility.spec.ts](../../tests/playwright/suites/16-chat-view/command-card-visibility.spec.ts) - A person can reveal the complete command behind a compact chat card without widening the conversation.
 - [tests/playwright/suites/16-chat-view/composer-focus-steal.spec.ts](../../tests/playwright/suites/16-chat-view/composer-focus-steal.spec.ts) - composer focus steal covers its Playwright acceptance contract.
 - [tests/playwright/suites/16-chat-view/composer-output-performance.spec.ts](../../tests/playwright/suites/16-chat-view/composer-output-performance.spec.ts) - Composer latency under a 25-tab agent/output fixture.
 - [tests/playwright/suites/16-chat-view/cursor-new-rebinds-session.spec.ts](../../tests/playwright/suites/16-chat-view/cursor-new-rebinds-session.spec.ts) - cursor new rebinds session covers its Playwright acceptance contract.
@@ -106,6 +107,7 @@
 - [tests/playwright/suites/16-chat-view/opencode-assistant-replies.spec.ts](../../tests/playwright/suites/16-chat-view/opencode-assistant-replies.spec.ts) - opencode assistant replies covers its Playwright acceptance contract.
 - [tests/playwright/suites/16-chat-view/report-card-body.spec.ts](../../tests/playwright/suites/16-chat-view/report-card-body.spec.ts) - Report cards render the agent's free-form message alongside the structured status chip.
 - [tests/playwright/suites/16-chat-view/send-on-fresh-tab.spec.ts](../../tests/playwright/suites/16-chat-view/send-on-fresh-tab.spec.ts) - send on fresh tab covers its Playwright acceptance contract.
+- [tests/playwright/suites/16-chat-view/session-quiet-status.spec.ts](../../tests/playwright/suites/16-chat-view/session-quiet-status.spec.ts) - A quiet agent session is readable in the same live status rail a person already watches.
 - [tests/playwright/suites/16-chat-view/stale-boot-after-chat-attach.live.spec.ts](../../tests/playwright/suites/16-chat-view/stale-boot-after-chat-attach.live.spec.ts) - Attached Codex Chat remains authoritative after stale boot-stage events.
 - [tests/playwright/suites/16-chat-view/stub-chat-parity.spec.ts](../../tests/playwright/suites/16-chat-view/stub-chat-parity.spec.ts) - ChatView/tailer parity for the stub agent transport.
 - [tests/playwright/suites/16-chat-view/tool-output-cards.spec.ts](../../tests/playwright/suites/16-chat-view/tool-output-cards.spec.ts) - Shared tool-output cards retain complete transport envelopes behind a bounded preview.

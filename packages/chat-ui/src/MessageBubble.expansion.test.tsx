@@ -83,11 +83,11 @@ async function run() {
   const read = cards.find((card) => card.textContent?.includes("Read") && card.textContent.includes("coordination.ts"));
   const completedCommandCard = cards.find((card) => card.textContent?.includes("git status --short"));
   const edit = cards.find((card) => card.querySelector('[data-testid="toolcard-edit-summary"]'));
-  assert(send?.querySelector('[aria-label="Collapse tool details"]'), "outbound message should start expanded");
-  assert(list?.querySelector('[aria-label="Expand tool details"]'), "ordinary operational command should start collapsed");
+  assert(send?.querySelector('[aria-label="Hide full command"]'), "outbound message should start expanded");
+  assert(list?.querySelector('[aria-label="Show full command"]'), "ordinary operational command should start collapsed");
   assert(read?.querySelector('[aria-label="Expand tool details"]'), "completed read-only inspection should start collapsed");
   assert(!read?.textContent?.includes("private inspection output"), "collapsed read-only inspection should hide output");
-  assert(completedCommandCard?.querySelector('[aria-label="Expand tool details"]'), "completed shell command should start collapsed");
+  assert(completedCommandCard?.querySelector('[aria-label="Show full command"]'), "completed shell command should start collapsed");
   assert(edit?.querySelector('[aria-label="Collapse tool details"]'), "completed code edit should stay visibly expanded");
   const system = host.querySelector<HTMLElement>('[data-testid="chat-system-event"]');
   const systemToggle = system?.querySelector<HTMLButtonElement>("button");
