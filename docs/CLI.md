@@ -2817,6 +2817,13 @@ Plain shell tab, created in the calling tab's own workspace — never the worksp
 - `--title` — Tab title
 - `--workspace` — Target workspace id. Defaults to the calling tab's own workspace, then the focused workspace for a caller with no tab identity
 
+#### `codeterm tab rebind`
+
+Bind a running tab to an existing provider session without restarting it
+
+- `<session_id>` — Provider session ID to bind
+- `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
+
 #### `codeterm tab rename`
 
 Rename a tab (default: current tab)

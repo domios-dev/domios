@@ -13179,6 +13179,34 @@
           "subcommands": []
         },
         {
+          "name": "rebind",
+          "about": "Bind a running tab to an existing provider session without restarting it",
+          "aliases": [],
+          "args": [
+            {
+              "name": "session_id",
+              "positional": true,
+              "required": true,
+              "value_name": "SESSION_ID",
+              "possible_values": [],
+              "default": null,
+              "help": "Provider session ID to bind",
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "required": false,
+              "value_name": "TAB",
+              "possible_values": [],
+              "default": null,
+              "help": "Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "rename",
           "about": "Rename a tab (default: current tab)",
           "aliases": [],
