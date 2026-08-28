@@ -266,7 +266,7 @@ test("@golden ChatView transcript remains correct across tool results, focus, an
     .filter({ hasText: "echo ok" })
     .first();
   await expect(resultCard).toBeVisible();
-  const expandResult = resultCard.getByRole("button", { name: "Expand tool details" });
+  const expandResult = resultCard.getByRole("button", { name: "Show full command" });
   await expect(expandResult).toBeVisible();
   await expandResult.click();
   await expect(resultCard).toContainText("ok");
