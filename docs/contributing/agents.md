@@ -20,7 +20,10 @@ in the CodeTerm planner, then report back with `in_review`. The Planner never
 spawns agents, assigns Tabs, or accepts work — execution and acceptance stay
 with the Orchestrator. Per-task free-form role guidance lives on the task
 (`role_guidance`) and is prepended to the worker brief at dispatch; there is no
-persistent custom role-template registry. Each task also carries an
+persistent custom role-template registry. `plan task add` requires it and
+`plan task update` refuses to blank it. Presence alone is the machine contract;
+prose quality remains a human judgment. `plan doctor` warns, without blocking,
+when tasks carry identical guidance. Each task also carries an
 `executor_role` field — a short slug (e.g. `rust-backend-dev`, `frontend-dev`,
 `code-reviewer`) that lets the Orchestrator name the expected agent personality
 for that task without altering the two-value `AgentRole` hierarchy. Execution
@@ -176,4 +179,4 @@ Prompt templates compiled into the binary live under `src-tauri/prompts/`:
 
 The Rust loader is `src-tauri/src/prompts.rs`.
 
-<!-- revision: 12 -->
+<!-- revision: 13 -->

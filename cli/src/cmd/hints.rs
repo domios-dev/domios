@@ -19,7 +19,7 @@ pub fn task_model_hint(plan_id: &str, task_id: &str) -> String {
 
 pub fn spec_create_next_plan_hint(spec_id: &str) -> String {
     format!(
-        "hint: planning sequence: 1) codeterm plan create --from-spec {spec_id} --title <title> 2) codeterm plan goal set <plan> --vector <proof> <goal> 3) codeterm plan section add <plan> --title <phase> --body <how> 4) codeterm plan task add <plan> --name <task> --executor-role <role> ... 5) codeterm plan doctor <plan> --kind quality"
+        "hint: planning sequence: 1) codeterm plan create --from-spec {spec_id} --title <title> 2) codeterm plan goal set <plan> --vector <proof> <goal> 3) codeterm plan section add <plan> --title <phase> --body <how> 4) codeterm plan task add <plan> --name <task> --executor-role <role> --role-guidance <conditioning> ... 5) codeterm plan doctor <plan> --kind quality"
     )
 }
 
@@ -72,7 +72,7 @@ pub fn task_quality_guard_hint(
         return None;
     }
     Some(format!(
-        "WARNING: task is missing {}. Add checkable work definition now: codeterm plan task add {plan_id} --name <name> --executor-role <role> --body <work brief> --criterion <condition> --test-plan <how verified> --correctness <one-line vector>; existing task: {task_id}",
+        "WARNING: task is missing {}. Add checkable work definition now: codeterm plan task add {plan_id} --name <name> --executor-role <role> --role-guidance <conditioning> --body <work brief> --criterion <condition> --test-plan <how verified> --correctness <one-line vector>; existing task: {task_id}",
         missing.join(", ")
     ))
 }

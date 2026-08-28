@@ -38,6 +38,8 @@ fn executor_role_required_presence_only_accepts_a_short_unimaginative_role() {
         "Short role lane",
         "--executor-role",
         "dev",
+        "--role-guidance",
+        "x",
     ])
     .expect("a short, unimaginative role is a present role");
     match parsed.command {

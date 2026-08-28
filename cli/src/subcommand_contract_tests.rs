@@ -514,7 +514,7 @@ fn task_read_leaves_are_preserved() {
 }
 
 #[test]
-fn plan_task_add_is_unchanged() {
+fn plan_task_add_with_required_worker_fields_parses() {
     let parsed = Cli::try_parse_from([
         "codeterm",
         "plan",
@@ -525,6 +525,8 @@ fn plan_task_add_is_unchanged() {
         "y",
         "--executor-role",
         "rust-backend-dev",
+        "--role-guidance",
+        "focused worker",
     ])
     .expect("plan task add still parses");
     assert!(matches!(
