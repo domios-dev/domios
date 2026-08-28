@@ -1,4 +1,4 @@
-import React, { act, useState } from "react";
+import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import {
@@ -131,7 +131,7 @@ const tests: Test[] = [
     const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]');
     assert(submit, "the recovery form exposes its submit action in focus order");
     await act(async () => {
-      form.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
       await firstCommand;
     });
     assert(commands.some(({ command, args }) => command === "rebind_tab_session"
