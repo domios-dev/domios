@@ -95,8 +95,13 @@ const tests: Test[] = [
     const { AgentStateIndicator } = await import("./AgentStateIndicator");
     const { SessionBindingRecoveryForm } = await import("./SessionBindingRecoveryForm");
     const commands: Array<{ command: string; args?: Record<string, unknown> }> = [];
+    let recorded: () => void = () => undefined;
+    const firstCommand = new Promise<void>((resolve) => {
+      recorded = resolve;
+    });
     const invokeMock = async <T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
       commands.push({ command, args });
+      recorded();
       return {} as T;
     };
     __setInvokeForTest(invokeMock);
@@ -126,8 +131,8 @@ const tests: Test[] = [
     const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]');
     assert(submit, "the recovery form exposes its submit action in focus order");
     await act(async () => {
-      submit.click();
-      await Promise.resolve();
+      form.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+      await firstCommand;
     });
     assert(commands.some(({ command, args }) => command === "rebind_tab_session"
       && args?.tabId === "tab-a"
