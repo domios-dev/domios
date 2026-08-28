@@ -856,10 +856,14 @@ fn verify_task_mutation_owner(
             "task mutation caller binding is stale or rebound",
         ));
     }
-    let orchestrator = state.svc.plan_store.owner_of(plan_id).is_some_and(|owner| {
-        owner.tab_id.as_deref() == Some(tab_id) && owner.session_id.as_deref() == Some(session_id)
-    });
-    if orchestrator {
+    if state
+        .svc
+        .authorize_plan_orchestrator(
+            plan_id,
+            &crate::api::tab_routes::authenticated_plan_caller(headers),
+        )
+        .is_ok()
+    {
         return Ok(());
     }
     state

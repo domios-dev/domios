@@ -23,11 +23,9 @@ pub(crate) fn authorize_task_mutation(
     if task.interruption.owner_epoch != authority.owner_epoch {
         return Err(PlanError::Io("stale task mutation owner epoch".into()));
     }
-    let orchestrator = plan.owner.tab_id.as_deref() == Some(&authority.tab_id)
-        && plan.owner.session_id.as_deref() == Some(&authority.session_id);
+    let orchestrator = plan.owner.tab_id.as_deref() == Some(&authority.tab_id);
     let worker = !task.interruption.handoff_required
-        && task.interruption.owner_tab_id.as_deref() == Some(&authority.tab_id)
-        && task.interruption.owner_session_id.as_deref() == Some(&authority.session_id);
+        && task.interruption.owner_tab_id.as_deref() == Some(&authority.tab_id);
     if orchestrator || worker {
         return Ok(());
     }
@@ -520,7 +518,7 @@ impl PlanStore {
         &self,
         task_id: &str,
         tab_id: &str,
-        session_id: &str,
+        _session_id: &str,
         owner_epoch: u64,
     ) -> Result<(), PlanError> {
         let detail = self.show_task(task_id).ok_or(PlanError::TaskNotFound)?;
@@ -528,7 +526,6 @@ impl PlanStore {
         if owner.handoff_required
             || owner.owner_epoch != owner_epoch
             || owner.owner_tab_id.as_deref() != Some(tab_id)
-            || owner.owner_session_id.as_deref() != Some(session_id)
         {
             return Err(PlanError::Io("stale task owner epoch".into()));
         }
