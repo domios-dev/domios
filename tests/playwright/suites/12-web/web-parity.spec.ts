@@ -161,6 +161,46 @@ function menuVisibleProviders(
   );
 }
 
+function sessionPicker(page: Page) {
+  return page.getByRole("dialog", { name: "Start a session" });
+}
+
+async function selectSingleAgentMode(page: Page): Promise<void> {
+  const picker = sessionPicker(page);
+  await expect(picker).toBeVisible({ timeout: 10_000 });
+  const single = picker.locator('[data-testid="picker-mode-single"]');
+  if ((await single.getAttribute("data-selected")) !== "true") {
+    await single.click();
+  }
+  await expect(
+    single,
+    "naming gate must use the single-agent provider menu",
+  ).toHaveAttribute("data-selected", "true");
+}
+
+function singleAgentProviderSelect(page: Page) {
+  return sessionPicker(page)
+    .locator('[data-testid="orchestration-role-agent"]')
+    .locator('[aria-haspopup="listbox"]')
+    .first();
+}
+
+async function selectSingleAgentProvider(
+  page: Page,
+  provider: ProviderDescriptor,
+): Promise<void> {
+  const select = singleAgentProviderSelect(page);
+  await expect(select).toBeVisible({ timeout: 10_000 });
+  await select.click();
+  const item = page.getByRole("menuitem", {
+    name: provider.display_name,
+    exact: true,
+  });
+  await expect(item).toBeVisible({ timeout: 10_000 });
+  await item.click();
+  await expect(select).toHaveAttribute("data-value", provider.id);
+}
+
 async function expectProviderMenuContract(
   page: Page,
   providers: ProviderDescriptor[],
@@ -174,14 +214,15 @@ async function expectProviderMenuContract(
     "naming gate fixture workspace did not render as a sidebar card",
   ).toBeVisible({ timeout: 15_000 });
   await expandWorkspaceSidebar(page, workspaceId);
-  await page
-    .getByRole("button", { name: /^New session$/ })
-    .first()
-    .click();
+  await workspace.getByRole("button", { name: /^New session$/ }).click();
+  await selectSingleAgentMode(page);
+  const providerSelect = singleAgentProviderSelect(page);
+  await expect(providerSelect).toBeVisible({ timeout: 10_000 });
+  await providerSelect.click();
 
   for (const provider of providers) {
-    const item = page.getByRole("button", {
-      name: `New ${provider.display_name} Session`,
+    const item = page.getByRole("menuitem", {
+      name: provider.display_name,
       exact: true,
     });
     if (config.agents?.[provider.id]?.visible_in_menu === false) {
@@ -196,7 +237,10 @@ async function expectProviderMenuContract(
       ).toBeVisible();
     }
   }
-  await page.keyboard.press("Escape");
+  await sessionPicker(page)
+    .locator('[data-testid="picker-close"]')
+    .click();
+  await expect(sessionPicker(page)).toBeHidden({ timeout: 10_000 });
 }
 
 async function currentMux(api: {
@@ -261,20 +305,17 @@ async function clickNewSession(
     "naming gate fixture workspace did not render as a sidebar card",
   ).toBeVisible({ timeout: 15_000 });
   await expandWorkspaceSidebar(page, workspaceId);
-  const newSession = page
-    .getByRole("button", { name: /^New session$/ })
-    .first();
+  const newSession = workspace.getByRole("button", { name: /^New session$/ });
   await expect(newSession).toBeVisible({ timeout: 10_000 });
   await newSession.click();
-  const item = page.getByRole("button", {
-    name: new RegExp(`^New ${escapeRegExp(provider.display_name)} Session$`),
+  await selectSingleAgentMode(page);
+  await selectSingleAgentProvider(page, provider);
+  const confirm = sessionPicker(page).locator('[data-testid="picker-confirm"]');
+  await expect(confirm, "single-agent picker must start the selected provider").toBeEnabled({
+    timeout: 10_000,
   });
-  await expect(item).toBeVisible({ timeout: 10_000 });
-  await item.click();
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  await confirm.click();
+  await expect(sessionPicker(page)).toBeHidden({ timeout: 20_000 });
 }
 
 async function expectSettingsDeepLink(
