@@ -44,6 +44,7 @@ impl ServiceContext {
         }
         drop(mux);
         if changed {
+            self.deferred_session_bindings.clear(tab_id);
             self.invalidate_guarded_agent_input(tab_id);
         }
         if session_bound {

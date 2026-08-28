@@ -22,6 +22,7 @@ fn shared_mux() -> (MuxState, String) {
 struct HookProvider {
     id: &'static str,
     sessions: HashSet<&'static str>,
+    materialization_root: Option<PathBuf>,
 }
 
 impl AgentProvider for HookProvider {
@@ -55,8 +56,10 @@ impl AgentProvider for HookProvider {
         false
     }
 
-    fn session_file_path(&self, _: &str, _: &str) -> Option<PathBuf> {
-        None
+    fn session_file_path(&self, _: &str, session_id: &str) -> Option<PathBuf> {
+        self.materialization_root
+            .as_ref()
+            .map(|root| root.join(format!("{session_id}.jsonl")))
     }
 
     fn detect_session_id(&self, _: &str, _: &[String], _: Option<Duration>) -> Option<String> {
@@ -64,7 +67,9 @@ impl AgentProvider for HookProvider {
     }
 
     fn session_exists(&self, _: &str, session_id: &str) -> bool {
-        self.sessions.contains(session_id)
+        self.session_file_path("", session_id)
+            .is_some_and(|path| path.is_file())
+            || self.sessions.contains(session_id)
     }
 
     fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
@@ -93,6 +98,7 @@ fn registry_with_sessions(items: Vec<(&'static str, Vec<&'static str>)>) -> Agen
         registry.register_provider(Box::new(HookProvider {
             id,
             sessions: sessions.into_iter().collect(),
+            materialization_root: None,
         }));
     }
     registry
@@ -968,4 +974,206 @@ fn hook_with_the_wrong_binding_nonce_cannot_acknowledge_launch_readiness() {
 
     assert_eq!(result.unwrap_err().0, StatusCode::CONFLICT);
     assert!(!launch.await_provider_ack(Duration::ZERO));
+}
+
+fn materializing_binding_fixture() -> (
+    tempfile::TempDir,
+    MuxState,
+    String,
+    Arc<AgentRegistry>,
+    PathBuf,
+) {
+    let temp = tempfile::tempdir().unwrap();
+    let (mux, tab_id) = shared_mux();
+    let registry = Arc::new(AgentRegistry::new());
+    registry.register_provider(Box::new(HookProvider {
+        id: "codex",
+        sessions: HashSet::new(),
+        materialization_root: Some(temp.path().to_path_buf()),
+    }));
+    std::fs::write(temp.path().join("old.jsonl"), "{}").unwrap();
+    mux.write().get_tab_mut(&tab_id).unwrap().pty_id = Some("surviving-pty".into());
+    bind_reported_session(&mux, &registry, &tab_id, "codex", "old", None).unwrap();
+    {
+        let mut guard = mux.write();
+        let tab = guard.get_tab_mut(&tab_id).unwrap();
+        tab.session_binding_nonce = Some("launch-nonce".into());
+        tab.reported_session_binding_nonce = Some("launch-nonce".into());
+    }
+    let new_path = temp.path().join("new.jsonl");
+    (temp, mux, tab_id, registry, new_path)
+}
+
+#[test]
+fn session_binding_deferral_refused_session_completes_on_materialization() {
+    let (_temp, mux, tab_id, registry, new_path) = materializing_binding_fixture();
+    let refusal = bind_reported_session(
+        &mux,
+        &registry,
+        &tab_id,
+        "codex",
+        "new",
+        Some("launch-nonce"),
+    )
+    .unwrap_err();
+    assert!(refusal.2.is_some());
+    let pending =
+        crate::service::session_binding_deferral::DeferredSessionBindingRegistry::default();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let callback_mux = mux.clone();
+    let callback_registry = registry.clone();
+    pending
+        .defer(
+            &tab_id,
+            "codex",
+            "new",
+            "old",
+            new_path.clone(),
+            Arc::new(move |tab, _| {
+                let _ = tx.send(bind_reported_session(
+                    &callback_mux,
+                    &callback_registry,
+                    &tab,
+                    "codex",
+                    "new",
+                    Some("launch-nonce"),
+                ));
+            }),
+        )
+        .unwrap();
+    std::fs::write(new_path, "{}").unwrap();
+    rx.recv_timeout(Duration::from_secs(2))
+        .expect("materialization event")
+        .unwrap();
+    assert_eq!(
+        mux.read()
+            .get_tab(&tab_id)
+            .unwrap()
+            .agent_session_id
+            .as_deref(),
+        Some("new")
+    );
+}
+
+#[test]
+fn session_binding_deferral_guard_still_guards_hook_and_rebind() {
+    let (_temp, mux, tab_id, registry, _new_path) = materializing_binding_fixture();
+    let hook = bind_reported_session(
+        &mux,
+        &registry,
+        &tab_id,
+        "codex",
+        "new",
+        Some("launch-nonce"),
+    )
+    .unwrap_err();
+    let verb = crate::api::session_binding_routes::rebind_session_core(
+        &mux, &registry, &tab_id, "codex", "new",
+    )
+    .unwrap_err();
+    assert_eq!(hook.0, StatusCode::CONFLICT);
+    assert_eq!(verb.0, StatusCode::CONFLICT);
+    assert_eq!(
+        mux.read()
+            .get_tab(&tab_id)
+            .unwrap()
+            .agent_session_id
+            .as_deref(),
+        Some("old")
+    );
+}
+
+#[test]
+fn session_binding_deferral_loses_to_legitimate_binding() {
+    let (temp, mux, tab_id, registry, new_path) = materializing_binding_fixture();
+    let pending = Arc::new(
+        crate::service::session_binding_deferral::DeferredSessionBindingRegistry::default(),
+    );
+    let callback_pending = pending.clone();
+    let callback_mux = mux.clone();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let binding = pending
+        .defer(
+            &tab_id,
+            "codex",
+            "new",
+            "old",
+            new_path.clone(),
+            Arc::new(move |tab, generation| {
+                let held = callback_pending.get(&tab, generation).unwrap();
+                let _ = tx.send(deferred_binding_still_applies(&callback_mux, &held));
+            }),
+        )
+        .unwrap();
+    std::fs::write(temp.path().join("legitimate.jsonl"), "{}").unwrap();
+    crate::api::session_binding_routes::rebind_session_core(
+        &mux,
+        &registry,
+        &tab_id,
+        "codex",
+        "legitimate",
+    )
+    .unwrap();
+    assert!(!deferred_binding_still_applies(&mux, &binding));
+    std::fs::write(new_path, "{}").unwrap();
+    assert!(!rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("materialization event"));
+    assert_eq!(
+        mux.read()
+            .get_tab(&tab_id)
+            .unwrap()
+            .agent_session_id
+            .as_deref(),
+        Some("legitimate")
+    );
+}
+
+#[test]
+fn session_binding_deferral_rebind_preserves_agent_process() {
+    let (_temp, mux, tab_id, registry, new_path) = materializing_binding_fixture();
+    std::fs::write(new_path, "{}").unwrap();
+    let pty_before = mux.read().get_tab(&tab_id).unwrap().pty_id.clone();
+    crate::api::session_binding_routes::rebind_session_core(
+        &mux, &registry, &tab_id, "codex", "new",
+    )
+    .unwrap();
+    let guard = mux.read();
+    let tab = guard.get_tab(&tab_id).unwrap();
+    assert_eq!(tab.pty_id, pty_before);
+    assert_eq!(tab.agent_session_id.as_deref(), Some("new"));
+}
+
+#[test]
+fn session_binding_deferral_is_event_driven_and_newest_is_bounded() {
+    let (temp, _mux, tab_id, _registry, new_path) = materializing_binding_fixture();
+    let pending =
+        crate::service::session_binding_deferral::DeferredSessionBindingRegistry::default();
+    let (tx, rx) = std::sync::mpsc::channel();
+    pending
+        .defer(
+            &tab_id,
+            "codex",
+            "older",
+            "old",
+            temp.path().join("older.jsonl"),
+            Arc::new(|_, _| {}),
+        )
+        .unwrap();
+    pending
+        .defer(
+            &tab_id,
+            "codex",
+            "new",
+            "old",
+            new_path.clone(),
+            Arc::new(move |_, _| {
+                let _ = tx.send(());
+            }),
+        )
+        .unwrap();
+    assert_eq!(pending.pending(&tab_id).unwrap().session_id, "new");
+    std::fs::write(new_path, "{}").unwrap();
+    rx.recv_timeout(Duration::from_secs(2))
+        .expect("filesystem event drives completion");
 }
