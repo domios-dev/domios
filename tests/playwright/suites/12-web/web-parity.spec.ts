@@ -38,7 +38,7 @@ type MuxState = {
   workspaces: {
     id: string;
     name: string;
-    tabs: { id: string; tab_id?: string | null }[];
+    tabs: string[];
   }[];
   tabs: Record<
     string,
@@ -270,16 +270,14 @@ function allTabIds(mux: MuxState): Set<string> {
 function activeWorkspaceId(mux: MuxState): string {
   const active =
     mux.active_workspace_id ??
-    mux.workspaces.find((w) => w.tabs.some((t) => t.tab_id))?.id;
+    mux.workspaces.find((workspace) => workspace.tabs.length > 0)?.id;
   if (!active) throw new Error("no active workspace found for web parity test");
   return active;
 }
 
 function sidebarTabId(mux: MuxState, backendTabId: string): string | null {
   for (const workspace of mux.workspaces) {
-    for (const tab of workspace.tabs) {
-      if (tab.tab_id === backendTabId) return tab.id;
-    }
+    if (workspace.tabs.includes(backendTabId)) return backendTabId;
   }
   return null;
 }
