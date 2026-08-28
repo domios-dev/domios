@@ -33,6 +33,7 @@ fn text_err(status: StatusCode, message: impl ToString) -> (StatusCode, Json<Val
 fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
     let status = match e {
         PlanError::NotFound | PlanError::TaskNotFound => StatusCode::NOT_FOUND,
+        PlanError::ReviewHoldRequired => StatusCode::CONFLICT,
         _ => StatusCode::BAD_REQUEST,
     };
     (
