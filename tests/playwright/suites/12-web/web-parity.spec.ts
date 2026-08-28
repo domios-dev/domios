@@ -94,6 +94,10 @@ async function openWeb(page: Page): Promise<void> {
 async function openSidebarIfNeeded(page: Page): Promise<void> {
   const toggle = page.locator('[data-testid="web-sidebar-open"]');
   if (await toggle.isVisible().catch(() => false)) await toggle.click();
+  await expect(
+    page.locator(".ct-sidebar-drawer.is-open"),
+    "sidebar did not reach its open state",
+  ).toBeAttached({ timeout: 5_000 });
 }
 
 function workspaceSidebarItem(page: Page, workspaceId: string) {
