@@ -5,7 +5,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::api::routes::{check_auth, AppState};
+use crate::api::{optional_json::OptionalJson, routes::{check_auth, AppState}};
 
 pub async fn network_info(AxumState(state): AxumState<AppState>) -> Json<serde_json::Value> {
     let local_ip = local_ip_address().unwrap_or_else(|| "127.0.0.1".to_string());
@@ -50,10 +50,10 @@ pub(crate) struct ServeEnableBody {
 pub async fn serve_enable_handler(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    body: Option<Json<ServeEnableBody>>,
+    OptionalJson(body): OptionalJson<ServeEnableBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let body = body.map(|Json(b)| b).unwrap_or_default();
+    let body = body.unwrap_or_default();
     let result = crate::service::web_access::enable(
         state.svc.app_handle.clone(),
         state.mesh.clone(),
@@ -117,10 +117,10 @@ pub async fn keepawake_status_handler(
 pub async fn keepawake_start_handler(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    body: Option<Json<KeepAwakeStartBody>>,
+    OptionalJson(body): OptionalJson<KeepAwakeStartBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let body = body.map(|Json(b)| b).unwrap_or_default();
+    let body = body.unwrap_or_default();
     let st = crate::keepawake::start(
         &state.keepawake,
         &state.svc.app_handle,

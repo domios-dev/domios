@@ -57,6 +57,23 @@ fn workspace_close_guard_unconfirmed_agent_tabs_remain() {
     not(windows),
     ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
 )]
+fn optional_body_contract_workspace_agent_guard_is_reported_as_forbidden() {
+    let (fixture, workspace_id, _, caller_tab) = workspace_with_agent_tab();
+    let error = fixture
+        .service
+        .close_workspace_guarded(Some(&caller_tab), &workspace_id, false)
+        .unwrap_err();
+    let (status, message) = crate::api::tab_routes::map_close_error(error);
+
+    assert_eq!(status, axum::http::StatusCode::FORBIDDEN);
+    assert!(message.contains("Release guard agent"));
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
 fn workspace_close_guard_confirmed_agent_tabs_close() {
     let (fixture, workspace_id, tab_id, caller_tab) = workspace_with_agent_tab();
 

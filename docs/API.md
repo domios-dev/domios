@@ -101,6 +101,19 @@ bounded 4 MiB tail parser on blocking workers, leaving all four runtime workers 
 |--------|------|------|-------------|
 | * | `/api/workspaces/...` | *(per route)* | Workspace and workspace-scoped tab routes: list, create, focus, rename, close, recently-closed, reopen, and tab create/rename/move — all in API-TABS |
 
+#### Optional JSON request bodies
+
+An absent request body is accepted where the listed JSON fields only refine an
+otherwise complete action. `POST /api/tabs/{id}/agent/restart`, the permission,
+stop, and session-start hook routes, `POST /api/network/serve/enable`,
+`POST /api/keepawake/start`, `POST /api/sessions/{id}/resume`,
+`POST /api/workspaces/{id}/close`, `POST /api/workspaces/{id}/reopen-closed`,
+and `POST /api/workspaces/{id}/tabs` therefore accept either no body or a JSON
+body. Their documented defaults apply when no body is sent; in particular,
+closing a workspace without a body is the ordinary non-forced close.
+`POST /api/workspaces` is deliberately different: its required `name` field is
+named in a `400 Bad Request` response when the body is absent.
+
 #### Closed History & Restore
 
 Closed tabs and workspaces are recorded in a bounded persistent ring. Each close
@@ -234,4 +247,4 @@ competition provisions one lane per competitor. Advisory findings ride successfu
 results in `safety_nudges` and `_hints`. See `codeterm docs ORCHESTRATION`.
 Related: `codeterm docs API-TABS`, `API-INTEGRATIONS`, `API-MEMORY`, `API-AGENTS`,
 `API-TRANSPORT`, and `API-CLI`.
-<!-- revision: 127 -->
+<!-- revision: 128 -->

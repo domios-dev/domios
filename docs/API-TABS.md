@@ -64,13 +64,13 @@ as one.
 | Method | Path | Body | Description |
 |---|---|---|---|
 | GET | `/api/workspaces` | — | List all workspaces |
-| POST | `/api/workspaces` | `{name, cwd?}` | Create workspace. When `cwd` matches an existing workspace, the existing workspace is returned with `existing: true`; no new workspace is created and the requested name is ignored. |
+| POST | `/api/workspaces` | `{name, cwd?}` | Create workspace. `name` is required; an absent body returns `400` naming that field. When `cwd` matches an existing workspace, the existing workspace is returned with `existing: true`; no new workspace is created and the requested name is ignored. |
 | POST | `/api/workspaces/{id}/focus` | — | Switch to workspace |
 | POST | `/api/workspaces/{id}/rename` | `{name}` | Rename workspace |
-| POST | `/api/workspaces/{id}/close` | `{force?}` | Delete workspace. Agent tabs require `force: true`; without it the response identifies the affected tabs and leaves the workspace open. |
+| POST | `/api/workspaces/{id}/close` | `{force?}` or no body | Delete workspace. No body is the ordinary non-forced close. Agent tabs require `force: true`; without it the `403` response identifies the affected tabs and leaves the workspace open. |
 | GET | `/api/workspaces/{id}/recently-closed` | — | List recently-closed tab entries for this workspace. Returns `ClosedTab[]` (see [Closed History & Restore](#closed-history--restore)). |
-| POST | `/api/workspaces/{id}/reopen-closed` | `{index?}` | Reopen a recently-closed tab (browser Ctrl+Shift+T). `index` selects the ring entry (0 = most recent, default). Returns `TabInfo {id, title, tab_id}`. |
-| POST | `/api/workspaces/{id}/tabs` | — | Create tab |
+| POST | `/api/workspaces/{id}/reopen-closed` | `{index?}` or no body | Reopen a recently-closed tab (browser Ctrl+Shift+T). `index` selects the ring entry (0 = most recent, default). Returns `TabInfo {id, title, tab_id}`. |
+| POST | `/api/workspaces/{id}/tabs` | `{eager?}` or no body | Create tab; no body leaves eager PTY creation disabled. |
 | POST | `/api/workspaces/{id}/tabs/{tab_id}/rename` | `{name}` | Rename tab |
 | POST | `/api/workspaces/{id}/tabs/{tab_id}/move` | `{to_workspace_id}` | Move tab between workspaces |
 
@@ -81,7 +81,7 @@ Called by Claude Code hooks (or any agent integration) to notify CodeTerm that t
 **Two modes:**
 
 1. **Explicit prompt** -- provide `question` and `options` in the body. CodeTerm uses them directly.
-2. **Auto-parse** -- send an empty body `{}`. CodeTerm reads the terminal screen content and runs structural fingerprint detection to extract the prompt.
+2. **Auto-parse** -- send no body or `{}`. CodeTerm reads the terminal screen content and runs structural fingerprint detection to extract the prompt.
 3. **Per-tool payload** -- send the provider's own `PermissionRequest`: `tool_name`, `tool_input` and `permission_suggestions[]` are kept verbatim and the vendor's suggestions become the surfaced options. No screen scraping and no late `Notification` wait. A body without `tool_name` keeps modes 1 and 2. A report whose binding nonce disagrees with the tab's launch nonce is rejected with 409.
 
 ```bash
@@ -99,7 +99,7 @@ Response: `{"detected": true}` or `{"detected": false}`. Even when `detected: fa
 
 #### Stop Hook (POST /api/tabs/{id}/hook/stop)
 
-Called by Claude Code hooks (Stop matcher) to notify CodeTerm that the agent has completed its task. Triggers `agent.task_complete` webhook event and updates tab status. For protected tabs (e.g. General Agent), the stop hook does NOT clear `agent_type` — the tab retains its agent identity.
+Called by Claude Code hooks (Stop matcher) to notify CodeTerm that the agent has completed its task. No body is accepted. Triggers `agent.task_complete` webhook event and updates tab status. For protected tabs (e.g. General Agent), the stop hook does NOT clear `agent_type` — the tab retains its agent identity.
 
 ```bash
 curl -X POST "http://host:7685/api/tabs/$TAB/hook/stop" \
@@ -113,7 +113,7 @@ Provider-reported live turn state: `{event, provider_id?, session_id?, binding_n
 
 #### SessionStart Hook (POST /api/tabs/{id}/hook/session_start)
 
-Called by Claude Code's `SessionStart` matcher every time Claude opens a session — fresh launch, `--resume`, `/new`, or `/clear` inside the TUI. CodeTerm extracts `session_id` from the JSON Claude pipes to the hook on stdin and persists it on the tab, so the next restart resumes the right thread instead of the stale id from the previous session. When the id changes, the prior session becomes a persisted context epoch: Chat keeps its transcript visible behind a labelled divider while archived turns are excluded from the provider's new context.
+Called by Claude Code's `SessionStart` matcher every time Claude opens a session — fresh launch, `--resume`, `/new`, or `/clear` inside the TUI. No body is accepted for a status-only report. CodeTerm extracts `session_id` from the JSON Claude pipes to the hook on stdin and persists it on the tab, so the next restart resumes the right thread instead of the stale id from the previous session. When the id changes, the prior session becomes a persisted context epoch: Chat keeps its transcript visible behind a labelled divider while archived turns are excluded from the provider's new context.
 
 ```bash
 # Claude pipes its hook payload on stdin; the installed hook forwards it verbatim.
@@ -236,4 +236,4 @@ The `connect`, `approve`, `reject`, and `disconnect` endpoints are high-level �
 
 Memory item, graph, calibration, and worker endpoints: `codeterm docs API-MEMORY`.
 
-<!-- revision: 19 -->
+<!-- revision: 20 -->
