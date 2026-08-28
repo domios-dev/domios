@@ -93,7 +93,7 @@ const unresolvedFocusHost = await render(<CodetermActionCard event={event('codet
 if (!unresolvedFocusHost.host.querySelector('[data-testid="codeterm-focus-tab"]')) throw new Error("tab focus should not require name resolver");
 
 const closeHost = await render(<CodetermActionCard event={event("codeterm tab close tab_x99ab")} expanded={false} onToggle={() => {}} resolveTabName={(ref) => (ref === "tab_x99ab" ? "Research board" : undefined)} />);
-if (!buttonByRoleName(closeHost.host, "Expand tool details")) throw new Error("close tab card missing accessible toggle button");
+if (!buttonByRoleName(closeHost.host, "Show full command")) throw new Error("close tab card missing accessible command toggle button");
 if (!closeHost.host.textContent?.includes("tab close") || !closeHost.host.textContent.includes("Research board (tab_x99ab)")) throw new Error("close tab summary must include resolved label and id");
 const closeStatus = closeHost.host.querySelector<HTMLSpanElement>('[data-testid="toolcard-status"]');
 if (closeStatus?.getAttribute("aria-label") !== "success") throw new Error("close tab success event must render success icon");
