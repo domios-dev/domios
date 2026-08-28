@@ -119,22 +119,24 @@ function SidebarTabItemRow({
 export interface SidebarSingleTabRowProps extends SidebarTabItemRowProps {
   group: "tab" | "child";
   groupKey: string;
-  items: string[];
   pinnedIds: string[];
+}
+
+export function isTabDragDisabled(tab: Pick<Tab, "protected">): boolean {
+  return tab.protected === true;
 }
 
 export function SidebarSingleTabRow({
   group,
   groupKey,
-  items,
   pinnedIds,
   ...rowProps
 }: SidebarSingleTabRowProps) {
   return (
     <SortableRow
       id={`${TAB_PREFIX}${rowProps.tab.id}`}
-      disabled={rowProps.tab.protected}
-      data={{ group, groupKey, items, pinnedIds }}
+      disabled={isTabDragDisabled(rowProps.tab)}
+      data={{ group, groupKey, pinnedIds }}
     >
       <SidebarTabItemRow {...rowProps} />
     </SortableRow>

@@ -4,6 +4,7 @@ import {
   type DragEndEvent,
   KeyboardSensor,
   PointerSensor,
+  type UniqueIdentifier,
   closestCenter,
   useSensor,
   useSensors,
@@ -17,15 +18,20 @@ import { CSS } from "@dnd-kit/utilities";
 
 /** Each sortable item carries the group it belongs to. A reorder is applied
  *  only when active + over share the same group, so an item can never cross
- *  its hierarchy level. `items` is the group's current prefixed-id order. */
+ *  its hierarchy level. dnd-kit owns each group's current prefixed-id order. */
 export interface SortableGroupData {
   group: "workspace" | "tab" | "child";
   groupKey: string;
-  items: string[];
   /** Prefixed ids pinned to the front of the group (the General workspace /
    *  General tab). A drop that would not keep them leading is rejected. */
   pinnedIds?: string[];
 }
+
+interface SortableEventData extends SortableGroupData {
+  sortable?: { items: UniqueIdentifier[] };
+}
+
+export const POINTER_DRAG_ACTIVATION_DISTANCE = 4;
 
 export const WS_PREFIX = "ws:";
 export const TAB_PREFIX = "tab:";
@@ -73,6 +79,7 @@ export function SortableRow({
       ref={setNodeRef}
       data-dnd-group={`${data.group}:${data.groupKey}`}
       data-dnd-dragging={isDragging ? "true" : undefined}
+      data-dnd-disabled={disabled ? "true" : undefined}
       style={{
         ...layoutStyle,
         transform: CSS.Translate.toString(transform),
@@ -99,35 +106,14 @@ export function SidebarDnd({
   children: ReactNode;
 }) {
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: POINTER_DRAG_ACTIVATION_DISTANCE },
+    }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
   const onDragEnd = useMemo(
-    () => (e: DragEndEvent) => {
-      const { active, over } = e;
-      if (!over || active.id === over.id) return;
-      const ad = active.data.current as SortableGroupData | undefined;
-      const od = over.data.current as SortableGroupData | undefined;
-      if (!ad || !od) return;
-      // Within-group only — dropping onto another group is a no-op (snap back).
-      if (ad.group !== od.group || ad.groupKey !== od.groupKey) return;
-      const from = ad.items.indexOf(String(active.id));
-      const to = ad.items.indexOf(String(over.id));
-      if (from < 0 || to < 0) return;
-      const reordered = arrayMove(ad.items, from, to);
-      // the group in their original order — nothing reorders above General.
-      const pinned = ad.pinnedIds ?? [];
-      if (pinned.some((p, i) => reordered[i] !== p)) return;
-      const ordered = reordered.map(rawId);
-      if (ad.group === "workspace") {
-        handlers.reorderWorkspaces(ordered);
-      } else if (ad.group === "child") {
-        handlers.reorderTabs({ parentTabId: ad.groupKey, orderedTabIds: ordered });
-      } else {
-        handlers.reorderTabs({ workspaceId: ad.groupKey, orderedTabIds: ordered });
-      }
-    },
+    () => (event: DragEndEvent) => commitSidebarDrag(event, handlers),
     [handlers],
   );
 
@@ -136,6 +122,33 @@ export function SidebarDnd({
       {children}
     </DndContext>
   );
+}
+
+export function commitSidebarDrag(event: DragEndEvent, handlers: ReorderHandlers): void {
+  const { active, over } = event;
+  if (!over || active.id === over.id) return;
+  const activeData = active.data.current as SortableEventData | undefined;
+  const overData = over.data.current as SortableEventData | undefined;
+  if (!activeData || !overData) return;
+  if (
+    activeData.group !== overData.group
+    || activeData.groupKey !== overData.groupKey
+  ) return;
+  const items = activeData.sortable?.items.map(String) ?? [];
+  const from = items.indexOf(String(active.id));
+  const to = items.indexOf(String(over.id));
+  if (from < 0 || to < 0) return;
+  const reordered = arrayMove(items, from, to);
+  const pinned = activeData.pinnedIds ?? [];
+  if (pinned.some((pinnedId, index) => reordered[index] !== pinnedId)) return;
+  const ordered = reordered.map(rawId);
+  if (activeData.group === "workspace") {
+    handlers.reorderWorkspaces(ordered);
+  } else if (activeData.group === "child") {
+    handlers.reorderTabs({ parentTabId: activeData.groupKey, orderedTabIds: ordered });
+  } else {
+    handlers.reorderTabs({ workspaceId: activeData.groupKey, orderedTabIds: ordered });
+  }
 }
 
 export { SortableContext, rectSortingStrategy, verticalListSortingStrategy } from "@dnd-kit/sortable";
