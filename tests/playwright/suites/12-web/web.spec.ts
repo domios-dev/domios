@@ -63,7 +63,23 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
   stub.muxDelayMs = 500;
   let peerId: string | undefined;
   const selfWorkspaceName = `${stub.instanceName}-self-host`;
-  let selfWorkspaceId: string | undefined;
+
+  const removeSelfWorkspaces = async () => {
+    const matchingWorkspaces = (await api.workspaces()).filter(
+      (workspace) => workspace.name === selfWorkspaceName,
+    );
+    for (const workspace of matchingWorkspaces) {
+      await api.closeWorkspace(workspace.id);
+    }
+    const remainingWorkspaces = (await api.workspaces()).filter(
+      (workspace) => workspace.name === selfWorkspaceName,
+    );
+    if (remainingWorkspaces.length > 0) {
+      throw new Error(
+        `workspace cleanup left ${remainingWorkspaces.length} ${selfWorkspaceName} record(s): ${remainingWorkspaces.map((workspace) => workspace.id).join(", ")}`,
+      );
+    }
+  };
 
   // before its cleanup — drop them so selectors stay unambiguous.
   const existing = await api.get<{ paired: { instance_id: string; instance_name: string }[] }>(
@@ -74,10 +90,10 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
       await api.post(`/mesh/peers/disconnect/${p.instance_id}`).catch(() => {});
     }
   }
+  await removeSelfWorkspaces();
 
   try {
     await api.createWorkspace(selfWorkspaceName);
-    selfWorkspaceId = (await api.workspaces()).find((w) => w.name === selfWorkspaceName)?.id;
     // has every field it expects when pointed at the stub.
     stub.configPayload = await api.get("/config");
     await stub.start("happy");
@@ -175,8 +191,11 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
     await page.context().close();
   } finally {
     if (peerId) await api.post(`/mesh/peers/disconnect/${peerId}`).catch(() => {});
-    if (selfWorkspaceId) await api.closeWorkspace(selfWorkspaceId).catch(() => {});
-    await stub.stop();
+    try {
+      await removeSelfWorkspaces();
+    } finally {
+      await stub.stop();
+    }
   }
 });
 
