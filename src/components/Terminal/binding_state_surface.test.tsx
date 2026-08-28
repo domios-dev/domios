@@ -137,12 +137,19 @@ const tests: Test[] = [
   }],
 ];
 
-for (const [name, run] of tests) {
-  try {
-    await run();
-    console.log(`PASS ${name}`);
-  } catch (error) {
-    console.error(`FAIL ${name}`);
-    throw error;
+async function main(): Promise<void> {
+  for (const [name, run] of tests) {
+    try {
+      await run();
+      console.log(`PASS ${name}`);
+    } catch (error) {
+      console.error(`FAIL ${name}`);
+      throw error;
+    }
   }
 }
+
+void main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
