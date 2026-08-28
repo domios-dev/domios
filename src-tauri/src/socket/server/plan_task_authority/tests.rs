@@ -147,11 +147,20 @@ fn mutation_authority(
     session_id: &str,
     nonce: &str,
 ) -> crate::service::plan::interruption::TaskMutationAuthority {
+    mutation_authority_at_epoch(tab_id, session_id, nonce, OWNER_EPOCH)
+}
+
+fn mutation_authority_at_epoch(
+    tab_id: &str,
+    session_id: &str,
+    nonce: &str,
+    owner_epoch: u64,
+) -> crate::service::plan::interruption::TaskMutationAuthority {
     crate::service::plan::interruption::TaskMutationAuthority {
         tab_id: tab_id.to_string(),
         session_id: session_id.to_string(),
         session_binding_nonce: nonce.to_string(),
-        owner_epoch: OWNER_EPOCH,
+        owner_epoch,
     }
 }
 
@@ -696,10 +705,11 @@ fn task_authority_live_binding_report_path_accepts_a_moved_worker_session() {
             &AgentRef::from_tab(&worker),
             BoundWorkerReport {
                 message: "still writing".into(),
-                authority: Some(mutation_authority(
+                authority: Some(mutation_authority_at_epoch(
                     &worker,
                     "worker-session",
                     "worker-nonce",
+                    1,
                 )),
                 ..Default::default()
             },
