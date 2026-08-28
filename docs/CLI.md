@@ -2126,8 +2126,8 @@ Add a task to a plan (carries model/why routing + quality fields)
 - `--priority`
 - `--qa-plan`
 - `--qa-plan-file`
-- `--role-guidance` — Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. "You are Alex; property tests come before implementation; red line: a lock claim without a test is not proof."
-- `--role-guidance-file`
+- `--role-guidance` — REQUIRED: initial worker conditioning. Presence alone is the machine contract; prose quality is a human judgment
+- `--role-guidance-file` — Read required initial worker conditioning from a file
 - `--sections`
 - `--tag`
 - `--test-plan`
@@ -2315,7 +2315,7 @@ Update task metadata, status, quality fields, or lane assignment
 - `--qa-plan-file`
 - `--remove-dependency` — Remove a specific dependency edge; repeatable. Applied after --depends-on additions
 - `--replace-dependencies` — Replace the whole dependency set with --depends-on instead of appending
-- `--role-guidance` — Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. "You are Alex; property tests come before implementation; red line: a lock claim without a test is not proof."
+- `--role-guidance` — Replace initial worker conditioning. Cannot be emptied; presence alone is the machine contract
 - `--role-guidance-file`
 - `--sections`
 - `--status` — Task status: pending | in_progress | in_review | blocked | paused | done | cancelled
