@@ -429,7 +429,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             }
         }
         TabAction::Search { pattern } => {
-            let result = client.call("tab.list", None);
+            let result = fetch_search_tabs(client);
             match result {
                 Ok(value) => {
                     let arr = value.as_array().cloned().unwrap_or_default();
@@ -659,6 +659,14 @@ fn tab_list_params(
         "all_workspaces": all_workspaces,
         "agents_only": agents_only,
     })
+}
+
+fn tab_search_params() -> serde_json::Value {
+    tab_list_params(None, true, false, None)
+}
+
+fn fetch_search_tabs(client: &mut dyn RpcClient) -> Result<serde_json::Value, String> {
+    client.call("tab.list", Some(tab_search_params()))
 }
 
 fn caller_workspace_id(client: &mut SocketClient, caller_tab_id: Option<&str>) -> Option<String> {
