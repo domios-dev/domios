@@ -3,7 +3,7 @@
  * WHY: A stale mux refresh once reverted optimistic tab focus to the previously active tab.
  * ORACLE: The UI and backend converge on the newly selected tab after the delayed workspace-focus response lands.
  */
-import { expect, test } from "../../helpers/fixtures";
+import { API_BASE, expect, readDevToken, test } from "../../helpers/fixtures";
 
 type MuxState = {
   active_workspace_id?: string | null;
@@ -23,8 +23,9 @@ function visibleTabs(
 
 // Regression oracle for applyBackendState tab-bounce: POST#1 can emit stale
 // active_tab before POST#2, reverting the optimistic switch.
-test("@golden web tab-switch does not bounce to previous tab", async ({ ui, api }) => {
-  const page = ui.page;
+test("@golden web tab-switch does not bounce to previous tab", async ({ api, webBrowser }) => {
+  const context = await webBrowser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await context.newPage();
   const created = await api.post<{ id?: string; workspace_id?: string }>("/workspaces", {
     name: `pw-bounce-${Date.now()}`,
     activate: true,
@@ -34,6 +35,13 @@ test("@golden web tab-switch does not bounce to previous tab", async ({ ui, api 
   let tabBFocusRoute: string | undefined;
 
   try {
+    await page.goto(`${API_BASE}/#token=${encodeURIComponent(readDevToken())}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(
+      page.locator('[data-testid="peer-picker-button"], [data-testid="web-sidebar-open"]').first(),
+      "web mirror must be ready before the bounce fixture is created",
+    ).toBeVisible({ timeout: 20_000 });
     await api.post(`/workspaces/${workspaceId}/tabs`, { eager: true });
     await api.post(`/workspaces/${workspaceId}/tabs`, { eager: true });
     await api.focusWorkspace(workspaceId!);
@@ -123,6 +131,7 @@ test("@golden web tab-switch does not bounce to previous tab", async ({ ui, api 
     ).toBe(false);
   } finally {
     if (tabBFocusRoute) await page.unroute(tabBFocusRoute).catch(() => {});
+    await context.close();
     await api.closeWorkspace(workspaceId!).catch(() => {});
   }
 });
