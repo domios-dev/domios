@@ -555,14 +555,23 @@ pub(crate) fn authenticated_plan_caller(
     }
 }
 
-/// A self-termination refusal is a 403 (authenticated but forbidden); anything
-/// else from a close is a missing target.
 pub(crate) fn map_close_error(e: String) -> (StatusCode, String) {
-    if e.starts_with(crate::service::tab::SELF_CLOSE_REFUSAL_PREFIX) {
-        (StatusCode::FORBIDDEN, e)
+    let status = if e.starts_with(crate::service::tab::SELF_CLOSE_REFUSAL_PREFIX)
+        || e.starts_with(crate::service::AGENT_TAB_CLOSE_REFUSAL_PREFIX)
+        || e.starts_with("Cannot close protected workspace")
+    {
+        StatusCode::FORBIDDEN
+    } else if e.starts_with("Workspace not found:") {
+        StatusCode::NOT_FOUND
+    } else if e.starts_with("Workspace is closing:")
+        || e.starts_with("Workspace close reservation lost:")
+        || e.starts_with("Workspace changed while closing:")
+    {
+        StatusCode::CONFLICT
     } else {
-        (StatusCode::NOT_FOUND, e)
-    }
+        StatusCode::INTERNAL_SERVER_ERROR
+    };
+    (status, e)
 }
 
 #[derive(Deserialize)]
@@ -977,3 +986,6 @@ mod tests_send_text_body;
 
 #[cfg(test)]
 mod tests_create_tab;
+
+#[cfg(test)]
+mod tests_close_error;
