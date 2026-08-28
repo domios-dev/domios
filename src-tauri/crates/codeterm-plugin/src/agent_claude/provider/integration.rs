@@ -60,11 +60,23 @@ fn is_codeterm_hook(hook_entry: &Json) -> bool {
         .map(|hs| {
             hs.iter().any(|h| {
                 if let Some(source) = h.get("_source").and_then(|s| s.as_str()) {
-                    if source.starts_with("codeterm-hook-") {
+                    if source.starts_with("codeterm-hook") || source == "codeterm" {
                         return true;
                     }
                 }
-                false
+                h.get("command")
+                    .and_then(|command| command.as_str())
+                    .map(|command| {
+                        let codeterm_origin = command.contains("7685") || command.contains("7686");
+                        let hook_route = command.contains("/api/notifications")
+                            || command.contains("/api/tabs/")
+                            || command.contains("/hook/permission")
+                            || command.contains("/hook/stop")
+                            || command.contains("/hook/session_start")
+                            || command.contains("/api/mem/flush");
+                        codeterm_origin && hook_route
+                    })
+                    .unwrap_or(false)
             })
         })
         .unwrap_or(false)
