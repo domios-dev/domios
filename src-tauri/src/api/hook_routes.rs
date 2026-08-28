@@ -267,7 +267,7 @@ pub async fn hook_stop(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let tab_id = resolve_tab(&state, &raw_tab_id).map_err(|(s, m)| (s, m.to_string()))?;
     log::debug!("[hook_stop] fired for Tab {}", tab_id);
-    let body = body.map(|Json(v)| v).unwrap_or(serde_json::Value::Null);
+    let body = body.unwrap_or(serde_json::Value::Null);
     let report_nonce = body
         .get("binding_nonce")
         .and_then(|v| v.as_str())
