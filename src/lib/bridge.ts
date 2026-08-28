@@ -176,6 +176,12 @@ const HTTP_MAP: Record<string, Mapper> = {
   disable_web_access: () => webJson("POST", "/api/network/serve/disable"),
 
   mux_get_state: () => webJson("GET", "/api/mux/state"),
+  session_binding_state: (a) =>
+    webJson("GET", `/api/tabs/${enc(s(a, "tabId"))}/session/binding-state`),
+  rebind_tab_session: (a) =>
+    webJson("POST", `/api/tabs/${enc(s(a, "tabId"))}/session/rebind`, {
+      session_id: s(a, "sessionId"),
+    }),
   mux_set_active_workspace: (a) =>
     webJson("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/focus`),
   mux_create_workspace: (a) =>
