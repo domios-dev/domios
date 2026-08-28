@@ -35,6 +35,7 @@ pub enum PlanError {
     TaskDispatchRequiresApproval,
     HeartbeatRequiresExecution,
     TaskPauseRequiresReason,
+    ReviewHoldRequired,
     PauseRequiresReason,
     InProgressRequiresTab,
     BlockedRequiresLabel,
@@ -190,6 +191,10 @@ impl fmt::Display for PlanError {
             PlanError::TaskPauseRequiresReason => write!(
                 f,
                 "pausing a task requires a reason; run `codeterm plan task pause <plan> <task> --reason \"<why>\"`"
+            ),
+            PlanError::ReviewHoldRequired => write!(
+                f,
+                "in-review work must use the review hold verdict to preserve its assignment and lane"
             ),
             PlanError::PauseRequiresReason => write!(
                 f,
@@ -368,6 +373,7 @@ impl PlanError {
             PlanError::TaskPauseRequiresReason => {
                 serde_json::json!({ "type": "task_pause_requires_reason" })
             }
+            PlanError::ReviewHoldRequired => serde_json::json!({ "type": "review_hold_required" }),
             PlanError::PauseRequiresReason => {
                 serde_json::json!({ "type": "pause_requires_reason" })
             }

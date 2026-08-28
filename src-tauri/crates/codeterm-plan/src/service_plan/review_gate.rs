@@ -672,6 +672,63 @@ impl PlanStore {
         result.ok_or(PlanError::TaskNotFound)
     }
 
+    pub fn hold_review(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        note: &str,
+        from: AgentRef,
+        now_ms: u64,
+    ) -> Result<ReviewTransitionResult, PlanError> {
+        let note = note.trim();
+        if note.is_empty() {
+            return Err(PlanError::QaNoteRequired);
+        }
+        let mut result = None;
+        self.with_plan(plan_id, now_ms, |plan| {
+            let idx = plan
+                .tasks
+                .iter()
+                .position(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+                .ok_or(PlanError::TaskNotFound)?;
+            require_in_review(&plan.tasks[idx])?;
+            let milestone_id =
+                crate::plan::ids::mint_id("ms", |candidate| plan_contains_id(plan, candidate));
+            let task = &mut plan.tasks[idx];
+            task.review_evidence.push(ReviewEvidence {
+                id: crate::plan::ids::short_id("rev"),
+                from: from.clone(),
+                verdict: ReviewVerdict::Hold,
+                note: note.into(),
+                at: now_ms,
+                changed_executable_surfaces: false,
+                distinct_oracle: false,
+            });
+            task.status_label = Some("review held".into());
+            task.updated_at = now_ms;
+            task.milestones.push(review_milestone(
+                milestone_id.clone(),
+                from,
+                &ReviewVerdict::Hold,
+                note,
+                now_ms,
+            ));
+            result = Some(ReviewTransitionResult {
+                plan_id: plan.id.clone(),
+                task_id: task.id.clone(),
+                milestone_id,
+                task_name: task.name.clone(),
+                verdict: ReviewVerdict::Hold,
+                review_round: task.review_round,
+                follow_up_task_id: None,
+                strategy_warning: None,
+                continuation: None,
+            });
+            Ok(())
+        })?;
+        result.ok_or(PlanError::TaskNotFound)
+    }
+
     pub fn claim_review_continuation_delivery(
         &self,
         plan_id: &str,

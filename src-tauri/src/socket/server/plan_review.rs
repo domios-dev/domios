@@ -322,6 +322,19 @@ pub(super) fn dispatch(
                 data: None,
             })
         }
+        "plan.review.hold" => {
+            let (plan_id, task_id) = super::plan_refs::resolve_task(store, params)?;
+            let from = actor(p);
+            let result = store
+                .hold_review(&plan_id, &task_id, note(p), from, now)
+                .map_err(plan_rpc_err)?;
+            emit_plan_changed(app, &plan_id);
+            serde_json::to_value(result).map_err(|e| JsonRpcError {
+                code: -32603,
+                message: e.to_string(),
+                data: None,
+            })
+        }
         _ => Err(JsonRpcError {
             code: -32601,
             message: format!("Unknown plan review method: {method}"),

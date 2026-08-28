@@ -582,6 +582,118 @@ fn bounce_review_atomically_exits_in_review_and_leaves_no_stale_qa_claim() {
 }
 
 #[test]
+fn review_hold_verdict_records_reason_and_keeps_review_open() {
+    let (_dir, store, plan_id) = setup();
+    let task_id = add_ready_task(&store, &plan_id, "held", 2);
+    dispatch(&store, &plan_id, &task_id, "tab_impl", 3).unwrap();
+    set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
+    let result = store
+        .hold_review(
+            &plan_id,
+            &task_id,
+            "re-cut the scope before continuing",
+            AgentRef::from_tab("reviewer"),
+            5,
+        )
+        .unwrap();
+
+    let after = store.show_task(&task_id).unwrap().task;
+    assert_eq!(result.verdict, ReviewVerdict::Hold);
+    assert_eq!(after.status, TaskStatus::InReview);
+    assert_eq!(after.status_label.as_deref(), Some("review held"));
+    assert_eq!(after.review_evidence.last().unwrap().verdict, ReviewVerdict::Hold);
+    assert_eq!(
+        after.review_evidence.last().unwrap().note,
+        "re-cut the scope before continuing"
+    );
+}
+
+#[test]
+fn review_hold_verdict_preserves_assignment_and_lane() {
+    let (_dir, store, plan_id) = setup();
+    let task_id = add_ready_task(&store, &plan_id, "held", 2);
+    dispatch(&store, &plan_id, &task_id, "tab_impl", 3).unwrap();
+    set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
+    let before = store.show_task(&task_id).unwrap().task;
+
+    store
+        .hold_review(
+            &plan_id,
+            &task_id,
+            "re-cut the scope before continuing",
+            AgentRef::from_tab("reviewer"),
+            5,
+        )
+        .unwrap();
+
+    let after = store.show_task(&task_id).unwrap().task;
+    assert_eq!(after.assigned_tab_id, before.assigned_tab_id);
+    assert_eq!(after.lane.tab_id, before.lane.tab_id);
+}
+
+#[test]
+fn review_hold_verdict_can_bounce_to_the_existing_assignment() {
+    let (_dir, store, plan_id) = setup();
+    let task_id = add_ready_task(&store, &plan_id, "held", 2);
+    dispatch(&store, &plan_id, &task_id, "tab_impl", 3).unwrap();
+    set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
+    store
+        .hold_review(
+            &plan_id,
+            &task_id,
+            "awaiting scope recut",
+            AgentRef::from_tab("reviewer"),
+            5,
+        )
+        .unwrap();
+
+    let result = store
+        .bounce_review(
+            &plan_id,
+            &task_id,
+            "scope recut is ready",
+            false,
+            false,
+            AgentRef::from_tab("reviewer"),
+            6,
+        )
+        .unwrap();
+
+    assert_eq!(
+        result.continuation.as_ref().unwrap().executor_tab_id,
+        "tab_impl"
+    );
+    assert_eq!(
+        store.show_task(&task_id).unwrap().task.assigned_tab_id.as_deref(),
+        Some("tab_impl")
+    );
+}
+
+#[test]
+fn review_hold_verdict_pause_guard_survives() {
+    let (_dir, store, plan_id) = setup();
+    let task_id = add_ready_task(&store, &plan_id, "held", 2);
+    dispatch(&store, &plan_id, &task_id, "tab_impl", 3).unwrap();
+    set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
+
+    let pause_error = store
+        .pause_task(
+            &plan_id,
+            &task_id,
+            "operator pause",
+            AgentRef::from_tab("orch"),
+            5,
+        )
+        .unwrap_err();
+    assert!(matches!(pause_error, PlanError::ReviewHoldRequired));
+    assert!(pause_error.to_string().contains("hold"));
+    assert!(matches!(
+        set_status(&store, &plan_id, &task_id, "paused", 6),
+        Err(PlanError::ReviewHoldRequired)
+    ));
+}
+
+#[test]
 fn review_bounce_transition_keeps_task_attempt_epoch_atomic() {
     let (_dir, store, plan_id) = setup();
     let task_id = add_ready_task(&store, &plan_id, "continuation", 2);
