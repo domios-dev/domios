@@ -1,5 +1,23 @@
 use super::*;
+use crate::client::SocketCallError;
 use serde_json::json;
+
+#[derive(Default)]
+struct SearchRpc {
+    calls: Vec<(String, Option<serde_json::Value>)>,
+    tabs: Vec<serde_json::Value>,
+}
+
+impl RpcClient for SearchRpc {
+    fn call_detailed(
+        &mut self,
+        method: &str,
+        params: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value, SocketCallError> {
+        self.calls.push((method.to_string(), params));
+        Ok(serde_json::Value::Array(self.tabs.clone()))
+    }
+}
 
 #[test]
 fn tab_list_request_scopes_to_calling_tab_when_workspace_env_is_absent() {
@@ -21,6 +39,35 @@ fn tab_list_request_drops_calling_tab_for_explicit_scope() {
 
     assert!(workspace["caller_tab_id"].is_null());
     assert!(all["caller_tab_id"].is_null());
+}
+
+#[test]
+fn explicit_address_scope_tab_search_sees_foreign_workspace_titles_and_ids() {
+    let foreign = json!({
+        "id": "deadbeef1234",
+        "tab_title": "Foreign Dalton",
+        "workspace_name": "Elsewhere",
+        "workspace_id": "ws_foreign"
+    });
+    let mut client = SearchRpc {
+        tabs: vec![foreign],
+        ..Default::default()
+    };
+
+    let response = fetch_search_tabs(&mut client).unwrap();
+    assert_eq!(client.calls[0].0, "tab.list");
+    let params = client.calls[0].1.as_ref().expect("tab.list params");
+    assert_eq!(params["all_workspaces"], true);
+    assert_eq!(params["focused_workspace"], false);
+    assert!(params["caller_tab_id"].is_null());
+
+    let tabs = response.as_array().expect("tab.list array");
+    assert_eq!(rank_ids("Dalton", &tabs), vec!["deadbeef1234".to_string()]);
+    assert_eq!(
+        rank_ids("deadbeef", &tabs),
+        vec!["deadbeef1234".to_string()]
+    );
+    assert!(format_tab_row(&tabs[0]).contains("ws=Elsewhere"));
 }
 
 fn make_tab(id: &str, title: &str, agent: Option<&str>, sname: Option<&str>) -> serde_json::Value {
