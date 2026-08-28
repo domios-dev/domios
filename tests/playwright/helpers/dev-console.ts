@@ -122,6 +122,7 @@ export async function assertReusableDevConsole(instance = currentDevInstance()):
   progress("health probe", `checking ${instance.apiBase}/api/health at HEAD ${testedHeadSha()}`);
   const verdict = await probeHealth(instance);
   if (!verdict.ok) throw new Error(healthMismatchMessage(instance, verdict));
+  assertFrontendBuildIdentity();
 
   if (usesWebUi) {
     progress("web-ui probe", `checking ${instance.webUrl}`);
@@ -137,6 +138,19 @@ export async function assertReusableDevConsole(instance = currentDevInstance()):
     throw new Error(
       `healthy Playwright instance exposes CDP at ${instance.cdpBase}, but its app is not ready (${readiness.reason}); ${STAND_UP_INSTANCE_HINT}`,
     );
+  }
+}
+
+export function assertFrontendBuildIdentity(): void {
+  const identityFile = path.join(REPO_ROOT, "dist", "build-identity.json");
+  let data: { buildHash?: unknown };
+  try {
+    data = JSON.parse(fs.readFileSync(identityFile, "utf8")) as { buildHash?: unknown };
+  } catch (error) {
+    throw new Error(`Playwright preparation cannot read frontend build identity at ${identityFile}: ${error}`);
+  }
+  if (typeof data.buildHash !== "string" || !data.buildHash.trim() || data.buildHash.trim() === "unknown") {
+    throw new Error("Playwright preparation refuses the frontend bundle with an unknown identity");
   }
 }
 
