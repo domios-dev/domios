@@ -90,7 +90,7 @@ fn generic_status_update(
     store: &PlanStore,
     plan_id: &str,
     task_id: &str,
-    status: &str,
+    status: Option<&str>,
     status_label: Option<Option<&str>>,
     now_ms: u64,
 ) -> Result<(), PlanError> {
@@ -101,7 +101,7 @@ fn generic_status_update(
         None,
         None,
         None,
-        Some(status),
+        status,
         status_label,
         None,
         None,
@@ -151,7 +151,7 @@ fn review_recovery_pend_live_in_review_owner_still_refuses_generic_status_mutati
     let (_dir, store, plan_id, task_id, _attempt_id) = tab_gone_task();
     put_task_in_review(&store, &plan_id, &task_id);
 
-    let error = generic_status_update(&store, &plan_id, &task_id, "pending", None, 10)
+    let error = generic_status_update(&store, &plan_id, &task_id, Some("pending"), None, 10)
         .expect_err("generic mutation must not pull review from a live owner");
     assert!(matches!(error, PlanError::TransitionDenied { .. }));
     assert!(store
@@ -168,13 +168,13 @@ fn review_recovery_pend_caller_set_tab_gone_label_does_not_bypass_live_owner() {
         &store,
         &plan_id,
         &task_id,
-        "in_review",
+        None,
         Some(Some(TAB_GONE_LABEL)),
         10,
     )
     .unwrap();
 
-    let error = generic_status_update(&store, &plan_id, &task_id, "pending", None, 11)
+    let error = generic_status_update(&store, &plan_id, &task_id, Some("pending"), None, 11)
         .expect_err("a display label must not unlock review recovery");
     assert!(matches!(error, PlanError::TransitionDenied { .. }));
     let task = task_of(&store, &plan_id, &task_id);
@@ -187,7 +187,7 @@ fn review_recovery_pend_in_review_to_paused_still_requires_review_hold() {
     let (_dir, store, plan_id, task_id, _attempt_id) = tab_gone_task();
     put_task_in_review(&store, &plan_id, &task_id);
 
-    let error = generic_status_update(&store, &plan_id, &task_id, "paused", None, 10)
+    let error = generic_status_update(&store, &plan_id, &task_id, Some("paused"), None, 10)
         .expect_err("review pause must remain a hold verdict");
     assert!(matches!(error, PlanError::ReviewHoldRequired));
 }
