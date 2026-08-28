@@ -557,7 +557,7 @@ function AppInner() {
               className={`sm:hidden fixed inset-0 z-30 bg-black/40 ct-sidebar-backdrop ${sidebarShown ? "is-open" : ""}`}
               onClick={() => setSidebarOpen(false)}
               aria-hidden={!sidebarShown}
-              style={{ pointerEvents: sidebarShown ? "auto" : "none" }}
+              style={{ pointerEvents: sidebarOpen ? "auto" : "none" }}
             />
             {/* Fixed overlay escapes #root's safe-area padding — re-add it here. */}
             <div
