@@ -28,7 +28,7 @@ Env vars set CONDITIONALLY, only when the tab actually has that identity — tes
 | Domain / trigger | Commands | Depth |
 |---|---|---|
 | Environment, version, what-can-this-do | `codeterm identify`, `capabilities`, `docs` | — |
-| Tabs, sending text/keys, reading a tab | Plain `tab list` first; use `tab inspect <id>` only for a selected tab's full details, then `send`, `tab chat`, `tab get-text`, `tab exec`. | `docs ROUTING` |
+| Tabs, sending text/keys, reading a tab | Plain `tab list` first; use `tab inspect <id>` only for a selected tab's full details, then `send`, `tab chat`, `tab get-text`, `tab exec`. Recover a stale provider-session binding without interrupting the agent with `tab rebind SESSION_ID --tab ID`. | `docs ROUTING` |
 | Long-running processes (servers, watchers) | `tab new --cmd "..."`; later use `tab restart --tab ID --cmd "..."` to replace that shell without creating another tab | — |
 | Scheduled/future message to a tab | `send --delay/--at`, `delayed --help` | — |
 | Spawning agents, worker/orchestrator shapes, reports | `agent spawn --help`, `agent report`, `agent providers/models` | `codeterm docs ORCHESTRATION` |

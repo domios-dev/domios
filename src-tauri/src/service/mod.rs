@@ -66,6 +66,7 @@ mod role_identity;
 pub(crate) mod role_preset;
 mod role_profile;
 mod session_backup;
+pub(crate) mod session_binding_deferral;
 pub mod session_persist;
 mod shell_restart;
 pub mod smart_add;
@@ -290,6 +291,8 @@ pub struct ServiceContext {
     pub(crate) pending_delivery_payloads:
         Arc<pending_delivery_payloads::PendingDeliveryPayloadStore>,
     pub(crate) chat_send_ledger: Arc<chat_send_transaction::ChatSendLedger>,
+    pub(crate) deferred_session_bindings:
+        Arc<session_binding_deferral::DeferredSessionBindingRegistry>,
     pub(crate) worker_identity_allocator:
         Arc<parking_lot::Mutex<worker_persona::WorkerPersonaReservations>>,
     pub(crate) worker_ack: Arc<worker_ack::WorkerAckRegistry>,
