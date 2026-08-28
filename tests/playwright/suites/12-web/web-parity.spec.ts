@@ -96,9 +96,15 @@ async function openSidebarIfNeeded(page: Page): Promise<void> {
   if (await toggle.isVisible().catch(() => false)) await toggle.click();
 }
 
-function workspaceSidebarItem(page: Page, workspaceId: string) {
+function workspaceSidebarDetail(page: Page, workspaceId: string) {
   return page.locator(
-    `[data-testid="workspace-item"][data-workspace-id="${workspaceId}"]`,
+    `[data-testid="workspace-detail"][data-workspace-id="${workspaceId}"]`,
+  );
+}
+
+function workspaceSidebarItem(page: Page, workspaceId: string) {
+  return workspaceSidebarDetail(page, workspaceId).locator(
+    '[data-testid="workspace-item"]',
   );
 }
 
@@ -110,6 +116,15 @@ async function expandWorkspaceSidebar(
   if (!(await workspace.isVisible().catch(() => false))) return;
   const expand = workspace.locator('button[title="Expand"]');
   if (await expand.isVisible().catch(() => false)) await expand.click();
+}
+
+async function clickWorkspaceNewSession(
+  page: Page,
+  workspaceId: string,
+): Promise<void> {
+  await workspaceSidebarDetail(page, workspaceId)
+    .getByRole("button", { name: /^New session$/ })
+    .click({ timeout: 10_000 });
 }
 
 function titleTokens(provider: ProviderDescriptor): string[] {
@@ -213,7 +228,7 @@ async function expectProviderMenuContract(
     "naming gate fixture workspace did not render as a sidebar card",
   ).toBeVisible({ timeout: 15_000 });
   await expandWorkspaceSidebar(page, workspaceId);
-  await workspace.getByRole("button", { name: /^New session$/ }).click();
+  await clickWorkspaceNewSession(page, workspaceId);
   await selectSingleAgentMode(page);
   const providerSelect = singleAgentProviderSelect(page);
   await expect(providerSelect).toBeVisible({ timeout: 10_000 });
@@ -306,9 +321,7 @@ async function clickNewSession(
     "naming gate fixture workspace did not render as a sidebar card",
   ).toBeVisible({ timeout: 15_000 });
   await expandWorkspaceSidebar(page, workspaceId);
-  const newSession = workspace.getByRole("button", { name: /^New session$/ });
-  await expect(newSession).toBeVisible({ timeout: 10_000 });
-  await newSession.click();
+  await clickWorkspaceNewSession(page, workspaceId);
   await selectSingleAgentMode(page);
   await selectSingleAgentProvider(page, provider);
   const confirm = sessionPicker(page).locator('[data-testid="picker-confirm"]');
