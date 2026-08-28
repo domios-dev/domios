@@ -63,7 +63,8 @@ fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
         PlanError::ReadbackMismatch { .. }
         | PlanError::TeamAlreadyHasActivePlan { .. }
         | PlanError::PlanAlreadyBoundToTeam { .. }
-        | PlanError::PlanSkillAlreadyExists { .. } => StatusCode::CONFLICT,
+        | PlanError::PlanSkillAlreadyExists { .. }
+        | PlanError::ReviewHoldRequired => StatusCode::CONFLICT,
         PlanError::Io(_) => StatusCode::INTERNAL_SERVER_ERROR,
     };
     (status, Json(json!({ "plan_error": e.to_json() })))
@@ -411,5 +412,12 @@ mod tests {
         });
         assert_eq!(status, StatusCode::CONFLICT);
         assert_eq!(body["plan_error"]["type"], "team_already_has_active_plan");
+    }
+
+    #[test]
+    fn review_hold_required_is_409_with_plan_error_json() {
+        let (status, Json(body)) = plan_err(PlanError::ReviewHoldRequired);
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(body["plan_error"]["type"], "review_hold_required");
     }
 }
