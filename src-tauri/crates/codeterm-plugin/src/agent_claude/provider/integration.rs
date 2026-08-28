@@ -65,16 +65,16 @@ fn is_codeterm_hook(hook_entry: &Json) -> bool {
                     }
                 }
                 h.get("command")
-                    .and_then(|c| c.as_str())
-                    .map(|cmd| {
-                        let is_codeterm_url = cmd.contains("7685") || cmd.contains("7686");
-                        let is_codeterm_path = cmd.contains("/api/notifications")
-                            || cmd.contains("/api/tabs/")
-                            || cmd.contains("/hook/permission")
-                            || cmd.contains("/hook/stop")
-                            || cmd.contains("/hook/session_start")
-                            || cmd.contains("/api/mem/flush");
-                        is_codeterm_url && is_codeterm_path
+                    .and_then(|command| command.as_str())
+                    .map(|command| {
+                        let codeterm_origin = command.contains("7685") || command.contains("7686");
+                        let hook_route = command.contains("/api/notifications")
+                            || command.contains("/api/tabs/")
+                            || command.contains("/hook/permission")
+                            || command.contains("/hook/stop")
+                            || command.contains("/hook/session_start")
+                            || command.contains("/api/mem/flush");
+                        codeterm_origin && hook_route
                     })
                     .unwrap_or(false)
             })
@@ -95,7 +95,7 @@ fn is_current_codeterm_hook(hook_entry: &Json) -> bool {
                     .and_then(|s| s.as_str())
                     .map(|src| src == CODETERM_HOOK_MARKER)
                     .unwrap_or(false);
-                let current_tab_contract = h
+                let current_callback_shape = h
                     .get("command")
                     .and_then(|command| command.as_str())
                     .map(|command| {
@@ -104,10 +104,9 @@ fn is_current_codeterm_hook(hook_entry: &Json) -> bool {
                             && command.contains("CODETERM_API_TOKEN")
                             && !command.contains("CODETERM_API_PORT")
                             && !command.contains("CODETERM_PANE_ID")
-                            && !command.contains("/api/panes/")
                     })
                     .unwrap_or(false);
-                current_marker && current_tab_contract
+                current_marker && current_callback_shape
             })
         })
         .unwrap_or(false)
@@ -121,20 +120,19 @@ fn is_current_session_start_hook(hook_entry: &Json) -> bool {
             hooks.iter().any(|hook| {
                 let current_marker = hook.get("_source").and_then(|source| source.as_str())
                     == Some(CODETERM_HOOK_MARKER);
-                let current_command = hook
+                let current_callback_shape = hook
                     .get("command")
                     .and_then(|command| command.as_str())
                     .map(|command| {
-                        command.contains("CODETERM_TAB_ID")
+                        command.contains("CODETERM_SESSION_BINDING_NONCE")
+                            && command.contains("CODETERM_TAB_ID")
                             && command.contains("CODETERM_API_URL")
                             && command.contains("CODETERM_API_TOKEN")
-                            && command.contains("CODETERM_SESSION_BINDING_NONCE")
                             && !command.contains("CODETERM_API_PORT")
                             && !command.contains("CODETERM_PANE_ID")
-                            && !command.contains("/api/panes/")
                     })
                     .unwrap_or(false);
-                current_marker && current_command
+                current_marker && current_callback_shape
             })
         })
         .unwrap_or(false)
@@ -560,6 +558,7 @@ mod tests {
         IntegrationInstallOptions {
             consent: true,
             precompact_memory_export,
+            repair: false,
         }
     }
 
@@ -714,6 +713,7 @@ mod tests {
         let denied = IntegrationInstallOptions {
             consent: false,
             precompact_memory_export: true,
+            repair: false,
         };
         assert!(install_integration_at(&path, &denied).is_err());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
