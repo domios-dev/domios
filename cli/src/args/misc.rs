@@ -199,6 +199,14 @@ pub enum TabAction {
         #[arg(long = "tab", value_name = "TAB")]
         tab: Option<String>,
     },
+    /// Bind a running tab to an existing provider session without restarting it.
+    Rebind {
+        /// Provider session ID to bind.
+        session_id: String,
+        /// Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback).
+        #[arg(long = "tab", value_name = "TAB")]
+        tab: Option<String>,
+    },
     /// Fuzzy search tabs by id-prefix, tab title, friendly session name,
     /// agent type, or current model. Cross-script — "Далтон" matches "Dalton". Add
     /// `--mesh PEER` to search a paired peer (#99). `find` kept as alias.

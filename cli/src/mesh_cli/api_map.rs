@@ -373,6 +373,14 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 let p = tab.as_deref().unwrap_or("general");
                 ("GET".into(), format!("/api/tabs/{}/status", p), None)
             }
+            crate::TabAction::Rebind { session_id, tab } => {
+                let p = tab.as_deref().unwrap_or("general");
+                (
+                    "POST".into(),
+                    format!("/api/tabs/{}/session/rebind", p),
+                    Some(serde_json::json!({"session_id": session_id}).to_string()),
+                )
+            }
             crate::TabAction::Search { .. } => {
                 // tab search runs local CLI-side; peer only supplies raw list.
                 // Local ranking keeps `Tab list` output stable.

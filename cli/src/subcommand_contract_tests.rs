@@ -784,6 +784,28 @@ fn tab_restart_parses_replacement_shell_parameters() {
 }
 
 #[test]
+fn tab_rebind_parses_session_and_target_without_restart_flags() {
+    let cli = Cli::try_parse_from([
+        "codeterm",
+        "tab",
+        "rebind",
+        "session-live",
+        "--tab",
+        "tab-a",
+    ])
+    .unwrap();
+    match cli.command {
+        Commands::Tab {
+            action: TabAction::Rebind { session_id, tab },
+        } => {
+            assert_eq!(session_id, "session-live");
+            assert_eq!(tab.as_deref(), Some("tab-a"));
+        }
+        _ => panic!("expected tab rebind"),
+    }
+}
+
+#[test]
 fn tab_list_defaults_to_compact_current_workspace_scope() {
     let parsed = TabOnly::try_parse_from(["tab", "list"]).expect("tab list parses");
     assert!(matches!(
