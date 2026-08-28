@@ -9682,7 +9682,7 @@
                   "value_name": "ROLE_GUIDANCE",
                   "possible_values": [],
                   "default": null,
-                  "help": "Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. \"You are Alex; property tests come before implementation; red line: a lock claim without a test is not proof.\"",
+                  "help": "REQUIRED: initial worker conditioning. Presence alone is the machine contract; prose quality is a human judgment",
                   "aliases": []
                 },
                 {
@@ -9692,7 +9692,7 @@
                   "value_name": "PATH",
                   "possible_values": [],
                   "default": null,
-                  "help": null,
+                  "help": "Read required initial worker conditioning from a file",
                   "aliases": []
                 },
                 {
@@ -10861,7 +10861,7 @@
                   "value_name": "ROLE_GUIDANCE",
                   "possible_values": [],
                   "default": null,
-                  "help": "Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. \"You are Alex; property tests come before implementation; red line: a lock claim without a test is not proof.\"",
+                  "help": "Replace initial worker conditioning. Cannot be emptied; presence alone is the machine contract",
                   "aliases": []
                 },
                 {
