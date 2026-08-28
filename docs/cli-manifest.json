@@ -6900,7 +6900,7 @@
         },
         {
           "name": "in-progress",
-          "about": "List active orchestration tasks",
+          "about": "List active orchestration tasks; without PLAN_ID, scope to the current directory's project",
           "aliases": [],
           "args": [
             {
@@ -6910,7 +6910,7 @@
               "value_name": "ALL",
               "possible_values": [],
               "default": null,
-              "help": null,
+              "help": "List active tasks across every project",
               "aliases": []
             },
             {
@@ -6920,7 +6920,7 @@
               "value_name": "PLAN_ID",
               "possible_values": [],
               "default": null,
-              "help": null,
+              "help": "Plan to list regardless of the caller's working directory",
               "aliases": []
             }
           ],

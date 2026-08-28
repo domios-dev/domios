@@ -1575,10 +1575,10 @@ Show a handoff (--latest or --seq N), optionally as markdown
 
 #### `codeterm plan in-progress`
 
-List active orchestration tasks
+List active orchestration tasks; without PLAN_ID, scope to the current directory's project
 
-- `--all`
-- `<plan_id>`
+- `--all` — List active tasks across every project
+- `<plan_id>` — Plan to list regardless of the caller's working directory
 
 #### `codeterm plan ingest`
 
