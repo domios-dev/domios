@@ -1042,6 +1042,7 @@ for (const vp of VIEWPORTS) {
       await auditViewport(page, `${vp.name} peer menu`, { reachability: "peer-picker-menu" });
       await assertPeerPickerMenuInverseOcclusion(page, target.tabId, `${vp.name} peer menu`);
       await dismissPeerPickerWithSupportedControl(page, `${vp.name} peer menu`);
+      await clickSidebarScrimAndAssertClosed(page, `${vp.name} peer menu dismissed`);
       await assertTabModeTabsReachable(page, target.tabId, `${vp.name} peer menu dismissed`);
 
       await page.locator('[data-testid="titlebar-settings"]').click();
