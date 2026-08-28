@@ -26,7 +26,7 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
   const visual = visualOverride ?? toolKindVisual[event.kind];
   const Glyph = visual.glyph;
   const isCommand = event.kind === "command" || event.kind === "codeterm";
-  const commandVisible = !isCommand || globalShowCommands;
+  const commandVisible = !isCommand || globalShowCommands || expanded;
   const statusColor = event.status === "error" ? "var(--ct-red)" : event.status === "pending" ? "var(--ct-yellow)" : "var(--ct-green)";
   const borderColor = event.status === "error"
     ? "color-mix(in srgb, var(--ct-red) 38%, var(--ct-border))"
