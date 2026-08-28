@@ -65,11 +65,19 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
   const selfWorkspaceName = `${stub.instanceName}-self-host`;
 
   const removeSelfWorkspaces = async () => {
-    const workspaces = await api.workspaces();
-    for (const workspace of workspaces) {
-      if (workspace.name === selfWorkspaceName) {
-        await api.closeWorkspace(workspace.id).catch(() => {});
-      }
+    const matchingWorkspaces = (await api.workspaces()).filter(
+      (workspace) => workspace.name === selfWorkspaceName,
+    );
+    for (const workspace of matchingWorkspaces) {
+      await api.closeWorkspace(workspace.id);
+    }
+    const remainingWorkspaces = (await api.workspaces()).filter(
+      (workspace) => workspace.name === selfWorkspaceName,
+    );
+    if (remainingWorkspaces.length > 0) {
+      throw new Error(
+        `workspace cleanup left ${remainingWorkspaces.length} ${selfWorkspaceName} record(s): ${remainingWorkspaces.map((workspace) => workspace.id).join(", ")}`,
+      );
     }
   };
 
@@ -183,8 +191,11 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
     await page.context().close();
   } finally {
     if (peerId) await api.post(`/mesh/peers/disconnect/${peerId}`).catch(() => {});
-    await removeSelfWorkspaces();
-    await stub.stop();
+    try {
+      await removeSelfWorkspaces();
+    } finally {
+      await stub.stop();
+    }
   }
 });
 
