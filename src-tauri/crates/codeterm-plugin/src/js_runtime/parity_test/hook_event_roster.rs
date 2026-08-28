@@ -136,6 +136,7 @@ fn hook_event_roster_fail_closed_on_unknown_route() {
             &IntegrationInstallOptions {
                 consent: true,
                 precompact_memory_export: false,
+                repair: false,
             },
         )
         .expect_err("registration must fail closed at install");
