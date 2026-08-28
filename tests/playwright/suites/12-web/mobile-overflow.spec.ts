@@ -825,6 +825,64 @@ test("@golden mobile web primary surfaces stay inside the viewport audit helper 
     });
     expect(popupOccludedHit).toEqual({ reachable: false, hitTestid: "peer-picker-menu" });
 
+    await page.setContent(`
+      <style>
+        html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+        button { position: absolute; width: 96px; height: 32px; }
+        .ct-sidebar-backdrop { position: fixed; inset: 0; z-index: 1; }
+        .ct-sidebar-drawer { position: fixed; left: 0; top: 0; bottom: 0; width: 220px; z-index: 2; }
+        #nested-drawer-reachable { left: 16px; top: 112px; }
+        #nested-menu-covered { left: 40px; top: 40px; }
+        #nested-unrelated, #nested-unrelated-cover { left: 16px; top: 168px; }
+        #nested-unrelated-cover { position: absolute; width: 96px; height: 32px; z-index: 4; }
+        #nested-offscreen { left: 300px; top: 216px; }
+        #nested-background { left: 252px; top: 112px; width: 60px; }
+        [data-testid="peer-picker-menu"] { position: absolute; left: 32px; top: 24px; width: 160px; height: 72px; z-index: 3; }
+        #nested-menu-item { left: 8px; top: 8px; }
+      </style>
+      <div id="root">
+        <button id="nested-background" data-testid="nested-background">background</button>
+        <div class="ct-sidebar-backdrop is-open" data-testid="nested-backdrop"></div>
+        <div class="ct-sidebar-drawer is-open">
+          <button id="nested-drawer-reachable" data-testid="nested-drawer-reachable">drawer</button>
+          <button id="nested-menu-covered" data-testid="nested-menu-covered">menu covered</button>
+          <button id="nested-unrelated" data-testid="nested-unrelated">unrelated covered</button>
+          <div id="nested-unrelated-cover" data-testid="nested-unrelated-cover"></div>
+          <button id="nested-offscreen" data-testid="nested-offscreen">offscreen</button>
+          <div data-testid="peer-picker-menu">
+            <button id="nested-menu-item" data-testid="nested-menu-item">menu</button>
+          </div>
+        </div>
+      </div>
+    `);
+    const nestedHits = await page.locator([
+      "#nested-menu-item",
+      "#nested-drawer-reachable",
+      "#nested-menu-covered",
+      "#nested-background",
+      "#nested-unrelated",
+    ].join(",")).evaluateAll((nodes) => Object.fromEntries(nodes.map((node) => {
+      const rect = node.getBoundingClientRect();
+      const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      return [node.id, hit instanceof HTMLElement ? hit.dataset.testid ?? hit.id : null];
+    })));
+    expect(nestedHits).toEqual({
+      "nested-menu-item": "nested-menu-item",
+      "nested-drawer-reachable": "nested-drawer-reachable",
+      "nested-menu-covered": "nested-menu-item",
+      "nested-background": "nested-backdrop",
+      "nested-unrelated": "nested-unrelated-cover",
+    });
+    const nestedPopupOffenders = await collectViewportOffenders(page, "peer-picker-menu");
+    expect(nestedPopupOffenders.map((item) => item?.testid).sort()).toEqual([
+      "nested-offscreen",
+      "nested-unrelated",
+    ]);
+    expect(nestedPopupOffenders.find((item) => item?.testid === "nested-unrelated")?.hitTestid)
+      .toBe("nested-unrelated-cover");
+    const nestedOffscreen = nestedPopupOffenders.find((item) => item?.testid === "nested-offscreen");
+    expect(nestedOffscreen!.right, "nested offscreen control remains outside viewport").toBeGreaterThan(nestedOffscreen!.viewportWidth);
+
     await page.setContent(`<style>html,body{margin:0;overflow:hidden}.ct-float{position:fixed;left:32px;top:24px;width:160px;height:72px;z-index:3}button{position:absolute;width:120px;height:32px}#workspace-covered{left:40px;top:32px}#workspace-unrelated,#workspace-cover{left:40px;top:112px}#workspace-cover{position:absolute;width:120px;height:32px;z-index:2}</style><div data-testid="new-session-picker"><div role="dialog" aria-modal="true"><button id="workspace-covered" data-testid="workspace-covered">covered</button><button id="workspace-unrelated" data-testid="workspace-unrelated">unrelated</button><div id="workspace-cover"></div></div></div><div class="ct-float"><button data-testid="picker-workspace-option-x">option</button></div>`);
     const workspaceCoverHit = await page.locator("#workspace-unrelated").evaluate((el) => {
       const rect = el.getBoundingClientRect();
