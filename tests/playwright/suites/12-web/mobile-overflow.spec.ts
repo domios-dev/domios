@@ -1,7 +1,9 @@
 /**
  * WHAT: mobile overflow covers broad web surfaces at phone widths.
  * WHY: 320px regressions have repeatedly come from fixed-width panels, menus,
- * and dialogs rather than from the terminal/code scroll surfaces themselves.
+ * and dialogs rather than from the terminal/code scroll surfaces themselves. Canvas
+ * reachability left this audit after 92f5c3d9c deleted its global toolbar button;
+ * plan-contextual routes require a plan fixture of their own.
  * ORACLE: visible surfaces and controls are fully inside the viewport and
  * reachable at their center; document scroll width is only a secondary signal.
  */
@@ -18,8 +20,6 @@ const VIEWPORTS = [
   { width: 390, height: 844, name: "390x844" },
   { width: 430, height: 932, name: "430x932" },
 ] as const;
-
-type CanvasLayerExpectation = "overlay" | "inline";
 
 type TargetTab = {
   tabId: string;
@@ -232,7 +232,7 @@ async function assertTargetChatReady(
   ).toHaveCount(0);
   await expect(
     page.locator(`[data-testid="tab-session-chat"][data-tab-id="${target.tabId}"]`),
-    `${label} target tab chat visible before canvas`,
+    `${label} target tab chat visible`,
   ).toBeVisible({ timeout: 10_000 });
 }
 
@@ -278,17 +278,6 @@ async function openSidebarAndSelectTargetTab(api: ApiClient, page: Page, target:
   await waitSidebarClosed(page);
 }
 
-async function openWorkspaceCanvasOverlay(page: Page, label: string): Promise<void> {
-  const button = page.getByRole("button", { name: "Open workspace canvas" }).first();
-  await expect(button, `${label} canvas toolbar button visible`).toBeVisible({ timeout: 10_000 });
-  await button.click();
-  await expect(
-    page.locator('[data-testid="canvas-view"], [data-testid="plan-view-shell"], [data-testid="canvas-empty"]').first(),
-    `${label} workspace canvas visible`,
-  ).toBeVisible({ timeout: 10_000 });
-  await settleLayout(page);
-}
-
 async function assertActiveManagerReadable(
   api: ApiClient,
   page: Page,
@@ -319,86 +308,6 @@ async function assertActiveManagerReadable(
     .toHaveText(/\S+/);
 
   await openSidebarAndSelectTargetTab(api, page, target, `${label} restore target`);
-}
-
-async function assertCanvasStateBeforeTabTransition(
-  page: Page,
-  tabId: string,
-  expected: CanvasLayerExpectation,
-  label: string,
-): Promise<void> {
-  const state = await page.evaluate(({ targetTabId, expectedLayer }) => {
-    const canvas = document.querySelector('[data-testid="canvas-view"], [data-testid="plan-view-shell"], [data-testid="canvas-empty"]') as HTMLElement | null;
-    if (!canvas) return { kind: "missing-canvas" as const };
-    const visible = (el: Element | null): el is HTMLElement => {
-      if (!(el instanceof HTMLElement)) return false;
-      const rect = el.getBoundingClientRect();
-      const style = window.getComputedStyle(el);
-      return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
-    };
-    const visibleControlsOutsideCanvas = Array.from(document.querySelectorAll(
-      '[data-testid="tab-session-chat"], [data-testid="terminal-tab"], [data-testid="chat-composer"], [data-testid="chat-reconnect"]',
-    )).filter((el) => visible(el) && !el.closest('[inert], [aria-hidden="true"]') && !canvas.contains(el));
-    if (expectedLayer === "inline") {
-      return {
-        kind: "inline" as const,
-        tabControlCount: visibleControlsOutsideCanvas.length,
-      };
-    }
-    const tabRoot = document.querySelector(`[data-tab-id="${targetTabId}"]`) as HTMLElement | null;
-    if (!visible(tabRoot)) {
-      return {
-        kind: "overlay" as const,
-        tabRootVisible: false,
-      };
-    }
-    const rect = tabRoot.getBoundingClientRect();
-    const x = Math.min(Math.max(rect.left + rect.width / 2, 0), document.documentElement.clientWidth - 1);
-    const y = Math.min(Math.max(rect.top + rect.height / 2, 0), document.documentElement.clientHeight - 1);
-    const hit = document.elementFromPoint(x, y);
-    return {
-      kind: "overlay" as const,
-      tabRootVisible: true,
-      hitInsideTabRoot: hit instanceof Node && (hit === tabRoot || tabRoot.contains(hit)),
-      hitTestid: hit instanceof HTMLElement ? hit.getAttribute("data-testid") : null,
-    };
-  }, { targetTabId: tabId, expectedLayer: expected });
-
-  expect(state.kind, `${label} valid canvas state before tab transition ${JSON.stringify(state)}`).not.toBe("missing-canvas");
-  if (state.kind === "inline") {
-    expect(state.tabControlCount, `${label} inline canvas has no outside-canvas chat/terminal controls`).toBe(0);
-    return;
-  }
-  expect(state.tabRootVisible, `${label} overlay target tab root visible ${JSON.stringify(state)}`).toBe(true);
-  expect(state.hitInsideTabRoot, `${label} overlay canvas blocks click-through to tab root ${JSON.stringify(state)}`).toBe(false);
-}
-
-async function assertWorkspaceLayerTopmost(page: Page, tabId: string, label: string): Promise<void> {
-  await expect
-    .poll(
-      () => page.locator(`[data-testid="tab-session-chat"][data-tab-id="${tabId}"]`).evaluate((chat) => {
-        const rect = chat.getBoundingClientRect();
-        if (rect.width <= 0 || rect.height <= 0) return false;
-        const x = Math.min(Math.max(rect.left + rect.width / 2, 0), document.documentElement.clientWidth - 1);
-        const y = Math.min(Math.max(rect.top + rect.height / 2, 0), document.documentElement.clientHeight - 1);
-        const hit = document.elementFromPoint(x, y);
-        return hit instanceof Node && (hit === chat || chat.contains(hit));
-      }).catch(() => false),
-      { timeout: 5_000, message: `${label} workspace layer never became topmost` },
-    )
-    .toBe(true);
-
-  const result = await page.locator(`[data-testid="tab-session-chat"][data-tab-id="${tabId}"]`).evaluate((chat) => {
-    const rect = chat.getBoundingClientRect();
-    const x = Math.min(Math.max(rect.left + rect.width / 2, 0), document.documentElement.clientWidth - 1);
-    const y = Math.min(Math.max(rect.top + rect.height / 2, 0), document.documentElement.clientHeight - 1);
-    const hit = document.elementFromPoint(x, y);
-    return {
-      hitInsideChat: hit instanceof Node && (hit === chat || chat.contains(hit)),
-      hitTestid: hit instanceof HTMLElement ? hit.getAttribute("data-testid") : null,
-    };
-  });
-  expect(result.hitInsideChat, `${label} workspace layer never became topmost ${JSON.stringify(result)}`).toBe(true);
 }
 
 async function assertPeerPickerTopContained(page: Page, label: string): Promise<void> {
@@ -1066,10 +975,6 @@ for (const vp of VIEWPORTS) {
       await settleLayout(page);
       await openSidebarAndSelectTargetTab(api, page, target, `${vp.name} initial target`);
       await assertTargetChatReady(page, target, vp.name);
-      await openWorkspaceCanvasOverlay(page, `${vp.name} before tab transition`);
-      await assertCanvasStateBeforeTabTransition(page, target.tabId, "overlay", `${vp.name} before tab transition`);
-      await openSidebarAndSelectTargetTab(api, page, target, `${vp.name} canvas-to-workspace`);
-      await assertWorkspaceLayerTopmost(page, target.tabId, `${vp.name} after target row click`);
       await assertPeerPickerTopContained(page, `${vp.name} initial`);
       await auditViewport(page, `${vp.name} initial`);
       await auditSidebarDrawer(page, `${vp.name} closed sidebar`, false);
