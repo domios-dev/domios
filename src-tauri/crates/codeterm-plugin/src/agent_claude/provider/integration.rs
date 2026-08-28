@@ -83,7 +83,18 @@ fn is_current_codeterm_hook(hook_entry: &Json) -> bool {
                     .and_then(|s| s.as_str())
                     .map(|src| src == CODETERM_HOOK_MARKER)
                     .unwrap_or(false);
-                current_marker
+                let current_callback_shape = h
+                    .get("command")
+                    .and_then(|command| command.as_str())
+                    .map(|command| {
+                        command.contains("CODETERM_TAB_ID")
+                            && command.contains("CODETERM_API_URL")
+                            && command.contains("CODETERM_API_TOKEN")
+                            && !command.contains("CODETERM_API_PORT")
+                            && !command.contains("CODETERM_PANE_ID")
+                    })
+                    .unwrap_or(false);
+                current_marker && current_callback_shape
             })
         })
         .unwrap_or(false)
@@ -97,7 +108,19 @@ fn is_current_session_start_hook(hook_entry: &Json) -> bool {
             hooks.iter().any(|hook| {
                 let current_marker = hook.get("_source").and_then(|source| source.as_str())
                     == Some(CODETERM_HOOK_MARKER);
-                current_marker
+                let current_callback_shape = hook
+                    .get("command")
+                    .and_then(|command| command.as_str())
+                    .map(|command| {
+                        command.contains("CODETERM_SESSION_BINDING_NONCE")
+                            && command.contains("CODETERM_TAB_ID")
+                            && command.contains("CODETERM_API_URL")
+                            && command.contains("CODETERM_API_TOKEN")
+                            && !command.contains("CODETERM_API_PORT")
+                            && !command.contains("CODETERM_PANE_ID")
+                    })
+                    .unwrap_or(false);
+                current_marker && current_callback_shape
             })
         })
         .unwrap_or(false)
