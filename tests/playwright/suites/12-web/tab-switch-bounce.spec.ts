@@ -5,20 +5,18 @@
  */
 import { expect, test } from "../../helpers/fixtures";
 
-type WorkspaceTab = { id: string; tab_id: string };
-
 type MuxState = {
   active_workspace_id?: string | null;
-  workspaces: Array<{ id: string; active_tab_id?: string | null; tabs: WorkspaceTab[] }>;
+  workspaces: Array<{ id: string; active_tab_id?: string | null; tabs: string[] }>;
   tabs: Record<string, { hidden?: boolean; show_in_tabbar?: boolean }>;
 };
 
 function visibleTabs(
   workspace: MuxState["workspaces"][number],
   tabs: MuxState["tabs"],
-): WorkspaceTab[] {
-  return workspace.tabs.filter((entry) => {
-    const tab = tabs[entry.tab_id];
+): string[] {
+  return workspace.tabs.filter((tabId) => {
+    const tab = tabs[tabId];
     return tab && tab.hidden !== true && tab.show_in_tabbar !== false;
   });
 }
@@ -53,22 +51,22 @@ test("@golden web tab-switch does not bounce to previous tab", async ({ ui, api 
     const activeTab = (tabId: string) => tabRow(tabId).locator(".active-tab-pill");
 
     await expect(
-      tabRow(tabA.id),
+      tabRow(tabA),
       "fixture tab A must render as selectable",
     ).toBeVisible({ timeout: 20_000 });
     await expect(
-      tabRow(tabB.id),
+      tabRow(tabB),
       "fixture tab B must render as selectable",
     ).toBeVisible({ timeout: 20_000 });
 
-    await api.post(`/workspaces/${workspaceId}/tabs/${tabA.id}/focus`);
+    await api.post(`/workspaces/${workspaceId}/tabs/${tabA}/focus`);
     const focusedState = await api.get<MuxState>("/mux/state");
     expect(
       focusedState.workspaces.find((candidate) => candidate.id === workspaceId)?.active_tab_id,
       "bounce fixture backend must begin focused on tab A",
-    ).toBe(tabA.id);
-    await tabRow(tabA.id).click({ force: true });
-    await expect(activeTab(tabA.id), "fixture must begin focused on tab A").toBeVisible({ timeout: 20_000 });
+    ).toBe(tabA);
+    await tabRow(tabA).click({ force: true });
+    await expect(activeTab(tabA), "fixture must begin focused on tab A").toBeVisible({ timeout: 20_000 });
 
     let releaseTabFocus: (() => void) | undefined;
     const tabFocusReleased = new Promise<void>((resolve) => {
@@ -87,7 +85,7 @@ test("@golden web tab-switch does not bounce to previous tab", async ({ ui, api 
       );
     });
 
-    tabBFocusRoute = `**/api/workspaces/${workspaceId}/tabs/${tabB.id}/focus`;
+    tabBFocusRoute = `**/api/workspaces/${workspaceId}/tabs/${tabB}/focus`;
     await page.route(tabBFocusRoute, async (route) => {
       markTabFocusStarted!();
       await tabFocusReleased;
@@ -106,21 +104,21 @@ test("@golden web tab-switch does not bounce to previous tab", async ({ ui, api 
       (window as any).__obsStop = () => observer.disconnect();
       sample();
     });
-    await tabRow(tabB.id).click({ force: true });
+    await tabRow(tabB).click({ force: true });
     await tabFocusStarted;
     await workspaceFocusResponse;
     releaseTabFocus!();
     await expect(
-      activeTab(tabB.id),
+      activeTab(tabB),
       "tab B must remain focused after stale workspace focus",
     ).toBeVisible({ timeout: 20_000 });
     await page.evaluate(() => (window as any).__obsStop());
 
     const history: string[] = await page.evaluate(() => (window as any).__hist);
-    const firstB = history.indexOf(tabB.id);
+    const firstB = history.indexOf(tabB);
     expect(firstB, `B must become active: ${history.join(">")}`).toBeGreaterThanOrEqual(0);
     expect(
-      history.slice(firstB).includes(tabA.id),
+      history.slice(firstB).includes(tabA),
       `bounce back to A: ${history.join(">")}`,
     ).toBe(false);
   } finally {
