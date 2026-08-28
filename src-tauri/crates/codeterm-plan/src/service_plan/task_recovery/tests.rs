@@ -1,4 +1,5 @@
 use super::*;
+use crate::plan::reconcile::TAB_GONE_LABEL;
 use crate::plan::{ExecutionIntent, OrchestratorRef, Plan, ProviderAllowance, TaskLaneMetadata};
 use crate::service_plan::NewTask;
 
@@ -71,6 +72,159 @@ fn task_of(store: &PlanStore, plan_id: &str, task_id: &str) -> crate::plan::Task
         .into_iter()
         .find(|task| task.id == task_id)
         .unwrap()
+}
+
+fn put_task_in_review(store: &PlanStore, plan_id: &str, task_id: &str) {
+    store
+        .with_plan(plan_id, 5, |plan| {
+            let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
+            task.status = TaskStatus::InReview;
+            task.status_changed_at = 5;
+            plan.review_policy.credit = -1;
+            Ok(())
+        })
+        .unwrap();
+}
+
+fn generic_status_update(
+    store: &PlanStore,
+    plan_id: &str,
+    task_id: &str,
+    status: &str,
+    status_label: Option<Option<&str>>,
+    now_ms: u64,
+) -> Result<(), PlanError> {
+    store.update_task(
+        plan_id,
+        task_id,
+        None,
+        None,
+        None,
+        None,
+        Some(status),
+        status_label,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        &[],
+        None,
+        None,
+        now_ms,
+    )
+}
+
+#[test]
+fn review_recovery_pend_tab_gone_in_review_becomes_dispatchable_pending() {
+    let (_dir, store, plan_id, task_id, _attempt_id) = tab_gone_task();
+    put_task_in_review(&store, &plan_id, &task_id);
+
+    store
+        .retire_stale_task_owner(&plan_id, &task_id, Some(TaskStatus::Pending), |_| false, 10)
+        .unwrap();
+
+    let recovered = task_of(&store, &plan_id, &task_id);
+    assert_eq!(recovered.status, TaskStatus::Pending);
+    assert!(recovered.assigned_tab_id.is_none());
+    assert!(recovered.lane.tab_id.is_none());
+    assert_eq!(store.get(&plan_id).unwrap().review_policy.credit, 0);
+    store
+        .begin_task_dispatch_with_policy(
+            &plan_id,
+            &task_id,
+            "replacement-tab",
+            "Worker",
+            TaskLaneMetadata::default(),
+            ExecutionIntent::Mutating,
+            Some(mutating_allowance()),
+            Some("claude"),
+            11,
+        )
+        .expect("pending recovery must be dispatchable again");
+}
+
+#[test]
+fn review_recovery_pend_live_in_review_owner_still_refuses_generic_status_mutation() {
+    let (_dir, store, plan_id, task_id, _attempt_id) = tab_gone_task();
+    put_task_in_review(&store, &plan_id, &task_id);
+
+    let error = generic_status_update(&store, &plan_id, &task_id, "pending", None, 10)
+        .expect_err("generic mutation must not pull review from a live owner");
+    assert!(matches!(error, PlanError::TransitionDenied { .. }));
+    assert!(store
+        .retire_stale_task_owner(&plan_id, &task_id, Some(TaskStatus::Pending), |_| true, 10)
+        .is_err());
+    assert_eq!(task_of(&store, &plan_id, &task_id).status, TaskStatus::InReview);
+}
+
+#[test]
+fn review_recovery_pend_caller_set_tab_gone_label_does_not_bypass_live_owner() {
+    let (_dir, store, plan_id, task_id, _attempt_id) = tab_gone_task();
+    put_task_in_review(&store, &plan_id, &task_id);
+    generic_status_update(
+        &store,
+        &plan_id,
+        &task_id,
+        "in_review",
+        Some(Some(TAB_GONE_LABEL)),
+        10,
+    )
+    .unwrap();
+
+    let error = generic_status_update(&store, &plan_id, &task_id, "pending", None, 11)
+        .expect_err("a display label must not unlock review recovery");
+    assert!(matches!(error, PlanError::TransitionDenied { .. }));
+    let task = task_of(&store, &plan_id, &task_id);
+    assert_eq!(task.status, TaskStatus::InReview);
+    assert_eq!(task.status_label.as_deref(), Some(TAB_GONE_LABEL));
+}
+
+#[test]
+fn review_recovery_pend_in_review_to_paused_still_requires_review_hold() {
+    let (_dir, store, plan_id, task_id, _attempt_id) = tab_gone_task();
+    put_task_in_review(&store, &plan_id, &task_id);
+
+    let error = generic_status_update(&store, &plan_id, &task_id, "paused", None, 10)
+        .expect_err("review pause must remain a hold verdict");
+    assert!(matches!(error, PlanError::ReviewHoldRequired));
+}
+
+#[test]
+fn review_recovery_pend_refusals_name_the_right_remedy_verbs() {
+    let bounce = PlanError::TransitionDenied {
+        from: TaskStatus::InReview,
+        to: TaskStatus::Pending,
+    };
+    assert_eq!(bounce.to_json()["remedy"]["verb"], "bounce");
+    assert!(bounce.to_string().contains("bounce"));
+
+    let hold = PlanError::ReviewHoldRequired;
+    assert_eq!(hold.to_json()["remedy"]["verb"], "hold");
+    assert!(hold.to_string().contains("hold"));
+}
+
+#[test]
+fn review_recovery_pend_preserves_attempt_history() {
+    let (_dir, store, plan_id, task_id, attempt_id) = tab_gone_task();
+    put_task_in_review(&store, &plan_id, &task_id);
+    let before = task_of(&store, &plan_id, &task_id);
+
+    store
+        .retire_stale_task_owner(&plan_id, &task_id, Some(TaskStatus::Pending), |_| false, 10)
+        .unwrap();
+
+    let after = task_of(&store, &plan_id, &task_id);
+    assert_eq!(after.execution_attempts.len(), before.execution_attempts.len());
+    let preserved = after
+        .execution_attempts
+        .iter()
+        .find(|attempt| attempt.id == attempt_id)
+        .expect("the retired attempt remains in history");
+    assert!(preserved.retired_at.is_some());
+    assert!(preserved.closed_at.is_some());
 }
 
 #[test]
