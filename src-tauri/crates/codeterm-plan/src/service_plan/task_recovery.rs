@@ -40,7 +40,11 @@ where
 }
 
 fn recovered_status(outcome: &Option<TaskStatus>, current: &TaskStatus) -> Option<TaskStatus> {
-    outcome.clone().filter(|_| *current != TaskStatus::InReview)
+    match (current, outcome) {
+        (TaskStatus::InReview, Some(TaskStatus::Pending)) => Some(TaskStatus::Pending),
+        (TaskStatus::InReview, _) => None,
+        (_, outcome) => outcome.clone(),
+    }
 }
 
 fn owner_is_stale(task: &Task, live_tab: impl Fn(&str) -> bool) -> bool {
@@ -101,14 +105,18 @@ impl PlanStore {
             task.assigned_tab_id = None;
             task.lane.tab_id = None;
             task.taken_by_role = None;
-            // `in_review` keeps its accept/bounce discipline: retirement still
-            // lands atomically, but the verb's own validated transition decides.
             let recovered = recovered_status(&outcome, &task.status);
+            let recovered_review_to_pending = task.status == TaskStatus::InReview
+                && recovered.as_ref() == Some(&TaskStatus::Pending);
             if let Some(status) = recovered {
                 if task.status != status {
                     task.status_changed_at = now_ms;
                 }
                 task.status = status;
+            }
+            if recovered_review_to_pending {
+                super::qa::normalize_task_review_fields(task);
+                super::review_gate::earn_review_credit(&mut plan.review_policy);
             }
             task.status_label = Some(OWNER_RETIRED_LABEL.into());
             task.updated_at = now_ms;
