@@ -24,6 +24,8 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const require = createRequire(import.meta.url);
+const { gitOutput } = require("./build-identity.cjs");
 const isWin = process.platform === "win32";
 const pnpm = isWin ? "pnpm.cmd" : "pnpm";
 const cargo = isWin ? "cargo.exe" : "cargo";
@@ -171,7 +173,7 @@ function hashPath(requested, expectedType, requireExecutable = false) {
 }
 
 function inputFingerprint() {
-  const listed = outputRaw("git", [
+  const listed = gitOutput([
     "ls-files",
     "-z",
     "--cached",
@@ -179,8 +181,7 @@ function inputFingerprint() {
     "--exclude-standard",
     "--",
     ...inputPathspecs,
-  ])
-    .toString("utf8")
+  ], { cwd: repo })
     .split("\0")
     .filter(Boolean)
     .map((path) => path.replaceAll("\\", "/"))
@@ -206,7 +207,7 @@ function inputFingerprint() {
 }
 
 function gitSha() {
-  const sha = output("git", ["rev-parse", "HEAD"]);
+  const sha = gitOutput(["rev-parse", "HEAD"], { cwd: repo });
   if (!/^[0-9a-f]{40}$/.test(sha)) throw new Error("current Git commit is unavailable");
   return sha;
 }
