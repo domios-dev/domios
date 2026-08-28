@@ -13,8 +13,11 @@ interface TestChatMessage {
   timestamp: string;
   provider: string;
   toolName: string;
-  toolInput: { command: string };
-  toolCallId: string;
+  toolInput: { cmd: string };
+  toolId: string;
+  toolKind: "command";
+  toolSummary: string;
+  toolDetail: string;
 }
 
 async function openChatTab(api: ApiClient, tabCleanup: TabCleanup, page: Page): Promise<string> {
@@ -52,9 +55,12 @@ test("@golden @wave-1-10-3 command card reveals the full command inside a scroll
         content: "command",
         timestamp: "1700005000000",
         provider: "test",
-        toolName: "shell",
-        toolInput: { command },
-        toolCallId: "pw-long-command-call",
+        toolName: "exec",
+        toolInput: { cmd: command },
+        toolId: "pw-long-command-call",
+        toolKind: "command",
+        toolSummary: "printf command-1",
+        toolDetail: command,
       }]);
     },
     { targetTabId: tabId, command: fullCommand },
