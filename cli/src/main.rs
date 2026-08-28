@@ -881,6 +881,8 @@ mod plan_task_executor_role_tests;
 #[cfg(test)]
 mod plan_task_role_guidance_tests;
 #[cfg(test)]
+mod diagnostics_that_speak_tests;
+#[cfg(test)]
 mod plugin_cli_tests;
 #[cfg(test)]
 mod subcommand_contract_tests;
