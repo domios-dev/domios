@@ -180,6 +180,7 @@ pub fn run() {
             commands::get_tab_output,
             commands::get_tab_history_raw,
             commands::get_tab_text,
+            commands::session_binding_state,
             commands::shell_command_snapshot,
             commands::list_agent_providers,
             commands::get_remote_workers,

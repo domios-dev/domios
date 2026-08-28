@@ -67,6 +67,7 @@ pub(crate) mod role_preset;
 mod role_profile;
 mod session_backup;
 pub(crate) mod session_binding_deferral;
+mod session_binding_state;
 pub mod session_persist;
 mod shell_restart;
 pub mod smart_add;
@@ -161,6 +162,7 @@ pub(crate) use plan_authority::{
     ensure_planner_task_fields_are_structural, AuthenticatedPlanCaller,
 };
 pub(crate) use spawn_params::starter_prompt_for_role;
+pub(crate) use session_binding_state::SessionBindingState;
 pub use tab::{normalize_tab_description, MAX_TAB_DESCRIPTION_CHARS};
 pub use tab_budget::{evaluate_tab_budget, TabBudgetLevel, TabBudgetNotice};
 pub(crate) use team::TeamMutationCaller;

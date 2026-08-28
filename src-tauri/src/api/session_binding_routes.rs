@@ -14,6 +14,19 @@ pub(crate) struct RebindSessionRequest {
     session_id: String,
 }
 
+pub(crate) async fn binding_state(
+    AxumState(state): AxumState<AppState>,
+    Path(raw_tab_id): Path<String>,
+) -> Result<Json<crate::service::SessionBindingState>, (StatusCode, String)> {
+    let tab_id = resolve_tab(&state, &raw_tab_id)
+        .map_err(|(status, message)| (status, message.to_string()))?;
+    state
+        .svc
+        .session_binding_state(&tab_id)
+        .map(Json)
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "Tab not found".to_string()))
+}
+
 pub(crate) async fn rebind_session(
     AxumState(state): AxumState<AppState>,
     Path(raw_tab_id): Path<String>,
@@ -45,23 +58,28 @@ pub(crate) async fn rebind_session(
             ),
         )
     })?;
-    let claim = rebind_session_core(
+    let claim = match rebind_session_core(
         &state.svc.mux,
         state.svc.agent_registry.as_ref(),
         &tab_id,
         &provider_id,
         requested,
-    )
-    .map_err(|(status, message, _)| {
-        (
-            status,
-            format!(
+    ) {
+        Ok(claim) => claim,
+        Err((status, message, _)) => {
+            let reason = format!(
                 "Tab {tab_id} remains bound to {}; requested session '{}' was refused: {message}",
                 previous.as_deref().unwrap_or("-"),
                 requested,
-            ),
-        )
-    })?;
+            );
+            state
+                .svc
+                .deferred_session_bindings
+                .refuse(&tab_id, requested, previous.as_deref(), &reason);
+            state.svc.emit_session_binding_state(&tab_id);
+            return Err((status, reason));
+        }
+    };
     let response = finish_session_binding(
         &state,
         &tab_id,
