@@ -26,6 +26,7 @@ import { useWorkspaceCrons } from "../../hooks/useWorkspaceCrons";
 import { cronSelectionStore } from "../Cron/cronSelectionStore";
 import { DropdownMenu } from "../shared/DropdownMenu";
 import { TeamUnit } from "./TeamUnit";
+import type { DeclaredAttentionLevel } from "./declaredAttention";
 
 type TeamTab = Tab & { team_id?: string | null };
 type TeamPlan = Plan & { team_id?: string | null };
@@ -103,6 +104,7 @@ export interface SidebarWorkspaceTabsProps {
   sortedTabs: Tab[];
   tabs: Record<string, Tab>;
   tabStatuses: Record<string, TabStatus>;
+  declaredAttentionByTab?: Readonly<Record<string, DeclaredAttentionLevel>>;
   teams: Team[];
   planIndex: PlanIndexEntry[];
   plans: Plan[];
@@ -142,6 +144,7 @@ export function SidebarWorkspaceTabs({
   sortedTabs: allSortedTabs,
   tabs,
   tabStatuses,
+  declaredAttentionByTab = {},
   teams,
   planIndex,
   plans,
@@ -218,6 +221,7 @@ export function SidebarWorkspaceTabs({
     isActiveVisual,
     workspaceCanvasActive,
     tabStatuses,
+    declaredAttentionByTab,
     orchestrators,
     touchMode,
     uiFontScale,
@@ -460,6 +464,7 @@ export interface SidebarCollapsedActiveTabProps {
   activeTabId: string | null;
   tabs: Record<string, Tab>;
   tabStatuses: Record<string, TabStatus>;
+  declaredAttentionByTab?: Readonly<Record<string, DeclaredAttentionLevel>>;
   planIndex: PlanIndexEntry[];
   isActiveVisual: boolean;
   workspaceCanvasActive: boolean;
@@ -476,6 +481,7 @@ export function SidebarCollapsedActiveTab({
   activeTabId,
   tabs,
   tabStatuses,
+  declaredAttentionByTab = {},
   planIndex,
   isActiveVisual,
   workspaceCanvasActive,
@@ -508,6 +514,7 @@ export function SidebarCollapsedActiveTab({
       workspaceId={ws.id}
       hasAgent={Boolean(activeTab.agent_type)}
       status={tabStatuses[activeTab.id] ?? null}
+      declaredAttention={declaredAttentionByTab[activeTab.id] ?? null}
       onRename={(title) => {
         onRenameTab(activeTab.id, title);
         persistTabRename(ws.id, activeTab.id, title);
