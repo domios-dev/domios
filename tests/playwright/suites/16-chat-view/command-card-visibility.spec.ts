@@ -73,6 +73,7 @@ test("@golden @wave-1-10-3 command card reveals the full command inside a scroll
   await expect(disclosure).toBeVisible();
   await expect(card.locator('[data-testid="toolcard-command"]')).toHaveCount(0);
   await disclosure.click();
+  expect(await card.count(), "command card survives disclosure click").toBe(1);
 
   const command = card.getByRole("region", { name: "Full command text" });
   await expect(command).toHaveText(fullCommand);
