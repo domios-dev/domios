@@ -15,6 +15,13 @@ pub(crate) struct DeferredSessionBinding {
     pub transcript_path: PathBuf,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RefusedSessionBinding {
+    pub session_id: String,
+    pub previous_session_id: Option<String>,
+    pub reason: String,
+}
+
 struct WatchedBinding {
     binding: DeferredSessionBinding,
     _watcher: RecommendedWatcher,
@@ -24,6 +31,7 @@ struct WatchedBinding {
 pub(crate) struct DeferredSessionBindingRegistry {
     next_generation: AtomicU64,
     entries: Mutex<HashMap<String, WatchedBinding>>,
+    refusals: Mutex<HashMap<String, RefusedSessionBinding>>,
 }
 
 impl DeferredSessionBindingRegistry {
@@ -73,6 +81,7 @@ impl DeferredSessionBindingRegistry {
                 _watcher: watcher,
             },
         );
+        self.refusals.lock().remove(tab_id);
         Ok(binding)
     }
 
@@ -86,6 +95,7 @@ impl DeferredSessionBindingRegistry {
 
     pub(crate) fn clear(&self, tab_id: &str) {
         self.entries.lock().remove(tab_id);
+        self.refusals.lock().remove(tab_id);
     }
 
     pub(crate) fn clear_session(&self, tab_id: &str, session_id: &str) {
@@ -95,6 +105,13 @@ impl DeferredSessionBindingRegistry {
             .is_some_and(|entry| entry.binding.session_id == session_id)
         {
             entries.remove(tab_id);
+        }
+        let mut refusals = self.refusals.lock();
+        if refusals
+            .get(tab_id)
+            .is_some_and(|refusal| refusal.session_id == session_id)
+        {
+            refusals.remove(tab_id);
         }
     }
 
@@ -108,12 +125,33 @@ impl DeferredSessionBindingRegistry {
         }
     }
 
-    #[cfg(test)]
     pub(crate) fn pending(&self, tab_id: &str) -> Option<DeferredSessionBinding> {
         self.entries
             .lock()
             .get(tab_id)
             .map(|entry| entry.binding.clone())
+    }
+
+    pub(crate) fn refuse(
+        &self,
+        tab_id: &str,
+        session_id: &str,
+        previous_session_id: Option<&str>,
+        reason: &str,
+    ) {
+        self.entries.lock().remove(tab_id);
+        self.refusals.lock().insert(
+            tab_id.to_string(),
+            RefusedSessionBinding {
+                session_id: session_id.to_string(),
+                previous_session_id: previous_session_id.map(str::to_string),
+                reason: reason.to_string(),
+            },
+        );
+    }
+
+    pub(crate) fn refused(&self, tab_id: &str) -> Option<RefusedSessionBinding> {
+        self.refusals.lock().get(tab_id).cloned()
     }
 }
 

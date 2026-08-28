@@ -61,6 +61,7 @@ export function AgentStateIndicator({
   onStop,
   onCancel,
   onOpenTerminal,
+  onRebind,
 }: {
   state: AgentState;
   providerName?: string | null;
@@ -69,6 +70,7 @@ export function AgentStateIndicator({
   onStop?: () => void;
   onCancel?: () => void;
   onOpenTerminal?: () => void;
+  onRebind?: () => void;
 }) {
   const isWorking = state.state === "working";
   const isQuiet = state.state === "quiet";
@@ -113,6 +115,18 @@ export function AgentStateIndicator({
         >
           <Square size={9} strokeWidth={0} fill="currentColor" aria-hidden />
           Stop
+        </button>
+      )}
+      {isQuiet && onRebind && (
+        <button
+          type="button"
+          data-testid="agent-rebind"
+          onClick={onRebind}
+          className="shrink-0 rounded-md px-1.5 py-0.5 text-xs font-medium"
+          aria-label="Repair session binding"
+          title="Repair session binding"
+        >
+          Repair
         </button>
       )}
       {isQuestion && onOpenTerminal && (
