@@ -825,6 +825,7 @@ test("@golden mobile web primary surfaces stay inside the viewport audit helper 
         .ct-sidebar-drawer { position: fixed; left: 0; top: 0; bottom: 0; width: 220px; z-index: 2; }
         #nested-drawer-reachable { left: 16px; top: 112px; }
         #nested-menu-covered { left: 40px; top: 40px; }
+        #nested-menu-covered-page { left: 40px; top: 40px; }
         #nested-unrelated, #nested-unrelated-cover { left: 16px; top: 168px; }
         #nested-unrelated-cover { position: absolute; width: 96px; height: 32px; z-index: 4; }
         #nested-offscreen { left: 300px; top: 216px; }
@@ -834,6 +835,7 @@ test("@golden mobile web primary surfaces stay inside the viewport audit helper 
       </style>
       <div id="root">
         <button id="nested-background" data-testid="nested-background">background</button>
+        <button id="nested-menu-covered-page" data-testid="nested-menu-covered-page">page under menu</button>
         <div class="ct-sidebar-backdrop is-open" data-testid="nested-backdrop"></div>
         <div class="ct-sidebar-drawer is-open">
           <button id="nested-drawer-reachable" data-testid="nested-drawer-reachable">drawer</button>
@@ -851,6 +853,7 @@ test("@golden mobile web primary surfaces stay inside the viewport audit helper 
       "#nested-menu-item",
       "#nested-drawer-reachable",
       "#nested-menu-covered",
+      "#nested-menu-covered-page",
       "#nested-background",
       "#nested-unrelated",
     ].join(",")).evaluateAll((nodes) => Object.fromEntries(nodes.map((node) => {
@@ -862,9 +865,14 @@ test("@golden mobile web primary surfaces stay inside the viewport audit helper 
       "nested-menu-item": "nested-menu-item",
       "nested-drawer-reachable": "nested-drawer-reachable",
       "nested-menu-covered": "nested-menu-item",
+      "nested-menu-covered-page": "nested-menu-item",
       "nested-background": "nested-backdrop",
       "nested-unrelated": "nested-unrelated-cover",
     });
+    expect(
+      await page.locator("#nested-menu-covered-page").evaluate((el) => el.closest(".ct-sidebar-drawer") === null),
+      "nested portaled menu covers a page control outside the drawer",
+    ).toBe(true);
     const nestedPopupOffenders = await collectViewportOffenders(page, "peer-picker-menu");
     expect(nestedPopupOffenders.map((item) => item?.testid).sort()).toEqual([
       "nested-offscreen",
