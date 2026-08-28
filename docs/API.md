@@ -140,13 +140,8 @@ and response shapes are documented in the API-TRANSPORT reference.
 | POST | `/api/tabs/{id}/describe` | `{description}` | Set or clear the tab description. Server trims whitespace, treats empty as clear, and rejects values over 200 chars. |
 | POST | `/api/tabs/{id}/resize` | `{cols, rows}` | Resize terminal |
 | GET | `/api/tabs/{id}/chat` | `?since=N` | Stateless transcript read, resolved from the tab's own session record. `{messages, count, pending}`. A tab with no bound session answers `pending: true` with an empty list — never another tab's transcript. Unknown tab → 404 |
-| GET | `/api/tabs/{id}/session/binding-state` | — | Read the tab-scoped daemon binding fact: `healthy`, `deferred_pending`, `refused`, `unbound`, or `stale_pending`, with current/requested session identities when known. |
-| POST | `/api/tabs/{id}/session/rebind` | `{session_id}` | Bind this running tab to the requested provider session without restarting it. Uses the same validation path as `codeterm tab rebind`. |
-| GET | `/api/tabs/{id}/delayed-messages` | — | List queued/failed delayed Chat UI messages for this tab |
-| POST | `/api/tabs/{id}/delayed-messages` | `{text, scheduledAtMs}` | Queue a message for future delivery to this tab. Normal send is unaffected. |
-| PATCH | `/api/delayed-messages/{id}` | `{text?, scheduledAtMs?}` | Edit a queued or failed delayed message |
-| DELETE | `/api/delayed-messages/{id}` | — | Delete a queued or failed delayed message |
-| POST | `/api/delayed-messages/{id}/send-now` | — | Deliver a queued or failed delayed message immediately |
+| * | `/api/tabs/{id}/session/...` | *(per route)* | Tab session binding: read the daemon's binding fact, or rebind a running tab to an existing provider session without restarting it — both in API-TABS |
+| * | `/api/tabs/{id}/delayed-messages`, `/api/delayed-messages/{id}` | *(per route)* | List, queue, edit, delete, and send-now for delayed Chat UI messages — all in API-TABS |
 | POST | `/api/tabs/{id}/hook/{permission,session_state,stop,session_start}` | *(per-hook, see below)* | Agent lifecycle hooks for one tab. Payloads, modes, nonce rejection and responses live in API-TABS |
 | POST | `/api/tabs/{id}/agent/restart` | `{force?: bool, grace_secs?: u64}` | Restart the agent in this tab; resumes only when the recorded session is valid. See [Agent Restart](#agent-restart-post-apitabsidagentrestart). |
 
@@ -239,4 +234,4 @@ competition provisions one lane per competitor. Advisory findings ride successfu
 results in `safety_nudges` and `_hints`. See `codeterm docs ORCHESTRATION`.
 Related: `codeterm docs API-TABS`, `API-INTEGRATIONS`, `API-MEMORY`, `API-AGENTS`,
 `API-TRANSPORT`, and `API-CLI`.
-<!-- revision: 126 -->
+<!-- revision: 127 -->
