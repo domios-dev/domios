@@ -11,6 +11,7 @@ import { chromium, type Browser, type Page } from "@playwright/test";
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
+import { createRequire } from "node:module";
 import { readDevToken } from "./api-client";
 import { probeCdpAppReadiness, type CdpAppReadiness } from "./cdp-app-page";
 import {
@@ -40,6 +41,10 @@ export const STAND_UP_INSTANCE_HINT =
 export const REPO_ROOT = process.env.CT_E2E_DEV_ROOT
   ? path.resolve(process.env.CT_E2E_DEV_ROOT)
   : path.resolve(__dirname, "..", "..", "..");
+const require = createRequire(import.meta.url);
+const { requireBuildIdentity } = require("../../../scripts/build-identity.cjs") as {
+  requireBuildIdentity: (value: unknown, source: string) => string;
+};
 
 export function emitDevConsoleProgress(phase: string, detail: string): void {
   console.log(`[dev-console] ${phase}: ${detail}`);
@@ -122,6 +127,7 @@ export async function assertReusableDevConsole(instance = currentDevInstance()):
   progress("health probe", `checking ${instance.apiBase}/api/health at HEAD ${testedHeadSha()}`);
   const verdict = await probeHealth(instance);
   if (!verdict.ok) throw new Error(healthMismatchMessage(instance, verdict));
+  assertFrontendBuildIdentity();
 
   if (usesWebUi) {
     progress("web-ui probe", `checking ${instance.webUrl}`);
@@ -137,6 +143,21 @@ export async function assertReusableDevConsole(instance = currentDevInstance()):
     throw new Error(
       `healthy Playwright instance exposes CDP at ${instance.cdpBase}, but its app is not ready (${readiness.reason}); ${STAND_UP_INSTANCE_HINT}`,
     );
+  }
+}
+
+export function assertFrontendBuildIdentity(): void {
+  const identityFile = path.join(REPO_ROOT, "dist", "build-identity.json");
+  let data: { buildHash?: unknown };
+  try {
+    data = JSON.parse(fs.readFileSync(identityFile, "utf8")) as { buildHash?: unknown };
+  } catch (error) {
+    throw new Error(`Playwright preparation cannot read frontend build identity at ${identityFile}: ${error}`);
+  }
+  try {
+    requireBuildIdentity(data.buildHash, "frontend build identity");
+  } catch (error) {
+    throw new Error(`Playwright preparation refuses the frontend bundle: ${error}`);
   }
 }
 
