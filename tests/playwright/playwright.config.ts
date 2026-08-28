@@ -46,7 +46,9 @@ export default defineConfig({
       retries: 0,
       timeout: 300_000,
     },
-    { name: "full", grepInvert: /@quarantine|@restart|@live|@perf/, retries: 0 },
+    // Full excludes @stub because it has no fixture launcher; stub owns deterministic coverage.
+    // Cost: full no longer exercises that flow; its verdict relies on the stub project.
+    { name: "full", grepInvert: /@quarantine|@restart|@live|@perf|@stub/, retries: 0 },
     // Deterministic latency budgets with hard asserts; metrics.jsonl trend
     // artifact per run. LLM-free (stub transport for churn).
     {

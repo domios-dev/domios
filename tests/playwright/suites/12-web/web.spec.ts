@@ -547,12 +547,15 @@ test("@golden close sync: web close updates the desktop window, desktop close up
 
 // ── chat view in the browser — the mirror's core demo path ──────────
 
-test("@golden web chat: a live assistant reply streams in AND history survives a reload", async ({ api, webBrowser, spawnAgent }) => {
-  test.setTimeout(300_000);
+test("@stub web chat: an assistant reply streams in and history survives a reload", async ({ api, webBrowser, spawnAgent }) => {
+  test.setTimeout(90_000);
+  test.skip(
+    !(await isStubTransportActive(api)),
+    "requires CODETERM_STUB_AGENT_CMD; real providers are forbidden",
+  );
 
   const spawned = await spawnAgent({
     agent: "claude",
-    model: "sonnet",
     title: "pw-web-chat",
     skip_permissions: true,
     activate: true,
@@ -601,7 +604,7 @@ test("@golden web chat: a live assistant reply streams in AND history survives a
       .locator('[data-testid="chat-message"][data-message-role="assistant"]')
       .filter({ hasText: marker });
     const sendError = tab.locator('[data-testid="chat-composer-error"]');
-    await expect(reply.or(sendError).first()).toBeVisible({ timeout: 240_000 });
+    await expect(reply.or(sendError).first()).toBeVisible({ timeout: 30_000 });
     if (await sendError.isVisible()) {
       throw new Error(`composer send failed: ${await sendError.textContent()}`);
     }
