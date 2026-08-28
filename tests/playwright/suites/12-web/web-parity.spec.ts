@@ -48,7 +48,6 @@ type MuxState = {
 
 type SpawnResult = {
   tab_id: string;
-  tab_id?: string;
   title?: string;
 };
 
@@ -261,10 +260,10 @@ function activeWorkspaceId(mux: MuxState): string {
   return active;
 }
 
-function tabTabId(mux: MuxState, tabId: string): string | null {
+function sidebarTabId(mux: MuxState, backendTabId: string): string | null {
   for (const workspace of mux.workspaces) {
     for (const tab of workspace.tabs) {
-      if (tab.tab_id === tabId) return tab.id;
+      if (tab.tab_id === backendTabId) return tab.id;
     }
   }
   return null;
@@ -274,16 +273,18 @@ async function waitForSpawnedTab(
   api: { get<T>(path: string): Promise<T> },
   beforeTabIds: Set<string>,
   providerId: string,
-): Promise<{ tabId: string; tabId: string; title: string }> {
+): Promise<{ backendTabId: string; sidebarTabId: string; title: string }> {
   return pollUntil(
     async () => {
       const mux = await currentMux(api);
-      for (const [tabId, tab] of Object.entries(mux.tabs)) {
-        if (beforeTabIds.has(tabId) || tab.agent_type !== providerId)
+      for (const [backendTabId, tab] of Object.entries(mux.tabs)) {
+        if (beforeTabIds.has(backendTabId) || tab.agent_type !== providerId)
           continue;
-        const tabId = tabTabId(mux, tabId);
+        const renderedTabId = sidebarTabId(mux, backendTabId);
         const title = tab.title?.trim();
-        if (tabId && title) return { tabId, tabId, title };
+        if (renderedTabId && title) {
+          return { backendTabId, sidebarTabId: renderedTabId, title };
+        }
       }
       return undefined;
     },
@@ -491,45 +492,50 @@ test.describe("@golden web-native parity", () => {
       ).toBe(workspaceId);
 
       for (const provider of providers) {
-        const before = allTabIds(await currentMux(api));
-        await clickNewSession(page, provider, workspaceId);
-        const spawned = await waitForSpawnedTab(api, before, provider.id);
-        tabCleanup.track(spawned.tabId);
-        await expect(
-          page.locator(
-            `[data-testid="tab-item"][data-tab-id="${spawned.tabId}"]`,
-          ),
-        ).toContainText(spawned.title, { timeout: 20_000 });
-        assertGeneratedSessionTitle(spawned.title, provider, seenTitles);
-      }
+        await test.step(`T1/provider: ${provider.id}`, async () => {
+          await test.step("New session", async () => {
+            const before = allTabIds(await currentMux(api));
+            await clickNewSession(page, provider, workspaceId);
+            const spawned = await waitForSpawnedTab(api, before, provider.id);
+            tabCleanup.track(spawned.backendTabId);
+            await expect(
+              page.locator(
+                `[data-testid="tab-item"][data-tab-id="${spawned.sidebarTabId}"]`,
+              ),
+            ).toContainText(spawned.title, { timeout: 20_000 });
+            assertGeneratedSessionTitle(spawned.title, provider, seenTitles);
+          });
 
-      const restProvider = providers[0];
-      const restSpawn = await api.post<SpawnResult>("/agents/spawn", {
-        agent: restProvider.id,
-        workspace_id: workspaceId,
-        skip_permissions: true,
-        activate: true,
-      });
-      tabCleanup.track(restSpawn.tab_id);
-      const restTab = await pollUntil(
-        async () => {
-          const mux = await currentMux(api);
-          const tab = mux.tabs[restSpawn.tab_id];
-          const tabId = tabTabId(mux, restSpawn.tab_id);
-          return tab?.title && tabId
-            ? { title: tab.title, tabId }
-            : undefined;
-        },
-        30_000,
-        500,
-        "REST no-title spawn title",
-      );
-      await expect(
-        page.locator(
-          `[data-testid="tab-item"][data-tab-id="${restTab.tabId}"]`,
-        ),
-      ).toContainText(restTab.title, { timeout: 20_000 });
-      assertGeneratedSessionTitle(restTab.title, restProvider, seenTitles);
+          await test.step("REST no-title", async () => {
+            const restSpawn = await api.post<SpawnResult>("/agents/spawn", {
+              agent: provider.id,
+              workspace_id: workspaceId,
+              skip_permissions: true,
+              activate: true,
+            });
+            tabCleanup.track(restSpawn.tab_id);
+            const restTab = await pollUntil(
+              async () => {
+                const mux = await currentMux(api);
+                const tab = mux.tabs[restSpawn.tab_id];
+                const renderedTabId = sidebarTabId(mux, restSpawn.tab_id);
+                return tab?.title && renderedTabId
+                  ? { title: tab.title, sidebarTabId: renderedTabId }
+                  : undefined;
+              },
+              30_000,
+              500,
+              `REST no-title spawn title for ${provider.id}`,
+            );
+            await expect(
+              page.locator(
+                `[data-testid="tab-item"][data-tab-id="${restTab.sidebarTabId}"]`,
+              ),
+            ).toContainText(restTab.title, { timeout: 20_000 });
+            assertGeneratedSessionTitle(restTab.title, provider, seenTitles);
+          });
+        });
+      }
     } finally {
       await page.context().close();
       await api.closeWorkspace(workspaceId).catch(() => {});
