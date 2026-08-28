@@ -39,49 +39,39 @@ pub(super) struct DispatchLaneResolution {
 
 pub(super) fn resolve_dispatch_lane(
     explicit_cwd: Option<&str>,
-    canonical_cwd: &str,
+    workspace_cwd: Option<&str>,
+    caller_cwd: Option<&str>,
     task_lane: &TaskLaneMetadata,
     protection: LaneProtection,
 ) -> Result<DispatchLaneResolution, JsonRpcError> {
-    if let Some(explicit) = explicit_cwd {
-        if task_lane.worktree_path.as_deref().is_some_and(|recorded| {
-            !crate::service::ServiceContext::paths_equal(explicit, recorded)
-        }) {
-            return Err(invalid_dispatch(format!(
-                "explicit cwd '{}' conflicts with recorded lane worktree '{}'",
-                explicit,
-                task_lane.worktree_path.as_deref().unwrap_or_default()
-            )));
+    let candidates = [
+        (
+            "recorded worktree",
+            task_lane.worktree_path.as_deref(),
+            task_lane.branch.as_deref(),
+            task_lane.base.as_deref(),
+        ),
+        ("explicit cwd", explicit_cwd, None, None),
+        ("target workspace cwd", workspace_cwd, None, None),
+        ("caller cwd", caller_cwd, None, None),
+    ];
+    let mut attempted = Vec::new();
+
+    for (label, path, branch, base) in candidates {
+        let Some(path) = path.filter(|path| !path.trim().is_empty()) else {
+            continue;
+        };
+        attempted.push(format!("{label} '{path}'"));
+        if let Ok(existing) = verify_worker_lane(path, path, branch, base, protection) {
+            return Ok(DispatchLaneResolution {
+                spawn_cwd: existing.worktree_path.clone(),
+                existing: Some(existing),
+            });
         }
-        let existing = verify_worker_lane(
-            canonical_cwd,
-            explicit,
-            task_lane.branch.as_deref(),
-            task_lane.base.as_deref(),
-            protection,
-        )
-        .map_err(invalid_dispatch)?;
-        return Ok(DispatchLaneResolution {
-            spawn_cwd: existing.worktree_path.clone(),
-            existing: Some(existing),
-        });
     }
-    if let Some(recorded) = task_lane.worktree_path.as_deref() {
-        let existing = verify_worker_lane(
-            canonical_cwd,
-            recorded,
-            task_lane.branch.as_deref(),
-            task_lane.base.as_deref(),
-            protection,
-        )
-        .map_err(invalid_dispatch)?;
-        return Ok(DispatchLaneResolution {
-            spawn_cwd: existing.worktree_path.clone(),
-            existing: Some(existing),
-        });
-    }
-    Ok(DispatchLaneResolution {
-        spawn_cwd: canonical_cwd.to_string(),
-        existing: None,
-    })
+
+    Err(checkout_required(format!(
+        "no repository checkout resolved; tried in order: {}",
+        attempted.join(", ")
+    )))
 }
