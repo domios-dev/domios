@@ -401,7 +401,7 @@ fn generic_status_mutation_cannot_exit_review_or_leak_credit() {
             AgentRef::from_tab("orch"),
             5,
         ),
-        Err(PlanError::TransitionDenied { .. })
+        Err(PlanError::ReviewHoldRequired)
     ));
     assert!(matches!(
         store.rm_task(&plan_id, &task_id, 5),
