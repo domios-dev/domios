@@ -159,7 +159,7 @@ export async function collectViewportOffenders(page: Page, reachabilityMode: Rea
           } else if (inOpenDrawer) {
             layerReachabilityOk = reachable || (!reachable && hitInPeerPickerMenu);
           } else {
-            layerReachabilityOk = !reachable && hitInOpenLayer;
+            layerReachabilityOk = !reachable && (hitInOpenLayer || hitInPeerPickerMenu);
           }
         } else if (mode === "settings-menu") {
           layerReachabilityOk = inSettingsMenu ? reachable : reachable || (!reachable && hitInSettingsMenu);
