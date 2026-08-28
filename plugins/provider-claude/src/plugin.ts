@@ -989,8 +989,21 @@ function isCodetermHook(entry: HookEntry): boolean {
   for (let i = 0; i < hooks.length; i++) {
     const h = hooks[i];
     if (!h) continue;
-    if (typeof h._source === "string" && h._source.indexOf("codeterm-hook-") === 0) {
+    if (typeof h._source === "string"
+        && (h._source.indexOf("codeterm-hook") === 0 || h._source === "codeterm")) {
       return true;
+    }
+    const cmd = h.command;
+    if (typeof cmd === "string") {
+      const codetermOrigin = cmd.indexOf("7685") !== -1
+        || cmd.indexOf("7686") !== -1;
+      const hookRoute = cmd.indexOf("/api/notifications") !== -1
+        || cmd.indexOf("/api/tabs/") !== -1
+        || cmd.indexOf("/hook/permission") !== -1
+        || cmd.indexOf("/hook/stop") !== -1
+        || cmd.indexOf("/hook/session_start") !== -1
+        || cmd.indexOf("/api/mem/flush") !== -1;
+      if (codetermOrigin && hookRoute) return true;
     }
   }
   return false;

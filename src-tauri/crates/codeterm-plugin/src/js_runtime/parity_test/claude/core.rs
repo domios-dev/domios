@@ -471,20 +471,22 @@ fn integration_backup_and_restore_preserve_exact_bytes_in_native_and_js() {
 }
 
 #[test]
-fn integration_install_replaces_stale_codeterm_entries_not_user_hooks() {
+fn hook_contract_repair_ownership_covers_all_historical_generations() {
     if require_plugins().is_none() {
         return;
     }
     let dir = tempfile::tempdir().unwrap();
     let settings = dir.path().join("settings.json");
-    // Pre-existing settings with: a user hook (must survive), a stale codeterm v1 hook (must be removed), and an unrelated key.
+    // A user hook must survive while every historical CodeTerm generation is replaced.
     std::fs::write(
             &settings,
             r#"{
                 "hooks":{
                     "Notification":[
                         {"matcher":"perm","hooks":[{"type":"command","command":"my-user-script","timeout":1}]},
-                        {"matcher":"perm","hooks":[{"type":"command","command":"curl http://localhost:7686/api/tabs/$X/hook/permission","_source":"codeterm"}]}
+                        {"matcher":"perm","hooks":[{"type":"command","command":"curl http://localhost:7686/api/tabs/$X/hook/permission"}]},
+                        {"matcher":"perm","hooks":[{"type":"command","command":"curl http://localhost:7686/api/tabs/$X/hook/permission","_source":"codeterm"}]},
+                        {"matcher":"perm","hooks":[{"type":"command","command":"curl http://localhost:7686/api/tabs/$X/hook/permission","_source":"codeterm-hook-v2"}]}
                     ]
                 }
             }"#,
@@ -497,7 +499,7 @@ fn integration_install_replaces_stale_codeterm_entries_not_user_hooks() {
     let json: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&settings).unwrap()).unwrap();
     let arr = json["hooks"]["Notification"].as_array().unwrap();
-    // Three entries expected: user hook + new v2 hook. (Stale v1 dropped.)
+    // Only the user hook and the current generation survive.
     assert_eq!(arr.len(), 2);
     assert!(
         arr.iter().any(|e| {
@@ -513,7 +515,7 @@ fn integration_install_replaces_stale_codeterm_entries_not_user_hooks() {
                 .as_str()
                 .map_or(true, |s| s != "codeterm")
         }),
-        "v1 stale entry must be dropped"
+        "pre-marker stale entry must be dropped"
     );
     assert!(arr
         .iter()
