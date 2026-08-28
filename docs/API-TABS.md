@@ -123,7 +123,11 @@ curl -X POST "http://host:7685/api/tabs/$TAB/hook/session_start" \
   --data-binary @-
 ```
 
-Response: `{"ok": true, "changed": true}` when the persisted id changed, `{"ok": true, "changed": false}` when the same id was already on the tab (no-op so per-turn pings don't churn the snapshot), `{"ok": false, "reason": "no session_id in body"}` when the body lacks a recognizable `session_id` field.
+Response: `{"ok": true, "changed": true}` when the persisted id changed, `{"ok": true, "changed": false}` when the same id was already on the tab, and `{"ok": true, "deferred": true, ...}` when a fileless session is held until its reported transcript path emits a filesystem materialization event. Each tab holds at most one deferral; a newer refusal replaces it, and any legitimate intervening binding cancels it. `{"ok": false, "reason": "no session_id in body"}` means the body lacks a recognizable `session_id` field.
+
+#### Session Rebind (POST /api/tabs/{id}/session/rebind)
+
+User-facing recovery is `codeterm tab rebind SESSION_ID --tab ID`. It binds the named existing provider session through the same validation as `SessionStart`, without restarting or interrupting the agent. The response names `found_session_id`, `requested_session_id`, and whether the binding changed. A missing session cannot evict a materialized session and returns a conflict naming both ids.
 
 #### Hook auth
 
@@ -220,4 +224,4 @@ The `connect`, `approve`, `reject`, and `disconnect` endpoints are high-level â€
 
 Memory item, graph, calibration, and worker endpoints: `codeterm docs API-MEMORY`.
 
-<!-- revision: 17 -->
+<!-- revision: 18 -->

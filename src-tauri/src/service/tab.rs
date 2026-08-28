@@ -85,6 +85,7 @@ fn epoch_ms() -> u64 {
 impl ServiceContext {
     pub(crate) fn prepare_tab_close(&self, tab_id: &str) -> Result<(), String> {
         self.chat_registry.shutdown_tab(tab_id);
+        self.deferred_session_bindings.clear(tab_id);
 
         if let Some((plugin_id, session_id)) = self.tab_chat_backing(tab_id) {
             let _ = self.chatbackend_close(&plugin_id, &session_id);
