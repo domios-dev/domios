@@ -20,6 +20,7 @@ const ROWS: Array<{ label: string; state: AgentState }> = [
   },
   { label: "idle — your turn", state: { state: "idle" } },
   { label: "idle · status", state: { state: "idle", status_line: "Ready" } },
+  { label: "quiet · rebind", state: { state: "quiet" } },
   { label: "question · model_choice", state: { state: "question", subtype: "model_choice" } },
   { label: "question · model_picker", state: { state: "question", subtype: "model_picker" } },
   { label: "question · permission", state: { state: "question", subtype: "permission" } },
