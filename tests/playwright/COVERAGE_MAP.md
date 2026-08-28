@@ -4,7 +4,7 @@
 
 ## Zero-Coverage Surfaces
 
-**NONE**
+- **Mobile workspace-canvas reachability** — not covered: no current spec exercises a plan-contextual canvas entry route at phone widths.
 
 ## Surface Map
 
