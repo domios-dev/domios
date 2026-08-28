@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use crate::client::RpcClient;
-use crate::cmd::plan::call_plan_rpc;
+use crate::cmd::plan::{call_plan_rpc, render_empty_reason};
 use crate::cmd::task_list_render::{build_task_tree, task_str, task_value};
 use serde_json::{json, Value};
 
@@ -13,6 +13,7 @@ pub(crate) fn run(
     plan_id: Option<String>,
     all: bool,
 ) -> Result<Option<Value>, String> {
+    let explicit_plan = plan_id.is_some();
     let mut params = json!({
         "active": true,
         "mine": false,
@@ -21,7 +22,7 @@ pub(crate) fn run(
     if let Some(plan_id) = plan_id {
         params["plan_id"] = json!(plan_id);
     }
-    if !all && !client.is_remote() {
+    if !explicit_plan && !all && !client.is_remote() {
         if let Some(project) = std::env::current_dir()
             .ok()
             .map(|path| path.display().to_string())
@@ -30,8 +31,8 @@ pub(crate) fn run(
         }
     }
 
-    let val = call_plan_rpc(client, "task.list", params)?;
-    let tasks: Vec<Value> = val
+    let response = call_plan_rpc(client, "task.list", params)?;
+    let tasks: Vec<Value> = response
         .get("tasks")
         .and_then(|v| v.as_array())
         .map(|items| {
@@ -42,10 +43,21 @@ pub(crate) fn run(
                 .collect()
         })
         .unwrap_or_default();
-    let val = json!({
+    let mut val = json!({
         "statuses": IN_PROGRESS_STATUSES,
         "tasks": tasks,
     });
+    if let Some(reason) = response.get("empty_reason") {
+        val["empty_reason"] = reason.clone();
+        let message = render_empty_reason(reason).unwrap_or_else(|| {
+            let kind = reason
+                .get("kind")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown_scope_reason");
+            format!("The task scope returned no active tasks ({kind}).")
+        });
+        val["task_list_message"] = json!(message);
+    }
     if json_output {
         return Ok(Some(val));
     }
@@ -76,6 +88,9 @@ fn render_in_progress_tasks(val: &Value) -> String {
         return "(no active tasks)\n".into();
     };
     if tasks.is_empty() {
+        if let Some(message) = val.get("task_list_message").and_then(Value::as_str) {
+            return format!("{message}\n");
+        }
         return "(no active tasks)\n".into();
     }
 
@@ -146,6 +161,76 @@ fn render_in_progress_task(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::client::SocketCallError;
+
+    #[derive(Default)]
+    struct FakeRpc {
+        calls: Vec<(String, Option<Value>)>,
+        response: Value,
+    }
+
+    impl FakeRpc {
+        fn responding_with(response: Value) -> Self {
+            Self {
+                response,
+                ..Default::default()
+            }
+        }
+
+        fn params(&self) -> &Value {
+            self.calls[0].1.as_ref().expect("task.list params")
+        }
+    }
+
+    impl RpcClient for FakeRpc {
+        fn call_detailed(
+            &mut self,
+            method: &str,
+            params: Option<Value>,
+        ) -> Result<Value, SocketCallError> {
+            self.calls.push((method.to_string(), params));
+            Ok(self.response.clone())
+        }
+    }
+
+    #[test]
+    fn explicit_address_scope_named_plan_ignores_ambient_project() {
+        let mut client = FakeRpc::responding_with(json!({ "tasks": [] }));
+
+        run(&mut client, true, Some("pl_foreign".into()), false).unwrap();
+
+        assert_eq!(client.params()["plan_id"], "pl_foreign");
+        assert!(client.params().get("project").is_none());
+    }
+
+    #[test]
+    fn explicit_address_scope_unnamed_plan_keeps_ambient_project() {
+        let mut client = FakeRpc::responding_with(json!({ "tasks": [] }));
+
+        run(&mut client, true, None, false).unwrap();
+
+        assert!(client.params()["project"].as_str().is_some());
+        assert!(client.params().get("plan_id").is_none());
+    }
+
+    #[test]
+    fn explicit_address_scope_unreachable_named_plan_is_not_an_empty_negative() {
+        let reason = json!({ "kind": "plan_not_found", "plan_id": "pl_missing" });
+        let mut client = FakeRpc::responding_with(json!({
+            "tasks": [],
+            "empty_reason": reason,
+        }));
+
+        let value = run(&mut client, true, Some("pl_missing".into()), false)
+            .unwrap()
+            .expect("json output");
+
+        assert_eq!(value["empty_reason"], reason);
+        assert_eq!(
+            render_in_progress_tasks(&value),
+            "Plan pl_missing was not found.\n"
+        );
+    }
 
     #[test]
     fn renders_in_progress_tasks_with_subtask_indentation_and_assignee() {

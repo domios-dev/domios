@@ -617,6 +617,23 @@ fn tab_list_and_inspect_relay_compact_scope_and_explicit_detail_ids() {
 }
 
 #[test]
+fn explicit_address_scope_mesh_all_workspaces_reaches_every_peer_workspace() {
+    let command = Commands::Tab {
+        action: TabAction::List {
+            workspace: None,
+            all_workspaces: true,
+            agents: false,
+        },
+    };
+
+    let (method, path, body) = cli_command_to_api(&command);
+
+    assert_eq!(method, "GET");
+    assert_eq!(path, "/api/tabs?agents=false&all_workspaces=true");
+    assert!(body.is_none());
+}
+
+#[test]
 fn plugin_with_mesh_never_reaches_direct_local_dispatch() {
     let command = Commands::Plugin {
         action: crate::PluginAction::List,

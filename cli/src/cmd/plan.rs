@@ -16,6 +16,7 @@ mod qa_cmd;
 mod read_cmd;
 mod review_cmd;
 mod task_cmd;
+pub(crate) use task_cmd::render_empty_reason;
 use self::adopt_search::{render_adopt_report, render_plan_search, resolve_source_plan};
 use self::caller_context::CallerContext;
 #[cfg(test)]

@@ -408,7 +408,8 @@ pub(crate) fn build_tab_list_json(
         .collect()
 }
 
-pub(crate) fn build_tab_summary_json(
+/// Build compact tab summaries using the same scope rules as REST and socket callers.
+pub fn build_tab_summary_json(
     snapshot: &crate::multiplexer::state::MultiplexerSnapshot,
     workspace_id: Option<&str>,
     caller_tab_id: Option<&str>,
