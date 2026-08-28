@@ -1012,7 +1012,7 @@ const MANDATORY_FIELDS_BEFORE_THE_MOVE: [&str; 7] = [
 ];
 
 /// The defect was placement, not absence: the field sat in the routing sentence
-/// beside three genuinely optional flags and inherited their optionality.
+/// and inherited the optionality of its genuinely optional neighbors.
 #[test]
 fn executor_role_prompt_field_is_a_member_of_the_mandatory_list() {
     assert!(
@@ -1047,18 +1047,18 @@ fn executor_role_prompt_move_drops_nothing_from_either_list() {
     }
     assert_eq!(
         PLANNER_TASK_MANDATORY_FIELDS.len(),
-        MANDATORY_FIELDS_BEFORE_THE_MOVE.len() + 1,
-        "the list gained the executor role and nothing else"
+        MANDATORY_FIELDS_BEFORE_THE_MOVE.len() + 2,
+        "the list retained its baseline and gained both required worker fields"
     );
 
     // Ruled out of the MANDATORY scope, not out of the product.
-    for flag in ["`--model`", "`--personality`", "`--role-guidance`"] {
+    for flag in ["`--model`", "`--personality`"] {
         assert!(
             PLANNER_TASK_ROUTING_FLAGS.contains(&flag),
             "the routing set lost {flag}"
         );
     }
-    assert_eq!(PLANNER_TASK_ROUTING_FLAGS.len(), 3);
+    assert_eq!(PLANNER_TASK_ROUTING_FLAGS.len(), 2);
 
     let rendered = planner_suffix();
     for member in PLANNER_TASK_MANDATORY_FIELDS
@@ -1071,6 +1071,38 @@ fn executor_role_prompt_move_drops_nothing_from_either_list() {
         );
     }
     assert!(!rendered.contains("{task_routing_line}"));
+}
+
+#[test]
+fn role_guidance_contract_moves_conditioning_into_the_mandatory_list() {
+    const MANDATORY_BEFORE_ROLE_GUIDANCE: [&str; 8] = [
+        "a bounded body",
+        "section links",
+        "acceptance criteria",
+        "a correctness vector",
+        "an executable test plan",
+        "an ownership boundary",
+        "report expectations",
+        PLANNER_TASK_EXECUTOR_ROLE_FIELD,
+    ];
+
+    for field in MANDATORY_BEFORE_ROLE_GUIDANCE {
+        assert!(PLANNER_TASK_MANDATORY_FIELDS.contains(&field));
+    }
+    assert!(PLANNER_TASK_MANDATORY_FIELDS.contains(&PLANNER_TASK_ROLE_GUIDANCE_FIELD));
+    assert_eq!(
+        PLANNER_TASK_MANDATORY_FIELDS.len(),
+        MANDATORY_BEFORE_ROLE_GUIDANCE.len() + 1
+    );
+    assert!(!PLANNER_TASK_ROUTING_FLAGS.contains(&PLANNER_TASK_ROLE_GUIDANCE_FIELD));
+}
+
+#[test]
+fn role_guidance_contract_preserves_optional_model_and_personality_routing() {
+    assert_eq!(
+        PLANNER_TASK_ROUTING_FLAGS,
+        &["`--model`", "`--personality`"]
+    );
 }
 
 /// Delivery by constant identity: the duty is stated inside the instruction
@@ -1089,6 +1121,41 @@ fn executor_role_prompt_rejection_duty_reaches_the_orchestrator_surface() {
         "the Orchestrator surface must carry the rejection duty exactly once"
     );
     assert!(!rendered.contains("{roleless_draft_rejection}"));
+    assert!(!rendered.contains("{empty_role_guidance_rejection}"));
+}
+
+#[test]
+fn role_guidance_contract_orchestrator_receives_the_draft_judgment_duty() {
+    let orchestrator = orchestrator_suffix();
+    assert_eq!(
+        orchestrator
+            .matches(ORCH_EMPTY_ROLE_GUIDANCE_REJECTION)
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn role_guidance_contract_authoring_duty_stays_off_execution_surfaces() {
+    for surface in [
+        worker_suffix(),
+        WORKER_CODETERM_CONTEXT.to_string(),
+        WORKER_TASK_PREAMBLE.to_string(),
+        AGENT_CODETERM_PRIMER.to_string(),
+    ] {
+        assert!(!surface.contains(PLANNER_TASK_ROLE_GUIDANCE_FIELD));
+        assert!(!surface.contains(ORCH_EMPTY_ROLE_GUIDANCE_REJECTION));
+    }
+}
+
+#[test]
+fn role_guidance_contract_worker_composition_accepts_short_unimaginative_guidance() {
+    let guidance = crate::service::plan::worker_identity::compose_worker_identity(
+        None,
+        Some("x"),
+        Some("Task"),
+    );
+    assert_eq!(guidance.as_deref(), Some("x"));
 }
 
 /// A rule about authoring tasks has no business in the prompt of an agent that
