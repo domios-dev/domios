@@ -78,10 +78,15 @@ pub enum PlanTaskAction {
         #[arg(
             long,
             allow_hyphen_values = true,
-            help = "Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. \"You are Alex; property tests come before implementation; red line: a lock claim without a test is not proof.\""
+            required_unless_present = "role_guidance_file",
+            help = "REQUIRED: initial worker conditioning. Presence alone is the machine contract; prose quality is a human judgment"
         )]
         role_guidance: Option<String>,
-        #[arg(long, value_name = "PATH")]
+        #[arg(
+            long,
+            value_name = "PATH",
+            help = "Read required initial worker conditioning from a file"
+        )]
         role_guidance_file: Option<String>,
         #[arg(
             long = "executor-role",
@@ -178,7 +183,7 @@ pub enum PlanTaskAction {
         #[arg(
             long,
             allow_hyphen_values = true,
-            help = "Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. \"You are Alex; property tests come before implementation; red line: a lock claim without a test is not proof.\""
+            help = "Replace initial worker conditioning. Cannot be emptied; presence alone is the machine contract"
         )]
         role_guidance: Option<String>,
         #[arg(long, value_name = "PATH")]

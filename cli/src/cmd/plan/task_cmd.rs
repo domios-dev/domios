@@ -390,7 +390,8 @@ pub(super) fn run_task(
                     "--executor-role names who executes this task and cannot be blank".to_string(),
                 );
             }
-            let role_guidance_text = resolve_text(role_guidance, role_guidance_file)?;
+            let role_guidance_text =
+                super::resolve_role_guidance(role_guidance, role_guidance_file)?;
             let intent_text = resolve_text(intent, intent_file)?;
             let qa_plan_text = resolve_text(qa_plan, qa_plan_file)?;
             let test_plan = resolve_text(test_plan, test_plan_file)?;
