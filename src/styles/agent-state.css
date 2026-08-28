@@ -4,9 +4,9 @@
    classes will style it the same in both places.
 
    MARKUP CONTRACT
-   working / idle (one persistent row — never remove the dots on idle, the CSS
+   working / idle / quiet (one persistent row — never remove the dots on idle, the CSS
    settles them so the message can't jump):
-     <div class="ct-agent-row" data-agent-state="working|idle"
+     <div class="ct-agent-row" data-agent-state="working|idle|quiet"
                                data-agent-phase="thinking|streaming|work">
        <span class="ct-phase-dots"><i></i><i></i><i></i></span>
        <span class="ct-agent-msg">TEXT</span>
@@ -178,6 +178,15 @@
   transform: scale(0.9);
 }
 
+[data-agent-state="quiet"] .ct-phase-dots {
+  color: var(--ct-warn, #d29922);
+}
+[data-agent-state="quiet"] .ct-phase-dots i {
+  animation: none;
+  opacity: 0.72;
+  transform: scale(0.9);
+}
+
 /* The message: full-weight while working, muted while idle, with a soft fade-in
    that fires only on the state flip (key the element by state, so a ticking
    status line never re-triggers it). */
@@ -187,6 +196,9 @@
 }
 [data-agent-state="idle"] .ct-agent-msg {
   color: var(--ct-muted-fg, #8b949e);
+}
+[data-agent-state="quiet"] .ct-agent-msg {
+  color: var(--ct-warn, #d29922);
 }
 @keyframes ct-msg-in {
   from { opacity: 0; }

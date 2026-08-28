@@ -1,7 +1,7 @@
 import { Square, Terminal, X } from "lucide-react";
 import { ActivityDots } from "../shared/ActivityDots";
 
-export type AgentStateKind = "working" | "idle" | "question";
+export type AgentStateKind = "working" | "idle" | "quiet" | "question";
 
 export type AgentQuestionSubtype =
   | "model_choice"
@@ -71,10 +71,11 @@ export function AgentStateIndicator({
   onOpenTerminal?: () => void;
 }) {
   const isWorking = state.state === "working";
+  const isQuiet = state.state === "quiet";
   const isQuestion = state.state === "question";
   const phase = workPhaseOf(state.phase);
   const status = state.status_line?.trim()
-    || (isWorking ? "Working" : isQuestion ? questionStatus(state.subtype) : "");
+    || (isWorking ? "Working" : isQuiet ? "Session quiet — rebind to continue" : isQuestion ? questionStatus(state.subtype) : "");
   const text = [providerName?.trim(), model?.trim(), status].filter(Boolean).join(" · ");
 
   return (
