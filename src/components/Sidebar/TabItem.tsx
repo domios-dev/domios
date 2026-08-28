@@ -33,6 +33,11 @@ import {
   reconnectTabSession,
   restartTabSession,
 } from "../Terminal/tabSessionActions";
+import { StatusDot } from "./StatusDot";
+import {
+  declaredAttentionLabel,
+  type DeclaredAttentionLevel,
+} from "./declaredAttention";
 
 interface TabItemProps {
   tab: Tab;
@@ -44,6 +49,7 @@ interface TabItemProps {
   workspaceId: string;
   hasAgent?: boolean;
   status?: TabStatus | null;
+  declaredAttention?: DeclaredAttentionLevel | null;
   onRename?: (title: string) => void;
   orchestrators?: Tab[];
   isAppearing?: boolean;
@@ -165,6 +171,7 @@ function TabItemInner({
   workspaceId: _workspaceId,
   hasAgent,
   status,
+  declaredAttention,
   onRename: _onRename,
   tab,
   orchestrators: _orchestrators,
@@ -487,6 +494,12 @@ function TabItemInner({
             title={tab.pending_prompt.question}
           />
         )}
+        {declaredAttention && (
+          <StatusDot
+            status="Waiting"
+            label={declaredAttentionLabel(declaredAttention)}
+          />
+        )}
         {reportCount > 0 && (
           <span className="inline-flex shrink-0 items-center justify-center min-w-[14px] h-3.5 px-0.5 rounded-full bg-[var(--ct-accent)]/20 text-[var(--ct-accent)] text-[9px] font-bold leading-none">
             {reportCount}
@@ -547,6 +560,7 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
   if (
     prev.isActive !== next.isActive ||
     prev.status !== next.status ||
+    prev.declaredAttention !== next.declaredAttention ||
     prev.canClose !== next.canClose ||
     prev.hasAgent !== next.hasAgent ||
     prev.isAppearing !== next.isAppearing ||

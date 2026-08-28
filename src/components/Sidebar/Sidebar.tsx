@@ -44,6 +44,7 @@ import { OPEN_NEW_SESSION_EVENT, type OpenNewSessionDetail } from "../../lib/new
 import { WebPeerPicker } from "../WebPeerPicker/WebPeerPicker";
 import { isFirstRunGeneralTab } from "../AgentPicker";
 import { RemoteTabPicker } from "./RemoteTabPicker";
+import { declaredAttentionByTab } from "./declaredAttention";
 
 export { buildHierarchyTree, buildHierarchySubtree, HierarchyTree } from "./HierarchyTree";
 
@@ -120,6 +121,10 @@ export function Sidebar({
     addNotification,
   } = useMultiplexer();
   const state = useMuxState();
+  const declaredAttention = useMemo(
+    () => declaredAttentionByTab(state.notifications),
+    [state.notifications],
+  );
   const isWorkspaceMode = mainView === "workspace";
   const [folderPicker, setFolderPicker] = useState<{
     title: string;
@@ -594,6 +599,7 @@ export function Sidebar({
                       sortedTabs={generalTabs}
                       tabs={state.tabs}
                       tabStatuses={state.tabStatuses}
+                      declaredAttentionByTab={declaredAttention}
                       teams={state.teams}
                       planIndex={planIndex}
                       plans={fullPlans.plans}
@@ -750,6 +756,7 @@ export function Sidebar({
                           sortedTabs={sortedTabs}
                           tabs={state.tabs}
                           tabStatuses={state.tabStatuses}
+                          declaredAttentionByTab={declaredAttention}
                           teams={state.teams}
                           planIndex={planIndex}
                           plans={fullPlans.plans}
