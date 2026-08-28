@@ -123,6 +123,22 @@ pub(super) fn handle(
             maybe_inject_caller_tab(&mut params);
             call_plan_rpc(client, "plan.review.bounce", params).map(Some)
         }
+        PlanReviewAction::Hold {
+            plan_id,
+            task_id,
+            note,
+        } => {
+            let mut params = json!({
+                "task_id": task_id,
+                "note": note,
+                "from": owner_from_env(),
+            });
+            if let Some(plan_id) = plan_id {
+                params["plan_id"] = json!(plan_id);
+            }
+            maybe_inject_caller_tab(&mut params);
+            call_plan_rpc(client, "plan.review.hold", params).map(Some)
+        }
     }
 }
 

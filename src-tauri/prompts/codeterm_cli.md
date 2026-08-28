@@ -60,7 +60,7 @@ words below resolve; the flags are the corrections.
 - `codeterm plan task update <plan> <task> --model <provider>:<model>` — `--model` is a free-form routing string stored verbatim (e.g. `claude:haiku`); a bare provider like `claude` is accepted but only resolves to a concrete model later, at dispatch. Same quality/persona flags as add.
 - `codeterm plan task show <plan> <task>` (or `codeterm task show <task>`) — the task-body reader (body, criteria, test_plan, correctness, executor_role, sections).
 - `codeterm plan mode <plan> <mode>` — the mode is a trailing positional OR `--set <mode>`; values `planning|approved|execution|complete`.
-- `codeterm plan review accept <plan> <task> --note "..."` — the verdict flag is `--note` (REQUIRED), NOT `--reason`. Same for `codeterm plan review bounce <plan> <task> --note "..."`.
+- `codeterm plan review accept|bounce|hold <plan> <task> --note "..."` — every review verdict requires `--note`, never `--reason`; `bounce` returns work to the Worker and `hold` preserves its assignment while the review remains open.
 - `codeterm plan in-progress [PLAN_ID]` — the bare form scopes to the current directory's project; a named plan ignores that ambient project, and `--all` lists every project.
 - `codeterm tab search <PATTERN>` — searches every workspace and labels each hit with its workspace; `--mesh PEER` applies the same rule on that peer.
 - `codeterm team pair --orchestrator <provider[:model]> --planner <provider[:model]>` — there is NO `team create`; a Team is minted at plan creation or via `team pair`. Team verbs: `list|show|rename|close|adopt-plan|adopt-agent|pair`.
