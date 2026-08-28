@@ -125,9 +125,21 @@ curl -X POST "http://host:7685/api/tabs/$TAB/hook/session_start" \
 
 Response: `{"ok": true, "changed": true}` when the persisted id changed, `{"ok": true, "changed": false}` when the same id was already on the tab, and `{"ok": true, "deferred": true, ...}` when a fileless session is held until its reported transcript path emits a filesystem materialization event. Each tab holds at most one deferral; a newer refusal replaces it, and any legitimate intervening binding cancels it. `{"ok": false, "reason": "no session_id in body"}` means the body lacks a recognizable `session_id` field.
 
+#### Delayed Chat messages
+
+| Method | Path | Body | Description |
+|--------|------|------|-------------|
+| GET | `/api/tabs/{id}/delayed-messages` | — | List queued and failed delayed Chat UI messages for this tab |
+| POST | `/api/tabs/{id}/delayed-messages` | `{text, scheduledAtMs}` | Queue a message for future delivery to this tab. Normal send is unaffected. |
+| PATCH | `/api/delayed-messages/{id}` | `{text?, scheduledAtMs?}` | Edit a queued or failed delayed message |
+| DELETE | `/api/delayed-messages/{id}` | — | Delete a queued or failed delayed message |
+| POST | `/api/delayed-messages/{id}/send-now` | — | Deliver a queued or failed delayed message immediately |
+
 #### Session Rebind (POST /api/tabs/{id}/session/rebind)
 
 User-facing recovery is `codeterm tab rebind SESSION_ID --tab ID`. It binds the named existing provider session through the same validation as `SessionStart`, without restarting or interrupting the agent. The response names `found_session_id`, `requested_session_id`, and whether the binding changed. A missing session cannot evict a materialized session and returns a conflict naming both ids.
+
+`GET /api/tabs/{id}/session/binding-state` reads the tab-scoped fact the daemon already holds rather than inferring one: `healthy`, `deferred_pending`, `refused`, `unbound`, or `stale_pending`, with the current and requested session identities when known. `healthy` is the ordinary answer for almost every tab and carries no registry entry, so an absent entry alone never means trouble.
 
 #### Hook auth
 
@@ -224,4 +236,4 @@ The `connect`, `approve`, `reject`, and `disconnect` endpoints are high-level �
 
 Memory item, graph, calibration, and worker endpoints: `codeterm docs API-MEMORY`.
 
-<!-- revision: 18 -->
+<!-- revision: 19 -->

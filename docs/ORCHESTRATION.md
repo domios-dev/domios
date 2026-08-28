@@ -224,13 +224,11 @@ codeterm plan review authorize-capacity <plan> <task> --class review
 codeterm plan review authorize-capacity <plan> <task> --class canonical_gate
 ```
 
-Generic task updates, pauses, decision gates, and removals cannot move a task
-out of `in_review`; use `codeterm plan review accept <plan> <task> --note "…"`
-or `codeterm plan review bounce <plan> <task> --note "…"`. To keep the review
-open without returning work to the Worker, use `codeterm plan review hold <plan>
-<task> --note "…"`; every verdict requires `--note`, never `--reason`.
-Historical credit leaked by older builds is repaired explicitly and auditably
-with:
+Generic task updates, pauses, decision gates, and removals cannot move a task out
+of `in_review`. Use `codeterm plan review accept|bounce|hold <plan> <task> --note
+"…"`: `bounce` returns the work to the Worker, `hold` keeps the review open with
+the assignment and lane intact, and every verdict requires `--note`, never
+`--reason`. Historical credit leaked by older builds is repaired auditably with:
 
 ```bash
 codeterm plan review reconcile-credit <plan> --reason "<incident evidence>"
@@ -238,4 +236,4 @@ codeterm plan review reconcile-credit <plan> --reason "<incident evidence>"
 
 Both mutations require the live bound Orchestrator session and record an
 immutable plan stride.
-<!-- revision: 68 -->
+<!-- revision: 69 -->
