@@ -474,7 +474,7 @@ test("@golden web mobile: hamburger reopens the dismissed sidebar overlay", asyn
     await burger.click();
     await expect(page.locator('[data-testid="peer-picker-button"]')).toBeVisible({ timeout: 10_000 });
     await expect(
-      page.locator(`[data-testid="workspace-item"][data-workspace-name="${workspaceName}"]`),
+      page.getByRole("button", { name: `Select workspace ${workspaceName}`, exact: true }),
       "seeded ordinary workspace did not render as a sidebar card",
     ).toBeVisible({ timeout: 10_000 });
     // Tapping the backdrop dismisses; the hamburger must come back.
