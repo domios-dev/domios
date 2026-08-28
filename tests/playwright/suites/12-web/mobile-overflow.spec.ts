@@ -53,7 +53,7 @@ async function newWebPage(browser: Browser, viewport: { width: number; height: n
 
 async function openApp(page: Page): Promise<void> {
   await page.goto(`${API_BASE}/#token=${readDevToken()}`, { waitUntil: "domcontentloaded" });
-  await page.waitForSelector('[data-testid="peer-picker-button"]', { timeout: 20_000 });
+  await page.waitForSelector('[data-testid="peer-picker-button"], [data-testid="web-sidebar-open"]', { timeout: 20_000 });
 }
 
 async function openSidebar(page: Page, workspaceName?: string): Promise<void> {
