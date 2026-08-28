@@ -8621,6 +8621,44 @@
               "subcommands": []
             },
             {
+              "name": "hold",
+              "about": "HOLD: records a review hold without releasing the task assignment or lane",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "note",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "NOTE",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "required": false,
+                  "value_name": "PLAN_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "TASK_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
               "name": "override",
               "about": "Record a P0 exception authorizing the next over-round-limit review entry",
               "aliases": [],

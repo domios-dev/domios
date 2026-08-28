@@ -1937,6 +1937,14 @@ BOUNCE: atomically exits in_review back to in_progress
 - `<plan_id>`
 - `<task_id>`
 
+#### `codeterm plan review hold`
+
+HOLD: records a review hold without releasing the task assignment or lane
+
+- `--note`
+- `<plan_id>`
+- `<task_id>`
+
 #### `codeterm plan review override`
 
 Record a P0 exception authorizing the next over-round-limit review entry
