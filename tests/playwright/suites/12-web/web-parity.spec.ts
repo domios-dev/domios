@@ -97,8 +97,17 @@ async function openSidebarIfNeeded(page: Page): Promise<void> {
   if (await toggle.isVisible().catch(() => false)) await toggle.click();
 }
 
-async function expandWorkspaceSidebar(page: Page): Promise<void> {
-  const workspace = page.locator('[data-testid="workspace-item"]').first();
+function workspaceSidebarItem(page: Page, workspaceId: string) {
+  return page.locator(
+    `[data-testid="workspace-item"][data-workspace-id="${workspaceId}"]`,
+  );
+}
+
+async function expandWorkspaceSidebar(
+  page: Page,
+  workspaceId: string,
+): Promise<void> {
+  const workspace = workspaceSidebarItem(page, workspaceId);
   if (!(await workspace.isVisible().catch(() => false))) return;
   const expand = workspace.locator('button[title="Expand"]');
   if (await expand.isVisible().catch(() => false)) await expand.click();
@@ -156,11 +165,15 @@ async function expectProviderMenuContract(
   page: Page,
   providers: ProviderDescriptor[],
   config: ProviderMenuConfig,
+  workspaceId: string,
 ): Promise<void> {
   await openSidebarIfNeeded(page);
-  const workspace = page.locator('[data-testid="workspace-item"]').first();
-  await expect(workspace).toBeVisible({ timeout: 15_000 });
-  await expandWorkspaceSidebar(page);
+  const workspace = workspaceSidebarItem(page, workspaceId);
+  await expect(
+    workspace,
+    "naming gate fixture workspace did not render as a sidebar card",
+  ).toBeVisible({ timeout: 15_000 });
+  await expandWorkspaceSidebar(page, workspaceId);
   await page
     .getByRole("button", { name: /^New session$/ })
     .first()
@@ -239,11 +252,15 @@ async function waitForSpawnedTab(
 async function clickNewSession(
   page: Page,
   provider: ProviderDescriptor,
+  workspaceId: string,
 ): Promise<void> {
   await openSidebarIfNeeded(page);
-  const workspace = page.locator('[data-testid="workspace-item"]').first();
-  await expect(workspace).toBeVisible({ timeout: 15_000 });
-  await expandWorkspaceSidebar(page);
+  const workspace = workspaceSidebarItem(page, workspaceId);
+  await expect(
+    workspace,
+    "naming gate fixture workspace did not render as a sidebar card",
+  ).toBeVisible({ timeout: 15_000 });
+  await expandWorkspaceSidebar(page, workspaceId);
   const newSession = page
     .getByRole("button", { name: /^New session$/ })
     .first();
@@ -412,16 +429,29 @@ test.describe("@golden web-native parity", () => {
       "at least one PTY provider is required for the naming gate",
     ).toBeGreaterThan(0);
 
+    const workspaceName = `pw-naming-gate-${Date.now()}`;
+    await api.createWorkspace(workspaceName);
+    const workspaceId = (await api.workspaces()).find(
+      (workspace) => workspace.name === workspaceName,
+    )?.id;
+    if (!workspaceId) {
+      throw new Error("naming gate fixture workspace was not created");
+    }
+    await api.focusWorkspace(workspaceId);
+
     const page = await newWebPage(webBrowser);
     const seenTitles = new Set<string>();
     try {
       await openWeb(page);
-      await expectProviderMenuContract(page, pty, providerConfig);
-      const workspaceId = activeWorkspaceId(await currentMux(api));
+      await expectProviderMenuContract(page, pty, providerConfig, workspaceId);
+      expect(
+        activeWorkspaceId(await currentMux(api)),
+        "naming gate fixture workspace must remain active for both spawn paths",
+      ).toBe(workspaceId);
 
       for (const provider of providers) {
         const before = allTabIds(await currentMux(api));
-        await clickNewSession(page, provider);
+        await clickNewSession(page, provider, workspaceId);
         const spawned = await waitForSpawnedTab(api, before, provider.id);
         tabCleanup.track(spawned.tabId);
         await expect(
@@ -461,6 +491,7 @@ test.describe("@golden web-native parity", () => {
       assertGeneratedSessionTitle(restTab.title, restProvider, seenTitles);
     } finally {
       await page.context().close();
+      await api.closeWorkspace(workspaceId).catch(() => {});
     }
   });
 
