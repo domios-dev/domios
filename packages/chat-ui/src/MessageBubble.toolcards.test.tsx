@@ -62,7 +62,7 @@ test("chatBackend exec tool_call renders command card and attached result", asyn
     assert(commandCard.textContent?.includes("command"), "command card should render its label");
     assertIncludes(host, "npm test -- --runInBand", "exec card command");
     assert(!commandCard.querySelector('[data-testid="toolcard-result"]'), "collapsed exec card hides result body");
-    const expandDetails = commandCard.querySelector<HTMLButtonElement>('[aria-label="Expand tool details"]');
+    const expandDetails = commandCard.querySelector<HTMLButtonElement>('[aria-label="Show full command"]');
     assert(expandDetails, "command card should expose the explicit details control");
     await act(async () => {
       expandDetails.dispatchEvent(new windowAny.MouseEvent("click", { bubbles: true }));
