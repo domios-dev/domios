@@ -188,7 +188,8 @@ impl ServiceContext {
         let agent_titles = self.workspace_agent_tab_titles(workspace_id);
         if !force && !agent_titles.is_empty() {
             return Err(format!(
-                "workspace close requires explicit confirmation because it would destroy {} agent tab(s): {}",
+                "{}: explicit confirmation is required because closing would destroy {} agent tab(s): {}",
+                crate::service::AGENT_TAB_CLOSE_REFUSAL_PREFIX,
                 agent_titles.len(),
                 agent_titles.join(", ")
             ));

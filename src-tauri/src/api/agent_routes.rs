@@ -6,7 +6,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::api::routes::{check_auth, resolve_tab, AppState};
+use crate::api::{optional_json::OptionalJson, routes::{check_auth, resolve_tab, AppState}};
 use crate::multiplexer::types::AgentRole;
 use codeterm_types::agent::role_kind::builtins::PLANNER;
 
@@ -708,7 +708,7 @@ pub async fn agent_restart_handler(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(raw_tab_id): Path<String>,
-    body: Option<Json<AgentRestartBody>>,
+    OptionalJson(body): OptionalJson<AgentRestartBody>,
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
     if let Err((status, msg)) = check_auth(&state, &headers) {
@@ -718,7 +718,7 @@ pub async fn agent_restart_handler(
         Ok(p) => p,
         Err((status, msg)) => return (status, msg.to_string()).into_response(),
     };
-    let body = body.map(|Json(b)| b).unwrap_or(AgentRestartBody {
+    let body = body.unwrap_or(AgentRestartBody {
         force: false,
         grace_secs: default_grace_secs(),
     });

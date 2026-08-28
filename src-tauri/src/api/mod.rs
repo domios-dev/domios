@@ -21,6 +21,7 @@ pub mod mem_routes;
 pub mod mesh_routes;
 pub mod network_routes;
 pub mod notification_routes;
+pub(crate) mod optional_json;
 pub mod os_notify;
 pub mod output_stream;
 pub mod pasteboard_routes;

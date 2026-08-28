@@ -5,7 +5,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::api::routes::{check_auth, AppState};
+use crate::api::{optional_json::OptionalJson, routes::{check_auth, AppState}};
 
 pub async fn list_workspaces(
     AxumState(state): AxumState<AppState>,
@@ -41,9 +41,10 @@ pub(crate) struct CreateTabBody {
 pub async fn create_workspace(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Json(body): Json<CreateWorkspaceBody>,
+    OptionalJson(body): OptionalJson<CreateWorkspaceBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
+    let body = body.ok_or((StatusCode::BAD_REQUEST, "name is required"))?;
     let cmd = crate::dispatch::Command::WorkspaceCreate {
         name: body.name,
         cwd: body.cwd,
@@ -109,7 +110,7 @@ pub async fn close_workspace(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(id): Path<String>,
-    body: Option<Json<CloseWorkspaceBody>>,
+    OptionalJson(body): OptionalJson<CloseWorkspaceBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let caller_tab_id = crate::api::tab_routes::caller_tab_header(&headers);
@@ -149,10 +150,10 @@ pub async fn reopen_closed_tab(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(id): Path<String>,
-    body: Option<Json<ReopenClosedBody>>,
+    OptionalJson(body): OptionalJson<ReopenClosedBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let index = body.and_then(|Json(b)| b.index);
+    let index = body.and_then(|b| b.index);
     let cmd = crate::dispatch::Command::WorkspaceReopenClosedTab {
         workspace_id: id,
         index,
@@ -267,14 +268,14 @@ pub async fn create_tab(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(workspace_id): Path<String>,
-    body: Option<Json<CreateTabBody>>,
+    OptionalJson(body): OptionalJson<CreateTabBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let tab_id = state
         .svc
         .create_tab_with_activate(&workspace_id, false)
         .map_err(|_| (StatusCode::NOT_FOUND, "Workspace not found"))?;
-    let eager = body.map(|Json(b)| b.eager).unwrap_or(false);
+    let eager = body.map(|b| b.eager).unwrap_or(false);
     let pty_id = if eager {
         state
             .svc

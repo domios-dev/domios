@@ -93,7 +93,7 @@ Each row is `{id, ts, level, source, message, context_json}`. `source` is the `t
 |--------|------|------|-------------|
 | GET | `/api/sessions/search` | `?q=...&provider=claude\|codex\|all&project=...&limit=N&max_snippets=N` | Cross-provider session content search |
 | GET | `/api/sessions/{id}` | — | Resolve a session id to its provider metadata (cwd, file path, timestamps) |
-| POST | `/api/sessions/{id}/resume` | `{title?, workspace_id?, workspace_name?}` | Atomic resume with persisted orchestration identity or explicit roleless recovery actions |
+| POST | `/api/sessions/{id}/resume` | `{title?, workspace_id?, workspace_name?}` or no body | Atomic resume with persisted orchestration identity or explicit roleless recovery actions |
 
 Provider-agnostic: every registered `AgentProvider` contributes its own session enumerator + parser. Today Claude reads `~/.claude/projects/*.jsonl` (cwd extracted from JSONL content, not the lossy directory name); Codex walks `~/.codex/sessions/YYYY/MM/DD/*.jsonl` and parses `response_item` messages. Providers without on-disk session storage silently contribute nothing.
 
@@ -211,4 +211,4 @@ The HTTP response returns immediately (`{"status": "updating", "version": "..."}
 
 Service registration, health, and activity: `codeterm docs API-SERVICES`. Bridge and cron integrations: `codeterm docs API-INTEGRATIONS`.
 
-<!-- revision: 8 -->
+<!-- revision: 9 -->
