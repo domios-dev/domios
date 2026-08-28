@@ -121,6 +121,19 @@ pub struct OpenSubtask {
     pub handle: Option<String>,
 }
 
+fn transition_remedy_verb(from: &TaskStatus, to: &TaskStatus) -> Option<&'static str> {
+    if *from != TaskStatus::InReview {
+        return None;
+    }
+    match to {
+        TaskStatus::Paused => Some("hold"),
+        TaskStatus::Done => Some("accept"),
+        TaskStatus::Cancelled => Some("close"),
+        TaskStatus::Pending | TaskStatus::InProgress | TaskStatus::Blocked => Some("bounce"),
+        TaskStatus::InReview => None,
+    }
+}
+
 impl fmt::Display for PlanError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -143,10 +156,11 @@ impl fmt::Display for PlanError {
                 write!(f, "task has open subtasks: {listed}")
             }
             PlanError::TransitionDenied { from, to } => {
-                write!(
-                    f,
-                    "task status transition {from:?} -> {to:?} is not allowed"
-                )
+                write!(f, "task status transition {from:?} -> {to:?} is not allowed")?;
+                if let Some(verb) = transition_remedy_verb(from, to) {
+                    write!(f, "; use the `{verb}` review verb")?;
+                }
+                Ok(())
             }
             PlanError::UndeclaredKind { declared } => {
                 write!(
@@ -194,7 +208,7 @@ impl fmt::Display for PlanError {
             ),
             PlanError::ReviewHoldRequired => write!(
                 f,
-                "in-review work must use the review hold verdict to preserve its assignment and lane"
+                "in-review work must use the `hold` review verb to preserve its assignment and lane"
             ),
             PlanError::PauseRequiresReason => write!(
                 f,
@@ -341,7 +355,12 @@ impl PlanError {
                 serde_json::json!({ "type": "open_subtasks", "subtasks": subtasks })
             }
             PlanError::TransitionDenied { from, to } => {
-                serde_json::json!({ "type": "transition_denied", "from": from, "to": to })
+                serde_json::json!({
+                    "type": "transition_denied",
+                    "from": from,
+                    "to": to,
+                    "remedy": transition_remedy_verb(from, to).map(|verb| serde_json::json!({ "verb": verb }))
+                })
             }
             PlanError::UndeclaredKind { declared } => {
                 serde_json::json!({ "type": "undeclared_kind", "declared": declared })
@@ -373,7 +392,10 @@ impl PlanError {
             PlanError::TaskPauseRequiresReason => {
                 serde_json::json!({ "type": "task_pause_requires_reason" })
             }
-            PlanError::ReviewHoldRequired => serde_json::json!({ "type": "review_hold_required" }),
+            PlanError::ReviewHoldRequired => serde_json::json!({
+                "type": "review_hold_required",
+                "remedy": { "verb": "hold" }
+            }),
             PlanError::PauseRequiresReason => {
                 serde_json::json!({ "type": "pause_requires_reason" })
             }

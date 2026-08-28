@@ -220,20 +220,30 @@ fn renders_unknown_element_fix() {
 }
 
 #[test]
-fn renders_in_review_done_transition_fix() {
-    let msg = render_plan_error(
+fn review_recovery_pend_plan_task_refusal_uses_structured_remedy_verbs() {
+    let accept = render_plan_error(
         &json!({
             "type": "transition_denied",
             "from": "in_review",
-            "to": "done"
+            "to": "done",
+            "remedy": { "verb": "accept" }
         }),
         &json!({ "plan_id": "plan_1", "task_id": "task_1" }),
     )
     .unwrap();
-    assert!(msg.contains("workers cannot mark an in-review task done"));
-    assert!(msg.contains("Orchestrator must accept it explicitly"));
-    assert!(msg.contains("codeterm plan task close plan_1 task_1"));
-    assert!(msg.contains("--status-label \"needs changes\""));
+    assert!(accept.contains("codeterm plan review accept"));
+
+    let bounce = render_plan_error(
+        &json!({
+            "type": "transition_denied",
+            "from": "in_review",
+            "to": "pending",
+            "remedy": { "verb": "bounce" }
+        }),
+        &json!({ "plan_id": "plan_1", "task_id": "task_1" }),
+    )
+    .unwrap();
+    assert!(bounce.contains("codeterm plan review bounce"));
 }
 
 #[test]
