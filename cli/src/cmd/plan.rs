@@ -16,7 +16,6 @@ mod qa_cmd;
 mod read_cmd;
 mod review_cmd;
 mod task_cmd;
-pub(crate) use task_cmd::render_empty_reason;
 use self::adopt_search::{render_adopt_report, render_plan_search, resolve_source_plan};
 use self::caller_context::CallerContext;
 #[cfg(test)]
@@ -24,6 +23,7 @@ use crate::cmd::plan_errors::render_plan_error;
 use crate::cmd::plan_markdown::{render_goal_block, render_plan_markdown};
 use crate::cmd::plan_render::{print_plan_result, render_coverage, render_plan_sections};
 use serde_json::{json, Value};
+pub(crate) use task_cmd::render_empty_reason;
 
 pub(crate) fn resolve_text(
     value: Option<String>,
@@ -36,6 +36,20 @@ pub(crate) fn resolve_text(
         Some(v) if v == "-" => read_path_or_stdin("-").map(Some),
         other => Ok(other),
     }
+}
+
+pub(crate) fn resolve_role_guidance(
+    value: Option<String>,
+    file: Option<String>,
+) -> Result<Option<String>, String> {
+    let guidance = resolve_text(value, file)?;
+    if guidance
+        .as_deref()
+        .is_some_and(|text| text.trim().is_empty())
+    {
+        return Err("--role-guidance conditions the worker and cannot be blank".into());
+    }
+    Ok(guidance)
 }
 
 fn read_path_or_stdin(path: &str) -> Result<String, String> {

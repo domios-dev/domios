@@ -131,6 +131,9 @@ When a Planner is present:
 - never create a separate Planner-to-Plan binding or ask the General Agent to bootstrap one;
 - run `codeterm plan doctor <plan> --kind quality`, then use one `codeterm plan
   approve <plan>` action to approve the structure and activate its tasks;
+- while accepting, revising, or rejecting the draft, reject any task whose
+  required worker guidance is empty or says nothing; duplicate guidance is a
+  doctor warning to judge, never an approval block by itself;
 - after a green doctor, summarize the proposed plan to the user and explicitly
   ask for approval; never stop silently at a completed draft;
 - do not dispatch until approval is durably recorded. After UI approval, verify
@@ -231,4 +234,4 @@ codeterm plan review reconcile-credit <plan> --reason "<incident evidence>"
 
 Both mutations require the live bound Orchestrator session and record an
 immutable plan stride.
-<!-- revision: 65 -->
+<!-- revision: 66 -->

@@ -17,7 +17,7 @@ approval. Never contact the General Agent to bootstrap, restore, or bind it.
 | GOAL refinement: correctness vector, constraints, postulates | **states the GOAL** — it holds the user's intent |
 | Spec sections (WHAT/WHY) | delegates planning to you by default |
 | Plan sections (HOW / phases) | dispatches tasks to worker lanes |
-| **Cut the Tasks** — briefs, acceptance criteria, test plan, correctness vector, section links, and worker routing (`--model`, `--executor-role`, `--personality`, `--role-guidance`) | judges reports: ACCEPT or BOUNCE |
+| **Cut the Tasks** — briefs, acceptance criteria, test plan, correctness vector, section links, worker conditioning (`--role-guidance`), and routing | judges reports: ACCEPT or BOUNCE |
 | decision options when blocked | owns lane lifecycle, merges, gates, cleanup; picks between your options |
 
 You create and edit sections and tasks while the plan is a draft. Draft tasks
@@ -48,7 +48,7 @@ codeterm plan section add <plan> --title "..." --body "..."   # HOW / phases
 codeterm plan task add <plan> --name "..." --why "..." \      # YOU cut tasks
     --body "..." --criterion "..." --test-plan "..." --correctness "..." \
     --sections <sec_id> --model <provider>:<model> --personality <name> \
-    --executor-role <role> --role-guidance "You are ..."       # routing is planning
+    --executor-role <role> --role-guidance "You are ..."       # conditioning is required
 codeterm plan doctor <plan> --kind quality          # self-review before handing back
 codeterm plan get <plan> --sections                 # structure only, cheap
 codeterm task show <task_id>                         # one task, cheap
@@ -69,8 +69,8 @@ Orchestrator side: `codeterm docs LANES`.
 4. **Cut tasks** — one `plan task add` per concrete unit of work. Each task
    MUST carry: a body (what to do), acceptance criteria (how the Orchestrator
    proves it done), a test plan (the exact command/surface — a vague test plan
-   is a bounce reason), a correctness vector, section links, a model, AND the
-   three persona/role fields (see below).
+   is a bounce reason), a correctness vector, section links, an executor role,
+   AND worker conditioning (see below).
 5. **Self-review** — `codeterm plan doctor <plan> --kind quality`; fix coverage
    gaps and vague briefs before handing structure back to the Orchestrator.
 
@@ -154,12 +154,11 @@ cannot check plan-vs-codebase *truth* — that gap is exactly what a
 verify-before-claim pass closes, and it belongs as a bundled plan skill so it
 runs between `structure_ready` and `approved` on every plan.
 
-## Persona & role fields — always fill all three
+## Worker conditioning and routing
 
-Every task you cut carries three deliberate fields. They are not decoration —
-they shape how the worker approaches the job. Never leave them empty. Routing is
-planning: set all three yourself at `plan task add` time, while the plan is still
-a draft, so the Orchestrator never has to re-route by hand.
+Every task carries an executor role and task-specific worker conditioning.
+`--model` and `--personality` remain optional routing choices; use them when the
+task needs an explicit provider/model or named persona.
 
 - `--personality <name>` — the executor persona (a named character, e.g.
   `Alex`, `Emma`, `Leo`). Gives the worker a consistent character and
@@ -170,8 +169,10 @@ a draft, so the Orchestrator never has to re-route by hand.
   presence only — no vocabulary is enforced, because any lexical floor is
   satisfiable by a longer shrug. A plan holding a roleless task does not approve.
 - `--role-guidance "<brief>"` — a **second-person brief**, not abstract
-  principles. Say who the worker IS, what EXACTLY they do on this task, and
-  their personal RED LINE (what counts as failing it). Write it as "You are …":
+  principles. It is **required by `plan task add`**, and `plan task update`
+  refuses to blank it. Presence alone is the machine contract; prose quality
+  remains a human judgment. Say who the worker IS, what EXACTLY they do on this
+  task, and their personal RED LINE (what counts as failing it):
 
   > `You are Alex, a domain-algorithm engineer obsessed with provable
   > correctness. Property tests come BEFORE implementation; the contract is the
@@ -180,9 +181,8 @@ a draft, so the Orchestrator never has to re-route by hand.
   > `You are Emma. You repoint the 6 reports.py endpoints and DELETE the
   > raw-scan paths — leaving them alive is failing the task.`
 
-  personality = character, executor-role = specialization, role-guidance =
-  concrete "you are X, you do Y, failure is Z". A generic or empty role-guidance
-  is a weaker worker; write the real brief.
+  The quality judgment stays human: a generic guidance is a weaker worker, and
+  identical guidance across tasks triggers a non-blocking `plan doctor` warning.
 
 ## Discipline
 
@@ -209,4 +209,4 @@ a draft, so the Orchestrator never has to re-route by hand.
 The full CLI reference (plans, specs, sections, tasks, mem, sessions) is the
 `codeterm` skill. If it is not already loaded, find it:
 `codeterm mem search "codeterm skill"` and read the returned `SKILL.md`.
-<!-- revision: 17 -->
+<!-- revision: 18 -->
