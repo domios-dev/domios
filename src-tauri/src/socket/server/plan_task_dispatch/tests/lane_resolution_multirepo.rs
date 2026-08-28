@@ -5,7 +5,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn git(path: &Path, args: &[&str]) {
-    let output = Command::new("git").current_dir(path).args(args).output().unwrap();
+    let mut command = Command::new("git");
+    crate::process_util::no_window_std(&mut command);
+    let output = command.current_dir(path).args(args).output().unwrap();
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
 }
 
