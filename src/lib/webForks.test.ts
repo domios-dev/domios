@@ -30,6 +30,7 @@ const INVENTORY: ForkSite[] = [
   { file: "src/App.tsx", anchor: "if (!IS_WEB) {", ordinal: 1, cls: "capability-gate", note: "frontend-ready generation handshake belongs to the native shell" },
   { file: "src/components/MeshPanel/MeshPanel.tsx", anchor: "if (IS_WEB) {", ordinal: 1, cls: "transport-shim", note: "spawn setup chat via webJson vs local fetch" },
   { file: "src/components/Terminal/NewSessionPicker.tsx", anchor: "if (IS_WEB) {", ordinal: 1, cls: "platform-adaptation", note: "new-workspace: native folder dialog on desktop vs name-input fallback on web" },
+  { file: "src/components/Terminal/sessionBindingApi.ts", anchor: "if (IS_WEB) {", ordinal: 1, cls: "transport-shim", note: "session rebind uses the web bridge mapping vs authenticated native daemon fetch" },
   { file: "src/components/Sidebar/Sidebar.tsx", anchor: "if (IS_WEB) {", ordinal: 1, cls: "platform-adaptation", note: "web folder-picker modal vs native Tauri dialog" },
   { file: "src/components/Sidebar/Sidebar.tsx", anchor: "if (IS_WEB) {", ordinal: 2, cls: "platform-adaptation", note: "web folder-picker modal vs native Tauri dialog (new workspace)" },
   { file: "src/components/Sidebar/Sidebar.tsx", anchor: "{IS_WEB && <WebPeerPicker compact />}", ordinal: 1, cls: "platform-adaptation", note: "web-only peer picker lives in the General sidebar header" },
