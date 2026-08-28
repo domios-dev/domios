@@ -480,6 +480,8 @@ test("@golden web mobile: hamburger reopens the dismissed sidebar overlay", asyn
     // Tapping the backdrop dismisses; the hamburger must come back.
     await page.mouse.click(370, 400);
     await expect(burger).toBeVisible({ timeout: 10_000 });
+    await burger.click();
+    await expect(page.locator(".ct-sidebar-drawer.is-open")).toBeVisible({ timeout: 10_000 });
   } finally {
     await page.context().close();
     if (workspaceId) await api.closeWorkspace(workspaceId).catch(() => {});
