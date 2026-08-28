@@ -101,18 +101,8 @@ bounded 4 MiB tail parser on blocking workers, leaving all four runtime workers 
 |--------|------|------|-------------|
 | * | `/api/workspaces/...` | *(per route)* | Workspace and workspace-scoped tab routes: list, create, focus, rename, close, recently-closed, reopen, and tab create/rename/move — all in API-TABS |
 
-#### Optional JSON request bodies
 
-An absent request body is accepted where the listed JSON fields only refine an
-otherwise complete action. `POST /api/tabs/{id}/agent/restart`, the permission,
-stop, and session-start hook routes, `POST /api/network/serve/enable`,
-`POST /api/keepawake/start`, `POST /api/sessions/{id}/resume`,
-`POST /api/workspaces/{id}/close`, `POST /api/workspaces/{id}/reopen-closed`,
-and `POST /api/workspaces/{id}/tabs` therefore accept either no body or a JSON
-body. Their documented defaults apply when no body is sent; in particular,
-closing a workspace without a body is the ordinary non-forced close.
-`POST /api/workspaces` is deliberately different: its required `name` field is
-named in a `400 Bad Request` response when the body is absent.
+Ten POST routes accept either no body or a JSON body, because their fields only refine an otherwise complete action: agent restart, the three hook routes, serve enable, keepawake start, session resume, workspace close, reopen-closed, and workspace tab create. Documented defaults apply when no body is sent - closing a workspace without one is the ordinary non-forced close. `POST /api/workspaces` is deliberately different and names its required `name` field in a `400`.
 
 #### Closed History & Restore
 
