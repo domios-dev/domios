@@ -29,6 +29,7 @@ use std::time::{Duration, Instant};
 
 mod brief_tests;
 mod checkout_occupancy;
+mod dispatch_placement;
 mod lane_safety;
 mod lane_resolution_multirepo;
 mod qa_pass;
@@ -359,6 +360,7 @@ fn dispatch_response_never_claims_ready_before_event() {
             session_id: "session-worker".into(),
             lane: Some(provenance()),
         },
+        &[],
     );
     assert_eq!(event["kind"], "dispatch_ready");
     assert_eq!(event["tab_id"], "tab-worker");
@@ -393,7 +395,7 @@ fn one_dispatch_creates_exactly_one_tab() {
     let (event_tx, event_rx) = std::sync::mpsc::channel();
     event_tx
         .send(dispatch_ready_event(
-            "plan", "task", &tab_id, "attempt", &evidence,
+            "plan", "task", &tab_id, "attempt", &evidence, &[],
         ))
         .unwrap();
     let ready_event = event_rx.recv().unwrap();
