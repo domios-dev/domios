@@ -582,7 +582,11 @@ async function clickSidebarScrimAndAssertClosed(page: Page, label: string): Prom
       ));
   }, null, { timeout: 5_000 });
   await settleLayout(page);
-  await assertPeerPickerReachable(page, `${label} after scrim close`);
+  await assertControlsReachable(
+    page,
+    '[data-testid="web-sidebar-open"]',
+    `${label} after scrim close sidebar reopen`,
+  );
 }
 
 async function auditSidebarDrawer(page: Page, label: string, expectedOpen: boolean): Promise<void> {
@@ -985,6 +989,7 @@ for (const vp of VIEWPORTS) {
       await clickSidebarScrimAndAssertClosed(page, `${vp.name} open sidebar`);
       await auditSidebarDrawer(page, `${vp.name} closed sidebar after dismiss`, false);
 
+      await openSidebar(page);
       await page.locator('[data-testid="peer-picker-button"]').click();
       await page.locator('[data-testid="peer-picker-menu"]').waitFor({ state: "visible", timeout: 5_000 });
       await settleLayout(page);
