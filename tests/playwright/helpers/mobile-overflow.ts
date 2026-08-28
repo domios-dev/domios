@@ -39,10 +39,11 @@ export async function collectViewportOffenders(page: Page, reachabilityMode: Rea
   return page.locator(INTERACTIVE).evaluateAll((nodes, { mode, hscroll }) => {
     const viewportWidth = document.documentElement.clientWidth;
     const viewportHeight = document.documentElement.clientHeight;
-    const openDrawer = mode === "open-drawer"
+    const includesDrawerLayer = mode === "open-drawer" || mode === "peer-picker-menu";
+    const openDrawer = includesDrawerLayer
       ? document.querySelector(".ct-sidebar-drawer.is-open")
       : null;
-    const openBackdrop = mode === "open-drawer"
+    const openBackdrop = includesDrawerLayer
       ? document.querySelector(".ct-sidebar-backdrop.is-open")
       : null;
     const peerPickerMenu = mode === "peer-picker-menu"
@@ -151,7 +152,13 @@ export async function collectViewportOffenders(page: Page, reachabilityMode: Rea
         if (mode === "open-drawer") {
           layerReachabilityOk = inOpenDrawer ? reachable : !reachable && hitInOpenLayer;
         } else if (mode === "peer-picker-menu") {
-          layerReachabilityOk = inPeerPickerMenu ? reachable : reachable || (!reachable && hitInPeerPickerMenu);
+          if (inPeerPickerMenu) {
+            layerReachabilityOk = reachable;
+          } else if (inOpenDrawer) {
+            layerReachabilityOk = reachable || (!reachable && hitInPeerPickerMenu);
+          } else {
+            layerReachabilityOk = !reachable && hitInOpenLayer;
+          }
         } else if (mode === "settings-menu") {
           layerReachabilityOk = inSettingsMenu ? reachable : reachable || (!reachable && hitInSettingsMenu);
         } else if (mode === "workspace-dropdown") {
