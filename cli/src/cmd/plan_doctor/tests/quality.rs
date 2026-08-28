@@ -756,7 +756,7 @@ confirming that every relevant surface looks correct across the whole flow befor
         "{}",
         finding.detail
     );
-    for token in crate::cmd::test_plan::TEST_PLAN_COMMAND_TOKENS {
+    for token in crate::cmd::test_plan::TEST_PLAN_COMMAND_RUNNERS {
         assert!(finding.detail.contains(token), "{}", finding.detail);
     }
 }
