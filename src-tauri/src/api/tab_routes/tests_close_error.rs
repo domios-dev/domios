@@ -1,6 +1,6 @@
 use axum::http::StatusCode;
 
-use super::super::map_close_error;
+use super::map_close_error;
 
 #[test]
 fn optional_body_contract_workspace_agent_tab_close_refusal_is_forbidden() {
