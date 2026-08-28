@@ -84,6 +84,7 @@ fn ensure_agent_state(state: &AppState, tab_id: &str) {
     state.svc.set_and_lock_tab_agent_type(tab_id, owner.clone());
     log::info!("[hook] set agent_type={} for Tab {}", owner, tab_id);
     state.svc.emit_state_changed();
+    state.svc.emit_session_binding_state(tab_id);
 }
 
 /// Hook endpoint: agent reports it needs permission.
@@ -372,6 +373,7 @@ pub async fn hook_session_start(
             tab_id,
             source
         );
+        state.svc.emit_session_binding_state(&tab_id);
         return Ok(Json(
             serde_json::json!({"ok": false, "reason": "no session_id in body"}),
         ));
@@ -426,9 +428,14 @@ pub async fn hook_session_start(
                         .flatten()
                 });
             let Some(transcript_path) = transcript_path else {
+                state
+                    .svc
+                    .deferred_session_bindings
+                    .refuse(&tab_id, &sid, Some(&premise.previous_session_id), &message);
+                state.svc.emit_session_binding_state(&tab_id);
                 return Err((status, message));
             };
-            defer_session_binding(
+            if let Err(error) = defer_session_binding(
                 state.clone(),
                 &tab_id,
                 &provider_id,
@@ -438,8 +445,16 @@ pub async fn hook_session_start(
                 report_nonce.clone(),
                 source.clone(),
                 body.clone(),
-            )
-            .map_err(|error| (StatusCode::CONFLICT, format!("{message}; {error}")))?;
+            ) {
+                let reason = format!("{message}; {error}");
+                state
+                    .svc
+                    .deferred_session_bindings
+                    .refuse(&tab_id, &sid, Some(&premise.previous_session_id), &reason);
+                state.svc.emit_session_binding_state(&tab_id);
+                return Err((StatusCode::CONFLICT, reason));
+            }
+            state.svc.emit_session_binding_state(&tab_id);
             return Ok(Json(serde_json::json!({
                 "ok": true,
                 "changed": false,
@@ -448,7 +463,20 @@ pub async fn hook_session_start(
                 "current_session_id": premise.previous_session_id,
             })));
         }
-        Err((status, message, None)) => return Err((status, message)),
+        Err((status, message, None)) => {
+            let current_session_id = state
+                .svc
+                .mux
+                .read()
+                .get_tab(&tab_id)
+                .and_then(|tab| tab.agent_session_id.clone());
+            state
+                .svc
+                .deferred_session_bindings
+                .refuse(&tab_id, &sid, current_session_id.as_deref(), &message);
+            state.svc.emit_session_binding_state(&tab_id);
+            return Err((status, message));
+        }
     };
     finish_session_binding(
         &state,
@@ -531,6 +559,7 @@ async fn complete_deferred_session_binding(
             .svc
             .deferred_session_bindings
             .clear_generation(&tab_id, generation);
+        state.svc.emit_session_binding_state(&tab_id);
         log::info!(
             "[session-binding-deferral] dropping sid {} for Tab {}: current session moved from {} to {}",
             binding.session_id,
@@ -584,7 +613,13 @@ async fn complete_deferred_session_binding(
                 state
                     .svc
                     .deferred_session_bindings
-                    .clear_generation(&tab_id, generation);
+                    .refuse(
+                        &tab_id,
+                        &binding.session_id,
+                        Some(&binding.previous_session_id),
+                        &message,
+                    );
+                state.svc.emit_session_binding_state(&tab_id);
             }
             log::warn!(
                 "[session-binding-deferral] sid {} for Tab {} did not bind: {}",
@@ -624,6 +659,7 @@ pub(crate) async fn finish_session_binding(
             .deferred_session_bindings
             .clear_session(tab_id, sid);
     }
+    state.svc.emit_session_binding_state(tab_id);
     let (current_nonce, reported_nonce) = {
         let mux = state.svc.mux.read();
         let tab = mux.get_tab(&tab_id);
