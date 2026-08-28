@@ -470,11 +470,12 @@ test("@golden web mobile: hamburger reopens the dismissed sidebar overlay", asyn
     await page.goto(`${WEB_URL}#token=${readDevToken()}`, { waitUntil: "domcontentloaded" });
     // only way in, so its absence bricks mobile navigation.
     const burger = page.locator('[data-testid="web-sidebar-open"]');
+    const workspaceCard = page.locator(`[data-testid="workspace-card"][data-workspace-id="${workspaceId}"]`);
     await expect(burger).toBeVisible({ timeout: 20_000 });
     await burger.click();
     await expect(page.locator('[data-testid="peer-picker-button"]')).toBeVisible({ timeout: 10_000 });
     await expect(
-      page.getByRole("button", { name: `Select workspace ${workspaceName}`, exact: true }),
+      workspaceCard.getByRole("button", { name: `Select workspace ${workspaceName}`, exact: true }),
       "seeded ordinary workspace did not render as a sidebar card",
     ).toBeVisible({ timeout: 10_000 });
     // Tapping the backdrop dismisses; the hamburger must come back.
