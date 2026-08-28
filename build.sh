@@ -1471,6 +1471,10 @@ EOF
     case "$test_scope" in
       app)
         enter_build_gateway "$CMD ${*:2}"
+        if [ "$test_filter" = "build_identity_required" ]; then
+          node --test scripts/tests/build_identity_required.test.mjs
+          exit $?
+        fi
         prepare_exceptional_worktree_target
         scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm --lib --no-default-features "$test_filter"
         ;;
