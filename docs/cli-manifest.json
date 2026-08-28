@@ -9497,12 +9497,9 @@
                   "positional": false,
                   "required": false,
                   "value_name": "EXECUTION_INTENT",
-                  "possible_values": [
-                    "repository_mutation",
-                    "non_repository"
-                  ],
+                  "possible_values": [],
                   "default": null,
-                  "help": null,
+                  "help": "Classifies whether this task changes the repository; dispatch uses read_only | mutating instead",
                   "aliases": []
                 },
                 {
