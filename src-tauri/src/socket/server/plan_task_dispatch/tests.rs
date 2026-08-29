@@ -29,6 +29,8 @@ use std::time::{Duration, Instant};
 
 mod brief_tests;
 mod checkout_occupancy;
+mod dispatch_placement;
+mod lane_resolution_multirepo;
 mod lane_safety;
 mod qa_pass;
 mod recovery_race;
@@ -358,6 +360,7 @@ fn dispatch_response_never_claims_ready_before_event() {
             session_id: "session-worker".into(),
             lane: Some(provenance()),
         },
+        &[],
     );
     assert_eq!(event["kind"], "dispatch_ready");
     assert_eq!(event["tab_id"], "tab-worker");
@@ -392,7 +395,12 @@ fn one_dispatch_creates_exactly_one_tab() {
     let (event_tx, event_rx) = std::sync::mpsc::channel();
     event_tx
         .send(dispatch_ready_event(
-            "plan", "task", &tab_id, "attempt", &evidence,
+            "plan",
+            "task",
+            &tab_id,
+            "attempt",
+            &evidence,
+            &[],
         ))
         .unwrap();
     let ready_event = event_rx.recv().unwrap();
@@ -455,7 +463,8 @@ fn explicit_canonical_cwd_is_an_orchestrator_checkout_choice() {
     let (_root, project) = git_project();
     let resolved = resolve_dispatch_lane(
         Some(project.to_str().unwrap()),
-        project.to_str().unwrap(),
+        Some(project.to_str().unwrap()),
+        None,
         &TaskLaneMetadata::default(),
         LaneProtection::Enforced,
     )
@@ -489,7 +498,8 @@ fn lane_bootstrap_record_survives_isolated_dispatch_and_clears_on_canonical() {
 
     let canonical = resolve_dispatch_lane(
         Some(project.to_str().unwrap()),
-        project.to_str().unwrap(),
+        Some(project.to_str().unwrap()),
+        None,
         &TaskLaneMetadata::default(),
         LaneProtection::Enforced,
     )
@@ -502,7 +512,7 @@ fn lane_bootstrap_record_survives_isolated_dispatch_and_clears_on_canonical() {
 }
 
 #[test]
-fn explicit_cwd_conflicting_with_recorded_lane_is_rejected_before_provisioning() {
+fn recorded_lane_is_preferred_over_a_conflicting_explicit_cwd() {
     let (_root, project) = git_project();
     let lane = provision_lane_for_test(project.to_str().unwrap(), "recorded").unwrap();
     let recorded = lane.verify().unwrap();
@@ -514,14 +524,15 @@ fn explicit_cwd_conflicting_with_recorded_lane_is_rejected_before_provisioning()
         base: Some(recorded.base.clone()),
         ..Default::default()
     };
-    let error = resolve_dispatch_lane(
+    let resolved = resolve_dispatch_lane(
         Some(other.to_str().unwrap()),
-        project.to_str().unwrap(),
+        Some(project.to_str().unwrap()),
+        None,
         &lane_metadata,
         LaneProtection::Enforced,
     )
-    .unwrap_err();
-    assert_eq!(error.code, -32602);
+    .unwrap();
+    assert_eq!(resolved.spawn_cwd, recorded.worktree_path);
     assert_eq!(git_worktree_count(&project), 2);
     lane.cleanup().unwrap();
 }

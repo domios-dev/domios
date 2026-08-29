@@ -112,6 +112,16 @@ if grep -q 'enter_build_gateway' <<< "$worktree_flow"; then
   exit 1
 fi
 
+verify_flow="$(sed -n '/^  verify)/,/^    ;;/p' build.sh)"
+verify_coverage_checks_typescript() {
+  grep -q 'node node_modules/typescript/bin/tsc --noEmit' <<< "$verify_flow"
+}
+verify_coverage_runs_cli_tests() {
+  grep -q 'scripts/test-capped.sh --manifest-path cli/Cargo.toml' <<< "$verify_flow"
+}
+verify_coverage_checks_typescript
+verify_coverage_runs_cli_tests
+
 embed_bundle_flow="$(sed -n '/^ensure_real_embed_bundle()/,/^}/p' build.sh)"
 grep -q 'CODETERM_DEV=1 node scripts/bundle-embed.js' <<< "$embed_bundle_flow" || {
   echo "dev must ad-hoc sign codeterm-embed without a Developer ID identity" >&2

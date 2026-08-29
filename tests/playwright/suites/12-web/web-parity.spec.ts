@@ -38,7 +38,7 @@ type MuxState = {
   workspaces: {
     id: string;
     name: string;
-    tabs: { id: string; tab_id?: string | null }[];
+    tabs: string[];
   }[];
   tabs: Record<
     string,
@@ -48,7 +48,6 @@ type MuxState = {
 
 type SpawnResult = {
   tab_id: string;
-  tab_id?: string;
   title?: string;
 };
 
@@ -97,11 +96,35 @@ async function openSidebarIfNeeded(page: Page): Promise<void> {
   if (await toggle.isVisible().catch(() => false)) await toggle.click();
 }
 
-async function expandWorkspaceSidebar(page: Page): Promise<void> {
-  const workspace = page.locator('[data-testid="workspace-item"]').first();
+function workspaceSidebarDetail(page: Page, workspaceId: string) {
+  return page.locator(
+    `[data-testid="workspace-detail"][data-workspace-id="${workspaceId}"]`,
+  );
+}
+
+function workspaceSidebarItem(page: Page, workspaceId: string) {
+  return workspaceSidebarDetail(page, workspaceId).locator(
+    '[data-testid="workspace-item"]',
+  );
+}
+
+async function expandWorkspaceSidebar(
+  page: Page,
+  workspaceId: string,
+): Promise<void> {
+  const workspace = workspaceSidebarItem(page, workspaceId);
   if (!(await workspace.isVisible().catch(() => false))) return;
   const expand = workspace.locator('button[title="Expand"]');
   if (await expand.isVisible().catch(() => false)) await expand.click();
+}
+
+async function clickWorkspaceNewSession(
+  page: Page,
+  workspaceId: string,
+): Promise<void> {
+  await workspaceSidebarDetail(page, workspaceId)
+    .getByRole("button", { name: /^New session$/ })
+    .click({ timeout: 10_000 });
 }
 
 function titleTokens(provider: ProviderDescriptor): string[] {
@@ -152,23 +175,68 @@ function menuVisibleProviders(
   );
 }
 
+function sessionPicker(page: Page) {
+  return page.getByRole("dialog", { name: "Start a session" });
+}
+
+async function selectSingleAgentMode(page: Page): Promise<void> {
+  const picker = sessionPicker(page);
+  await expect(picker).toBeVisible({ timeout: 10_000 });
+  const single = picker.locator('[data-testid="picker-mode-single"]');
+  if ((await single.getAttribute("data-selected")) !== "true") {
+    await single.click();
+  }
+  await expect(
+    single,
+    "naming gate must use the single-agent provider menu",
+  ).toHaveAttribute("data-selected", "true");
+}
+
+function singleAgentProviderSelect(page: Page) {
+  return sessionPicker(page)
+    .locator('[data-testid="orchestration-role-agent"]')
+    .locator('[aria-haspopup="listbox"]')
+    .first();
+}
+
+async function selectSingleAgentProvider(
+  page: Page,
+  provider: ProviderDescriptor,
+): Promise<void> {
+  const select = singleAgentProviderSelect(page);
+  await expect(select).toBeVisible({ timeout: 10_000 });
+  await select.click();
+  const item = page.getByRole("menuitem", {
+    name: provider.display_name,
+    exact: true,
+  });
+  await expect(item).toBeVisible({ timeout: 10_000 });
+  await item.click();
+  await expect(select).toHaveAttribute("data-value", provider.id);
+}
+
 async function expectProviderMenuContract(
   page: Page,
   providers: ProviderDescriptor[],
   config: ProviderMenuConfig,
+  workspaceId: string,
 ): Promise<void> {
   await openSidebarIfNeeded(page);
-  const workspace = page.locator('[data-testid="workspace-item"]').first();
-  await expect(workspace).toBeVisible({ timeout: 15_000 });
-  await expandWorkspaceSidebar(page);
-  await page
-    .getByRole("button", { name: /^New session$/ })
-    .first()
-    .click();
+  const workspace = workspaceSidebarItem(page, workspaceId);
+  await expect(
+    workspace,
+    "naming gate fixture workspace did not render as a sidebar card",
+  ).toBeVisible({ timeout: 15_000 });
+  await expandWorkspaceSidebar(page, workspaceId);
+  await clickWorkspaceNewSession(page, workspaceId);
+  await selectSingleAgentMode(page);
+  const providerSelect = singleAgentProviderSelect(page);
+  await expect(providerSelect).toBeVisible({ timeout: 10_000 });
+  await providerSelect.click();
 
   for (const provider of providers) {
-    const item = page.getByRole("button", {
-      name: `New ${provider.display_name} Session`,
+    const item = page.getByRole("menuitem", {
+      name: provider.display_name,
       exact: true,
     });
     if (config.agents?.[provider.id]?.visible_in_menu === false) {
@@ -183,7 +251,10 @@ async function expectProviderMenuContract(
       ).toBeVisible();
     }
   }
-  await page.keyboard.press("Escape");
+  await sessionPicker(page)
+    .locator('[data-testid="picker-close"]')
+    .click();
+  await expect(sessionPicker(page)).toBeHidden({ timeout: 10_000 });
 }
 
 async function currentMux(api: {
@@ -199,16 +270,14 @@ function allTabIds(mux: MuxState): Set<string> {
 function activeWorkspaceId(mux: MuxState): string {
   const active =
     mux.active_workspace_id ??
-    mux.workspaces.find((w) => w.tabs.some((t) => t.tab_id))?.id;
+    mux.workspaces.find((workspace) => workspace.tabs.length > 0)?.id;
   if (!active) throw new Error("no active workspace found for web parity test");
   return active;
 }
 
-function tabTabId(mux: MuxState, tabId: string): string | null {
+function sidebarTabId(mux: MuxState, backendTabId: string): string | null {
   for (const workspace of mux.workspaces) {
-    for (const tab of workspace.tabs) {
-      if (tab.tab_id === tabId) return tab.id;
-    }
+    if (workspace.tabs.includes(backendTabId)) return backendTabId;
   }
   return null;
 }
@@ -217,16 +286,18 @@ async function waitForSpawnedTab(
   api: { get<T>(path: string): Promise<T> },
   beforeTabIds: Set<string>,
   providerId: string,
-): Promise<{ tabId: string; tabId: string; title: string }> {
+): Promise<{ backendTabId: string; sidebarTabId: string; title: string }> {
   return pollUntil(
     async () => {
       const mux = await currentMux(api);
-      for (const [tabId, tab] of Object.entries(mux.tabs)) {
-        if (beforeTabIds.has(tabId) || tab.agent_type !== providerId)
+      for (const [backendTabId, tab] of Object.entries(mux.tabs)) {
+        if (beforeTabIds.has(backendTabId) || tab.agent_type !== providerId)
           continue;
-        const tabId = tabTabId(mux, tabId);
+        const renderedTabId = sidebarTabId(mux, backendTabId);
         const title = tab.title?.trim();
-        if (tabId && title) return { tabId, tabId, title };
+        if (renderedTabId && title) {
+          return { backendTabId, sidebarTabId: renderedTabId, title };
+        }
       }
       return undefined;
     },
@@ -239,25 +310,24 @@ async function waitForSpawnedTab(
 async function clickNewSession(
   page: Page,
   provider: ProviderDescriptor,
+  workspaceId: string,
 ): Promise<void> {
   await openSidebarIfNeeded(page);
-  const workspace = page.locator('[data-testid="workspace-item"]').first();
-  await expect(workspace).toBeVisible({ timeout: 15_000 });
-  await expandWorkspaceSidebar(page);
-  const newSession = page
-    .getByRole("button", { name: /^New session$/ })
-    .first();
-  await expect(newSession).toBeVisible({ timeout: 10_000 });
-  await newSession.click();
-  const item = page.getByRole("button", {
-    name: new RegExp(`^New ${escapeRegExp(provider.display_name)} Session$`),
+  const workspace = workspaceSidebarItem(page, workspaceId);
+  await expect(
+    workspace,
+    "naming gate fixture workspace did not render as a sidebar card",
+  ).toBeVisible({ timeout: 15_000 });
+  await expandWorkspaceSidebar(page, workspaceId);
+  await clickWorkspaceNewSession(page, workspaceId);
+  await selectSingleAgentMode(page);
+  await selectSingleAgentProvider(page, provider);
+  const confirm = sessionPicker(page).locator('[data-testid="picker-confirm"]');
+  await expect(confirm, "single-agent picker must start the selected provider").toBeEnabled({
+    timeout: 10_000,
   });
-  await expect(item).toBeVisible({ timeout: 10_000 });
-  await item.click();
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  await confirm.click();
+  await expect(sessionPicker(page)).toBeHidden({ timeout: 20_000 });
 }
 
 async function expectSettingsDeepLink(
@@ -412,55 +482,74 @@ test.describe("@golden web-native parity", () => {
       "at least one PTY provider is required for the naming gate",
     ).toBeGreaterThan(0);
 
+    const workspaceName = `pw-naming-gate-${Date.now()}`;
+    await api.createWorkspace(workspaceName);
+    const workspaceId = (await api.workspaces()).find(
+      (workspace) => workspace.name === workspaceName,
+    )?.id;
+    if (!workspaceId) {
+      throw new Error("naming gate fixture workspace was not created");
+    }
+    await api.focusWorkspace(workspaceId);
+
     const page = await newWebPage(webBrowser);
     const seenTitles = new Set<string>();
     try {
       await openWeb(page);
-      await expectProviderMenuContract(page, pty, providerConfig);
-      const workspaceId = activeWorkspaceId(await currentMux(api));
+      await expectProviderMenuContract(page, pty, providerConfig, workspaceId);
+      expect(
+        activeWorkspaceId(await currentMux(api)),
+        "naming gate fixture workspace must remain active for both spawn paths",
+      ).toBe(workspaceId);
 
       for (const provider of providers) {
-        const before = allTabIds(await currentMux(api));
-        await clickNewSession(page, provider);
-        const spawned = await waitForSpawnedTab(api, before, provider.id);
-        tabCleanup.track(spawned.tabId);
-        await expect(
-          page.locator(
-            `[data-testid="tab-item"][data-tab-id="${spawned.tabId}"]`,
-          ),
-        ).toContainText(spawned.title, { timeout: 20_000 });
-        assertGeneratedSessionTitle(spawned.title, provider, seenTitles);
-      }
+        await test.step(`T1/provider: ${provider.id}`, async () => {
+          await test.step("New session", async () => {
+            const before = allTabIds(await currentMux(api));
+            await clickNewSession(page, provider, workspaceId);
+            const spawned = await waitForSpawnedTab(api, before, provider.id);
+            tabCleanup.track(spawned.backendTabId);
+            await expect(
+              page.locator(
+                `[data-testid="tab-item"][data-tab-id="${spawned.sidebarTabId}"]`,
+              ),
+            ).toContainText(spawned.title, { timeout: 20_000 });
+            assertGeneratedSessionTitle(spawned.title, provider, seenTitles);
+          });
 
-      const restProvider = providers[0];
-      const restSpawn = await api.post<SpawnResult>("/agents/spawn", {
-        agent: restProvider.id,
-        workspace_id: workspaceId,
-        skip_permissions: true,
-        activate: true,
-      });
-      tabCleanup.track(restSpawn.tab_id);
-      const restTab = await pollUntil(
-        async () => {
-          const mux = await currentMux(api);
-          const tab = mux.tabs[restSpawn.tab_id];
-          const tabId = tabTabId(mux, restSpawn.tab_id);
-          return tab?.title && tabId
-            ? { title: tab.title, tabId }
-            : undefined;
-        },
-        30_000,
-        500,
-        "REST no-title spawn title",
-      );
-      await expect(
-        page.locator(
-          `[data-testid="tab-item"][data-tab-id="${restTab.tabId}"]`,
-        ),
-      ).toContainText(restTab.title, { timeout: 20_000 });
-      assertGeneratedSessionTitle(restTab.title, restProvider, seenTitles);
+          await test.step("REST no-title", async () => {
+            const restSpawn = await api.post<SpawnResult>("/agents/spawn", {
+              agent: provider.id,
+              workspace_id: workspaceId,
+              skip_permissions: true,
+              activate: true,
+            });
+            tabCleanup.track(restSpawn.tab_id);
+            const restTab = await pollUntil(
+              async () => {
+                const mux = await currentMux(api);
+                const tab = mux.tabs[restSpawn.tab_id];
+                const renderedTabId = sidebarTabId(mux, restSpawn.tab_id);
+                return tab?.title && renderedTabId
+                  ? { title: tab.title, sidebarTabId: renderedTabId }
+                  : undefined;
+              },
+              30_000,
+              500,
+              `REST no-title spawn title for ${provider.id}`,
+            );
+            await expect(
+              page.locator(
+                `[data-testid="tab-item"][data-tab-id="${restTab.sidebarTabId}"]`,
+              ),
+            ).toContainText(restTab.title, { timeout: 20_000 });
+            assertGeneratedSessionTitle(restTab.title, provider, seenTitles);
+          });
+        });
+      }
     } finally {
       await page.context().close();
+      await api.closeWorkspace(workspaceId).catch(() => {});
     }
   });
 

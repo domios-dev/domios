@@ -13,6 +13,9 @@
 
 use serde::{Deserialize, Serialize};
 
+#[doc(hidden)]
+pub const EMBED_CHILD_CALL_BUDGET: u64 = 8;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmbeddingsConfig {
     pub enabled: bool,
@@ -44,7 +47,7 @@ pub mod inner {
     static EXT_REGISTERED: Once = Once::new();
 
     // Keep the known ONNX leak below a single-process memory budget between child restarts.
-    const CHILD_MAX_CALLS: u64 = 8;
+    const CHILD_MAX_CALLS: u64 = super::EMBED_CHILD_CALL_BUDGET;
 
     #[cfg(test)]
     pub(super) const EMBED_CHILD_MAX_CALLS: u64 = CHILD_MAX_CALLS;
@@ -235,27 +238,21 @@ pub mod inner {
     /// and bounded by periodic child recycling.
     pub fn embed(text: &str) -> Result<Vec<f32>, String> {
         let normalized = preprocess(text);
-        let slot = child_handle();
-        let mut guard = slot.lock();
-
-        // Recycle child when call budget is exhausted, to bound ort leak.
-        if let Some(c) = guard.as_ref() {
-            if recycle_required(c.calls) {
-                log::info!("[embed] recycling child after {} calls", c.calls);
-                *guard = None;
-            }
-        }
-        if guard.is_none() {
-            *guard = Some(EmbedChild::spawn()?);
-        }
-
-        let child = guard.as_mut().unwrap();
-        match child.request("", &normalized) {
+        match codeterm_util::child_slot::request_with_idle(
+            child_handle(),
+            EmbedChild::spawn,
+            |child| {
+                let required = recycle_required(child.calls);
+                if required {
+                    log::info!("[embed] recycling child after {} calls", child.calls);
+                }
+                required
+            },
+            |child| child.request("", &normalized),
+        ) {
             Ok(v) => Ok(v),
             Err(e) => {
-                // Child may have died — drop it so next call respawns.
-                log::warn!("[embed] child request failed ({}), dropping", e);
-                *guard = None;
+                log::warn!("[embed] child operation failed ({}), dropping", e);
                 Err(e)
             }
         }

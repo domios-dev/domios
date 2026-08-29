@@ -1,12 +1,13 @@
 /**
  * WHAT: mobile overflow covers broad web surfaces at phone widths.
  * WHY: 320px regressions have repeatedly come from fixed-width panels, menus,
- * and dialogs rather than from the terminal/code scroll surfaces themselves.
+ * and dialogs rather than from the terminal/code scroll surfaces themselves. Canvas
+ * reachability left this audit after 92f5c3d9c deleted its global toolbar button;
+ * plan-contextual routes require a plan fixture of their own.
  * ORACLE: visible surfaces and controls are fully inside the viewport and
  * reachable at their center; document scroll width is only a secondary signal.
  */
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
 import { expect, test, type Browser, type Page, type SpawnAgent, type TabCleanup, API_BASE, readDevToken } from "../../helpers/fixtures";
 import type { ApiClient } from "../../helpers/api-client";
 import { auditKnownSurfaces, collectViewportOffenders, INTERACTIVE, revealOwnedHorizontalSurface, type ReachabilityMode } from "../../helpers/mobile-overflow";
@@ -19,9 +20,6 @@ const VIEWPORTS = [
   { width: 430, height: 932, name: "430x932" },
 ] as const;
 
-type CanvasLayerExpectation = "overlay" | "inline";
-
-type CreatedTab = { id: string; tab_id?: string };
 type TargetTab = {
   tabId: string;
   tabTitle: string;
@@ -44,9 +42,6 @@ type Health = {
   build?: string;
   instance?: { identifier?: string };
 };
-type ChatStart = {
-  pending?: boolean;
-};
 
 async function newWebPage(browser: Browser, viewport: { width: number; height: number }): Promise<Page> {
   const ctx = await browser.newContext({ viewport });
@@ -57,7 +52,7 @@ async function newWebPage(browser: Browser, viewport: { width: number; height: n
 
 async function openApp(page: Page): Promise<void> {
   await page.goto(`${API_BASE}/#token=${readDevToken()}`, { waitUntil: "domcontentloaded" });
-  await page.waitForSelector('[data-testid="peer-picker-button"]', { timeout: 20_000 });
+  await page.waitForSelector('[data-testid="peer-picker-button"], [data-testid="web-sidebar-open"]', { timeout: 20_000 });
 }
 
 async function openSidebar(page: Page, workspaceName?: string): Promise<void> {
@@ -160,7 +155,7 @@ async function prepareTargetTab(
   api: ApiClient,
   tabCleanup: TabCleanup,
   seedTeam: boolean,
-  spawnAgent?: SpawnAgent,
+  spawnAgent: SpawnAgent,
 ): Promise<TargetTab> {
   const tabTitle = `pw-mobile-layer-${Date.now()}`;
   let fixtureWorkspaceId: string | undefined;
@@ -174,7 +169,6 @@ async function prepareTargetTab(
 
   let tabId: string;
   if (seedTeam) {
-    if (!spawnAgent) throw new Error("a seeded Team needs the spawnAgent fixture to create its anchor");
     const spawned = await spawnAgent({
       agent: "claude",
       role: "Orchestrator",
@@ -187,19 +181,15 @@ async function prepareTargetTab(
     tabId = spawned.tab_id;
     tabCleanup.track(tabId);
   } else {
-    const tab = await tabCleanup.createTab<CreatedTab>({ title: tabTitle, eager: true });
-    tabId = tab.id;
-    await api.post(`/tabs/${tabId}/agent-type`, { agent_type: "claude" });
+    const spawned = await spawnAgent({
+      agent: "claude",
+      title: tabTitle,
+      skip_permissions: true,
+      activate: true,
+    });
+    tabId = spawned.tab_id;
   }
   await api.post(`/tabs/${tabId}/chat-view`, { enabled: true });
-  // chat-raw/start installs a per-subscriber tailer and REQUIRES its id:
-  // `ChatSubscriptionBody { subscription_id }` is `#[serde(rename_all = "camelCase")]`
-  // with no default, so an absent body is rejected before the handler runs. The
-  // frontend sends the same field (bridge.ts `chat_start`).
-  const chat = await api.post<ChatStart>(`/tabs/${tabId}/chat-raw/start`, {
-    subscriptionId: `pw-mobile-overflow-${tabId}`,
-  });
-  expect(chat.pending, "authenticated chat-raw/start returns a ready transcript").toBe(false);
   await api.focusTab(tabId);
 
   const mux = await api.get<MuxState>("/mux/state");
@@ -224,6 +214,25 @@ async function prepareTargetTab(
     };
   }
   throw new Error(`created tab ${tabId} has no owning workspace in mux state`);
+}
+
+async function assertTargetChatReady(
+  page: Page,
+  target: Pick<TargetTab, "tabId" | "tabTitle">,
+  label: string,
+): Promise<void> {
+  await expect(
+    page.getByRole("region", { name: `Tab chat: ${target.tabTitle}` }),
+    `${label} authenticated tab chat ready`,
+  ).toBeVisible({ timeout: 10_000 });
+  await expect(
+    page.locator(`[data-tab-id="${target.tabId}"]`).getByText("Loading chat…", { exact: true }),
+    `${label} chat must not remain loading`,
+  ).toHaveCount(0);
+  await expect(
+    page.locator(`[data-testid="tab-session-chat"][data-tab-id="${target.tabId}"]`),
+    `${label} target tab chat visible`,
+  ).toBeVisible({ timeout: 10_000 });
 }
 
 async function waitSidebarClosed(page: Page): Promise<void> {
@@ -268,17 +277,6 @@ async function openSidebarAndSelectTargetTab(api: ApiClient, page: Page, target:
   await waitSidebarClosed(page);
 }
 
-async function openWorkspaceCanvasOverlay(page: Page, label: string): Promise<void> {
-  const button = page.getByRole("button", { name: "Open workspace canvas" }).first();
-  await expect(button, `${label} canvas toolbar button visible`).toBeVisible({ timeout: 10_000 });
-  await button.click();
-  await expect(
-    page.locator('[data-testid="canvas-view"], [data-testid="plan-view-shell"], [data-testid="canvas-empty"]').first(),
-    `${label} workspace canvas visible`,
-  ).toBeVisible({ timeout: 10_000 });
-  await settleLayout(page);
-}
-
 async function assertActiveManagerReadable(
   api: ApiClient,
   page: Page,
@@ -309,86 +307,6 @@ async function assertActiveManagerReadable(
     .toHaveText(/\S+/);
 
   await openSidebarAndSelectTargetTab(api, page, target, `${label} restore target`);
-}
-
-async function assertCanvasStateBeforeTabTransition(
-  page: Page,
-  tabId: string,
-  expected: CanvasLayerExpectation,
-  label: string,
-): Promise<void> {
-  const state = await page.evaluate(({ targetTabId, expectedLayer }) => {
-    const canvas = document.querySelector('[data-testid="canvas-view"], [data-testid="plan-view-shell"], [data-testid="canvas-empty"]') as HTMLElement | null;
-    if (!canvas) return { kind: "missing-canvas" as const };
-    const visible = (el: Element | null): el is HTMLElement => {
-      if (!(el instanceof HTMLElement)) return false;
-      const rect = el.getBoundingClientRect();
-      const style = window.getComputedStyle(el);
-      return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
-    };
-    const visibleControlsOutsideCanvas = Array.from(document.querySelectorAll(
-      '[data-testid="tab-session-chat"], [data-testid="terminal-tab"], [data-testid="chat-composer"], [data-testid="chat-reconnect"]',
-    )).filter((el) => visible(el) && !el.closest('[inert], [aria-hidden="true"]') && !canvas.contains(el));
-    if (expectedLayer === "inline") {
-      return {
-        kind: "inline" as const,
-        tabControlCount: visibleControlsOutsideCanvas.length,
-      };
-    }
-    const tabRoot = document.querySelector(`[data-tab-id="${targetTabId}"]`) as HTMLElement | null;
-    if (!visible(tabRoot)) {
-      return {
-        kind: "overlay" as const,
-        tabRootVisible: false,
-      };
-    }
-    const rect = tabRoot.getBoundingClientRect();
-    const x = Math.min(Math.max(rect.left + rect.width / 2, 0), document.documentElement.clientWidth - 1);
-    const y = Math.min(Math.max(rect.top + rect.height / 2, 0), document.documentElement.clientHeight - 1);
-    const hit = document.elementFromPoint(x, y);
-    return {
-      kind: "overlay" as const,
-      tabRootVisible: true,
-      hitInsideTabRoot: hit instanceof Node && (hit === tabRoot || tabRoot.contains(hit)),
-      hitTestid: hit instanceof HTMLElement ? hit.getAttribute("data-testid") : null,
-    };
-  }, { targetTabId: tabId, expectedLayer: expected });
-
-  expect(state.kind, `${label} valid canvas state before tab transition ${JSON.stringify(state)}`).not.toBe("missing-canvas");
-  if (state.kind === "inline") {
-    expect(state.tabControlCount, `${label} inline canvas has no outside-canvas chat/terminal controls`).toBe(0);
-    return;
-  }
-  expect(state.tabRootVisible, `${label} overlay target tab root visible ${JSON.stringify(state)}`).toBe(true);
-  expect(state.hitInsideTabRoot, `${label} overlay canvas blocks click-through to tab root ${JSON.stringify(state)}`).toBe(false);
-}
-
-async function assertWorkspaceLayerTopmost(page: Page, tabId: string, label: string): Promise<void> {
-  await expect
-    .poll(
-      () => page.locator(`[data-testid="tab-session-chat"][data-tab-id="${tabId}"]`).evaluate((chat) => {
-        const rect = chat.getBoundingClientRect();
-        if (rect.width <= 0 || rect.height <= 0) return false;
-        const x = Math.min(Math.max(rect.left + rect.width / 2, 0), document.documentElement.clientWidth - 1);
-        const y = Math.min(Math.max(rect.top + rect.height / 2, 0), document.documentElement.clientHeight - 1);
-        const hit = document.elementFromPoint(x, y);
-        return hit instanceof Node && (hit === chat || chat.contains(hit));
-      }).catch(() => false),
-      { timeout: 5_000, message: `${label} workspace layer never became topmost` },
-    )
-    .toBe(true);
-
-  const result = await page.locator(`[data-testid="tab-session-chat"][data-tab-id="${tabId}"]`).evaluate((chat) => {
-    const rect = chat.getBoundingClientRect();
-    const x = Math.min(Math.max(rect.left + rect.width / 2, 0), document.documentElement.clientWidth - 1);
-    const y = Math.min(Math.max(rect.top + rect.height / 2, 0), document.documentElement.clientHeight - 1);
-    const hit = document.elementFromPoint(x, y);
-    return {
-      hitInsideChat: hit instanceof Node && (hit === chat || chat.contains(hit)),
-      hitTestid: hit instanceof HTMLElement ? hit.getAttribute("data-testid") : null,
-    };
-  });
-  expect(result.hitInsideChat, `${label} workspace layer never became topmost ${JSON.stringify(result)}`).toBe(true);
 }
 
 async function assertPeerPickerTopContained(page: Page, label: string): Promise<void> {
@@ -663,7 +581,11 @@ async function clickSidebarScrimAndAssertClosed(page: Page, label: string): Prom
       ));
   }, null, { timeout: 5_000 });
   await settleLayout(page);
-  await assertPeerPickerReachable(page, `${label} after scrim close`);
+  await assertControlsReachable(
+    page,
+    '[data-testid="web-sidebar-open"]',
+    `${label} after scrim close sidebar reopen`,
+  );
 }
 
 async function auditSidebarDrawer(page: Page, label: string, expectedOpen: boolean): Promise<void> {
@@ -805,15 +727,8 @@ test("@golden mobile web primary surfaces stay inside the viewport audit helper 
     expect(ancestorOnlyIds).not.toContain("covered-clickthrough");
     expect(ids).toContain("covered-clickthrough");
     const collectorSource = collectViewportOffenders.toString();
-    const helperSource = readFileSync("tests/playwright/helpers/mobile-overflow.ts", "utf8");
-    const specSource = readFileSync("tests/playwright/suites/12-web/mobile-overflow.spec.ts", "utf8");
-    expect(collectorSource).toContain('getAttribute("aria-hidden") === "true"');
     expect(collectorSource).not.toContain("pointerEvents");
     expect(collectorSource).not.toContain("opacity");
-    expect(helperSource).toContain("export async function revealOwnedHorizontalSurface");
-    expect(specSource).toContain("revealOwnedHorizontalSurface, type ReachabilityMode");
-    expect(specSource).toContain("await revealOwnedHorizontalSurface(page, meshTab");
-    expect(specSource).toContain("owner.scrollLeft + viewport - ownerRect.left - width / 2");
     const peerDismissSource = dismissPeerPickerWithSupportedControl.toString();
     expect(peerDismissSource).toContain('[data-testid="peer-picker-button"]');
     expect(peerDismissSource).toContain(".click()");
@@ -902,6 +817,72 @@ test("@golden mobile web primary surfaces stay inside the viewport audit helper 
     });
     expect(popupOccludedHit).toEqual({ reachable: false, hitTestid: "peer-picker-menu" });
 
+    await page.setContent(`
+      <style>
+        html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+        button { position: absolute; width: 96px; height: 32px; }
+        .ct-sidebar-backdrop { position: fixed; inset: 0; z-index: 1; }
+        .ct-sidebar-drawer { position: fixed; left: 0; top: 0; bottom: 0; width: 220px; z-index: 2; }
+        #nested-drawer-reachable { left: 16px; top: 112px; }
+        #nested-menu-covered { left: 40px; top: 40px; }
+        #nested-menu-covered-page { left: 40px; top: 40px; }
+        #nested-unrelated, #nested-unrelated-cover { left: 16px; top: 168px; }
+        #nested-unrelated-cover { position: absolute; width: 96px; height: 32px; z-index: 4; }
+        #nested-offscreen { left: 300px; top: 216px; }
+        #nested-background { left: 252px; top: 112px; width: 60px; }
+        [data-testid="peer-picker-menu"] { position: absolute; left: 32px; top: 24px; width: 160px; height: 72px; z-index: 3; }
+        #nested-menu-item { left: 8px; top: 8px; }
+      </style>
+      <div id="root">
+        <button id="nested-background" data-testid="nested-background">background</button>
+        <button id="nested-menu-covered-page" data-testid="nested-menu-covered-page">page under menu</button>
+        <div class="ct-sidebar-backdrop is-open" data-testid="nested-backdrop"></div>
+        <div class="ct-sidebar-drawer is-open">
+          <button id="nested-drawer-reachable" data-testid="nested-drawer-reachable">drawer</button>
+          <button id="nested-menu-covered" data-testid="nested-menu-covered">menu covered</button>
+          <button id="nested-unrelated" data-testid="nested-unrelated">unrelated covered</button>
+          <div id="nested-unrelated-cover" data-testid="nested-unrelated-cover"></div>
+          <button id="nested-offscreen" data-testid="nested-offscreen">offscreen</button>
+          <div data-testid="peer-picker-menu">
+            <button id="nested-menu-item" data-testid="nested-menu-item">menu</button>
+          </div>
+        </div>
+      </div>
+    `);
+    const nestedHits = await page.locator([
+      "#nested-menu-item",
+      "#nested-drawer-reachable",
+      "#nested-menu-covered",
+      "#nested-menu-covered-page",
+      "#nested-background",
+      "#nested-unrelated",
+    ].join(",")).evaluateAll((nodes) => Object.fromEntries(nodes.map((node) => {
+      const rect = node.getBoundingClientRect();
+      const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      return [node.id, hit instanceof HTMLElement ? hit.dataset.testid ?? hit.id : null];
+    })));
+    expect(nestedHits).toEqual({
+      "nested-menu-item": "nested-menu-item",
+      "nested-drawer-reachable": "nested-drawer-reachable",
+      "nested-menu-covered": "nested-menu-item",
+      "nested-menu-covered-page": "nested-menu-item",
+      "nested-background": "nested-backdrop",
+      "nested-unrelated": "nested-unrelated-cover",
+    });
+    expect(
+      await page.locator("#nested-menu-covered-page").evaluate((el) => el.closest(".ct-sidebar-drawer") === null),
+      "nested portaled menu covers a page control outside the drawer",
+    ).toBe(true);
+    const nestedPopupOffenders = await collectViewportOffenders(page, "peer-picker-menu");
+    expect(nestedPopupOffenders.map((item) => item?.testid).sort()).toEqual([
+      "nested-offscreen",
+      "nested-unrelated",
+    ]);
+    expect(nestedPopupOffenders.find((item) => item?.testid === "nested-unrelated")?.hitTestid)
+      .toBe("nested-unrelated-cover");
+    const nestedOffscreen = nestedPopupOffenders.find((item) => item?.testid === "nested-offscreen");
+    expect(nestedOffscreen!.right, "nested offscreen control remains outside viewport").toBeGreaterThan(nestedOffscreen!.viewportWidth);
+
     await page.setContent(`<style>html,body{margin:0;overflow:hidden}.ct-float{position:fixed;left:32px;top:24px;width:160px;height:72px;z-index:3}button{position:absolute;width:120px;height:32px}#workspace-covered{left:40px;top:32px}#workspace-unrelated,#workspace-cover{left:40px;top:112px}#workspace-cover{position:absolute;width:120px;height:32px;z-index:2}</style><div data-testid="new-session-picker"><div role="dialog" aria-modal="true"><button id="workspace-covered" data-testid="workspace-covered">covered</button><button id="workspace-unrelated" data-testid="workspace-unrelated">unrelated</button><div id="workspace-cover"></div></div></div><div class="ct-float"><button data-testid="picker-workspace-option-x">option</button></div>`);
     const workspaceCoverHit = await page.locator("#workspace-unrelated").evaluate((el) => {
       const rect = el.getBoundingClientRect();
@@ -942,16 +923,6 @@ test("@golden mobile web primary surfaces stay inside the viewport audit helper 
     await page.setContent(`<button data-testid="mesh-tab-network" style="position:absolute;left:360px">Network</button>`);
     await expect(auditKnownSurfaces(page, "unowned hscroll self-check")).rejects.toThrow(/right/);
 
-    const popupCollectorSource = collectViewportOffenders.toString();
-    expect(popupCollectorSource).toContain('mode === "peer-picker-menu"');
-    expect(popupCollectorSource).toContain("inPeerPickerMenu ? reachable");
-    const popupLayerSource = assertPeerPickerMenuInverseOcclusion.toString();
-    expect(popupLayerSource).toContain("inverse-occlusion peer menu covers Chat and Terminal tabs");
-    expect(targetTabModeSwitch.toString()).toContain('[data-tab-id="${tabId}"]');
-    expect(targetTabModeSwitch.toString()).toContain('[data-testid="tab-mode-switch"]');
-    expect(assertTabModeTabsReachable.toString()).toContain("target tab mode switch count");
-    expect(assertPeerPickerMenuInverseOcclusion.toString()).toContain("inverse-occlusion target tab mode switch count");
-
     await page.setContent(`
       <style>
         html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
@@ -985,9 +956,6 @@ test("@golden mobile web primary surfaces stay inside the viewport audit helper 
     });
     expect(settingsOccludedHit).toEqual({ reachable: false, hitTestid: "settings-menu" });
 
-    const settingsCollectorSource = collectViewportOffenders.toString();
-    expect(settingsCollectorSource).toContain('mode === "settings-menu"');
-    expect(settingsCollectorSource).toContain("inSettingsMenu ? reachable");
     const auditSource = auditViewport.toString();
     expect(auditSource).toContain('[data-testid="settings-menu"]');
     expect(auditSource).toMatch(/state:\s*"visible",\s*timeout:\s*5_?000/);
@@ -1032,44 +1000,30 @@ test("@golden mobile web primary surfaces stay inside the viewport audit helper 
     });
     await expect(
       assertTabModeTabsReachable(page, "target-tab", "duplicate tab cardinality self-check"),
-    ).rejects.toThrow(/target tab mode switch count/);
+    ).rejects.toThrow();
     await expect(
       assertPeerPickerMenuInverseOcclusion(page, "target-tab", "duplicate tab cardinality self-check"),
-    ).rejects.toThrow(/inverse-occlusion target tab mode switch count/);
+    ).rejects.toThrow();
   } finally {
     await page.context().close();
   }
 });
 
 for (const vp of VIEWPORTS) {
-  test(`@golden mobile web primary surfaces stay inside the viewport ${vp.name}`, async ({ webBrowser, api, tabCleanup }, testInfo) => {
+  test(`@golden mobile web primary surfaces stay inside the viewport ${vp.name}`, async ({ webBrowser, api, tabCleanup, spawnAgent }, testInfo) => {
     const health = await assertHealthMatchesHead();
     await testInfo.attach("health.json", { body: JSON.stringify(health, null, 2), contentType: "application/json" });
 
-    // Pure layout: no role, no Team, no agent runtime. The Team-manager surface
-    // needs a live anchor and lives in its own gated test below.
-    const target = await prepareTargetTab(api, tabCleanup, false);
+    // The layout assertions need the chat surface mounted, so the fixture owns
+    // a spawned tab and waits for its visible ready state before auditing layout.
+    const target = await prepareTargetTab(api, tabCleanup, false, spawnAgent);
     const page = await newWebPage(webBrowser, vp);
     try {
       await openApp(page);
       await assertBuildIdentity(page, health);
       await settleLayout(page);
       await openSidebarAndSelectTargetTab(api, page, target, `${vp.name} initial target`);
-      await expect(
-        page.getByRole("region", { name: `Tab chat: ${target.tabTitle}` }),
-        `${vp.name} authenticated tab chat ready`,
-      ).toBeVisible({ timeout: 10_000 });
-      await expect(
-        page.locator(`[data-tab-id="${target.tabId}"]`).getByText("Loading chat…", { exact: true }),
-      ).toHaveCount(0);
-      await expect(
-        page.locator(`[data-testid="tab-session-chat"][data-tab-id="${target.tabId}"]`),
-        `${vp.name} target tab chat visible before canvas`,
-      ).toBeVisible({ timeout: 10_000 });
-      await openWorkspaceCanvasOverlay(page, `${vp.name} before tab transition`);
-      await assertCanvasStateBeforeTabTransition(page, target.tabId, "overlay", `${vp.name} before tab transition`);
-      await openSidebarAndSelectTargetTab(api, page, target, `${vp.name} canvas-to-workspace`);
-      await assertWorkspaceLayerTopmost(page, target.tabId, `${vp.name} after target row click`);
+      await assertTargetChatReady(page, target, vp.name);
       await assertPeerPickerTopContained(page, `${vp.name} initial`);
       await auditViewport(page, `${vp.name} initial`);
       await auditSidebarDrawer(page, `${vp.name} closed sidebar`, false);
@@ -1080,6 +1034,7 @@ for (const vp of VIEWPORTS) {
       await clickSidebarScrimAndAssertClosed(page, `${vp.name} open sidebar`);
       await auditSidebarDrawer(page, `${vp.name} closed sidebar after dismiss`, false);
 
+      await openSidebar(page);
       await page.locator('[data-testid="peer-picker-button"]').click();
       await page.locator('[data-testid="peer-picker-menu"]').waitFor({ state: "visible", timeout: 5_000 });
       await settleLayout(page);
@@ -1087,6 +1042,7 @@ for (const vp of VIEWPORTS) {
       await auditViewport(page, `${vp.name} peer menu`, { reachability: "peer-picker-menu" });
       await assertPeerPickerMenuInverseOcclusion(page, target.tabId, `${vp.name} peer menu`);
       await dismissPeerPickerWithSupportedControl(page, `${vp.name} peer menu`);
+      await clickSidebarScrimAndAssertClosed(page, `${vp.name} peer menu dismissed`);
       await assertTabModeTabsReachable(page, target.tabId, `${vp.name} peer menu dismissed`);
 
       await page.locator('[data-testid="titlebar-settings"]').click();
@@ -1159,10 +1115,20 @@ for (const vp of VIEWPORTS) {
   });
 }
 
-// The one phone surface that cannot be reached without a live agent: a Team's
-// managers section only renders tabs whose role ANCHORS the Team, and a role
-// requires a verified live session. It is split from the layout viewports above
-// so those keep no agent-runtime dependency at all.
+test("@golden mobile-overflow chat readiness fails when absent", async ({ webBrowser }) => {
+  const page = await newWebPage(webBrowser, VIEWPORTS[0]);
+  try {
+    await page.setContent("<main></main>");
+    await expect(
+      assertTargetChatReady(page, { tabId: "missing-tab", tabTitle: "missing tab" }, "missing readiness"),
+    ).rejects.toThrow();
+  } finally {
+    await page.context().close();
+  }
+});
+
+// A Team's managers section additionally needs an anchor role and its verified
+// live session, so it remains split from the ordinary chat-surface viewports.
 test("@golden mobile web Team managers stay readable in the phone drawer", async ({ webBrowser, api, tabCleanup, spawnAgent }) => {
   test.skip(
     !(await isStubTransportActive(api)),

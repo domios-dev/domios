@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 44 -->
+<!-- revision: 45 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -1136,7 +1136,7 @@ Per-peer address management
 
 #### `codeterm mesh peer set-addr`
 
-Manually override our cached address for a paired peer. Useful when auto-detection is wrong or you want to point at a specific interface. Format: ip[:port]. Examples: codeterm mesh peer set-addr BLACKSTAR 100.64.10.1 codeterm mesh peer set-addr BLACKSTAR 192.168.1.42:7685
+Manually override our cached address for a paired peer. Useful when auto-detection is wrong or you want to point at a specific interface. Format: ip[:port]. Examples: codeterm mesh peer set-addr PEER-NAME 100.100.100.100 codeterm mesh peer set-addr PEER-NAME 192.168.1.42:7685
 
 - `<addr>` — New address as ip[:port]
 - `<peer>` — Target peer (instance_id or name)
@@ -1575,10 +1575,10 @@ Show a handoff (--latest or --seq N), optionally as markdown
 
 #### `codeterm plan in-progress`
 
-List active orchestration tasks
+List active orchestration tasks; without PLAN_ID, scope to the current directory's project
 
-- `--all`
-- `<plan_id>`
+- `--all` — List active tasks across every project
+- `<plan_id>` — Plan to list regardless of the caller's working directory
 
 #### `codeterm plan ingest`
 
@@ -1937,6 +1937,14 @@ BOUNCE: atomically exits in_review back to in_progress
 - `<plan_id>`
 - `<task_id>`
 
+#### `codeterm plan review hold`
+
+HOLD: records a review hold without releasing the task assignment or lane
+
+- `--note`
+- `<plan_id>`
+- `<task_id>`
+
 #### `codeterm plan review override`
 
 Record a P0 exception authorizing the next over-round-limit review entry
@@ -2108,7 +2116,7 @@ Add a task to a plan (carries model/why routing + quality fields)
 - `--criterion-file` — Read acceptance criteria from a file: a JSON string array, or one criterion per line. Appends to --criterion
 - `--depends-on` — Task this one waits on; repeatable. Accepts a full task id (task_xxxxxx), a unique id prefix, or a task handle (see --handle)
 - `--destination`
-- `--execution-intent`
+- `--execution-intent` — Classifies whether this task changes the repository; dispatch uses read_only | mutating instead
 - `--executor-role` — REQUIRED: who executes this task. Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync. Presence is the contract; no vocabulary is enforced
 - `--external-ref` — GitHub issue reference; repeatable. Accepts a full issue URL or owner/repository#number
 - `--force`
@@ -2126,8 +2134,8 @@ Add a task to a plan (carries model/why routing + quality fields)
 - `--priority`
 - `--qa-plan`
 - `--qa-plan-file`
-- `--role-guidance` — Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. "You are Alex; property tests come before implementation; red line: a lock claim without a test is not proof."
-- `--role-guidance-file`
+- `--role-guidance` — REQUIRED: initial worker conditioning. Presence alone is the machine contract; prose quality is a human judgment
+- `--role-guidance-file` — Read required initial worker conditioning from a file
 - `--sections`
 - `--tag`
 - `--test-plan`
@@ -2315,7 +2323,7 @@ Update task metadata, status, quality fields, or lane assignment
 - `--qa-plan-file`
 - `--remove-dependency` — Remove a specific dependency edge; repeatable. Applied after --depends-on additions
 - `--replace-dependencies` — Replace the whole dependency set with --depends-on instead of appending
-- `--role-guidance` — Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. "You are Alex; property tests come before implementation; red line: a lock claim without a test is not proof."
+- `--role-guidance` — Replace initial worker conditioning. Cannot be emptied; presence alone is the machine contract
 - `--role-guidance-file`
 - `--sections`
 - `--status` — Task status: pending | in_progress | in_review | blocked | paused | done | cancelled
@@ -2817,6 +2825,13 @@ Plain shell tab, created in the calling tab's own workspace — never the worksp
 - `--title` — Tab title
 - `--workspace` — Target workspace id. Defaults to the calling tab's own workspace, then the focused workspace for a caller with no tab identity
 
+#### `codeterm tab rebind`
+
+Bind a running tab to an existing provider session without restarting it
+
+- `<session_id>` — Provider session ID to bind
+- `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
+
 #### `codeterm tab rename`
 
 Rename a tab (default: current tab)
@@ -3039,6 +3054,7 @@ Workspace management
 
 Close/delete a workspace
 
+- `--force` — Explicitly acknowledge destroying agent tabs in this workspace
 - `<id>` — Workspace ID
 
 #### `codeterm workspace create`

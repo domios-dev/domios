@@ -116,6 +116,14 @@ pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
             post(hook_routes::hook_session_start),
         )
         .route(
+            "/api/tabs/{id}/session/rebind",
+            post(super::session_binding_routes::rebind_session),
+        )
+        .route(
+            "/api/tabs/{id}/session/binding-state",
+            get(super::session_binding_routes::binding_state),
+        )
+        .route(
             "/api/agents/providers",
             get(agent_routes::list_agent_providers),
         )

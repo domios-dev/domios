@@ -35,14 +35,20 @@ name: release-linux
 # encrypted — it evaluates to empty when unset).
 
 "on":
-  # Linux lane disabled for v1.9.5 (user decision, 2026-08-18): tag pushes do not
-  # build Linux until the lane returns. Manual workflow_dispatch stays available.
+  push:
+    tags:
+      - 'release-*'
   workflow_dispatch:
     inputs:
       tag:
         description: 'Tag to release (e.g. v1.1.0). Required for manual runs.'
         required: true
         type: string
+      mirror:
+        description: 'Publish to the public mirror. Turn off only for a dry run — a manual run that does not mirror leaves the release incomplete.'
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   contents: write
@@ -278,9 +284,11 @@ jobs:
 
       # Mirror the .deb + .AppImage (user downloads) + updater bundle + merged
       # manifest to the public release repo so the auto-updater + anonymous
-      # downloads work. Skip on workflow_dispatch — only mirror on the real tag push.
+      # downloads work. A tag push always mirrors; a manual run mirrors unless it
+      # was explicitly asked not to, because a manual run that silently skips this
+      # produces a green workflow and a release users cannot download.
       - name: Mirror to public release repo
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' || inputs.mirror
         env:
           GH_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
           TAG: ${{ steps.tag.outputs.name }}

@@ -907,6 +907,13 @@ mod tests {
             "review accept uses --note, not --reason"
         );
 
+        let hold = subcommand(&root, &["plan", "review", "hold"]).expect("plan review hold exists");
+        assert!(has_long(hold, "note"), "review hold uses --note");
+        assert!(
+            !has_long(hold, "reason"),
+            "review hold uses --note, not --reason"
+        );
+
         let mode = subcommand(&root, &["plan", "mode"]).expect("plan mode exists");
         assert!(
             has_long(mode, "set"),

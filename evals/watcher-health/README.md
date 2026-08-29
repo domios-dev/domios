@@ -19,7 +19,7 @@ on port 7686 and proves spec acceptance criteria 1-3:
   install the plugin from the sibling checkout:
 
 ```bash
-cd /Users/dev/Developer/codeterm-canvas
+cd /Users/user/Developer/codeterm-canvas
 source evals/_lib/lib.sh
 dc plugin install lmstudio --from-dir ../codeterm-plugins/lmstudio
 ```
@@ -27,7 +27,7 @@ dc plugin install lmstudio --from-dir ../codeterm-plugins/lmstudio
 ## Run
 
 ```bash
-cd /Users/dev/Developer/codeterm-canvas
+cd /Users/user/Developer/codeterm-canvas
 bash evals/watcher-health/run.sh
 ```
 

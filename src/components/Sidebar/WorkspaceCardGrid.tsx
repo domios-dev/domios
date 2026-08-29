@@ -120,7 +120,7 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, s
               <SortableRow
                 key={workspace.id}
                 id={`${WS_PREFIX}${workspace.id}`}
-                data={{ group: "workspace", groupKey: "workspaces", items: sortIds }}
+                data={{ group: "workspace", groupKey: "workspaces" }}
                 layoutStyle={workspaceCardPosition(index, columns)}
               >
                 <div

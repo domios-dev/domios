@@ -2,10 +2,10 @@
   {
     "t_ms": 0,
     "event": "capture_start",
-    "cast": "/Users/dev/Developer/codeterm-alpha/testbench/replays/opencode/geometry_smoke_v1-20260621-geometry-smoke-v2-opencode-geometry_smoke_v1-160x40/raw.cast",
+    "cast": "/Users/user/Developer/codeterm-alpha/testbench/replays/opencode/geometry_smoke_v1-20260621-geometry-smoke-v2-opencode-geometry_smoke_v1-160x40/raw.cast",
     "capture_start_result": {
       "ok": true,
-      "out": "/Users/dev/Developer/codeterm-alpha/testbench/replays/opencode/geometry_smoke_v1-20260621-geometry-smoke-v2-opencode-geometry_smoke_v1-160x40/raw.cast",
+      "out": "/Users/user/Developer/codeterm-alpha/testbench/replays/opencode/geometry_smoke_v1-20260621-geometry-smoke-v2-opencode-geometry_smoke_v1-160x40/raw.cast",
       "width": 120,
       "height": 40
     }
@@ -143,8 +143,8 @@
     "event": "capture_stop",
     "capture_stop_result": {
       "ok": true,
-      "cast": "/Users/dev/Developer/codeterm-alpha/testbench/replays/opencode/geometry_smoke_v1-20260621-geometry-smoke-v2-opencode-geometry_smoke_v1-160x40/raw.cast",
-      "screen": "/Users/dev/Developer/codeterm-alpha/testbench/replays/opencode/geometry_smoke_v1-20260621-geometry-smoke-v2-opencode-geometry_smoke_v1-160x40/raw.screen.txt"
+      "cast": "/Users/user/Developer/codeterm-alpha/testbench/replays/opencode/geometry_smoke_v1-20260621-geometry-smoke-v2-opencode-geometry_smoke_v1-160x40/raw.cast",
+      "screen": "/Users/user/Developer/codeterm-alpha/testbench/replays/opencode/geometry_smoke_v1-20260621-geometry-smoke-v2-opencode-geometry_smoke_v1-160x40/raw.screen.txt"
     }
   }
 ]

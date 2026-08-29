@@ -154,6 +154,8 @@ pub struct IntegrationInstallOptions {
     pub consent: bool,
     #[serde(default)]
     pub precompact_memory_export: bool,
+    #[serde(default)]
+    pub repair: bool,
 }
 
 /// A provider-owned response for its directory trust prompt. Core only asks
@@ -908,6 +910,12 @@ pub trait AgentProvider: Send + Sync {
         serde_json::json!({ "status": "ok" })
     }
 
+    /// Whether the provider's manifest declares an installable integration.
+    /// Startup repair is capability-gated so core never identifies providers.
+    fn has_installable_integration(&self) -> bool {
+        false
+    }
+
     /// Install CodeTerm's notification integration. `api_port` is the local
     /// CodeTerm HTTP port that callbacks should target. Default no-op.
     fn install_integration(
@@ -943,7 +951,8 @@ pub trait AgentProvider: Send + Sync {
         serde_json::json!({ "granted": false, "degraded": true, "reason": "provider declares no trust grant capability" })
     }
 
-    /// Startup checks are read-only; global provider config is never repaired implicitly.
+    /// Retained for provider-owned read-only startup checks. Core owns consented
+    /// contract repair so it can preserve consent and avoid trust re-grants.
     fn ensure_integration_on_startup(&self, _api_port: u16) {}
 
     // Project rules: only Claude reads `~/.claude/rules/codeterm.md`.

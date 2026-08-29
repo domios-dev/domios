@@ -109,6 +109,26 @@ mod siblings_render_tests {
     }
 }
 
+#[test]
+fn diagnostics_that_speak_task_show_routing_values_are_rendered_or_unset() {
+    use crate::cmd::task::task_routing_lines;
+    use serde_json::json;
+
+    let values = task_routing_lines(&json!({
+        "role_guidance": "Keep it bounded",
+        "personality": "Brynhild",
+        "model": "codex:gpt-5"
+    }));
+    assert!(values.iter().any(|line| line.contains("Keep it bounded")));
+    assert!(values.iter().any(|line| line.contains("Brynhild")));
+    assert!(values.iter().any(|line| line.contains("codex:gpt-5")));
+    let unset = task_routing_lines(&json!({}));
+    assert_eq!(
+        unset.iter().filter(|line| line.contains("(unset)")).count(),
+        3
+    );
+}
+
 mod task_quality_render_tests {
     use crate::cmd::task::{executor_role_line, task_quality_lines};
     use serde_json::json;

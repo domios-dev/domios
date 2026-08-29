@@ -7,6 +7,7 @@ import { resolvePlanPeerPair } from "../shared/PairAffordance";
 import { SortableRow, TAB_PREFIX } from "./sortable";
 import { TabItem } from "./TabItem";
 import { isWorkspaceTabActive } from "./sidebarSelection";
+import type { DeclaredAttentionLevel } from "./declaredAttention";
 
 export interface PlannerPeerTabContext {
   plannerTab: Tab | null;
@@ -43,6 +44,7 @@ export interface SidebarTabItemRowProps {
   isActiveVisual: boolean;
   workspaceCanvasActive: boolean;
   tabStatuses: Record<string, TabStatus>;
+  declaredAttentionByTab?: Readonly<Record<string, DeclaredAttentionLevel>>;
   orchestrators: Tab[];
   touchMode: boolean;
   uiFontScale?: number;
@@ -68,6 +70,7 @@ function SidebarTabItemRow({
   isActiveVisual,
   workspaceCanvasActive,
   tabStatuses,
+  declaredAttentionByTab = {},
   orchestrators,
   touchMode,
   uiFontScale,
@@ -95,6 +98,7 @@ function SidebarTabItemRow({
       workspaceId={workspaceId}
       hasAgent={Boolean(tab.agent_type)}
       status={tabStatuses[tab.id] ?? null}
+      declaredAttention={declaredAttentionByTab[tab.id] ?? null}
       onRename={(title) => onRenameTab(tab.id, title)}
       orchestrators={orchestrators}
       isAppearing={isAppearing}
@@ -115,22 +119,24 @@ function SidebarTabItemRow({
 export interface SidebarSingleTabRowProps extends SidebarTabItemRowProps {
   group: "tab" | "child";
   groupKey: string;
-  items: string[];
   pinnedIds: string[];
+}
+
+export function isTabDragDisabled(tab: Pick<Tab, "protected">): boolean {
+  return tab.protected === true;
 }
 
 export function SidebarSingleTabRow({
   group,
   groupKey,
-  items,
   pinnedIds,
   ...rowProps
 }: SidebarSingleTabRowProps) {
   return (
     <SortableRow
       id={`${TAB_PREFIX}${rowProps.tab.id}`}
-      disabled={rowProps.tab.protected}
-      data={{ group, groupKey, items, pinnedIds }}
+      disabled={isTabDragDisabled(rowProps.tab)}
+      data={{ group, groupKey, pinnedIds }}
     >
       <SidebarTabItemRow {...rowProps} />
     </SortableRow>

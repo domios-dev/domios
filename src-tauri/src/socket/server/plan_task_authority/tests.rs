@@ -4,8 +4,11 @@ use super::{
     PLAN_OWNER_AUTHORITY_METHODS, RECOVERY_METHODS,
 };
 use crate::multiplexer::state::MultiplexerState;
-use crate::plan::{OrchestratorRef, Plan, Task, TaskStatus};
-use crate::service::plan::NewTask;
+use crate::plan::{
+    AgentRef, ExecutionIntent, OrchestratorRef, Plan, ProviderAllowance, Task, TaskLaneMetadata,
+    TaskStatus,
+};
+use crate::service::plan::{task_attempts::BoundWorkerReport, NewTask};
 use crate::service::test_fixture::ServiceFixture;
 use serde_json::json;
 use std::sync::Arc;
@@ -121,6 +124,44 @@ fn move_recorded_owner_session(fixture: &ServiceFixture, plan_id: &str, moved_to
     let mut plan = fixture.service.plan_store.get(plan_id).unwrap();
     plan.owner.session_id = Some(moved_to.to_string());
     fixture.service.plan_store.save(&mut plan, 6).unwrap();
+}
+
+fn move_recorded_task_session(
+    fixture: &ServiceFixture,
+    plan_id: &str,
+    task_id: &str,
+    moved_to: &str,
+) {
+    let mut plan = fixture.service.plan_store.get(plan_id).unwrap();
+    let task = plan
+        .tasks
+        .iter_mut()
+        .find(|task| task.id == task_id)
+        .unwrap();
+    task.interruption.owner_session_id = Some(moved_to.to_string());
+    fixture.service.plan_store.save(&mut plan, 6).unwrap();
+}
+
+fn mutation_authority(
+    tab_id: &str,
+    session_id: &str,
+    nonce: &str,
+) -> crate::service::plan::interruption::TaskMutationAuthority {
+    mutation_authority_at_epoch(tab_id, session_id, nonce, OWNER_EPOCH)
+}
+
+fn mutation_authority_at_epoch(
+    tab_id: &str,
+    session_id: &str,
+    nonce: &str,
+    owner_epoch: u64,
+) -> crate::service::plan::interruption::TaskMutationAuthority {
+    crate::service::plan::interruption::TaskMutationAuthority {
+        tab_id: tab_id.to_string(),
+        session_id: session_id.to_string(),
+        session_binding_nonce: nonce.to_string(),
+        owner_epoch,
+    }
 }
 
 fn task_record(fixture: &ServiceFixture, plan_id: &str, task_id: &str) -> Task {
@@ -412,6 +453,303 @@ fn recovery_authority_admits_a_moved_owner_session_but_not_a_foreign_tab() {
         after.interruption.owner_tab_id.as_deref(),
         Some(live_worker.as_str())
     );
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
+fn task_authority_live_binding_orchestrator_can_close_after_session_move() {
+    let harness = authority_fixture();
+    let worker = live_tab(&harness.fixture, "worker-session", "worker-nonce");
+    bind_owner(
+        &harness.fixture,
+        &harness.plan_id,
+        &harness.task_id,
+        &worker,
+        "worker-session",
+    );
+    move_recorded_owner_session(
+        &harness.fixture,
+        &harness.plan_id,
+        "session-before-the-move",
+    );
+    let service = Arc::new(harness.fixture.service.clone());
+    let params = caller_params(
+        &harness.owner_tab,
+        "owner-session",
+        "owner-nonce",
+        &harness.plan_id,
+        &harness.task_id,
+        OWNER_EPOCH,
+    );
+
+    verify_owner_epoch_for_task_mutation("plan.task.close", &params, &service).unwrap();
+    harness
+        .fixture
+        .service
+        .plan_store
+        .close_task_authorized(
+            &harness.plan_id,
+            &harness.task_id,
+            None,
+            AgentRef::from_tab(&harness.owner_tab),
+            &mutation_authority(&harness.owner_tab, "owner-session", "owner-nonce"),
+            7,
+        )
+        .unwrap();
+    assert_eq!(
+        task_record(&harness.fixture, &harness.plan_id, &harness.task_id).status,
+        TaskStatus::Done
+    );
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
+fn task_authority_live_binding_worker_can_close_after_session_move() {
+    let harness = authority_fixture();
+    let worker = live_tab(&harness.fixture, "worker-session", "worker-nonce");
+    bind_owner(
+        &harness.fixture,
+        &harness.plan_id,
+        &harness.task_id,
+        &worker,
+        "worker-session",
+    );
+    move_recorded_task_session(
+        &harness.fixture,
+        &harness.plan_id,
+        &harness.task_id,
+        "session-before-the-move",
+    );
+    let service = Arc::new(harness.fixture.service.clone());
+    let params = caller_params(
+        &worker,
+        "worker-session",
+        "worker-nonce",
+        &harness.plan_id,
+        &harness.task_id,
+        OWNER_EPOCH,
+    );
+
+    verify_owner_epoch_for_task_mutation("plan.task.close", &params, &service).unwrap();
+    harness
+        .fixture
+        .service
+        .plan_store
+        .close_task_authorized(
+            &harness.plan_id,
+            &harness.task_id,
+            None,
+            AgentRef::from_tab(&worker),
+            &mutation_authority(&worker, "worker-session", "worker-nonce"),
+            7,
+        )
+        .unwrap();
+    assert_eq!(
+        task_record(&harness.fixture, &harness.plan_id, &harness.task_id).status,
+        TaskStatus::Done
+    );
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
+fn task_authority_live_binding_stale_tab_is_refused_without_mutation() {
+    let harness = authority_fixture();
+    let worker = live_tab(&harness.fixture, "worker-session", "worker-nonce");
+    bind_owner(
+        &harness.fixture,
+        &harness.plan_id,
+        &harness.task_id,
+        &worker,
+        "worker-session",
+    );
+    let stale = live_tab(&harness.fixture, "stale-session", "stale-nonce");
+    let service = Arc::new(harness.fixture.service.clone());
+    let params = caller_params(
+        &stale,
+        "stale-session",
+        "stale-nonce",
+        &harness.plan_id,
+        &harness.task_id,
+        OWNER_EPOCH,
+    );
+
+    let error = verify_owner_epoch_for_task_mutation("plan.task.close", &params, &service)
+        .expect_err("a different live tab must not mutate this task");
+    assert_eq!(
+        refusal_type(&error),
+        TaskAuthorityRefusal::CallerNotTaskOwner.discriminant()
+    );
+    assert_eq!(
+        task_record(&harness.fixture, &harness.plan_id, &harness.task_id).status,
+        TaskStatus::InProgress
+    );
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
+fn task_authority_live_binding_refusal_names_both_compared_identities() {
+    let harness = authority_fixture();
+    let worker = live_tab(&harness.fixture, "worker-session", "worker-nonce");
+    bind_owner(
+        &harness.fixture,
+        &harness.plan_id,
+        &harness.task_id,
+        &worker,
+        "worker-session",
+    );
+    let error = harness
+        .fixture
+        .service
+        .plan_store
+        .close_task_authorized(
+            &harness.plan_id,
+            &harness.task_id,
+            None,
+            AgentRef::from_tab("stale-tab"),
+            &mutation_authority("stale-tab", "stale-session", "stale-nonce"),
+            7,
+        )
+        .expect_err("a different tab must stay refused");
+    let message = error.to_string();
+    for id in [
+        "stale-tab",
+        "stale-session",
+        worker.as_str(),
+        "worker-session",
+    ] {
+        assert!(message.contains(id), "missing {id} from {message}");
+    }
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
+fn task_authority_live_binding_plan_owner_methods_converge_after_session_move() {
+    let harness = authority_fixture();
+    let worker = live_tab(&harness.fixture, "worker-session", "worker-nonce");
+    bind_owner(
+        &harness.fixture,
+        &harness.plan_id,
+        &harness.task_id,
+        &worker,
+        "worker-session",
+    );
+    move_recorded_owner_session(
+        &harness.fixture,
+        &harness.plan_id,
+        "session-before-the-move",
+    );
+    let service = Arc::new(harness.fixture.service.clone());
+    let params = caller_params(
+        &harness.owner_tab,
+        "owner-session",
+        "owner-nonce",
+        &harness.plan_id,
+        &harness.task_id,
+        OWNER_EPOCH,
+    );
+
+    for method in ["plan.task.assign", "plan.task.close", "plan.task.update"] {
+        verify_owner_epoch_for_task_mutation(method, &params, &service)
+            .unwrap_or_else(|error| panic!("{method} refused live owner: {}", error.message));
+    }
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
+fn task_authority_live_binding_report_path_accepts_a_moved_worker_session() {
+    let harness = authority_fixture();
+    let worker = live_tab(&harness.fixture, "worker-session", "worker-nonce");
+    let attempt_id = harness
+        .fixture
+        .service
+        .plan_store
+        .begin_task_dispatch(
+            &harness.plan_id,
+            &harness.task_id,
+            &worker,
+            "Worker",
+            TaskLaneMetadata::default(),
+            3,
+        )
+        .unwrap();
+    harness
+        .fixture
+        .service
+        .plan_store
+        .record_dispatch_policy(
+            &harness.plan_id,
+            &harness.task_id,
+            &attempt_id,
+            ExecutionIntent::Mutating,
+            Some(ProviderAllowance {
+                remaining_pct: 90.0,
+                observed_at: 3,
+                stale_after_ms: 100,
+                reserve_pct: 10.0,
+            }),
+            3,
+        )
+        .unwrap();
+    harness
+        .fixture
+        .service
+        .plan_store
+        .finish_task_dispatch(
+            &harness.plan_id,
+            &harness.task_id,
+            &worker,
+            &attempt_id,
+            "session-before-the-move",
+            "nonce-before-the-move",
+            TaskLaneMetadata::default(),
+            4,
+        )
+        .unwrap();
+
+    harness
+        .fixture
+        .service
+        .plan_store
+        .ingest_bound_worker_report(
+            &harness.plan_id,
+            &harness.task_id,
+            &AgentRef::from_tab(&worker),
+            BoundWorkerReport {
+                message: "still writing".into(),
+                authority: Some(mutation_authority_at_epoch(
+                    &worker,
+                    "worker-session",
+                    "worker-nonce",
+                    1,
+                )),
+                ..Default::default()
+            },
+            7,
+        )
+        .expect("a live worker must report after its session moves");
+    let task = task_record(&harness.fixture, &harness.plan_id, &harness.task_id);
+    assert!(task
+        .milestones
+        .iter()
+        .any(|milestone| milestone.text.contains("still writing")));
 }
 
 /// Mechanism 5: the widened hatch is not a laundering path. A verb that asserts

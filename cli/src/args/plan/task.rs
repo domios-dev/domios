@@ -78,10 +78,15 @@ pub enum PlanTaskAction {
         #[arg(
             long,
             allow_hyphen_values = true,
-            help = "Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. \"You are Alex; property tests come before implementation; red line: a lock claim without a test is not proof.\""
+            required_unless_present = "role_guidance_file",
+            help = "REQUIRED: initial worker conditioning. Presence alone is the machine contract; prose quality is a human judgment"
         )]
         role_guidance: Option<String>,
-        #[arg(long, value_name = "PATH")]
+        #[arg(
+            long,
+            value_name = "PATH",
+            help = "Read required initial worker conditioning from a file"
+        )]
         role_guidance_file: Option<String>,
         #[arg(
             long = "executor-role",
@@ -99,7 +104,11 @@ pub enum PlanTaskAction {
         intent: Option<String>,
         #[arg(long, value_name = "PATH")]
         intent_file: Option<String>,
-        #[arg(long, value_parser = ["repository_mutation", "non_repository"])]
+        #[arg(
+            long,
+            value_parser = parse_task_add_execution_intent,
+            help = "Classifies whether this task changes the repository; dispatch uses read_only | mutating instead"
+        )]
         execution_intent: Option<String>,
         #[arg(long)]
         parent: Option<String>,
@@ -178,7 +187,7 @@ pub enum PlanTaskAction {
         #[arg(
             long,
             allow_hyphen_values = true,
-            help = "Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. \"You are Alex; property tests come before implementation; red line: a lock claim without a test is not proof.\""
+            help = "Replace initial worker conditioning. Cannot be emptied; presence alone is the machine contract"
         )]
         role_guidance: Option<String>,
         #[arg(long, value_name = "PATH")]
@@ -412,6 +421,15 @@ pub enum PlanTaskAction {
         #[arg(long)]
         yes: bool,
     },
+}
+
+fn parse_task_add_execution_intent(value: &str) -> Result<String, String> {
+    match value {
+        "repository_mutation" | "non_repository" => Ok(value.to_string()),
+        _ => Err(format!(
+            "invalid execution intent for `plan task add`; use repository_mutation or non_repository. `{value}` belongs to `plan task dispatch` (read_only | mutating)."
+        )),
+    }
 }
 
 #[cfg(test)]

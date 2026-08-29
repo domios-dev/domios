@@ -131,6 +131,9 @@ When a Planner is present:
 - never create a separate Planner-to-Plan binding or ask the General Agent to bootstrap one;
 - run `codeterm plan doctor <plan> --kind quality`, then use one `codeterm plan
   approve <plan>` action to approve the structure and activate its tasks;
+- while accepting, revising, or rejecting the draft, reject any task whose
+  required worker guidance is empty or says nothing; duplicate guidance is a
+  doctor warning to judge, never an approval block by itself;
 - after a green doctor, summarize the proposed plan to the user and explicitly
   ask for approval; never stop silently at a completed draft;
 - do not dispatch until approval is durably recorded. After UI approval, verify
@@ -155,7 +158,7 @@ If the Planner is intentionally waived, record that explicitly on the plan.
 ```text
 pending → in_progress → in_review → done
               ↘ blocked
-pending/in_progress/blocked/in_review → paused
+pending/in_progress/blocked → paused
 any open state → cancelled
 ```
 
@@ -166,7 +169,9 @@ any open state → cancelled
 - `codeterm agent report --status in_review` atomically records the handoff,
   moves the bound task to `in_review`, and pushes the report into the
   Orchestrator tab. Workers never poll or separately update task status.
-- The Orchestrator alone turns `in_review` into `done` or bounces it.
+- The Orchestrator alone accepts, bounces, or holds an `in_review` task. `hold`
+  records a reason while preserving its assignment and lane; `bounce` returns it
+  to the assigned Worker for another pass.
 - `paused` requires a reason and is excluded from heartbeat open work.
 - Dependencies express sequencing; pause is an operator hold, not a queue.
 
@@ -219,11 +224,11 @@ codeterm plan review authorize-capacity <plan> <task> --class review
 codeterm plan review authorize-capacity <plan> <task> --class canonical_gate
 ```
 
-Generic task updates, pauses, decision gates, and removals cannot move a task
-out of `in_review`; use `codeterm plan review accept <plan> <task> --note "…"`
-or `codeterm plan review bounce <plan> <task> --note "…"` (the verdict flag is
-`--note` and is required — not `--reason`). Historical credit leaked by older
-builds is repaired explicitly and auditably with:
+Generic task updates, pauses, decision gates, and removals cannot move a task out
+of `in_review`. Use `codeterm plan review accept|bounce|hold <plan> <task> --note
+"…"`: `bounce` returns the work to the Worker, `hold` keeps the review open with
+the assignment and lane intact, and every verdict requires `--note`, never
+`--reason`. Historical credit leaked by older builds is repaired auditably with:
 
 ```bash
 codeterm plan review reconcile-credit <plan> --reason "<incident evidence>"
@@ -231,4 +236,4 @@ codeterm plan review reconcile-credit <plan> --reason "<incident evidence>"
 
 Both mutations require the live bound Orchestrator session and record an
 immutable plan stride.
-<!-- revision: 65 -->
+<!-- revision: 69 -->

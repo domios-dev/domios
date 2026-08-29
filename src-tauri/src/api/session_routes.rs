@@ -6,7 +6,10 @@ use axum::{
 use serde::Deserialize;
 use tauri::Manager;
 
-use crate::api::routes::{check_auth, AppState};
+use crate::api::{
+    optional_json::OptionalJson,
+    routes::{check_auth, AppState},
+};
 
 /// Snapshot the multiplexer into the session store NOW. Durability is
 /// otherwise the 30s auto-save timer plus the close-to-tray hook — a
@@ -240,10 +243,10 @@ pub async fn resume_session_api(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(session_id): Path<String>,
-    body: Option<Json<ResumeSessionBody>>,
+    OptionalJson(body): OptionalJson<ResumeSessionBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let body = body.map(|Json(v)| v).unwrap_or(ResumeSessionBody {
+    let body = body.unwrap_or(ResumeSessionBody {
         title: None,
         workspace_id: None,
         workspace_name: None,

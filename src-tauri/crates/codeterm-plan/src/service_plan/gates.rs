@@ -433,7 +433,7 @@ mod tests {
     }
 
     #[test]
-    fn ask_gate_cannot_bypass_review_verdict_with_a_pause() {
+    fn review_hold_verdict_gate_guard_survives() {
         let (_dir, store, plan_id, task_ids) = store_with_tasks(&["reviewed-task"]);
         let mut plan = store.get(&plan_id).unwrap();
         plan.tasks[0].status = TaskStatus::InReview;

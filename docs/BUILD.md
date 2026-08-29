@@ -133,7 +133,10 @@ does not publish a release or alter GitHub assets.
 
 | Symptom | Cause | Recovery |
 |---|---|---|
-| `release-preflight` prints a Rust formatting diff and exits before lock validation | Integrated Rust workspace source was not formatted with the repository toolchain | Run `cargo fmt --manifest-path src-tauri/Cargo.toml --all`, inspect the changed files, then rerun `release-preflight`. |
+| `release-preflight` prints a Rust formatting diff and exits before lock validation | One or both Rust workspaces were not formatted with the repository toolchain | Run `cargo fmt --manifest-path src-tauri/Cargo.toml --all` and `cargo fmt --manifest-path cli/Cargo.toml --all`, inspect the changed files, then rerun `release-preflight`. |
+| `release-preflight` reports a source file one or two lines over 1200 | Test responsibilities accumulated in an inline or monolithic test module until formatting crossed the hard limit | Move a cohesive test group into a child module, verify both focused suites, then rerun `release-preflight`; do not hide the overflow by compacting whitespace. |
+| `release-preflight` fails under `-D warnings` for an enum field read only by tests | Production already logs the diagnostic, but an outcome variant retained a duplicate payload solely for a test assertion | Make the production outcome carry only consumed state and assert that state in the focused test; do not suppress `dead_code`. |
+| `release-preflight` fails compiling `state_doctor` after a classifier signal rename/removal | The standalone testbench still consumed an obsolete `BoundarySignals` field that ordinary library tests do not compile | Update the doctor to the current structural signal and subtype ownership, then run the exact `state_doctor` test target before retrying preflight. |
 | `Release lock version mismatch` during a version bump | An older preflight checked lock versions before Cargo refreshed the workspace packages | Use the current `release-preflight`, which checks both manifests before verifying both lockfiles; commit the refreshed lockfiles, then retry. |
 | A direct `npm run` or `pnpm build` reports `'node' is not recognized` while `node --version` works | The package manager selected `cmd.exe` for lifecycle scripts in a shell whose effective command lookup differs from the parent PowerShell session | Use the named build operation (`build.ps1 frontend` for the production UI gate). For standalone version validation, run `npm run check:versions --script-shell pwsh.exe`. |
 | `release-preflight` reports `'rustc' is not recognized` from `prepare-embed-stub.js` even though Git Bash finds rustc | Native Node launched `cmd.exe` with Git Bash's colon-delimited PATH, so shell lookup could not resolve Cargo tools | Update the stub generator to invoke rustc directly from `CARGO_HOME`/the user Cargo directory, then rerun `release-preflight`. Do not rewrite PATH or bypass the stub. |
@@ -241,7 +244,7 @@ production app during startup, in-app update, or `install-local`.
 | A piped macOS build reports `wait: pid ... is not a child of this shell` and exits 74 after the command succeeded | Bash 3 detached the process-substitution log reader from the pipeline subshell. | Update to a build script that uses the explicit FIFO-backed reader child, then rerun the original named build operation without filtering its output. |
 | Semantic-search tests execute a zero-byte `codeterm-embed` | A compile stub reached a real embedding test. | Build the debug sidecar before Rust library tests. |
 | `verify` downloads FastEmbed into a temporary test data directory and fails on a model-host outage | The Rust test wrapper let fixture-owned `CODETERM_DATA_DIR` choose the immutable model cache. | Use the current wrapper, which exports one machine-shared `CODETERM_EMBED_CACHE_DIR`; override it explicitly only for cache diagnostics. |
-| macOS tests panic creating a mock Tauri `EventLoop` | A Windows-only fixture ran off the main thread. | Ignore it off Windows; test portable logic headlessly. |
+| macOS task-authority tests panic creating a mock Tauri `EventLoop` | Six tests used the shared Windows-only `ServiceContext` fixture without the fixture's non-Windows ignore boundary, so libtest created the event loop off the macOS main thread. | Mark every test using that fixture ignored off Windows and keep portable authority logic covered by its headless tests. |
 | Unix REST lifecycle bind gets `Address already in use` | A guessed test port can collide; restart listeners overlap during handoff. | Prebind OS-assigned generation one; enable `SO_REUSEPORT` on every Unix bind. |
 | REST port-release fails only in the parallel macOS suite | Closing a real occupier races Darwin. | Inject the first bind failure, then prove recovery binds a healthy listener. |
 | Linux clippy rejects a test-only parameter | Only `cfg(test)` uses it. | Keep injection at the test call site, outside production signatures. |
@@ -254,4 +257,4 @@ production app during startup, in-app update, or `install-local`.
 
 Tooling, outputs, platform notes, and repository layout: `docs/BUILD-REFERENCE.md`. Test workflows: `codeterm docs TESTING`.
 
-<!-- revision: 98 -->
+<!-- revision: 103 -->

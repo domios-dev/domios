@@ -16,6 +16,7 @@ fn consented() -> IntegrationInstallOptions {
     IntegrationInstallOptions {
         consent: true,
         precompact_memory_export: false,
+        repair: false,
     }
 }
 

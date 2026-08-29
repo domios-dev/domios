@@ -1,4 +1,4 @@
-dev@workstation codeterm-snapshot-testbench % bash /tmp/codeterm-spawn-a8d75071-f46b-487d-94ec-e12cad7e4853.sh
+user@workstation codeterm-snapshot-testbench % bash /tmp/codeterm-spawn-a8d75071-f46b-487d-94ec-e12cad7e4853.sh
 ╭─── Claude Code v2.1.183 ─────────────────────────────────────────────────────────────────────────────────────────────╮
 │                                                    │ Tips for getting started                                        │
 │                Welcome back Andrey!                │ Ask Claude to create a new app or clone a repository            │

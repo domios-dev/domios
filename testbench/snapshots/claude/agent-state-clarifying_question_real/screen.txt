@@ -1,4 +1,4 @@
-dev@workstation rt3-capture % bash /tmp/codeterm-spawn-c4b52a1b-ce21-4699-af18-e92eff8fb408.sh
+user@workstation rt3-capture % bash /tmp/codeterm-spawn-c4b52a1b-ce21-4699-af18-e92eff8fb408.sh
 ╭─── Claude Code v2.1.183 ─────────────────────────────────────────────────────────────────────────────────────────────╮
 │                                                    │ Tips for getting started                                        │
 │                Welcome back Andrey!                │ Ask Claude to create a new app or clone a repository            │

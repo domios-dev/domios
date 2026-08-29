@@ -48,8 +48,9 @@ pub fn mux_set_active_workspace(
 pub fn mux_close_workspace(
     svc: State<'_, ServiceState>,
     workspace_id: String,
+    force: Option<bool>,
 ) -> Result<(), String> {
-    svc.close_workspace(&workspace_id)
+    svc.close_workspace_guarded(None, &workspace_id, force.unwrap_or(false))
 }
 
 /// Rename a workspace.

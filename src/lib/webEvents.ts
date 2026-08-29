@@ -112,6 +112,22 @@ function handleFrame(dataLine: string): void {
   dispatch(msg.event_type, msg.data);
 }
 
+export function webEventStreamUrl(
+  replayCursor: string | null,
+  target: { id: string; name: string } | null = relayTarget(),
+): string {
+  if (!target) {
+    const since = replayCursor ? `?since=${encodeURIComponent(replayCursor)}` : "";
+    return `${apiHost()}/api/events/stream${since}`;
+  }
+  const params = new URLSearchParams({
+    peer: target.id,
+    path: "/api/events/stream",
+  });
+  if (replayCursor) params.set("since", replayCursor);
+  return `${apiHost()}/api/mesh/relay-stream?${params.toString()}`;
+}
+
 async function runStream(): Promise<void> {
   let backoffMs = 1_000;
   for (;;) {
@@ -120,8 +136,7 @@ async function runStream(): Promise<void> {
     lastFrameAt = Date.now();
     try {
       const token = currentToken();
-      const since = cursor ? `?since=${encodeURIComponent(cursor)}` : "";
-      const res = await fetch(`${apiHost()}/api/events/stream${since}`, {
+      const res = await fetch(webEventStreamUrl(cursor), {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         signal: abort.signal,
       });
@@ -168,19 +183,18 @@ async function runStream(): Promise<void> {
 function startWatchdog(): void {
   if (watchdogTimer) return;
   watchdogTimer = setInterval(() => {
-    if (relayTarget()) return; // no SSE connection to watch in relay mode
     if (Date.now() - lastFrameAt > RECEIVE_TIMEOUT_MS) {
       forceImmediateRetry = true;
       streamAbort?.abort();
     }
   }, WATCHDOG_INTERVAL_MS);
+  (watchdogTimer as unknown as { unref?: () => void }).unref?.();
 }
 
 function ensureStarted(): void {
   if (started || !IS_WEB) return;
   started = true;
-  // connection; the watchdog is a no-op there too until D2 lands.
-  if (!relayTarget()) void runStream();
+  void runStream();
   startWatchdog();
 }
 
@@ -208,4 +222,16 @@ export function resetWebEvents(): void {
   streamAbort?.abort();
   streamAbort = null;
   ensureStarted();
+}
+
+export function __resetWebEventsForTest(): void {
+  if (watchdogTimer) clearInterval(watchdogTimer);
+  watchdogTimer = null;
+  started = false;
+  streamAbort?.abort();
+  streamAbort = null;
+  handlers.clear();
+  cursor = readCursor();
+  lastFrameAt = 0;
+  forceImmediateRetry = false;
 }

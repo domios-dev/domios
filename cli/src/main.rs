@@ -869,6 +869,8 @@ mod plan_cli_error_tests {
 #[cfg(test)]
 mod attachment_contract_tests;
 #[cfg(test)]
+mod diagnostics_that_speak_tests;
+#[cfg(test)]
 mod plan_planning_gate_tests;
 #[cfg(test)]
 mod plan_ref_contract_tests;

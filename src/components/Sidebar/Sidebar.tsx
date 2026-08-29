@@ -36,6 +36,7 @@ import { WorkspaceCardGrid } from "./WorkspaceCardGrid";
 import { loadSelectedWorkspaceId, persistSelectedWorkspaceId } from "./workspaceCardMetadata";
 import type { SidebarTeamActions } from "./TeamUnit";
 import { GroupCloseConfirmDialog } from "./GroupCloseConfirmDialog";
+import { WorkspaceCloseConfirmDialog } from "./WorkspaceCloseConfirmDialog";
 import type { OrchestrationGroupMember } from "./orchestrationGroupClose";
 import { hydrateProtectedExpanded, initialSidebarExpanded, partitionSidebarWorkspaces } from "./sidebarSections";
 import { NewSessionPicker } from "../Terminal/NewSessionPicker";
@@ -43,6 +44,7 @@ import { OPEN_NEW_SESSION_EVENT, type OpenNewSessionDetail } from "../../lib/new
 import { WebPeerPicker } from "../WebPeerPicker/WebPeerPicker";
 import { isFirstRunGeneralTab } from "../AgentPicker";
 import { RemoteTabPicker } from "./RemoteTabPicker";
+import { declaredAttentionByTab } from "./declaredAttention";
 
 export { buildHierarchyTree, buildHierarchySubtree, HierarchyTree } from "./HierarchyTree";
 
@@ -119,6 +121,10 @@ export function Sidebar({
     addNotification,
   } = useMultiplexer();
   const state = useMuxState();
+  const declaredAttention = useMemo(
+    () => declaredAttentionByTab(state.notifications),
+    [state.notifications],
+  );
   const isWorkspaceMode = mainView === "workspace";
   const [folderPicker, setFolderPicker] = useState<{
     title: string;
@@ -126,6 +132,11 @@ export function Sidebar({
     onSelect: (path: string) => void;
   } | null>(null);
   const [orchestrationModal, setOrchestrationModal] = useState<{ workspaceId: string } | null>(null);
+  const [pendingWorkspaceClose, setPendingWorkspaceClose] = useState<{
+    id: string;
+    name: string;
+    agentTitles: string[];
+  } | null>(null);
   const [sessionPicker, setSessionPicker] = useState<{
     workspaceId: string;
     workspaceCwd: string | null;
@@ -211,6 +222,21 @@ export function Sidebar({
     if (firstRunActive) return;
     setSessionPicker({ workspaceId, workspaceCwd });
   }, [firstRunActive]);
+
+  const requestWorkspaceClose = useCallback((workspaceId: string) => {
+    const workspace = state.workspaces.find((workspace) => workspace.id === workspaceId);
+    if (!workspace) return;
+    const agentTitles = workspace.tabs.reduce<string[]>((titles, tabId) => {
+      const tab = state.tabs[tabId];
+      if (tab?.agent_type) titles.push(tab.title);
+      return titles;
+    }, []);
+    if (agentTitles.length === 0) {
+      closeWorkspace(workspaceId);
+      return;
+    }
+    setPendingWorkspaceClose({ id: workspaceId, name: workspace.name, agentTitles });
+  }, [closeWorkspace, state.tabs, state.workspaces]);
 
   useEffect(() => {
     const openRequestedSession = (event: Event) => {
@@ -543,7 +569,7 @@ export function Sidebar({
         >
           {!isSidebarCollapsed && (
             <>
-            <div className="flex-1 overflow-y-auto">
+            <div className="ct-compact-scroll flex-1 min-w-0 overflow-y-auto overflow-x-hidden">
               {!isCompact && generalWorkspace && (() => {
                 const generalExpanded = expandedWorkspaces.has(generalWorkspace.id);
                 const generalActive = generalWorkspace.id === state.active_workspace_id && isWorkspaceMode;
@@ -573,6 +599,7 @@ export function Sidebar({
                       sortedTabs={generalTabs}
                       tabs={state.tabs}
                       tabStatuses={state.tabStatuses}
+                      declaredAttentionByTab={declaredAttention}
                       teams={state.teams}
                       planIndex={planIndex}
                       plans={fullPlans.plans}
@@ -710,7 +737,7 @@ export function Sidebar({
                       isExpanded
                       onClick={() => { setActiveWorkspace(ws.id); onNavigateToTab?.(); }}
                       onToggleExpand={() => {}}
-                      onClose={() => closeWorkspace(ws.id)}
+                      onClose={() => requestWorkspaceClose(ws.id)}
                       onRename={(name) => renameWorkspace(ws.id, name)}
                       onNewTerminal={() => createTab(ws.id)}
                       onNewSession={() => handleNewSession(ws.id, ws.cwd ?? null)}
@@ -729,6 +756,7 @@ export function Sidebar({
                           sortedTabs={sortedTabs}
                           tabs={state.tabs}
                           tabStatuses={state.tabStatuses}
+                          declaredAttentionByTab={declaredAttention}
                           teams={state.teams}
                           planIndex={planIndex}
                           plans={fullPlans.plans}
@@ -926,6 +954,17 @@ export function Sidebar({
               pendingTeamClose.teamId,
             );
             setPendingTeamClose(null);
+          }}
+        />
+      )}
+      {pendingWorkspaceClose && (
+        <WorkspaceCloseConfirmDialog
+          workspaceName={pendingWorkspaceClose.name}
+          agentTitles={pendingWorkspaceClose.agentTitles}
+          onCancel={() => setPendingWorkspaceClose(null)}
+          onConfirm={() => {
+            closeWorkspace(pendingWorkspaceClose.id, true);
+            setPendingWorkspaceClose(null);
           }}
         />
       )}

@@ -134,23 +134,24 @@ fn read_only_lane_on_a_detached_head_is_dispatchable() {
             "HEAD",
         ],
     );
-    let canonical = project.to_str().unwrap();
     let lane_cwd = lane.to_str().unwrap();
 
     let error = super::resolve_dispatch_lane(
         Some(lane_cwd),
-        canonical,
+        Some(lane_cwd),
+        None,
         &TaskLaneMetadata::default(),
         LaneProtection::Enforced,
     )
     .unwrap_err();
-    assert_eq!(error.code, -32602);
-    assert_eq!(error.data.as_ref().unwrap()["stage"], "cwd_validation");
-    assert!(error.message.contains("detached HEAD"), "{}", error.message);
+    assert_eq!(error.code, -32012);
+    assert_eq!(error.data.as_ref().unwrap()["stage"], "checkout_preflight");
+    assert!(error.message.contains(lane_cwd), "{}", error.message);
 
     let resolved = super::resolve_dispatch_lane(
         Some(lane_cwd),
-        canonical,
+        Some(lane_cwd),
+        None,
         &TaskLaneMetadata::default(),
         LaneProtection::Waived,
     )

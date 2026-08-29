@@ -70,6 +70,7 @@ pub(crate) fn render_plan_error(data: &Value, params: &Value) -> Option<String> 
         .and_then(|v| v.as_str())
         .unwrap_or("<loop_id>");
     match kind {
+        "review_hold_required" => Some(render_review_hold_required(plan_id, task_id)),
         "undeclared_kind" => render_undeclared_kind(data, plan_id, task_id),
         "bad_status" => Some(render_bad_status(plan_id, task_id, params)),
         "bad_mode" => Some(format!(
@@ -372,18 +373,37 @@ fn render_transition_denied(data: &Value, plan_id: &str, task_id: Option<&str>) 
     let from = data.get("from")?.as_str()?;
     let to = data.get("to")?.as_str()?;
     let task = task_id.unwrap_or("<task_id>");
-    if from == "in_review" && to == "done" {
-        return Some(format!(
-            "✗ workers cannot mark an in-review task done with `record --status done`.\n\
-`in_review` means the worker has reported and the Orchestrator must accept it explicitly.\n\
-fix:\n  codeterm plan task close {plan_id} {task} --result \"<review result>\"\n\
-If review found more work, bounce it instead:\n  codeterm plan task update {plan_id} {task} --status in_progress --status-label \"needs changes\""
-        ));
+    let remedy = data
+        .get("remedy")
+        .and_then(|value| value.get("verb"))
+        .and_then(Value::as_str);
+    if from == "in_review" {
+        return match remedy {
+            Some("hold") => Some(render_review_hold_required(plan_id, task_id)),
+            Some("accept") => Some(format!(
+                "✗ the task is still in review.\nfix: codeterm plan review accept {plan_id} {task} --note \"<review result>\""
+            )),
+            Some("bounce") => Some(format!(
+                "✗ the task is still in review.\nfix: codeterm plan review bounce {plan_id} {task} --note \"<required changes>\""
+            )),
+            Some("close") => Some(format!(
+                "✗ the task is still in review.\nfix: codeterm plan task close {plan_id} {task} --result \"<review result>\""
+            )),
+            _ => None,
+        };
     }
     Some(format!(
         "✗ task status transition {from} -> {to} is not allowed.\n\
 fix: inspect the task and use the lifecycle command for that transition:\n  codeterm plan task close {plan_id} {task} --result \"<result>\"\n  codeterm plan task update {plan_id} {task} --status <status>"
     ))
+}
+
+fn render_review_hold_required(plan_id: &str, task_id: Option<&str>) -> String {
+    let task = task_id.unwrap_or("<task_id>");
+    format!(
+        "✗ pause releases the assignment and lane, so it cannot pause an in-review task.\n\
+fix: record the review hold instead:\n  codeterm plan review hold {plan_id} {task} --note \"<reason>\""
+    )
 }
 
 fn render_io(data: &Value, plan_id: &str, params: &Value) -> String {

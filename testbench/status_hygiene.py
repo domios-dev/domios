@@ -169,7 +169,7 @@ SELF_TEST_CASES = [
     ("Build ████████ 80%", ["block_run"], "progress block bleed"),
     ("\x1b[2mthinking\x1b[0m", ["ansi", "control"], "raw ANSI escape survived"),
     ("done\x07", ["control"], "BEL control byte"),
-    ("/Users/dev/Developer/codeterm-alpha/testbench", ["path_only"], "leaked cwd as status"),
+    ("/Users/user/Developer/codeterm-alpha/testbench", ["path_only"], "leaked cwd as status"),
     ("~/scratch/snake.html", ["path_only"], "leaked home path as status"),
     ("x" * 140, ["too_long"], "absurdly long status"),
 ]

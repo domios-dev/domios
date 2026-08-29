@@ -38,6 +38,9 @@ pub enum WorkspaceAction {
     Close {
         /// Workspace ID
         id: String,
+        /// Explicitly acknowledge destroying agent tabs in this workspace.
+        #[arg(long)]
+        force: bool,
     },
     /// Move a tab to another workspace
     MoveTab {
@@ -193,6 +196,14 @@ pub enum TabAction {
     /// Show agent status for a tab (type, provider session, prompt)
     Status {
         /// Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
+        #[arg(long = "tab", value_name = "TAB")]
+        tab: Option<String>,
+    },
+    /// Bind a running tab to an existing provider session without restarting it.
+    Rebind {
+        /// Provider session ID to bind.
+        session_id: String,
+        /// Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback).
         #[arg(long = "tab", value_name = "TAB")]
         tab: Option<String>,
     },

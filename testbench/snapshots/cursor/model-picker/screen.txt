@@ -1,4 +1,4 @@
-dev@workstation codeterm-snapshot-testbench % bash /tmp/codeterm-spawn-823ab674-971a-40dd-b4bb-6303cf369a5b.sh
+user@workstation codeterm-snapshot-testbench % bash /tmp/codeterm-spawn-823ab674-971a-40dd-b4bb-6303cf369a5b.sh
 
 
   Cursor Agent

@@ -26,6 +26,7 @@ import { useWorkspaceCrons } from "../../hooks/useWorkspaceCrons";
 import { cronSelectionStore } from "../Cron/cronSelectionStore";
 import { DropdownMenu } from "../shared/DropdownMenu";
 import { TeamUnit } from "./TeamUnit";
+import type { DeclaredAttentionLevel } from "./declaredAttention";
 
 type TeamTab = Tab & { team_id?: string | null };
 type TeamPlan = Plan & { team_id?: string | null };
@@ -103,6 +104,7 @@ export interface SidebarWorkspaceTabsProps {
   sortedTabs: Tab[];
   tabs: Record<string, Tab>;
   tabStatuses: Record<string, TabStatus>;
+  declaredAttentionByTab?: Readonly<Record<string, DeclaredAttentionLevel>>;
   teams: Team[];
   planIndex: PlanIndexEntry[];
   plans: Plan[];
@@ -142,6 +144,7 @@ export function SidebarWorkspaceTabs({
   sortedTabs: allSortedTabs,
   tabs,
   tabStatuses,
+  declaredAttentionByTab = {},
   teams,
   planIndex,
   plans,
@@ -218,6 +221,7 @@ export function SidebarWorkspaceTabs({
     isActiveVisual,
     workspaceCanvasActive,
     tabStatuses,
+    declaredAttentionByTab,
     orchestrators,
     touchMode,
     uiFontScale,
@@ -231,7 +235,6 @@ export function SidebarWorkspaceTabs({
 
   const renderMemberRow = (
     member: TeamTabMember,
-    items: string[],
   ): ReactNode => (
     <div key={member.tab.id} className="sidebar-team-member">
       <SidebarSingleTabRow
@@ -243,14 +246,13 @@ export function SidebarWorkspaceTabs({
         isAppearing={appearingTabIds.has(member.tab.id)}
         group="tab"
         groupKey={ws.id}
-        items={items}
         pinnedIds={[]}
         {...sharedRow}
       />
     </div>
   );
 
-  const renderTerminalRow = (member: TeamTabMember, items: string[]): ReactNode => {
+  const renderTerminalRow = (member: TeamTabMember): ReactNode => {
     const creatorId = member.tab.spawned_by_tab_id ?? null;
     const creator = creatorId ? tabs[creatorId] : null;
     return (
@@ -264,7 +266,6 @@ export function SidebarWorkspaceTabs({
           isAppearing={appearingTabIds.has(member.tab.id)}
           group="tab"
           groupKey={ws.id}
-          items={items}
           pinnedIds={[]}
           {...sharedRow}
         />
@@ -284,36 +285,64 @@ export function SidebarWorkspaceTabs({
 
   const renderedTeamIds = new Set<string>();
   const rows: ReactNode[] = [];
-  const looseItems = sortedTabs
-    .filter((tab) => !effectiveTeamId(tab))
+  const looseTabs = sortedTabs.filter((tab) => !effectiveTeamId(tab));
+  const looseIds = new Set(looseTabs.map((tab) => tab.id));
+  const looseChildIds = new Set(
+    looseTabs
+      .filter((tab) => tab.parent_tab_id && looseIds.has(tab.parent_tab_id))
+      .map((tab) => tab.id),
+  );
+  const looseItems = looseTabs
+    .filter((tab) => !looseChildIds.has(tab.id))
     .map((tab) => `${TAB_PREFIX}${tab.id}`);
-  const pinnedLooseItems = sortedTabs
+  const pinnedLooseItems = looseTabs
     .filter(
       (tab) =>
-        !effectiveTeamId(tab) && tab.protected,
+        !looseChildIds.has(tab.id) && tab.protected,
     )
     .map((tab) => `${TAB_PREFIX}${tab.id}`);
+
+  const renderLooseTabTree = (
+    tab: Tab,
+    index: number,
+    group: "tab" | "child",
+    groupKey: string,
+    pinnedIds: string[],
+  ): ReactNode => {
+    const children = looseTabs.filter((candidate) => candidate.parent_tab_id === tab.id);
+    const childItems = children.map((child) => `${TAB_PREFIX}${child.id}`);
+    return (
+      <div key={tab.id} className="sidebar-tab-tree-row">
+        <SidebarSingleTabRow
+          tab={tab}
+          index={index}
+          activity={resolveTabTabActivity(planIndex, tab.id, tabs)}
+          activeWork={activeWork}
+          isClosing={closingTabIds.has(tab.id)}
+          isAppearing={appearingTabIds.has(tab.id)}
+          group={group}
+          groupKey={groupKey}
+          pinnedIds={pinnedIds}
+          {...sharedRow}
+        />
+        {children.length > 0 && (
+          <SortableContext items={childItems} strategy={verticalListSortingStrategy}>
+            {children.map((child, childIndex) =>
+              renderLooseTabTree(child, childIndex, "child", tab.id, []),
+            )}
+          </SortableContext>
+        )}
+      </div>
+    );
+  };
 
   for (const [index, tab] of sortedTabs.entries()) {
     const teamTab = tab as TeamTab;
     const teamId = effectiveTeamId(teamTab);
     if (!teamId) {
-      rows.push(
-        <SidebarSingleTabRow
-          key={teamTab.id}
-          tab={teamTab}
-          index={index}
-          activity={resolveTabTabActivity(planIndex, teamTab.id, tabs)}
-          activeWork={activeWork}
-          isClosing={closingTabIds.has(teamTab.id)}
-          isAppearing={appearingTabIds.has(teamTab.id)}
-          group="tab"
-          groupKey={ws.id}
-          items={looseItems}
-          pinnedIds={pinnedLooseItems}
-          {...sharedRow}
-        />,
-      );
+      if (!looseChildIds.has(teamTab.id)) {
+        rows.push(renderLooseTabTree(teamTab, index, "tab", ws.id, pinnedLooseItems));
+      }
       continue;
     }
     if (renderedTeamIds.has(teamId)) continue;
@@ -352,7 +381,7 @@ export function SidebarWorkspaceTabs({
         managerCount={managers.length}
         managers={
           <SortableContext items={managerItems} strategy={verticalListSortingStrategy}>
-            {managers.map((member) => renderMemberRow(member, managerItems))}
+            {managers.map((member) => renderMemberRow(member))}
           </SortableContext>
         }
         workerCount={workers.length}
@@ -360,14 +389,14 @@ export function SidebarWorkspaceTabs({
         workers={
           <>
             <SortableContext items={workerItems} strategy={verticalListSortingStrategy}>
-              {workers.map((member) => renderMemberRow(member, workerItems))}
+              {workers.map((member) => renderMemberRow(member))}
             </SortableContext>
           </>
         }
         terminalCount={terminals.length}
         terminals={
           <SortableContext items={terminalItems} strategy={verticalListSortingStrategy}>
-            {terminals.map((member) => renderTerminalRow(member, terminalItems))}
+            {terminals.map((member) => renderTerminalRow(member))}
           </SortableContext>
         }
         cronCount={teamCrons.length}
@@ -431,7 +460,9 @@ export function SidebarWorkspaceTabs({
 
   return (
     <>
-      {rows}
+      <SortableContext items={looseItems} strategy={verticalListSortingStrategy}>
+        {rows}
+      </SortableContext>
       <div className="mx-2 mt-1 mb-0.5 flex min-w-0 items-center gap-1">
         <button
           type="button"
@@ -460,6 +491,7 @@ export interface SidebarCollapsedActiveTabProps {
   activeTabId: string | null;
   tabs: Record<string, Tab>;
   tabStatuses: Record<string, TabStatus>;
+  declaredAttentionByTab?: Readonly<Record<string, DeclaredAttentionLevel>>;
   planIndex: PlanIndexEntry[];
   isActiveVisual: boolean;
   workspaceCanvasActive: boolean;
@@ -476,6 +508,7 @@ export function SidebarCollapsedActiveTab({
   activeTabId,
   tabs,
   tabStatuses,
+  declaredAttentionByTab = {},
   planIndex,
   isActiveVisual,
   workspaceCanvasActive,
@@ -508,6 +541,7 @@ export function SidebarCollapsedActiveTab({
       workspaceId={ws.id}
       hasAgent={Boolean(activeTab.agent_type)}
       status={tabStatuses[activeTab.id] ?? null}
+      declaredAttention={declaredAttentionByTab[activeTab.id] ?? null}
       onRename={(title) => {
         onRenameTab(activeTab.id, title);
         persistTabRename(ws.id, activeTab.id, title);

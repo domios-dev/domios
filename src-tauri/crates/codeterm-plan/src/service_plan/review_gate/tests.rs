@@ -401,7 +401,7 @@ fn generic_status_mutation_cannot_exit_review_or_leak_credit() {
             AgentRef::from_tab("orch"),
             5,
         ),
-        Err(PlanError::TransitionDenied { .. })
+        Err(PlanError::ReviewHoldRequired)
     ));
     assert!(matches!(
         store.rm_task(&plan_id, &task_id, 5),
@@ -579,6 +579,126 @@ fn bounce_review_atomically_exits_in_review_and_leaves_no_stale_qa_claim() {
     );
     // Entering review spent one credit; the bounce closes that round and repays it.
     assert_eq!(plan.review_policy.credit, 0);
+}
+
+#[test]
+fn review_hold_verdict_records_reason_and_keeps_review_open() {
+    let (_dir, store, plan_id) = setup();
+    let task_id = add_ready_task(&store, &plan_id, "held", 2);
+    dispatch(&store, &plan_id, &task_id, "tab_impl", 3).unwrap();
+    set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
+    let result = store
+        .hold_review(
+            &plan_id,
+            &task_id,
+            "re-cut the scope before continuing",
+            AgentRef::from_tab("reviewer"),
+            5,
+        )
+        .unwrap();
+
+    let after = store.show_task(&task_id).unwrap().task;
+    assert_eq!(result.verdict, ReviewVerdict::Hold);
+    assert_eq!(after.status, TaskStatus::InReview);
+    assert_eq!(after.status_label.as_deref(), Some("review held"));
+    assert_eq!(
+        after.review_evidence.last().unwrap().verdict,
+        ReviewVerdict::Hold
+    );
+    assert_eq!(
+        after.review_evidence.last().unwrap().note,
+        "re-cut the scope before continuing"
+    );
+}
+
+#[test]
+fn review_hold_verdict_preserves_assignment_and_lane() {
+    let (_dir, store, plan_id) = setup();
+    let task_id = add_ready_task(&store, &plan_id, "held", 2);
+    dispatch(&store, &plan_id, &task_id, "tab_impl", 3).unwrap();
+    set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
+    let before = store.show_task(&task_id).unwrap().task;
+
+    store
+        .hold_review(
+            &plan_id,
+            &task_id,
+            "re-cut the scope before continuing",
+            AgentRef::from_tab("reviewer"),
+            5,
+        )
+        .unwrap();
+
+    let after = store.show_task(&task_id).unwrap().task;
+    assert_eq!(after.assigned_tab_id, before.assigned_tab_id);
+    assert_eq!(after.lane.tab_id, before.lane.tab_id);
+}
+
+#[test]
+fn review_hold_verdict_can_bounce_to_the_existing_assignment() {
+    let (_dir, store, plan_id) = setup();
+    let task_id = add_ready_task(&store, &plan_id, "held", 2);
+    dispatch(&store, &plan_id, &task_id, "tab_impl", 3).unwrap();
+    set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
+    store
+        .hold_review(
+            &plan_id,
+            &task_id,
+            "awaiting scope recut",
+            AgentRef::from_tab("reviewer"),
+            5,
+        )
+        .unwrap();
+
+    let result = store
+        .bounce_review(
+            &plan_id,
+            &task_id,
+            "scope recut is ready",
+            false,
+            false,
+            AgentRef::from_tab("reviewer"),
+            6,
+        )
+        .unwrap();
+
+    assert_eq!(
+        result.continuation.as_ref().unwrap().executor_tab_id,
+        "tab_impl"
+    );
+    assert_eq!(
+        store
+            .show_task(&task_id)
+            .unwrap()
+            .task
+            .assigned_tab_id
+            .as_deref(),
+        Some("tab_impl")
+    );
+}
+
+#[test]
+fn review_hold_verdict_pause_guard_survives() {
+    let (_dir, store, plan_id) = setup();
+    let task_id = add_ready_task(&store, &plan_id, "held", 2);
+    dispatch(&store, &plan_id, &task_id, "tab_impl", 3).unwrap();
+    set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
+
+    let pause_error = store
+        .pause_task(
+            &plan_id,
+            &task_id,
+            "operator pause",
+            AgentRef::from_tab("orch"),
+            5,
+        )
+        .unwrap_err();
+    assert!(matches!(pause_error, PlanError::ReviewHoldRequired));
+    assert!(pause_error.to_string().contains("hold"));
+    assert!(matches!(
+        set_status(&store, &plan_id, &task_id, "paused", 6),
+        Err(PlanError::ReviewHoldRequired)
+    ));
 }
 
 #[test]
@@ -1025,58 +1145,4 @@ fn stale_review_escalation_is_idempotent() {
     assert!(!not_stale_yet);
 }
 
-#[test]
-fn qa_waves_group_compatible_tasks_by_shared_group() {
-    let (_dir, store, plan_id) = setup();
-    store
-        .with_plan(&plan_id, 1, |p| {
-            p.task_groups = vec![crate::plan::TaskGroup {
-                key: "phase-1".into(),
-                label: "Phase 1".into(),
-                color: None,
-            }];
-            Ok(())
-        })
-        .unwrap();
-    let a = store
-        .add_task(
-            &plan_id,
-            NewTask {
-                name: "a".into(),
-                kind: "implement".into(),
-                acceptance_criteria: vec!["it works".into()],
-                test_plan: Some("Oracle: x".into()),
-                group: Some("phase-1".into()),
-                ..Default::default()
-            },
-            2,
-        )
-        .unwrap();
-    let b = store
-        .add_task(
-            &plan_id,
-            NewTask {
-                name: "b".into(),
-                kind: "implement".into(),
-                acceptance_criteria: vec!["it works".into()],
-                test_plan: Some("Oracle: y".into()),
-                group: Some("phase-1".into()),
-                ..Default::default()
-            },
-            2,
-        )
-        .unwrap();
-    for t in [&a, &b] {
-        dispatch(&store, &plan_id, t, &format!("tab_{t}"), 3).unwrap();
-        set_status(&store, &plan_id, t, "in_review", 4).unwrap();
-        store
-            .enqueue_qa(&plan_id, t, "ready", AgentRef::from_tab("orch"), 5)
-            .unwrap();
-    }
-    let waves = store.qa_waves(&plan_id).unwrap();
-    assert_eq!(waves.len(), 1);
-    assert_eq!(waves[0].group_key, "phase-1");
-    assert_eq!(waves[0].task_ids.len(), 2);
-    assert!(waves[0].task_ids.contains(&a));
-    assert!(waves[0].task_ids.contains(&b));
-}
+mod qa_waves;

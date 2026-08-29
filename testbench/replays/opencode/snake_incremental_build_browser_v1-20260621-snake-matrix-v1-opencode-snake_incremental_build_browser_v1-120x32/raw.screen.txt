@@ -24,7 +24,7 @@
   ┃                                                                                                                     
   ┃  Patterns                                                                                                           
   ┃                                                                                                                     
-  ┃  - /Users/dev/scratch/*                                                                                         
+  ┃  - /Users/user/scratch/*                                                                                         
   ┃                                                                                                                     
   ┃                                                                                                                     
   ┃   Allow once   Allow always   Reject                                 ctrl+f fullscreen  ⇆ select  enter confirm     

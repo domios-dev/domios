@@ -1,4 +1,4 @@
-use super::{classify_terminal_menu_question, extract_question_message, QuestionSubtype};
+use super::{extract_question_message, QuestionSubtype};
 
 fn lines(rows: &[&str]) -> Vec<String> {
     rows.iter().map(|row| (*row).to_string()).collect()
@@ -18,94 +18,6 @@ fn extracts_complete_authoritative_auth_message() {
         extract_question_message(&screen, Some(QuestionSubtype::Auth)).as_deref(),
         Some("Authentication required.\nSign in to continue with this session.")
     );
-}
-
-#[test]
-fn detects_boxed_checkbox_terminal_question() {
-    let screen = lines(&[
-        " │ CLI choice",
-        " │ 1. Please choose one option:",
-        " │   › [ ] Alpha",
-        " │     [ ] Beta",
-        " │     [ ] Gamma",
-        " │ ↑/↓ option · ←/→ question · Space select · Enter next/submit · Esc to skip",
-    ]);
-    assert_eq!(
-        classify_terminal_menu_question(&screen, true),
-        Some(QuestionSubtype::Unknown)
-    );
-}
-
-#[test]
-fn detects_boxed_numbered_terminal_question_without_selected_marker() {
-    let screen = lines(&[
-        "┃  Which option do you choose?",
-        "┃",
-        "┃  1. Alpha",
-        "┃  2. Beta",
-        "┃  3. Gamma",
-        "┃",
-        "┃  ↑↓ select  enter submit  esc dismiss",
-    ]);
-    assert_eq!(
-        classify_terminal_menu_question(&screen, true),
-        Some(QuestionSubtype::Unknown)
-    );
-}
-
-#[test]
-fn ignores_plain_numbered_prose_without_terminal_choice_footer() {
-    let screen = lines(&[
-        "Here is a plain list:",
-        "1. Alpha",
-        "2. Beta",
-        "3. Gamma",
-        "No action is required.",
-    ]);
-    assert_eq!(classify_terminal_menu_question(&screen, true), None);
-}
-
-#[test]
-fn ignores_terminal_choice_shape_when_cursor_is_visible() {
-    // VISIBLE cursor this stays None (the strict path needs hidden cursor).
-    let screen = lines(&["┃  1. Alpha", "┃  2. Beta", "┃  press the keys"]);
-    assert_eq!(classify_terminal_menu_question(&screen, false), None);
-}
-
-#[test]
-fn terminal_menu_question_does_not_preempt_working_grace() {
-    let screen = lines(&[
-        "┃  Which option do you choose?",
-        "┃",
-        "┃  1. Alpha",
-        "┃  2. Beta",
-        "┃",
-        "┃  ↑↓ select  enter submit  esc dismiss",
-    ]);
-    let mut input = quiescent_input(&screen);
-    input.cursor_hidden = true;
-    input.byte_idle_ms = 300;
-    input.semantic_idle_ms = 300;
-    let verdict = classify_state(&input, working());
-    assert_eq!(verdict.state, TimelineState::Working);
-
-    input.byte_idle_ms = 2000;
-    input.semantic_idle_ms = 2000;
-    let verdict = classify_state(&input, working());
-    assert_eq!(verdict.state, TimelineState::Question);
-}
-
-// with a visible cursor (no false Question on normal lists).
-#[test]
-fn numbered_prose_without_confirm_footer_is_not_question_visible_cursor() {
-    let screen = lines(&[
-        "Here are three options to consider:",
-        "1. Alpha approach",
-        "2. Beta approach",
-        "3. Gamma approach",
-        "Let me know which you prefer.",
-    ]);
-    assert_eq!(classify_terminal_menu_question(&screen, false), None);
 }
 
 use super::{
@@ -134,6 +46,91 @@ fn quiescent_input(screen: &[String]) -> ClassifyInput<'_> {
         cursor_hidden: false,
         composer_ready: false,
     })
+}
+
+#[test]
+fn question_detection_removed_screen_content_is_not_question() {
+    let numbered = lines(&[
+        "┃  › 1. Alpha",
+        "┃    2. Beta",
+        "┃  ↑↓ select  enter submit  esc dismiss",
+    ]);
+    let checkbox = lines(&[
+        "│   [ ] Alpha",
+        "│   [ ] Beta",
+        "│   ↑/↓ option · Space select · Enter next/submit · Esc to skip",
+    ]);
+
+    for screen in [&numbered, &checkbox] {
+        let mut input = quiescent_input(screen);
+        input.cursor_hidden = true;
+        let verdict = classify_state(&input, working());
+        assert_ne!(verdict.state, TimelineState::Question);
+    }
+}
+
+#[test]
+fn question_detection_removed_structured_picker_still_question() {
+    let screen = lines(&["Choose an option", "1. Alpha", "2. Beta"]);
+    let mut input = quiescent_input(&screen);
+    input.picker_question = Some("Choose an option");
+
+    let verdict = classify_state(&input, working());
+
+    assert_eq!(verdict.state, TimelineState::Question);
+}
+
+#[test]
+fn question_detection_removed_rate_limit_still_question() {
+    let screen = lines(&["Rate limit reached. Try again later."]);
+
+    let verdict = classify_state(&quiescent_input(&screen), working());
+
+    assert_eq!(verdict.state, TimelineState::Question);
+    assert_eq!(verdict.subtype, Some(QuestionSubtype::RateLimit));
+}
+
+#[test]
+fn question_detection_removed_order_skips_parked_question() {
+    let menu = lines(&[
+        "┃  › 1. Alpha",
+        "┃    2. Beta",
+        "┃  ↑↓ select  enter submit  esc dismiss",
+    ]);
+    let mut working_input = quiescent_input(&menu);
+    working_input.motion = Motion::Streaming;
+    assert_eq!(
+        classify_state(
+            &working_input,
+            TabVerdict {
+                state: TimelineState::Idle,
+                subtype: None,
+            },
+        )
+        .state,
+        TimelineState::Working
+    );
+
+    let idle_screen = lines(&["› ready"]);
+    let mut idle_input = quiescent_input(&idle_screen);
+    idle_input.cursor_hidden = true;
+    assert_eq!(
+        classify_state(
+            &idle_input,
+            TabVerdict {
+                state: TimelineState::Working,
+                subtype: None,
+            },
+        )
+        .state,
+        TimelineState::Idle
+    );
+
+    let previous = TabVerdict {
+        state: TimelineState::Question,
+        subtype: Some(QuestionSubtype::Unknown),
+    };
+    assert_eq!(classify_state(&quiescent_input(&menu), previous), previous);
 }
 
 // The codex idle composer: a `›` prompt line followed by the model/cwd footer.
@@ -485,34 +482,6 @@ fn claude_answered_question_with_stale_picker_below_composer_is_idle() {
         verdict.state,
         TimelineState::Idle,
         "answered question + stale picker echo below the ready composer must clear to Idle"
-    );
-}
-
-#[test]
-fn claude_active_question_picker_still_classifies_question() {
-    let screen = lines(&[
-        "⏺ Выбери вариант:",
-        "  ❯ 1. Вариант A",
-        "    2. Вариант B",
-        "    3. Вариант C",
-        "    4. Type something.",
-        "Enter to select · ↑/↓ to navigate · Esc to cancel",
-    ]);
-    let mut input = quiescent_input(&screen);
-    input.cursor_hidden = true;
-    input.byte_idle_ms = 6000;
-    input.semantic_idle_ms = 6000;
-    let verdict = classify_state(
-        &input,
-        TabVerdict {
-            state: TimelineState::Idle,
-            subtype: None,
-        },
-    );
-    assert_eq!(
-        verdict.state,
-        TimelineState::Question,
-        "an active, unanswered picker must remain Question"
     );
 }
 

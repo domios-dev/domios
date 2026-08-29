@@ -2,10 +2,10 @@
   {
     "t_ms": 0,
     "event": "capture_start",
-    "cast": "/Users/dev/Developer/codeterm-alpha/testbench/replays/cursor/geometry_smoke_v1-20260621-preflight-v1-cursor-geometry_smoke_v1-100x30/raw.cast",
+    "cast": "/Users/user/Developer/codeterm-alpha/testbench/replays/cursor/geometry_smoke_v1-20260621-preflight-v1-cursor-geometry_smoke_v1-100x30/raw.cast",
     "capture_start_result": {
       "ok": true,
-      "out": "/Users/dev/Developer/codeterm-alpha/testbench/replays/cursor/geometry_smoke_v1-20260621-preflight-v1-cursor-geometry_smoke_v1-100x30/raw.cast",
+      "out": "/Users/user/Developer/codeterm-alpha/testbench/replays/cursor/geometry_smoke_v1-20260621-preflight-v1-cursor-geometry_smoke_v1-100x30/raw.cast",
       "width": 120,
       "height": 40
     }

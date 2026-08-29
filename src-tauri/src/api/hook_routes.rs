@@ -8,14 +8,24 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::agent::provider::{HookEventBinding, HookIngestionRoute};
 use crate::agent::registry::AgentRegistry;
-use crate::api::routes::{resolve_tab, AppState};
+use crate::api::{
+    optional_json::OptionalJson,
+    routes::{resolve_tab, AppState},
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct SessionStartClaim {
+pub(crate) struct SessionStartClaim {
     prev: Option<String>,
     changed: bool,
     nonce_verified: bool,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DeferredBindingPremise {
+    previous_session_id: String,
+}
+
+pub(crate) type SessionBindError = (StatusCode, String, Option<DeferredBindingPremise>);
 
 fn epoch_ms() -> u64 {
     SystemTime::now()
@@ -77,6 +87,7 @@ fn ensure_agent_state(state: &AppState, tab_id: &str) {
     state.svc.set_and_lock_tab_agent_type(tab_id, owner.clone());
     log::info!("[hook] set agent_type={} for Tab {}", owner, tab_id);
     state.svc.emit_state_changed();
+    state.svc.emit_session_binding_state(tab_id);
 }
 
 /// Hook endpoint: agent reports it needs permission.
@@ -90,7 +101,7 @@ pub async fn hook_permission(
     AxumState(state): AxumState<AppState>,
     Path(raw_tab_id): Path<String>,
     headers: HeaderMap,
-    body: Option<Json<serde_json::Value>>,
+    OptionalJson(body): OptionalJson<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let tab_id = resolve_tab(&state, &raw_tab_id).map_err(|(s, m)| (s, m.to_string()))?;
     // Hook firing = authoritative proof that an agent is running in this tab.
@@ -98,7 +109,7 @@ pub async fn hook_permission(
 
     // The per-tool payload the vendor already sent beats anything scraped back
     // off the screen, so it is ingested before the parsing fallbacks.
-    if let Some(Json(raw)) = body.as_ref() {
+    if let Some(raw) = body.as_ref() {
         if let Some(signal) = crate::agent::permission_request::parse_permission_request(raw) {
             reject_foreign_binding_nonce(&state, &tab_id, &headers, raw)?;
             let decision = state
@@ -111,7 +122,7 @@ pub async fn hook_permission(
         }
     }
 
-    let explicit_prompt = body.and_then(|Json(b)| {
+    let explicit_prompt = body.and_then(|b| {
         let question = b.get("question")?.as_str()?.to_string();
         let options = b
             .get("options")?
@@ -255,11 +266,11 @@ pub async fn hook_stop(
     AxumState(state): AxumState<AppState>,
     Path(raw_tab_id): Path<String>,
     headers: HeaderMap,
-    body: Option<Json<serde_json::Value>>,
+    OptionalJson(body): OptionalJson<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let tab_id = resolve_tab(&state, &raw_tab_id).map_err(|(s, m)| (s, m.to_string()))?;
     log::debug!("[hook_stop] fired for Tab {}", tab_id);
-    let body = body.map(|Json(v)| v).unwrap_or(serde_json::Value::Null);
+    let body = body.unwrap_or(serde_json::Value::Null);
     let report_nonce = body
         .get("binding_nonce")
         .and_then(|v| v.as_str())
@@ -335,10 +346,10 @@ pub async fn hook_session_start(
     AxumState(state): AxumState<AppState>,
     Path(raw_tab_id): Path<String>,
     headers: HeaderMap,
-    body: Option<Json<serde_json::Value>>,
+    OptionalJson(body): OptionalJson<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let tab_id = resolve_tab(&state, &raw_tab_id).map_err(|(s, m)| (s, m.to_string()))?;
-    let body = body.map(|Json(v)| v).unwrap_or(serde_json::Value::Null);
+    let body = body.unwrap_or(serde_json::Value::Null);
     let session_id = session_start_string(&body, &["session_id"])
         .or_else(|| session_start_string(&body, &["payload", "session_id"]))
         .or_else(|| session_start_string(&body, &["payload", "id"]));
@@ -365,6 +376,7 @@ pub async fn hook_session_start(
             tab_id,
             source
         );
+        state.svc.emit_session_binding_state(&tab_id);
         return Ok(Json(
             serde_json::json!({"ok": false, "reason": "no session_id in body"}),
         ));
@@ -390,14 +402,270 @@ pub async fn hook_session_start(
             .unwrap_or_else(crate::config::default_agent_provider)
     };
 
-    let claim = bind_reported_session(
+    let claim = match bind_reported_session(
         &state.svc.mux,
         state.svc.agent_registry.as_ref(),
         &tab_id,
         &provider_id,
         &sid,
         report_nonce.as_deref(),
+    ) {
+        Ok(claim) => claim,
+        Err((status, message, Some(premise))) => {
+            let transcript_path = reported_transcript_path(&body)
+                .map(std::path::PathBuf::from)
+                .or_else(|| {
+                    state
+                        .svc
+                        .agent_registry
+                        .with_provider(&provider_id, |provider| {
+                            let cwd = state
+                                .svc
+                                .mux
+                                .read()
+                                .get_tab(&tab_id)
+                                .and_then(|tab| tab.cwd.clone())
+                                .unwrap_or_default();
+                            provider.session_file_path(&cwd, &sid)
+                        })
+                        .flatten()
+                });
+            let Some(transcript_path) = transcript_path else {
+                state.svc.deferred_session_bindings.refuse(
+                    &tab_id,
+                    &sid,
+                    Some(&premise.previous_session_id),
+                    &message,
+                );
+                state.svc.emit_session_binding_state(&tab_id);
+                return Err((status, message));
+            };
+            if let Err(error) = defer_session_binding(
+                state.clone(),
+                &tab_id,
+                &provider_id,
+                &sid,
+                &premise.previous_session_id,
+                transcript_path,
+                report_nonce.clone(),
+                source.clone(),
+                body.clone(),
+            ) {
+                let reason = format!("{message}; {error}");
+                state.svc.deferred_session_bindings.refuse(
+                    &tab_id,
+                    &sid,
+                    Some(&premise.previous_session_id),
+                    &reason,
+                );
+                state.svc.emit_session_binding_state(&tab_id);
+                return Err((StatusCode::CONFLICT, reason));
+            }
+            state.svc.emit_session_binding_state(&tab_id);
+            return Ok(Json(serde_json::json!({
+                "ok": true,
+                "changed": false,
+                "deferred": true,
+                "session_id": sid,
+                "current_session_id": premise.previous_session_id,
+            })));
+        }
+        Err((status, message, None)) => {
+            let current_session_id = state
+                .svc
+                .mux
+                .read()
+                .get_tab(&tab_id)
+                .and_then(|tab| tab.agent_session_id.clone());
+            state.svc.deferred_session_bindings.refuse(
+                &tab_id,
+                &sid,
+                current_session_id.as_deref(),
+                &message,
+            );
+            state.svc.emit_session_binding_state(&tab_id);
+            return Err((status, message));
+        }
+    };
+    finish_session_binding(
+        &state,
+        &tab_id,
+        &provider_id,
+        &sid,
+        report_nonce.as_deref(),
+        &source,
+        &body,
+        claim,
+    )
+    .await
+}
+
+pub(crate) fn defer_session_binding(
+    state: AppState,
+    tab_id: &str,
+    provider_id: &str,
+    sid: &str,
+    previous_session_id: &str,
+    transcript_path: std::path::PathBuf,
+    report_nonce: Option<String>,
+    source: String,
+    body: serde_json::Value,
+) -> Result<(), String> {
+    let callback_state = state.clone();
+    let callback_nonce = report_nonce.clone();
+    let callback_source = source.clone();
+    let callback_body = body.clone();
+    let on_materialized = std::sync::Arc::new(move |tab_id: String, generation: u64| {
+        let state = callback_state.clone();
+        let report_nonce = callback_nonce.clone();
+        let source = callback_source.clone();
+        let body = callback_body.clone();
+        tauri::async_runtime::spawn(async move {
+            complete_deferred_session_binding(
+                state,
+                tab_id,
+                generation,
+                report_nonce,
+                source,
+                body,
+            )
+            .await;
+        });
+    });
+    let binding = state.svc.deferred_session_bindings.defer(
+        tab_id,
+        provider_id,
+        sid,
+        previous_session_id,
+        transcript_path,
+        on_materialized.clone(),
     )?;
+    if binding.transcript_path.is_file() {
+        on_materialized(binding.tab_id, binding.generation);
+    }
+    Ok(())
+}
+
+async fn complete_deferred_session_binding(
+    state: AppState,
+    tab_id: String,
+    generation: u64,
+    report_nonce: Option<String>,
+    source: String,
+    body: serde_json::Value,
+) {
+    let Some(binding) = state.svc.deferred_session_bindings.get(&tab_id, generation) else {
+        return;
+    };
+    let current_session = state
+        .svc
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .and_then(|tab| tab.agent_session_id.clone());
+    if !deferred_binding_still_applies(&state.svc.mux, &binding) {
+        state
+            .svc
+            .deferred_session_bindings
+            .clear_generation(&tab_id, generation);
+        state.svc.emit_session_binding_state(&tab_id);
+        log::info!(
+            "[session-binding-deferral] dropping sid {} for Tab {}: current session moved from {} to {}",
+            binding.session_id,
+            tab_id,
+            binding.previous_session_id,
+            current_session.as_deref().unwrap_or("-"),
+        );
+        return;
+    }
+    if !binding.transcript_path.is_file() {
+        return;
+    }
+    let evidence_session = binding.session_id.clone();
+    let evidence_path = binding.transcript_path.to_string_lossy().into_owned();
+    let evidence_recorded = tokio::task::spawn_blocking(move || {
+        codeterm_plugin::session_evidence::record(&evidence_session, &evidence_path)
+    })
+    .await
+    .unwrap_or(false);
+    if !evidence_recorded {
+        log::warn!(
+            "[session-binding-deferral] could not record materialized transcript for sid {} Tab {}",
+            binding.session_id,
+            tab_id,
+        );
+        return;
+    }
+    match bind_reported_session(
+        &state.svc.mux,
+        state.svc.agent_registry.as_ref(),
+        &tab_id,
+        &binding.provider_id,
+        &binding.session_id,
+        report_nonce.as_deref(),
+    ) {
+        Ok(claim) => {
+            let _ = finish_session_binding(
+                &state,
+                &tab_id,
+                &binding.provider_id,
+                &binding.session_id,
+                report_nonce.as_deref(),
+                &source,
+                &body,
+                claim,
+            )
+            .await;
+        }
+        Err((_, message, deferrable)) => {
+            if deferrable.is_none() {
+                state.svc.deferred_session_bindings.refuse(
+                    &tab_id,
+                    &binding.session_id,
+                    Some(&binding.previous_session_id),
+                    &message,
+                );
+                state.svc.emit_session_binding_state(&tab_id);
+            }
+            log::warn!(
+                "[session-binding-deferral] sid {} for Tab {} did not bind: {}",
+                binding.session_id,
+                tab_id,
+                message,
+            );
+        }
+    }
+}
+
+pub(crate) fn deferred_binding_still_applies(
+    mux: &crate::multiplexer::commands::MuxState,
+    binding: &crate::service::session_binding_deferral::DeferredSessionBinding,
+) -> bool {
+    mux.read()
+        .get_tab(&binding.tab_id)
+        .and_then(|tab| tab.agent_session_id.as_deref())
+        == Some(binding.previous_session_id.as_str())
+}
+
+pub(crate) async fn finish_session_binding(
+    state: &AppState,
+    tab_id: &str,
+    provider_id: &str,
+    sid: &str,
+    report_nonce: Option<&str>,
+    source: &str,
+    body: &serde_json::Value,
+    claim: SessionStartClaim,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    if claim.changed {
+        state.svc.deferred_session_bindings.clear(tab_id);
+    } else {
+        state
+            .svc
+            .deferred_session_bindings
+            .clear_session(tab_id, sid);
+    }
+    state.svc.emit_session_binding_state(tab_id);
     let (current_nonce, reported_nonce) = {
         let mux = state.svc.mux.read();
         let tab = mux.get_tab(&tab_id);
@@ -412,7 +680,7 @@ pub async fn hook_session_start(
         tab_id,
         provider_id,
         sid,
-        report_nonce.as_deref().unwrap_or("-"),
+        report_nonce.unwrap_or("-"),
         current_nonce.as_deref().unwrap_or("-"),
         reported_nonce.as_deref().unwrap_or("-"),
         claim.nonce_verified,
@@ -424,27 +692,27 @@ pub async fn hook_session_start(
         state.svc.record_lifecycle(
             &tab_id,
             crate::session::lifecycle::LifecycleTransition::ProviderIdentityCommitted {
-                provider: provider_id.clone(),
+                provider: provider_id.to_string(),
             },
         );
         state.svc.record_lifecycle(
             &tab_id,
             crate::session::lifecycle::LifecycleTransition::SessionBound {
-                session_id: sid.clone(),
+                session_id: sid.to_string(),
                 binding_nonce,
             },
         );
     }
     crate::service::general_agent::binding_wait::notify_session_bound();
-    acknowledge_authenticated_launch(&state.svc.mux, &tab_id, &claim, report_nonce.as_deref());
+    acknowledge_authenticated_launch(&state.svc.mux, tab_id, &claim, report_nonce);
     if claim.nonce_verified {
         state.svc.rearm_authenticated_agent_input(&tab_id);
     }
 
     // while it runs — not only after completion.
-    propagate_run_session(&state, &tab_id, &sid);
-    if let Some(reported_transcript) = reported_transcript_path(&body) {
-        let evidence_sid = sid.clone();
+    propagate_run_session(state, tab_id, sid);
+    if let Some(reported_transcript) = reported_transcript_path(body) {
+        let evidence_sid = sid.to_string();
         let persisted = tokio::task::spawn_blocking(move || {
             codeterm_plugin::session_evidence::record(&evidence_sid, &reported_transcript)
         })
@@ -458,8 +726,7 @@ pub async fn hook_session_start(
             );
         }
     }
-    let transcript_progress =
-        durable_transcript_progress(&state, &tab_id, &provider_id, &sid).await;
+    let transcript_progress = durable_transcript_progress(state, tab_id, provider_id, sid).await;
     state
         .svc
         .run_watcher
@@ -485,7 +752,7 @@ pub async fn hook_session_start(
         state
             .svc
             .plan_store
-            .observe_handoff_session_start(&tab_id, &sid, epoch_ms())
+            .observe_handoff_session_start(tab_id, sid, epoch_ms())
     {
         state.svc.send_text_detached(&resume.tab_id, &resume.text);
         let _ = state.svc.plan_store.mark_handoff_resume_sent(
@@ -514,9 +781,9 @@ pub async fn hook_session_start(
         .get_tab(&tab_id)
         .and_then(|tab| tab.cwd.clone());
     let persist_svc = state.svc.clone();
-    let effort_tab_id = tab_id.clone();
-    let effort_provider_id = provider_id.clone();
-    let effort_session_id = sid.clone();
+    let effort_tab_id = tab_id.to_string();
+    let effort_provider_id = provider_id.to_string();
+    let effort_session_id = sid.to_string();
     if let Ok(Err(error)) = tokio::task::spawn_blocking(move || {
         if let Some(cwd) = effort_cwd {
             persist_svc.refresh_session_reasoning_effort_once(
@@ -707,18 +974,19 @@ struct MaterializationProbe {
     prev_materialized: bool,
 }
 
-fn bind_reported_session(
+pub(crate) fn bind_reported_session(
     mux: &crate::multiplexer::commands::MuxState,
     registry: &crate::agent::registry::AgentRegistry,
     tab_id: &str,
     provider_id: &str,
     sid: &str,
     report_nonce: Option<&str>,
-) -> Result<SessionStartClaim, (StatusCode, String)> {
+) -> Result<SessionStartClaim, SessionBindError> {
     if registry.with_provider(provider_id, |_| ()).is_none() {
         return Err((
             StatusCode::BAD_REQUEST,
             format!("unknown provider_id '{}'", provider_id),
+            None,
         ));
     }
 
@@ -729,7 +997,7 @@ fn bind_reported_session(
         let (probe_cwd, probe_prev) = {
             let mux = mux.read();
             let Some(tab) = mux.get_tab(tab_id) else {
-                return Err((StatusCode::NOT_FOUND, "Tab not found".to_string()));
+                return Err((StatusCode::NOT_FOUND, "Tab not found".to_string(), None));
             };
             (
                 tab.cwd.clone().unwrap_or_default(),
@@ -769,6 +1037,7 @@ fn bind_reported_session(
     Err((
         StatusCode::CONFLICT,
         "session binding raced concurrent mutation; retry".to_string(),
+        None,
     ))
 }
 
@@ -782,9 +1051,9 @@ fn commit_reported_session(
     sid: &str,
     report_nonce: Option<&str>,
     probe: &MaterializationProbe,
-) -> Result<Option<SessionStartClaim>, (StatusCode, String)> {
+) -> Result<Option<SessionStartClaim>, SessionBindError> {
     let Some(tab) = mux.get_tab(tab_id) else {
-        return Err((StatusCode::NOT_FOUND, "Tab not found".to_string()));
+        return Err((StatusCode::NOT_FOUND, "Tab not found".to_string(), None));
     };
     // The probe keyed on these; if either moved, the probe is stale — reprobe.
     // This is what stops a stale snapshot from overwriting a changed binding.
@@ -802,7 +1071,11 @@ fn commit_reported_session(
                     "[hook_session_start] rejecting sid {} for Tab {} provider={}: binding nonce mismatch",
                     sid, tab_id, provider_id,
                 );
-                return Err((StatusCode::CONFLICT, "binding nonce mismatch".to_string()));
+                return Err((
+                    StatusCode::CONFLICT,
+                    "binding nonce mismatch".to_string(),
+                    None,
+                ));
             }
             Some(_) => true,
             None => false,
@@ -819,6 +1092,7 @@ fn commit_reported_session(
                     "Tab provider '{}' does not match report provider '{}'",
                     existing_provider, provider_id
                 ),
+                None,
             ));
         }
     }
@@ -837,6 +1111,7 @@ fn commit_reported_session(
                 "session_id '{}' is not a known session for provider '{}'",
                 sid, provider_id
             ),
+            None,
         ));
     }
 
@@ -855,6 +1130,7 @@ fn commit_reported_session(
         return Err((
             StatusCode::CONFLICT,
             format!("session_id already claimed by Tab {}", other),
+            None,
         ));
     }
 
@@ -875,12 +1151,18 @@ fn commit_reported_session(
                     "session_id '{}' cannot evict materialized session {:?}",
                     sid, probe.prev_sid
                 ),
+                probe
+                    .prev_sid
+                    .clone()
+                    .map(|previous_session_id| DeferredBindingPremise {
+                        previous_session_id,
+                    }),
             ));
         }
     }
 
     let Some(tab) = mux.get_tab_mut(tab_id) else {
-        return Err((StatusCode::NOT_FOUND, "Tab not found".to_string()));
+        return Err((StatusCode::NOT_FOUND, "Tab not found".to_string(), None));
     };
     if tab.agent_type.is_none() {
         tab.agent_type = Some(provider_id.to_string());

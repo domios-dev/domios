@@ -106,6 +106,22 @@ impl ServiceContext {
         tab_ids.iter().any(|pid| self.is_self_close_protected(pid))
     }
 
+    fn workspace_agent_tab_titles(&self, workspace_id: &str) -> Vec<String> {
+        let mux = self.mux.read();
+        let Some(workspace) = mux.get_workspace(workspace_id) else {
+            return Vec::new();
+        };
+        workspace
+            .tabs
+            .iter()
+            .filter_map(|tab_id| {
+                mux.get_tab(tab_id)
+                    .filter(|tab| tab.agent_type.is_some())
+                    .map(|tab| tab.title.clone())
+            })
+            .collect()
+    }
+
     /// Close a workspace on behalf of `caller_tab_id`. Refuses when a
     /// coordinator (Orchestrator/plan owner/Planner) targets the workspace it
     /// runs in; closing any OTHER workspace is unaffected. An absent or unknown
@@ -114,11 +130,12 @@ impl ServiceContext {
         &self,
         caller_tab_id: Option<&str>,
         workspace_id: &str,
+        force: bool,
     ) -> Result<(), String> {
         let caller = caller_tab_id
             .map(WorkspaceCloseCaller::LocalTab)
             .unwrap_or(WorkspaceCloseCaller::Unattributed);
-        self.close_workspace_guarded_for(caller, workspace_id)
+        self.close_workspace_guarded_for(caller, workspace_id, force)
     }
 
     /// The relay owns peer authentication and workspace access checks before
@@ -127,6 +144,7 @@ impl ServiceContext {
         &self,
         peer_id: &str,
         workspace_id: &str,
+        force: bool,
     ) -> Result<(), String> {
         if peer_id.trim().is_empty() {
             return Err("authenticated mesh peer id is required".to_string());
@@ -134,6 +152,7 @@ impl ServiceContext {
         self.close_workspace_guarded_for(
             WorkspaceCloseCaller::AuthenticatedMeshPeer(peer_id),
             workspace_id,
+            force,
         )
     }
 
@@ -141,6 +160,7 @@ impl ServiceContext {
         &self,
         caller: WorkspaceCloseCaller<'_>,
         workspace_id: &str,
+        force: bool,
     ) -> Result<(), String> {
         let refuse = match caller {
             WorkspaceCloseCaller::LocalTab(caller) => {
@@ -163,6 +183,15 @@ impl ServiceContext {
                 "{}: a coordinator cannot close the workspace it runs in ({workspace_id}) — \
                  have your parent or another Tab close it, or move first.",
                 crate::service::tab::SELF_CLOSE_REFUSAL_PREFIX
+            ));
+        }
+        let agent_titles = self.workspace_agent_tab_titles(workspace_id);
+        if !force && !agent_titles.is_empty() {
+            return Err(format!(
+                "{}: explicit confirmation is required because closing would destroy {} agent tab(s): {}",
+                crate::service::AGENT_TAB_CLOSE_REFUSAL_PREFIX,
+                agent_titles.len(),
+                agent_titles.join(", ")
             ));
         }
         self.close_workspace(workspace_id)

@@ -66,6 +66,8 @@ mod role_identity;
 pub(crate) mod role_preset;
 mod role_profile;
 mod session_backup;
+pub(crate) mod session_binding_deferral;
+mod session_binding_state;
 pub mod session_persist;
 mod shell_restart;
 pub mod smart_add;
@@ -119,6 +121,8 @@ pub(crate) use worker_lane::{
 mod worker_persona;
 mod workspace;
 
+pub(crate) const AGENT_TAB_CLOSE_REFUSAL_PREFIX: &str = "workspace close refused";
+
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -159,6 +163,7 @@ pub use orchestrator::{
 pub(crate) use plan_authority::{
     ensure_planner_task_fields_are_structural, AuthenticatedPlanCaller,
 };
+pub(crate) use session_binding_state::SessionBindingState;
 pub(crate) use spawn_params::starter_prompt_for_role;
 pub use tab::{normalize_tab_description, MAX_TAB_DESCRIPTION_CHARS};
 pub use tab_budget::{evaluate_tab_budget, TabBudgetLevel, TabBudgetNotice};
@@ -290,6 +295,8 @@ pub struct ServiceContext {
     pub(crate) pending_delivery_payloads:
         Arc<pending_delivery_payloads::PendingDeliveryPayloadStore>,
     pub(crate) chat_send_ledger: Arc<chat_send_transaction::ChatSendLedger>,
+    pub(crate) deferred_session_bindings:
+        Arc<session_binding_deferral::DeferredSessionBindingRegistry>,
     pub(crate) worker_identity_allocator:
         Arc<parking_lot::Mutex<worker_persona::WorkerPersonaReservations>>,
     pub(crate) worker_ack: Arc<worker_ack::WorkerAckRegistry>,

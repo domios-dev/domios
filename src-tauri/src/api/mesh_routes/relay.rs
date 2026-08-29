@@ -569,7 +569,7 @@ async fn perform_relay(
                 format!("Unsupported method: {}", cmd.method),
             )
         })?;
-        match authorize_peer_relay(sender_id, &access, &method, &cmd.path) {
+        match authorize_peer_relay(sender_id, &access, &method, &cmd.path, &cmd.body) {
             PeerRelayAuthorization::Rejected => {
                 return Ok(crate::mesh::types::RelayResponse {
                     ok: false,
@@ -584,8 +584,9 @@ async fn perform_relay(
             PeerRelayAuthorization::WorkspaceClose {
                 peer_id,
                 workspace_id,
+                force,
             } => {
-                return close_workspace_from_mesh_peer(state, peer_id, workspace_id).await;
+                return close_workspace_from_mesh_peer(state, peer_id, workspace_id, force).await;
             }
             PeerRelayAuthorization::Forward => {}
         }
@@ -688,6 +689,7 @@ enum PeerRelayAuthorization<'a> {
     WorkspaceClose {
         peer_id: &'a str,
         workspace_id: &'a str,
+        force: bool,
     },
     Forward,
 }
@@ -697,6 +699,7 @@ fn authorize_peer_relay<'a>(
     access: &crate::mesh::types::AccessLevel,
     method: &Method,
     path: &'a str,
+    body: &serde_json::Value,
 ) -> PeerRelayAuthorization<'a> {
     if !check_access(access, method, path) {
         return PeerRelayAuthorization::Rejected;
@@ -705,9 +708,16 @@ fn authorize_peer_relay<'a>(
         Some(workspace_id) => PeerRelayAuthorization::WorkspaceClose {
             peer_id,
             workspace_id,
+            force: relay_workspace_close_force(body),
         },
         None => PeerRelayAuthorization::Forward,
     }
+}
+
+fn relay_workspace_close_force(body: &serde_json::Value) -> bool {
+    body.get("force")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
 }
 
 fn workspace_close_target<'a>(method: &Method, path: &'a str) -> Option<&'a str> {
@@ -724,12 +734,13 @@ async fn close_workspace_from_mesh_peer(
     state: &AppState,
     peer_id: &str,
     workspace_id: &str,
+    force: bool,
 ) -> Result<crate::mesh::types::RelayResponse, (StatusCode, String)> {
     let service = state.svc.clone();
     let peer_id = peer_id.to_string();
     let workspace_id = workspace_id.to_string();
     let result = tokio::task::spawn_blocking(move || {
-        service.close_workspace_from_authenticated_mesh_peer(&peer_id, &workspace_id)
+        service.close_workspace_from_authenticated_mesh_peer(&peer_id, &workspace_id, force)
     })
     .await
     .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;

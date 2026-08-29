@@ -217,8 +217,8 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 format!("/api/workspaces/{}/rename", id),
                 Some(serde_json::json!({"name": name}).to_string()),
             ),
-            crate::WorkspaceAction::Close { id } => {
-                ("POST".into(), format!("/api/workspaces/{}/close", id), None)
+            crate::WorkspaceAction::Close { id, force } => {
+                ("POST".into(), format!("/api/workspaces/{}/close", id), Some(serde_json::json!({"force": force}).to_string()))
             }
             crate::WorkspaceAction::MoveTab { tab_id, from, to } => (
                 "POST".into(),
@@ -235,7 +235,9 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 let mut query = vec![format!("agents={agents}")];
                 if let Some(workspace) = workspace {
                     query.push(format!("workspace_id={}", urlencoding::encode(workspace)));
-                } else if !all_workspaces {
+                } else if *all_workspaces {
+                    query.push("all_workspaces=true".into());
+                } else {
                     query.push("focused_workspace=true".into());
                 }
                 ("GET".into(), format!("/api/tabs?{}", query.join("&")), None)
@@ -370,6 +372,14 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             crate::TabAction::Status { tab } => {
                 let p = tab.as_deref().unwrap_or("general");
                 ("GET".into(), format!("/api/tabs/{}/status", p), None)
+            }
+            crate::TabAction::Rebind { session_id, tab } => {
+                let p = tab.as_deref().unwrap_or("general");
+                (
+                    "POST".into(),
+                    format!("/api/tabs/{}/session/rebind", p),
+                    Some(serde_json::json!({"session_id": session_id}).to_string()),
+                )
             }
             crate::TabAction::Search { .. } => {
                 // tab search runs local CLI-side; peer only supplies raw list.

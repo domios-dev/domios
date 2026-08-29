@@ -1,7 +1,7 @@
 import { Square, Terminal, X } from "lucide-react";
 import { ActivityDots } from "../shared/ActivityDots";
 
-export type AgentStateKind = "working" | "idle" | "question";
+export type AgentStateKind = "working" | "idle" | "quiet" | "question";
 
 export type AgentQuestionSubtype =
   | "model_choice"
@@ -61,6 +61,7 @@ export function AgentStateIndicator({
   onStop,
   onCancel,
   onOpenTerminal,
+  onRebind,
 }: {
   state: AgentState;
   providerName?: string | null;
@@ -69,12 +70,14 @@ export function AgentStateIndicator({
   onStop?: () => void;
   onCancel?: () => void;
   onOpenTerminal?: () => void;
+  onRebind?: () => void;
 }) {
   const isWorking = state.state === "working";
+  const isQuiet = state.state === "quiet";
   const isQuestion = state.state === "question";
   const phase = workPhaseOf(state.phase);
   const status = state.status_line?.trim()
-    || (isWorking ? "Working" : isQuestion ? questionStatus(state.subtype) : "");
+    || (isWorking ? "Working" : isQuiet ? "Session quiet — rebind to continue" : isQuestion ? questionStatus(state.subtype) : "");
   const text = [providerName?.trim(), model?.trim(), status].filter(Boolean).join(" · ");
 
   return (
@@ -112,6 +115,18 @@ export function AgentStateIndicator({
         >
           <Square size={9} strokeWidth={0} fill="currentColor" aria-hidden />
           Stop
+        </button>
+      )}
+      {isQuiet && onRebind && (
+        <button
+          type="button"
+          data-testid="agent-rebind"
+          onClick={onRebind}
+          className="shrink-0 rounded-md px-1.5 py-0.5 text-xs font-medium"
+          aria-label="Repair session binding"
+          title="Repair session binding"
+        >
+          Repair
         </button>
       )}
       {isQuestion && onOpenTerminal && (

@@ -180,6 +180,7 @@ pub fn run() {
             commands::get_tab_output,
             commands::get_tab_history_raw,
             commands::get_tab_text,
+            commands::session_binding_state,
             commands::shell_command_snapshot,
             commands::list_agent_providers,
             commands::get_remote_workers,
@@ -646,6 +647,7 @@ pub fn run() {
             let prompt_detector = Arc::new(Mutex::new(agent::prompt::PromptDetector::new()));
             let (bridge_outbound_tx, bridge_outbound_rx) = bridge::manager::create_outbound_channel();
 
+            let startup_step = startup::StartupStep::logged("memory initialization");
             let mem = mem::MemManager::open(&crate::paths::data_dir())
                 .expect("mem manager init failed");
             match mem.seed_bundled_if_needed() {
@@ -658,7 +660,9 @@ pub fn run() {
 
             // Re-index any items missing vectors (catches failed bg indexing)
             mem.reindex_missing();
+            drop(startup_step);
 
+            let startup_step = startup::StartupStep::logged("service state construction");
             let mem_supervisor = Arc::new(crate::mem::supervisor::Supervisor::new(
                 crate::mem::supervisor::Supervisor::resolve_cli_path(&crate::paths::data_dir()),
                 mem.db_path().to_path_buf(),
@@ -747,6 +751,7 @@ pub fn run() {
                 chat_send_ledger: Arc::new(
                     crate::service::chat_send_transaction::ChatSendLedger::default(),
                 ),
+                deferred_session_bindings: Arc::new(Default::default()),
                 agent_registry,
                 mem,
                 mem_supervisor,
@@ -835,7 +840,9 @@ pub fn run() {
             app.manage(service_state.clone());
             crate::delayed_send::start_scheduler(service_state.clone());
             crate::service::start_plan_reminder_scheduler(service_state.clone());
+            drop(startup_step);
 
+            let startup_step = startup::StartupStep::logged("restored plan loading");
             // agent_type back already-set so no transition ever happens. Walk the restored tabs once at boot.
             service_state.kick_off_pollers_for_existing_agents();
             for cwd in service_state
@@ -859,7 +866,9 @@ pub fn run() {
                 log::warn!("[plan] dangling team-binding reconciliation failed: {e}");
             }
             service_state.mark_plans_startup_loaded();
+            drop(startup_step);
 
+            let startup_step = startup::StartupStep::logged("background service initialization");
             {
                 let store = service_state.services_store.clone();
                 let activity = crate::service::activity::ActivityWriter::new(store.conn());
@@ -937,11 +946,13 @@ pub fn run() {
                 *service_state.usage_poller.lock() = Some(poller.clone());
                 poller.spawn();
             }
+            drop(startup_step);
 
+            let startup_step = startup::StartupStep::logged("platform and server initialization");
             startup::setup_conpty_host(app);
             startup::install_bundled_cli(app);
             startup::start_servers(app, &states, &service_state);
-            commands::ensure_integrations_for_all(&service_state.agent_registry);
+            commands::ensure_integrations_for_all(&service_state.agent_registry, &states.config);
             if states.config.lock().api.enabled {
                 crate::liveness::start_api_liveness_watchdog(
                     app_handle.clone(),
@@ -1020,6 +1031,7 @@ pub fn run() {
             agent::state_reactor::start(service_state.clone());
             // working→idle edge (no output to ride on when a turn settles).
             agent::live_state::start(service_state.clone());
+            drop(startup_step);
 
             // PTY read loops are started by spawn_pty command (initiated by frontend)
             Ok(())

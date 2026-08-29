@@ -5,12 +5,14 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 python3 - "$ROOT" <<'PY'
 from pathlib import Path
+import os
 import re
 import sys
 
 root = Path(sys.argv[1])
 # AGENTS.md is the source of truth; CLAUDE.md just @-imports it.
-source = root / "AGENTS.md"
+# EVALS_AGENTS_FILE is a test seam; normal use still reads AGENTS.md.
+source = Path(os.environ.get("EVALS_AGENTS_FILE", root / "AGENTS.md"))
 evals = root / "evals"
 
 text = source.read_text(encoding="utf-8")
@@ -21,32 +23,25 @@ mentioned = {
     if not name.startswith("_")
 }
 
-experimental = set()
-for line in text.splitlines():
-    if "experimental" in line.lower() or "historical" in line.lower():
-        experimental.update(
-            name
-            for name in re.findall(r"evals/([A-Za-z0-9_.-]+)/", line)
-            if not name.startswith("_")
-        )
-
 missing_dirs = sorted(mentioned - actual)
-undocumented = sorted(actual - mentioned - experimental)
+missing_procedures = sorted(
+    name for name in actual if not (evals / name / "README.md").is_file()
+)
 
 errors = []
 if missing_dirs:
     errors.append("AGENTS.md mentions eval dirs that do not exist:")
     errors.extend(f"  evals/{name}/" for name in missing_dirs)
 
-if undocumented:
-    errors.append("evals dirs missing from AGENTS.md or experimental/historical list:")
-    errors.extend(f"  evals/{name}/" for name in undocumented)
+if missing_procedures:
+    errors.append("evals dirs missing README.md procedure documents:")
+    errors.extend(f"  evals/{name}/" for name in missing_procedures)
 
 if errors:
     print("\n".join(errors), file=sys.stderr)
     sys.exit(1)
 
 print(
-    f"Eval list in sync: {len(actual)} eval dirs, {len(mentioned & actual)} mentioned, {len(experimental & actual)} experimental/historical"
+    f"Eval procedures in sync: {len(actual)} eval dirs, {len(actual) - len(missing_procedures)} documented"
 )
 PY

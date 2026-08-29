@@ -1,4 +1,4 @@
-dev@workstation ct-replay-claude-geometry_smoke_v1-9h5cp9qe % bash /tmp/codeterm-spawn-e4399257-e68a-4cbe-aaf7-9d85ff56d6dd.sh
+user@workstation ct-replay-claude-geometry_smoke_v1-9h5cp9qe % bash /tmp/codeterm-spawn-e4399257-e68a-4cbe-aaf7-9d85ff56d6dd.sh
 ╭─── Claude Code v2.1.185 ─────────────────────────────────────────────────────────────────────────╮
 │                                                    │ Tips for getting started                    │
 │                Welcome back Andrey!                │ Ask Claude to create a new app or clone a … │

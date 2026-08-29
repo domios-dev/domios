@@ -5056,7 +5056,7 @@
           "subcommands": [
             {
               "name": "set-addr",
-              "about": "Manually override our cached address for a paired peer. Useful when auto-detection is wrong or you want to point at a specific interface. Format: ip[:port]. Examples: codeterm mesh peer set-addr BLACKSTAR 100.64.10.1 codeterm mesh peer set-addr BLACKSTAR 192.168.1.42:7685",
+              "about": "Manually override our cached address for a paired peer. Useful when auto-detection is wrong or you want to point at a specific interface. Format: ip[:port]. Examples: codeterm mesh peer set-addr PEER-NAME 100.100.100.100 codeterm mesh peer set-addr PEER-NAME 192.168.1.42:7685",
               "aliases": [],
               "args": [
                 {
@@ -6900,7 +6900,7 @@
         },
         {
           "name": "in-progress",
-          "about": "List active orchestration tasks",
+          "about": "List active orchestration tasks; without PLAN_ID, scope to the current directory's project",
           "aliases": [],
           "args": [
             {
@@ -6910,7 +6910,7 @@
               "value_name": "ALL",
               "possible_values": [],
               "default": null,
-              "help": null,
+              "help": "List active tasks across every project",
               "aliases": []
             },
             {
@@ -6920,7 +6920,7 @@
               "value_name": "PLAN_ID",
               "possible_values": [],
               "default": null,
-              "help": null,
+              "help": "Plan to list regardless of the caller's working directory",
               "aliases": []
             }
           ],
@@ -8621,6 +8621,44 @@
               "subcommands": []
             },
             {
+              "name": "hold",
+              "about": "HOLD: records a review hold without releasing the task assignment or lane",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "note",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "NOTE",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "required": false,
+                  "value_name": "PLAN_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "TASK_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
               "name": "override",
               "about": "Record a P0 exception authorizing the next over-round-limit review entry",
               "aliases": [],
@@ -9497,12 +9535,9 @@
                   "positional": false,
                   "required": false,
                   "value_name": "EXECUTION_INTENT",
-                  "possible_values": [
-                    "repository_mutation",
-                    "non_repository"
-                  ],
+                  "possible_values": [],
                   "default": null,
-                  "help": null,
+                  "help": "Classifies whether this task changes the repository; dispatch uses read_only | mutating instead",
                   "aliases": []
                 },
                 {
@@ -9682,7 +9717,7 @@
                   "value_name": "ROLE_GUIDANCE",
                   "possible_values": [],
                   "default": null,
-                  "help": "Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. \"You are Alex; property tests come before implementation; red line: a lock claim without a test is not proof.\"",
+                  "help": "REQUIRED: initial worker conditioning. Presence alone is the machine contract; prose quality is a human judgment",
                   "aliases": []
                 },
                 {
@@ -9692,7 +9727,7 @@
                   "value_name": "PATH",
                   "possible_values": [],
                   "default": null,
-                  "help": null,
+                  "help": "Read required initial worker conditioning from a file",
                   "aliases": []
                 },
                 {
@@ -10861,7 +10896,7 @@
                   "value_name": "ROLE_GUIDANCE",
                   "possible_values": [],
                   "default": null,
-                  "help": "Second-person brief: who the worker IS, what EXACTLY they do here, their RED LINE. e.g. \"You are Alex; property tests come before implementation; red line: a lock claim without a test is not proof.\"",
+                  "help": "Replace initial worker conditioning. Cannot be emptied; presence alone is the machine contract",
                   "aliases": []
                 },
                 {
@@ -13179,6 +13214,34 @@
           "subcommands": []
         },
         {
+          "name": "rebind",
+          "about": "Bind a running tab to an existing provider session without restarting it",
+          "aliases": [],
+          "args": [
+            {
+              "name": "session_id",
+              "positional": true,
+              "required": true,
+              "value_name": "SESSION_ID",
+              "possible_values": [],
+              "default": null,
+              "help": "Provider session ID to bind",
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "required": false,
+              "value_name": "TAB",
+              "possible_values": [],
+              "default": null,
+              "help": "Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "rename",
           "about": "Rename a tab (default: current tab)",
           "aliases": [],
@@ -14023,6 +14086,16 @@
           "about": "Close/delete a workspace",
           "aliases": [],
           "args": [
+            {
+              "name": "force",
+              "positional": false,
+              "required": false,
+              "value_name": "FORCE",
+              "possible_values": [],
+              "default": null,
+              "help": "Explicitly acknowledge destroying agent tabs in this workspace",
+              "aliases": []
+            },
             {
               "name": "id",
               "positional": true,

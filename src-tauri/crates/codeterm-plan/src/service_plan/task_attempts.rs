@@ -1073,7 +1073,6 @@ impl PlanStore {
                             .iter()
                             .any(|attempt| {
                                 attempt.executor_tab_id == authority.tab_id
-                                    && attempt.session_id.as_deref() == Some(&authority.session_id)
                                     && attempt.interruption.owner_epoch == authority.owner_epoch
                                     && attempt.closed_at.is_none()
                             });

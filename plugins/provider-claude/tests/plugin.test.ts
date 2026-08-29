@@ -808,10 +808,8 @@ console.log("\n--- claude_alias_catalog_matches_model_picker_r3 ---\n");
 }
 
 
-// A previously-installed hook whose command uses $CODETERM_API_URL (no literal
-// host:port) has to be recognised as ours, or every install appends a duplicate
-// instead of replacing it — which is how one machine accumulated ten copies of
-// every hook and fired ten POSTs per session start.
+// A marker-less hook is user-owned even when it resembles an old CodeTerm
+// command. The installer must preserve it and add a separately-owned entry.
 {
   const settingsPath = "/home/test/.claude/settings.json";
   const legacy = {
@@ -845,14 +843,14 @@ console.log("\n--- claude_alias_catalog_matches_model_picker_r3 ---\n");
   }));
 
   const result = p.installIntegration(7686, { consent: true, precompact_memory_export: false });
-  assert(result.ok === true, "install over a marker-less hook succeeds");
+  assert(result.ok === true, "install alongside a marker-less hook succeeds");
   const sessionStart = written?.hooks?.SessionStart ?? [];
-  eq(sessionStart.length, 1, "an install replaces the previous hook instead of appending a duplicate");
+  eq(sessionStart.length, 2, "an install preserves an unclassified hook and adds its own entry");
   const commands = sessionStart.flatMap((entry: any) => entry.hooks ?? []);
-  eq(commands.length, 1, "exactly one SessionStart command survives");
+  eq(commands.length, 2, "both the foreign and owned SessionStart commands survive");
   assert(
-    commands[0]._source && String(commands[0]._source).indexOf("codeterm-hook") === 0,
-    "the surviving hook carries the marker so the next check recognises it",
+    commands.some((command: any) => command._source && String(command._source).indexOf("codeterm-hook-") === 0),
+    "the added hook carries a versioned ownership marker",
   );
 }
 

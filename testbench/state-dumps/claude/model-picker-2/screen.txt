@@ -1,4 +1,4 @@
-dev@workstation codeterm-state-capture-claude-model-picker-2-87204 % bash /tmp/codeterm-spawn-5e5b195d-cb3c-42ba-96a9-89af6aad9dad.sh
+user@workstation codeterm-state-capture-claude-model-picker-2-87204 % bash /tmp/codeterm-spawn-5e5b195d-cb3c-42ba-96a9-89af6aad9dad.sh
 ╭─── Claude Code v2.1.183 ─────────────────────────────────────────────────────────────────────────────────────────────╮
 │                                                    │ Tips for getting started                                        │
 │                Welcome back Andrey!                │ Run /init to create a CLAUDE.md file with instructions for Cla… │

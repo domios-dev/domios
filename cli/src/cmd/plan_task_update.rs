@@ -1,5 +1,7 @@
 use crate::client::RpcClient;
-use crate::cmd::plan::{call_plan_rpc, inject_trusted_session, resolve_text};
+use crate::cmd::plan::{
+    call_plan_rpc, inject_trusted_session, resolve_role_guidance, resolve_text,
+};
 use serde_json::{json, Value};
 
 #[allow(clippy::too_many_arguments)]
@@ -182,7 +184,7 @@ pub(crate) fn run(
 ) -> Result<Value, String> {
     let why_text = resolve_text(why, why_file)?;
     let body_text = resolve_text(body, body_file)?;
-    let role_guidance_text = resolve_text(role_guidance, role_guidance_file)?;
+    let role_guidance_text = resolve_role_guidance(role_guidance, role_guidance_file)?;
     let intent_text = resolve_text(intent, intent_file)?;
     let qa_plan_text = resolve_text(qa_plan, qa_plan_file)?;
     let resolved_depends_on = resolve_dependencies(
