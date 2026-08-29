@@ -23,11 +23,7 @@ fn xterm_paste_normalizes_newlines_and_obeys_the_live_mode() {
         VerifySubmitStrategy::None,
     ] {
         assert_eq!(
-            xterm_paste(
-                text,
-                None,
-                PasteEncodingCapability::for_strategy(&strategy)
-            ),
+            xterm_paste(text, None, PasteEncodingCapability::for_strategy(&strategy)),
             "alpha\rbeta\rgamma\rdelta"
         );
     }
