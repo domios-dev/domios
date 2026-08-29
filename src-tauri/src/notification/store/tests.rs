@@ -143,6 +143,50 @@ fn provider_update_notification_is_actionable_deduplicated_and_resolvable() {
     assert!(store.list(false).is_empty());
 }
 
+#[test]
+fn provider_updates_coalesce_into_one_live_actionable_record() {
+    let mut store = NotificationStore::new(100);
+    let action = |prompt: &str| NotificationAction::Invoke {
+        label: format!("Update {prompt}"),
+        command: codeterm_types::notification::DaemonCommand::RespondProviderUpdatePrompt,
+        args: Some(serde_json::json!({ "promptId": prompt, "accept": true })),
+    };
+    let provenance = NotificationProvenance {
+        tab_id: Some("tab-1".into()),
+        tab_title: Some("Agent".into()),
+        workspace_id: Some("workspace-1".into()),
+        peer_name: None,
+    };
+    let first = store.add_provider_update(
+        "prompt-a".into(),
+        "Provider A update".into(),
+        "A is ready".into(),
+        vec![action("prompt-a")],
+        provenance.clone(),
+    );
+    let second = store.add_provider_update(
+        "prompt-b".into(),
+        "Provider B update".into(),
+        "B is ready".into(),
+        vec![action("prompt-b")],
+        provenance,
+    );
+    let id = match first {
+        DedupAdmission::Added(id) => id,
+        other => panic!("unexpected first admission: {other:?}"),
+    };
+    assert_eq!(second, DedupAdmission::Coalesced(id.clone()));
+    let records = store.list(false);
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].actions.as_ref().map(Vec::len), Some(2));
+
+    assert_eq!(store.resolve_provider_update("prompt-a"), Some(id.clone()));
+    assert_eq!(store.list(false).len(), 1);
+    assert_eq!(store.list(false)[0].actions.as_ref().map(Vec::len), Some(1));
+    assert_eq!(store.resolve_provider_update("prompt-b"), Some(id));
+    assert!(store.list(false).is_empty());
+}
+
 /// Every test here is synchronous and clock-free by construction: needing a
 /// runtime or a time advance would prove a timer, not the mechanism.
 mod notification_admission {

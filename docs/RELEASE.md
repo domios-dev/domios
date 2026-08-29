@@ -368,7 +368,9 @@ Don't skip this — a stale `develop` makes the next release start from a missin
   rewrite; never suppress the lint to advance a release.
 - **A Windows preflight says `tsc` or `node` is not recognized inside a package script** when the
   package-manager child shell loses the Node path inherited by Git Bash. Release gates invoke
-  checked-in Node entry points directly; do not weaken or skip the TypeScript matrix.
+  checked-in Node entry points directly; for version sync, run the same
+  `scripts/sync-plugin-versions.mjs` entry point with the resolved `node.exe`, then run it again
+  with `--check`. Do not hand-edit versions or weaken the TypeScript matrix.
 - **Plugin freshness reports modified bundles but `git diff` is empty** when `core.autocrlf=true`
   leaves clean tracked files with worktree-only stat dirt. The gate uses normalized diff for
   tracked content and `git ls-files --others` for new bundles; raw status is not evidence of drift.
@@ -385,4 +387,4 @@ The minisign updater key (`~/.tauri/codeterm.key`, empty password; its public ha
 the `github-release` skill lists the exact ids and restore paths. A builder without the minisign
 key produces artifacts the updater can't verify.
 
-<!-- revision: 29 -->
+<!-- revision: 30 -->

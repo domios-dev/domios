@@ -74,6 +74,7 @@ Top-level `plugin.json` fields shared with capability plugins (`id`, `version`,
 | `binaryName` | string? | Process name used for type-mapping a PTY to this provider. Defaults to `id`. |
 | `cliBinary` | string? | Binary probed for install/version checks. |
 | `installer` | map platform→string | Per-OS install command (`macos` / `linux` / `windows`). |
+| `updater` | map platform→string | Per-OS update command launched in a visible shell from an update notification. |
 | `models` | `[{id, displayName, description?, available?}]` | Model seed registered with the model catalog. Each entry carries `id`, `displayName`, optional `description`, optional `available`; `available: false` ships an alias disabled until live discovery confirms it. |
 | `defaultModel` | string? | Default model id. |
 | `reasoningEfforts` | `[{id, displayName, description?}]` | Reasoning-effort levels. |
@@ -319,4 +320,4 @@ The honest seam, in three parts:
 No machinery bridges these tiers (no Rust-free parity runner, no WASM QuickJS
 harness); the promotion-time boundary is the cheap, honest seam.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

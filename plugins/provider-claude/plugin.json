@@ -1,6 +1,6 @@
 {
   "id": "claude",
-  "version": "1.10.3",
+  "version": "1.10.4",
   "minCodeterm": "1.0.0",
   "hostApi": 2,
   "displayName": "Claude Code",
@@ -96,6 +96,11 @@
     "macos": "curl -fsSL https://claude.ai/install.sh | bash",
     "linux": "curl -fsSL https://claude.ai/install.sh | bash",
     "windows": "powershell -Command \"irm https://claude.ai/install.ps1 | iex\""
+  },
+  "updater": {
+    "macos": "claude update",
+    "linux": "claude update",
+    "windows": "claude update"
   },
   "commands": {
     "compact": "/compact",

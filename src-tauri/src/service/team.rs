@@ -55,14 +55,23 @@ impl TeamMutationCaller {
 }
 
 impl ServiceContext {
+    pub(crate) fn live_team_ids(&self) -> std::collections::BTreeSet<String> {
+        self.mux
+            .read()
+            .list_teams()
+            .into_iter()
+            .map(|team| team.id)
+            .collect()
+    }
+
     pub(crate) fn reconcile_dangling_team_plan_bindings(
         &self,
+        live_team_ids: &std::collections::BTreeSet<String>,
         now_ms: u64,
     ) -> Result<Vec<String>, crate::service::plan::PlanError> {
-        let changed_plan_ids = {
-            let mux = self.mux.read();
-            reconcile_dangling_team_plan_bindings(&mux, &self.plan_store, now_ms)?
-        };
+        let changed_plan_ids = self
+            .plan_store
+            .archive_active_plans_without_live_team(live_team_ids, now_ms)?;
         for plan_id in &changed_plan_ids {
             self.emit_plan_changed(plan_id);
         }
@@ -876,6 +885,7 @@ where
     ))
 }
 
+#[cfg(test)]
 pub(crate) fn reconcile_dangling_team_plan_bindings(
     mux: &MultiplexerState,
     plan_store: &crate::service::plan::PlanStore,
