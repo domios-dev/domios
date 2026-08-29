@@ -33,9 +33,8 @@ import {
   isImeKeyEvent,
 } from "./composerComposition";
 import { sendTrackedChatMessage, type ChatSendStatus } from "./chatSendStatus";
+import { planComposerAttachments } from "./composerAttachmentPlan";
 
-const AUDIO_ATTACHMENT_RE = /\.(webm|ogg|oga|opus|mp3|wav|m4a|aac|mp4|flac)$/i;
-// several seconds) then morphs this bubble into the transcript, or an error.
 const VOICE_TRANSCRIBING_PLACEHOLDER = "🎙 Transcribing voice note…";
 const VOICE_TRANSCRIBE_ERROR = "⚠️ Voice transcription failed — tap the mic to retry.";
 const CLI_FALLBACK_COMMANDS = new Set([
@@ -514,21 +513,27 @@ function ChatComposerImpl({
       if (!allAttachments.includes(p)) allAttachments.push(p);
     }
     if (!text && allAttachments.length === 0) return;
-    return { text, allAttachments };
+    return { text, allAttachments, recordedVoiceAttachments: cleanExtraAttachments };
   }
 
-  async function composeDraft(text: string, allAttachments: string[]) {
+  async function composeDraft(
+    text: string,
+    allAttachments: string[],
+    recordedVoiceAttachments: string[],
+  ) {
     let transcribeFailed = false;
     const pathParts = await Promise.all(
-      allAttachments.map(async (p) => {
-        if (!AUDIO_ATTACHMENT_RE.test(p)) return quotePathForPaste(p);
-        try {
-          return await invoke<string>("transcribe_voice_attachment", { path: p });
-        } catch {
-          transcribeFailed = true;
-          return quotePathForPaste(p);
-        }
-      }),
+      planComposerAttachments(allAttachments, recordedVoiceAttachments).map(
+        async ({ path, transcribe }) => {
+          if (!transcribe) return quotePathForPaste(path);
+          try {
+            return await invoke<string>("transcribe_voice_attachment", { path });
+          } catch {
+            transcribeFailed = true;
+            return quotePathForPaste(path);
+          }
+        },
+      ),
     );
     const pathLines = pathParts.join(" ");
     const composed = text && pathLines
@@ -540,7 +545,7 @@ function ChatComposerImpl({
   async function send(extraAttachments: string[] = []) {
     const draft = buildDraft(extraAttachments);
     if (!draft) return;
-    const { text, allAttachments } = draft;
+    const { text, allAttachments, recordedVoiceAttachments } = draft;
     const nowTs = Date.now();
     const dupKey = `${text} ${allAttachments.join("|")}`;
     if (isDuplicateSend(lastSendRef.current, dupKey, nowTs)) {
@@ -548,9 +553,14 @@ function ChatComposerImpl({
       return;
     }
     lastSendRef.current = { text: dupKey, at: nowTs };
-    const hasAudio = allAttachments.some((p) => AUDIO_ATTACHMENT_RE.test(p));
-    const placeholderId = hasAudio ? addOptimistic(VOICE_TRANSCRIBING_PLACEHOLDER) : null;
-    const { composed, transcribeFailed } = await composeDraft(text, allAttachments);
+    const placeholderId = recordedVoiceAttachments.length > 0
+      ? addOptimistic(VOICE_TRANSCRIBING_PLACEHOLDER)
+      : null;
+    const { composed, transcribeFailed } = await composeDraft(
+      text,
+      allAttachments,
+      recordedVoiceAttachments,
+    );
     if (placeholderId && transcribeFailed) {
       updateOptimistic(placeholderId, VOICE_TRANSCRIBE_ERROR);
       setInput("");
@@ -638,7 +648,11 @@ function ChatComposerImpl({
     if (!draft) return;
     setScheduleBusy(true);
     try {
-      const { composed, transcribeFailed } = await composeDraft(draft.text, draft.allAttachments);
+      const { composed, transcribeFailed } = await composeDraft(
+        draft.text,
+        draft.allAttachments,
+        draft.recordedVoiceAttachments,
+      );
       if (transcribeFailed) {
         showComposerError(VOICE_TRANSCRIBE_ERROR);
         return;
