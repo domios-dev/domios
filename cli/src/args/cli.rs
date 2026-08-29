@@ -151,7 +151,7 @@ pub enum Commands {
 
         /// Read text from a file instead of the positional arg. Lets you
         /// pass payloads that would otherwise be eaten by shell quoting.
-        #[arg(long, value_name = "PATH")]
+        #[arg(long, visible_alias = "file", value_name = "PATH")]
         from_file: Option<String>,
 
         /// Read text from a relative file in the current agent tab's pad

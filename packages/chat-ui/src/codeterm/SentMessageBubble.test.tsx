@@ -72,6 +72,7 @@ await (async () => {
 for (const [command, expectedBody] of [
   [`codeterm send --tab recipient "inline message"`, "inline message"],
   [`codeterm send --tab recipient --from-file update.md`, "update.md"],
+  [`codeterm send --tab recipient --file update.md`, "update.md"],
   [`codeterm send --tab recipient --stdin`, ""],
   [`codeterm send --tab recipient`, ""],
 ] as const) {
