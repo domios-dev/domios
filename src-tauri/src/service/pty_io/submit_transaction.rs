@@ -257,11 +257,7 @@ impl PasteEncodingCapability {
     }
 }
 
-fn xterm_paste(
-    text: &str,
-    live_mode: Option<bool>,
-    capability: PasteEncodingCapability,
-) -> String {
+fn xterm_paste(text: &str, live_mode: Option<bool>, capability: PasteEncodingCapability) -> String {
     let normalized = text.replace("\r\n", "\r").replace('\n', "\r");
     if capability.bracketed(text, live_mode) {
         format!("{BRACKETED_PASTE_START}{normalized}{BRACKETED_PASTE_END}")
@@ -359,12 +355,8 @@ impl SubmitTransport for PtySubmitTransport<'_> {
             .screen_state
             .lock()
             .bracketed_paste_mode(self.pty_id);
-        let frames = initial_submit_frames(
-            text,
-            key,
-            live_bracketed_paste_mode,
-            self.paste_capability,
-        );
+        let frames =
+            initial_submit_frames(text, key, live_bracketed_paste_mode, self.paste_capability);
         let paste_len = frames[0].len();
         let session = match self.svc.pty.lock().get_session(self.pty_id) {
             Some(session) => session,
@@ -420,11 +412,7 @@ impl SubmitTransport for PtySubmitTransport<'_> {
             .screen_state
             .lock()
             .bracketed_paste_mode(self.pty_id);
-        let paste = xterm_paste(
-            text,
-            live_bracketed_paste_mode,
-            self.paste_capability,
-        );
+        let paste = xterm_paste(text, live_bracketed_paste_mode, self.paste_capability);
         log::info!(
             "[submit-audit] paste-encoding pty={} live_bracketed_paste_mode={:?} paste_capability={:?} source_bytes={} encoded_bytes={}",
             self.pty_id,
