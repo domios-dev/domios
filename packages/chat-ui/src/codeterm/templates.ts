@@ -414,9 +414,10 @@ export function parseSend(
   const resolved = resolvedText(result);
   const typed = decodeCliMessageText(inv.positionals[0] ?? "");
   const fromPad = inv.flags["from-pad"];
+  const fromFile = inv.flags["from-file"] ?? inv.flags.file;
   const staged =
     typeof fromPad === "string" ||
-    typeof inv.flags["from-file"] === "string" ||
+    typeof fromFile === "string" ||
     inv.flags.stdin === true;
   return {
     recipient,
@@ -430,7 +431,7 @@ export function parseSend(
 function sendBodyDescriptor(inv: CodetermInvocation): string {
   const fromPad = inv.flags["from-pad"];
   if (typeof fromPad === "string") return `AgentPad payload: ${fromPad}`;
-  const fromFile = inv.flags["from-file"];
+  const fromFile = inv.flags["from-file"] ?? inv.flags.file;
   if (typeof fromFile === "string") return `Message sent from file: ${fromFile}`;
   if (inv.flags.stdin === true) return "Message sent from standard input.";
   return "Message content unavailable.";

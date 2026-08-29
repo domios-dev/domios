@@ -200,7 +200,8 @@ impl super::ServiceContext {
         body: &str,
         class: DeliveryClass,
     ) -> Result<Delivery, String> {
-        self.gateway
+        let receipt = self
+            .gateway
             .submit(
                 self,
                 OutboundMessage {
@@ -214,12 +215,19 @@ impl super::ServiceContext {
                     idempotency_key: None,
                 },
             )
-            .map(|receipt| {
-                receipt.delivery.unwrap_or(Delivery::Pty {
-                    text: body.to_string(),
-                })
-            })
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+        if class == DeliveryClass::AgentTraffic
+            && self
+                .plan_store
+                .task_binding_for_tab(target)
+                .and_then(|(_, task_id)| self.plan_store.show_task(&task_id))
+                .is_some_and(|detail| detail.task.status == crate::plan::TaskStatus::InProgress)
+        {
+            self.gateway.require_worker_report(target);
+        }
+        Ok(receipt.delivery.unwrap_or(Delivery::Pty {
+            text: body.to_string(),
+        }))
     }
 }
 

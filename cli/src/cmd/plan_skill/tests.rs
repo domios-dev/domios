@@ -228,13 +228,55 @@ fn plan_skill_show_forwards_exact_worker_binding() {
 }
 
 #[test]
-fn plan_skill_show_rejects_partial_worker_binding_before_rpc() {
+fn plan_skill_show_resolves_post_launch_task_from_live_tab_binding() {
     let _guard = crate::test_env_lock().lock().unwrap();
     let keys = [
         "CODETERM_TAB_ID",
         "CODETERM_SESSION_ID",
         "CODETERM_SESSION_BINDING_NONCE",
         "CODETERM_TASK_ID",
+        "CODETERM_ATTEMPT_ID",
+    ];
+    let previous = keys.map(|key| (key, std::env::var(key).ok()));
+    for key in keys {
+        std::env::remove_var(key);
+    }
+    std::env::set_var("CODETERM_TAB_ID", "ced263e9");
+    std::env::set_var("CODETERM_SESSION_ID", "session-5upl98");
+    std::env::set_var("CODETERM_SESSION_BINDING_NONCE", "nonce-5upl98");
+    let mut client = FakeRpc::default();
+    handle(
+        &mut client,
+        true,
+        PlanSkillAction::Show {
+            slug: "dispatch-contract".into(),
+            plan: Some("pl_zzmxgb".into()),
+        },
+    )
+    .unwrap();
+    let params = client.calls[0].1.as_ref().unwrap();
+    assert_eq!(params["caller_tab_id"], "ced263e9");
+    assert_eq!(params["caller_session_id"], "session-5upl98");
+    assert_eq!(params["session_binding_nonce"], "nonce-5upl98");
+    assert!(params.get("task_id").is_none());
+    assert!(params.get("attempt_id").is_none());
+    for (key, value) in previous {
+        match value {
+            Some(value) => std::env::set_var(key, value),
+            None => std::env::remove_var(key),
+        }
+    }
+}
+
+#[test]
+fn plan_skill_show_rejects_partial_live_binding_before_rpc() {
+    let _guard = crate::test_env_lock().lock().unwrap();
+    let keys = [
+        "CODETERM_TAB_ID",
+        "CODETERM_SESSION_ID",
+        "CODETERM_SESSION_BINDING_NONCE",
+        "CODETERM_TASK_ID",
+        "CODETERM_ATTEMPT_ID",
     ];
     let previous = keys.map(|key| (key, std::env::var(key).ok()));
     for key in keys {
@@ -251,7 +293,7 @@ fn plan_skill_show_rejects_partial_worker_binding_before_rpc() {
         },
     )
     .unwrap_err();
-    assert!(error.contains("complete tab/session/nonce/task identity"));
+    assert!(error.contains("complete tab/session/nonce identity"));
     assert!(client.calls.is_empty());
     for (key, value) in previous {
         match value {

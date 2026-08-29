@@ -35,14 +35,18 @@ pub(super) fn dispatch(
         body.get("caller_tab_id").and_then(Value::as_str),
         body.get("caller_session_id").and_then(Value::as_str),
         body.get("session_binding_nonce").and_then(Value::as_str),
-        body.get("task_id").and_then(Value::as_str),
     ];
     if binding.iter().any(|value| value.is_some()) && binding.iter().any(|value| value.is_none()) {
         return Err(plan_rpc_err(crate::service::plan::PlanError::Io(
             "plan skill caller identity is incomplete".into(),
         )));
     }
-    let [Some(tab_id), Some(session_id), Some(nonce), Some(task_id)] = binding else {
+    let [Some(tab_id), Some(session_id), Some(nonce)] = binding else {
+        if body.get("task_id").is_some() || body.get("attempt_id").is_some() {
+            return Err(plan_rpc_err(crate::service::plan::PlanError::Io(
+                "plan skill caller identity is incomplete".into(),
+            )));
+        }
         return Ok(result);
     };
     let live = svc.mux.read().get_tab(tab_id).map(|tab| {
@@ -55,6 +59,13 @@ pub(super) fn dispatch(
             "plan skill caller binding is not current".into(),
         )));
     }
+    let task_id = resolve_skill_task_id(
+        store,
+        &plan_id,
+        tab_id,
+        body.get("task_id").and_then(Value::as_str),
+    )
+    .map_err(plan_rpc_err)?;
     let skill = result.get("skill").ok_or_else(|| JsonRpcError {
         code: -32603,
         message: "plan skill response is missing skill".into(),
@@ -75,10 +86,31 @@ pub(super) fn dispatch(
         .and_then(Value::as_str);
     store
         .record_plan_skill_load(
-            &plan_id, task_id, tab_id, session_id, nonce, attempt_id, slug, &digest, now_ms,
+            &plan_id, &task_id, tab_id, session_id, nonce, attempt_id, slug, &digest, now_ms,
         )
         .map_err(plan_rpc_err)?;
     Ok(result)
+}
+
+fn resolve_skill_task_id(
+    store: &PlanStore,
+    plan_id: &str,
+    tab_id: &str,
+    supplied_task_id: Option<&str>,
+) -> Result<String, crate::service::plan::PlanError> {
+    supplied_task_id
+        .map(str::to_string)
+        .or_else(|| {
+            store
+                .task_binding_for_tab(tab_id)
+                .filter(|(bound_plan_id, _)| bound_plan_id == plan_id)
+                .map(|(_, task_id)| task_id)
+        })
+        .ok_or_else(|| {
+            crate::service::plan::PlanError::Io(
+                "plan skill caller has no current task binding".into(),
+            )
+        })
 }
 
 fn dispatch_store(
@@ -131,6 +163,20 @@ mod tests {
     use crate::plan::OrchestratorRef;
     use crate::service::plan::paths::{plan_dir, plan_sidecar_root};
     use crate::service::plan::PlanStore;
+
+    fn add_task(store: &PlanStore, plan_id: &str, name: &str) -> String {
+        store
+            .add_task(
+                plan_id,
+                crate::service::plan::NewTask {
+                    name: name.into(),
+                    kind: "task".into(),
+                    ..Default::default()
+                },
+                3,
+            )
+            .unwrap()
+    }
 
     fn rpc(store: &PlanStore, method: &str, params: Value) -> Result<Value, JsonRpcError> {
         dispatch_store(method, &Some(params), store)
@@ -296,5 +342,36 @@ mod tests {
         assert!(failing_dir.join("skills").is_file());
         assert!(!failing_dir.join("skills").join("blocked").exists());
         assert!(!failing_dir.join("skills").join("ledger.jsonl").exists());
+    }
+
+    #[test]
+    fn skill_evidence_resolves_a_task_assigned_after_process_launch() {
+        let daemon_root = tempfile::tempdir().unwrap();
+        let project = tempfile::tempdir().unwrap();
+        crate::service::plan::paths::mark_test_project_root(project.path());
+        let store = PlanStore::new_for_test(daemon_root.path());
+        let plan = store
+            .create_plan_for_team(
+                "Skills".into(),
+                project.path().display().to_string(),
+                OrchestratorRef::from_tab("orch"),
+                "team-skills".into(),
+                vec![],
+                1,
+            )
+            .unwrap();
+        store
+            .set_mode(&plan.id, crate::plan::PlanMode::Execution, 2)
+            .unwrap();
+        let task_id = add_task(&store, &plan.id, "post-launch task");
+        store
+            .set_task_assignment(&task_id, Some("running-tab"), Some("worker"), 4)
+            .unwrap();
+
+        assert_eq!(
+            resolve_skill_task_id(&store, &plan.id, "running-tab", None).unwrap(),
+            task_id
+        );
+        assert!(resolve_skill_task_id(&store, &plan.id, "foreign-tab", None).is_err());
     }
 }
