@@ -127,7 +127,7 @@ export function InboundReportCard({ message, sender, expanded, onToggle, onFocus
       onFocusTab={onFocusTab}
       disclosureLabel="report Details"
     >
-      <div className={`grid max-h-64 gap-2 overflow-y-auto ${textSize}`}>
+      <div className={`ct-compact-scroll grid max-h-64 gap-2 overflow-y-auto ${textSize}`}>
         {incident && (
           <div
             data-testid="chat-inbound-report-incident"
