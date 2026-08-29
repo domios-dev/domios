@@ -1143,14 +1143,15 @@ windows_dev_leftover_cleanup() {
 start_web_watch() {
   kill_web_watch || true
   local log="/tmp/codeterm-web-watch${CT_SUFFIX}.log"
+  local vite_entry="node_modules/vite/bin/vite.js"
   local pid spawn_status
   set +e
   case "$OSTYPE" in
     msys*|cygwin*|win32)
-      CODETERM_FRONTEND_DEV=1 pnpm exec vite build --watch </dev/null >> "$log" 2>&1 &
+      CODETERM_FRONTEND_DEV=1 node "$vite_entry" build --watch </dev/null >> "$log" 2>&1 &
       ;;
     *)
-      CODETERM_FRONTEND_DEV=1 nohup pnpm exec vite build --watch </dev/null >> "$log" 2>&1 &
+      CODETERM_FRONTEND_DEV=1 nohup node "$vite_entry" build --watch </dev/null >> "$log" 2>&1 &
       ;;
   esac
   pid=$!
