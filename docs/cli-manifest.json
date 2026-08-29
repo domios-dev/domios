@@ -11634,7 +11634,9 @@
           "possible_values": [],
           "default": null,
           "help": "Read text from a file instead of the positional arg. Lets you pass payloads that would otherwise be eaten by shell quoting",
-          "aliases": []
+          "aliases": [
+            "file"
+          ]
         },
         {
           "name": "from-pad",

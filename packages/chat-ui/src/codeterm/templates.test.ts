@@ -49,6 +49,8 @@ const TASK = "task_" + "b".repeat(32);
   assert(typed.body === "$VAR" && typed.bodySource === "typed", "missing resolved output is explicitly source as typed");
   const fromFile = parseSend(inv(`codeterm send --tab bda --from-file update.md`), "OK (sent)", undefined);
   assert(fromFile.body.length > 0 && fromFile.body.includes("update.md") && fromFile.recipient === "tab bda" && fromFile.status?.ok === true, "from-file send has a delivered body descriptor");
+  const fileAlias = parseSend(inv(`codeterm send --tab bda --file update.md`), "OK (sent)", undefined);
+  assert(fileAlias.body === fromFile.body && fileAlias.status?.ok === true, "file alias uses the canonical file descriptor");
   const stdin = parseSend(inv(`codeterm send --tab bda --stdin`), "OK (sent)", undefined);
   assert(stdin.body.length > 0 && stdin.recipient === "tab bda" && stdin.status?.ok === true, "stdin send has a delivered body descriptor");
   const fromPad = parseSend(inv(`codeterm send --tab bda --from-pad message.md`), "OK (sent)", undefined);
