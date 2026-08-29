@@ -518,6 +518,34 @@ fn install_command_resolved_per_platform() {
 }
 
 #[test]
+fn update_command_resolved_per_platform() {
+    let json = r#"{
+            "id": "uc",
+            "version": "0.1.0",
+            "displayName": "UC",
+            "spawn": {
+                "readinessStrategy": { "kind": "fixed_delay", "durationMs": 0 },
+                "taskDelivery": "pty_input",
+                "verifySubmit": { "kind": "none" }
+            },
+            "updater": {
+                "macos": "opaque-update-macos",
+                "windows": "opaque-update-windows"
+            }
+        }"#;
+    let provider = load(json, "module.exports.default = {};");
+    assert_eq!(
+        provider.update_command("macos").as_deref(),
+        Some("opaque-update-macos")
+    );
+    assert_eq!(
+        provider.update_command("windows").as_deref(),
+        Some("opaque-update-windows")
+    );
+    assert_eq!(provider.update_command("linux"), None);
+}
+
+#[test]
 fn detect_events_returns_permission_request_via_plugin() {
     let js = r#"
             module.exports.default = {

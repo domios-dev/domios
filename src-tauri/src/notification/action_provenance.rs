@@ -152,6 +152,7 @@ fn action_provenance_daemon_invoke_action_survives_construction_and_storage() {
     );
     let id = match admitted {
         DedupAdmission::Added(id) => id,
+        DedupAdmission::Coalesced(id) => panic!("first provider update was coalesced into {id}"),
         DedupAdmission::Duplicate(id) => panic!("first provider update must be added, got {id}"),
     };
     let stored = store.list(false);
