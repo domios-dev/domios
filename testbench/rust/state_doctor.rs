@@ -252,9 +252,9 @@ fn validate_boundaries(input: &CastTimelineInput, segments: &[LabeledSegment]) -
                     boundary, signals.picker_active, signals.picker_detected
                 ));
             }
-            if text_subtype(after.subtype) && !text_question_in_segment(input, after) {
+            if notice_subtype(after.subtype) && !rate_limit_notice_in_segment(input, after) {
                 problems.push(format!(
-                    "boundary {}ms ->question lacks text fingerprint for {:?}",
+                    "boundary {}ms ->question lacks rate-limit fingerprint for {:?}",
                     boundary, after.subtype
                 ));
             }
@@ -270,26 +270,19 @@ fn picker_subtype(subtype: Option<QuestionSubtype>) -> bool {
             QuestionSubtype::ModelChoice
                 | QuestionSubtype::ModelPicker
                 | QuestionSubtype::Permission
+                | QuestionSubtype::Auth
         )
     )
 }
 
-fn text_subtype(subtype: Option<QuestionSubtype>) -> bool {
-    matches!(
-        subtype,
-        Some(
-            QuestionSubtype::Auth
-                | QuestionSubtype::RateLimit
-                | QuestionSubtype::Update
-                | QuestionSubtype::Error
-        )
-    )
+fn notice_subtype(subtype: Option<QuestionSubtype>) -> bool {
+    matches!(subtype, Some(QuestionSubtype::RateLimit))
 }
 
-fn text_question_in_segment(input: &CastTimelineInput, segment: &LabeledSegment) -> bool {
+fn rate_limit_notice_in_segment(input: &CastTimelineInput, segment: &LabeledSegment) -> bool {
     let mut at_ms = segment.from_ms;
     while at_ms < segment.to_ms {
-        if render_signals_at(input, at_ms).text_question_detected {
+        if render_signals_at(input, at_ms).rate_limit_notice_detected {
             return true;
         }
         at_ms += 250;
