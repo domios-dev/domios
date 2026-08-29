@@ -93,7 +93,8 @@ async function main(): Promise<void> {
   const inboundBody = inbound.host.querySelector('[data-testid="chat-inbound-report-body"]');
   assert(inboundBody?.textContent === SUMMARY, "the inbound card did not lead with the report summary");
   assert(
-    inboundBody?.parentElement?.className.includes("overflow-y-auto")
+    inboundBody?.parentElement?.className.includes("ct-compact-scroll")
+      && inboundBody.parentElement.className.includes("overflow-y-auto")
       && inboundBody.parentElement.className.includes("max-h-64"),
     "a long inbound report is not internally scrollable",
   );
@@ -136,6 +137,11 @@ async function main(): Promise<void> {
   assert(
     outbound.host.querySelector('[data-testid="chat-outbound-report-body"]')?.textContent === SUMMARY,
     "the outbound card did not lead with the report summary",
+  );
+  assert(
+    outbound.host.querySelector('[data-testid="chat-outbound-report-body"]')?.parentElement
+      ?.className.includes("ct-compact-scroll"),
+    "the outbound report does not use the compact scroll surface",
   );
   assert(
     [...outbound.host.querySelectorAll("button")].some((node) => node.textContent === "Show Tab"),

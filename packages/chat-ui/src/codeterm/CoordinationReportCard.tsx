@@ -58,7 +58,7 @@ export function CoordinationReportCard({ descriptor, message, sender, expanded, 
             {copied ? "Copied" : "Copy"}
           </button>
         </div>
-        <pre className="m-0 max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-xs" style={{ color: "var(--ct-fg)" }}>
+        <pre className="ct-compact-scroll m-0 max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-xs" style={{ color: "var(--ct-fg)" }}>
           {descriptor.diagnostics}
         </pre>
       </div>
