@@ -77,7 +77,11 @@ fn task_of(store: &PlanStore, plan_id: &str, task_id: &str) -> crate::plan::Task
 fn put_task_in_review(store: &PlanStore, plan_id: &str, task_id: &str) {
     store
         .with_plan(plan_id, 5, |plan| {
-            let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id)
+                .unwrap();
             task.status = TaskStatus::InReview;
             task.status_changed_at = 5;
             plan.review_policy.credit = -1;
@@ -157,7 +161,10 @@ fn review_recovery_pend_live_in_review_owner_still_refuses_generic_status_mutati
     assert!(store
         .retire_stale_task_owner(&plan_id, &task_id, Some(TaskStatus::Pending), |_| true, 10)
         .is_err());
-    assert_eq!(task_of(&store, &plan_id, &task_id).status, TaskStatus::InReview);
+    assert_eq!(
+        task_of(&store, &plan_id, &task_id).status,
+        TaskStatus::InReview
+    );
 }
 
 #[test]
@@ -217,7 +224,10 @@ fn review_recovery_pend_preserves_attempt_history() {
         .unwrap();
 
     let after = task_of(&store, &plan_id, &task_id);
-    assert_eq!(after.execution_attempts.len(), before.execution_attempts.len());
+    assert_eq!(
+        after.execution_attempts.len(),
+        before.execution_attempts.len()
+    );
     let preserved = after
         .execution_attempts
         .iter()

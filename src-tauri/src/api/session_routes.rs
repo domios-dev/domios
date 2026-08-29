@@ -6,7 +6,10 @@ use axum::{
 use serde::Deserialize;
 use tauri::Manager;
 
-use crate::api::{optional_json::OptionalJson, routes::{check_auth, AppState}};
+use crate::api::{
+    optional_json::OptionalJson,
+    routes::{check_auth, AppState},
+};
 
 /// Snapshot the multiplexer into the session store NOW. Durability is
 /// otherwise the 30s auto-save timer plus the close-to-tray hook — a

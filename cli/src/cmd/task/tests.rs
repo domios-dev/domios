@@ -123,7 +123,10 @@ fn diagnostics_that_speak_task_show_routing_values_are_rendered_or_unset() {
     assert!(values.iter().any(|line| line.contains("Brynhild")));
     assert!(values.iter().any(|line| line.contains("codex:gpt-5")));
     let unset = task_routing_lines(&json!({}));
-    assert_eq!(unset.iter().filter(|line| line.contains("(unset)")).count(), 3);
+    assert_eq!(
+        unset.iter().filter(|line| line.contains("(unset)")).count(),
+        3
+    );
 }
 
 mod task_quality_render_tests {

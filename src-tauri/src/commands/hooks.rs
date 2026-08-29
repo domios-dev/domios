@@ -230,7 +230,11 @@ pub fn ensure_integrations_for_all(
         let id = provider.id().to_string();
         let previously_consented = consented
             .get(&id)
-            .and_then(|provider| provider.extra.get(crate::config::schema::INTEGRATION_CONSENT_GRANTED))
+            .and_then(|provider| {
+                provider
+                    .extra
+                    .get(crate::config::schema::INTEGRATION_CONSENT_GRANTED)
+            })
             .and_then(toml::Value::as_bool)
             .unwrap_or(false);
         if !repair_is_allowed(provider.as_ref(), previously_consented) {
@@ -238,7 +242,9 @@ pub fn ensure_integrations_for_all(
         }
         if let Err(error) = std::thread::Builder::new()
             .name(format!("integration-repair-{id}"))
-            .spawn(move || repair_integration_on_startup(provider.as_ref(), port, previously_consented))
+            .spawn(move || {
+                repair_integration_on_startup(provider.as_ref(), port, previously_consented)
+            })
         {
             log::warn!("[provider {id}] integration repair thread failed: {error}");
         }
@@ -273,7 +279,10 @@ fn repair_integration_on_startup(
         return IntegrationRepairOutcome::Current;
     }
     if !previously_consented {
-        log::info!("[provider {}] integration remains unchanged because consent was not recorded", provider.id());
+        log::info!(
+            "[provider {}] integration remains unchanged because consent was not recorded",
+            provider.id()
+        );
         return IntegrationRepairOutcome::Unconsented;
     }
     let options = crate::agent::provider::IntegrationInstallOptions {
@@ -283,7 +292,10 @@ fn repair_integration_on_startup(
     };
     match provider.install_integration(api_port, &options) {
         Ok(()) => {
-            log::info!("[provider {}] repaired stale integration contract", provider.id());
+            log::info!(
+                "[provider {}] repaired stale integration contract",
+                provider.id()
+            );
             IntegrationRepairOutcome::Repaired
         }
         Err(error) => {
@@ -564,31 +576,76 @@ mod tests {
     }
 
     impl AgentProvider for RepairProbeProvider {
-        fn id(&self) -> &str { &self.id }
-        fn display_name(&self) -> &str { &self.id }
-        fn build_launch_command(&self, _params: &AgentLaunchParams) -> String { "fixture".into() }
-        fn readiness_strategy(&self) -> ReadinessStrategy { ReadinessStrategy::FixedDelay { duration: Duration::ZERO } }
-        fn task_delivery(&self) -> TaskDelivery { TaskDelivery::PtyInput }
-        fn detect_from_title(&self, _title: &str) -> bool { false }
-        fn detect_from_output(&self, _text: &str) -> bool { false }
-        fn session_file_path(&self, _cwd: &str, _session_id: &str) -> Option<PathBuf> { None }
-        fn build_resume_command(&self, _session_id: &str, _skip_permissions: bool) -> Option<String> { None }
-        fn detect_session_id(&self, _cwd: &str, _exclude: &[String], _max_age: Option<Duration>) -> Option<String> { None }
-        fn has_installable_integration(&self) -> bool { true }
-        fn check_integration(&self) -> serde_json::Value { self.status.lock().unwrap().clone() }
-        fn install_integration(&self, _api_port: u16, options: &IntegrationInstallOptions) -> Result<(), String> {
+        fn id(&self) -> &str {
+            &self.id
+        }
+        fn display_name(&self) -> &str {
+            &self.id
+        }
+        fn build_launch_command(&self, _params: &AgentLaunchParams) -> String {
+            "fixture".into()
+        }
+        fn readiness_strategy(&self) -> ReadinessStrategy {
+            ReadinessStrategy::FixedDelay {
+                duration: Duration::ZERO,
+            }
+        }
+        fn task_delivery(&self) -> TaskDelivery {
+            TaskDelivery::PtyInput
+        }
+        fn detect_from_title(&self, _title: &str) -> bool {
+            false
+        }
+        fn detect_from_output(&self, _text: &str) -> bool {
+            false
+        }
+        fn session_file_path(&self, _cwd: &str, _session_id: &str) -> Option<PathBuf> {
+            None
+        }
+        fn build_resume_command(
+            &self,
+            _session_id: &str,
+            _skip_permissions: bool,
+        ) -> Option<String> {
+            None
+        }
+        fn detect_session_id(
+            &self,
+            _cwd: &str,
+            _exclude: &[String],
+            _max_age: Option<Duration>,
+        ) -> Option<String> {
+            None
+        }
+        fn has_installable_integration(&self) -> bool {
+            true
+        }
+        fn check_integration(&self) -> serde_json::Value {
+            self.status.lock().unwrap().clone()
+        }
+        fn install_integration(
+            &self,
+            _api_port: u16,
+            options: &IntegrationInstallOptions,
+        ) -> Result<(), String> {
             self.consents.lock().unwrap().push(options.consent);
             self.repairs.lock().unwrap().push(options.repair);
-            if let Some(error) = &self.error { return Err(error.clone()); }
-            self.writes.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if let Some(error) = &self.error {
+                return Err(error.clone());
+            }
+            self.writes
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             *self.status.lock().unwrap() = serde_json::json!({ "hooks_installed": true, "session_start_route": "tab-session-start" });
             Ok(())
         }
         fn integration_trust_grant_capability(&self) -> Option<IntegrationTrustGrantCapability> {
-            Some(IntegrationTrustGrantCapability { managed_keys: vec!["session_start".into()] })
+            Some(IntegrationTrustGrantCapability {
+                managed_keys: vec!["session_start".into()],
+            })
         }
         fn grant_integration_trust(&self, _managed_keys: &[String]) -> serde_json::Value {
-            self.grant_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            self.grant_calls
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             serde_json::json!({ "granted": true })
         }
     }
@@ -598,7 +655,10 @@ mod tests {
         let provider = RepairProbeProvider::new(serde_json::json!({ "hooks_installed": false }));
         repair_integration_on_startup(&provider, 7686, true);
         assert_eq!(provider.writes.load(std::sync::atomic::Ordering::SeqCst), 1);
-        assert_eq!(provider.check_integration()["session_start_route"], "tab-session-start");
+        assert_eq!(
+            provider.check_integration()["session_start_route"],
+            "tab-session-start"
+        );
     }
 
     #[test]
@@ -617,7 +677,12 @@ mod tests {
         repair_integration_on_startup(&provider, 7686, true);
         assert_eq!(*provider.consents.lock().unwrap(), vec![true]);
         assert_eq!(*provider.repairs.lock().unwrap(), vec![true]);
-        assert_eq!(provider.grant_calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+        assert_eq!(
+            provider
+                .grant_calls
+                .load(std::sync::atomic::Ordering::SeqCst),
+            0
+        );
     }
 
     #[test]
@@ -640,10 +705,13 @@ mod tests {
 
     #[test]
     fn hook_contract_repair_leaves_unclassifiable_entry_and_surfaces_it() {
-        let provider = RepairProbeProvider::unclassifiable(serde_json::json!({ "hooks_installed": false }));
+        let provider =
+            RepairProbeProvider::unclassifiable(serde_json::json!({ "hooks_installed": false }));
         let outcome = repair_integration_on_startup(&provider, 7686, true);
         assert_eq!(provider.writes.load(std::sync::atomic::Ordering::SeqCst), 0);
         assert_eq!(*provider.consents.lock().unwrap(), vec![true]);
-        assert!(matches!(outcome, IntegrationRepairOutcome::Unclassifiable(error) if error.contains("foreign")));
+        assert!(
+            matches!(outcome, IntegrationRepairOutcome::Unclassifiable(error) if error.contains("foreign"))
+        );
     }
 }

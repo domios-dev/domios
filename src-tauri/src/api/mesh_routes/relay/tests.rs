@@ -12,7 +12,13 @@ fn authorized_workspace_managers_receive_typed_close_provenance() {
         ]),
     ] {
         assert_eq!(
-            authorize_peer_relay("signed-peer", &access, &method, path, &serde_json::Value::Null),
+            authorize_peer_relay(
+                "signed-peer",
+                &access,
+                &method,
+                path,
+                &serde_json::Value::Null
+            ),
             PeerRelayAuthorization::WorkspaceClose {
                 peer_id: "signed-peer",
                 workspace_id: "ws_remote",
@@ -31,7 +37,13 @@ fn readonly_and_agent_isolated_peers_are_rejected_before_close_dispatch() {
         crate::mesh::types::AccessLevel::AgentIsolated,
     ] {
         assert_eq!(
-            authorize_peer_relay("signed-peer", &access, &method, path, &serde_json::Value::Null),
+            authorize_peer_relay(
+                "signed-peer",
+                &access,
+                &method,
+                path,
+                &serde_json::Value::Null
+            ),
             PeerRelayAuthorization::Rejected
         );
     }
@@ -80,7 +92,13 @@ fn only_the_exact_workspace_close_route_gets_typed_provenance() {
         (Method::POST, "/api/workspaces/ws_remote/tabs/tab_1/close"),
     ] {
         assert_eq!(
-            authorize_peer_relay("signed-peer", &access, &method, path, &serde_json::Value::Null),
+            authorize_peer_relay(
+                "signed-peer",
+                &access,
+                &method,
+                path,
+                &serde_json::Value::Null
+            ),
             PeerRelayAuthorization::Forward,
             "{method} {path}"
         );

@@ -20,7 +20,9 @@ mod brief;
 mod lane_resolution;
 pub(super) mod lane_safety;
 
-use super::safety_nudge::{apply_safety_nudges, safety_incident_text, SafetyNudge, SAFETY_INCIDENT_KIND};
+use super::safety_nudge::{
+    apply_safety_nudges, safety_incident_text, SafetyNudge, SAFETY_INCIDENT_KIND,
+};
 use brief::build_brief_with_manifest;
 #[cfg(test)]
 pub(super) use brief::{build_brief, build_brief_with_personality};

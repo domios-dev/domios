@@ -340,17 +340,21 @@ fn print_task_routing(task: &Value) {
 }
 
 pub(crate) fn task_routing_lines(task: &Value) -> Vec<String> {
-    [("role_guidance", "role_guidance"), ("personality", "personality"), ("model", "model")]
-        .into_iter()
-        .map(|(label, field)| {
-            let value = task
-                .get(field)
-                .and_then(Value::as_str)
-                .filter(|value| !value.trim().is_empty())
-                .unwrap_or("(unset)");
-            format!("{label}: {value}")
-        })
-        .collect()
+    [
+        ("role_guidance", "role_guidance"),
+        ("personality", "personality"),
+        ("model", "model"),
+    ]
+    .into_iter()
+    .map(|(label, field)| {
+        let value = task
+            .get(field)
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or("(unset)");
+        format!("{label}: {value}")
+    })
+    .collect()
 }
 
 fn print_task_presentation(val: &Value) {

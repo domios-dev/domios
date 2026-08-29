@@ -5,7 +5,10 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::api::{optional_json::OptionalJson, routes::{check_auth, AppState}};
+use crate::api::{
+    optional_json::OptionalJson,
+    routes::{check_auth, AppState},
+};
 
 pub async fn network_info(AxumState(state): AxumState<AppState>) -> Json<serde_json::Value> {
     let local_ip = local_ip_address().unwrap_or_else(|| "127.0.0.1".to_string());

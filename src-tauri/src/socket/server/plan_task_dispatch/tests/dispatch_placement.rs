@@ -129,7 +129,13 @@ fn dispatch_placement_destination_update_preserves_the_starting_owner() {
         "destination update must not abort dispatch readiness"
     );
     assert_eq!(
-        store.show_task(&task).unwrap().task.lane.destination.as_deref(),
+        store
+            .show_task(&task)
+            .unwrap()
+            .task
+            .lane
+            .destination
+            .as_deref(),
         Some("release/1.10.1")
     );
 }
@@ -158,7 +164,10 @@ fn dispatch_placement_owner_replacement_still_aborts_readiness() {
         TaskLaneMetadata::default(),
         5,
     );
-    assert!(result.is_err(), "a replacement owner must still fence the stale dispatch");
+    assert!(
+        result.is_err(),
+        "a replacement owner must still fence the stale dispatch"
+    );
 }
 
 #[test]
@@ -182,9 +191,7 @@ fn dispatch_placement_destination_advice_is_carried_by_dispatch_ready() {
         ),
     );
     assert_eq!(event["kind"], "dispatch_ready");
-    assert!(
-        event["safety_nudges"]
-            .as_array()
-            .is_some_and(|nudges| !nudges.is_empty())
-    );
+    assert!(event["safety_nudges"]
+        .as_array()
+        .is_some_and(|nudges| !nudges.is_empty()));
 }

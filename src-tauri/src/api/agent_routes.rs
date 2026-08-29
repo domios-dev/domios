@@ -6,7 +6,10 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::api::{optional_json::OptionalJson, routes::{check_auth, resolve_tab, AppState}};
+use crate::api::{
+    optional_json::OptionalJson,
+    routes::{check_auth, resolve_tab, AppState},
+};
 use crate::multiplexer::types::AgentRole;
 use codeterm_types::agent::role_kind::builtins::PLANNER;
 

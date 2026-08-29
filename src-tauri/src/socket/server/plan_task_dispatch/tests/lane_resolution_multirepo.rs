@@ -8,7 +8,11 @@ fn git(path: &Path, args: &[&str]) {
     let mut command = Command::new("git");
     crate::process_util::no_window_std(&mut command);
     let output = command.current_dir(path).args(args).output().unwrap();
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 fn repository(container: &Path, name: &str) -> PathBuf {
@@ -57,7 +61,13 @@ fn lane_resolution_multirepo_honours_each_address_before_the_next() {
     let linked = container.path().join("linked");
     git(
         &recorded_repo,
-        &["worktree", "add", "-b", "lane/recorded", linked.to_str().unwrap()],
+        &[
+            "worktree",
+            "add",
+            "-b",
+            "lane/recorded",
+            linked.to_str().unwrap(),
+        ],
     );
 
     let recorded = resolve_dispatch_lane(
@@ -104,7 +114,10 @@ fn lane_resolution_multirepo_honours_each_address_before_the_next() {
     .unwrap();
     assert_resolves_to(&caller.spawn_cwd, &caller_repo);
 
-    git(&recorded_repo, &["worktree", "remove", "--force", linked.to_str().unwrap()]);
+    git(
+        &recorded_repo,
+        &["worktree", "remove", "--force", linked.to_str().unwrap()],
+    );
 }
 
 #[test]
@@ -115,7 +128,13 @@ fn lane_resolution_multirepo_accepts_a_recorded_linked_worktree() {
     std::fs::create_dir_all(linked.parent().unwrap()).unwrap();
     git(
         &project,
-        &["worktree", "add", "-b", "lane/linked", linked.to_str().unwrap()],
+        &[
+            "worktree",
+            "add",
+            "-b",
+            "lane/linked",
+            linked.to_str().unwrap(),
+        ],
     );
     assert!(linked.join(".git").is_file());
 
@@ -133,7 +152,10 @@ fn lane_resolution_multirepo_accepts_a_recorded_linked_worktree() {
     .unwrap();
 
     assert_resolves_to(&resolved.spawn_cwd, &linked);
-    git(&project, &["worktree", "remove", "--force", linked.to_str().unwrap()]);
+    git(
+        &project,
+        &["worktree", "remove", "--force", linked.to_str().unwrap()],
+    );
 }
 
 #[test]
