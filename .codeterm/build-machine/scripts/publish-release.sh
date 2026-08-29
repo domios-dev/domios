@@ -96,7 +96,9 @@ BASE_ARG=()
 # _frags is what THIS run signed; everything in _merge came back through the
 # release assets, where a re-run can read a cached copy of the asset it just
 # replaced. Overlay last so a rebuilt artifact never ships a stale signature.
-node "$MERGE" --in _merge --out latest.json "${BASE_ARG[@]}" --overlay _frags
+# macOS ships bash 3.2, where "${arr[@]}" on an EMPTY array is an unbound
+# variable under set -u. The +expansion form is the portable empty-safe one.
+node "$MERGE" --in _merge --out latest.json ${BASE_ARG[@]+"${BASE_ARG[@]}"} --overlay _frags
 python3 -m json.tool latest.json >/dev/null
 
 echo "### publish merged manifest (source + public mirror)"

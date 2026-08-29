@@ -25,6 +25,109 @@ fn protected_workspace() -> (ServiceFixture, String, String) {
     (ServiceFixture::new(mux), workspace_id, coordinator)
 }
 
+fn workspace_with_agent_tab() -> (ServiceFixture, String, String, String) {
+    let (mut mux, caller_tab) = MultiplexerState::new();
+    let workspace_id = mux.create_workspace("Agent workspace".into(), None).id;
+    let tab_id = mux.create_tab(&workspace_id).unwrap();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.agent_type = Some("fixture".into());
+    tab.title = "Release guard agent".into();
+    (ServiceFixture::new(mux), workspace_id, tab_id, caller_tab)
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
+fn workspace_close_guard_unconfirmed_agent_tabs_remain() {
+    let (fixture, workspace_id, tab_id, caller_tab) = workspace_with_agent_tab();
+
+    assert!(fixture
+        .service
+        .close_workspace_guarded(Some(&caller_tab), &workspace_id, false)
+        .is_err());
+    let mux = fixture.service.mux.read();
+    assert!(mux.get_workspace(&workspace_id).is_some());
+    assert!(mux.get_tab(&tab_id).is_some());
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
+fn optional_body_contract_workspace_agent_guard_is_reported_as_forbidden() {
+    let (fixture, workspace_id, _, caller_tab) = workspace_with_agent_tab();
+    let error = fixture
+        .service
+        .close_workspace_guarded(Some(&caller_tab), &workspace_id, false)
+        .unwrap_err();
+    let (status, message) = crate::api::tab_routes::map_close_error(error);
+
+    assert_eq!(status, axum::http::StatusCode::FORBIDDEN);
+    assert!(message.contains("Release guard agent"));
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
+fn workspace_close_guard_confirmed_agent_tabs_close() {
+    let (fixture, workspace_id, tab_id, caller_tab) = workspace_with_agent_tab();
+
+    fixture
+        .service
+        .close_workspace_guarded(Some(&caller_tab), &workspace_id, true)
+        .unwrap();
+    let mux = fixture.service.mux.read();
+    assert!(mux.get_workspace(&workspace_id).is_none());
+    assert!(mux.get_tab(&tab_id).is_none());
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
+fn workspace_close_guard_empty_workspace_stays_frictionless() {
+    let (mut mux, _) = MultiplexerState::new();
+    let workspace_id = mux.create_workspace("Empty".into(), None).id;
+    let fixture = ServiceFixture::new(mux);
+
+    fixture
+        .service
+        .close_workspace_guarded(None, &workspace_id, false)
+        .unwrap();
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_workspace(&workspace_id)
+        .is_none());
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
+fn workspace_close_guard_mesh_requires_force() {
+    let (fixture, workspace_id, tab_id, _) = workspace_with_agent_tab();
+
+    assert!(fixture
+        .service
+        .close_workspace_from_authenticated_mesh_peer("paired-peer", &workspace_id, false)
+        .is_err());
+    assert!(fixture.service.mux.read().get_tab(&tab_id).is_some());
+    fixture
+        .service
+        .close_workspace_from_authenticated_mesh_peer("paired-peer", &workspace_id, true)
+        .unwrap();
+    assert!(fixture.service.mux.read().get_tab(&tab_id).is_none());
+}
+
 #[test]
 #[cfg_attr(
     not(windows),
@@ -35,7 +138,7 @@ fn unattributed_close_refuses_a_protected_workspace() {
 
     let error = fixture
         .service
-        .close_workspace_guarded(None, &workspace_id)
+        .close_workspace_guarded(None, &workspace_id, false)
         .unwrap_err();
 
     assert!(error.starts_with(crate::service::tab::SELF_CLOSE_REFUSAL_PREFIX));
@@ -57,7 +160,7 @@ fn unknown_local_tab_header_cannot_bypass_workspace_close_protection() {
 
     let error = fixture
         .service
-        .close_workspace_guarded(Some("forged-tab"), &workspace_id)
+        .close_workspace_guarded(Some("forged-tab"), &workspace_id, false)
         .unwrap_err();
 
     assert!(error.starts_with(crate::service::tab::SELF_CLOSE_REFUSAL_PREFIX));
@@ -79,7 +182,7 @@ fn coordinator_local_tab_cannot_close_its_own_workspace() {
 
     let error = fixture
         .service
-        .close_workspace_guarded(Some(&coordinator), &workspace_id)
+        .close_workspace_guarded(Some(&coordinator), &workspace_id, false)
         .unwrap_err();
 
     assert!(error.starts_with(crate::service::tab::SELF_CLOSE_REFUSAL_PREFIX));
@@ -101,7 +204,7 @@ fn authenticated_mesh_peer_may_close_a_protected_workspace() {
 
     fixture
         .service
-        .close_workspace_from_authenticated_mesh_peer("paired-peer", &workspace_id)
+        .close_workspace_from_authenticated_mesh_peer("paired-peer", &workspace_id, true)
         .unwrap();
 
     assert!(fixture
@@ -122,7 +225,7 @@ fn empty_mesh_peer_provenance_is_rejected() {
 
     let error = fixture
         .service
-        .close_workspace_from_authenticated_mesh_peer(" ", &workspace_id)
+        .close_workspace_from_authenticated_mesh_peer(" ", &workspace_id, false)
         .unwrap_err();
 
     assert!(error.contains("peer id"));

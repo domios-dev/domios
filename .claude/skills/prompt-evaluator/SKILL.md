@@ -170,7 +170,7 @@ Tips for writing good evals:
 - `evals/orchestrator-control-loop/` — responsive long-operation ownership and proportional verification.
 - `evals/worker-handoff/` — mandatory structured Worker handoff for partial, blocked, and review-ready turns.
 
-Experimental/historical: `evals/dreamer-repair/`, `evals/seeds/`, `evals/v1_1_23_e2e/`.
+Experimental/historical: `evals/dreamer-repair/`.
 
 When you write a new eval set, drop a one-line entry in the live list above.
 
@@ -209,3 +209,5 @@ eval (`live` / `cached` / `k/N cached`). Treat them as part of the numbers:
 - `reports/` — gitignored output directory
 
 To debug a single eval without rerunning the whole set: `python runner.py --prompt-file ... --eval-set ... --only-id 8 --runs 1 --verbose`. The runner will print the full agent response and matcher decisions for that one eval.
+
+<!-- revision: 1 -->

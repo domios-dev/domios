@@ -771,16 +771,16 @@ mod tests {
     #[test]
     fn encode_cwd_matches_real_claude_project_dirs() {
         let cases = [
-            ("/Users/kandrey", "-Users-kandrey"),
-            // /Users/kandrey/.codeterm-dev/general : the '/' before '.codeterm' AND the '.'
+            ("/Users/user", "-Users-user"),
+            // /Users/user/.codeterm-dev/general : the '/' before '.codeterm' AND the '.'
             // each become a dash -> the `--codeterm` double-dash. Real dir on disk.
             (
-                "/Users/kandrey/.codeterm-dev/general",
-                "-Users-kandrey--codeterm-dev-general",
+                "/Users/user/.codeterm-dev/general",
+                "-Users-user--codeterm-dev-general",
             ),
             (
-                "/Users/kandrey/Developer/wk-cb-p1",
-                "-Users-kandrey-Developer-wk-cb-p1",
+                "/Users/user/Developer/wk-cb-p1",
+                "-Users-user-Developer-wk-cb-p1",
             ),
             // Windows native path: drive colon + backslashes all collapse to dashes.
             ("C:\\Users\\User\\proj", "C--Users-User-proj"),

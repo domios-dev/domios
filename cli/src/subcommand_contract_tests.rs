@@ -514,7 +514,7 @@ fn task_read_leaves_are_preserved() {
 }
 
 #[test]
-fn plan_task_add_is_unchanged() {
+fn plan_task_add_with_required_worker_fields_parses() {
     let parsed = Cli::try_parse_from([
         "codeterm",
         "plan",
@@ -525,6 +525,8 @@ fn plan_task_add_is_unchanged() {
         "y",
         "--executor-role",
         "rust-backend-dev",
+        "--role-guidance",
+        "focused worker",
     ])
     .expect("plan task add still parses");
     assert!(matches!(
@@ -780,6 +782,28 @@ fn tab_restart_parses_replacement_shell_parameters() {
             assert_eq!(cmd.as_deref(), Some(".\\build.ps1 dev"));
         }
         _ => panic!("expected tab restart"),
+    }
+}
+
+#[test]
+fn tab_rebind_parses_session_and_target_without_restart_flags() {
+    let cli = Cli::try_parse_from([
+        "codeterm",
+        "tab",
+        "rebind",
+        "session-live",
+        "--tab",
+        "tab-a",
+    ])
+    .unwrap();
+    match cli.command {
+        Commands::Tab {
+            action: TabAction::Rebind { session_id, tab },
+        } => {
+            assert_eq!(session_id, "session-live");
+            assert_eq!(tab.as_deref(), Some("tab-a"));
+        }
+        _ => panic!("expected tab rebind"),
     }
 }
 

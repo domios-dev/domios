@@ -127,11 +127,6 @@ impl MemManager {
             );
         }
 
-        // now. Idempotent — entities already embedded are skipped. Best-effort: errors logged, never block startup.
-        if let Err(e) = backfill_entity_embeddings(&conn) {
-            log::warn!("[mem] entity-embedding backfill failed: {}", e);
-        }
-
         let heavy_ops_permits = Arc::new(Semaphore::new(HEAVY_OPS_PERMITS));
         let layout = graph_layout::LayoutState::load(&mem_dir);
         let embed_queue = embed_queue::EmbedQueue::start(
@@ -139,6 +134,7 @@ impl MemManager {
             heavy_ops_permits.clone(),
             layout.cache.clone(),
         );
+        spawn_entity_embedding_backfill(db_path.clone());
 
         Ok(Arc::new(Self {
             conn: Mutex::new(conn),
@@ -301,14 +297,37 @@ pub struct MemStats {
     pub total_vectors: u64,
 }
 
-/// Embed every graph entity that doesn't already have a row in `mem_vectors`.
-/// Called once on `MemManager::open` so daemon startup auto-backfills entities
-/// created before v1.1.23 wired embed-on-create. Idempotent: existing vectors
-/// are not re-computed; new ones are added; entities are skipped on embed
-/// failure (logged) so one bad row can't block the whole backfill.
+/// Starts entity backfill without putting model inference on the startup caller.
+fn spawn_entity_embedding_backfill(db_path: std::path::PathBuf) {
+    let result = spawn_entity_embedding_backfill_task(move || {
+        let work = || -> Result<(), String> {
+            let conn = Connection::open(&db_path)
+                .map_err(|e| format!("open knowledge.db for entity backfill: {e}"))?;
+            conn.busy_timeout(std::time::Duration::from_secs(5))
+                .map_err(|e| format!("set entity backfill busy_timeout: {e}"))?;
+            embeddings::init_extension(&conn)
+                .map_err(|e| format!("init sqlite-vec for entity backfill: {e}"))?;
+            backfill_entity_embeddings(&conn)
+        };
+        if let Err(error) = work() {
+            log::warn!("[mem] entity-embedding backfill failed: {error}");
+        }
+    });
+    if let Err(error) = result {
+        log::warn!("[mem] failed to start entity-embedding backfill: {error}");
+    }
+}
+
+fn spawn_entity_embedding_backfill_task(
+    task: impl FnOnce() + Send + 'static,
+) -> std::io::Result<std::thread::JoinHandle<()>> {
+    std::thread::Builder::new()
+        .name("mem-entity-backfill".into())
+        .spawn(task)
+}
+
+/// Idempotently embeds graph entities created before embed-on-create existed.
 fn backfill_entity_embeddings(conn: &Connection) -> Result<(), String> {
-    use rusqlite::params;
-    // are tiny so we expect one row per id). LEFT JOIN to detect absence.
     let mut stmt = conn
         .prepare(
             "SELECT e.id, e.entity_type, e.properties_json
@@ -346,7 +365,6 @@ fn backfill_entity_embeddings(conn: &Connection) -> Result<(), String> {
             Ok(_) => ok_count += 1,
             Err(e) => log::warn!("[mem.backfill] embed {} failed: {}", id, e),
         }
-        let _ = params![]; // silence unused import warning if rusqlite path inactive
     }
     log::info!(
         "[mem.backfill] entity embedding backfill done: {}/{} OK",
@@ -354,4 +372,26 @@ fn backfill_entity_embeddings(conn: &Connection) -> Result<(), String> {
         total
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod startup_backfill_tests {
+    use super::spawn_entity_embedding_backfill_task;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    #[test]
+    fn entity_backfill_cannot_hold_the_startup_caller() {
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let worker = spawn_entity_embedding_backfill_task(move || {
+            started_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+        })
+        .unwrap();
+
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        release_tx.send(()).unwrap();
+        worker.join().unwrap();
+    }
 }

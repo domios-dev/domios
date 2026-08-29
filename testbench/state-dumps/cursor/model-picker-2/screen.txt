@@ -1,4 +1,4 @@
-kandrey@ROC-6W49K3GN codeterm-state-capture-cursor-model-picker-2-94175 % bash /tmp/codeterm-spawn-2f3d48a8-1f0c-437e-8ae3-dc670bf9d6e0.sh
+user@ROC-6W49K3GN codeterm-state-capture-cursor-model-picker-2-94175 % bash /tmp/codeterm-spawn-2f3d48a8-1f0c-437e-8ae3-dc670bf9d6e0.sh
 
 
   Cursor Agent

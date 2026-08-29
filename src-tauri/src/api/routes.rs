@@ -51,16 +51,30 @@ fn cors_layer(cors_enabled: bool, configured_origins: &[String]) -> CorsLayer {
     };
     #[cfg(debug_assertions)]
     if !cors_enabled {
-        origins.extend(
-            ["http://localhost:1420", "http://127.0.0.1:1420"]
-                .into_iter()
-                .filter_map(|origin| origin.parse::<axum::http::HeaderValue>().ok()),
-        );
+        origins.extend(debug_vite_origins());
     }
     CorsLayer::new()
         .allow_origin(AllowOrigin::list(with_app_webview_origins(origins)))
         .allow_methods(Any)
         .allow_headers(Any)
+}
+
+#[cfg(debug_assertions)]
+fn debug_vite_origins() -> Vec<axum::http::HeaderValue> {
+    let Some(port) = std::env::var("CODETERM_VITE_PORT")
+        .ok()
+        .and_then(|value| value.parse::<u16>().ok())
+        .filter(|port| *port != 0)
+    else {
+        return Vec::new();
+    };
+    [
+        format!("http://localhost:{port}"),
+        format!("http://127.0.0.1:{port}"),
+    ]
+    .into_iter()
+    .filter_map(|origin| origin.parse::<axum::http::HeaderValue>().ok())
+    .collect()
 }
 
 #[derive(Clone)]
@@ -948,136 +962,7 @@ pub fn create_router(state: AppState) -> Router {
 }
 
 #[cfg(test)]
-mod tests {
-    use axum::{body::Body, http::Request, routing::get, Router};
-    use tower::ServiceExt;
-    use tower_http::catch_panic::CatchPanicLayer;
-
-    #[test]
-    fn cors_origins_always_include_the_app_webview() {
-        let configured = ["https://example.test"]
-            .into_iter()
-            .filter_map(|origin| origin.parse::<axum::http::HeaderValue>().ok())
-            .collect::<Vec<_>>();
-        let origins = super::with_app_webview_origins(configured);
-        for expected in super::APP_WEBVIEW_ORIGINS {
-            assert!(
-                origins.iter().any(|origin| origin == expected),
-                "{expected} must be allowed: the app window is cross-origin to its own daemon, so without it every raw fetch from the UI is rejected",
-            );
-        }
-        assert!(
-            origins
-                .iter()
-                .any(|origin| origin == "https://example.test"),
-            "configured origins must survive the append",
-        );
-    }
-
-    #[tokio::test]
-    async fn catch_panic_layer_keeps_router_responsive_after_handler_panic() {
-        let app = Router::new()
-            .route(
-                "/panic",
-                get(|| async {
-                    panic!("synthetic handler panic");
-                    #[allow(unreachable_code)]
-                    "never"
-                }),
-            )
-            .route("/health", get(|| async { "ok" }))
-            .layer(CatchPanicLayer::new());
-
-        let panic_response = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .uri("/panic")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .expect("panic should be converted to HTTP 500 response");
-        assert_eq!(
-            panic_response.status(),
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR
-        );
-
-        let health_response = app
-            .oneshot(
-                Request::builder()
-                    .uri("/health")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .expect("router must keep serving requests after a handler panic");
-        assert_eq!(health_response.status(), axum::http::StatusCode::OK);
-    }
-
-    #[tokio::test]
-    async fn production_cors_policy_allows_the_app_webview_when_cors_is_disabled() {
-        let app = Router::new()
-            .route("/", get(|| async { "ok" }))
-            .layer(super::cors_layer(false, &[]));
-        let response = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .uri("/")
-                    .header(axum::http::header::ORIGIN, "http://tauri.localhost")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(
-            response
-                .headers()
-                .get(axum::http::header::ACCESS_CONTROL_ALLOW_ORIGIN)
-                .and_then(|value| value.to_str().ok()),
-            Some("http://tauri.localhost")
-        );
-
-        let preflight = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .method(axum::http::Method::OPTIONS)
-                    .uri("/")
-                    .header(axum::http::header::ORIGIN, "http://tauri.localhost")
-                    .header(axum::http::header::ACCESS_CONTROL_REQUEST_METHOD, "GET")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(preflight.status(), axum::http::StatusCode::OK);
-        assert_eq!(
-            preflight
-                .headers()
-                .get(axum::http::header::ACCESS_CONTROL_ALLOW_ORIGIN)
-                .and_then(|value| value.to_str().ok()),
-            Some("http://tauri.localhost")
-        );
-
-        let denied = app
-            .oneshot(
-                Request::builder()
-                    .uri("/")
-                    .header(axum::http::header::ORIGIN, "https://configured.example")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert!(denied
-            .headers()
-            .get(axum::http::header::ACCESS_CONTROL_ALLOW_ORIGIN)
-            .is_none());
-    }
-}
+mod tests;
 
 /// Resolve a tab ID path parameter: supports both direct IDs and aliases.
 pub(crate) fn resolve_tab(

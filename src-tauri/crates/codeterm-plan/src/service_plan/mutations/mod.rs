@@ -447,6 +447,9 @@ fn validate_task_status_transition_for(
     if status_unchanged {
         return Ok(());
     }
+    if matches!(current, TaskStatus::InReview) && matches!(next, TaskStatus::Paused) {
+        return Err(PlanError::ReviewHoldRequired);
+    }
     if matches!(current, TaskStatus::InReview) {
         return Err(PlanError::TransitionDenied {
             from: current.clone(),

@@ -209,7 +209,7 @@ export function assertToolCard(host: HTMLElement, label: string) {
 export async function expandToolCard(host: HTMLElement, label: string) {
   const card = toolCardFor(host, label);
   assert(card, `expected tool card for ${label}`);
-  const expand = card.querySelector<HTMLButtonElement>('[aria-label="Expand tool details"]');
+  const expand = card.querySelector<HTMLButtonElement>('[aria-label="Expand tool details"], [aria-label="Show full command"]');
   assert(expand, `expected explicit details control for ${label}`);
   await act(async () => {
     expand.dispatchEvent(new windowAny.MouseEvent("click", { bubbles: true }) as unknown as Event);

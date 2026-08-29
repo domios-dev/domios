@@ -47,9 +47,11 @@ pub enum PlanAction {
         #[arg(long)]
         orchestrator: Option<String>,
     },
-    /// List active orchestration tasks
+    /// List active orchestration tasks; without PLAN_ID, scope to the current directory's project
     InProgress {
+        /// Plan to list regardless of the caller's working directory
         plan_id: Option<String>,
+        /// List active tasks across every project
         #[arg(long, conflicts_with = "plan_id")]
         all: bool,
     },

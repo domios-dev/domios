@@ -1,6 +1,6 @@
 {
   "id": "opencode",
-  "version": "1.10.0",
+  "version": "1.10.1",
   "minCodeterm": "1.0.0",
   "hostApi": 2,
   "displayName": "OpenCode",

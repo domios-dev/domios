@@ -1,6 +1,6 @@
 {
   "defect": "claude interactive-prompt: (a) zero chat-stream-preview events for question dialog; (b) question-state not detected -> no Input-needed notification (missed true positive)",
-  "capture_dir": "/Users/kandrey/Developer/codeterm-worktrees/lane-streaming-consilium/captures/streaming/claude-prompt/",
+  "capture_dir": "/Users/user/Developer/codeterm-worktrees/lane-streaming-consilium/captures/streaming/claude-prompt/",
   "capture_facts": {
     "tab": "a472fe89",
     "provider": "claude",

@@ -20,69 +20,71 @@ type ForkClass = "platform-adaptation" | "transport-shim" | "capability-gate";
 
 interface ForkSite {
   file: string;
-  line: number;
+  anchor: string;
+  ordinal: number;
   cls: ForkClass;
   note: string;
 }
 
 const INVENTORY: ForkSite[] = [
-  { file: "src/App.tsx", line: 74, cls: "capability-gate", note: "frontend-ready generation handshake belongs to the native shell" },
-  { file: "src/components/MeshPanel/MeshPanel.tsx", line: 208, cls: "transport-shim", note: "spawn setup chat via webJson vs local fetch" },
-  { file: "src/components/Terminal/NewSessionPicker.tsx", line: 152, cls: "platform-adaptation", note: "new-workspace: native folder dialog on desktop vs name-input fallback on web" },
-  { file: "src/components/Sidebar/Sidebar.tsx", line: 160, cls: "platform-adaptation", note: "web folder-picker modal vs native Tauri dialog" },
-  { file: "src/components/Sidebar/Sidebar.tsx", line: 250, cls: "platform-adaptation", note: "web folder-picker modal vs native Tauri dialog (new workspace)" },
-  { file: "src/components/Sidebar/Sidebar.tsx", line: 568, cls: "platform-adaptation", note: "web-only peer picker lives in the General sidebar header" },
-  { file: "src/components/StaleBuildBanner.tsx", line: 18, cls: "transport-shim", note: "build-check API base: window.location.origin vs local dev daemon" },
-  { file: "src/components/FrontendCrashBoundary.tsx", line: 8, cls: "platform-adaptation", note: "native crash fallback can reload the Tauri window directly" },
-  { file: "src/components/Terminal/composerFiles.ts", line: 27, cls: "platform-adaptation", note: "browser DOM drag/drop vs native Tauri webview drag/drop" },
-  { file: "src/components/Terminal/terminalOwnership.ts", line: 9, cls: "capability-gate", note: "background-tab PTY suspension only applies where tabs can background (web)" },
-  { file: "src/components/Terminal/voice/audio.ts", line: 180, cls: "platform-adaptation", note: "native macOS/iOS codec preference vs web codec order" },
-  { file: "src/components/Terminal/voice/audio.ts", line: 222, cls: "transport-shim", note: "persist voice blob: webUpload vs Tauri save_temp_file" },
-  { file: "src/components/Terminal/voice/useVoiceRecorder.ts", line: 271, cls: "platform-adaptation", note: "different mic-unavailable guidance text per host" },
-  { file: "src/components/Terminal/voice/useVoiceRecorder.ts", line: 278, cls: "platform-adaptation", note: "Permissions API gate only reliable in browsers (native WKWebView misreports)" },
-  { file: "src/components/Titlebar/Titlebar.tsx", line: 61, cls: "platform-adaptation", note: "native window-chrome controls (traffic lights / min/max/close)" },
-  { file: "src/components/Titlebar/Titlebar.tsx", line: 71, cls: "platform-adaptation", note: "mobile web titlebar safe-area min-height class (notch/safe-top); native chrome has fixed height" },
-  { file: "src/components/WebGate/PwaSetup.tsx", line: 67, cls: "platform-adaptation", note: "service worker registration is web-only" },
-  { file: "src/components/WebGate/PwaSetup.tsx", line: 87, cls: "platform-adaptation", note: "PWA install-prompt banner is web-only" },
-  { file: "src/lib/serviceWorkerRegistration.ts", line: 52, cls: "platform-adaptation", note: "service worker registration guard is web-only" },
-  { file: "src/components/WebGate/WebGate.tsx", line: 30, cls: "platform-adaptation", note: "token auth gate only exists for the browser entry point" },
-  { file: "src/components/WebGate/WebGate.tsx", line: 37, cls: "capability-gate", note: "browser-gateway availability events only exist where a gateway sits between the app and the daemon (web)" },
-  { file: "src/components/WebGate/WebGate.tsx", line: 67, cls: "platform-adaptation", note: "URL-fragment token consumption only applies to a browser tab" },
-  { file: "src/components/WebGate/WebGate.tsx", line: 151, cls: "platform-adaptation", note: "PwaSetup only mounted on web" },
-  { file: "src/components/Terminal/ChatComposer.composition.harness.ts", line: 12, cls: "platform-adaptation", note: "test harness plants the Tauri runtime marker so bridge resolves IS_WEB=false and unmocked invokes fail loudly" },
-  { file: "src/hooks/terminal/usePtyConnection.ts", line: 222, cls: "transport-shim", note: "scrollback replay: web tail-reset vs native history invoke" },
-  { file: "src/hooks/terminal/usePtyConnection.ts", line: 229, cls: "transport-shim", note: "initial-history admission takes the host into account: only the native transport fetches tab history up front" },
-  { file: "src/hooks/terminal/usePtyConnection.ts", line: 262, cls: "capability-gate", note: "scrollback-sidecar replay admission is native-local-only; web and remote tabs never load the sidecar" },
-  { file: "src/hooks/terminal/usePtyConnection.ts", line: 418, cls: "capability-gate", note: "boot-changed offset revalidation only matters where the read cursor is a resumable HTTP byte offset (web); the multiplexed output stream self-heals boot changes instead" },
-  { file: "src/hooks/terminal/useTerminalResize.ts", line: 29, cls: "platform-adaptation", note: "Windows native resize commits on the host window's resize boundary; web commits continuously" },
-  { file: "src/hooks/terminal/useTauriFileDrop.ts", line: 33, cls: "platform-adaptation", note: "native Tauri webview drag/drop is a no-op on web (see composerFiles.ts web path)" },
-  { file: "src/hooks/useKeyboardInset.ts", line: 26, cls: "platform-adaptation", note: "soft-keyboard viewport inset only applies to mobile browsers" },
-  { file: "src/hooks/useTouchOptimizedUi.ts", line: 10, cls: "platform-adaptation", note: "touch-optimized UI only reachable via the web mirror" },
-  { file: "src/hooks/useTouchOptimizedUi.ts", line: 12, cls: "platform-adaptation", note: "touch-optimized UI media query only applies to the web mirror" },
-  { file: "src/lib/bridge.ts", line: 81, cls: "transport-shim", note: "dead-PTY classification: WebApiError 404 vs native \"PTY not found\"/\"PTY closed\" message match" },
-  { file: "src/lib/bridge.ts", line: 667, cls: "capability-gate", note: "webCapability() — query whether an IPC cmd is reachable on web" },
-  { file: "src/lib/bridge.ts", line: 680, cls: "transport-shim", note: "THE seam: invoke() routes to tauriInvoke vs HTTP_MAP" },
-  { file: "src/lib/bridge.ts", line: 835, cls: "transport-shim", note: "config-changed payload carries the browser's own token; native reads it from the daemon config" },
-  { file: "src/lib/bridge.ts", line: 845, cls: "transport-shim", note: "THE seam: listen() routes to tauriListen vs webListen" },
-  { file: "src/lib/pluginConfigure.ts", line: 44, cls: "transport-shim", note: "spawn configure-agent via webJson vs local fetch" },
-  { file: "src/lib/resizeOwner.ts", line: 17, cls: "capability-gate", note: "resize-owner client-id namespacing to avoid native/web arbitration collisions" },
-  { file: "src/lib/stateCache.ts", line: 36, cls: "capability-gate", note: "boot snapshot cache only meaningful where a network round-trip exists (web)" },
-  { file: "src/lib/webApi.ts", line: 138, cls: "transport-shim", note: "THE seam: daemonHttpBase() — canonical daemon origin per access mode" },
-  { file: "src/lib/webApi.ts", line: 145, cls: "transport-shim", note: "THE seam: daemonAuthToken() — canonical auth token per access mode" },
-  { file: "src/lib/lifecycle.ts", line: 56, cls: "capability-gate", note: "visibility/pageshow/online wake resync is web-only (native webview inert)" },
-  { file: "src/lib/webEvents.ts", line: 180, cls: "transport-shim", note: "THE seam: web-only SSE bootstrap guard (no-op on native); relay target byte-piped via relay-stream" },
-  { file: "src/lib/outputStream.ts", line: 115, cls: "transport-shim", note: "multiplexed PTY output over HTTP (web); relay target byte-piped via relay-stream" },
-  { file: "src/store/multiplexer/index.tsx", line: 63, cls: "capability-gate", note: "cache-hydrated-at-boot detection is web-only (native has no cache path)" },
-  { file: "src/store/multiplexer/index.tsx", line: 80, cls: "capability-gate", note: "lazy-init hydration from the boot snapshot cache is web-only" },
-  { file: "src/store/multiplexer/index.tsx", line: 145, cls: "capability-gate", note: "persist boot snapshot cache only where it can ever be read back (web)" },
-  { file: "src/store/multiplexer/index.tsx", line: 171, cls: "capability-gate", note: "cache-hydrated-at-boot detection is web-only (native has no cache path)" },
-  { file: "src/store/multiplexer/index.tsx", line: 175, cls: "capability-gate", note: "IndexedDB fallback hydration for the boot cache is web-only" },
-  { file: "src/store/multiplexer/index.tsx", line: 189, cls: "capability-gate", note: "cache-reconciled signal only fires where the boot cache exists (web)" },
-  { file: "src/store/multiplexer/index.tsx", line: 631, cls: "transport-shim", note: "spawn agent tab via webJson vs Tauri invoke" },
-  { file: "src/store/multiplexer/index.tsx", line: 691, cls: "transport-shim", note: "create orchestration pair via webJson vs Tauri invoke" },
-  { file: "src/components/Canvas/plansApi.ts", line: 79, cls: "transport-shim", note: "single plan read: desktop goes straight to PlanStore over IPC, web keeps REST" },
-  { file: "src/components/Canvas/plansApi.ts", line: 111, cls: "transport-shim", note: "plan index read: desktop goes straight to PlanStore over IPC, web keeps REST" },
-  { file: "src/components/Canvas/plansApi.ts", line: 143, cls: "transport-shim", note: "batched full-plan read: desktop goes straight to PlanStore over IPC, web keeps REST" },
+  { file: "src/App.tsx", anchor: "if (!IS_WEB) {", ordinal: 1, cls: "capability-gate", note: "frontend-ready generation handshake belongs to the native shell" },
+  { file: "src/components/MeshPanel/MeshPanel.tsx", anchor: "if (IS_WEB) {", ordinal: 1, cls: "transport-shim", note: "spawn setup chat via webJson vs local fetch" },
+  { file: "src/components/Terminal/NewSessionPicker.tsx", anchor: "if (IS_WEB) {", ordinal: 1, cls: "platform-adaptation", note: "new-workspace: native folder dialog on desktop vs name-input fallback on web" },
+  { file: "src/components/Terminal/sessionBindingApi.ts", anchor: "if (IS_WEB) {", ordinal: 1, cls: "transport-shim", note: "session rebind uses the web bridge mapping vs authenticated native daemon fetch" },
+  { file: "src/components/Sidebar/Sidebar.tsx", anchor: "if (IS_WEB) {", ordinal: 1, cls: "platform-adaptation", note: "web folder-picker modal vs native Tauri dialog" },
+  { file: "src/components/Sidebar/Sidebar.tsx", anchor: "if (IS_WEB) {", ordinal: 2, cls: "platform-adaptation", note: "web folder-picker modal vs native Tauri dialog (new workspace)" },
+  { file: "src/components/Sidebar/Sidebar.tsx", anchor: "{IS_WEB && <WebPeerPicker compact />}", ordinal: 1, cls: "platform-adaptation", note: "web-only peer picker lives in the General sidebar header" },
+  { file: "src/components/StaleBuildBanner.tsx", anchor: "const apiBase = IS_WEB", ordinal: 1, cls: "transport-shim", note: "build-check API base: window.location.origin vs local dev daemon" },
+  { file: "src/components/FrontendCrashBoundary.tsx", anchor: "const appWindow = \"__TAURI_INTERNALS__\" in window ? getCurrentWindow() : null;", ordinal: 1, cls: "platform-adaptation", note: "native crash fallback can reload the Tauri window directly" },
+  { file: "src/components/Terminal/composerFiles.ts", anchor: "if (!IS_WEB) {", ordinal: 1, cls: "platform-adaptation", note: "browser DOM drag/drop vs native Tauri webview drag/drop" },
+  { file: "src/components/Terminal/terminalOwnership.ts", anchor: "const isWeb = args.isWeb ?? IS_WEB;", ordinal: 1, cls: "capability-gate", note: "background-tab PTY suspension only applies where tabs can background (web)" },
+  { file: "src/components/Terminal/voice/audio.ts", anchor: "!IS_WEB &&", ordinal: 1, cls: "platform-adaptation", note: "native macOS/iOS codec preference vs web codec order" },
+  { file: "src/components/Terminal/voice/audio.ts", anchor: "if (IS_WEB) {", ordinal: 1, cls: "transport-shim", note: "persist voice blob: webUpload vs Tauri save_temp_file" },
+  { file: "src/components/Terminal/voice/useVoiceRecorder.ts", anchor: "IS_WEB", ordinal: 1, cls: "platform-adaptation", note: "different mic-unavailable guidance text per host" },
+  { file: "src/components/Terminal/voice/useVoiceRecorder.ts", anchor: "if (IS_WEB && \"permissions\" in navigator && typeof navigator.permissions?.query === \"function\") {", ordinal: 1, cls: "platform-adaptation", note: "Permissions API gate only reliable in browsers (native WKWebView misreports)" },
+  { file: "src/components/Titlebar/Titlebar.tsx", anchor: "const isTauri = !IS_WEB;", ordinal: 1, cls: "platform-adaptation", note: "native window-chrome controls (traffic lights / min/max/close)" },
+  { file: "src/components/Titlebar/Titlebar.tsx", anchor: "className={`flex min-w-0 items-center bg-[var(--ct-titlebar-bg)] select-none shrink-0 ${IS_WEB ? \"max-sm:min-h-[calc(44px+var(--ct-safe-top,0px))]\" : \"\"}`}", ordinal: 1, cls: "platform-adaptation", note: "mobile web titlebar safe-area min-height class (notch/safe-top); native chrome has fixed height" },
+  { file: "src/components/WebGate/PwaSetup.tsx", anchor: "if (!IS_WEB) return;", ordinal: 1, cls: "platform-adaptation", note: "service worker registration is web-only" },
+  { file: "src/components/WebGate/PwaSetup.tsx", anchor: "if (!IS_WEB || isStandalone()) return;", ordinal: 1, cls: "platform-adaptation", note: "PWA install-prompt banner is web-only" },
+  { file: "src/lib/serviceWorkerRegistration.ts", anchor: "if (!IS_WEB || !(\"serviceWorker\" in navigator)) return;", ordinal: 1, cls: "platform-adaptation", note: "service worker registration guard is web-only" },
+  { file: "src/components/WebGate/WebGate.tsx", anchor: "const [state, setState] = useState<GateState>(IS_WEB ? \"checking\" : \"ready\");", ordinal: 1, cls: "platform-adaptation", note: "token auth gate only exists for the browser entry point" },
+  { file: "src/components/WebGate/WebGate.tsx", anchor: "if (!IS_WEB) return;", ordinal: 1, cls: "capability-gate", note: "browser-gateway availability events only exist where a gateway sits between the app and the daemon (web)" },
+  { file: "src/components/WebGate/WebGate.tsx", anchor: "if (!IS_WEB) return;", ordinal: 2, cls: "platform-adaptation", note: "URL-fragment token consumption only applies to a browser tab" },
+  { file: "src/components/WebGate/WebGate.tsx", anchor: "{IS_WEB && <PwaSetup />}", ordinal: 1, cls: "platform-adaptation", note: "PwaSetup only mounted on web" },
+  { file: "src/components/Terminal/ChatComposer.composition.harness.ts", anchor: "(win as unknown as { __TAURI_INTERNALS__: object }).__TAURI_INTERNALS__ = {};", ordinal: 1, cls: "platform-adaptation", note: "test harness plants the Tauri runtime marker so bridge resolves IS_WEB=false and unmocked invokes fail loudly" },
+  { file: "src/hooks/terminal/usePtyConnection.ts", anchor: "if (ptyId && IS_WEB) {", ordinal: 1, cls: "transport-shim", note: "scrollback replay: web tail-reset vs native history invoke" },
+  { file: "src/hooks/terminal/usePtyConnection.ts", anchor: "} else if (shouldFetchInitialTerminalHistory(ptyId, IS_WEB, isRemote)) {", ordinal: 1, cls: "transport-shim", note: "initial-history admission takes the host into account: only the native transport fetches tab history up front" },
+  { file: "src/hooks/terminal/usePtyConnection.ts", anchor: "} else if (shouldReplayScrollbackSidecar(ptyId, IS_WEB, isRemote)) {", ordinal: 1, cls: "capability-gate", note: "scrollback-sidecar replay admission is native-local-only; web and remote tabs never load the sidecar" },
+  { file: "src/hooks/terminal/usePtyConnection.ts", anchor: "if (IS_WEB && !useOutputStream) {", ordinal: 1, cls: "capability-gate", note: "boot-changed offset revalidation only matters where the read cursor is a resumable HTTP byte offset (web); the multiplexed output stream self-heals boot changes instead" },
+  { file: "src/hooks/terminal/useTerminalResize.ts", anchor: "const nativeResizeCommit = !IS_WEB", ordinal: 1, cls: "platform-adaptation", note: "Windows native resize commits on the host window's resize boundary; web commits continuously" },
+  { file: "src/hooks/terminal/useTauriFileDrop.ts", anchor: "if (!(\"__TAURI_INTERNALS__\" in window)) return;", ordinal: 1, cls: "platform-adaptation", note: "native Tauri webview drag/drop is a no-op on web (see composerFiles.ts web path)" },
+  { file: "src/hooks/useKeyboardInset.ts", anchor: "if (!IS_WEB || typeof window === \"undefined\" || !window.visualViewport) {", ordinal: 1, cls: "platform-adaptation", note: "soft-keyboard viewport inset only applies to mobile browsers" },
+  { file: "src/hooks/useTouchOptimizedUi.ts", anchor: "if (!IS_WEB || typeof window === \"undefined\") return false;", ordinal: 1, cls: "platform-adaptation", note: "touch-optimized UI only reachable via the web mirror" },
+  { file: "src/hooks/useTouchOptimizedUi.ts", anchor: "IS_WEB,", ordinal: 1, cls: "platform-adaptation", note: "touch-optimized UI media query only applies to the web mirror" },
+  { file: "src/lib/bridge.ts", anchor: "if (IS_WEB) return err instanceof WebApiError && err.status === 404;", ordinal: 1, cls: "transport-shim", note: "dead-PTY classification: WebApiError 404 vs native \"PTY not found\"/\"PTY closed\" message match" },
+  { file: "src/lib/bridge.ts", anchor: "if (!IS_WEB) return { supported: true };", ordinal: 1, cls: "capability-gate", note: "webCapability() — query whether an IPC cmd is reachable on web" },
+  { file: "src/lib/bridge.ts", anchor: "if (!IS_WEB) {", ordinal: 1, cls: "transport-shim", note: "THE seam: invoke() routes to tauriInvoke vs HTTP_MAP" },
+  { file: "src/lib/bridge.ts", anchor: "if (IS_WEB && event === \"config-changed\" && e.payload && typeof e.payload === \"object\") {", ordinal: 1, cls: "transport-shim", note: "config-changed payload carries the browser's own token; native reads it from the daemon config" },
+  { file: "src/lib/bridge.ts", anchor: "if (localListenBranch(IS_WEB) === \"tauri\") {", ordinal: 1, cls: "transport-shim", note: "THE seam: listen() routes to tauriListen vs webListen" },
+  { file: "src/lib/pluginConfigure.ts", anchor: "if (IS_WEB) {", ordinal: 1, cls: "transport-shim", note: "spawn configure-agent via webJson vs local fetch" },
+  { file: "src/lib/resizeOwner.ts", anchor: "const prefix = IS_WEB ? \"web:\" : \"tauri:\";", ordinal: 1, cls: "capability-gate", note: "resize-owner client-id namespacing to avoid native/web arbitration collisions" },
+  { file: "src/lib/stateCache.ts", anchor: "if (!IS_WEB) return null;", ordinal: 1, cls: "capability-gate", note: "boot snapshot cache only meaningful where a network round-trip exists (web)" },
+  { file: "src/lib/webApi.ts", anchor: "if (IS_WEB) return apiHost();", ordinal: 1, cls: "transport-shim", note: "THE seam: daemonHttpBase() — canonical daemon origin per access mode" },
+  { file: "src/lib/webApi.ts", anchor: "return (IS_WEB ? currentToken() : api?.token) ?? \"\";", ordinal: 1, cls: "transport-shim", note: "THE seam: daemonAuthToken() — canonical auth token per access mode" },
+  { file: "src/lib/lifecycle.ts", anchor: "if (!IS_WEB) return () => {};", ordinal: 1, cls: "capability-gate", note: "visibility/pageshow/online wake resync is web-only (native webview inert)" },
+  { file: "src/lib/webEvents.ts", anchor: "if (started || !IS_WEB) return;", ordinal: 1, cls: "transport-shim", note: "THE seam: web-only SSE bootstrap guard (no-op on native); relay target byte-piped via relay-stream" },
+  { file: "src/lib/outputStream.ts", anchor: "return IS_WEB && outputStreamEnabled();", ordinal: 1, cls: "transport-shim", note: "multiplexed PTY output over HTTP (web); relay target byte-piped via relay-stream" },
+  { file: "src/store/multiplexer/index.tsx", anchor: "return IS_WEB && loadCachedStateSync() !== null;", ordinal: 1, cls: "capability-gate", note: "cache-hydrated-at-boot detection is web-only (native has no cache path)" },
+  { file: "src/store/multiplexer/index.tsx", anchor: "if (!IS_WEB) return empty;", ordinal: 1, cls: "capability-gate", note: "lazy-init hydration from the boot snapshot cache is web-only" },
+  { file: "src/store/multiplexer/index.tsx", anchor: "if (IS_WEB) saveStateSnapshot(s);", ordinal: 1, cls: "capability-gate", note: "persist boot snapshot cache only where it can ever be read back (web)" },
+  { file: "src/store/multiplexer/index.tsx", anchor: "const hydratedAtBoot = IS_WEB && stateRef.current.generation === HYDRATED_GENERATION;", ordinal: 1, cls: "capability-gate", note: "cache-hydrated-at-boot detection is web-only (native has no cache path)" },
+  { file: "src/store/multiplexer/index.tsx", anchor: "} else if (IS_WEB) {", ordinal: 1, cls: "capability-gate", note: "IndexedDB fallback hydration for the boot cache is web-only" },
+  { file: "src/store/multiplexer/index.tsx", anchor: "if (IS_WEB) window.dispatchEvent(new Event(\"codeterm-cache-reconciled\"));", ordinal: 1, cls: "capability-gate", note: "cache-reconciled signal only fires where the boot cache exists (web)" },
+  { file: "src/store/multiplexer/index.tsx", anchor: "const useRestSpawn = IS_WEB;", ordinal: 1, cls: "transport-shim", note: "spawn agent tab via webJson vs Tauri invoke" },
+  { file: "src/store/multiplexer/index.tsx", anchor: "const result = IS_WEB", ordinal: 1, cls: "transport-shim", note: "create orchestration pair via webJson vs Tauri invoke" },
+  { file: "src/components/Canvas/plansApi.ts", anchor: "if (!IS_WEB) return invokePlanRead(\"get_plan_full\", { planId }, signal);", ordinal: 1, cls: "transport-shim", note: "single plan read: desktop goes straight to PlanStore over IPC, web keeps REST" },
+  { file: "src/components/Canvas/plansApi.ts", anchor: "if (!IS_WEB) return invokePlanRead(\"list_plan_index\", undefined, signal);", ordinal: 1, cls: "transport-shim", note: "plan index read: desktop goes straight to PlanStore over IPC, web keeps REST" },
+  { file: "src/components/Canvas/plansApi.ts", anchor: "if (!IS_WEB) {", ordinal: 1, cls: "transport-shim", note: "batched full-plan read: desktop goes straight to PlanStore over IPC, web keeps REST" },
 ];
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -110,17 +112,25 @@ function redact(content: string): string {
   return redacted;
 }
 
+function forkKey(file: string, anchor: string, ordinal: number): string {
+  return `${file}:${anchor.trim().replace(/\s+/g, " ")}:${ordinal}`;
+}
+
 function scanForkSites(): Set<string> {
   const sites = new Set<string>();
   for (const file of walk(SRC, [])) {
     const content = fs.readFileSync(file, "utf8");
     const lines = redact(content).split("\n");
-    lines.forEach((line, i) => {
+    const anchors = new Map<string, number>();
+    lines.forEach((line) => {
       const trimmed = line.trim();
       if (!trimmed) return;
       if (trimmed.startsWith("//") || trimmed.startsWith("/*") || trimmed.startsWith("*")) return;
       if (FORK_RE.test(line)) {
-        sites.add(`${path.relative(ROOT, file).split(path.sep).join("/")}:${i + 1}`);
+        const anchor = line.trim().replace(/\s+/g, " ");
+        const ordinal = (anchors.get(anchor) ?? 0) + 1;
+        anchors.set(anchor, ordinal);
+        sites.add(forkKey(path.relative(ROOT, file).split(path.sep).join("/"), anchor, ordinal));
       }
     });
   }
@@ -143,9 +153,9 @@ function assert(label: string, cond: boolean) {
 console.log("webForks fork inventory:");
 
 const scanned = scanForkSites();
-const declared = new Set(INVENTORY.map((s) => `${s.file}:${s.line}`));
+const declared = new Set(INVENTORY.map((s) => forkKey(s.file, s.anchor, s.ordinal)));
 
-assert(`inventory has ${INVENTORY.length} entries with unique file:line keys`, declared.size === INVENTORY.length);
+assert(`inventory has ${INVENTORY.length} entries with unique fork anchors`, declared.size === INVENTORY.length);
 
 const unlisted = [...scanned].filter((k) => !declared.has(k)).sort();
 assert(
@@ -163,15 +173,14 @@ assert(
   stale.length === 0,
 );
 
-for (const site of INVENTORY) {
-  const full = path.join(ROOT, site.file);
-  const lines = fs.readFileSync(full, "utf8").split("\n");
-  const text = lines[site.line - 1] ?? "";
-  assert(
-    `${site.file}:${site.line} still references a fork identifier ("${text.trim()}")`,
-    FORK_RE.test(text),
-  );
-}
+assert(
+  "diagnostics_that_speak insertion above an inventoried fork preserves its anchor",
+  forkKey("src/fixture.ts", "  if (IS_WEB) {", 1) === forkKey("src/fixture.ts", "if (IS_WEB) {", 1),
+);
+assert(
+  "diagnostics_that_speak a duplicate-guard fork remains unlisted",
+  !new Set([forkKey("src/fixture.ts", "if (IS_WEB) {", 1)]).has(forkKey("src/fixture.ts", "if (IS_WEB) {", 2)),
+);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) throw new Error(`${failed} test(s) failed`);

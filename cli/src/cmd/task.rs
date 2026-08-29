@@ -296,6 +296,7 @@ pub(crate) fn print_task_result(json: bool, val: &Value, show_opts: Option<TaskS
         print_task_presentation(val);
         print_competition(task, plan, id);
         print_executor_role(task);
+        print_task_routing(task);
         print_external_refs(task);
         if let Some(body) = task
             .get("body")
@@ -330,6 +331,30 @@ pub(crate) fn print_task_result(json: bool, val: &Value, show_opts: Option<TaskS
         print_object(val);
     }
     print_hints_stderr(&hints);
+}
+
+fn print_task_routing(task: &Value) {
+    for line in task_routing_lines(task) {
+        println!("{line}");
+    }
+}
+
+pub(crate) fn task_routing_lines(task: &Value) -> Vec<String> {
+    [
+        ("role_guidance", "role_guidance"),
+        ("personality", "personality"),
+        ("model", "model"),
+    ]
+    .into_iter()
+    .map(|(label, field)| {
+        let value = task
+            .get(field)
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or("(unset)");
+        format!("{label}: {value}")
+    })
+    .collect()
 }
 
 fn print_task_presentation(val: &Value) {

@@ -23,8 +23,11 @@ interface TestChatMessage {
   attachments?: TestChatAttachment[];
   toolName?: string;
   toolInput?: unknown;
+  toolKind?: "command";
+  toolSummary?: string;
+  toolDetail?: string;
   toolResult?: string;
-  toolCallId?: string;
+  toolId?: string;
   toolError?: boolean;
 }
 
@@ -193,7 +196,10 @@ test("@golden ChatView transcript remains correct across tool results, focus, an
       provider: "test",
       toolName: "shell",
       toolInput: { command: "echo ok" },
-      toolCallId: "call-1",
+      toolId: "call-1",
+      toolKind: "command",
+      toolSummary: "echo ok",
+      toolDetail: "echo ok",
     },
     {
       id: "tool-result-1",
@@ -201,7 +207,7 @@ test("@golden ChatView transcript remains correct across tool results, focus, an
       content: "ok",
       timestamp: "1700003000003",
       provider: "test",
-      toolCallId: "call-1",
+      toolId: "call-1",
       toolResult: "ok",
     },
     {
@@ -212,7 +218,10 @@ test("@golden ChatView transcript remains correct across tool results, focus, an
       provider: "test",
       toolName: "shell",
       toolInput: { command: "exit 1" },
-      toolCallId: "call-old",
+      toolId: "call-old",
+      toolKind: "command",
+      toolSummary: "exit 1",
+      toolDetail: "exit 1",
       toolError: true,
     },
     {
@@ -223,7 +232,10 @@ test("@golden ChatView transcript remains correct across tool results, focus, an
       provider: "test",
       toolName: "shell",
       toolInput: { command: "exit 2" },
-      toolCallId: "call-latest",
+      toolId: "call-latest",
+      toolKind: "command",
+      toolSummary: "exit 2",
+      toolDetail: "exit 2",
       toolError: true,
     },
   ];
@@ -266,7 +278,7 @@ test("@golden ChatView transcript remains correct across tool results, focus, an
     .filter({ hasText: "echo ok" })
     .first();
   await expect(resultCard).toBeVisible();
-  const expandResult = resultCard.getByRole("button", { name: "Expand tool details" });
+  const expandResult = resultCard.getByRole("button", { name: "Show full command" });
   await expect(expandResult).toBeVisible();
   await expandResult.click();
   await expect(resultCard).toContainText("ok");

@@ -99,7 +99,7 @@ evals/agent-state/capture-live.sh claude working_streaming_real "Write approxima
 # ...codex equivalents; see capture-live.sh header for the full matrix
 
 # score
-export CARGO_TARGET_DIR=/Users/kandrey/Developer/.psetup-target
+export CARGO_TARGET_DIR=/Users/user/Developer/.psetup-target
 evals/agent-state/run.sh        # or: cd src-tauri && cargo test --test agent_state_replay -- --nocapture
 ```
 

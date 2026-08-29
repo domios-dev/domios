@@ -24,7 +24,8 @@ use crate::provider::{
 };
 
 use super::{
-    call_json, manifest_settings_sections, PluginManifest, PluginVm, SerdeModelInfo, VmError,
+    call_json, manifest_settings_sections, IntegrationKind, PluginManifest, PluginVm,
+    SerdeModelInfo, VmError,
 };
 use codeterm_types::pty::PendingPrompt;
 
@@ -1030,6 +1031,13 @@ impl AgentProvider for JsProvider {
         }
         self.try_call::<serde_json::Value>("checkIntegration", &[])
             .unwrap_or_else(|| serde_json::json!({ "status": "ok" }))
+    }
+
+    fn has_installable_integration(&self) -> bool {
+        self.manifest
+            .integration
+            .as_ref()
+            .is_some_and(|integration| !matches!(integration.kind, IntegrationKind::None))
     }
 
     fn install_integration(

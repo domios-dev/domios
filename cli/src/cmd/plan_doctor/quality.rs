@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -76,12 +77,49 @@ pub(super) fn inspect_quality(path: &Path, plan: &Value) -> Vec<Finding> {
             "this is fine before approval; run quality review before generating tasks",
         ));
     }
+    findings.extend(inspect_duplicate_role_guidance(path, plan, &tasks));
     findings.extend(inspect_loop_quality(path, plan, now_ms));
     for task in &tasks {
         inspect_task_quality(path, plan, task, &mut findings);
         inspect_task_lifecycle(path, plan, task, now_ms, &mut findings);
     }
     findings
+}
+
+fn inspect_duplicate_role_guidance(path: &Path, plan: &Value, tasks: &[Value]) -> Vec<Finding> {
+    let mut task_ids_by_guidance: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    for task in tasks {
+        let Some(guidance) = task
+            .get("role_guidance")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|guidance| !guidance.is_empty())
+        else {
+            continue;
+        };
+        let task_id = task.get("id").and_then(Value::as_str).unwrap_or("?");
+        task_ids_by_guidance
+            .entry(guidance)
+            .or_default()
+            .push(task_id);
+    }
+
+    task_ids_by_guidance
+        .into_values()
+        .filter(|task_ids| task_ids.len() > 1)
+        .map(|task_ids| Finding {
+            severity: "warning",
+            kind: "duplicate_role_guidance",
+            plan_id: plan_id(plan, path),
+            path: path.display().to_string(),
+            task_id: None,
+            detail: format!(
+                "tasks {} carry identical role_guidance; confirm that their worker conditioning is intentionally shared",
+                task_ids.join(", ")
+            ),
+            fix: "give each worker task-specific conditioning, or keep the duplicate and proceed when sharing is deliberate".into(),
+        })
+        .collect()
 }
 
 // authoritative; an approved/execution lifecycle mode bridges pre-state plans.

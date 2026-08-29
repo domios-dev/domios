@@ -1,4 +1,4 @@
-kandrey@ROC-6W49K3GN cursor-trust-r2.OdEnpu % bash /tmp/codeterm-spawn-beabb0b2-eb16-4e7e-ad24-b37fc64dba85.sh
+user@ROC-6W49K3GN cursor-trust-r2.OdEnpu % bash /tmp/codeterm-spawn-beabb0b2-eb16-4e7e-ad24-b37fc64dba85.sh
 
 
   Cursor Agent

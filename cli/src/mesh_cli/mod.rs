@@ -102,8 +102,8 @@ pub enum MeshPeerAction {
     /// Manually override our cached address for a paired peer. Useful when
     /// auto-detection is wrong or you want to point at a specific interface.
     /// Format: ip[:port]. Examples:
-    ///   codeterm mesh peer set-addr BLACKSTAR 100.84.159.37
-    ///   codeterm mesh peer set-addr BLACKSTAR 192.168.1.42:7685
+    ///   codeterm mesh peer set-addr PEER-NAME 100.100.100.100
+    ///   codeterm mesh peer set-addr PEER-NAME 192.168.1.42:7685
     #[clap(name = "set-addr")]
     SetAddr {
         /// Target peer (instance_id or name)
@@ -219,7 +219,8 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
         action: super::TabAction::Search { pattern },
     } = &cli.command
     {
-        let tabs = relay::mesh_relay_fetch_json(target, "GET", "/api/tabs", None);
+        let tabs =
+            relay::mesh_relay_fetch_json(target, "GET", "/api/tabs?all_workspaces=true", None);
         let arr = tabs.as_array().cloned().unwrap_or_default();
         crate::cmd::tab::print_tab_find_results(cli.json, pattern, &arr);
         return;

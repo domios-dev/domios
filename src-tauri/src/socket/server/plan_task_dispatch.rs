@@ -20,7 +20,9 @@ mod brief;
 mod lane_resolution;
 pub(super) mod lane_safety;
 
-use super::safety_nudge::{apply_safety_nudges, safety_incident_text, SAFETY_INCIDENT_KIND};
+use super::safety_nudge::{
+    apply_safety_nudges, safety_incident_text, SafetyNudge, SAFETY_INCIDENT_KIND,
+};
 use brief::build_brief_with_manifest;
 #[cfg(test)]
 pub(super) use brief::{build_brief, build_brief_with_personality};
@@ -101,10 +103,15 @@ fn lane_metadata_for_dispatch(
     provenance: &WorkerLaneProvenance,
 ) -> TaskLaneMetadata {
     let mut lane = original.clone();
-    if crate::service::ServiceContext::paths_equal(
-        &provenance.worktree_path,
-        &provenance.canonical_cwd,
-    ) {
+    let recorded_worktree = original.worktree_path.as_deref().is_some_and(|recorded| {
+        crate::service::ServiceContext::paths_equal(recorded, &provenance.worktree_path)
+    });
+    if !recorded_worktree
+        && crate::service::ServiceContext::paths_equal(
+            &provenance.worktree_path,
+            &provenance.canonical_cwd,
+        )
+    {
         lane.worktree_path = None;
         lane.branch = None;
         lane.base = None;
@@ -214,6 +221,7 @@ fn dispatch_ready_event(
     tab_id: &str,
     attempt_id: &str,
     evidence: &DispatchEvidence,
+    nudges: &[SafetyNudge],
 ) -> Value {
     let mut event = json!({
         "kind": "dispatch_ready",
@@ -231,7 +239,18 @@ fn dispatch_ready_event(
             "canonical_project_path": lane.canonical_cwd,
         });
     }
+    apply_safety_nudges(&mut event, nudges);
     event
+}
+
+fn should_provision_worker_lane(
+    requires_repository: bool,
+    execution_intent: &crate::plan::ExecutionIntent,
+    lane_resolution: Option<&lane_resolution::DispatchLaneResolution>,
+) -> bool {
+    requires_repository
+        && *execution_intent == crate::plan::ExecutionIntent::Mutating
+        && lane_resolution.is_some_and(|resolution| resolution.existing.is_none())
 }
 
 fn epoch_ms() -> u64 {
@@ -451,6 +470,14 @@ impl DispatchStartup {
                     startup_allowance,
                 );
                 emit_plan_changed(&self.app, &self.plan_id);
+                let nudges = self
+                    .svc
+                    .plan_store
+                    .show_task(&self.task_id)
+                    .map(|detail| {
+                        dispatch_safety_nudges(&self.plan_id, &self.task_id, &detail.task.lane)
+                    })
+                    .unwrap_or_default();
                 publish_startup_report(
                     &self.svc,
                     &self.parent_tab_id,
@@ -464,6 +491,7 @@ impl DispatchStartup {
                         &self.tab_id,
                         &self.attempt_id,
                         &evidence,
+                        &nudges,
                     ),
                 );
             }
@@ -809,6 +837,7 @@ pub(super) fn dispatch(
     let brief = build_brief_with_manifest(&detail.task, &detail.sections, &plan_id, &manifest);
 
     let explicit_cwd = owned_str(p, "cwd");
+    let caller_tab_id = owned_str(p, "caller_tab_id");
     let canonical_cwd = if plan.canonical_project_path.trim().is_empty() {
         plan.project_path.clone()
     } else {
@@ -819,14 +848,46 @@ pub(super) fn dispatch(
     let requires_repository = detail.task.execution_intent.requires_repository();
     let lane_protection = LaneProtection::for_dispatch_intent(&execution_intent);
     let lane_resolution = if requires_repository {
-        verify_worker_lane(&canonical_cwd, &canonical_cwd, None, None, lane_protection)
+        if execution_intent == crate::plan::ExecutionIntent::ReadOnly {
+            // A read-only Worker is the source-only rule's canonical exception.
+            // Validate canonical as a checkout, but do not treat it as a lane.
+            verify_worker_lane(
+                &canonical_cwd,
+                &canonical_cwd,
+                None,
+                None,
+                LaneProtection::Waived,
+            )
             .map_err(checkout_required)?;
-        Some(resolve_dispatch_lane(
-            explicit_cwd.as_deref(),
-            &canonical_cwd,
-            &detail.task.lane,
-            lane_protection,
-        )?)
+            Some(lane_resolution::DispatchLaneResolution {
+                spawn_cwd: canonical_cwd.clone(),
+                existing: None,
+            })
+        } else {
+            let workspace_cwd = {
+                let mux = svc.mux.read();
+                let workspace_id = owned_str(p, "workspace_id");
+                workspace_id
+                    .as_deref()
+                    .and_then(|id| mux.get_workspace(id))
+                    .and_then(|workspace| workspace.cwd.clone())
+                    .or_else(|| Some(canonical_cwd.clone()))
+            };
+            let caller_cwd = {
+                let mux = svc.mux.read();
+                caller_tab_id
+                    .as_deref()
+                    .and_then(|tab_id| mux.get_tab(tab_id))
+                    .and_then(|tab| tab.cwd.clone())
+            };
+            Some(resolve_dispatch_lane(
+                explicit_cwd.as_deref(),
+                workspace_cwd.as_deref(),
+                caller_cwd.as_deref(),
+                &detail.task.lane,
+                lane_protection,
+            )?)
+        }
     } else {
         None
     };
@@ -876,17 +937,19 @@ pub(super) fn dispatch(
     };
 
     let lane_label = format!("{plan_id}-{task_id}");
-    let provisioned_lane = if requires_repository
-        && lane_resolution
-            .as_ref()
-            .is_some_and(|resolution| resolution.existing.is_none())
-    {
+    let provisioned_lane = if should_provision_worker_lane(
+        requires_repository,
+        &execution_intent,
+        lane_resolution.as_ref(),
+    ) {
         svc.provision_worker_lane_for_spawn(&mut spawn_params, &lane_label)
             .map_err(|error| dispatch_failed("lane_provision", error))?
     } else {
         None
     };
-    let initial_provenance = if requires_repository {
+    let initial_provenance = if execution_intent == crate::plan::ExecutionIntent::Mutating
+        && requires_repository
+    {
         match provisioned_lane.as_ref() {
             Some(lane) => lane.verify(),
             None => lane_resolution
@@ -945,7 +1008,6 @@ pub(super) fn dispatch(
     // Team identity rides the same committed value as the isolated lane, so no
     // persisted state carries a workspace without the worktree that isolates it.
     let starting_lane = atomic_lane_commitment(&starting_lane);
-    let nudges = dispatch_safety_nudges(&plan_id, &task_id, &starting_lane);
     let reserved_attempt_id = crate::plan::ids::short_id("attempt");
     spawn_params.task_launch_authority = Some(task_launch_authority_for_dispatch(
         &plan_id,
@@ -1088,7 +1150,6 @@ pub(super) fn dispatch(
         }
     }
     apply_dispatch_starting_contract(&mut result, &tab_id, &spawn);
-    apply_safety_nudges(&mut result, &nudges);
     if !warnings.is_empty() {
         result["warnings"] = json!(warnings);
     }

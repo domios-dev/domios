@@ -551,12 +551,12 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   }, [guardedInvoke]);
 
   const closeWorkspace = useCallback(
-    (id: string) => {
+    (id: string, force = false) => {
       const ws = stateRef.current.workspaces.find((w) => w.id === id);
       const tabIds = ws ? [...ws.tabs] : [];
       dispatch({ type: "CLOSE_WORKSPACE", id });
       // On rejection the workspace still lives — drop its tombstones and restore.
-      guardedInvoke("mux_close_workspace", { workspaceId: id })
+      guardedInvoke("mux_close_workspace", { workspaceId: id, force })
         .then(() => refreshFromBackend())
         .catch(() => {
           dispatch({ type: "REMOVE_PENDING_CLOSE", tabIds });

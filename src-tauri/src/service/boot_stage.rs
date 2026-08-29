@@ -112,6 +112,7 @@ impl ServiceContext {
                 "reason": reason,
             }),
         );
+        self.emit_session_binding_state(tab_id);
         if stage == BootStage::AgentReady {
             // Sealing transition: this is the only place an operation becomes
             // restorable, and only if provider + session already committed.

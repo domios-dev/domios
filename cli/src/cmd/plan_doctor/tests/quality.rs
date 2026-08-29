@@ -756,7 +756,7 @@ confirming that every relevant surface looks correct across the whole flow befor
         "{}",
         finding.detail
     );
-    for token in crate::cmd::test_plan::TEST_PLAN_COMMAND_TOKENS {
+    for token in crate::cmd::test_plan::TEST_PLAN_COMMAND_RUNNERS {
         assert!(finding.detail.contains(token), "{}", finding.detail);
     }
 }
@@ -991,6 +991,56 @@ fn executor_role_required_preexisting_roleless_tasks_are_reported_not_filled() {
             .is_none_or(str::is_empty),
         "stored value changed: {stored:?}"
     );
+}
+
+#[test]
+fn role_guidance_contract_doctor_warns_on_duplicates_without_blocking_similar_guidance() {
+    let plan_with = |second_guidance: &str| {
+        json!({
+            "id": "pl_1",
+            "title": "Plan",
+            "status": "active",
+            "mode": "execution",
+            "goal": {"vector": "ship"},
+            "primary_spec_id": "sp_1",
+            "sections": [{"id": "sec_1", "title": "Work", "body": "WHAT/WHY"}],
+            "tasks": [
+                {
+                    "id": "task_a", "name": "A", "type": "planning", "status": "pending",
+                    "section_ids": ["sec_1"], "body": "A", "acceptance_criteria": ["A"],
+                    "test_plan": "A", "correctness": "A", "role_guidance": "shared-guidance"
+                },
+                {
+                    "id": "task_b", "name": "B", "type": "planning", "status": "pending",
+                    "section_ids": ["sec_1"], "body": "B", "acceptance_criteria": ["B"],
+                    "test_plan": "B", "correctness": "B", "role_guidance": second_guidance
+                }
+            ]
+        })
+    };
+
+    let duplicate = inspect_plan(
+        Path::new("plan.yaml"),
+        &plan_with("shared-guidance"),
+        "quality",
+    );
+    let warnings = duplicate
+        .iter()
+        .filter(|finding| finding.kind == "duplicate_role_guidance")
+        .collect::<Vec<_>>();
+    assert_eq!(warnings.len(), 1);
+    assert_eq!(warnings[0].severity, "warning");
+    assert!(!APPROVAL_BLOCKING_WARNINGS.contains(&"duplicate_role_guidance"));
+    assert!(!duplicate.iter().any(|finding| finding.severity == "error"));
+
+    let similar = inspect_plan(
+        Path::new("plan.yaml"),
+        &plan_with("shared-guidance with a distinct task boundary"),
+        "quality",
+    );
+    assert!(!similar
+        .iter()
+        .any(|finding| finding.kind == "duplicate_role_guidance"));
 }
 
 fn roleless_task_plan() -> Value {

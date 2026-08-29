@@ -63,7 +63,23 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
   stub.muxDelayMs = 500;
   let peerId: string | undefined;
   const selfWorkspaceName = `${stub.instanceName}-self-host`;
-  let selfWorkspaceId: string | undefined;
+
+  const removeSelfWorkspaces = async () => {
+    const matchingWorkspaces = (await api.workspaces()).filter(
+      (workspace) => workspace.name === selfWorkspaceName,
+    );
+    for (const workspace of matchingWorkspaces) {
+      await api.closeWorkspace(workspace.id);
+    }
+    const remainingWorkspaces = (await api.workspaces()).filter(
+      (workspace) => workspace.name === selfWorkspaceName,
+    );
+    if (remainingWorkspaces.length > 0) {
+      throw new Error(
+        `workspace cleanup left ${remainingWorkspaces.length} ${selfWorkspaceName} record(s): ${remainingWorkspaces.map((workspace) => workspace.id).join(", ")}`,
+      );
+    }
+  };
 
   // before its cleanup — drop them so selectors stay unambiguous.
   const existing = await api.get<{ paired: { instance_id: string; instance_name: string }[] }>(
@@ -74,10 +90,10 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
       await api.post(`/mesh/peers/disconnect/${p.instance_id}`).catch(() => {});
     }
   }
+  await removeSelfWorkspaces();
 
   try {
     await api.createWorkspace(selfWorkspaceName);
-    selfWorkspaceId = (await api.workspaces()).find((w) => w.name === selfWorkspaceName)?.id;
     // has every field it expects when pointed at the stub.
     stub.configPayload = await api.get("/config");
     await stub.start("happy");
@@ -175,8 +191,11 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
     await page.context().close();
   } finally {
     if (peerId) await api.post(`/mesh/peers/disconnect/${peerId}`).catch(() => {});
-    if (selfWorkspaceId) await api.closeWorkspace(selfWorkspaceId).catch(() => {});
-    await stub.stop();
+    try {
+      await removeSelfWorkspaces();
+    } finally {
+      await stub.stop();
+    }
   }
 });
 
@@ -470,16 +489,19 @@ test("@golden web mobile: hamburger reopens the dismissed sidebar overlay", asyn
     await page.goto(`${WEB_URL}#token=${readDevToken()}`, { waitUntil: "domcontentloaded" });
     // only way in, so its absence bricks mobile navigation.
     const burger = page.locator('[data-testid="web-sidebar-open"]');
+    const workspaceCard = page.locator(`[data-testid="workspace-card"][data-workspace-id="${workspaceId}"]`);
     await expect(burger).toBeVisible({ timeout: 20_000 });
     await burger.click();
     await expect(page.locator('[data-testid="peer-picker-button"]')).toBeVisible({ timeout: 10_000 });
     await expect(
-      page.locator(`[data-testid="workspace-item"][data-workspace-name="${workspaceName}"]`),
+      workspaceCard.getByRole("button", { name: `Select workspace ${workspaceName}`, exact: true }),
       "seeded ordinary workspace did not render as a sidebar card",
     ).toBeVisible({ timeout: 10_000 });
     // Tapping the backdrop dismisses; the hamburger must come back.
     await page.mouse.click(370, 400);
     await expect(burger).toBeVisible({ timeout: 10_000 });
+    await burger.click();
+    await expect(page.locator(".ct-sidebar-drawer.is-open")).toBeVisible({ timeout: 10_000 });
   } finally {
     await page.context().close();
     if (workspaceId) await api.closeWorkspace(workspaceId).catch(() => {});
@@ -547,12 +569,15 @@ test("@golden close sync: web close updates the desktop window, desktop close up
 
 // ── chat view in the browser — the mirror's core demo path ──────────
 
-test("@golden web chat: a live assistant reply streams in AND history survives a reload", async ({ api, webBrowser, spawnAgent }) => {
-  test.setTimeout(300_000);
+test("@stub web chat: an assistant reply streams in and history survives a reload", async ({ api, webBrowser, spawnAgent }) => {
+  test.setTimeout(90_000);
+  test.skip(
+    !(await isStubTransportActive(api)),
+    "requires CODETERM_STUB_AGENT_CMD; real providers are forbidden",
+  );
 
   const spawned = await spawnAgent({
     agent: "claude",
-    model: "sonnet",
     title: "pw-web-chat",
     skip_permissions: true,
     activate: true,
@@ -601,7 +626,7 @@ test("@golden web chat: a live assistant reply streams in AND history survives a
       .locator('[data-testid="chat-message"][data-message-role="assistant"]')
       .filter({ hasText: marker });
     const sendError = tab.locator('[data-testid="chat-composer-error"]');
-    await expect(reply.or(sendError).first()).toBeVisible({ timeout: 240_000 });
+    await expect(reply.or(sendError).first()).toBeVisible({ timeout: 30_000 });
     if (await sendError.isVisible()) {
       throw new Error(`composer send failed: ${await sendError.textContent()}`);
     }

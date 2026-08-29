@@ -7,14 +7,24 @@ const STATUS_COLORS: Record<TabStatus, string> = {
   Dead: "var(--ct-red, #f85149)",
 };
 
-export function StatusDot({ status, animate }: { status: TabStatus | null; animate?: boolean }) {
+export function StatusDot({
+  status,
+  animate,
+  label = status ?? undefined,
+}: {
+  status: TabStatus | null;
+  animate?: boolean;
+  label?: string;
+}) {
   if (!status || status === "Idle") return null;
   const color = STATUS_COLORS[status];
   return (
     <span
+      role="img"
+      aria-label={label}
       className={`inline-block w-2 h-2 rounded-full shrink-0 ${animate && status === "Working" ? "animate-pulse" : ""}`}
       style={{ backgroundColor: color }}
-      title={status}
+      title={label}
     />
   );
 }

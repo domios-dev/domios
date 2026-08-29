@@ -155,7 +155,7 @@ Stored in Bitwarden vault (retrieve via `codeterm mem secret get --name <slug>` 
   ```
   Note the env var is `APPLE_APP_SPECIFIC_PASSWORD`, NOT `APPLE_PASSWORD`.
 - `gh` logged in as `rollacode`: `gh auth status`.
-- Windows builder mesh peer paired and online: `codeterm mesh peers`. Default = **BLACKSTAR** (Windows 11, has its own minisign key copy since 2026-05-18, workspace at `C:\Developer\codeterm`). Fallback = **ROG** (primary workstation, Windows 11, `100.125.250.76`, codeterm workspace at `C:\Users\amigo\Developer\codeterm`, workspace id `28fa3d8d`).
+- Windows builder mesh peer paired and online: `codeterm mesh peers`. Pick the Windows builder from `codeterm mesh peers`; it needs its own minisign key copy and a codeterm workspace checkout. Resolve its address, user and workspace id at run time rather than recording them here.
 - **Windows builder prereqs** (verify on the chosen peer before invoking `win-release.sh`):
   - `gh auth status` shows `rollacode (keyring)` as **valid**, not just `r0llac0de (work)` as the active account. The work account has happened to retain push access to `rollacode/codeterm` (so uploads can succeed even when rollacode keyring is stale), but this is fragile — refresh via `gh auth login` if rollacode is invalid. *(v1.2.1 caught: rollacode keyring expired silently; r0llac0de was the actual writer.)*
   - `node --version` ≥ 22.12 (Vite 8 hard requirement). If lower, `nvm use 22.22.0` (or whichever 22.12+ is installed). nvm-windows shim is usually not on PATH by default — prepend the version dir manually if `nvm use` doesn't work.

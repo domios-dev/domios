@@ -233,7 +233,7 @@ const EMPTY_REASON_NO_MATCH_FOR_FILTERS: &str = "no_match_for_filters";
 
 /// Renders the daemon's verdict verbatim. The CLI cannot resolve project
 /// identity — a linked worktree is a distinct directory but the same project.
-fn render_empty_reason(reason: &Value) -> Option<String> {
+pub(crate) fn render_empty_reason(reason: &Value) -> Option<String> {
     let field = |key: &str| reason.get(key).and_then(Value::as_str).unwrap_or("?");
     match reason.get("kind").and_then(Value::as_str)? {
         EMPTY_REASON_PLAN_NOT_FOUND => Some(format!("Plan {} was not found.", field("plan_id"))),
@@ -390,7 +390,8 @@ pub(super) fn run_task(
                     "--executor-role names who executes this task and cannot be blank".to_string(),
                 );
             }
-            let role_guidance_text = resolve_text(role_guidance, role_guidance_file)?;
+            let role_guidance_text =
+                super::resolve_role_guidance(role_guidance, role_guidance_file)?;
             let intent_text = resolve_text(intent, intent_file)?;
             let qa_plan_text = resolve_text(qa_plan, qa_plan_file)?;
             let test_plan = resolve_text(test_plan, test_plan_file)?;

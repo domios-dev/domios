@@ -219,6 +219,15 @@ fn host_api_v2_gating_by_allowlist() {
 }
 
 #[test]
+fn diagnostics_that_speak_denial_keeps_calling_plugin_identity() {
+    use crate::js_runtime::manifest::PermissionsConfig;
+    let sandbox = PluginSandbox::restricted(vec![], vec![])
+        .with_identity_and_perms("culprit-plugin", &PermissionsConfig::default());
+    assert_eq!(sandbox.plugin_id(), "culprit-plugin");
+    assert!(!sandbox.can_exec("ls"));
+}
+
+#[test]
 fn can_exec_accepts_full_path_by_basename() {
     use crate::js_runtime::manifest::{PermissionsConfig, SubprocessPermission};
     let perms = PermissionsConfig {
@@ -232,9 +241,9 @@ fn can_exec_accepts_full_path_by_basename() {
 
     assert!(sb.can_exec("ffmpeg"));
     assert!(sb.can_exec("whisper-cli"));
-    assert!(sb.can_exec("/Users/kandrey/.codeterm/transcriber/bin/ffmpeg"));
+    assert!(sb.can_exec("/Users/user/.codeterm/transcriber/bin/ffmpeg"));
     assert!(sb.can_exec("/opt/homebrew/bin/ffmpeg"));
-    assert!(sb.can_exec("/Users/kandrey/.codeterm/transcriber/bin/whisper-cli"));
+    assert!(sb.can_exec("/Users/user/.codeterm/transcriber/bin/whisper-cli"));
     assert!(!sb.can_exec("rm"));
     assert!(!sb.can_exec("/bin/rm"));
     assert!(!sb.can_exec("/usr/bin/ffmpeg-evil"));

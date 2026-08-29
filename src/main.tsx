@@ -5,6 +5,7 @@ import { WebGate } from "./components/WebGate/WebGate";
 import { isMissionControlPrototypeRoute, MissionControlPrototype } from "./components/Canvas/missionControl";
 import { loadBundledPlugins } from "./lib/plugins/loader";
 import { installToolOutputCardHarness } from "./components/AgentRun/ToolOutputCard.browserHarness";
+import { installAgentStateIndicatorHarness } from "./components/Terminal/AgentStateIndicator.browserHarness";
 import {
   configureHtmlFileLoader,
   configureLocalArtifactLoader,
@@ -22,6 +23,7 @@ const missionControlPrototype = isMissionControlPrototypeRoute();
 const isGalleryRoute = new URLSearchParams(window.location.search).get("prototype") === "gallery";
 
 installToolOutputCardHarness();
+installAgentStateIndicatorHarness();
 installInboundReportCardHarness(isCodeTermFrontendTestMode());
 installCodeTermTestChatHandle();
 configureHtmlFileLoader((path) => invoke<string>("read_html_preview_file", { path }));

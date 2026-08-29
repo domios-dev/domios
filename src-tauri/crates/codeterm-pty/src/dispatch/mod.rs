@@ -30,7 +30,12 @@ pub trait CommandPort: Send + Sync {
         activate: bool,
     ) -> crate::multiplexer::state::WorkspaceInfo;
     fn rename_workspace(&self, ws_id: &str, name: &str) -> Result<(), String>;
-    fn close_workspace_guarded(&self, caller: Option<&str>, ws_id: &str) -> Result<(), String>;
+    fn close_workspace_guarded(
+        &self,
+        caller: Option<&str>,
+        ws_id: &str,
+        force: bool,
+    ) -> Result<(), String>;
     fn list_workspaces(&self) -> Vec<crate::multiplexer::state::WorkspaceInfo>;
     fn list_recently_closed(&self, ws_id: &str) -> Vec<crate::multiplexer::types::ClosedTab>;
     fn reopen_closed_tab(&self, ws_id: &str, index: Option<usize>) -> Result<String, String>;
@@ -130,11 +135,13 @@ pub enum Command {
     WorkspaceRename { workspace_id: String, name: String },
 
     /// Close a workspace and kill all of its PTYs. `caller_tab_id` refuses a
-    /// coordinator closing the workspace it runs in.
+    /// coordinator closing the workspace it runs in; `force` acknowledges any agent tabs.
     WorkspaceClose {
         workspace_id: String,
         #[serde(default)]
         caller_tab_id: Option<String>,
+        #[serde(default)]
+        force: bool,
     },
 
     /// List all workspaces with their metadata.
@@ -242,7 +249,8 @@ pub fn dispatch(cmd: &Command, ctx: &dyn CommandPort) -> Result<CommandResult, S
         Command::WorkspaceClose {
             workspace_id,
             caller_tab_id,
-        } => cmd_workspace_close(ctx, workspace_id, caller_tab_id.as_deref()),
+            force,
+        } => cmd_workspace_close(ctx, workspace_id, caller_tab_id.as_deref(), *force),
         Command::WorkspaceList => cmd_workspace_list(ctx),
         Command::WorkspaceRecentlyClosed { workspace_id } => {
             cmd_workspace_recently_closed(ctx, workspace_id)
@@ -400,7 +408,8 @@ pub(crate) fn build_tab_list_json(
         .collect()
 }
 
-pub(crate) fn build_tab_summary_json(
+/// Build compact tab summaries using the same scope rules as REST and socket callers.
+pub fn build_tab_summary_json(
     snapshot: &crate::multiplexer::state::MultiplexerSnapshot,
     workspace_id: Option<&str>,
     caller_tab_id: Option<&str>,
@@ -572,8 +581,9 @@ fn cmd_workspace_close(
     ctx: &dyn CommandPort,
     workspace_id: &str,
     caller_tab_id: Option<&str>,
+    force: bool,
 ) -> Result<CommandResult, String> {
-    ctx.close_workspace_guarded(caller_tab_id, workspace_id)?;
+    ctx.close_workspace_guarded(caller_tab_id, workspace_id, force)?;
     Ok(CommandResult::Json(serde_json::json!({"ok": true})))
 }
 

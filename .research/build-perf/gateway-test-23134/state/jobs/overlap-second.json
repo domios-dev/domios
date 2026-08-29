@@ -1,0 +1,22 @@
+{
+  "schema": 2,
+  "job_id": "overlap-second",
+  "job": "gateway-fake",
+  "command": "gateway-fake overlap-second 0.5 success",
+  "owner": "owner-b",
+  "owner_pid": 23302,
+  "owner_start_token": "239724072",
+  "owner_process_command": "bash ./build.sh gateway-fake overlap-second 0.5 success ",
+  "worktree": "worktree-b",
+  "source_sha": "e52ae156970de7f406b1c8c7e37fcbaba23efc7b",
+  "state": "failed",
+  "queue_key": "1785567191978-0000023302-overlap-second",
+  "queue_position": null,
+  "queued_at": "2026-08-01T06:53:12Z",
+  "started_at": null,
+  "ended_at": "2026-08-01T06:53:16Z",
+  "exit_code": 75,
+  "command_exit_code": null,
+  "outcome": "command_failed",
+  "log_path": "D:/Developer/codeterm/.research/build-perf/gateway-test-23134/state/jobs/overlap-second.log"
+}

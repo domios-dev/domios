@@ -18,13 +18,13 @@ fn peer_api_url_skips_loopback_addresses() {
         "api_port": 7685,
         "addresses": [
             {"ip": "127.0.0.1", "is_tailscale": false},
-            {"ip": "100.84.159.37", "is_tailscale": true}
+            {"ip": "100.100.100.100", "is_tailscale": true}
         ]
     });
 
     assert_eq!(
         super::relay::peer_api_url(&peer).as_deref(),
-        Some("http://100.84.159.37:7685")
+        Some("http://100.100.100.100:7685")
     );
 }
 
@@ -40,7 +40,7 @@ fn tailscale_hint_fires_only_for_tailscale_addresses() {
         "ts.net host"
     );
     assert!(
-        hint("http://100.84.159.37:7685").is_some(),
+        hint("http://100.100.100.100:7685").is_some(),
         "CGNAT with port"
     );
     assert!(
@@ -377,7 +377,7 @@ fn mesh_peer_set_addr_serializes_body_with_port() {
         action: MeshAction::Peer {
             action: MeshPeerAction::SetAddr {
                 peer: "BLACKSTAR".into(),
-                addr: "100.84.159.37:7685".into(),
+                addr: "100.100.100.100:7685".into(),
             },
         },
     });
@@ -385,7 +385,7 @@ fn mesh_peer_set_addr_serializes_body_with_port() {
     assert_eq!(p, "/api/mesh/peers/BLACKSTAR/addr");
     let body = b.expect("body");
     let v: serde_json::Value = serde_json::from_str(&body).unwrap();
-    assert_eq!(v["ip"], "100.84.159.37");
+    assert_eq!(v["ip"], "100.100.100.100");
     assert_eq!(v["port"], 7685);
 }
 
@@ -614,6 +614,23 @@ fn tab_list_and_inspect_relay_compact_scope_and_explicit_detail_ids() {
     };
     let (_, path, _) = cli_command_to_api(&lifecycle);
     assert_eq!(path, "/api/tabs/inspect?tab_ids=tab_1&lifecycle=true");
+}
+
+#[test]
+fn explicit_address_scope_mesh_all_workspaces_reaches_every_peer_workspace() {
+    let command = Commands::Tab {
+        action: TabAction::List {
+            workspace: None,
+            all_workspaces: true,
+            agents: false,
+        },
+    };
+
+    let (method, path, body) = cli_command_to_api(&command);
+
+    assert_eq!(method, "GET");
+    assert_eq!(path, "/api/tabs?agents=false&all_workspaces=true");
+    assert!(body.is_none());
 }
 
 #[test]

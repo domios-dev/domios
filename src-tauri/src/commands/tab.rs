@@ -2,6 +2,15 @@ use crate::multiplexer::commands::MuxState;
 use crate::service::ServiceState;
 use crate::ScreenStateHandle;
 
+#[tauri::command]
+pub(crate) fn session_binding_state(
+    svc: tauri::State<'_, ServiceState>,
+    tab_id: String,
+) -> Result<crate::service::SessionBindingState, String> {
+    svc.session_binding_state(&tab_id)
+        .ok_or_else(|| "Tab not found".to_string())
+}
+
 // NOTE: keep `RichMessage`/`SessionDelta` and `spawn_tailer`/`DeltaSink`
 // for future non-UI consumers. Frontend uses raw-text tailer + TS parser today.
 

@@ -70,7 +70,7 @@ pub struct ClassifyInput<'a> {
     pub status_bar_rows: StatusBarRows,
     /// Pre-detected picker question, if a picker is on screen.
     pub picker_question: Option<&'a str>,
-    /// Trimmed per-row screen text (text-question + ready-prompt fingerprints).
+    /// Trimmed per-row screen text (rate-limit notices + ready-prompt fingerprints).
     pub screen_lines: &'a [String],
     /// Recent screen tail (subtype fingerprints for a picker question).
     pub tail: &'a str,
@@ -81,8 +81,7 @@ pub struct ClassifyInput<'a> {
     /// Mechanical motion verdict (offline supplies the real kind; the live path
     /// passes `Still` and relies on `byte_idle_ms`).
     pub motion: Motion,
-    /// Current VT cursor visibility. Used only for parked terminal menus; normal
-    /// prose with numbered lists must not become a question.
+    /// Current VT cursor visibility.
     pub cursor_hidden: bool,
     /// Structural "input composer is ready" signal for full-screen TUI composers
     /// (e.g. opencode) whose idle prompt has no `❯`/`›`/`→` glyph: the VT cursor is
@@ -104,8 +103,8 @@ pub fn composer_cursor_ready(cursor_visible: bool, cursor_row: u16, rows: u16) -
 
 /// The 3-state classification core — the ONE place the verdict is decided.
 ///
-/// Order: picker question → structural working → parked terminal-menu question
-/// → text question → idle (quiet, settled, composer ready) → hold previous.
+/// Order: picker question → structural working → rate-limit notice → idle
+/// (quiet, settled, composer ready) → hold previous.
 pub fn classify_state(input: &ClassifyInput, previous: TabVerdict) -> TabVerdict {
     // 1. Structured picker (API/SSE) -> question. The only card source; reliable.
     if let Some(question) = input.picker_question {
@@ -141,7 +140,7 @@ pub fn classify_state(input: &ClassifyInput, previous: TabVerdict) -> TabVerdict
         };
     }
 
-    // menu parsing and prompt glyphs can false-fire on a single repaint frame.
+    // Prompt glyphs can false-fire on a single repaint frame.
     if previous.state == TimelineState::Working && input.semantic_idle_ms < WORKING_GRACE_MS {
         return TabVerdict {
             state: TimelineState::Working,
@@ -157,16 +156,7 @@ pub fn classify_state(input: &ClassifyInput, previous: TabVerdict) -> TabVerdict
         };
     }
 
-    if let Some(subtype) = classify_terminal_menu_question(input.screen_lines, input.cursor_hidden)
-    {
-        return TabVerdict {
-            state: TimelineState::Question,
-            subtype: Some(subtype),
-        };
-    }
-
-    //    strict phrasings. Nothing generic is inferred from raw console text.
-    if let Some(subtype) = classify_text_question(input.screen_lines) {
+    if let Some(subtype) = classify_rate_limit_notice(input.screen_lines) {
         return TabVerdict {
             state: TimelineState::Question,
             subtype: Some(subtype),
@@ -210,7 +200,7 @@ pub struct BoundarySignals {
     pub semantic_idle_ms: u64,
     pub picker_active: bool,
     pub picker_detected: bool,
-    pub text_question_detected: bool,
+    pub rate_limit_notice_detected: bool,
     pub ready_prompt: bool,
 }
 
@@ -281,7 +271,7 @@ pub fn render_signals_at(cast: &CastTimelineInput, at_ms: u64) -> BoundarySignal
 
     let signals = extractor.step(b"", at_ms);
     let picker = detect_picker(&extractor.attributed_screen());
-    let text_question = classify_text_question(&signals.screen.lines);
+    let rate_limit_notice = classify_rate_limit_notice(&signals.screen.lines);
     let verdict = classify_signals(
         &extractor,
         &signals,
@@ -298,7 +288,7 @@ pub fn render_signals_at(cast: &CastTimelineInput, at_ms: u64) -> BoundarySignal
         semantic_idle_ms: signals.quiescence.semantic_idle_ms,
         picker_active: signals.picker_active,
         picker_detected: picker.is_some(),
-        text_question_detected: text_question.is_some(),
+        rate_limit_notice_detected: rate_limit_notice.is_some(),
         ready_prompt: ready_prompt(&signals.screen.lines),
     }
 }
@@ -352,90 +342,6 @@ fn offline_picker_is_coherent(picker: &PickerDetection, signals: &StreamSignals)
     true
 }
 
-pub fn classify_terminal_menu_question(
-    screen_lines: &[String],
-    cursor_hidden: bool,
-) -> Option<QuestionSubtype> {
-    let mut selected = 0usize;
-    let mut numbered = 0usize;
-    let mut checkbox = 0usize;
-    for line in screen_lines {
-        let (marked, unmarked) = terminal_menu_payload(line);
-        if numbered_menu_line(unmarked) {
-            if marked {
-                selected += 1;
-            }
-            numbered += 1;
-        }
-        if checkbox_menu_line(unmarked) {
-            checkbox += 1;
-        }
-    }
-    if !cursor_hidden {
-        return None;
-    }
-    let has_choice_footer = choice_key_footer(screen_lines);
-    ((selected == 1 && numbered >= 2)
-        || (numbered >= 2 && has_choice_footer)
-        || (checkbox >= 2 && has_choice_footer))
-        .then_some(QuestionSubtype::Unknown)
-}
-
-fn terminal_menu_payload(line: &str) -> (bool, &str) {
-    let mut trimmed = line.trim_start();
-    if let Some(rest) = trimmed
-        .strip_prefix('│')
-        .or_else(|| trimmed.strip_prefix('┃'))
-    {
-        trimmed = rest.trim_start();
-    }
-    let marked = trimmed.starts_with('›') || trimmed.starts_with('❯');
-    if let Some(rest) = trimmed
-        .strip_prefix('›')
-        .or_else(|| trimmed.strip_prefix('❯'))
-    {
-        trimmed = rest.trim_start();
-    }
-    (marked, trimmed)
-}
-
-fn numbered_menu_line(line: &str) -> bool {
-    let line = line.trim_start();
-    let mut chars = line.chars().peekable();
-    let mut digits = 0usize;
-    while matches!(chars.peek(), Some(c) if c.is_ascii_digit()) {
-        digits += 1;
-        chars.next();
-    }
-    digits > 0 && matches!(chars.next(), Some('.'))
-}
-
-fn checkbox_menu_line(line: &str) -> bool {
-    let line = line.trim_start();
-    line.starts_with("[ ]")
-        || line.starts_with("[x]")
-        || line.starts_with("[X]")
-        || line.starts_with("( )")
-        || line.starts_with("(x)")
-        || line.starts_with("(X)")
-}
-
-fn choice_key_footer(screen_lines: &[String]) -> bool {
-    screen_lines.iter().rev().take(8).any(|line| {
-        let line = line.trim();
-        let lower = line.to_lowercase();
-        let has_navigation = line.contains('↑')
-            || line.contains('↓')
-            || line.contains('←')
-            || line.contains('→')
-            || lower.contains("space");
-        let has_submit = lower.contains("enter") && lower.contains("submit");
-        let has_escape =
-            lower.contains("esc") && (lower.contains("dismiss") || lower.contains("skip"));
-        has_navigation && has_submit && has_escape
-    })
-}
-
 fn classify_question_subtype(_tail: &str, question: &str) -> QuestionSubtype {
     let question_text = question.to_lowercase();
     // picker's tail often carries unrelated output ("failed", "error", "permissions:")
@@ -485,8 +391,7 @@ fn classify_question_subtype(_tail: &str, question: &str) -> QuestionSubtype {
     }
 }
 
-fn classify_text_question(screen_lines: &[String]) -> Option<QuestionSubtype> {
-    // with STRICT notice/prompt phrasings that do not occur in ordinary agent output.
+fn classify_rate_limit_notice(screen_lines: &[String]) -> Option<QuestionSubtype> {
     let text = screen_lines.join("\n").to_lowercase();
     if contains_any(
         &text,

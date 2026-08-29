@@ -1,6 +1,7 @@
 name: Docs source of truth
 
 on:
+  workflow_dispatch:
   pull_request:
     paths:
       - "docs/**"
@@ -10,6 +11,7 @@ on:
       - "AGENTS.md"
       - "scripts/check-*.sh"
       - "evals/**"
+      - ".github/workflows/docs-source-of-truth.yml"
   push:
     branches:
       - develop

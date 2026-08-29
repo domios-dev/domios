@@ -16,27 +16,45 @@ fn brief_opens_with_personality_line_when_set() {
 }
 
 #[test]
-fn brief_opens_with_role_guidance_before_title_and_body() {
+fn role_guidance_contract_delivery_reaches_the_composed_worker_context_first() {
+    let guidance_token = "rg_7d14a091_conditioning";
+    let body_token = "body_4a112f";
+    let criterion_token = "criterion_c29e03";
+    let test_plan_token = "test_plan_91be77";
     let t = task(json!({
         "id": "task_rg",
-        "name": "Stabilize flicker",
+        "name": "Delivery fixture",
         "type": "code",
         "status": "pending",
-        "personality": "Shannon",
-        "role_guidance": "You are a React/TypeScript perf engineer. RED LINE: assert the DOM end state.",
-        "body": "Fix the bounce in the thread view.",
+        "role_guidance": guidance_token,
+        "body": body_token,
+        "acceptance_criteria": [criterion_token],
+        "test_plan": test_plan_token,
     }));
     let brief = build_brief(&t, &[]);
-    let guidance =
-        "You are Shannon. You are a React/TypeScript perf engineer. RED LINE: assert the DOM end state.";
-    let guidance_pos = brief.find(guidance).expect("role guidance in brief");
-    let title_pos = brief.find("# Stabilize flicker").expect("title in brief");
-    let body_pos = brief
-        .find("Fix the bounce in the thread view.")
-        .expect("body in brief");
+    let params = crate::service::SpawnAgentParams {
+        role: Some("Worker".into()),
+        task: Some(brief),
+        ..Default::default()
+    };
+    let context =
+        crate::service::spawn_onboarding_task(&params).expect("worker launch context is composed");
+
+    let guidance_pos = context
+        .find(guidance_token)
+        .expect("supplied guidance arrives");
+    let body_pos = context.find(body_token).expect("supplied body arrives");
+    let criterion_pos = context
+        .find(criterion_token)
+        .expect("supplied criterion arrives");
+    let test_plan_pos = context
+        .find(test_plan_token)
+        .expect("supplied test plan arrives");
     assert_eq!(guidance_pos, 0);
-    assert!(guidance_pos < title_pos);
     assert!(guidance_pos < body_pos);
+    assert!(guidance_pos < criterion_pos);
+    assert!(guidance_pos < test_plan_pos);
+    assert_eq!(context.matches(guidance_token).count(), 1);
 }
 
 #[test]

@@ -229,7 +229,7 @@ test("Claude system-shaped user rows render neutral after normalization", async 
 
 test("Codex injected transcript rows render as collapsed neutral artifacts", async () => {
   const agentInstructions = [
-    "# AGENTS.md instructions for /Users/kandrey/Developer/codeterm-alpha",
+    "# AGENTS.md instructions for /Users/user/Developer/codeterm-alpha",
     "",
     "<INSTRUCTIONS>",
     "Full instructions visible only after expansion.",
@@ -364,9 +364,10 @@ test("commands, raw input, failures, and agent reports start collapsed", async (
   try {
     const cards = Array.from(host.querySelectorAll<HTMLElement>('[data-testid="chat-tool-call"]'));
     assert(cards.length === 4, "expected each operational tool card");
-    for (const card of cards) {
-      assert(card.querySelector('[aria-label="Expand tool details"]'), "operational tool activity should start collapsed");
-    }
+    assert(cards[0]?.querySelector('[aria-label="Show full command"]'), "command should start collapsed behind a named command disclosure");
+    assert(cards[1]?.querySelector('[aria-label="Expand tool details"]'), "raw operational input should start collapsed");
+    assert(cards[2]?.querySelector('[aria-label="Show full command"]'), "failed command should start collapsed behind a named command disclosure");
+    assert(cards[3]?.querySelector('[aria-label="Show full command"]'), "CodeTerm command should start collapsed behind a named command disclosure");
   } finally {
     await act(async () => root.unmount());
     host.remove();

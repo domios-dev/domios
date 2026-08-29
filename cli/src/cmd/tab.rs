@@ -429,7 +429,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             }
         }
         TabAction::Search { pattern } => {
-            let result = client.call("tab.list", None);
+            let result = fetch_search_tabs(client);
             match result {
                 Ok(value) => {
                     let arr = value.as_array().cloned().unwrap_or_default();
@@ -490,6 +490,54 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                 }
                 Err(e) => {
                     eprintln!("Status request failed: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        TabAction::Rebind { session_id, tab } => {
+            match tab.as_deref().map(classify_remote_tab_id) {
+                Some(RemoteTabTarget::Remote(peer, remote_tab)) => {
+                    let body = serde_json::json!({"session_id": session_id}).to_string();
+                    let path = format!(
+                        "/api/tabs/{}/session/rebind",
+                        urlencoding::encode(&remote_tab)
+                    );
+                    print_rebind_result(json, relay_tab_json(&peer, "POST", &path, Some(&body)));
+                    return;
+                }
+                Some(RemoteTabTarget::Invalid) => {
+                    exit_with_cli_error(json, &CliError::new(INVALID_REMOTE_TAB_ID));
+                }
+                _ => {}
+            }
+            let tab_id = resolve_tab(client, tab);
+            let (api_url, _) = read_api_config();
+            let api = match build_local_api() {
+                Ok(client) => client,
+                Err(error) => {
+                    eprintln!("Rebind failed: {error}");
+                    std::process::exit(1);
+                }
+            };
+            match api
+                .post(format!("{api_url}/api/tabs/{tab_id}/session/rebind"))
+                .json(&serde_json::json!({"session_id": session_id}))
+                .send()
+            {
+                Ok(response) => {
+                    let status = response.status();
+                    if !status.is_success() {
+                        let message = response.text().unwrap_or_default();
+                        eprintln!("Rebind failed: {message}");
+                        std::process::exit(1);
+                    }
+                    let value = response
+                        .json::<serde_json::Value>()
+                        .unwrap_or_else(|_| serde_json::json!({}));
+                    print_rebind_result(json, value);
+                }
+                Err(error) => {
+                    eprintln!("Rebind failed: {error}");
                     std::process::exit(1);
                 }
             }
@@ -595,6 +643,30 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
     }
 }
 
+fn print_rebind_result(json: bool, value: serde_json::Value) {
+    if json {
+        print_json(&value);
+        return;
+    }
+    let tab = value.get("tab_id").and_then(|v| v.as_str()).unwrap_or("-");
+    let found = value
+        .get("found_session_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("-");
+    let requested = value
+        .get("requested_session_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("-");
+    let changed = value
+        .get("changed")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    println!(
+        "Tab {tab}: found session {found}; requested session {requested}; {}",
+        if changed { "rebound" } else { "already bound" }
+    );
+}
+
 fn tab_rpc(
     client: &mut dyn RpcClient,
     method: &str,
@@ -661,6 +733,14 @@ fn tab_list_params(
     })
 }
 
+fn tab_search_params() -> serde_json::Value {
+    tab_list_params(None, true, false, None)
+}
+
+fn fetch_search_tabs(client: &mut dyn RpcClient) -> Result<serde_json::Value, String> {
+    client.call("tab.list", Some(tab_search_params()))
+}
+
 fn caller_workspace_id(client: &mut SocketClient, caller_tab_id: Option<&str>) -> Option<String> {
     let tab_id = caller_tab_id?.trim();
     if tab_id.is_empty() {
@@ -700,6 +780,7 @@ fn validate_user_tab_selectors(action: &TabAction) -> Result<(), String> {
         | TabAction::GetText { tab, .. }
         | TabAction::Exec { tab, .. }
         | TabAction::Status { tab }
+        | TabAction::Rebind { tab, .. }
         | TabAction::Stop { tab }
         | TabAction::Chat { tab, .. } => tab.as_deref().filter(|value| invalid(value)),
         TabAction::Capture { action } => match action {

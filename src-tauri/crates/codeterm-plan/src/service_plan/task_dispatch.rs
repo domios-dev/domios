@@ -458,6 +458,11 @@ impl PlanStore {
                 ));
             }
             lane.tab_id = Some(tab_id.to_string());
+            // Destination and cleanup are integration-owned metadata. They may be
+            // recorded after dispatch acceptance, so readiness must not roll them back.
+            lane.destination = task.lane.destination.clone();
+            lane.cleanup_status = task.lane.cleanup_status.clone();
+            lane.cleanup_hints = task.lane.cleanup_hints.clone();
             task.lane = normalize_lane_metadata(lane);
             let attempt = &mut task.execution_attempts[attempt_index];
             if attempt.executor_tab_id != tab_id
@@ -510,10 +515,6 @@ impl PlanStore {
                 || task.assigned_tab_id.as_deref() != Some(tab_id)
                 || attempt.session_id.as_deref() != Some(session_id)
                 || attempt.session_binding_nonce.as_deref() != Some(session_binding_nonce)
-                || attempt.worktree_path != task.lane.worktree_path
-                || attempt.branch != task.lane.branch
-                || attempt.base != task.lane.base
-                || attempt.destination != task.lane.destination
             {
                 return Err(Self::task_readback_error(
                     "task_dispatch_finish",

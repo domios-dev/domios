@@ -1,4 +1,4 @@
-kandrey@ROC-6W49K3GN ct-replay-cursor-provider_cli_question_probe_v1-zrku1i6t % bash /tmp/codeterm-spawn-5df30033-2182-4ada-9604-2abc9209bd36.sh
+user@ROC-6W49K3GN ct-replay-cursor-provider_cli_question_probe_v1-zrku1i6t % bash /tmp/codeterm-spawn-5df30033-2182-4ada-9604-2abc9209bd36.sh
   Cursor Agent
   v2026.06.19-20-24-33-653a7fb
   Use /config to customize Cursor settings and behavior.

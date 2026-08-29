@@ -43,6 +43,8 @@ import { useMeshPeerNameResolver } from "./useMeshPeerNameResolver";
 import { useAgentReportProjection } from "./agentReportProjection";
 import { messageTimeMs, normalizeEpochMs, placeOutboundReports } from "./outboundReportPlacement";
 import { ChatAskCard } from "../Notifications/ChatAskCard";
+import { useSessionBindingSurface } from "./useSessionBindingSurface";
+import { SessionBindingRecoveryForm } from "./SessionBindingRecoveryForm";
 
 interface Props {
   tabId: string;
@@ -134,6 +136,7 @@ export function TabSessionChat({
   const agentSessionId = tab?.agent_session_id ?? null;
   const currentPtyId = tab?.pty_id ?? null;
   const backendState = tab?.agent_state ?? null;
+  const sessionBindingSurface = useSessionBindingSurface(tabId, agentSessionId);
   const chatBacking = tab?.backing?.kind === "chat_backend" ? tab.backing : null;
   const effectiveChatBackend = chatBackend || chatBacking !== null;
   const watcherSpec = tab?.watcher ?? null;
@@ -221,8 +224,13 @@ export function TabSessionChat({
   }, [showLatest, rawFollowSentMessage]);
 
   const [answeredInteractiveIds, setAnsweredInteractiveIds] = useState<Set<string>>(new Set());
+  const [bindingRecoveryOpen, setBindingRecoveryOpen] = useState(false);
   // clears tab.pending_prompt shortly after on the next state poll.
   const [answeredPromptQuestion, setAnsweredPromptQuestion] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!sessionBindingSurface.showRecoveryAction) setBindingRecoveryOpen(false);
+  }, [sessionBindingSurface.showRecoveryAction]);
   const activePrompt = pendingPrompt && pendingPrompt.question !== answeredPromptQuestion ? pendingPrompt : null;
   const inlinePrompt = effectiveChatBackend ? activePrompt : null;
 
@@ -588,8 +596,11 @@ export function TabSessionChat({
         ),
       };
     }
+    if (sessionBindingSurface.agentState && liveAgentState.state !== "question") {
+      return sessionBindingSurface.agentState;
+    }
     return liveAgentState;
-  }, [bootSetupView.kind, chatChannelLoading, error, hasTranscript, liveAgentState, provider?.displayName, tab]);
+  }, [bootSetupView.kind, chatChannelLoading, error, hasTranscript, liveAgentState, provider?.displayName, sessionBindingSurface.agentState, tab]);
   const showEmptyState = setupView.kind === "none"
     && !chatLoading
     && renderedEnrichedMessages.length === 0
@@ -763,7 +774,17 @@ export function TabSessionChat({
           onStop={effectiveChatBackend || !currentPtyId ? undefined : handleStopAgent}
           onCancel={effectiveChatBackend || !currentPtyId ? undefined : handleStopAgent}
           onOpenTerminal={effectiveChatBackend ? undefined : onOpenTerminalFallback}
+          onRebind={sessionBindingSurface.showRecoveryAction
+            ? () => setBindingRecoveryOpen(true)
+            : undefined}
         />
+        {bindingRecoveryOpen && (
+          <SessionBindingRecoveryForm
+            tabId={tabId}
+            suggestedSessionId={sessionBindingSurface.rebindSessionId}
+            onClose={() => setBindingRecoveryOpen(false)}
+          />
+        )}
       </div>
       <ChatComposer
         tabId={tabId}

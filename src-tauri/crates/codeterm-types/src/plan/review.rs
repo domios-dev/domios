@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 pub enum ReviewVerdict {
     Accept,
     Bounce,
+    Hold,
 }
 
 /// Evidence attached to the owning implementation task by a read-only review

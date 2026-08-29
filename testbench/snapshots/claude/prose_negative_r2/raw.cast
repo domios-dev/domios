@@ -1,7 +1,7 @@
 {"version": 2, "width": 120, "height": 40, "timestamp": 1781997264}
 [0.038695375,"o","\u001b]633;P;Cwd=/private/var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/codeterm-snapshot-testbench\u0007"]
 [0.042683375,"o","\u001b]7;file://ROC-6W49K3GN/private/var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/codeterm-snapshot-testbench\u001b\\"]
-[0.046578583,"o","\r\u001b[0m\u001b[27m\u001b[24m\u001b[J\u001b]633;A\u0007kandrey@ROC-6W49K3GN codeterm-snapshot-testbench % \u001b]633;B\u0007\u001b[K\u001b[?2004h"]
+[0.046578583,"o","\r\u001b[0m\u001b[27m\u001b[24m\u001b[J\u001b]633;A\u0007user@ROC-6W49K3GN codeterm-snapshot-testbench % \u001b]633;B\u0007\u001b[K\u001b[?2004h"]
 [0.050740333,"o","b"]
 [0.054508,"o","\bbash /tmp/codeterm-spawn-a83d897c-834c-4af7-824f-a324546c7f84.sh\u001b[?2004l\r\r\n"]
 [0.08536,"o","\u001b]633;E;bash /tmp/codeterm-spawn-a83d897c-834c-4af7-824f-a324546c7f84.sh;\u0007"]

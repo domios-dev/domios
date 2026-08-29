@@ -594,7 +594,13 @@ mod tests {
             if v["done"].as_bool() == Some(true) {
                 return v;
             }
-            assert!(started.elapsed() < Duration::from_secs(5), "exec timed out");
+            // A bounded failure deadline, not a performance budget: a genuine
+            // hang still fails, while a loaded machine spawning a process no
+            // longer does. Five seconds was the latter and failed under verify.
+            assert!(
+                started.elapsed() < Duration::from_secs(60),
+                "exec timed out"
+            );
             std::thread::sleep(Duration::from_millis(10));
         }
     }
@@ -721,13 +727,11 @@ mod tests {
             "timeoutMs": 10000,
         });
 
-        let started = Instant::now();
+        // A deadlocked pipe cannot reach the three assertions below: it blocks
+        // until timeoutMs and comes back as an error with truncated output. That
+        // is the proof. Wall-clock is not — it measured the machine's load, and
+        // failed at 6.6s on a busy one while passing in 0.4s alone.
         let out: serde_json::Value = serde_json::from_str(&run(&opts.to_string())).unwrap();
-        assert!(
-            started.elapsed() < Duration::from_secs(5),
-            "drained slowly ({:?}) — pipe deadlock not fixed",
-            started.elapsed()
-        );
         assert!(out.get("error").is_none(), "unexpected error: {out}");
         assert_eq!(out["code"], 0);
         assert_eq!(out["stdout"].as_str().map(str::len), Some(200_000));

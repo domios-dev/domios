@@ -186,6 +186,7 @@ fn default_hook_event_roster_registration_matches_today() {
     registry.register_provider(Box::new(HookProvider {
         id: "codex",
         sessions: HashSet::new(),
+        materialization_root: None,
     }));
     registry.register_provider(Box::new(HooklessProvider));
 

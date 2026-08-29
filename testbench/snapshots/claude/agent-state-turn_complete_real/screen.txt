@@ -1,4 +1,4 @@
-kandrey@ROC-6W49K3GN rt3-capture % bash /tmp/codeterm-spawn-eaf876c2-3fdc-4f2c-89fb-cf4e603b5d4f.sh
+user@ROC-6W49K3GN rt3-capture % bash /tmp/codeterm-spawn-eaf876c2-3fdc-4f2c-89fb-cf4e603b5d4f.sh
 ╭─── Claude Code v2.1.183 ─────────────────────────────────────────────────────────────────────────────────────────────╮
 │                                                    │ Tips for getting started                                        │
 │                Welcome back Andrey!                │ Ask Claude to create a new app or clone a repository            │

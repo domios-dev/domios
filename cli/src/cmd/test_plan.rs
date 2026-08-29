@@ -1,8 +1,19 @@
 // Minimum length below which a test plan reads as an intention, not a scenario.
 pub const TEST_PLAN_MIN_CHARS: usize = 120;
 
-// A test plan naming none of these has no runnable oracle.
-pub const TEST_PLAN_COMMAND_TOKENS: [&str; 6] = ["`", "npx", "cargo", "codeterm", "bash", "curl"];
+pub const TEST_PLAN_COMMAND_RUNNERS: [&str; 11] = [
+    "npx",
+    "cargo",
+    "codeterm",
+    "bash",
+    "curl",
+    "npm",
+    "build.ps1",
+    "build.sh",
+    "pnpm",
+    "node",
+    "./build.sh",
+];
 
 // Prepended to the QA-claim output when the claimed task's test plan is vague.
 pub const TEST_PLAN_VAGUE_BANNER: &str =
@@ -19,16 +30,32 @@ pub fn test_plan_vague_reason(test_plan: &str) -> Option<String> {
             "too short ({char_count} chars, need at least {TEST_PLAN_MIN_CHARS})"
         ));
     }
-    if !TEST_PLAN_COMMAND_TOKENS
-        .iter()
-        .any(|token| trimmed.contains(token))
-    {
+    if !names_command_invocation(trimmed) {
         reasons.push(format!(
             "names no runnable command (expected one of: {})",
-            TEST_PLAN_COMMAND_TOKENS.join(", ")
+            TEST_PLAN_COMMAND_RUNNERS.join(", ")
         ));
     }
     (!reasons.is_empty()).then(|| reasons.join("; "))
+}
+
+fn names_command_invocation(test_plan: &str) -> bool {
+    test_plan
+        .split(['\n', ';', '`'])
+        .map(str::trim_start)
+        .map(|segment| {
+            segment
+                .strip_prefix("$ ")
+                .or_else(|| segment.strip_prefix("> "))
+                .unwrap_or(segment)
+        })
+        .any(|segment| {
+            TEST_PLAN_COMMAND_RUNNERS.iter().any(|runner| {
+                segment
+                    .strip_prefix(runner)
+                    .is_some_and(|rest| rest.is_empty() || rest.starts_with(char::is_whitespace))
+            })
+        })
 }
 
 pub fn test_plan_is_vague(test_plan: &str) -> bool {
@@ -75,15 +102,35 @@ resulting output and confirming that everything looks correct across all the rel
     }
 
     #[test]
-    fn reason_names_missing_command_criterion_and_lists_tokens() {
+    fn diagnostics_that_speak_vagueness_requires_command_position_not_substrings() {
         let wordy = "We will thoroughly verify the behavior by carefully inspecting the \
 resulting output and confirming that everything looks correct across all the relevant surfaces.";
         let reason = test_plan_vague_reason(wordy).unwrap();
         assert!(reason.contains("names no runnable command"), "{reason}");
-        for token in TEST_PLAN_COMMAND_TOKENS {
+        for token in TEST_PLAN_COMMAND_RUNNERS {
             assert!(reason.contains(token), "{reason}");
         }
         assert!(!reason.contains("too short"), "{reason}");
+    }
+
+    #[test]
+    fn diagnostics_that_speak_vagueness_accepts_real_repo_runners() {
+        let prefix = "This plan has enough detail to clear the length criterion while it describes the expected observable result. ";
+        assert!(test_plan_vague_reason(&format!(
+            "{prefix}`build.ps1 test-one app diagnostics_that_speak`"
+        ))
+        .is_none());
+        assert!(
+            test_plan_vague_reason(&format!("{prefix}`npm run test:unit -- webForks`")).is_none()
+        );
+        assert!(test_plan_vague_reason(&format!(
+            "{prefix}The frozen-zone grep mentions codeterm-pty, but it is not a command."
+        ))
+        .is_some());
+        assert!(test_plan_vague_reason(&format!(
+            "{prefix}A stray ` in prose is not an invocation."
+        ))
+        .is_some());
     }
 
     #[test]

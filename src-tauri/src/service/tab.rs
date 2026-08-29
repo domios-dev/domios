@@ -85,6 +85,7 @@ fn epoch_ms() -> u64 {
 impl ServiceContext {
     pub(crate) fn prepare_tab_close(&self, tab_id: &str) -> Result<(), String> {
         self.chat_registry.shutdown_tab(tab_id);
+        self.deferred_session_bindings.clear(tab_id);
 
         if let Some((plugin_id, session_id)) = self.tab_chat_backing(tab_id) {
             let _ = self.chatbackend_close(&plugin_id, &session_id);
@@ -434,6 +435,7 @@ impl ServiceContext {
                 })
                 .collect()
         };
+        let mut model_refreshes = Vec::with_capacity(restored.len());
         for (tab_id, agent_id, needs_session) in restored {
             if needs_session {
                 let mut mux = self.mux.write();
@@ -465,7 +467,15 @@ impl ServiceContext {
                 self.emit_state_changed();
             }
             self.kick_off_session_name_detection(&tab_id, &agent_id);
-            self.refresh_session_model_once(&tab_id, &agent_id);
+            model_refreshes.push((tab_id, agent_id));
+        }
+        let svc = self.clone();
+        if let Err(error) = spawn_startup_model_refresh(move || {
+            for (tab_id, agent_id) in model_refreshes {
+                svc.refresh_session_model_once(&tab_id, &agent_id);
+            }
+        }) {
+            log::warn!("[session-model] failed to start restored-tab refresh: {error}");
         }
         self.heal_recovery_state_if_ready();
         self.start_focused_tab_model_poller();
@@ -879,6 +889,14 @@ impl ServiceContext {
     }
 }
 
+fn spawn_startup_model_refresh(
+    task: impl FnOnce() + Send + 'static,
+) -> std::io::Result<std::thread::JoinHandle<()>> {
+    std::thread::Builder::new()
+        .name("startup-session-model-refresh".into())
+        .spawn(task)
+}
+
 fn models_match(requested: &str, actual: &str) -> bool {
     requested.trim().eq_ignore_ascii_case(actual.trim())
 }
@@ -1129,5 +1147,27 @@ mod model_identity_tests {
             "provider-a",
             "session-new"
         ));
+    }
+}
+
+#[cfg(test)]
+mod startup_model_refresh_tests {
+    use super::spawn_startup_model_refresh;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    #[test]
+    fn restored_model_detection_cannot_hold_the_startup_caller() {
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let worker = spawn_startup_model_refresh(move || {
+            started_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+        })
+        .unwrap();
+
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        release_tx.send(()).unwrap();
+        worker.join().unwrap();
     }
 }

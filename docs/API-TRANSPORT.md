@@ -129,7 +129,7 @@ exact command).
 | `workspace.create` | `{name}` | Create workspace |
 | `workspace.focus` | `{workspace_id}` | Focus workspace |
 | `workspace.rename` | `{workspace_id, name}` | Rename workspace |
-| `workspace.close` | `{workspace_id}` | Close workspace |
+| `workspace.close` | `{workspace_id, force?}` | Close workspace. Agent tabs require `force: true`. |
 | `workspace.recently_closed` | `{workspace_id}` | List recently-closed tab entries for a workspace. Returns `ClosedTab[]`. |
 | `workspace.reopen_closed` | `{workspace_id, index?}` | Reopen the nth recently-closed tab in a workspace (`index` 0 = most recent). Returns `TabInfo`. |
 | `workspace.reopen_closed_group` | `{group_id}` | Reopen a closed group by `group_id`. Returns `{workspace_id, tab_id, tab_id}`. |
@@ -237,4 +237,4 @@ exact command).
 
 For `team.rename` and `team.close`, omitted `caller_tab_id` is the trusted direct-user path on the local socket. `team.adopt_plan` requires a non-empty caller belonging to the destination Team as its Orchestrator or planner-profile Manager; missing callers, Workers, and foreign tabs are rejected before mutation. Adoption preserves the structured `team_already_has_active_plan` conflict when the Team already owns another active plan. Events are emitted only after persistence succeeds.
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->
