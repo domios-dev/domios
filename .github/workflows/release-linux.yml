@@ -8,9 +8,8 @@ name: release-linux
 #
 # The Mac (release.yml / build-all.sh) builds macOS + arm64 Linux; the ROG
 # (release-windows.yml) builds Windows; this workflow owns x86_64 Linux. The
-# same release-* tag fires all three, and each publishes its own per-platform
-# updater fragment then re-runs the merge — so whichever finishes last yields a
-# complete latest.json and no workflow can drop another's platform.
+# same release-* tag fires all three. Each platform mirrors its large assets
+# before its final fragment merge, so the last manifest writer sees all peers.
 #
 # glibc requirement: Ubuntu 24.04 (glibc 2.39). The pyke/ort prebuilt
 # onnxruntime static lib references symbols (e.g. __isoc23_strtoll) that only
@@ -326,7 +325,52 @@ jobs:
 
           ASSETS=("$DEB" "$APPIMAGE")
           [ -n "$UPDATER_BUNDLE" ] && ASSETS+=("$UPDATER_BUNDLE")
-          gh release upload "$TAG" "${ASSETS[@]}" "$MANIFEST" "$DEB_MANIFEST" --clobber --repo "$MIRROR_REPO"
+          gh release upload "$TAG" "${ASSETS[@]}" --clobber --repo "$MIRROR_REPO"
+
+      # Publish manifests only after the large asset mirror. The last platform
+      # writer then rebuilds from every fragment already eligible to publish.
+      - name: Reconcile published manifests after asset mirror
+        if: github.event_name == 'push' || inputs.mirror
+        env:
+          SOURCE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
+          TAG: ${{ steps.tag.outputs.name }}
+          SOURCE_REPO: ${{ github.repository }}
+          MIRROR_REPO: rollacode/codeterm-releases
+          MANIFEST: ${{ steps.channel.outputs.manifest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$MANIFEST" in
+            latest.json) DEB_MANIFEST="latest-deb.json" ;;
+            latest-rc.json) DEB_MANIFEST="latest-rc-deb.json" ;;
+            latest-nightly.json) DEB_MANIFEST="latest-nightly-deb.json" ;;
+            *) echo "::error::Unknown channel manifest $MANIFEST"; exit 1 ;;
+          esac
+
+          rm -rf _final_raw _final_merge _final_base _final_overlay _final_deb
+          mkdir -p _final_raw _final_merge _final_overlay _final_deb
+          export GH_TOKEN="$SOURCE_TOKEN"
+          gh release download "$TAG" --pattern 'updater-*.json' --dir _final_raw --repo "$SOURCE_REPO"
+          i=0
+          for f in _final_raw/updater-*.json; do
+            [ -f "$f" ] || continue
+            case "$(basename "$f")" in
+              *-deb.json) continue ;;
+            esac
+            d="_final_merge/frag-$i"; mkdir -p "$d"; cp "$f" "$d/latest.json"; i=$((i+1))
+          done
+          BASE_ARG=()
+          if gh release download "$TAG" --pattern "$MANIFEST" --dir _final_base --repo "$SOURCE_REPO" 2>/dev/null; then
+            [ -f "_final_base/$MANIFEST" ] && BASE_ARG=(--base "_final_base/$MANIFEST")
+          fi
+          cp "updater-${TARGET}.json" _final_overlay/
+          node scripts/merge-latest-json.js --in _final_merge --out "$MANIFEST" "${BASE_ARG[@]}" --overlay _final_overlay
+          gh release upload "$TAG" "$MANIFEST" --clobber --repo "$SOURCE_REPO"
+          gh release download "$TAG" --pattern "$DEB_MANIFEST" --dir _final_deb --repo "$SOURCE_REPO"
+
+          export GH_TOKEN="$MIRROR_TOKEN"
+          gh release upload "$TAG" "$MANIFEST" "_final_deb/$DEB_MANIFEST" --clobber --repo "$MIRROR_REPO"
 
       # A 200 says nothing about installability: verify every signature in the
       # published manifest against the bytes actually served.
