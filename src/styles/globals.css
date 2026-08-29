@@ -1997,6 +1997,28 @@ button,
   padding: 6px 12px 5px;
 }
 
+.sidebar-scroll-region {
+  scrollbar-color: color-mix(in srgb, var(--ct-muted) 52%, transparent) transparent;
+  scrollbar-width: thin;
+}
+
+.sidebar-scroll-region::-webkit-scrollbar {
+  width: 2px;
+  height: 0;
+}
+
+.sidebar-scroll-region::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--ct-muted) 52%, transparent);
+}
+
+.sidebar-scroll-region::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--ct-muted) 72%, transparent);
+}
+
+.sidebar-scroll-region::-webkit-scrollbar-button {
+  display: none;
+}
+
 .sidebar-general-section > .sidebar-structural-header {
   margin-top: 0;
   border-top: 0;
