@@ -456,6 +456,10 @@ fn recovery_authority_admits_a_moved_owner_session_but_not_a_foreign_tab() {
 }
 
 #[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
 fn task_authority_live_binding_orchestrator_can_close_after_session_move() {
     let harness = authority_fixture();
     let worker = live_tab(&harness.fixture, "worker-session", "worker-nonce");
@@ -502,6 +506,10 @@ fn task_authority_live_binding_orchestrator_can_close_after_session_move() {
 }
 
 #[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
 fn task_authority_live_binding_worker_can_close_after_session_move() {
     let harness = authority_fixture();
     let worker = live_tab(&harness.fixture, "worker-session", "worker-nonce");
@@ -549,6 +557,10 @@ fn task_authority_live_binding_worker_can_close_after_session_move() {
 }
 
 #[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
 fn task_authority_live_binding_stale_tab_is_refused_without_mutation() {
     let harness = authority_fixture();
     let worker = live_tab(&harness.fixture, "worker-session", "worker-nonce");
@@ -583,6 +595,10 @@ fn task_authority_live_binding_stale_tab_is_refused_without_mutation() {
 }
 
 #[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
 fn task_authority_live_binding_refusal_names_both_compared_identities() {
     let harness = authority_fixture();
     let worker = live_tab(&harness.fixture, "worker-session", "worker-nonce");
@@ -618,6 +634,10 @@ fn task_authority_live_binding_refusal_names_both_compared_identities() {
 }
 
 #[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
 fn task_authority_live_binding_plan_owner_methods_converge_after_session_move() {
     let harness = authority_fixture();
     let worker = live_tab(&harness.fixture, "worker-session", "worker-nonce");
@@ -650,6 +670,10 @@ fn task_authority_live_binding_plan_owner_methods_converge_after_session_move() 
 }
 
 #[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
 fn task_authority_live_binding_report_path_accepts_a_moved_worker_session() {
     let harness = authority_fixture();
     let worker = live_tab(&harness.fixture, "worker-session", "worker-nonce");
