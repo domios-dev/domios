@@ -10,9 +10,12 @@ mod cli_shim;
 mod conpty_host;
 mod frontend_ready;
 mod logging;
+mod progress;
 mod rest_api;
 mod servers;
 mod states;
+#[cfg(test)]
+mod stall_tests;
 mod window;
 
 pub(crate) use background::start_background_tasks;
@@ -25,6 +28,7 @@ pub(crate) use frontend_ready::{
     wait_for_frontend_ready_until,
 };
 pub(crate) use logging::setup_logging;
+pub(crate) use progress::StartupStep;
 pub(crate) use rest_api::{
     RestApiControl, RestApiControlState, RestApiRecovery, RestApiRuntimePolicy, RestApiStatus,
 };
