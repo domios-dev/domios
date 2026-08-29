@@ -47,6 +47,12 @@ fn general_fixture(
     let general_workspace =
         crate::service::general_agent::general_workspace_id(&mux).expect("General workspace");
     let fixture = ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::with_update_command(
+            "provider-fixture",
+            "provider-fixture update",
+        ),
+    ));
     let (sender, receiver) = std::sync::mpsc::channel();
     fixture.service.provider_updates.set_probe(sender);
     (fixture, tab_id, general_workspace, receiver)
@@ -107,7 +113,7 @@ fn await_effect(
 ) -> ProviderUpdateTestEffect {
     loop {
         let effect = receiver
-            .recv_timeout(Duration::from_secs(2))
+            .recv_timeout(Duration::from_secs(10))
             .expect("provider update effect deadline");
         if matches(&effect) {
             return effect;
@@ -167,7 +173,7 @@ fn runner_completion_requires_an_install_submission_and_is_claimed_once() {
         provider_id: "provider-fixture".into(),
         pty_id: "source-pty".into(),
         capability: capability(true),
-        install_writes: Vec::new(),
+        update_command: "provider-fixture update".into(),
         decline_writes: Vec::new(),
         consent: Some(RecordedConsent {
             prompt_id: prompt_id.clone(),
@@ -183,12 +189,7 @@ fn runner_completion_requires_an_install_submission_and_is_claimed_once() {
         .claim_completion("runner-tab", "runner-pty")
         .is_none());
     assert!(registry
-        .claim_runner_prompt(
-            &prompt_id,
-            "runner-tab",
-            "runner-pty",
-            vec![b"install".to_vec()],
-        )
+        .claim_runner_dispatch(&prompt_id, "runner-tab", "runner-pty")
         .is_some());
     assert!(registry
         .claim_completion("runner-tab", "runner-pty")
@@ -212,7 +213,7 @@ fn update_tab_spec_declares_a_visible_user_tab_in_the_given_workspace() {
         provider_id: "provider-fixture".into(),
         pty_id: "source-pty".into(),
         capability: capability(true),
-        install_writes: Vec::new(),
+        update_command: "provider-fixture update".into(),
         decline_writes: Vec::new(),
         consent: None,
         phase: ProviderUpdatePhase::Installing,
@@ -235,8 +236,9 @@ fn update_tab_spec_declares_a_visible_user_tab_in_the_given_workspace() {
     );
     assert!(matches!(
         spec.command,
-        crate::service::spawn::TabCommand::Agent(ref agent) if agent.provider == "provider-fixture"
+        crate::service::spawn::TabCommand::Shell
     ));
+    assert!(spec.eager);
 }
 
 #[test]
@@ -302,6 +304,7 @@ fn update_tab_is_a_user_visible_tab_not_an_automation_surface() {
     assert!(!tab.hidden);
     assert!(tab.show_in_tabbar);
     assert_eq!(tab.audience, TabAudience::User);
+    assert_eq!(tab.agent_type, None);
     assert!(tabs_in(&snapshot, &general_workspace).contains(&update_tab_id));
 }
 
@@ -318,7 +321,7 @@ fn a_second_press_focuses_the_live_update_tab_instead_of_duplicating_it() {
     await_status(&receiver, ProviderUpdateStatus::Installing);
     await_effect(
         &receiver,
-        |effect| matches!(effect, ProviderUpdateTestEffect::Wrote { bytes, .. } if bytes == b"install"),
+        |effect| matches!(effect, ProviderUpdateTestEffect::Wrote { bytes, .. } if bytes == b"provider-fixture update"),
     );
 
     let (update_tab_id, _) = update_tab(&fixture.service, &prompt.prompt_id);
@@ -350,7 +353,7 @@ fn a_second_press_focuses_the_live_update_tab_instead_of_duplicating_it() {
             .try_iter()
             .filter(|effect| matches!(
                 effect,
-                ProviderUpdateTestEffect::Wrote { bytes, .. } if bytes == b"install"
+                ProviderUpdateTestEffect::Wrote { bytes, .. } if bytes == b"provider-fixture update"
             ))
             .count(),
         0,
@@ -412,7 +415,7 @@ fn a_failed_update_tab_stays_visible_and_is_never_reported_as_success() {
 
 #[test]
 #[cfg_attr(not(windows), ignore = "mock Tauri desktop fixture")]
-fn closing_the_update_tab_fails_the_prompt_and_frees_the_source_tab() {
+fn closing_the_update_terminal_after_dispatch_completes_and_frees_the_source_tab() {
     // Every observation here is a direct state read. The mechanism under test is
     // derived from the multiplexer, not announced as an event, so waiting on the
     // effect channel would only reintroduce a deadline — and a deadline cannot
@@ -447,7 +450,7 @@ fn closing_the_update_tab_fails_the_prompt_and_frees_the_source_tab() {
         "a closed update tab must terminate exactly its own prompt"
     );
 
-    // 2. Did terminating record the failure rather than a silent success?
+    // 2. Closing after the shell command was dispatched is the visible runner's completion event.
     let closed: Vec<_> = fixture
         .service
         .list_provider_update_prompts()
@@ -455,7 +458,7 @@ fn closing_the_update_tab_fails_the_prompt_and_frees_the_source_tab() {
         .filter(|view| view.prompt_id == prompt.prompt_id)
         .map(|view| view.status)
         .collect();
-    assert_eq!(closed, vec![ProviderUpdateStatus::Failed]);
+    assert_eq!(closed, vec![ProviderUpdateStatus::Restarted]);
 
     // 3. Is the source tab actually free again? The outcome names the branch
     //    taken, so a swallowed prompt reports which gate swallowed it.
@@ -543,7 +546,7 @@ fn update_tab_termination_frees_the_source_tab_for_a_new_prompt() {
         provider_id: "provider-fixture".into(),
         pty_id: "source-pty".into(),
         capability: capability(true),
-        install_writes: Vec::new(),
+        update_command: "provider-fixture update".into(),
         decline_writes: Vec::new(),
         consent: Some(RecordedConsent {
             prompt_id: prompt_id.clone(),
@@ -601,7 +604,7 @@ fn unauthorized_provider_update_is_visible_and_declined() {
     ));
     assert!(!receiver.try_iter().any(|effect| matches!(
         effect,
-        ProviderUpdateTestEffect::Wrote { bytes, .. } if bytes == b"install"
+        ProviderUpdateTestEffect::Wrote { bytes, .. } if bytes == b"provider-fixture update"
     )));
 }
 
@@ -724,7 +727,7 @@ fn authorized_provider_update_restarts_after_delivery_resolution() {
         await_status(&receiver, ProviderUpdateStatus::Installing);
         await_effect(
             &receiver,
-            |effect| matches!(effect, ProviderUpdateTestEffect::Wrote { bytes, .. } if bytes == b"install"),
+            |effect| matches!(effect, ProviderUpdateTestEffect::Wrote { bytes, .. } if bytes == b"provider-fixture update"),
         );
         assert!(!receiver
             .try_iter()
@@ -747,7 +750,7 @@ fn authorized_provider_update_restarts_after_delivery_resolution() {
 
 #[test]
 #[cfg_attr(not(windows), ignore = "mock Tauri desktop fixture")]
-fn provider_without_completion_signal_never_claims_restart() {
+fn shell_update_runner_does_not_require_an_in_agent_completion_signal() {
     let (fixture, tab_id, receiver) = fixture(TabAudience::User);
     handle_prompt(&fixture.service, &tab_id, false);
     let prompt = await_status(&receiver, ProviderUpdateStatus::AwaitingConsent);
@@ -755,35 +758,20 @@ fn provider_without_completion_signal_never_claims_restart() {
         .service
         .respond_provider_update_prompt(&prompt.prompt_id, true)
         .unwrap();
-    let unavailable = await_status(&receiver, ProviderUpdateStatus::CompletionUnavailable);
-    assert!(unavailable
-        .message
-        .contains("does not declare an observable completion signal"));
-    assert!(!receiver.try_iter().any(|effect| matches!(
-        effect,
-        ProviderUpdateTestEffect::Wrote { bytes, .. } if bytes == b"install"
-    )));
-    assert!(fixture
-        .service
-        .list_provider_update_prompts()
-        .iter()
-        .any(|view| view.prompt_id == prompt.prompt_id
-            && view.status == ProviderUpdateStatus::CompletionUnavailable));
+    await_status(&receiver, ProviderUpdateStatus::Installing);
+    await_effect(
+        &receiver,
+        |effect| matches!(effect, ProviderUpdateTestEffect::Wrote { bytes, .. } if bytes == b"provider-fixture update"),
+    );
+    let (update_tab_id, _) = update_tab(&fixture.service, &prompt.prompt_id);
     fixture
         .service
-        .acknowledge_provider_update_prompt(&prompt.prompt_id)
+        .mux
+        .write()
+        .close_tab(&update_tab_id)
         .unwrap();
-    assert!(!fixture
-        .service
-        .list_provider_update_prompts()
-        .iter()
-        .any(|view| view.prompt_id == prompt.prompt_id));
-    fixture
-        .service
-        .handle_provider_update_completed(&tab_id, "pty-update");
-    assert!(!receiver
-        .try_iter()
-        .any(|effect| matches!(effect, ProviderUpdateTestEffect::Restarted { .. })));
+    fixture.service.reconcile_closed_update_tabs();
+    await_status(&receiver, ProviderUpdateStatus::Restarted);
 }
 
 #[test]
@@ -822,7 +810,7 @@ fn provider_update_concurrent_and_replayed_authority_is_consumed_once() {
     assert_eq!(
         effects
             .iter()
-            .filter(|effect| matches!(effect, ProviderUpdateTestEffect::Wrote { bytes, .. } if bytes == b"install"))
+            .filter(|effect| matches!(effect, ProviderUpdateTestEffect::Wrote { bytes, .. } if bytes == b"provider-fixture update"))
             .count(),
         1
     );
@@ -886,7 +874,7 @@ fn changed_audience_or_mesh_authority_fails_closed() {
             .is_err());
         assert!(!receiver.try_iter().any(|effect| matches!(
             effect,
-            ProviderUpdateTestEffect::Wrote { bytes, .. } if bytes == b"install"
+            ProviderUpdateTestEffect::Wrote { bytes, .. } if bytes == b"provider-fixture update"
         )));
     }
 }

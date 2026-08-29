@@ -271,11 +271,13 @@ pub(crate) fn create_notification_with_delivery(
                 actions.clone().unwrap_or_default(),
                 provenance.clone(),
             ) {
-                DedupAdmission::Added(id) => id,
+                DedupAdmission::Added(id) | DedupAdmission::Coalesced(id) => id,
                 DedupAdmission::Duplicate(id) => return id,
             }
         }
     };
+
+    let stored = store.lock().notification(&id).cloned();
 
     // The answer slot the store just built, so every surface renders the same
     // capture rather than deriving its own.
@@ -285,15 +287,19 @@ pub(crate) fn create_notification_with_delivery(
     let level = store.lock().level(&id);
     let mut payload = serde_json::json!({
         "id": id,
-        "title": title,
-        "body": body,
+        "title": stored.as_ref().map(|record| record.title.clone()).unwrap_or(title),
+        "body": stored.as_ref().and_then(|record| record.body.clone()).or(body),
         "severity": severity_str,
         "tab_id": provenance.tab_id.clone(),
         "workspace_id": provenance.workspace_id.clone(),
         "tab_title": provenance.tab_title.clone(),
         "peer_name": provenance.peer_name.clone(),
     });
-    if let Some(ref acts) = actions {
+    let emitted_actions = stored
+        .as_ref()
+        .and_then(|record| record.actions.clone())
+        .or(actions);
+    if let Some(ref acts) = emitted_actions {
         payload["actions"] = serde_json::to_value(acts).unwrap_or_default();
     }
     if let Some(ref slot) = answer {
@@ -326,6 +332,10 @@ pub(crate) fn create_notification_with_delivery(
 }
 
 impl ServiceContext {
+    fn notify_created(&self, payload: serde_json::Value) {
+        self.notify_event("notification-created", payload);
+    }
+
     /// Live-multiplexer lookup: a tab id only becomes provenance if the tab is
     /// still open, and its title and workspace come from the tab, not the caller.
     fn resolve_tab_provenance(&self, tab_id: &str) -> Option<NotificationProvenance> {
@@ -351,7 +361,10 @@ impl ServiceContext {
             command: DaemonCommand::RespondProviderUpdatePrompt,
             args: Some(serde_json::json!({ "promptId": prompt_id, "accept": accept })),
         };
-        let actions = vec![respond("Update", true), respond("Not now", false)];
+        let actions = vec![
+            respond(&format!("Update {provider_name}"), true),
+            respond(&format!("Not now — {provider_name}"), false),
+        ];
         create_notification_with_delivery(
             NotificationAdmission::ProviderUpdate {
                 prompt_id: prompt_id.clone(),
@@ -367,14 +380,25 @@ impl ServiceContext {
             |candidate| self.resolve_tab_provenance(candidate),
             PushDispatch::inert(),
             SurfaceDispatch::silent(),
-            |payload| self.notify_event("notification-created", payload),
+            |payload| self.notify_created(payload),
         )
     }
 
     pub(crate) fn resolve_provider_update_notification(&self, prompt_id: &str) {
-        let resolved = self.notif.lock().resolve_provider_update(prompt_id);
-        if let Some(id) = resolved {
-            self.notify_event("notification-cleared", serde_json::json!({ "id": id }));
+        let resolved = {
+            let mut store = self.notif.lock();
+            store.resolve_provider_update(prompt_id).map(|id| {
+                let remaining = store.notification(&id).cloned();
+                (id, remaining)
+            })
+        };
+        if let Some((id, remaining)) = resolved {
+            match remaining {
+                Some(notification) => {
+                    self.notify_created(serde_json::to_value(notification).unwrap_or_default())
+                }
+                None => self.notify_event("notification-cleared", serde_json::json!({ "id": id })),
+            }
         }
     }
 
@@ -485,7 +509,7 @@ impl ServiceContext {
                 },
             },
             surfaces,
-            |payload| self.notify_event("notification-created", payload),
+            |payload| self.notify_created(payload),
         );
         (id, unseen)
     }

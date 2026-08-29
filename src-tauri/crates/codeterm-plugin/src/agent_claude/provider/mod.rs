@@ -311,6 +311,10 @@ impl AgentProvider for ClaudeProvider {
         }
     }
 
+    fn update_command(&self, platform: &str) -> Option<String> {
+        matches!(platform, "macos" | "linux" | "windows").then(|| "claude update".to_string())
+    }
+
     fn available_models(&self) -> Vec<ModelInfo> {
         schemas::available_models()
     }

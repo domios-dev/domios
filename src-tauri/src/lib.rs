@@ -843,29 +843,7 @@ pub fn run() {
             drop(startup_step);
 
             let startup_step = startup::StartupStep::logged("restored plan loading");
-            // agent_type back already-set so no transition ever happens. Walk the restored tabs once at boot.
-            service_state.kick_off_pollers_for_existing_agents();
-            for cwd in service_state
-                .mux
-                .read()
-                .list_workspaces()
-                .into_iter()
-                .filter_map(|ws| ws.cwd)
-            {
-                if let Err(e) = service_state.ensure_plan_project_loaded(std::path::Path::new(&cwd))
-                {
-                    log::warn!("[plan] startup scan failed for {}: {}", cwd, e);
-                }
-            }
-            if let Err(e) = service_state.reconcile_dangling_team_plan_bindings(
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis() as u64,
-            ) {
-                log::warn!("[plan] dangling team-binding reconciliation failed: {e}");
-            }
-            service_state.mark_plans_startup_loaded();
+            startup::restore_plans(&service_state);
             drop(startup_step);
 
             let startup_step = startup::StartupStep::logged("background service initialization");

@@ -354,6 +354,9 @@ pub struct ProviderDescriptor {
     /// pipes it into a fresh terminal tab when the user clicks Install.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub install_command: Option<String>,
+    /// Shell command for updating the CLI on the current platform.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub update_command: Option<String>,
     /// Provider-declared in-agent model switch command template. `{model}` is
     /// replaced by the frontend with the selected `ModelInfo.id`. Absent means
     /// the provider may publish models for launch/config surfaces but does not
@@ -1014,6 +1017,10 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
+    fn update_command(&self, _platform: &str) -> Option<String> {
+        None
+    }
+
     /// Declarative settings panel for the per-provider Settings → Agents tab.
     /// Frontend renders generically via `<SchemaRenderer />`.
     fn settings_schema(&self) -> Vec<SettingField> {
@@ -1061,6 +1068,7 @@ pub trait AgentProvider: Send + Sync {
             supports_permission_bypass: !self.auto_approve_flags().is_empty(),
             cli_binary: self.cli_binary().map(|s| s.to_string()),
             install_command: self.install_command(platform),
+            update_command: self.update_command(platform),
             model_switch_format: self.model_switch_format().map(|s| s.to_string()),
             fresh_context_command: self.fresh_context_command().map(|s| s.to_string()),
             compact_command: self.compact_command().map(|s| s.to_string()),

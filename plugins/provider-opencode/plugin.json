@@ -1,6 +1,6 @@
 {
   "id": "opencode",
-  "version": "1.10.3",
+  "version": "1.10.4",
   "minCodeterm": "1.0.0",
   "hostApi": 2,
   "displayName": "OpenCode",
@@ -83,6 +83,11 @@
     "macos": "curl -fsSL https://opencode.ai/install | bash",
     "linux": "curl -fsSL https://opencode.ai/install | bash",
     "windows": "npm install -g opencode-ai"
+  },
+  "updater": {
+    "macos": "opencode upgrade",
+    "linux": "opencode upgrade",
+    "windows": "opencode upgrade"
   },
   "commands": {
     "compact": "/compact",

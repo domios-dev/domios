@@ -59,16 +59,19 @@ async function main() {
     "and the policy that used to stand in front of it is gone, not merely bypassed",
   );
 
-  // 2. Nothing else on the daemon side mints that event name.
+  // 2. Every daemon producer crosses the same event boundary.
   const producers = gate
     .split(/\r?\n/)
     .filter((line) => line.includes('"notification-created"'));
-  check(producers.length > 0, "the gate names the arrival event");
+  check(producers.length === 1, "the gate names the arrival event once");
   check(
-    producers.every((line) =>
-      /\|payload\|\s*self\.notify_event\("notification-created", payload\)/.test(line),
-    ),
-    "every producer of the arrival event is the gate's own emit closure",
+    /fn notify_created\(&self, payload: serde_json::Value\)/.test(gate) &&
+      /self\.notify_event\("notification-created", payload\);/.test(gate),
+    "the arrival event has one daemon helper",
+  );
+  check(
+    (gate.match(/self\.notify_created\(/g) ?? []).length === 3,
+    "creation and coalesced updates share the arrival helper",
   );
 
   // 3. The frontend side: the arrival event is the only trigger, and the player

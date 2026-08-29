@@ -692,7 +692,9 @@ impl ServiceContext {
             self.loaded_plan_projects
                 .lock()
                 .insert(project_root.clone());
+            let live_team_ids = self.live_team_ids();
             self.reconcile_dangling_team_plan_bindings(
+                &live_team_ids,
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()

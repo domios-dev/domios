@@ -108,6 +108,9 @@ pub struct PluginManifest {
     pub installer: std::collections::HashMap<String, String>,
 
     #[serde(default)]
+    pub updater: std::collections::HashMap<String, String>,
+
+    #[serde(default)]
     pub commands: CommandsConfig,
 
     // Plugin capabilities (mostly informational; transport layer enforces permissions where it matters)
