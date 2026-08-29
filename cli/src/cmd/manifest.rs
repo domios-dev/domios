@@ -240,46 +240,13 @@ mod tests {
         "/../packages/chat-ui/src/codeterm/commandPaths.ts"
     );
 
-    fn codeterm_exe() -> Option<std::path::PathBuf> {
-        if let Ok(path) = std::env::var("CARGO_BIN_EXE_codeterm") {
-            return Some(path.into());
-        }
-        let exe = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/debug/codeterm");
-        exe.is_file().then_some(exe)
-    }
-
-    fn run_codeterm(args: &[&str]) -> std::process::Output {
-        if let Some(exe) = codeterm_exe() {
-            return std::process::Command::new(&exe)
-                .args(args)
-                .output()
-                .unwrap_or_else(|e| panic!("spawn {}: {e}", exe.display()));
-        }
-        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
-        let mut command =
-            std::process::Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
-        command.args(["run", "--quiet", "--manifest-path"]);
-        command.arg(manifest);
-        command.args(["--bin", "codeterm", "--"]);
-        command.args(args);
-        command.output().expect("spawn cargo run --bin codeterm")
-    }
-
     #[test]
     fn cli_manifest_is_fresh() {
         let committed = std::fs::read_to_string(MANIFEST_PATH)
             .expect("docs/cli-manifest.json missing — run `codeterm cli-manifest --write`");
-        let output = run_codeterm(&["cli-manifest"]);
-        assert!(
-            output.status.success(),
-            "codeterm cli-manifest failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        let generated =
-            String::from_utf8(output.stdout).expect("codeterm cli-manifest stdout is utf-8");
         assert_eq!(
             normalize_newlines(&committed),
-            normalize_newlines(&generated),
+            normalize_newlines(&to_json()),
             "docs/cli-manifest.json is stale — run `codeterm cli-manifest --write`"
         );
     }
@@ -290,15 +257,7 @@ mod tests {
         let start = md.find(MD_START).expect("missing cli:auto-start marker") + MD_START.len();
         let end = md.find(MD_END).expect("missing cli:auto-end marker");
         let block = &md[start..end];
-        let output = run_codeterm(&["cli-manifest", "--markdown"]);
-        assert!(
-            output.status.success(),
-            "codeterm cli-manifest --markdown failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        let markdown =
-            String::from_utf8(output.stdout).expect("codeterm cli-manifest --markdown is utf-8");
-        let expected = format!("\n{markdown}\n");
+        let expected = format!("\n{}\n", to_markdown());
         assert_eq!(
             normalize_newlines(block),
             normalize_newlines(&expected),

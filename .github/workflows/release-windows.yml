@@ -401,7 +401,40 @@ jobs:
             }
           }
 
-          gh release upload "$env:TAG" "$bundle" "$env:MANIFEST" --clobber --repo "$env:MIRROR_REPO"
+          gh release upload "$env:TAG" "$bundle" --clobber --repo "$env:MIRROR_REPO"
+
+      # Merge only after the public asset upload, so the last manifest writer
+      # sees every fragment whose owner could already publish.
+      - name: Reconcile published manifest after asset mirror
+        if: github.event_name == 'push'
+        env:
+          SOURCE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
+          TAG: ${{ steps.tag.outputs.name }}
+          SOURCE_REPO: ${{ github.repository }}
+          MIRROR_REPO: rollacode/codeterm-releases
+          MANIFEST: ${{ steps.channel.outputs.manifest }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Remove-Item -Recurse -Force _final_frags, _final_merge, _final_base, _final_overlay -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force _final_frags, _final_merge, _final_overlay | Out-Null
+          $env:GH_TOKEN = $env:SOURCE_TOKEN
+          gh release download "$env:TAG" --pattern 'updater-*.json' --dir _final_frags --repo "$env:SOURCE_REPO"
+          foreach ($f in Get-ChildItem _final_frags -Filter 'updater-*.json') {
+            if ($f.Name -like '*-deb.json') { continue }
+            $dest = "_final_merge/$($f.BaseName)"
+            New-Item -ItemType Directory -Force $dest | Out-Null
+            Copy-Item $f.FullName "$dest/latest.json" -Force
+          }
+          $baseArgs = @()
+          gh release download "$env:TAG" --pattern "$env:MANIFEST" --dir _final_base --repo "$env:SOURCE_REPO" 2>$null
+          if (Test-Path "_final_base/$env:MANIFEST") { $baseArgs = @('--base', "_final_base/$env:MANIFEST") }
+          Copy-Item "updater-$env:TARGET.json" _final_overlay/ -Force
+          node scripts/merge-latest-json.js --in _final_merge --out "$env:MANIFEST" @baseArgs --overlay _final_overlay
+          gh release upload "$env:TAG" "$env:MANIFEST" --clobber --repo "$env:SOURCE_REPO"
+          $env:GH_TOKEN = $env:MIRROR_TOKEN
+          gh release upload "$env:TAG" "$env:MANIFEST" --clobber --repo "$env:MIRROR_REPO"
 
       # A 200 says nothing about installability: verify every signature in the
       # published manifest against the bytes actually served.

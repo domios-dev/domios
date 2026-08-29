@@ -16,6 +16,8 @@ use crate::service::ServiceContext;
 
 const TAIL_ROWS: usize = 8;
 const MAX_SUBMIT_KEY_WRITES: usize = 3;
+const BRACKETED_PASTE_START: &str = "\x1b[200~";
+const BRACKETED_PASTE_END: &str = "\x1b[201~";
 
 struct SubmitCycle {
     generation: AtomicU64,
@@ -227,18 +229,57 @@ struct PtySubmitTransport<'a> {
     permit: Option<crate::pty::write_queue::GuardedInputPermit>,
     submit_cycle: Arc<SubmitCycle>,
     submit_generation: u64,
+    paste_capability: PasteEncodingCapability,
     /// Stream-preview turn signal fires once per transaction, at the first
     /// successful submit-key enqueue. Signal only — never gates delivery.
     turn_signaled: std::cell::Cell<bool>,
 }
 
-fn xterm_paste(text: &str, bracketed_paste_mode: bool) -> String {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PasteEncodingCapability {
+    LiveModeOnly,
+    MultilineTui,
+}
+
+impl PasteEncodingCapability {
+    fn for_strategy(strategy: &VerifySubmitStrategy) -> Self {
+        if matches!(strategy, VerifySubmitStrategy::TuiInputDrained { .. }) {
+            Self::MultilineTui
+        } else {
+            Self::LiveModeOnly
+        }
+    }
+
+    fn bracketed(self, text: &str, live_mode: Option<bool>) -> bool {
+        live_mode.unwrap_or_else(|| {
+            self == Self::MultilineTui && (text.contains('\r') || text.contains('\n'))
+        })
+    }
+}
+
+fn xterm_paste(
+    text: &str,
+    live_mode: Option<bool>,
+    capability: PasteEncodingCapability,
+) -> String {
     let normalized = text.replace("\r\n", "\r").replace('\n', "\r");
-    if bracketed_paste_mode {
-        format!("\x1b[200~{normalized}\x1b[201~")
+    if capability.bracketed(text, live_mode) {
+        format!("{BRACKETED_PASTE_START}{normalized}{BRACKETED_PASTE_END}")
     } else {
         normalized
     }
+}
+
+fn initial_submit_frames(
+    text: &str,
+    key: &[u8],
+    live_mode: Option<bool>,
+    capability: PasteEncodingCapability,
+) -> Vec<Vec<u8>> {
+    vec![
+        xterm_paste(text, live_mode, capability).into_bytes(),
+        key.to_vec(),
+    ]
 }
 
 impl SubmitTransport for PtySubmitTransport<'_> {
@@ -313,15 +354,18 @@ impl SubmitTransport for PtySubmitTransport<'_> {
         if text.is_empty() {
             return Some(self.write_submit_key(key, deadline).map(|()| 0));
         }
-        let bracketed_paste_mode = self
+        let live_bracketed_paste_mode = self
             .svc
             .screen_state
             .lock()
-            .bracketed_paste_mode(self.pty_id)
-            .unwrap_or(false);
-        let paste = xterm_paste(text, bracketed_paste_mode).into_bytes();
-        let paste_len = paste.len();
-        let frames = vec![paste, key.to_vec()];
+            .bracketed_paste_mode(self.pty_id);
+        let frames = initial_submit_frames(
+            text,
+            key,
+            live_bracketed_paste_mode,
+            self.paste_capability,
+        );
+        let paste_len = frames[0].len();
         let session = match self.svc.pty.lock().get_session(self.pty_id) {
             Some(session) => session,
             None => {
@@ -332,9 +376,10 @@ impl SubmitTransport for PtySubmitTransport<'_> {
         };
         let timeout = deadline.saturating_duration_since(Instant::now());
         log::info!(
-            "[submit-audit] initial-submit pty={} bracketed_paste_mode={} source_bytes={} encoded_bytes={} session_gen={}",
+            "[submit-audit] initial-submit pty={} live_bracketed_paste_mode={:?} paste_capability={:?} source_bytes={} encoded_bytes={} session_gen={}",
             self.pty_id,
-            bracketed_paste_mode,
+            live_bracketed_paste_mode,
+            self.paste_capability,
             text.len(),
             paste_len,
             session.generation
@@ -370,17 +415,21 @@ impl SubmitTransport for PtySubmitTransport<'_> {
         if text.is_empty() {
             return Ok(0);
         }
-        let bracketed_paste_mode = self
+        let live_bracketed_paste_mode = self
             .svc
             .screen_state
             .lock()
-            .bracketed_paste_mode(self.pty_id)
-            .unwrap_or(false);
-        let paste = xterm_paste(text, bracketed_paste_mode);
+            .bracketed_paste_mode(self.pty_id);
+        let paste = xterm_paste(
+            text,
+            live_bracketed_paste_mode,
+            self.paste_capability,
+        );
         log::info!(
-            "[submit-audit] paste-encoding pty={} bracketed_paste_mode={} source_bytes={} encoded_bytes={}",
+            "[submit-audit] paste-encoding pty={} live_bracketed_paste_mode={:?} paste_capability={:?} source_bytes={} encoded_bytes={}",
             self.pty_id,
-            bracketed_paste_mode,
+            live_bracketed_paste_mode,
+            self.paste_capability,
             text.len(),
             paste.len()
         );
@@ -695,6 +744,7 @@ pub(crate) fn submit_text_with_key_claimed(
     }
     let submit_cycle = Arc::clone(&claim.cycle);
     let submit_generation = claim.generation;
+    let paste_capability = PasteEncodingCapability::for_strategy(&strategy);
     let signal = svc.screen_state.lock().arm_screen_change_signal(pty_id);
     let status_signal = svc.agent_tracker.lock().arm_status_change_signal(pty_id);
     svc.feed_input_parser(pty_id, text, enter);
@@ -706,6 +756,7 @@ pub(crate) fn submit_text_with_key_claimed(
         permit,
         submit_cycle: Arc::clone(&submit_cycle),
         submit_generation,
+        paste_capability,
         turn_signaled: std::cell::Cell::new(false),
     };
     let result = run_with_submit_key(&transport, text, enter, submit_key, strategy, opts).inspect(
