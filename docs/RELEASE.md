@@ -198,6 +198,7 @@ yet.
 
 | Symptom | Cause | Fix |
 |---|---|---|
+| Parallel platform jobs publish valid installers, but final verification briefly 404s or `latest.json` loses a platform that has an uploaded fragment | A lane merged before its large public asset upload, then clobbered a newer peer manifest with that stale snapshot; GitHub may also expose release metadata before the asset download URL is ready | Rebuild `latest.json` from all non-deb `updater-*.json` fragments, upload it to both releases, and verify the cache-busted public URL. Prevention: mirror each platform's large assets first, then make its final manifest reconciliation the lane's last publish mutation. |
 | Client refuses the update with `The signature verification failed`, while every URL 200s | A lane reran and republished a rebuilt artifact, but the merged manifest kept the previous run's signature for it - signatures sign the artifact bytes, not the manifest | Rebuild the manifest from the per-platform `updater-*.json` fragments of the run that produced the served bytes, upload with `--clobber` to both repos, and confirm with `node scripts/verify-updater-manifest.mjs --manifest <mirror url>?cb=$(date +%s)`. Prevention: every lane merges with `--overlay <its own fragment dir>` and verifies signatures post-publish |
 | PR CI fails during `pnpm install` with `ERR_PNPM_OUTDATED_LOCKFILE` | A workspace manifest changed without regenerating the root lockfile, so CI's implicit frozen-lockfile check rejects it before tests run | Run `pnpm install --no-frozen-lockfile`, commit `pnpm-lock.yaml`, then verify locally with `pnpm install --frozen-lockfile` before rerunning CI |
 | Release frontend preflight fails with TS2722 on `this.buildResumeCommand(...)` inside a provider's context-aware resume method | The shared plugin interface declares the legacy resume capability as optional even when that provider implements both methods in the same object | Assert the provider-local method's presence at the call site, regenerate the provider bundle, and rerun `build.ps1 frontend`; do not weaken the shared optional capability contract. |
@@ -384,4 +385,4 @@ The minisign updater key (`~/.tauri/codeterm.key`, empty password; its public ha
 the `github-release` skill lists the exact ids and restore paths. A builder without the minisign
 key produces artifacts the updater can't verify.
 
-<!-- revision: 28 -->
+<!-- revision: 29 -->
