@@ -953,6 +953,10 @@ impl AgentProvider for JsProvider {
         self.manifest.installer.get(platform).cloned()
     }
 
+    fn update_command(&self, platform: &str) -> Option<String> {
+        self.manifest.updater.get(platform).cloned()
+    }
+
     fn available_models(&self) -> Vec<ModelInfo> {
         crate::model_catalog::resolve_models(&self.manifest.id)
     }

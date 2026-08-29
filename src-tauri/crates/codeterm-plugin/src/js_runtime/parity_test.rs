@@ -65,6 +65,18 @@ fn load_inline_js(id: &str, plugin_js: &str) -> JsProvider {
     JsProvider::new(manifest, Arc::new(vm))
 }
 
+#[test]
+fn claude_update_command_native_js_parity() {
+    let Some(_) = require_plugins() else {
+        return;
+    };
+    let native = crate::agent_claude::provider::ClaudeProvider::new();
+    let js = load_js("claude");
+    for platform in ["macos", "linux", "windows", "unknown"] {
+        assert_eq!(js.update_command(platform), native.update_command(platform));
+    }
+}
+
 struct EnvGuard {
     _inner: codeterm_util::test_env::EnvGuard,
 }

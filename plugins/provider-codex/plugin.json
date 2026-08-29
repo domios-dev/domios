@@ -1,6 +1,6 @@
 {
   "id": "codex",
-  "version": "1.10.3",
+  "version": "1.10.4",
   "minCodeterm": "1.0.0",
   "hostApi": 2,
   "displayName": "Codex",
@@ -94,6 +94,11 @@
     "macos": "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
     "linux": "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
     "windows": "powershell -ExecutionPolicy ByPass -c \"irm https://chatgpt.com/codex/install.ps1 | iex\""
+  },
+  "updater": {
+    "macos": "codex update",
+    "linux": "codex update",
+    "windows": "codex update"
   },
   "integration": {
     "kind": "provider_managed",

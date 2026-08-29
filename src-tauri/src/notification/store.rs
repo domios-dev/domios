@@ -76,6 +76,7 @@ pub enum NotificationSeverity {
 pub enum DedupAdmission {
     Added(String),
     Duplicate(String),
+    Coalesced(String),
 }
 
 /// Outcome of push admission. Only `Deliver` and `Supersede` may reach a sink;
@@ -424,6 +425,19 @@ impl NotificationStore {
         if let Some(id) = self.provider_updates.get(&prompt_id) {
             return DedupAdmission::Duplicate(id.clone());
         }
+        if let Some(id) = self.provider_updates.values().next().cloned() {
+            if let Some(notification) = self.notifications.iter_mut().find(|item| item.id == id) {
+                notification.title = "Provider updates available".to_string();
+                notification.body = Some("Updates are ready for multiple providers.".to_string());
+                notification
+                    .actions
+                    .get_or_insert_with(Vec::new)
+                    .extend(actions);
+                notification.read = false;
+                self.provider_updates.insert(prompt_id, id.clone());
+                return DedupAdmission::Coalesced(id);
+            }
+        }
         let id = self.add_ext(
             title,
             Some(body),
@@ -439,8 +453,25 @@ impl NotificationStore {
 
     pub fn resolve_provider_update(&mut self, prompt_id: &str) -> Option<String> {
         let id = self.provider_updates.remove(prompt_id)?;
-        self.clear(Some(&id));
+        if let Some(notification) = self.notifications.iter_mut().find(|item| item.id == id) {
+            if let Some(actions) = notification.actions.as_mut() {
+                actions.retain(|action| !action_targets_prompt(action, prompt_id));
+            }
+        }
+        if !self
+            .provider_updates
+            .values()
+            .any(|candidate| candidate == &id)
+        {
+            self.clear(Some(&id));
+        }
         Some(id)
+    }
+
+    pub fn notification(&self, id: &str) -> Option<&Notification> {
+        self.notifications
+            .iter()
+            .find(|notification| notification.id == id)
     }
 
     pub fn list(&self, unread_only: bool) -> Vec<&Notification> {
@@ -582,6 +613,15 @@ impl NotificationStore {
 
     pub fn unread_count(&self) -> usize {
         self.notifications.iter().filter(|n| !n.read).count()
+    }
+}
+
+fn action_targets_prompt(action: &NotificationAction, prompt_id: &str) -> bool {
+    match action {
+        NotificationAction::Invoke {
+            args: Some(args), ..
+        } => args.get("promptId").and_then(serde_json::Value::as_str) == Some(prompt_id),
+        _ => false,
     }
 }
 

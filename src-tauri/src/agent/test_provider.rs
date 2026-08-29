@@ -17,6 +17,7 @@ pub struct MockProvider {
     reasoning_efforts: Vec<ReasoningEffortInfo>,
     system_prompt_delivery: SystemPromptDelivery,
     status_bar_rows: u16,
+    update_command: Option<String>,
 }
 
 impl MockProvider {
@@ -27,6 +28,7 @@ impl MockProvider {
             reasoning_efforts: Vec::new(),
             system_prompt_delivery: SystemPromptDelivery::External,
             status_bar_rows: 0,
+            update_command: None,
         }
     }
 
@@ -66,6 +68,13 @@ impl MockProvider {
                     description: None,
                 })
                 .collect(),
+            ..Self::new(id)
+        }
+    }
+
+    pub fn with_update_command(id: &str, command: &str) -> Self {
+        Self {
+            update_command: Some(command.to_string()),
             ..Self::new(id)
         }
     }
@@ -113,6 +122,9 @@ impl AgentProvider for MockProvider {
     }
     fn system_prompt_delivery(&self) -> SystemPromptDelivery {
         self.system_prompt_delivery.clone()
+    }
+    fn update_command(&self, _platform: &str) -> Option<String> {
+        self.update_command.clone()
     }
     fn detect_from_title(&self, title: &str) -> bool {
         title.to_lowercase().contains(&self.id)
