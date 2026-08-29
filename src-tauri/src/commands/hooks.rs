@@ -262,7 +262,7 @@ enum IntegrationRepairOutcome {
     Current,
     Unconsented,
     Repaired,
-    Unclassifiable(String),
+    Unclassifiable,
 }
 
 fn repair_integration_on_startup(
@@ -303,7 +303,7 @@ fn repair_integration_on_startup(
                 "[provider {}] could not classify or repair integration; existing entries were left unchanged: {error}",
                 provider.id()
             );
-            IntegrationRepairOutcome::Unclassifiable(error)
+            IntegrationRepairOutcome::Unclassifiable
         }
     }
 }
@@ -704,14 +704,12 @@ mod tests {
     }
 
     #[test]
-    fn hook_contract_repair_leaves_unclassifiable_entry_and_surfaces_it() {
+    fn hook_contract_repair_leaves_unclassifiable_entry_and_reports_outcome() {
         let provider =
             RepairProbeProvider::unclassifiable(serde_json::json!({ "hooks_installed": false }));
         let outcome = repair_integration_on_startup(&provider, 7686, true);
         assert_eq!(provider.writes.load(std::sync::atomic::Ordering::SeqCst), 0);
         assert_eq!(*provider.consents.lock().unwrap(), vec![true]);
-        assert!(
-            matches!(outcome, IntegrationRepairOutcome::Unclassifiable(error) if error.contains("foreign"))
-        );
+        assert!(matches!(outcome, IntegrationRepairOutcome::Unclassifiable));
     }
 }
