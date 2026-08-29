@@ -506,15 +506,16 @@ export const TerminalTab = memo(function TerminalTab({
           onClick={() => termRef.current?.focus()}
         >
           <div ref={containerRef} className="terminal-xterm-host w-full h-full" data-testid="terminal-xterm-host" />
+          {terminalVisible && termReady && (
+            <TerminalViewControls
+              compact={touchUi}
+              showFit={fallbackChat}
+              showScrollToBottom={canScrollToBottom}
+              onFit={handleFitTerminal}
+              onScrollToBottom={handleScrollTerminalToBottom}
+            />
+          )}
         </div>
-        {terminalVisible && termReady && (
-          <TerminalViewControls
-            compact={touchUi}
-            showScrollToBottom={canScrollToBottom}
-            onFit={handleFitTerminal}
-            onScrollToBottom={handleScrollTerminalToBottom}
-          />
-        )}
         {showTerminalKeyBar && (
           <div
             className="min-w-0 border-t px-2 pt-2"

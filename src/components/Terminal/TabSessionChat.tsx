@@ -1,5 +1,4 @@
 import { Fragment, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ChevronDown } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import { MessageBubble, OutboundReportCard } from "@codeterm/chat-ui";
 import { extractPlanRefs } from "@codeterm/chat-ui";
@@ -34,6 +33,7 @@ import { chatProjectionMonitor, scheduleAfterPaint } from "./chatProjectionDiagn
 import { ChatModelBubble } from "../Extensions/ChatModelBubble";
 import { ChatPresetBubble } from "../Extensions/ChatPresetBubble";
 import { WatcherReadOnlyBar } from "./WatcherReadOnlyBar";
+import { ScrollToLatestButton } from "./ScrollToLatestButton";
 import { ChatSetupState, chatSetupStageLabel, chatSetupSubject, chatSetupView } from "./ChatSetupState";
 import { usePlanRefResolver } from "./usePlanRefResolver";
 import { chatPlanRefView } from "./chatPlanRef";
@@ -742,20 +742,15 @@ export function TabSessionChat({
         </div>
       </div>
       {showScrollDown && (
-        <button
-          type="button"
-          data-testid="chat-scroll-bottom"
+        <ScrollToLatestButton
+          testId="chat-scroll-bottom"
           onClick={() => {
             showLatest();
             scrollToBottom();
           }}
           title="Scroll to latest"
-          aria-label="Scroll to latest"
-          className="absolute right-4 bottom-4 z-30 flex h-8 items-center justify-center gap-1 rounded-full px-2 text-[var(--ct-muted-fg)] transition-colors hover:text-[var(--ct-fg)]"
-          style={{ background: "var(--ct-surface)", border: "1px solid var(--ct-border)" }}
-        >
-          <ChevronDown size={16} strokeWidth={2.2} />
-        </button>
+          className="absolute bottom-4 right-4 z-30"
+        />
       )}
       </div>
       {isWatcherTab && watcherSpec ? (
