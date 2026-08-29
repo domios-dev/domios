@@ -601,7 +601,10 @@ fn review_hold_verdict_records_reason_and_keeps_review_open() {
     assert_eq!(result.verdict, ReviewVerdict::Hold);
     assert_eq!(after.status, TaskStatus::InReview);
     assert_eq!(after.status_label.as_deref(), Some("review held"));
-    assert_eq!(after.review_evidence.last().unwrap().verdict, ReviewVerdict::Hold);
+    assert_eq!(
+        after.review_evidence.last().unwrap().verdict,
+        ReviewVerdict::Hold
+    );
     assert_eq!(
         after.review_evidence.last().unwrap().note,
         "re-cut the scope before continuing"
@@ -664,7 +667,12 @@ fn review_hold_verdict_can_bounce_to_the_existing_assignment() {
         "tab_impl"
     );
     assert_eq!(
-        store.show_task(&task_id).unwrap().task.assigned_tab_id.as_deref(),
+        store
+            .show_task(&task_id)
+            .unwrap()
+            .task
+            .assigned_tab_id
+            .as_deref(),
         Some("tab_impl")
     );
 }

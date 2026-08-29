@@ -100,7 +100,12 @@ fn workspace_close_guard_empty_workspace_stays_frictionless() {
         .service
         .close_workspace_guarded(None, &workspace_id, false)
         .unwrap();
-    assert!(fixture.service.mux.read().get_workspace(&workspace_id).is_none());
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_workspace(&workspace_id)
+        .is_none());
 }
 
 #[test]

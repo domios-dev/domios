@@ -597,7 +597,10 @@ mod tests {
             // A bounded failure deadline, not a performance budget: a genuine
             // hang still fails, while a loaded machine spawning a process no
             // longer does. Five seconds was the latter and failed under verify.
-            assert!(started.elapsed() < Duration::from_secs(60), "exec timed out");
+            assert!(
+                started.elapsed() < Duration::from_secs(60),
+                "exec timed out"
+            );
             std::thread::sleep(Duration::from_millis(10));
         }
     }

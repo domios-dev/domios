@@ -72,10 +72,12 @@ pub(crate) async fn rebind_session(
                 previous.as_deref().unwrap_or("-"),
                 requested,
             );
-            state
-                .svc
-                .deferred_session_bindings
-                .refuse(&tab_id, requested, previous.as_deref(), &reason);
+            state.svc.deferred_session_bindings.refuse(
+                &tab_id,
+                requested,
+                previous.as_deref(),
+                &reason,
+            );
             state.svc.emit_session_binding_state(&tab_id);
             return Err((status, reason));
         }

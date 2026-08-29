@@ -13,9 +13,9 @@ mod logging;
 mod progress;
 mod rest_api;
 mod servers;
-mod states;
 #[cfg(test)]
 mod stall_tests;
+mod states;
 mod window;
 
 pub(crate) use background::start_background_tasks;

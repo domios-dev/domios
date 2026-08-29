@@ -45,9 +45,9 @@ fn classify_session_binding_state(
             reason: None,
         };
     }
-    if let Some(refusal) = refused.filter(|refusal| {
-        refusal.previous_session_id.as_deref() == current_session_id
-    }) {
+    if let Some(refusal) =
+        refused.filter(|refusal| refusal.previous_session_id.as_deref() == current_session_id)
+    {
         return SessionBindingState {
             tab_id: tab_id.to_string(),
             kind: SessionBindingStateKind::Refused,
@@ -156,13 +156,8 @@ mod tests {
         );
         assert_eq!(state.kind, SessionBindingStateKind::Refused);
         assert_eq!(state.requested_session_id.as_deref(), Some("requested"));
-        let superseded = classify_session_binding_state(
-            "tab-a",
-            Some("replacement"),
-            true,
-            None,
-            Some(refusal),
-        );
+        let superseded =
+            classify_session_binding_state("tab-a", Some("replacement"), true, None, Some(refusal));
         assert_eq!(superseded.kind, SessionBindingStateKind::Healthy);
     }
 

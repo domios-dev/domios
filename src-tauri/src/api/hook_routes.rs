@@ -8,7 +8,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::agent::provider::{HookEventBinding, HookIngestionRoute};
 use crate::agent::registry::AgentRegistry;
-use crate::api::{optional_json::OptionalJson, routes::{resolve_tab, AppState}};
+use crate::api::{
+    optional_json::OptionalJson,
+    routes::{resolve_tab, AppState},
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SessionStartClaim {
@@ -428,10 +431,12 @@ pub async fn hook_session_start(
                         .flatten()
                 });
             let Some(transcript_path) = transcript_path else {
-                state
-                    .svc
-                    .deferred_session_bindings
-                    .refuse(&tab_id, &sid, Some(&premise.previous_session_id), &message);
+                state.svc.deferred_session_bindings.refuse(
+                    &tab_id,
+                    &sid,
+                    Some(&premise.previous_session_id),
+                    &message,
+                );
                 state.svc.emit_session_binding_state(&tab_id);
                 return Err((status, message));
             };
@@ -447,10 +452,12 @@ pub async fn hook_session_start(
                 body.clone(),
             ) {
                 let reason = format!("{message}; {error}");
-                state
-                    .svc
-                    .deferred_session_bindings
-                    .refuse(&tab_id, &sid, Some(&premise.previous_session_id), &reason);
+                state.svc.deferred_session_bindings.refuse(
+                    &tab_id,
+                    &sid,
+                    Some(&premise.previous_session_id),
+                    &reason,
+                );
                 state.svc.emit_session_binding_state(&tab_id);
                 return Err((StatusCode::CONFLICT, reason));
             }
@@ -470,10 +477,12 @@ pub async fn hook_session_start(
                 .read()
                 .get_tab(&tab_id)
                 .and_then(|tab| tab.agent_session_id.clone());
-            state
-                .svc
-                .deferred_session_bindings
-                .refuse(&tab_id, &sid, current_session_id.as_deref(), &message);
+            state.svc.deferred_session_bindings.refuse(
+                &tab_id,
+                &sid,
+                current_session_id.as_deref(),
+                &message,
+            );
             state.svc.emit_session_binding_state(&tab_id);
             return Err((status, message));
         }
@@ -610,15 +619,12 @@ async fn complete_deferred_session_binding(
         }
         Err((_, message, deferrable)) => {
             if deferrable.is_none() {
-                state
-                    .svc
-                    .deferred_session_bindings
-                    .refuse(
-                        &tab_id,
-                        &binding.session_id,
-                        Some(&binding.previous_session_id),
-                        &message,
-                    );
+                state.svc.deferred_session_bindings.refuse(
+                    &tab_id,
+                    &binding.session_id,
+                    Some(&binding.previous_session_id),
+                    &message,
+                );
                 state.svc.emit_session_binding_state(&tab_id);
             }
             log::warn!(

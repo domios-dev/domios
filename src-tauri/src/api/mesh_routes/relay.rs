@@ -569,13 +569,7 @@ async fn perform_relay(
                 format!("Unsupported method: {}", cmd.method),
             )
         })?;
-        match authorize_peer_relay(
-            sender_id,
-            &access,
-            &method,
-            &cmd.path,
-            &cmd.body,
-        ) {
+        match authorize_peer_relay(sender_id, &access, &method, &cmd.path, &cmd.body) {
             PeerRelayAuthorization::Rejected => {
                 return Ok(crate::mesh::types::RelayResponse {
                     ok: false,

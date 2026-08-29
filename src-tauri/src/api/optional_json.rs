@@ -86,16 +86,37 @@ mod tests {
     #[tokio::test]
     async fn optional_body_contract_accepts_empty_and_json_bodies_at_every_optional_site() {
         let sites: Vec<(&str, Router)> = vec![
-            ("agent restart", endpoint::<crate::api::agent_routes::AgentRestartBody>()),
+            (
+                "agent restart",
+                endpoint::<crate::api::agent_routes::AgentRestartBody>(),
+            ),
             ("hook permission", endpoint::<serde_json::Value>()),
             ("hook stop", endpoint::<serde_json::Value>()),
             ("hook session start", endpoint::<serde_json::Value>()),
-            ("serve enable", endpoint::<crate::api::network_routes::ServeEnableBody>()),
-            ("keepawake start", endpoint::<crate::api::network_routes::KeepAwakeStartBody>()),
-            ("resume session", endpoint::<crate::api::session_routes::ResumeSessionBody>()),
-            ("close workspace", endpoint::<crate::api::workspace_routes::CloseWorkspaceBody>()),
-            ("reopen closed", endpoint::<crate::api::workspace_routes::ReopenClosedBody>()),
-            ("create tab", endpoint::<crate::api::workspace_routes::CreateTabBody>()),
+            (
+                "serve enable",
+                endpoint::<crate::api::network_routes::ServeEnableBody>(),
+            ),
+            (
+                "keepawake start",
+                endpoint::<crate::api::network_routes::KeepAwakeStartBody>(),
+            ),
+            (
+                "resume session",
+                endpoint::<crate::api::session_routes::ResumeSessionBody>(),
+            ),
+            (
+                "close workspace",
+                endpoint::<crate::api::workspace_routes::CloseWorkspaceBody>(),
+            ),
+            (
+                "reopen closed",
+                endpoint::<crate::api::workspace_routes::ReopenClosedBody>(),
+            ),
+            (
+                "create tab",
+                endpoint::<crate::api::workspace_routes::CreateTabBody>(),
+            ),
         ];
 
         for (site, router) in sites {
@@ -104,7 +125,11 @@ mod tests {
                 .oneshot(Request::post("/").body(Body::empty()).unwrap())
                 .await
                 .unwrap();
-            assert_eq!(no_body.status(), StatusCode::OK, "{site} must accept no body");
+            assert_eq!(
+                no_body.status(),
+                StatusCode::OK,
+                "{site} must accept no body"
+            );
 
             let json_body = router
                 .oneshot(

@@ -487,7 +487,10 @@ pub(super) fn install(
     bind!("exec", move |opts_json: String| -> String {
         let bin = super::host_exec::bin_of(&opts_json).unwrap_or_default();
         if !sb.can_exec(&bin) {
-            log::warn!("[plugin:{}] denied exec({bin}) — not in subprocess.allow", sb.plugin_id());
+            log::warn!(
+                "[plugin:{}] denied exec({bin}) — not in subprocess.allow",
+                sb.plugin_id()
+            );
             return serde_json::json!({ "error": format!("exec denied: {bin}") }).to_string();
         }
         super::host_exec::run_with_host_env(&opts_json, &super::host_exec::current_host_env())
@@ -498,7 +501,10 @@ pub(super) fn install(
     bind!("execStart", move |opts_json: String| -> String {
         let bin = super::host_exec::bin_of(&opts_json).unwrap_or_default();
         if !sb.can_exec(&bin) {
-            log::warn!("[plugin:{}] denied exec.start({bin}) — not in subprocess.allow", sb.plugin_id());
+            log::warn!(
+                "[plugin:{}] denied exec.start({bin}) — not in subprocess.allow",
+                sb.plugin_id()
+            );
             return serde_json::json!({ "error": format!("exec denied: {bin}") }).to_string();
         }
         super::host_exec::start_with_host_env(

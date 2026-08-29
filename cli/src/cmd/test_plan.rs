@@ -2,8 +2,17 @@
 pub const TEST_PLAN_MIN_CHARS: usize = 120;
 
 pub const TEST_PLAN_COMMAND_RUNNERS: [&str; 11] = [
-    "npx", "cargo", "codeterm", "bash", "curl", "npm", "build.ps1", "build.sh", "pnpm",
-    "node", "./build.sh",
+    "npx",
+    "cargo",
+    "codeterm",
+    "bash",
+    "curl",
+    "npm",
+    "build.ps1",
+    "build.sh",
+    "pnpm",
+    "node",
+    "./build.sh",
 ];
 
 // Prepended to the QA-claim output when the claimed task's test plan is vague.
@@ -34,7 +43,12 @@ fn names_command_invocation(test_plan: &str) -> bool {
     test_plan
         .split(['\n', ';', '`'])
         .map(str::trim_start)
-        .map(|segment| segment.strip_prefix("$ ").or_else(|| segment.strip_prefix("> ")).unwrap_or(segment))
+        .map(|segment| {
+            segment
+                .strip_prefix("$ ")
+                .or_else(|| segment.strip_prefix("> "))
+                .unwrap_or(segment)
+        })
         .any(|segment| {
             TEST_PLAN_COMMAND_RUNNERS.iter().any(|runner| {
                 segment
@@ -102,10 +116,21 @@ resulting output and confirming that everything looks correct across all the rel
     #[test]
     fn diagnostics_that_speak_vagueness_accepts_real_repo_runners() {
         let prefix = "This plan has enough detail to clear the length criterion while it describes the expected observable result. ";
-        assert!(test_plan_vague_reason(&format!("{prefix}`build.ps1 test-one app diagnostics_that_speak`")).is_none());
-        assert!(test_plan_vague_reason(&format!("{prefix}`npm run test:unit -- webForks`")).is_none());
-        assert!(test_plan_vague_reason(&format!("{prefix}The frozen-zone grep mentions codeterm-pty, but it is not a command.")).is_some());
-        assert!(test_plan_vague_reason(&format!("{prefix}A stray ` in prose is not an invocation.")).is_some());
+        assert!(test_plan_vague_reason(&format!(
+            "{prefix}`build.ps1 test-one app diagnostics_that_speak`"
+        ))
+        .is_none());
+        assert!(
+            test_plan_vague_reason(&format!("{prefix}`npm run test:unit -- webForks`")).is_none()
+        );
+        assert!(test_plan_vague_reason(&format!(
+            "{prefix}The frozen-zone grep mentions codeterm-pty, but it is not a command."
+        ))
+        .is_some());
+        assert!(test_plan_vague_reason(&format!(
+            "{prefix}A stray ` in prose is not an invocation."
+        ))
+        .is_some());
     }
 
     #[test]

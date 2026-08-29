@@ -607,7 +607,12 @@ fn task_authority_live_binding_refusal_names_both_compared_identities() {
         )
         .expect_err("a different tab must stay refused");
     let message = error.to_string();
-    for id in ["stale-tab", "stale-session", worker.as_str(), "worker-session"] {
+    for id in [
+        "stale-tab",
+        "stale-session",
+        worker.as_str(),
+        "worker-session",
+    ] {
         assert!(message.contains(id), "missing {id} from {message}");
     }
 }
