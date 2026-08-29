@@ -133,6 +133,7 @@ does not publish a release or alter GitHub assets.
 
 | Symptom | Cause | Recovery |
 |---|---|---|
+| `build.ps1 verify` fails only `cli_manifest_is_fresh` with sccache `os error 10055` / socket buffer exhaustion | The freshness test launched a nested `cargo run` when no standalone debug CLI binary existed, competing with the parent Cargo test process for compiler/socket resources | Keep freshness generation in-process through `manifest::to_json()` / `to_markdown()`. Run `build.ps1 test-one cli cli_manifest_is_fresh`, then rerun `build.ps1 verify`; do not regenerate committed CLI artifacts for this infrastructure error. |
 | `release-preflight` prints a Rust formatting diff and exits before lock validation | One or both Rust workspaces were not formatted with the repository toolchain | Run `cargo fmt --manifest-path src-tauri/Cargo.toml --all` and `cargo fmt --manifest-path cli/Cargo.toml --all`, inspect the changed files, then rerun `release-preflight`. |
 | `release-preflight` reports a source file one or two lines over 1200 | Test responsibilities accumulated in an inline or monolithic test module until formatting crossed the hard limit | Move a cohesive test group into a child module, verify both focused suites, then rerun `release-preflight`; do not hide the overflow by compacting whitespace. |
 | `release-preflight` fails under `-D warnings` for an enum field read only by tests | Production already logs the diagnostic, but an outcome variant retained a duplicate payload solely for a test assertion | Make the production outcome carry only consumed state and assert that state in the focused test; do not suppress `dead_code`. |
@@ -258,4 +259,4 @@ production app during startup, in-app update, or `install-local`.
 
 Tooling, outputs, platform notes, and repository layout: `docs/BUILD-REFERENCE.md`. Test workflows: `codeterm docs TESTING`.
 
-<!-- revision: 104 -->
+<!-- revision: 105 -->
