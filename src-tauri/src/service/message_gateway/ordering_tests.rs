@@ -1,6 +1,5 @@
-//! Ordering fixtures for the worker report obligation. The obligation arms at
-//! the turn-starting boundary (task dispatch) and clears on an accepted
-//! explicit report; delivery of agent traffic must never re-arm it.
+//! Ordering fixtures for the worker report obligation across dispatch, reports,
+//! follow-ups, acknowledgements, and provider-stop events.
 
 use super::DeliveryClass;
 use crate::agent::reports::{ReportDetails, ReportStatus};
@@ -133,6 +132,58 @@ fn deliver_ack(bw: &BoundWorker) {
             DeliveryClass::AgentTraffic,
         )
         .expect("acknowledgement delivery");
+}
+
+fn deliver_followup(bw: &BoundWorker) {
+    let envelope = MessageEnvelope::tab("Orchestrator", bw.orch.clone());
+    bw.fx
+        .service
+        .gateway_deliver(
+            &bw.worker,
+            envelope,
+            "Continue the remaining work in this attempt.",
+            DeliveryClass::AgentTraffic,
+        )
+        .expect("follow-up delivery");
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+)]
+fn partial_report_then_followup_rearms_the_same_in_progress_attempt() {
+    let bw = seed_bound_worker();
+    bind_live_worker_session(&bw);
+    let svc = &bw.fx.service;
+
+    svc.plan_store
+        .acknowledge_live_task_attempt_for_tab(&bw.worker, None, None, 5)
+        .expect("worker acknowledgement");
+    svc.gateway.require_worker_report(&bw.worker);
+    svc.submit_report(
+        &bw.worker,
+        "STATUS: partial\nCHANGES: first slice complete\nFOLLOWUP: continue remaining work",
+        worker_report_details(&bw, ReportStatus::Partial),
+        None,
+        None,
+        None,
+    )
+    .expect("partial report accepted");
+    assert_eq!(bw.task().status, TaskStatus::InProgress);
+    assert!(!svc.gateway.worker_report_required(&bw.worker));
+    let attempt_before = bw.task().interruption;
+
+    deliver_followup(&bw);
+
+    let task_after = bw.task();
+    assert!(svc.gateway.worker_report_required(&bw.worker));
+    assert_eq!(task_after.status, TaskStatus::InProgress);
+    assert_eq!(
+        task_after.assigned_tab_id.as_deref(),
+        Some(bw.worker.as_str())
+    );
+    assert_eq!(task_after.interruption, attempt_before);
 }
 
 /// Report-accepted → ack-delivered → provider-stop, driven without timing.

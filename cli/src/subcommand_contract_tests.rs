@@ -1088,6 +1088,20 @@ fn from_pad_conflicts_with_other_body_sources() {
 }
 
 #[test]
+fn send_file_alias_resolves_to_from_file() {
+    let parsed = Cli::try_parse_from(["codeterm", "send", "--file", "message.md"])
+        .expect("send --file alias parses");
+
+    assert!(matches!(
+        parsed.command,
+        Commands::SendText {
+            from_file: Some(ref path),
+            ..
+        } if path == "message.md"
+    ));
+}
+
+#[test]
 fn pad_path_and_list_parse_without_a_tab_selector() {
     Cli::try_parse_from(["codeterm", "pad", "path"]).unwrap();
     Cli::try_parse_from(["codeterm", "pad", "list"]).unwrap();
