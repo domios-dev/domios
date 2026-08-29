@@ -1,4 +1,5 @@
 pub mod atomic_write;
+pub mod child_slot;
 pub mod lock_hold;
 pub mod process_util;
 pub mod shell;
