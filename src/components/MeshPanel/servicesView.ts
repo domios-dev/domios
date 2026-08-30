@@ -1,4 +1,4 @@
-import type { Service } from "./types";
+import type { Service, InventoryProvenance } from "./types";
 
 /** Envelope returned by the `mesh_peer_services_list` Tauri command. */
 export interface PeerServicesView {
@@ -7,6 +7,16 @@ export interface PeerServicesView {
   fetched_at: number | null;
   peer_online: boolean;
   error: string | null;
+  freshness: "fresh" | "stale" | "offline";
+  partial_error: string | null;
+}
+
+export interface MeshInventoryView {
+  contract_version: number;
+  machine_id: string;
+  machine_name: string;
+  resources: Service[];
+  provenance: InventoryProvenance;
 }
 
 export interface PeerFetchResult {
@@ -35,6 +45,14 @@ export function mergeServicesView(
         source_peer: r.peerName,
         stale: r.view.stale,
         peer_online: r.view.peer_online,
+        machine_id: s.machine_id ?? r.peerId,
+        machine_name: s.machine_name ?? r.peerName,
+        provenance: s.provenance ?? {
+          freshness: r.view.freshness,
+          offline: !r.view.peer_online,
+          fetched_at: r.view.fetched_at ?? undefined,
+          partial_error: r.view.partial_error ?? undefined,
+        },
       });
     }
   }

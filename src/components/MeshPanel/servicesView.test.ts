@@ -40,6 +40,8 @@ function view(partial: Partial<PeerServicesView>): PeerServicesView {
     fetched_at: null,
     peer_online: true,
     error: null,
+    freshness: "fresh",
+    partial_error: null,
     ...partial,
   };
 }
