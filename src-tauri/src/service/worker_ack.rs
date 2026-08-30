@@ -134,7 +134,11 @@ impl WorkerAckRegistry {
         }
     }
 
-    pub(crate) fn arm_startup(&self, tab_id: &str, attempt_id: &str) -> Receiver<AgentStartupSignal> {
+    pub(crate) fn arm_startup(
+        &self,
+        tab_id: &str,
+        attempt_id: &str,
+    ) -> Receiver<AgentStartupSignal> {
         let (sender, receiver) = mpsc::channel();
         let previous = self.startup_waiters.lock().insert(
             tab_id.to_string(),
@@ -176,7 +180,12 @@ impl WorkerAckRegistry {
             .lock()
             .get(tab_id)
             .filter(|waiter| waiter.attempt_id == attempt_id)
-            .is_some_and(|waiter| waiter.sender.send(AgentStartupSignal::ProcessExited).is_ok())
+            .is_some_and(|waiter| {
+                waiter
+                    .sender
+                    .send(AgentStartupSignal::ProcessExited)
+                    .is_ok()
+            })
     }
 
     pub(crate) fn expire_startup(&self, tab_id: &str, attempt_id: &str) -> bool {
@@ -316,11 +325,8 @@ impl ServiceContext {
         agent_tab_id: &str,
         agent_title: &str,
     ) {
-        self.worker_ack.register_startup_supervisor(
-            agent_tab_id,
-            supervisor_tab_id,
-            agent_title,
-        );
+        self.worker_ack
+            .register_startup_supervisor(agent_tab_id, supervisor_tab_id, agent_title);
     }
 
     pub(crate) fn cancel_agent_startup_supervision(&self, agent_tab_id: &str) {
@@ -358,11 +364,7 @@ impl ServiceContext {
         true
     }
 
-    pub(crate) fn activate_agent_startup_supervision(
-        &self,
-        agent_tab_id: &str,
-        attempt_id: &str,
-    ) {
+    pub(crate) fn activate_agent_startup_supervision(&self, agent_tab_id: &str, attempt_id: &str) {
         let Some(supervisor) = self.worker_ack.take_startup_supervisor(agent_tab_id) else {
             return;
         };
@@ -415,7 +417,8 @@ impl ServiceContext {
                 "report": report.clone(),
             }),
         );
-        let envelope = crate::service::messenger::MessageEnvelope::report(agent_title, agent_tab_id);
+        let envelope =
+            crate::service::messenger::MessageEnvelope::report(agent_title, agent_tab_id);
         if self
             .gateway_deliver(
                 supervisor_tab_id,
@@ -501,7 +504,11 @@ impl ServiceContext {
                 + AGENT_STARTUP_FINAL_TIMEOUT;
             let mut process_exited = false;
             match receiver.recv_timeout(AGENT_STARTUP_NOTICE_TIMEOUT) {
-                Ok(AgentStartupSignal::Ready | AgentStartupSignal::Held | AgentStartupSignal::Superseded) => return,
+                Ok(
+                    AgentStartupSignal::Ready
+                    | AgentStartupSignal::Held
+                    | AgentStartupSignal::Superseded,
+                ) => return,
                 Ok(AgentStartupSignal::ProcessExited) => {
                     process_exited = true;
                     service.publish_agent_startup_report(
@@ -537,7 +544,11 @@ impl ServiceContext {
                     break;
                 }
                 match receiver.recv_timeout(remaining) {
-                    Ok(AgentStartupSignal::Ready | AgentStartupSignal::Held | AgentStartupSignal::Superseded) => return,
+                    Ok(
+                        AgentStartupSignal::Ready
+                        | AgentStartupSignal::Held
+                        | AgentStartupSignal::Superseded,
+                    ) => return,
                     Ok(AgentStartupSignal::ProcessExited) if !process_exited => {
                         process_exited = true;
                         service.publish_agent_startup_report(
@@ -556,7 +567,9 @@ impl ServiceContext {
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => break,
                 }
             }
-            if !service.worker_ack.expire_startup(&agent_tab_id, &attempt_id)
+            if !service
+                .worker_ack
+                .expire_startup(&agent_tab_id, &attempt_id)
                 || !service.startup_attempt_is_current(&agent_tab_id, &attempt_id)
             {
                 return;
@@ -1012,16 +1025,8 @@ mod tests {
             "pty-current",
             "nonce-current"
         ));
-        assert!(!startup_ack_owns_attempt(
-            tab,
-            "pty-stale",
-            "nonce-current"
-        ));
-        assert!(!startup_ack_owns_attempt(
-            tab,
-            "pty-current",
-            "nonce-stale"
-        ));
+        assert!(!startup_ack_owns_attempt(tab, "pty-stale", "nonce-current"));
+        assert!(!startup_ack_owns_attempt(tab, "pty-current", "nonce-stale"));
     }
 
     #[test]
