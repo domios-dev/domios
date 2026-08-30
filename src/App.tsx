@@ -533,7 +533,6 @@ function AppInner() {
         showSidebarToggle={!sidebarOpen}
         onNewTab={handleNewTab}
         theme={stableTheme}
-        onOpenSettingsAbout={() => { setSettingsSection("about"); setSettingsOpen(true); }}
         onOpenSettings={(section) => { setSettingsSection(section); setSettingsOpen(true); }}
         onOpenExtensions={() => { setExtensionsOpen(true); }}
         notifications={state.notifications}
