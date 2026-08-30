@@ -18,11 +18,12 @@ impl ServiceContext {
             let cwd = mux.get_workspace(&id).and_then(|ws| ws.cwd.clone());
             (id, cwd)
         };
-        let team_membership = super::team::resolve_spawn_attachment(
+        let team_membership = super::team::resolve_inherited_team_attachment(
             &self.mux.read(),
             spec.team_id.as_deref(),
             spec.creator_tab_id.as_deref(),
             &ws_id,
+            spec.detach_from_team,
         )?;
         let (resolved_cwd, warning) = Self::resolve_agent_cwd(&spec.cwd, &ws_cwd);
 

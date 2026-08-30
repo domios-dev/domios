@@ -211,6 +211,7 @@ fn list_local_includes_cron_jobs_as_virtual_services() {
             name: "test-cron".into(),
             workspace_id: "ws".into(),
             team_id: None,
+            detach_from_team: false,
             schedule: "0 * * * *".into(),
             task: "echo".into(),
             description: None,

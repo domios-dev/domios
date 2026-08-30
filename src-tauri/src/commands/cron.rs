@@ -40,6 +40,7 @@ pub fn cron_create(
         name,
         workspace_id,
         team_id: None,
+        detach_from_team: false,
         schedule,
         task,
         description,
