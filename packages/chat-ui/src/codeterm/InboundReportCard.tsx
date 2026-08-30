@@ -17,7 +17,6 @@ import {
   shortSha,
   type ReportTaskOutcome,
 } from "./reportOutcome";
-import { MessageViewToggle } from "./MessageViewToggle";
 
 /** Identity the dense header row already states; repeating it as body rows is
  *  what made the card four lines of metadata before its first sentence. */
@@ -128,10 +127,7 @@ export function InboundReportCard({ message, sender, expanded, onToggle, onFocus
       onFocusTab={onFocusTab}
       disclosureLabel="report Details"
     >
-      <MessageViewToggle
-        raw={message.content}
-        formatted={
-          <div className={`ct-compact-scroll grid max-h-64 gap-2 overflow-y-auto ${textSize}`}>
+      <div className={`ct-compact-scroll grid max-h-64 gap-2 overflow-y-auto ${textSize}`}>
             {incident && (
               <div
                 data-testid="chat-inbound-report-incident"
@@ -162,9 +158,7 @@ export function InboundReportCard({ message, sender, expanded, onToggle, onFocus
                 ))}
               </dl>
             )}
-          </div>
-        }
-      />
+      </div>
     </InboundActivityCard>
   );
 }

@@ -111,13 +111,14 @@ async function run() {
   const editDetails = editDetailsId ? edit?.querySelector<HTMLElement>(`#${editDetailsId}`) : null;
   assert(editDetails?.style.maxHeight === "600px" && editDetails.style.overflowY === "auto", "expanded code output should use the 600px internal scroll cap");
   const messageViews = Array.from(host.querySelectorAll<HTMLElement>('[data-testid="message-view-toggle"]'));
-  const userView = messageViews.find((view) => view.textContent?.includes("User formatted"));
-  const assistantView = messageViews.find((view) => view.textContent?.includes("Assistant formatted"));
-  assert(userView && assistantView, "ordinary user and assistant messages should default to formatted views");
-  const assistantRaw = Array.from(assistantView.querySelectorAll("button")).find((button) => button.textContent === "Raw");
-  await act(async () => assistantRaw?.click());
-  assert(assistantRaw?.getAttribute("aria-pressed") === "true", "ordinary assistant message should switch to raw view");
-  assert(assistantView.querySelector('[data-testid="message-raw-content"]')?.textContent === ordinaryAssistant.content, "ordinary assistant raw view should preserve exact source text");
+  assert(messageViews.length === cards.length, "exactly one view toggle belongs to each tool card");
+  assert(messageViews.every((view) => view.querySelector('[data-testid="chat-tool-call"]')), "view toggles wrap tool cards only");
+  assert(messageViews.every((view) => !view.textContent?.includes("User formatted") && !view.textContent?.includes("Assistant formatted")), "ordinary messages have no view toggle");
+  const commandView = completedCommandCard?.closest<HTMLElement>('[data-testid="message-view-toggle"]');
+  const commandRaw = Array.from(commandView?.querySelectorAll("button") ?? []).find((button) => button.textContent === "Raw");
+  await act(async () => commandRaw?.click());
+  assert(commandRaw?.getAttribute("aria-pressed") === "true", "tool card switches to raw view");
+  assert(commandView?.querySelector('[data-testid="message-raw-content"]')?.textContent === "git status --short\n\nclean", "raw tool view preserves invocation and returned output");
 
   await act(async () => root.unmount());
   host.remove();

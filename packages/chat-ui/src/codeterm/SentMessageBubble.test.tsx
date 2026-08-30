@@ -67,25 +67,13 @@ await (async () => {
   assert(!bubble!.className.includes("border"), "shared bubble has no accent border frame");
   assert(text.includes("Puccini"), "renders resolved recipient name");
   assert(text.includes("Update") && text.includes("done"), "renders markdown body content");
-  const viewButtons = Array.from(host.querySelectorAll("button"));
-  const formatted = viewButtons.find((button) => button.textContent === "Formatted") as HTMLButtonElement | undefined;
-  const raw = viewButtons.find((button) => button.textContent === "Raw") as HTMLButtonElement | undefined;
-  assert(formatted?.getAttribute("aria-pressed") === "true", "outbound message defaults to formatted view");
-  await act(async () => raw?.click());
-  assert(
-    raw?.getAttribute("aria-pressed") === "true" &&
-      host.querySelector('[data-testid="message-raw-content"]')?.textContent?.includes("codeterm send") === true,
-    "outbound message exposes its raw source on request",
-  );
+  assert(host.querySelector('[data-testid="message-view-toggle"]') == null, "outbound message has no tool view toggle");
 })();
 
 await (async () => {
   const host = await render(<SentMessageBubble inv={inv("codeterm send --tab recipient --from-file update.md")} result="OK (sent)" />);
-  const buttons = Array.from(host.querySelectorAll("button"));
-  const formatted = buttons.find((button) => button.textContent === "Formatted") as HTMLButtonElement | undefined;
-  const raw = buttons.find((button) => button.textContent === "Raw") as HTMLButtonElement | undefined;
-  assert(formatted?.disabled === true, "unresolved staged message disables unavailable formatting");
-  assert(raw?.getAttribute("aria-pressed") === "true", "unresolved staged message falls back to raw view");
+  assert(host.querySelector('[data-testid="message-view-toggle"]') == null, "unresolved staged message has no tool view toggle");
+  assert(host.textContent?.includes("update.md"), "unresolved staged message renders its source descriptor");
 })();
 
 for (const [command, expectedBody] of [
