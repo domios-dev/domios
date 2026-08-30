@@ -328,6 +328,7 @@ pub fn run() {
             commands::cron_delete,
             commands::cron_toggle,
             commands::cron_trigger,
+            commands::cron_cancel,
             commands::cron_history,
             commands::cron_read_log,
             commands::services_list,

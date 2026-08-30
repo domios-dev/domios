@@ -1,4 +1,5 @@
 import type { InventoryOperation, Service } from "./types";
+import { OPERATION_LABELS } from "./meshResourceActions";
 
 export type InventoryKind = "cron" | "daemon";
 export type InventoryState = "healthy" | "degraded" | "down" | "unknown" | "disabled" | "running" | "failed" | "idle";
@@ -64,17 +65,6 @@ export interface InventoryModel {
   total: number;
   visible: number;
 }
-
-const OPERATION_LABELS: Record<InventoryOperation, string> = {
-  get: "inspect",
-  history: "history",
-  update_schedule: "schedule",
-  delete: "delete",
-  enable: "enable",
-  disable: "disable",
-  trigger: "run now",
-  cancel: "cancel",
-};
 
 const STATE_RANK: Record<InventoryState, number> = {
   down: 0,

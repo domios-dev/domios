@@ -432,6 +432,7 @@ export function MeshPanel({ config, onClose }: Props) {
   );
 
   const [drawerState, setDrawerState] = useState<DrawerState>(null);
+  const [meshAnnouncement, setMeshAnnouncement] = useState("");
   const [selectedResourceKey, setSelectedResourceKey] = useState<string | null>(null);
   const modeButtonRefs = useMemo(() => ({
     graph: { current: null as HTMLButtonElement | null },
@@ -585,7 +586,9 @@ export function MeshPanel({ config, onClose }: Props) {
           onClose={() => setDrawerState(null)}
           onOpenResource={(service, resourceKey) => handleServiceClick(service, resourceKey)}
           onActionDone={() => setRefreshKey((k) => k + 1)}
+          onAnnouncement={setMeshAnnouncement}
         />
+        <div className="sr-only" role="status" aria-live="polite" aria-atomic="true" data-testid="mesh-panel-announcement">{meshAnnouncement}</div>
         {webUiOpen && (
           <WebUiModal
             config={config}
