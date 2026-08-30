@@ -162,6 +162,17 @@ pub enum AgentAction {
         #[arg(long, env = "CODETERM_TASK_ID")]
         task: Option<String>,
     },
+    /// Acknowledge that this spawned agent received its first startup turn
+    StartupAck,
+    /// Cancel automatic cleanup for an inspected startup attempt
+    StartupHold {
+        /// Target spawned Tab
+        #[arg(long = "tab", value_name = "TAB")]
+        tab: String,
+        /// Launch attempt shown in the startup-overdue report
+        #[arg(long)]
+        attempt: String,
+    },
     /// List an orchestrator's workers from the durable ledger (survives daemon
     /// restart): branch / model / status / last-seen, one row per worker.
     Ledger {
@@ -474,6 +485,38 @@ mod tests {
             }
             _ => panic!("expected agent ack action"),
         }
+    }
+
+    #[test]
+    fn startup_hold_parses_attempt_fence() {
+        let hold = Cli::try_parse_from([
+            "codeterm",
+            "agent",
+            "startup-hold",
+            "--tab",
+            "child",
+            "--attempt",
+            "launch-a",
+        ])
+        .expect("startup hold parses");
+        assert!(matches!(
+            hold.command,
+            crate::Commands::Agent {
+                action: AgentAction::StartupHold { ref tab, ref attempt }
+            } if tab == "child" && attempt == "launch-a"
+        ));
+    }
+
+    #[test]
+    fn startup_ack_has_no_spoofable_identity_flags() {
+        let ack = Cli::try_parse_from(["codeterm", "agent", "startup-ack"])
+            .expect("startup ack parses");
+        assert!(matches!(
+            ack.command,
+            crate::Commands::Agent {
+                action: AgentAction::StartupAck
+            }
+        ));
     }
 
     #[test]

@@ -67,6 +67,12 @@ fn prepare_standard_starter_prompt(params: &mut SpawnAgentParams) {
     );
 }
 
+fn apply_startup_handshake(params: &mut SpawnAgentParams, supervised: bool) {
+    if supervised {
+        params.starter_prompt = crate::agent::provider::StarterPrompt::StartupHandshake;
+    }
+}
+
 fn team_bootstrap_payload(system_prompt_capable: bool, body: String) -> String {
     if system_prompt_capable {
         return body;
@@ -548,6 +554,7 @@ impl ServiceContext {
         // Pin agent_type before launch so detect_from_output can start session-id polling.
         // Without this tag, restarts can lose session_id and resume fails silently.
         self.set_and_lock_tab_agent_type(&tab_id, agent_cmd.to_string());
+        let startup_supervised = self.prepare_agent_startup_supervision(&tab_id);
 
         // 4c. Pin agent_session_id for resume up-front: we know the id from the user's request, so don't wait for detect_session_id polling.
         let launch_session_id = if params.resume_session_id.is_none() {
@@ -605,6 +612,7 @@ impl ServiceContext {
             prepare_standard_starter_prompt(&mut params);
             None
         };
+        apply_startup_handshake(&mut params, startup_supervised);
         let fallback_bootstrap =
             fallback_bootstrap.map(|body| team_bootstrap_payload(system_prompt_capable, body));
         let bg_task = if params.manager_bootstrap.is_some() {

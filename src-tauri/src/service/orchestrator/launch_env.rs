@@ -1,6 +1,7 @@
 pub(super) fn command_with_binding_nonce_for_shell(
     command: &str,
     binding_nonce: &str,
+    startup_attempt_id: &str,
     windows: bool,
     cli_path: Option<&std::ffi::OsStr>,
 ) -> String {
@@ -10,6 +11,7 @@ pub(super) fn command_with_binding_nonce_for_shell(
         .filter(|path| !path.as_os_str().is_empty());
     if windows {
         let binding = binding_nonce.replace('\'', "''");
+        let startup_attempt = startup_attempt_id.replace('\'', "''");
         let path = cli_dir.map(|dir| {
             format!(
                 "$env:PATH='{};' + $env:PATH; ",
@@ -17,11 +19,12 @@ pub(super) fn command_with_binding_nonce_for_shell(
             )
         });
         format!(
-            "$env:CODETERM_SESSION_BINDING_NONCE='{binding}'; {}{command}",
+            "$env:CODETERM_SESSION_BINDING_NONCE='{binding}'; $env:CODETERM_STARTUP_ATTEMPT_ID='{startup_attempt}'; {}{command}",
             path.unwrap_or_default()
         )
     } else {
         let binding = binding_nonce.replace('\'', "'\"'\"'");
+        let startup_attempt = startup_attempt_id.replace('\'', "'\"'\"'");
         let path = cli_dir.map(|dir| {
             format!(
                 "export PATH='{}':\"$PATH\"; ",
@@ -29,7 +32,7 @@ pub(super) fn command_with_binding_nonce_for_shell(
             )
         });
         format!(
-            "export CODETERM_SESSION_BINDING_NONCE='{binding}'; {}{command}",
+            "export CODETERM_SESSION_BINDING_NONCE='{binding}'; export CODETERM_STARTUP_ATTEMPT_ID='{startup_attempt}'; {}{command}",
             path.unwrap_or_default()
         )
     }
@@ -44,12 +47,13 @@ mod tests {
         let command = command_with_binding_nonce_for_shell(
             "claude",
             "nonce",
+            "pty-a",
             false,
             Some(std::ffi::OsStr::new("/dev/bin/codeterm")),
         );
         assert_eq!(
             command,
-            "export CODETERM_SESSION_BINDING_NONCE='nonce'; export PATH='/dev/bin':\"$PATH\"; claude"
+            "export CODETERM_SESSION_BINDING_NONCE='nonce'; export CODETERM_STARTUP_ATTEMPT_ID='pty-a'; export PATH='/dev/bin':\"$PATH\"; claude"
         );
     }
 }

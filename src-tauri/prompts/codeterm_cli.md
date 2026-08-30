@@ -7,7 +7,7 @@ You are inside CodeTerm, an AI-first terminal multiplexer. CLI binary: `codeterm
 
 Env vars ALWAYS set in every tab: `$CODETERM=1`, `$CODETERM_TAB_ID` (your internal tab id), `$CODETERM_SOCKET_PATH`, `$CODETERM_API_URL`, `$CODETERM_API_PORT`, `$CODETERM_SESSION_BINDING_NONCE`.
 
-Env vars set CONDITIONALLY, only when the tab actually has that identity — test before you use one: `$CODETERM_PARENT_TAB_ID` (set for a tab with a parent; a root Orchestrator legitimately has none), `$CODETERM_ROLE`, `$CODETERM_TEAM_ID`, `$CODETERM_WORKER_ID`, `$CODETERM_PLAN_ID`, `$CODETERM_TASK_ID`, `$CODETERM_ATTEMPT_ID`, `$CODETERM_LANE_BASE` (task-bound launches), `$CODETERM_PAD_DIR`, `$CODETERM_API_TOKEN`. `codeterm plan record --help` and `codeterm agent report --help` render the ones they default from as `[env: …]`. There is NO `$CODETERM_WORKSPACE_ID` in a shell tab — resolve the workspace with `codeterm workspace list` or `codeterm tab list`.
+Env vars set CONDITIONALLY, only when the tab actually has that identity — test before you use one: `$CODETERM_PARENT_TAB_ID` (set for a tab with a parent; a root Orchestrator legitimately has none), `$CODETERM_ROLE`, `$CODETERM_TEAM_ID`, `$CODETERM_WORKER_ID`, `$CODETERM_PLAN_ID`, `$CODETERM_TASK_ID`, `$CODETERM_ATTEMPT_ID`, `$CODETERM_STARTUP_ATTEMPT_ID` (agent-created launch handshake), `$CODETERM_LANE_BASE` (task-bound launches), `$CODETERM_PAD_DIR`, `$CODETERM_API_TOKEN`. `codeterm plan record --help` and `codeterm agent report --help` render the ones they default from as `[env: …]`. There is NO `$CODETERM_WORKSPACE_ID` in a shell tab — resolve the workspace with `codeterm workspace list` or `codeterm tab list`.
 
 ## Hard invariants
 
@@ -29,10 +29,10 @@ Env vars set CONDITIONALLY, only when the tab actually has that identity — tes
 | Domain / trigger | Commands | Depth |
 |---|---|---|
 | Environment, version, what-can-this-do | `codeterm identify`, `capabilities`, `docs` | — |
-| Tabs, sending text/keys, reading a tab | Plain `tab list` first; use `tab inspect <id>` only for a selected tab's full details, then `send`, `tab chat`, `tab get-text`, `tab exec`. Recover a stale provider-session binding without interrupting the agent with `tab rebind SESSION_ID --tab ID`. | `docs ROUTING` |
+| Tabs, sending text/keys, reading a tab | Plain `tab list` first; use `tab inspect <id>` only for a selected tab's full details, then `send`, `tab chat`, `tab get-text`, `tab exec`. Answer a detected numbered provider prompt with `tab respond OPTION --tab ID`. If the same visible picker remains, one bounded `send --actions "enter"` or `"down,enter"` fallback may follow its current selection; inspect again and never resend the task payload. Recover a stale provider-session binding without interrupting the agent with `tab rebind SESSION_ID --tab ID`. | `docs ROUTING` |
 | Long-running processes (servers, watchers) | `tab new --cmd "..."`; later use `tab restart --tab ID --cmd "..."` to replace that shell without creating another tab | — |
 | Scheduled/future message to a tab | `send --delay/--at`, `delayed --help` | — |
-| Spawning agents, worker/orchestrator shapes, reports | `agent spawn --help`, `agent report`, `agent providers/models` | `codeterm docs ORCHESTRATION` |
+| Spawning agents, worker/orchestrator shapes, reports | `agent spawn --help`, `agent startup-ack`, `agent startup-hold`, `agent report`, `agent providers/models` | `codeterm docs ORCHESTRATION` |
 | Becoming an Orchestrator | You are not automatically an Orchestrator. Use the tab menu Make Orchestrator action or the `--role Orchestrator` flag. | as above |
 | Plans, specs, tasks, strides, canvas | `plan --help`, `spec --help`, `task --help` | as above |
 | Recurring/oneshot jobs | `cron create --help` (read it first — flags evolve) | `docs CONFIG` |

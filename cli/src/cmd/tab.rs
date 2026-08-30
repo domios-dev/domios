@@ -498,6 +498,52 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                 }
             }
         }
+        TabAction::Respond { option, tab } => {
+            if option == 0 {
+                exit_with_cli_error(json, &CliError::new("tab respond option must be at least 1"));
+            }
+            match tab.as_deref().map(classify_remote_tab_id) {
+                Some(RemoteTabTarget::Remote(peer, remote_tab)) => {
+                    let path = format!(
+                        "/api/tabs/{}/prompt/respond",
+                        urlencoding::encode(&remote_tab)
+                    );
+                    let body = serde_json::json!({"value": option.to_string()}).to_string();
+                    handle_result(json, Ok(relay_tab_json(&peer, "POST", &path, Some(&body))));
+                    return;
+                }
+                Some(RemoteTabTarget::Invalid) => {
+                    exit_with_cli_error(json, &CliError::new(INVALID_REMOTE_TAB_ID));
+                }
+                _ => {}
+            }
+            let tab_id = resolve_tab(client, tab);
+            let (api_url, _) = read_api_config();
+            let api = match build_local_api() {
+                Ok(client) => client,
+                Err(error) => {
+                    exit_with_cli_error(
+                        json,
+                        &CliError::new(format!("Prompt response failed: {error}")),
+                    );
+                }
+            };
+            let result = api
+                .post(format!("{api_url}/api/tabs/{tab_id}/prompt/respond"))
+                .json(&serde_json::json!({"value": option.to_string()}))
+                .send()
+                .map_err(|error| error.to_string())
+                .and_then(|response| {
+                    let status = response.status();
+                    let body = response.text().unwrap_or_default();
+                    if status.is_success() {
+                        serde_json::from_str(&body).map_err(|error| error.to_string())
+                    } else {
+                        Err(format!("HTTP {}: {body}", status.as_u16()))
+                    }
+                });
+            handle_result(json, result);
+        }
         TabAction::Rebind { session_id, tab } => {
             match tab.as_deref().map(classify_remote_tab_id) {
                 Some(RemoteTabTarget::Remote(peer, remote_tab)) => {
@@ -784,6 +830,7 @@ fn validate_user_tab_selectors(action: &TabAction) -> Result<(), String> {
         | TabAction::GetText { tab, .. }
         | TabAction::Exec { tab, .. }
         | TabAction::Status { tab }
+        | TabAction::Respond { tab, .. }
         | TabAction::Rebind { tab, .. }
         | TabAction::Stop { tab }
         | TabAction::Chat { tab, .. } => tab.as_deref().filter(|value| invalid(value)),

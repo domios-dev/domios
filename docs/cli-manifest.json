@@ -761,6 +761,41 @@
           "subcommands": []
         },
         {
+          "name": "startup-ack",
+          "about": "Acknowledge that this spawned agent received its first startup turn",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "startup-hold",
+          "about": "Cancel automatic cleanup for an inspected startup attempt",
+          "aliases": [],
+          "args": [
+            {
+              "name": "attempt",
+              "positional": false,
+              "required": true,
+              "value_name": "ATTEMPT",
+              "possible_values": [],
+              "default": null,
+              "help": "Launch attempt shown in the startup-overdue report",
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "required": true,
+              "value_name": "TAB",
+              "possible_values": [],
+              "default": null,
+              "help": "Target spawned Tab",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "unlink",
           "about": "Remove a tab's role (also orphans children)",
           "aliases": [],
@@ -13286,6 +13321,34 @@
               "possible_values": [],
               "default": null,
               "help": "New title",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "respond",
+          "about": "Answer the tab's current provider-declared prompt by numbered option. Sends only when a pending prompt exists; use this instead of raw keys",
+          "aliases": [],
+          "args": [
+            {
+              "name": "option",
+              "positional": true,
+              "required": true,
+              "value_name": "OPTION",
+              "possible_values": [],
+              "default": null,
+              "help": "One-based option number shown by `tab status` or `tab inspect`",
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "required": false,
+              "value_name": "TAB",
+              "possible_values": [],
+              "default": null,
+              "help": "Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)",
               "aliases": []
             }
           ],

@@ -207,6 +207,7 @@ impl LaunchGeneration {
         let nonce = svc.rotate_session_binding_nonce(&self.tab_id);
         self.binding_nonce = Some(nonce.clone());
         LAUNCH_REGISTRY.lock().bind_provider_session(self, nonce);
+        svc.activate_agent_startup_supervision(&self.tab_id, &self.pty_id);
     }
 
     fn transition(&mut self, stage: BootStage) {
@@ -424,20 +425,32 @@ fn spawn_backend_pty(
 fn command_with_binding_nonce_for_shell(
     command: &str,
     binding_nonce: &str,
+    startup_attempt_id: &str,
     windows: bool,
     cli_path: Option<&std::ffi::OsStr>,
 ) -> String {
     super::launch_env::command_with_binding_nonce_for_shell(
         command,
         binding_nonce,
+        startup_attempt_id,
         windows,
         cli_path,
     )
 }
 
-fn command_with_binding_nonce(command: &str, binding_nonce: &str) -> String {
+fn command_with_binding_nonce(
+    command: &str,
+    binding_nonce: &str,
+    startup_attempt_id: &str,
+) -> String {
     let cli_path = std::env::var_os("CODETERM_CLI_PATH");
-    command_with_binding_nonce_for_shell(command, binding_nonce, cfg!(windows), cli_path.as_deref())
+    command_with_binding_nonce_for_shell(
+        command,
+        binding_nonce,
+        startup_attempt_id,
+        cfg!(windows),
+        cli_path.as_deref(),
+    )
 }
 
 #[allow(dead_code)]
@@ -683,6 +696,7 @@ pub(crate) fn launch_agent_in_background_with_env(
                 .binding_nonce
                 .as_deref()
                 .expect("launch binding nonce"),
+            &launch.pty_id,
         );
 
         if !crate::service::pty_io::await_bare_shell_prompt(
@@ -776,6 +790,7 @@ pub(crate) fn launch_agent_in_background_with_env(
                                 .binding_nonce
                                 .as_deref()
                                 .expect("replacement launch binding nonce"),
+                            &launch.pty_id,
                         );
                         if !launch.emit(&svc, BootStage::PtySpawned)
                             || !launch.emit(&svc, BootStage::ReaderReady)

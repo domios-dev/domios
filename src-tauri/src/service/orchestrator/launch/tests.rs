@@ -180,12 +180,13 @@ fn powershell_launch_inherits_an_escaped_binding_nonce() {
     let command = command_with_binding_nonce_for_shell(
         "Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue; claude --resume",
         "nonce'a",
+        "pty-a",
         true,
         None,
     );
     assert_eq!(
         command,
-        "$env:CODETERM_SESSION_BINDING_NONCE='nonce''a'; Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue; claude --resume"
+        "$env:CODETERM_SESSION_BINDING_NONCE='nonce''a'; $env:CODETERM_STARTUP_ATTEMPT_ID='pty-a'; Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue; claude --resume"
     );
 }
 
@@ -194,12 +195,13 @@ fn posix_launch_inherits_an_escaped_binding_nonce() {
     let command = command_with_binding_nonce_for_shell(
         "unset CLAUDECODE && claude --resume",
         "nonce'a",
+        "pty-a",
         false,
         None,
     );
     assert_eq!(
         command,
-        "export CODETERM_SESSION_BINDING_NONCE='nonce'\"'\"'a'; unset CLAUDECODE && claude --resume"
+        "export CODETERM_SESSION_BINDING_NONCE='nonce'\"'\"'a'; export CODETERM_STARTUP_ATTEMPT_ID='pty-a'; unset CLAUDECODE && claude --resume"
     );
 }
 

@@ -64,12 +64,10 @@ const FILE_TASK_PROMPT =
 const IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
 
 function starterPrompt(prompt: LaunchParams["starterPrompt"], hostText?: string): string | undefined {
+  if (hostText) return hostText;
   if (prompt === "no_starter") return undefined;
   if (prompt === "idle_wakeup") return IDLE_WAKEUP_START_PROMPT;
-  if (prompt === "team_bootstrap") {
-    if (!hostText) throw new Error("team_bootstrap requires host starterPromptText");
-    return hostText;
-  }
+  if (prompt === "team_bootstrap") throw new Error("team_bootstrap requires host starterPromptText");
   return FILE_TASK_PROMPT;
 }
 
@@ -135,7 +133,7 @@ function isBrailleSpinner(ch: string): boolean {
 
 
 const plugin: PluginModule = {
-  starterPromptText(prompt: "no_starter" | "assigned_task" | "idle_wakeup" | "team_bootstrap"): string | undefined {
+  starterPromptText(prompt: "no_starter" | "assigned_task" | "idle_wakeup" | "team_bootstrap" | "startup_handshake"): string | undefined {
     return prompt === "team_bootstrap" ? undefined : starterPrompt(prompt);
   },
   detectFromTitle(title: string): boolean {

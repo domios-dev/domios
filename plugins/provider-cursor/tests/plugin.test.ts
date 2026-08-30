@@ -170,6 +170,19 @@ console.log("\n--- buildLaunchCommand (workspace-trust pre-write + invocation) -
     withTask.endsWith(`cursor-agent --force ${JSON.stringify(hostileTask)}`),
     "Cursor initial task is one shell-quoted positional prompt",
   );
+  const handshake = "opaque-startup-handshake";
+  const withHandshake = taskProvider.buildLaunchCommand({
+    skipPermissions: true,
+    task: hostileTask,
+    starterPrompt: "startup_handshake",
+    starterPromptText: handshake,
+  });
+  assert(
+    withHandshake.endsWith(
+      `cursor-agent --force ${JSON.stringify(`${handshake}\n\n${hostileTask}`)}`,
+    ),
+    "Cursor startup handshake precedes the original task in one positional prompt",
+  );
 }
 
 console.log("\n--- POSIX trustPrefix: JSON-escaped workspacePath ---\n");
