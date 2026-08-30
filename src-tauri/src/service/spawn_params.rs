@@ -114,6 +114,7 @@ impl SpawnTabSpec {
             parent_tab_id: params.parent_tab_id.clone(),
             team_id: params.team_id.clone(),
             creator_tab_id: params.creator_tab_id.clone(),
+            detach_from_team: false,
             cwd: params.cwd.clone(),
             title: params.title.clone(),
             description: params.description.clone(),

@@ -28,6 +28,7 @@ fn legacy_pty_spec() -> SpawnTabSpec {
         parent_tab_id: None,
         team_id: Some("team-1".into()),
         creator_tab_id: Some("tab-creator".into()),
+        detach_from_team: false,
         cwd: Some("/lane".into()),
         title: Some("cron:nightly".into()),
         description: None,
