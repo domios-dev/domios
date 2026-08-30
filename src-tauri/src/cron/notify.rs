@@ -131,6 +131,7 @@ mod tests {
                 name: "flaky".into(),
                 workspace_id: "ws".into(),
                 team_id: None,
+                detach_from_team: false,
                 schedule: "0 * * * *".into(),
                 task: "do the thing".into(),
                 description: None,
