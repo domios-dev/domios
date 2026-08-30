@@ -1,5 +1,4 @@
 import type { ToolEventKind } from "@codeterm/chat-core";
-import { createContext, createElement, useContext, type ReactNode } from "react";
 import { toolGlyphs, type ToolGlyph } from "./toolGlyphs";
 
 export interface ToolKindVisual {
@@ -18,13 +17,3 @@ export const toolKindVisual: Record<ToolEventKind, ToolKindVisual> = {
   codeterm: { glyph: toolGlyphs.codeterm, color: "var(--ct-accent)", label: "codeterm" },
   generic: { glyph: toolGlyphs.generic, color: "var(--ct-muted-fg)", label: "tool" },
 };
-
-export const ShowCommandsContext = createContext(false);
-
-export function useShowCommands(): boolean {
-  return useContext(ShowCommandsContext);
-}
-
-export function ShowCommandsProvider({ showCommands, children }: { showCommands: boolean; children: ReactNode }) {
-  return createElement(ShowCommandsContext.Provider, { value: showCommands }, children);
-}

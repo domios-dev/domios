@@ -3,6 +3,35 @@ export type HealthMode = "http" | "tcp" | "process" | "script";
 export type HealthStatus = "healthy" | "degraded" | "down" | "unknown";
 export type ActivitySource = "push" | "health" | "peer" | "cron";
 export type ActivityLevel = "info" | "warn" | "error";
+export type InventoryOperation =
+  | "get"
+  | "history"
+  | "update_schedule"
+  | "delete"
+  | "enable"
+  | "disable"
+  | "trigger"
+  | "cancel";
+export type InventoryUnavailableReason =
+  | "not_authorized"
+  | "stale"
+  | "offline"
+  | "partial_peer_failure"
+  | "unsupported_resource_kind"
+  | "target_unavailable"
+  | "protected_resource";
+
+export interface InventoryCapability {
+  allowed: boolean;
+  unavailable_reason?: InventoryUnavailableReason;
+}
+
+export interface InventoryProvenance {
+  freshness: "fresh" | "stale" | "offline";
+  offline: boolean;
+  fetched_at?: number | null;
+  partial_error?: string;
+}
 
 export interface HealthSnapshot {
   status: HealthStatus;
@@ -17,6 +46,7 @@ export interface Service {
   id: string;
   name: string;
   kind: ServiceKind;
+  protected?: boolean;
   description?: string;
   host?: string;
   url?: string;
@@ -40,6 +70,11 @@ export interface Service {
   stale?: boolean;
   /** Online state of the owning peer at merge time. */
   peer_online?: boolean;
+  resource_id?: string;
+  machine_id?: string;
+  machine_name?: string;
+  provenance?: InventoryProvenance;
+  capabilities?: Partial<Record<InventoryOperation, InventoryCapability>>;
 }
 
 export interface ActivityEvent {
@@ -54,7 +89,7 @@ export interface ActivityEvent {
   meta: Record<string, unknown>;
 }
 
-export type MeshTab = "map" | "activity" | "network";
+export type MeshTab = "inventory" | "activity" | "network";
 
 export const CRON_ID_PREFIX = "cron_";
 

@@ -128,36 +128,36 @@ export function InboundReportCard({ message, sender, expanded, onToggle, onFocus
       disclosureLabel="report Details"
     >
       <div className={`ct-compact-scroll grid max-h-64 gap-2 overflow-y-auto ${textSize}`}>
-        {incident && (
-          <div
-            data-testid="chat-inbound-report-incident"
-            className="min-w-0 break-words"
-            style={{ color: "var(--ct-red)" }}
-          >
-            {incident}
-          </div>
-        )}
-        {body && (
-          <div
-            data-testid="chat-inbound-report-body"
-            className="min-w-0 whitespace-pre-wrap break-words"
-            style={{ color: "var(--ct-fg)" }}
-          >
-            {hasPlanRefs(body) ? <LinkedText text={body} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} /> : body}
-          </div>
-        )}
-        {detailFields.length > 0 && (
-          <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1">
-            {detailFields.map((field, index) => (
-              <div key={`${field.label}-${index}`} className="contents">
-                <dt className="font-mono" style={{ color: "var(--ct-muted-fg)" }}>{field.label}</dt>
-                <dd className="min-w-0 break-words" style={{ color: "var(--ct-fg)" }}>
-                  {hasPlanRefs(field.value) ? <LinkedText text={field.value} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} /> : field.value}
-                </dd>
+            {incident && (
+              <div
+                data-testid="chat-inbound-report-incident"
+                className="min-w-0 break-words"
+                style={{ color: "var(--ct-red)" }}
+              >
+                {incident}
               </div>
-            ))}
-          </dl>
-        )}
+            )}
+            {body && (
+              <div
+                data-testid="chat-inbound-report-body"
+                className="min-w-0 whitespace-pre-wrap break-words"
+                style={{ color: "var(--ct-fg)" }}
+              >
+                {hasPlanRefs(body) ? <LinkedText text={body} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} /> : body}
+              </div>
+            )}
+            {detailFields.length > 0 && (
+              <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1">
+                {detailFields.map((field, index) => (
+                  <div key={`${field.label}-${index}`} className="contents">
+                    <dt className="font-mono" style={{ color: "var(--ct-muted-fg)" }}>{field.label}</dt>
+                    <dd className="min-w-0 break-words" style={{ color: "var(--ct-fg)" }}>
+                      {hasPlanRefs(field.value) ? <LinkedText text={field.value} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} /> : field.value}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            )}
       </div>
     </InboundActivityCard>
   );

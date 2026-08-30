@@ -528,6 +528,7 @@ fn mesh_cron_create_forwards_all_advanced_fields() {
             task: "do x".into(),
             workspace: Some("ws_1".into()),
             team: None,
+            no_team: false,
             agent: "claude".into(),
             model: None,
             cwd: None,
@@ -561,6 +562,7 @@ fn tab_new_relays_cmd_field() {
             cwd: Some("C:/Developer/codeterm".into()),
             title: Some("runner".into()),
             team: None,
+            no_team: false,
             cmd: Some("pnpm test".into()),
             eager: true,
             chat_backend: None,
@@ -631,6 +633,23 @@ fn explicit_address_scope_mesh_all_workspaces_reaches_every_peer_workspace() {
     assert_eq!(method, "GET");
     assert_eq!(path, "/api/tabs?agents=false&all_workspaces=true");
     assert!(body.is_none());
+}
+
+#[test]
+fn tab_respond_maps_to_provider_prompt_route() {
+    let command = Commands::Tab {
+        action: TabAction::Respond {
+            option: 2,
+            tab: Some("child_7".into()),
+        },
+    };
+
+    let (method, path, body) = cli_command_to_api(&command);
+    let body: serde_json::Value = serde_json::from_str(&body.expect("body")).unwrap();
+
+    assert_eq!(method, "POST");
+    assert_eq!(path, "/api/tabs/child_7/prompt/respond");
+    assert_eq!(body["value"], "2");
 }
 
 #[test]

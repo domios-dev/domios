@@ -8,8 +8,16 @@ impl ServiceContext {
         &self,
         cron: &CronState,
         wake: &CronWake,
-        params: CronCreateParams,
+        mut params: CronCreateParams,
     ) -> Result<CronJob, String> {
+        let inherited_attachment = crate::service::team::resolve_inherited_team_attachment(
+            &self.mux.read(),
+            params.team_id.as_deref(),
+            params.creator_tab_id.as_deref(),
+            &params.workspace_id,
+            params.detach_from_team,
+        )?;
+        params.team_id = inherited_attachment.map(|attachment| attachment.team_id);
         self.validate_cron_ownership(&params)?;
         let job = cron.lock().create(params)?;
         wake.notify_all();

@@ -162,6 +162,17 @@ pub enum AgentAction {
         #[arg(long, env = "CODETERM_TASK_ID")]
         task: Option<String>,
     },
+    /// Acknowledge that this spawned agent received its first startup turn
+    StartupAck,
+    /// Cancel automatic cleanup for an inspected startup attempt
+    StartupHold {
+        /// Target spawned Tab
+        #[arg(long = "tab", value_name = "TAB")]
+        tab: String,
+        /// Launch attempt shown in the startup-overdue report
+        #[arg(long)]
+        attempt: String,
+    },
     /// List an orchestrator's workers from the durable ledger (survives daemon
     /// restart): branch / model / status / last-seen, one row per worker.
     Ledger {
@@ -225,10 +236,10 @@ pub enum AgentAction {
         #[arg(default_value = "claude")]
         agent: String,
         /// Tab title
-        #[arg(long, num_args = 1..)]
+        #[arg(long, num_args = 1)]
         title: Option<Vec<String>>,
         /// Short tab description (max 200 chars)
-        #[arg(long, num_args = 1..)]
+        #[arg(long, num_args = 1)]
         description: Option<Vec<String>>,
         /// Working directory
         #[arg(long)]
@@ -477,6 +488,38 @@ mod tests {
     }
 
     #[test]
+    fn startup_hold_parses_attempt_fence() {
+        let hold = Cli::try_parse_from([
+            "codeterm",
+            "agent",
+            "startup-hold",
+            "--tab",
+            "child",
+            "--attempt",
+            "launch-a",
+        ])
+        .expect("startup hold parses");
+        assert!(matches!(
+            hold.command,
+            crate::Commands::Agent {
+                action: AgentAction::StartupHold { ref tab, ref attempt }
+            } if tab == "child" && attempt == "launch-a"
+        ));
+    }
+
+    #[test]
+    fn startup_ack_has_no_spoofable_identity_flags() {
+        let ack =
+            Cli::try_parse_from(["codeterm", "agent", "startup-ack"]).expect("startup ack parses");
+        assert!(matches!(
+            ack.command,
+            crate::Commands::Agent {
+                action: AgentAction::StartupAck
+            }
+        ));
+    }
+
+    #[test]
     fn ledger_tab_is_optional() {
         let cli = Cli::try_parse_from(["codeterm", "agent", "ledger"]).expect("ledger w/o tab");
         match cli.command {
@@ -622,29 +665,42 @@ mod tests {
     }
 
     #[test]
-    fn spawn_title_accepts_unquoted_words_until_next_flag() {
+    fn spawn_title_does_not_consume_following_flags() {
         let cli = Cli::try_parse_from([
             "codeterm",
             "agent",
             "spawn",
             "claude",
             "--title",
-            "perf",
-            "brainstorm",
-            "opus",
-            "--task",
-            "review startup",
+            "Team routing smoke",
+            "--reasoning-effort",
+            "low",
+            "--description",
+            "Team containment probe",
+            "--non-user-facing",
         ])
-        .expect("unquoted title words should parse");
+        .expect("spawn flags after title should parse independently");
         match cli.command {
             crate::Commands::Agent {
-                action: AgentAction::Spawn { title, task, .. },
+                action:
+                    AgentAction::Spawn {
+                        title,
+                        description,
+                        reasoning_effort,
+                        non_user_facing,
+                        ..
+                    },
             } => {
                 assert_eq!(
                     title.map(|words| words.join(" ")).as_deref(),
-                    Some("perf brainstorm opus")
+                    Some("Team routing smoke")
                 );
-                assert_eq!(task.as_deref(), Some("review startup"));
+                assert_eq!(reasoning_effort.as_deref(), Some("low"));
+                assert_eq!(
+                    description.map(|words| words.join(" ")).as_deref(),
+                    Some("Team containment probe")
+                );
+                assert!(non_user_facing);
             }
             _ => panic!("expected agent spawn"),
         }

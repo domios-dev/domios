@@ -58,6 +58,7 @@ Rename your tab to the task summary using $CODETERM_TAB_ID (always available ins
 ```bash
 codeterm tab rename --tab "$CODETERM_TAB_ID" "short task name"
 ```
+Never rename the protected General Agent home tab (`main` / `general`); its title is stable machine chrome.
 
 ### Rendering in the chat
 

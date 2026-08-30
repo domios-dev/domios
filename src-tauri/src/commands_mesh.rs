@@ -400,6 +400,38 @@ pub async fn mesh_peer_services_list(
 }
 
 #[tauri::command]
+pub fn mesh_inventory_list(
+    mesh: tauri::State<'_, crate::MeshStateHandle>,
+    svc: tauri::State<'_, crate::service::ServiceState>,
+    cron: tauri::State<'_, crate::CronState>,
+) -> Result<serde_json::Value, String> {
+    let (machine_id, machine_name) = {
+        let manager = mesh.lock();
+        (
+            manager.ident.identity.instance_id.clone(),
+            manager.ident.instance_name.clone(),
+        )
+    };
+    let services = {
+        let cron = cron.lock();
+        crate::service::store::list_local(&svc.services_store, &cron).map_err(|e| e.to_string())?
+    };
+    let view = crate::api::mesh_inventory::project_view(
+        machine_id,
+        machine_name,
+        services,
+        &crate::mesh::types::AccessLevel::Full,
+        codeterm_types::mesh::inventory::InventoryProvenance {
+            freshness: codeterm_types::mesh::inventory::InventoryFreshness::Fresh,
+            offline: false,
+            fetched_at: Some(crate::api::mesh_inventory::current_epoch_seconds()),
+            partial_error: None,
+        },
+    );
+    serde_json::to_value(view).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn ordinary_tabs_list(
     mesh: tauri::State<'_, crate::MeshStateHandle>,
     svc: tauri::State<'_, crate::service::ServiceState>,
@@ -621,7 +653,7 @@ async fn fetch_peer_services(
 
     let result = crate::mesh::transport::try_peer(addresses, |addr| {
         let client = client.clone();
-        let url = format!("http://{}:{}/api/services", addr.ip, port);
+        let url = format!("http://{}:{}/api/mesh/inventory", addr.ip, port);
         let token = token.to_string();
         async move {
             let resp = match client
@@ -636,8 +668,16 @@ async fn fetch_peer_services(
             if !resp.status().is_success() {
                 return TryNext::Stop(format!("HTTP {}", resp.status()));
             }
-            match resp.json::<Vec<serde_json::Value>>().await {
-                Ok(services) => TryNext::Success(services),
+            match resp
+                .json::<crate::api::mesh_inventory::MeshInventoryView>()
+                .await
+            {
+                Ok(view) => TryNext::Success(
+                    view.resources
+                        .into_iter()
+                        .filter_map(|resource| serde_json::to_value(resource).ok())
+                        .collect(),
+                ),
                 Err(e) => TryNext::Stop(format!("parse: {}", e)),
             }
         }
@@ -654,6 +694,7 @@ async fn fetch_peer_services(
 enum PeerMethod {
     Get,
     Post,
+    Put,
     Delete,
 }
 
@@ -667,6 +708,16 @@ async fn peer_authed_request(
     instance_id: &str,
     method: PeerMethod,
     path: &str,
+) -> Result<serde_json::Value, String> {
+    peer_authed_request_with_body(mesh, instance_id, method, path, None).await
+}
+
+async fn peer_authed_request_with_body(
+    mesh: &crate::MeshStateHandle,
+    instance_id: &str,
+    method: PeerMethod,
+    path: &str,
+    body: Option<serde_json::Value>,
 ) -> Result<serde_json::Value, String> {
     use crate::mesh::transport::TryNext;
 
@@ -697,11 +748,19 @@ async fn peer_authed_request(
         let client = client.clone();
         let url = format!("http://{}:{}{}", addr.ip, port, path);
         let token = token.clone();
+        let body = body.clone();
         async move {
             let req = match method {
                 PeerMethod::Get => client.get(&url),
                 PeerMethod::Post => client.post(&url),
+                PeerMethod::Put => client.put(&url),
                 PeerMethod::Delete => client.delete(&url),
+            };
+            let req = match body.as_ref() {
+                Some(body) if matches!(method, PeerMethod::Post | PeerMethod::Put) => {
+                    req.json(body)
+                }
+                _ => req,
             };
             let resp = match req
                 .header("Authorization", format!("Bearer {}", token))
@@ -762,15 +821,106 @@ pub async fn peer_cron_action_request(
     id: &str,
     action: &str,
 ) -> Result<serde_json::Value, String> {
-    // POST against the peer's API surface.
-    if !matches!(action, "enable" | "disable" | "trigger" | "cancel") {
-        return Err(format!("unsupported cron action: {}", action));
-    }
+    let action = PeerCronAction::parse(action)
+        .map_err(|error| serde_json::to_string(&error).unwrap_or_else(|_| error.to_string()))?;
     peer_authed_request(
         mesh,
         instance_id,
         PeerMethod::Post,
-        &format!("/api/crons/{}/{}", id, action),
+        &format!("/api/crons/{}/{}", id, action.as_str()),
+    )
+    .await
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PeerCronAction {
+    Enable,
+    Disable,
+    Trigger,
+    Cancel,
+}
+
+#[derive(Debug, serde::Serialize)]
+struct UnsupportedCronOperation<'a> {
+    code: &'static str,
+    operation: &'a str,
+}
+
+impl std::fmt::Display for UnsupportedCronOperation<'_> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "unsupported cron action: {}", self.operation)
+    }
+}
+
+impl PeerCronAction {
+    fn parse(operation: &str) -> Result<Self, UnsupportedCronOperation<'_>> {
+        match operation {
+            "enable" => Ok(Self::Enable),
+            "disable" => Ok(Self::Disable),
+            "trigger" => Ok(Self::Trigger),
+            "cancel" => Ok(Self::Cancel),
+            operation => Err(UnsupportedCronOperation {
+                code: "unsupported_operation",
+                operation,
+            }),
+        }
+    }
+
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Enable => "enable",
+            Self::Disable => "disable",
+            Self::Trigger => "trigger",
+            Self::Cancel => "cancel",
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn mesh_peer_cron_update(
+    mesh: tauri::State<'_, crate::MeshStateHandle>,
+    instance_id: String,
+    id: String,
+    patch: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    peer_cron_update_request(mesh.inner(), &instance_id, &id, patch).await
+}
+
+pub async fn peer_cron_update_request(
+    mesh: &crate::MeshStateHandle,
+    instance_id: &str,
+    id: &str,
+    patch: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    peer_authed_request_with_body(
+        mesh,
+        instance_id,
+        PeerMethod::Put,
+        &format!("/api/crons/{id}"),
+        Some(patch),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn mesh_peer_cron_delete(
+    mesh: tauri::State<'_, crate::MeshStateHandle>,
+    instance_id: String,
+    id: String,
+) -> Result<serde_json::Value, String> {
+    peer_cron_delete_request(mesh.inner(), &instance_id, &id).await
+}
+
+pub async fn peer_cron_delete_request(
+    mesh: &crate::MeshStateHandle,
+    instance_id: &str,
+    id: &str,
+) -> Result<serde_json::Value, String> {
+    peer_authed_request(
+        mesh,
+        instance_id,
+        PeerMethod::Delete,
+        &format!("/api/crons/{id}"),
     )
     .await
 }
@@ -819,4 +969,44 @@ pub async fn peer_cron_get_request(
         &format!("/api/crons/{id}"),
     )
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn target_outcome(status: u16, body: serde_json::Value) -> Result<serde_json::Value, String> {
+        if status < 400 {
+            Ok(body)
+        } else {
+            Err(format!("HTTP {status}"))
+        }
+    }
+
+    #[test]
+    fn mesh_inventory_remote_cron_update_and_delete_forward_target_outcomes() {
+        let update_path = "/api/crons/cron-1";
+        let delete_path = "/api/crons/cron-1";
+        assert_eq!(update_path, delete_path);
+        assert_eq!(
+            target_outcome(
+                200,
+                serde_json::json!({"id": "cron-1", "schedule": "0 * * * *"}),
+            ),
+            Ok(serde_json::json!({"id": "cron-1", "schedule": "0 * * * *"}))
+        );
+        assert_eq!(
+            target_outcome(200, serde_json::json!({"ok": true})),
+            Ok(serde_json::json!({"ok": true}))
+        );
+        assert_eq!(
+            target_outcome(403, serde_json::json!({"error": "denied"})),
+            Err("HTTP 403".into())
+        );
+        let unsupported = PeerCronAction::parse("restart").unwrap_err();
+        assert_eq!(
+            serde_json::to_value(unsupported).unwrap(),
+            serde_json::json!({"code": "unsupported_operation", "operation": "restart"})
+        );
+    }
 }

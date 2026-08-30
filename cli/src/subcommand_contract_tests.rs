@@ -763,6 +763,60 @@ fn tab_new_without_chat_backend_defaults_to_none() {
 }
 
 #[test]
+fn tab_new_requires_an_explicit_escape_to_leave_the_callers_team() {
+    let inherited = TabOnly::try_parse_from(["tab", "new"]).unwrap();
+    match inherited.action {
+        TabAction::New { no_team, .. } => assert!(!no_team),
+        _ => panic!("expected tab new"),
+    }
+    let detached = TabOnly::try_parse_from(["tab", "new", "--no-team"]).unwrap();
+    match detached.action {
+        TabAction::New { no_team, .. } => assert!(no_team),
+        _ => panic!("expected tab new"),
+    }
+    assert!(TabOnly::try_parse_from(["tab", "new", "--team", "team_alpha", "--no-team",]).is_err());
+}
+
+#[test]
+fn cron_create_requires_an_explicit_escape_to_leave_the_callers_team() {
+    let inherited = Cli::try_parse_from([
+        "codeterm",
+        "cron",
+        "create",
+        "audit",
+        "--schedule",
+        "0 9 * * *",
+        "--task",
+        "inspect",
+    ])
+    .unwrap();
+    match inherited.command {
+        Commands::Cron {
+            action: CronAction::Create { no_team, .. },
+        } => assert!(!no_team),
+        _ => panic!("expected cron create"),
+    }
+    let detached = Cli::try_parse_from([
+        "codeterm",
+        "cron",
+        "create",
+        "audit",
+        "--schedule",
+        "0 9 * * *",
+        "--task",
+        "inspect",
+        "--no-team",
+    ])
+    .unwrap();
+    match detached.command {
+        Commands::Cron {
+            action: CronAction::Create { no_team, .. },
+        } => assert!(no_team),
+        _ => panic!("expected cron create"),
+    }
+}
+
+#[test]
 fn tab_restart_parses_replacement_shell_parameters() {
     let parsed = TabOnly::try_parse_from([
         "tab",

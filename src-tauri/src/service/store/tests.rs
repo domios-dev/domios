@@ -206,11 +206,12 @@ fn list_local_includes_cron_jobs_as_virtual_services() {
     let dir = tempdir().unwrap();
     let cron_path = dir.path().join("crons.json");
     let mut cron_store = CronStore::new_with_path(cron_path);
-    cron_store
+    let cron = cron_store
         .create(CronCreateParams {
             name: "test-cron".into(),
             workspace_id: "ws".into(),
             team_id: None,
+            detach_from_team: false,
             schedule: "0 * * * *".into(),
             task: "echo".into(),
             description: None,
@@ -229,6 +230,7 @@ fn list_local_includes_cron_jobs_as_virtual_services() {
             timeout_seconds: None,
         })
         .unwrap();
+    cron_store.get_mut(&cron.id).unwrap().protected = true;
 
     let svc_store = ServicesStore::open_in_memory().unwrap();
     svc_store
@@ -262,6 +264,7 @@ fn list_local_includes_cron_jobs_as_virtual_services() {
     assert_eq!(cron_svc.kind, ServiceKind::Cron);
     assert_eq!(cron_svc.schedule.as_deref(), Some("0 * * * *"));
     assert!(cron_svc.next_run.is_some());
+    assert!(cron_svc.protected);
 
     let daemon_svc = unified
         .iter()

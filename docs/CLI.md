@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 45 -->
+<!-- revision: 46 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -162,6 +162,17 @@ Spawn a new agent; roleless unless --role is provided.
 - `--title` — Tab title
 - `--workspace` — Target workspace ID. Defaults to the parent tab's workspace, then your own — never the workspace selected in the UI. Pass this only to place the agent in a different workspace on purpose
 
+#### `codeterm agent startup-ack`
+
+Acknowledge that this spawned agent received its first startup turn
+
+#### `codeterm agent startup-hold`
+
+Cancel automatic cleanup for an inspected startup attempt
+
+- `--attempt` — Launch attempt shown in the startup-overdue report
+- `--tab` — Target spawned Tab
+
 #### `codeterm agent unlink`
 
 Remove a tab's role (also orphans children)
@@ -285,12 +296,13 @@ Create a cron job
 - `--jitter-max-ms` — Max jitter in milliseconds added to each scheduled fire. 0 = off. Omit for default (10% of interval, clamped to [1m, 30m])
 - `--model` — Model within the agent provider (e.g. "opus", "haiku", "gpt-5.4-mini"). Leave unset to use the provider default
 - `<name>` — Cron job name
+- `--no-team` — Keep this job outside the calling tab's Team
 - `--once` — Oneshot: fire once at scheduled time, then auto-delete
 - `--schedule` — Cron schedule (5-field: "*/30 * * * *") or oneshot time ("in 5m", ISO8601)
 - `--skill` — Mem skill slug (`codeterm mem skill new <slug>`) to resolve and inject into the task brief at fire time as an explicit, Read-able path
 - `--tab` — Tab ID to receive reports. Omit to keep runs private to the cron
 - `--task` — Task prompt for the agent
-- `--team` — Attach this job to a Team. The calling Tab must belong to it
+- `--team` — Explicit Team membership cross-check. Jobs already inherit the calling Tab's Team
 - `--timeout-secs` — Per-cron run timeout (seconds). Overrides global memory.worker_timeout_seconds. Set high (e.g. 1800) for long-running tasks like memory dreaming
 - `--tz` — IANA timezone for the schedule (e.g. "Europe/Riga"). Default: UTC
 - `--workspace` — Workspace ID. Defaults to the calling tab's own workspace — pass this only to schedule the job somewhere other than where you are
@@ -2814,14 +2826,15 @@ List compact tab summaries in the current workspace. Use `tab inspect` for full 
 
 #### `codeterm tab new`
 
-Plain shell tab, created in the calling tab's own workspace — never the workspace selected in the UI. For an AI tab use `codeterm agent spawn`
+Plain shell tab, inheriting the calling tab's workspace and Team. For an AI tab use `codeterm agent spawn`
 
 - `--chat-backend` — Open a non-PTY chat-backend tab driven by the given plugin id (a plugin declaring the `chatBackend` capability). `codeterm send`/`tab get-text` then route to the plugin, not a shell
 - `--cmd` — Spawn a shell that runs this command on start (e.g. `"cd /repo && ./build.sh dev"`). Delivery waits for the PTY to be ready, so the command runs reliably even on a freshly-created tab
 - `--config` — JSON config object passed to the chat-backend plugin's `openSession` (only with `--chat-backend`). E.g. `'{"model":"llama-3.1-8b"}'`
 - `--cwd` — Working directory for the new tab
 - `--eager` — Spawn the shell PTY immediately on the daemon for headless/API use
-- `--team` — Attach this shell to a Team as a utility terminal. The calling Tab must already belong to that Team
+- `--no-team` — Keep the new shell outside the calling tab's Team
+- `--team` — Explicit Team membership cross-check. Ordinary shells already inherit the calling Tab's Team
 - `--title` — Tab title
 - `--workspace` — Target workspace id. Defaults to the calling tab's own workspace, then the focused workspace for a caller with no tab identity
 
@@ -2838,6 +2851,13 @@ Rename a tab (default: current tab)
 
 - `--tab` — Tab ID to rename (default: $CODETERM_TAB_ID; no focused-tab fallback)
 - `<title>` — New title
+
+#### `codeterm tab respond`
+
+Answer the tab's current provider-declared prompt by numbered option. Sends only when a pending prompt exists; use this instead of raw keys
+
+- `<option>` — One-based option number shown by `tab status` or `tab inspect`
+- `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
 #### `codeterm tab restart`
 

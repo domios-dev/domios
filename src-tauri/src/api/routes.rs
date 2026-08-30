@@ -12,8 +12,8 @@ use tower_http::{
 
 use super::{
     agent_done_routes, agent_routes, bridge_routes, clipboard_routes, config_routes, cron_routes,
-    debug_routes, fs_routes, health_routes, logs_routes, mem_routes, mesh_routes, network_routes,
-    notification_routes, output_stream, pasteboard_routes, plan_routes, pty_routes,
+    debug_routes, fs_routes, health_routes, logs_routes, mem_routes, mesh_inventory, mesh_routes,
+    network_routes, notification_routes, output_stream, pasteboard_routes, plan_routes, pty_routes,
     services_routes, session_routes, tab_agent_routes, tab_routes, task_routes, team_routes,
     theme_routes, updater_routes, usage_routes, web_routes, webhook_routes, workspace_routes,
 };
@@ -465,13 +465,16 @@ pub fn create_router(state: AppState) -> Router {
             "/api/mesh/peers/{id}/services",
             get(web_routes::peer_services),
         )
+        .route("/api/mesh/inventory", get(mesh_inventory::inventory))
         .route(
             "/api/mesh/peers/{id}/services/{service_id}",
             delete(web_routes::peer_service_delete),
         )
         .route(
             "/api/mesh/peers/{id}/crons/{cron_id}",
-            get(web_routes::peer_cron_get),
+            get(web_routes::peer_cron_get)
+                .put(web_routes::peer_cron_update)
+                .delete(web_routes::peer_cron_delete),
         )
         .route(
             "/api/mesh/peers/{id}/crons/{cron_id}/{action}",

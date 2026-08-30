@@ -61,7 +61,7 @@ export interface LaunchParams {
   sessionId?: string;
   task?: string;
   /** Optional provider-visible starter turn selected by the host. */
-  starterPrompt?: "no_starter" | "assigned_task" | "idle_wakeup" | "team_bootstrap";
+  starterPrompt?: "no_starter" | "assigned_task" | "idle_wakeup" | "team_bootstrap" | "startup_handshake";
   /** Host-owned text for starter prompts shared across providers. */
   starterPromptText?: string;
   /// Fixed local server the host wants this agent's structured-prompt handle to

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs every plugin-side test in the repo (TS only, via npx tsx).
+# Runs every plugin-side test in the repo (TS only, via the local tsx CLI).
 # Aggregator stays tiny so each plugin can keep its own runner setup;
 # vitest migration is a follow-up.
 set -e
@@ -65,10 +65,12 @@ case "${1:-all}" in
 esac
 
 fails=0
+tsx_cli="node_modules/tsx/dist/cli.mjs"
+node_bin="${CODETERM_NODE_BIN:-node}"
 for t in "${tests[@]}"; do
   echo
   echo "════ $t ════"
-  if ! npx tsx "$t"; then
+  if ! "$node_bin" "$tsx_cli" "$t"; then
     fails=$((fails + 1))
     echo "  ✗ FAILED: $t"
   fi

@@ -46,6 +46,28 @@
       "expectations": [
         "Uses `codeterm mem graph relate --from person_7 --rel works_on --to project_9 --valid-from 2026-08-02`"
       ]
+    },
+    {
+      "id": 5,
+      "name": "recovers-child-startup-prompt",
+      "prompt": "You spawned a Team Orchestrator in tab child_7 with an assigned task. The tab remains Waiting. Its visible numbered provider picker already selects option 1, Yes. `codeterm tab respond 1 --tab child_7` returned success, but a second inspection shows the exact same picker. Explain the next bounded recovery commands.",
+      "expected_output": "The General Agent verifies the exact child screen, presses only Enter for the already-selected visible option, then verifies that the agent resumed without resending its task.",
+      "expectations": [
+        "Rechecks the exact tab with `codeterm tab get-text --tab child_7` before the fallback",
+        "Uses exactly one bounded `codeterm send --tab child_7 --actions \"enter\"` fallback because the desired visible option is already selected",
+        "Verifies the child agent is running afterward and does not resend the assigned task payload or guess provider-specific keys"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "holds-inspected-slow-startup",
+      "prompt": "A CodeTerm startup report says child_9 has not acknowledged attempt pty_9 after 30 seconds and will close at 60 seconds. `codeterm tab get-text --tab child_9` shows the provider is legitimately still initializing, with no picker or failure. Explain the bounded action. Do not use a delay.",
+      "expected_output": "The General Agent preserves only the inspected startup attempt with startup-hold and waits for pushed evidence rather than sleeping or inventing readiness.",
+      "expectations": [
+        "Uses `codeterm agent startup-hold --tab child_9 --attempt pty_9`",
+        "Does not use sleep, delayed polling, screen-text readiness heuristics, or resend the assigned task",
+        "Does not run `codeterm agent startup-ack` on the child's behalf; the bounded parent action is only `startup-hold`"
+      ]
     }
   ]
 }

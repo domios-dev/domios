@@ -198,6 +198,8 @@ pub struct CronCreateParams {
     pub workspace_id: String,
     #[serde(default)]
     pub team_id: Option<String>,
+    #[serde(default)]
+    pub detach_from_team: bool,
     pub schedule: String,
     pub task: String,
     #[serde(default)]
@@ -230,7 +232,7 @@ pub struct CronCreateParams {
     pub timeout_seconds: Option<u64>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct CronUpdateParams {
     #[serde(default)]
     pub name: Option<String>,

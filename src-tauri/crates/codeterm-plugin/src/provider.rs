@@ -86,12 +86,16 @@ pub enum StarterPrompt {
     NoStarter,
     IdleWakeup,
     TeamBootstrap,
+    StartupHandshake,
 }
 
 impl StarterPrompt {
     pub fn host_text(self) -> Option<&'static str> {
         match self {
             Self::TeamBootstrap => Some(crate::prompts::TEAM_BOOTSTRAP_STARTER.trim()),
+            Self::StartupHandshake => Some(
+                "Before any other action, run `codeterm agent startup-ack`. Then continue with the assigned role or task.",
+            ),
             Self::NoStarter | Self::AssignedTask | Self::IdleWakeup => None,
         }
     }
@@ -101,6 +105,7 @@ impl StarterPrompt {
             Self::AssignedTask => "assigned-task",
             Self::IdleWakeup => "idle-wakeup",
             Self::TeamBootstrap => "team-bootstrap",
+            Self::StartupHandshake => "startup-handshake",
             Self::NoStarter => return None,
         };
         Some(

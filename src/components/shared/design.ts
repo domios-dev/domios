@@ -2,6 +2,7 @@ export const UI_BUTTON = {
   base: "ct-btn",
   primary: "ct-btn ct-btn-primary",
   ghost: "ct-btn ct-btn-ghost",
+  floating: "ct-btn ct-btn-floating",
   accent: "ct-btn ct-btn-accent",
   compact: "ct-btn ct-btn-compact",
   danger: "ct-btn ct-btn-danger",

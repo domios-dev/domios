@@ -85,8 +85,8 @@ pub enum TabAction {
         #[arg(long)]
         lifecycle: bool,
     },
-    /// Plain shell tab, created in the calling tab's own workspace — never the
-    /// workspace selected in the UI. For an AI tab use `codeterm agent spawn`.
+    /// Plain shell tab, inheriting the calling tab's workspace and Team. For an
+    /// AI tab use `codeterm agent spawn`.
     New {
         /// Target workspace id. Defaults to the calling tab's own workspace, then
         /// the focused workspace for a caller with no tab identity.
@@ -98,10 +98,13 @@ pub enum TabAction {
         /// Tab title
         #[arg(long)]
         title: Option<String>,
-        /// Attach this shell to a Team as a utility terminal. The calling Tab
-        /// must already belong to that Team.
+        /// Explicit Team membership cross-check. Ordinary shells already inherit
+        /// the calling Tab's Team.
         #[arg(long, value_name = "TEAM_ID")]
         team: Option<String>,
+        /// Keep the new shell outside the calling tab's Team.
+        #[arg(long, conflicts_with = "team")]
+        no_team: bool,
         /// Spawn a shell that runs this command on start (e.g.
         /// `"cd /repo && ./build.sh dev"`). Delivery waits for the PTY to be
         /// ready, so the command runs reliably even on a freshly-created tab.
@@ -195,6 +198,15 @@ pub enum TabAction {
     },
     /// Show agent status for a tab (type, provider session, prompt)
     Status {
+        /// Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
+        #[arg(long = "tab", value_name = "TAB")]
+        tab: Option<String>,
+    },
+    /// Answer the tab's current provider-declared prompt by numbered option.
+    /// Sends only when a pending prompt exists; use this instead of raw keys.
+    Respond {
+        /// One-based option number shown by `tab status` or `tab inspect`.
+        option: usize,
         /// Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
         #[arg(long = "tab", value_name = "TAB")]
         tab: Option<String>,
