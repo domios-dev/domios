@@ -67,7 +67,13 @@ pub fn project_resource(
         resource_id,
         machine_id: machine_id.to_string(),
         machine_name: machine_name.to_string(),
-        capabilities: capabilities_for_resource(access, &service.kind, &service.id, provenance),
+        capabilities: capabilities_for_resource(
+            access,
+            &service.kind,
+            &service.id,
+            service.protected,
+            provenance,
+        ),
         provenance: provenance.clone(),
         service,
     }
@@ -77,6 +83,7 @@ pub fn capabilities_for_resource(
     access: &AccessLevel,
     kind: &ServiceKind,
     id: &str,
+    protected: bool,
     provenance: &InventoryProvenance,
 ) -> BTreeMap<InventoryOperation, InventoryCapability> {
     InventoryOperation::all()
@@ -84,7 +91,7 @@ pub fn capabilities_for_resource(
         .map(|operation| {
             (
                 operation,
-                capability_for_operation(access, kind, id, provenance, operation),
+                capability_for_operation(access, kind, id, protected, provenance, operation),
             )
         })
         .collect()
@@ -94,6 +101,7 @@ fn capability_for_operation(
     access: &AccessLevel,
     kind: &ServiceKind,
     id: &str,
+    protected: bool,
     provenance: &InventoryProvenance,
     operation: InventoryOperation,
 ) -> InventoryCapability {
@@ -102,6 +110,9 @@ fn capability_for_operation(
     };
     if !crate::api::access_policy::check_access(access, &method, &path) {
         return InventoryCapability::unavailable(InventoryUnavailableReason::NotAuthorized);
+    }
+    if protected && operation == InventoryOperation::Delete {
+        return InventoryCapability::unavailable(InventoryUnavailableReason::ProtectedResource);
     }
     if operation.is_mutating() {
         if provenance.partial_error.is_some() {
@@ -208,6 +219,7 @@ mod tests {
             id: "cron-1".into(),
             name: "job".into(),
             kind,
+            protected: false,
             description: None,
             host: None,
             url: None,
@@ -316,6 +328,21 @@ mod tests {
             Some(InventoryUnavailableReason::UnsupportedResourceKind)
         );
         assert!(daemon.capabilities[&InventoryOperation::Delete].allowed);
+
+        let mut protected_cron = service(ServiceKind::Cron);
+        protected_cron.protected = true;
+        let protected_cron = project_resource(
+            "machine-a",
+            "Alpha",
+            protected_cron,
+            &AccessLevel::Full,
+            &provenance(InventoryFreshness::Fresh),
+        );
+        assert_eq!(
+            protected_cron.capabilities[&InventoryOperation::Delete].unavailable_reason,
+            Some(InventoryUnavailableReason::ProtectedResource)
+        );
+        assert!(protected_cron.capabilities[&InventoryOperation::Disable].allowed);
     }
 
     #[test]

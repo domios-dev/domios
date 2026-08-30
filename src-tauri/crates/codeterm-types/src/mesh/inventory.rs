@@ -59,6 +59,7 @@ pub enum InventoryUnavailableReason {
     PartialPeerFailure,
     UnsupportedResourceKind,
     TargetUnavailable,
+    ProtectedResource,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

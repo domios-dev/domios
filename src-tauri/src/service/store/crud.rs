@@ -380,6 +380,7 @@ fn row_to_service(row: &rusqlite::Row) -> rusqlite::Result<Service> {
         id: row.get(0)?,
         name: row.get(1)?,
         kind: parse_kind(&kind_str)?,
+        protected: false,
         description: row.get(3)?,
         url: row.get(4)?,
         host: row.get(5)?,
