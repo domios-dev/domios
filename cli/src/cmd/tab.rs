@@ -500,7 +500,10 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
         }
         TabAction::Respond { option, tab } => {
             if option == 0 {
-                exit_with_cli_error(json, &CliError::new("tab respond option must be at least 1"));
+                exit_with_cli_error(
+                    json,
+                    &CliError::new("tab respond option must be at least 1"),
+                );
             }
             match tab.as_deref().map(classify_remote_tab_id) {
                 Some(RemoteTabTarget::Remote(peer, remote_tab)) => {
