@@ -21,7 +21,6 @@ interface TitlebarProps {
   showSidebarToggle?: boolean;
   onNewTab?: () => void;
   theme: ThemeConfig;
-  onOpenSettingsAbout?: () => void;
   onOpenExtensions?: () => void;
   onOpenSettings?: (section?: SectionId) => void;
   notifications?: Notification[];
@@ -42,7 +41,6 @@ export function Titlebar({
   onToggleSidebar,
   showSidebarToggle = false,
   theme: _theme,
-  onOpenSettingsAbout,
   onOpenExtensions,
   onOpenSettings,
   notifications = [],
@@ -97,11 +95,9 @@ export function Titlebar({
         </button>
       )}
 
-      <button
-        type="button"
-        onClick={onOpenSettingsAbout}
-        className="hidden h-full shrink-0 items-center gap-2 pl-3 pr-2 text-left hover:bg-[var(--ct-hover)] min-[430px]:flex"
-        title="About CodeTerm"
+      <div
+        className="hidden h-full shrink-0 items-center gap-2 pl-3 pr-2 min-[430px]:flex"
+        data-tauri-drag-region
       >
         <img
           src={logoUrl}
@@ -121,7 +117,7 @@ export function Titlebar({
             {buildLabel}
           </span>
         )}
-      </button>
+      </div>
 
       <div className="min-w-0 flex-1" data-tauri-drag-region />
 
