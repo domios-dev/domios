@@ -1,21 +1,18 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import QRCode from "qrcode";
-import { Check, ChevronUp, ChevronDown, Copy, ExternalLink, Info, Loader2, RefreshCw, ShieldCheck, Sparkles, X } from "lucide-react";
+import { Check, Copy, ExternalLink, Info, Loader2, RefreshCw, ShieldCheck, Sparkles, X, List, Network } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import { BusySpinner } from "../shared/BusyState";
 import { IS_WEB, webJson } from "../../lib/webApi";
 import logoUrl from "../../assets/logo.png";
 import type { ApiConfig, AppConfig } from "../../lib/types";
 import type { MeshTab, Service } from "./types";
-import { MeshCanvas, type RecentPush } from "./MeshCanvas";
-import { ServicesTable } from "./ServicesTable";
-import { CronsTable } from "./CronsTable";
+import { MeshInventoryList } from "./MeshInventoryList";
 import { ServiceDrawer, type DrawerState } from "./ServiceDrawer";
 import { useMeshData } from "./useMeshData";
 import { NetworkTab } from "./NetworkTab";
 import { ActivityTab } from "./ActivityTab";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
-import type { PeerStatus } from "./useMeshData";
 import { MeshWebUiControl, type WebUiAction } from "../Titlebar/MeshWebUiControl";
 import { UI_BUTTON, UI_INPUT, UI_PANEL, UI_TEXT } from "../shared/design";
 import { LiquidTabRail } from "../shared/LiquidTabRail";
@@ -29,80 +26,7 @@ import {
   type ServeStatus,
 } from "../../lib/webAccess";
 
-const TABS: MeshTab[] = ["map", "activity", "network"];
-
-const TABLES_COLLAPSED_HEIGHT = 36;
-
-interface DrawerProps {
-  cronsCount: number;
-  servicesCount: number;
-  open: boolean;
-  onToggle: () => void;
-  services: Service[];
-  peers: PeerStatus[];
-  thisMachineName: string;
-  onServiceClick: (s: Service) => void;
-}
-
-const DRAWER_BTN =
-  `${UI_BUTTON.ghost} ${UI_BUTTON.compact} gap-1 bg-transparent border-none cursor-pointer`;
-
-function CollapsibleTablesDrawer({
-  cronsCount,
-  servicesCount,
-  open,
-  onToggle,
-  services,
-  peers,
-  thisMachineName,
-  onServiceClick,
-}: DrawerProps) {
-  const Chevron = open ? ChevronDown : ChevronUp;
-  return (
-    <div
-      className="absolute inset-x-0 bottom-0 z-10 flex flex-col bg-[var(--ct-bg)]/95 backdrop-blur-sm border-t border-[var(--ct-border)] shadow-[0_-4px_8px_rgba(0,0,0,0.15)]"
-      style={{
-        // Open ~60% of the map area; collapsed just the toggle row. Grow by the home-indicator inset so the row never sits under the safe area.
-        height: open
-          ? "60%"
-          : `calc(${TABLES_COLLAPSED_HEIGHT}px + var(--ct-safe-bottom, 0px))`,
-        paddingBottom: "var(--ct-safe-bottom, 0px)",
-        maxHeight: "72%",
-      }}
-    >
-      <div
-        className="flex items-center px-3 bg-[var(--ct-titlebar-bg)]/80 border-b border-[var(--ct-border)] flex-shrink-0"
-        style={{ height: TABLES_COLLAPSED_HEIGHT }}
-      >
-        <button className={`${DRAWER_BTN} flex-1 justify-start`} onClick={onToggle}>
-          <Chevron size={12} />
-          Crons ({cronsCount})
-        </button>
-        <button data-testid="mesh-services-toggle" className={`${DRAWER_BTN} flex-1 justify-start`} onClick={onToggle}>
-          <Chevron size={12} />
-          Services ({servicesCount})
-        </button>
-      </div>
-      {open && (
-        <div className="flex-1 min-h-0 overflow-auto flex">
-          <CronsTable
-            services={services}
-            peers={peers}
-            thisMachineName={thisMachineName}
-            onServiceClick={onServiceClick}
-          />
-          <div className="w-px bg-[var(--ct-accent)]/30 shadow-[0_0_4px_var(--ct-accent)]" />
-          <ServicesTable
-            services={services}
-            peers={peers}
-            thisMachineName={thisMachineName}
-            onServiceClick={onServiceClick}
-          />
-        </div>
-      )}
-    </div>
-  );
-}
+const TABS: MeshTab[] = ["inventory", "activity", "network"];
 
 interface NetworkInfo {
   local_ip?: string | null;
@@ -456,19 +380,16 @@ interface Props {
 
 function normalizeTab(t: unknown): MeshTab {
   if (t === "settings") return "network";
-  if (t === "map" || t === "activity" || t === "network") return t;
-  return "map";
+  if (t === "map") return "inventory";
+  if (t === "inventory" || t === "activity" || t === "network") return t;
+  return "inventory";
 }
 
-export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
+export function MeshPanel({ config, onClose }: Props) {
   const touchUi = useTouchOptimizedUi();
-  const goOnline = async () => {
-    await onConfigUpdate({ ...config, mesh: { ...config.mesh, enabled: true } });
-  };
   const [activeTab, setActiveTab] = useState<MeshTab>(() => normalizeTab("map"));
   const [refreshKey, setRefreshKey] = useState(0);
   const data = useMeshData(refreshKey);
-  const [recentPushes, setRecentPushes] = useState<RecentPush[]>([]);
   const [webUiOpen, setWebUiOpen] = useState(false);
   const [serve, setServe] = useState<ServeStatus | null>(null);
   const [serveLoading, setServeLoading] = useState(true);
@@ -508,60 +429,27 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
     [serve, loadServe],
   );
 
-  useEffect(() => {
-    let unlistenHealth: (() => void) | null = null;
-    let unlistenPush: (() => void) | null = null;
-    import("../../lib/bridge").then(({ listen }) => {
-      listen<{ service_id: string; status: string }>("service-health-changed", () => {
-        triggerRefresh();
-      }).then((fn) => { unlistenHealth = fn; });
-      listen<{ source_id: string; target: string }>("service-pushed", (ev) => {
-        setRecentPushes((prev) =>
-          [...prev, { ...ev.payload, at: Date.now() }].slice(-20)
-        );
-      }).then((fn) => { unlistenPush = fn; });
-    });
-    return () => { unlistenHealth?.(); unlistenPush?.(); };
-  }, [triggerRefresh]);
-
-  const mapRef = useRef<HTMLDivElement>(null);
-  const [mapSize, setMapSize] = useState({ width: 800, height: 600 });
   const [drawerState, setDrawerState] = useState<DrawerState>(null);
-  const [tablesOpen, setTablesOpen] = useState(false);
-  const serviceCounts = useMemo(
-    () => ({
-      crons: data.services.filter((s) => s.kind === "cron").length,
-      daemons: data.services.filter((s) => s.kind === "daemon").length,
-    }),
-    [data.services],
+  const [selectedResourceKey, setSelectedResourceKey] = useState<string | null>(null);
+  const inventoryPeerIssues = useMemo(
+    () => data.peers
+      .filter((peer) => !peer.pending && (peer.services_loaded === false || Boolean(peer.services_error)))
+      .map((peer) => ({
+        machineId: peer.instance_id,
+        machineName: peer.name,
+        freshness: peer.online ? "stale" as const : "offline" as const,
+        partialError: peer.services_error,
+      })),
+    [data.peers],
   );
-  const handlePeerClick = useCallback((name: string) => {
-    setDrawerState({ kind: "peer", id: name });
-  }, []);
-  const handleServiceClick = useCallback((s: Service) => {
+  const handleServiceClick = useCallback((s: Service, resourceKey?: string) => {
+    setSelectedResourceKey(resourceKey ?? null);
     setDrawerState({
       kind: "service",
       id: s.id,
       sourcePeerId: s.source_peer_id ?? s.source_peer ?? null,
     });
   }, []);
-
-  useEffect(() => {
-    const el = mapRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => {
-      const r = el.getBoundingClientRect();
-      if (r.width <= 0 || r.height <= 0) return;
-      setMapSize((prev) => {
-        if (Math.abs(prev.width - r.width) < 1 && Math.abs(prev.height - r.height) < 1) {
-          return prev;
-        }
-        return { width: r.width, height: r.height };
-      });
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [activeTab]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -576,7 +464,7 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
       if (inField) return;
       if (e.key === "1") {
         e.preventDefault();
-        setActiveTab("map");
+        setActiveTab("inventory");
       } else if (e.key === "2") {
         e.preventDefault();
         setActiveTab("activity");
@@ -623,10 +511,18 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
         </div>
       </div>
       <div className="relative flex-1 min-h-0 overflow-hidden">
-        {activeTab === "map" && (
+        {activeTab === "inventory" && (
           <>
-            <div ref={mapRef} className="absolute inset-0">
-              <div className="absolute left-3 top-3 z-20 rounded-lg border border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)] px-2 py-1.5 shadow-sm">
+            <MeshInventoryList
+              resources={data.services}
+              thisMachineName={data.thisMachine.name}
+              peerIssues={inventoryPeerIssues}
+              loading={data.loading}
+              error={data.error}
+              selectedResourceKey={selectedResourceKey}
+              onSelectResource={handleServiceClick}
+              onRefresh={triggerRefresh}
+              headerActions={
                 <MeshWebUiControl
                   snapshot={serve?.snapshot ?? null}
                   loading={serveLoading}
@@ -637,35 +533,20 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
                   onOpenUrl={(url) => void invoke("open_url", { url })}
                   onAction={runWebUiAction}
                   touchUi={touchUi}
-                  menuAlign="left"
+                  menuAlign="right"
                 />
-              </div>
-              <MeshCanvas
-                thisMachine={data.thisMachine}
-                peers={data.peers}
-                services={data.services}
-                recentPushes={recentPushes}
-                onPeerClick={handlePeerClick}
-                width={mapSize.width}
-                height={mapSize.height}
-                onAddPeerClick={() => setActiveTab("network")}
-                meshEnabled={config.mesh.enabled}
-                onGoOnline={goOnline}
-                onOpenPeerWebUi={(url) => void invoke("open_url", { url })}
-                webUiBaseUrl={serve?.snapshot?.url ?? null}
-                webUiToken={config.api.token}
-              />
-            </div>
-            <CollapsibleTablesDrawer
-              cronsCount={serviceCounts.crons}
-              servicesCount={serviceCounts.daemons}
-              open={tablesOpen}
-              onToggle={() => setTablesOpen((v) => !v)}
-              services={data.services}
-              peers={data.peers}
-              thisMachineName={data.thisMachine.name}
-              onServiceClick={handleServiceClick}
+              }
             />
+            <div className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5">
+              <button type="button" className={`${UI_BUTTON.ghost} ${UI_BUTTON.lg} gap-1.5 backdrop-blur-md shadow-lg`} aria-label="Inventory list" aria-pressed="true" data-testid="mesh-inventory-mode-list">
+                <List size={12} aria-hidden="true" />
+                List
+              </button>
+              <button type="button" disabled className={`${UI_BUTTON.ghost} ${UI_BUTTON.lg} gap-1.5 opacity-50 backdrop-blur-md shadow-lg`} aria-label="Inventory graph coming soon" aria-disabled="true" data-testid="mesh-inventory-mode-graph">
+                <Network size={12} aria-hidden="true" />
+                Graph
+              </button>
+            </div>
           </>
         )}
         {activeTab === "activity" && <ActivityTab active={activeTab === "activity"} />}
