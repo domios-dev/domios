@@ -14,6 +14,7 @@ description: Control CodeTerm from inside it — create workspaces, send command
 codeterm tab rename "fix login bug"
 ```
 Short, task-shaped title based on the user's first message.
+The protected General Agent home tab (`main` / `general`) is the exception: its stable title is machine chrome, so never rename it.
 
 ---
 
