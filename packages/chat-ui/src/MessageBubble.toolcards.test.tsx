@@ -68,8 +68,13 @@ test("chatBackend exec tool_call renders command card and attached result", asyn
       expandDetails.dispatchEvent(new windowAny.MouseEvent("click", { bubbles: true }));
     });
     await waitForEffects();
-    assertIncludes(host, "cwd /repo/app", "command_card_reveal expanded exec card command");
+    assert(!host.querySelector('[data-testid="message-raw-content"]'), "formatted exec card should hide the full invocation");
     assertIncludes(host, "Tests passed", "expanded exec card result");
+    const rawView = buttons(commandCard).find((button) => button.textContent === "Raw");
+    assert(rawView, "expanded exec card should expose the raw view");
+    await act(async () => rawView.dispatchEvent(new windowAny.MouseEvent("click", { bubbles: true })));
+    assertIncludes(host, "cwd /repo/app", "raw exec card command");
+    assertIncludes(host, "Tests passed", "raw exec card keeps the result visible");
     const execCard = host.querySelector('[data-testid="chat-tool-call"]');
     assert(execCard, "expected exec card root");
     const execCardText = execCard.textContent ?? "";

@@ -4,11 +4,12 @@ interface Props {
   formatted: React.ReactNode;
   raw: string;
   formattedAvailable?: boolean;
+  persistent?: React.ReactNode;
 }
 
 type MessageView = "formatted" | "raw";
 
-export function MessageViewToggle({ formatted, raw, formattedAvailable = true }: Props) {
+export function MessageViewToggle({ formatted, raw, formattedAvailable = true, persistent }: Props) {
   const [requestedView, setRequestedView] = React.useState<MessageView>("formatted");
   const view = formattedAvailable ? requestedView : "raw";
 
@@ -51,6 +52,7 @@ export function MessageViewToggle({ formatted, raw, formattedAvailable = true }:
           {raw}
         </pre>
       )}
+      {persistent}
     </div>
   );
 }
