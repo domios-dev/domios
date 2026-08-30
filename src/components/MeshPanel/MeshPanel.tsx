@@ -9,7 +9,7 @@ import type { ApiConfig, AppConfig } from "../../lib/types";
 import type { MeshTab, Service } from "./types";
 import { MeshCanvas, type RecentPush } from "./MeshCanvas";
 import { MeshInventoryList } from "./MeshInventoryList";
-import { MeshInventoryModeToggle, type MeshInventoryMode } from "./MeshInventoryModeToggle";
+import { DEFAULT_MESH_INVENTORY_MODE, MeshInventoryModeToggle, type MeshInventoryMode } from "./MeshInventoryModeToggle";
 import { ServiceDrawer, type DrawerState } from "./ServiceDrawer";
 import { useMeshData } from "./useMeshData";
 import { NetworkTab } from "./NetworkTab";
@@ -393,7 +393,7 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
     await onConfigUpdate({ ...config, mesh: { ...config.mesh, enabled: true } });
   }, [config, onConfigUpdate]);
   const [activeTab, setActiveTab] = useState<MeshTab>(() => normalizeTab("map"));
-  const [inventoryMode, setInventoryMode] = useState<MeshInventoryMode>("list");
+  const [inventoryMode, setInventoryMode] = useState<MeshInventoryMode>(DEFAULT_MESH_INVENTORY_MODE);
   const [refreshKey, setRefreshKey] = useState(0);
   const data = useMeshData(refreshKey);
   const [recentPushes, setRecentPushes] = useState<RecentPush[]>([]);

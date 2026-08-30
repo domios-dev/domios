@@ -232,7 +232,7 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
               data-testid="memory-inspect-view-toggle"
               data-memory-inspect-view={inspectView}
               onClick={() => setInspectView(inspectView === "graph" ? "list" : "graph")}
-              className={`${UI_BUTTON.ghost} ${UI_BUTTON.lg} gap-1.5 backdrop-blur-md shadow-lg`}
+              className={`${UI_BUTTON.floating} ${UI_BUTTON.lg} gap-1.5`}
             >
               {inspectView === "graph" ? <List size={12} /> : <Network size={12} />}
               {inspectView === "graph" ? "List" : "Graph"}

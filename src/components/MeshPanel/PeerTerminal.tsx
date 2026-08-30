@@ -96,13 +96,11 @@ function PeerTerminalComponent({
           fontFamily: "ui-monospace, monospace",
         }}
       >
-        <div className="text-[var(--ct-muted)] mb-1">
-          $ codeterm services list
-        </div>
         <div className="flex gap-1 flex-wrap">
           {visibleServices.slice(0, MAX_SERVICES_ON_CARD).map((s) => (
             <span
               key={`${s.source_peer_id ?? s.source_peer ?? "local"}:${s.id}`}
+              data-testid="peer-service-chip"
               className="bg-[var(--ct-titlebar-bg)] px-2 py-0.5 rounded text-[11px] inline-flex items-center gap-1.5"
               style={{ color: HEALTH_DOT_COLOR[s.health.status] ?? HEALTH_DOT_COLOR.unknown }}
             >
@@ -111,7 +109,6 @@ function PeerTerminalComponent({
                 style={{ background: HEALTH_DOT_COLOR[s.health.status] ?? HEALTH_DOT_COLOR.unknown }}
               />
               {s.name}
-              <span className="opacity-50">·{s.kind}</span>
             </span>
           ))}
           {visibleServices.length > MAX_SERVICES_ON_CARD && (

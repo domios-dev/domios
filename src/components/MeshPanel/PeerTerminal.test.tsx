@@ -91,8 +91,10 @@ test("card hides cron entries and stale service banners", async () => {
       },
     ],
   });
-  assert(host.textContent?.includes("api"), "daemon service shown");
+  const chips = Array.from(host.querySelectorAll('[data-testid="peer-service-chip"]'));
+  assert(chips.length === 1 && chips[0]?.textContent === "api", "only the daemon service is shown as a chip");
   assert(!host.textContent?.includes("cleanup"), "cron hidden");
+  assert(!host.textContent?.includes("codeterm services list") && !host.textContent?.includes("·daemon"), "service card omits command chrome and redundant kind text");
   assert(!host.textContent?.includes("cached / stale"), "stale banner hidden");
   await act(async () => root.unmount());
 });
