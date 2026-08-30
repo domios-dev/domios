@@ -111,14 +111,22 @@ async function run() {
   const editDetails = editDetailsId ? edit?.querySelector<HTMLElement>(`#${editDetailsId}`) : null;
   assert(editDetails?.style.maxHeight === "600px" && editDetails.style.overflowY === "auto", "expanded code output should use the 600px internal scroll cap");
   const messageViews = Array.from(host.querySelectorAll<HTMLElement>('[data-testid="message-view-toggle"]'));
-  assert(messageViews.length === cards.length, "exactly one view toggle belongs to each tool card");
-  assert(messageViews.every((view) => view.querySelector('[data-testid="chat-tool-call"]')), "view toggles wrap tool cards only");
+  assert(messageViews.length === 2, "view toggles render only inside expanded tool cards");
+  assert(messageViews.every((view) => view.closest('[data-testid="chat-tool-call"]')), "view toggles live inside tool cards");
   assert(messageViews.every((view) => !view.textContent?.includes("User formatted") && !view.textContent?.includes("Assistant formatted")), "ordinary messages have no view toggle");
-  const commandView = completedCommandCard?.closest<HTMLElement>('[data-testid="message-view-toggle"]');
+  const commandDisclosure = completedCommandCard?.querySelector<HTMLButtonElement>('[aria-label="Show full command"]');
+  await act(async () => commandDisclosure?.click());
+  const commandView = completedCommandCard?.querySelector<HTMLElement>('[data-testid="message-view-toggle"]');
+  assert(commandView && !commandView.querySelector('[data-testid="message-raw-content"]'), "formatted tool view hides the full invocation");
+  assert(commandView.textContent?.includes("clean"), "formatted tool view keeps the result visible");
   const commandRaw = Array.from(commandView?.querySelectorAll("button") ?? []).find((button) => button.textContent === "Raw");
   await act(async () => commandRaw?.click());
   assert(commandRaw?.getAttribute("aria-pressed") === "true", "tool card switches to raw view");
-  assert(commandView?.querySelector('[data-testid="message-raw-content"]')?.textContent === "git status --short\n\nclean", "raw tool view preserves invocation and returned output");
+  assert(commandView?.querySelector('[data-testid="message-raw-content"]')?.textContent === "git status --short", "raw tool view preserves the full invocation");
+  assert(commandView?.textContent?.includes("clean"), "raw tool view keeps the result visible");
+  const commandFormatted = Array.from(commandView?.querySelectorAll("button") ?? []).find((button) => button.textContent === "Formatted");
+  await act(async () => commandFormatted?.click());
+  assert(!commandView?.querySelector('[data-testid="message-raw-content"]') && commandView?.textContent?.includes("clean"), "formatted mode hides the invocation without hiding the result");
 
   await act(async () => root.unmount());
   host.remove();

@@ -27,7 +27,7 @@ async function render(node: React.ReactElement) {
 const cases: Array<[string, () => Promise<void>]> = [
   ["command hides raw JSON and shows pending spinner", async () => {
     const { host } = await render(<CommandCard event={event({ detail: "codeterm agent reports the full command" })} expanded onToggle={() => {}} />);
-    if (!host.textContent?.includes("codeterm agent reports the full command")) throw new Error("command_card_reveal expanded command regression");
+    if (host.querySelector('[data-testid="message-raw-content"]')) throw new Error("formatted command card leaked the full command");
     if (!host.querySelector('[data-testid="toolcard-spinner"]')) throw new Error("pending command spinner regression");
     if (host.textContent.includes('{"raw')) throw new Error("raw tool JSON leak regression");
     if (host.querySelector('[data-testid="toolcard-command-open"]')) throw new Error("per-card command opener must not render");

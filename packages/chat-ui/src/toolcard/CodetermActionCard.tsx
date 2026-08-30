@@ -151,7 +151,6 @@ export function CodetermActionCard({
       variant="codeterm"
       disclosureLabel="full command"
       visualOverride={inv ? actionVisual(inv) : undefined}
-      command={sent ? undefined : <div data-testid="toolcard-command" role="region" aria-label="Full command text" tabIndex={0} className="overflow-auto border-t px-3 py-2 whitespace-pre-wrap break-words font-mono text-xs focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--ct-accent)]" style={{ borderColor: "var(--ct-border)", color: "var(--ct-fg)", background: "var(--ct-bg)", maxHeight: "12rem" }}>{event.detail || event.summary}</div>}
       metric={collapsedChips.length ? <span className="flex flex-wrap gap-1">{collapsedChips.map((chip) => <span key={chip} className="rounded border px-1.5 py-0.5 text-[10px]" style={{ borderColor: "var(--ct-border)", color: "var(--ct-muted-fg)" }}>{chip}</span>)}</span> : undefined}
       action={canNavigate && target?.kind === "tab" ? <ToolCardActionButton label="Show Tab" onClick={() => onFocusTab!(target.id)} testId="codeterm-focus-tab" /> : undefined}
     >
