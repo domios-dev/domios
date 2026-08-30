@@ -8,6 +8,7 @@ import logoUrl from "../../assets/logo.png";
 import type { ApiConfig, AppConfig } from "../../lib/types";
 import type { MeshTab, Service } from "./types";
 import { MeshInventoryList } from "./MeshInventoryList";
+import { MeshInventoryGraph } from "./MeshInventoryGraph";
 import { ServiceDrawer, type DrawerState } from "./ServiceDrawer";
 import { useMeshData } from "./useMeshData";
 import { NetworkTab } from "./NetworkTab";
@@ -388,6 +389,7 @@ function normalizeTab(t: unknown): MeshTab {
 export function MeshPanel({ config, onClose }: Props) {
   const touchUi = useTouchOptimizedUi();
   const [activeTab, setActiveTab] = useState<MeshTab>(() => normalizeTab("map"));
+  const [inventoryMode, setInventoryMode] = useState<"list" | "graph">("list");
   const [refreshKey, setRefreshKey] = useState(0);
   const data = useMeshData(refreshKey);
   const [webUiOpen, setWebUiOpen] = useState(false);
@@ -431,6 +433,9 @@ export function MeshPanel({ config, onClose }: Props) {
 
   const [drawerState, setDrawerState] = useState<DrawerState>(null);
   const [selectedResourceKey, setSelectedResourceKey] = useState<string | null>(null);
+  const modeButtonRefs = useMemo(() => ({
+    graph: { current: null as HTMLButtonElement | null },
+  }), []);
   const inventoryPeerIssues = useMemo(
     () => data.peers
       .filter((peer) => !peer.pending && (peer.services_loaded === false || Boolean(peer.services_error)))
@@ -450,6 +455,10 @@ export function MeshPanel({ config, onClose }: Props) {
       sourcePeerId: s.source_peer_id ?? s.source_peer ?? null,
     });
   }, []);
+
+  const handleGraphEscape = useCallback(() => {
+    modeButtonRefs.graph.current?.focus();
+  }, [modeButtonRefs]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -513,36 +522,50 @@ export function MeshPanel({ config, onClose }: Props) {
       <div className="relative flex-1 min-h-0 overflow-hidden">
         {activeTab === "inventory" && (
           <>
-            <MeshInventoryList
-              resources={data.services}
-              thisMachineName={data.thisMachine.name}
-              peerIssues={inventoryPeerIssues}
-              loading={data.loading}
-              error={data.error}
-              selectedResourceKey={selectedResourceKey}
-              onSelectResource={handleServiceClick}
-              onRefresh={triggerRefresh}
-              headerActions={
-                <MeshWebUiControl
-                  snapshot={serve?.snapshot ?? null}
-                  loading={serveLoading}
-                  onOpenSurface={() => setWebUiOpen(true)}
-                  accessUrl={serve?.snapshot?.url
-                    ? webLinkWithTokenAndRelay(serve.snapshot.url, config.api.token, null)
-                    : null}
-                  onOpenUrl={(url) => void invoke("open_url", { url })}
-                  onAction={runWebUiAction}
-                  touchUi={touchUi}
-                  menuAlign="right"
-                />
-              }
-            />
+            {inventoryMode === "list" ? (
+              <MeshInventoryList
+                resources={data.services}
+                thisMachineName={data.thisMachine.name}
+                peerIssues={inventoryPeerIssues}
+                loading={data.loading}
+                error={data.error}
+                selectedResourceKey={selectedResourceKey}
+                onSelectResource={handleServiceClick}
+                onRefresh={triggerRefresh}
+                headerActions={
+                  <MeshWebUiControl
+                    snapshot={serve?.snapshot ?? null}
+                    loading={serveLoading}
+                    onOpenSurface={() => setWebUiOpen(true)}
+                    accessUrl={serve?.snapshot?.url
+                      ? webLinkWithTokenAndRelay(serve.snapshot.url, config.api.token, null)
+                      : null}
+                    onOpenUrl={(url) => void invoke("open_url", { url })}
+                    onAction={runWebUiAction}
+                    touchUi={touchUi}
+                    menuAlign="right"
+                  />
+                }
+              />
+            ) : (
+              <MeshInventoryGraph
+                resources={data.services}
+                thisMachineName={data.thisMachine.name}
+                peerIssues={inventoryPeerIssues}
+                loading={data.loading}
+                error={data.error}
+                selectedResourceKey={selectedResourceKey}
+                onSelectResource={handleServiceClick}
+                onRefresh={triggerRefresh}
+                onEscape={handleGraphEscape}
+              />
+            )}
             <div className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5">
-              <button type="button" className={`${UI_BUTTON.ghost} ${UI_BUTTON.lg} gap-1.5 backdrop-blur-md shadow-lg`} aria-label="Inventory list" aria-pressed="true" data-testid="mesh-inventory-mode-list">
+              <button type="button" onClick={() => setInventoryMode("list")} className={`${UI_BUTTON.ghost} ${UI_BUTTON.lg} gap-1.5 backdrop-blur-md shadow-lg`} aria-label="Inventory list" aria-pressed={inventoryMode === "list"} data-testid="mesh-inventory-mode-list">
                 <List size={12} aria-hidden="true" />
                 List
               </button>
-              <button type="button" disabled className={`${UI_BUTTON.ghost} ${UI_BUTTON.lg} gap-1.5 opacity-50 backdrop-blur-md shadow-lg`} aria-label="Inventory graph coming soon" aria-disabled="true" data-testid="mesh-inventory-mode-graph">
+              <button ref={(element) => { modeButtonRefs.graph.current = element; }} type="button" onClick={() => setInventoryMode("graph")} className={`${UI_BUTTON.ghost} ${UI_BUTTON.lg} gap-1.5 backdrop-blur-md shadow-lg`} aria-label="Inventory graph" aria-pressed={inventoryMode === "graph"} data-testid="mesh-inventory-mode-graph">
                 <Network size={12} aria-hidden="true" />
                 Graph
               </button>
@@ -560,6 +583,7 @@ export function MeshPanel({ config, onClose }: Props) {
           thisMachineName={data.thisMachine.name}
           thisMachineIp={data.thisMachine.ip}
           onClose={() => setDrawerState(null)}
+          onOpenResource={(service, resourceKey) => handleServiceClick(service, resourceKey)}
           onActionDone={() => setRefreshKey((k) => k + 1)}
         />
         {webUiOpen && (
