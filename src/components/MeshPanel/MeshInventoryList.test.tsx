@@ -1,8 +1,7 @@
-import React, { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
+import type { ReactElement } from "react";
+import type { Root } from "react-dom/client";
 import type { Service } from "./types";
-import { MeshInventoryList } from "./MeshInventoryList";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -21,14 +20,6 @@ function setupDom() {
     if (name === "ResizeObserver") continue;
     Object.defineProperty(globalThis, name, { value: window[name], configurable: true });
   }
-}
-
-async function render(ui: React.ReactElement): Promise<{ host: HTMLDivElement; root: Root }> {
-  const host = document.createElement("div");
-  document.body.append(host);
-  const root = createRoot(host);
-  await act(async () => root.render(ui));
-  return { host, root };
 }
 
 function resource(overrides: Partial<Service> & Pick<Service, "id" | "name" | "kind">): Service {
@@ -69,6 +60,20 @@ const resources: Service[] = [
 
 async function main() {
   setupDom();
+  const [{ act }, { createRoot }, { MeshInventoryList }] = await Promise.all([
+    import("react"),
+    import("react-dom/client"),
+    import("./MeshInventoryList"),
+  ]);
+
+  async function render(ui: ReactElement): Promise<{ host: HTMLDivElement; root: Root }> {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(ui));
+    return { host, root };
+  }
+
   const selected: string[] = [];
   const { host, root } = await render(
     <MeshInventoryList
