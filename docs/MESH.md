@@ -251,4 +251,10 @@ move between rows, and Enter or Space opens the existing resource inspection.
 Filtering keeps the selected resource identity and announces when it is hidden
 or removed by a refresh.
 
-<!-- revision: 18 -->
+Graph mode shows one ownership edge from each service or schedule to its
+machine. The graph navigator is the accessible equivalent: arrow keys move
+between nodes, Enter or Space opens a resource, and Escape returns to the mode
+bubble. Peer detail separates Services and Schedules and labels cached,
+offline, denied, and partial-fetch states.
+
+<!-- revision: 19 -->
