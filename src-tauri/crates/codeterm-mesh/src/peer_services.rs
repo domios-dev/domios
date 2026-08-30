@@ -7,6 +7,7 @@
 
 use std::collections::HashMap;
 
+use codeterm_types::mesh::inventory::InventoryFreshness;
 use serde::Serialize;
 
 /// How long a cached fetch is considered fresh enough to skip the network.
