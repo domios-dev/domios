@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import type { CronJob, CronRunInfo } from "../../lib/types";
 import { serviceIdToCronId } from "./types";
 import { describeSchedule, formatFuture, formatTime } from "../../lib/formatters";
-import type { Service } from "./types";
+import type { InventoryOperation, Service } from "./types";
 import { UI_BUTTON, UI_INPUT, UI_PANEL } from "../shared/design";
 import { DropdownSelect, type DropdownSelectOption } from "../shared/DropdownMenu";
 import { Card } from "../shared/Card";
@@ -28,7 +28,11 @@ export function CronDrawerSection({ service, onUpdate }: Props) {
   const cronId = serviceIdToCronId(service.id);
   const sourcePeerId = service.source_peer_id;
   const isRemote = !!sourcePeerId;
-  const actionsDisabled = busy || !!service.stale;
+  const can = (operation: InventoryOperation): boolean =>
+    service.capabilities?.[operation]?.allowed ?? !isRemote;
+  const reason = (operation: InventoryOperation): string | undefined =>
+    service.capabilities?.[operation]?.unavailable_reason;
+  const actionsDisabled = busy || !can("update_schedule");
   const scheduleInputClass = `${UI_INPUT.full} flex-1 font-mono outline-none border border-[var(--ct-accent)] text-[10px]`;
   const scheduleBtnClass = `${UI_BUTTON.compact} ${UI_BUTTON.base} border-[var(--ct-border)] text-[var(--ct-muted)]`;
   const runsMetaClass = "text-[var(--ct-muted-fg)] font-mono";
@@ -99,7 +103,12 @@ export function CronDrawerSection({ service, onUpdate }: Props) {
     if (!scheduleInput.trim()) return;
     setBusy(true);
     try {
-      await invoke("cron_update", { id: cronId, schedule: scheduleInput.trim() });
+      await invoke(
+        isRemote ? "mesh_peer_cron_update" : "cron_update",
+        isRemote
+          ? { instanceId: sourcePeerId, id: cronId, patch: { schedule: scheduleInput.trim() } }
+          : { id: cronId, schedule: scheduleInput.trim() },
+      );
       setEditingSchedule(false);
       onUpdate();
     } catch (e) {
@@ -235,14 +244,10 @@ export function CronDrawerSection({ service, onUpdate }: Props) {
             </div>
             <button
               onClick={() => setEditingSchedule(true)}
-              disabled={isRemote || !!service.stale}
+              disabled={!can("update_schedule")}
               className={`${UI_BUTTON.base} ${UI_BUTTON.compact} text-[var(--ct-muted)] border-none`}
               title={
-                service.stale
-                  ? "Cached cron state is not editable"
-                  : isRemote
-                    ? "Remote cron schedule editing is not wired yet"
-                    : "Edit schedule"
+                reason("update_schedule") ?? "Edit schedule"
               }
             >
               Edit
@@ -255,17 +260,17 @@ export function CronDrawerSection({ service, onUpdate }: Props) {
         <div className="flex gap-1.5">
           <button
             onClick={handleTrigger}
-            disabled={actionsDisabled}
+            disabled={busy || !can("trigger")}
             className={`${UI_BUTTON.ghost} ${UI_BUTTON.compact} flex-1 disabled:opacity-50`}
-            title={service.stale ? "Cached cron state is not actionable" : undefined}
+            title={reason("trigger")}
           >
             ▶ Trigger now
           </button>
           <button
             onClick={handleToggle}
-            disabled={actionsDisabled}
+            disabled={busy || !can(service.enabled ? "disable" : "enable")}
             className={`${UI_BUTTON.ghost} ${UI_BUTTON.compact} flex-1 disabled:opacity-50`}
-            title={service.stale ? "Cached cron state is not actionable" : undefined}
+            title={reason(service.enabled ? "disable" : "enable")}
           >
             {service.enabled ? "⏸ Pause" : "▶ Resume"}
           </button>

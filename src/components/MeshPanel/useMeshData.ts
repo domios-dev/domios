@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke, listen } from "../../lib/bridge";
 import type { MeshStatus, MeshPeersResponse, PairedPeer, DiscoveredPeer } from "../../lib/types";
-import { servicesList } from "./meshApi";
 import type { Service } from "./types";
 import {
   collectPeerErrors,
   mergeServicesView,
   type PeerFetchResult,
   type PeerServicesView,
+  type MeshInventoryView,
 } from "./servicesView";
 
 export interface PeerStatus {
@@ -102,7 +102,8 @@ export function useMeshData(refreshKey: number): MeshDataResult {
     inFlightRef.current = true;
     setData((d) => ({ ...d, loading: true }));
     try {
-      const local: Service[] = await servicesList();
+      const localView = await invoke<MeshInventoryView>("mesh_inventory_list");
+      const local: Service[] = localView.resources;
       const status = await invoke<MeshStatus>("mesh_get_status").catch(
         () => null,
       );

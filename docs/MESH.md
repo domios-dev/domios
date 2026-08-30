@@ -233,4 +233,14 @@ When `config.mesh.enabled = false`, the auth middleware short-circuits every `/a
 
 Service registry, health, and peer management endpoints: `codeterm docs MESH-SERVICES`.
 
-<!-- revision: 16 -->
+The Mesh inventory contract is target-authoritative. `GET /api/mesh/inventory`
+returns machine-qualified resources with `resource_id`, `machine_id`,
+`machine_name`, `kind`, freshness/offline/partial-error provenance, and a
+capability map. Mutation capabilities are computed from the authenticated
+caller’s access policy and the target route; peer names, provider names, and
+error text never grant authority. Cached rows remain visible, but stale,
+offline, or partially failed peer rows do not expose mutation capabilities.
+Daemon resources are registry entries and never advertise process start/stop
+controls.
+
+<!-- revision: 17 -->

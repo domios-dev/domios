@@ -305,7 +305,8 @@ function SvcDrawer({
   const tokenCardClass = "bg-[var(--ct-bg)] border border-[var(--ct-yellow)] rounded p-2 text-[10px]";
   const sourcePeerId = service.source_peer_id;
   const isRemote = !!sourcePeerId;
-  const actionsDisabled = busy || !!service.stale;
+  const canDelete = service.capabilities?.delete?.allowed ?? !isRemote;
+  const actionsDisabled = busy;
 
   const handleRotate = async () => {
     if (isRemote) return;
@@ -329,7 +330,10 @@ function SvcDrawer({
     setBusy(true);
     try {
       if (isRemote && isCron) {
-        throw new Error("Remote cron delete is not wired yet");
+        await invoke("mesh_peer_cron_delete", {
+          instanceId: sourcePeerId,
+          id: serviceIdToCronId(service.id),
+        });
       } else if (isRemote) {
         await invoke("mesh_peer_service_delete", {
           instanceId: sourcePeerId,
@@ -500,7 +504,7 @@ function SvcDrawer({
           )}
           <button
             onClick={handleDelete}
-            disabled={actionsDisabled || (isRemote && isCron)}
+            disabled={actionsDisabled || !canDelete}
             className={`${serviceActionDangerClass} disabled:opacity-50`}
             title={
               service.stale
