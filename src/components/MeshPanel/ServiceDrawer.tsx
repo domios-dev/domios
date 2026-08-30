@@ -1,16 +1,21 @@
 import { invoke } from "../../lib/bridge";
 import { useEffect, useRef, useState } from "react";
-import { serviceIdToCronId, type Service } from "./types";
+import type { Service } from "./types";
 import type { PeerStatus } from "./useMeshData";
 import { inventoryResourceKey } from "./meshInventoryModel";
 import { RELAY_PROTOCOL_VERSION } from "../../lib/types";
-import {
-  servicesDelete,
-  servicesRegenerateToken,
-} from "./meshApi";
 import { CronDrawerSection } from "./CronDrawerSection";
 import { AddServiceWizard } from "./AddServiceWizard";
 import { UI_BUTTON, UI_INPUT, UI_PANEL, UI_TEXT } from "../shared/design";
+import {
+  capabilityFor,
+  capabilitySummary,
+  createMeshResourceActionAdapter,
+  mutationFailure,
+  resourceTarget,
+  unavailableFailure,
+  type MeshResourceActionAdapter,
+} from "./meshResourceActions";
 
 type AccessLevel = "full" | "read_only" | "agent_isolated";
 
@@ -34,11 +39,14 @@ interface Props {
   onClose: () => void;
   onOpenResource?: (service: Service, resourceKey: string) => void;
   onActionDone: () => void;
+  actionAdapter?: MeshResourceActionAdapter;
+  onAnnouncement?: (message: string) => void;
 }
 
 const PANEL_BASE = UI_PANEL.drawerBase;
 const CLOSE_BUTTON_CLASS =
   `${UI_PANEL.drawerClose} border border-[var(--ct-border)] hover:border-[var(--ct-accent)] hover:text-[var(--ct-accent)]`;
+const defaultResourceActionAdapter = createMeshResourceActionAdapter();
 
 function DrawerBackdrop({ onClose }: { onClose: () => void }) {
   useEffect(() => {
@@ -66,6 +74,8 @@ export function ServiceDrawer({
   onClose,
   onOpenResource,
   onActionDone,
+  actionAdapter,
+  onAnnouncement,
 }: Props) {
   const originRef = useRef<HTMLElement | null>(null);
   const wasOpenRef = useRef(false);
@@ -99,6 +109,7 @@ export function ServiceDrawer({
         onClose={onClose}
         onOpenResource={onOpenResource}
         onActionDone={onActionDone}
+        onAnnouncement={onAnnouncement}
       />
     );
   }
@@ -115,8 +126,11 @@ export function ServiceDrawer({
   return (
     <SvcDrawer
       service={service}
+      machineName={thisMachineName}
       onClose={onClose}
       onActionDone={onActionDone}
+      actionAdapter={actionAdapter}
+      onAnnouncement={onAnnouncement}
     />
   );
 }
@@ -128,6 +142,7 @@ function PeerDrawer({
   onClose,
   onOpenResource,
   onActionDone,
+  onAnnouncement,
 }: {
   peer: PeerStatus;
   isSelf: boolean;
@@ -135,8 +150,10 @@ function PeerDrawer({
   onClose: () => void;
   onOpenResource?: (service: Service, resourceKey: string) => void;
   onActionDone: () => void;
+  onAnnouncement?: (message: string) => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const [announcement, setAnnouncement] = useState("");
   const [showAddWizard, setShowAddWizard] = useState(false);
   const badgeClass = "rounded text-[9px] px-1.5 py-0.5";
   const sectionTextClass = `${UI_TEXT.metaMuted} text-[10px]`;
@@ -151,14 +168,19 @@ function PeerDrawer({
   }, []);
 
   const handleDisconnect = async () => {
-    if (!confirm(`Disconnect from ${peer.name}?`)) return;
+    if (typeof window !== "undefined" && typeof window.confirm === "function" && !window.confirm(`Disconnect from target machine "${peer.name}"? This cannot be undone.`)) return;
     setBusy(true);
     try {
       await invoke("mesh_disconnect", { instanceId: peer.instance_id });
+      const message = `Disconnected from target machine ${peer.name}.`;
+      setAnnouncement(message);
+      onAnnouncement?.(message);
       onActionDone();
       onClose();
     } catch (e) {
-      alert(`Disconnect failed: ${e}`);
+      const message = `Disconnect failed: target machine ${peer.name} rejected or failed the request (${String(e)}).`;
+      setAnnouncement(message);
+      onAnnouncement?.(message);
     } finally {
       setBusy(false);
     }
@@ -173,9 +195,14 @@ function PeerDrawer({
         instanceId: peer.instance_id,
         accessLevel: level,
       });
+      const message = `Access level updated on target machine ${peer.name}.`;
+      setAnnouncement(message);
+      onAnnouncement?.(message);
       onActionDone();
     } catch (e) {
-      alert(`Set access failed: ${e}`);
+      const message = `Set access failed: target machine ${peer.name} rejected or failed the request (${String(e)}).`;
+      setAnnouncement(message);
+      onAnnouncement?.(message);
     } finally {
       setBusy(false);
     }
@@ -185,6 +212,7 @@ function PeerDrawer({
     <>
       <DrawerBackdrop onClose={onClose} />
       <div className={PANEL_BASE} style={{ width: 360 }} role="dialog" aria-modal="true" aria-labelledby="mesh-peer-drawer-heading" data-testid="mesh-peer-drawer">
+        <div className="sr-only" role="status" aria-live="polite" aria-atomic="true" data-testid="mesh-peer-announcement">{announcement}</div>
         <div className="flex items-center justify-between">
           <strong ref={headingRef} id="mesh-peer-drawer-heading" tabIndex={-1} className="text-[var(--ct-fg)] truncate focus:outline-none">{peer.name}</strong>
           <button
@@ -369,15 +397,22 @@ function resourceStateText(service: Service): string {
 
 function SvcDrawer({
   service,
+  machineName,
   onClose,
   onActionDone,
+  actionAdapter = defaultResourceActionAdapter,
+  onAnnouncement,
 }: {
   service: Service;
+  machineName: string;
   onClose: () => void;
   onActionDone: () => void;
+  actionAdapter?: MeshResourceActionAdapter;
+  onAnnouncement?: (message: string) => void;
 }) {
   const [showToken, setShowToken] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [announcement, setAnnouncement] = useState("");
   const sectionTextClass = `${UI_TEXT.metaMuted} text-[10px]`;
   const sectionHealthClass = `${sectionTextClass} text-[var(--ct-fg)] flex flex-col gap-0.5`;
   const serviceActionBtnClass = `${UI_BUTTON.base} ${UI_BUTTON.compact} border`;
@@ -385,21 +420,31 @@ function SvcDrawer({
   const pillClass = "rounded px-1.5 py-0.5 text-[9px]";
   const tokenCardClass = "bg-[var(--ct-bg)] border border-[var(--ct-yellow)] rounded p-2 text-[10px]";
   const headingRef = useRef<HTMLElement>(null);
-  const sourcePeerId = service.source_peer_id;
-  const isRemote = !!sourcePeerId;
-  const canDelete = service.capabilities?.delete?.allowed ?? !isRemote;
+  const target = resourceTarget(service, machineName);
+  const deleteCapability = capabilityFor(service, "delete");
+  const isRemote = target.remote;
   const actionsDisabled = busy;
 
   const handleRotate = async () => {
-    if (isRemote) return;
-    if (!confirm("Rotate push token? Old token will stop working.")) return;
+    if (target.remote) {
+      const message = unavailableFailure("Rotate push token", "unsupported_resource_kind");
+      setAnnouncement(message);
+      onAnnouncement?.(message);
+      return;
+    }
+    if (typeof window !== "undefined" && typeof window.confirm === "function" && !window.confirm(`Rotate push token for service "${service.name}" on target machine "${target.name}"? The old token will stop working.`)) return;
     setBusy(true);
     try {
-      const tk = await servicesRegenerateToken(service.id);
+      const tk = await actionAdapter.regenerateToken(service);
       setShowToken(tk);
+      const message = `Push token rotated successfully on target machine ${target.name}.`;
+      setAnnouncement(message);
+      onAnnouncement?.(message);
       onActionDone();
     } catch (e) {
-      alert(`Rotate failed: ${e}`);
+      const message = mutationFailure("Rotate push token", target, e);
+      setAnnouncement(message);
+      onAnnouncement?.(message);
     } finally {
       setBusy(false);
     }
@@ -412,28 +457,26 @@ function SvcDrawer({
   }, []);
 
   const handleDelete = async () => {
-    if (!confirm(`Delete service "${service.name}"?`)) return;
+    if (!deleteCapability.allowed) {
+      const message = unavailableFailure(service.kind === "cron" ? "Remove schedule" : "Remove registry entry", deleteCapability.unavailable_reason);
+      setAnnouncement(message);
+      onAnnouncement?.(message);
+      return;
+    }
+    const label = service.kind === "cron" ? "Remove schedule" : "Remove registry entry";
+    if (typeof window !== "undefined" && typeof window.confirm === "function" && !window.confirm(`${label} "${service.name}" from target machine "${target.name}"? This cannot be undone.`)) return;
     setBusy(true);
     try {
-      if (isRemote && isCron) {
-        await invoke("mesh_peer_cron_delete", {
-          instanceId: sourcePeerId,
-          id: serviceIdToCronId(service.id),
-        });
-      } else if (isRemote) {
-        await invoke("mesh_peer_service_delete", {
-          instanceId: sourcePeerId,
-          id: service.id,
-        });
-      } else if (isCron) {
-        await invoke("cron_delete", { id: serviceIdToCronId(service.id) });
-      } else {
-        await servicesDelete(service.id);
-      }
+      await actionAdapter.remove(service);
+      const message = `${label} succeeded on target machine ${target.name}.`;
+      setAnnouncement(message);
+      onAnnouncement?.(message);
       onActionDone();
       onClose();
     } catch (e) {
-      alert(`Delete failed: ${e}`);
+      const message = mutationFailure(label, target, e);
+      setAnnouncement(message);
+      onAnnouncement?.(message);
     } finally {
       setBusy(false);
     }
@@ -442,7 +485,7 @@ function SvcDrawer({
   return (
     <>
       <DrawerBackdrop onClose={onClose} />
-      <div className={PANEL_BASE} style={{ width: isCron ? "min(860px, calc(100vw - 32px))" : 400 }} role="dialog" aria-modal="true" aria-labelledby="mesh-service-drawer-heading" data-testid="mesh-service-drawer">
+      <div className={PANEL_BASE} style={{ width: isCron ? "min(860px, calc(100vw - 32px))" : 400 }} role="dialog" aria-modal="true" aria-busy={busy} aria-labelledby="mesh-service-drawer-heading" data-testid="mesh-service-drawer">
         <div className="flex items-center justify-between">
           <strong ref={headingRef} id="mesh-service-drawer-heading" tabIndex={-1} className="text-[var(--ct-fg)] truncate focus:outline-none">{service.name}</strong>
           <button
@@ -453,6 +496,7 @@ function SvcDrawer({
             ×
           </button>
         </div>
+        <div className="sr-only" role="status" aria-live="polite" aria-atomic="true" data-testid="mesh-resource-announcement">{announcement}</div>
 
         <div className="flex gap-1.5 flex-wrap">
           <span className={`${pillClass} bg-[var(--ct-bg)] text-[var(--ct-muted-fg)]`}>
@@ -488,6 +532,10 @@ function SvcDrawer({
             </span>
           )}
         </div>
+        <div className="text-[10px] text-[var(--ct-muted-fg)]" data-testid="mesh-resource-capability-summary">
+          Target machine: <span className="font-medium text-[var(--ct-fg)]">{target.name}</span> · {capabilitySummary(service)}
+        </div>
+        {!deleteCapability.allowed && <div className="text-[10px] text-[var(--ct-yellow)]" data-testid="mesh-operation-unavailable-delete">Unavailable: {deleteCapability.unavailable_reason ?? "unsupported_resource_kind"}</div>}
 
         <Section label="Health">
           <div className={sectionHealthClass}>
@@ -557,7 +605,7 @@ function SvcDrawer({
         )}
 
         {isCron && (
-          <CronDrawerSection service={service} onUpdate={onActionDone} />
+          <CronDrawerSection service={service} machineName={machineName} onUpdate={onActionDone} actionAdapter={actionAdapter} onAnnouncement={onAnnouncement} />
         )}
 
         {showToken && (
@@ -572,35 +620,23 @@ function SvcDrawer({
         )}
 
         <div className="mt-auto flex flex-col gap-1.5">
-          {service.push_enabled && (
+          {service.push_enabled && !target.remote && (
             <button
               onClick={handleRotate}
-              disabled={actionsDisabled || isRemote}
+              disabled={actionsDisabled}
               className={`${serviceActionBtnClass} flex-1 disabled:opacity-50`}
-              title={
-                service.stale
-                  ? "Cached service state is not actionable"
-                  : isRemote
-                    ? "Remote token rotation is not wired yet"
-                    : undefined
-              }
+              title="Rotate push token"
             >
               Rotate push token
             </button>
           )}
           <button
             onClick={handleDelete}
-            disabled={actionsDisabled || !canDelete}
+            disabled={actionsDisabled || !deleteCapability.allowed}
             className={`${serviceActionDangerClass} disabled:opacity-50`}
-            title={
-              service.stale
-                ? "Cached service state is not actionable"
-                : isRemote && isCron
-                  ? "Remote cron delete is not wired yet"
-                  : undefined
-            }
+            title={deleteCapability.unavailable_reason ?? `Remove ${isCron ? "schedule" : "registry entry"}`}
           >
-            Delete service
+            {isCron ? "Remove schedule" : "Remove registry entry"}
           </button>
         </div>
       </div>

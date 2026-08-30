@@ -133,6 +133,16 @@ pub fn cron_trigger(
 }
 
 #[tauri::command]
+pub fn cron_cancel(
+    cron: tauri::State<'_, crate::CronState>,
+    svc: tauri::State<'_, crate::service::ServiceState>,
+    id: String,
+) -> Result<serde_json::Value, String> {
+    let cancelled = svc.cron_cancel_running(&cron, &id)?;
+    Ok(serde_json::json!({ "cancelled": cancelled }))
+}
+
+#[tauri::command]
 pub fn cron_history(
     cron: tauri::State<'_, crate::CronState>,
     svc: tauri::State<'_, crate::service::ServiceState>,
