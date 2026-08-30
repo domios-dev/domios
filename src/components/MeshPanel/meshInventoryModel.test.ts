@@ -95,6 +95,7 @@ const failedPeer: InventoryPeerIssue = {
 };
 
 const resources = [remoteStale, denied, local, remoteFresh];
+const freshResources = [local, remoteFresh];
 const rows = buildInventoryRows(resources, "Local");
 
 assert("resource keys qualify machine and resource identity", inventoryResourceKey(local) === "machine-local:svc-api");
@@ -114,9 +115,9 @@ assert("freshness filter selects offline cache", buildInventoryModel({ resources
 assert("capability filter selects denied rows", buildInventoryModel({ resources }, { ...DEFAULT_INVENTORY_FILTERS, capability: "unavailable" }).rows.map((row) => row.resource.name).join() === "Locked schedule");
 assert("state filter selects degraded service", buildInventoryModel({ resources }, { ...DEFAULT_INVENTORY_FILTERS, state: "degraded" }).rows[0]?.resource.name === "Cache");
 
-const ready = buildInventoryModel({ resources });
+const ready = buildInventoryModel({ resources: freshResources });
 assert("ready state is distinct", ready.state === "ready");
-assert("loading with cached rows is distinct", buildInventoryModel({ resources, loading: true }).state === "loading-cached");
+assert("loading with cached rows is distinct", buildInventoryModel({ resources: freshResources, loading: true }).state === "loading-cached");
 assert("loading without rows is distinct", buildInventoryModel({ resources: [], loading: true }).state === "loading");
 assert("empty state is distinct", buildInventoryModel({ resources: [] }).state === "empty");
 assert("filtered empty is distinct", buildInventoryModel({ resources }, { ...DEFAULT_INVENTORY_FILTERS, search: "missing" }).state === "filtered-empty");
@@ -124,7 +125,7 @@ assert("partial peer failure is distinct", buildInventoryModel({ resources: [loc
 assert("offline rows are honest without peer-id inference", buildInventoryModel({ resources: [remoteStale] }).state === "offline");
 
 const directFiltered = buildInventoryRows([local]);
-assert("classify helper accepts deterministic row projections", classifyInventoryState({ resources: [local] }, directFiltered, []) === "ready");
+assert("classify helper accepts deterministic row projections", classifyInventoryState({ resources: [local] }, directFiltered, directFiltered) === "ready");
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) throw new Error(`${failed} test(s) failed`);

@@ -190,9 +190,9 @@ export function buildInventoryRows(resources: Service[], thisMachineName = "This
 }
 
 export function filterInventoryRows(rows: InventoryRow[], filters: InventoryFilters): InventoryRow[] {
-  const search = filters.search.trim().toLowerCase();
+  const searchTerms = filters.search.trim().toLowerCase().split(/\s+/).filter(Boolean);
   return rows.filter((row) => {
-    if (search && !row.searchText.includes(search)) return false;
+    if (searchTerms.some((term) => !row.searchText.includes(term))) return false;
     if (filters.machine !== "all" && row.machineId !== filters.machine) return false;
     if (filters.kind !== "all" && row.kind !== filters.kind) return false;
     if (filters.state !== "all" && row.state !== filters.state) return false;
