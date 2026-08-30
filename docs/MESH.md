@@ -231,42 +231,10 @@ When `config.mesh.enabled = false`, the auth middleware short-circuits every `/a
 
 ## Related documents
 
-Service registry, health, and peer management endpoints: `codeterm docs MESH-SERVICES`.
+Service registry, health, inventory fields, and peer endpoints: `codeterm docs MESH-SERVICES`.
 
-The Mesh inventory contract is target-authoritative. `GET /api/mesh/inventory`
-returns machine-qualified resources with `resource_id`, `machine_id`,
-`machine_name`, `kind`, freshness/offline/partial-error provenance, and a
-capability map. Mutation capabilities are computed from the authenticated
-caller’s access policy and the target route; peer names, provider names, and
-error text never grant authority. Cached rows remain visible, but stale,
-offline, or partially failed peer rows do not expose mutation capabilities.
-Daemon resources are registry entries and never advertise process start/stop
-controls.
+Mesh inventory is target-authoritative: machine-qualified rows carry provenance and capabilities derived from authenticated access and the target route. Cached rows stay inspectable, but stale, offline, partial, or denied mutations stay disabled with their reason. Daemons are registry entries, never controllable processes. Schedule actions appear only when granted. Remote or destructive actions name the target, await and announce its outcome, then refresh; failures never become optimistic local success.
 
-Resource detail uses that same capability map from both List and Graph. A daemon
-offers inspection and registry removal only (plus its existing local push-token
-rotation); it is not a controllable process. A schedule offers inspection and
-history, with trigger, pause/resume, running-execution cancellation, schedule
-editing, and removal shown only when the target grants those operations. Every
-remote or destructive operation names the target machine, waits for the
-target-authoritative outcome, announces that outcome in the drawer live region,
-and refreshes inventory afterward. Stale, offline, partially failed, or denied
-rows remain inspectable, while their mutation controls stay disabled with the
-capability reason. A failed target operation is never represented by a local
-optimistic success.
-
-The Mesh section opens on the full-screen Inventory List. Activity and Network
-remain top-level sections; List and the reserved Graph mode use the compact
-bottom mode bubble. Inventory rows are keyboard-accessible buttons: `/` moves
-focus to search when focus is not already in an editable control, arrow keys
-move between rows, and Enter or Space opens the existing resource inspection.
-Filtering keeps the selected resource identity and announces when it is hidden
-or removed by a refresh.
-
-Graph mode shows one ownership edge from each service or schedule to its
-machine. The graph navigator is the accessible equivalent: arrow keys move
-between nodes, Enter or Space opens a resource, and Escape returns to the mode
-bubble. Peer detail separates Services and Schedules and labels cached,
-offline, denied, and partial-fetch states.
+Inventory opens as a full-screen searchable List with the shared List/Graph mode bubble. Keyboard navigation preserves resource identity and focus. Graph shows machine ownership with an equivalent accessible navigator; peer detail separates Services and Schedules and labels cached, offline, denied, and partial states.
 
 <!-- revision: 20 -->

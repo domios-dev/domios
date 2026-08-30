@@ -1300,6 +1300,16 @@
               "aliases": []
             },
             {
+              "name": "no-team",
+              "positional": false,
+              "required": false,
+              "value_name": "NO_TEAM",
+              "possible_values": [],
+              "default": null,
+              "help": "Keep this job outside the calling tab's Team",
+              "aliases": []
+            },
+            {
               "name": "once",
               "positional": false,
               "required": false,
@@ -1356,7 +1366,7 @@
               "value_name": "TEAM_ID",
               "possible_values": [],
               "default": null,
-              "help": "Attach this job to a Team. The calling Tab must belong to it",
+              "help": "Explicit Team membership cross-check. Jobs already inherit the calling Tab's Team",
               "aliases": []
             },
             {
@@ -13129,7 +13139,7 @@
         },
         {
           "name": "new",
-          "about": "Plain shell tab, created in the calling tab's own workspace — never the workspace selected in the UI. For an AI tab use `codeterm agent spawn`",
+          "about": "Plain shell tab, inheriting the calling tab's workspace and Team. For an AI tab use `codeterm agent spawn`",
           "aliases": [],
           "args": [
             {
@@ -13183,13 +13193,23 @@
               "aliases": []
             },
             {
+              "name": "no-team",
+              "positional": false,
+              "required": false,
+              "value_name": "NO_TEAM",
+              "possible_values": [],
+              "default": null,
+              "help": "Keep the new shell outside the calling tab's Team",
+              "aliases": []
+            },
+            {
               "name": "team",
               "positional": false,
               "required": false,
               "value_name": "TEAM_ID",
               "possible_values": [],
               "default": null,
-              "help": "Attach this shell to a Team as a utility terminal. The calling Tab must already belong to that Team",
+              "help": "Explicit Team membership cross-check. Ordinary shells already inherit the calling Tab's Team",
               "aliases": []
             },
             {
