@@ -24,9 +24,6 @@ function setupDom() {
 
 function resource(overrides: Partial<Service> & Pick<Service, "id" | "name" | "kind">): Service {
   return {
-    id: overrides.id,
-    name: overrides.name,
-    kind: overrides.kind,
     health_mode: "http",
     health_interval: 60,
     health: { status: "healthy" },
@@ -35,6 +32,9 @@ function resource(overrides: Partial<Service> & Pick<Service, "id" | "name" | "k
     updated_at: 1,
     enabled: true,
     ...overrides,
+    id: overrides.id,
+    name: overrides.name,
+    kind: overrides.kind,
   };
 }
 

@@ -1,6 +1,7 @@
 import { Window } from "happy-dom";
 import type { ReactElement } from "react";
 import type { Root } from "react-dom/client";
+import type { CronJob } from "../../lib/types";
 import type { Service } from "./types";
 import type { DrawerState } from "./ServiceDrawer";
 import type { MeshResourceActionAdapter } from "./meshResourceActions";
@@ -24,14 +25,11 @@ function setupDom() {
   for (const name of ["HTMLElement", "HTMLInputElement", "HTMLTextAreaElement", "HTMLSelectElement"] as const) {
     Object.defineProperty(globalThis, name, { value: window[name], configurable: true });
   }
-  window.confirm = () => true;
+  Object.defineProperty(window, "confirm", { value: () => true, writable: true, configurable: true });
 }
 
 function resource(overrides: Partial<Service> & Pick<Service, "id" | "name" | "kind">): Service {
   return {
-    id: overrides.id,
-    name: overrides.name,
-    kind: overrides.kind,
     health_mode: "http",
     health_interval: 60,
     health: { status: "healthy" },
@@ -52,12 +50,37 @@ function resource(overrides: Partial<Service> & Pick<Service, "id" | "name" | "k
       cancel: { allowed: true },
     },
     ...overrides,
+    id: overrides.id,
+    name: overrides.name,
+    kind: overrides.kind,
+  };
+}
+
+function cronJob(): CronJob {
+  return {
+    id: "cron-backup",
+    name: "Backup",
+    description: null,
+    workspace_id: "general",
+    schedule: "0 3 * * *",
+    enabled: true,
+    agent: "test",
+    model: null,
+    task: "backup",
+    cwd: null,
+    role: null,
+    oneshot: false,
+    max_history: 10,
+    created_at: 1,
+    last_run: null,
+    next_run: null,
+    jitter_max_ms: null,
   };
 }
 
 function adapter(overrides: Partial<MeshResourceActionAdapter> = {}): MeshResourceActionAdapter {
   return {
-    get: async () => ({ task: "backup", agent: "test", oneshot: false }),
+    get: async () => cronJob(),
     history: async () => [],
     trigger: async () => ({ status: "Running" }),
     setEnabled: async () => ({ enabled: true }),
@@ -139,7 +162,7 @@ async function main() {
   const calls: string[] = [];
   const remoteAdapter = adapter({
     history: async () => { calls.push("history"); return []; },
-    get: async () => { calls.push("get"); return { task: "backup", agent: "test", oneshot: false }; },
+    get: async () => { calls.push("get"); return cronJob(); },
     updateSchedule: async () => { calls.push("remote-update"); return { ok: true }; },
     cancel: async () => { calls.push("cancel"); return { ok: true }; },
   });
