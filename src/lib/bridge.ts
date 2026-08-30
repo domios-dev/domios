@@ -485,6 +485,7 @@ const HTTP_MAP: Record<string, Mapper> = {
   cron_history: (a) => webJson("GET", `/api/crons/${enc(s(a, "id"))}/history`),
   cron_delete: (a) => webJson("DELETE", `/api/crons/${enc(s(a, "id"))}`),
   cron_trigger: (a) => webJson("POST", `/api/crons/${enc(s(a, "id"))}/trigger`),
+  cron_cancel: (a) => webJson("POST", `/api/crons/${enc(s(a, "id"))}/cancel`),
   cron_toggle: (a) =>
     webJson(
       "POST",
