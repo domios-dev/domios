@@ -87,7 +87,7 @@ export interface ActivityEvent {
   meta: Record<string, unknown>;
 }
 
-export type MeshTab = "map" | "activity" | "network";
+export type MeshTab = "inventory" | "activity" | "network";
 
 export const CRON_ID_PREFIX = "cron_";
 
