@@ -9,7 +9,7 @@ mod transport;
 use cmd::identify::{resolve_api_config, resolved_data_root, resolved_instance};
 use cmd::print::{handle_result, print_object};
 
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 use client::{discover_socket, discover_socket_resolution, SocketClient};
 
 pub use mesh_cli::{MeshAction, MeshPeerAction};
@@ -648,33 +648,21 @@ fn normalize_agent_spawn_label_args(args: Vec<String>) -> Vec<String> {
 }
 
 fn is_agent_spawn_flag(arg: &str) -> bool {
-    matches!(
-        arg,
-        "--title"
-            | "--description"
-            | "--cwd"
-            | "--role"
-            | "--parent-tab"
-            | "--plan"
-            | "--report-to"
-            | "--can-spawn"
-            | "--task"
-            | "--task-file"
-            | "--args"
-            | "--workspace"
-            | "--model"
-            | "--system"
-            | "--preset"
-            | "--charter"
-            | "--charter-file"
-            | "--interval"
-            | "--nudge-cooldown"
-            | "--max-actions"
-            | "--task-id"
-            | "--plan-task"
-            | "--"
-    ) || arg.starts_with("--title=")
-        || arg.starts_with("--description=")
+    if arg == "--" {
+        return true;
+    }
+    let Some(long) = arg.strip_prefix("--") else {
+        return false;
+    };
+    let name = long.split_once('=').map_or(long, |(name, _)| name);
+    Cli::command()
+        .find_subcommand("agent")
+        .and_then(|agent| agent.find_subcommand("spawn"))
+        .is_some_and(|spawn| {
+            spawn
+                .get_arguments()
+                .any(|candidate| candidate.get_long() == Some(name))
+        })
 }
 
 fn is_plan_dash_leading_text_error(args: &[String], _err: &clap::Error) -> bool {
@@ -783,6 +771,46 @@ mod plan_cli_error_tests {
                     Some("--literal flag")
                 );
                 assert_eq!(task.as_deref(), Some("echo"));
+            }
+            _ => panic!("expected agent spawn"),
+        }
+    }
+
+    #[test]
+    fn normalizes_agent_spawn_label_without_eating_capability_flags() {
+        let args = normalize_agent_spawn_label_args(
+            [
+                "codeterm",
+                "agent",
+                "spawn",
+                "codex",
+                "--title",
+                "Team routing smoke",
+                "--reasoning-effort",
+                "low",
+                "--non-user-facing",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect(),
+        );
+        let cli = Cli::try_parse_from(args).expect("normalized spawn parses");
+        match cli.command {
+            Commands::Agent {
+                action:
+                    AgentAction::Spawn {
+                        title,
+                        reasoning_effort,
+                        non_user_facing,
+                        ..
+                    },
+            } => {
+                assert_eq!(
+                    title.map(|parts| parts.join(" ")).as_deref(),
+                    Some("Team routing smoke")
+                );
+                assert_eq!(reasoning_effort.as_deref(), Some("low"));
+                assert!(non_user_facing);
             }
             _ => panic!("expected agent spawn"),
         }
