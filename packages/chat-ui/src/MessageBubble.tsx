@@ -43,6 +43,7 @@ import { hasPlanRefs } from "./codeterm/planRefs";
 import { recognize } from "./codeterm/recognize";
 import { isSend } from "./codeterm/templates";
 import { parseCoordinationReport } from "./codeterm/coordinationReport";
+import { MessageViewToggle } from "./codeterm/MessageViewToggle";
 import {
   hasMeaningfulToolResult,
   isRenderableMessage,
@@ -218,7 +219,10 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
                 className={`border-t px-3 py-2 ${userText} ${TEXT_WRAP_CLASS}`}
                 style={{ borderColor: "color-mix(in srgb, var(--ct-green, #3fb950) 22%, transparent)" }}
               >
-                <RichMarkdown text={message.content} fontScale={fontScale} />
+                <MessageViewToggle
+                  raw={message.content}
+                  formatted={<RichMarkdown text={message.content} fontScale={fontScale} />}
+                />
               </div>
             )}
           </div>
@@ -254,7 +258,10 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
                 className={`border-t px-3 py-2 ${userText} ${TEXT_WRAP_CLASS}`}
                 style={{ borderColor: "color-mix(in srgb, var(--ct-accent, #58a6ff) 20%, transparent)" }}
               >
-                <RichMarkdown text={message.content} fontScale={fontScale} />
+                <MessageViewToggle
+                  raw={message.content}
+                  formatted={<RichMarkdown text={message.content} fontScale={fontScale} />}
+                />
               </div>
             )}
           </div>
@@ -346,15 +353,17 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
       );
     })() : null;
 
-    const userBubbleInner = (
-      <>
-        {effectiveOrigin?.kind === "command" ? (
+    const formattedUserContent = effectiveOrigin?.kind === "command" ? (
           <CommandBody commands={effectiveOrigin.commands} body={message.content} />
         ) : hasPlanRefs(message.content) ? (
           <LinkedText text={message.content} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
         ) : (
           renderUserContent(message.content)
-        )}
+        );
+
+    const userBubbleInner = (
+      <>
+        <MessageViewToggle raw={message.content} formatted={formattedUserContent} />
         {attachments && attachments.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mt-2 pt-2" style={{ borderTop: "1px solid color-mix(in srgb, var(--ct-accent) 15%, transparent)" }}>
             {attachments.map((att) => (
@@ -455,7 +464,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
           className={`min-w-0 max-w-full ${assistantText} leading-relaxed select-text cursor-text ${TEXT_WRAP_CLASS}`}
           style={{ color: "var(--ct-fg)" }}
         >
-          {renderedContent}
+          <MessageViewToggle raw={message.content} formatted={renderedContent} />
         </div>
       </div>
     );

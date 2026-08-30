@@ -11,9 +11,10 @@ interface Props {
   onOpenPlan?: OpenPlan;
   resolvePlanRef?: (planId: string, focusId?: string, focusKind?: "plan" | "task" | "section") => ResolvedChatPlanRef | null;
   collapseAfter?: number;
+  expandTestId?: string;
 }
 
-export function CompactMessageContent({ text, fontScale, onOpenPlan, resolvePlanRef, collapseAfter = 8 }: Props) {
+export function CompactMessageContent({ text, fontScale, onOpenPlan, resolvePlanRef, collapseAfter = 8, expandTestId }: Props) {
   const normalized = normalizeMessageText(text);
   const lines = normalized.split("\n");
   const collapsible = lines.length > collapseAfter;
@@ -31,6 +32,7 @@ export function CompactMessageContent({ text, fontScale, onOpenPlan, resolvePlan
       {collapsible && (
         <button
           type="button"
+          data-testid={expandTestId}
           onClick={() => setExpanded((value) => !value)}
           className="mt-1 text-[11px] underline"
           style={{ color: "var(--ct-accent)" }}

@@ -1,11 +1,10 @@
-import React from "react";
 import type { CodetermInvocation } from "./recognize";
 import { parseSend, type TabNameResolver } from "./templates";
-import { RichMarkdown } from "../MarkdownBody";
-import { LinkedText, type OpenPlan, type ResolvedChatPlanRef } from "./LinkedText";
-import { hasPlanRefs } from "./planRefs";
+import type { OpenPlan, ResolvedChatPlanRef } from "./LinkedText";
 import { pickUiFontScaleValue } from "../uiFontScale";
 import { CrossTabMessageShell } from "../crossTabBubble";
+import { MessageViewToggle } from "./MessageViewToggle";
+import { CompactMessageContent } from "./CompactMessageContent";
 
 interface Props {
   inv: CodetermInvocation;
@@ -16,18 +15,8 @@ interface Props {
   fontScale?: number;
 }
 
-const COLLAPSE_LINES = 8;
-
-function bodyLineCount(body: string): number {
-  return body.split("\n").length;
-}
-
 export function SentMessageBubble({ inv, result, resolveTabName, onOpenPlan, resolvePlanRef, fontScale }: Props) {
   const msg = parseSend(inv, result, resolveTabName);
-  const collapsible = bodyLineCount(msg.body) > COLLAPSE_LINES;
-  const [expanded, setExpanded] = React.useState(false);
-  const showFull = expanded || !collapsible;
-  const shown = showFull ? msg.body : msg.body.split("\n").slice(0, COLLAPSE_LINES).join("\n");
   const bodyText = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
 
   const header = (
@@ -60,25 +49,20 @@ export function SentMessageBubble({ inv, result, resolveTabName, onOpenPlan, res
       header={header}
       textSize={bodyText}
       bubbleTestId="chat-sent-message"
-      afterBubble={
-        collapsible ? (
-          <button
-            type="button"
-            data-testid="chat-sent-expand"
-            onClick={() => setExpanded((v) => !v)}
-            className="mt-1 text-[11px] underline"
-            style={{ color: "var(--ct-accent, #6ea8fe)" }}
-          >
-            {expanded ? "Show less" : `Show ${bodyLineCount(msg.body) - COLLAPSE_LINES} more lines`}
-          </button>
-        ) : null
-      }
     >
-      {hasPlanRefs(shown) ? (
-        <LinkedText text={shown} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
-      ) : (
-        <RichMarkdown text={shown} fontScale={fontScale} />
-      )}
+      <MessageViewToggle
+        raw={inv.raw}
+        formattedAvailable={msg.formattedAvailable}
+        formatted={
+          <CompactMessageContent
+            text={msg.body}
+            onOpenPlan={onOpenPlan}
+            resolvePlanRef={resolvePlanRef}
+            fontScale={fontScale}
+            expandTestId="chat-sent-expand"
+          />
+        }
+      />
     </CrossTabMessageShell>
   );
 }

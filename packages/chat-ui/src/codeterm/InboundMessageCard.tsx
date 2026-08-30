@@ -5,6 +5,7 @@ import { CompactMessageContent } from "./CompactMessageContent";
 import { InboundActivityCard } from "./InboundActivityCard";
 import { decodeCliMessageText } from "./messageText";
 import { formatCommunicationEndpoint } from "./templates";
+import { MessageViewToggle } from "./MessageViewToggle";
 
 interface Props {
   message: ChatMessage;
@@ -34,7 +35,10 @@ export function InboundMessageCard({ message, sender, model, channel = "tab", ex
       onToggle={onToggle}
       onFocusTab={onFocusTab}
     >
-      <CompactMessageContent text={decodeCliMessageText(message.content)} fontScale={fontScale} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
+      <MessageViewToggle
+        raw={message.content}
+        formatted={<CompactMessageContent text={decodeCliMessageText(message.content)} fontScale={fontScale} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />}
+      />
     </InboundActivityCard>
   );
 }
