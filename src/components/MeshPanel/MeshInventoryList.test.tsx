@@ -103,10 +103,12 @@ async function main() {
   await act(async () => rows()[0]?.dispatchEvent(new window.KeyboardEvent("keydown", { code: "Space", key: " ", bubbles: true })));
   assert(selected[1] === "machine-local:svc-api", "Space opens a resource row");
 
+  const searchValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
   await act(async () => {
     if (!search) return;
-    search.value = "missing";
+    searchValueSetter?.call(search, "missing");
     search.dispatchEvent(new window.Event("input", { bubbles: true }));
+    search.dispatchEvent(new window.Event("change", { bubbles: true }));
   });
   assert(host.querySelector("[data-testid='mesh-inventory-filtered-empty']") != null, "all rows filtered out uses filtered-empty state");
   assert(host.querySelector("[data-testid='mesh-inventory-announcement']")?.textContent?.includes("hidden by the current filters") === true, "filter removal is announced");
