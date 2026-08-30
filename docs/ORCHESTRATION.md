@@ -47,8 +47,9 @@ the Planner drafts structure, and the Orchestrator approves or revises it,
 dispatches execution, judges reports, integrates accepted lanes, and owns cleanup.
 The Orchestrator may implement a genuinely small local change when delegation
 would cost more than the work, but Worker dispatch is the default for plan-owned source work. Never self-assign a normal implementation task merely because canonical is writable.
-When Team-bound, attach utility shells and cron jobs to the same Team with
-`--team <team-id>` so Team close and cleanup own their lifecycle.
+When Team-bound, ordinary utility shells and cron jobs inherit the same Team so
+Team close and cleanup own their lifecycle. Use `--no-team` only when a resource
+must deliberately outlive that Team.
 
 Plan-owned work is dispatched atomically with `codeterm plan task dispatch`,
 which spawns the Worker, assigns the task, and delivers the brief in one call.
@@ -236,4 +237,4 @@ codeterm plan review reconcile-credit <plan> --reason "<incident evidence>"
 
 Both mutations require the live bound Orchestrator session and record an
 immutable plan stride.
-<!-- revision: 69 -->
+<!-- revision: 70 -->

@@ -45,6 +45,8 @@ pub struct SpawnTabSpec {
     #[serde(default)]
     pub creator_tab_id: Option<String>,
     #[serde(default)]
+    pub detach_from_team: bool,
+    #[serde(default)]
     pub cwd: Option<String>,
     #[serde(default)]
     pub title: Option<String>,

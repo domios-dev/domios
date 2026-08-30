@@ -66,6 +66,59 @@ fn spawn_attachment_requires_both_halves_and_stays_absent_without_a_team() {
 }
 
 #[test]
+fn ordinary_shell_attachment_inherits_the_live_creator_team() {
+    let (mux, team_id, orchestrator, workspace_id) = anchored_team();
+    let attachment = resolve_inherited_team_attachment(
+        &mux,
+        None,
+        Some(&orchestrator),
+        &workspace_id,
+        false,
+    )
+    .unwrap()
+    .expect("Team member shell inherits its Team");
+    assert_eq!(attachment.team_id, team_id);
+}
+
+#[test]
+fn explicit_detach_is_required_to_leave_the_creator_team() {
+    let (mux, team_id, orchestrator, workspace_id) = anchored_team();
+    assert!(resolve_inherited_team_attachment(
+        &mux,
+        None,
+        Some(&orchestrator),
+        &workspace_id,
+        true,
+    )
+    .unwrap()
+    .is_none());
+    let error = resolve_inherited_team_attachment(
+        &mux,
+        Some(&team_id),
+        Some(&orchestrator),
+        &workspace_id,
+        true,
+    )
+    .unwrap_err();
+    assert!(error.contains("cannot be combined"), "{error}");
+}
+
+#[test]
+fn a_teamless_creator_keeps_an_ordinary_shell_teamless() {
+    let (mut mux, _team_id, _orchestrator, workspace_id) = anchored_team();
+    let outsider = mux.create_tab(&workspace_id).unwrap();
+    assert!(resolve_inherited_team_attachment(
+        &mux,
+        None,
+        Some(&outsider),
+        &workspace_id,
+        false,
+    )
+    .unwrap()
+    .is_none());
+}
+
+#[test]
 fn applying_an_attachment_binds_team_parent_and_spawner() {
     let (mut mux, team_id, orchestrator, workspace_id) = anchored_team();
     let attached = mux.create_tab(&workspace_id).unwrap();

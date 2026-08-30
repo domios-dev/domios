@@ -135,6 +135,8 @@ pub struct CreateShellTabBody {
     pub team_id: Option<String>,
     #[serde(default)]
     pub creator_tab_id: Option<String>,
+    #[serde(default)]
+    pub detach_from_team: bool,
     pub description: Option<String>,
     pub cmd: Option<String>,
     #[serde(default)]
@@ -159,9 +161,12 @@ pub struct CreateShellTabBody {
 pub async fn create_shell_tab(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Json(body): Json<CreateShellTabBody>,
+    Json(mut body): Json<CreateShellTabBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    if body.creator_tab_id.is_none() {
+        body.creator_tab_id = caller_tab_header(&headers);
+    }
     use crate::service::spawn::{SpawnTabSpec, TabCommand, TabVisibility};
     if body.team_id.is_some() && body.chat_backend.is_some() {
         return Err((
@@ -208,6 +213,7 @@ pub async fn create_shell_tab(
             workspace_id: body.workspace_id,
             team_id: body.team_id,
             creator_tab_id: body.creator_tab_id,
+            detach_from_team: body.detach_from_team,
             cwd: body.cwd,
             title: body.title,
             description: body
