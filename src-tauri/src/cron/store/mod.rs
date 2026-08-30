@@ -232,7 +232,7 @@ pub struct CronCreateParams {
     pub timeout_seconds: Option<u64>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct CronUpdateParams {
     #[serde(default)]
     pub name: Option<String>,
