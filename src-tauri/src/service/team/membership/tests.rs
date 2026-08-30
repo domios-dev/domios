@@ -68,15 +68,10 @@ fn spawn_attachment_requires_both_halves_and_stays_absent_without_a_team() {
 #[test]
 fn ordinary_shell_attachment_inherits_the_live_creator_team() {
     let (mux, team_id, orchestrator, workspace_id) = anchored_team();
-    let attachment = resolve_inherited_team_attachment(
-        &mux,
-        None,
-        Some(&orchestrator),
-        &workspace_id,
-        false,
-    )
-    .unwrap()
-    .expect("Team member shell inherits its Team");
+    let attachment =
+        resolve_inherited_team_attachment(&mux, None, Some(&orchestrator), &workspace_id, false)
+            .unwrap()
+            .expect("Team member shell inherits its Team");
     assert_eq!(attachment.team_id, team_id);
 }
 
@@ -107,15 +102,11 @@ fn explicit_detach_is_required_to_leave_the_creator_team() {
 fn a_teamless_creator_keeps_an_ordinary_shell_teamless() {
     let (mut mux, _team_id, _orchestrator, workspace_id) = anchored_team();
     let outsider = mux.create_tab(&workspace_id).unwrap();
-    assert!(resolve_inherited_team_attachment(
-        &mux,
-        None,
-        Some(&outsider),
-        &workspace_id,
-        false,
-    )
-    .unwrap()
-    .is_none());
+    assert!(
+        resolve_inherited_team_attachment(&mux, None, Some(&outsider), &workspace_id, false,)
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[test]

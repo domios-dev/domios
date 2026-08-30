@@ -568,9 +568,7 @@ impl ServiceContext {
                     let prompt = crate::agent::provider::StarterPrompt::AssignedTask;
                     let text = self
                         .agent_registry
-                        .with_provider(&agent_cmd, |provider| {
-                            provider.starter_prompt_text(prompt)
-                        })
+                        .with_provider(&agent_cmd, |provider| provider.starter_prompt_text(prompt))
                         .flatten();
                     Some(crate::service::launch_delivery::mark_starter_prompt(
                         prompt,
@@ -588,8 +586,7 @@ impl ServiceContext {
 
         let mut legacy_params = spec.to_agent_params()?;
         if startup_supervised {
-            legacy_params.starter_prompt =
-                crate::agent::provider::StarterPrompt::StartupHandshake;
+            legacy_params.starter_prompt = crate::agent::provider::StarterPrompt::StartupHandshake;
         } else if let Some(starter) = task_selection.provider_starter {
             legacy_params.starter_prompt = starter;
         }

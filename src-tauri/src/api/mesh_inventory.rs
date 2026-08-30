@@ -106,7 +106,9 @@ fn capability_for_operation(
     operation: InventoryOperation,
 ) -> InventoryCapability {
     let Some((method, path)) = operation_route(kind, id, operation) else {
-        return InventoryCapability::unavailable(InventoryUnavailableReason::UnsupportedResourceKind);
+        return InventoryCapability::unavailable(
+            InventoryUnavailableReason::UnsupportedResourceKind,
+        );
     };
     if !crate::api::access_policy::check_access(access, &method, &path) {
         return InventoryCapability::unavailable(InventoryUnavailableReason::NotAuthorized);
@@ -116,7 +118,9 @@ fn capability_for_operation(
     }
     if operation.is_mutating() {
         if provenance.partial_error.is_some() {
-            return InventoryCapability::unavailable(InventoryUnavailableReason::PartialPeerFailure);
+            return InventoryCapability::unavailable(
+                InventoryUnavailableReason::PartialPeerFailure,
+            );
         }
         match provenance.freshness {
             InventoryFreshness::Fresh => {}
@@ -138,7 +142,13 @@ fn operation_route(
 ) -> Option<(axum::http::Method, String)> {
     let (prefix, supported) = match kind {
         ServiceKind::Cron => ("/api/crons", true),
-        ServiceKind::Daemon => ("/api/services", matches!(operation, InventoryOperation::Get | InventoryOperation::Delete)),
+        ServiceKind::Daemon => (
+            "/api/services",
+            matches!(
+                operation,
+                InventoryOperation::Get | InventoryOperation::Delete
+            ),
+        ),
     };
     if !supported {
         return None;
@@ -280,8 +290,7 @@ mod tests {
             &provenance(InventoryFreshness::Fresh),
         );
         assert_eq!(
-            read_only.capabilities[&InventoryOperation::UpdateSchedule]
-                .unavailable_reason,
+            read_only.capabilities[&InventoryOperation::UpdateSchedule].unavailable_reason,
             Some(InventoryUnavailableReason::NotAuthorized)
         );
         assert!(read_only.capabilities[&InventoryOperation::Get].allowed);
@@ -295,8 +304,7 @@ mod tests {
             &provenance(InventoryFreshness::Stale),
         );
         assert_eq!(
-            stale.capabilities[&InventoryOperation::UpdateSchedule]
-                .unavailable_reason,
+            stale.capabilities[&InventoryOperation::UpdateSchedule].unavailable_reason,
             Some(InventoryUnavailableReason::Stale)
         );
         let offline = project_resource(
@@ -319,8 +327,7 @@ mod tests {
             &provenance(InventoryFreshness::Fresh),
         );
         assert_eq!(
-            daemon.capabilities[&InventoryOperation::UpdateSchedule]
-                .unavailable_reason,
+            daemon.capabilities[&InventoryOperation::UpdateSchedule].unavailable_reason,
             Some(InventoryUnavailableReason::UnsupportedResourceKind)
         );
         assert_eq!(
@@ -369,8 +376,7 @@ mod tests {
         assert_eq!(cached.resources.len() + healthy.resources.len(), 2);
         assert_eq!(cached.resources[0].machine_id, "machine-b");
         assert_eq!(
-            cached.resources[0].capabilities[&InventoryOperation::Delete]
-                .unavailable_reason,
+            cached.resources[0].capabilities[&InventoryOperation::Delete].unavailable_reason,
             Some(InventoryUnavailableReason::PartialPeerFailure)
         );
         assert!(healthy.resources[0].capabilities[&InventoryOperation::Delete].allowed);

@@ -98,13 +98,7 @@ pub fn build_view(
         },
         FetchOutcome::Failed(err) => PeerServicesView {
             services: cached
-                .map(|e| {
-                    annotate_cached_services(
-                        e.services.clone(),
-                        peer_online,
-                        Some(&err),
-                    )
-                })
+                .map(|e| annotate_cached_services(e.services.clone(), peer_online, Some(&err)))
                 .unwrap_or_default(),
             stale: true,
             fetched_at: cached.map(|e| e.fetched_at),
@@ -316,7 +310,10 @@ mod tests {
         let view = build_view(cache.get("p1"), false, FetchOutcome::Skipped, 500);
         let resource = &view.services[0];
         assert_eq!(resource["provenance"]["freshness"], "offline");
-        assert_eq!(resource["capabilities"]["update_schedule"]["allowed"], false);
+        assert_eq!(
+            resource["capabilities"]["update_schedule"]["allowed"],
+            false
+        );
         assert_eq!(
             resource["capabilities"]["update_schedule"]["unavailable_reason"],
             "offline"

@@ -727,9 +727,9 @@ mod tests {
             let marker = match params.starter_prompt {
                 crate::agent::provider::StarterPrompt::NoStarter => "INLINE-NONE",
                 crate::agent::provider::StarterPrompt::AssignedTask => "INLINE-ASSIGNED",
-            crate::agent::provider::StarterPrompt::IdleWakeup => "INLINE-IDLE",
-            crate::agent::provider::StarterPrompt::TeamBootstrap => "INLINE-TEAM",
-            crate::agent::provider::StarterPrompt::StartupHandshake => "INLINE-STARTUP",
+                crate::agent::provider::StarterPrompt::IdleWakeup => "INLINE-IDLE",
+                crate::agent::provider::StarterPrompt::TeamBootstrap => "INLINE-TEAM",
+                crate::agent::provider::StarterPrompt::StartupHandshake => "INLINE-STARTUP",
             };
             format!(
                 "recording-inline --system {} {marker}",
