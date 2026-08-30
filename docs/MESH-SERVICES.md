@@ -27,11 +27,21 @@ SQLite tables (introduced in v1.2.0):
 
 ### Discovery (peer services)
 
-Peer services are **not gossiped** across the mesh. When a peer card is expanded on the canvas, the UI calls a Tauri command (`mesh_peer_services_list`) which relays `GET /api/services` to that peer in real time via `/api/mesh/relay`. Results are never persisted locally. If the cached peer pubkey is stale, the relay path auto-refreshes the peer cache before erroring.
+Peer services are **not gossiped** across the mesh. When a peer card is expanded on the canvas, the UI calls a Tauri command (`mesh_peer_services_list`) which fetches that peer's target-authoritative `GET /api/mesh/inventory` contract. Each resource carries its machine identity, kind, provenance, and per-operation capability map. Results are cached only as last-known peer rows; cached rows remain visible but cannot mutate. The web mirror exposes the same projection through `/api/mesh/peers/{id}/services`.
+
+The capability map uses stable operation keys (`get`, `history`,
+`update_schedule`, `delete`, `enable`, `disable`, `trigger`, `cancel`) and
+unavailable reasons (`not_authorized`, `stale`, `offline`,
+`partial_peer_failure`, `unsupported_resource_kind`, `target_unavailable`).
+Cron schedule updates use `PUT /api/mesh/peers/{id}/crons/{cron_id}` and cron
+removal uses `DELETE` on the same path; both forward the target response. The
+target authorizes them through `/api/crons/{id}` and the caller's access
+policy. Existing cron get/history/enable/disable/trigger/cancel routes remain
+unchanged, as does daemon registry deletion through `/api/services/{id}`.
 
 ### Cold-start cache (local services only)
 
-`useMeshData` writes the local `/api/services` + `/api/mesh/peers` snapshots to `localStorage` with a 24-hour TTL. On reload the cached payload renders immediately while the live fetch runs in the background — no "loading…" flash on cold start. The refresh button uses an `animate-spin` chevron instead of replacing the table with text.
+`useMeshData` writes the local `/api/mesh/inventory` projection + `/api/mesh/peers` snapshots to `localStorage` with a 24-hour TTL. On reload the cached payload renders immediately while the live fetch runs in the background — no "loading…" flash on cold start. The refresh button uses an `animate-spin` chevron instead of replacing the table with text.
 
 ### Push tokens
 
@@ -102,4 +112,4 @@ services/
   smart_add.rs      — heuristic field-mapping suggestions for AddServiceWizard
 ```
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->
