@@ -74,9 +74,13 @@ async function main() {
   await act(async () => nodes()[0]?.dispatchEvent(new window.KeyboardEvent("keydown", { code: "ArrowDown", key: "ArrowDown", bubbles: true })));
   assert(document.activeElement === nodes()[1], "arrow navigation advances through graph nodes");
   await act(async () => nodes()[1]?.dispatchEvent(new window.KeyboardEvent("keydown", { code: "ArrowDown", key: "ArrowDown", bubbles: true })));
-  await act(async () => nodes()[2]?.dispatchEvent(new window.KeyboardEvent("keydown", { code: "Enter", key: "Enter", bubbles: true })));
+  assert(document.activeElement === nodes()[2], "arrow navigation continues through graph nodes");
+  const backup = host.querySelector<HTMLButtonElement>("[data-mesh-graph-nav-item][data-resource-key='machine-b:cron-backup']");
+  assert(backup, "navigator exposes the expected machine-qualified resource key");
+  await act(async () => backup.focus());
+  await act(async () => backup.dispatchEvent(new window.KeyboardEvent("keydown", { code: "Enter", key: "Enter", bubbles: true })));
   assert(selected[0] === "machine-b:cron-backup", "Enter opens the exact qualified resource key");
-  await act(async () => nodes()[2]?.dispatchEvent(new window.KeyboardEvent("keydown", { code: "Escape", key: "Escape", bubbles: true })));
+  await act(async () => backup.dispatchEvent(new window.KeyboardEvent("keydown", { code: "Escape", key: "Escape", bubbles: true })));
   assert(escaped, "Escape invokes the mode-bubble return callback");
   assert(host.querySelector("[data-testid='mesh-graph-announcement']")?.getAttribute("aria-live") === "polite", "selection changes have a polite live announcement");
   await act(async () => root.unmount());
