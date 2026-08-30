@@ -10,13 +10,24 @@ struct ProcessCandidate {
 }
 
 #[cfg(any(windows, test))]
-fn is_owned_bundled_host(
+#[derive(Clone, Copy)]
+enum HostSelection {
+    Stale,
+    All,
+}
+
+#[cfg(any(windows, test))]
+fn is_selected_bundled_host(
     candidate: &ProcessCandidate,
     owner_pid: u32,
     expected_executable: &Path,
+    selection: HostSelection,
 ) -> bool {
-    candidate.parent_pid == owner_pid
-        && windows_paths_match(&candidate.executable_path, expected_executable)
+    windows_paths_match(&candidate.executable_path, expected_executable)
+        && match selection {
+            HostSelection::Stale => candidate.parent_pid != owner_pid,
+            HostSelection::All => true,
+        }
 }
 
 #[cfg(any(windows, test))]
@@ -34,6 +45,18 @@ fn normalized_windows_path(path: &Path) -> String {
 }
 
 #[cfg(windows)]
+pub(super) async fn cleanup_stale_before_shutdown() -> Result<usize, String> {
+    tokio::task::spawn_blocking(cleanup_stale_from_environment)
+        .await
+        .map_err(|error| format!("stale bundled ConPTY cleanup task failed: {error}"))?
+}
+
+#[cfg(not(windows))]
+pub(super) async fn cleanup_stale_before_shutdown() -> Result<usize, String> {
+    Ok(0)
+}
+
+#[cfg(windows)]
 pub(super) async fn cleanup_before_installer() -> Result<usize, String> {
     tokio::task::spawn_blocking(cleanup_from_environment)
         .await
@@ -46,15 +69,27 @@ pub(super) async fn cleanup_before_installer() -> Result<usize, String> {
 }
 
 #[cfg(windows)]
+fn cleanup_stale_from_environment() -> Result<usize, String> {
+    let Some(dir) = std::env::var_os("CODETERM_CONPTY_DIR") else {
+        return Ok(0);
+    };
+    cleanup_bundled_hosts(Path::new(&dir), std::process::id(), HostSelection::Stale)
+}
+
+#[cfg(windows)]
 fn cleanup_from_environment() -> Result<usize, String> {
     let Some(dir) = std::env::var_os("CODETERM_CONPTY_DIR") else {
         return Ok(0);
     };
-    cleanup_bundled_hosts(Path::new(&dir), std::process::id())
+    cleanup_bundled_hosts(Path::new(&dir), std::process::id(), HostSelection::All)
 }
 
 #[cfg(windows)]
-fn cleanup_bundled_hosts(dir: &Path, owner_pid: u32) -> Result<usize, String> {
+fn cleanup_bundled_hosts(
+    dir: &Path,
+    owner_pid: u32,
+    selection: HostSelection,
+) -> Result<usize, String> {
     use std::time::{Duration, Instant};
 
     let expected = dir.join("OpenConsole.exe");
@@ -63,7 +98,7 @@ fn cleanup_bundled_hosts(dir: &Path, owner_pid: u32) -> Result<usize, String> {
     }
     let expected = std::fs::canonicalize(&expected)
         .map_err(|error| format!("failed to resolve {}: {error}", expected.display()))?;
-    let processes = windows::matching_processes(owner_pid, &expected)?;
+    let processes = windows::matching_processes(owner_pid, &expected, selection)?;
     for process in &processes {
         process.terminate()?;
     }
@@ -71,13 +106,15 @@ fn cleanup_bundled_hosts(dir: &Path, owner_pid: u32) -> Result<usize, String> {
     for process in &processes {
         process.wait_until(deadline)?;
     }
-    windows::ensure_file_replaceable(&expected)?;
+    if matches!(selection, HostSelection::All) {
+        windows::ensure_file_replaceable(&expected)?;
+    }
     Ok(processes.len())
 }
 
 #[cfg(windows)]
 mod windows {
-    use super::{is_owned_bundled_host, ProcessCandidate};
+    use super::{is_selected_bundled_host, HostSelection, ProcessCandidate};
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
     use std::path::{Path, PathBuf};
@@ -164,6 +201,7 @@ mod windows {
     pub(super) fn matching_processes(
         owner_pid: u32,
         expected: &Path,
+        selection: HostSelection,
     ) -> Result<Vec<ProcessHandle>, String> {
         let snapshot = OwnedHandle::new(
             unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) },
@@ -177,10 +215,10 @@ mod windows {
 
         let mut matches = Vec::new();
         loop {
-            if entry.th32ParentProcessID == owner_pid
-                && wide_name(&entry.szExeFile).eq_ignore_ascii_case("OpenConsole.exe")
-            {
-                if let Some(process) = open_matching_process(&entry, owner_pid, expected)? {
+            if wide_name(&entry.szExeFile).eq_ignore_ascii_case("OpenConsole.exe") {
+                if let Some(process) =
+                    open_matching_process(&entry, owner_pid, expected, selection)?
+                {
                     matches.push(process);
                 }
             }
@@ -199,26 +237,44 @@ mod windows {
         entry: &PROCESSENTRY32W,
         owner_pid: u32,
         expected: &Path,
+        selection: HostSelection,
     ) -> Result<Option<ProcessHandle>, String> {
-        let access = PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE | SYNCHRONIZE;
-        let handle = OwnedHandle::new(
-            unsafe { OpenProcess(access, 0, entry.th32ProcessID) },
+        let query_handle = OwnedHandle::new(
+            unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, entry.th32ProcessID) },
             &format!(
                 "failed to open owned OpenConsole process {}",
                 entry.th32ProcessID
             ),
         )?;
-        let executable_path = query_executable_path(handle.0, entry.th32ProcessID)?;
+        let executable_path = query_executable_path(query_handle.0, entry.th32ProcessID)?;
         let candidate = ProcessCandidate {
             pid: entry.th32ProcessID,
             parent_pid: entry.th32ParentProcessID,
             executable_path,
         };
+        if !is_selected_bundled_host(&candidate, owner_pid, expected, selection) {
+            return Ok(None);
+        }
+        let access = PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE | SYNCHRONIZE;
+        let handle = OwnedHandle::new(
+            unsafe { OpenProcess(access, 0, candidate.pid) },
+            &format!(
+                "failed to open bundled OpenConsole process {}",
+                candidate.pid
+            ),
+        )?;
+        let executable_path = query_executable_path(handle.0, candidate.pid)?;
+        let confirmed = ProcessCandidate {
+            executable_path,
+            ..candidate
+        };
         Ok(
-            is_owned_bundled_host(&candidate, owner_pid, expected).then_some(ProcessHandle {
-                pid: candidate.pid,
-                handle,
-            }),
+            is_selected_bundled_host(&confirmed, owner_pid, expected, selection).then_some(
+                ProcessHandle {
+                    pid: confirmed.pid,
+                    handle,
+                },
+            ),
         )
     }
 
@@ -284,28 +340,44 @@ mod tests {
     }
 
     #[test]
-    fn selection_requires_owner_and_exact_bundled_path() {
+    fn stale_selection_requires_foreign_parent_and_exact_bundled_path() {
         let expected =
             Path::new(r"C:\Users\User\AppData\Local\CodeTerm\conpty\x64\OpenConsole.exe");
-        assert!(is_owned_bundled_host(
+        assert!(is_selected_bundled_host(
             &candidate(
                 10,
-                7,
+                8,
                 r"\\?\c:\users\user\appdata\local\codeterm\conpty\x64\OPENCONSOLE.EXE"
             ),
             7,
-            expected
+            expected,
+            HostSelection::Stale,
         ));
-        assert!(!is_owned_bundled_host(
-            &candidate(10, 8, expected.to_str().unwrap()),
+        assert!(!is_selected_bundled_host(
+            &candidate(10, 7, expected.to_str().unwrap()),
             7,
-            expected
+            expected,
+            HostSelection::Stale,
         ));
-        assert!(!is_owned_bundled_host(
+        assert!(!is_selected_bundled_host(
             &candidate(10, 7, r"C:\work\codeterm\conpty\x64\OpenConsole.exe"),
             7,
-            expected
+            expected,
+            HostSelection::Stale,
         ));
+    }
+
+    #[test]
+    fn final_selection_accepts_exact_host_from_any_parent() {
+        let expected = Path::new(r"C:\CodeTerm\conpty\x64\OpenConsole.exe");
+        for parent_pid in [7, 8] {
+            assert!(is_selected_bundled_host(
+                &candidate(10, parent_pid, expected.to_str().unwrap()),
+                7,
+                expected,
+                HostSelection::All,
+            ));
+        }
     }
 
     #[test]
@@ -317,7 +389,12 @@ mod tests {
             r"C:\CodeTerm-dev\conpty\x64\OpenConsole.exe",
             r"C:\CodeTerm\conpty\arm64\OpenConsole.exe",
         ] {
-            assert!(!is_owned_bundled_host(&candidate(10, 7, path), 7, expected));
+            assert!(!is_selected_bundled_host(
+                &candidate(10, 8, path),
+                7,
+                expected,
+                HostSelection::All,
+            ));
         }
     }
 
@@ -356,7 +433,7 @@ mod tests {
             windows::ensure_file_replaceable(&host).is_err(),
             "running OpenConsole helper must lock its executable"
         );
-        let cleaned = cleanup_bundled_hosts(&dir, std::process::id()).unwrap();
+        let cleaned = cleanup_bundled_hosts(&dir, std::process::id(), HostSelection::All).unwrap();
         assert_eq!(cleaned, 1);
         child.wait().unwrap();
 
@@ -365,6 +442,43 @@ mod tests {
         std::fs::remove_file(&host).unwrap();
         std::fs::rename(&replacement, &host).unwrap();
         assert_eq!(std::fs::read(&host).unwrap(), b"replacement");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn stale_cleanup_reaps_exact_foreign_parent_before_destructive_shutdown() {
+        use std::process::{Command, Stdio};
+        use std::time::Duration;
+
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().join("conpty").join("x64");
+        std::fs::create_dir_all(&dir).unwrap();
+        let host = dir.join("OpenConsole.exe");
+        std::fs::copy(std::env::current_exe().unwrap(), &host).unwrap();
+
+        let mut command = Command::new(&host);
+        command
+            .args([
+                "--exact",
+                "update::conpty_cleanup::tests::openconsole_test_helper",
+                "--nocapture",
+            ])
+            .env("CODETERM_OPENCONSOLE_TEST_HELPER", "1")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped());
+        crate::process_util::no_window_std(&mut command);
+        let mut child = command.spawn().unwrap();
+
+        let readiness = wait_for_helper_ready(&mut child, Duration::from_secs(10));
+        if !readiness {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        assert!(readiness, "OpenConsole helper did not become ready");
+
+        let cleaned = cleanup_bundled_hosts(&dir, u32::MAX, HostSelection::Stale).unwrap();
+        assert_eq!(cleaned, 1);
+        child.wait().unwrap();
     }
 
     #[cfg(windows)]

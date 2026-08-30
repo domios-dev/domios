@@ -17,6 +17,14 @@ pub async fn graceful_shutdown(
 ) -> Result<Vec<String>, String> {
     log::info!("[updater] graceful_shutdown: starting");
 
+    let stale_conpty_hosts = super::conpty_cleanup::cleanup_stale_before_shutdown().await?;
+    if stale_conpty_hosts > 0 {
+        log::info!(
+            "[updater] cleared {} stale bundled ConPTY host(s) before PTY shutdown",
+            stale_conpty_hosts
+        );
+    }
+
     // Arms the watchdog's clean-quit signal AND role-based tab-prune suppression
     // before any PTY can die, so teardown EOFs never read as agent crashes.
     crate::crash::shutdown::mark_shutting_down_for(crate::crash::lifecycle::ShutdownReason::Update);
