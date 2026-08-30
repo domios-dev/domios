@@ -509,8 +509,8 @@ mod tests {
 
     #[test]
     fn startup_ack_has_no_spoofable_identity_flags() {
-        let ack = Cli::try_parse_from(["codeterm", "agent", "startup-ack"])
-            .expect("startup ack parses");
+        let ack =
+            Cli::try_parse_from(["codeterm", "agent", "startup-ack"]).expect("startup ack parses");
         assert!(matches!(
             ack.command,
             crate::Commands::Agent {

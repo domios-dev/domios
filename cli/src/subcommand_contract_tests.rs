@@ -774,14 +774,7 @@ fn tab_new_requires_an_explicit_escape_to_leave_the_callers_team() {
         TabAction::New { no_team, .. } => assert!(no_team),
         _ => panic!("expected tab new"),
     }
-    assert!(TabOnly::try_parse_from([
-        "tab",
-        "new",
-        "--team",
-        "team_alpha",
-        "--no-team",
-    ])
-    .is_err());
+    assert!(TabOnly::try_parse_from(["tab", "new", "--team", "team_alpha", "--no-team",]).is_err());
 }
 
 #[test]
