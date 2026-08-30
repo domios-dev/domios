@@ -9,13 +9,15 @@ const IDLE_WAKEUP_START_PROMPT: &str =
     "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
 
 pub(super) fn starter_prompt_text(prompt: crate::provider::StarterPrompt) -> Option<&'static str> {
+    if let Some(text) = prompt.host_text() {
+        return Some(text);
+    }
     match prompt {
         crate::provider::StarterPrompt::NoStarter => None,
         crate::provider::StarterPrompt::AssignedTask => Some(ASSIGNED_TASK_START_PROMPT),
         crate::provider::StarterPrompt::IdleWakeup => Some(IDLE_WAKEUP_START_PROMPT),
-        crate::provider::StarterPrompt::TeamBootstrap => {
-            Some(crate::prompts::TEAM_BOOTSTRAP_STARTER.trim())
-        }
+        crate::provider::StarterPrompt::TeamBootstrap
+        | crate::provider::StarterPrompt::StartupHandshake => unreachable!(),
     }
 }
 

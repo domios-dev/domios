@@ -395,6 +395,7 @@ export interface SentMessage {
   mesh?: string;
   body: string;
   bodySource: "resolved" | "typed" | "pad";
+  formattedAvailable: boolean;
   status?: CardStatus;
 }
 
@@ -424,6 +425,7 @@ export function parseSend(
     mesh,
     body: resolved || (staged ? sendBodyDescriptor(inv) : typed) || sendBodyDescriptor(inv),
     bodySource: resolved != null ? "resolved" : typeof fromPad === "string" ? "pad" : "typed",
+    formattedAvailable: resolved != null || !staged,
     status: deliveredStatus(result),
   };
 }

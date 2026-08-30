@@ -761,6 +761,41 @@
           "subcommands": []
         },
         {
+          "name": "startup-ack",
+          "about": "Acknowledge that this spawned agent received its first startup turn",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "startup-hold",
+          "about": "Cancel automatic cleanup for an inspected startup attempt",
+          "aliases": [],
+          "args": [
+            {
+              "name": "attempt",
+              "positional": false,
+              "required": true,
+              "value_name": "ATTEMPT",
+              "possible_values": [],
+              "default": null,
+              "help": "Launch attempt shown in the startup-overdue report",
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "required": true,
+              "value_name": "TAB",
+              "possible_values": [],
+              "default": null,
+              "help": "Target spawned Tab",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "unlink",
           "about": "Remove a tab's role (also orphans children)",
           "aliases": [],
@@ -1300,6 +1335,16 @@
               "aliases": []
             },
             {
+              "name": "no-team",
+              "positional": false,
+              "required": false,
+              "value_name": "NO_TEAM",
+              "possible_values": [],
+              "default": null,
+              "help": "Keep this job outside the calling tab's Team",
+              "aliases": []
+            },
+            {
               "name": "once",
               "positional": false,
               "required": false,
@@ -1356,7 +1401,7 @@
               "value_name": "TEAM_ID",
               "possible_values": [],
               "default": null,
-              "help": "Attach this job to a Team. The calling Tab must belong to it",
+              "help": "Explicit Team membership cross-check. Jobs already inherit the calling Tab's Team",
               "aliases": []
             },
             {
@@ -13129,7 +13174,7 @@
         },
         {
           "name": "new",
-          "about": "Plain shell tab, created in the calling tab's own workspace — never the workspace selected in the UI. For an AI tab use `codeterm agent spawn`",
+          "about": "Plain shell tab, inheriting the calling tab's workspace and Team. For an AI tab use `codeterm agent spawn`",
           "aliases": [],
           "args": [
             {
@@ -13183,13 +13228,23 @@
               "aliases": []
             },
             {
+              "name": "no-team",
+              "positional": false,
+              "required": false,
+              "value_name": "NO_TEAM",
+              "possible_values": [],
+              "default": null,
+              "help": "Keep the new shell outside the calling tab's Team",
+              "aliases": []
+            },
+            {
               "name": "team",
               "positional": false,
               "required": false,
               "value_name": "TEAM_ID",
               "possible_values": [],
               "default": null,
-              "help": "Attach this shell to a Team as a utility terminal. The calling Tab must already belong to that Team",
+              "help": "Explicit Team membership cross-check. Ordinary shells already inherit the calling Tab's Team",
               "aliases": []
             },
             {
@@ -13266,6 +13321,34 @@
               "possible_values": [],
               "default": null,
               "help": "New title",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "respond",
+          "about": "Answer the tab's current provider-declared prompt by numbered option. Sends only when a pending prompt exists; use this instead of raw keys",
+          "aliases": [],
+          "args": [
+            {
+              "name": "option",
+              "positional": true,
+              "required": true,
+              "value_name": "OPTION",
+              "possible_values": [],
+              "default": null,
+              "help": "One-based option number shown by `tab status` or `tab inspect`",
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "required": false,
+              "value_name": "TAB",
+              "possible_values": [],
+              "default": null,
+              "help": "Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)",
               "aliases": []
             }
           ],

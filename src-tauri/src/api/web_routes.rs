@@ -129,6 +129,34 @@ pub async fn peer_cron_action(
     Ok(Json(value))
 }
 
+pub async fn peer_cron_update(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path((instance_id, id)): Path<(String, String)>,
+    Json(patch): Json<crate::cron::store::CronUpdateParams>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let patch = serde_json::to_value(patch)
+        .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?;
+    let value =
+        crate::commands_mesh::peer_cron_update_request(&state.mesh, &instance_id, &id, patch)
+            .await
+            .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
+    Ok(Json(value))
+}
+
+pub async fn peer_cron_delete(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path((instance_id, id)): Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let value = crate::commands_mesh::peer_cron_delete_request(&state.mesh, &instance_id, &id)
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
+    Ok(Json(value))
+}
+
 pub async fn peer_cron_history(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,

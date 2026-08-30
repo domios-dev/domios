@@ -7,6 +7,7 @@
 
 use std::collections::HashMap;
 
+use codeterm_types::mesh::inventory::InventoryFreshness;
 use serde::Serialize;
 
 /// How long a cached fetch is considered fresh enough to skip the network.
@@ -65,6 +66,8 @@ pub struct PeerServicesView {
     pub fetched_at: Option<u64>,
     pub peer_online: bool,
     pub error: Option<String>,
+    pub freshness: InventoryFreshness,
+    pub partial_error: Option<String>,
 }
 
 /// Result of one fetch attempt against the peer.
@@ -90,24 +93,114 @@ pub fn build_view(
             fetched_at: Some(now),
             peer_online,
             error: None,
+            freshness: InventoryFreshness::Fresh,
+            partial_error: None,
         },
         FetchOutcome::Failed(err) => PeerServicesView {
-            services: cached.map(|e| e.services.clone()).unwrap_or_default(),
+            services: cached
+                .map(|e| annotate_cached_services(e.services.clone(), peer_online, Some(&err)))
+                .unwrap_or_default(),
             stale: true,
             fetched_at: cached.map(|e| e.fetched_at),
             peer_online,
-            error: Some(err),
+            error: Some(err.clone()),
+            freshness: if peer_online {
+                InventoryFreshness::Stale
+            } else {
+                InventoryFreshness::Offline
+            },
+            partial_error: Some(err),
         },
         FetchOutcome::Skipped => PeerServicesView {
-            services: cached.map(|e| e.services.clone()).unwrap_or_default(),
+            services: cached
+                .map(|e| {
+                    if peer_online && now.saturating_sub(e.fetched_at) < FRESH_WINDOW_SECS {
+                        e.services.clone()
+                    } else {
+                        annotate_cached_services(e.services.clone(), peer_online, None)
+                    }
+                })
+                .unwrap_or_default(),
             stale: !cached
                 .map(|e| now.saturating_sub(e.fetched_at) < FRESH_WINDOW_SECS)
                 .unwrap_or(false),
             fetched_at: cached.map(|e| e.fetched_at),
             peer_online,
             error: None,
+            freshness: if !peer_online {
+                InventoryFreshness::Offline
+            } else if cached
+                .map(|e| now.saturating_sub(e.fetched_at) < FRESH_WINDOW_SECS)
+                .unwrap_or(false)
+            {
+                InventoryFreshness::Fresh
+            } else {
+                InventoryFreshness::Stale
+            },
+            partial_error: None,
         },
     }
+}
+
+fn annotate_cached_services(
+    mut services: Vec<serde_json::Value>,
+    peer_online: bool,
+    error: Option<&String>,
+) -> Vec<serde_json::Value> {
+    let freshness = if !peer_online { "offline" } else { "stale" };
+    let reason = if error.is_some() {
+        "partial_peer_failure"
+    } else if peer_online {
+        "stale"
+    } else {
+        "offline"
+    };
+    for service in &mut services {
+        let Some(object) = service.as_object_mut() else {
+            continue;
+        };
+        object.insert(
+            "provenance".into(),
+            serde_json::json!({
+                "freshness": freshness,
+                "offline": !peer_online,
+                "partial_error": error,
+            }),
+        );
+        let Some(capabilities) = object
+            .get_mut("capabilities")
+            .and_then(serde_json::Value::as_object_mut)
+        else {
+            continue;
+        };
+        for operation in [
+            "update_schedule",
+            "delete",
+            "enable",
+            "disable",
+            "trigger",
+            "cancel",
+        ] {
+            let Some(capability) = capabilities
+                .get_mut(operation)
+                .and_then(serde_json::Value::as_object_mut)
+            else {
+                continue;
+            };
+            if capability
+                .get("allowed")
+                .and_then(serde_json::Value::as_bool)
+                == Some(true)
+            {
+                capability.insert("allowed".into(), serde_json::Value::Bool(false));
+                capability.insert(
+                    "unavailable_reason".into(),
+                    serde_json::Value::String(reason.into()),
+                );
+            }
+        }
+    }
+    services
 }
 
 #[cfg(test)]
@@ -200,5 +293,30 @@ mod tests {
         assert!(!view.stale);
         assert_eq!(view.fetched_at, Some(100));
         assert!(view.error.is_none());
+    }
+
+    #[test]
+    fn cached_capabilities_are_revoked_when_the_peer_is_offline() {
+        let cached = serde_json::json!({
+            "name": "cron",
+            "provenance": {"freshness": "fresh", "offline": false},
+            "capabilities": {
+                "update_schedule": {"allowed": true},
+                "delete": {"allowed": true}
+            }
+        });
+        let mut cache = PeerServicesCache::default();
+        cache.refresh("p1", vec![cached], 100);
+        let view = build_view(cache.get("p1"), false, FetchOutcome::Skipped, 500);
+        let resource = &view.services[0];
+        assert_eq!(resource["provenance"]["freshness"], "offline");
+        assert_eq!(
+            resource["capabilities"]["update_schedule"]["allowed"],
+            false
+        );
+        assert_eq!(
+            resource["capabilities"]["update_schedule"]["unavailable_reason"],
+            "offline"
+        );
     }
 }

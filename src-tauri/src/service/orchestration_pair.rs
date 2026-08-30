@@ -15,9 +15,6 @@ use crate::service::messenger::MessageEnvelope;
 use crate::service::orchestrator::SpawnAgentParams;
 use crate::service::ServiceContext;
 
-const PAIR_AGENT_READY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(45);
-const PAIR_API_READY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(75);
-
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct OrchestrationPairParams {
     pub orchestrator_agent: String,
@@ -107,6 +104,14 @@ fn derive_planner_name<'a>(
         occupied.push(candidate);
     }
     "Specialist".to_string()
+}
+
+fn is_pair_creation_leaf(tab: &crate::multiplexer::types::Tab) -> bool {
+    matches!(
+        tab.role,
+        Some(crate::multiplexer::types::AgentRole::Manager)
+            | Some(crate::multiplexer::types::AgentRole::Worker)
+    ) && !crate::service::general_agent::is_general_agent(tab)
 }
 
 #[derive(Debug)]
@@ -260,61 +265,6 @@ impl ServiceContext {
         pair_agent_state_allows_followup(booting, boot_stage, false, tui_visible)
     }
 
-    async fn await_pair_agent_ready(
-        &self,
-        tab_id: &str,
-        provider: &str,
-        ready_rx: tokio::sync::oneshot::Receiver<Result<(), String>>,
-        deadline: std::time::Instant,
-    ) -> Result<(), String> {
-        let now = std::time::Instant::now();
-        let agent_deadline = deadline.min(now + PAIR_AGENT_READY_TIMEOUT);
-        let is_chat_backend = self.mux.read().get_tab(tab_id).is_some_and(|tab| {
-            matches!(
-                &tab.backing,
-                crate::multiplexer::types::TabBacking::ChatBackend { .. }
-            )
-        });
-        if !is_chat_backend {
-            let endpoint_remaining = deadline.saturating_duration_since(now);
-            let remaining = agent_deadline.saturating_duration_since(now);
-            let timeout_reason = if endpoint_remaining <= PAIR_AGENT_READY_TIMEOUT {
-                format!(
-                    "pair launch readiness deadline exceeded after {}s",
-                    PAIR_API_READY_TIMEOUT.as_secs()
-                )
-            } else {
-                format!(
-                    "agent launch readiness deadline exceeded after {}s",
-                    PAIR_AGENT_READY_TIMEOUT.as_secs()
-                )
-            };
-            if remaining.is_zero() {
-                return Err(timeout_reason);
-            }
-            match tokio::time::timeout(remaining, ready_rx).await {
-                Ok(Ok(result)) => result?,
-                Ok(Err(_)) => return Err("agent launch readiness channel closed".into()),
-                Err(_) => return Err(timeout_reason),
-            }
-        }
-        loop {
-            if self.pair_agent_live_now(tab_id, provider) {
-                return Ok(());
-            }
-            if std::time::Instant::now() >= agent_deadline {
-                let failure = self
-                    .mux
-                    .read()
-                    .get_tab(tab_id)
-                    .and_then(|tab| tab.boot_failure_reason.clone())
-                    .unwrap_or_else(|| "agent TUI was not confirmed live".into());
-                return Err(failure);
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-        }
-    }
-
     fn deliver_pair_followup(
         &self,
         orchestrator_tab_id: &str,
@@ -398,20 +348,22 @@ impl ServiceContext {
             return Err("planner_agent is required".into());
         }
 
-        // Leaf roles cannot create orchestration pairs.
-        // Mirrors the child-spawn refusal in multiplexer::state::role.
+        let startup_supervisor = params.spawned_by_tab_id.as_ref().and_then(|tab_id| {
+            self.mux
+                .read()
+                .get_tab(tab_id)
+                .filter(|tab| crate::service::worker_ack::is_agent_spawner(tab))
+                .map(|_| tab_id.clone())
+        });
+
+        // Leaf roles cannot create orchestration pairs. The General Agent is a
+        // machine coordinator represented by Manager storage, not a Team leaf.
         if let Some(ref spawner_id) = params.spawned_by_tab_id {
             if !spawner_id.is_empty() {
                 let is_leaf = {
                     let mux = self.mux.write();
                     mux.get_tab(spawner_id)
-                        .map(|p| {
-                            matches!(
-                                p.role,
-                                Some(crate::multiplexer::types::AgentRole::Manager)
-                                    | Some(crate::multiplexer::types::AgentRole::Worker)
-                            )
-                        })
+                        .map(is_pair_creation_leaf)
                         .unwrap_or(false)
                 };
                 if is_leaf {
@@ -424,7 +376,6 @@ impl ServiceContext {
             }
         }
 
-        let readiness_deadline = std::time::Instant::now() + PAIR_API_READY_TIMEOUT;
         let workspace_id = {
             let mux = self.mux.write();
             params
@@ -476,6 +427,18 @@ impl ServiceContext {
             .mux
             .read()
             .display_label_for_tab(&reserved.orchestrator_tab_id);
+        if let Some(supervisor_tab_id) = startup_supervisor.as_deref() {
+            self.register_agent_startup_supervision(
+                supervisor_tab_id,
+                &reserved.orchestrator_tab_id,
+                &orchestrator_label,
+            );
+            self.register_agent_startup_supervision(
+                supervisor_tab_id,
+                &reserved.planner_tab_id,
+                &reserved.planner_name,
+            );
+        }
         let orch_counterpart = crate::service::spawn_factory::Counterpart::new(
             "Orchestrator",
             &orchestrator_label,
@@ -510,10 +473,11 @@ impl ServiceContext {
             skip_orchestrator_onboarding: Some(true),
             ..Default::default()
         };
-        let (orch_ready_tx, orch_ready_rx) = tokio::sync::oneshot::channel();
-        let orch_result = match self.spawn_agent(orch_params, Some(orch_ready_tx)).await {
+        let orch_result = match self.spawn_agent(orch_params, None).await {
             Ok(result) => result,
             Err(error) => {
+                self.cancel_agent_startup_supervision(&reserved.orchestrator_tab_id);
+                self.cancel_agent_startup_supervision(&reserved.planner_tab_id);
                 self.emit_boot_stage(
                     &reserved.orchestrator_tab_id,
                     codeterm_types::pty::BootStage::SpawnFailed,
@@ -564,82 +528,12 @@ impl ServiceContext {
             ..Default::default()
         };
 
-        let (planner_ready_tx, planner_ready_rx) = tokio::sync::oneshot::channel();
-        match self
-            .spawn_agent(planner_params, Some(planner_ready_tx))
-            .await
-        {
+        match self.spawn_agent(planner_params, None).await {
             Ok(planner_result) => {
                 let planner_tab_id = planner_result.tab_id.clone();
                 if let Some(tab) = self.mux.write().get_tab_mut(&orch_tab_id) {
                     tab.pending_paired_planner_tab_id = Some(planner_tab_id.clone());
                 }
-                let (orch_ready, planner_ready) = tokio::join!(
-                    self.await_pair_agent_ready(
-                        &orch_tab_id,
-                        &params.orchestrator_agent,
-                        orch_ready_rx,
-                        readiness_deadline,
-                    ),
-                    self.await_pair_agent_ready(
-                        &planner_tab_id,
-                        &params.planner_agent,
-                        planner_ready_rx,
-                        readiness_deadline,
-                    )
-                );
-                let warning = match (orch_ready, planner_ready) {
-                    (Ok(()), Ok(())) => None,
-                    (orch_status, planner_status) => {
-                        let orch_error = orch_status.err();
-                        let planner_error = planner_status.err();
-                        for (tab_id, error) in [
-                            (&orch_tab_id, orch_error.as_deref()),
-                            (&planner_tab_id, planner_error.as_deref()),
-                        ] {
-                            if let Some(error) = error {
-                                self.emit_boot_stage(
-                                    tab_id,
-                                    codeterm_types::pty::BootStage::SpawnFailed,
-                                    Some(error),
-                                );
-                                if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
-                                    tab.agent_booting = false;
-                                }
-                            }
-                        }
-                        let fix_command = degraded_fix_command(
-                            &orch_tab_id,
-                            &params.planner_agent,
-                            planner_model.as_deref(),
-                        );
-                        if let Some(ref planner_error) = planner_error {
-                            let followup =
-                                orchestrator_pair_followup_degraded(&fix_command, planner_error);
-                            if let Err(notify_err) = self.deliver_pair_followup(
-                                &orch_tab_id,
-                                &params.orchestrator_agent,
-                                &followup,
-                            ) {
-                                log::warn!(
-                                    "[orchestration-pair] failed to notify orchestrator {orch_tab_id} of degraded pairing: {notify_err}"
-                                );
-                            }
-                        }
-                        let mut parts = Vec::new();
-                        if let Some(error) = orch_error {
-                            parts
-                                .push(format!("Orchestrator readiness was not confirmed: {error}"));
-                        }
-                        if let Some(error) = planner_error {
-                            parts.push(format!("Planner readiness was not confirmed: {error}"));
-                        }
-                        parts.push(format!(
-                            "Both tabs were kept open. If the Planner is actually missing after the first goal, complete attachment with: {fix_command}"
-                        ));
-                        Some(parts.join(" "))
-                    }
-                };
                 // Activate server-side: the client continuation may be gone by
                 // the time the pair lands (page reload); the daemon owns focus.
                 {
@@ -663,11 +557,12 @@ impl ServiceContext {
                     orchestrator_model,
                     planner_tab_id,
                     planner_model,
-                    warning: warning.or(orch_result.warning).or(planner_result.warning),
+                    warning: orch_result.warning.or(planner_result.warning),
                     budget_notice,
                 })
             }
             Err(e) => {
+                self.cancel_agent_startup_supervision(&reserved.planner_tab_id);
                 self.emit_boot_stage(
                     &reserved.planner_tab_id,
                     codeterm_types::pty::BootStage::SpawnFailed,
@@ -787,14 +682,6 @@ mod tests {
             cmd,
             "codeterm team pair --orchestrator claude:opus --planner codex:gpt-5 --workspace ws-1"
         );
-    }
-
-    #[test]
-    fn pair_readiness_budgets_cap_each_agent_and_the_whole_request() {
-        assert_eq!(PAIR_AGENT_READY_TIMEOUT, std::time::Duration::from_secs(45));
-        assert_eq!(PAIR_API_READY_TIMEOUT, std::time::Duration::from_secs(75));
-        assert!(PAIR_AGENT_READY_TIMEOUT < PAIR_API_READY_TIMEOUT);
-        assert!(PAIR_API_READY_TIMEOUT < PAIR_AGENT_READY_TIMEOUT * 2);
     }
 
     #[test]
@@ -1062,6 +949,37 @@ mod tests {
             general_tab.team_id, None,
             "the pair belongs to its Orchestrator, never to its creator"
         );
+    }
+
+    #[test]
+    fn general_agent_is_not_misclassified_as_a_pair_creation_leaf() {
+        let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
+        let workspace_id = mux.list_workspaces()[0].id.clone();
+        let general = general_agent_in_pair_workspace(&mut mux, &workspace_id);
+        assert!(!is_pair_creation_leaf(mux.get_tab(&general).unwrap()));
+
+        let manager = mux.create_tab(&workspace_id).unwrap();
+        let manager_tab = mux.get_tab_mut(&manager).unwrap();
+        manager_tab.role = Some(crate::multiplexer::types::AgentRole::Manager);
+        manager_tab.role_profile = Some(ORCHESTRATOR.to_string());
+        assert!(is_pair_creation_leaf(mux.get_tab(&manager).unwrap()));
+    }
+
+    #[test]
+    fn startup_supervision_applies_only_to_agent_spawners() {
+        let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
+        let workspace_id = mux.list_workspaces()[0].id.clone();
+        let caller = mux.create_tab(&workspace_id).unwrap();
+        assert!(!crate::service::worker_ack::is_agent_spawner(
+            mux.get_tab(&caller).unwrap()
+        ));
+
+        let tab = mux.get_tab_mut(&caller).unwrap();
+        tab.agent_type = Some("provider".into());
+        tab.session_binding_nonce = Some("launch-a".into());
+        assert!(crate::service::worker_ack::is_agent_spawner(
+            mux.get_tab(&caller).unwrap()
+        ));
     }
 
     #[test]

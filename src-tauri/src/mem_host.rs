@@ -83,6 +83,7 @@ impl MemSchedulerPort for CronSchedulerPort<'_> {
                 name: params.name,
                 workspace_id: params.workspace_id,
                 team_id: None,
+                detach_from_team: false,
                 schedule: params.schedule,
                 task: params.task,
                 description: params.description,

@@ -468,6 +468,10 @@ fn every_tab_action_rejects_malformed_remote_before_local_transport() {
             timeout: 1,
         },
         TabAction::Status { tab: bad() },
+        TabAction::Respond {
+            option: 1,
+            tab: bad(),
+        },
         TabAction::Rebind {
             session_id: "session-live".into(),
             tab: bad(),

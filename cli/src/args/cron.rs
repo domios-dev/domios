@@ -22,9 +22,13 @@ pub enum CronAction {
         /// only to schedule the job somewhere other than where you are.
         #[arg(long)]
         workspace: Option<String>,
-        /// Attach this job to a Team. The calling Tab must belong to it.
+        /// Explicit Team membership cross-check. Jobs already inherit the
+        /// calling Tab's Team.
         #[arg(long, value_name = "TEAM_ID")]
         team: Option<String>,
+        /// Keep this job outside the calling tab's Team.
+        #[arg(long, conflicts_with = "team")]
+        no_team: bool,
         /// Agent to spawn (default: claude)
         #[arg(long, default_value = "claude")]
         agent: String,
@@ -151,6 +155,7 @@ pub fn cron_create_body(
     task: &str,
     workspace_id: &str,
     team_id: Option<&str>,
+    detach_from_team: bool,
     agent: &str,
     model: Option<&str>,
     cwd: Option<&str>,
@@ -187,6 +192,9 @@ pub fn cron_create_body(
     }
     if let Some(team) = team_id {
         body["team_id"] = serde_json::json!(team);
+    }
+    if detach_from_team {
+        body["detach_from_team"] = serde_json::json!(true);
     }
     if let Some(target) = report_tab {
         body["report_target_tab_id"] = serde_json::json!(target);

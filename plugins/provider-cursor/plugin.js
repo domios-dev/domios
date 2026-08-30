@@ -110,8 +110,10 @@ var plugin = {
         parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
       }
     }
-    if (p.task) {
-      parts.push(host.shell.quoteFor(String(p.task), host.platform()));
+    const startupHandshake = p.starterPrompt === "startup_handshake" ? String(p.starterPromptText || "").trim() : "";
+    const launchTask = [startupHandshake, p.task].filter(Boolean).join("\n\n");
+    if (launchTask) {
+      parts.push(host.shell.quoteFor(launchTask, host.platform()));
     }
     return disableClaudeHookImportPrefix() + (p.skipPermissions ? trustPrefix() : "") + parts.join(" ");
   },

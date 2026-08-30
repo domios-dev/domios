@@ -13,6 +13,7 @@ fn make_params(name: &str, ws: &str, schedule: &str) -> CronCreateParams {
         name: name.to_string(),
         workspace_id: ws.to_string(),
         team_id: None,
+        detach_from_team: false,
         schedule: schedule.to_string(),
         task: "test task".to_string(),
         description: None,

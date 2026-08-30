@@ -346,15 +346,17 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
       );
     })() : null;
 
-    const userBubbleInner = (
-      <>
-        {effectiveOrigin?.kind === "command" ? (
+    const formattedUserContent = effectiveOrigin?.kind === "command" ? (
           <CommandBody commands={effectiveOrigin.commands} body={message.content} />
         ) : hasPlanRefs(message.content) ? (
           <LinkedText text={message.content} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
         ) : (
           renderUserContent(message.content)
-        )}
+        );
+
+    const userBubbleInner = (
+      <>
+        {formattedUserContent}
         {attachments && attachments.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mt-2 pt-2" style={{ borderTop: "1px solid color-mix(in srgb, var(--ct-accent) 15%, transparent)" }}>
             {attachments.map((att) => (

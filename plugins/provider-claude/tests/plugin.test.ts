@@ -621,6 +621,9 @@ console.log("\n--- POSIX task launch shape ---\n");
   const teamText = "host-owned team bootstrap";
   const team = p.buildLaunchCommand({ task: "identity", starterPrompt: "team_bootstrap", starterPromptText: teamText });
   assert(team.includes(teamText), "Claude JS team launch uses the host-owned starter text");
+  const handshakeText = "opaque-startup-handshake";
+  const handshake = p.buildLaunchCommand({ task: "identity", starterPrompt: "startup_handshake", starterPromptText: handshakeText });
+  assert(handshake.includes(handshakeText), "Claude JS startup launch uses the host-owned starter text");
   eq(p.starterPromptText?.("team_bootstrap"), undefined, "Claude JS does not duplicate the team starter");
 }
 

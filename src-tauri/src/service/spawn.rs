@@ -45,6 +45,8 @@ pub struct SpawnTabSpec {
     #[serde(default)]
     pub creator_tab_id: Option<String>,
     #[serde(default)]
+    pub detach_from_team: bool,
+    #[serde(default)]
     pub cwd: Option<String>,
     #[serde(default)]
     pub title: Option<String>,
@@ -419,6 +421,7 @@ impl ServiceContext {
         // Identity before authority: a role without a launchable provider
         // restores as a role-bearing shell.
         self.set_and_lock_tab_agent_type(&tab_id, agent_cmd.clone());
+        let startup_supervised = self.prepare_agent_startup_supervision(&tab_id);
         // `can_spawn` is only forced when the caller explicitly passed
         // --can-spawn (Some), preserving the kind's default.
         if let Some(ref role_str) = agent.role {
@@ -547,28 +550,44 @@ impl ServiceContext {
             Some(prefix) => format!("{prefix}{task}"),
             None => task,
         });
-        let confirmed_first_turn = match task_selection.confirmed_first_turn {
-            Some(crate::service::launch_delivery::VisibleSpawnFirstTurn::AssignedTaskStarter) => {
-                let prompt = crate::agent::provider::StarterPrompt::AssignedTask;
-                let text = self
-                    .agent_registry
-                    .with_provider(&agent_cmd, |provider| provider.starter_prompt_text(prompt))
-                    .flatten();
-                Some(crate::service::launch_delivery::mark_starter_prompt(
-                    prompt,
-                    crate::service::launch_delivery::assigned_task_starter(text.as_deref()),
-                ))
+        let confirmed_first_turn = if startup_supervised {
+            let prompt = crate::agent::provider::StarterPrompt::StartupHandshake;
+            let text = self
+                .agent_registry
+                .with_provider(&agent_cmd, |provider| provider.starter_prompt_text(prompt))
+                .flatten();
+            Some(crate::service::launch_delivery::mark_starter_prompt(
+                prompt,
+                text.unwrap_or_default(),
+            ))
+        } else {
+            match task_selection.confirmed_first_turn {
+                Some(
+                    crate::service::launch_delivery::VisibleSpawnFirstTurn::AssignedTaskStarter,
+                ) => {
+                    let prompt = crate::agent::provider::StarterPrompt::AssignedTask;
+                    let text = self
+                        .agent_registry
+                        .with_provider(&agent_cmd, |provider| provider.starter_prompt_text(prompt))
+                        .flatten();
+                    Some(crate::service::launch_delivery::mark_starter_prompt(
+                        prompt,
+                        crate::service::launch_delivery::assigned_task_starter(text.as_deref()),
+                    ))
+                }
+                Some(crate::service::launch_delivery::VisibleSpawnFirstTurn::Task(task)) => Some(
+                    task_prefix
+                        .as_deref()
+                        .map_or_else(|| task.to_string(), |prefix| format!("{prefix}{task}")),
+                ),
+                None => None,
             }
-            Some(crate::service::launch_delivery::VisibleSpawnFirstTurn::Task(task)) => Some(
-                task_prefix
-                    .as_deref()
-                    .map_or_else(|| task.to_string(), |prefix| format!("{prefix}{task}")),
-            ),
-            None => None,
         };
 
         let mut legacy_params = spec.to_agent_params()?;
-        if let Some(starter) = task_selection.provider_starter {
+        if startup_supervised {
+            legacy_params.starter_prompt = crate::agent::provider::StarterPrompt::StartupHandshake;
+        } else if let Some(starter) = task_selection.provider_starter {
             legacy_params.starter_prompt = starter;
         }
         legacy_params.skip_permissions = Some(permission_bypass);

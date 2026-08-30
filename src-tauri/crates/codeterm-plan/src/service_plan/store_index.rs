@@ -265,8 +265,7 @@ impl PlanStore {
                 }
             }
         }
-        let specs_dir =
-            paths::specs_dir(&project_root).map_err(|e| PlanError::Io(e.to_string()))?;
+        let specs_dir = project_root.join(".codeterm").join("specs");
         if let Ok(entries) = std::fs::read_dir(&specs_dir) {
             for entry in entries {
                 let Ok(entry) = entry else {

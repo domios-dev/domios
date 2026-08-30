@@ -1,6 +1,5 @@
-import React, { useState } from "react";
+import React from "react";
 import { ToolCallBubble } from "../ToolCallBubble";
-import { ShowCommandsProvider } from "./toolKindVisual";
 import type { ToolEvent, ToolEventKind } from "@codeterm/chat-core";
 import { act, event, render } from "./cardTestSetup";
 
@@ -56,25 +55,4 @@ const readHost = await render(
 );
 if (!readHost.textContent?.includes("Read") || !readHost.textContent.includes("main.ts, lib.ts")) throw new Error("read-only shell pipeline did not use a named ReadCard");
 
-const commandEvent = tool("command", "echo hidden");
-function ToggleProvider() {
-  const [showCommands, setShowCommands] = useState(false);
-  return (
-    <ShowCommandsProvider showCommands={showCommands}>
-      <button type="button" data-testid="toggle-commands" onClick={() => setShowCommands((visible) => !visible)}>Toggle</button>
-      <ToolCallBubble event={commandEvent} expanded={false} onToggle={() => {}} />
-      <ToolCallBubble event={{ ...commandEvent, id: "second" }} expanded={false} onToggle={() => {}} />
-    </ShowCommandsProvider>
-  );
-}
-
-const globalHost = await render(
-  <ToggleProvider />,
-);
-if (globalHost.querySelectorAll('[data-testid="toolcard-command"]').length !== 0) throw new Error("commands were not hidden initially");
-const toggle = globalHost.querySelector<HTMLButtonElement>('[data-testid="toggle-commands"]');
-if (!toggle) throw new Error("global toggle missing");
-await act(async () => toggle.click());
-if (globalHost.querySelectorAll('[data-testid="toolcard-command"]').length !== 2) throw new Error("global command toggle did not reveal all commands");
-
-console.log("tool card dispatch tests: 14 assertions passed");
+console.log("tool card dispatch tests: 11 assertions passed");

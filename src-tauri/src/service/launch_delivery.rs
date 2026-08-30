@@ -729,6 +729,7 @@ mod tests {
                 crate::agent::provider::StarterPrompt::AssignedTask => "INLINE-ASSIGNED",
                 crate::agent::provider::StarterPrompt::IdleWakeup => "INLINE-IDLE",
                 crate::agent::provider::StarterPrompt::TeamBootstrap => "INLINE-TEAM",
+                crate::agent::provider::StarterPrompt::StartupHandshake => "INLINE-STARTUP",
             };
             format!(
                 "recording-inline --system {} {marker}",

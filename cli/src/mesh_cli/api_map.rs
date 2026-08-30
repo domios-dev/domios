@@ -261,6 +261,7 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 cwd,
                 title,
                 team,
+                no_team,
                 cmd,
                 eager,
                 chat_backend,
@@ -281,6 +282,9 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                     if let Ok(creator_tab_id) = std::env::var("CODETERM_TAB_ID") {
                         body["creator_tab_id"] = serde_json::Value::String(creator_tab_id);
                     }
+                }
+                if *no_team {
+                    body["detach_from_team"] = serde_json::Value::Bool(true);
                 }
                 if let Some(c) = cmd {
                     body["cmd"] = serde_json::Value::String(c.clone());
@@ -372,6 +376,14 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             crate::TabAction::Status { tab } => {
                 let p = tab.as_deref().unwrap_or("general");
                 ("GET".into(), format!("/api/tabs/{}/status", p), None)
+            }
+            crate::TabAction::Respond { option, tab } => {
+                let p = tab.as_deref().unwrap_or("general");
+                (
+                    "POST".into(),
+                    format!("/api/tabs/{}/prompt/respond", p),
+                    Some(serde_json::json!({"value": option.to_string()}).to_string()),
+                )
             }
             crate::TabAction::Rebind { session_id, tab } => {
                 let p = tab.as_deref().unwrap_or("general");
@@ -494,6 +506,7 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 task,
                 workspace,
                 team,
+                no_team,
                 agent,
                 model,
                 cwd,
@@ -511,6 +524,7 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                     task,
                     workspace.as_deref().unwrap_or(""),
                     team.as_deref(),
+                    *no_team,
                     agent,
                     model.as_deref(),
                     cwd.as_deref(),

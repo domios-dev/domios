@@ -237,6 +237,25 @@ fn assigned_manager_bootstrap_keeps_the_assigned_task_starter_in_both_modes() {
 }
 
 #[test]
+fn supervised_spawn_replaces_the_existing_first_turn_with_startup_handshake() {
+    let mut params = SpawnAgentParams {
+        starter_prompt: crate::agent::provider::StarterPrompt::AssignedTask,
+        ..Default::default()
+    };
+    apply_startup_handshake(&mut params, true);
+    assert_eq!(
+        params.starter_prompt,
+        crate::agent::provider::StarterPrompt::StartupHandshake
+    );
+
+    apply_startup_handshake(&mut params, false);
+    assert_eq!(
+        params.starter_prompt,
+        crate::agent::provider::StarterPrompt::StartupHandshake
+    );
+}
+
+#[test]
 fn native_planner_startup_keeps_manager_contract_and_onboarding() {
     let payload = planner_startup_payload(true, Some("system contract".into()), "planner startup");
 

@@ -29,6 +29,7 @@ const { host } = await render(<CommandCard event={event()} expanded={false} onTo
 if (!host.textContent?.includes("command") || !host.textContent?.includes("run preview")) throw new Error("summary row regression");
 if (!host.querySelector("svg")) throw new Error("glyph regression");
 if (host.querySelector('[data-testid="toolcard-command"]')) throw new Error("command should start hidden");
+if (host.querySelector('[data-testid="message-view-toggle"]')) throw new Error("collapsed card must hide its view toggle");
 if (host.querySelector('[data-testid="toolcard-command-open"]')) throw new Error("per-card command opener must not render");
 if (host.querySelector<HTMLElement>("[style*='border-left']")) throw new Error("left rail found");
 
@@ -43,6 +44,7 @@ const detailsToggle = errorHost.querySelector('button[aria-expanded="true"]');
 const detailsId = detailsToggle?.getAttribute("aria-controls");
 const detailsRegion = detailsId ? errorHost.querySelector<HTMLElement>(`#${detailsId}`) : null;
 if (detailsRegion?.style.maxHeight !== "600px" || detailsRegion.style.overflowY !== "auto") throw new Error("expanded tool Details must cap at 600px and scroll internally");
+if (!detailsRegion?.querySelector('[data-testid="message-view-toggle"]')) throw new Error("expanded tool details must own the view toggle");
 
 const usedThemeVars = [
   "--ct-border", "--ct-surface", "--ct-muted-fg", "--ct-red", "--ct-yellow", "--ct-green",

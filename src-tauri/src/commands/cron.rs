@@ -40,6 +40,7 @@ pub fn cron_create(
         name,
         workspace_id,
         team_id: None,
+        detach_from_team: false,
         schedule,
         task,
         description,
@@ -129,6 +130,16 @@ pub fn cron_trigger(
 ) -> Result<serde_json::Value, String> {
     let run = svc.cron_trigger(&cron, &id)?;
     serde_json::to_value(run).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn cron_cancel(
+    cron: tauri::State<'_, crate::CronState>,
+    svc: tauri::State<'_, crate::service::ServiceState>,
+    id: String,
+) -> Result<serde_json::Value, String> {
+    let cancelled = svc.cron_cancel_running(&cron, &id)?;
+    Ok(serde_json::json!({ "cancelled": cancelled }))
 }
 
 #[tauri::command]

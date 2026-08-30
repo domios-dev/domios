@@ -1,7 +1,8 @@
 import type { ToolEvent } from "@codeterm/chat-core";
 import { Check, CircleX, LoaderCircle, ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
-import { toolKindVisual, useShowCommands, type ToolKindVisual } from "./toolKindVisual";
+import { MessageViewToggle } from "../codeterm/MessageViewToggle";
+import { toolKindVisual, type ToolKindVisual } from "./toolKindVisual";
 
 interface ToolCardFrameProps {
   testId?: string;
@@ -9,7 +10,6 @@ interface ToolCardFrameProps {
   expanded: boolean;
   onToggle: () => void;
   children: ReactNode;
-  command?: ReactNode;
   title?: ReactNode;
   summary?: ReactNode;
   metric?: ReactNode;
@@ -21,12 +21,9 @@ interface ToolCardFrameProps {
   disclosureLabel?: string;
 }
 
-export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onToggle, children, command, title, summary, metric, chips, tail, action, variant = "smart", visualOverride, disclosureLabel }: ToolCardFrameProps) {
-  const globalShowCommands = useShowCommands();
+export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onToggle, children, title, summary, metric, chips, tail, action, variant = "smart", visualOverride, disclosureLabel }: ToolCardFrameProps) {
   const visual = visualOverride ?? toolKindVisual[event.kind];
   const Glyph = visual.glyph;
-  const isCommand = event.kind === "command" || event.kind === "codeterm";
-  const commandVisible = !isCommand || globalShowCommands || expanded;
   const statusColor = event.status === "error" ? "var(--ct-red)" : event.status === "pending" ? "var(--ct-yellow)" : "var(--ct-green)";
   const borderColor = event.status === "error"
     ? "color-mix(in srgb, var(--ct-red) 38%, var(--ct-border))"
@@ -76,7 +73,6 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
         {action}
         <ChevronRight aria-hidden="true" size={14} className={expanded ? "rotate-90" : ""} style={{ color: "var(--ct-muted-fg)" }} />
       </div>
-      {isCommand && commandVisible && command}
       <div
         id={detailsId}
         role="region"
@@ -85,7 +81,13 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
         className={variant === "codeterm" ? "border-t px-3.5 pb-3 pt-2" : "pb-3 pl-[46px] pr-3 pt-0.5"}
         style={{ borderColor: "var(--ct-border)", boxSizing: "border-box", maxHeight: "600px", overflowY: "auto" }}
       >
-        {expanded ? children : null}
+        {expanded ? (
+          <MessageViewToggle
+            raw={event.detail || event.summary || ""}
+            formatted={null}
+            persistent={children}
+          />
+        ) : null}
       </div>
     </div>
   );

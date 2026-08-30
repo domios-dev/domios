@@ -616,6 +616,22 @@ button,
   background: var(--ct-hover);
 }
 
+.ct-btn-floating {
+  color: var(--ct-fg);
+  background: color-mix(in srgb, var(--ct-accent) 12%, var(--ct-surface));
+  border: 1px solid color-mix(in srgb, var(--ct-accent) 34%, var(--ct-border));
+  box-shadow:
+    0 8px 24px color-mix(in srgb, var(--ct-bg) 72%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--ct-fg) 7%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+.ct-btn-floating:hover {
+  color: var(--ct-fg);
+  background: color-mix(in srgb, var(--ct-accent) 20%, var(--ct-surface));
+  border-color: color-mix(in srgb, var(--ct-accent) 58%, var(--ct-border));
+}
+
 .ct-btn-accent {
   background: color-mix(in srgb, var(--ct-accent) 14%, transparent);
   color: var(--ct-accent);
