@@ -235,6 +235,6 @@ Service registry, health, inventory fields, and peer endpoints: `codeterm docs M
 
 Mesh inventory is target-authoritative: machine-qualified rows carry provenance and capabilities derived from authenticated access, target policy, and the target route. Cached rows stay inspectable, but stale, offline, partial, denied, or protected mutations stay disabled with their reason. Daemons are registry entries, never controllable processes. Schedule actions appear only when granted. Remote or destructive actions name the target, await and announce its outcome, then refresh; failures never become optimistic local success.
 
-Inventory opens as a full-screen searchable List with the shared List/Graph mode bubble. Keyboard navigation preserves resource identity and focus. Graph shows machine ownership with an equivalent accessible navigator; peer detail separates Services and Schedules and labels cached, offline, denied, and partial states.
+Inventory opens as a full-screen searchable List beside the existing Mesh network graph. One shared mode bubble switches between the List and the graph of connected computers. Keyboard navigation preserves resource identity and focus; peer detail separates Services and Schedules and labels cached, offline, denied, and partial states.
 
-<!-- revision: 21 -->
+<!-- revision: 22 -->

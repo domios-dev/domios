@@ -1,14 +1,15 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import QRCode from "qrcode";
-import { Check, Copy, ExternalLink, Info, Loader2, RefreshCw, ShieldCheck, Sparkles, X, List, Network } from "lucide-react";
+import { Check, Copy, ExternalLink, Info, Loader2, RefreshCw, ShieldCheck, Sparkles, X } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import { BusySpinner } from "../shared/BusyState";
 import { IS_WEB, webJson } from "../../lib/webApi";
 import logoUrl from "../../assets/logo.png";
 import type { ApiConfig, AppConfig } from "../../lib/types";
 import type { MeshTab, Service } from "./types";
+import { MeshCanvas, type RecentPush } from "./MeshCanvas";
 import { MeshInventoryList } from "./MeshInventoryList";
-import { MeshInventoryGraph } from "./MeshInventoryGraph";
+import { MeshInventoryModeToggle, type MeshInventoryMode } from "./MeshInventoryModeToggle";
 import { ServiceDrawer, type DrawerState } from "./ServiceDrawer";
 import { useMeshData } from "./useMeshData";
 import { NetworkTab } from "./NetworkTab";
@@ -386,17 +387,36 @@ function normalizeTab(t: unknown): MeshTab {
   return "inventory";
 }
 
-export function MeshPanel({ config, onClose }: Props) {
+export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
   const touchUi = useTouchOptimizedUi();
+  const goOnline = useCallback(async () => {
+    await onConfigUpdate({ ...config, mesh: { ...config.mesh, enabled: true } });
+  }, [config, onConfigUpdate]);
   const [activeTab, setActiveTab] = useState<MeshTab>(() => normalizeTab("map"));
-  const [inventoryMode, setInventoryMode] = useState<"list" | "graph">("list");
+  const [inventoryMode, setInventoryMode] = useState<MeshInventoryMode>("list");
   const [refreshKey, setRefreshKey] = useState(0);
   const data = useMeshData(refreshKey);
+  const [recentPushes, setRecentPushes] = useState<RecentPush[]>([]);
   const [webUiOpen, setWebUiOpen] = useState(false);
   const [serve, setServe] = useState<ServeStatus | null>(null);
   const [serveLoading, setServeLoading] = useState(true);
 
   const triggerRefresh = useCallback(() => setRefreshKey((k) => k + 1), []);
+
+  useEffect(() => {
+    let unlistenHealth: (() => void) | null = null;
+    let unlistenPush: (() => void) | null = null;
+    import("../../lib/bridge").then(({ listen }) => {
+      listen("service-health-changed", triggerRefresh).then((unlisten) => { unlistenHealth = unlisten; });
+      listen<{ source_id: string; target: string }>("service-pushed", (event) => {
+        setRecentPushes((current) => [...current, { ...event.payload, at: Date.now() }].slice(-20));
+      }).then((unlisten) => { unlistenPush = unlisten; });
+    });
+    return () => {
+      unlistenHealth?.();
+      unlistenPush?.();
+    };
+  }, [triggerRefresh]);
 
   const loadServe = useCallback(async () => {
     const status = await invoke<ServeStatus>("get_serve_status").catch(() => null);
@@ -434,9 +454,8 @@ export function MeshPanel({ config, onClose }: Props) {
   const [drawerState, setDrawerState] = useState<DrawerState>(null);
   const [meshAnnouncement, setMeshAnnouncement] = useState("");
   const [selectedResourceKey, setSelectedResourceKey] = useState<string | null>(null);
-  const modeButtonRefs = useMemo(() => ({
-    graph: { current: null as HTMLButtonElement | null },
-  }), []);
+  const mapRef = useRef<HTMLDivElement>(null);
+  const [mapSize, setMapSize] = useState({ width: 800, height: 600 });
   const inventoryPeerIssues = useMemo(
     () => data.peers
       .filter((peer) => !peer.pending && (peer.services_loaded === false || Boolean(peer.services_error)))
@@ -457,9 +476,23 @@ export function MeshPanel({ config, onClose }: Props) {
     });
   }, []);
 
-  const handleGraphEscape = useCallback(() => {
-    modeButtonRefs.graph.current?.focus();
-  }, [modeButtonRefs]);
+  const handlePeerClick = useCallback((name: string) => {
+    setDrawerState({ kind: "peer", id: name });
+  }, []);
+
+  useEffect(() => {
+    const element = mapRef.current;
+    if (!element || activeTab !== "inventory" || inventoryMode !== "graph") return;
+    const observer = new ResizeObserver(() => {
+      const bounds = element.getBoundingClientRect();
+      if (bounds.width <= 0 || bounds.height <= 0) return;
+      setMapSize((current) => Math.abs(current.width - bounds.width) < 1 && Math.abs(current.height - bounds.height) < 1
+        ? current
+        : { width: bounds.width, height: bounds.height });
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [activeTab, inventoryMode]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -549,27 +582,39 @@ export function MeshPanel({ config, onClose }: Props) {
                 }
               />
             ) : (
-              <MeshInventoryGraph
-                resources={data.services}
-                thisMachineName={data.thisMachine.name}
-                peerIssues={inventoryPeerIssues}
-                loading={data.loading}
-                error={data.error}
-                selectedResourceKey={selectedResourceKey}
-                onSelectResource={handleServiceClick}
-                onRefresh={triggerRefresh}
-                onEscape={handleGraphEscape}
-              />
+              <div ref={mapRef} className="absolute inset-0">
+                <div className="absolute left-3 top-3 z-20 rounded-lg border border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)] px-2 py-1.5 shadow-sm">
+                  <MeshWebUiControl
+                    snapshot={serve?.snapshot ?? null}
+                    loading={serveLoading}
+                    onOpenSurface={() => setWebUiOpen(true)}
+                    accessUrl={serve?.snapshot?.url
+                      ? webLinkWithTokenAndRelay(serve.snapshot.url, config.api.token, null)
+                      : null}
+                    onOpenUrl={(url) => void invoke("open_url", { url })}
+                    onAction={runWebUiAction}
+                    touchUi={touchUi}
+                  />
+                </div>
+                <MeshCanvas
+                  thisMachine={data.thisMachine}
+                  peers={data.peers}
+                  services={data.services}
+                  recentPushes={recentPushes}
+                  onPeerClick={handlePeerClick}
+                  width={mapSize.width}
+                  height={mapSize.height}
+                  onAddPeerClick={() => setActiveTab("network")}
+                  meshEnabled={config.mesh.enabled}
+                  onGoOnline={goOnline}
+                  onOpenPeerWebUi={(url) => void invoke("open_url", { url })}
+                  webUiBaseUrl={serve?.snapshot?.url ?? null}
+                  webUiToken={config.api.token}
+                />
+              </div>
             )}
-            <div className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5">
-              <button type="button" onClick={() => setInventoryMode("list")} className={`${UI_BUTTON.ghost} ${UI_BUTTON.lg} gap-1.5 backdrop-blur-md shadow-lg`} aria-label="Inventory list" aria-pressed={inventoryMode === "list"} data-testid="mesh-inventory-mode-list">
-                <List size={12} aria-hidden="true" />
-                List
-              </button>
-              <button ref={(element) => { modeButtonRefs.graph.current = element; }} type="button" onClick={() => setInventoryMode("graph")} className={`${UI_BUTTON.ghost} ${UI_BUTTON.lg} gap-1.5 backdrop-blur-md shadow-lg`} aria-label="Inventory graph" aria-pressed={inventoryMode === "graph"} data-testid="mesh-inventory-mode-graph">
-                <Network size={12} aria-hidden="true" />
-                Graph
-              </button>
+            <div className="absolute bottom-4 left-1/2 z-10 -translate-x-1/2">
+              <MeshInventoryModeToggle mode={inventoryMode} onChange={setInventoryMode} />
             </div>
           </>
         )}
