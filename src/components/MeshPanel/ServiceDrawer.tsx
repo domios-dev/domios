@@ -1,7 +1,8 @@
 import { invoke } from "../../lib/bridge";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { serviceIdToCronId, type Service } from "./types";
 import type { PeerStatus } from "./useMeshData";
+import { inventoryResourceKey } from "./meshInventoryModel";
 import { RELAY_PROTOCOL_VERSION } from "../../lib/types";
 import {
   servicesDelete,
@@ -31,6 +32,7 @@ interface Props {
   thisMachineName: string;
   thisMachineIp?: string;
   onClose: () => void;
+  onOpenResource?: (service: Service, resourceKey: string) => void;
   onActionDone: () => void;
 }
 
@@ -62,8 +64,24 @@ export function ServiceDrawer({
   thisMachineName,
   thisMachineIp,
   onClose,
+  onOpenResource,
   onActionDone,
 }: Props) {
+  const originRef = useRef<HTMLElement | null>(null);
+  const wasOpenRef = useRef(false);
+  if (state && !wasOpenRef.current) {
+    const active = document.activeElement;
+    originRef.current = active instanceof HTMLElement ? active : null;
+    wasOpenRef.current = true;
+  } else if (!state && wasOpenRef.current) {
+    wasOpenRef.current = false;
+  }
+  useEffect(() => {
+    if (state || !originRef.current) return;
+    originRef.current.focus({ preventScroll: true });
+    originRef.current = null;
+  }, [state]);
+
   if (!state) return null;
 
   if (state.kind === "peer") {
@@ -79,6 +97,7 @@ export function ServiceDrawer({
         isSelf={isSelf}
         services={services.filter((s) => (isSelf ? !s.source_peer_id && !s.source_peer : s.source_peer === state.id || s.source_peer_id === peer.instance_id))}
         onClose={onClose}
+        onOpenResource={onOpenResource}
         onActionDone={onActionDone}
       />
     );
@@ -107,12 +126,14 @@ function PeerDrawer({
   isSelf,
   services,
   onClose,
+  onOpenResource,
   onActionDone,
 }: {
   peer: PeerStatus;
   isSelf: boolean;
   services: Service[];
   onClose: () => void;
+  onOpenResource?: (service: Service, resourceKey: string) => void;
   onActionDone: () => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -123,6 +144,11 @@ function PeerDrawer({
   const peerActionBtnClass = `${UI_BUTTON.base} ${UI_BUTTON.compact} border`;
   const peerActionDangerClass = `${UI_BUTTON.base} ${UI_BUTTON.compact} border border-[var(--ct-red)]/40 text-[var(--ct-red)]`;
   const sectionListClass = "bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded p-2 flex flex-col gap-1 text-[10px]";
+  const headingRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    headingRef.current?.focus({ preventScroll: true });
+  }, []);
 
   const handleDisconnect = async () => {
     if (!confirm(`Disconnect from ${peer.name}?`)) return;
@@ -158,9 +184,9 @@ function PeerDrawer({
   return (
     <>
       <DrawerBackdrop onClose={onClose} />
-      <div className={PANEL_BASE} style={{ width: 360 }}>
+      <div className={PANEL_BASE} style={{ width: 360 }} role="dialog" aria-modal="true" aria-labelledby="mesh-peer-drawer-heading" data-testid="mesh-peer-drawer">
         <div className="flex items-center justify-between">
-          <strong className="text-[var(--ct-fg)] truncate">{peer.name}</strong>
+          <strong ref={headingRef} id="mesh-peer-drawer-heading" tabIndex={-1} className="text-[var(--ct-fg)] truncate focus:outline-none">{peer.name}</strong>
           <button
             onClick={onClose}
             className={CLOSE_BUTTON_CLASS}
@@ -221,27 +247,20 @@ function PeerDrawer({
           </Section>
         )}
 
-        <Section label={`Services on this peer (${services.length})`}>
-          <div className={sectionListClass}>
-            {services.length === 0 && (
-              <span className="text-[var(--ct-muted)] italic">
-                none registered
-              </span>
-            )}
-            {services.map((s) => (
-              <div key={`${s.source_peer_id ?? s.source_peer ?? "local"}:${s.id}`} className="flex items-center gap-1.5">
-                <span
-                  className="w-1.5 h-1.5 rounded-full"
-                  style={{
-                    background: healthColor(s.health.status),
-                  }}
-                />
-                <span className="text-[var(--ct-fg)]">{s.name}</span>
-                <span className="text-[var(--ct-muted)]">· {s.kind}</span>
-              </div>
-            ))}
-          </div>
-        </Section>
+        <PeerResourceSection
+          title="Services"
+          resources={services.filter((service) => service.kind === "daemon")}
+          peer={peer}
+          sectionListClass={sectionListClass}
+          onOpenResource={onOpenResource}
+        />
+        <PeerResourceSection
+          title="Schedules"
+          resources={services.filter((service) => service.kind === "cron")}
+          peer={peer}
+          sectionListClass={sectionListClass}
+          onOpenResource={onOpenResource}
+        />
 
         <div className="mt-auto flex flex-col gap-1.5">
           {isSelf && (
@@ -286,6 +305,67 @@ function PeerDrawer({
   );
 }
 
+function PeerResourceSection({
+  title,
+  resources,
+  peer,
+  sectionListClass,
+  onOpenResource,
+}: {
+  title: "Services" | "Schedules";
+  resources: Service[];
+  peer: PeerStatus;
+  sectionListClass: string;
+  onOpenResource?: (service: Service, resourceKey: string) => void;
+}) {
+  const peerState = peer.services_error
+    ? `Partial peer fetch failure: ${peer.services_error}`
+    : peer.services_stale || !peer.online
+      ? peer.online ? "Stale · last known inventory" : "Offline · cached inventory"
+      : null;
+  return (
+    <Section label={`${title} (${resources.length})`}>
+      <div className={sectionListClass} data-testid={`mesh-peer-${title.toLowerCase()}-section`}>
+        <div className="mb-1 flex items-center justify-between gap-2 text-[9px] text-[var(--ct-muted-fg)]">
+          <span>{peerState ?? "Live inventory"}</span>
+          {peer.services_error && <span className="text-[var(--ct-yellow)]">partial</span>}
+        </div>
+        {resources.length === 0 && <span className="text-[var(--ct-muted)] italic">none registered</span>}
+        {resources.map((service) => {
+          const resourceKey = inventoryResourceKey(service);
+          const state = resourceStateText(service);
+          return (
+            <button
+              key={resourceKey}
+              type="button"
+              className="flex w-full items-center gap-1.5 rounded px-1 py-1 text-left hover:bg-[var(--ct-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ct-accent)]"
+              data-testid="mesh-peer-resource-row"
+              data-resource-key={resourceKey}
+              aria-label={`Open ${title === "Schedules" ? "schedule" : "service"} ${service.name}, ${state}`}
+              onClick={() => onOpenResource?.(service, resourceKey)}
+            >
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: healthColor(service.health.status) }} />
+              <span className="min-w-0 flex-1 truncate text-[var(--ct-fg)]">{service.name}</span>
+              <span className="max-w-[120px] truncate text-[var(--ct-muted)]">{state}</span>
+            </button>
+          );
+        })}
+      </div>
+    </Section>
+  );
+}
+
+function resourceStateText(service: Service): string {
+  const labels: string[] = [];
+  if (service.provenance?.freshness === "offline" || service.peer_online === false) labels.push("offline · cached");
+  else if (service.provenance?.freshness === "stale" || service.stale) labels.push("stale · last known");
+  const unavailable = Object.values(service.capabilities ?? {}).find((capability) => !capability.allowed && capability.unavailable_reason);
+  if (unavailable?.unavailable_reason === "not_authorized") labels.push("access denied");
+  else if (unavailable?.unavailable_reason) labels.push(unavailable.unavailable_reason.replaceAll("_", " "));
+  if (labels.length) return labels.join(" · ");
+  return service.kind === "cron" ? service.enabled ? service.last_run_status ?? "idle" : "disabled" : service.health.status;
+}
+
 function SvcDrawer({
   service,
   onClose,
@@ -303,6 +383,7 @@ function SvcDrawer({
   const serviceActionDangerClass = `${UI_BUTTON.base} ${UI_BUTTON.compact} bg-[var(--ct-red)] text-[var(--ct-bg)] border-none font-medium`;
   const pillClass = "rounded px-1.5 py-0.5 text-[9px]";
   const tokenCardClass = "bg-[var(--ct-bg)] border border-[var(--ct-yellow)] rounded p-2 text-[10px]";
+  const headingRef = useRef<HTMLElement>(null);
   const sourcePeerId = service.source_peer_id;
   const isRemote = !!sourcePeerId;
   const canDelete = service.capabilities?.delete?.allowed ?? !isRemote;
@@ -324,6 +405,10 @@ function SvcDrawer({
   };
 
   const isCron = service.kind === "cron";
+
+  useEffect(() => {
+    headingRef.current?.focus({ preventScroll: true });
+  }, []);
 
   const handleDelete = async () => {
     if (!confirm(`Delete service "${service.name}"?`)) return;
@@ -356,9 +441,9 @@ function SvcDrawer({
   return (
     <>
       <DrawerBackdrop onClose={onClose} />
-      <div className={PANEL_BASE} style={{ width: isCron ? "min(860px, calc(100vw - 32px))" : 400 }}>
+      <div className={PANEL_BASE} style={{ width: isCron ? "min(860px, calc(100vw - 32px))" : 400 }} role="dialog" aria-modal="true" aria-labelledby="mesh-service-drawer-heading" data-testid="mesh-service-drawer">
         <div className="flex items-center justify-between">
-          <strong className="text-[var(--ct-fg)] truncate">{service.name}</strong>
+          <strong ref={headingRef} id="mesh-service-drawer-heading" tabIndex={-1} className="text-[var(--ct-fg)] truncate focus:outline-none">{service.name}</strong>
           <button
             onClick={onClose}
             className={CLOSE_BUTTON_CLASS}
