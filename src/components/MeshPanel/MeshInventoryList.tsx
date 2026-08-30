@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Check, ChevronDown, ChevronUp, RefreshCw, Search, SlidersHorizontal } from "lucide-react";
 import { UI_BUTTON, UI_INPUT, UI_PANEL, UI_TEXT } from "../shared/design";
+import { BusySpinner } from "../shared/BusyState";
 import type { Service } from "./types";
 import {
   buildInventoryModel,
@@ -154,7 +155,7 @@ export function MeshInventoryList({
         {headerActions && <div className="flex shrink-0 items-center gap-1" data-testid="mesh-inventory-header-actions">{headerActions}</div>}
         {onRefresh && (
           <button type="button" onClick={onRefresh} className={`${UI_BUTTON.ghost} ${UI_BUTTON.icon}`} aria-label="Refresh inventory" data-testid="mesh-inventory-refresh">
-            <RefreshCw size={14} className={loading ? "animate-spin" : undefined} />
+            <BusySpinner icon={RefreshCw} size={14} spinning={loading} />
           </button>
         )}
       </div>
