@@ -3,7 +3,6 @@ import { parseSend, type TabNameResolver } from "./templates";
 import type { OpenPlan, ResolvedChatPlanRef } from "./LinkedText";
 import { pickUiFontScaleValue } from "../uiFontScale";
 import { CrossTabMessageShell } from "../crossTabBubble";
-import { MessageViewToggle } from "./MessageViewToggle";
 import { CompactMessageContent } from "./CompactMessageContent";
 
 interface Props {
@@ -50,18 +49,12 @@ export function SentMessageBubble({ inv, result, resolveTabName, onOpenPlan, res
       textSize={bodyText}
       bubbleTestId="chat-sent-message"
     >
-      <MessageViewToggle
-        raw={inv.raw}
-        formattedAvailable={msg.formattedAvailable}
-        formatted={
-          <CompactMessageContent
-            text={msg.body}
-            onOpenPlan={onOpenPlan}
-            resolvePlanRef={resolvePlanRef}
-            fontScale={fontScale}
-            expandTestId="chat-sent-expand"
-          />
-        }
+      <CompactMessageContent
+        text={msg.formattedAvailable ? msg.body : inv.raw}
+        onOpenPlan={onOpenPlan}
+        resolvePlanRef={resolvePlanRef}
+        fontScale={fontScale}
+        expandTestId="chat-sent-expand"
       />
     </CrossTabMessageShell>
   );

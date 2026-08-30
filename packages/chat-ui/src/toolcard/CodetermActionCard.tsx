@@ -2,7 +2,6 @@ import type { ToolEvent } from "@codeterm/chat-core";
 import { recognize } from "../codeterm/recognize";
 import { describeAction, isHelp, isSend, navigationTarget, parseSend, type NavigationTarget, type PeerNameResolver, type TabNameResolver } from "../codeterm/templates";
 import { CompactMessageContent } from "../codeterm/CompactMessageContent";
-import { MessageViewToggle } from "../codeterm/MessageViewToggle";
 import { ToolCardActionButton, ToolCardFrame } from "./ToolCardFrame";
 import type { OpenPlan, ResolvedChatPlanRef } from "../codeterm/LinkedText";
 import { ToolOutputContent } from "../ToolOutputContent";
@@ -157,17 +156,11 @@ export function CodetermActionCard({
       action={canNavigate && target?.kind === "tab" ? <ToolCardActionButton label="Show Tab" onClick={() => onFocusTab!(target.id)} testId="codeterm-focus-tab" /> : undefined}
     >
       {sent ? (
-        <MessageViewToggle
-          raw={event.detail || event.summary}
-          formattedAvailable={sent.formattedAvailable}
-          formatted={
-            <CompactMessageContent
-              text={sent.body}
-              onOpenPlan={onOpenPlan}
-              resolvePlanRef={resolvePlanRef}
-              fontScale={fontScale}
-            />
-          }
+        <CompactMessageContent
+          text={sent.formattedAvailable ? sent.body : event.detail || event.summary}
+          onOpenPlan={onOpenPlan}
+          resolvePlanRef={resolvePlanRef}
+          fontScale={fontScale}
         />
       ) : isTabList && !tabListJson ? (
         <TabListCard event={event} />

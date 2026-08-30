@@ -12,6 +12,7 @@ import { ReadCard } from "./toolcard/ReadCard";
 import { SearchCard } from "./toolcard/SearchCard";
 import { TaskCard } from "./toolcard/TaskCard";
 import { WaitBatchCard } from "./toolcard/WaitBatchCard";
+import { MessageViewToggle } from "./codeterm/MessageViewToggle";
 
 type PlanFocusKind = "plan" | "task" | "section";
 
@@ -30,6 +31,13 @@ interface ToolCallBubbleProps {
 
 function commandText(event: ToolEvent): string {
   return event.detail?.trim() || event.summary || event.result?.trim() || "";
+}
+
+function rawToolEvent(event: ToolEvent): string {
+  const input = event.detail || event.summary || "";
+  if (!event.result) return input;
+  if (!input) return event.result;
+  return `${input}\n\n${event.result}`;
 }
 
 const SEARCH_STAGE = /^(?:rg|grep)\b/;
@@ -68,12 +76,15 @@ export function ToolCallBubble({
 }: ToolCallBubbleProps) {
   const event = suppliedEvent ?? (message ? materializeToolEvent(message) : null);
   if (!event) return null;
-  if (event.waitBatch) return <WaitBatchCard event={event} />;
+  if (event.waitBatch) {
+    return <MessageViewToggle raw={rawToolEvent(event)} formatted={<WaitBatchCard event={event} />} />;
+  }
 
   const presentedKind = event.kind === "command" ? shellCommandKind(commandText(event)) ?? event.kind : event.kind;
   const presentedEvent = presentedKind === event.kind ? event : { ...event, kind: presentedKind };
   const props = { event: presentedEvent, expanded, onToggle: () => onToggle(!expanded) };
-  switch (presentedKind) {
+  const formatted = (() => {
+    switch (presentedKind) {
     case "command":
       return recognize(commandText(event)) ? (
         <CodetermActionCard
@@ -104,5 +115,8 @@ export function ToolCallBubble({
     case "task": return <TaskCard {...props} />;
     case "fetch": return <FetchCard {...props} />;
     case "generic": return <GenericCard {...props} />;
-  }
+    }
+  })();
+
+  return <MessageViewToggle raw={rawToolEvent(event)} formatted={formatted} />;
 }
