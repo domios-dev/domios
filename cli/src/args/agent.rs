@@ -225,10 +225,10 @@ pub enum AgentAction {
         #[arg(default_value = "claude")]
         agent: String,
         /// Tab title
-        #[arg(long, num_args = 1..)]
+        #[arg(long, num_args = 1)]
         title: Option<Vec<String>>,
         /// Short tab description (max 200 chars)
-        #[arg(long, num_args = 1..)]
+        #[arg(long, num_args = 1)]
         description: Option<Vec<String>>,
         /// Working directory
         #[arg(long)]
@@ -622,29 +622,42 @@ mod tests {
     }
 
     #[test]
-    fn spawn_title_accepts_unquoted_words_until_next_flag() {
+    fn spawn_title_does_not_consume_following_flags() {
         let cli = Cli::try_parse_from([
             "codeterm",
             "agent",
             "spawn",
             "claude",
             "--title",
-            "perf",
-            "brainstorm",
-            "opus",
-            "--task",
-            "review startup",
+            "Team routing smoke",
+            "--reasoning-effort",
+            "low",
+            "--description",
+            "Team containment probe",
+            "--non-user-facing",
         ])
-        .expect("unquoted title words should parse");
+        .expect("spawn flags after title should parse independently");
         match cli.command {
             crate::Commands::Agent {
-                action: AgentAction::Spawn { title, task, .. },
+                action:
+                    AgentAction::Spawn {
+                        title,
+                        description,
+                        reasoning_effort,
+                        non_user_facing,
+                        ..
+                    },
             } => {
                 assert_eq!(
                     title.map(|words| words.join(" ")).as_deref(),
-                    Some("perf brainstorm opus")
+                    Some("Team routing smoke")
                 );
-                assert_eq!(task.as_deref(), Some("review startup"));
+                assert_eq!(reasoning_effort.as_deref(), Some("low"));
+                assert_eq!(
+                    description.map(|words| words.join(" ")).as_deref(),
+                    Some("Team containment probe")
+                );
+                assert!(non_user_facing);
             }
             _ => panic!("expected agent spawn"),
         }
