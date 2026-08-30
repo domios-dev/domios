@@ -14,6 +14,9 @@ function setupDom() {
   Object.defineProperty(globalThis, "window", { value: window, configurable: true });
   Object.defineProperty(globalThis, "document", { value: window.document, configurable: true });
   Object.defineProperty(globalThis, "navigator", { value: window.navigator, configurable: true });
+  Object.defineProperty(globalThis, "Element", { value: window.Element, configurable: true });
+  Object.defineProperty(globalThis, "Node", { value: window.Node, configurable: true });
+  Object.defineProperty(globalThis, "Event", { value: window.Event, configurable: true });
   for (const name of ["HTMLElement", "HTMLInputElement", "HTMLTextAreaElement", "HTMLSelectElement", "ResizeObserver"] as const) {
     if (name === "ResizeObserver") continue;
     Object.defineProperty(globalThis, name, { value: window[name], configurable: true });
