@@ -19,6 +19,7 @@ pub fn cron_to_service(job: &CronJob) -> Service {
         id: cron_id_to_service_id(&job.id),
         name: job.name.clone(),
         kind: ServiceKind::Cron,
+        protected: job.protected,
         description: job.description.clone(),
         host: None,
         url: None,

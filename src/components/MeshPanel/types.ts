@@ -18,7 +18,8 @@ export type InventoryUnavailableReason =
   | "offline"
   | "partial_peer_failure"
   | "unsupported_resource_kind"
-  | "target_unavailable";
+  | "target_unavailable"
+  | "protected_resource";
 
 export interface InventoryCapability {
   allowed: boolean;
@@ -45,6 +46,7 @@ export interface Service {
   id: string;
   name: string;
   kind: ServiceKind;
+  protected?: boolean;
   description?: string;
   host?: string;
   url?: string;

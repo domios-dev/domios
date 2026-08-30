@@ -71,7 +71,7 @@ The Mesh canvas renders peers as terminal-window-shaped nodes. Health and push e
 - `service-health-changed` — `{service_id, status}`. Fired only on confirmed transitions (3-tick debounced).
 - `service-pushed` — `{service_id, tab_id, body_preview}`. Fired by `POST /api/tabs/{id}/send` on token-authenticated writes **and** by the mesh-relay path when a paired peer relays a `/send` to us, so cross-peer push traffic surfaces in the canvas + activity log identically to local pushes.
 
-The ServicesTable lists local services with health badges. ServiceDrawer shows full config and recent activity for a selected resource. Its actions come only from the target-authoritative capability map: schedules may expose trigger, pause/resume, running-execution cancellation, schedule editing, history, and removal; daemons expose inspection and registry removal, never process stop/start, plus the existing local push-token rotation. Stale, offline, partial-failure, and denied resources remain inspectable with disabled controls and their exact capability reason. Remote or destructive confirmations name the resource and target machine; the drawer waits for the returned outcome, announces success or target failure accessibly, and refreshes only after completion. The drawer dismisses on ESC, backdrop click, or its visible close button. Self-peer drawers hide pair/access-level UI (pointless for the local node).
+The ServicesTable lists local services with health badges. ServiceDrawer shows full config and recent activity for a selected resource. Its actions come only from the target-authoritative capability map: schedules may expose trigger, pause/resume, running-execution cancellation, schedule editing, history, and removal; protected schedules expose no removal. Daemons expose inspection and registry removal, never process stop/start, plus the existing local push-token rotation. Stale, offline, partial-failure, denied, and protected resources remain inspectable with disabled controls and their exact capability reason. Remote or destructive confirmations name the resource and target machine; the drawer waits for the returned outcome, announces success or target failure accessibly, and refreshes only after completion. The drawer dismisses on ESC, backdrop click, or its visible close button. Self-peer drawers hide pair/access-level UI (pointless for the local node).
 
 `AddServiceWizard` handles manual daemon registration. Smart-Add inspects running processes (`launchctl list` / `systemctl --user list-units` / `ps`) and offers heuristic field-mapping suggestions to pre-fill name / health-mode / process-label / port — the user reviews and edits before saving.
 
@@ -112,4 +112,4 @@ services/
   smart_add.rs      — heuristic field-mapping suggestions for AddServiceWizard
 ```
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->
