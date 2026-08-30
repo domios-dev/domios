@@ -324,8 +324,9 @@ function PeerResourceSection({
       ? peer.online ? "Stale · last known inventory" : "Offline · cached inventory"
       : null;
   return (
-    <Section label={`${title} (${resources.length})`}>
-      <div className={sectionListClass} data-testid={`mesh-peer-${title.toLowerCase()}-section`}>
+    <section className={UI_PANEL.section} role="region" aria-labelledby={`mesh-peer-${title.toLowerCase()}-heading`} data-testid={`mesh-peer-${title.toLowerCase()}-section`}>
+      <div id={`mesh-peer-${title.toLowerCase()}-heading`} className={UI_PANEL.sectionLabel}>{title} ({resources.length})</div>
+      <div className={sectionListClass}>
         <div className="mb-1 flex items-center justify-between gap-2 text-[9px] text-[var(--ct-muted-fg)]">
           <span>{peerState ?? "Live inventory"}</span>
           {peer.services_error && <span className="text-[var(--ct-yellow)]">partial</span>}
@@ -351,7 +352,7 @@ function PeerResourceSection({
           );
         })}
       </div>
-    </Section>
+    </section>
   );
 }
 
