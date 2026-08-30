@@ -167,7 +167,7 @@ export function buildMeshInventoryGraphModel(
     });
   }
 
-  const machines = [...machineMap.values()].sort((left, right) => left.label.localeCompare(right.label) || left.machineId.localeCompare(right.machineId));
+  const machines = [...machineMap.values()].sort((left, right) => left.machineId.localeCompare(right.machineId) || left.label.localeCompare(right.label));
   resourceNodes.sort((left, right) => left.machineId.localeCompare(right.machineId) || left.type.localeCompare(right.type) || left.label.localeCompare(right.label) || left.resourceKey.localeCompare(right.resourceKey));
   const edges = resourceNodes.map((resource) => ({
     id: `ownership:${resource.machineId}:${resource.resourceKey}`,
