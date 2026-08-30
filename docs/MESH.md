@@ -243,6 +243,18 @@ offline, or partially failed peer rows do not expose mutation capabilities.
 Daemon resources are registry entries and never advertise process start/stop
 controls.
 
+Resource detail uses that same capability map from both List and Graph. A daemon
+offers inspection and registry removal only (plus its existing local push-token
+rotation); it is not a controllable process. A schedule offers inspection and
+history, with trigger, pause/resume, running-execution cancellation, schedule
+editing, and removal shown only when the target grants those operations. Every
+remote or destructive operation names the target machine, waits for the
+target-authoritative outcome, announces that outcome in the drawer live region,
+and refreshes inventory afterward. Stale, offline, partially failed, or denied
+rows remain inspectable, while their mutation controls stay disabled with the
+capability reason. A failed target operation is never represented by a local
+optimistic success.
+
 The Mesh section opens on the full-screen Inventory List. Activity and Network
 remain top-level sections; List and the reserved Graph mode use the compact
 bottom mode bubble. Inventory rows are keyboard-accessible buttons: `/` moves
@@ -257,4 +269,4 @@ between nodes, Enter or Space opens a resource, and Escape returns to the mode
 bubble. Peer detail separates Services and Schedules and labels cached,
 offline, denied, and partial-fetch states.
 
-<!-- revision: 19 -->
+<!-- revision: 20 -->
