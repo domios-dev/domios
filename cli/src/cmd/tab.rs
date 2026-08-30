@@ -84,6 +84,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             cwd,
             title,
             team,
+            no_team,
             cmd,
             eager,
             chat_backend,
@@ -121,6 +122,9 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                     std::process::exit(1);
                 }
                 body["team_id"] = serde_json::Value::String(team_id.to_string());
+            }
+            if no_team {
+                body["detach_from_team"] = serde_json::Value::Bool(true);
             }
             if eager {
                 body["eager"] = serde_json::Value::Bool(true);

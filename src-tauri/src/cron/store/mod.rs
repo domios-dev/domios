@@ -198,6 +198,8 @@ pub struct CronCreateParams {
     pub workspace_id: String,
     #[serde(default)]
     pub team_id: Option<String>,
+    #[serde(default)]
+    pub detach_from_team: bool,
     pub schedule: String,
     pub task: String,
     #[serde(default)]

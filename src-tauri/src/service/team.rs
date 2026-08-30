@@ -979,7 +979,8 @@ fn authorize_team_mutation(
 
 mod membership;
 pub(crate) use membership::{
-    adopt_agent_into_team, apply_team_attachment, resolve_spawn_attachment,
+    adopt_agent_into_team, apply_team_attachment, resolve_inherited_team_attachment,
+    resolve_spawn_attachment,
 };
 
 #[cfg(test)]

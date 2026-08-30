@@ -100,6 +100,35 @@ pub(crate) fn resolve_spawn_attachment(
     }
 }
 
+pub(crate) fn resolve_inherited_team_attachment(
+    mux: &MultiplexerState,
+    team_id: Option<&str>,
+    creator_tab_id: Option<&str>,
+    workspace_id: &str,
+    detach_from_team: bool,
+) -> Result<Option<TeamAttachment>, String> {
+    if detach_from_team {
+        return if team_id.is_some() {
+            Err("team_id cannot be combined with detach_from_team".into())
+        } else {
+            Ok(None)
+        };
+    }
+    if team_id.is_some() {
+        return resolve_spawn_attachment(mux, team_id, creator_tab_id, workspace_id);
+    }
+    let Some(creator_tab_id) = creator_tab_id else {
+        return Ok(None);
+    };
+    let creator = mux
+        .get_tab(creator_tab_id)
+        .ok_or_else(|| format!("Creator Tab {creator_tab_id} not found"))?;
+    let Some(team_id) = creator.team_id.as_deref() else {
+        return Ok(None);
+    };
+    authorize_team_attachment(mux, team_id, creator_tab_id, workspace_id).map(Some)
+}
+
 /// Attach an already-running roleless agent tab to a Team. A role-bearing tab
 /// already draws its Team from its own hierarchy binding, so it is refused
 /// rather than silently re-parented.

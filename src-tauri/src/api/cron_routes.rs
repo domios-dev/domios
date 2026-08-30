@@ -33,9 +33,12 @@ pub async fn cron_get(
 pub async fn cron_create(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Json(body): Json<crate::cron::store::CronCreateParams>,
+    Json(mut body): Json<crate::cron::store::CronCreateParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
+    if body.creator_tab_id.is_none() {
+        body.creator_tab_id = crate::api::tab_routes::caller_tab_header(&headers);
+    }
     let job = state
         .svc
         .cron_create(&state.cron, &state.cron_wake, body)
