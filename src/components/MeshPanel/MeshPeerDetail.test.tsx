@@ -1,5 +1,4 @@
 import { Window } from "happy-dom";
-import type { ReactElement } from "react";
 import type { Root } from "react-dom/client";
 import type { Service } from "./types";
 import type { PeerStatus } from "./useMeshData";
@@ -21,9 +20,6 @@ function setupDom() {
 
 function service(overrides: Partial<Service> & Pick<Service, "id" | "name" | "kind">): Service {
   return {
-    id: overrides.id,
-    name: overrides.name,
-    kind: overrides.kind,
     health_mode: "http",
     health_interval: 60,
     health: { status: "healthy" },
@@ -32,6 +28,9 @@ function service(overrides: Partial<Service> & Pick<Service, "id" | "name" | "ki
     updated_at: 1,
     enabled: true,
     ...overrides,
+    id: overrides.id,
+    name: overrides.name,
+    kind: overrides.kind,
   };
 }
 

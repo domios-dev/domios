@@ -80,7 +80,7 @@ export function CronWorkspaceView({ cronId }: Props) {
         </button>
       </header>
       <div className="mx-auto w-full max-w-3xl p-5">
-        <CronDrawerSection service={toService(job)} onUpdate={() => void refresh()} />
+        <CronDrawerSection service={toService(job)} machineName="This machine" onUpdate={() => void refresh()} />
       </div>
     </section>
   );

@@ -103,7 +103,7 @@ export function MeshInventoryList({
     }));
   };
 
-  const moveFocus = (row: InventoryRow, direction: number) => {
+  const moveFocus = (direction: number) => {
     const buttons = Array.from(listRef.current?.querySelectorAll<HTMLButtonElement>("button[data-resource-key]") ?? []);
     const currentIndex = buttons.indexOf(document.activeElement as HTMLButtonElement);
     const nextIndex = Math.max(0, Math.min(buttons.length - 1, currentIndex + direction));
@@ -117,16 +117,16 @@ export function MeshInventoryList({
       onSelectResource(row.resource, row.resourceKey);
     } else if (event.code === "ArrowDown" || event.code === "ArrowRight") {
       event.preventDefault();
-      moveFocus(row, 1);
+      moveFocus(1);
     } else if (event.code === "ArrowUp" || event.code === "ArrowLeft") {
       event.preventDefault();
-      moveFocus(row, -1);
+      moveFocus(-1);
     } else if (event.code === "Home") {
       event.preventDefault();
-      moveFocus(row, -buttons.length);
+      moveFocus(-buttons.length);
     } else if (event.code === "End") {
       event.preventDefault();
-      moveFocus(row, buttons.length);
+      moveFocus(buttons.length);
     }
   };
 

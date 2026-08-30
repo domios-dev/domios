@@ -89,7 +89,7 @@ function unavailableReason(resource: Service): string | undefined {
   if (denied.length === 0) return undefined;
   const reasons = denied
     .map((capability) => capability.unavailable_reason)
-    .filter((reason): reason is string => Boolean(reason));
+    .filter((reason): reason is NonNullable<typeof reason> => reason !== undefined);
   const concreteReasons = reasons.filter((reason) => reason !== "unsupported_resource_kind");
   return [...new Set(concreteReasons.length ? concreteReasons : reasons)].join(", ") || "not_authorized";
 }
