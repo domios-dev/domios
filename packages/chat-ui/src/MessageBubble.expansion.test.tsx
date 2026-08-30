@@ -52,6 +52,16 @@ async function run() {
     content: "Internal lifecycle detail",
     inboundKind: "system",
   };
+  const ordinaryUser: NormalizedChatMessage = {
+    id: "ordinary-user-view",
+    type: "user",
+    content: "## User formatted\n\n- item",
+  };
+  const ordinaryAssistant: NormalizedChatMessage = {
+    id: "ordinary-assistant-view",
+    type: "assistant",
+    content: "## Assistant formatted\n\n- item",
+  };
 
   await act(async () => {
     root.render(
@@ -73,6 +83,8 @@ async function run() {
           item={{ kind: "tool", event: { id: completedEdit.id, phase: "result", status: "success", kind: "edit", summary: "src/coordination.ts", edits: [{ path: "src/coordination.ts", old: "old", new: "new" }], message: completedEdit } }}
         />
         <MessageBubble message={systemEvent} origin={{ kind: "system", context: "lifecycle" }} />
+        <MessageBubble message={ordinaryUser} />
+        <MessageBubble message={ordinaryAssistant} />
       </div>,
     );
   });
@@ -98,6 +110,14 @@ async function run() {
   const editDetailsId = edit?.querySelector("button")?.getAttribute("aria-controls");
   const editDetails = editDetailsId ? edit?.querySelector<HTMLElement>(`#${editDetailsId}`) : null;
   assert(editDetails?.style.maxHeight === "600px" && editDetails.style.overflowY === "auto", "expanded code output should use the 600px internal scroll cap");
+  const messageViews = Array.from(host.querySelectorAll<HTMLElement>('[data-testid="message-view-toggle"]'));
+  const userView = messageViews.find((view) => view.textContent?.includes("User formatted"));
+  const assistantView = messageViews.find((view) => view.textContent?.includes("Assistant formatted"));
+  assert(userView && assistantView, "ordinary user and assistant messages should default to formatted views");
+  const assistantRaw = Array.from(assistantView.querySelectorAll("button")).find((button) => button.textContent === "Raw");
+  await act(async () => assistantRaw?.click());
+  assert(assistantRaw?.getAttribute("aria-pressed") === "true", "ordinary assistant message should switch to raw view");
+  assert(assistantView.querySelector('[data-testid="message-raw-content"]')?.textContent === ordinaryAssistant.content, "ordinary assistant raw view should preserve exact source text");
 
   await act(async () => root.unmount());
   host.remove();

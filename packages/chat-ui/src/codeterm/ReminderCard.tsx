@@ -2,6 +2,7 @@ import React from "react";
 import { AlarmClock } from "lucide-react";
 import { renderUserContent } from "../MarkdownBody";
 import { absoluteTime, relativeTime } from "./relativeTime";
+import { MessageViewToggle } from "./MessageViewToggle";
 
 interface Props {
   whoSet?: string;
@@ -65,7 +66,7 @@ export function ReminderCard({ whoSet, model, setAt, fireAt, id, body }: Props):
             style={{ borderColor: "color-mix(in srgb, var(--ct-accent, #58a6ff) 22%, transparent)" }}
             data-reminder-id={id}
           >
-            {renderUserContent(body)}
+            <MessageViewToggle raw={body} formatted={renderUserContent(body)} />
           </div>
         )}
       </div>

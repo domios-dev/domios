@@ -2,6 +2,7 @@ import type { ToolEvent } from "@codeterm/chat-core";
 import { recognize } from "../codeterm/recognize";
 import { describeAction, isHelp, isSend, navigationTarget, parseSend, type NavigationTarget, type PeerNameResolver, type TabNameResolver } from "../codeterm/templates";
 import { CompactMessageContent } from "../codeterm/CompactMessageContent";
+import { MessageViewToggle } from "../codeterm/MessageViewToggle";
 import { ToolCardActionButton, ToolCardFrame } from "./ToolCardFrame";
 import type { OpenPlan, ResolvedChatPlanRef } from "../codeterm/LinkedText";
 import { ToolOutputContent } from "../ToolOutputContent";
@@ -151,20 +152,23 @@ export function CodetermActionCard({
       variant="codeterm"
       disclosureLabel="full command"
       visualOverride={inv ? actionVisual(inv) : undefined}
-      command={<div data-testid="toolcard-command" role="region" aria-label="Full command text" tabIndex={0} className="overflow-auto border-t px-3 py-2 whitespace-pre-wrap break-words font-mono text-xs focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--ct-accent)]" style={{ borderColor: "var(--ct-border)", color: "var(--ct-fg)", background: "var(--ct-bg)", maxHeight: "12rem" }}>{sent && <div className="mb-1 text-[10px] uppercase" style={{ color: "var(--ct-muted-fg)" }}>{sent.bodySource === "pad" ? "AgentPad command" : "Source as typed"}</div>}{event.detail || event.summary}</div>}
+      command={sent ? undefined : <div data-testid="toolcard-command" role="region" aria-label="Full command text" tabIndex={0} className="overflow-auto border-t px-3 py-2 whitespace-pre-wrap break-words font-mono text-xs focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--ct-accent)]" style={{ borderColor: "var(--ct-border)", color: "var(--ct-fg)", background: "var(--ct-bg)", maxHeight: "12rem" }}>{event.detail || event.summary}</div>}
       metric={collapsedChips.length ? <span className="flex flex-wrap gap-1">{collapsedChips.map((chip) => <span key={chip} className="rounded border px-1.5 py-0.5 text-[10px]" style={{ borderColor: "var(--ct-border)", color: "var(--ct-muted-fg)" }}>{chip}</span>)}</span> : undefined}
       action={canNavigate && target?.kind === "tab" ? <ToolCardActionButton label="Show Tab" onClick={() => onFocusTab!(target.id)} testId="codeterm-focus-tab" /> : undefined}
     >
       {sent ? (
-        <div data-testid={sent.bodySource === "pad" ? "codeterm-send-source" : undefined}>
-          <div className="mb-1 font-mono text-[10px] uppercase" style={{ color: "var(--ct-muted-fg)" }}>{sent.bodySource === "resolved" ? "Delivered text" : sent.bodySource === "pad" ? "AgentPad source" : "Source as typed"}</div>
-          <CompactMessageContent
-            text={sent.body}
-          onOpenPlan={onOpenPlan}
-          resolvePlanRef={resolvePlanRef}
-          fontScale={fontScale}
-          />
-        </div>
+        <MessageViewToggle
+          raw={event.detail || event.summary}
+          formattedAvailable={sent.formattedAvailable}
+          formatted={
+            <CompactMessageContent
+              text={sent.body}
+              onOpenPlan={onOpenPlan}
+              resolvePlanRef={resolvePlanRef}
+              fontScale={fontScale}
+            />
+          }
+        />
       ) : isTabList && !tabListJson ? (
         <TabListCard event={event} />
       ) : descriptor.fields?.length ? (
