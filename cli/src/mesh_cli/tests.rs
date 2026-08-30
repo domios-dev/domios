@@ -636,6 +636,23 @@ fn explicit_address_scope_mesh_all_workspaces_reaches_every_peer_workspace() {
 }
 
 #[test]
+fn tab_respond_maps_to_provider_prompt_route() {
+    let command = Commands::Tab {
+        action: TabAction::Respond {
+            option: 2,
+            tab: Some("child_7".into()),
+        },
+    };
+
+    let (method, path, body) = cli_command_to_api(&command);
+    let body: serde_json::Value = serde_json::from_str(&body.expect("body")).unwrap();
+
+    assert_eq!(method, "POST");
+    assert_eq!(path, "/api/tabs/child_7/prompt/respond");
+    assert_eq!(body["value"], "2");
+}
+
+#[test]
 fn plugin_with_mesh_never_reaches_direct_local_dispatch() {
     let command = Commands::Plugin {
         action: crate::PluginAction::List,

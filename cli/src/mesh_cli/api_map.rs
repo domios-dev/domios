@@ -377,6 +377,14 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 let p = tab.as_deref().unwrap_or("general");
                 ("GET".into(), format!("/api/tabs/{}/status", p), None)
             }
+            crate::TabAction::Respond { option, tab } => {
+                let p = tab.as_deref().unwrap_or("general");
+                (
+                    "POST".into(),
+                    format!("/api/tabs/{}/prompt/respond", p),
+                    Some(serde_json::json!({"value": option.to_string()}).to_string()),
+                )
+            }
             crate::TabAction::Rebind { session_id, tab } => {
                 let p = tab.as_deref().unwrap_or("general");
                 (

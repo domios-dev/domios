@@ -994,12 +994,10 @@ var NOISE_FRAGMENTS = [
 var FILE_TASK_PROMPT = "Execute the CodeTerm task provided in the appended system prompt. Follow its reporting instructions exactly.";
 var IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
 function starterPrompt(prompt, hostText) {
+  if (hostText) return hostText;
   if (prompt === "no_starter") return void 0;
   if (prompt === "idle_wakeup") return IDLE_WAKEUP_START_PROMPT;
-  if (prompt === "team_bootstrap") {
-    if (!hostText) throw new Error("team_bootstrap requires host starterPromptText");
-    return hostText;
-  }
+  if (prompt === "team_bootstrap") throw new Error("team_bootstrap requires host starterPromptText");
   return FILE_TASK_PROMPT;
 }
 function xmlTagBody(content, tag) {

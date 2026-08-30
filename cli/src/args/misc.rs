@@ -202,6 +202,15 @@ pub enum TabAction {
         #[arg(long = "tab", value_name = "TAB")]
         tab: Option<String>,
     },
+    /// Answer the tab's current provider-declared prompt by numbered option.
+    /// Sends only when a pending prompt exists; use this instead of raw keys.
+    Respond {
+        /// One-based option number shown by `tab status` or `tab inspect`.
+        option: usize,
+        /// Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
+        #[arg(long = "tab", value_name = "TAB")]
+        tab: Option<String>,
+    },
     /// Bind a running tab to an existing provider session without restarting it.
     Rebind {
         /// Provider session ID to bind.

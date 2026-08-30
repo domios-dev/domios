@@ -742,6 +742,45 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 }
             }
         }
+        AgentAction::StartupAck => {
+            let tab_id = super::local_io::resolve_caller_tab(None, "agent startup-ack");
+            let required_env = |name: &str| {
+                std::env::var(name)
+                    .ok()
+                    .filter(|value| !value.trim().is_empty())
+                    .unwrap_or_else(|| {
+                        eprintln!("STARTUP ACK NOT ACCEPTED: {name} is not set");
+                        std::process::exit(1);
+                    })
+            };
+            let attempt_id = required_env("CODETERM_STARTUP_ATTEMPT_ID");
+            let binding_nonce = required_env("CODETERM_SESSION_BINDING_NONCE");
+            handle_result(
+                json,
+                client.call(
+                    "agent.startup_ack",
+                    Some(serde_json::json!({
+                        "caller_tab_id": tab_id,
+                        "attempt_id": attempt_id,
+                        "binding_nonce": binding_nonce,
+                    })),
+                ),
+            );
+        }
+        AgentAction::StartupHold { tab, attempt } => {
+            let caller_tab_id = super::local_io::resolve_caller_tab(None, "agent startup-hold");
+            handle_result(
+                json,
+                client.call(
+                    "agent.startup_hold",
+                    Some(serde_json::json!({
+                        "caller_tab_id": caller_tab_id,
+                        "tab_id": tab,
+                        "attempt_id": attempt,
+                    })),
+                ),
+            );
+        }
         action @ AgentAction::Spawn { .. } => super::agent_spawn::handle(client, json, action),
         AgentAction::Ledger { tab } => {
             let tab_id = resolve_tab(client, tab);

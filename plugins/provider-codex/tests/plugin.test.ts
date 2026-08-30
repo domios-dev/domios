@@ -146,6 +146,9 @@ console.log("\n--- task instructions launch ---\n");
   const teamText = "host-owned team bootstrap";
   const team = p.buildLaunchCommand({ task: hostileTask, starterPrompt: "team_bootstrap", starterPromptText: teamText });
   assert(team.includes(teamText), "team launch uses the host-owned starter text");
+  const handshakeText = "opaque-startup-handshake";
+  const handshake = p.buildLaunchCommand({ task: hostileTask, starterPrompt: "startup_handshake", starterPromptText: handshakeText });
+  assert(handshake.includes(handshakeText), "startup launch uses the host-owned starter text");
   eq(p.starterPromptText?.("team_bootstrap"), undefined, "team starter text is not duplicated in the plugin");
 }
 

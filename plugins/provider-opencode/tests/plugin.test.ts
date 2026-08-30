@@ -226,6 +226,9 @@ console.log("\n--- discoverModels ---\n");
   const teamText = "host-owned team bootstrap";
   const team = p.buildLaunchCommand({ task: hostileTask, starterPrompt: "team_bootstrap", starterPromptText: teamText });
   assert(team.includes(teamText), "OpenCode team launch uses the host-owned starter text");
+  const handshakeText = "opaque-startup-handshake";
+  const handshake = p.buildLaunchCommand({ task: hostileTask, starterPrompt: "startup_handshake", starterPromptText: handshakeText });
+  assert(handshake.includes(handshakeText), "OpenCode startup launch uses the host-owned starter text");
   eq(p.starterPromptText?.("team_bootstrap"), undefined, "OpenCode does not duplicate the team starter");
 }
 

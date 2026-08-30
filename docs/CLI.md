@@ -162,6 +162,17 @@ Spawn a new agent; roleless unless --role is provided.
 - `--title` — Tab title
 - `--workspace` — Target workspace ID. Defaults to the parent tab's workspace, then your own — never the workspace selected in the UI. Pass this only to place the agent in a different workspace on purpose
 
+#### `codeterm agent startup-ack`
+
+Acknowledge that this spawned agent received its first startup turn
+
+#### `codeterm agent startup-hold`
+
+Cancel automatic cleanup for an inspected startup attempt
+
+- `--attempt` — Launch attempt shown in the startup-overdue report
+- `--tab` — Target spawned Tab
+
 #### `codeterm agent unlink`
 
 Remove a tab's role (also orphans children)
@@ -2840,6 +2851,13 @@ Rename a tab (default: current tab)
 
 - `--tab` — Tab ID to rename (default: $CODETERM_TAB_ID; no focused-tab fallback)
 - `<title>` — New title
+
+#### `codeterm tab respond`
+
+Answer the tab's current provider-declared prompt by numbered option. Sends only when a pending prompt exists; use this instead of raw keys
+
+- `<option>` — One-based option number shown by `tab status` or `tab inspect`
+- `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
 #### `codeterm tab restart`
 

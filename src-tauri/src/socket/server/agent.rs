@@ -218,6 +218,64 @@ pub(super) fn dispatch(
             }))
         }
 
+        "agent.startup_ack" => {
+            let caller_tab_id = get_string_param(params, "caller_tab_id")?;
+            let attempt_id = get_string_param(params, "attempt_id")?;
+            let binding_nonce = get_string_param(params, "binding_nonce")?;
+            let accepted = svc
+                .acknowledge_agent_startup(&caller_tab_id, &attempt_id, &binding_nonce)
+                .map_err(|message| JsonRpcError {
+                    code: -32603,
+                    message,
+                    data: None,
+                })?;
+            if !accepted {
+                return Err(JsonRpcError {
+                    code: -32603,
+                    message: format!(
+                        "startup attempt {attempt_id} for Tab {caller_tab_id} is not awaiting acknowledgement"
+                    ),
+                    data: None,
+                });
+            }
+            Ok(serde_json::json!({
+                "ok": true,
+                "accepted": true,
+                "state": "startup_acknowledged",
+                "tab_id": caller_tab_id,
+                "attempt_id": attempt_id,
+            }))
+        }
+
+        "agent.startup_hold" => {
+            let caller_tab_id = get_string_param(params, "caller_tab_id")?;
+            let tab_id = get_string_param(params, "tab_id")?;
+            let attempt_id = get_string_param(params, "attempt_id")?;
+            let held = svc
+                .hold_agent_startup(&caller_tab_id, &tab_id, &attempt_id)
+                .map_err(|message| JsonRpcError {
+                    code: -32603,
+                    message,
+                    data: None,
+                })?;
+            if !held {
+                return Err(JsonRpcError {
+                    code: -32603,
+                    message: format!(
+                        "startup attempt {attempt_id} for Tab {tab_id} is not awaiting provider readiness"
+                    ),
+                    data: None,
+                });
+            }
+            Ok(serde_json::json!({
+                "ok": true,
+                "held": true,
+                "state": "held_by_parent",
+                "tab_id": tab_id,
+                "attempt_id": attempt_id,
+            }))
+        }
+
         "agent.ledger" => {
             let tab_id = get_string_param(params, "tab_id")?;
             let svc_ref = &**svc;

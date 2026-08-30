@@ -80,6 +80,7 @@ pub enum TabCloseReason {
     #[default]
     User,
     PolicyWorker,
+    PolicyStartup,
 }
 
 /// A closed tab retained for browser-style reopen. Captures just enough to

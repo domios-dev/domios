@@ -97,6 +97,11 @@ fn idle_starter_case() {
         starter_prompt: crate::provider::StarterPrompt::TeamBootstrap,
         ..Default::default()
     });
+    let startup = provider.build_launch_command(&AgentLaunchParams {
+        task: Some(task.into()),
+        starter_prompt: crate::provider::StarterPrompt::StartupHandshake,
+        ..Default::default()
+    });
     let assigned_prompt = provider
         .starter_prompt_text(crate::provider::StarterPrompt::AssignedTask)
         .expect("Codex plugin must provide the assigned-task starter");
@@ -106,6 +111,9 @@ fn idle_starter_case() {
     let team_prompt = provider
         .starter_prompt_text(crate::provider::StarterPrompt::TeamBootstrap)
         .expect("Codex plugin must provide the team starter");
+    let startup_prompt = provider
+        .starter_prompt_text(crate::provider::StarterPrompt::StartupHandshake)
+        .expect("host startup handshake must reach the provider");
     assert_ne!(assigned_prompt, idle_prompt);
     assert_ne!(assigned_prompt, team_prompt);
     assert_ne!(idle_prompt, team_prompt);
@@ -114,6 +122,8 @@ fn idle_starter_case() {
     assert!(!idle.contains(&assigned_prompt));
     assert!(team.contains(&team_prompt));
     assert!(!team.contains(&assigned_prompt));
+    assert!(startup.contains(&startup_prompt));
+    assert!(!startup.contains(&assigned_prompt));
 }
 
 #[test]
