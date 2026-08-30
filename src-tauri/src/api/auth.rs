@@ -145,6 +145,25 @@ fn identify_caller(state: &AppState, auth_header: &str) -> Result<CallerIdentity
     }
 }
 
+pub(crate) fn caller_access_level(
+    state: &AppState,
+    headers: &axum::http::HeaderMap,
+) -> Result<AccessLevel, (StatusCode, String)> {
+    let auth = headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    match identify_caller(state, auth) {
+        Ok(CallerIdentity::Local) => Ok(AccessLevel::Full),
+        Ok(CallerIdentity::Peer { access_level, .. }) => Ok(access_level),
+        Ok(CallerIdentity::ServicePush { .. }) => Err((
+            StatusCode::FORBIDDEN,
+            "Service push tokens cannot inspect mesh inventory".into(),
+        )),
+        Err(()) => Err((StatusCode::UNAUTHORIZED, "Invalid or missing token".into())),
+    }
+}
+
 pub async fn auth_middleware(
     AxumState(state): AxumState<AppState>,
     req: Request,

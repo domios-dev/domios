@@ -421,6 +421,7 @@ const HTTP_MAP: Record<string, Mapper> = {
   },
   mesh_peer_services_list: (a) =>
     webJson("GET", `/api/mesh/peers/${enc(s(a, "instanceId"))}/services`),
+  mesh_inventory_list: () => webJson("GET", "/api/mesh/inventory"),
   mesh_peer_service_delete: (a) =>
     webJson(
       "DELETE",
@@ -430,6 +431,17 @@ const HTTP_MAP: Record<string, Mapper> = {
     webJson(
       "POST",
       `/api/mesh/peers/${enc(s(a, "instanceId"))}/crons/${enc(s(a, "id"))}/${enc(s(a, "action"))}`,
+    ),
+  mesh_peer_cron_update: (a) =>
+    webJson(
+      "PUT",
+      `/api/mesh/peers/${enc(s(a, "instanceId"))}/crons/${enc(s(a, "id"))}`,
+      a.patch,
+    ),
+  mesh_peer_cron_delete: (a) =>
+    webJson(
+      "DELETE",
+      `/api/mesh/peers/${enc(s(a, "instanceId"))}/crons/${enc(s(a, "id"))}`,
     ),
   mesh_peer_cron_get: (a) =>
     webJson(
