@@ -243,4 +243,12 @@ offline, or partially failed peer rows do not expose mutation capabilities.
 Daemon resources are registry entries and never advertise process start/stop
 controls.
 
-<!-- revision: 17 -->
+The Mesh section opens on the full-screen Inventory List. Activity and Network
+remain top-level sections; List and the reserved Graph mode use the compact
+bottom mode bubble. Inventory rows are keyboard-accessible buttons: `/` moves
+focus to search when focus is not already in an editable control, arrow keys
+move between rows, and Enter or Space opens the existing resource inspection.
+Filtering keeps the selected resource identity and announces when it is hidden
+or removed by a refresh.
+
+<!-- revision: 18 -->
