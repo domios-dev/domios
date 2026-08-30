@@ -322,6 +322,7 @@ fn scanning_an_empty_project_does_not_create_a_specs_sidecar() {
     let storage = tempfile::tempdir().unwrap();
     let project = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(storage.path());
+    paths::mark_test_project_root(project.path());
 
     store.scan_project(project.path()).unwrap();
 
