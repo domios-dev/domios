@@ -77,9 +77,9 @@ Parallel writers always use separate worktrees/lanes; the canonical checkout has
 
 Gateway-backed build commands fail fast when the machine slot is busy. Report the returned blocker and continue source-only work; never poll or retry it. Use `--wait-build` only when blocking the caller is explicitly intended.
 
-If foreground dev owns the gateway, canonical QA reports the conflict and waits
-for an explicit integration decision. Never move the check into a lane, compose
-a private `CARGO_TARGET_DIR`, or wait behind dev.
+If foreground dev owns the gateway, stop dev before canonical QA and restart it
+afterward. Never move the check into a lane, compose a private
+`CARGO_TARGET_DIR`, or wait behind dev.
 
 Use `./build.sh help` and the named build operations. Do not hand-compose Cargo manifests, packages, profiles, or gateway commands when a build operation already owns that intent.
 
