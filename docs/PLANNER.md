@@ -145,6 +145,14 @@ codeterm plan skill show <slug>             # read the SKILL.md + ledger history
 codeterm plan skill edit <slug> --body-file <path>   # record keep|discard|superseded, replace body
 ```
 
+A task-bound `plan skill show` is proven by the caller's live tab, not by an
+environment secret: the tab supplies its id and launch binding nonce, and the
+daemon derives the session id only when that nonce is both the tab's current
+nonce and the one its running session echoed back. A worker therefore reads its
+mandatory skills as soon as it is launched, before any session id exists, while
+stale, mismatched, partial, or foreign identities are refused. Reading a plan
+skill as evidence still requires a current task binding for that plan.
+
 Promote the plan's skills in every worker brief. The canonical seed is a
 **gap-analysis / verify-before-claim** skill: before execution, list the
 structural claims each task makes and verify EACH against the codebase with
@@ -209,4 +217,4 @@ task needs an explicit provider/model or named persona.
 The full CLI reference (plans, specs, sections, tasks, mem, sessions) is the
 `codeterm` skill. If it is not already loaded, find it:
 `codeterm mem search "codeterm skill"` and read the returned `SKILL.md`.
-<!-- revision: 18 -->
+<!-- revision: 19 -->

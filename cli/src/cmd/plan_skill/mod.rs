@@ -241,6 +241,48 @@ fn list_skills(
     Ok(None)
 }
 
+fn identity_env(key: &str) -> Option<String> {
+    std::env::var(key).ok().filter(|v| !v.trim().is_empty())
+}
+
+// A task tab exports tab/nonce/task/attempt before PTY spawn but learns its
+// session only afterwards, so the session id is forwarded only when it is real.
+fn apply_caller_identity(params: &mut Value) -> Result<(), String> {
+    let tab_id = identity_env("CODETERM_TAB_ID");
+    let session_binding_nonce = identity_env("CODETERM_SESSION_BINDING_NONCE");
+    let caller_session_id = identity_env("CODETERM_SESSION_ID");
+    let task_id = identity_env("CODETERM_TASK_ID");
+    let attempt_id = identity_env("CODETERM_ATTEMPT_ID");
+    let claims_identity = [
+        &tab_id,
+        &session_binding_nonce,
+        &caller_session_id,
+        &task_id,
+        &attempt_id,
+    ]
+    .iter()
+    .any(|value| value.is_some());
+
+    let (Some(tab_id), Some(session_binding_nonce)) = (tab_id, session_binding_nonce) else {
+        if claims_identity {
+            return Err("plan skill show requires a complete tab/nonce caller identity".into());
+        }
+        return Ok(());
+    };
+    params["caller_tab_id"] = json!(tab_id);
+    params["session_binding_nonce"] = json!(session_binding_nonce);
+    for (key, value) in [
+        ("caller_session_id", caller_session_id),
+        ("task_id", task_id),
+        ("attempt_id", attempt_id),
+    ] {
+        if let Some(value) = value {
+            params[key] = json!(value);
+        }
+    }
+    Ok(())
+}
+
 fn show_skill(
     client: &mut dyn RpcClient,
     json: bool,
@@ -249,35 +291,7 @@ fn show_skill(
 ) -> Result<Option<Value>, String> {
     let mut params = plan_rpc_params(plan);
     params["slug"] = json!(slug);
-    let binding = [
-        std::env::var("CODETERM_TAB_ID").ok(),
-        std::env::var("CODETERM_SESSION_ID").ok(),
-        std::env::var("CODETERM_SESSION_BINDING_NONCE").ok(),
-    ]
-    .map(|value| value.filter(|value| !value.trim().is_empty()));
-    if binding.iter().any(Option::is_some) && binding.iter().any(Option::is_none) {
-        return Err("plan skill show requires complete tab/session/nonce identity".into());
-    }
-    if let [Some(tab_id), Some(session_id), Some(session_binding_nonce)] = binding {
-        params["caller_tab_id"] = json!(tab_id);
-        params["caller_session_id"] = json!(session_id);
-        params["session_binding_nonce"] = json!(session_binding_nonce);
-        if let Ok(task_id) = std::env::var("CODETERM_TASK_ID") {
-            if !task_id.trim().is_empty() {
-                params["task_id"] = json!(task_id);
-            }
-        }
-        if let Ok(attempt_id) = std::env::var("CODETERM_ATTEMPT_ID") {
-            if !attempt_id.trim().is_empty() {
-                params["attempt_id"] = json!(attempt_id);
-            }
-        }
-    } else if ["CODETERM_TASK_ID", "CODETERM_ATTEMPT_ID"]
-        .iter()
-        .any(|key| std::env::var(key).is_ok_and(|value| !value.trim().is_empty()))
-    {
-        return Err("plan skill show requires complete tab/session/nonce identity".into());
-    }
+    apply_caller_identity(&mut params)?;
     let response = call(client, "plan.skills.show", params)?;
     if json {
         return Ok(Some(response));
