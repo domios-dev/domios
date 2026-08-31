@@ -175,8 +175,8 @@ export function CodetermActionCard({
       ) : descriptor.detail ? (
         <div className="break-words text-xs" style={{ color: "var(--ct-muted-fg)" }}>{descriptor.detail}</div>
       ) : null}
-      {descriptor.bullets && <ul className="mt-2 list-disc pl-4 text-xs" style={{ color: "var(--ct-muted-fg)" }}>{descriptor.bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}</ul>}
-      {showResult && <div data-testid={tabListJson ? "tab-list-json" : "toolcard-result"} className="mt-2"><ToolOutputContent text={event.result!} maxHeight="12rem" /></div>}
+      {descriptor.bullets && <ul className="list-disc pl-4 text-xs" style={{ color: "var(--ct-muted-fg)" }}>{descriptor.bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}</ul>}
+      {showResult && <div data-testid={tabListJson ? "tab-list-json" : "toolcard-result"}><ToolOutputContent text={event.result!} maxHeight="12rem" /></div>}
       {canNavigate && target && target.kind !== "tab" && (
         <button
           type="button"
@@ -188,7 +188,7 @@ export function CodetermActionCard({
             else if (target.kind === "source") onOpenSource!(target.id);
             else onOpenPlan!(target.planId!, target.kind === "plan" || target.kind === "goal" ? undefined : target.id, target.kind === "goal" ? "plan" : target.kind);
           }}
-          className="mt-2 rounded-md border px-2.5 py-1 font-mono text-[11.5px]"
+          className="w-fit rounded-md border px-2.5 py-1 font-mono text-[11.5px]"
           style={{ borderColor: "color-mix(in srgb, var(--ct-accent) 32%, transparent)", color: "var(--ct-accent)", background: "color-mix(in srgb, var(--ct-accent) 12%, transparent)" }}
         >
           {`Show ${targetLabel(target)}`}

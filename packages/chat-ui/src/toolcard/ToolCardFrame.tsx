@@ -1,7 +1,7 @@
 import type { ToolEvent } from "@codeterm/chat-core";
 import { Check, CircleX, LoaderCircle, ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
-import { MessageViewToggle } from "../codeterm/MessageViewToggle";
+import { RawCommandDisclosure } from "../codeterm/RawCommandDisclosure";
 import { toolKindVisual, type ToolKindVisual } from "./toolKindVisual";
 
 interface ToolCardFrameProps {
@@ -78,15 +78,13 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
         role="region"
         aria-label={disclosureLabel ?? "Tool details"}
         hidden={!expanded}
-        className={variant === "codeterm" ? "border-t px-3.5 pb-3 pt-2" : "pb-3 pl-[46px] pr-3 pt-0.5"}
+        className={`${variant === "codeterm" ? "border-t" : ""} pb-2 pl-[46px] pr-3 pt-0.5`}
         style={{ borderColor: "var(--ct-border)", boxSizing: "border-box", maxHeight: "600px", overflowY: "auto" }}
       >
         {expanded ? (
-          <MessageViewToggle
-            raw={event.detail || event.summary || ""}
-            formatted={null}
-            persistent={children}
-          />
+          <RawCommandDisclosure raw={event.detail || event.summary || ""}>
+            {children}
+          </RawCommandDisclosure>
         ) : null}
       </div>
     </div>
