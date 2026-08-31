@@ -216,6 +216,68 @@ fn stale_startup_cleanup_cannot_reap_replaced_attempt() {
 }
 
 #[test]
+fn a_retired_lease_cannot_be_reaped_from_a_stale_candidate() {
+    let registry = Arc::new(WorkerAckRegistry::default());
+    let (mut mux, creator) = MultiplexerState::new();
+    let workspace_id = mux.find_workspace_for_tab(&creator).unwrap();
+    let child = mux.create_tab(&workspace_id).unwrap();
+    let team_id = mux.resolve_or_mint_team_for_parent(&child).unwrap().team_id;
+    let lease = StartupTeamLease {
+        team_id: team_id.clone(),
+        creator_tab_id: creator.clone(),
+        member_tab_ids: vec![child.clone()],
+    };
+    registry.register_startup_lease(lease.clone());
+    let _armed = registry.arm_startup(
+        StartupAuthority::new(&creator, &child, "launch-a").in_team(Some(team_id.clone())),
+    );
+    // What the snapshot-then-mutate shape captured before the acknowledgement.
+    let stale_candidates = registry.active_startup_leases();
+    assert_eq!(stale_candidates, vec![lease]);
+    mux.close_tab(&child).unwrap();
+
+    let mux = Arc::new(Mutex::new(mux));
+    let (gate_tx, gate_rx) = mpsc::channel::<()>();
+    let (reaped_tx, reaped_rx) = mpsc::channel::<Vec<String>>();
+    let sweeper = {
+        let registry = Arc::clone(&registry);
+        let mux = Arc::clone(&mux);
+        std::thread::spawn(move || {
+            gate_rx.recv().unwrap();
+            reaped_tx
+                .send(registry.reap_startup_leases(&mut mux.lock()))
+                .unwrap();
+        })
+    };
+
+    assert!(
+        registry.mark_startup_ready(&child, "launch-a"),
+        "the acknowledgement retires the lease"
+    );
+    gate_tx.send(()).unwrap();
+    let reaped = reaped_rx.recv().unwrap();
+    sweeper.join().unwrap();
+
+    assert!(
+        reaped.is_empty(),
+        "a lease retired before the mutation is not a reaping candidate"
+    );
+    assert!(
+        mux.lock().get_team(&team_id).is_some(),
+        "the Team the acknowledgement made normal survives the sweep"
+    );
+    assert_eq!(
+        crate::service::startup_lease::reap_owned_forming_team(
+            &mut mux.lock(),
+            &stale_candidates[0].team_id,
+            &stale_candidates[0].member_tab_ids,
+        ),
+        crate::service::startup_lease::TeamReapOutcome::Reaped,
+        "the stale candidate still satisfies forming+empty: only the live record saves the Team"
+    );
+}
+
+#[test]
 fn a_started_attempt_releases_the_pair_lease() {
     let registry = WorkerAckRegistry::default();
     let lease = StartupTeamLease {

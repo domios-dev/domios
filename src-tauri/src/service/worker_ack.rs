@@ -7,6 +7,7 @@ use parking_lot::Mutex;
 use serde_json::{json, Value};
 
 use crate::agent::reports::ReportDetails;
+use crate::multiplexer::state::MultiplexerState;
 use crate::service::startup_lease::{
     authorize_startup_hold, ChildStartupState, StartupAuthority, StartupHoldRefusal,
     StartupHoldRejection, StartupTeamLease,
@@ -267,8 +268,20 @@ impl WorkerAckRegistry {
         self.startup_leases.lock().remove(team_id)
     }
 
+    #[cfg(test)]
     fn active_startup_leases(&self) -> Vec<StartupTeamLease> {
         self.startup_leases.lock().values().cloned().collect()
+    }
+
+    /// Decides and consumes under the lease lock, never from a copy: a lease a
+    /// concurrent Ready/Held retired is already gone. Mux guard is the caller's.
+    fn reap_startup_leases(&self, mux: &mut MultiplexerState) -> Vec<String> {
+        let mut leases = self.startup_leases.lock();
+        let reaped = crate::service::startup_lease::reap_orphaned_leases(mux, leases.values());
+        for team_id in &reaped {
+            leases.remove(team_id);
+        }
+        reaped
     }
 
     fn has_startup_supervisor(&self, tab_id: &str) -> bool {
@@ -416,17 +429,14 @@ impl ServiceContext {
         self.worker_ack.release_startup_lease(team_id);
     }
 
-    /// Reap every lifecycle-owned forming Team whose reserved members are gone.
-    /// Runs after a close has already left the mux, so the caller persists once.
+    /// Reaps every lifecycle-owned forming Team whose reserved members are gone.
+    /// Mux locks first, lease map inside: no lease-map holder may reach for mux.
     pub(crate) fn reap_orphaned_startup_teams(&self) -> Vec<String> {
-        let leases = self.worker_ack.active_startup_leases();
-        if leases.is_empty() {
-            return Vec::new();
-        }
-        let reaped =
-            crate::service::startup_lease::reap_orphaned_leases(&mut self.mux.write(), &leases);
+        let reaped = {
+            let mut mux = self.mux.write();
+            self.worker_ack.reap_startup_leases(&mut mux)
+        };
         for team_id in &reaped {
-            self.worker_ack.release_startup_lease(team_id);
             log::info!("[startup-lease] reaped empty forming pair Team {team_id}");
         }
         reaped

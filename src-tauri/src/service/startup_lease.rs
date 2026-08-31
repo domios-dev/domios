@@ -141,9 +141,8 @@ pub(crate) struct StartupHoldRejection {
     pub provenance: Value,
 }
 
-/// The single authorization rule: caller, child tab, minted Team, and current
-/// attempt must all match the recorded ownership. No role - General Agent
-/// included - bypasses it.
+/// The single authorization rule: caller, child tab, minted Team and current
+/// attempt must match the recorded ownership. No role bypasses it.
 pub(crate) fn authorize_startup_hold(
     caller_tab_id: &str,
     child_tab_id: &str,
@@ -188,9 +187,8 @@ pub(crate) enum TeamReapOutcome {
     UnownedMember,
 }
 
-/// Remove the exact reserved Team only while it is still forming, empty, and
-/// free of any member the reservation never claimed. Every other state is a
-/// no-op.
+/// Remove the exact reserved Team only while it is forming, empty and free of
+/// any member the reservation never claimed. Every other state is a no-op.
 pub(crate) fn reap_owned_forming_team(
     mux: &mut MultiplexerState,
     team_id: &str,
@@ -233,13 +231,14 @@ pub(crate) fn release_owned_reservation(
     reap_owned_forming_team(mux, team_id, member_tab_ids)
 }
 
-/// Sweep every live lease after a close; returns the Teams actually reaped.
-pub(crate) fn reap_orphaned_leases(
+/// Sweep the caller's live lease records after a close, borrowed and never
+/// owned, so the caller can decide and consume them under one lock.
+pub(crate) fn reap_orphaned_leases<'a>(
     mux: &mut MultiplexerState,
-    leases: &[StartupTeamLease],
+    leases: impl IntoIterator<Item = &'a StartupTeamLease>,
 ) -> Vec<String> {
     leases
-        .iter()
+        .into_iter()
         .filter(|lease| {
             reap_owned_forming_team(mux, &lease.team_id, &lease.member_tab_ids)
                 == TeamReapOutcome::Reaped
