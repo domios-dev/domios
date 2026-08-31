@@ -4,7 +4,7 @@ import { act, assertThemeTokens, event, render } from "./cardTestSetup";
 
 const host = await render(<CommandCard event={event({ kind: "command", summary: "run command", detail: "echo hi" })} expanded onToggle={() => {}} />);
 if (!host.textContent?.includes("command") || host.querySelector('[data-testid="message-raw-content"]')) throw new Error("formatted command card must hide the full invocation");
-const rawButton = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Raw");
+const rawButton = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Show raw command");
 await act(async () => rawButton?.click());
 if (host.querySelector('[data-testid="message-raw-content"]')?.textContent !== "echo hi") throw new Error("raw command card must show the full invocation");
 if (host.querySelector('[data-testid="toolcard-command-open"]')) throw new Error("per-card command opener must not render");

@@ -11,6 +11,6 @@ function resultTail(result: string | undefined): string | undefined {
 export function CommandCard({ event, expanded, onToggle }: { event: ToolEvent; expanded: boolean; onToggle: () => void }) {
   const tail = resultTail(event.result);
   return <ToolCardFrame event={event} expanded={expanded} onToggle={onToggle} title={toolKindVisual[event.kind].label} disclosureLabel="full command" tail={tail && <span data-testid="toolcard-result-tail" className="max-w-[34%] truncate font-mono text-[10px]" style={{ color: "var(--ct-muted-fg)" }}>→ {tail}</span>}>
-    {event.status === "pending" ? <div data-testid="toolcard-spinner" className="mt-2" style={{ color: "var(--ct-muted-fg)" }}>Running…</div> : event.result && <div data-testid="toolcard-result" className="mt-2"><ToolOutputContent text={event.result} maxHeight="12rem" /></div>}
+    {event.status === "pending" ? <div data-testid="toolcard-spinner" style={{ color: "var(--ct-muted-fg)" }}>Running…</div> : event.result && <div data-testid="toolcard-result"><ToolOutputContent text={event.result} maxHeight="12rem" /></div>}
   </ToolCardFrame>;
 }

@@ -74,7 +74,7 @@ if (!failedSendHost.host.querySelector('[data-testid="toolcard-result"]') || !fa
 const resolvedSendHost = await render(<CodetermActionCard event={{ ...event('codeterm send --tab e3fa0754 "$VAR"'), result: 'OK (sent)\nCODETERM_RESOLVED_TEXT="expanded ***REDACTED*** text"' }} expanded onToggle={() => {}} />);
 if (!resolvedSendHost.host.textContent.includes("expanded REDACTED text")) throw new Error("resolved send must render redacted text");
 if (resolvedSendHost.host.textContent.includes("expanded-secret")) throw new Error("resolved send must not reveal secret text");
-if (!resolvedSendHost.host.querySelector('[data-testid="message-view-toggle"]')) throw new Error("expanded card must own its tool view toggle");
+if (!resolvedSendHost.host.querySelector('[data-testid="raw-command-disclosure"]')) throw new Error("expanded card must own its raw command disclosure");
 if (resolvedSendHost.host.querySelector('[data-testid="message-raw-content"]')) throw new Error("formatted card must hide the raw invocation");
 const typedSendHost = await render(<CodetermActionCard event={event('codeterm send --tab e3fa0754 "$VAR"')} expanded onToggle={() => {}} />);
 if (!typedSendHost.host.textContent?.includes("$VAR")) throw new Error("typed message body must render in the formatted card");
@@ -87,7 +87,7 @@ if (!mdSendHost.host.textContent?.includes("Status") || !mdSendHost.host.textCon
 if (!mdSendHost.host.querySelector("h1") && !mdSendHost.host.querySelector("ul")) throw new Error("markdown send body must render block elements (h1/ul)");
 const longResolvedBody = Array.from({ length: 12 }, (_, index) => `line ${index}`).join("\\n");
 const persistentExpansionHost = await render(<CodetermActionCard event={{ ...event('codeterm send --tab e3fa0754 "long"'), result: `OK (sent)\nCODETERM_RESOLVED_TEXT="${longResolvedBody}"` }} expanded onToggle={() => {}} />);
-const expandMessage = Array.from(persistentExpansionHost.host.querySelectorAll("button")).find((button) => button.textContent?.startsWith("Show ")) as HTMLButtonElement | undefined;
+const expandMessage = Array.from(persistentExpansionHost.host.querySelectorAll("button")).find((button) => button.textContent?.includes("more lines")) as HTMLButtonElement | undefined;
 if (!expandMessage) throw new Error("long formatted send must retain the existing collapse affordance");
 await act(async () => expandMessage.click());
 if (!persistentExpansionHost.host.textContent?.includes("line 11")) throw new Error("long formatted send did not expand");
