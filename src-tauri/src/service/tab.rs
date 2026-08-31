@@ -201,6 +201,7 @@ impl ServiceContext {
         let post_focus = self.mux.read().get_focused_tab_id().map(str::to_string);
         self.kill_ptys(&pty_ids);
         self.finish_tab_close(tab_id)?;
+        self.reap_orphaned_startup_teams();
         {
             let mut notif = self.notif.lock();
             notif.close_push_scope(&crate::notification::push::tab_scope(tab_id));

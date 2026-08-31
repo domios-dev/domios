@@ -199,6 +199,18 @@ impl MultiplexerState {
             .find_map(|(_, tab_id)| self.find_workspace_for_tab(tab_id))
     }
 
+    /// Tab ids currently carrying this team id, sorted for deterministic reads.
+    pub fn team_member_tab_ids(&self, team_id: &str) -> Vec<String> {
+        let mut members: Vec<String> = self
+            .tabs
+            .values()
+            .filter(|tab| tab.team_id.as_deref() == Some(team_id))
+            .map(|tab| tab.id.clone())
+            .collect();
+        members.sort_unstable();
+        members
+    }
+
     /// Remove a team by id, returning it if present.
     pub fn remove_team(&mut self, id: &str) -> Option<Team> {
         self.teams.remove(id)

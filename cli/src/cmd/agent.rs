@@ -769,17 +769,25 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
         }
         AgentAction::StartupHold { tab, attempt } => {
             let caller_tab_id = super::local_io::resolve_caller_tab(None, "agent startup-hold");
-            handle_result(
-                json,
-                client.call(
-                    "agent.startup_hold",
-                    Some(serde_json::json!({
-                        "caller_tab_id": caller_tab_id,
-                        "tab_id": tab,
-                        "attempt_id": attempt,
-                    })),
-                ),
+            let result = client.call(
+                "agent.startup_hold",
+                Some(serde_json::json!({
+                    "caller_tab_id": caller_tab_id,
+                    "tab_id": tab,
+                    "attempt_id": attempt,
+                })),
             );
+            if json {
+                handle_result(json, result);
+                return;
+            }
+            match result {
+                Ok(value) => println!("{}", render_startup_hold(&value)),
+                Err(error) => {
+                    eprintln!("STARTUP HOLD REFUSED: {error}");
+                    std::process::exit(1);
+                }
+            }
         }
         action @ AgentAction::Spawn { .. } => super::agent_spawn::handle(client, json, action),
         AgentAction::Ledger { tab } => {
@@ -953,6 +961,23 @@ fn render_agent_ack(value: &serde_json::Value) -> Result<String, String> {
     Ok(format!(
         "ACKNOWLEDGED — task {task_id}, attempt {attempt_id}. Continue work."
     ))
+}
+
+fn render_startup_hold(value: &serde_json::Value) -> String {
+    let field = |key: &str| {
+        value
+            .pointer(&format!("/authority/{key}"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("-")
+            .to_string()
+    };
+    format!(
+        "STARTUP HOLD ACCEPTED — tab {}, attempt {}, creator {}, team {}.",
+        field("child_tab_id"),
+        field("attempt_id"),
+        field("creator_tab_id"),
+        field("team_id"),
+    )
 }
 
 fn print_local_agent_mutation_response(resp: crate::local_api::LocalApiResponse) {
