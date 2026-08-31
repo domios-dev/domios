@@ -81,6 +81,7 @@ mod spawn_plan_task;
 mod spawn_rollback;
 mod spawn_shell;
 pub(crate) mod spawn_title;
+pub(crate) mod startup_lease;
 mod status_reconciliation;
 pub mod store;
 pub(crate) mod stream_preview;
