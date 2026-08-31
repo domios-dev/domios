@@ -9,7 +9,6 @@ Use `offset` parameter for efficient polling without fetching the full buffer:
 # First call — get all output
 curl "http://host:7685/api/tabs/$TAB/output"
 # Response: {"output": "...", "offset": 1234}
-
 # Subsequent calls — only new data
 curl "http://host:7685/api/tabs/$TAB/output?offset=1234"
 # Response: {"output": "new stuff", "offset": 1500}
@@ -48,13 +47,11 @@ curl -N "http://host:7685/api/tabs/$TAB/output/stream"
 WS=$(curl -s -X POST http://host:7685/api/workspaces \
   -H "Content-Type: application/json" \
   -d '{"name":"my-project"}' | python3 -c "import sys,json;print(json.load(sys.stdin)['id'])")
-
 # Get tab and run command
 TAB=$(curl -s http://host:7685/api/tabs | python3 -c "import sys,json;print(json.load(sys.stdin)[-1]['id'])")
 curl -X POST "http://host:7685/api/tabs/$TAB/exec" \
   -H "Content-Type: application/json" \
   -d '{"command": "npm test", "timeout_ms": 30000}'
-
 # Send with batch (e.g. launch Claude Code)
 curl -X POST "http://host:7685/api/tabs/$TAB/send" \
   -H "Content-Type: application/json" \
@@ -69,7 +66,6 @@ curl -X POST http://host:7685/api/webhooks \
 curl -X POST http://host:7685/api/webhooks \
   -H "Content-Type: application/json" \
   -d '{"url": "https://my-orchestrator/done", "events": ["agent.task_complete"], "once": true, "tab_id": "'"$TAB"'"}'
-
 ```
 The updater and Git surfaces are not transport; they live in API-INTEGRATIONS.
 
@@ -241,4 +237,4 @@ A `team pair` mints its Team together with the two launch attempts it reserves, 
 
 For `team.rename` and `team.close`, omitted `caller_tab_id` is the trusted direct-user path on the local socket. `team.adopt_plan` requires a non-empty caller belonging to the destination Team as its Orchestrator or planner-profile Manager; missing callers, Workers, and foreign tabs are rejected before mutation. Adoption preserves the structured `team_already_has_active_plan` conflict when the Team already owns another active plan. Events are emitted only after persistence succeeds.
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->
