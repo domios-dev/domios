@@ -1,5 +1,6 @@
 use crate::multiplexer::state::MultiplexerState;
 use crate::plan::{OrchestratorRef, Plan, PlannerRef};
+use crate::service::restored_binding::RestoreBindingError;
 use crate::service::test_fixture::ServiceFixture;
 
 /// Owner tab bound to `session`, plus a Planner tab on the same plan.
@@ -116,7 +117,17 @@ fn a_foreign_session_fails_the_restore_and_leaves_the_plan_untouched() {
         .restore_caller_binding(&owner, Some("the-authoritative-one"))
         .expect_err("a foreign session must not be adopted");
 
-    assert!(error.contains("refusing to rebind"), "{error}");
+    assert!(
+        matches!(
+            error,
+            RestoreBindingError::ForeignSession {
+                ref expected,
+                ref live,
+                ..
+            } if expected == "the-authoritative-one" && live == "owner-session"
+        ),
+        "{error:?}"
+    );
     let plan = fixture.service.plan_store.get(&plan_id).unwrap();
     assert_eq!(
         plan.owner.session_id.as_deref(),
@@ -169,5 +180,45 @@ fn a_missing_tab_fails_rather_than_resolving_a_global_session() {
         .restore_caller_binding("no-such-tab", None)
         .expect_err("an absent tab has no authoritative session to restore");
 
-    assert!(error.contains("not found"), "{error}");
+    assert!(
+        matches!(error, RestoreBindingError::TabNotFound { ref tab_id } if tab_id == "no-such-tab"),
+        "{error:?}"
+    );
+}
+
+/// A relaunched tab with no reported session yet is "not yet known", never
+/// "wrong" — collapsing the two is the incident this gate closes.
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn unreported_session_is_not_a_foreign_session() {
+    let (fixture, owner, _, plan_id) = fixture_with_plan();
+    {
+        let mut mux = fixture.service.mux.write();
+        mux.get_tab_mut(&owner).unwrap().agent_session_id = None;
+    }
+    let before = fixture.service.plan_store.get(&plan_id).unwrap();
+
+    let restored = fixture
+        .service
+        .restore_caller_binding(&owner, Some("owner-session"))
+        .expect("an unreported session must not be refused as a foreign one");
+
+    assert_eq!(restored.agent_session_id, None);
+    assert!(restored.owned_plan_ids.is_empty());
+    assert!(restored.planner_plan_ids.is_empty());
+
+    let after = fixture.service.plan_store.get(&plan_id).unwrap();
+    assert_eq!(
+        after.owner.session_id, before.owner.session_id,
+        "an unconfirmed session must not overwrite the plan's existing owner binding"
+    );
+    assert_eq!(
+        after.owner.tab_id, before.owner.tab_id,
+        "plan owner binding for the tab is untouched while its session is unconfirmed"
+    );
+    assert_eq!(
+        after.owner_history.len(),
+        before.owner_history.len(),
+        "no transfer history is recorded for an unconfirmed restore"
+    );
 }

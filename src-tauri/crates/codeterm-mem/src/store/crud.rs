@@ -3,16 +3,30 @@ use std::path::Path;
 use rusqlite::{params, Connection, OptionalExtension};
 
 use super::blob::{read_blob, write_blob};
-use super::{history_log, HistorySnapshot, MemItem, MemUpdate, NewMemItem, INLINE_BODY_LIMIT};
+use super::{
+    history_log, HistorySnapshot, MemItem, MemKind, MemScope, MemUpdate, NewMemItem,
+    INLINE_BODY_LIMIT,
+};
 use crate::ids;
 
 /// >2KB bodies go to content-addressed blob.
 pub fn insert(conn: &Connection, item: &NewMemItem, blobs_dir: &Path) -> Result<String, String> {
-    insert_with_options(conn, item, blobs_dir, false)
+    insert_with_options(conn, item, blobs_dir, false, None)
 }
 
 pub fn upsert(conn: &Connection, item: &NewMemItem, blobs_dir: &Path) -> Result<String, String> {
-    insert_with_options(conn, item, blobs_dir, true)
+    insert_with_options(conn, item, blobs_dir, true, None)
+}
+
+/// Create a bundled item and record its fingerprint in the SAME insert —
+/// never a two-step create-then-bootstrap with an unfingerprinted window.
+pub fn insert_seeded(
+    conn: &Connection,
+    item: &NewMemItem,
+    blobs_dir: &Path,
+    fingerprint: &str,
+) -> Result<String, String> {
+    insert_with_options(conn, item, blobs_dir, false, Some(fingerprint))
 }
 
 fn insert_with_options(
@@ -20,6 +34,7 @@ fn insert_with_options(
     item: &NewMemItem,
     blobs_dir: &Path,
     replace: bool,
+    fingerprint: Option<&str>,
 ) -> Result<String, String> {
     let kind_str = item.kind.as_str();
     let slug = ids::slugify(&item.title);
@@ -98,8 +113,8 @@ fn insert_with_options(
            (id, uid, kind, scope, title, summary, area, tags_json,
             body_inline, body_blob_path, source, importance,
             created_at, updated_at, accessed_at,
-            source_path, source_size, source_mtime, is_pinned_wakeup)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, NULL, ?15, ?16, ?17, ?18)"#,
+            source_path, source_size, source_mtime, is_pinned_wakeup, seed_fingerprint)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, NULL, ?15, ?16, ?17, ?18, ?19)"#,
         params![
             &id,
             &uid,
@@ -119,6 +134,7 @@ fn insert_with_options(
             source_size,
             &source_mtime,
             pinned_int,
+            fingerprint,
         ],
     )
     .map_err(|e| format!("insert mem_item: {}", e))?;
@@ -322,6 +338,197 @@ pub fn get(conn: &Connection, id: &str, blobs_dir: &Path) -> Result<Option<MemIt
     }))
 }
 
+/// Every field the bundled seeder manages, plus its recorded fingerprint.
+/// A raw read: unlike `get`, never bumps `accessed_at`/`access_count`.
+pub fn managed_payload(
+    conn: &Connection,
+    id: &str,
+    blobs_dir: &Path,
+) -> Result<Option<(NewMemItem, Option<String>)>, String> {
+    #[allow(clippy::type_complexity)]
+    let row: Option<(
+        String,
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        f64,
+        Option<String>,
+        i64,
+        Option<String>,
+    )> = conn
+        .query_row(
+            r#"SELECT kind, scope, title, summary, area, tags_json,
+                      body_inline, body_blob_path, source, importance,
+                      source_path, COALESCE(is_pinned_wakeup, 0), seed_fingerprint
+               FROM mem_items WHERE id = ?1"#,
+            params![id],
+            |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                    r.get(6)?,
+                    r.get(7)?,
+                    r.get(8)?,
+                    r.get(9)?,
+                    r.get(10)?,
+                    r.get(11)?,
+                    r.get(12)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|e| format!("query managed payload: {}", e))?;
+    let Some((
+        kind,
+        scope,
+        title,
+        summary,
+        area,
+        tags_json,
+        body_inline,
+        body_blob_path,
+        source,
+        importance,
+        source_path,
+        pinned,
+        fingerprint,
+    )) = row
+    else {
+        return Ok(None);
+    };
+    let Some(kind) = MemKind::from_str(&kind) else {
+        return Err(format!("unrecognized kind {kind}"));
+    };
+    // `MemScope::from_str` is infallible (defaults to Global), so an
+    // unrecognized stored value must be caught by round-tripping it.
+    let parsed_scope = MemScope::from_str(&scope);
+    if parsed_scope.as_str() != scope {
+        return Err(format!("unrecognized scope {scope}"));
+    }
+    let body = if let Some(inline) = body_inline {
+        inline
+    } else if let Some(rel) = body_blob_path.as_ref() {
+        read_blob(blobs_dir, rel)?
+    } else {
+        String::new()
+    };
+    let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
+    Ok(Some((
+        NewMemItem {
+            kind,
+            scope: parsed_scope,
+            title,
+            summary,
+            area,
+            tags,
+            body,
+            source,
+            importance,
+            source_path,
+            pinned: pinned != 0,
+        },
+        fingerprint,
+    )))
+}
+
+/// Overwrite a bundled item's managed fields, guarded by an optimistic
+/// `seed_fingerprint IS expected` CAS. `Ok(false)` = lost a race, skip it.
+pub fn cas_refresh_bundled(
+    conn: &Connection,
+    id: &str,
+    blobs_dir: &Path,
+    expected_fingerprint: Option<&str>,
+    new_item: &NewMemItem,
+    new_fingerprint: &str,
+) -> Result<bool, String> {
+    let (body_inline, body_blob_path): (Option<String>, Option<String>) =
+        if new_item.body.len() > INLINE_BODY_LIMIT {
+            (None, Some(write_blob(blobs_dir, &new_item.body)?))
+        } else {
+            (Some(new_item.body.clone()), None)
+        };
+    let tags_json =
+        serde_json::to_string(&new_item.tags).map_err(|e| format!("serialize tags: {}", e))?;
+    let now = chrono::Utc::now().to_rfc3339();
+    let pinned_int: i64 = if new_item.pinned { 1 } else { 0 };
+    let scope_str = new_item.scope.as_str();
+    let affected = conn
+        .execute(
+            r#"UPDATE mem_items
+               SET kind = ?1, scope = ?2, title = ?3, summary = ?4, area = ?5,
+                   tags_json = ?6, body_inline = ?7, body_blob_path = ?8,
+                   importance = ?9, source_path = ?10, is_pinned_wakeup = ?11,
+                   updated_at = ?12, seed_fingerprint = ?13
+               WHERE id = ?14 AND seed_fingerprint IS ?15"#,
+            params![
+                new_item.kind.as_str(),
+                &scope_str,
+                &new_item.title,
+                &new_item.summary,
+                &new_item.area,
+                &tags_json,
+                &body_inline,
+                &body_blob_path,
+                new_item.importance,
+                &new_item.source_path,
+                pinned_int,
+                &now,
+                new_fingerprint,
+                &id,
+                expected_fingerprint,
+            ],
+        )
+        .map_err(|e| format!("cas refresh bundled: {}", e))?;
+    if affected > 0 {
+        let _ = conn.execute("DELETE FROM mem_fts WHERE mem_id = ?1", params![&id]);
+        let _ = conn.execute(
+            r#"INSERT INTO mem_fts (mem_id, title, summary, body, tags)
+               VALUES (?1, ?2, ?3, ?4, ?5)"#,
+            params![
+                &id,
+                &new_item.title,
+                new_item.summary.as_deref().unwrap_or(""),
+                &new_item.body,
+                &new_item.tags.join(" "),
+            ],
+        );
+    }
+    Ok(affected > 0)
+}
+
+/// Re-reads the row and refuses unless it is STILL unfingerprinted AND
+/// byte-identical to `expected` — `IS NULL` alone would accept an edit too.
+pub fn bootstrap_seed_fingerprint(
+    conn: &Connection,
+    id: &str,
+    blobs_dir: &Path,
+    expected: &NewMemItem,
+    fingerprint: &str,
+) -> Result<bool, String> {
+    let Some((current, recorded)) = managed_payload(conn, id, blobs_dir)? else {
+        return Ok(false);
+    };
+    if recorded.is_some() || &current != expected {
+        return Ok(false);
+    }
+    let affected = conn
+        .execute(
+            "UPDATE mem_items SET seed_fingerprint = ?1 WHERE id = ?2 AND seed_fingerprint IS NULL",
+            params![fingerprint, id],
+        )
+        .map_err(|e| format!("bootstrap seed fingerprint: {}", e))?;
+    Ok(affected > 0)
+}
+
 /// Retrieve `id` as a MemItem, falling back to a synthesized MemItem from
 /// the entities table if there's no mem_item with this id but an entity
 /// exists. Used by mem_search so vector recall hits on entity ids surface
@@ -423,13 +630,16 @@ pub fn update(
     let prev_body = prev.body.clone();
     let prev_importance = prev.importance;
     let prev_kind = prev.kind.clone();
-    let prev_pinned: bool = conn
+    let prev_summary = prev.summary.clone();
+    let prev_area = prev.area.clone();
+    let prev_tags = prev.tags.clone();
+    let (prev_pinned, prev_fingerprint): (bool, Option<String>) = conn
         .query_row(
-            "SELECT COALESCE(is_pinned_wakeup, 0) FROM mem_items WHERE id = ?1",
+            "SELECT COALESCE(is_pinned_wakeup, 0), seed_fingerprint FROM mem_items WHERE id = ?1",
             params![id],
-            |r| r.get::<_, i64>(0).map(|v| v != 0),
+            |r| Ok((r.get::<_, i64>(0)? != 0, r.get(1)?)),
         )
-        .map_err(|e| format!("read is_pinned_wakeup: {}", e))?;
+        .map_err(|e| format!("read is_pinned_wakeup/seed_fingerprint: {}", e))?;
 
     let new_title = patch.title.clone().unwrap_or(prev.title);
     let new_summary = patch.summary.clone().or(prev.summary);
@@ -437,6 +647,23 @@ pub fn update(
     let new_tags = patch.tags.clone().unwrap_or(prev.tags);
     let new_body = patch.body.clone().unwrap_or(prev.body);
     let new_importance = patch.importance.unwrap_or(prev.importance);
+    let new_pinned = patch.pinned.unwrap_or(prev_pinned);
+
+    // Bundled ownership is authoritative, never inferred: any edit through
+    // this real update path to a field the seeder manages relinquishes it
+    // atomically, in this same write — see `cas_refresh_bundled`.
+    let managed_changed = new_title != prev_title
+        || new_summary != prev_summary
+        || new_area != prev_area
+        || new_tags != prev_tags
+        || new_body != prev_body
+        || (new_importance - prev_importance).abs() > f64::EPSILON
+        || new_pinned != prev_pinned;
+    let new_fingerprint = if managed_changed {
+        None
+    } else {
+        prev_fingerprint
+    };
 
     let tags_json =
         serde_json::to_string(&new_tags).map_err(|e| format!("serialize tags: {}", e))?;
@@ -457,7 +684,8 @@ pub fn update(
            SET title = ?1, summary = ?2, area = ?3, tags_json = ?4,
                body_inline = ?5, body_blob_path = ?6, importance = ?7,
                updated_at = ?8, recurrence_count = recurrence_count + ?10,
-               is_pinned_wakeup = COALESCE(?11, is_pinned_wakeup)
+               is_pinned_wakeup = COALESCE(?11, is_pinned_wakeup),
+               seed_fingerprint = ?12
            WHERE id = ?9"#,
         params![
             &new_title,
@@ -471,6 +699,7 @@ pub fn update(
             &id,
             recur_bump,
             pinned_param,
+            &new_fingerprint,
         ],
     )
     .map_err(|e| format!("update mem_item: {}", e))?;

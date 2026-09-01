@@ -990,4 +990,7 @@ mod general_agent_guard_tests;
 mod tests;
 
 #[cfg(test)]
+mod transfer_tests;
+
+#[cfg(test)]
 mod workspace_tests;

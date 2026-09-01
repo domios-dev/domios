@@ -319,3 +319,30 @@ fn startup_hold_without_a_team_lease_renders_a_placeholder() {
         "STARTUP HOLD ACCEPTED — tab child, attempt launch-a, creator creator, team -."
     );
 }
+
+/// codeterm-releases#55: a daemon-resolved success (202) exits 0, asserted
+/// on the `Result` discriminant, never on message wording.
+#[test]
+fn agent_restart_success_exits_zero() {
+    let val = serde_json::json!({
+        "session_action": "resume",
+        "session_id": "sess-a",
+        "full_access": false,
+        "binding_restored": true,
+    });
+
+    let outcome = restart_response_outcome(reqwest::StatusCode::ACCEPTED, &val);
+
+    assert!(outcome.is_ok(), "a successful restart must not be an Err");
+}
+
+/// Guard: a restart the daemon genuinely failed (e.g. a real foreign-session
+/// refusal) must still surface as an `Err` so the CLI exits non-zero.
+#[test]
+fn agent_restart_failure_stays_an_error() {
+    let val = serde_json::json!({ "error": "refusing to rebind plan/task callers to a foreign session" });
+
+    let outcome = restart_response_outcome(reqwest::StatusCode::INTERNAL_SERVER_ERROR, &val);
+
+    assert!(outcome.is_err(), "a daemon-reported failure must stay an Err");
+}
