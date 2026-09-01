@@ -340,9 +340,13 @@ fn agent_restart_success_exits_zero() {
 /// refusal) must still surface as an `Err` so the CLI exits non-zero.
 #[test]
 fn agent_restart_failure_stays_an_error() {
-    let val = serde_json::json!({ "error": "refusing to rebind plan/task callers to a foreign session" });
+    let val =
+        serde_json::json!({ "error": "refusing to rebind plan/task callers to a foreign session" });
 
     let outcome = restart_response_outcome(reqwest::StatusCode::INTERNAL_SERVER_ERROR, &val);
 
-    assert!(outcome.is_err(), "a daemon-reported failure must stay an Err");
+    assert!(
+        outcome.is_err(),
+        "a daemon-reported failure must stay an Err"
+    );
 }

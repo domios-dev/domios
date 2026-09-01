@@ -49,7 +49,11 @@ fn repository_watcher_emits_ref_and_index_events() {
 
     // 5. the linked worktree emits for its OWN identity, with both watched.
     let watched = watch_all(&[root, lane.as_path()]);
-    assert_eq!(watched.registry.entry_count(), 2, "two identities, two entries");
+    assert_eq!(
+        watched.registry.entry_count(),
+        2,
+        "two identities, two entries"
+    );
     git(&lane, &["checkout", "-q", "-b", "lane-topic"]);
     expect_change(
         &watched.rx,

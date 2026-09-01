@@ -22,7 +22,10 @@ fn repository_watch_reports_backend_rescan() {
         overflow.paths.is_empty(),
         "the overflow signal carries no paths, which is why the debouncer drops it"
     );
-    assert!(is_rescan(&Ok(overflow.clone())), "the raw shape is recognised");
+    assert!(
+        is_rescan(&Ok(overflow.clone())),
+        "the raw shape is recognised"
+    );
     assert!(
         !is_rescan(&Ok(Event::new(EventKind::Other))),
         "an ordinary event is not a rescan"
@@ -43,7 +46,11 @@ fn repository_watch_reports_backend_rescan() {
         Some(sink),
     );
     relay.handle_event(Ok(overflow));
-    assert_eq!(lifted.load(Ordering::SeqCst), 1, "the rescan reached the sink");
+    assert_eq!(
+        lifted.load(Ordering::SeqCst),
+        1,
+        "the rescan reached the sink"
+    );
     assert_eq!(
         forwarded.load(Ordering::SeqCst),
         1,

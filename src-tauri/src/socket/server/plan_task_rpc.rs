@@ -665,7 +665,9 @@ pub(super) fn dispatch(
             }
             let acceptance_criteria_is_replace = matches!(
                 acceptance_criteria.as_ref(),
-                Some(crate::service::plan::mutations::task_ops::AcceptanceCriteriaUpdate::Replace(_))
+                Some(
+                    crate::service::plan::mutations::task_ops::AcceptanceCriteriaUpdate::Replace(_)
+                )
             );
             let criteria_counts = if acceptance_criteria.is_some()
                 || test_plan.is_some()

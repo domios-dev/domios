@@ -29,7 +29,9 @@ impl RestoredCallerBinding {
 /// never on the formatted message — that's prose for logs/CLI output only.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum RestoreBindingError {
-    TabNotFound { tab_id: String },
+    TabNotFound {
+        tab_id: String,
+    },
     /// A `None` live session (not yet reported) is intentionally excluded —
     /// see `restore_caller_binding`.
     ForeignSession {
@@ -70,9 +72,11 @@ impl ServiceContext {
     ) -> Result<RestoredCallerBinding, RestoreBindingError> {
         let (live_session_id, title) = {
             let mux = self.mux.read();
-            let tab = mux.get_tab(tab_id).ok_or_else(|| RestoreBindingError::TabNotFound {
-                tab_id: tab_id.to_string(),
-            })?;
+            let tab = mux
+                .get_tab(tab_id)
+                .ok_or_else(|| RestoreBindingError::TabNotFound {
+                    tab_id: tab_id.to_string(),
+                })?;
             (tab.agent_session_id.clone(), tab.title.clone())
         };
         if let Some(expected) = expected_session_id {

@@ -973,7 +973,10 @@ fn render_startup_hold(value: &serde_json::Value) -> String {
 
 /// Success (exit 0) vs. failure (exit 1); the unreported-vs-foreign-session
 /// distinction is already resolved server-side by the time `status` arrives.
-fn restart_response_outcome(status: reqwest::StatusCode, val: &serde_json::Value) -> Result<(), String> {
+fn restart_response_outcome(
+    status: reqwest::StatusCode,
+    val: &serde_json::Value,
+) -> Result<(), String> {
     if status.is_success() {
         return Ok(());
     }

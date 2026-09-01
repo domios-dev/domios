@@ -289,7 +289,11 @@ fn untrusted(
     detail: &str,
 ) {
     for target in targets {
-        log::warn!("[repowatch] {} untrusted ({}): {detail}", target.id, reason.as_str());
+        log::warn!(
+            "[repowatch] {} untrusted ({}): {detail}",
+            target.id,
+            reason.as_str()
+        );
         sink.repository_unavailable(&target.id, reason);
     }
 }

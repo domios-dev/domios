@@ -15,8 +15,14 @@ fn repository_shared_ref_fanout_survives_partial_release() {
     let (backend, taps) = ProbeBackend::paired();
     let (registry, rx) = registry_with(backend);
 
-    let first = registry.subscribe(repo.path()).expect("first subscribe").token;
-    let second = registry.subscribe(repo.path()).expect("second subscribe").token;
+    let first = registry
+        .subscribe(repo.path())
+        .expect("first subscribe")
+        .token;
+    let second = registry
+        .subscribe(repo.path())
+        .expect("second subscribe")
+        .token;
     assert_eq!(registry.entry_count(), 1, "two subscriptions, one identity");
     assert_eq!(registry.shared_refcount(&identity.common_key), 2);
     assert_eq!(
@@ -26,7 +32,11 @@ fn repository_shared_ref_fanout_survives_partial_release() {
     );
 
     assert!(registry.release(&first), "partial release accepted");
-    assert_eq!(registry.refcount(&identity.key), 1, "one subscription remains");
+    assert_eq!(
+        registry.refcount(&identity.key),
+        1,
+        "one subscription remains"
+    );
     assert_eq!(
         registry.shared_member_count(&identity.common_key),
         1,

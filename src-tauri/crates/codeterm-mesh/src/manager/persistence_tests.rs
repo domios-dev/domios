@@ -25,8 +25,13 @@ fn paired_peer_routes_without_set_addr() {
 
     let (mut peers, scrubbed) =
         peers::rehydrate_peers_payload(&payload).expect("valid persisted peers.json parses");
-    assert_eq!(scrubbed, 0, "both addresses are well-formed IPs, nothing to scrub");
-    let mut peer = peers.remove("peer-a").expect("peer-a rehydrated from the payload");
+    assert_eq!(
+        scrubbed, 0,
+        "both addresses are well-formed IPs, nothing to scrub"
+    );
+    let mut peer = peers
+        .remove("peer-a")
+        .expect("peer-a rehydrated from the payload");
     // Liveness is re-established independently of the disk record (load_peers always
     // resets it to false); the test fixture's "online: true" is this runtime signal.
     peer.online = true;
@@ -88,7 +93,10 @@ fn paired_peer_with_no_address_history_is_unroutable_not_missing() {
     };
     m.paired_peers.insert("peer-b".into(), peer);
 
-    assert!(m.paired_peers.contains_key("peer-b"), "the paired record exists");
+    assert!(
+        m.paired_peers.contains_key("peer-b"),
+        "the paired record exists"
+    );
     assert!(
         m.client_for("peer-b").is_none(),
         "but no address means no route can be built"

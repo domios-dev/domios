@@ -55,9 +55,7 @@ fn plan_skill_list_prints_skill_path() {
 
     let rendered = render_skill_list(&response).unwrap();
 
-    assert!(rendered.contains(
-        "/repo/.codeterm/plans/active/pl_zzmxgb/skills/verify-before-claim"
-    ));
+    assert!(rendered.contains("/repo/.codeterm/plans/active/pl_zzmxgb/skills/verify-before-claim"));
     assert!(rendered.contains("verify-before-claim"));
 }
 
@@ -376,8 +374,14 @@ fn plan_skill_show_refusal_exits_nonzero() {
         },
     );
 
-    assert!(result.is_err(), "a refused show must be an Err, not a printed message with Ok");
-    assert!(client.calls.is_empty(), "the client-side gate must not reach the RPC");
+    assert!(
+        result.is_err(),
+        "a refused show must be an Err, not a printed message with Ok"
+    );
+    assert!(
+        client.calls.is_empty(),
+        "the client-side gate must not reach the RPC"
+    );
 
     for (key, value) in previous {
         match value {

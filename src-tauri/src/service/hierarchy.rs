@@ -410,7 +410,12 @@ impl ServiceContext {
             plan_id.map(str::trim).filter(|id| !id.is_empty()),
             task_id.map(str::trim).filter(|id| !id.is_empty()),
         ) {
-            verify_planner_report_authority(&self.plan_store, &self.mux.read(), claimed_plan, tab_id)?;
+            verify_planner_report_authority(
+                &self.plan_store,
+                &self.mux.read(),
+                claimed_plan,
+                tab_id,
+            )?;
         }
 
         let mut notices: Vec<String> = Vec::new();

@@ -543,8 +543,9 @@ struct PlannerReportHarness {
 impl PlannerReportHarness {
     fn stale_planner_session(&self) {
         let mut mux = self.fx.service.mux.write();
-        mux.get_tab_mut(&self.planner_tab).unwrap().reported_session_binding_nonce =
-            Some("stale-nonce".into());
+        mux.get_tab_mut(&self.planner_tab)
+            .unwrap()
+            .reported_session_binding_nonce = Some("stale-nonce".into());
     }
 
     fn set_registered_planner_session(&self, session_id: Option<&str>) {
@@ -615,18 +616,17 @@ fn planner_report_harness() -> PlannerReportHarness {
 fn planner_report_with_live_matching_session_reaches_the_plan_owner() {
     let h = planner_report_harness();
 
-    let result = h
-        .fx
-        .service
-        .submit_report(
-            &h.planner_tab,
-            "PLANNER_STATUS_PAYLOAD",
-            ReportDetails::default(),
-            Some(&h.plan_id),
-            None,
-            None,
-        )
-        .expect("a live, session-verified Planner must be authorized");
+    let result =
+        h.fx.service
+            .submit_report(
+                &h.planner_tab,
+                "PLANNER_STATUS_PAYLOAD",
+                ReportDetails::default(),
+                Some(&h.plan_id),
+                None,
+                None,
+            )
+            .expect("a live, session-verified Planner must be authorized");
 
     assert_eq!(result.orchestrator_tab_id, h.root);
     assert!(h.reports().contains("PLANNER_STATUS_PAYLOAD"));
@@ -641,18 +641,17 @@ fn planner_report_refuses_a_stale_session_binding() {
     let h = planner_report_harness();
     h.stale_planner_session();
 
-    let error = h
-        .fx
-        .service
-        .submit_report(
-            &h.planner_tab,
-            "STALE_SESSION_PAYLOAD",
-            ReportDetails::default(),
-            Some(&h.plan_id),
-            None,
-            None,
-        )
-        .unwrap_err();
+    let error =
+        h.fx.service
+            .submit_report(
+                &h.planner_tab,
+                "STALE_SESSION_PAYLOAD",
+                ReportDetails::default(),
+                Some(&h.plan_id),
+                None,
+                None,
+            )
+            .unwrap_err();
 
     assert!(error.contains(PLANNER_AUTHORITY_REFUSAL), "{error}");
     assert!(!h.reports().contains("STALE_SESSION_PAYLOAD"));
@@ -672,18 +671,17 @@ fn planner_report_refuses_a_non_planner_manager() {
         tab.role_profile = Some("orchestrator".into());
     }
 
-    let error = h
-        .fx
-        .service
-        .submit_report(
-            &h.foreign_tab,
-            "NON_PLANNER_MANAGER_PAYLOAD",
-            ReportDetails::default(),
-            Some(&h.plan_id),
-            None,
-            None,
-        )
-        .unwrap_err();
+    let error =
+        h.fx.service
+            .submit_report(
+                &h.foreign_tab,
+                "NON_PLANNER_MANAGER_PAYLOAD",
+                ReportDetails::default(),
+                Some(&h.plan_id),
+                None,
+                None,
+            )
+            .unwrap_err();
 
     assert!(error.contains(PLANNER_AUTHORITY_REFUSAL), "{error}");
     assert!(!h.reports().contains("NON_PLANNER_MANAGER_PAYLOAD"));
@@ -697,18 +695,17 @@ fn planner_report_refuses_a_non_planner_manager() {
 fn planner_report_refuses_a_foreign_tab_that_is_not_the_registered_planner() {
     let h = planner_report_harness();
 
-    let error = h
-        .fx
-        .service
-        .submit_report(
-            &h.foreign_tab,
-            "FOREIGN_TAB_PAYLOAD",
-            ReportDetails::default(),
-            Some(&h.plan_id),
-            None,
-            None,
-        )
-        .unwrap_err();
+    let error =
+        h.fx.service
+            .submit_report(
+                &h.foreign_tab,
+                "FOREIGN_TAB_PAYLOAD",
+                ReportDetails::default(),
+                Some(&h.plan_id),
+                None,
+                None,
+            )
+            .unwrap_err();
 
     assert!(error.contains(PLANNER_AUTHORITY_REFUSAL), "{error}");
     assert!(!h.reports().contains("FOREIGN_TAB_PAYLOAD"));
@@ -722,18 +719,17 @@ fn planner_report_refuses_a_foreign_tab_that_is_not_the_registered_planner() {
 fn planner_report_refuses_the_registered_planner_of_a_different_plan() {
     let h = planner_report_harness();
 
-    let error = h
-        .fx
-        .service
-        .submit_report(
-            &h.planner_tab,
-            "FOREIGN_PLAN_PAYLOAD",
-            ReportDetails::default(),
-            Some(&h.foreign_plan_id),
-            None,
-            None,
-        )
-        .unwrap_err();
+    let error =
+        h.fx.service
+            .submit_report(
+                &h.planner_tab,
+                "FOREIGN_PLAN_PAYLOAD",
+                ReportDetails::default(),
+                Some(&h.foreign_plan_id),
+                None,
+                None,
+            )
+            .unwrap_err();
 
     assert!(error.contains(PLANNER_AUTHORITY_REFUSAL), "{error}");
     assert!(!h.reports().contains("FOREIGN_PLAN_PAYLOAD"));
@@ -748,18 +744,17 @@ fn planner_report_refuses_a_missing_registered_session_id() {
     let h = planner_report_harness();
     h.set_registered_planner_session(None);
 
-    let error = h
-        .fx
-        .service
-        .submit_report(
-            &h.planner_tab,
-            "MISSING_SESSION_ID_PAYLOAD",
-            ReportDetails::default(),
-            Some(&h.plan_id),
-            None,
-            None,
-        )
-        .unwrap_err();
+    let error =
+        h.fx.service
+            .submit_report(
+                &h.planner_tab,
+                "MISSING_SESSION_ID_PAYLOAD",
+                ReportDetails::default(),
+                Some(&h.plan_id),
+                None,
+                None,
+            )
+            .unwrap_err();
 
     assert!(error.contains(PLANNER_AUTHORITY_REFUSAL), "{error}");
     assert!(!h.reports().contains("MISSING_SESSION_ID_PAYLOAD"));
@@ -774,18 +769,17 @@ fn planner_report_refuses_a_stale_registered_session_id() {
     let h = planner_report_harness();
     h.set_registered_planner_session(Some("planner-session-before-relaunch"));
 
-    let error = h
-        .fx
-        .service
-        .submit_report(
-            &h.planner_tab,
-            "STALE_SESSION_ID_PAYLOAD",
-            ReportDetails::default(),
-            Some(&h.plan_id),
-            None,
-            None,
-        )
-        .unwrap_err();
+    let error =
+        h.fx.service
+            .submit_report(
+                &h.planner_tab,
+                "STALE_SESSION_ID_PAYLOAD",
+                ReportDetails::default(),
+                Some(&h.plan_id),
+                None,
+                None,
+            )
+            .unwrap_err();
 
     assert!(error.contains(PLANNER_AUTHORITY_REFUSAL), "{error}");
     assert!(!h.reports().contains("STALE_SESSION_ID_PAYLOAD"));
@@ -800,18 +794,17 @@ fn planner_report_refuses_a_foreign_registered_session_id() {
     let h = planner_report_harness();
     h.set_registered_planner_session(Some("foreign-session"));
 
-    let error = h
-        .fx
-        .service
-        .submit_report(
-            &h.planner_tab,
-            "FOREIGN_SESSION_ID_PAYLOAD",
-            ReportDetails::default(),
-            Some(&h.plan_id),
-            None,
-            None,
-        )
-        .unwrap_err();
+    let error =
+        h.fx.service
+            .submit_report(
+                &h.planner_tab,
+                "FOREIGN_SESSION_ID_PAYLOAD",
+                ReportDetails::default(),
+                Some(&h.plan_id),
+                None,
+                None,
+            )
+            .unwrap_err();
 
     assert!(error.contains(PLANNER_AUTHORITY_REFUSAL), "{error}");
     assert!(!h.reports().contains("FOREIGN_SESSION_ID_PAYLOAD"));
@@ -827,18 +820,17 @@ fn planner_report_refuses_a_foreign_registered_session_id() {
 fn planner_report_refuses_an_unknown_plan_before_any_fallback() {
     let h = planner_report_harness();
 
-    let error = h
-        .fx
-        .service
-        .submit_report(
-            &h.planner_tab,
-            "UNKNOWN_PLAN_PAYLOAD",
-            ReportDetails::default(),
-            Some("pl_does_not_exist"),
-            None,
-            None,
-        )
-        .unwrap_err();
+    let error =
+        h.fx.service
+            .submit_report(
+                &h.planner_tab,
+                "UNKNOWN_PLAN_PAYLOAD",
+                ReportDetails::default(),
+                Some("pl_does_not_exist"),
+                None,
+                None,
+            )
+            .unwrap_err();
 
     assert!(error.contains("pl_does_not_exist"), "{error}");
     assert!(!h.reports().contains("UNKNOWN_PLAN_PAYLOAD"));

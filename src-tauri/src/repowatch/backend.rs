@@ -162,13 +162,11 @@ impl WatchBackend for NotifyBackend {
 
         let batched = shared.clone();
         let config = DebouncerConfig::default().with_timeout(DEBOUNCE);
-        let built = new_debouncer_opt::<_, RescanWatcher>(
-            config,
-            move |result: DebounceEventResult| {
+        let built =
+            new_debouncer_opt::<_, RescanWatcher>(config, move |result: DebounceEventResult| {
                 let signal = match result {
                     Ok(events) => {
-                        let mut paths: Vec<PathBuf> =
-                            events.into_iter().map(|e| e.path).collect();
+                        let mut paths: Vec<PathBuf> = events.into_iter().map(|e| e.path).collect();
                         paths.sort();
                         paths.dedup();
                         if paths.is_empty() {
@@ -180,8 +178,7 @@ impl WatchBackend for NotifyBackend {
                 };
                 let mut guard = batched.lock();
                 (&mut **guard)(signal);
-            },
-        );
+            });
         // Never leave the slot armed for the next construction on this thread.
         RESCAN_SINK.with(|slot| *slot.borrow_mut() = None);
 

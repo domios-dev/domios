@@ -324,7 +324,9 @@ fn peer_not_paired_error(target: &str) -> (StatusCode, String) {
 fn peer_unroutable_error(peer_name: &str) -> (StatusCode, String) {
     (
         StatusCode::SERVICE_UNAVAILABLE,
-        format!("{PEER_UNROUTABLE_REASON}: peer {peer_name} is paired but has no reachable address"),
+        format!(
+            "{PEER_UNROUTABLE_REASON}: peer {peer_name} is paired but has no reachable address"
+        ),
     )
 }
 

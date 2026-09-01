@@ -568,7 +568,11 @@ fn relay_refusal_distinguishes_unroutable_from_unpaired() {
         Err(error) => error,
     };
     assert_eq!(unpaired.0, StatusCode::NOT_FOUND);
-    assert!(unpaired.1.starts_with(PEER_NOT_PAIRED_REASON), "got: {}", unpaired.1);
+    assert!(
+        unpaired.1.starts_with(PEER_NOT_PAIRED_REASON),
+        "got: {}",
+        unpaired.1
+    );
 
     // Known, paired peer — but no reachable address, so client_for returns None.
     let unroutable = match resolve_relay_peer(&mesh, "peer-a") {
@@ -576,8 +580,15 @@ fn relay_refusal_distinguishes_unroutable_from_unpaired() {
         Err(error) => error,
     };
     assert_eq!(unroutable.0, StatusCode::SERVICE_UNAVAILABLE);
-    assert!(unroutable.1.starts_with(PEER_UNROUTABLE_REASON), "got: {}", unroutable.1);
-    assert_ne!(unpaired.0, unroutable.0, "distinct status codes for distinct causes");
+    assert!(
+        unroutable.1.starts_with(PEER_UNROUTABLE_REASON),
+        "got: {}",
+        unroutable.1
+    );
+    assert_ne!(
+        unpaired.0, unroutable.0,
+        "distinct status codes for distinct causes"
+    );
     assert!(
         !unroutable.1.contains(PEER_NOT_PAIRED_REASON),
         "a paired-but-unroutable peer must never be mislabeled 'not paired': {}",

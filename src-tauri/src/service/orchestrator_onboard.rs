@@ -366,7 +366,10 @@ mod tests {
         );
 
         let resolved = store.active_plan_for_project(&project_path);
-        assert_eq!(resolved.as_ref().map(|(id, _)| id.as_str()), Some(plan_id.as_str()));
+        assert_eq!(
+            resolved.as_ref().map(|(id, _)| id.as_str()),
+            Some(plan_id.as_str())
+        );
 
         let msg = orchestrator_onboarding_body(
             "tab-abc",
