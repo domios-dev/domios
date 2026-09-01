@@ -21,6 +21,34 @@ fn render_spec_markdown(spec: &Value) -> String {
     out
 }
 
+/// One row per spec, columns instead of a raw JSON dump — the interactive
+/// form must never be worse than `--json`.
+fn render_spec_list(val: &Value) -> String {
+    let rows = match val.get("specs").and_then(Value::as_array) {
+        Some(rows) => rows,
+        None => return "(no specs)".to_string(),
+    };
+    if rows.is_empty() {
+        return "(no specs)".to_string();
+    }
+    let mut out = String::new();
+    for (i, spec) in rows.iter().enumerate() {
+        if i > 0 {
+            out.push('\n');
+        }
+        out.push_str(&format!(
+            "{}\t{}\t{}\t{}",
+            spec.get("spec_id").and_then(Value::as_str).unwrap_or("?"),
+            spec.get("status").and_then(Value::as_str).unwrap_or("?"),
+            spec.get("title").and_then(Value::as_str).unwrap_or("?"),
+            spec.get("project_path")
+                .and_then(Value::as_str)
+                .unwrap_or("?"),
+        ));
+    }
+    out
+}
+
 fn render_section(section: &Value, depth: usize, out: &mut String) {
     let title = section.get("title").and_then(|v| v.as_str()).unwrap_or("?");
     out.push_str(&format!("{} {title}\n\n", "#".repeat(depth.min(6))));
@@ -97,7 +125,12 @@ fn run_spec(
             } else if !all {
                 params["status"] = json!("active");
             }
-            call(client, "spec.list", params)
+            let val = call(client, "spec.list", params)?;
+            if json_output {
+                return Ok(Some(val));
+            }
+            println!("{}", render_spec_list(&val));
+            return Ok(None);
         }
         SpecAction::Show { spec_id } => {
             let val = call(
@@ -260,5 +293,101 @@ fn run_spec(
     } else {
         crate::cmd::plan_output::print_plan_result(false, &result);
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// codeterm-releases#60: `spec list` renders one row per spec in columns,
+    /// never the raw `{"..."` JSON dump `print_object`'s fallback produced.
+    #[test]
+    fn spec_list_renders_columns_without_json() {
+        let val = json!({
+            "specs": [
+                {
+                    "spec_id": "spec_a1",
+                    "status": "active",
+                    "title": "First Spec",
+                    "project_path": "/repo/one",
+                    "file_path": "/repo/one/.codeterm/specs/spec_a1.md",
+                    "updated_at": 1,
+                },
+                {
+                    "spec_id": "spec_b2",
+                    "status": "archived",
+                    "title": "Second Spec",
+                    "project_path": "/repo/two",
+                    "file_path": "/repo/two/.codeterm/specs/spec_b2.md",
+                    "updated_at": 2,
+                },
+            ]
+        });
+
+        let rendered = render_spec_list(&val);
+
+        let lines: Vec<&str> = rendered.lines().collect();
+        assert_eq!(lines.len(), 2, "one line per record, not one line total");
+        for line in &lines {
+            assert!(
+                !line.contains("{\""),
+                "no line may contain a raw JSON object: {line}"
+            );
+        }
+        assert!(lines[0].contains("spec_a1"));
+        assert!(lines[0].contains("active"));
+        assert!(lines[0].contains("First Spec"));
+        assert!(lines[0].contains("/repo/one"));
+        assert!(lines[1].contains("spec_b2"));
+        assert!(lines[1].contains("archived"));
+        assert!(lines[1].contains("Second Spec"));
+        assert!(lines[1].contains("/repo/two"));
+    }
+
+    #[test]
+    fn spec_list_renders_empty_state_without_json() {
+        assert_eq!(render_spec_list(&json!({ "specs": [] })), "(no specs)");
+    }
+
+    #[derive(Default)]
+    struct FakeRpc {
+        response: Value,
+    }
+
+    impl RpcClient for FakeRpc {
+        fn call_detailed(
+            &mut self,
+            _method: &str,
+            _params: Option<Value>,
+        ) -> Result<Value, crate::client::SocketCallError> {
+            Ok(self.response.clone())
+        }
+    }
+
+    /// codeterm-releases#60: `--json` still returns the daemon's raw
+    /// response untouched, never routed through `render_spec_list`.
+    #[test]
+    fn spec_list_json_mode_returns_the_raw_daemon_response() {
+        let daemon_response = json!({
+            "specs": [{ "spec_id": "spec_a1", "status": "active", "title": "First Spec" }]
+        });
+        let mut client = FakeRpc {
+            response: daemon_response.clone(),
+        };
+
+        let result = run_spec(
+            &mut client,
+            true,
+            SpecAction::List {
+                project: None,
+                active: false,
+                archived: false,
+                all: true,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(result, Some(daemon_response));
     }
 }
