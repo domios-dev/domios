@@ -184,7 +184,7 @@ fn enabled_capabilities(m: &PluginManifest) -> Vec<&'static str> {
     if c.agent_provider {
         out.push("agentProvider");
     }
-    if c.secret_backend {
+    if c.secret_backend.enabled() {
         out.push("secretBackend");
     }
     if c.transcriber {

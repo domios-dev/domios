@@ -62,6 +62,74 @@ impl Serialize for ChatPreprocessorCap {
     }
 }
 
+/// `secretBackend` capability declaration. Authors write either a bare bool
+/// (`true` — the plugin is the secret store but never restores a session on its
+/// own) or an object carrying capability flags. Both forms mean "enabled".
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SecretBackendCap {
+    pub enabled: bool,
+    /// The backend restores a usable session without interactive input, from
+    /// credentials it persisted itself. Declaring it makes the host OFFER
+    /// auto-unlock; it never authorizes a vault operation, which still has to
+    /// pass the vault's own authentication.
+    pub auto_unlock: bool,
+}
+
+impl SecretBackendCap {
+    pub fn enabled(&self) -> bool {
+        self.enabled
+    }
+
+    pub fn auto_unlock(&self) -> bool {
+        self.enabled && self.auto_unlock
+    }
+}
+
+impl<'de> Deserialize<'de> for SecretBackendCap {
+    fn deserialize<D>(d: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            Flag(bool),
+            Obj {
+                #[serde(default, rename = "autoUnlock")]
+                auto_unlock: bool,
+            },
+        }
+        Ok(match Raw::deserialize(d)? {
+            Raw::Flag(enabled) => Self {
+                enabled,
+                auto_unlock: false,
+            },
+            Raw::Obj { auto_unlock } => Self {
+                enabled: true,
+                auto_unlock,
+            },
+        })
+    }
+}
+
+impl Serialize for SecretBackendCap {
+    /// Symmetric with `Deserialize`: an undeclared auto-unlock round-trips to
+    /// the bare bool, so a re-serialized manifest can never silently grant it.
+    fn serialize<S>(&self, s: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        if self.enabled && self.auto_unlock {
+            use serde::ser::SerializeMap;
+            let mut m = s.serialize_map(Some(1))?;
+            m.serialize_entry("autoUnlock", &true)?;
+            m.end()
+        } else {
+            s.serialize_bool(self.enabled)
+        }
+    }
+}
+
 /// `chatBackend` capability declaration. Authors write either a bare bool
 /// (`true` — the backend is registered but NOT user-spawnable, e.g. a
 /// host-/agent-driven NPC tab) or an object carrying capability flags. Both
@@ -205,8 +273,10 @@ impl Serialize for ChatBackendCap {
 pub struct Capabilities {
     #[serde(default)]
     pub agent_provider: bool,
+    /// Bool (the plugin is the store) or `{ autoUnlock }` object (the store
+    /// also declares it can restore its own session headlessly).
     #[serde(default)]
-    pub secret_backend: bool,
+    pub secret_backend: SecretBackendCap,
     #[serde(default)]
     pub transcriber: bool,
     /// Renders a read-only "glance" popover (ViewNode tree) when pinned.

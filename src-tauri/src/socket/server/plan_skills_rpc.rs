@@ -3,6 +3,7 @@ use sha2::Digest;
 
 use super::plan::plan_rpc_err;
 use super::{get_string_param, plan_refs, JsonRpcError};
+use crate::plan::PlannerRef;
 use crate::service::plan::plan_skills::{
     create_plan_skill, list_plan_skills, show_plan_skill, NewPlanSkill,
 };
@@ -62,6 +63,10 @@ pub(super) fn dispatch(
             "plan skill caller binding is not current".into(),
         )));
     }
+    // Owner/Planner reads their own plan without a task binding or ledger entry.
+    if plan_caller_is_owner_or_planner(store, &plan_id, tab_id) {
+        return Ok(result);
+    }
     let task_id = resolve_skill_task_id(
         store,
         &plan_id,
@@ -101,6 +106,20 @@ pub(super) fn dispatch(
         )
         .map_err(plan_rpc_err)?;
     Ok(result)
+}
+
+/// Checked only after `live` proves the caller genuinely owns `tab_id`.
+fn plan_caller_is_owner_or_planner(store: &PlanStore, plan_id: &str, tab_id: &str) -> bool {
+    let Some(plan) = store.get(plan_id) else {
+        return false;
+    };
+    if plan.owner.tab_id.as_deref() == Some(tab_id) {
+        return true;
+    }
+    matches!(
+        &plan.planner,
+        Some(PlannerRef::Tab { tab_id: bound, .. }) if bound == tab_id
+    )
 }
 
 // A task tab cannot export its session id before PTY spawn; only a nonce that
@@ -646,5 +665,145 @@ mod tests {
             .unwrap();
         assert_eq!(shown["skill"]["slug"], CALLER_SKILL);
         assert!(caller.loaded_skills().is_empty());
+    }
+
+    const OWNER_SKILL: &str = "verify-before-claim";
+    const OWNER_NONCE: &str = "nonce-owner-5upl98";
+    const OWNER_SESSION: &str = "session-owner-5upl98";
+
+    /// A plan with a live, nonce-proven owner tab, a live Planner tab, a
+    /// live tab bound to neither, and one skill to read.
+    struct OwnerFixture {
+        svc: ServiceState,
+        plan_id: String,
+        owner_tab: String,
+        planner_tab: String,
+        stranger_tab: String,
+        _fixture: ServiceFixture,
+        _project: tempfile::TempDir,
+    }
+
+    impl OwnerFixture {
+        fn new() -> Self {
+            let project = tempfile::tempdir().unwrap();
+            crate::service::plan::paths::mark_test_project_root(project.path());
+            let (mut mux, _) = MultiplexerState::new();
+            let workspace = mux.list_workspaces()[0].id.clone();
+            let owner_tab = mux.create_tab(&workspace).unwrap();
+            let planner_tab = mux.create_tab(&workspace).unwrap();
+            let stranger_tab = mux.create_tab(&workspace).unwrap();
+            for (tab, session, nonce) in [
+                (&owner_tab, OWNER_SESSION, OWNER_NONCE),
+                (&planner_tab, "session-planner", "nonce-planner"),
+                (&stranger_tab, "session-stranger", "nonce-stranger"),
+            ] {
+                let tab = mux.get_tab_mut(tab).unwrap();
+                tab.agent_type = Some("claude".into());
+                tab.agent_session_id = Some(session.into());
+                tab.session_binding_nonce = Some(nonce.into());
+                tab.reported_session_binding_nonce = Some(nonce.into());
+            }
+
+            let fixture = ServiceFixture::new(mux);
+            let store = fixture.service.plan_store.clone();
+            let plan = store
+                .create_plan_for_team(
+                    "Skills".into(),
+                    project.path().display().to_string(),
+                    OrchestratorRef::from_tab(&owner_tab),
+                    "team-owner-read".into(),
+                    vec![],
+                    1,
+                )
+                .unwrap();
+            store
+                .set_planner_ref(
+                    &plan.id,
+                    Some(PlannerRef::Tab {
+                        tab_id: planner_tab.clone(),
+                        session_id: None,
+                        title: None,
+                    }),
+                    2,
+                )
+                .unwrap();
+            create_plan_skill(
+                &store,
+                &plan.id,
+                NewPlanSkill {
+                    slug: OWNER_SKILL.into(),
+                    title: Some("Verify Before Claim".into()),
+                    area: None,
+                    check: None,
+                    rationale: Some("mandatory".into()),
+                },
+            )
+            .unwrap();
+            let svc: ServiceState = Arc::new(fixture.service.clone());
+            Self {
+                svc,
+                plan_id: plan.id,
+                owner_tab,
+                planner_tab,
+                stranger_tab,
+                _fixture: fixture,
+                _project: project,
+            }
+        }
+
+        fn show(&self, tab_id: &str, nonce: &str) -> Result<Value, JsonRpcError> {
+            dispatch(
+                "plan.skills.show",
+                &Some(json!({
+                    "plan_id": self.plan_id,
+                    "slug": OWNER_SKILL,
+                    "caller_tab_id": tab_id,
+                    "session_binding_nonce": nonce,
+                })),
+                &self.svc,
+                7,
+            )
+        }
+    }
+
+    /// Neither tab is ever assigned a task, so success here proves the
+    /// owner/Planner path never reaches `resolve_skill_task_id`.
+    #[test]
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+    fn plan_skill_show_serves_the_plan_owner_and_planner() {
+        let f = OwnerFixture::new();
+
+        let shown = f
+            .show(&f.owner_tab, OWNER_NONCE)
+            .expect("the plan owner must read its own plan's skill");
+        assert_eq!(shown["skill"]["slug"], OWNER_SKILL);
+
+        let shown = f
+            .show(&f.planner_tab, "nonce-planner")
+            .expect("the Planner must read the plan's skill");
+        assert_eq!(shown["skill"]["slug"], OWNER_SKILL);
+    }
+
+    /// codeterm-releases#53: a spoofed/stale/unproven owner claim is refused
+    /// exactly like any other unrelated tab, never granted the bypass.
+    #[test]
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+    fn plan_skill_show_refuses_every_spoofed_or_unrelated_owner_claim() {
+        let f = OwnerFixture::new();
+
+        // Spoofed: the real owner's tab id, a nonce that tab never issued.
+        assert!(f.show(&f.owner_tab, "nonce-guessed").is_err());
+        // Stale: a nonce the owner tab held before it rotated.
+        assert!(f.show(&f.owner_tab, "nonce-owner-previous").is_err());
+        // Missing reported nonce: issued but never echoed back live.
+        {
+            let mut mux = f.svc.mux.write();
+            mux.get_tab_mut(&f.owner_tab)
+                .unwrap()
+                .reported_session_binding_nonce = None;
+        }
+        assert!(f.show(&f.owner_tab, OWNER_NONCE).is_err());
+        // Live and nonce-proven, but bound to neither owner nor Planner.
+        assert!(f.show(&f.stranger_tab, "nonce-stranger").is_err());
     }
 }

@@ -569,7 +569,16 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 (!json).then(|| crate::cmd::resolved_text::resolved_text_echo(&message));
             let plan = env_default(plan, "CODETERM_PLAN_ID");
             let task = env_default(task, "CODETERM_TASK_ID");
-            if status.is_some() && (plan.is_none() || task.is_none()) {
+            let role_env = std::env::var("CODETERM_ROLE").ok();
+            let task_bound = task.is_some()
+                || crate::cmd::report_guard::role_owns_plan_without_task(role_env.as_deref());
+            if status.is_some()
+                && !crate::cmd::report_guard::worker_binding_resolved(
+                    false,
+                    plan.is_some(),
+                    task_bound,
+                )
+            {
                 let tab = std::env::var("CODETERM_TAB_ID")
                     .ok()
                     .filter(|value| !value.trim().is_empty())
@@ -867,36 +876,18 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                         std::process::exit(1);
                     }
                     let val: serde_json::Value = resp.json().unwrap_or_default();
-                    if !status.is_success() {
-                        let msg = val
-                            .get("error")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or_else(|| val.as_str().unwrap_or("restart failed"));
-                        eprintln!("Error: {}", msg);
-                        std::process::exit(1);
-                    }
-                    if json {
-                        println!("{}", serde_json::to_string_pretty(&val).unwrap());
-                    } else {
-                        let action = val
-                            .get("session_action")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("fresh");
-                        let full_access = val
-                            .get("full_access")
-                            .and_then(|v| v.as_bool())
-                            .unwrap_or(false);
-                        let sid = val.get("session_id").and_then(|v| v.as_str());
-                        let session = match (action, sid) {
-                            ("resume", Some(s)) => format!("resume {}", s),
-                            _ => "fresh session".to_string(),
-                        };
-                        println!(
-                            "Restarting Tab {}: {}, full access={} (same Tab id, same session unless stale)",
-                            tab_id,
-                            session,
-                            if full_access { "on" } else { "off" }
-                        );
+                    match restart_response_outcome(status, &val) {
+                        Ok(()) => {
+                            if json {
+                                println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                            } else {
+                                println!("{}", render_restart_success(&val, &tab_id));
+                            }
+                        }
+                        Err(msg) => {
+                            eprintln!("Error: {}", msg);
+                            std::process::exit(1);
+                        }
                     }
                 }
                 Err(e) => {
@@ -977,6 +968,44 @@ fn render_startup_hold(value: &serde_json::Value) -> String {
         field("attempt_id"),
         field("creator_tab_id"),
         field("team_id"),
+    )
+}
+
+/// Success (exit 0) vs. failure (exit 1); the unreported-vs-foreign-session
+/// distinction is already resolved server-side by the time `status` arrives.
+fn restart_response_outcome(
+    status: reqwest::StatusCode,
+    val: &serde_json::Value,
+) -> Result<(), String> {
+    if status.is_success() {
+        return Ok(());
+    }
+    let msg = val
+        .get("error")
+        .and_then(|v| v.as_str())
+        .unwrap_or_else(|| val.as_str().unwrap_or("restart failed"));
+    Err(msg.to_string())
+}
+
+fn render_restart_success(val: &serde_json::Value, tab_id: &str) -> String {
+    let action = val
+        .get("session_action")
+        .and_then(|v| v.as_str())
+        .unwrap_or("fresh");
+    let full_access = val
+        .get("full_access")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let sid = val.get("session_id").and_then(|v| v.as_str());
+    let session = match (action, sid) {
+        ("resume", Some(s)) => format!("resume {}", s),
+        _ => "fresh session".to_string(),
+    };
+    format!(
+        "Restarting Tab {}: {}, full access={} (same Tab id, same session unless stale)",
+        tab_id,
+        session,
+        if full_access { "on" } else { "off" }
     )
 }
 

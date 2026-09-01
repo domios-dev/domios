@@ -397,3 +397,92 @@ fn genuine_pty_turnover_reports_new_agent_ready() {
         })
     );
 }
+
+fn settle_snapshot_and_outcome(tab_id: &str) -> (TabRestartSnapshot, RestartOutcome) {
+    let snap = TabRestartSnapshot {
+        tab_id: tab_id.into(),
+        pty_id: "pty-new".into(),
+        provider: "claude".into(),
+        session_id: Some("sess-a".into()),
+        cwd: None,
+        auto_approve: false,
+        role: None,
+        role_profile: None,
+    };
+    let outcome = RestartOutcome {
+        tab_id: tab_id.into(),
+        provider: "claude".into(),
+        session_id: Some("sess-a".into()),
+        session_was_stale: false,
+        force: true,
+        auto_approve: false,
+        restart_accepted: true,
+        old_pty_torn_down: true,
+        agent_ready: true,
+        binding_restored: false,
+        old_pty_id: Some("pty-old".into()),
+        new_pty_id: Some("pty-new".into()),
+    };
+    (snap, outcome)
+}
+
+/// codeterm-releases#55, through the real settle path: a relaunched tab
+/// with no reported session yet settles successfully, not as foreign.
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn settle_restored_binding_treats_unreported_session_as_success() {
+    let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let workspace = fixture
+        .service
+        .mux
+        .write()
+        .create_workspace("restart".into(), None)
+        .id;
+    let tab_id = fixture.service.mux.write().create_tab(&workspace).unwrap();
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab_id)
+        .unwrap()
+        .agent_session_id = None;
+    let (snap, outcome) = settle_snapshot_and_outcome(&tab_id);
+
+    let result = fixture.service.settle_restored_binding(outcome, &snap);
+
+    assert!(
+        result.is_ok(),
+        "an unreported session must settle successfully"
+    );
+}
+
+/// Guard: a genuinely different reported session still fails the settle.
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn settle_restored_binding_still_refuses_a_genuinely_foreign_session() {
+    let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let workspace = fixture
+        .service
+        .mux
+        .write()
+        .create_workspace("restart".into(), None)
+        .id;
+    let tab_id = fixture.service.mux.write().create_tab(&workspace).unwrap();
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab_id)
+        .unwrap()
+        .agent_session_id = Some("foreign-session".into());
+    let (snap, outcome) = settle_snapshot_and_outcome(&tab_id);
+
+    let result = fixture.service.settle_restored_binding(outcome, &snap);
+
+    assert!(
+        result.is_err(),
+        "a genuinely foreign session must still fail"
+    );
+}

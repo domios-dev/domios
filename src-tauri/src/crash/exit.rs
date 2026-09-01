@@ -41,8 +41,8 @@ where
     }
 }
 
-/// Session snapshot + mem WAL checkpoint. Idempotent and side-effect-free for
-/// process liveness, so it runs on every exit signal we observe.
+/// Provider-update waiter join, session snapshot, mem WAL checkpoint. Idempotent
+/// and side-effect-free for process liveness, so every exit signal runs it.
 pub fn persist_state(app: &tauri::AppHandle) {
     if let (Some(mux), Some(session)) =
         (app.try_state::<MuxState>(), app.try_state::<SessionState>())
@@ -58,6 +58,10 @@ pub fn persist_state(app: &tauri::AppHandle) {
     }
 
     if let Some(svc) = app.try_state::<crate::service::ServiceState>() {
+        let joined = svc.shutdown_provider_update_waiters();
+        if joined > 0 {
+            log::info!("[shutdown] joined {joined} provider-update waiter(s)");
+        }
         match svc.mem.checkpoint_and_close() {
             Ok((busy, log_frames, checkpointed)) => log::info!(
                 "[shutdown] mem WAL checkpointed busy={} log_frames={} checkpointed={}",

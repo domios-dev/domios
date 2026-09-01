@@ -75,7 +75,7 @@ fn search_hits_json(hits: &[crate::mem::SearchHit]) -> serde_json::Value {
 }
 
 fn secret_bucket(plugin_id: &str) -> SecretFile {
-    SecretFile::new(&format!("codeterm.plugin.{plugin_id}"))
+    crate::secrets::plugin_secret_bucket(plugin_id)
 }
 
 fn api_cfg_base_url() -> String {

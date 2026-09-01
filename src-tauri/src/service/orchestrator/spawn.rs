@@ -783,7 +783,7 @@ impl ServiceContext {
                 .map(str::trim)
                 .filter(|plan_id| !plan_id.is_empty())
                 .ok_or("Planner requires --plan <id> (or an explicit --parent)")?;
-            self.place_planner_on_plan(tab_id, plan_id, false)?;
+            self.place_planner_on_plan(tab_id, plan_id, None, false)?;
             return Ok(());
         }
         if emit_state_change {

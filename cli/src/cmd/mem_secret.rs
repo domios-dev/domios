@@ -1,4 +1,7 @@
 use crate::cmd::mem::transport::mem_transport_error;
+use crate::cmd::mem_secret_autounlock::{
+    arm_unlock_request, json_summary, BackendDeclaration, SaveMasterPasswordOutcome,
+};
 use crate::cmd::print::print_human;
 use crate::MemSecretAction;
 
@@ -264,30 +267,54 @@ pub fn handle_mem_secret(json_mode: bool, action: MemSecretAction) {
                 eprintln!("Error: master password is empty");
                 std::process::exit(1);
             }
-            let dir = match dirs::home_dir() {
-                Some(h) => h.join(".codeterm").join("secrets"),
-                None => {
-                    eprintln!("Error: HOME not set");
-                    std::process::exit(1);
-                }
+
+            let (decl_status, decl_body) =
+                send_request(http.get(format!("{}/api/secrets/status", base)));
+            if exit_for_status(decl_status).is_some() {
+                print_or_exit(decl_status, decl_body);
+            }
+            let declaration = BackendDeclaration::from_status(&decl_body);
+
+            // The credential leaves this process only when the active backend
+            // declares it can use one; otherwise nothing is sent or stored.
+            let unlock_status = if declaration.auto_unlock_capable {
+                let (status, _) = send_request(
+                    http.post(format!("{}/api/secrets/unlock", base))
+                        .json(&arm_unlock_request(&pw)),
+                );
+                Some(status)
+            } else {
+                None
             };
-            if let Err(e) = std::fs::create_dir_all(&dir) {
-                eprintln!("Error: create {}: {}", dir.display(), e);
-                std::process::exit(1);
+            // Whether auto-unlock is armed is the backend's answer, re-read from
+            // the status surface — never this command's assumption.
+            let vault_accepted = matches!(unlock_status, Some(s) if exit_for_status(s).is_none());
+            let armed_after = vault_accepted && {
+                let (_, after) = send_request(http.get(format!("{}/api/secrets/status", base)));
+                after
+                    .get("master_password_saved")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
+            };
+
+            let outcome =
+                SaveMasterPasswordOutcome::decide(&declaration, unlock_status, armed_after);
+            if json_mode {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json_summary(&declaration, &outcome))
+                        .unwrap_or_default()
+                );
+            } else {
+                for line in outcome.lines() {
+                    if outcome.is_success() {
+                        println!("{}", line);
+                    } else {
+                        eprintln!("{}", line);
+                    }
+                }
             }
-            let path = dir.join("bitwarden-master.env");
-            let body = format!("BW_MASTER_PASSWORD={}\n", pw);
-            if let Err(e) = std::fs::write(&path, body) {
-                eprintln!("Error: write {}: {}", path.display(), e);
-                std::process::exit(1);
-            }
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
-            }
-            println!("Saved to {} (mode 0600).", path.display());
-            println!("Daemon will auto-unlock JIT on every secret operation.");
+            std::process::exit(outcome.exit_code());
         }
     }
 }

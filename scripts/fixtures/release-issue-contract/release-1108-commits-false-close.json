@@ -1,0 +1,67 @@
+[
+  {
+    "sha": "00000000000000000000000000000000000000a0",
+    "url": "https://github.com/rollacode/codeterm/commit/00000000000000000000000000000000000000a0",
+    "body": "fix: milestone work\n\nCloses #370"
+  },
+  {
+    "sha": "00000000000000000000000000000000000000a1",
+    "url": "https://github.com/rollacode/codeterm/commit/00000000000000000000000000000000000000a1",
+    "body": "fix: milestone work\n\nCloses #368"
+  },
+  {
+    "sha": "00000000000000000000000000000000000000a2",
+    "url": "https://github.com/rollacode/codeterm/commit/00000000000000000000000000000000000000a2",
+    "body": "fix: milestone work\n\nCloses #343"
+  },
+  {
+    "sha": "00000000000000000000000000000000000000a3",
+    "url": "https://github.com/rollacode/codeterm/commit/00000000000000000000000000000000000000a3",
+    "body": "fix: milestone work\n\nCloses #305"
+  },
+  {
+    "sha": "00000000000000000000000000000000000000a4",
+    "url": "https://github.com/rollacode/codeterm/commit/00000000000000000000000000000000000000a4",
+    "body": "fix: milestone work\n\nCloses #371"
+  },
+  {
+    "sha": "00000000000000000000000000000000000000a5",
+    "url": "https://github.com/rollacode/codeterm/commit/00000000000000000000000000000000000000a5",
+    "body": "fix: milestone work\n\nCloses #372"
+  },
+  {
+    "sha": "00000000000000000000000000000000000000a6",
+    "url": "https://github.com/rollacode/codeterm/commit/00000000000000000000000000000000000000a6",
+    "body": "fix: milestone work\n\nCloses #373"
+  },
+  {
+    "sha": "00000000000000000000000000000000000000a7",
+    "url": "https://github.com/rollacode/codeterm/commit/00000000000000000000000000000000000000a7",
+    "body": "fix: milestone work\n\nCloses #321"
+  },
+  {
+    "sha": "00000000000000000000000000000000000000a8",
+    "url": "https://github.com/rollacode/codeterm/commit/00000000000000000000000000000000000000a8",
+    "body": "fix: milestone work\n\nCloses #374"
+  },
+  {
+    "sha": "00000000000000000000000000000000000000a9",
+    "url": "https://github.com/rollacode/codeterm/commit/00000000000000000000000000000000000000a9",
+    "body": "fix: milestone work\n\nCloses #318"
+  },
+  {
+    "sha": "00000000000000000000000000000000000000ff",
+    "url": "https://github.com/rollacode/codeterm/commit/00000000000000000000000000000000000000ff",
+    "body": "fix: partial work on the carried-forward parts\n\nRefs #336"
+  },
+  {
+    "sha": "000000000000000000000000000000000000beef",
+    "url": "https://github.com/rollacode/codeterm/commit/000000000000000000000000000000000000beef",
+    "body": "chore: unrelated cleanup\n\nCloses #336"
+  },
+  {
+    "sha": "000000000000000000000000000000000000deed",
+    "url": "https://github.com/rollacode/codeterm/commit/000000000000000000000000000000000000deed",
+    "body": "fix(release): wire the macOS signature gate\n\nCloses https://github.com/rollacode/codeterm-releases/issues/64"
+  }
+]

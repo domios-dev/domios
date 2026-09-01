@@ -1,5 +1,7 @@
 use serde_json::{json, Value};
 
+use crate::cmd::report_guard::UNBOUND_WORKER_BINDING_ADVISORY;
+
 const ORCHESTRATION_REMINDER: &str =
     "hint: orchestrating? read `codeterm docs ORCHESTRATION`; before dispatch, run `codeterm plan doctor <plan> --kind quality`";
 const ORCHESTRATION_REMINDER_EVERY: u64 = 5;
@@ -173,6 +175,20 @@ pub(crate) fn worker_spawn_hints(
     hints
 }
 
+/// codeterm#305: fires exactly when `agent report` will later refuse for
+/// the same unbound reason.
+pub(crate) fn unbound_worker_binding_hint(is_worker: bool, bound: bool) -> Option<String> {
+    if !is_worker || bound {
+        return None;
+    }
+    Some(format!(
+        "hint: {UNBOUND_WORKER_BINDING_ADVISORY} — no --plan-task (or --plan + --task-id) was \
+         given. Consequences: no isolated lane is provisioned for this Worker, and `agent report \
+         --status ...` will refuse at the end for want of the binding that was optional here. \
+         Bind now with --plan-task <task>, or report without --status until you assign one."
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -187,6 +203,16 @@ mod tests {
         assert!(both[1].contains("--task"));
         assert_eq!(worker_spawn_hints(true, true, false).len(), 1);
         assert_eq!(worker_spawn_hints(true, false, true).len(), 1);
+    }
+
+    /// codeterm#305: fires only for an unbound Worker, named by constant.
+    #[test]
+    fn unbound_worker_binding_hint_fires_only_for_an_unbound_worker() {
+        assert_eq!(unbound_worker_binding_hint(false, false), None);
+        assert_eq!(unbound_worker_binding_hint(true, true), None);
+        assert_eq!(unbound_worker_binding_hint(false, true), None);
+        let hint = unbound_worker_binding_hint(true, false).unwrap();
+        assert!(hint.contains(UNBOUND_WORKER_BINDING_ADVISORY));
     }
 
     #[test]

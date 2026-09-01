@@ -114,7 +114,21 @@ impl ServiceContext {
                 return;
             }
         };
-        let active_plan = self.plan_store.active_plan_for_team(&team_id);
+        // The team above is always freshly minted; scope the existence check
+        // to the project instead — codeterm-releases#56.
+        let project_path = {
+            let mux = self.mux.read();
+            mux.get_tab(tab_id)
+                .and_then(|tab| tab.cwd.clone())
+                .or_else(|| {
+                    mux.find_workspace_for_tab(tab_id)
+                        .and_then(|workspace_id| mux.get_workspace(&workspace_id))
+                        .and_then(|workspace| workspace.cwd.clone())
+                })
+        };
+        let active_plan = project_path
+            .as_deref()
+            .and_then(|project_path| self.plan_store.active_plan_for_project(project_path));
         let plan_id = active_plan.as_ref().map(|(id, _)| id.as_str());
         let body = orchestrator_onboarding_body(tab_id, &team_id, plan_id);
         // Raw chat startup must see the full onboarding even before delivery lands.
@@ -319,6 +333,52 @@ mod tests {
         // A ready-to-run planner spawn bound to THIS tab and the real plan.
         assert!(msg.contains("--parent-tab tab-abc --role Planner --plan pl_real42"));
         assert_no_placeholder_residue(&msg);
+    }
+
+    /// codeterm-releases#56: a freshly minted team must not blind the
+    /// existence check to a plan the project already has.
+    #[test]
+    fn adoption_onboarding_does_not_emit_create_first_branch() {
+        let dir = tempfile::tempdir().unwrap();
+        let project_path = dir.path().display().to_string();
+        let store = crate::service::plan::PlanStore::new_for_test(dir.path());
+        // Real creation path canonicalizes project_path; raw Plan::new + save
+        // skips that and never matches active_plan_for_project's query.
+        let plan = store
+            .create_plan_for_team(
+                "Existing project plan".into(),
+                project_path.clone(),
+                crate::plan::OrchestratorRef::from_tab("prior-orch"),
+                "team_existing_plan_owner".into(),
+                vec![],
+                1,
+            )
+            .unwrap();
+        let plan_id = plan.id.clone();
+
+        // A promotion always mints a FRESH, empty team — never one that could
+        // already be bound to this (or any) plan.
+        let fresh_team_id = "team_freshly_minted";
+        assert_eq!(
+            store.active_plan_for_team(fresh_team_id),
+            None,
+            "a freshly minted team must never already own a plan — this is why team-scoping is unsalvageable"
+        );
+
+        let resolved = store.active_plan_for_project(&project_path);
+        assert_eq!(
+            resolved.as_ref().map(|(id, _)| id.as_str()),
+            Some(plan_id.as_str())
+        );
+
+        let msg = orchestrator_onboarding_body(
+            "tab-abc",
+            fresh_team_id,
+            resolved.as_ref().map(|(id, _)| id.as_str()),
+        );
+        assert!(!msg.contains(crate::prompts::ORCH_ONBOARD_NO_PLAN_MARKER));
+        assert!(!msg.contains(crate::prompts::ORCH_ONBOARD_CREATE_STEP));
+        assert!(msg.contains(&plan_id));
     }
 
     #[test]

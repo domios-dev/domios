@@ -836,6 +836,14 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/plugins/bubble", post(web_routes::plugin_bubble))
         .route("/api/plugins/view-call", post(web_routes::plugin_view_call))
         .route(
+            "/api/repo-watch/subscribe",
+            post(web_routes::repo_watch_subscribe),
+        )
+        .route(
+            "/api/repo-watch/unsubscribe",
+            post(web_routes::repo_watch_unsubscribe),
+        )
+        .route(
             "/api/plugins/chatbackend/session-info",
             post(web_routes::chatbackend_session_info),
         )

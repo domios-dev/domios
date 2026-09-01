@@ -87,16 +87,14 @@ through the signed Mesh relay. Relay authorization uses the same policy as a
 direct signed peer request. REST config responses redact `api.token`, and
 `/api/secrets/*` cannot be relayed even with Full access.
 
-Relay protocol version `1` is intentionally incompatible with older daemons.
-Both incoming and outgoing relay paths reject a peer with `426 Upgrade
-Required`; the Mesh card keeps **Open** disabled and asks the user to update
-that peer.
+Relay protocol version `1` is intentionally incompatible with older daemons. Both relay paths reject
+older peers with `426 Upgrade Required`; the Mesh card disables **Open** and requests an update.
 
-The browser origin that served the SPA remains its gateway. An already-loaded
-page can render during a gateway outage, but it cannot fetch data or switch
-peers until that gateway returns. Safe gateway failover requires a separate
-short-lived, single-use handoff grant; permanent API tokens are never shared as
-a fallback.
+`POST /api/mesh/relay-to` returns `404 peer_not_paired` when no paired record exists and
+`503 peer_unroutable` when the paired peer has no reachable address. Both reasons are stable constants.
+
+The serving browser origin remains its gateway. During an outage an already-loaded page can render,
+but cannot fetch or switch peers. Failover needs a short-lived, single-use handoff grant, never a permanent token.
 
 ## Remote plan commands
 
@@ -237,4 +235,4 @@ Mesh inventory is target-authoritative: machine-qualified rows carry provenance 
 
 Inventory opens as a full-screen searchable List beside the existing Mesh network graph. One shared mode bubble switches between the List and the graph of connected computers. Keyboard navigation preserves resource identity and focus; peer detail separates Services and Schedules and labels cached, offline, denied, and partial states.
 
-<!-- revision: 22 -->
+<!-- revision: 23 -->

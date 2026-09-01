@@ -459,6 +459,21 @@ pub async fn set_tab_role(
     let (parsed_role, parsed_profile) =
         crate::service::ServiceContext::parse_role_kind(&role, role_probe.role_profile.as_deref())
             .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    // Same contract as `agent spawn --role Planner` — never an anchor, so
+    // promotion onboarding never applies here.
+    if parsed_role == AgentRole::Manager && parsed_profile.as_deref() == Some(PLANNER) {
+        let plan_id = body.plan_id.clone().ok_or_else(|| {
+            (
+                StatusCode::BAD_REQUEST,
+                "Planner requires a plan_id".to_string(),
+            )
+        })?;
+        state
+            .svc
+            .place_planner_on_plan(&id, &plan_id, body.parent_tab_id.as_deref(), true)
+            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+        return Ok(Json(serde_json::json!({"ok": true})));
+    }
     let becomes_anchor = codeterm_types::agent::role_kind::anchors_team(
         Some(parsed_role),
         parsed_profile.as_deref(),
@@ -467,7 +482,7 @@ pub async fn set_tab_role(
         let mux = state.svc.mux.read();
         mux.get_tab(&id).map(|p| p.anchors_team()).unwrap_or(false)
     };
-    let mut plan_binding: Option<String> = None;
+    let plan_binding: Option<String> = None;
     let destination = match parsed_role {
         AgentRole::Manager if becomes_anchor => crate::service::AgentPlacement::Manager {
             role_profile: parsed_profile.clone().unwrap_or_default(),
@@ -483,21 +498,6 @@ pub async fn set_tab_role(
             })?,
             role_profile: parsed_profile.clone(),
         },
-        // A Planner names its plan instead of a parent; the plan record owns
-        // the anchor it binds under.
-        AgentRole::Manager if parsed_profile.as_deref() == Some(PLANNER) => {
-            plan_binding = Some(body.plan_id.clone().ok_or_else(|| {
-                (
-                    StatusCode::BAD_REQUEST,
-                    "Planner requires a plan_id".to_string(),
-                )
-            })?);
-            crate::service::AgentPlacement::Manager {
-                role_profile: PLANNER.to_string(),
-                parent_tab_id: body.parent_tab_id.clone(),
-                can_spawn: body.can_spawn,
-            }
-        }
         AgentRole::Manager => crate::service::AgentPlacement::Manager {
             parent_tab_id: Some(body.parent_tab_id.clone().ok_or_else(|| {
                 (

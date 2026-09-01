@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 47 -->
+<!-- revision: 48 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -146,7 +146,7 @@ Spawn a new agent; roleless unless --role is provided.
 - `--model` — Model selector (e.g. "github-copilot/claude-haiku-4.5", "gpt-5"). The provider knows whether to emit `-m X` or `--model X` — caller passes the model string opaque. Run `codeterm agent models <provider>` to see what's available
 - `--non-user-facing` — Declare the tab non-user-facing (bench/probe): its interactive prompts never raise user-visible Input-needed notifications
 - `--nudge-cooldown` — Watcher nudge cooldown, e.g. 10m
-- `--parent-tab` — Parent tab ID (for Workers)
+- `--parent-tab` — Parent tab ID. Required for Workers; for a Planner, resolved from --plan (its Orchestrator) when omitted
 - `--plan` — Plan id to bind — required for `--role Planner` to auto-bind Plan.planner and deliver the peer prompt naming the Orchestrator
 - `--plan-task` — Plan task to bind when spawning `--role Worker` (handle, id, or prefix)
 - `--preset` — Select a chatBackend shell preset. Omit to use the plugin default preset
@@ -954,7 +954,7 @@ Save a secret. Value comes from --value or stdin (preferred — keeps the value 
 
 #### `codeterm mem secret save-master-password`
 
-Save the master password to ~/.codeterm/secrets/bitwarden-master.env (mode 0600). Daemon then auto-unlocks JIT on every operation — no further prompts. Reads value from stdin (preferred — out of shell history) or --password
+Arm auto-unlock on the active backend. Refused unless the backend declares the auto-unlock capability; when it does, the password is handed to the vault, which must authenticate it before the backend persists anything in its own bucket. The CLI stores nothing itself. Reads value from stdin (preferred — out of shell history) or --password
 
 - `--password`
 
@@ -2314,8 +2314,8 @@ Update task metadata, status, quality fields, or lane assignment
 - `--clear-dependencies`
 - `--correctness`
 - `--correctness-file`
-- `--criterion`
-- `--criterion-file` — Read acceptance criteria from a file: a JSON string array, or one criterion per line. Appends to --criterion
+- `--criterion` — Add an acceptance criterion; repeatable. Appends to the existing array by default — pass --replace-criteria to replace it wholesale instead
+- `--criterion-file` — Read acceptance criteria from a file: a JSON string array, or one criterion per line. Appends to --criterion, subject to the same --replace-criteria semantics
 - `--depends-on` — Add a dependency; repeatable. Appends to existing dependencies (dedup). Accepts a full task id (task_xxxxxx), a unique id prefix, or a task handle. Use --replace-dependencies for wholesale replacement
 - `--destination`
 - `--executor-role` — Replace the executor role. Cannot be emptied: an update carrying a blank value is refused
@@ -2334,6 +2334,7 @@ Update task metadata, status, quality fields, or lane assignment
 - `--qa-plan`
 - `--qa-plan-file`
 - `--remove-dependency` — Remove a specific dependency edge; repeatable. Applied after --depends-on additions
+- `--replace-criteria` — Replace the whole acceptance-criteria array with --criterion/--criterion-file instead of appending to it. Destructive: reports before/after counts
 - `--replace-dependencies` — Replace the whole dependency set with --depends-on instead of appending
 - `--role-guidance` — Replace initial worker conditioning. Cannot be emptied; presence alone is the machine contract
 - `--role-guidance-file`

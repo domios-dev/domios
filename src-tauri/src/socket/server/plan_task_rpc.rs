@@ -602,9 +602,21 @@ pub(super) fn dispatch(
                 Some(result) => Some(result?),
                 None => None,
             };
+            // Append by default; Replace only when explicitly requested — codeterm#372.
             let acceptance_criteria = p
                 .and_then(|x| x.get("acceptance_criteria"))
-                .map(|_| string_array_field(p, "acceptance_criteria"));
+                .map(|_| string_array_field(p, "acceptance_criteria"))
+                .map(|items| {
+                    let replace = p
+                        .and_then(|x| x.get("acceptance_criteria_replace"))
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false);
+                    if replace {
+                        crate::service::plan::mutations::task_ops::AcceptanceCriteriaUpdate::Replace(items)
+                    } else {
+                        crate::service::plan::mutations::task_ops::AcceptanceCriteriaUpdate::Append(items)
+                    }
+                });
             let test_plan = optional_string_field(p, "test_plan");
             let qa_plan = optional_string_field(p, "qa_plan");
             let correctness = optional_string_field(p, "correctness");
@@ -651,7 +663,13 @@ pub(super) fn dispatch(
                     .update_task_competition(&id, &tid, competition, now)
                     .map_err(plan_rpc_err)?;
             }
-            if acceptance_criteria.is_some()
+            let acceptance_criteria_is_replace = matches!(
+                acceptance_criteria.as_ref(),
+                Some(
+                    crate::service::plan::mutations::task_ops::AcceptanceCriteriaUpdate::Replace(_)
+                )
+            );
+            let criteria_counts = if acceptance_criteria.is_some()
                 || test_plan.is_some()
                 || qa_plan.is_some()
                 || correctness.is_some()
@@ -666,8 +684,10 @@ pub(super) fn dispatch(
                         correctness,
                         now,
                     )
-                    .map_err(plan_rpc_err)?;
-            }
+                    .map_err(plan_rpc_err)?
+            } else {
+                None
+            };
             if !external_refs.is_empty() {
                 store
                     .add_task_external_refs(&id, &tid, &external_refs, now)
@@ -678,6 +698,13 @@ pub(super) fn dispatch(
                 .and_then(|x| x.get("caller_tab_id"))
                 .and_then(|v| v.as_str());
             let mut resp = json!({ "ok": true });
+            // Reported only for the destructive path — an append that grows
+            // the array by exactly its own item count needs no confirmation.
+            if acceptance_criteria_is_replace {
+                if let Some(counts) = criteria_counts {
+                    resp["acceptance_criteria_counts"] = json!(counts);
+                }
+            }
             if let Some(nudge) = store
                 .get(&id)
                 .as_ref()

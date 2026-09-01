@@ -210,14 +210,23 @@ pub enum PlanTaskAction {
         intent_file: Option<String>,
         #[arg(long)]
         sections: Option<String>,
-        #[arg(long = "criterion", allow_hyphen_values = true)]
+        #[arg(
+            long = "criterion",
+            allow_hyphen_values = true,
+            help = "Add an acceptance criterion; repeatable. Appends to the existing array by default — pass --replace-criteria to replace it wholesale instead"
+        )]
         criterion: Vec<String>,
         #[arg(
             long = "criterion-file",
             value_name = "PATH",
-            help = "Read acceptance criteria from a file: a JSON string array, or one criterion per line. Appends to --criterion"
+            help = "Read acceptance criteria from a file: a JSON string array, or one criterion per line. Appends to --criterion, subject to the same --replace-criteria semantics"
         )]
         criterion_file: Option<String>,
+        #[arg(
+            long = "replace-criteria",
+            help = "Replace the whole acceptance-criteria array with --criterion/--criterion-file instead of appending to it. Destructive: reports before/after counts"
+        )]
+        replace_criteria: bool,
         #[arg(
             long = "external-ref",
             value_name = "URL_OR_REPO#NUMBER",
