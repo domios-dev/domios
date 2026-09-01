@@ -394,6 +394,22 @@ pub fn run() {
             keepawake::resume_from_disk(&states.keepawake, &app_handle);
 
             agent::model_catalog::ensure_readme_installed();
+            // The retired native backend's master-password drop has no reader.
+            match crate::secrets::purge_legacy_master_password_file() {
+                crate::secrets::LegacyPurge::Absent => {}
+                crate::secrets::LegacyPurge::SecurelyErased => {
+                    log::info!("[secrets] securely erased the retired master-password drop")
+                }
+                crate::secrets::LegacyPurge::RemovedWithoutOverwrite => log::warn!(
+                    "[secrets] removed the retired master-password drop WITHOUT overwriting it; the old secret may still be recoverable from disk — rotate it"
+                ),
+                crate::secrets::LegacyPurge::RemovalFailed { overwritten } => log::warn!(
+                    "[secrets] the retired master-password drop is still on disk (overwritten={overwritten}); it may still be recoverable — remove and rotate it"
+                ),
+                crate::secrets::LegacyPurge::InspectionFailed => log::warn!(
+                    "[secrets] could not inspect the retired master-password drop; assume it is present and recoverable until checked"
+                ),
+            }
             // Carry a pre-existing native Bitwarden setup into the plugin's namespace (native Bitwarden is retired).
             {
                 let mut cfg = states.config.lock();
@@ -577,7 +593,7 @@ pub fn run() {
                         "[js-plugin] {id} trust={:?} caps(agent={} secret={} transcribe={})",
                         trust,
                         caps.agent_provider,
-                        caps.secret_backend,
+                        caps.secret_backend.enabled(),
                         caps.transcriber
                     );
 

@@ -52,9 +52,13 @@ impl CapabilityRegistries {
                 Arc::new(super::JsTranscriber::new(vm.clone(), id.clone())),
             );
         }
-        if caps.secret_backend {
+        if caps.secret_backend.enabled() {
             if let Some(reg) = &self.secret {
-                reg.register_secret_backend(id.clone(), vm.clone());
+                reg.register_secret_backend(
+                    id.clone(),
+                    vm.clone(),
+                    caps.secret_backend.auto_unlock(),
+                );
             }
         }
         if caps.glance_view {

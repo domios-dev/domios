@@ -17,7 +17,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-pub use capabilities::{Capabilities, ChatBackendCap, ChatPreprocessorCap};
+pub use capabilities::{Capabilities, ChatBackendCap, ChatPreprocessorCap, SecretBackendCap};
 pub use config::{
     resolve_hook_event_roster, substitute_template, unknown_template_placeholder, CommandsConfig,
     CwdEncoding, IntegrationConfig, IntegrationKind, NetworkPermission, PermissionsConfig,
@@ -163,7 +163,7 @@ fn default_entry() -> String {
 fn default_capabilities() -> Capabilities {
     Capabilities {
         agent_provider: true,
-        secret_backend: false,
+        secret_backend: SecretBackendCap::default(),
         transcriber: false,
         glance_view: false,
         status_bubble: false,
