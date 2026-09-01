@@ -178,7 +178,7 @@ function ActionButton({ label, allowed, busy, unavailableReason, onClick }: { la
 }
 
 function Unavailable({ operation, reason }: { operation: InventoryOperation; reason?: string }) {
-  return <div className="text-[10px] text-[var(--ct-yellow)]" data-testid={`mesh-operation-unavailable-${operation}`}>Unavailable: {reason ?? "unsupported_resource_kind"}</div>;
+  return <div className="text-[10px] text-[var(--ct-yellow)]" data-testid={`mesh-operation-unavailable-${operation}`}>Unavailable{reason ? `: ${reason}` : ""}</div>;
 }
 
 function Section({ label, children }: { label: string; children: React.ReactNode }) {

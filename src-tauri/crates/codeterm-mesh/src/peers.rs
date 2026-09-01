@@ -100,28 +100,17 @@ struct PairedPeerDisk {
     pub relay_protocol_version: u16,
 }
 
-/// Load all paired peers from disk.
-///
-/// Runs `sanitize_addresses` on each peer's address list to strip
-/// unparseable IPs that pre-v1.1.9 daemons may have published into the
-/// record (release/1.1.9 issue #28 / commit f0ff692 background). If
-/// anything was filtered, persists the cleaned state immediately so
-/// subsequent loads are no-ops. Idempotent.
-pub fn load_peers() -> HashMap<String, PairedPeer> {
-    let path = peers_path();
-    let data = match std::fs::read_to_string(&path) {
-        Ok(d) => d,
-        Err(_) => return HashMap::new(),
-    };
-    let file: PeersFile = match serde_json::from_str(&data) {
-        Ok(f) => f,
-        Err(e) => {
-            log::warn!("Failed to parse peers.json: {}", e);
-            return HashMap::new();
-        }
-    };
+/// Parse a `peers.json` payload into runtime `PairedPeer`s, sanitizing each
+/// entry's addresses. Pure — no filesystem access — so the persisted → live
+/// rehydration transform `load_peers` relies on can be exercised directly by
+/// tests without touching disk. Returns the rehydrated map plus how many
+/// addresses `sanitize_addresses` dropped as unparseable.
+pub(crate) fn rehydrate_peers_payload(
+    data: &str,
+) -> Result<(HashMap<String, PairedPeer>, usize), serde_json::Error> {
+    let file: PeersFile = serde_json::from_str(data)?;
     let mut scrubbed = 0usize;
-    let peers: HashMap<String, PairedPeer> = file
+    let peers = file
         .peers
         .into_iter()
         .map(|(id, d)| {
@@ -150,6 +139,29 @@ pub fn load_peers() -> HashMap<String, PairedPeer> {
             )
         })
         .collect();
+    Ok((peers, scrubbed))
+}
+
+/// Load all paired peers from disk.
+///
+/// Runs `sanitize_addresses` on each peer's address list to strip
+/// unparseable IPs that pre-v1.1.9 daemons may have published into the
+/// record (release/1.1.9 issue #28 / commit f0ff692 background). If
+/// anything was filtered, persists the cleaned state immediately so
+/// subsequent loads are no-ops. Idempotent.
+pub fn load_peers() -> HashMap<String, PairedPeer> {
+    let path = peers_path();
+    let data = match std::fs::read_to_string(&path) {
+        Ok(d) => d,
+        Err(_) => return HashMap::new(),
+    };
+    let (peers, scrubbed) = match rehydrate_peers_payload(&data) {
+        Ok(result) => result,
+        Err(e) => {
+            log::warn!("Failed to parse peers.json: {}", e);
+            return HashMap::new();
+        }
+    };
     if scrubbed > 0 {
         log::info!(
             "[mesh/migrate] Scrubbed {} unparseable IP entries from peers.json",
