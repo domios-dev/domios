@@ -569,7 +569,16 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 (!json).then(|| crate::cmd::resolved_text::resolved_text_echo(&message));
             let plan = env_default(plan, "CODETERM_PLAN_ID");
             let task = env_default(task, "CODETERM_TASK_ID");
-            if status.is_some() && (plan.is_none() || task.is_none()) {
+            let role_env = std::env::var("CODETERM_ROLE").ok();
+            let task_bound = task.is_some()
+                || crate::cmd::report_guard::role_owns_plan_without_task(role_env.as_deref());
+            if status.is_some()
+                && !crate::cmd::report_guard::worker_binding_resolved(
+                    false,
+                    plan.is_some(),
+                    task_bound,
+                )
+            {
                 let tab = std::env::var("CODETERM_TAB_ID")
                     .ok()
                     .filter(|value| !value.trim().is_empty())

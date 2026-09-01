@@ -121,6 +121,9 @@ pub(crate) fn tab_task_env(plan_store: &PlanStore, tab_id: &str) -> HashMap<Stri
         }
         env_vars.insert("CODETERM_PLAN_ID".into(), plan_id);
         env_vars.insert("CODETERM_TASK_ID".into(), task_id);
+    } else if let Some(plan_id) = plan_store.planner_plan_id_for_tab(tab_id) {
+        // A Planner binds to its plan directly, with no task — codeterm#371.
+        env_vars.insert("CODETERM_PLAN_ID".into(), plan_id);
     }
     env_vars
 }

@@ -6,7 +6,9 @@
 //! holds it. The hint may disambiguate among the tasks a tab holds; it may never
 //! name a task the tab does not hold.
 
-use crate::plan::Task;
+use crate::multiplexer::state::MultiplexerState;
+use crate::multiplexer::types::Tab;
+use crate::plan::{PlannerRef, Task};
 use crate::service::plan::PlanStore;
 
 /// Marks the refusal class so a wrong-task report stays distinguishable from the
@@ -18,6 +20,10 @@ pub(crate) const STALE_TASK_HINT_REFUSAL: &str = "STALE TASK BINDING";
 /// owner is not a fallback and a vanished report is not a delivery, so the only
 /// honest outcome left is to say the words landed nowhere.
 pub(crate) const NOWHERE_TO_DELIVER_REFUSAL: &str = "NOWHERE TO DELIVER";
+
+/// A plan-only report claims Planner authority; this marks that the claim
+/// itself was refused, distinct from the task-hint refusal family above.
+pub(crate) const PLANNER_AUTHORITY_REFUSAL: &str = "PLANNER AUTHORITY REFUSED";
 
 /// Names what did NOT happen, so a caller cannot read the failure as a delivery
 /// that merely missed its task. When a task write was refused too, that cause is
@@ -150,6 +156,57 @@ pub(crate) fn resolve_plan_ctx(
                 list
             ))
         }
+    }
+}
+
+/// Proves a plan-only report's Planner claim: the caller IS `plan.planner`
+/// and its session binding is live, not merely that `plan_id` exists.
+pub(crate) fn verify_planner_report_authority(
+    plan_store: &PlanStore,
+    mux: &MultiplexerState,
+    plan_id: &str,
+    tab_id: &str,
+) -> Result<(), String> {
+    let plan = plan_store
+        .get(plan_id)
+        .ok_or_else(|| format!("plan '{plan_id}' not found"))?;
+    let registered_session_id = match &plan.planner {
+        Some(PlannerRef::Tab {
+            tab_id: planner_tab,
+            session_id: Some(session_id),
+            ..
+        }) if planner_tab == tab_id => session_id.clone(),
+        _ => {
+            return Err(format!(
+                "{PLANNER_AUTHORITY_REFUSAL}: tab '{tab_id}' is not the registered live Planner \
+                 of plan '{plan_id}'"
+            ))
+        }
+    };
+    let tab = mux
+        .get_tab(tab_id)
+        .ok_or_else(|| format!("{PLANNER_AUTHORITY_REFUSAL}: tab '{tab_id}' not found"))?;
+    if !session_binding_is_live(tab) {
+        return Err(format!(
+            "{PLANNER_AUTHORITY_REFUSAL}: tab '{tab_id}' has a stale or unverified session binding"
+        ));
+    }
+    if tab.agent_session_id.as_deref() != Some(registered_session_id.as_str()) {
+        return Err(format!(
+            "{PLANNER_AUTHORITY_REFUSAL}: tab '{tab_id}' session does not match the plan's \
+             registered Planner session"
+        ));
+    }
+    Ok(())
+}
+
+fn session_binding_is_live(tab: &Tab) -> bool {
+    match (
+        tab.session_binding_nonce.as_deref(),
+        tab.reported_session_binding_nonce.as_deref(),
+    ) {
+        (Some(configured), Some(reported)) => configured == reported,
+        _ => false,
     }
 }
 

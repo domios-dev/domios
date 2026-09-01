@@ -8,6 +8,7 @@ use crate::args::orchestrator::OrchestratorAction;
 use crate::args::task::TaskAction;
 use clap::{CommandFactory, Parser};
 
+mod agent;
 mod context;
 mod sessions;
 mod transport;
