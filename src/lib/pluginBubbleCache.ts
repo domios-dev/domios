@@ -144,6 +144,16 @@ export function invalidatePluginBubble(pluginId: string, cwd: string | null | un
   computeNow(entry);
 }
 
+/** Invalidate every plugin's entry for one repository root — the single
+ * action a repository-changed event takes, so N visible tabs on that repo
+ * produce exactly one computation per plugin. */
+export function invalidatePluginBubblesForRepo(cwd: string): void {
+  for (const byCwd of cache.values()) {
+    const entry = byCwd.get(cwd);
+    if (entry && activeCount(entry) > 0) computeNow(entry);
+  }
+}
+
 export function __resetPluginBubbleCacheForTest(): void {
   cache.clear();
   fetcher = defaultFetcher;
