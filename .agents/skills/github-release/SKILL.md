@@ -357,9 +357,30 @@ Pointing macOS `latest.json` at `.dmg` makes `codeterm update install --auto` fa
 .agents/skills/github-release/scripts/release-status.sh "$VER"
 
 # Reachability is not installability — verify signatures against the served bytes.
+# --require-version pins the manifest to THIS release: a previous release verifies
+# perfectly against its own bytes and is not evidence for the one you are shipping.
 node scripts/verify-updater-manifest.mjs \
-  --manifest "https://github.com/rollacode/codeterm-releases/releases/download/v$VER/latest.json?cb=$(date +%s)"
+  --manifest "https://github.com/rollacode/codeterm-releases/releases/download/v$VER/latest.json?cb=$(date +%s)" \
+  --require-version "$VER" \
+  --require-platform darwin-aarch64 --require-platform darwin-x86_64 \
+  --require-platform windows-x86_64 --require-platform linux-x86_64 \
+  --evidence "$RUNNER_TEMP/manifest-verification.json"
+
+# Closing a public issue is authorised by that record, never by owning the release.
+node scripts/check-release-closure.mjs \
+  --evidence "$RUNNER_TEMP/manifest-verification.json" --version "$VER" --issue <n>
 ```
+
+`windows-aarch64` and `linux-aarch64` are omitted on purpose - the ARM64 Windows runner can be
+unavailable (1.7.2 shipped without it) and `linux-aarch64` rides only on `LINUX_ARM_SIG`. The
+closure guard reports which of them were absent rather than certifying a set that was never built.
+
+All three platform lanes run the verifier. `release-macos.yml` checks both darwin platforms in a
+separate `verify` job that `needs: build`, because both fragments exist only after the matrix
+finishes; it is a `workflow_dispatch` fallback lane and now takes a `mirror` input like the Linux
+lane. `release.yml` - the path that actually ships macOS - verifies the five unconditional
+platforms before minting `issue-closure-boundary.json`, so an unverified release produces no
+closure authority at all.
 
 **Manual mirror fallback:** use only when CI produced source assets but the public mirror failed (usually `PACKAGE_REPOS_TOKEN` 403 or a workflow script bug). This is what keeps the release shippable without rebuilding all platforms.
 

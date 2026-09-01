@@ -26,6 +26,11 @@ name: release-macos
         description: 'Tag to release (e.g. v1.1.0). Required for manual runs.'
         required: true
         type: string
+      mirror:
+        description: 'Publish to the public mirror. Turn off only for a dry run - a manual run that does not mirror leaves the release incomplete.'
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   contents: write
@@ -219,13 +224,10 @@ jobs:
             "${{ steps.channel.outputs.manifest }}" \
             --clobber --repo "${{ github.repository }}"
 
-      # Mirror updater bundle, signature, and merged manifest to the public
-      # release repo so the auto-updater endpoint
-      # (rollacode/codeterm-releases/releases/latest/download/latest.json) can
-      # serve them anonymously. Skip on workflow_dispatch — only mirror on the
-      # actual tag push that produces the canonical release.
+      # Mirror the bundle, signature, and merged manifest to the public release
+      # repo so the anonymous auto-updater endpoint can serve them.
       - name: Mirror to public release repo
-        if: github.event_name == 'push'
+        if: inputs.mirror
         env:
           GH_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
           TAG: ${{ steps.tag.outputs.name }}
@@ -266,3 +268,54 @@ jobs:
 
           gh release upload "$TAG" "$RELEASE_BUNDLE" "$RELEASE_SIG" "$MANIFEST" \
             --clobber --repo "$MIRROR_REPO"
+
+  # Both darwin fragments only exist once the matrix is done, so the gate is a
+  # separate job. Per-leg it would fail on whichever architecture finished first.
+  verify:
+    name: verify published manifest
+    needs: build
+    if: ${{ vars.RELEASE_MACOS_ENABLED != 'false' && inputs.mirror }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve tag
+        id: tag
+        shell: bash
+        run: |
+          tag="${{ inputs.tag }}"
+          echo "name=$tag" >> "$GITHUB_OUTPUT"
+          # build-updater-fragment.py derives the manifest version the same way.
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Detect channel
+        id: channel
+        shell: bash
+        run: |
+          tag="${{ steps.tag.outputs.name }}"
+          if [[ "$tag" == *-rc* ]]; then
+            echo "manifest=latest-rc.json" >> "$GITHUB_OUTPUT"
+          elif [[ "$tag" == *-nightly* ]]; then
+            echo "manifest=latest-nightly.json" >> "$GITHUB_OUTPUT"
+          else
+            echo "manifest=latest.json" >> "$GITHUB_OUTPUT"
+          fi
+
+      # A 200 says nothing about installability: #58 was structurally perfect
+      # while its signatures described bytes a rerun had already replaced.
+      - name: Verify published manifest is installable
+        env:
+          TAG: ${{ steps.tag.outputs.name }}
+          VERSION: ${{ steps.tag.outputs.version }}
+          MANIFEST: ${{ steps.channel.outputs.manifest }}
+          MIRROR_REPO: rollacode/codeterm-releases
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="https://github.com/${MIRROR_REPO}/releases/download/${TAG}/${MANIFEST}?cb=$(date +%s)"
+          node scripts/verify-updater-manifest.mjs --manifest "$url" \
+            --require-version "$VERSION" \
+            --require-platform darwin-aarch64 \
+            --require-platform darwin-x86_64 \
+            || { echo "::error::published manifest is not installable"; exit 1; }
