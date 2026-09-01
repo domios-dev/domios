@@ -241,6 +241,9 @@ pub struct ServiceContext {
     /// Registry of status-bubble providers (plugins with `statusBubble`). The
     /// tab-footer bubble row polls these per tab context.
     pub bubble_registry: crate::bubble::BubbleRegistryHandle,
+    /// Sole owner of repository file watches. Status bubbles subscribe here
+    /// per visible tab; the registry refcounts one watcher per identity.
+    pub repo_watch: crate::repowatch::RepoWatchRegistryHandle,
     /// Registry of view providers (plugins with `view`). The iframe bridge
     /// (`ct.invoke`) routes here, gated by the plugin's permissions.
     pub view_registry: crate::view_host::ViewRegistryHandle,
