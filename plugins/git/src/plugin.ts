@@ -57,27 +57,18 @@ function parseLog(out: string | undefined): string[] {
     .filter((l) => l.length > 0);
 }
 
-// Cached per cwd; an identity-changing event (`forceIdentityRefresh`) re-runs
-// rev-parse instead of reusing it — never stale indefinitely.
-const branchCache = new Map<string, string | null>();
-
-function branchOf(cwd: string, forceIdentityRefresh: boolean): string | null {
-  if (!forceIdentityRefresh) {
-    const cached = branchCache.get(cwd);
-    if (cached !== undefined) return cached;
-  }
+function branchOf(cwd: string): string | null {
   const r = git(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]);
-  const branch = r.error || r.code !== 0 ? null : (r.stdout || "").trim() || null;
-  branchCache.set(cwd, branch);
-  return branch;
+  if (r.error || r.code !== 0) return null;
+  return (r.stdout || "").trim() || null;
 }
 
 // --- capabilities ---
 
-function statusBubble(ctx: TabContext & { forceIdentityRefresh?: boolean }): StatusBubble | null {
+function statusBubble(ctx: TabContext): StatusBubble | null {
   const cwd = ctx && ctx.cwd;
   if (!cwd) return null;
-  const branch = branchOf(cwd, Boolean(ctx?.forceIdentityRefresh));
+  const branch = branchOf(cwd);
   if (!branch) return null; // not a repo → no pill
   const d = parsePorcelain(git(cwd, ["status", "--porcelain"]).stdout);
   return {
@@ -98,7 +89,7 @@ function renderGlance(ctx: TabContext): GlanceView {
       nodes: [{ kind: "text", text: "No working directory for this tab.", style: { tone: "muted" } }],
     };
   }
-  const branch = branchOf(cwd, true);
+  const branch = branchOf(cwd);
   if (!branch) {
     return { title: "Git", nodes: [{ kind: "text", text: "Not a git repository.", style: { tone: "muted" } }] };
   }
@@ -399,7 +390,7 @@ function gitGraph(cwd: string, limit?: number, skip?: number): GraphResult | { e
   ]);
   if (!ok(r)) return fail(r, "git log failed");
   const head = git(cwd, ["rev-parse", "HEAD"]);
-  const branch = branchOf(cwd, true);
+  const branch = branchOf(cwd);
   const dirty = (git(cwd, ["status", "--porcelain"]).stdout || "").trim().length > 0;
   const out: GraphResult = {
     commits: parseGraph(r.stdout),
@@ -584,7 +575,7 @@ function discoverGitRepos(cwd: string): Repo[] {
           : dir;
       if (!emitted.has(repoPath)) {
         emitted.add(repoPath);
-        repos.push({ path: repoPath, name: baseName(repoPath), branch: branchOf(repoPath, true) });
+        repos.push({ path: repoPath, name: baseName(repoPath), branch: branchOf(repoPath) });
         if (repos.length >= REPO_DISCOVERY_MAX_EMITTED) break;
       }
     }

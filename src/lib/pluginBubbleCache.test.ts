@@ -41,26 +41,16 @@ function deferred<T>(): Deferred<T> {
   return { promise, resolve };
 }
 
-type TabStatusHandler = (event: { payload: { tab_id: string } }) => void;
 type Bubble = import("./pluginBubbleCache").BubbleData;
 
 async function setupCache() {
-  const bridge = await import("./bridge");
-  let tabStatusHandler: TabStatusHandler | null = null;
-  bridge.__setListenForTest(async <T,>(event: string, handler: (e: { payload: T }) => void) => {
-    if (event === "tab-status-changed") tabStatusHandler = handler as unknown as TabStatusHandler;
-    return () => {};
-  });
-
   const cache = await import("./pluginBubbleCache");
   cache.__resetPluginBubbleCacheForTest();
 
   let calls = 0;
-  const identityFlags: boolean[] = [];
   const pending: Array<Deferred<Bubble | null>> = [];
-  cache.__setPluginBubbleFetcherForTest(async (_pluginId, _cwd, _tabId, identityChanged) => {
+  cache.__setPluginBubbleFetcherForTest(async () => {
     calls++;
-    identityFlags.push(identityChanged);
     const d = deferred<Bubble | null>();
     pending.push(d);
     return d.promise;
@@ -71,26 +61,18 @@ async function setupCache() {
     get calls() {
       return calls;
     },
-    get identityFlags() {
-      return identityFlags;
-    },
     resolveNext: (value: Bubble | null) => {
       const d = pending.shift();
       assert(d, "resolveNext called with no pending fetch");
       d!.resolve(value);
     },
-    fireTabStatus: (tabId: string) => {
-      assert(tabStatusHandler, "tab-status-changed listener never armed");
-      tabStatusHandler!({ payload: { tab_id: tabId } });
-    },
     teardown: () => {
-      bridge.__setListenForTest(null);
       cache.__resetPluginBubbleCacheForTest();
     },
   };
 }
 
-test("a hidden subscriber never fetches, even under repository and explicit-action invalidation", async () => {
+test("a hidden subscriber never fetches, even under an explicit invalidation", async () => {
   const fx = await setupCache();
   const sub = fx.cache.subscribePluginBubble("git", "/repo", "tab-1", false, () => {});
 
@@ -100,8 +82,6 @@ test("a hidden subscriber never fetches, even under repository and explicit-acti
   assert(fx.calls === 0, `re-affirming hidden must not fetch, got ${fx.calls}`);
 
   fx.cache.invalidatePluginBubble("git", "/repo");
-  fx.cache.invalidatePluginBubble("git", "/repo", true);
-  fx.fireTabStatus("tab-1");
   await drain();
   assert(fx.calls === 0, `no invalidation reaches a hidden tab, got ${fx.calls}`);
 
@@ -142,42 +122,18 @@ test("an explicit invalidation returns the new value, not a stale one", async ()
   fx.teardown();
 });
 
-test("identityChanged threads to the fetcher only on an identity-changing invalidation", async () => {
-  const fx = await setupCache();
-  const sub = fx.cache.subscribePluginBubble("git", "/repo", "tab-1", true, () => {});
-  await waitUntil(() => fx.calls >= 1);
-  assert(fx.identityFlags[0] === false, "activation is not itself an identity-changing event");
-  fx.resolveNext({ label: "main" });
-  await drain();
-
-  fx.cache.invalidatePluginBubble("git", "/repo");
-  await waitUntil(() => fx.calls >= 2);
-  assert(fx.identityFlags[1] === false, "a plain invalidation does not force identity refresh");
-  fx.resolveNext({ label: "main" });
-  await drain();
-
-  fx.cache.invalidatePluginBubble("git", "/repo", true);
-  await waitUntil(() => fx.calls >= 3);
-  assert(fx.identityFlags[2] === true, "an identity-changing invalidation forces identity refresh");
-  fx.resolveNext({ label: "feature" });
-
-  sub.unsubscribe();
-  fx.teardown();
-});
-
-test("two invalidations while a fetch is in flight coalesce to one trailing refresh, with the stronger identity flag", async () => {
+test("two invalidations while a fetch is in flight coalesce to one trailing refresh", async () => {
   const fx = await setupCache();
   const sub = fx.cache.subscribePluginBubble("git", "/repo", "tab-1", true, () => {});
   assert(fx.calls === 1, "activation fetched once");
 
-  fx.cache.invalidatePluginBubble("git", "/repo", false);
-  fx.cache.invalidatePluginBubble("git", "/repo", true);
+  fx.cache.invalidatePluginBubble("git", "/repo");
+  fx.cache.invalidatePluginBubble("git", "/repo");
   assert(fx.calls === 1, "both invalidations arrived while the first fetch was still in flight");
 
   fx.resolveNext({ label: "main" });
   await waitUntil(() => fx.calls >= 2);
   assert(fx.calls === 2, `exactly one coalesced trailing refresh, got ${fx.calls}`);
-  assert(fx.identityFlags[1] === true, "the coalesced refresh keeps the stronger (true) identity flag");
   fx.resolveNext({ label: "feature" });
   await drain();
   assert(fx.calls === 2, "no third computation follows");
@@ -240,27 +196,6 @@ test("a hidden->visible transition rechecks even a value another tab already fet
 
   subA.unsubscribe();
   subB.unsubscribe();
-  fx.teardown();
-});
-
-test("an external tab-status-changed event invalidates the visible bubble, no timer involved", async () => {
-  const fx = await setupCache();
-  const values: Array<Bubble | null> = [];
-  const sub = fx.cache.subscribePluginBubble("git", "/repo", "tab-1", true, (v) => values.push(v));
-  fx.resolveNext({ label: "main" });
-  await waitUntil(() => values.length >= 1);
-
-  fx.fireTabStatus("tab-1");
-  await waitUntil(() => fx.calls >= 2);
-  assert(fx.calls === 2, `the external event must trigger exactly one more fetch, got ${fx.calls}`);
-  fx.resolveNext({ label: "feature" });
-  await drain();
-
-  fx.fireTabStatus("tab-does-not-exist");
-  await drain();
-  assert(fx.calls === 2, "an event for an unrelated tab must not fetch");
-
-  sub.unsubscribe();
   fx.teardown();
 });
 
