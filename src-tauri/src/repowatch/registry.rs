@@ -274,7 +274,11 @@ fn dispatch(
     paths: &[PathBuf],
 ) {
     match batch_is_relevant(identity, half, paths) {
-        Ok(true) => sink.repository_changed(&identity.id),
+        Ok(true) => {
+            #[cfg(test)]
+            eprintln!("[repowatch-test] relevant {half:?}: {paths:?}");
+            sink.repository_changed(&identity.id);
+        }
         Ok(false) => {}
         Err(e) => sink.repository_unavailable(&e.identity, e.reason),
     }
