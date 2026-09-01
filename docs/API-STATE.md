@@ -8,11 +8,11 @@ Pluggable secret-store layer. Active backend is selected by `integrations.secret
 
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
-| GET  | `/api/secrets/status` | — | `{backend, status:{status: "logged_out"\|"locked"\|"unlocked"\|"unavailable", user?, transient?, endpoint?, reason?}}` |
-| POST | `/api/secrets/unlock` | `{master_password, email?, two_factor_token?, api_key_client_id?, api_key_client_secret?}` | Unlock the active backend. Master password is consumed and dropped immediately. |
+| GET  | `/api/secrets/status` | — | `{backend, status:{status: "logged_out"\|"locked"\|"unlocked"\|"unavailable", user?, transient?, endpoint?, reason?}, auto_unlock_capable, master_password_saved}`. `auto_unlock_capable` is the active backend's manifest declaration (`secretBackend.autoUnlock`); `master_password_saved` is true only when the capability is declared **and** the backend's own bucket holds its credential. See [SECRETS.md](SECRETS.md#the-auto-unlock-contract). |
+| POST | `/api/secrets/unlock` | `{master_password, email?, two_factor_token?, api_key_client_id?, api_key_client_secret?, persist_for_auto_unlock?}` | Unlock the active backend. Master password is consumed and dropped immediately. `persist_for_auto_unlock` (default `false`) is the explicit consent to remember the credential for headless unlock; it is refused with `400 bad_request` when the active backend declares no auto-unlock capability. See [SECRETS.md](SECRETS.md#the-auto-unlock-contract). |
 | POST | `/api/secrets/lock` | — | Drop in-process session; persisted creds (OS keychain) are kept. |
 | POST | `/api/secrets/logout` | — | Drop session AND every persisted credential. |
-| POST | `/api/secrets/auto-unlock` | — | Re-run the active backend's `init` — for Bitwarden, attempt unlock from the master password persisted on the previous successful login (only when `bitwarden.persist_master_password = true`). Returns `{ok: bool, backend, status}`; `ok=false` means nothing was stored to restore from. No-op for backends without persisted creds. |
+| POST | `/api/secrets/auto-unlock` | — | Re-run the active backend's `init`, asking it to restore its own session from a credential it persisted itself. Returns `{ok: bool, backend, status}`; `ok=false` means the backend did not reach `unlocked`. No-op for a backend that declares no auto-unlock capability. |
 | POST | `/api/secrets/sync` | — | Pull latest from the remote vault. Bitwarden runs `bw sync`. No-op for `local` and `mock`. |
 | POST | `/api/secrets/backend` | `{backend, bitwarden_server_url?}` | Atomic backend swap. Persists the choice to `config.toml` immediately, runs `init()` on the new store, and replaces the active store. `bitwarden_server_url` is honored only when `backend == "bitwarden"`. Returns the new `{ok, backend, status}`. |
 | GET  | `/api/secrets/items` | `?q=...&folder=...&organization=...&collection=...&limit=N` | List or search items. With `q` runs a search; without it lists everything matching the filter. Returns metadata only — never the value. |
@@ -211,4 +211,4 @@ The HTTP response returns immediately (`{"status": "updating", "version": "..."}
 
 Service registration, health, and activity: `codeterm docs API-SERVICES`. Bridge and cron integrations: `codeterm docs API-INTEGRATIONS`.
 
-<!-- revision: 9 -->
+<!-- revision: 11 -->

@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 47 -->
+<!-- revision: 48 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -954,7 +954,7 @@ Save a secret. Value comes from --value or stdin (preferred — keeps the value 
 
 #### `codeterm mem secret save-master-password`
 
-Save the master password to ~/.codeterm/secrets/bitwarden-master.env (mode 0600). Daemon then auto-unlocks JIT on every operation — no further prompts. Reads value from stdin (preferred — out of shell history) or --password
+Arm auto-unlock on the active backend. Refused unless the backend declares the auto-unlock capability; when it does, the password is handed to the vault, which must authenticate it before the backend persists anything in its own bucket. The CLI stores nothing itself. Reads value from stdin (preferred — out of shell history) or --password
 
 - `--password`
 

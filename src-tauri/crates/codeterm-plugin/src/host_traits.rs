@@ -74,10 +74,13 @@ pub trait PluginActivitySink: Send + Sync {
 /// Registers a JS plugin's secret backend with the app's `SecretRegistry`.
 /// The app implements this; codeterm-plugin can't hold `SecretRegistry` types.
 pub trait SecretBackendRegistrar: Send + Sync {
+    /// `declares_auto_unlock` carries the manifest's `secretBackend.autoUnlock`
+    /// declaration so the host branches on a capability instead of a plugin id.
     fn register_secret_backend(
         &self,
         plugin_id: String,
         vm: std::sync::Arc<crate::js_runtime::PluginVm>,
+        declares_auto_unlock: bool,
     );
     fn unregister_secret_backend(&self, plugin_id: &str);
 }

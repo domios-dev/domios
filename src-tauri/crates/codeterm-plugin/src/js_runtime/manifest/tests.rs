@@ -174,6 +174,66 @@ fn retired_task_input_delay_is_rejected() {
 }
 
 #[test]
+fn secret_backend_bool_declares_no_auto_unlock() {
+    let json = r#"{
+            "id": "vault",
+            "version": "0.1.0",
+            "displayName": "Vault",
+            "capabilities": { "secretBackend": true }
+        }"#;
+    let m: PluginManifest = serde_json::from_str(json).expect("parse bool form");
+    assert!(m.capabilities.secret_backend.enabled());
+    assert!(
+        !m.capabilities.secret_backend.auto_unlock(),
+        "a bare bool must never grant auto-unlock"
+    );
+}
+
+#[test]
+fn secret_backend_object_declares_auto_unlock() {
+    let json = r#"{
+            "id": "vault",
+            "version": "0.1.0",
+            "displayName": "Vault",
+            "capabilities": { "secretBackend": { "autoUnlock": true } }
+        }"#;
+    let m: PluginManifest = serde_json::from_str(json).expect("parse object form");
+    assert!(m.capabilities.secret_backend.enabled());
+    assert!(m.capabilities.secret_backend.auto_unlock());
+}
+
+#[test]
+fn secret_backend_disabled_cannot_declare_auto_unlock() {
+    let json = r#"{
+            "id": "vault",
+            "version": "0.1.0",
+            "displayName": "Vault",
+            "capabilities": { "secretBackend": false }
+        }"#;
+    let m: PluginManifest = serde_json::from_str(json).expect("parse disabled form");
+    assert!(!m.capabilities.secret_backend.enabled());
+    assert!(!m.capabilities.secret_backend.auto_unlock());
+}
+
+#[test]
+fn secret_backend_round_trips_symmetrically() {
+    let cap = Capabilities::default();
+    let v = serde_json::to_value(&cap.secret_backend).unwrap();
+    assert_eq!(v, serde_json::json!(false));
+    let back: SecretBackendCap = serde_json::from_value(v).unwrap();
+    assert!(!back.enabled());
+
+    let declared = SecretBackendCap {
+        enabled: true,
+        auto_unlock: true,
+    };
+    let v = serde_json::to_value(&declared).unwrap();
+    assert_eq!(v, serde_json::json!({ "autoUnlock": true }));
+    let back: SecretBackendCap = serde_json::from_value(v).unwrap();
+    assert!(back.auto_unlock());
+}
+
+#[test]
 fn parse_chat_preprocessor_object_carries_match() {
     let json = r#"{
             "id": "chat-preprocessor",
