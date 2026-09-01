@@ -638,3 +638,63 @@ fn transfer_reporting_success_without_moving_ownership_fails() {
     assert_eq!(fixture.store.get(&fixture.plan_id).unwrap(), before_plan);
     assert_eq!(mux_state_without_generation(&fixture.mux), before_mux);
 }
+
+/// No `--parent-tab`: resolves the plan's live Orchestrator owner instead
+/// of refusing.
+#[test]
+fn planner_parent_resolves_from_plan_owner() {
+    let dir = tempfile::tempdir().unwrap();
+    let fixture = Fixture::new(dir.path());
+
+    let resolved = resolve_planner_parent(&fixture.store, &fixture.mux, &fixture.plan_id, None)
+        .expect("a plan with a live Orchestrator owner must resolve, not refuse");
+
+    assert_eq!(resolved, fixture.owner);
+}
+
+/// An explicit `--parent-tab` still wins over the plan's owner when given.
+#[test]
+fn planner_parent_explicit_override_wins_over_plan_owner() {
+    let dir = tempfile::tempdir().unwrap();
+    let fixture = Fixture::new(dir.path());
+
+    let resolved = resolve_planner_parent(
+        &fixture.store,
+        &fixture.mux,
+        &fixture.plan_id,
+        Some(fixture.other_owner.as_str()),
+    )
+    .unwrap();
+
+    assert_eq!(resolved, fixture.other_owner);
+}
+
+/// A plan with no resolvable Orchestrator owner is refused with a reason
+/// naming the plan, never the generic "requires a parent_tab_id".
+#[test]
+fn planner_parent_refuses_with_plan_naming_reason_when_owner_unresolvable() {
+    let dir = tempfile::tempdir().unwrap();
+    let fixture = Fixture::new(dir.path());
+    let mut orphan_plan = Plan::new(
+        "Orphaned".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_tab("dead-orchestrator-tab"),
+    );
+    fixture.store.save(&mut orphan_plan, 1).unwrap();
+
+    let error = resolve_planner_parent(&fixture.store, &fixture.mux, &orphan_plan.id, None)
+        .unwrap_err();
+
+    assert!(error.contains(&orphan_plan.id), "{error}");
+    assert!(!error.contains("requires a parent_tab_id"), "{error}");
+}
+
+/// The structural rule is not weakened: `planner` still genuinely requires a
+/// parent — it is now satisfied from the plan already supplied, not skipped.
+#[test]
+fn planner_role_kind_still_requires_a_parent() {
+    assert!(role_kind::requires_parent(
+        Some(AgentRole::Manager),
+        Some(builtins::PLANNER)
+    ));
+}

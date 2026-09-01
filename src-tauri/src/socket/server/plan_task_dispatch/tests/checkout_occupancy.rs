@@ -1,4 +1,6 @@
+use super::super::lane_resolution::DispatchLaneResolution;
 use super::super::lane_safety::{isolated_lane_update_command, preflight_checkout_occupancy};
+use super::super::{preflight_dispatch_placement, should_provision_worker_lane};
 use crate::plan::{ExecutionIntent, OrchestratorRef, TaskExecutionAttempt};
 use crate::service::plan::{NewTask, PlanStore};
 use crate::service::LaneProtection;
@@ -212,6 +214,59 @@ fn closed_attempt_history_does_not_occupy_checkout() {
         LaneProtection::Enforced,
     )
     .unwrap();
+}
+
+/// codeterm#343: canonical is only a pre-provisioning placeholder here, so a
+/// live read-only attempt sitting in it must never refuse this dispatch.
+#[test]
+fn read_only_attempt_does_not_block_lane_bound_mutating_dispatch() {
+    let (root, plan, _read_only_task_id, mutating_task_id) = plan_with_attempt(None, None);
+    let canonical_checkout = root.path().display().to_string();
+    let unresolved_lane = DispatchLaneResolution {
+        spawn_cwd: canonical_checkout.clone(),
+        existing: None,
+    };
+    let will_provision_lane =
+        should_provision_worker_lane(true, &ExecutionIntent::Mutating, Some(&unresolved_lane));
+    assert!(
+        will_provision_lane,
+        "a mutating task with no recorded worktree must be provisioned its own isolated lane"
+    );
+
+    preflight_dispatch_placement(
+        &plan,
+        &mutating_task_id,
+        &canonical_checkout,
+        LaneProtection::Enforced,
+        will_provision_lane,
+    )
+    .expect(
+        "a task about to be provisioned its own isolated lane must not be refused by \
+         occupancy on the canonical placeholder it will never actually use",
+    );
+}
+
+/// The guard test: occupancy still fires when there is truly no lane to
+/// provision, so the fix above cannot degrade into a no-op.
+#[test]
+fn mutating_dispatch_without_a_lane_to_provision_still_enforces_occupancy() {
+    let (root, plan, occupying_task_id, dispatched_task_id) = plan_with_attempt(None, None);
+    let canonical_checkout = root.path().display().to_string();
+
+    let error = preflight_dispatch_placement(
+        &plan,
+        &dispatched_task_id,
+        &canonical_checkout,
+        LaneProtection::Enforced,
+        false,
+    )
+    .unwrap_err();
+
+    assert_eq!(error.code, -32011);
+    assert_eq!(
+        error.data.unwrap()["occupying_task_id"],
+        occupying_task_id
+    );
 }
 
 #[test]
