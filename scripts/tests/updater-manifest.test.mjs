@@ -233,3 +233,188 @@ test("mac updater contract rejects an Intel artifact under the Apple Silicon key
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// A previous release's manifest verifies perfectly against its own bytes, so
+// internal consistency is not evidence for the release being shipped.
+test("verification refuses a manifest belonging to a different release", () => {
+  const dir = scratch();
+  try {
+    const { pubkeyField, signatureFor } = minisignKeypair();
+    const artifact = path.join(dir, "CodeTerm_aarch64.app.tar.gz");
+    writeFileSync(artifact, Buffer.from("v9.9.8 artifact bytes"));
+    const manifest = path.join(dir, "latest.json");
+    writeFileSync(
+      manifest,
+      JSON.stringify({
+        version: "9.9.8",
+        pub_date: "2026-01-01T00:00:00Z",
+        platforms: {
+          "darwin-aarch64": {
+            url: "https://github.com/rollacode/codeterm-releases/releases/download/v9.9.8/CodeTerm_aarch64.app.tar.gz",
+            signature: signatureFor(readFileSync(artifact)),
+          },
+        },
+      }),
+    );
+
+    // Internally consistent: without a declared expectation it verifies clean.
+    const unscoped = verify(dir, manifest, pubkeyField);
+    assert.equal(unscoped.code, 0, unscoped.stdout);
+
+    const foreign = verify(dir, manifest, pubkeyField, ["--require-version", "9.9.9"]);
+    assert.equal(foreign.code, 1, foreign.stdout);
+    assert.match(foreign.stdout, /declares version 9\.9\.8, expected 9\.9\.9/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("verification refuses artifacts served from another release's tag", () => {
+  const dir = scratch();
+  try {
+    const { pubkeyField, signatureFor } = minisignKeypair();
+    const artifact = path.join(dir, "CodeTerm_aarch64.app.tar.gz");
+    writeFileSync(artifact, Buffer.from("carried-over artifact bytes"));
+    const manifest = path.join(dir, "latest.json");
+    // The version field was bumped; the URL still points at the previous tag's
+    // assets, so the bytes belong to a build run this release never produced.
+    writeFileSync(
+      manifest,
+      JSON.stringify({
+        version: "9.9.9",
+        pub_date: "2026-01-01T00:00:00Z",
+        platforms: {
+          "darwin-aarch64": {
+            url: "https://github.com/rollacode/codeterm-releases/releases/download/v9.9.8/CodeTerm_aarch64.app.tar.gz",
+            signature: signatureFor(readFileSync(artifact)),
+          },
+        },
+      }),
+    );
+
+    const foreign = verify(dir, manifest, pubkeyField, ["--require-version", "9.9.9"]);
+    assert.equal(foreign.code, 1, foreign.stdout);
+    assert.match(foreign.stdout, /darwin-aarch64/);
+    assert.match(foreign.stdout, /is not served from the v9\.9\.9 release/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a passing verification emits the evidence record that authorises closure", () => {
+  const dir = scratch();
+  try {
+    const { pubkeyField, signatureFor } = minisignKeypair();
+    const artifact = path.join(dir, "CodeTerm_aarch64.app.tar.gz");
+    writeFileSync(artifact, Buffer.from("v9.9.9 artifact bytes"));
+    const manifest = path.join(dir, "latest.json");
+    writeFileSync(
+      manifest,
+      JSON.stringify({
+        version: "9.9.9",
+        pub_date: "2026-01-01T00:00:00Z",
+        platforms: {
+          "darwin-aarch64": {
+            url: "https://github.com/rollacode/codeterm-releases/releases/download/v9.9.9/CodeTerm_aarch64.app.tar.gz",
+            signature: signatureFor(readFileSync(artifact)),
+          },
+        },
+      }),
+    );
+    const evidence = path.join(dir, "evidence.json");
+
+    const ok = verify(dir, manifest, pubkeyField, [
+      "--require-version", "9.9.9",
+      "--require-platform", "darwin-aarch64",
+      "--evidence", evidence,
+    ]);
+    assert.equal(ok.code, 0, ok.stdout);
+
+    const record = JSON.parse(readFileSync(evidence, "utf8"));
+    assert.equal(record.verified, true);
+    assert.equal(record.version, "9.9.9");
+    assert.deepEqual(record.platforms, ["darwin-aarch64"]);
+    // --local is an offline check, so it cannot claim a cache-busted fetch.
+    assert.equal(record.cache_busted, false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a failing verification records the failure instead of omitting the evidence", () => {
+  const dir = scratch();
+  try {
+    const { pubkeyField, signatureFor } = minisignKeypair();
+    const artifact = path.join(dir, "CodeTerm_aarch64.app.tar.gz");
+    writeFileSync(artifact, Buffer.from("signed bytes"));
+    const manifest = path.join(dir, "latest.json");
+    writeFileSync(
+      manifest,
+      JSON.stringify({
+        version: "9.9.9",
+        platforms: {
+          "darwin-aarch64": {
+            url: "https://example.invalid/v9.9.9/CodeTerm_aarch64.app.tar.gz",
+            signature: signatureFor(readFileSync(artifact)),
+          },
+        },
+      }),
+    );
+    writeFileSync(artifact, Buffer.from("rebuilt bytes"));
+    const evidence = path.join(dir, "evidence.json");
+
+    const failed = verify(dir, manifest, pubkeyField, ["--evidence", evidence]);
+    assert.equal(failed.code, 1, failed.stdout);
+
+    const record = JSON.parse(readFileSync(evidence, "utf8"));
+    assert.equal(record.verified, false);
+    assert.ok(record.failures.length > 0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// A version segment in an arbitrary path is not provenance: the bytes must come
+// from the one public release the shipped updater reads from.
+function foreignOriginCase(name, url) {
+  test(name, () => {
+    const dir = scratch();
+    try {
+      const { pubkeyField, signatureFor } = minisignKeypair();
+      const artifact = path.join(dir, "CodeTerm_aarch64.app.tar.gz");
+      writeFileSync(artifact, Buffer.from("v9.9.9 artifact bytes"));
+      const manifest = path.join(dir, "latest.json");
+      writeFileSync(
+        manifest,
+        JSON.stringify({
+          version: "9.9.9",
+          pub_date: "2026-01-01T00:00:00Z",
+          platforms: {
+            "darwin-aarch64": { url, signature: signatureFor(readFileSync(artifact)) },
+          },
+        }),
+      );
+
+      const result = verify(dir, manifest, pubkeyField, ["--require-version", "9.9.9"]);
+      assert.equal(result.code, 1, result.stdout);
+      assert.match(result.stdout, /is not served from the v9\.9\.9 release/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+}
+
+foreignOriginCase(
+  "the declared version alone does not make a foreign host acceptable",
+  "https://example.invalid/arbitrary/v9.9.9/CodeTerm_aarch64.app.tar.gz",
+);
+
+foreignOriginCase(
+  "an artifact served from the private source repo is not public release evidence",
+  "https://github.com/rollacode/codeterm/releases/download/v9.9.9/CodeTerm_aarch64.app.tar.gz",
+);
+
+foreignOriginCase(
+  "a version segment outside the release download path is not provenance",
+  "https://github.com/rollacode/codeterm-releases/raw/v9.9.9/CodeTerm_aarch64.app.tar.gz",
+);
