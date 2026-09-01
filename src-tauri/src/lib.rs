@@ -812,6 +812,9 @@ pub fn run() {
             };
             let service_state: ServiceState = Arc::new(svc_ctx);
             service_state
+                .provider_updates
+                .bind_execution_owner(&service_state);
+            service_state
                 .mem
                 .extraction_authority()
                 .set_cancel_sink(Arc::new(crate::mem_host::WorkerCancelSink(
