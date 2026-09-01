@@ -539,6 +539,52 @@ fn relay_asset_whitelist_is_ui_scoped() {
     assert!(!is_relay_asset_path("plugins/git/ui/../../../etc/passwd"));
 }
 
+#[test]
+fn relay_refusal_distinguishes_unroutable_from_unpaired() {
+    let mut mesh = crate::mesh::MeshManager::new("test-host".into(), 7685);
+    mesh.disk_persist = false;
+    let mut peer = crate::mesh::types::PairedPeer {
+        instance_id: "peer-a".into(),
+        instance_name: "TestPeer".into(),
+        addresses: Vec::new(),
+        api_port: 7685,
+        public_key: String::new(),
+        paired_at: "now".into(),
+        last_seen: None,
+        online: false,
+        is_primary: false,
+        access_level: crate::mesh::types::AccessLevel::Full,
+        version: None,
+        web_ui: None,
+        relay_protocol_version: crate::mesh::types::RELAY_PROTOCOL_VERSION,
+        consecutive_misses: 0,
+        last_active_ms: None,
+    };
+    mesh.paired_peers.insert("peer-a".into(), peer.clone());
+
+    // Genuinely unknown peer: no paired record at all.
+    let unpaired = resolve_relay_peer(&mesh, "no-such-peer").unwrap_err();
+    assert_eq!(unpaired.0, StatusCode::NOT_FOUND);
+    assert!(unpaired.1.starts_with(PEER_NOT_PAIRED_REASON), "got: {}", unpaired.1);
+
+    // Known, paired peer — but no reachable address, so client_for returns None.
+    let unroutable = resolve_relay_peer(&mesh, "peer-a").unwrap_err();
+    assert_eq!(unroutable.0, StatusCode::SERVICE_UNAVAILABLE);
+    assert!(unroutable.1.starts_with(PEER_UNROUTABLE_REASON), "got: {}", unroutable.1);
+    assert_ne!(unpaired.0, unroutable.0, "distinct status codes for distinct causes");
+    assert!(
+        !unroutable.1.contains(PEER_NOT_PAIRED_REASON),
+        "a paired-but-unroutable peer must never be mislabeled 'not paired': {}",
+        unroutable.1
+    );
+
+    // Give the same paired record a real address — now it resolves, no set-addr needed.
+    peer.addresses
+        .push(crate::mesh::types::PeerAddress::from_ip("100.65.0.30"));
+    mesh.paired_peers.insert("peer-a".into(), peer);
+    assert!(resolve_relay_peer(&mesh, "peer-a").is_ok());
+}
+
 mod notification_provenance {
     use super::*;
 

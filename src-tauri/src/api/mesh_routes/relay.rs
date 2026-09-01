@@ -307,6 +307,61 @@ fn resolve_paired_peer_id<'a>(
     name_match
 }
 
+/// No paired record at all for this id/name — distinct from [`PEER_UNROUTABLE_REASON`],
+/// which means the record exists but `client_for` couldn't build a route to it.
+pub const PEER_NOT_PAIRED_REASON: &str = "peer_not_paired";
+/// The peer IS paired but has no reachable address right now (see
+/// `codeterm_mesh::manager::MeshManager::client_for`) — never collapse this into
+/// "not paired": the paired record is real, only routing to it failed (codeterm#368).
+pub const PEER_UNROUTABLE_REASON: &str = "peer_unroutable";
+
+fn peer_not_paired_error(target: &str) -> (StatusCode, String) {
+    (
+        StatusCode::NOT_FOUND,
+        format!("{PEER_NOT_PAIRED_REASON}: {target} is not a paired peer"),
+    )
+}
+
+fn peer_unroutable_error(peer_name: &str) -> (StatusCode, String) {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        format!("{PEER_UNROUTABLE_REASON}: peer {peer_name} is paired but has no reachable address"),
+    )
+}
+
+/// Resolve `target` to a signed, routable client for `mesh_relay_to_peer`,
+/// distinguishing "no such paired peer" from "paired but currently unroutable"
+/// (codeterm#368) and from an incompatible relay protocol version. Pure over
+/// an already-locked manager, so tests can exercise the discriminant without
+/// axum/AppState plumbing.
+fn resolve_relay_peer(
+    mesh: &crate::mesh::MeshManager,
+    target: &str,
+) -> Result<(crate::mesh::transport::PeerClient, String), (StatusCode, String)> {
+    let peer_id = resolve_paired_peer_id(
+        target,
+        mesh.paired_peers
+            .iter()
+            .map(|(id, peer)| (id.as_str(), peer.instance_name.as_str())),
+    )
+    .ok_or_else(|| peer_not_paired_error(target))?;
+    let peer = &mesh.paired_peers[&peer_id];
+    if peer.relay_protocol_version != crate::mesh::types::RELAY_PROTOCOL_VERSION {
+        return Err((
+            StatusCode::UPGRADE_REQUIRED,
+            format!(
+                "Peer {} uses incompatible Mesh relay protocol {}",
+                peer.instance_name, peer.relay_protocol_version
+            ),
+        ));
+    }
+    let name = peer.instance_name.clone();
+    let client = mesh
+        .client_for(&peer_id)
+        .ok_or_else(|| peer_unroutable_error(&name))?;
+    Ok((client, name))
+}
+
 /// Parse a successful relayed `agent spawn` into a remote-worker registration
 /// `(report_to, remote_tab, title, model)`. None unless this was a POST spawn
 /// that succeeded, carried a `report_to` target, and produced a tab id.
@@ -359,36 +414,7 @@ pub async fn mesh_relay_to_peer(
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let (client, peer_name) = {
         let mesh = state.mesh.lock();
-        let peer_id = resolve_paired_peer_id(
-            &req.target_peer_id,
-            mesh.paired_peers
-                .iter()
-                .map(|(id, peer)| (id.as_str(), peer.instance_name.as_str())),
-        )
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                format!("Peer {} not paired", req.target_peer_id),
-            )
-        })?;
-        let peer = &mesh.paired_peers[&peer_id];
-        if peer.relay_protocol_version != crate::mesh::types::RELAY_PROTOCOL_VERSION {
-            return Err((
-                StatusCode::UPGRADE_REQUIRED,
-                format!(
-                    "Peer {} uses incompatible Mesh relay protocol {}",
-                    peer.instance_name, peer.relay_protocol_version
-                ),
-            ));
-        }
-        let client = mesh.client_for(&peer_id).ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                format!("Peer {} not paired", req.target_peer_id),
-            )
-        })?;
-        let name = peer.instance_name.clone();
-        (client, name)
+        resolve_relay_peer(&mesh, &req.target_peer_id)?
     };
     let delivery_id = relay_send_delivery_id(&req.method, &req.path);
     let mut relay_body = req.body;
@@ -871,7 +897,7 @@ pub async fn mesh_relay_stream(
         let peer = mesh
             .paired_peers
             .get(&q.peer)
-            .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Peer {} not paired", q.peer)))?;
+            .ok_or_else(|| peer_not_paired_error(&q.peer))?;
         if !peer.online {
             return Err((
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -888,7 +914,7 @@ pub async fn mesh_relay_stream(
             ));
         }
         mesh.client_for(&q.peer)
-            .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Peer {} not paired", q.peer)))?
+            .ok_or_else(|| peer_unroutable_error(&peer.instance_name))?
     };
     let resp = client.open_relay_stream(&path).await.map_err(|e| {
         (
@@ -942,7 +968,7 @@ pub async fn mesh_relay_asset(
         let paired = mesh
             .paired_peers
             .get(&peer)
-            .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Peer {peer} not paired")))?;
+            .ok_or_else(|| peer_not_paired_error(&peer))?;
         if paired.relay_protocol_version != crate::mesh::types::RELAY_PROTOCOL_VERSION {
             return Err((
                 StatusCode::UPGRADE_REQUIRED,
@@ -954,7 +980,7 @@ pub async fn mesh_relay_asset(
         }
         let client = mesh
             .client_for(&peer)
-            .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Peer {peer} not paired")))?;
+            .ok_or_else(|| peer_unroutable_error(&paired.instance_name))?;
         let signed = mesh.sign_request().map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,

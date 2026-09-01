@@ -720,6 +720,9 @@ mod identity_tests;
 mod gossip_tests;
 
 #[cfg(test)]
+mod persistence_tests;
+
+#[cfg(test)]
 mod liveness_tests {
     use super::*;
 

@@ -3,39 +3,35 @@ import { Clock3, X } from "lucide-react";
 import { invoke, listen } from "../../lib/bridge";
 import type { CronJob } from "../../lib/types";
 import { CronDrawerSection } from "../MeshPanel/CronDrawerSection";
-import type { Service } from "../MeshPanel/types";
+import type { MeshResourceActionAdapter } from "../MeshPanel/meshResourceActions";
+import { CRON_ID_PREFIX, type Service } from "../MeshPanel/types";
+import type { MeshInventoryView } from "../MeshPanel/servicesView";
 import { cronSelectionStore } from "./cronSelectionStore";
 
 interface Props {
   cronId: string;
+  actionAdapter?: MeshResourceActionAdapter;
 }
 
-function toService(job: CronJob): Service {
-  return {
-    id: `cron_${job.id}`,
-    name: job.name,
-    kind: "cron",
-    description: job.description ?? undefined,
-    health_mode: "process",
-    health_interval: 0,
-    health: { status: job.enabled ? "healthy" : "unknown" },
-    push_enabled: false,
-    schedule: job.schedule,
-    next_run: job.next_run ?? undefined,
-    last_run_status: job.last_run?.status,
-    registered_at: job.created_at,
-    updated_at: job.created_at,
-    enabled: job.enabled,
-  };
+// Same inventory projection MeshPanel renders from — never a hand-built capability map.
+export function selectCronService(inventory: MeshInventoryView, cronId: string): Service | null {
+  const resourceId = `${CRON_ID_PREFIX}${cronId}`;
+  return inventory.resources.find((resource) => resource.id === resourceId) ?? null;
 }
 
-export function CronWorkspaceView({ cronId }: Props) {
+export function CronWorkspaceView({ cronId, actionAdapter }: Props) {
   const [job, setJob] = useState<CronJob | null>(null);
+  const [service, setService] = useState<Service | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = async () => {
     try {
-      setJob(await invoke<CronJob>("cron_get", { id: cronId }));
+      const [nextJob, inventory] = await Promise.all([
+        invoke<CronJob>("cron_get", { id: cronId }),
+        invoke<MeshInventoryView>("mesh_inventory_list"),
+      ]);
+      setJob(nextJob);
+      setService(selectCronService(inventory, cronId));
       setError(null);
     } catch (cause) {
       setError(String(cause));
@@ -61,7 +57,7 @@ export function CronWorkspaceView({ cronId }: Props) {
   if (error) {
     return <div className="h-full grid place-items-center text-sm text-[var(--ct-red)]">{error}</div>;
   }
-  if (!job) return null;
+  if (!job || !service) return null;
 
   const target = job.report_target_tab_id
     ? `Reports to Tab ${job.report_target_tab_id}`
@@ -80,7 +76,7 @@ export function CronWorkspaceView({ cronId }: Props) {
         </button>
       </header>
       <div className="mx-auto w-full max-w-3xl p-5">
-        <CronDrawerSection service={toService(job)} machineName="This machine" onUpdate={() => void refresh()} />
+        <CronDrawerSection service={service} machineName="This machine" onUpdate={() => void refresh()} actionAdapter={actionAdapter} />
       </div>
     </section>
   );

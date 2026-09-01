@@ -54,7 +54,11 @@ export function resourceTarget(service: Service, localMachineName: string): Mesh
 }
 
 export function capabilityFor(service: Service, operation: InventoryOperation): InventoryCapability {
-  return service.capabilities?.[operation] ?? { allowed: false, unavailable_reason: "unsupported_resource_kind" };
+  const capability = service.capabilities?.[operation];
+  if (capability) return capability;
+  // Absent map = not projected yet (loading), not a backend "unsupported" verdict.
+  if (!service.capabilities) return { allowed: false };
+  return { allowed: false, unavailable_reason: "unsupported_resource_kind" };
 }
 
 export function capabilityReason(service: Service, operation: InventoryOperation): string | undefined {
