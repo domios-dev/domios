@@ -22,9 +22,8 @@ async function waitUntil(condition: () => boolean, maxTurns = 1000): Promise<voi
   throw new Error(`waitUntil: condition not met within ${maxTurns} microtask turns`);
 }
 
-/** Drains pending microtasks to prove no further scheduled work remains —
- * only for negative assertions, where there is no positive condition to
- * poll for and the system is otherwise known to be fully deterministic. */
+/** Drains pending microtasks — only for negative assertions where there is
+ * no positive condition to poll for. */
 async function drain(turns = 20): Promise<void> {
   for (let i = 0; i < turns; i++) await Promise.resolve();
 }
@@ -57,9 +56,11 @@ async function setupCache() {
   cache.__resetPluginBubbleCacheForTest();
 
   let calls = 0;
+  const identityFlags: boolean[] = [];
   const pending: Array<Deferred<Bubble | null>> = [];
-  cache.__setPluginBubbleFetcherForTest(async () => {
+  cache.__setPluginBubbleFetcherForTest(async (_pluginId, _cwd, _tabId, identityChanged) => {
     calls++;
+    identityFlags.push(identityChanged);
     const d = deferred<Bubble | null>();
     pending.push(d);
     return d.promise;
@@ -69,6 +70,9 @@ async function setupCache() {
     cache,
     get calls() {
       return calls;
+    },
+    get identityFlags() {
+      return identityFlags;
     },
     resolveNext: (value: Bubble | null) => {
       const d = pending.shift();
@@ -86,7 +90,7 @@ async function setupCache() {
   };
 }
 
-test("a hidden subscriber never fetches", async () => {
+test("a hidden subscriber never fetches, even under repository and explicit-action invalidation", async () => {
   const fx = await setupCache();
   const sub = fx.cache.subscribePluginBubble("git", "/repo", "tab-1", false, () => {});
 
@@ -94,6 +98,12 @@ test("a hidden subscriber never fetches", async () => {
   sub.setActive(false);
   await drain();
   assert(fx.calls === 0, `re-affirming hidden must not fetch, got ${fx.calls}`);
+
+  fx.cache.invalidatePluginBubble("git", "/repo");
+  fx.cache.invalidatePluginBubble("git", "/repo", true);
+  fx.fireTabStatus("tab-1");
+  await drain();
+  assert(fx.calls === 0, `no invalidation reaches a hidden tab, got ${fx.calls}`);
 
   sub.unsubscribe();
   fx.teardown();
@@ -127,6 +137,50 @@ test("an explicit invalidation returns the new value, not a stale one", async ()
   fx.resolveNext({ label: "feature" });
   await waitUntil(() => values.length >= 2);
   assert(values.at(-1)?.label === "feature", "invalidation must deliver the new branch, not the cached old one");
+
+  sub.unsubscribe();
+  fx.teardown();
+});
+
+test("identityChanged threads to the fetcher only on an identity-changing invalidation", async () => {
+  const fx = await setupCache();
+  const sub = fx.cache.subscribePluginBubble("git", "/repo", "tab-1", true, () => {});
+  await waitUntil(() => fx.calls >= 1);
+  assert(fx.identityFlags[0] === false, "activation is not itself an identity-changing event");
+  fx.resolveNext({ label: "main" });
+  await drain();
+
+  fx.cache.invalidatePluginBubble("git", "/repo");
+  await waitUntil(() => fx.calls >= 2);
+  assert(fx.identityFlags[1] === false, "a plain invalidation does not force identity refresh");
+  fx.resolveNext({ label: "main" });
+  await drain();
+
+  fx.cache.invalidatePluginBubble("git", "/repo", true);
+  await waitUntil(() => fx.calls >= 3);
+  assert(fx.identityFlags[2] === true, "an identity-changing invalidation forces identity refresh");
+  fx.resolveNext({ label: "feature" });
+
+  sub.unsubscribe();
+  fx.teardown();
+});
+
+test("two invalidations while a fetch is in flight coalesce to one trailing refresh, with the stronger identity flag", async () => {
+  const fx = await setupCache();
+  const sub = fx.cache.subscribePluginBubble("git", "/repo", "tab-1", true, () => {});
+  assert(fx.calls === 1, "activation fetched once");
+
+  fx.cache.invalidatePluginBubble("git", "/repo", false);
+  fx.cache.invalidatePluginBubble("git", "/repo", true);
+  assert(fx.calls === 1, "both invalidations arrived while the first fetch was still in flight");
+
+  fx.resolveNext({ label: "main" });
+  await waitUntil(() => fx.calls >= 2);
+  assert(fx.calls === 2, `exactly one coalesced trailing refresh, got ${fx.calls}`);
+  assert(fx.identityFlags[1] === true, "the coalesced refresh keeps the stronger (true) identity flag");
+  fx.resolveNext({ label: "feature" });
+  await drain();
+  assert(fx.calls === 2, "no third computation follows");
 
   sub.unsubscribe();
   fx.teardown();

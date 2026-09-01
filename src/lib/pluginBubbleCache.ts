@@ -16,10 +16,23 @@ export interface PluginBubbleSubscription {
   unsubscribe: () => void;
 }
 
-type Fetcher = (pluginId: string, cwd: string | null, tabId: string) => Promise<BubbleData | null>;
+type Fetcher = (
+  pluginId: string,
+  cwd: string | null,
+  tabId: string,
+  identityChanged: boolean,
+) => Promise<BubbleData | null>;
 
-function defaultFetcher(pluginId: string, cwd: string | null, tabId: string): Promise<BubbleData | null> {
-  return invoke<BubbleData | null>("plugin_bubble", { pluginId, ctx: { cwd, tabId } });
+function defaultFetcher(
+  pluginId: string,
+  cwd: string | null,
+  tabId: string,
+  identityChanged: boolean,
+): Promise<BubbleData | null> {
+  return invoke<BubbleData | null>("plugin_bubble", {
+    pluginId,
+    ctx: { cwd, tabId, forceIdentityRefresh: identityChanged },
+  });
 }
 
 let fetcher: Fetcher = defaultFetcher;
@@ -40,6 +53,7 @@ interface Entry {
   value: BubbleData | null | undefined;
   inFlight: boolean;
   pendingRefresh: boolean;
+  pendingIdentityChanged: boolean;
   subscribers: Map<string, Subscriber>;
 }
 
@@ -53,7 +67,15 @@ function getOrCreateEntry(pluginId: string, cwd: string | null): Entry {
   }
   let entry = byCwd.get(cwd);
   if (!entry) {
-    entry = { pluginId, cwd, value: undefined, inFlight: false, pendingRefresh: false, subscribers: new Map() };
+    entry = {
+      pluginId,
+      cwd,
+      value: undefined,
+      inFlight: false,
+      pendingRefresh: false,
+      pendingIdentityChanged: false,
+      subscribers: new Map(),
+    };
     byCwd.set(cwd, entry);
   }
   return entry;
@@ -82,13 +104,14 @@ function pickTabId(entry: Entry): string {
   return "";
 }
 
-function computeNow(entry: Entry): void {
+function computeNow(entry: Entry, identityChanged: boolean): void {
   if (entry.inFlight) {
     entry.pendingRefresh = true;
+    entry.pendingIdentityChanged = entry.pendingIdentityChanged || identityChanged;
     return;
   }
   entry.inFlight = true;
-  fetcher(entry.pluginId, entry.cwd, pickTabId(entry))
+  fetcher(entry.pluginId, entry.cwd, pickTabId(entry), identityChanged)
     .then((value) => {
       entry.value = value;
       notify(entry);
@@ -97,8 +120,10 @@ function computeNow(entry: Entry): void {
     .finally(() => {
       entry.inFlight = false;
       const shouldRefresh = entry.pendingRefresh && activeCount(entry) > 0;
+      const nextIdentityChanged = entry.pendingIdentityChanged;
       entry.pendingRefresh = false;
-      if (shouldRefresh) computeNow(entry);
+      entry.pendingIdentityChanged = false;
+      if (shouldRefresh) computeNow(entry, nextIdentityChanged);
     });
 }
 
@@ -123,7 +148,7 @@ export function subscribePluginBubble(
     if (!sub) return;
     const wasActive = sub.active;
     sub.active = nextActive;
-    if (nextActive && !wasActive) computeNow(entry);
+    if (nextActive && !wasActive) computeNow(entry, false);
   };
   setActive(active);
 
@@ -136,20 +161,26 @@ export function subscribePluginBubble(
   };
 }
 
-/** Explicit invalidation — coalesced with any in-flight refresh, a no-op
- * unless a visible tab is currently watching this repo identity. */
-export function invalidatePluginBubble(pluginId: string, cwd: string | null | undefined): void {
+/** Explicit invalidation, coalesced with any in-flight refresh; a no-op
+ * unless a visible tab is watching. `identityChanged` forces root/branch too. */
+export function invalidatePluginBubble(
+  pluginId: string,
+  cwd: string | null | undefined,
+  identityChanged = false,
+): void {
   if (cwd === undefined) return;
   const entry = cache.get(pluginId)?.get(cwd);
   if (!entry || activeCount(entry) === 0) return;
-  computeNow(entry);
+  computeNow(entry, identityChanged);
 }
 
+// tab-status-changed can't say whether it involved a branch change, so it
+// conservatively forces an identity refresh — never an indefinite stale cache.
 function invalidateForTab(tabId: string): void {
   for (const byCwd of cache.values()) {
     for (const entry of byCwd.values()) {
       const isWatching = [...entry.subscribers.values()].some((s) => s.tabId === tabId && s.active);
-      if (isWatching) computeNow(entry);
+      if (isWatching) computeNow(entry, true);
     }
   }
 }
