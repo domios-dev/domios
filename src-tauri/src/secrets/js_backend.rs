@@ -6,21 +6,25 @@ use serde_json::json;
 
 use crate::secrets::{
     CollectionRef, ListFilter, OrganizationRef, SaveRequest, SecretError, SecretRef, SecretStore,
-    SecretString, SecretValue, StoreStatus, UnlockCredentials,
+    SecretString, SecretValue, StoreCapabilities, StoreStatus, UnlockCredentials,
 };
 use codeterm_plugin::js_runtime::{call_json, has_method, PluginVm};
 
 pub struct JsSecretBackend {
     vm: Arc<PluginVm>,
     id: &'static str,
+    capabilities: StoreCapabilities,
 }
 
 impl JsSecretBackend {
-    pub fn new(vm: Arc<PluginVm>, id: &str) -> Self {
+    pub fn new(vm: Arc<PluginVm>, id: &str, declares_auto_unlock: bool) -> Self {
         // once at construction (bounded: one small leak per plugin load).
         Self {
             vm,
             id: Box::leak(id.to_string().into_boxed_str()),
+            capabilities: StoreCapabilities {
+                auto_unlock: declares_auto_unlock,
+            },
         }
     }
 
@@ -74,10 +78,27 @@ struct GetOut {
     notes: Option<String>,
 }
 
+/// The `secretUnlock` argument. `persistForAutoUnlock` is always serialized as a
+/// bool so a drop-in never infers consent from an absent field.
+pub(crate) fn unlock_args(creds: &UnlockCredentials) -> serde_json::Value {
+    json!({
+        "masterPassword": creds.master_password.expose_secret(),
+        "twoFactorToken": creds.two_factor_token.as_ref().map(|t| t.expose_secret()),
+        "email": creds.email,
+        "apiKeyClientId": creds.api_key_client_id.as_ref().map(|t| t.expose_secret()),
+        "apiKeyClientSecret": creds.api_key_client_secret.as_ref().map(|t| t.expose_secret()),
+        "persistForAutoUnlock": creds.persist_for_auto_unlock,
+    })
+}
+
 #[async_trait]
 impl SecretStore for JsSecretBackend {
     fn id(&self) -> &'static str {
         self.id
+    }
+
+    fn capabilities(&self) -> StoreCapabilities {
+        self.capabilities
     }
 
     async fn status(&self) -> StoreStatus {
@@ -90,14 +111,7 @@ impl SecretStore for JsSecretBackend {
     }
 
     async fn unlock(&self, creds: UnlockCredentials) -> Result<(), SecretError> {
-        let args = [json!({
-            "masterPassword": creds.master_password.expose_secret(),
-            "twoFactorToken": creds.two_factor_token.as_ref().map(|t| t.expose_secret()),
-            "email": creds.email,
-            "apiKeyClientId": creds.api_key_client_id.as_ref().map(|t| t.expose_secret()),
-            "apiKeyClientSecret": creds.api_key_client_secret.as_ref().map(|t| t.expose_secret()),
-        })];
-        self.call_unit("secretUnlock", &args)
+        self.call_unit("secretUnlock", &[unlock_args(&creds)])
     }
 
     async fn lock(&self) -> Result<(), SecretError> {
@@ -193,10 +207,11 @@ impl codeterm_plugin::SecretBackendRegistrar for AppSecretBackendRegistrar {
         &self,
         plugin_id: String,
         vm: std::sync::Arc<codeterm_plugin::js_runtime::PluginVm>,
+        declares_auto_unlock: bool,
     ) {
         self.registry.register(
             plugin_id.clone(),
-            std::sync::Arc::new(JsSecretBackend::new(vm, &plugin_id)),
+            std::sync::Arc::new(JsSecretBackend::new(vm, &plugin_id, declares_auto_unlock)),
         );
     }
 
