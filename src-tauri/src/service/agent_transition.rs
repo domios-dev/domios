@@ -402,8 +402,10 @@ fn prepare_transition(
         &request.tab_id,
     );
     if let Some(incumbent_id) = incumbent.as_deref() {
-        for affected_id in clear_lifecycle(staged, incumbent_id)? {
-            plan_changes.push(revocation_change(affected_id));
+        if staged.get_tab(incumbent_id).is_some() {
+            for affected_id in clear_lifecycle(staged, incumbent_id)? {
+                plan_changes.push(revocation_change(affected_id));
+            }
         }
     }
 

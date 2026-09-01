@@ -256,9 +256,8 @@ fn real_1_10_7_row_upgrades_in_one_pass() {
     let id = mem.save(legacy.clone()).unwrap();
     assert_eq!(fingerprint_of(&mem, &id), None, "a real 1.10.7 row predates fingerprints");
 
-    // Stand-in for "today's shipped payload has since diverged from 1.10.7"
-    // (a future prompt edit) — the bridge, not the current-payload fast
-    // path, must be what recognizes this row as unedited.
+    // Simulates a post-1.10.7 prompt edit; only the frozen bridge can prove
+    // this old row remained unedited.
     let current = versioned_codeterm("hypothetical v3 content, post-1.10.7");
     let outcome = seed_from(&mem, vec![current.clone()]).unwrap();
 
@@ -301,6 +300,7 @@ fn metadata_edited_1_10_7_variant_does_not_bootstrap() {
 
     assert_eq!(outcome.written(), 0);
     assert_eq!(outcome.skipped, vec![("codeterm".to_string(), SeedSkipReason::Absent)]);
+    assert_eq!(fingerprint_of(&mem, &id), None);
     let after = find(&mem, "codeterm");
     assert_eq!(after.summary, edited.summary);
     assert_eq!(after.body, edited.body);
@@ -523,8 +523,7 @@ fn mismatched_fingerprint_is_preserved() {
     assert_eq!(find(&mem, "codeterm").body, "tampered body");
 }
 
-/// NEGATIVE, green before and after: an unreadable managed payload (here,
-/// a kind the seeder no longer recognizes) is preserved, never overwritten.
+/// NEGATIVE: an unreadable non-key field is preserved, never overwritten.
 #[test]
 fn unreadable_payload_is_preserved() {
     let mem = MemManager::open_in_memory().unwrap();
@@ -532,7 +531,7 @@ fn unreadable_payload_is_preserved() {
     let id = mem.save(shipped.clone()).unwrap();
     mem.with_conn(|conn| {
         conn.execute(
-            "UPDATE mem_items SET kind = 'not-a-real-kind' WHERE id = ?1",
+            "UPDATE mem_items SET scope = 'unreadable-scope' WHERE id = ?1",
             rusqlite::params![&id],
         )
     })
@@ -545,6 +544,15 @@ fn unreadable_payload_is_preserved() {
         outcome.skipped,
         vec![("codeterm".to_string(), SeedSkipReason::Unreadable)]
     );
+    let raw: (String, Option<String>) = mem.with_conn(|conn| {
+        conn.query_row(
+            "SELECT scope, seed_fingerprint FROM mem_items WHERE id = ?1",
+            rusqlite::params![&id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap()
+    });
+    assert_eq!(raw, ("unreadable-scope".into(), None));
 }
 
 /// ATOMICITY oracle: a real edit committed after the seeder captured its

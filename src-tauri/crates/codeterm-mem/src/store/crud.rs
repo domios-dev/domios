@@ -649,9 +649,8 @@ pub fn update(
     let new_importance = patch.importance.unwrap_or(prev.importance);
     let new_pinned = patch.pinned.unwrap_or(prev_pinned);
 
-    // Bundled ownership is authoritative, never inferred: any edit through
-    // this real update path to a field the seeder manages relinquishes it
-    // atomically, in this same write — see `cas_refresh_bundled`.
+    // A managed-field edit relinquishes bundled ownership atomically in
+    // this write; `cas_refresh_bundled` can no longer claim it.
     let managed_changed = new_title != prev_title
         || new_summary != prev_summary
         || new_area != prev_area
