@@ -403,10 +403,13 @@ fn task_update_core(
         .map_err(|message| text_err(axum::http::StatusCode::BAD_REQUEST, message))?;
     let depends_on = optional_string_vec_field(&body, "depends_on", "dependency_task_ids")
         .map_err(|message| text_err(axum::http::StatusCode::BAD_REQUEST, message))?;
+    // The edit panel submits the whole array, so this surface is Replace-only.
     let acceptance_criteria = body.get("acceptance_criteria").map(|_| {
-        body.get("acceptance_criteria")
+        let items: Vec<String> = body
+            .get("acceptance_criteria")
             .and_then(|value| serde_json::from_value(value.clone()).ok())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        crate::service::plan::mutations::task_ops::AcceptanceCriteriaUpdate::Replace(items)
     });
     let external_refs = body
         .get("external_refs")

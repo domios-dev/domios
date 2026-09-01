@@ -4,6 +4,7 @@ use serde_json::Value;
 
 pub(crate) const TASK_UPDATE_KEYS: &[&str] = &[
     "acceptance_criteria",
+    "acceptance_criteria_replace",
     "body",
     "competition",
     "correctness",
@@ -115,6 +116,10 @@ pub(crate) fn valid_task_update_payloads(
         (
             "acceptance_criteria",
             serde_json::json!({ "acceptance_criteria": ["Criterion"] }),
+        ),
+        (
+            "acceptance_criteria_replace",
+            serde_json::json!({ "acceptance_criteria_replace": true }),
         ),
         ("body", serde_json::json!({ "body": "Updated body" })),
         (

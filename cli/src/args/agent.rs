@@ -247,7 +247,8 @@ pub enum AgentAction {
         /// Role: Worker, Manager, Orchestrator, or Planner/Watcher profile sugar.
         #[arg(long)]
         role: Option<SpawnRole>,
-        /// Parent tab ID (for Workers)
+        /// Parent tab ID. Required for Workers; for a Planner, resolved
+        /// from --plan (its Orchestrator) when omitted.
         #[arg(long = "parent-tab")]
         parent: Option<String>,
         /// Plan id to bind — required for `--role Planner` to auto-bind

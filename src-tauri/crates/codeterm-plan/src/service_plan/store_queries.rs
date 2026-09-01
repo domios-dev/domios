@@ -1,6 +1,23 @@
 use super::*;
+use crate::service_plan::paths;
 
 impl PlanStore {
+    /// codeterm-releases#56: a freshly minted Team never owns a plan, so the
+    /// existence check must scope to the project instead, not the team.
+    pub fn active_plan_for_project(&self, project_path: &str) -> Option<(String, String)> {
+        let project_path = paths::project_root(std::path::Path::new(project_path))
+            .display()
+            .to_string();
+        if project_path.is_empty() {
+            return None;
+        }
+        self.plans.read().values().find_map(|arc| {
+            let plan = arc.lock();
+            (plan.status == PlanStatus::Active && plan.project_path == project_path)
+                .then(|| (plan.id.clone(), plan.title.clone()))
+        })
+    }
+
     pub fn get(&self, id: &str) -> Option<Plan> {
         self.plans.read().get(id).map(|p| p.lock().clone())
     }
@@ -158,6 +175,30 @@ impl PlanStore {
         None
     }
 
+    /// The plan this tab is the registered live Planner of, if any — a
+    /// Planner binds directly, never through a task assignment.
+    pub fn planner_plan_id_for_tab(&self, tab_id: &str) -> Option<String> {
+        if tab_id.trim().is_empty() {
+            return None;
+        }
+        for plan in self.plans.read().values() {
+            let plan = plan.lock();
+            if plan.status != PlanStatus::Active {
+                continue;
+            }
+            if let Some(crate::plan::PlannerRef::Tab {
+                tab_id: planner_tab_id,
+                ..
+            }) = &plan.planner
+            {
+                if planner_tab_id == tab_id {
+                    return Some(plan.id.clone());
+                }
+            }
+        }
+        None
+    }
+
     pub fn task_bindings_for_tab(&self, tab_id: &str) -> Vec<(String, String)> {
         if tab_id.trim().is_empty() {
             return Vec::new();
@@ -263,4 +304,39 @@ fn unix_time_millis() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+    use crate::plan::OrchestratorRef;
+
+    /// Windows paths are case-insensitive on disk; a query naming the same
+    /// project directory with different letter casing must still resolve.
+    #[test]
+    fn active_plan_for_project_matches_a_differently_cased_windows_path() {
+        let root = tempfile::tempdir().unwrap();
+        let project_dir = root.path().join("MyProject");
+        std::fs::create_dir(&project_dir).unwrap();
+        let store = PlanStore::new_for_test(&project_dir);
+        store
+            .create_plan_for_team(
+                "Windows casing".into(),
+                project_dir.display().to_string(),
+                OrchestratorRef::from_tab("orch"),
+                "team_case".into(),
+                vec![],
+                1,
+            )
+            .unwrap();
+
+        let canonical = project_dir.canonicalize().unwrap().display().to_string();
+        let differently_cased = canonical.replace("MyProject", "myproject");
+        assert_ne!(differently_cased, canonical, "fixture path has no casing to flip");
+
+        assert!(
+            store.active_plan_for_project(&differently_cased).is_some(),
+            "a differently-cased query for the same directory must still resolve"
+        );
+    }
 }

@@ -1,4 +1,20 @@
 use super::*;
+use serde::Serialize;
+
+/// `Append` is the default, non-destructive update shape; `Replace` is the
+/// explicit, opt-in destructive one — codeterm#372.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AcceptanceCriteriaUpdate {
+    Append(Vec<String>),
+    Replace(Vec<String>),
+}
+
+/// Before/after array lengths for a destructive `Replace`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct AcceptanceCriteriaCounts {
+    pub before: usize,
+    pub after: usize,
+}
 
 impl PlanStore {
     pub fn add_task_external_refs(
@@ -466,21 +482,33 @@ impl PlanStore {
         &self,
         plan_id: &str,
         task_id: &str,
-        acceptance_criteria: Option<Vec<String>>,
+        acceptance_criteria: Option<AcceptanceCriteriaUpdate>,
         test_plan: Option<Option<&str>>,
         qa_plan: Option<Option<&str>>,
         correctness: Option<Option<&str>>,
         now_ms: u64,
-    ) -> Result<(), PlanError> {
+    ) -> Result<Option<AcceptanceCriteriaCounts>, PlanError> {
         self.with_plan(plan_id, now_ms, |p| {
             let task = p
                 .tasks
                 .iter_mut()
                 .find(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
                 .ok_or(PlanError::TaskNotFound)?;
-            if let Some(criteria) = acceptance_criteria {
-                task.acceptance_criteria = criteria;
-            }
+            let criteria_counts = acceptance_criteria.map(|update| {
+                let before = task.acceptance_criteria.len();
+                match update {
+                    AcceptanceCriteriaUpdate::Append(new_items) => {
+                        task.acceptance_criteria.extend(new_items);
+                    }
+                    AcceptanceCriteriaUpdate::Replace(new_items) => {
+                        task.acceptance_criteria = new_items;
+                    }
+                }
+                AcceptanceCriteriaCounts {
+                    before,
+                    after: task.acceptance_criteria.len(),
+                }
+            });
             if let Some(plan) = test_plan {
                 task.test_plan = plan.map(str::to_string);
             }
@@ -491,7 +519,7 @@ impl PlanStore {
                 task.correctness = vector.map(str::to_string);
             }
             task.updated_at = now_ms;
-            Ok(())
+            Ok(criteria_counts)
         })
     }
 

@@ -470,7 +470,7 @@ pub mod agent_lifecycle;
 #[cfg(test)]
 mod in_progress_executor_tests;
 mod plan_ops;
-mod task_ops;
+pub mod task_ops;
 #[cfg(test)]
 mod team_close_transaction_tests;
 mod team_plan_create;

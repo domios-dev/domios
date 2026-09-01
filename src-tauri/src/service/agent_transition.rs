@@ -145,19 +145,26 @@ impl ServiceContext {
         Ok(())
     }
 
-    /// The plan record names the owner, so no parent is supplied or invented.
+    /// A Planner's parent resolves from the plan's owner, not a refusal.
     /// Placement and planner binding commit in one transaction.
     pub(crate) fn place_planner_on_plan(
         &self,
         tab_id: &str,
         plan_id: &str,
+        explicit_parent_tab_id: Option<&str>,
         require_verified_session: bool,
     ) -> Result<Vec<String>, String> {
+        let parent_tab_id = resolve_planner_parent(
+            &self.plan_store,
+            &self.mux.read(),
+            plan_id,
+            explicit_parent_tab_id,
+        )?;
         self.transition_agent(AgentTransitionRequest {
             tab_id: tab_id.to_string(),
             destination: AgentPlacement::Manager {
                 role_profile: builtins::PLANNER.to_string(),
-                parent_tab_id: None,
+                parent_tab_id: Some(parent_tab_id),
                 can_spawn: None,
             },
             plan_binding: Some(plan_id.to_string()),
@@ -610,6 +617,29 @@ fn plan_owner(
         .and_then(|plan| plan.owner.tab_id)
         .filter(|tab_id| !tab_id.trim().is_empty())
         .ok_or_else(|| format!("Plan {plan_id} has no live Orchestrator owner"))
+}
+
+/// An explicit parent wins; otherwise resolves from the plan's live owner.
+fn resolve_planner_parent(
+    plan_store: &crate::service::plan::PlanStore,
+    mux: &MultiplexerState,
+    plan_id: &str,
+    explicit_parent_tab_id: Option<&str>,
+) -> Result<String, String> {
+    if let Some(explicit) = explicit_parent_tab_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return Ok(explicit.to_string());
+    }
+    let owner_tab_id = plan_owner(plan_store, plan_id)?;
+    if mux.get_tab(&owner_tab_id).is_none() {
+        return Err(format!(
+            "plan {plan_id}'s Orchestrator owner tab '{owner_tab_id}' is not live — cannot bind a \
+             Planner's parent to it; pass --parent-tab explicitly"
+        ));
+    }
+    Ok(owner_tab_id)
 }
 
 fn destination_plan_rebind(

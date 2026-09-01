@@ -11,6 +11,21 @@ pub struct ReportGitMetadata {
     pub changed_files: Option<Vec<String>>,
 }
 
+/// Asserted by name, not wording — codeterm#305.
+pub const UNBOUND_WORKER_BINDING_ADVISORY: &str = "UNBOUND WORKER BINDING";
+
+/// Shared by `agent spawn --role Worker` and `agent report`, so the two
+/// entry points cannot drift apart — codeterm#305.
+pub fn worker_binding_resolved(has_plan_task: bool, has_plan: bool, has_task: bool) -> bool {
+    has_plan_task || (has_plan && has_task)
+}
+
+/// A Planner holds no task by design, so it is exempt from the task half of
+/// `worker_binding_resolved` — codeterm#371.
+pub fn role_owns_plan_without_task(role_env: Option<&str>) -> bool {
+    role_env == Some("Manager")
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReportRefusal {
     pub reason: String,
@@ -1181,5 +1196,42 @@ mod tests {
         assert!(prompt.contains("Read-only tasks need no commit"));
         assert!(prompt.contains("report `partial` with the exact blocker"));
         assert!(prompt.contains("hexadecimal literal"));
+    }
+
+    /// codeterm#305: spawn and report derive the same verdict from the same
+    /// signals, so they cannot drift apart.
+    #[test]
+    fn spawn_and_report_agree_on_plan_binding_requirement() {
+        // (has_plan_task, has_plan, has_task, expected bound)
+        let scenarios = [
+            (false, false, false, false),
+            (false, true, false, false),
+            (false, false, true, false),
+            (false, true, true, true),
+            (true, false, false, true),
+            (true, true, true, true),
+        ];
+        for (has_plan_task, has_plan, has_task, expected) in scenarios {
+            assert_eq!(
+                worker_binding_resolved(has_plan_task, has_plan, has_task),
+                expected,
+                "spawn: plan_task={has_plan_task} plan={has_plan} task={has_task}"
+            );
+            if !has_plan_task {
+                assert_eq!(
+                    worker_binding_resolved(false, has_plan, has_task),
+                    expected,
+                    "report: plan={has_plan} task={has_task}"
+                );
+            }
+        }
+    }
+
+    /// codeterm#371: a live Planner reports plan-only and counts as bound.
+    #[test]
+    fn only_a_manager_role_is_exempt_from_the_task_half_of_binding() {
+        assert!(role_owns_plan_without_task(Some("Manager")));
+        assert!(!role_owns_plan_without_task(Some("Worker")));
+        assert!(!role_owns_plan_without_task(None));
     }
 }

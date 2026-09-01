@@ -206,6 +206,98 @@ fn socket_update_external_refs_round_trips_non_null() {
     );
 }
 
+/// codeterm#372: no replace flag on the wire means append.
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+#[test]
+fn socket_update_acceptance_criteria_defaults_to_append() {
+    let (fixture, plan_id, task_id, _, _, owner) = update_fixture();
+    fixture
+        .service
+        .plan_store
+        .update_task_quality(
+            &plan_id,
+            &task_id,
+            Some(crate::service::plan::mutations::task_ops::AcceptanceCriteriaUpdate::Replace(
+                vec!["existing one".into(), "existing two".into()],
+            )),
+            None,
+            None,
+            None,
+            50,
+        )
+        .unwrap();
+    let service = Arc::new(fixture.service.clone());
+    let mut params = serde_json::Value::Object(owner_params(&owner));
+    params["plan_id"] = json!(plan_id.clone());
+    params["task_id"] = json!(task_id.clone());
+    params["acceptance_criteria"] = json!(["new one"]);
+
+    let response = dispatch(
+        "plan.task.update",
+        &Some(params),
+        &fixture.service.app_handle,
+        &service,
+        99,
+    )
+    .unwrap();
+
+    assert!(
+        response.get("acceptance_criteria_counts").is_none(),
+        "an append must not report replacement counts: {response}"
+    );
+    let plan = fixture.service.plan_store.get(&plan_id).unwrap();
+    let task = plan.tasks.iter().find(|task| task.id == task_id).unwrap();
+    assert_eq!(
+        task.acceptance_criteria,
+        vec!["existing one", "existing two", "new one"]
+    );
+}
+
+/// Replace reports before/after counts — never a silent overwrite.
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+#[test]
+fn socket_update_acceptance_criteria_replace_reports_before_after_counts() {
+    let (fixture, plan_id, task_id, _, _, owner) = update_fixture();
+    fixture
+        .service
+        .plan_store
+        .update_task_quality(
+            &plan_id,
+            &task_id,
+            Some(crate::service::plan::mutations::task_ops::AcceptanceCriteriaUpdate::Replace(
+                vec!["existing one".into(), "existing two".into()],
+            )),
+            None,
+            None,
+            None,
+            50,
+        )
+        .unwrap();
+    let service = Arc::new(fixture.service.clone());
+    let mut params = serde_json::Value::Object(owner_params(&owner));
+    params["plan_id"] = json!(plan_id.clone());
+    params["task_id"] = json!(task_id.clone());
+    params["acceptance_criteria"] = json!(["replacement"]);
+    params["acceptance_criteria_replace"] = json!(true);
+
+    let response = dispatch(
+        "plan.task.update",
+        &Some(params),
+        &fixture.service.app_handle,
+        &service,
+        99,
+    )
+    .unwrap();
+
+    assert_eq!(
+        response["acceptance_criteria_counts"],
+        json!({ "before": 2, "after": 1 })
+    );
+    let plan = fixture.service.plan_store.get(&plan_id).unwrap();
+    let task = plan.tasks.iter().find(|task| task.id == task_id).unwrap();
+    assert_eq!(task.acceptance_criteria, vec!["replacement"]);
+}
+
 #[test]
 fn rpc_dependency_field_omitted_is_none() {
     assert!(matches!(dependency_vec_field(Some(&json!({}))), Ok(None)));
