@@ -121,6 +121,8 @@ LIVE=$(curl -sL "$B/latest.json?cb=$(date +%s)" | python3 -c "import json,sys;pr
 # A 200 says nothing about installability: verify every signature against the
 # bytes actually served, with the key the shipped app uses.
 node "$REPO_ROOT/scripts/verify-updater-manifest.mjs" \
-  --manifest "$B/latest.json?cb=$(date +%s)" || {
+  --manifest "$B/latest.json?cb=$(date +%s)" \
+  --require-platform darwin-aarch64 \
+  --require-platform darwin-x86_64 || {
   echo "::error::published manifest is not installable (signature/bytes mismatch)"; exit 1; }
 echo "PUBLISH_OK v$VER is live"
