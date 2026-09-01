@@ -1,4 +1,4 @@
-use crate::repowatch::backend::{ActiveWatch, BatchHandler, WatchBackend, WatchSpec};
+use crate::repowatch::backend::{ActiveWatch, BatchHandler, WatchBackend, WatchSignal, WatchSpec};
 use crate::repowatch::events::{RepoEventSink, RepoWatchUnavailable};
 use crate::repowatch::registry::RepoWatchRegistry;
 use parking_lot::Mutex;
@@ -7,9 +7,8 @@ use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::sync::Arc;
 use std::time::Duration;
 
-/// Bounded FAILURE deadline for a channel wait — the only permitted use of
-/// elapsed time here. A positive oracle fails when it expires; a negative
-/// oracle passes when it expires.
+/// Bounded FAILURE deadline for a channel wait. A positive oracle fails when
+/// it expires; a negative oracle passes when it expires.
 pub const DEADLINE: Duration = Duration::from_secs(20);
 /// Silence window for a negative oracle. Comfortably past the 200ms debounce
 /// so a real event would already have been delivered.
@@ -85,6 +84,16 @@ pub fn expect_unavailable(
     }
 }
 
+/// Every probe-driven dispatch is synchronous, so draining without a deadline
+/// is exhaustive and fully deterministic.
+pub fn collected(rx: &Receiver<SinkEvent>) -> Vec<SinkEvent> {
+    let mut out = Vec::new();
+    while let Ok(event) = rx.try_recv() {
+        out.push(event);
+    }
+    out
+}
+
 /// Expiry of the bounded window IS the pass condition.
 pub fn expect_silence(rx: &Receiver<SinkEvent>, what: &str) {
     let deadline = std::time::Instant::now() + SILENCE;
@@ -104,9 +113,8 @@ pub fn expect_silence(rx: &Receiver<SinkEvent>, what: &str) {
     }
 }
 
-/// Drain everything already queued and wait out any in-flight debounce, so the
-/// next assertion observes only what the next action produced. This waits on
-/// the channel; it never treats elapsed time as readiness.
+/// Drain what is queued and wait out any in-flight debounce, so the next
+/// assertion observes only what the next action produced.
 pub fn settle(rx: &Receiver<SinkEvent>) {
     let quiet = Duration::from_millis(600);
     while rx.recv_timeout(quiet).is_ok() {}
@@ -199,6 +207,72 @@ impl WatchBackend for CountingBackend {
         Ok(Box::new(CountedWatch {
             ledger: self.ledger.clone(),
         }))
+    }
+}
+
+/// Hands the handler back so a test can drive an exact batch or a runtime
+/// backend failure with no filesystem involved.
+#[derive(Default)]
+pub struct ProbeBackend {
+    pub taps: Arc<Mutex<Vec<Tap>>>,
+}
+
+pub struct Tap {
+    pub specs: Vec<WatchSpec>,
+    handler: Arc<Mutex<BatchHandler>>,
+}
+
+impl Tap {
+    pub fn fire(&self, signal: WatchSignal) {
+        let mut handler = self.handler.lock();
+        (&mut **handler)(signal);
+    }
+}
+
+impl ProbeBackend {
+    pub fn paired() -> (Arc<Self>, Arc<Mutex<Vec<Tap>>>) {
+        let backend = Arc::new(Self::default());
+        let taps = backend.taps.clone();
+        (backend, taps)
+    }
+}
+
+/// The shared-ref watch is the one carrying the optional `refs/` spec.
+pub fn fire_shared(taps: &Arc<Mutex<Vec<Tap>>>, signal: WatchSignal) -> usize {
+    let taps = taps.lock();
+    let mut fired = 0;
+    for tap in taps.iter() {
+        if tap.specs.iter().any(|s| s.optional) {
+            tap.fire(signal.clone());
+            fired += 1;
+        }
+    }
+    fired
+}
+
+pub fn fire_worktree(taps: &Arc<Mutex<Vec<Tap>>>, signal: WatchSignal) -> usize {
+    let taps = taps.lock();
+    let mut fired = 0;
+    for tap in taps.iter() {
+        if !tap.specs.iter().any(|s| s.optional) {
+            tap.fire(signal.clone());
+            fired += 1;
+        }
+    }
+    fired
+}
+
+impl WatchBackend for ProbeBackend {
+    fn build(
+        &self,
+        specs: &[WatchSpec],
+        handler: BatchHandler,
+    ) -> Result<Box<dyn ActiveWatch>, String> {
+        self.taps.lock().push(Tap {
+            specs: specs.to_vec(),
+            handler: Arc::new(Mutex::new(handler)),
+        });
+        Ok(Box::new(InertWatch))
     }
 }
 

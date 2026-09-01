@@ -32,10 +32,8 @@ fn repository_watch_never_polls() {
         }
     }
 
-    // The backend feature set: notify's Windows (ReadDirectoryChangesW) and
-    // Linux (inotify) backends are unconditional per-target dependencies, so
-    // only macOS FSEvents needs a feature — dropping it would silently fall
-    // back to kqueue there.
+    // notify's Windows and Linux backends are unconditional per-target deps;
+    // only macOS FSEvents needs a feature, and losing it falls back to kqueue.
     let cargo = std::fs::read_to_string(manifest.join("Cargo.toml")).expect("read Cargo.toml");
     let notify_line = cargo
         .lines()

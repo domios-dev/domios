@@ -1,4 +1,5 @@
 mod degraded;
+mod fanout;
 mod identity;
 mod never_polls;
 mod refcount;

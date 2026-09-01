@@ -3,9 +3,8 @@ use std::path::PathBuf;
 
 use crate::repowatch::RepoWatchRegistryHandle;
 
-/// Shared by the Tauri command and the web-mirror REST route. Never returns a
-/// bare error for a degraded repository: the caller gets a named discriminant
-/// so the UI can render an honest unknown instead of a stale bubble.
+/// Shared by the Tauri command and the web-mirror REST route. A degraded
+/// repository returns a named discriminant, never a bare error.
 pub(crate) fn subscribe(registry: &RepoWatchRegistryHandle, cwd: PathBuf) -> Value {
     match registry.subscribe(&cwd) {
         Ok(sub) => json!({
