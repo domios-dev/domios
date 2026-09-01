@@ -374,6 +374,9 @@ Don't skip this — a stale `develop` makes the next release start from a missin
   checked-in Node entry points directly; for version sync, run the same
   `scripts/sync-plugin-versions.mjs` entry point with the resolved `node.exe`, then run it again
   with `--check`. Do not hand-edit versions or weaken the TypeScript matrix.
+- **`remoteChannelRecovery.test.ts` fails only in the full parallel TypeScript matrix** when its
+  silence-deadline assertion depends on wall-clock sleeps. Drive the injected deadline scheduler
+  directly so re-arm and clear are ordered by events; do not widen delays or retry the preflight.
 - **Plugin freshness reports modified bundles but `git diff` is empty** when `core.autocrlf=true`
   leaves clean tracked files with worktree-only stat dirt. The gate uses normalized diff for
   tracked content and `git ls-files --others` for new bundles; raw status is not evidence of drift.
@@ -390,4 +393,4 @@ The minisign updater key (`~/.tauri/codeterm.key`, empty password; its public ha
 the `github-release` skill lists the exact ids and restore paths. A builder without the minisign
 key produces artifacts the updater can't verify.
 
-<!-- revision: 32 -->
+<!-- revision: 33 -->
