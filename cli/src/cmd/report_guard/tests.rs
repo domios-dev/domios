@@ -692,9 +692,10 @@ fn declared_lane_worktree_that_is_not_a_repo_refuses_instead_of_using_the_pane()
     );
 }
 
-/// Mechanism only: the refusal must never advise a shell expression (any
-/// `$(...)` substitution) for the commit sha, since that could resolve to a
-/// foreign HEAD in a lane worktree rather than the caller's own commit.
+/// Mechanism only: the `--sha` argument itself must never be a shell
+/// expression, since that could resolve to a foreign HEAD in a lane
+/// worktree rather than the caller's own commit. Other legitimate `$(...)`
+/// substitutions (e.g. `$(codeterm pad path)`) are untouched.
 #[test]
 fn refusal_never_advises_a_shell_expression_for_the_commit_sha() {
     let refusal = ReportRefusal {
@@ -703,9 +704,9 @@ fn refusal_never_advises_a_shell_expression_for_the_commit_sha() {
     };
     let message = refusal.message();
 
-    assert!(!message.contains("$("), "{message}");
+    assert!(!message.contains("--sha $("), "{message}");
     for line in REPORT_NEXT_COMMANDS {
-        assert!(!line.contains("$("), "{line}");
+        assert!(!line.contains("--sha $("), "{line}");
     }
 }
 
