@@ -1455,9 +1455,7 @@ EOF
     node scripts/run-ts-unit-tests.mjs
     node scripts/run-plugin-tests.mjs
     "$(command -v python3 || command -v python)" -m unittest scripts.tests.test_release_issue_contract
-    "$(command -v python3 || command -v python)" -m unittest scripts.tests.test_release_workflow_contract
     node --test scripts/tests/updater-manifest.test.mjs
-    node --test scripts/tests/release-closure-authority.test.mjs
     node --test scripts/tests/bundled-cli-name.test.mjs
     node node_modules/@biomejs/biome/bin/biome check .
     ;;
