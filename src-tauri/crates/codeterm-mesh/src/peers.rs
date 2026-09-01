@@ -100,11 +100,8 @@ struct PairedPeerDisk {
     pub relay_protocol_version: u16,
 }
 
-/// Parse a `peers.json` payload into runtime `PairedPeer`s, sanitizing each
-/// entry's addresses. Pure — no filesystem access — so the persisted → live
-/// rehydration transform `load_peers` relies on can be exercised directly by
-/// tests without touching disk. Returns the rehydrated map plus how many
-/// addresses `sanitize_addresses` dropped as unparseable.
+/// Rehydrate a `peers.json` payload without filesystem access.
+/// Returns the peers and the number of invalid addresses removed.
 pub(crate) fn rehydrate_peers_payload(
     data: &str,
 ) -> Result<(HashMap<String, PairedPeer>, usize), serde_json::Error> {

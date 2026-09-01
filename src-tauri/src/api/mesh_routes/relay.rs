@@ -310,9 +310,8 @@ fn resolve_paired_peer_id<'a>(
 /// No paired record at all for this id/name — distinct from [`PEER_UNROUTABLE_REASON`],
 /// which means the record exists but `client_for` couldn't build a route to it.
 pub const PEER_NOT_PAIRED_REASON: &str = "peer_not_paired";
-/// The peer IS paired but has no reachable address right now (see
-/// `codeterm_mesh::manager::MeshManager::client_for`) — never collapse this into
-/// "not paired": the paired record is real, only routing to it failed (codeterm#368).
+/// The paired record exists, but `MeshManager::client_for` found no route.
+/// Keep this distinct from a missing record (codeterm#368).
 pub const PEER_UNROUTABLE_REASON: &str = "peer_unroutable";
 
 fn peer_not_paired_error(target: &str) -> (StatusCode, String) {
@@ -329,11 +328,8 @@ fn peer_unroutable_error(peer_name: &str) -> (StatusCode, String) {
     )
 }
 
-/// Resolve `target` to a signed, routable client for `mesh_relay_to_peer`,
-/// distinguishing "no such paired peer" from "paired but currently unroutable"
-/// (codeterm#368) and from an incompatible relay protocol version. Pure over
-/// an already-locked manager, so tests can exercise the discriminant without
-/// axum/AppState plumbing.
+/// Resolve a paired target while preserving missing, incompatible, and
+/// currently-unroutable refusal states.
 fn resolve_relay_peer(
     mesh: &crate::mesh::MeshManager,
     target: &str,

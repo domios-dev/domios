@@ -32,9 +32,8 @@ function setupDom() {
 
 const CRON_ID = "cron-1";
 
-// The exact shape `mesh_inventory_list` → `capabilities_for_resource` emits for a
-// Cron resource under Full access, Fresh provenance, not protected: every
-// InventoryOperation allowed. This is the projection MeshPanel itself consumes.
+// Mirrors the fully allowed cron projection returned by mesh_inventory_list.
+// The component must consume this map rather than deriving its own.
 function cronJob(): CronJob {
   return {
     id: CRON_ID,

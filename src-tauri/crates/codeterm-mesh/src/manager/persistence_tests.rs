@@ -1,8 +1,7 @@
 use super::*;
 
-/// codeterm#368 gate: the "persisted addresses don't rehydrate" hypothesis,
-/// refuted — `load_peers`'s pure transform carries them straight through for
-/// any well-formed IP, and the resulting manager routes with no set-addr call.
+/// A persisted valid address rehydrates into a route without a set-addr call.
+/// This guards the mechanism that refuted codeterm#368's initial hypothesis.
 #[test]
 fn paired_peer_routes_without_set_addr() {
     let payload = serde_json::json!({
@@ -49,9 +48,8 @@ fn paired_peer_routes_without_set_addr() {
         "a paired peer with valid persisted addresses is routable without set-addr"
     );
 
-    // 3. What the peer-list view exposes (what cli `mesh peers` renders from,
-    // json and human-readable alike — both read off peers_response()) carries
-    // the real address, not a placeholder.
+    // The same peer projection used by both CLI renderers carries the address,
+    // so presentation cannot disagree with the route source.
     let response = m.peers_response();
     let rendered = response
         .paired
