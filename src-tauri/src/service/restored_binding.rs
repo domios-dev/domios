@@ -25,28 +25,73 @@ impl RestoredCallerBinding {
     }
 }
 
+/// Why a restore did not produce a binding. Branch on the discriminant,
+/// never on the formatted message — that's prose for logs/CLI output only.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum RestoreBindingError {
+    TabNotFound { tab_id: String },
+    /// A `None` live session (not yet reported) is intentionally excluded —
+    /// see `restore_caller_binding`.
+    ForeignSession {
+        tab_id: String,
+        expected: String,
+        live: String,
+    },
+    RebindFailed(String),
+}
+
+impl std::fmt::Display for RestoreBindingError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::TabNotFound { tab_id } => {
+                write!(f, "Tab {tab_id} not found while restoring its binding")
+            }
+            Self::ForeignSession {
+                tab_id,
+                expected,
+                live,
+            } => write!(
+                f,
+                "Tab {tab_id} came back on session {live} but its authoritative session is \
+{expected}; refusing to rebind plan/task callers to a foreign session"
+            ),
+            Self::RebindFailed(message) => write!(f, "{message}"),
+        }
+    }
+}
+
 impl ServiceContext {
-    /// A resumed tab must still hold `expected_session_id`; a different id means
-    /// a foreign session, which fails the restore rather than being adopted.
+    /// A genuinely different session is refused as foreign; an unreported
+    /// one (`None`) is not yet known, not wrong, so it settles untouched.
     pub(crate) fn restore_caller_binding(
         &self,
         tab_id: &str,
         expected_session_id: Option<&str>,
-    ) -> Result<RestoredCallerBinding, String> {
+    ) -> Result<RestoredCallerBinding, RestoreBindingError> {
         let (live_session_id, title) = {
             let mux = self.mux.read();
-            let tab = mux
-                .get_tab(tab_id)
-                .ok_or_else(|| format!("Tab {tab_id} not found while restoring its binding"))?;
+            let tab = mux.get_tab(tab_id).ok_or_else(|| RestoreBindingError::TabNotFound {
+                tab_id: tab_id.to_string(),
+            })?;
             (tab.agent_session_id.clone(), tab.title.clone())
         };
         if let Some(expected) = expected_session_id {
-            if live_session_id.as_deref() != Some(expected) {
-                return Err(format!(
-                    "Tab {tab_id} came back on session {} but its authoritative session is {expected}; \
-refusing to rebind plan/task callers to a foreign session",
-                    live_session_id.as_deref().unwrap_or("<none>")
-                ));
+            match live_session_id.as_deref() {
+                Some(live) if live != expected => {
+                    return Err(RestoreBindingError::ForeignSession {
+                        tab_id: tab_id.to_string(),
+                        expected: expected.to_string(),
+                        live: live.to_string(),
+                    });
+                }
+                None => {
+                    return Ok(RestoredCallerBinding {
+                        tab_id: tab_id.to_string(),
+                        agent_session_id: None,
+                        ..Default::default()
+                    });
+                }
+                Some(_) => {}
             }
         }
 
@@ -68,7 +113,10 @@ refusing to rebind plan/task callers to a foreign session",
                         now_ms,
                     )
                     .map_err(|error| {
-                        format!("owner rebind failed for plan {}: {error}", plan.id)
+                        RestoreBindingError::RebindFailed(format!(
+                            "owner rebind failed for plan {}: {error}",
+                            plan.id
+                        ))
                     })?;
                 restored.owned_plan_ids.push(plan.id.clone());
             }
@@ -86,7 +134,10 @@ refusing to rebind plan/task callers to a foreign session",
                     self.plan_store
                         .set_planner_ref(&plan.id, Some(refreshed), now_ms)
                         .map_err(|error| {
-                            format!("planner rebind failed for plan {}: {error}", plan.id)
+                            RestoreBindingError::RebindFailed(format!(
+                                "planner rebind failed for plan {}: {error}",
+                                plan.id
+                            ))
                         })?;
                 }
                 restored.planner_plan_ids.push(plan.id.clone());
