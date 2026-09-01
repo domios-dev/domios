@@ -16,6 +16,7 @@ import { ConfigureWithAiButton } from "./ConfigureWithAiButton";
 interface SecretStatus {
   backend: string;
   status: { status: "logged_out" | "locked" | "unlocked"; endpoint?: string; user?: string | null };
+  auto_unlock_capable?: boolean;
   master_password_saved?: boolean;
 }
 

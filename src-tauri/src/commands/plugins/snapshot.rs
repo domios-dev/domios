@@ -46,11 +46,16 @@ fn enrich_from_manifest(entry: &mut Value, dir: &std::path::Path, m: &Value) {
             .and_then(|v| v.as_bool())
             .unwrap_or(false)
     };
-    // chatPreprocessor/chatBackend may be a bool OR an object — either form means enabled.
+    // secretBackend/chatPreprocessor/chatBackend may be a bool OR an object — either form means enabled.
     let cap_present = |key: &str| caps.and_then(|c| c.get(key)).is_some_and(|v| !v.is_null());
+    // A cap written as an object is enabled; an explicit `false` is not.
+    let cap_enabled = |key: &str| {
+        caps.and_then(|c| c.get(key))
+            .is_some_and(|v| v.as_bool().unwrap_or(v.is_object()))
+    };
     let cap_obj = serde_json::json!({
         "agent_provider": agent_provider,
-        "secret_backend": cap_bool("secretBackend"),
+        "secret_backend": cap_enabled("secretBackend"),
         "transcriber": cap_bool("transcriber"),
         "glance_view": cap_bool("glanceView"),
         "status_bubble": cap_bool("statusBubble"),

@@ -113,8 +113,11 @@ audited channel to the host, and a separately-sandboxed UI.
 }
 ```
 
-Capabilities are **booleans the host reads at registration**. Each true flag wires the
-plugin into the matching registry. Permissions are the confinement contract for the
+Capabilities are **declarations the host reads at registration**. Each enabled flag wires the
+plugin into the matching registry. A few take an object form carrying extra flags — `chatBackend`,
+`chatPreprocessor`, and `secretBackend` (`{ "autoUnlock": true }`, which declares that the backend
+can restore its own session; it decides what the host OFFERS and never authorizes a vault
+operation). Permissions are the confinement contract for the
 host API (subprocess allow-list, network allow-list, secrets access).
 
 ## Capabilities and the methods they expect
@@ -128,6 +131,7 @@ that calls the corresponding `plugin.js` export. The exports a plugin provides:
 | `glanceView`   | `renderGlance(ctx)`   | `{ title, nodes: ViewNode[] }` |
 | `view`         | `viewCall(method,args)` | any JSON (the iframe UI calls this via `window.ct.invoke`) |
 | `secretBackend`| `secretStatus`, `secretUnlock`, `secretGet`, `secretSet`, … | provider-specific |
+| `secretBackend: { autoUnlock: true }` | the above, plus a session the backend restores itself; `secretUnlock` receives `persistForAutoUnlock` (always a bool) and may persist only when it is `true` | see [SECRETS.md](SECRETS.md#the-auto-unlock-contract) |
 | `transcriber`  | `transcribe(path, lang?)` | `{ text }` or `{ error }` |
 | `chatBackend`  | `openSession(ctx)`, `sendMessage`, `pump?`, `poll`, `closeSession`, `listModels?`, `listPresets?` | an **open agent shell** — see below |
 | `agentProvider`| `detectFromTitle`, `parseSessionDelta`, `buildLaunchCommand`, `checkIntegration`, `installIntegration`, … | full manifest schema + export/fallback tables: [contributing/providers.md](contributing/providers.md) |
@@ -661,4 +665,4 @@ share these consent, backup, merge, uninstall, and restore semantics.
      release the app first/together** (see "App + plugin ship together"). Test
      path: install the new app, then `codeterm plugin install <id>`.
 
-<!-- revision: 19 -->
+<!-- revision: 21 -->
