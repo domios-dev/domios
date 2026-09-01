@@ -39,6 +39,7 @@ pub mod process_util;
 pub mod prompts;
 pub mod provider;
 pub mod pty;
+pub mod repowatch;
 pub mod resize_owner;
 pub mod runaway_sweeper;
 pub mod secrets;
@@ -284,6 +285,8 @@ pub fn run() {
             commands::plugin_manager_action,
             commands::plugin_glance,
             commands::plugin_bubble,
+            commands::repo_watch_subscribe,
+            commands::repo_watch_unsubscribe,
             commands::plugin_view_call,
             commands::mux_commands::build_agent_launch_command,
             commands::mux_commands::mux_spawn_tab,
@@ -391,6 +394,22 @@ pub fn run() {
             keepawake::resume_from_disk(&states.keepawake, &app_handle);
 
             agent::model_catalog::ensure_readme_installed();
+            // The retired native backend's master-password drop has no reader.
+            match crate::secrets::purge_legacy_master_password_file() {
+                crate::secrets::LegacyPurge::Absent => {}
+                crate::secrets::LegacyPurge::SecurelyErased => {
+                    log::info!("[secrets] securely erased the retired master-password drop")
+                }
+                crate::secrets::LegacyPurge::RemovedWithoutOverwrite => log::warn!(
+                    "[secrets] removed the retired master-password drop WITHOUT overwriting it; the old secret may still be recoverable from disk — rotate it"
+                ),
+                crate::secrets::LegacyPurge::RemovalFailed { overwritten } => log::warn!(
+                    "[secrets] the retired master-password drop is still on disk (overwritten={overwritten}); it may still be recoverable — remove and rotate it"
+                ),
+                crate::secrets::LegacyPurge::InspectionFailed => log::warn!(
+                    "[secrets] could not inspect the retired master-password drop; assume it is present and recoverable until checked"
+                ),
+            }
             // Carry a pre-existing native Bitwarden setup into the plugin's namespace (native Bitwarden is retired).
             {
                 let mut cfg = states.config.lock();
@@ -409,6 +428,10 @@ pub fn run() {
                 Arc::new(crate::glance::GlanceRegistry::new());
             let bubble_registry: crate::bubble::BubbleRegistryHandle =
                 Arc::new(crate::bubble::BubbleRegistry::new());
+            let repo_watch: crate::repowatch::RepoWatchRegistryHandle =
+                Arc::new(crate::repowatch::RepoWatchRegistry::new(Arc::new(
+                    crate::repowatch::TauriRepoEventSink::new(app_handle.clone()),
+                )));
             let view_registry: crate::view_host::ViewRegistryHandle =
                 Arc::new(crate::view_host::ViewRegistry::new());
             let chatbackend_registry: crate::chatbackend::ChatBackendRegistryHandle =
@@ -570,7 +593,7 @@ pub fn run() {
                         "[js-plugin] {id} trust={:?} caps(agent={} secret={} transcribe={})",
                         trust,
                         caps.agent_provider,
-                        caps.secret_backend,
+                        caps.secret_backend.enabled(),
                         caps.transcriber
                     );
 
@@ -655,7 +678,19 @@ pub fn run() {
             let mem = mem::MemManager::open(&crate::paths::data_dir())
                 .expect("mem manager init failed");
             match mem.seed_bundled_if_needed() {
-                Ok(n) if n > 0 => log::info!("[mem] seeded {} bundled starter items", n),
+                Ok(outcome) if outcome.written() > 0 || !outcome.skipped.is_empty() => {
+                    log::info!(
+                        "[mem] bundled seed: {} written ({} created, {} bootstrapped, {} refreshed), {} skipped",
+                        outcome.written(),
+                        outcome.created,
+                        outcome.bootstrapped,
+                        outcome.refreshed,
+                        outcome.skipped.len()
+                    );
+                    for (title, reason) in &outcome.skipped {
+                        log::info!("[mem] bundled seed skip: {title} ({reason:?})");
+                    }
+                }
                 Ok(_) => log::info!("[mem] starter items already seeded"),
                 Err(e) => log::warn!("[mem] seed failed: {}", e),
             }
@@ -782,6 +817,7 @@ pub fn run() {
                 transcribe_registry: transcribe_registry.clone(),
                 glance_registry: glance_registry.clone(),
                 bubble_registry: bubble_registry.clone(),
+                repo_watch,
                 view_registry: view_registry.clone(),
                 chatbackend_registry: chatbackend_registry.clone(),
                 chatbackend_reopen_guards: Arc::new(Default::default()),
@@ -811,6 +847,9 @@ pub fn run() {
                 gateway: Arc::new(crate::service::message_gateway::MessageGateway::new()),
             };
             let service_state: ServiceState = Arc::new(svc_ctx);
+            service_state
+                .provider_updates
+                .bind_execution_owner(&service_state);
             service_state
                 .mem
                 .extraction_authority()

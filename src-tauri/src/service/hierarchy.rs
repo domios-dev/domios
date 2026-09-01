@@ -14,7 +14,7 @@ mod worker_handoff;
 pub(crate) use worker_handoff::WorkerTurnSignal;
 
 pub(crate) use planner_binding::clear_planner_bindings_for_lifecycle_exit;
-pub(crate) use report_plan_ctx::resolve_plan_ctx;
+pub(crate) use report_plan_ctx::{resolve_plan_ctx, verify_planner_report_authority};
 pub use status::TabStatusInfo;
 pub(crate) use team_plan_creation::{TeamPlanCaller, TeamPlanCreationError};
 
@@ -403,6 +403,20 @@ impl ServiceContext {
                 Err(cause) => (None, Some(cause)),
             };
         let mut report_requirement = worker_handoff::claim_explicit_report(&self.gateway, tab_id);
+
+        // A plan-only claim (no task_id) is a Planner claim: hard-refused
+        // before any resolution, delivery, or persistence — codeterm#371.
+        if let (Some(claimed_plan), None) = (
+            plan_id.map(str::trim).filter(|id| !id.is_empty()),
+            task_id.map(str::trim).filter(|id| !id.is_empty()),
+        ) {
+            verify_planner_report_authority(
+                &self.plan_store,
+                &self.mux.read(),
+                claimed_plan,
+                tab_id,
+            )?;
+        }
 
         let mut notices: Vec<String> = Vec::new();
         let mut binding_refused = false;

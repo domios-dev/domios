@@ -157,6 +157,40 @@ The key defaults to `src-tauri/tauri.conf.json`'s updater pubkey - the one the s
 so the check cannot pass against a key no client has. `--local <dir>` verifies files on disk
 before publishing; `--platform <key>` narrows to one entry.
 
+`--require-version <x.y.z>` pins the manifest to one release. A previous release's manifest
+verifies perfectly against its own bytes, so without it any internally consistent manifest counts
+as evidence. With it, the declared version must match **and** every artifact must be served from
+`github.com/rollacode/codeterm-releases/releases/download/<tag>/` for that release - the one origin
+the shipped updater reads from. A version segment somewhere in an arbitrary path is not provenance,
+and neither is the private source repo. RC and nightly tags work unchanged, because
+`build-updater-fragment.py` derives the version by stripping the tag's leading `v`.
+`--evidence <file>` writes the record that later authorises closing public issues, atomically, on
+every exit path - so a verification that ran and failed is distinguishable from one that never ran.
+
+Both published-manifest gates pass `--require-version`. Without it neither path exercises the
+foreign-evidence refusal at all.
+
+All three lanes now run this check, not two. `release-macos.yml` verifies in a separate `verify`
+job that `needs: build`, requiring `darwin-aarch64` and `darwin-x86_64`: both fragments exist only
+once the matrix is done, so a per-leg check would fail on whichever architecture finished first.
+
+`release-macos.yml` is a `workflow_dispatch` fallback lane and gained a `mirror` input matching the
+Linux lane's. Before that its mirror step carried a `github.event_name == 'push'` guard its only
+trigger could never satisfy, so the step - and any gate bound to it - was unreachable.
+
+`release.yml`, the path that actually ships macOS, verifies the cache-busted served manifest before
+it writes `issue-closure-boundary.json`. It requires the four platforms every release publishes
+with no escape hatch - `darwin-aarch64`, `darwin-x86_64`, `windows-x86_64`, `linux-x86_64`.
+
+The other two are reconciled explicitly rather than silently certified. `windows-aarch64` may be
+dropped when the ARM64 runner is unavailable (see the troubleshooting row below; 1.7.2 shipped
+without it), and `linux-aarch64` rides only when `LINUX_ARM_SIG` is set. `check-release-closure.mjs`
+prints which of them were absent, and why, on every authorised close - so a missing platform is a
+recorded decision, not an omission nobody noticed.
+
+A failed verification is uploaded too, so a release that could not be verified leaves a record
+saying so rather than silence.
+
 ## 5. Rerunning a failed workflow — without retagging
 
 A failed or cancelled run at the **same commit** the tag already points at does not need a new
@@ -299,6 +333,38 @@ making reruns idempotent.
 
 The close step is downstream of build, private/public publication, and mirror verification.
 Queued, cancelled, skipped, failed, or mirror-unverified runs therefore execute no issue mutation.
+
+Closure authority is evidence-bound, never role-bound. Owning the release is not grounds; the
+grounds are a passing published-manifest verification for **this** release, and the close cites
+that run:
+
+```bash
+node scripts/check-release-closure.mjs \
+  --evidence "$RUNNER_TEMP/manifest-verification.json" \
+  --version "$VER" --issue 55
+```
+
+It refuses, each with its own reason, when the verification never ran, when it failed, when it ran
+without a cache-buster (GitHub serves a replaced asset stale for minutes, so an uncached fetch can
+verify the previous run's bytes and call this release good), when the record belongs to another
+release, when it cites no manifest URL scoped to the public release repo, and when any required
+platform went unverified. Ambiguous evidence is refused rather than treated as a pass. `release.yml` runs it
+before the first `gh issue close`.
+
+Reconcile the release PR body against the range that merged rather than trusting either alone:
+
+```bash
+python3 scripts/release_issue_contract.py reconcile \
+  --body-file <release-pr-body.md> \
+  --commits-file <commits.json> --prs-file <prs.json>
+python3 scripts/release_issue_contract.py audit-commits \
+  --commits-file <commits.json> --body-file <release-pr-body.md>
+```
+
+`reconcile` renders the `Closes #N` block only when the body declares exactly the issues the range
+fixed - no invented entry, no dropped one. `audit-commits` fails on a closing keyword naming an
+issue outside that set and on a fixed issue no commit claims. Put the rendered lines in the final
+PR body verbatim; a hand-typed closing block is a second, unchecked source of the closing set.
 Cross-repository reads and writes always name `rollacode/codeterm-releases` explicitly and use
 `GH_RELEASE_TOKEN`; `$GITHUB_REPOSITORY` is used only to read private source PR associations.
 
@@ -397,4 +463,4 @@ The minisign updater key (`~/.tauri/codeterm.key`, empty password; its public ha
 the `github-release` skill lists the exact ids and restore paths. A builder without the minisign
 key produces artifacts the updater can't verify.
 
-<!-- revision: 34 -->
+<!-- revision: 35 -->

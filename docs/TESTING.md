@@ -164,6 +164,11 @@ default. Set `TS_UNIT_TIMEOUT_SECONDS=<positive-seconds>` or
 `TS_UNIT_SUITE_TIMEOUT_SECONDS=<positive-seconds>` only for an explicit
 diagnostic deadline; ordinary `npm run test:unit` has neither implicit limit.
 
+On Linux, a repository-watcher silence test that reports existing `refs/`
+directories is an inotify access event from recursive watch registration, not
+repository churn. Keep access filtering upstream of the debouncer, then rerun
+`repository_watcher_stays_silent_on_irrelevant_churn`; never add a settle wait.
+
 Verify the wrapper itself with the focused shell test:
 
 ```bash
@@ -226,4 +231,4 @@ Git for Windows at its standard location and rerun the same command.
 
 End-to-end and cross-platform verification: `codeterm docs E2E-TESTING`. Prompt detection: `codeterm docs PROMPT-DETECTION`. Test design rules: `codeterm docs TEST-AUTHORING`.
 
-<!-- revision: 34 -->
+<!-- revision: 35 -->

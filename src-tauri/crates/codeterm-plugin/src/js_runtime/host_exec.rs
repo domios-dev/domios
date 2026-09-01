@@ -499,7 +499,6 @@ where
 fn start_exec_job(plugin_id: &str) -> Result<String, String> {
     let plugin_id = normalize_plugin_id(plugin_id);
     let mut jobs = EXEC_JOBS.lock();
-    jobs.retain(|_, job| !job.done);
     if jobs.len() >= MAX_EXEC_JOBS {
         return Err("too many exec jobs".to_string());
     }
@@ -710,6 +709,25 @@ mod tests {
             "too many exec jobs"
         );
         drop_plugin_jobs("cap-plugin");
+    }
+
+    #[test]
+    fn completed_job_survives_an_unrelated_start_until_polled() {
+        let _guard = TEST_LOCK.lock();
+        reset_exec_jobs();
+        let completed = start_exec_job("owner-plugin").unwrap();
+        finish_exec_job(
+            &completed,
+            &serde_json::json!({ "code": 0, "stdout": "owned", "stderr": "" }),
+        );
+
+        let unrelated = start_exec_job("other-plugin").unwrap();
+        let result: serde_json::Value =
+            serde_json::from_str(&poll("owner-plugin", &completed)).unwrap();
+
+        assert_eq!(result["code"], 0);
+        assert_eq!(result["stdout"], "owned");
+        close("other-plugin", &unrelated);
     }
 
     #[test]

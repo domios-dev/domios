@@ -22,6 +22,9 @@ pub struct PlanSkillSummary {
     pub check: Option<String>,
     pub verdict: String,
     pub content_digest: String,
+    /// On-disk skill folder, so a caller whose `show` is refused still has a
+    /// path to read the SKILL.md directly.
+    pub skill_dir: String,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -463,9 +466,8 @@ pub fn list_plan_skills(
     Ok(plan_skill_manifest(store, plan_id)?
         .into_iter()
         .map(|entry| {
-            let md =
-                std::fs::read_to_string(plan_dir.join("skills").join(&entry.slug).join("SKILL.md"))
-                    .unwrap_or_default();
+            let skill_dir = plan_dir.join("skills").join(&entry.slug);
+            let md = std::fs::read_to_string(skill_dir.join("SKILL.md")).unwrap_or_default();
             let (_, _, check) = parse_frontmatter(&md);
             PlanSkillSummary {
                 slug: entry.slug,
@@ -474,6 +476,7 @@ pub fn list_plan_skills(
                 check,
                 verdict: "keep".to_string(),
                 content_digest: entry.content_digest,
+                skill_dir: skill_dir.display().to_string(),
             }
         })
         .collect())

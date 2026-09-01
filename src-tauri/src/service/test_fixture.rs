@@ -14,6 +14,9 @@ use crate::service::plan::PlanStore;
 
 pub(crate) struct ServiceFixture {
     pub(crate) service: ServiceContext,
+    /// The waiter lifetime owner. The registry keeps only a `Weak` of this, so
+    /// dropping the fixture is itself the teardown signal.
+    _owner: Arc<ServiceContext>,
     pub(crate) _app: tauri::App,
     pub(crate) temp: tempfile::TempDir,
 }
@@ -114,6 +117,9 @@ impl ServiceFixture {
             transcribe_registry: Arc::new(crate::transcribe::TranscribeRegistry::new()),
             glance_registry: Arc::new(crate::glance::GlanceRegistry::new()),
             bubble_registry: Arc::new(crate::bubble::BubbleRegistry::new()),
+            repo_watch: Arc::new(crate::repowatch::RepoWatchRegistry::new(Arc::new(
+                crate::repowatch::TauriRepoEventSink::new(app.handle().clone()),
+            ))),
             view_registry: Arc::new(crate::view_host::ViewRegistry::new()),
             chatbackend_registry,
             chatbackend_reopen_guards: Arc::new(Default::default()),
@@ -149,10 +155,21 @@ impl ServiceFixture {
             worker_ack: Arc::new(crate::service::worker_ack::WorkerAckRegistry::default()),
             gateway: Arc::new(crate::service::message_gateway::MessageGateway::new()),
         };
+        let owner = Arc::new(service.clone());
+        service.provider_updates.bind_execution_owner(&owner);
         Self {
             service,
+            _owner: owner,
             _app: app,
             temp,
         }
+    }
+}
+
+impl Drop for ServiceFixture {
+    /// Fixture teardown owns the waiter lifecycle: cancel and join before the
+    /// service, mock app and temp dir go away underneath a live thread.
+    fn drop(&mut self) {
+        self.service.shutdown_provider_update_waiters();
     }
 }

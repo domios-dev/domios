@@ -217,36 +217,38 @@ fn list_skills(
     if json {
         return Ok(Some(response));
     }
+    println!("{}", render_skill_list(&response)?);
+    Ok(None)
+}
+
+/// Every listed row carries its on-disk `skill_dir`, so a `plan skill show`
+/// refusal still leaves the caller a path to read the SKILL.md directly.
+fn render_skill_list(response: &Value) -> Result<String, String> {
+    let plan_id = response["plan_id"].as_str().unwrap_or("");
     let rows = response["skills"]
         .as_array()
         .ok_or_else(|| "plan.skills.list returned no skills array".to_string())?;
     if rows.is_empty() {
-        println!(
-            "No plan skills for plan {}.",
-            response["plan_id"].as_str().unwrap_or("")
-        );
-        return Ok(None);
+        return Ok(format!("No plan skills for plan {plan_id}."));
     }
-    println!(
-        "Plan skills for {}:",
-        response["plan_id"].as_str().unwrap_or("")
-    );
+    let mut out = format!("Plan skills for {plan_id}:");
     for row in rows {
-        println!(
-            "  - {} [{}]",
+        out.push_str(&format!(
+            "\n  - {} [{}]  {}",
             row["slug"].as_str().unwrap_or(""),
-            row["verdict"].as_str().unwrap_or("-")
-        );
+            row["verdict"].as_str().unwrap_or("-"),
+            row["skill_dir"].as_str().unwrap_or("-")
+        ));
     }
-    Ok(None)
+    Ok(out)
 }
 
 fn identity_env(key: &str) -> Option<String> {
     std::env::var(key).ok().filter(|v| !v.trim().is_empty())
 }
 
-// A task tab exports tab/nonce/task/attempt before PTY spawn but learns its
-// session only afterwards, so the session id is forwarded only when it is real.
+// Every launched tab (owner, Planner, or task-bound Worker) exports a
+// binding nonce; the session id is forwarded only once it is real.
 fn apply_caller_identity(params: &mut Value) -> Result<(), String> {
     let tab_id = identity_env("CODETERM_TAB_ID");
     let session_binding_nonce = identity_env("CODETERM_SESSION_BINDING_NONCE");

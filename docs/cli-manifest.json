@@ -608,7 +608,7 @@
               "value_name": "PARENT",
               "possible_values": [],
               "default": null,
-              "help": "Parent tab ID (for Workers)",
+              "help": "Parent tab ID. Required for Workers; for a Planner, resolved from --plan (its Orchestrator) when omitted",
               "aliases": []
             },
             {
@@ -4426,7 +4426,7 @@
             },
             {
               "name": "save-master-password",
-              "about": "Save the master password to ~/.codeterm/secrets/bitwarden-master.env (mode 0600). Daemon then auto-unlocks JIT on every operation — no further prompts. Reads value from stdin (preferred — out of shell history) or --password",
+              "about": "Arm auto-unlock on the active backend. Refused unless the backend declares the auto-unlock capability; when it does, the password is handed to the vault, which must authenticate it before the backend persists anything in its own bucket. The CLI stores nothing itself. Reads value from stdin (preferred — out of shell history) or --password",
               "aliases": [],
               "args": [
                 {
@@ -10731,7 +10731,7 @@
                   "value_name": "CRITERION",
                   "possible_values": [],
                   "default": null,
-                  "help": null,
+                  "help": "Add an acceptance criterion; repeatable. Appends to the existing array by default — pass --replace-criteria to replace it wholesale instead",
                   "aliases": []
                 },
                 {
@@ -10741,7 +10741,7 @@
                   "value_name": "PATH",
                   "possible_values": [],
                   "default": null,
-                  "help": "Read acceptance criteria from a file: a JSON string array, or one criterion per line. Appends to --criterion",
+                  "help": "Read acceptance criteria from a file: a JSON string array, or one criterion per line. Appends to --criterion, subject to the same --replace-criteria semantics",
                   "aliases": []
                 },
                 {
@@ -10922,6 +10922,16 @@
                   "possible_values": [],
                   "default": null,
                   "help": "Remove a specific dependency edge; repeatable. Applied after --depends-on additions",
+                  "aliases": []
+                },
+                {
+                  "name": "replace-criteria",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "REPLACE_CRITERIA",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Replace the whole acceptance-criteria array with --criterion/--criterion-file instead of appending to it. Destructive: reports before/after counts",
                   "aliases": []
                 },
                 {

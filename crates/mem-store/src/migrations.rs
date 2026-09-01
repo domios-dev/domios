@@ -9,6 +9,21 @@ pub fn run(conn: &Connection) -> MemStoreResult<()> {
     create_lesson_audit(conn)?;
     add_pin_column(conn)?;
     add_active_relations_unique_index(conn)?;
+    add_seed_fingerprint_column(conn)?;
+    Ok(())
+}
+
+/// Authoritative bundled-seed ownership proof; see `codeterm-mem/src/seed.rs`.
+/// `NULL` means never fingerprinted (pre-fingerprint or user-authored).
+fn add_seed_fingerprint_column(conn: &Connection) -> MemStoreResult<()> {
+    let cols: Vec<String> = conn
+        .prepare("PRAGMA table_info(mem_items)")?
+        .query_map([], |r| r.get::<_, String>(1))?
+        .filter_map(Result::ok)
+        .collect();
+    if !cols.iter().any(|c| c == "seed_fingerprint") {
+        conn.execute_batch("ALTER TABLE mem_items ADD COLUMN seed_fingerprint TEXT;")?;
+    }
     Ok(())
 }
 

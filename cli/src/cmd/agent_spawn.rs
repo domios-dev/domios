@@ -138,11 +138,20 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
             std::process::exit(1);
         }
     };
+    let is_worker = matches!(role, Some(crate::args::agent::SpawnRole::Worker));
     for hint in crate::cmd::hints::worker_spawn_hints(
-        matches!(role, Some(crate::args::agent::SpawnRole::Worker)),
+        is_worker,
         parent.is_some() || report_to.is_some(),
         task.is_some(),
     ) {
+        eprintln!("{hint}");
+    }
+    let worker_bound = crate::cmd::report_guard::worker_binding_resolved(
+        plan_task.is_some(),
+        plan.is_some(),
+        bound_task.is_some(),
+    );
+    if let Some(hint) = crate::cmd::hints::unbound_worker_binding_hint(is_worker, worker_bound) {
         eprintln!("{hint}");
     }
     let mut body = serde_json::json!({
@@ -286,6 +295,26 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cmd::hints::unbound_worker_binding_hint;
+    use crate::cmd::report_guard::worker_binding_resolved;
+
+    /// codeterm#305: an unbound Worker spawn is accepted (docs/SKILLS.md's
+    /// ad-hoc pattern) but carries the shared advisory constant.
+    #[test]
+    fn worker_without_plan_binding_is_refused_or_warned_at_spawn() {
+        assert!(validate_spawn_context(
+            Some(&SpawnRole::Worker),
+            false,
+            false,
+            false,
+            false,
+            false
+        )
+        .is_ok());
+        let bound = worker_binding_resolved(false, false, false);
+        assert!(!bound);
+        assert!(unbound_worker_binding_hint(true, bound).is_some());
+    }
 
     #[test]
     fn plan_bound_worker_requires_an_exact_task_identity() {

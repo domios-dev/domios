@@ -148,8 +148,27 @@ jobs:
             esac
             curl --fail --silent --show-error --location --head "$url" >/dev/null
           done
+          # Structure and a 200 are the state codeterm-releases#58 shipped in; the
+          # closure boundary is minted only once the signatures verify.
+          verification=0
+          node scripts/verify-updater-manifest.mjs \
+            --manifest "https://github.com/rollacode/codeterm-releases/releases/download/$TAG/latest.json?cb=$(date +%s)" \
+            --require-version "$VER" \
+            --require-platform darwin-aarch64 \
+            --require-platform darwin-x86_64 \
+            --require-platform windows-x86_64 \
+            --require-platform linux-x86_64 \
+            --evidence "$RUNNER_TEMP/manifest-verification.json" || verification=$?
+          # A failed verification is uploaded too: a release that could not be
+          # verified must leave a record saying so, not silence.
+          gh release upload "$TAG" "$RUNNER_TEMP/manifest-verification.json" \
+            --repo rollacode/codeterm-releases --clobber || true
+          if [ "$verification" -ne 0 ]; then
+            echo "::error::published manifest is not installable"; exit 1
+          fi
           jq -n --arg version "$VER" --arg sha "$GITHUB_SHA" \
-            '{version: $version, source_sha: $sha, public_mirror_verified: true}' \
+            --slurpfile verification "$RUNNER_TEMP/manifest-verification.json" \
+            '{version: $version, source_sha: $sha, public_mirror_verified: true, manifest_verification: $verification[0]}' \
             > "$RUNNER_TEMP/issue-closure-boundary.json"
           gh release upload "$TAG" "$RUNNER_TEMP/issue-closure-boundary.json" \
             --repo "$GITHUB_REPOSITORY" --clobber
@@ -239,6 +258,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
         run: |
+          # Being the release owner is not evidence. The close is authorised by
+          # the verification record for THIS release or it does not happen.
+          node scripts/check-release-closure.mjs \
+            --evidence "$RUNNER_TEMP/manifest-verification.json" \
+            --version "${{ steps.ver.outputs.ver }}"
           jq -r '.issues[].reference' "$RUNNER_TEMP/resolved-public-issues.json" | while IFS= read -r reference; do
             number="${reference##*#}"
             state=$(gh issue view "$number" --repo rollacode/codeterm-releases --json state --jq .state)

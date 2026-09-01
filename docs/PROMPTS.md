@@ -53,40 +53,33 @@ All in-binary prompt sources live in `src-tauri/prompts/`. Their loader constant
 | `mem_extraction.md` | `MEM_EXTRACTION` | Memory worker | `{id}` `{title}` `{body}` | `mem/auto_extract.rs` `build_extraction_prompt()` — entity/relation extraction by haiku |
 | `dreaming_rem.md` | `DREAMING_REM` | Memory worker | — | `mem/dreaming.rs` `spawn_rem_worker()` — REM-phase memory consolidation |
 | `mem_rerank.md` | `MEM_RERANK` | Direct API call | `{query}` `{items}` | `mem/rerank.rs` `build_rerank_prompt()` — POST to Anthropic/OpenAI for search reranking |
-| `seed/identity_placeholder.md` | `IDENTITY_BODY` | Fresh-install seed | — | private `codeterm-mem/src/seed.rs` constant |
-| `seed/rule_never_edit_autogen.md` | `RULE_NEVER_EDIT_AUTOGEN` | Fresh-install seed | — | private `codeterm-mem/src/seed.rs` constant |
-| `seed/rule_save_to_mem.md` | `RULE_SAVE_TO_MEM` | Fresh-install seed | — | private `codeterm-mem/src/seed.rs` constant |
-| `seed/rule_search_before_asking.md` | `RULE_SEARCH_BEFORE_ASKING` | Fresh-install seed | — | private `codeterm-mem/src/seed.rs` constant |
-| `seed/skill_codeterm.md` | `SKILL_CODETERM` | Fresh-install seed | — | private `codeterm-mem/src/seed.rs` constant |
+| `seed/identity_placeholder.md` | `IDENTITY_BODY` | Bundled seed | — | private `codeterm-mem/src/seed.rs` constant |
+| `seed/rule_never_edit_autogen.md` | `RULE_NEVER_EDIT_AUTOGEN` | Bundled seed | — | private `codeterm-mem/src/seed.rs` constant |
+| `seed/rule_save_to_mem.md` | `RULE_SAVE_TO_MEM` | Bundled seed | — | private `codeterm-mem/src/seed.rs` constant |
+| `seed/rule_search_before_asking.md` | `RULE_SEARCH_BEFORE_ASKING` | Bundled seed | — | private `codeterm-mem/src/seed.rs` constant |
+| `seed/skill_codeterm.md` | `SKILL_CODETERM` | Bundled seed | — | private `codeterm-mem/src/seed.rs` constant |
+| `seed/legacy_1_10_7/identity_placeholder.md` | `LEGACY_1_10_7_IDENTITY_BODY` | Frozen 1.10.7 seed | — | never-edit bootstrap |
+| `seed/legacy_1_10_7/rule_never_edit_autogen.md` | `LEGACY_1_10_7_RULE_NEVER_EDIT_AUTOGEN` | Frozen 1.10.7 seed | — | never-edit bootstrap |
+| `seed/legacy_1_10_7/rule_save_to_mem.md` | `LEGACY_1_10_7_RULE_SAVE_TO_MEM` | Frozen 1.10.7 seed | — | never-edit bootstrap |
+| `seed/legacy_1_10_7/rule_search_before_asking.md` | `LEGACY_1_10_7_RULE_SEARCH_BEFORE_ASKING` | Frozen 1.10.7 seed | — | never-edit bootstrap |
+| `seed/legacy_1_10_7/skill_codeterm.md` | `LEGACY_1_10_7_SKILL_CODETERM` | Frozen 1.10.7 seed | — | never-edit bootstrap |
 
 ### Placeholder rules
-Substitution is plain `String::replace()` — there is no template engine. This means:
+Substitution is plain, ordered `String::replace()` with no template engine:
 
-- **Placeholder names must stay in sync with Rust.** Rename `{soul}` in `general_agent.md` without touching `service/general_agent.rs`, and the literal text `{soul}` ends up in the model's prompt. There is no compile-time check.
-- **Single-pass substitution.** If a placeholder value itself contains another placeholder string (e.g. `{body}` value has `{id}` inside it), the inner one will not be re-expanded — substitutions run in a fixed order (id → title → body in `mem_extraction.md`), and only the template's literal placeholders match.
-- **`cron_complete_suffix.md` is the only file using positional `{}`.** Don't add other `{}` sequences to that file.
-- **Don't reuse a placeholder name across files** unless the meaning is identical — it makes refactors error-prone.
+- Keep placeholder names synchronized with Rust; unresolved names ship literally.
+- Values are single-pass and never re-expanded; `mem_extraction.md` orders id → title → body.
+- Only `cron_complete_suffix.md` uses positional `{}`.
+- Reuse a placeholder name only when its meaning is identical.
 
 ### One fragment, every class: the AgentPad rule
-`agent_pad_rule.md` is the single semantic source for the pad contract. It has
-three carriers and no copies:
+`agent_pad_rule.md` is the single semantic source for the pad contract, with three carriers and no copies:
 
-- **Spawned agents** — `service/orchestrator/prompt_compose.rs` composes it into
-  every launch prompt: solo, Orchestrator, Planner, watcher, and Worker, with or
-  without an assignment.
-- **General Agent** — `general_cli_reference()` appends it to the CLI reference
-  unconditionally, so a moved section heading cannot drop it.
-- **`codeterm` skill** — `commands/skills.rs` substitutes it into
-  `skills/codeterm/SKILL.md` through the `{agent_pad_rule}` placeholder at seed
-  time. That is the carrier for any launch class delivered as a bare assignment
-  rather than a composed system prompt.
+- **Spawned agents** — `service/orchestrator/prompt_compose.rs` composes it into every launch prompt: solo, Orchestrator, Planner, watcher, and Worker, with or without an assignment.
+- **General Agent** — `general_cli_reference()` appends it to the CLI reference unconditionally, so a moved section heading cannot drop it.
+- **`codeterm` skill** — `commands/skills.rs` substitutes it into `skills/codeterm/SKILL.md` through `{agent_pad_rule}` at seed time, including launches delivered as a bare assignment rather than a composed system prompt.
 
-Delivery is asserted per recipient by constant identity, never by wording:
-`prompt_compose::tests` proves exactly-once for each launch class,
-`skills_seed_tests::seed_renders_agent_pad_rule_from_constant` proves the
-skill round-trip, and the GA instruction-file test proves it in the written
-`AGENT.md`/`AGENTS.md`. `prompts.rs::agent_pad_rule_has_exactly_one_source`
-keeps every other prompt surface from growing a second copy.
+Delivery tests assert constant identity, never wording: `prompt_compose::tests` covers each launch class, `skills_seed_tests::seed_renders_agent_pad_rule_from_constant` covers the skill, the GA writer covers `AGENT.md`/`AGENTS.md`, and `prompts.rs::agent_pad_rule_has_exactly_one_source` rejects duplicate sources.
 
 ### CLI grammar in prompts
 
@@ -107,7 +100,7 @@ Four of the prompts above (`worker_task_preamble`, `mem_extraction`, `dreaming_r
 
 `plugin_agent_task_preamble.md` is the wrapper applied by `service/plugin_host.rs` when a plugin spawns an agent through the host API. It injects the plugin-owned `{task}` and keeps that agent out of the memory graph-worker protocol: plugin agents should operate through verbs exposed as `codeterm plugin <id> <verb>`, which dispatches to the plugin's `onAgentCommand` handler.
 
-`codeterm-mem/src/seed.rs` privately loads markdown sources under `prompts/seed/` and inserts them as baseline `NewMemItem` rows on fresh install. They live in the mem store and are surfaced to agents only via `codeterm mem search`/`get`.
+`codeterm-mem/src/seed.rs` privately loads markdown sources under `prompts/seed/` and inserts them as baseline `NewMemItem` rows. `seed_bundled` runs on every startup, not just a fresh install: each item's overwrite authority is the `mem_items.seed_fingerprint` column (see `docs/MEMORY.md`), a hash of every field the seeder manages, so a prompt edit here reaches an already-seeded machine on its next restart precisely when nothing else has touched that item since it was last (bootstrapped or refreshed) to match. A real edit through `mem update`/the API to any managed field clears the fingerprint in that same write, so the item is left untouched from then on. They live in the mem store and are surfaced to agents only via `codeterm mem search`/`get`.
 
 ## Role presets — one resolver, one composition table
 
@@ -237,4 +230,4 @@ owning loader module (pub const &str)
 - `docs/PROMPT-TIERS.md` — progressive-disclosure tiers and their evaluation boundary
 - `.claude/skills/prompt-evaluator/SKILL.md` — the harness it drives
 
-<!-- revision: 28 -->
+<!-- revision: 31 -->

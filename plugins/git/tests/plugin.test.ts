@@ -107,6 +107,7 @@ async function loadPlugin(host: unknown) {
     __test_discoverGitRepos: (cwd: string) => Array<{ path: string; name: string; branch: string | null }>;
     __test_gitRepoConstants: { maxDepth: number; maxVisited: number; maxEmitted: number };
     __test_isSafeChildName: (name: string) => boolean;
+    statusBubble: (ctx: { cwd?: string | null }) => { label: string } | null;
   };
 }
 
@@ -258,6 +259,30 @@ console.log("\n--- gitRepos discovery ---\n");
   const plugin = await loadPlugin(fixture.host);
   const repos = plugin.__test_discoverGitRepos("/case/root");
   eq(repos.map((repo) => repo.path), ["/case/root", "/case/root/kept"], "Windows skip-set matching is case-insensitive");
+}
+
+console.log("\n--- statusBubble reflects the current branch, never a stale one (codeterm#336 part C) ---\n");
+
+{
+  // No identity cache: statusBubble always re-resolves, so an external
+  // change can never be masked (pending a real repository-watcher source).
+  const branchByRepo: Record<string, string> = { "/live/repo": "main" };
+  const fixture = makeHost({
+    gitDirs: ["/live/repo"],
+    branchByRepo,
+    childDirs: {},
+    explicitExec: {
+      "git -C /live/repo status --porcelain": { code: 0, stdout: "" },
+    },
+  });
+  const plugin = await loadPlugin(fixture.host);
+
+  const before = plugin.statusBubble({ cwd: "/live/repo" });
+  branchByRepo["/live/repo"] = "feature";
+  const after = plugin.statusBubble({ cwd: "/live/repo" });
+
+  eq(before?.label, "main", "first computation resolves the branch at that time");
+  eq(after?.label, "feature", "a later computation reflects the current branch, not a cached one");
 }
 
 console.log("\nResidual review note: lexical containment is enforced in QuickJS, but junction/symlink identity cannot be proven here without a safe host stat/realpath surface.\n");

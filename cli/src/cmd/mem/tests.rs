@@ -19,6 +19,59 @@ fn mem_search_human_output_is_compact_and_json_is_machine_complete() {
     assert_eq!(value["query"], "fixture");
     assert_eq!(value["total"], 3);
 }
+
+/// codeterm-releases#60: `mem skill list` renders one row per skill in
+/// columns, not the raw `{"..."` dump the array-of-objects fallback produced.
+#[test]
+fn mem_skill_list_renders_columns_without_json() {
+    let value = json!({"skills": [
+        {"id": "skill_1", "kind": "skill", "title": "Kinopub Player", "area": "kinopub-player", "updated_at": "2026-08-01T00:00:00Z", "changed_by": "user"},
+        {"id": "skill_2", "kind": "skill", "title": "Release Runbook", "area": "release", "updated_at": "2026-08-02T00:00:00Z", "changed_by": "user"},
+    ]});
+
+    let out = super::render_mem_skill_list(&value);
+
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines.len(), 2, "one line per record, not one line total");
+    for line in &lines {
+        assert!(
+            !line.contains("{\""),
+            "no line may contain a raw JSON object: {line}"
+        );
+    }
+    assert!(lines[0].contains("skill_1"));
+    assert!(lines[0].contains("Kinopub Player"));
+    assert!(lines[0].contains("kinopub-player"));
+    assert!(lines[0].contains("2026-08-01T00:00:00Z"));
+    assert!(lines[1].contains("skill_2"));
+    assert!(lines[1].contains("Release Runbook"));
+    assert!(lines[1].contains("release"));
+}
+
+#[test]
+fn mem_skill_list_renders_empty_state_without_json() {
+    assert_eq!(
+        super::render_mem_skill_list(&json!({"skills": []})),
+        "(no skills)\n"
+    );
+}
+
+/// codeterm-releases#60: `--json` always bypasses the column renderer.
+#[test]
+fn mem_skill_list_json_mode_bypasses_the_column_renderer() {
+    use crate::MemSkillAction;
+
+    let list = MemSkillAction::List;
+    let new = MemSkillAction::New {
+        name: "x".into(),
+        area: None,
+    };
+
+    assert!(!super::wants_human_skill_list(true, &list));
+    assert!(super::wants_human_skill_list(false, &list));
+    assert!(!super::wants_human_skill_list(true, &new));
+    assert!(!super::wants_human_skill_list(false, &new));
+}
 use clap::Parser;
 
 #[test]

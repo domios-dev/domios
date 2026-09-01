@@ -220,6 +220,9 @@ export interface SecretCreds {
   twoFactorToken?: string;
   apiKeyClientId?: string;
   apiKeyClientSecret?: string;
+  /** Explicit consent to remember this credential for headless unlock. The host
+   *  always sends a bool; treat absent or malformed as false. */
+  persistForAutoUnlock: boolean;
   [key: string]: unknown;
 }
 

@@ -228,9 +228,9 @@ impl ServiceContext {
                 }
                 Ok(outcome)
             }
-            Err(reason) => Err(RestartAttemptError::Failed {
+            Err(error) => Err(RestartAttemptError::Failed {
                 outcome,
-                reason,
+                reason: error.to_string(),
                 timed_out: false,
             }),
         }

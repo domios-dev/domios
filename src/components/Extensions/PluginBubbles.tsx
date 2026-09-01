@@ -6,20 +6,14 @@
  * A pill with an `action` (e.g. Git → `openPanel:git`) opens that host view on
  * click; without one, it opens the plugin's glance popover.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { invoke } from "../../lib/bridge";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GlancePopover, type GlanceAnchor } from "./GlancePopover";
 import { SELECT_EXTENSION_EVENT } from "../Titlebar/extensionsTrayLogic";
 import type { Tone } from "./ViewNodeRenderer";
 import { ensurePluginSnapshot, usePluginSnapshotStore } from "../../lib/pluginSnapshotStore";
+import { subscribePluginBubble, type BubbleData, type PluginBubbleSubscription } from "../../lib/pluginBubbleCache";
+import { watchRepository, type RepoWatchState } from "../../lib/repoWatch";
 
-interface BubbleData {
-  label: string;
-  tone?: Tone;
-  icon?: string | null;
-  tooltip?: string | null;
-  action?: string | null;
-}
 interface BubblePlugin {
   id: string;
   display_name?: string | null;
@@ -32,7 +26,6 @@ interface SnapPlugin {
   capabilities?: { status_bubble?: boolean } | null;
 }
 
-const POLL_MS = 8000;
 const TONE: Record<Tone, string> = {
   default: "var(--ct-fg)",
   muted: "var(--ct-muted)",
@@ -52,10 +45,21 @@ function openPanel(action: string, cwd: string | null) {
   }
 }
 
-export function PluginBubbles({ cwd, tabId }: { cwd: string | null; tabId: string }) {
+export function PluginBubbles({
+  cwd,
+  tabId,
+  isActive,
+}: {
+  cwd: string | null;
+  tabId: string;
+  /** Only a visible tab computes its own bubbles; a hidden one rides along
+   * on whatever its shared (plugin, repo) cache entry already has. */
+  isActive: boolean;
+}) {
   const snapshotState = usePluginSnapshotStore();
   const [pills, setPills] = useState<Record<string, BubbleData | null>>({});
   const [open, setOpen] = useState<{ id: string; name: string; configHelp?: string; anchor: GlanceAnchor } | null>(null);
+  const [watch, setWatch] = useState<RepoWatchState | null>(null);
   const plugins = useMemo(
     () =>
       (snapshotState.snapshot.plugins as SnapPlugin[])
@@ -68,26 +72,47 @@ export function PluginBubbles({ cwd, tabId }: { cwd: string | null; tabId: strin
     void ensurePluginSnapshot({ background: snapshotState.lastSuccessfulSnapshot !== null }).catch(() => {});
   }, [snapshotState.lastSuccessfulSnapshot]);
 
+  const isActiveRef = useRef(isActive);
+  isActiveRef.current = isActive;
+  const subscriptionsRef = useRef<PluginBubbleSubscription[]>([]);
+
+  // Subscribed once per (plugin, cwd, tab) identity — isActive changes go
+  // through setActive below, never through re-subscribing.
   useEffect(() => {
-    if (plugins.length === 0) return;
-    let alive = true;
-    const ctx = { cwd, tabId };
-    const poll = () => {
-      for (const p of plugins) {
-        invoke<BubbleData | null>("plugin_bubble", { pluginId: p.id, ctx })
-          .then((d) => alive && setPills((prev) => ({ ...prev, [p.id]: d })))
-          .catch(() => {});
-      }
-    };
-    poll();
-    const t = setInterval(poll, POLL_MS);
+    const subs = plugins.map((p) =>
+      subscribePluginBubble(p.id, cwd, tabId, isActiveRef.current, (value) => {
+        setPills((prev) => (prev[p.id] === value ? prev : { ...prev, [p.id]: value }));
+      }),
+    );
+    subscriptionsRef.current = subs;
     return () => {
-      alive = false;
-      clearInterval(t);
+      for (const sub of subs) sub.unsubscribe();
+      subscriptionsRef.current = [];
     };
   }, [plugins, cwd, tabId]);
 
+  useEffect(() => {
+    for (const sub of subscriptionsRef.current) sub.setActive(isActive);
+  }, [isActive]);
+
+  // Visible ⇒ exactly one watch lease; hidden or unmounted ⇒ exactly one
+  // release. An unwatched repo is never rendered as live.
+  useEffect(() => {
+    if (!isActive || !cwd) {
+      setWatch(null);
+      return;
+    }
+    const lease = watchRepository(cwd, setWatch);
+    return () => {
+      lease.release();
+      setWatch(null);
+    };
+  }, [isActive, cwd]);
+
   const visible = plugins.filter((p) => pills[p.id]);
+  const watchReason = watch?.status === "unavailable" ? watch.reason : null;
+  // Only a proven watch reads as live; pending and unwatched say so.
+  const watchState = watchReason ? "unavailable" : (watch?.status ?? "idle");
 
   const onClick = useCallback((p: BubblePlugin, e: React.MouseEvent) => {
     const pill = pills[p.id];
@@ -110,14 +135,21 @@ export function PluginBubbles({ cwd, tabId }: { cwd: string | null; tabId: strin
     <>
       {visible.map((p) => {
         const b = pills[p.id] as BubbleData;
-        const c = TONE[b.tone ?? "default"];
+        const base = b.tooltip || p.display_name || p.id;
+        const c = watchReason ? TONE.muted : TONE[b.tone ?? "default"];
+        const tooltip = watchReason
+          ? `${base} — repository watch unavailable (${watchReason})`
+          : watchState === "watching"
+            ? base
+            : `${base} — repository watch ${watchState}`;
         return (
           <button
             key={p.id}
             data-testid={`plugin-bubble-${p.id}`}
+            data-watch-state={watchState === "watching" ? "live" : watchState}
             onClick={(e) => onClick(p, e)}
             onMouseDown={(e) => e.preventDefault()}
-            title={b.tooltip || p.display_name || p.id}
+            title={tooltip}
             style={{
               display: "flex",
               alignItems: "center",

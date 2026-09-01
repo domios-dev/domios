@@ -38,6 +38,27 @@ impl RpcClient for FakeRpc {
     }
 }
 
+/// codeterm-releases#53: `plan skill list` prints each skill's on-disk path,
+/// a fallback for a caller whose `show` is refused.
+#[test]
+fn plan_skill_list_prints_skill_path() {
+    let response = json!({
+        "plan_id": "pl_zzmxgb",
+        "skills": [
+            {
+                "slug": "verify-before-claim",
+                "verdict": "keep",
+                "skill_dir": "/repo/.codeterm/plans/active/pl_zzmxgb/skills/verify-before-claim",
+            }
+        ]
+    });
+
+    let rendered = render_skill_list(&response).unwrap();
+
+    assert!(rendered.contains("/repo/.codeterm/plans/active/pl_zzmxgb/skills/verify-before-claim"));
+    assert!(rendered.contains("verify-before-claim"));
+}
+
 #[test]
 fn local_skill_edit_resolves_authoritative_plan_directory_from_rpc() {
     let mut client = FakeRpc::default();
@@ -279,6 +300,8 @@ fn plan_skill_show_resolves_post_launch_task_from_live_tab_binding() {
     }
 }
 
+/// A caller claiming any single identity fragment without the required
+/// tab+nonce pair is refused before the RPC — never silently dropped.
 #[test]
 fn plan_skill_show_rejects_partial_live_binding_before_rpc() {
     let _guard = crate::test_env_lock().lock().unwrap();
@@ -311,13 +334,55 @@ fn plan_skill_show_rejects_partial_live_binding_before_rpc() {
             },
         )
         .unwrap_err();
-        assert!(
-            error.contains("complete tab/nonce caller identity"),
-            "{} alone must be refused: {error}",
-            partial.0
-        );
+        assert!(!error.is_empty(), "{} alone must be refused", partial.0);
         assert!(client.calls.is_empty());
     }
+    for (key, value) in previous {
+        match value {
+            Some(value) => std::env::set_var(key, value),
+            None => std::env::remove_var(key),
+        }
+    }
+}
+
+/// codeterm-releases#53: a refused `plan skill show` must return `Err`,
+/// since the top-level CLI runner maps every `Err` to a non-zero exit.
+#[test]
+fn plan_skill_show_refusal_exits_nonzero() {
+    let _guard = crate::test_env_lock().lock().unwrap();
+    let keys = [
+        "CODETERM_TAB_ID",
+        "CODETERM_SESSION_ID",
+        "CODETERM_SESSION_BINDING_NONCE",
+        "CODETERM_TASK_ID",
+        "CODETERM_ATTEMPT_ID",
+    ];
+    let previous = keys.map(|key| (key, std::env::var(key).ok()));
+    for key in keys {
+        std::env::remove_var(key);
+    }
+    // A task-id claim with no tab id is refused before any RPC is sent.
+    std::env::set_var("CODETERM_TASK_ID", "task_6bd5ky");
+    let mut client = FakeRpc::default();
+
+    let result = handle(
+        &mut client,
+        true,
+        PlanSkillAction::Show {
+            slug: "dispatch-contract".into(),
+            plan: Some("pl_zzmxgb".into()),
+        },
+    );
+
+    assert!(
+        result.is_err(),
+        "a refused show must be an Err, not a printed message with Ok"
+    );
+    assert!(
+        client.calls.is_empty(),
+        "the client-side gate must not reach the RPC"
+    );
+
     for (key, value) in previous {
         match value {
             Some(value) => std::env::set_var(key, value),

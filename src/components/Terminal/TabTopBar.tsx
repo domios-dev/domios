@@ -122,7 +122,7 @@ export function TabTopBar({
           </span>
         )}
         {isWatcherTab && <WatcherStatusBadge lastStatus={watcherLastStatus} />}
-        <PluginBubbles cwd={cwd} tabId={tabId} />
+        <PluginBubbles cwd={cwd} tabId={tabId} isActive={isActive} />
         {usageProvider && <UsageBubble provider={usageProvider} trackingEnabled={!!usageVisible} />}
         {(canReconnect || canRestartSession || sessionId) && (
           <TabActionsMenu

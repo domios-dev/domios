@@ -32,6 +32,39 @@ impl MemManager {
         self.save_inner(item, true)
     }
 
+    /// Create a bundled item with its fingerprint in the same insert —
+    /// never a two-step create-then-bootstrap. Keeps `save`'s embed queue.
+    pub fn save_seeded(&self, item: NewMemItem, fingerprint: &str) -> Result<String, String> {
+        self.guard_commit()?;
+        let conn = self.conn.lock();
+        let id = store::insert_seeded(&conn, &item, &self.blobs_dir, fingerprint)?;
+        drop(conn);
+
+        #[cfg(feature = "embeddings")]
+        {
+            let body_text = if let Some(ref src) = item.source {
+                if let Some(path) = src.strip_prefix("file:") {
+                    std::fs::read_to_string(path).unwrap_or_else(|_| item.body.clone())
+                } else {
+                    item.body.clone()
+                }
+            } else {
+                item.body.clone()
+            };
+            if super::body_is_embeddable(&body_text) {
+                let embed_text = compose_embed_text(
+                    &format!("{:?}", item.kind).to_lowercase(),
+                    &item.title,
+                    item.area.as_deref(),
+                    &item.tags,
+                    &body_text,
+                );
+                self.embed_queue.enqueue(id.clone(), embed_text);
+            }
+        }
+        Ok(id)
+    }
+
     fn save_inner(&self, item: NewMemItem, replace: bool) -> Result<String, String> {
         self.guard_commit()?;
         let conn = self.conn.lock();
@@ -161,6 +194,48 @@ impl MemManager {
             deleted: deleted.len(),
             cancelled_extractions: cancelled,
         })
+    }
+
+    /// Every field the bundled seeder manages for `id`, plus its recorded
+    /// `seed_fingerprint`. Never bumps access stats — see `store::managed_payload`.
+    pub fn managed_payload(
+        &self,
+        id: &str,
+    ) -> Result<Option<(NewMemItem, Option<String>)>, String> {
+        let conn = self.conn.lock();
+        store::managed_payload(&conn, id, &self.blobs_dir)
+    }
+
+    /// Overwrite `id`'s bundled content only when its fingerprint still
+    /// matches `expected_fingerprint`; see `store::cas_refresh_bundled`.
+    pub fn cas_refresh_bundled(
+        &self,
+        id: &str,
+        expected_fingerprint: Option<&str>,
+        new_item: &NewMemItem,
+        new_fingerprint: &str,
+    ) -> Result<bool, String> {
+        let conn = self.conn.lock();
+        store::cas_refresh_bundled(
+            &conn,
+            id,
+            &self.blobs_dir,
+            expected_fingerprint,
+            new_item,
+            new_fingerprint,
+        )
+    }
+
+    /// Record a fingerprint for a pre-fingerprint item without touching any
+    /// managed field; see `store::bootstrap_seed_fingerprint`.
+    pub fn bootstrap_seed_fingerprint(
+        &self,
+        id: &str,
+        expected: &NewMemItem,
+        fingerprint: &str,
+    ) -> Result<bool, String> {
+        let conn = self.conn.lock();
+        store::bootstrap_seed_fingerprint(&conn, id, &self.blobs_dir, expected, fingerprint)
     }
 
     pub fn update(&self, id: &str, patch: store::MemUpdate) -> Result<bool, String> {
