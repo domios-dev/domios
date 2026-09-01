@@ -161,11 +161,16 @@ enum ProviderUpdateTestEffect {
     Emitted(ProviderUpdatePromptView),
     Wrote { pty_id: String, bytes: Vec<u8> },
     Restarted { tab_id: String },
+    WaiterFinished { prompt_id: String },
 }
 
 #[derive(Clone, Default)]
 pub struct ProviderUpdateRegistry {
     entries: Arc<Mutex<HashMap<String, PendingProviderUpdate>>>,
+    waiters: Arc<Mutex<waiter::WaiterLifecycle>>,
+    /// Weak on purpose: the waiter must never keep its own execution context,
+    /// and therefore the event-bus sender, alive.
+    exec: Arc<Mutex<std::sync::Weak<ServiceContext>>>,
     #[cfg(test)]
     probe: Arc<Mutex<Option<std::sync::mpsc::Sender<ProviderUpdateTestEffect>>>>,
 }
@@ -261,6 +266,15 @@ impl ProviderUpdateRegistry {
         entry.view.status = ProviderUpdateStatus::Installing;
         entry.view.message = "Installing the authorized provider update.".to_string();
         Some(entry.clone())
+    }
+
+    fn clear_waiter_started(&self, prompt_ids: &[String]) {
+        let mut entries = self.entries.lock();
+        for prompt_id in prompt_ids {
+            if let Some(entry) = entries.get_mut(prompt_id) {
+                entry.waiter_started = false;
+            }
+        }
     }
 
     fn mark_waiter_started(&self, prompt_id: &str) -> bool {
@@ -603,36 +617,6 @@ impl ServiceContext {
         }
     }
 
-    fn start_provider_update_waiter(
-        &self,
-        prompt_id: String,
-        mut receiver: tokio::sync::broadcast::Receiver<crate::api::events::SeqEvent>,
-    ) {
-        if !self.provider_updates.mark_waiter_started(&prompt_id) {
-            return;
-        }
-        let svc = self.clone();
-        // Keep events queued after consent but before the waiter thread starts.
-        std::thread::spawn(move || loop {
-            match receiver.blocking_recv() {
-                Ok(event)
-                    if matches!(
-                        event.event,
-                        crate::api::events::SystemEvent::MuxStateChanged
-                            | crate::api::events::SystemEvent::TabClosed { .. }
-                    ) =>
-                {
-                    match svc.try_execute_provider_update(&prompt_id) {
-                        Ok(true) | Err(_) => break,
-                        Ok(false) => {}
-                    }
-                }
-                Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-            }
-        });
-    }
-
     fn announce_provider_update_available(
         &self,
         tab_id: &str,
@@ -869,14 +853,16 @@ impl ServiceContext {
     ) {
         #[cfg(test)]
         if self.provider_updates.probe.lock().is_some() {
+            // The recorded write is the test's dispatch barrier, so it may only
+            // be published once the dispatch claim is visible to a completion.
+            let _ =
+                self.provider_updates
+                    .claim_runner_dispatch(&entry.view.prompt_id, tab_id, pty_id);
             self.provider_updates
                 .record(ProviderUpdateTestEffect::Wrote {
                     pty_id: pty_id.to_string(),
                     bytes: entry.update_command.as_bytes().to_vec(),
                 });
-            let _ =
-                self.provider_updates
-                    .claim_runner_dispatch(&entry.view.prompt_id, tab_id, pty_id);
             return;
         }
         let service = self.clone();
@@ -1057,6 +1043,8 @@ fn deferred_message(work: WorkInFlight) -> String {
     };
     format!("Update approved and deferred because {delivery}.")
 }
+
+mod waiter;
 
 #[cfg(test)]
 mod tests;

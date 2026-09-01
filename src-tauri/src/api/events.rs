@@ -194,6 +194,10 @@ pub struct WebhookRegistration {
     pub payload_extra: Option<serde_json::Value>,
 }
 
+/// In-process bus depth. A subscriber that falls this far behind lags and
+/// must recover its own state rather than trust the frames it missed.
+pub const SYSTEM_BUS_CAPACITY: usize = 256;
+
 pub struct EventBroadcaster {
     webhooks: Arc<Mutex<HashMap<String, WebhookRegistration>>>,
     system_bus: broadcast::Sender<SeqEvent>,
@@ -203,7 +207,7 @@ pub struct EventBroadcaster {
 
 impl EventBroadcaster {
     pub fn new() -> Self {
-        let (system_bus, _) = broadcast::channel::<SeqEvent>(256);
+        let (system_bus, _) = broadcast::channel::<SeqEvent>(SYSTEM_BUS_CAPACITY);
         Self {
             webhooks: Arc::new(Mutex::new(HashMap::new())),
             system_bus,
