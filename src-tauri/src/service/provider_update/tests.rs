@@ -878,3 +878,229 @@ fn changed_audience_or_mesh_authority_fails_closed() {
         )));
     }
 }
+/// A consented prompt parked in `Deferred` by an unresolved delivery, plus the
+/// waiter that consent started.
+fn deferred_prompt(
+    fixture: &ServiceFixture,
+    tab_id: &str,
+    receiver: &std::sync::mpsc::Receiver<ProviderUpdateTestEffect>,
+) -> String {
+    park_delivery(fixture, tab_id);
+    handle_prompt(&fixture.service, tab_id, true);
+    let prompt = await_status(receiver, ProviderUpdateStatus::AwaitingConsent);
+    fixture
+        .service
+        .respond_provider_update_prompt(&prompt.prompt_id, true)
+        .unwrap();
+    await_status(receiver, ProviderUpdateStatus::Deferred);
+    prompt.prompt_id
+}
+
+fn park_delivery(fixture: &ServiceFixture, tab_id: &str) {
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(tab_id)
+        .unwrap()
+        .pending_delivery = Some(pending_delivery(PendingDeliveryState::Pending, false));
+}
+
+fn resolve_delivery(fixture: &ServiceFixture, tab_id: &str) {
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(tab_id)
+        .unwrap()
+        .pending_delivery
+        .as_mut()
+        .unwrap()
+        .confirm_strong()
+        .unwrap();
+}
+
+fn is_update_write(effect: &ProviderUpdateTestEffect) -> bool {
+    matches!(effect, ProviderUpdateTestEffect::Wrote { bytes, .. } if bytes == b"provider-fixture update")
+}
+
+fn is_installing(effect: &ProviderUpdateTestEffect) -> bool {
+    matches!(effect, ProviderUpdateTestEffect::Emitted(view) if view.status == ProviderUpdateStatus::Installing)
+}
+
+fn is_waiter_finished(effect: &ProviderUpdateTestEffect) -> bool {
+    matches!(effect, ProviderUpdateTestEffect::WaiterFinished { .. })
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "mock Tauri desktop fixture")]
+fn deferred_provider_update_waiter_exits_on_teardown() {
+    let (fixture, tab_id, receiver) = fixture(TabAudience::User);
+    park_delivery(&fixture, &tab_id);
+    handle_prompt(&fixture.service, &tab_id, true);
+    let prompt = await_status(&receiver, ProviderUpdateStatus::AwaitingConsent);
+    assert_eq!(
+        fixture.service.provider_updates.waiter_count(),
+        0,
+        "an unconsented prompt owns no waiter"
+    );
+
+    fixture
+        .service
+        .respond_provider_update_prompt(&prompt.prompt_id, true)
+        .unwrap();
+    await_status(&receiver, ProviderUpdateStatus::Deferred);
+    assert_eq!(
+        fixture.service.provider_updates.waiter_count(),
+        1,
+        "a deferred prompt owns exactly one registered waiter"
+    );
+    // No bus frame has been published, so the parked waiter cannot be inside a
+    // recheck; the sole strong owner proves it holds only a Weak context.
+    assert_eq!(
+        fixture
+            .service
+            .provider_updates
+            .execution_owner_strong_count(),
+        1,
+        "a parked waiter holds no strong execution context"
+    );
+
+    // The delivery never resolves, so only owner teardown ends this waiter; the
+    // probe channel outlives the dropped fixture and reports the exit.
+    drop(fixture);
+    let finished = await_effect(&receiver, is_waiter_finished);
+    assert!(matches!(
+        &finished,
+        ProviderUpdateTestEffect::WaiterFinished { prompt_id } if prompt_id == &prompt.prompt_id
+    ));
+    assert!(
+        matches!(
+            receiver.recv_timeout(Duration::from_secs(10)),
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected)
+        ),
+        "no waiter or service clone may outlive the dropped fixture"
+    );
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "mock Tauri desktop fixture")]
+fn provider_update_resolution_executes_exactly_once() {
+    let (fixture, tab_id, receiver) = fixture(TabAudience::User);
+    let prompt_id = deferred_prompt(&fixture, &tab_id, &receiver);
+
+    // A relevant event on an unresolved prompt proves the waiter is live and
+    // rechecking, so a later duplicate cannot be excused by a dead thread.
+    fixture
+        .service
+        .events
+        .publish(crate::api::events::SystemEvent::MuxStateChanged);
+    await_status(&receiver, ProviderUpdateStatus::Deferred);
+
+    resolve_delivery(&fixture, &tab_id);
+    for _ in 0..4 {
+        fixture
+            .service
+            .events
+            .publish(crate::api::events::SystemEvent::MuxStateChanged);
+    }
+    await_status(&receiver, ProviderUpdateStatus::Installing);
+    await_effect(&receiver, is_update_write);
+    await_effect(&receiver, is_waiter_finished);
+    assert_eq!(
+        fixture.service.provider_updates.waiter_count(),
+        0,
+        "a naturally completed waiter retires its own record"
+    );
+
+    let later: Vec<_> = receiver.try_iter().collect();
+    assert!(
+        !later.iter().any(is_installing),
+        "duplicate events may not repeat the Installing transition"
+    );
+    assert!(
+        !later.iter().any(is_update_write),
+        "duplicate events may not repeat the update execution"
+    );
+    let settled = sole_prompt(&fixture.service);
+    assert_eq!(settled.prompt_id, prompt_id);
+    assert_eq!(settled.status, ProviderUpdateStatus::Installing);
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "mock Tauri desktop fixture")]
+fn lagged_provider_update_waiter_rechecks_authoritative_state() {
+    let (fixture, tab_id, receiver) = fixture(TabAudience::User);
+    park_delivery(&fixture, &tab_id);
+    handle_prompt(&fixture.service, &tab_id, true);
+    let prompt = await_status(&receiver, ProviderUpdateStatus::AwaitingConsent);
+    // Consent through the state machine rather than the public responder, so
+    // this test owns the exact wake stream the waiter is handed.
+    let claimed = fixture
+        .service
+        .provider_updates
+        .claim_response(&prompt.prompt_id, true, ConsentPrincipal::LocalInteractive)
+        .unwrap();
+    assert!(matches!(claimed, ClaimedResponse::Accept(_)));
+    assert!(!fixture
+        .service
+        .try_execute_provider_update(&prompt.prompt_id)
+        .unwrap());
+    await_status(&receiver, ProviderUpdateStatus::Deferred);
+
+    resolve_delivery(&fixture, &tab_id);
+    let lagged = fixture.service.events.subscribe();
+    fixture
+        .service
+        .events
+        .publish(crate::api::events::SystemEvent::MuxStateChanged);
+    for index in 0..(crate::api::events::SYSTEM_BUS_CAPACITY * 2) {
+        fixture
+            .service
+            .events
+            .publish(crate::api::events::SystemEvent::TabFocused {
+                tab_id: format!("filler-{index}"),
+            });
+    }
+
+    assert!(fixture
+        .service
+        .start_provider_update_waiter(prompt.prompt_id.clone(), lagged));
+    await_status(&receiver, ProviderUpdateStatus::Installing);
+    await_effect(&receiver, is_update_write);
+    await_effect(&receiver, is_waiter_finished);
+    assert_eq!(fixture.service.provider_updates.waiter_count(), 0);
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "mock Tauri desktop fixture")]
+fn provider_update_waiter_cannot_register_after_shutdown_begins() {
+    let (fixture, tab_id, receiver) = fixture(TabAudience::User);
+    let prompt_id = deferred_prompt(&fixture, &tab_id, &receiver);
+    assert_eq!(fixture.service.provider_updates.waiter_count(), 1);
+
+    // Registration is gated on a channel the test releases only after shutdown
+    // has run to completion, pinning the old spawn-then-register interleaving.
+    let (release, held) = std::sync::mpsc::channel::<()>();
+    let (started, outcome) = std::sync::mpsc::channel::<bool>();
+    let service = fixture.service.clone();
+    let late_stream = fixture.service.events.subscribe();
+    let late_prompt = prompt_id.clone();
+    let racer = std::thread::spawn(move || {
+        held.recv().unwrap();
+        started
+            .send(service.start_provider_update_waiter(late_prompt, late_stream))
+            .unwrap();
+    });
+
+    assert_eq!(fixture.service.shutdown_provider_update_waiters(), 1);
+    await_effect(&receiver, is_waiter_finished);
+    release.send(()).unwrap();
+    assert!(
+        !outcome.recv_timeout(Duration::from_secs(10)).unwrap(),
+        "no waiter may start once shutdown has begun"
+    );
+    assert_eq!(fixture.service.provider_updates.waiter_count(), 0);
+    assert_eq!(fixture.service.shutdown_provider_update_waiters(), 0);
+    racer.join().unwrap();
+}
