@@ -107,7 +107,7 @@ async function loadPlugin(host: unknown) {
     __test_discoverGitRepos: (cwd: string) => Array<{ path: string; name: string; branch: string | null }>;
     __test_gitRepoConstants: { maxDepth: number; maxVisited: number; maxEmitted: number };
     __test_isSafeChildName: (name: string) => boolean;
-    statusBubble: (ctx: { cwd?: string | null; forceIdentityRefresh?: boolean }) => { label: string } | null;
+    statusBubble: (ctx: { cwd?: string | null }) => { label: string } | null;
   };
 }
 
@@ -261,9 +261,11 @@ console.log("\n--- gitRepos discovery ---\n");
   eq(repos.map((repo) => repo.path), ["/case/root", "/case/root/kept"], "Windows skip-set matching is case-insensitive");
 }
 
-console.log("\n--- statusBubble branch identity: reused unchanged, refreshed on an identity-changing event (codeterm#336 part C4) ---\n");
+console.log("\n--- statusBubble reflects the current branch, never a stale one (codeterm#336 part C) ---\n");
 
 {
+  // No identity cache: statusBubble always re-resolves, so an external
+  // change can never be masked (pending a real repository-watcher source).
   const branchByRepo: Record<string, string> = { "/live/repo": "main" };
   const fixture = makeHost({
     gitDirs: ["/live/repo"],
@@ -275,21 +277,12 @@ console.log("\n--- statusBubble branch identity: reused unchanged, refreshed on 
   });
   const plugin = await loadPlugin(fixture.host);
 
-  const initial = plugin.statusBubble({ cwd: "/live/repo" });
-  eq(initial?.label, "main", "initial computation resolves the branch");
-
-  // An unchanged refresh (no identity-changing event) must reuse the cached
-  // identity, even if the underlying branch happens to have moved.
+  const before = plugin.statusBubble({ cwd: "/live/repo" });
   branchByRepo["/live/repo"] = "feature";
-  const unchanged = plugin.statusBubble({ cwd: "/live/repo" });
-  eq(unchanged?.label, "main", "an unchanged refresh reuses the cached branch identity");
+  const after = plugin.statusBubble({ cwd: "/live/repo" });
 
-  // A branch-changing event (forceIdentityRefresh) must recompute exactly once.
-  const afterEvent = plugin.statusBubble({ cwd: "/live/repo", forceIdentityRefresh: true });
-  eq(afterEvent?.label, "feature", "an identity-changing event recomputes the branch, not the cached one");
-
-  const revParseCalls = fixture.execCalls.filter((c) => c === "git -C /live/repo rev-parse --abbrev-ref HEAD");
-  eq(revParseCalls.length, 2, "rev-parse ran once for the initial resolve and once for the identity-changing event, not on the unchanged refresh");
+  eq(before?.label, "main", "first computation resolves the branch at that time");
+  eq(after?.label, "feature", "a later computation reflects the current branch, not a cached one");
 }
 
 console.log("\nResidual review note: lexical containment is enforced in QuickJS, but junction/symlink identity cannot be proven here without a safe host stat/realpath surface.\n");

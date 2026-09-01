@@ -1,6 +1,6 @@
 // Shared cache behind PluginBubbles (codeterm#336 part C): one entry per
 // (pluginId, cwd), computed only on a hidden->visible transition or an invalidation — no interval.
-import { invoke, listen } from "./bridge";
+import { invoke } from "./bridge";
 import type { Tone } from "../components/Extensions/ViewNodeRenderer";
 
 export interface BubbleData {
@@ -16,23 +16,10 @@ export interface PluginBubbleSubscription {
   unsubscribe: () => void;
 }
 
-type Fetcher = (
-  pluginId: string,
-  cwd: string | null,
-  tabId: string,
-  identityChanged: boolean,
-) => Promise<BubbleData | null>;
+type Fetcher = (pluginId: string, cwd: string | null, tabId: string) => Promise<BubbleData | null>;
 
-function defaultFetcher(
-  pluginId: string,
-  cwd: string | null,
-  tabId: string,
-  identityChanged: boolean,
-): Promise<BubbleData | null> {
-  return invoke<BubbleData | null>("plugin_bubble", {
-    pluginId,
-    ctx: { cwd, tabId, forceIdentityRefresh: identityChanged },
-  });
+function defaultFetcher(pluginId: string, cwd: string | null, tabId: string): Promise<BubbleData | null> {
+  return invoke<BubbleData | null>("plugin_bubble", { pluginId, ctx: { cwd, tabId } });
 }
 
 let fetcher: Fetcher = defaultFetcher;
@@ -53,7 +40,6 @@ interface Entry {
   value: BubbleData | null | undefined;
   inFlight: boolean;
   pendingRefresh: boolean;
-  pendingIdentityChanged: boolean;
   subscribers: Map<string, Subscriber>;
 }
 
@@ -67,15 +53,7 @@ function getOrCreateEntry(pluginId: string, cwd: string | null): Entry {
   }
   let entry = byCwd.get(cwd);
   if (!entry) {
-    entry = {
-      pluginId,
-      cwd,
-      value: undefined,
-      inFlight: false,
-      pendingRefresh: false,
-      pendingIdentityChanged: false,
-      subscribers: new Map(),
-    };
+    entry = { pluginId, cwd, value: undefined, inFlight: false, pendingRefresh: false, subscribers: new Map() };
     byCwd.set(cwd, entry);
   }
   return entry;
@@ -104,14 +82,13 @@ function pickTabId(entry: Entry): string {
   return "";
 }
 
-function computeNow(entry: Entry, identityChanged: boolean): void {
+function computeNow(entry: Entry): void {
   if (entry.inFlight) {
     entry.pendingRefresh = true;
-    entry.pendingIdentityChanged = entry.pendingIdentityChanged || identityChanged;
     return;
   }
   entry.inFlight = true;
-  fetcher(entry.pluginId, entry.cwd, pickTabId(entry), identityChanged)
+  fetcher(entry.pluginId, entry.cwd, pickTabId(entry))
     .then((value) => {
       entry.value = value;
       notify(entry);
@@ -120,10 +97,8 @@ function computeNow(entry: Entry, identityChanged: boolean): void {
     .finally(() => {
       entry.inFlight = false;
       const shouldRefresh = entry.pendingRefresh && activeCount(entry) > 0;
-      const nextIdentityChanged = entry.pendingIdentityChanged;
       entry.pendingRefresh = false;
-      entry.pendingIdentityChanged = false;
-      if (shouldRefresh) computeNow(entry, nextIdentityChanged);
+      if (shouldRefresh) computeNow(entry);
     });
 }
 
@@ -136,7 +111,6 @@ export function subscribePluginBubble(
   active: boolean,
   onChange: (value: BubbleData | null) => void,
 ): PluginBubbleSubscription {
-  ensureTabStatusListener();
   const entry = getOrCreateEntry(pluginId, cwd);
   const subscriberId = `${tabId}:${Math.random().toString(36).slice(2)}`;
   entry.subscribers.set(subscriberId, { tabId, active: false, onChange });
@@ -148,7 +122,7 @@ export function subscribePluginBubble(
     if (!sub) return;
     const wasActive = sub.active;
     sub.active = nextActive;
-    if (nextActive && !wasActive) computeNow(entry, false);
+    if (nextActive && !wasActive) computeNow(entry);
   };
   setActive(active);
 
@@ -162,48 +136,15 @@ export function subscribePluginBubble(
 }
 
 /** Explicit invalidation, coalesced with any in-flight refresh; a no-op
- * unless a visible tab is watching. `identityChanged` forces root/branch too. */
-export function invalidatePluginBubble(
-  pluginId: string,
-  cwd: string | null | undefined,
-  identityChanged = false,
-): void {
+ * unless a visible tab is watching this repo identity. */
+export function invalidatePluginBubble(pluginId: string, cwd: string | null | undefined): void {
   if (cwd === undefined) return;
   const entry = cache.get(pluginId)?.get(cwd);
   if (!entry || activeCount(entry) === 0) return;
-  computeNow(entry, identityChanged);
-}
-
-// tab-status-changed can't say whether it involved a branch change, so it
-// conservatively forces an identity refresh — never an indefinite stale cache.
-function invalidateForTab(tabId: string): void {
-  for (const byCwd of cache.values()) {
-    for (const entry of byCwd.values()) {
-      const isWatching = [...entry.subscribers.values()].some((s) => s.tabId === tabId && s.active);
-      if (isWatching) computeNow(entry, true);
-    }
-  }
-}
-
-let tabStatusUnlisten: (() => void) | null = null;
-let tabStatusArmed = false;
-
-// tab-status-changed is the daemon's own ownership-boundary signal for
-// "this tab did something" — the external-change event source, no watcher.
-function ensureTabStatusListener(): void {
-  if (tabStatusArmed) return;
-  tabStatusArmed = true;
-  void listen<{ tab_id: string }>("tab-status-changed", (event) => {
-    invalidateForTab(event.payload.tab_id);
-  }).then((unlisten) => {
-    tabStatusUnlisten = unlisten;
-  });
+  computeNow(entry);
 }
 
 export function __resetPluginBubbleCacheForTest(): void {
   cache.clear();
   fetcher = defaultFetcher;
-  tabStatusUnlisten?.();
-  tabStatusUnlisten = null;
-  tabStatusArmed = false;
 }
