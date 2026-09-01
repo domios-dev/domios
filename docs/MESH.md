@@ -87,25 +87,14 @@ through the signed Mesh relay. Relay authorization uses the same policy as a
 direct signed peer request. REST config responses redact `api.token`, and
 `/api/secrets/*` cannot be relayed even with Full access.
 
-Relay protocol version `1` is intentionally incompatible with older daemons.
-Both incoming and outgoing relay paths reject a peer with `426 Upgrade
-Required`; the Mesh card keeps **Open** disabled and asks the user to update
-that peer.
+Relay protocol version `1` is intentionally incompatible with older daemons. Both relay paths reject
+older peers with `426 Upgrade Required`; the Mesh card disables **Open** and requests an update.
 
-`POST /api/mesh/relay-to` distinguishes two refusals that used to collapse
-into the same "not paired" message: no paired record for the target id/name at
-all (`404`, reason `peer_not_paired`) versus a paired record that currently has
-no reachable address — `client_for` found nothing to sign a request against
-(`503`, reason `peer_unroutable`). The paired record is real in the second
-case; only routing to it failed right now. Both reasons are stable string
-constants (`PEER_NOT_PAIRED_REASON` / `PEER_UNROUTABLE_REASON` in
-`api::mesh_routes::relay`), not prose to match against.
+`POST /api/mesh/relay-to` returns `404 peer_not_paired` when no paired record exists and
+`503 peer_unroutable` when the paired peer has no reachable address. Both reasons are stable constants.
 
-The browser origin that served the SPA remains its gateway. An already-loaded
-page can render during a gateway outage, but it cannot fetch data or switch
-peers until that gateway returns. Safe gateway failover requires a separate
-short-lived, single-use handoff grant; permanent API tokens are never shared as
-a fallback.
+The serving browser origin remains its gateway. During an outage an already-loaded page can render,
+but cannot fetch or switch peers. Failover needs a short-lived, single-use handoff grant, never a permanent token.
 
 ## Remote plan commands
 
