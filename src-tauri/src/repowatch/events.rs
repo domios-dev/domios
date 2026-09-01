@@ -10,6 +10,7 @@ pub enum RepoWatchUnavailable {
     RepositoryGone,
     WatchRefused,
     BackendFailed,
+    RescanRequired,
 }
 
 impl RepoWatchUnavailable {
@@ -19,6 +20,7 @@ impl RepoWatchUnavailable {
             Self::RepositoryGone => "repository_gone",
             Self::WatchRefused => "watch_refused",
             Self::BackendFailed => "backend_failed",
+            Self::RescanRequired => "rescan_required",
         }
     }
 }

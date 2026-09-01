@@ -113,13 +113,6 @@ pub fn expect_silence(rx: &Receiver<SinkEvent>, what: &str) {
     }
 }
 
-/// Drain what is queued and wait out any in-flight debounce, so the next
-/// assertion observes only what the next action produced.
-pub fn settle(rx: &Receiver<SinkEvent>) {
-    let quiet = Duration::from_millis(600);
-    while rx.recv_timeout(quiet).is_ok() {}
-}
-
 fn same_path(a: &str, b: &str) -> bool {
     if cfg!(any(windows, target_os = "macos")) {
         a.to_lowercase() == b.to_lowercase()
@@ -284,6 +277,39 @@ pub fn registry_with(backend: Arc<dyn WatchBackend>) -> (Arc<RepoWatchRegistry>,
 pub fn live_registry() -> (Arc<RepoWatchRegistry>, Receiver<SinkEvent>) {
     let (sink, rx) = ChannelSink::new();
     (Arc::new(RepoWatchRegistry::new(sink)), rx)
+}
+
+/// One registry per assertion: `subscribe` returns only once every backend
+/// watch registered, and the channel starts empty. That is the barrier.
+pub struct Watched {
+    pub registry: Arc<RepoWatchRegistry>,
+    pub rx: Receiver<SinkEvent>,
+    pub identities: Vec<String>,
+}
+
+pub fn watch_all(roots: &[&Path]) -> Watched {
+    let (registry, rx) = live_registry();
+    let identities = roots
+        .iter()
+        .map(|root| {
+            registry
+                .subscribe(root)
+                .unwrap_or_else(|e| panic!("subscribe {}: {e}", root.display()))
+                .identity
+        })
+        .collect();
+    Watched {
+        registry,
+        rx,
+        identities,
+    }
+}
+
+/// Watch first, act, then block on the channel for this action's own event.
+pub fn expect_change_from(roots: &[&Path], target: usize, what: &str, action: impl FnOnce()) {
+    let watched = watch_all(roots);
+    action();
+    expect_change(&watched.rx, &watched.identities[target], what);
 }
 
 pub fn git_available() -> bool {

@@ -9,7 +9,8 @@ export type RepoWatchReason =
   | "watch_refused"
   | "backend_failed"
   | "subscribe_failed"
-  | "stream_unavailable";
+  | "stream_unavailable"
+  | "malformed_response";
 
 export type RepoWatchState =
   | { status: "pending" }
@@ -46,6 +47,7 @@ const REASONS: RepoWatchReason[] = [
   "backend_failed",
   "subscribe_failed",
   "stream_unavailable",
+  "malformed_response",
 ];
 
 function normalizeReason(raw: unknown): RepoWatchReason {
@@ -173,7 +175,9 @@ export function watchRepository(
 
   client.subscribe(cwd).then(
     (result) => {
-      if (result?.status !== "watching" || !result.token) {
+      const token = typeof result?.token === "string" && result.token ? result.token : null;
+      const identity = typeof result?.identity === "string" && result.identity ? result.identity : null;
+      if (result?.status !== "watching") {
         leases.delete(lease);
         stopStreamIfIdle();
         if (!lease.released) {
@@ -181,17 +185,28 @@ export function watchRepository(
         }
         return;
       }
-      if (lease.released) {
-        void client.unsubscribe(result.token).catch(() => {});
+      if (!token || !identity) {
+        // Without both, no event could ever match this lease. Hand the
+        // reference back rather than render a watch that hears nothing.
+        leases.delete(lease);
+        stopStreamIfIdle();
+        if (token) void client.unsubscribe(token).catch(() => {});
+        if (!lease.released) {
+          onState({ status: "unavailable", reason: "malformed_response" });
+        }
         return;
       }
-      lease.token = result.token;
-      lease.identity = result.identity ?? null;
-      if (lease.identity) adoptRepoIdentity(cwd, lease.identity);
+      if (lease.released) {
+        void client.unsubscribe(token).catch(() => {});
+        return;
+      }
+      lease.token = token;
+      lease.identity = identity;
+      adoptRepoIdentity(cwd, identity);
       onState(
         streamFailed
           ? { status: "unavailable", reason: "stream_unavailable" }
-          : { status: "watching", identity: lease.identity ?? cwd },
+          : { status: "watching", identity },
       );
     },
     () => {

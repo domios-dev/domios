@@ -70,7 +70,7 @@ async function drain(act: ActFn, turns = 20): Promise<void> {
 }
 
 type WatchEvent = import("../../lib/repoWatch").RepoWatchEvent;
-type WatchMode = "auto" | "manual" | "reject" | "unavailable";
+type WatchMode = "auto" | "manual" | "reject" | "unavailable" | "identityless";
 
 /** Records every subscribe and unsubscribe; `active` is the net refcount the
  * daemon would still be holding. */
@@ -94,6 +94,11 @@ function makeWatchClient(mode: WatchMode, fixedIdentity?: string) {
       if (mode === "reject") return Promise.reject(new Error("transport refused"));
       if (mode === "unavailable") {
         return Promise.resolve({ status: "unavailable", reason: "not_a_repository" });
+      }
+      if (mode === "identityless") {
+        const orphan = `tok-${++seq}`;
+        state.active.add(orphan);
+        return Promise.resolve({ status: "watching", token: orphan });
       }
       const token = `tok-${++seq}`;
       const result = { status: "watching", token, identity: identityOf(cwd) };
@@ -652,6 +657,34 @@ test("a second-listener rejection unlistens the first", async () => {
   assert(rejected, "the stream must reject");
   assert(registrations === 2, `both registrations attempted, got ${registrations}`);
   assert(unlistens === 1, `the first listener must be released, got ${unlistens}`);
+});
+
+test("a watching response without an identity is unavailable and releases its token", async () => {
+  const fx = await setupFixture("fake-git", "identityless");
+  await render(fx, { cwd: "/repo", tabId: "tab-1", isActive: true });
+  await waitUntil(() => fx.watch.state.unsubscribeCalls >= 1, fx.act);
+  await drain(fx.act);
+
+  assert(
+    fx.watch.state.unsubscribeCalls === 1,
+    `the token is released exactly once, got ${fx.watch.state.unsubscribeCalls}`,
+  );
+  assert(fx.watch.state.active.size === 0, "no refcount is retained");
+  const debug = fx.repoWatch.__repoWatchDebugForTest();
+  assert(debug.leases === 0, `no lease is retained, got ${debug.leases}`);
+
+  const pill = fx.host.querySelector(`[data-testid="plugin-bubble-${fx.pluginId}"]`);
+  assert(
+    pill?.getAttribute("data-watch-state") === "unavailable",
+    `a lease no event could match must not read live, got ${pill?.getAttribute("data-watch-state")}`,
+  );
+  assert(
+    (pill?.getAttribute("title") ?? "").includes("malformed_response"),
+    `the discriminant is named, got ${pill?.getAttribute("title")}`,
+  );
+
+  await fx.act(async () => fx.root.unmount());
+  fx.teardown();
 });
 
 test("two cwd aliases of one repository share a cache entry and one computation", async () => {

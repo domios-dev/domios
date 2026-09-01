@@ -12,34 +12,24 @@ fn repository_watcher_emits_working_tree_events() {
     let repo = primary_repo();
     let holder = linked_worktree(repo.path(), "lane");
     let lane = holder.path().join("lane");
+    let roots = [repo.path(), lane.as_path()];
 
-    let (registry, rx) = live_registry();
-    let primary = registry.subscribe(repo.path()).expect("primary subscribe");
-    let worktree = registry.subscribe(&lane).expect("lane subscribe");
-
-    exercise_working_tree(&rx, repo.path(), &primary.identity, "primary repository");
-    exercise_working_tree(&rx, &lane, &worktree.identity, "linked worktree");
+    exercise_working_tree(&roots, 0, "primary repository");
+    exercise_working_tree(&roots, 1, "linked worktree");
 }
 
-fn exercise_working_tree(
-    rx: &std::sync::mpsc::Receiver<SinkEvent>,
-    root: &Path,
-    identity: &str,
-    where_: &str,
-) {
-    settle(rx);
-    write(&root.join("tracked.txt"), "modified externally\n");
-    expect_change(rx, identity, &format!("modifying a tracked file in the {where_}"));
-
-    settle(rx);
-    write(&root.join("brand-new.txt"), "untracked\n");
-    expect_change(rx, identity, &format!("creating an untracked file in the {where_}"));
-
-    settle(rx);
-    std::fs::remove_file(root.join("tracked.txt")).expect("delete tracked file");
-    expect_change(rx, identity, &format!("deleting a tracked file in the {where_}"));
-
-    // Leave the tree as found so the next half starts from a known state.
-    settle(rx);
+/// Both repositories are watched every time, and the assertion names one of
+/// them: that is what proves the event carries the CORRECT identity.
+fn exercise_working_tree(roots: &[&Path; 2], target: usize, where_: &str) {
+    let root = roots[target];
+    expect_change_from(roots, target, &format!("modifying a tracked file in the {where_}"), || {
+        write(&root.join("tracked.txt"), "modified externally\n");
+    });
+    expect_change_from(roots, target, &format!("creating an untracked file in the {where_}"), || {
+        write(&root.join("brand-new.txt"), "untracked\n");
+    });
+    expect_change_from(roots, target, &format!("deleting a tracked file in the {where_}"), || {
+        std::fs::remove_file(root.join("tracked.txt")).expect("delete tracked file");
+    });
     write(&root.join("tracked.txt"), "one\n");
 }
