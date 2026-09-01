@@ -342,12 +342,18 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let project_path = dir.path().display().to_string();
         let store = crate::service::plan::PlanStore::new_for_test(dir.path());
-        let mut plan = crate::plan::Plan::new(
-            "Existing project plan".into(),
-            project_path.clone(),
-            crate::plan::OrchestratorRef::from_tab("prior-orch"),
-        );
-        store.save(&mut plan, 1).unwrap();
+        // Real creation path canonicalizes project_path; raw Plan::new + save
+        // skips that and never matches active_plan_for_project's query.
+        let plan = store
+            .create_plan_for_team(
+                "Existing project plan".into(),
+                project_path.clone(),
+                crate::plan::OrchestratorRef::from_tab("prior-orch"),
+                "team_existing_plan_owner".into(),
+                vec![],
+                1,
+            )
+            .unwrap();
         let plan_id = plan.id.clone();
 
         // A promotion always mints a FRESH, empty team — never one that could
