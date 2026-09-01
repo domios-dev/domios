@@ -6,20 +6,13 @@
  * A pill with an `action` (e.g. Git → `openPanel:git`) opens that host view on
  * click; without one, it opens the plugin's glance popover.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { invoke } from "../../lib/bridge";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GlancePopover, type GlanceAnchor } from "./GlancePopover";
 import { SELECT_EXTENSION_EVENT } from "../Titlebar/extensionsTrayLogic";
 import type { Tone } from "./ViewNodeRenderer";
 import { ensurePluginSnapshot, usePluginSnapshotStore } from "../../lib/pluginSnapshotStore";
+import { subscribePluginBubble, type BubbleData, type PluginBubbleSubscription } from "../../lib/pluginBubbleCache";
 
-interface BubbleData {
-  label: string;
-  tone?: Tone;
-  icon?: string | null;
-  tooltip?: string | null;
-  action?: string | null;
-}
 interface BubblePlugin {
   id: string;
   display_name?: string | null;
@@ -32,7 +25,6 @@ interface SnapPlugin {
   capabilities?: { status_bubble?: boolean } | null;
 }
 
-const POLL_MS = 8000;
 const TONE: Record<Tone, string> = {
   default: "var(--ct-fg)",
   muted: "var(--ct-muted)",
@@ -52,7 +44,17 @@ function openPanel(action: string, cwd: string | null) {
   }
 }
 
-export function PluginBubbles({ cwd, tabId }: { cwd: string | null; tabId: string }) {
+export function PluginBubbles({
+  cwd,
+  tabId,
+  isActive,
+}: {
+  cwd: string | null;
+  tabId: string;
+  /** Only a visible tab computes its own bubbles; a hidden one rides along
+   * on whatever its shared (plugin, repo) cache entry already has. */
+  isActive: boolean;
+}) {
   const snapshotState = usePluginSnapshotStore();
   const [pills, setPills] = useState<Record<string, BubbleData | null>>({});
   const [open, setOpen] = useState<{ id: string; name: string; configHelp?: string; anchor: GlanceAnchor } | null>(null);
@@ -68,24 +70,28 @@ export function PluginBubbles({ cwd, tabId }: { cwd: string | null; tabId: strin
     void ensurePluginSnapshot({ background: snapshotState.lastSuccessfulSnapshot !== null }).catch(() => {});
   }, [snapshotState.lastSuccessfulSnapshot]);
 
+  const isActiveRef = useRef(isActive);
+  isActiveRef.current = isActive;
+  const subscriptionsRef = useRef<PluginBubbleSubscription[]>([]);
+
+  // Subscribed once per (plugin, cwd, tab) identity — isActive changes go
+  // through setActive below, never through re-subscribing.
   useEffect(() => {
-    if (plugins.length === 0) return;
-    let alive = true;
-    const ctx = { cwd, tabId };
-    const poll = () => {
-      for (const p of plugins) {
-        invoke<BubbleData | null>("plugin_bubble", { pluginId: p.id, ctx })
-          .then((d) => alive && setPills((prev) => ({ ...prev, [p.id]: d })))
-          .catch(() => {});
-      }
-    };
-    poll();
-    const t = setInterval(poll, POLL_MS);
+    const subs = plugins.map((p) =>
+      subscribePluginBubble(p.id, cwd, tabId, isActiveRef.current, (value) => {
+        setPills((prev) => (prev[p.id] === value ? prev : { ...prev, [p.id]: value }));
+      }),
+    );
+    subscriptionsRef.current = subs;
     return () => {
-      alive = false;
-      clearInterval(t);
+      for (const sub of subs) sub.unsubscribe();
+      subscriptionsRef.current = [];
     };
   }, [plugins, cwd, tabId]);
+
+  useEffect(() => {
+    for (const sub of subscriptionsRef.current) sub.setActive(isActive);
+  }, [isActive]);
 
   const visible = plugins.filter((p) => pills[p.id]);
 
