@@ -81,8 +81,7 @@ export function PluginView({
               ? { ...m.args, cwd }
               : m.args;
           const result = await invoke("plugin_view_call", { pluginId, method: m.method, args });
-          // Explicit in-panel actions (stage/commit/checkout/…) are the
-          // Git plugin's invalidation source — no repository watcher exists.
+          // In-panel actions invalidate their bubble immediately.
           const usedCwd = (args as { cwd?: unknown } | undefined)?.cwd;
           if (typeof usedCwd === "string") invalidatePluginBubble(pluginId, usedCwd);
           win.postMessage({ __ctReply: m.__ctInvoke, result }, "*");

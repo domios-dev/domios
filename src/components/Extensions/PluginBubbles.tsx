@@ -6,12 +6,12 @@
  * A pill with an `action` (e.g. Git → `openPanel:git`) opens that host view on
  * click; without one, it opens the plugin's glance popover.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GlancePopover, type GlanceAnchor } from "./GlancePopover";
 import { SELECT_EXTENSION_EVENT } from "../Titlebar/extensionsTrayLogic";
 import type { Tone } from "./ViewNodeRenderer";
 import { ensurePluginSnapshot, usePluginSnapshotStore } from "../../lib/pluginSnapshotStore";
-import { subscribePluginBubble, type BubbleData } from "../../lib/pluginBubbleCache";
+import { subscribePluginBubble, type BubbleData, type PluginBubbleSubscription } from "../../lib/pluginBubbleCache";
 
 interface BubblePlugin {
   id: string;
@@ -70,17 +70,28 @@ export function PluginBubbles({
     void ensurePluginSnapshot({ background: snapshotState.lastSuccessfulSnapshot !== null }).catch(() => {});
   }, [snapshotState.lastSuccessfulSnapshot]);
 
+  const isActiveRef = useRef(isActive);
+  isActiveRef.current = isActive;
+  const subscriptionsRef = useRef<PluginBubbleSubscription[]>([]);
+
+  // Subscribed once per (plugin, cwd, tab) identity — isActive changes go
+  // through setActive below, never through re-subscribing.
   useEffect(() => {
-    if (plugins.length === 0) return;
-    const unsubscribes = plugins.map((p) =>
-      subscribePluginBubble(p.id, cwd, tabId, isActive, (value) => {
+    const subs = plugins.map((p) =>
+      subscribePluginBubble(p.id, cwd, tabId, isActiveRef.current, (value) => {
         setPills((prev) => (prev[p.id] === value ? prev : { ...prev, [p.id]: value }));
       }),
     );
+    subscriptionsRef.current = subs;
     return () => {
-      for (const unsubscribe of unsubscribes) unsubscribe();
+      for (const sub of subs) sub.unsubscribe();
+      subscriptionsRef.current = [];
     };
-  }, [plugins, cwd, tabId, isActive]);
+  }, [plugins, cwd, tabId]);
+
+  useEffect(() => {
+    for (const sub of subscriptionsRef.current) sub.setActive(isActive);
+  }, [isActive]);
 
   const visible = plugins.filter((p) => pills[p.id]);
 

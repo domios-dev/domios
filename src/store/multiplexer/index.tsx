@@ -374,9 +374,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     };
     renewMuxListener();
     if (isCodeTermFrontendTestMode()) {
-      // Test-only "stream disconnect" seam: no production signal tears down a
-      // healthy mux-state-changed subscription on its own, so tests simulate
-      // one directly by forcing a rebind (see codeterm#336 part B).
+      // Test-only seam simulating a stream disconnect by forcing a rebind.
       (eventStats.__ctEvents ??= { received: 0, lastAt: 0, reconnects: 0 }).breakMuxStream = renewMuxListener;
     }
     unlisteners.push(() => {
