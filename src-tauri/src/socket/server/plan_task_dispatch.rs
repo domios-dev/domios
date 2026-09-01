@@ -253,6 +253,21 @@ fn should_provision_worker_lane(
         && lane_resolution.is_some_and(|resolution| resolution.existing.is_none())
 }
 
+/// Decide placement first — occupancy only applies to a checkout the task
+/// will actually land on, never a pre-provisioning placeholder — codeterm#343.
+fn preflight_dispatch_placement(
+    plan: &crate::plan::Plan,
+    task_id: &str,
+    spawn_cwd: &str,
+    lane_protection: LaneProtection,
+    will_provision_lane: bool,
+) -> Result<(), JsonRpcError> {
+    if will_provision_lane {
+        return Ok(());
+    }
+    preflight_checkout_occupancy(plan, task_id, spawn_cwd, lane_protection)
+}
+
 fn epoch_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -899,6 +914,11 @@ pub(super) fn dispatch(
                 .clone()
                 .unwrap_or_else(|| canonical_cwd.clone())
         });
+    let will_provision_lane = should_provision_worker_lane(
+        requires_repository,
+        &execution_intent,
+        lane_resolution.as_ref(),
+    );
     if requires_repository {
         // Refuse only a lane the caller resolved as final. The `existing: None`
         // branch still holds canonical here and provisions an isolated lane below.
@@ -914,7 +934,13 @@ pub(super) fn dispatch(
             )
             .inspect_err(|error| record_lane_safety_incident(store, &plan_id, &task_id, error))?;
         }
-        preflight_checkout_occupancy(&plan, &task_id, &spawn_cwd, lane_protection)?;
+        preflight_dispatch_placement(
+            &plan,
+            &task_id,
+            &spawn_cwd,
+            lane_protection,
+            will_provision_lane,
+        )?;
     }
     let (planned_reasoning_effort, reasoning_effort) = dispatch_reasoning_effort(p);
     let mut spawn_params = SpawnAgentParams {
@@ -937,11 +963,7 @@ pub(super) fn dispatch(
     };
 
     let lane_label = format!("{plan_id}-{task_id}");
-    let provisioned_lane = if should_provision_worker_lane(
-        requires_repository,
-        &execution_intent,
-        lane_resolution.as_ref(),
-    ) {
+    let provisioned_lane = if will_provision_lane {
         svc.provision_worker_lane_for_spawn(&mut spawn_params, &lane_label)
             .map_err(|error| dispatch_failed("lane_provision", error))?
     } else {

@@ -1,7 +1,28 @@
 use super::*;
 use crate::multiplexer::state::MultiplexerState;
+use crate::plan::{OrchestratorRef, Plan, PlannerRef};
+use crate::service::plan::PlanStore;
 use crate::service::pty_io::tests::store_with_bound_task;
 use std::collections::BTreeSet;
+
+const PLANNER_TAB_ID: &str = "tab-planner";
+
+fn store_with_planner_bound_plan() -> (tempfile::TempDir, PlanStore, String) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut plan = Plan::new(
+        "Planner-bound".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_tab("orch"),
+    );
+    plan.planner = Some(PlannerRef::Tab {
+        tab_id: PLANNER_TAB_ID.into(),
+        session_id: None,
+        title: Some("Planner".into()),
+    });
+    store.save(&mut plan, 1).unwrap();
+    (dir, store, plan.id)
+}
 
 const AGENT_TAB_ID: &str = "tab-a";
 const LANE_BASE: &str = "release/1.10.0";
@@ -230,4 +251,32 @@ fn env_compose_frontend_spawn_without_tab_record_stamps_no_identity() {
     .chain(FRONTEND_ONLY_ENV.iter().map(|(key, _)| key.to_string()))
     .collect();
     assert_eq!(keys(&frontend), expected);
+}
+
+/// codeterm#371: a Planner binds to its plan directly, never a task.
+#[test]
+fn planner_bound_tab_env_carries_plan_id_without_a_task_id() {
+    let (_dir, store, plan_id) = store_with_planner_bound_plan();
+
+    let task_env = tab_task_env(&store, PLANNER_TAB_ID);
+
+    assert_eq!(
+        task_env.get("CODETERM_PLAN_ID").map(String::as_str),
+        Some(plan_id.as_str())
+    );
+    assert!(
+        !task_env.contains_key("CODETERM_TASK_ID"),
+        "a Planner holds no task, so no CODETERM_TASK_ID must be stamped"
+    );
+}
+
+/// Neither binding shape guesses at the other's absence.
+#[test]
+fn unbound_tab_env_carries_no_plan_identity() {
+    let (_dir, store, _plan_id) = store_with_planner_bound_plan();
+
+    let task_env = tab_task_env(&store, "tab-unrelated");
+
+    assert!(task_env.get("CODETERM_PLAN_ID").is_none());
+    assert!(task_env.get("CODETERM_TASK_ID").is_none());
 }

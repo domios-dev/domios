@@ -4,11 +4,11 @@
 //! observable end state — that a refused report writes NO status and NO milestone
 //! while the report itself still reaches the parent.
 
-use super::{resolve_plan_ctx, STALE_TASK_HINT_REFUSAL};
+use super::{resolve_plan_ctx, PLANNER_AUTHORITY_REFUSAL, STALE_TASK_HINT_REFUSAL};
 use crate::agent::reports::{ReportDetails, ReportStatus};
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::AgentRole;
-use crate::plan::{AgentRef, OrchestratorRef, Plan, Task, TaskStatus};
+use crate::plan::{AgentRef, OrchestratorRef, Plan, PlannerRef, Task, TaskStatus};
 use crate::service::plan::{NewTask, PlanStore};
 use crate::service::test_fixture::ServiceFixture;
 use crate::service::AuthenticatedPlanCaller;
@@ -527,4 +527,319 @@ fn stale_task_report_plan_owner_in_recovery_cannot_land_a_stale_binding() {
     assert_eq!(h.shape(&h.stale), stale_before);
     assert!(h.task(&h.stale).milestones.is_empty());
     assert!(h.reports().contains("RECOVERY_HATCH_PAYLOAD"));
+}
+
+// ── plan-only reports claim Planner authority (codeterm#371) ───────────────
+
+struct PlannerReportHarness {
+    fx: ServiceFixture,
+    root: String,
+    planner_tab: String,
+    foreign_tab: String,
+    plan_id: String,
+    foreign_plan_id: String,
+}
+
+impl PlannerReportHarness {
+    fn stale_planner_session(&self) {
+        let mut mux = self.fx.service.mux.write();
+        mux.get_tab_mut(&self.planner_tab).unwrap().reported_session_binding_nonce =
+            Some("stale-nonce".into());
+    }
+
+    fn set_registered_planner_session(&self, session_id: Option<&str>) {
+        let store = &self.fx.service.plan_store;
+        let mut plan = store.get(&self.plan_id).unwrap();
+        plan.planner = Some(PlannerRef::Tab {
+            tab_id: self.planner_tab.clone(),
+            session_id: session_id.map(str::to_string),
+            title: None,
+        });
+        store.save(&mut plan, 99).unwrap();
+    }
+
+    fn reports(&self) -> String {
+        serde_json::to_string(&self.fx.service.report_store.lock().get(&self.root, false)).unwrap()
+    }
+}
+
+fn planner_report_harness() -> PlannerReportHarness {
+    let (mut mux, root) = MultiplexerState::new();
+    let workspace = mux.find_workspace_for_tab(&root).unwrap();
+    let planner_tab = mux.create_tab(&workspace).unwrap();
+    let foreign_tab = mux.create_tab(&workspace).unwrap();
+    let fx = ServiceFixture::new(mux);
+    {
+        let mut mux = fx.service.mux.write();
+        for (tab_id, session) in [(&planner_tab, "planner"), (&foreign_tab, "foreign")] {
+            let tab = mux.get_tab_mut(tab_id).unwrap();
+            tab.agent_session_id = Some(format!("{session}-session"));
+            tab.session_binding_nonce = Some(format!("{session}-nonce"));
+            tab.reported_session_binding_nonce = Some(format!("{session}-nonce"));
+            tab.parent_tab_id = Some(root.clone());
+        }
+    }
+    let store = &fx.service.plan_store;
+    let mut plan = Plan::new(
+        "planner authority".into(),
+        fx.temp.path().display().to_string(),
+        OrchestratorRef::from_tab(&root),
+    );
+    plan.planner = Some(PlannerRef::Tab {
+        tab_id: planner_tab.clone(),
+        session_id: Some("planner-session".into()),
+        title: None,
+    });
+    store.save(&mut plan, 1).unwrap();
+    let mut foreign_plan = Plan::new(
+        "foreign plan".into(),
+        fx.temp.path().display().to_string(),
+        OrchestratorRef::from_tab(&root),
+    );
+    store.save(&mut foreign_plan, 2).unwrap();
+    PlannerReportHarness {
+        fx,
+        root,
+        planner_tab,
+        foreign_tab,
+        plan_id: plan.id,
+        foreign_plan_id: foreign_plan.id,
+    }
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+)]
+fn planner_report_with_live_matching_session_reaches_the_plan_owner() {
+    let h = planner_report_harness();
+
+    let result = h
+        .fx
+        .service
+        .submit_report(
+            &h.planner_tab,
+            "PLANNER_STATUS_PAYLOAD",
+            ReportDetails::default(),
+            Some(&h.plan_id),
+            None,
+            None,
+        )
+        .expect("a live, session-verified Planner must be authorized");
+
+    assert_eq!(result.orchestrator_tab_id, h.root);
+    assert!(h.reports().contains("PLANNER_STATUS_PAYLOAD"));
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+)]
+fn planner_report_refuses_a_stale_session_binding() {
+    let h = planner_report_harness();
+    h.stale_planner_session();
+
+    let error = h
+        .fx
+        .service
+        .submit_report(
+            &h.planner_tab,
+            "STALE_SESSION_PAYLOAD",
+            ReportDetails::default(),
+            Some(&h.plan_id),
+            None,
+            None,
+        )
+        .unwrap_err();
+
+    assert!(error.contains(PLANNER_AUTHORITY_REFUSAL), "{error}");
+    assert!(!h.reports().contains("STALE_SESSION_PAYLOAD"));
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+)]
+fn planner_report_refuses_a_non_planner_manager() {
+    let h = planner_report_harness();
+    {
+        let mut mux = h.fx.service.mux.write();
+        let tab = mux.get_tab_mut(&h.foreign_tab).unwrap();
+        tab.role = Some(AgentRole::Manager);
+        tab.role_profile = Some("orchestrator".into());
+    }
+
+    let error = h
+        .fx
+        .service
+        .submit_report(
+            &h.foreign_tab,
+            "NON_PLANNER_MANAGER_PAYLOAD",
+            ReportDetails::default(),
+            Some(&h.plan_id),
+            None,
+            None,
+        )
+        .unwrap_err();
+
+    assert!(error.contains(PLANNER_AUTHORITY_REFUSAL), "{error}");
+    assert!(!h.reports().contains("NON_PLANNER_MANAGER_PAYLOAD"));
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+)]
+fn planner_report_refuses_a_foreign_tab_that_is_not_the_registered_planner() {
+    let h = planner_report_harness();
+
+    let error = h
+        .fx
+        .service
+        .submit_report(
+            &h.foreign_tab,
+            "FOREIGN_TAB_PAYLOAD",
+            ReportDetails::default(),
+            Some(&h.plan_id),
+            None,
+            None,
+        )
+        .unwrap_err();
+
+    assert!(error.contains(PLANNER_AUTHORITY_REFUSAL), "{error}");
+    assert!(!h.reports().contains("FOREIGN_TAB_PAYLOAD"));
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+)]
+fn planner_report_refuses_the_registered_planner_of_a_different_plan() {
+    let h = planner_report_harness();
+
+    let error = h
+        .fx
+        .service
+        .submit_report(
+            &h.planner_tab,
+            "FOREIGN_PLAN_PAYLOAD",
+            ReportDetails::default(),
+            Some(&h.foreign_plan_id),
+            None,
+            None,
+        )
+        .unwrap_err();
+
+    assert!(error.contains(PLANNER_AUTHORITY_REFUSAL), "{error}");
+    assert!(!h.reports().contains("FOREIGN_PLAN_PAYLOAD"));
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+)]
+fn planner_report_refuses_a_missing_registered_session_id() {
+    let h = planner_report_harness();
+    h.set_registered_planner_session(None);
+
+    let error = h
+        .fx
+        .service
+        .submit_report(
+            &h.planner_tab,
+            "MISSING_SESSION_ID_PAYLOAD",
+            ReportDetails::default(),
+            Some(&h.plan_id),
+            None,
+            None,
+        )
+        .unwrap_err();
+
+    assert!(error.contains(PLANNER_AUTHORITY_REFUSAL), "{error}");
+    assert!(!h.reports().contains("MISSING_SESSION_ID_PAYLOAD"));
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+)]
+fn planner_report_refuses_a_stale_registered_session_id() {
+    let h = planner_report_harness();
+    h.set_registered_planner_session(Some("planner-session-before-relaunch"));
+
+    let error = h
+        .fx
+        .service
+        .submit_report(
+            &h.planner_tab,
+            "STALE_SESSION_ID_PAYLOAD",
+            ReportDetails::default(),
+            Some(&h.plan_id),
+            None,
+            None,
+        )
+        .unwrap_err();
+
+    assert!(error.contains(PLANNER_AUTHORITY_REFUSAL), "{error}");
+    assert!(!h.reports().contains("STALE_SESSION_ID_PAYLOAD"));
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+)]
+fn planner_report_refuses_a_foreign_registered_session_id() {
+    let h = planner_report_harness();
+    h.set_registered_planner_session(Some("foreign-session"));
+
+    let error = h
+        .fx
+        .service
+        .submit_report(
+            &h.planner_tab,
+            "FOREIGN_SESSION_ID_PAYLOAD",
+            ReportDetails::default(),
+            Some(&h.plan_id),
+            None,
+            None,
+        )
+        .unwrap_err();
+
+    assert!(error.contains(PLANNER_AUTHORITY_REFUSAL), "{error}");
+    assert!(!h.reports().contains("FOREIGN_SESSION_ID_PAYLOAD"));
+}
+
+/// A plan-only claim naming an unknown plan is refused before resolution,
+/// delivery, or persistence — never a graceful notice+fallback.
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+)]
+fn planner_report_refuses_an_unknown_plan_before_any_fallback() {
+    let h = planner_report_harness();
+
+    let error = h
+        .fx
+        .service
+        .submit_report(
+            &h.planner_tab,
+            "UNKNOWN_PLAN_PAYLOAD",
+            ReportDetails::default(),
+            Some("pl_does_not_exist"),
+            None,
+            None,
+        )
+        .unwrap_err();
+
+    assert!(error.contains("pl_does_not_exist"), "{error}");
+    assert!(!h.reports().contains("UNKNOWN_PLAN_PAYLOAD"));
 }

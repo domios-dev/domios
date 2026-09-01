@@ -21,6 +21,7 @@ fn build_params(
     intent_text: Option<String>,
     sections: Option<String>,
     criterion: Vec<String>,
+    replace_criteria: bool,
     test_plan: Option<String>,
     qa_plan_text: Option<String>,
     correctness: Option<String>,
@@ -84,6 +85,9 @@ fn build_params(
     }
     if !criterion.is_empty() {
         params["acceptance_criteria"] = json!(criterion);
+        if replace_criteria {
+            params["acceptance_criteria_replace"] = json!(true);
+        }
     }
     if let Some(t) = test_plan {
         params["test_plan"] = json!(t);
@@ -157,6 +161,7 @@ pub(crate) fn run(
     intent_file: Option<String>,
     sections: Option<String>,
     criterion: Vec<String>,
+    replace_criteria: bool,
     test_plan: Option<String>,
     qa_plan: Option<String>,
     qa_plan_file: Option<String>,
@@ -211,6 +216,7 @@ pub(crate) fn run(
         intent_text,
         sections,
         criterion,
+        replace_criteria,
         test_plan,
         qa_plan_text,
         correctness,
@@ -324,6 +330,7 @@ mod tests {
             None,
             None,
             criterion,
+            false,
             test_plan,
             qa_plan,
             None,
@@ -364,6 +371,7 @@ mod tests {
             None,
             None,
             vec![],
+            false,
             None,
             None,
             None,
@@ -418,6 +426,84 @@ mod tests {
             params.get("external_refs"),
             Some(&json!(["rollacode/codeterm-releases#17"]))
         );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn criteria_params(criterion: Vec<String>, replace_criteria: bool) -> serde_json::Value {
+        build_params(
+            Some("pl_1".into()),
+            "task_1".into(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            criterion,
+            replace_criteria,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+            vec![],
+            None,
+            None,
+            vec![],
+        )
+    }
+
+    /// codeterm#372: no replace signal on the wire by default.
+    #[test]
+    fn criterion_defaults_to_append_with_no_replace_signal_on_the_wire() {
+        let params = criteria_params(vec!["new criterion".into()], false);
+
+        assert_eq!(
+            params.get("acceptance_criteria"),
+            Some(&json!(["new criterion"]))
+        );
+        assert!(
+            params.get("acceptance_criteria_replace").is_none(),
+            "append must not carry a replace flag: {params}"
+        );
+    }
+
+    /// The daemon keys the destructive replace on this flag's presence.
+    #[test]
+    fn replace_criteria_flag_marks_the_update_as_destructive_on_the_wire() {
+        let params = criteria_params(vec!["replacement".into()], true);
+
+        assert_eq!(
+            params.get("acceptance_criteria"),
+            Some(&json!(["replacement"]))
+        );
+        assert_eq!(params.get("acceptance_criteria_replace"), Some(&json!(true)));
+    }
+
+    /// The bare flag alone never implicitly clears the array.
+    #[test]
+    fn replace_criteria_flag_alone_with_no_criterion_sends_no_acceptance_criteria() {
+        let params = criteria_params(vec![], true);
+
+        assert!(params.get("acceptance_criteria").is_none());
+        assert!(params.get("acceptance_criteria_replace").is_none());
     }
 
     #[test]
