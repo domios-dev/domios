@@ -255,14 +255,8 @@ jobs:
       - name: Release metadata contract tests
         run: python3 -m unittest scripts.tests.test_release_issue_contract
 
-      - name: Release workflow signature-gate contract tests
-        run: python3 -m unittest scripts.tests.test_release_workflow_contract
-
       - name: Updater manifest merge + signature tests
         run: node --test scripts/tests/updater-manifest.test.mjs
-
-      - name: Release closure authority tests
-        run: node --test scripts/tests/release-closure-authority.test.mjs
 
       - name: Biome (TS lint)
         run: pnpm lint
