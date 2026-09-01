@@ -37,7 +37,11 @@ fn repository_watch_registry_is_refcounted_per_identity() {
     println!("[R1] handle/descriptor count with 10 subscribers: {peak:?}");
 
     assert_eq!(registry.entry_count(), 1, "ten subscribers, one entry");
-    assert_eq!(registry.refcount(&identity.key), 10, "refcount tracks subscribers");
+    assert_eq!(
+        registry.refcount(&identity.key),
+        10,
+        "refcount tracks subscribers"
+    );
     assert_eq!(registry.shared_count(), 1, "one shared ref watch");
     assert_eq!(
         ledger.built(),

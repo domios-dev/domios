@@ -332,7 +332,10 @@ mod tests {
 
         let canonical = project_dir.canonicalize().unwrap().display().to_string();
         let differently_cased = canonical.replace("MyProject", "myproject");
-        assert_ne!(differently_cased, canonical, "fixture path has no casing to flip");
+        assert_ne!(
+            differently_cased, canonical,
+            "fixture path has no casing to flip"
+        );
 
         assert!(
             store.active_plan_for_project(&differently_cased).is_some(),

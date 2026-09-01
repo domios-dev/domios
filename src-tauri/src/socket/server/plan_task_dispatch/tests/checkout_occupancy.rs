@@ -263,10 +263,7 @@ fn mutating_dispatch_without_a_lane_to_provision_still_enforces_occupancy() {
     .unwrap_err();
 
     assert_eq!(error.code, -32011);
-    assert_eq!(
-        error.data.unwrap()["occupying_task_id"],
-        occupying_task_id
-    );
+    assert_eq!(error.data.unwrap()["occupying_task_id"], occupying_task_id);
 }
 
 #[test]

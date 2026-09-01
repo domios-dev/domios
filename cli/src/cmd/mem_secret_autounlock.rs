@@ -171,8 +171,7 @@ mod tests {
         for declaration in [declaring("alpha-vault"), silent("alpha-vault")] {
             for status in [Some(200u16), Some(401), Some(423), Some(503), None] {
                 for armed in [true, false] {
-                    let outcome =
-                        SaveMasterPasswordOutcome::decide(&declaration, status, armed);
+                    let outcome = SaveMasterPasswordOutcome::decide(&declaration, status, armed);
                     out.push((declaration.clone(), outcome));
                 }
             }

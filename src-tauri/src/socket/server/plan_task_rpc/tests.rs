@@ -217,9 +217,12 @@ fn socket_update_acceptance_criteria_defaults_to_append() {
         .update_task_quality(
             &plan_id,
             &task_id,
-            Some(crate::service::plan::mutations::task_ops::AcceptanceCriteriaUpdate::Replace(
-                vec!["existing one".into(), "existing two".into()],
-            )),
+            Some(
+                crate::service::plan::mutations::task_ops::AcceptanceCriteriaUpdate::Replace(vec![
+                    "existing one".into(),
+                    "existing two".into(),
+                ]),
+            ),
             None,
             None,
             None,
@@ -264,9 +267,12 @@ fn socket_update_acceptance_criteria_replace_reports_before_after_counts() {
         .update_task_quality(
             &plan_id,
             &task_id,
-            Some(crate::service::plan::mutations::task_ops::AcceptanceCriteriaUpdate::Replace(
-                vec!["existing one".into(), "existing two".into()],
-            )),
+            Some(
+                crate::service::plan::mutations::task_ops::AcceptanceCriteriaUpdate::Replace(vec![
+                    "existing one".into(),
+                    "existing two".into(),
+                ]),
+            ),
             None,
             None,
             None,

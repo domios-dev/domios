@@ -20,7 +20,11 @@ fn repository_watch_failures_are_explicit() {
         .subscribe(plain.path())
         .expect_err("a non-repository must not produce a live watch");
     assert_eq!(error.reason, RepoWatchUnavailable::NotARepository);
-    expect_unavailable(&rx, RepoWatchUnavailable::NotARepository, "a non-repository path");
+    expect_unavailable(
+        &rx,
+        RepoWatchUnavailable::NotARepository,
+        "a non-repository path",
+    );
     assert_eq!(registry.entry_count(), 0, "no entry for a failed subscribe");
 
     // 3. a watch the OS refuses, injected at the construction seam.
@@ -30,7 +34,11 @@ fn repository_watch_failures_are_explicit() {
         .subscribe(repo.path())
         .expect_err("a refused watch must not report success");
     assert_eq!(error.reason, RepoWatchUnavailable::WatchRefused);
-    expect_unavailable(&refused_rx, RepoWatchUnavailable::WatchRefused, "an OS-refused watch");
+    expect_unavailable(
+        &refused_rx,
+        RepoWatchUnavailable::WatchRefused,
+        "an OS-refused watch",
+    );
     assert_eq!(
         refusing.entry_count(),
         0,
@@ -44,8 +52,14 @@ fn repository_watch_failures_are_explicit() {
     let probe_id = RepoIdentity::resolve(probe_repo.path()).expect("identity resolves");
     let (backend, taps) = ProbeBackend::paired();
     let (probed, probe_rx) = registry_with(backend);
-    let token = probed.subscribe(probe_repo.path()).expect("subscribe").token;
-    assert!(collected(&probe_rx).is_empty(), "a healthy watch says nothing");
+    let token = probed
+        .subscribe(probe_repo.path())
+        .expect("subscribe")
+        .token;
+    assert!(
+        collected(&probe_rx).is_empty(),
+        "a healthy watch says nothing"
+    );
 
     assert_eq!(
         fire_worktree(&taps, WatchSignal::Failed("inotify watch died".into())),

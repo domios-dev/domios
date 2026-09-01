@@ -234,7 +234,10 @@ mod tests {
             "pub fn unrelated() -> u8 { 0 }\n",
         );
         let crlf = named.replace('\n', "\r\n");
-        assert!(crlf.contains("\r\n"), "the CRLF fixture must really be CRLF");
+        assert!(
+            crlf.contains("\r\n"),
+            "the CRLF fixture must really be CRLF"
+        );
         for src in [named, crlf.as_str()] {
             let body = top_level_fn(src, STATUS_SIGNATURE);
             assert!(body.contains("bitwarden"), "control must detect the id");

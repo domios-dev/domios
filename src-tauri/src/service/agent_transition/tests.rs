@@ -682,8 +682,8 @@ fn planner_parent_refuses_with_plan_naming_reason_when_owner_unresolvable() {
     );
     fixture.store.save(&mut orphan_plan, 1).unwrap();
 
-    let error = resolve_planner_parent(&fixture.store, &fixture.mux, &orphan_plan.id, None)
-        .unwrap_err();
+    let error =
+        resolve_planner_parent(&fixture.store, &fixture.mux, &orphan_plan.id, None).unwrap_err();
 
     assert!(error.contains(&orphan_plan.id), "{error}");
     assert!(!error.contains("requires a parent_tab_id"), "{error}");

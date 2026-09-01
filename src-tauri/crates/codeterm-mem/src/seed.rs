@@ -263,7 +263,10 @@ fn seed_from(mem: &MemManager, items: Vec<NewMemItem>) -> Result<SeedOutcome, St
         let Some(hit) = existing else {
             // Payload and fingerprint land in the SAME insert — never a
             // two-step create-then-bootstrap with an unfingerprinted window.
-            if mem.save_seeded(item.clone(), &seed_fingerprint(&item)).is_ok() {
+            if mem
+                .save_seeded(item.clone(), &seed_fingerprint(&item))
+                .is_ok()
+            {
                 outcome.created += 1;
             }
             continue;

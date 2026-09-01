@@ -22,14 +22,29 @@ fn repository_watcher_emits_working_tree_events() {
 /// them: that is what proves the event carries the CORRECT identity.
 fn exercise_working_tree(roots: &[&Path; 2], target: usize, where_: &str) {
     let root = roots[target];
-    expect_change_from(roots, target, &format!("modifying a tracked file in the {where_}"), || {
-        write(&root.join("tracked.txt"), "modified externally\n");
-    });
-    expect_change_from(roots, target, &format!("creating an untracked file in the {where_}"), || {
-        write(&root.join("brand-new.txt"), "untracked\n");
-    });
-    expect_change_from(roots, target, &format!("deleting a tracked file in the {where_}"), || {
-        std::fs::remove_file(root.join("tracked.txt")).expect("delete tracked file");
-    });
+    expect_change_from(
+        roots,
+        target,
+        &format!("modifying a tracked file in the {where_}"),
+        || {
+            write(&root.join("tracked.txt"), "modified externally\n");
+        },
+    );
+    expect_change_from(
+        roots,
+        target,
+        &format!("creating an untracked file in the {where_}"),
+        || {
+            write(&root.join("brand-new.txt"), "untracked\n");
+        },
+    );
+    expect_change_from(
+        roots,
+        target,
+        &format!("deleting a tracked file in the {where_}"),
+        || {
+            std::fs::remove_file(root.join("tracked.txt")).expect("delete tracked file");
+        },
+    );
     write(&root.join("tracked.txt"), "one\n");
 }

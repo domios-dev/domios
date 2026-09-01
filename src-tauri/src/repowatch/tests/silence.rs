@@ -16,8 +16,14 @@ fn repository_watcher_stays_silent_on_irrelevant_churn() {
     let _sub = registry.subscribe(root).expect("subscribe");
 
     // 1. object writes — a loose object and a pack file.
-    write(&gitdir.join("objects").join("ab").join("cdef0123456789"), "loose\n");
-    write(&gitdir.join("objects").join("pack").join("pack-test.pack"), "packdata\n");
+    write(
+        &gitdir.join("objects").join("ab").join("cdef0123456789"),
+        "loose\n",
+    );
+    write(
+        &gitdir.join("objects").join("pack").join("pack-test.pack"),
+        "packdata\n",
+    );
     expect_silence(&rx, "writing under .git/objects");
 
     // 2. reflog append.

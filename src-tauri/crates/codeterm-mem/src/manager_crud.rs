@@ -198,7 +198,10 @@ impl MemManager {
 
     /// Every field the bundled seeder manages for `id`, plus its recorded
     /// `seed_fingerprint`. Never bumps access stats — see `store::managed_payload`.
-    pub fn managed_payload(&self, id: &str) -> Result<Option<(NewMemItem, Option<String>)>, String> {
+    pub fn managed_payload(
+        &self,
+        id: &str,
+    ) -> Result<Option<(NewMemItem, Option<String>)>, String> {
         let conn = self.conn.lock();
         store::managed_payload(&conn, id, &self.blobs_dir)
     }

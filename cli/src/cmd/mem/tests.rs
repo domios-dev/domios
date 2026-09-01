@@ -34,7 +34,10 @@ fn mem_skill_list_renders_columns_without_json() {
     let lines: Vec<&str> = out.lines().collect();
     assert_eq!(lines.len(), 2, "one line per record, not one line total");
     for line in &lines {
-        assert!(!line.contains("{\""), "no line may contain a raw JSON object: {line}");
+        assert!(
+            !line.contains("{\""),
+            "no line may contain a raw JSON object: {line}"
+        );
     }
     assert!(lines[0].contains("skill_1"));
     assert!(lines[0].contains("Kinopub Player"));
@@ -47,7 +50,10 @@ fn mem_skill_list_renders_columns_without_json() {
 
 #[test]
 fn mem_skill_list_renders_empty_state_without_json() {
-    assert_eq!(super::render_mem_skill_list(&json!({"skills": []})), "(no skills)\n");
+    assert_eq!(
+        super::render_mem_skill_list(&json!({"skills": []})),
+        "(no skills)\n"
+    );
 }
 
 /// codeterm-releases#60: `--json` always bypasses the column renderer.

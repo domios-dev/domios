@@ -494,7 +494,10 @@ mod tests {
             params.get("acceptance_criteria"),
             Some(&json!(["replacement"]))
         );
-        assert_eq!(params.get("acceptance_criteria_replace"), Some(&json!(true)));
+        assert_eq!(
+            params.get("acceptance_criteria_replace"),
+            Some(&json!(true))
+        );
     }
 
     /// The bare flag alone never implicitly clears the array.

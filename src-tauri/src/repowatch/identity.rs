@@ -24,13 +24,13 @@ impl RepoIdentity {
     pub fn resolve(path: &Path) -> Result<Self, RepoWatchError> {
         let repo = Repository::discover(path)
             .map_err(|e| RepoWatchError::not_a_repository(path, e.message().to_string()))?;
-        let workdir = repo
-            .workdir()
-            .ok_or_else(|| RepoWatchError::not_a_repository(path, "bare repository has no worktree"))?;
+        let workdir = repo.workdir().ok_or_else(|| {
+            RepoWatchError::not_a_repository(path, "bare repository has no worktree")
+        })?;
         let workdir = normalize(workdir)
             .map_err(|e| RepoWatchError::not_a_repository(path, e.to_string()))?;
-        let gitdir =
-            normalize(repo.path()).map_err(|e| RepoWatchError::not_a_repository(path, e.to_string()))?;
+        let gitdir = normalize(repo.path())
+            .map_err(|e| RepoWatchError::not_a_repository(path, e.to_string()))?;
         let common_dir = common_dir(&gitdir);
         let ignore_case = repo
             .config()

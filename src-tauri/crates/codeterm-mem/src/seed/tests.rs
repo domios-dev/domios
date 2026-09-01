@@ -63,7 +63,11 @@ fn versioned_codeterm(body: &str) -> NewMemItem {
 fn seed_runs_once() {
     let mem = MemManager::open_in_memory().unwrap();
     let first = seed_bundled(&mem).unwrap();
-    assert!(first.written() >= 5, "expected >=5 seeded items, got {}", first.written());
+    assert!(
+        first.written() >= 5,
+        "expected >=5 seeded items, got {}",
+        first.written()
+    );
     assert!(first.skipped.is_empty());
 
     let second = seed_bundled(&mem).unwrap();
@@ -101,7 +105,11 @@ fn fingerprint_differs_for_each_managed_field() {
 
     let mut pinned_flip = base.clone();
     pinned_flip.pinned = !base.pinned;
-    assert_ne!(seed_fingerprint(&pinned_flip), base_fp, "changing only pinned must change the fingerprint");
+    assert_ne!(
+        seed_fingerprint(&pinned_flip),
+        base_fp,
+        "changing only pinned must change the fingerprint"
+    );
 }
 
 /// `source` is the provenance marker, not managed content: it is excluded.
@@ -163,13 +171,20 @@ fn bootstrap_refuses_an_edit_between_read_and_write() {
         },
     )
     .unwrap();
-    assert_eq!(fingerprint_of(&mem, &id), None, "the edit clears the fingerprint too");
+    assert_eq!(
+        fingerprint_of(&mem, &id),
+        None,
+        "the edit clears the fingerprint too"
+    );
 
     let applied = mem
         .bootstrap_seed_fingerprint(&id, &stale_expected, &seed_fingerprint(&shipped))
         .unwrap();
 
-    assert!(!applied, "bootstrap must not accept a payload it didn't just verify");
+    assert!(
+        !applied,
+        "bootstrap must not accept a payload it didn't just verify"
+    );
     assert_eq!(fingerprint_of(&mem, &id), None);
     assert_eq!(find(&mem, "codeterm").body, "a concurrent user edit");
 }
@@ -233,7 +248,10 @@ fn ambiguous_legacy_item_is_preserved() {
     let outcome = seed_from(&mem, vec![codeterm_item()]).unwrap();
 
     assert_eq!(outcome.written(), 0);
-    assert_eq!(outcome.skipped, vec![("codeterm".to_string(), SeedSkipReason::Absent)]);
+    assert_eq!(
+        outcome.skipped,
+        vec![("codeterm".to_string(), SeedSkipReason::Absent)]
+    );
     assert_eq!(fingerprint_of(&mem, &id), None);
     let after = find(&mem, "codeterm");
     assert_eq!(after.body, stored.body);
@@ -254,19 +272,32 @@ fn real_1_10_7_row_upgrades_in_one_pass() {
     let mem = MemManager::open_in_memory().unwrap();
     let legacy = legacy_1_10_7_codeterm();
     let id = mem.save(legacy.clone()).unwrap();
-    assert_eq!(fingerprint_of(&mem, &id), None, "a real 1.10.7 row predates fingerprints");
+    assert_eq!(
+        fingerprint_of(&mem, &id),
+        None,
+        "a real 1.10.7 row predates fingerprints"
+    );
 
     // Simulates a post-1.10.7 prompt edit; only the frozen bridge can prove
     // this old row remained unedited.
     let current = versioned_codeterm("hypothetical v3 content, post-1.10.7");
     let outcome = seed_from(&mem, vec![current.clone()]).unwrap();
 
-    assert_eq!(outcome.bootstrapped, 1, "bootstrapped against the legacy payload");
-    assert_eq!(outcome.refreshed, 1, "chained into the CAS refresh in the same pass");
+    assert_eq!(
+        outcome.bootstrapped, 1,
+        "bootstrapped against the legacy payload"
+    );
+    assert_eq!(
+        outcome.refreshed, 1,
+        "chained into the CAS refresh in the same pass"
+    );
     assert_eq!(outcome.written(), 2);
     assert!(outcome.skipped.is_empty());
     let after = find(&mem, "codeterm");
-    assert_eq!(after.body, current.body, "already on current content when this call returns");
+    assert_eq!(
+        after.body, current.body,
+        "already on current content when this call returns"
+    );
     assert_ne!(after.body, legacy.body);
     assert_eq!(fingerprint_of(&mem, &id), Some(seed_fingerprint(&current)));
 }
@@ -282,7 +313,10 @@ fn body_edited_1_10_7_variant_does_not_bootstrap() {
     let outcome = seed_from(&mem, vec![versioned_codeterm("hypothetical v3 content")]).unwrap();
 
     assert_eq!(outcome.written(), 0);
-    assert_eq!(outcome.skipped, vec![("codeterm".to_string(), SeedSkipReason::Absent)]);
+    assert_eq!(
+        outcome.skipped,
+        vec![("codeterm".to_string(), SeedSkipReason::Absent)]
+    );
     assert_eq!(fingerprint_of(&mem, &id), None);
     assert_eq!(find(&mem, "codeterm").body, edited.body);
 }
@@ -299,7 +333,10 @@ fn metadata_edited_1_10_7_variant_does_not_bootstrap() {
     let outcome = seed_from(&mem, vec![versioned_codeterm("hypothetical v3 content")]).unwrap();
 
     assert_eq!(outcome.written(), 0);
-    assert_eq!(outcome.skipped, vec![("codeterm".to_string(), SeedSkipReason::Absent)]);
+    assert_eq!(
+        outcome.skipped,
+        vec![("codeterm".to_string(), SeedSkipReason::Absent)]
+    );
     assert_eq!(fingerprint_of(&mem, &id), None);
     let after = find(&mem, "codeterm");
     assert_eq!(after.summary, edited.summary);
@@ -325,11 +362,14 @@ fn every_single_field_drift_from_1_10_7_fails_closed() {
         mutate(&mut drifted);
         let id = mem.save(drifted.clone()).unwrap();
 
-        let outcome =
-            seed_from(&mem, vec![versioned_codeterm("hypothetical v3 content")]).unwrap();
+        let outcome = seed_from(&mem, vec![versioned_codeterm("hypothetical v3 content")]).unwrap();
 
         assert_eq!(outcome.written(), 0, "{field} drift must not upgrade");
-        assert_eq!(fingerprint_of(&mem, &id), None, "{field} drift must not fingerprint");
+        assert_eq!(
+            fingerprint_of(&mem, &id),
+            None,
+            "{field} drift must not fingerprint"
+        );
     }
 
     let mem = MemManager::open_in_memory().unwrap();
@@ -337,7 +377,11 @@ fn every_single_field_drift_from_1_10_7_fails_closed() {
     pinned_drift.pinned = !pinned_drift.pinned;
     let id = mem.save(pinned_drift).unwrap();
     seed_from(&mem, vec![versioned_codeterm("hypothetical v3 content")]).unwrap();
-    assert_eq!(fingerprint_of(&mem, &id), None, "pinned drift must not fingerprint");
+    assert_eq!(
+        fingerprint_of(&mem, &id),
+        None,
+        "pinned drift must not fingerprint"
+    );
 }
 
 /// A `title` drift: never found (title-keyed search), survives untouched,
@@ -352,7 +396,10 @@ fn title_drifted_1_10_7_variant_is_untouched_and_a_new_item_is_created() {
     let target = versioned_codeterm("hypothetical v3 content");
     let outcome = seed_from(&mem, vec![target.clone()]).unwrap();
 
-    assert_eq!(outcome.created, 1, "the canonical title is unseeded, so it is created");
+    assert_eq!(
+        outcome.created, 1,
+        "the canonical title is unseeded, so it is created"
+    );
     assert_eq!(outcome.written(), 1);
     assert!(outcome.skipped.is_empty());
 
@@ -366,7 +413,10 @@ fn title_drifted_1_10_7_variant_is_untouched_and_a_new_item_is_created() {
     let created_row = find(&mem, "codeterm");
     assert_ne!(created_row.id, edited_id);
     assert_eq!(created_row.body, target.body);
-    assert_eq!(fingerprint_of(&mem, &created_row.id), Some(seed_fingerprint(&target)));
+    assert_eq!(
+        fingerprint_of(&mem, &created_row.id),
+        Some(seed_fingerprint(&target))
+    );
 }
 
 /// A `kind` drift: excluded by the search's kind filter the same way — the
@@ -381,7 +431,10 @@ fn kind_drifted_1_10_7_variant_is_untouched_and_a_new_item_is_created() {
     let target = versioned_codeterm("hypothetical v3 content");
     let outcome = seed_from(&mem, vec![target.clone()]).unwrap();
 
-    assert_eq!(outcome.created, 1, "the canonical kind is unseeded, so it is created");
+    assert_eq!(
+        outcome.created, 1,
+        "the canonical kind is unseeded, so it is created"
+    );
     assert_eq!(outcome.written(), 1);
     assert!(outcome.skipped.is_empty());
 
@@ -395,7 +448,10 @@ fn kind_drifted_1_10_7_variant_is_untouched_and_a_new_item_is_created() {
     let created_row = find_excluding(&mem, "codeterm", &edited_id);
     assert_ne!(created_row.id, edited_id);
     assert_eq!(created_row.body, target.body);
-    assert_eq!(fingerprint_of(&mem, &created_row.id), Some(seed_fingerprint(&target)));
+    assert_eq!(
+        fingerprint_of(&mem, &created_row.id),
+        Some(seed_fingerprint(&target))
+    );
 }
 
 /// VERSION-AGNOSTIC (1/2): the generic mechanism refreshes a fingerprinted,
@@ -456,12 +512,19 @@ fn user_edit_to_body_is_preserved() {
         },
     )
     .unwrap();
-    assert_eq!(fingerprint_of(&mem, &id), None, "a body edit must relinquish ownership");
+    assert_eq!(
+        fingerprint_of(&mem, &id),
+        None,
+        "a body edit must relinquish ownership"
+    );
 
     let outcome = seed_from(&mem, vec![shipped]).unwrap();
 
     assert_eq!(outcome.written(), 0);
-    assert_eq!(find(&mem, "codeterm").body, "user-authored codeterm skill body");
+    assert_eq!(
+        find(&mem, "codeterm").body,
+        "user-authored codeterm skill body"
+    );
 }
 
 /// A user edit to summary/tags/area/importance/pinned ALONE, body
@@ -482,14 +545,21 @@ fn user_edit_to_metadata_only_is_preserved() {
         },
     )
     .unwrap();
-    assert_eq!(fingerprint_of(&mem, &id), None, "a tags-only edit must relinquish ownership");
+    assert_eq!(
+        fingerprint_of(&mem, &id),
+        None,
+        "a tags-only edit must relinquish ownership"
+    );
 
     let outcome = seed_from(&mem, vec![shipped.clone()]).unwrap();
 
     assert_eq!(outcome.written(), 0);
     let after = find(&mem, "codeterm");
     assert_eq!(after.tags, vec!["user-tag".to_string()]);
-    assert_eq!(after.body, shipped.body, "body was never touched by the metadata edit");
+    assert_eq!(
+        after.body, shipped.body,
+        "body was never touched by the metadata edit"
+    );
 }
 
 /// NEGATIVE: a fingerprint no longer matching the stored payload (changed
@@ -511,7 +581,11 @@ fn mismatched_fingerprint_is_preserved() {
         )
     })
     .unwrap();
-    assert_eq!(fingerprint_of(&mem, &id), Some(recorded), "the stale fingerprint is still recorded");
+    assert_eq!(
+        fingerprint_of(&mem, &id),
+        Some(recorded),
+        "the stale fingerprint is still recorded"
+    );
 
     let outcome = seed_from(&mem, vec![shipped]).unwrap();
 
@@ -586,7 +660,10 @@ fn concurrent_edit_between_check_and_write_is_refused() {
         )
         .unwrap();
 
-    assert!(!applied, "a write against a stale fingerprint must not apply");
+    assert!(
+        !applied,
+        "a write against a stale fingerprint must not apply"
+    );
     assert_eq!(find(&mem, "codeterm").body, "a concurrent user edit");
 }
 

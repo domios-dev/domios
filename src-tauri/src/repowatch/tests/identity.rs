@@ -16,7 +16,10 @@ fn repository_identity_resolves_linked_worktrees() {
     // 1. discover resolves both; the linked worktree owns its own identity.
     let primary_id = RepoIdentity::resolve(primary.path()).expect("primary resolves");
     let lane_id = RepoIdentity::resolve(&lane).expect("linked worktree resolves");
-    assert!(lane.join(".git").is_file(), "linked worktree .git is a FILE");
+    assert!(
+        lane.join(".git").is_file(),
+        "linked worktree .git is a FILE"
+    );
     assert_ne!(
         primary_id.key, lane_id.key,
         "a linked worktree is its own bubble, not the primary's"
@@ -34,7 +37,10 @@ fn repository_identity_resolves_linked_worktrees() {
 
     // 2 + 3. two entries, one shared ref watch, refcounted independently.
     let (registry, _rx) = registry_with(Arc::new(InertBackend));
-    let a = registry.subscribe(primary.path()).expect("primary subscribe").token;
+    let a = registry
+        .subscribe(primary.path())
+        .expect("primary subscribe")
+        .token;
     let b = registry.subscribe(&lane).expect("lane subscribe").token;
     assert_eq!(registry.entry_count(), 2, "two identities, two entries");
     assert_eq!(registry.shared_count(), 1, "one shared ref watch");

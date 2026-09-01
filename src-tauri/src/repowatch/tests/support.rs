@@ -27,18 +27,16 @@ pub struct ChannelSink {
 impl ChannelSink {
     pub fn new() -> (Arc<Self>, Receiver<SinkEvent>) {
         let (tx, rx) = channel();
-        (
-            Arc::new(Self {
-                tx: Mutex::new(tx),
-            }),
-            rx,
-        )
+        (Arc::new(Self { tx: Mutex::new(tx) }), rx)
     }
 }
 
 impl RepoEventSink for ChannelSink {
     fn repository_changed(&self, identity: &str) {
-        let _ = self.tx.lock().send(SinkEvent::Changed(identity.to_string()));
+        let _ = self
+            .tx
+            .lock()
+            .send(SinkEvent::Changed(identity.to_string()));
     }
 
     fn repository_unavailable(&self, identity: &str, reason: RepoWatchUnavailable) {
@@ -269,7 +267,9 @@ impl WatchBackend for ProbeBackend {
     }
 }
 
-pub fn registry_with(backend: Arc<dyn WatchBackend>) -> (Arc<RepoWatchRegistry>, Receiver<SinkEvent>) {
+pub fn registry_with(
+    backend: Arc<dyn WatchBackend>,
+) -> (Arc<RepoWatchRegistry>, Receiver<SinkEvent>) {
     let (sink, rx) = ChannelSink::new();
     (Arc::new(RepoWatchRegistry::with_backend(sink, backend)), rx)
 }
@@ -380,6 +380,9 @@ pub fn linked_worktree(primary: &Path, name: &str) -> tempfile::TempDir {
             target.to_str().unwrap(),
         ],
     );
-    assert!(target.join(".git").is_file(), "linked worktree .git must be a FILE");
+    assert!(
+        target.join(".git").is_file(),
+        "linked worktree .git must be a FILE"
+    );
     holder
 }
