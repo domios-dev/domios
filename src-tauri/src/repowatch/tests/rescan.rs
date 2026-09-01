@@ -1,8 +1,10 @@
 use super::support::*;
-use crate::repowatch::backend::{is_rescan, RescanRelay, RescanSink, WatchSignal};
+use crate::repowatch::backend::{
+    is_observation_only, is_rescan, RescanRelay, RescanSink, WatchSignal,
+};
 use crate::repowatch::events::RepoWatchUnavailable;
 use crate::repowatch::identity::RepoIdentity;
-use notify::event::Flag;
+use notify::event::{AccessKind, AccessMode, Flag};
 use notify::{Event, EventHandler, EventKind};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -61,6 +63,24 @@ fn repository_watch_reports_backend_rescan() {
         lifted.load(Ordering::SeqCst),
         1,
         "an ordinary event raises no rescan"
+    );
+    assert_eq!(forwarded.load(Ordering::SeqCst), 2);
+
+    let opened_for_read = Event::new(EventKind::Access(AccessKind::Open(AccessMode::Read)));
+    assert!(is_observation_only(&Ok(opened_for_read.clone())));
+    relay.handle_event(Ok(opened_for_read));
+    assert_eq!(
+        forwarded.load(Ordering::SeqCst),
+        2,
+        "reading a watched directory is not a repository change"
+    );
+    relay.handle_event(Ok(Event::new(EventKind::Modify(
+        notify::event::ModifyKind::Any,
+    ))));
+    assert_eq!(
+        forwarded.load(Ordering::SeqCst),
+        3,
+        "mutations still reach the debouncer"
     );
 
     // End to end: the signal reaches every affected identity as unavailable.

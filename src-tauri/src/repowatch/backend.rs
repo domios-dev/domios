@@ -80,6 +80,10 @@ pub fn is_rescan(event: &notify::Result<Event>) -> bool {
     matches!(event, Ok(e) if e.need_rescan())
 }
 
+pub fn is_observation_only(event: &notify::Result<Event>) -> bool {
+    matches!(event, Ok(e) if matches!(e.kind, notify::EventKind::Access(_)))
+}
+
 /// Sits between the backend and the debouncer, lifting the rescan flag out
 /// before the zero-path event is dropped, then forwarding untouched.
 pub struct RescanRelay<F: EventHandler> {
@@ -99,6 +103,9 @@ impl<F: EventHandler> EventHandler for RescanRelay<F> {
             if let Some(sink) = &self.sink {
                 sink();
             }
+        }
+        if is_observation_only(&event) {
+            return;
         }
         self.inner.handle_event(event);
     }
