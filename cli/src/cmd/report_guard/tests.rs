@@ -692,24 +692,21 @@ fn declared_lane_worktree_that_is_not_a_repo_refuses_instead_of_using_the_pane()
     );
 }
 
+/// Mechanism only: the refusal must never advise a shell expression (any
+/// `$(...)` substitution) for the commit sha, since that could resolve to a
+/// foreign HEAD in a lane worktree rather than the caller's own commit.
 #[test]
-fn hint_does_not_advise_foreign_head() {
+fn refusal_never_advises_a_shell_expression_for_the_commit_sha() {
     let refusal = ReportRefusal {
         reason: "readiness report refused".into(),
         dirty_files: Vec::new(),
     };
     let message = refusal.message();
-    let prompt = include_str!("../../../src-tauri/prompts/worker_suffix.md");
 
-    for text in [message.as_str(), prompt] {
-        assert!(!text.contains("$(git rev-parse HEAD)"));
-        assert!(text.contains("own owned commit SHA"));
+    assert!(!message.contains("$("), "{message}");
+    for line in REPORT_NEXT_COMMANDS {
+        assert!(!line.contains("$("), "{line}");
     }
-    assert!(prompt.contains("commit only this task's owned changes"));
-    assert!(prompt.contains("Never use `git add -A` or `git add .`"));
-    assert!(prompt.contains("Read-only tasks need no commit"));
-    assert!(prompt.contains("report `partial` with the exact blocker"));
-    assert!(prompt.contains("hexadecimal literal"));
 }
 
 /// codeterm#305: spawn and report derive the same verdict from the same
