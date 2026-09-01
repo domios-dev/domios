@@ -58,6 +58,7 @@ fn list_show_and_new_route_explicit_plan_to_rpc() {
         "CODETERM_SESSION_ID",
         "CODETERM_SESSION_BINDING_NONCE",
         "CODETERM_TASK_ID",
+        "CODETERM_ATTEMPT_ID",
     ];
     let previous = worker_keys.map(|key| (key, std::env::var(key).ok()));
     for key in worker_keys {
@@ -120,8 +121,9 @@ fn list_show_and_new_route_explicit_plan_to_rpc() {
         ]
     );
     for (key, value) in previous {
-        if let Some(value) = value {
-            std::env::set_var(key, value);
+        match value {
+            Some(value) => std::env::set_var(key, value),
+            None => std::env::remove_var(key),
         }
     }
 }
@@ -188,18 +190,27 @@ fn list_show_and_new_use_plan_id_from_environment() {
     }
 }
 
+/// Production exports tab/nonce/task/attempt before PTY spawn, never a session.
 #[test]
-fn plan_skill_show_forwards_exact_worker_binding() {
+fn plan_skill_show_omits_unproduced_session_id() {
     let _guard = crate::test_env_lock().lock().unwrap();
     let keys = [
+        "CODETERM_TAB_ID",
+        "CODETERM_SESSION_ID",
+        "CODETERM_SESSION_BINDING_NONCE",
+        "CODETERM_TASK_ID",
+        "CODETERM_ATTEMPT_ID",
+    ];
+    let previous = keys.map(|key| (key, std::env::var(key).ok()));
+    for key in keys {
+        std::env::remove_var(key);
+    }
+    for (key, value) in [
         ("CODETERM_TAB_ID", "ced263e9"),
-        ("CODETERM_SESSION_ID", "session-5upl98"),
         ("CODETERM_SESSION_BINDING_NONCE", "nonce-5upl98"),
         ("CODETERM_TASK_ID", "task_6bd5ky"),
         ("CODETERM_ATTEMPT_ID", "attempt_5upl98"),
-    ];
-    let previous = keys.map(|(key, _)| (key, std::env::var(key).ok()));
-    for (key, value) in keys {
+    ] {
         std::env::set_var(key, value);
     }
     let mut client = FakeRpc::default();
@@ -214,11 +225,11 @@ fn plan_skill_show_forwards_exact_worker_binding() {
     .unwrap();
     let params = client.calls[0].1.as_ref().unwrap();
     assert_eq!(params["caller_tab_id"], "ced263e9");
-    assert_eq!(params["caller_session_id"], "session-5upl98");
     assert_eq!(params["session_binding_nonce"], "nonce-5upl98");
     assert_eq!(params["plan_id"], "pl_zzmxgb");
     assert_eq!(params["task_id"], "task_6bd5ky");
     assert_eq!(params["attempt_id"], "attempt_5upl98");
+    assert!(params.get("caller_session_id").is_none());
     for (key, value) in previous {
         match value {
             Some(value) => std::env::set_var(key, value),
@@ -227,6 +238,7 @@ fn plan_skill_show_forwards_exact_worker_binding() {
     }
 }
 
+/// A task assigned after launch leaves no task/attempt env; tab+nonce still route.
 #[test]
 fn plan_skill_show_resolves_post_launch_task_from_live_tab_binding() {
     let _guard = crate::test_env_lock().lock().unwrap();
@@ -242,7 +254,6 @@ fn plan_skill_show_resolves_post_launch_task_from_live_tab_binding() {
         std::env::remove_var(key);
     }
     std::env::set_var("CODETERM_TAB_ID", "ced263e9");
-    std::env::set_var("CODETERM_SESSION_ID", "session-5upl98");
     std::env::set_var("CODETERM_SESSION_BINDING_NONCE", "nonce-5upl98");
     let mut client = FakeRpc::default();
     handle(
@@ -256,8 +267,8 @@ fn plan_skill_show_resolves_post_launch_task_from_live_tab_binding() {
     .unwrap();
     let params = client.calls[0].1.as_ref().unwrap();
     assert_eq!(params["caller_tab_id"], "ced263e9");
-    assert_eq!(params["caller_session_id"], "session-5upl98");
     assert_eq!(params["session_binding_nonce"], "nonce-5upl98");
+    assert!(params.get("caller_session_id").is_none());
     assert!(params.get("task_id").is_none());
     assert!(params.get("attempt_id").is_none());
     for (key, value) in previous {
@@ -279,22 +290,34 @@ fn plan_skill_show_rejects_partial_live_binding_before_rpc() {
         "CODETERM_ATTEMPT_ID",
     ];
     let previous = keys.map(|key| (key, std::env::var(key).ok()));
-    for key in keys {
-        std::env::remove_var(key);
+    for partial in [
+        ("CODETERM_TASK_ID", "task_6bd5ky"),
+        ("CODETERM_ATTEMPT_ID", "attempt_5upl98"),
+        ("CODETERM_TAB_ID", "ced263e9"),
+        ("CODETERM_SESSION_BINDING_NONCE", "nonce-5upl98"),
+        ("CODETERM_SESSION_ID", "session-5upl98"),
+    ] {
+        for key in keys {
+            std::env::remove_var(key);
+        }
+        std::env::set_var(partial.0, partial.1);
+        let mut client = FakeRpc::default();
+        let error = handle(
+            &mut client,
+            true,
+            PlanSkillAction::Show {
+                slug: "dispatch-contract".into(),
+                plan: Some("pl_zzmxgb".into()),
+            },
+        )
+        .unwrap_err();
+        assert!(
+            error.contains("complete tab/nonce caller identity"),
+            "{} alone must be refused: {error}",
+            partial.0
+        );
+        assert!(client.calls.is_empty());
     }
-    std::env::set_var("CODETERM_TASK_ID", "task_6bd5ky");
-    let mut client = FakeRpc::default();
-    let error = handle(
-        &mut client,
-        true,
-        PlanSkillAction::Show {
-            slug: "dispatch-contract".into(),
-            plan: Some("pl_zzmxgb".into()),
-        },
-    )
-    .unwrap_err();
-    assert!(error.contains("complete tab/session/nonce identity"));
-    assert!(client.calls.is_empty());
     for (key, value) in previous {
         match value {
             Some(value) => std::env::set_var(key, value),

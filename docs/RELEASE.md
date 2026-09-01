@@ -203,6 +203,7 @@ yet.
 | PR CI fails during `pnpm install` with `ERR_PNPM_OUTDATED_LOCKFILE` | A workspace manifest changed without regenerating the root lockfile, so CI's implicit frozen-lockfile check rejects it before tests run | Run `pnpm install --no-frozen-lockfile`, commit `pnpm-lock.yaml`, then verify locally with `pnpm install --frozen-lockfile` before rerunning CI |
 | Release frontend preflight fails with TS2722 on `this.buildResumeCommand(...)` inside a provider's context-aware resume method | The shared plugin interface declares the legacy resume capability as optional even when that provider implements both methods in the same object | Assert the provider-local method's presence at the call site, regenerate the provider bundle, and rerun `build.ps1 frontend`; do not weaken the shared optional capability contract. |
 | Linux Rust PR job fails at `fmt` before compilation | A broad Rust rename/refactor was committed without applying both workspace formatters | Run `cargo fmt --manifest-path src-tauri/Cargo.toml` and `cargo fmt --manifest-path cli/Cargo.toml`, commit the mechanical formatting, then require both commands with `-- --check` before rerunning CI |
+| `npm run sync:versions` says `'node' is not recognized` although `node --version` works | npm's Windows script shell lost the Node directory from its child `PATH` | Run `node scripts/sync-plugin-versions.mjs <version>` directly, then `node scripts/sync-plugin-versions.mjs --check`; both invoke the same repository-owned implementation without npm's broken child shell |
 | TS PR job reaches Biome, then parses suspended Playwright files or a generated plugin bundle | The global Biome include set accidentally covers surfaces excluded from active gates | Keep `tests/playwright/**` and generated plugin UI bundles outside `biome.json`'s active include set; do not repair or run the suspended suite as a release side effect |
 | Linux Rust PR job fails in clippy after local `build.ps1 check` passed | The build check compiles but does not run the stricter repository clippy gate | Run `bash scripts/clippy-gate.sh` on the release head and fix the reported owning code rather than adding a new lint allow |
 | Windows Rust PR job fails the mesh announce no-op tests while an earlier broad local test appeared green | The cached workspace run did not rebuild `codeterm-mesh`, and the peer fixture used an old relay protocol so an address no-op still reported a metadata change | Initialize the fixture with `RELAY_PROTOCOL_VERSION`, then run `build.ps1 test-one mesh apply_announce_empty_list_is_noop`, `build.ps1 test-one mesh apply_announce_same_addrs_returns_no_change`, and the full mesh crate before updating the PR |
@@ -334,6 +335,8 @@ Don't skip this — a stale `develop` makes the next release start from a missin
   source release can upload with `GITHUB_TOKEN`, but the public mirror is a different repo.
 - **macOS updater URLs must be arch-specific** (`CodeTerm_aarch64.app.tar.gz` /
   `CodeTerm_x64.app.tar.gz`), never both pointing at a generic `CodeTerm.app.tar.gz`.
+- **An x86_64 build running through Rosetta updates to `darwin-aarch64`.** The updater reads
+  `sysctl.proc_translated`; native Intel remains on `darwin-x86_64`.
 - **`latest.json` URLs must point at `rollacode/codeterm-releases`, not the private source repo** —
   the updater runs anonymously.
 - **If source release assets are valid but the mirror failed**, download from `rollacode/codeterm`,
@@ -371,6 +374,13 @@ Don't skip this — a stale `develop` makes the next release start from a missin
   checked-in Node entry points directly; for version sync, run the same
   `scripts/sync-plugin-versions.mjs` entry point with the resolved `node.exe`, then run it again
   with `--check`. Do not hand-edit versions or weaken the TypeScript matrix.
+- **`remoteChannelRecovery.test.ts` fails only in the full parallel TypeScript matrix** when its
+  silence-deadline assertion depends on wall-clock sleeps. Drive the injected deadline scheduler
+  directly so re-arm and clear are ordered by events; do not widen delays or retry the preflight.
+- **`authorized_provider_update_restarts_after_delivery_resolution` times out only in the full
+  Rust suite** when the provider-update waiter replaces its pre-armed event receiver after its
+  thread starts. Move the original receiver into the waiter so events published between consent
+  and thread scheduling remain queued; do not widen the deadline or retry the preflight.
 - **Plugin freshness reports modified bundles but `git diff` is empty** when `core.autocrlf=true`
   leaves clean tracked files with worktree-only stat dirt. The gate uses normalized diff for
   tracked content and `git ls-files --others` for new bundles; raw status is not evidence of drift.
@@ -387,4 +397,4 @@ The minisign updater key (`~/.tauri/codeterm.key`, empty password; its public ha
 the `github-release` skill lists the exact ids and restore paths. A builder without the minisign
 key produces artifacts the updater can't verify.
 
-<!-- revision: 30 -->
+<!-- revision: 34 -->

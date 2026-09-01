@@ -500,7 +500,7 @@ impl ServiceContext {
             .provider_updates
             .get(prompt_id)
             .ok_or_else(|| "Provider update prompt is no longer active".to_string())?;
-        let mut receiver = self.events.subscribe();
+        let receiver = self.events.subscribe();
         let claimed = {
             let mux = self.mux.read();
             let tab = mux
@@ -534,7 +534,7 @@ impl ServiceContext {
                     entry.provider_id
                 );
                 if !self.try_execute_provider_update(prompt_id)? {
-                    self.start_provider_update_waiter(prompt_id.to_string(), &mut receiver);
+                    self.start_provider_update_waiter(prompt_id.to_string(), receiver);
                 }
             }
         }
@@ -606,13 +606,13 @@ impl ServiceContext {
     fn start_provider_update_waiter(
         &self,
         prompt_id: String,
-        receiver: &mut tokio::sync::broadcast::Receiver<crate::api::events::SeqEvent>,
+        mut receiver: tokio::sync::broadcast::Receiver<crate::api::events::SeqEvent>,
     ) {
         if !self.provider_updates.mark_waiter_started(&prompt_id) {
             return;
         }
         let svc = self.clone();
-        let mut receiver = receiver.resubscribe();
+        // Keep events queued after consent but before the waiter thread starts.
         std::thread::spawn(move || loop {
             match receiver.blocking_recv() {
                 Ok(event)

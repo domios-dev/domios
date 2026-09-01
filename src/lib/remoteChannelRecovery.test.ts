@@ -1,7 +1,10 @@
 import { describe, expect, finish, it } from "../test/standaloneTest";
-import { createRemoteChannelRecovery, createSilenceDeadline, parkStalledConnection } from "./remoteChannelRecovery";
-
-const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+import {
+  createRemoteChannelRecovery,
+  createSilenceDeadline,
+  parkStalledConnection,
+  type SilenceDeadlineScheduler,
+} from "./remoteChannelRecovery";
 import type { RemoteTransportAvailability, RemoteTransportChannel } from "./remoteTabTransportState";
 
 const advanced = (prev: number | null, next: number): boolean => prev === null || next > prev;
@@ -14,6 +17,30 @@ function build() {
     onAvailability: (channel, availability) => emitted.push({ channel, availability }),
   });
   return { recovery, emitted };
+}
+
+function manualScheduler() {
+  let nextHandle = 0;
+  const callbacks = new Map<number, () => void>();
+  const scheduler: SilenceDeadlineScheduler = {
+    schedule(callback) {
+      nextHandle += 1;
+      callbacks.set(nextHandle, callback);
+      return nextHandle;
+    },
+    cancel(handle) {
+      callbacks.delete(handle as number);
+    },
+  };
+  return {
+    scheduler,
+    pending: () => callbacks.size,
+    fire() {
+      const queued = [...callbacks.values()];
+      callbacks.clear();
+      queued.forEach((callback) => callback());
+    },
+  };
 }
 
 describe("remote channel recovery", () => {
@@ -111,33 +138,34 @@ describe("remote channel recovery", () => {
     expect(stale.signal.aborted).toBe(false);
   });
 
-  it("silence deadline parks after silence; re-arm resets it and clear cancels it", async () => {
-    // Fires on genuine silence: no re-arm within the window -> park + abort.
+  it("silence deadline parks after silence; re-arm resets it and clear cancels it", () => {
     {
       const { recovery } = build();
       const gen = recovery.beginConnection();
       const ctl = new AbortController();
-      const deadline = createSilenceDeadline(recovery, gen, ctl, 5);
+      const clock = manualScheduler();
+      const deadline = createSilenceDeadline(recovery, gen, ctl, 5, clock.scheduler);
       deadline.arm();
-      await wait(40);
+      expect(clock.pending()).toBe(1);
+      clock.fire();
       expect(ctl.signal.aborted).toBe(true);
       expect(recovery.isAwaitingSignal()).toBe(true);
     }
-    // Re-arm before expiry keeps it alive (a keep-alive on an idle-healthy tab);
-    // clear() on teardown stops the chain so it cannot outlive the connection.
     {
       const { recovery } = build();
       const gen = recovery.beginConnection();
       const ctl = new AbortController();
-      const deadline = createSilenceDeadline(recovery, gen, ctl, 30);
+      const clock = manualScheduler();
+      const deadline = createSilenceDeadline(recovery, gen, ctl, 30, clock.scheduler);
       deadline.arm();
-      await wait(15); deadline.arm();
-      await wait(15); deadline.arm();
-      await wait(15);
-      expect(ctl.signal.aborted).toBe(false); // never idle a full window straight.
+      deadline.arm();
+      deadline.arm();
+      expect(clock.pending()).toBe(1);
+      expect(ctl.signal.aborted).toBe(false);
       deadline.clear();
-      await wait(50);
-      expect(ctl.signal.aborted).toBe(false); // cleared: no park after teardown.
+      expect(clock.pending()).toBe(0);
+      clock.fire();
+      expect(ctl.signal.aborted).toBe(false);
     }
   });
 });

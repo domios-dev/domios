@@ -31,26 +31,29 @@ pub(super) fn dispatch(
     let Some(body) = params.as_ref() else {
         return Ok(result);
     };
-    let binding = [
+    let supplied_session_id = body.get("caller_session_id").and_then(Value::as_str);
+    let identity = [
         body.get("caller_tab_id").and_then(Value::as_str),
-        body.get("caller_session_id").and_then(Value::as_str),
         body.get("session_binding_nonce").and_then(Value::as_str),
     ];
-    if binding.iter().any(|value| value.is_some()) && binding.iter().any(|value| value.is_none()) {
-        return Err(plan_rpc_err(crate::service::plan::PlanError::Io(
-            "plan skill caller identity is incomplete".into(),
-        )));
-    }
-    let [Some(tab_id), Some(session_id), Some(nonce)] = binding else {
-        if body.get("task_id").is_some() || body.get("attempt_id").is_some() {
+    let [Some(tab_id), Some(nonce)] = identity else {
+        if identity.iter().any(Option::is_some)
+            || supplied_session_id.is_some()
+            || body.get("task_id").is_some()
+            || body.get("attempt_id").is_some()
+        {
             return Err(plan_rpc_err(crate::service::plan::PlanError::Io(
                 "plan skill caller identity is incomplete".into(),
             )));
         }
         return Ok(result);
     };
+    let session_id = match supplied_session_id {
+        Some(session_id) => session_id.to_string(),
+        None => nonce_proven_session_id(svc, tab_id, nonce)?,
+    };
     let live = svc.mux.read().get_tab(tab_id).map(|tab| {
-        tab.agent_session_id.as_deref() == Some(session_id)
+        tab.agent_session_id.as_deref() == Some(session_id.as_str())
             && tab.session_binding_nonce.as_deref() == Some(nonce)
             && tab.reported_session_binding_nonce.as_deref() == Some(nonce)
     }) == Some(true);
@@ -86,10 +89,40 @@ pub(super) fn dispatch(
         .and_then(Value::as_str);
     store
         .record_plan_skill_load(
-            &plan_id, &task_id, tab_id, session_id, nonce, attempt_id, slug, &digest, now_ms,
+            &plan_id,
+            &task_id,
+            tab_id,
+            &session_id,
+            nonce,
+            attempt_id,
+            slug,
+            &digest,
+            now_ms,
         )
         .map_err(plan_rpc_err)?;
     Ok(result)
+}
+
+// A task tab cannot export its session id before PTY spawn; only a nonce that
+// is both issued to the tab and echoed back proves the session that owns it.
+fn nonce_proven_session_id(
+    svc: &ServiceState,
+    tab_id: &str,
+    nonce: &str,
+) -> Result<String, JsonRpcError> {
+    svc.mux
+        .read()
+        .get_tab(tab_id)
+        .filter(|tab| {
+            tab.session_binding_nonce.as_deref() == Some(nonce)
+                && tab.reported_session_binding_nonce.as_deref() == Some(nonce)
+        })
+        .and_then(|tab| tab.agent_session_id.clone())
+        .ok_or_else(|| {
+            plan_rpc_err(crate::service::plan::PlanError::Io(
+                "plan skill caller session is not nonce-proven by a live tab".into(),
+            ))
+        })
 }
 
 fn resolve_skill_task_id(
@@ -160,9 +193,13 @@ fn optional_string(params: &Value, key: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plan::OrchestratorRef;
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::plan::{OrchestratorRef, PlanSkillManifestEntry};
     use crate::service::plan::paths::{plan_dir, plan_sidecar_root};
     use crate::service::plan::PlanStore;
+    use crate::service::test_fixture::ServiceFixture;
+    use crate::service::ServiceState;
+    use std::sync::Arc;
 
     fn add_task(store: &PlanStore, plan_id: &str, name: &str) -> String {
         store
@@ -373,5 +410,241 @@ mod tests {
             task_id
         );
         assert!(resolve_skill_task_id(&store, &plan.id, "foreign-tab", None).is_err());
+    }
+
+    const CALLER_NONCE: &str = "nonce-live-5upl98";
+    const CALLER_SESSION: &str = "session-live-5upl98";
+    const CALLER_SKILL: &str = "verify-before-claim";
+
+    /// A task-bound Worker as production leaves it: the tab holds the issued and
+    /// echoed nonce, and the session id exists only there, never in the env.
+    struct LiveCaller {
+        svc: ServiceState,
+        plan_id: String,
+        task_id: String,
+        attempt_id: String,
+        _fixture: ServiceFixture,
+        _project: tempfile::TempDir,
+    }
+
+    impl LiveCaller {
+        fn new() -> Self {
+            let project = tempfile::tempdir().unwrap();
+            crate::service::plan::paths::mark_test_project_root(project.path());
+            let (mut mux, _) = MultiplexerState::new();
+            let workspace = mux.list_workspaces()[0].id.clone();
+            let tab_id = mux.create_tab(&workspace).unwrap();
+            let tab = mux.get_tab_mut(&tab_id).unwrap();
+            tab.agent_type = Some("claude".into());
+            tab.agent_session_id = Some(CALLER_SESSION.into());
+            tab.session_binding_nonce = Some(CALLER_NONCE.into());
+            tab.reported_session_binding_nonce = Some(CALLER_NONCE.into());
+
+            let fixture = ServiceFixture::new(mux);
+            let store = fixture.service.plan_store.clone();
+            let plan = store
+                .create_plan_for_team(
+                    "Skills".into(),
+                    project.path().display().to_string(),
+                    OrchestratorRef::from_tab("orch"),
+                    "team-live-identity".into(),
+                    vec![],
+                    1,
+                )
+                .unwrap();
+            store
+                .set_mode(&plan.id, crate::plan::PlanMode::Execution, 2)
+                .unwrap();
+            create_plan_skill(
+                &store,
+                &plan.id,
+                NewPlanSkill {
+                    slug: CALLER_SKILL.into(),
+                    title: Some("Startup transition claim audit".into()),
+                    area: Some("startup-team-recovery".into()),
+                    check: None,
+                    rationale: Some("mandatory".into()),
+                },
+            )
+            .unwrap();
+            let task_id = add_task(&store, &plan.id, "nonce-proven identity");
+            store
+                .assign_task(&plan.id, &task_id, &tab_id, None, 4)
+                .unwrap();
+            store
+                .update_attempt_executor_identity(
+                    &plan.id,
+                    &task_id,
+                    &tab_id,
+                    Some("Worker"),
+                    Some(CALLER_SESSION),
+                    Some(CALLER_NONCE),
+                    5,
+                )
+                .unwrap();
+            let attempt_id = store.show_task(&task_id).unwrap().task.execution_attempts[0]
+                .id
+                .clone();
+            let shown = rpc(
+                &store,
+                "plan.skills.show",
+                json!({ "plan_id": plan.id, "slug": CALLER_SKILL }),
+            )
+            .unwrap();
+            let body = shown["skill"]["body"].as_str().unwrap().to_string();
+            store
+                .set_attempt_plan_skill_manifest(
+                    &plan.id,
+                    &task_id,
+                    &attempt_id,
+                    vec![PlanSkillManifestEntry {
+                        slug: CALLER_SKILL.into(),
+                        title: "Startup transition claim audit".into(),
+                        purpose: "Startup transition claim audit".into(),
+                        content_digest: format!(
+                            "sha256:{:x}",
+                            sha2::Sha256::digest(body.as_bytes())
+                        ),
+                    }],
+                    6,
+                )
+                .unwrap();
+            let svc: ServiceState = Arc::new(fixture.service.clone());
+            Self {
+                svc,
+                plan_id: plan.id,
+                task_id,
+                attempt_id,
+                _fixture: fixture,
+                _project: project,
+            }
+        }
+
+        fn tab_id(&self) -> String {
+            self.svc
+                .plan_store
+                .show_task(&self.task_id)
+                .unwrap()
+                .task
+                .assigned_tab_id
+                .unwrap()
+        }
+
+        /// The exact envelope production can export: tab, nonce, task, attempt.
+        fn production_params(&self) -> Value {
+            json!({
+                "plan_id": self.plan_id,
+                "slug": CALLER_SKILL,
+                "caller_tab_id": self.tab_id(),
+                "session_binding_nonce": CALLER_NONCE,
+                "task_id": self.task_id,
+                "attempt_id": self.attempt_id,
+            })
+        }
+
+        fn show(&self, params: Value) -> Result<Value, JsonRpcError> {
+            dispatch("plan.skills.show", &Some(params), &self.svc, 7)
+        }
+
+        fn loaded_skills(&self) -> Vec<String> {
+            self.svc
+                .plan_store
+                .show_task(&self.task_id)
+                .unwrap()
+                .task
+                .execution_attempts[0]
+                .loaded_plan_skills
+                .iter()
+                .map(|evidence| evidence.slug.clone())
+                .collect()
+        }
+    }
+
+    #[test]
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+    fn plan_skill_show_backfills_nonce_proven_live_session() {
+        let caller = LiveCaller::new();
+        let mut params = caller.production_params();
+        assert!(params.get("caller_session_id").is_none());
+
+        let shown = caller.show(params.clone()).unwrap();
+
+        assert_eq!(shown["skill"]["slug"], CALLER_SKILL);
+        assert_eq!(caller.loaded_skills(), vec![CALLER_SKILL.to_string()]);
+
+        // A caller that can supply the tab's own session id stays acceptable.
+        params["caller_session_id"] = json!(CALLER_SESSION);
+        caller.show(params).unwrap();
+        assert_eq!(caller.loaded_skills(), vec![CALLER_SKILL.to_string()]);
+    }
+
+    #[test]
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+    fn plan_skill_show_refuses_stale_or_mismatched_nonce() {
+        let caller = LiveCaller::new();
+        let mut mismatched = caller.production_params();
+        mismatched["session_binding_nonce"] = json!("nonce-foreign");
+        assert!(caller.show(mismatched).is_err());
+
+        let mut unrelated = caller.production_params();
+        unrelated["caller_tab_id"] = json!("some-other-tab");
+        assert!(caller.show(unrelated).is_err());
+
+        let mut foreign_session = caller.production_params();
+        foreign_session["caller_session_id"] = json!("session-foreign");
+        assert!(caller.show(foreign_session).is_err());
+        assert!(caller.loaded_skills().is_empty());
+
+        // A session transition clears the echoed nonce; the configured nonce
+        // alone must never prove that the current agent owns the tab.
+        let tab_id = caller.tab_id();
+        {
+            let mut mux = caller.svc.mux.write();
+            mux.get_tab_mut(&tab_id)
+                .unwrap()
+                .reported_session_binding_nonce = None;
+        }
+        assert!(caller.show(caller.production_params()).is_err());
+
+        // A nonce-proven tab with no session yet is unbound, not backfillable.
+        {
+            let mut mux = caller.svc.mux.write();
+            let tab = mux.get_tab_mut(&tab_id).unwrap();
+            tab.reported_session_binding_nonce = Some(CALLER_NONCE.into());
+            tab.agent_session_id = None;
+        }
+        assert!(caller.show(caller.production_params()).is_err());
+        assert!(caller.loaded_skills().is_empty());
+    }
+
+    #[test]
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+    fn plan_skill_show_refuses_partial_identity_without_live_backfill() {
+        let caller = LiveCaller::new();
+        for partial in [
+            json!({ "caller_tab_id": caller.tab_id() }),
+            json!({ "session_binding_nonce": CALLER_NONCE }),
+            json!({ "caller_session_id": CALLER_SESSION }),
+            json!({ "task_id": caller.task_id }),
+            json!({ "attempt_id": caller.attempt_id }),
+        ] {
+            let mut params = json!({ "plan_id": caller.plan_id, "slug": CALLER_SKILL });
+            for (key, value) in partial.as_object().unwrap() {
+                params[key] = value.clone();
+            }
+            let error = caller.show(params).unwrap_err();
+            assert!(
+                error.message.contains("incomplete"),
+                "{partial} must be refused as incomplete: {error:?}"
+            );
+        }
+
+        // No identity at all stays a plain read: the skill is returned and no
+        // attempt evidence is invented for a caller that claimed nothing.
+        let shown = caller
+            .show(json!({ "plan_id": caller.plan_id, "slug": CALLER_SKILL }))
+            .unwrap();
+        assert_eq!(shown["skill"]["slug"], CALLER_SKILL);
+        assert!(caller.loaded_skills().is_empty());
     }
 }

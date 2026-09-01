@@ -67,12 +67,12 @@ await (async () => {
   assert(!bubble!.className.includes("border"), "shared bubble has no accent border frame");
   assert(text.includes("Puccini"), "renders resolved recipient name");
   assert(text.includes("Update") && text.includes("done"), "renders markdown body content");
-  assert(host.querySelector('[data-testid="message-view-toggle"]') == null, "outbound message has no tool view toggle");
+  assert(host.querySelector('[data-testid="raw-command-disclosure"]') == null, "outbound message has no raw command disclosure");
 })();
 
 await (async () => {
   const host = await render(<SentMessageBubble inv={inv("codeterm send --tab recipient --from-file update.md")} result="OK (sent)" />);
-  assert(host.querySelector('[data-testid="message-view-toggle"]') == null, "unresolved staged message has no tool view toggle");
+  assert(host.querySelector('[data-testid="raw-command-disclosure"]') == null, "unresolved staged message has no raw command disclosure");
   assert(host.textContent?.includes("update.md"), "unresolved staged message renders its source descriptor");
 })();
 

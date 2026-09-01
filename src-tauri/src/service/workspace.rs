@@ -237,6 +237,9 @@ impl ServiceContext {
                 cleanup_errors.push(format!("{tab_id}: {error}"));
             }
         }
+        // After the members are gone, never before: a Team that still holds a
+        // live tab is left untouched.
+        self.reap_orphaned_startup_teams();
         session_persist::persist_session_after_close(self);
         self.emit_state_changed();
         if pre_focus != post_focus {

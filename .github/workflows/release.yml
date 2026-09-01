@@ -133,7 +133,13 @@ jobs:
             --repo rollacode/codeterm-releases \
             --pattern latest.json \
             --dir "$RUNNER_TEMP/public-mirror"
-          jq -e --arg ver "$VER" '.version == $ver and (.platforms | length > 0)' \
+          jq -e --arg ver "$VER" '
+            (.version == $ver)
+            and (.platforms["darwin-aarch64"].signature | type == "string" and length > 0)
+            and (.platforms["darwin-aarch64"].url | endswith("/CodeTerm_aarch64.app.tar.gz"))
+            and (.platforms["darwin-x86_64"].signature | type == "string" and length > 0)
+            and (.platforms["darwin-x86_64"].url | endswith("/CodeTerm_x64.app.tar.gz"))
+          ' \
             "$RUNNER_TEMP/public-mirror/latest.json" >/dev/null
           jq -r '.platforms[].url' "$RUNNER_TEMP/public-mirror/latest.json" | while IFS= read -r url; do
             case "$url" in
