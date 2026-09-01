@@ -16,6 +16,9 @@ function test(name: string, fn: TestFn) {
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
+function assertEqual(actual: unknown, expected: unknown, message: string) {
+  if (actual !== expected) throw new Error(message);
+}
 
 async function setupHappyDom() {
   const React = await import("react");
@@ -267,12 +270,13 @@ test("becoming visible subscribes exactly once", async () => {
   const fx = await setupFixture();
   await render(fx, { cwd: "/repo", tabId: "tab-1", isActive: false });
   await drain(fx.act);
-  assert(fx.watch.state.subscribeCalls === 0, "hidden must not subscribe");
+  assertEqual(fx.watch.state.subscribeCalls, 0, "hidden must not subscribe");
 
   await render(fx, { cwd: "/repo", tabId: "tab-1", isActive: true });
   await waitUntil(() => fx.watch.state.active.size >= 1, fx.act);
-  assert(
-    fx.watch.state.subscribeCalls === 1,
+  assertEqual(
+    fx.watch.state.subscribeCalls,
+    1,
     `becoming visible subscribes once, got ${fx.watch.state.subscribeCalls}`,
   );
 
