@@ -261,29 +261,26 @@ console.log("\n--- gitRepos discovery ---\n");
   eq(repos.map((repo) => repo.path), ["/case/root", "/case/root/kept"], "Windows skip-set matching is case-insensitive");
 }
 
-console.log("\n--- statusBubble branch-identity caching (codeterm#336 part C) ---\n");
+console.log("\n--- statusBubble reflects the current branch, never a stale one (codeterm#336 part C) ---\n");
 
 {
+  const branchByRepo: Record<string, string> = { "/live/repo": "main" };
   const fixture = makeHost({
-    gitDirs: ["/cache/repo"],
-    branchByRepo: { "/cache/repo": "main" },
+    gitDirs: ["/live/repo"],
+    branchByRepo,
     childDirs: {},
     explicitExec: {
-      "git -C /cache/repo status --porcelain": { code: 0, stdout: "" },
+      "git -C /live/repo status --porcelain": { code: 0, stdout: "" },
     },
   });
   const plugin = await loadPlugin(fixture.host);
 
-  const first = plugin.statusBubble({ cwd: "/cache/repo" });
-  const second = plugin.statusBubble({ cwd: "/cache/repo" });
+  const before = plugin.statusBubble({ cwd: "/live/repo" });
+  branchByRepo["/live/repo"] = "feature";
+  const after = plugin.statusBubble({ cwd: "/live/repo" });
 
-  const revParseCalls = fixture.execCalls.filter((c) => c === "git -C /cache/repo rev-parse --abbrev-ref HEAD");
-  const statusCalls = fixture.execCalls.filter((c) => c === "git -C /cache/repo status --porcelain");
-
-  eq(first?.label, "main", "first statusBubble computation resolves the branch");
-  eq(second?.label, "main", "second statusBubble computation reuses the cached branch");
-  eq(revParseCalls.length, 1, "rev-parse is called once per cwd, not once per refresh");
-  eq(statusCalls.length, 2, "git status --porcelain still runs on every refresh");
+  eq(before?.label, "main", "first computation resolves the branch at that time");
+  eq(after?.label, "feature", "a later computation reflects the current branch, not a cached one");
 }
 
 console.log("\nResidual review note: lexical containment is enforced in QuickJS, but junction/symlink identity cannot be proven here without a safe host stat/realpath surface.\n");
