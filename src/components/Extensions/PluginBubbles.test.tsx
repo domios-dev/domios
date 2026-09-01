@@ -59,9 +59,8 @@ async function waitUntil(condition: () => boolean, act: ActFn, maxTurns = 1000):
   throw new Error(`waitUntil: condition not met within ${maxTurns} microtask turns`);
 }
 
-/** Drains pending microtasks to prove no further scheduled work remains —
- * only for negative assertions, where there is no positive condition to
- * poll for and the system is otherwise known to be fully deterministic. */
+/** Drains pending microtasks — only for negative assertions where there is
+ * no positive condition to poll for. */
 async function drain(act: ActFn, turns = 20): Promise<void> {
   for (let i = 0; i < turns; i++) {
     await act(async () => {
