@@ -89,7 +89,15 @@ pub(super) fn dispatch(
         .and_then(Value::as_str);
     store
         .record_plan_skill_load(
-            &plan_id, &task_id, tab_id, &session_id, nonce, attempt_id, slug, &digest, now_ms,
+            &plan_id,
+            &task_id,
+            tab_id,
+            &session_id,
+            nonce,
+            attempt_id,
+            slug,
+            &digest,
+            now_ms,
         )
         .map_err(plan_rpc_err)?;
     Ok(result)
@@ -590,7 +598,9 @@ mod tests {
         let tab_id = caller.tab_id();
         {
             let mut mux = caller.svc.mux.write();
-            mux.get_tab_mut(&tab_id).unwrap().reported_session_binding_nonce = None;
+            mux.get_tab_mut(&tab_id)
+                .unwrap()
+                .reported_session_binding_nonce = None;
         }
         assert!(caller.show(caller.production_params()).is_err());
 
