@@ -117,6 +117,9 @@ impl ServiceFixture {
             transcribe_registry: Arc::new(crate::transcribe::TranscribeRegistry::new()),
             glance_registry: Arc::new(crate::glance::GlanceRegistry::new()),
             bubble_registry: Arc::new(crate::bubble::BubbleRegistry::new()),
+            repo_watch: Arc::new(crate::repowatch::RepoWatchRegistry::new(Arc::new(
+                crate::repowatch::TauriRepoEventSink::new(app.handle().clone()),
+            ))),
             view_registry: Arc::new(crate::view_host::ViewRegistry::new()),
             chatbackend_registry,
             chatbackend_reopen_guards: Arc::new(Default::default()),

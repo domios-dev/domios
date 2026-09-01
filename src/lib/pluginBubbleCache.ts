@@ -1,5 +1,5 @@
 // Shared cache behind PluginBubbles (codeterm#336 part C): one entry per
-// (pluginId, cwd), computed only on a hidden->visible transition or an invalidation — no interval.
+// (pluginId, repository identity), computed only on a hidden->visible transition or an invalidation — no interval.
 import { invoke } from "./bridge";
 import type { Tone } from "../components/Extensions/ViewNodeRenderer";
 
@@ -32,11 +32,13 @@ interface Subscriber {
   tabId: string;
   active: boolean;
   onChange: (value: BubbleData | null) => void;
+  /** Survives re-keying: the entry an alias collapses into replaces this. */
+  holder: { entry: Entry };
 }
 
 interface Entry {
   pluginId: string;
-  cwd: string | null;
+  key: string | null;
   value: BubbleData | null | undefined;
   inFlight: boolean;
   pendingRefresh: boolean;
@@ -44,26 +46,62 @@ interface Entry {
 }
 
 const cache = new Map<string, Map<string | null, Entry>>();
+/** Raw tab cwd → the daemon's canonical repository identity. */
+const canonical = new Map<string, string>();
 
-function getOrCreateEntry(pluginId: string, cwd: string | null): Entry {
-  let byCwd = cache.get(pluginId);
-  if (!byCwd) {
-    byCwd = new Map();
-    cache.set(pluginId, byCwd);
+function keyFor(cwd: string | null): string | null {
+  if (cwd === null) return null;
+  return canonical.get(cwd) ?? cwd;
+}
+
+/** Collapse a cwd alias onto the identity the daemon resolved for it, moving
+ * any entry already opened under the raw spelling. */
+export function adoptRepoIdentity(cwd: string, identity: string): void {
+  if (canonical.get(cwd) === identity) return;
+  canonical.set(cwd, identity);
+  if (cwd === identity) return;
+  for (const byKey of cache.values()) rekeyEntry(byKey, cwd, identity);
+}
+
+function rekeyEntry(byKey: Map<string | null, Entry>, from: string, to: string): void {
+  const source = byKey.get(from);
+  if (!source) return;
+  byKey.delete(from);
+  const target = byKey.get(to);
+  if (!target) {
+    source.key = to;
+    byKey.set(to, source);
+    return;
   }
-  let entry = byCwd.get(cwd);
+  const moved = [...source.subscribers.entries()];
+  source.subscribers.clear();
+  for (const [id, sub] of moved) {
+    sub.holder.entry = target;
+    target.subscribers.set(id, sub);
+  }
+  if (target.value === undefined) target.value = source.value;
+  if (target.value !== undefined) for (const [, sub] of moved) sub.onChange(target.value ?? null);
+}
+
+function getOrCreateEntry(pluginId: string, key: string | null): Entry {
+  let byKey = cache.get(pluginId);
+  if (!byKey) {
+    byKey = new Map();
+    cache.set(pluginId, byKey);
+  }
+  let entry = byKey.get(key);
   if (!entry) {
-    entry = { pluginId, cwd, value: undefined, inFlight: false, pendingRefresh: false, subscribers: new Map() };
-    byCwd.set(cwd, entry);
+    entry = { pluginId, key, value: undefined, inFlight: false, pendingRefresh: false, subscribers: new Map() };
+    byKey.set(key, entry);
   }
   return entry;
 }
 
 function deleteEntryIfEmpty(entry: Entry): void {
   if (entry.subscribers.size > 0) return;
-  const byCwd = cache.get(entry.pluginId);
-  byCwd?.delete(entry.cwd);
-  if (byCwd && byCwd.size === 0) cache.delete(entry.pluginId);
+  const byKey = cache.get(entry.pluginId);
+  if (byKey?.get(entry.key) === entry) byKey.delete(entry.key);
+  if (byKey && byKey.size === 0) cache.delete(entry.pluginId);
 }
 
 function activeCount(entry: Entry): number {
@@ -88,7 +126,7 @@ function computeNow(entry: Entry): void {
     return;
   }
   entry.inFlight = true;
-  fetcher(entry.pluginId, entry.cwd, pickTabId(entry))
+  fetcher(entry.pluginId, entry.key, pickTabId(entry))
     .then((value) => {
       entry.value = value;
       notify(entry);
@@ -111,26 +149,26 @@ export function subscribePluginBubble(
   active: boolean,
   onChange: (value: BubbleData | null) => void,
 ): PluginBubbleSubscription {
-  const entry = getOrCreateEntry(pluginId, cwd);
+  const holder = { entry: getOrCreateEntry(pluginId, keyFor(cwd)) };
   const subscriberId = `${tabId}:${Math.random().toString(36).slice(2)}`;
-  entry.subscribers.set(subscriberId, { tabId, active: false, onChange });
+  holder.entry.subscribers.set(subscriberId, { tabId, active: false, onChange, holder });
 
-  if (entry.value !== undefined) onChange(entry.value);
+  if (holder.entry.value !== undefined) onChange(holder.entry.value);
 
   const setActive = (nextActive: boolean): void => {
-    const sub = entry.subscribers.get(subscriberId);
+    const sub = holder.entry.subscribers.get(subscriberId);
     if (!sub) return;
     const wasActive = sub.active;
     sub.active = nextActive;
-    if (nextActive && !wasActive) computeNow(entry);
+    if (nextActive && !wasActive) computeNow(holder.entry);
   };
   setActive(active);
 
   return {
     setActive,
     unsubscribe: () => {
-      entry.subscribers.delete(subscriberId);
-      deleteEntryIfEmpty(entry);
+      holder.entry.subscribers.delete(subscriberId);
+      deleteEntryIfEmpty(holder.entry);
     },
   };
 }
@@ -139,12 +177,22 @@ export function subscribePluginBubble(
  * unless a visible tab is watching this repo identity. */
 export function invalidatePluginBubble(pluginId: string, cwd: string | null | undefined): void {
   if (cwd === undefined) return;
-  const entry = cache.get(pluginId)?.get(cwd);
+  const entry = cache.get(pluginId)?.get(keyFor(cwd));
   if (!entry || activeCount(entry) === 0) return;
   computeNow(entry);
 }
 
+/** The single action a repository-changed event takes: one computation per
+ * plugin for that identity, however many tabs are watching it. */
+export function invalidatePluginBubblesForRepo(identity: string): void {
+  for (const byKey of cache.values()) {
+    const entry = byKey.get(identity);
+    if (entry && activeCount(entry) > 0) computeNow(entry);
+  }
+}
+
 export function __resetPluginBubbleCacheForTest(): void {
   cache.clear();
+  canonical.clear();
   fetcher = defaultFetcher;
 }
