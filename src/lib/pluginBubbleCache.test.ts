@@ -12,6 +12,14 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
+function assertEqual<T>(actual: T, expected: T, message: string) {
+  if (actual !== expected) throw new Error(`${message}: expected ${expected}, got ${actual}`);
+}
+
+function last<T>(values: T[]): T | undefined {
+  return values[values.length - 1];
+}
+
 /** Polls a real condition to completion; fails deterministically past a
  * bounded safety deadline instead of guessing a fixed tick count. */
 async function waitUntil(condition: () => boolean, maxTurns = 1000): Promise<void> {
@@ -76,14 +84,14 @@ test("a hidden subscriber never fetches, even under an explicit invalidation", a
   const fx = await setupCache();
   const sub = fx.cache.subscribePluginBubble("git", "/repo", "tab-1", false, () => {});
 
-  assert(fx.calls === 0, `hidden subscribe must not fetch, got ${fx.calls}`);
+  assertEqual(fx.calls, 0, "hidden subscribe must not fetch");
   sub.setActive(false);
   await drain();
-  assert(fx.calls === 0, `re-affirming hidden must not fetch, got ${fx.calls}`);
+  assertEqual(fx.calls, 0, "re-affirming hidden must not fetch");
 
   fx.cache.invalidatePluginBubble("git", "/repo");
   await drain();
-  assert(fx.calls === 0, `no invalidation reaches a hidden tab, got ${fx.calls}`);
+  assertEqual(fx.calls, 0, "no invalidation reaches a hidden tab");
 
   sub.unsubscribe();
   fx.teardown();
@@ -94,10 +102,10 @@ test("becoming visible fetches once and delivers the resolved value", async () =
   const values: Array<Bubble | null> = [];
   const sub = fx.cache.subscribePluginBubble("git", "/repo", "tab-1", true, (v) => values.push(v));
 
-  assert(fx.calls === 1, `activation must fetch exactly once, got ${fx.calls}`);
+  assertEqual(fx.calls, 1, "activation must fetch exactly once");
   fx.resolveNext({ label: "main" });
   await waitUntil(() => values.length > 0);
-  assert(values.at(-1)?.label === "main", "onChange must deliver the resolved value");
+  assert(last(values)?.label === "main", "onChange must deliver the resolved value");
 
   sub.unsubscribe();
   fx.teardown();
@@ -109,14 +117,14 @@ test("an explicit invalidation returns the new value, not a stale one", async ()
   const sub = fx.cache.subscribePluginBubble("git", "/repo", "tab-1", true, (v) => values.push(v));
   fx.resolveNext({ label: "main" });
   await waitUntil(() => values.length >= 1);
-  assert(values.at(-1)?.label === "main", "initial value is the pre-checkout branch");
+  assert(last(values)?.label === "main", "initial value is the pre-checkout branch");
 
   fx.cache.invalidatePluginBubble("git", "/repo");
   await waitUntil(() => fx.calls >= 2);
-  assert(fx.calls === 2, `invalidation must trigger exactly one more fetch, got ${fx.calls}`);
+  assertEqual(fx.calls, 2, "invalidation must trigger exactly one more fetch");
   fx.resolveNext({ label: "feature" });
   await waitUntil(() => values.length >= 2);
-  assert(values.at(-1)?.label === "feature", "invalidation must deliver the new branch, not the cached old one");
+  assert(last(values)?.label === "feature", "invalidation must deliver the new branch, not the cached old one");
 
   sub.unsubscribe();
   fx.teardown();
@@ -125,18 +133,18 @@ test("an explicit invalidation returns the new value, not a stale one", async ()
 test("two invalidations while a fetch is in flight coalesce to one trailing refresh", async () => {
   const fx = await setupCache();
   const sub = fx.cache.subscribePluginBubble("git", "/repo", "tab-1", true, () => {});
-  assert(fx.calls === 1, "activation fetched once");
+  assertEqual(fx.calls, 1, "activation fetched once");
 
   fx.cache.invalidatePluginBubble("git", "/repo");
   fx.cache.invalidatePluginBubble("git", "/repo");
-  assert(fx.calls === 1, "both invalidations arrived while the first fetch was still in flight");
+  assertEqual(fx.calls, 1, "both invalidations arrived while the first fetch was still in flight");
 
   fx.resolveNext({ label: "main" });
   await waitUntil(() => fx.calls >= 2);
-  assert(fx.calls === 2, `exactly one coalesced trailing refresh, got ${fx.calls}`);
+  assertEqual(fx.calls, 2, "exactly one coalesced trailing refresh");
   fx.resolveNext({ label: "feature" });
   await drain();
-  assert(fx.calls === 2, "no third computation follows");
+  assertEqual(fx.calls, 2, "no third computation follows");
 
   sub.unsubscribe();
   fx.teardown();
@@ -148,7 +156,7 @@ test("no further computation without an event", async () => {
   fx.resolveNext({ label: "main" });
   await waitUntil(() => fx.calls >= 1);
   await drain();
-  assert(fx.calls === 1, `expected exactly one computation, got ${fx.calls}`);
+  assertEqual(fx.calls, 1, "expected exactly one computation");
 
   sub.unsubscribe();
   fx.teardown();
@@ -159,18 +167,18 @@ test("ten tabs sharing a repository coalesce to one in-flight computation", asyn
   const subs = Array.from({ length: 10 }, (_, i) =>
     fx.cache.subscribePluginBubble("git", "/repo", `tab-${i}`, i === 0, () => {}),
   );
-  assert(fx.calls === 1, `only the one active tab should have fetched, got ${fx.calls}`);
+  assertEqual(fx.calls, 1, "only the one active tab should have fetched");
 
   fx.cache.invalidatePluginBubble("git", "/repo");
-  assert(fx.calls === 1, "an invalidation while a fetch is already in flight must coalesce, not fetch again");
+  assertEqual(fx.calls, 1, "an invalidation while a fetch is already in flight must coalesce");
 
   fx.resolveNext({ label: "main" });
   await waitUntil(() => fx.calls >= 2);
-  assert(fx.calls === 2, `the coalesced trailing refresh must fire exactly once more, got ${fx.calls}`);
+  assertEqual(fx.calls, 2, "the coalesced trailing refresh must fire exactly once more");
 
   fx.resolveNext({ label: "main" });
   await drain();
-  assert(fx.calls === 2, `no third computation should follow, got ${fx.calls}`);
+  assertEqual(fx.calls, 2, "no third computation should follow");
 
   for (const sub of subs) sub.unsubscribe();
   fx.teardown();
@@ -185,14 +193,14 @@ test("a hidden->visible transition rechecks even a value another tab already fet
 
   const valuesB: Array<Bubble | null> = [];
   const subB = fx.cache.subscribePluginBubble("git", "/repo", "tab-b", false, (v) => valuesB.push(v));
-  assert(valuesB.at(-1)?.label === "main", "a hidden subscriber still receives the already-cached value");
-  assert(fx.calls === 1, "subscribing hidden must not fetch");
+  assert(last(valuesB)?.label === "main", "a hidden subscriber still receives the already-cached value");
+  assertEqual(fx.calls, 1, "subscribing hidden must not fetch");
 
   subB.setActive(true);
   await waitUntil(() => fx.calls >= 2);
-  assert(fx.calls === 2, `tab B becoming visible must recheck even though a value was cached, got ${fx.calls}`);
+  assertEqual(fx.calls, 2, "tab B becoming visible must recheck even though a value was cached");
   fx.resolveNext({ label: "feature" });
-  await waitUntil(() => valuesB.at(-1)?.label === "feature");
+  await waitUntil(() => last(valuesB)?.label === "feature");
 
   subA.unsubscribe();
   subB.unsubscribe();
