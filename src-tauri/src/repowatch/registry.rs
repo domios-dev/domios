@@ -1,4 +1,4 @@
-use super::backend::{ActiveWatch, NotifyBackend, WatchBackend, WatchSpec};
+use super::backend::{ActiveWatch, NotifyBackend, WatchBackend, WatchSignal, WatchSpec};
 use super::events::{RepoEventSink, RepoWatchError, RepoWatchUnavailable};
 use super::filter::{batch_is_relevant, WatchHalf};
 use super::identity::RepoIdentity;
@@ -61,8 +61,7 @@ impl RepoWatchRegistry {
     }
 
     /// Take a reference on the watch for this path's repository identity.
-    /// Failure is loud on both channels: an error to this caller and an
-    /// unavailable event for any bubble already rendering that identity.
+    /// Failure is loud on both channels: an error here and an unavailable event.
     pub fn subscribe(&self, path: &Path) -> Result<RepoWatchSubscription, RepoWatchError> {
         let identity = match RepoIdentity::resolve(path) {
             Ok(identity) => identity,
@@ -102,21 +101,28 @@ impl RepoWatchRegistry {
         })
     }
 
-    /// Release one reference. The last release drops the owning watcher.
+    /// Release one reference. The last release for an identity drops its
+    /// watcher AND its shared-ref membership — never an earlier one.
     pub fn release(&self, token: &str) -> bool {
         let mut inner = self.inner.lock();
         let Some(identity) = inner.tokens.remove(token) else {
             return false;
         };
+        let mut identity_released = false;
         if let Some(entry) = inner.entries.get_mut(&identity.key) {
             entry.refcount = entry.refcount.saturating_sub(1);
-            if entry.refcount == 0 {
-                inner.entries.remove(&identity.key);
-            }
+            identity_released = entry.refcount == 0;
+        }
+        if identity_released {
+            inner.entries.remove(&identity.key);
         }
         if let Some(shared) = inner.shared.get_mut(&identity.common_key) {
             shared.refcount = shared.refcount.saturating_sub(1);
-            shared.members.lock().remove(&identity.key);
+            // Membership follows the identity's own watcher, not one token:
+            // dropping it early would fan ref events out to nobody.
+            if identity_released {
+                shared.members.lock().remove(&identity.key);
+            }
             if shared.refcount == 0 {
                 inner.shared.remove(&identity.common_key);
             }
@@ -128,16 +134,17 @@ impl RepoWatchRegistry {
         &self,
         identity: &RepoIdentity,
     ) -> Result<Box<dyn ActiveWatch>, RepoWatchError> {
-        // HEAD and index live in the gitdir; everything else under it (objects,
-        // logs, index.lock) is filtered out and never watched recursively.
+        // HEAD and index live in the gitdir; everything else under it is
+        // filtered out, and the gitdir is never watched recursively.
         let specs = vec![
             WatchSpec::shallow(identity.gitdir.clone()),
             WatchSpec::recursive(identity.workdir.clone()),
         ];
         let owner = identity.clone();
         let sink = self.sink.clone();
-        let handler = Box::new(move |paths: Vec<PathBuf>| {
-            dispatch(&sink, &owner, WatchHalf::Worktree, &paths);
+        let handler = Box::new(move |signal: WatchSignal| match signal {
+            WatchSignal::Batch(paths) => dispatch(&sink, &owner, WatchHalf::Worktree, &paths),
+            WatchSignal::Failed(detail) => fail(&sink, std::slice::from_ref(&owner), &detail),
         });
         self.backend
             .build(&specs, handler)
@@ -169,10 +176,15 @@ impl RepoWatchRegistry {
         ];
         let sink = self.sink.clone();
         let fanout = members.clone();
-        let handler = Box::new(move |paths: Vec<PathBuf>| {
+        let handler = Box::new(move |signal: WatchSignal| {
             let targets: Vec<RepoIdentity> = fanout.lock().values().cloned().collect();
-            for target in targets {
-                dispatch(&sink, &target, WatchHalf::SharedRefs, &paths);
+            match signal {
+                WatchSignal::Batch(paths) => {
+                    for target in &targets {
+                        dispatch(&sink, target, WatchHalf::SharedRefs, &paths);
+                    }
+                }
+                WatchSignal::Failed(detail) => fail(&sink, &targets, &detail),
             }
         });
         let watch = self
@@ -222,6 +234,15 @@ impl RepoWatchRegistry {
             .map(|e| e.refcount)
             .unwrap_or(0)
     }
+
+    pub fn shared_member_count(&self, common_key: &str) -> usize {
+        self.inner
+            .lock()
+            .shared
+            .get(common_key)
+            .map(|e| e.members.lock().len())
+            .unwrap_or(0)
+    }
 }
 
 fn dispatch(
@@ -234,5 +255,12 @@ fn dispatch(
         Ok(true) => sink.repository_changed(&identity.id),
         Ok(false) => {}
         Err(e) => sink.repository_unavailable(&e.identity, e.reason),
+    }
+}
+
+fn fail(sink: &Arc<dyn RepoEventSink>, targets: &[RepoIdentity], detail: &str) {
+    for target in targets {
+        log::warn!("[repowatch] backend failed for {}: {detail}", target.id);
+        sink.repository_unavailable(&target.id, RepoWatchUnavailable::BackendFailed);
     }
 }

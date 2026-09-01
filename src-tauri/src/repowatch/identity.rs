@@ -2,9 +2,8 @@ use super::events::RepoWatchError;
 use git2::Repository;
 use std::path::{Path, PathBuf};
 
-/// A watched repository. Identity is the canonical WORKTREE root: a linked
-/// worktree has its own HEAD, index and dirty state, so it is its own bubble.
-/// `common_dir` is the shared ref store both halves of a repository see.
+/// Identity is the canonical WORKTREE root: a linked worktree has its own
+/// HEAD, index and dirty state, so it is its own bubble.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RepoIdentity {
     /// Registry key — case-folded when the repository itself reports

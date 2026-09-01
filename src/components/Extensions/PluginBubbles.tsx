@@ -111,6 +111,8 @@ export function PluginBubbles({
 
   const visible = plugins.filter((p) => pills[p.id]);
   const watchReason = watch?.status === "unavailable" ? watch.reason : null;
+  // Only a proven watch reads as live; pending and unwatched say so.
+  const watchState = watchReason ? "unavailable" : (watch?.status ?? "idle");
 
   const onClick = useCallback((p: BubblePlugin, e: React.MouseEvent) => {
     const pill = pills[p.id];
@@ -137,12 +139,14 @@ export function PluginBubbles({
         const c = watchReason ? TONE.muted : TONE[b.tone ?? "default"];
         const tooltip = watchReason
           ? `${base} — repository watch unavailable (${watchReason})`
-          : base;
+          : watchState === "watching"
+            ? base
+            : `${base} — repository watch ${watchState}`;
         return (
           <button
             key={p.id}
             data-testid={`plugin-bubble-${p.id}`}
-            data-watch-state={watchReason ? "unavailable" : "live"}
+            data-watch-state={watchState === "watching" ? "live" : watchState}
             onClick={(e) => onClick(p, e)}
             onMouseDown={(e) => e.preventDefault()}
             title={tooltip}

@@ -1,7 +1,5 @@
-/// Backend handle / descriptor count for this process, where the platform
-/// exposes one. Reported as MEASURED EVIDENCE — a number, never an asserted
-/// equality: `notify` does not portably expose per-watcher handle counts, so
-/// an equality assertion here would be unverifiable.
+/// Backend handle / descriptor count, where the platform exposes one. Evidence
+/// only: `notify` exposes no portable per-watcher count to assert against.
 pub fn open_handle_count() -> Option<u64> {
     platform_count()
 }

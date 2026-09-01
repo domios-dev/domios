@@ -3,19 +3,15 @@ use notify_debouncer_mini::{new_debouncer, DebounceEventResult, Debouncer};
 use std::path::PathBuf;
 use std::time::Duration;
 
-/// Coalescing window for a burst an event already started. This is not a
-/// timer: it never *discovers* a change and the absence of events is never
-/// read as information — elapsed time only delays delivery of events the OS
-/// already produced. 200ms matches the plan watcher's proven window and
-/// collapses a build's file churn into one batch.
+/// Coalescing window for a burst an event already started. Elapsed time only
+/// delays delivery; it never discovers a change, and absence is never evidence.
 pub const DEBOUNCE: Duration = Duration::from_millis(200);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WatchSpec {
     pub path: PathBuf,
     pub recursive: bool,
-    /// `packed-refs` and `refs/` may not exist yet in a fresh repository; a
-    /// missing optional path is covered by its parent's non-recursive watch.
+    /// Absent in a fresh repository; its parent's non-recursive watch covers it.
     pub optional: bool,
 }
 
@@ -45,14 +41,21 @@ impl WatchSpec {
     }
 }
 
-pub type BatchHandler = Box<dyn FnMut(Vec<PathBuf>) + Send + 'static>;
+/// What a live watch reports. `Failed` is the runtime backend error: the watch
+/// can no longer be trusted, so it must reach the UI, not just the log.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WatchSignal {
+    Batch(Vec<PathBuf>),
+    Failed(String),
+}
+
+pub type BatchHandler = Box<dyn FnMut(WatchSignal) + Send + 'static>;
 
 /// A live OS watch. Dropping it releases every backend handle it owns.
 pub trait ActiveWatch: Send {}
 
-/// The construction seam. Production builds a `notify` watcher; a test can
-/// inject a backend that refuses, which is the only honest way to exercise
-/// permission denial and handle exhaustion.
+/// The construction seam. A test injects a backend that refuses or one that
+/// hands back its handler, which is the only deterministic way to drive both.
 pub trait WatchBackend: Send + Sync {
     fn build(
         &self,
@@ -78,10 +81,8 @@ impl WatchBackend for NotifyBackend {
         let mut debouncer = new_debouncer(DEBOUNCE, move |result: DebounceEventResult| {
             let events = match result {
                 Ok(events) => events,
-                // A backend hiccup is logged, never converted into a change and
-                // never into an unavailable signal the UI would act on.
                 Err(e) => {
-                    log::warn!("[repowatch] backend error: {e}");
+                    handler(WatchSignal::Failed(e.to_string()));
                     return;
                 }
             };
@@ -89,7 +90,7 @@ impl WatchBackend for NotifyBackend {
             paths.sort();
             paths.dedup();
             if !paths.is_empty() {
-                handler(paths);
+                handler(WatchSignal::Batch(paths));
             }
         })
         .map_err(|e| e.to_string())?;
@@ -102,10 +103,7 @@ impl WatchBackend for NotifyBackend {
             };
             if let Err(e) = debouncer.watcher().watch(&spec.path, mode) {
                 if spec.optional && !spec.path.exists() {
-                    log::debug!(
-                        "[repowatch] optional path absent, skipped: {}",
-                        spec.path.display()
-                    );
+                    log::debug!("[repowatch] optional path absent: {}", spec.path.display());
                     continue;
                 }
                 return Err(format!("watch {} failed: {e}", spec.path.display()));

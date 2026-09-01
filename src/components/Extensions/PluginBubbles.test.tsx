@@ -1,7 +1,5 @@
 // Run: node scripts/run-ts-unit-tests.mjs PluginBubbles
-// codeterm#336 part C: PluginBubbles wires isActive/cwd/tabId into the shared cache, and
-// leases a repository watch while visible. Coalescing/gating logic itself is covered in
-// src/lib/pluginBubbleCache.test.ts.
+// codeterm#336 part C: watch lifecycle and invalidation (cache: pluginBubbleCache.test.ts).
 
 export {};
 
@@ -76,16 +74,19 @@ type WatchMode = "auto" | "manual" | "reject" | "unavailable";
 
 /** Records every subscribe and unsubscribe; `active` is the net refcount the
  * daemon would still be holding. */
-function makeWatchClient(mode: WatchMode) {
+function makeWatchClient(mode: WatchMode, fixedIdentity?: string) {
   let handler: ((event: WatchEvent) => void) | null = null;
   let seq = 0;
   const pending: Array<() => void> = [];
   const state = {
     subscribeCalls: 0,
     unsubscribeCalls: 0,
+    listenCalls: 0,
+    listenFailures: 0,
+    liveListeners: 0,
     active: new Set<string>(),
   };
-  const identityOf = (cwd: string) => `id:${cwd}`;
+  const identityOf = (cwd: string) => fixedIdentity ?? `id:${cwd}`;
 
   const client = {
     subscribe(cwd: string) {
@@ -113,9 +114,16 @@ function makeWatchClient(mode: WatchMode) {
       return Promise.resolve(undefined);
     },
     listen(fn: (event: WatchEvent) => void) {
+      state.listenCalls++;
+      if (state.listenFailures > 0) {
+        state.listenFailures--;
+        return Promise.reject(new Error("event stream unavailable"));
+      }
       handler = fn;
+      state.liveListeners++;
       return Promise.resolve(() => {
         handler = null;
+        state.liveListeners--;
       });
     },
   };
@@ -131,7 +139,11 @@ function makeWatchClient(mode: WatchMode) {
   };
 }
 
-async function setupFixture(pluginId = "fake-git", watchMode: WatchMode = "auto") {
+async function setupFixture(
+  pluginId = "fake-git",
+  watchMode: WatchMode = "auto",
+  fixedIdentity?: string,
+) {
   const { act, createRoot, React, window } = await setupHappyDom();
   const bridge = await import("../../lib/bridge");
   const snapshotStore = await import("../../lib/pluginSnapshotStore");
@@ -161,7 +173,7 @@ async function setupFixture(pluginId = "fake-git", watchMode: WatchMode = "auto"
     return { label: "clean" };
   });
 
-  const watch = makeWatchClient(watchMode);
+  const watch = makeWatchClient(watchMode, fixedIdentity);
   repoWatch.__setRepoWatchClientForTest(watch.client);
 
   const host = window.document.createElement("div");
@@ -501,6 +513,172 @@ test("ten visible bubbles on one identity plus one event produce exactly one com
   );
 
   await fx.act(async () => fx.root.unmount());
+  fx.teardown();
+});
+
+/** Two tabs whose cwds are aliases of one repository. */
+function renderAliases(fx: Fixture, first: string, second: string) {
+  return fx.act(async () => {
+    fx.root.render(
+      fx.React.createElement(
+        fx.React.Fragment,
+        null,
+        fx.React.createElement(fx.PluginBubbles, { key: "a", cwd: first, tabId: "tab-a", isActive: true }),
+        fx.React.createElement(fx.PluginBubbles, { key: "b", cwd: second, tabId: "tab-b", isActive: true }),
+      ),
+    );
+  });
+}
+
+test("an unresolved subscribe never renders as live", async () => {
+  const fx = await setupFixture("fake-git", "manual");
+  await render(fx, { cwd: "/repo", tabId: "tab-1", isActive: true });
+  await waitUntil(() => fx.calls >= 1, fx.act);
+  await drain(fx.act);
+
+  assert(fx.watch.state.active.size === 0, "the subscribe has not resolved");
+  const pill = fx.host.querySelector(`[data-testid="plugin-bubble-${fx.pluginId}"]`);
+  assert(pill, "the bubble renders while the watch is still pending");
+  assert(
+    pill?.getAttribute("data-watch-state") === "pending",
+    `an unproven watch must not read as live, got ${pill?.getAttribute("data-watch-state")}`,
+  );
+
+  await fx.act(async () => {
+    fx.watch.flush();
+  });
+  await waitUntil(
+    () =>
+      fx.host
+        .querySelector(`[data-testid="plugin-bubble-${fx.pluginId}"]`)
+        ?.getAttribute("data-watch-state") === "live",
+    fx.act,
+  );
+
+  await fx.act(async () => fx.root.unmount());
+  fx.teardown();
+});
+
+test("a hidden tab never renders as live either", async () => {
+  const fx = await setupFixture();
+  await render(fx, { cwd: "/repo", tabId: "tab-1", isActive: true });
+  await waitUntil(() => fx.watch.state.active.size >= 1, fx.act);
+  await render(fx, { cwd: "/repo", tabId: "tab-1", isActive: false });
+  await drain(fx.act);
+
+  const pill = fx.host.querySelector(`[data-testid="plugin-bubble-${fx.pluginId}"]`);
+  assert(
+    pill?.getAttribute("data-watch-state") === "idle",
+    `a tab holding no watch must not read as live, got ${pill?.getAttribute("data-watch-state")}`,
+  );
+
+  await fx.act(async () => fx.root.unmount());
+  fx.teardown();
+});
+
+test("an event-stream failure surfaces and never leaves a lease claiming live", async () => {
+  const fx = await setupFixture();
+  fx.watch.state.listenFailures = 1;
+  await render(fx, { cwd: "/repo", tabId: "tab-1", isActive: true });
+  await waitUntil(() => fx.watch.state.active.size >= 1, fx.act);
+  await drain(fx.act);
+
+  const pill = fx.host.querySelector(`[data-testid="plugin-bubble-${fx.pluginId}"]`);
+  assert(
+    pill?.getAttribute("data-watch-state") === "unavailable",
+    `a failed stream must not read as live, got ${pill?.getAttribute("data-watch-state")}`,
+  );
+  assert(
+    (pill?.getAttribute("title") ?? "").includes("stream_unavailable"),
+    `the discriminant is named, got ${pill?.getAttribute("title")}`,
+  );
+
+  // Hiding releases everything, and a fresh lifecycle opens a new stream.
+  await render(fx, { cwd: "/repo", tabId: "tab-1", isActive: false });
+  await drain(fx.act);
+  let debug = fx.repoWatch.__repoWatchDebugForTest();
+  assert(debug.leases === 0, `no lease retained, got ${debug.leases}`);
+  assert(!debug.streamOpen, "no rejected stream retained");
+  assert(fx.watch.state.liveListeners === 0, `no listener retained, got ${fx.watch.state.liveListeners}`);
+
+  await render(fx, { cwd: "/repo", tabId: "tab-1", isActive: true });
+  await waitUntil(
+    () =>
+      fx.host
+        .querySelector(`[data-testid="plugin-bubble-${fx.pluginId}"]`)
+        ?.getAttribute("data-watch-state") === "live",
+    fx.act,
+  );
+  assert(fx.watch.state.listenCalls === 2, `a fresh stream was opened, got ${fx.watch.state.listenCalls}`);
+  debug = fx.repoWatch.__repoWatchDebugForTest();
+  assert(debug.streamOpen, "the new stream is retained");
+
+  await fx.act(async () => fx.root.unmount());
+  fx.teardown();
+});
+
+test("a first-listener rejection retains no listener", async () => {
+  const { openRepoWatchStream } = await import("../../lib/repoWatch");
+  let registrations = 0;
+  const subscribe = (async () => {
+    registrations++;
+    throw new Error("first registration failed");
+  }) as unknown as Parameters<typeof openRepoWatchStream>[0];
+
+  let rejected = false;
+  await openRepoWatchStream(subscribe, () => {}).catch(() => {
+    rejected = true;
+  });
+  assert(rejected, "the stream must reject, not resolve half-open");
+  assert(registrations === 1, `one attempt and nothing to unlisten, got ${registrations}`);
+});
+
+test("a second-listener rejection unlistens the first", async () => {
+  const { openRepoWatchStream } = await import("../../lib/repoWatch");
+  let registrations = 0;
+  let unlistens = 0;
+  const subscribe = (async () => {
+    registrations++;
+    if (registrations === 2) throw new Error("second registration failed");
+    return () => {
+      unlistens++;
+    };
+  }) as unknown as Parameters<typeof openRepoWatchStream>[0];
+
+  let rejected = false;
+  await openRepoWatchStream(subscribe, () => {}).catch(() => {
+    rejected = true;
+  });
+  assert(rejected, "the stream must reject");
+  assert(registrations === 2, `both registrations attempted, got ${registrations}`);
+  assert(unlistens === 1, `the first listener must be released, got ${unlistens}`);
+});
+
+test("two cwd aliases of one repository share a cache entry and one computation", async () => {
+  const fx = await setupFixture("fake-git", "auto", "id:/repo");
+  await renderAliases(fx, "/repo", "/repo/../repo");
+  await waitUntil(() => fx.watch.state.active.size >= 2, fx.act);
+  await drain(fx.act);
+
+  assert(fx.watch.state.subscribeCalls === 2, "each visible tab leases its own watch");
+  const before = fx.calls;
+
+  await fx.act(async () => {
+    fx.watch.emit({ kind: "changed", identity: "id:/repo" });
+  });
+  await waitUntil(() => fx.calls > before, fx.act);
+  await drain(fx.act);
+  assert(
+    fx.calls === before + 1,
+    `two aliases are one identity: one event, one git status, got ${fx.calls - before}`,
+  );
+
+  await fx.act(async () => fx.root.unmount());
+  await drain(fx.act);
+  assert(
+    fx.watch.state.unsubscribeCalls === 2 && fx.watch.state.active.size === 0,
+    `both alias leases release, got ${fx.watch.state.unsubscribeCalls}`,
+  );
   fx.teardown();
 });
 
