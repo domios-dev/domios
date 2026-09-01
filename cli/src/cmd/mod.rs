@@ -15,6 +15,7 @@ pub mod local_io;
 pub mod manifest;
 pub mod mem;
 pub mod mem_secret;
+pub mod mem_secret_autounlock;
 pub mod mesh;
 pub mod notify;
 pub mod orchestrator;

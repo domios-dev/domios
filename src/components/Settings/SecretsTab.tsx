@@ -26,6 +26,7 @@ interface SecretsStatus {
     endpoint?: string | null;
     reason?: string;
   };
+  auto_unlock_capable?: boolean;
   master_password_saved?: boolean;
 }
 
@@ -289,8 +290,9 @@ export function SecretsTab({
     [patchSecrets],
   );
 
-  const submitPasswordLogin = useCallback(
-    async (e: React.FormEvent) => {
+  // Ordinary sign-in never persists; only the explicit "remember" form consents.
+  const unlockWithPassword = useCallback(
+    async (e: React.FormEvent, persistForAutoUnlock: boolean) => {
       e.preventDefault();
       setError(null);
       try {
@@ -301,6 +303,7 @@ export function SecretsTab({
             master_password: masterPassword,
             email: email || undefined,
             two_factor_token: twoFactor || undefined,
+            persist_for_auto_unlock: persistForAutoUnlock,
           }),
         });
         if (!r.ok) {
@@ -319,6 +322,16 @@ export function SecretsTab({
     [apiBase, jsonHeaders, masterPassword, email, twoFactor, refreshStatus],
   );
 
+  const submitPasswordLogin = useCallback(
+    (e: React.FormEvent) => unlockWithPassword(e, false),
+    [unlockWithPassword],
+  );
+
+  const submitArmAutoUnlock = useCallback(
+    (e: React.FormEvent) => unlockWithPassword(e, true),
+    [unlockWithPassword],
+  );
+
   const submitApiKeyLogin = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
@@ -331,6 +344,7 @@ export function SecretsTab({
             master_password: masterPassword,
             api_key_client_id: apiClientId,
             api_key_client_secret: apiClientSecret,
+            persist_for_auto_unlock: false,
           }),
         });
         if (!r.ok) {
@@ -450,44 +464,47 @@ export function SecretsTab({
               Self-hosted Vaultwarden? Point to{" "}
               <code className="font-mono">https://your-host.example</code>. Changing the URL forces a re-login.
             </div>
-            {backend === "bitwarden" &&
-              (status?.status?.status === "unlocked" || status?.status?.status === "locked") && (
-                status?.master_password_saved ? (
-                  <div className="text-[11px] text-[var(--ct-green)] pt-1">
-                    ✓ Master password saved — daemon auto-unlocks on every operation.
-                  </div>
-                ) : (
-                  <div className="pt-1 space-y-1">
-                    <div className="text-[11px] text-[var(--ct-yellow)]">
-                      ⚠ Master password not saved — daemon will lock and prompt on restart.
-                    </div>
-                    <form onSubmit={submitPasswordLogin} className="flex gap-2">
-                      <input
-                        type="password"
-                        data-testid="settings-secrets-save-master-password"
-                        placeholder="master password"
-                        autoComplete="current-password"
-                        value={masterPassword}
-                        onChange={(e) => setMasterPassword(e.target.value)}
-                        className={inputClass}
-                        required
-                      />
-                    <button
-                      type="submit"
-                      data-testid="settings-secrets-save-master-password-submit"
-                      className={`${primaryBtnClass} whitespace-nowrap`}
-                    >
-                      Save
-                    </button>
-                    </form>
-                    <div className="text-[10px] text-[var(--ct-muted-fg)]">
-                      Stored as 0600 file in <code className="font-mono">~/.codeterm/secrets/bitwarden-master.env</code>. Copy to mesh peers for fleet-wide auto-unlock.
-                    </div>
-                  </div>
-                )
-              )}
           </div>
         )}
+
+        {/* Auto-unlock is offered by declaration, not by which backend is active. */}
+        {status?.auto_unlock_capable &&
+          (status?.status?.status === "unlocked" || status?.status?.status === "locked") && (
+            status?.master_password_saved ? (
+              <div className="text-[11px] text-[var(--ct-green)] pt-1">
+                ✓ Auto-unlock armed — the backend restores its own session without a prompt.
+              </div>
+            ) : (
+              <div className="pt-1 space-y-1">
+                <div className="text-[11px] text-[var(--ct-yellow)]">
+                  ⚠ Auto-unlock not armed — a manual unlock is required after the session expires.
+                </div>
+                <form onSubmit={submitArmAutoUnlock} className="flex gap-2">
+                  <input
+                    type="password"
+                    data-testid="settings-secrets-save-master-password"
+                    placeholder="master password"
+                    autoComplete="current-password"
+                    value={masterPassword}
+                    onChange={(e) => setMasterPassword(e.target.value)}
+                    className={inputClass}
+                    required
+                  />
+                  <button
+                    type="submit"
+                    data-testid="settings-secrets-save-master-password-submit"
+                    className={`${primaryBtnClass} whitespace-nowrap`}
+                  >
+                    Unlock and remember
+                  </button>
+                </form>
+                <div className="text-[10px] text-[var(--ct-muted-fg)]">
+                  The vault must accept the password first; the backend then keeps it in its own
+                  protected bucket. CodeTerm writes no separate credential file.
+                </div>
+              </div>
+            )
+          )}
 
         {toast && (
           <div className="text-[11px] rounded border border-[var(--ct-green)]/40 bg-[var(--ct-green)]/10 p-2 text-[var(--ct-green)]" data-testid="settings-secrets-toast" role="status">
