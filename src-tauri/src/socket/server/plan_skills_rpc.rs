@@ -561,6 +561,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     fn plan_skill_show_backfills_nonce_proven_live_session() {
         let caller = LiveCaller::new();
         let mut params = caller.production_params();
@@ -578,6 +579,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     fn plan_skill_show_refuses_stale_or_mismatched_nonce() {
         let caller = LiveCaller::new();
         let mut mismatched = caller.production_params();
@@ -616,6 +618,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
     fn plan_skill_show_refuses_partial_identity_without_live_backfill() {
         let caller = LiveCaller::new();
         for partial in [
