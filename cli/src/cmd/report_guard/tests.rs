@@ -692,21 +692,46 @@ fn declared_lane_worktree_that_is_not_a_repo_refuses_instead_of_using_the_pane()
     );
 }
 
-/// Mechanism only: the refusal must never advise a shell expression (any
-/// `$(...)` substitution) for the commit sha, since that could resolve to a
-/// foreign HEAD in a lane worktree rather than the caller's own commit.
+/// The token immediately following `--sha` in a command line, if any.
+fn sha_token(line: &str) -> Option<&str> {
+    line.split("--sha ").nth(1)?.split_whitespace().next()
+}
+
+/// Accept only the owned placeholder or a hex literal — never a shell
+/// expression, a variable, or HEAD.
+fn sha_token_is_acceptable(token: &str) -> bool {
+    token == "YOUR_OWN_COMMIT_SHA"
+        || (!token.is_empty() && token.chars().all(|c| c.is_ascii_hexdigit()))
+}
+
+/// Mechanism table over the --sha token contract: placeholder/hex accepted,
+/// command substitution/variable/HEAD rejected, no prompt prose asserted.
 #[test]
-fn refusal_never_advises_a_shell_expression_for_the_commit_sha() {
+fn sha_token_contract_accepts_placeholder_and_hex_rejects_expression_variable_and_head() {
+    let cases: &[(&str, bool)] = &[
+        ("YOUR_OWN_COMMIT_SHA", true),
+        ("deadbeefcafe0123456789abcdef012345678901", true),
+        ("$(git rev-parse HEAD)", false),
+        ("$SHA", false),
+        ("${SHA}", false),
+        ("HEAD", false),
+    ];
+    for &(token, accepted) in cases {
+        assert_eq!(sha_token_is_acceptable(token), accepted, "{token}");
+    }
+
+    for line in REPORT_NEXT_COMMANDS {
+        if let Some(token) = sha_token(line) {
+            assert_eq!(token, "YOUR_OWN_COMMIT_SHA", "{line}");
+        }
+    }
     let refusal = ReportRefusal {
         reason: "readiness report refused".into(),
         dirty_files: Vec::new(),
     };
     let message = refusal.message();
-
-    assert!(!message.contains("$("), "{message}");
-    for line in REPORT_NEXT_COMMANDS {
-        assert!(!line.contains("$("), "{line}");
-    }
+    let token = sha_token(&message).expect("message must advise a --sha token");
+    assert_eq!(token, "YOUR_OWN_COMMIT_SHA");
 }
 
 /// codeterm#305: spawn and report derive the same verdict from the same
