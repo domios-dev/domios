@@ -655,7 +655,19 @@ pub fn run() {
             let mem = mem::MemManager::open(&crate::paths::data_dir())
                 .expect("mem manager init failed");
             match mem.seed_bundled_if_needed() {
-                Ok(n) if n > 0 => log::info!("[mem] seeded {} bundled starter items", n),
+                Ok(outcome) if outcome.written() > 0 || !outcome.skipped.is_empty() => {
+                    log::info!(
+                        "[mem] bundled seed: {} written ({} created, {} bootstrapped, {} refreshed), {} skipped",
+                        outcome.written(),
+                        outcome.created,
+                        outcome.bootstrapped,
+                        outcome.refreshed,
+                        outcome.skipped.len()
+                    );
+                    for (title, reason) in &outcome.skipped {
+                        log::info!("[mem] bundled seed skip: {title} ({reason:?})");
+                    }
+                }
                 Ok(_) => log::info!("[mem] starter items already seeded"),
                 Err(e) => log::warn!("[mem] seed failed: {}", e),
             }

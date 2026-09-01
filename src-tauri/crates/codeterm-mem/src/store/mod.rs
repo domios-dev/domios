@@ -266,7 +266,7 @@ impl MemKind {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MemScope {
     Global,
@@ -290,7 +290,7 @@ impl MemScope {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NewMemItem {
     pub kind: MemKind,
     pub scope: MemScope,

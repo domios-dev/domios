@@ -64,7 +64,7 @@ impl MemManager {
         store::tail_recent(&conn, since, limit)
     }
 
-    pub fn seed_bundled_if_needed(&self) -> Result<usize, String> {
+    pub fn seed_bundled_if_needed(&self) -> Result<seed::SeedOutcome, String> {
         seed::seed_bundled(self)
     }
 }

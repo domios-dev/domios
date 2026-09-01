@@ -11,7 +11,7 @@ mod worker;
 
 use crate::client::SocketClient;
 use crate::cmd::print::handle_result;
-use crate::MemAction;
+use crate::{MemAction, MemSkillAction};
 
 pub fn handle_mem(client: &mut SocketClient, json_mode: bool, action: MemAction) {
     let human_search = !json_mode && matches!(&action, MemAction::Search { .. });
@@ -56,7 +56,19 @@ pub fn handle_mem(client: &mut SocketClient, json_mode: bool, action: MemAction)
             tail::run_mem_tail(client, json_mode, follow, limit, since);
         }
         MemAction::Skill { action } => {
-            print_mem_result(json_mode, skill::handle_mem_skill(client, action));
+            let human_list = wants_human_skill_list(json_mode, &action);
+            let result = skill::handle_mem_skill(client, action);
+            if human_list {
+                match result {
+                    Ok(value) => print!("{}", render_mem_skill_list(&value)),
+                    Err(error) => {
+                        eprintln!("Error: {error}");
+                        std::process::exit(1);
+                    }
+                }
+            } else {
+                print_mem_result(json_mode, result);
+            }
         }
         MemAction::Graph { action } => {
             print_mem_result(json_mode, graph::handle_mem_graph(client, action));
@@ -125,6 +137,37 @@ fn render_search_hits(value: &serde_json::Value) -> String {
         out.push_str(&format!(
             "{id} | {title} | {kind} | {score:.3} | {preview}\n"
         ));
+    }
+    out
+}
+
+/// codeterm-releases#60: one row per skill in columns — never the raw
+/// `{"..."` dump `print_object`'s array-of-objects fallback produced.
+/// `--json` always bypasses the column renderer, regardless of action shape.
+fn wants_human_skill_list(json_mode: bool, action: &MemSkillAction) -> bool {
+    !json_mode && matches!(action, MemSkillAction::List)
+}
+
+fn render_mem_skill_list(value: &serde_json::Value) -> String {
+    let Some(rows) = value.get("skills").and_then(serde_json::Value::as_array) else {
+        return "(no skills)\n".into();
+    };
+    if rows.is_empty() {
+        return "(no skills)\n".into();
+    }
+    let mut out = String::new();
+    for row in rows {
+        let id = row.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+        let title = row
+            .get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or("untitled");
+        let area = row.get("area").and_then(|v| v.as_str()).unwrap_or("-");
+        let updated_at = row
+            .get("updated_at")
+            .and_then(|v| v.as_str())
+            .unwrap_or("?");
+        out.push_str(&format!("{id} | {title} | {area} | {updated_at}\n"));
     }
     out
 }

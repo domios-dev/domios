@@ -46,6 +46,7 @@ Mem is curated and indexed; sessions are raw and provider-owned. The two never s
 - `accessed_at` / `created_at` / `updated_at`
 - `recurrence_count` — set by dreaming when a topic recurs
 - `graph_x` / `graph_y` — persistent graph layout position
+- `seed_fingerprint` — `NULL` unless the item came from a bundled seed (`codeterm-mem/src/seed.rs`). A SHA-256 over every field the seeder manages (kind, scope, title, summary, area, tags, body, importance, source_path, pinned — `source` itself is excluded, it's just the provenance label). `seed_bundled` overwrites the item ONLY when this still matches a freshly computed fingerprint of the stored payload — proof nothing has touched it since the seeder last wrote it. `store::update` clears it to `NULL` atomically, in the same write, whenever any managed field actually changes, so a real edit permanently opts the item out of future bundled refreshes. Never inferred from `mem_item_history`/`changed_by` — those are audit telemetry, not overwrite authority.
 
 Pin-only updates emit a row in `mem_item_history` so the audit trail captures explicit user intent (not just body edits).
 
@@ -174,4 +175,4 @@ Hooks are installed through the provider integration action into `~/.claude/sett
 
 Skills and background services: `codeterm docs MEMORY-SERVICES`. Agent behavior and command reference: `codeterm docs MEMORY-USAGE`.
 
-<!-- revision: 15 -->
+<!-- revision: 16 -->
