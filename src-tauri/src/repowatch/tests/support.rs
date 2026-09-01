@@ -313,24 +313,27 @@ pub fn expect_change_from(roots: &[&Path], target: usize, what: &str, action: im
 }
 
 pub fn git_available() -> bool {
-    std::process::Command::new("git")
-        .arg("--version")
+    let mut command = std::process::Command::new("git");
+    command.arg("--version");
+    crate::process_util::no_window_std(&mut command);
+    command
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false)
 }
 
 pub fn git(dir: &Path, args: &[&str]) {
-    let out = std::process::Command::new("git")
+    let mut command = std::process::Command::new("git");
+    command
         .arg("-C")
         .arg(dir)
         .args(args)
         .env("GIT_AUTHOR_NAME", "Tester")
         .env("GIT_AUTHOR_EMAIL", "t@example.com")
         .env("GIT_COMMITTER_NAME", "Tester")
-        .env("GIT_COMMITTER_EMAIL", "t@example.com")
-        .output()
-        .expect("git run");
+        .env("GIT_COMMITTER_EMAIL", "t@example.com");
+    crate::process_util::no_window_std(&mut command);
+    let out = command.output().expect("git run");
     assert!(
         out.status.success(),
         "git {args:?} failed: {}",
