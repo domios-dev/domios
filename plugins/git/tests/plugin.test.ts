@@ -107,6 +107,7 @@ async function loadPlugin(host: unknown) {
     __test_discoverGitRepos: (cwd: string) => Array<{ path: string; name: string; branch: string | null }>;
     __test_gitRepoConstants: { maxDepth: number; maxVisited: number; maxEmitted: number };
     __test_isSafeChildName: (name: string) => boolean;
+    statusBubble: (ctx: { cwd?: string | null }) => { label: string } | null;
   };
 }
 
@@ -258,6 +259,31 @@ console.log("\n--- gitRepos discovery ---\n");
   const plugin = await loadPlugin(fixture.host);
   const repos = plugin.__test_discoverGitRepos("/case/root");
   eq(repos.map((repo) => repo.path), ["/case/root", "/case/root/kept"], "Windows skip-set matching is case-insensitive");
+}
+
+console.log("\n--- statusBubble branch-identity caching (codeterm#336 part C) ---\n");
+
+{
+  const fixture = makeHost({
+    gitDirs: ["/cache/repo"],
+    branchByRepo: { "/cache/repo": "main" },
+    childDirs: {},
+    explicitExec: {
+      "git -C /cache/repo status --porcelain": { code: 0, stdout: "" },
+    },
+  });
+  const plugin = await loadPlugin(fixture.host);
+
+  const first = plugin.statusBubble({ cwd: "/cache/repo" });
+  const second = plugin.statusBubble({ cwd: "/cache/repo" });
+
+  const revParseCalls = fixture.execCalls.filter((c) => c === "git -C /cache/repo rev-parse --abbrev-ref HEAD");
+  const statusCalls = fixture.execCalls.filter((c) => c === "git -C /cache/repo status --porcelain");
+
+  eq(first?.label, "main", "first statusBubble computation resolves the branch");
+  eq(second?.label, "main", "second statusBubble computation reuses the cached branch");
+  eq(revParseCalls.length, 1, "rev-parse is called once per cwd, not once per refresh");
+  eq(statusCalls.length, 2, "git status --porcelain still runs on every refresh");
 }
 
 console.log("\nResidual review note: lexical containment is enforced in QuickJS, but junction/symlink identity cannot be proven here without a safe host stat/realpath surface.\n");

@@ -56,7 +56,6 @@ export { useMuxState, useMuxSelector } from "./selectorStore";
 export { highestTitleLevel } from "./tree";
 
 const HYDRATED_GENERATION = 0.5;
-const MUX_EVENT_RENEW_MS = 10_000;
 
 /** True when the web boot path paints sync cached mux state before reconcile. */
 export function webBootHasSyncCache(): boolean {
@@ -374,17 +373,13 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       refreshFromBackend();
     };
     renewMuxListener();
-    let muxRenewInterval = window.setInterval(renewMuxListener, MUX_EVENT_RENEW_MS);
     if (isCodeTermFrontendTestMode()) {
-      (eventStats.__ctEvents ??= { received: 0, lastAt: 0, reconnects: 0 }).breakMuxStream = () => {
-        muxUnlisten?.();
-        muxUnlisten = null;
-        window.clearInterval(muxRenewInterval);
-        muxRenewInterval = window.setInterval(renewMuxListener, MUX_EVENT_RENEW_MS);
-      };
+      // Test-only "stream disconnect" seam: no production signal tears down a
+      // healthy mux-state-changed subscription on its own, so tests simulate
+      // one directly by forcing a rebind (see codeterm#336 part B).
+      (eventStats.__ctEvents ??= { received: 0, lastAt: 0, reconnects: 0 }).breakMuxStream = renewMuxListener;
     }
     unlisteners.push(() => {
-      window.clearInterval(muxRenewInterval);
       muxListenGeneration++;
       muxUnlisten?.();
       delete eventStats.__ctEvents?.breakMuxStream;

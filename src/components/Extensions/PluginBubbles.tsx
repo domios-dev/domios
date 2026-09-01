@@ -7,19 +7,12 @@
  * click; without one, it opens the plugin's glance popover.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { invoke } from "../../lib/bridge";
 import { GlancePopover, type GlanceAnchor } from "./GlancePopover";
 import { SELECT_EXTENSION_EVENT } from "../Titlebar/extensionsTrayLogic";
 import type { Tone } from "./ViewNodeRenderer";
 import { ensurePluginSnapshot, usePluginSnapshotStore } from "../../lib/pluginSnapshotStore";
+import { subscribePluginBubble, type BubbleData } from "../../lib/pluginBubbleCache";
 
-interface BubbleData {
-  label: string;
-  tone?: Tone;
-  icon?: string | null;
-  tooltip?: string | null;
-  action?: string | null;
-}
 interface BubblePlugin {
   id: string;
   display_name?: string | null;
@@ -32,7 +25,6 @@ interface SnapPlugin {
   capabilities?: { status_bubble?: boolean } | null;
 }
 
-const POLL_MS = 8000;
 const TONE: Record<Tone, string> = {
   default: "var(--ct-fg)",
   muted: "var(--ct-muted)",
@@ -52,7 +44,17 @@ function openPanel(action: string, cwd: string | null) {
   }
 }
 
-export function PluginBubbles({ cwd, tabId }: { cwd: string | null; tabId: string }) {
+export function PluginBubbles({
+  cwd,
+  tabId,
+  isActive,
+}: {
+  cwd: string | null;
+  tabId: string;
+  /** Only a visible tab computes its own bubbles; a hidden one rides along
+   * on whatever its shared (plugin, repo) cache entry already has. */
+  isActive: boolean;
+}) {
   const snapshotState = usePluginSnapshotStore();
   const [pills, setPills] = useState<Record<string, BubbleData | null>>({});
   const [open, setOpen] = useState<{ id: string; name: string; configHelp?: string; anchor: GlanceAnchor } | null>(null);
@@ -70,22 +72,15 @@ export function PluginBubbles({ cwd, tabId }: { cwd: string | null; tabId: strin
 
   useEffect(() => {
     if (plugins.length === 0) return;
-    let alive = true;
-    const ctx = { cwd, tabId };
-    const poll = () => {
-      for (const p of plugins) {
-        invoke<BubbleData | null>("plugin_bubble", { pluginId: p.id, ctx })
-          .then((d) => alive && setPills((prev) => ({ ...prev, [p.id]: d })))
-          .catch(() => {});
-      }
-    };
-    poll();
-    const t = setInterval(poll, POLL_MS);
+    const unsubscribes = plugins.map((p) =>
+      subscribePluginBubble(p.id, cwd, tabId, isActive, (value) => {
+        setPills((prev) => (prev[p.id] === value ? prev : { ...prev, [p.id]: value }));
+      }),
+    );
     return () => {
-      alive = false;
-      clearInterval(t);
+      for (const unsubscribe of unsubscribes) unsubscribe();
     };
-  }, [plugins, cwd, tabId]);
+  }, [plugins, cwd, tabId, isActive]);
 
   const visible = plugins.filter((p) => pills[p.id]);
 
