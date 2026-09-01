@@ -137,6 +137,7 @@ does not publish a release or alter GitHub assets.
 | `release-preflight` prints a Rust formatting diff and exits before lock validation | One or both Rust workspaces were not formatted with the repository toolchain | Run `cargo fmt --manifest-path src-tauri/Cargo.toml --all` and `cargo fmt --manifest-path cli/Cargo.toml --all`, inspect the changed files, then rerun `release-preflight`. |
 | `release-preflight` reports a source file one or two lines over 1200 | Test responsibilities accumulated in an inline or monolithic test module until formatting crossed the hard limit | Move a cohesive test group into a child module, verify both focused suites, then rerun `release-preflight`; do not hide the overflow by compacting whitespace. |
 | `release-preflight` fails under `-D warnings` for an enum field read only by tests | Production already logs the diagnostic, but an outcome variant retained a duplicate payload solely for a test assertion | Make the production outcome carry only consumed state and assert that state in the focused test; do not suppress `dead_code`. |
+| `release-preflight` fails with Clippy `never_loop` in a bounded silence oracle | The helper wrapped one `recv_timeout` in a loop even though every match arm returned on the first pass | Express the oracle as one bounded event wait, keep timeout/disconnect as silence, then rerun `release-preflight`; do not add a settle loop or sleep. |
 | `release-preflight` fails compiling `state_doctor` after a classifier signal rename/removal | The standalone testbench still consumed an obsolete `BoundarySignals` field that ordinary library tests do not compile | Update the doctor to the current structural signal and subtype ownership, then run the exact `state_doctor` test target before retrying preflight. |
 | `Release lock version mismatch` during a version bump | An older preflight checked lock versions before Cargo refreshed the workspace packages | Use the current `release-preflight`, which checks both manifests before verifying both lockfiles; commit the refreshed lockfiles, then retry. |
 | A direct `npm run` or `pnpm build` reports `'node' is not recognized` while `node --version` works | The package manager selected `cmd.exe` for lifecycle scripts in a shell whose effective command lookup differs from the parent PowerShell session | Use the named build operation (`build.ps1 frontend` for the production UI gate). For standalone version validation, run `npm run check:versions --script-shell pwsh.exe`. |
@@ -274,4 +275,4 @@ production app during startup, in-app update, or `install-local`.
 
 Tooling, outputs, platform notes, and repository layout: `docs/BUILD-REFERENCE.md`. Test workflows: `codeterm docs TESTING`.
 
-<!-- revision: 119 -->
+<!-- revision: 120 -->

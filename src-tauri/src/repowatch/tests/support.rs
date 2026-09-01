@@ -94,20 +94,13 @@ pub fn collected(rx: &Receiver<SinkEvent>) -> Vec<SinkEvent> {
 
 /// Expiry of the bounded window IS the pass condition.
 pub fn expect_silence(rx: &Receiver<SinkEvent>, what: &str) {
-    let deadline = std::time::Instant::now() + SILENCE;
-    loop {
-        let left = deadline.saturating_duration_since(std::time::Instant::now());
-        if left.is_zero() {
-            return;
+    match rx.recv_timeout(SILENCE) {
+        Ok(SinkEvent::Changed(id)) => panic!("{what} must emit no event, got change for {id}"),
+        Ok(SinkEvent::Unavailable(id, reason)) => {
+            panic!("{what} must emit no event, got {reason:?} for {id}")
         }
-        match rx.recv_timeout(left) {
-            Ok(SinkEvent::Changed(id)) => panic!("{what} must emit no event, got change for {id}"),
-            Ok(SinkEvent::Unavailable(id, reason)) => {
-                panic!("{what} must emit no event, got {reason:?} for {id}")
-            }
-            Err(RecvTimeoutError::Timeout) => return,
-            Err(RecvTimeoutError::Disconnected) => return,
-        }
+        Err(RecvTimeoutError::Timeout) => {}
+        Err(RecvTimeoutError::Disconnected) => {}
     }
 }
 
