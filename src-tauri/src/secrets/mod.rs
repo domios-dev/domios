@@ -10,13 +10,20 @@
 //! single handle. Switching backends in Settings swaps the box atomically.
 
 pub mod api;
+pub mod capability;
 pub mod factory;
 pub mod js_backend;
+pub mod legacy;
 pub mod local;
 pub mod mock;
 pub mod secret_file;
 
+pub use capability::{
+    check_persist_consent, master_password_saved, plugin_secret_bucket, StoreCapabilities,
+    AUTO_UNLOCK_CREDENTIAL_KEY,
+};
 pub use factory::{factory as get_factory, list as list_factories, SecretBackendFactory};
+pub use legacy::{purge_legacy_master_password_file, LegacyPurge};
 
 use std::fmt;
 
@@ -134,6 +141,9 @@ pub struct UnlockCredentials {
     /// Bitwarden API-key flow.
     pub api_key_client_id: Option<SecretString>,
     pub api_key_client_secret: Option<SecretString>,
+    /// The caller explicitly asked the backend to remember this credential for
+    /// headless unlock. Default false: an ordinary sign-in never grants it.
+    pub persist_for_auto_unlock: bool,
 }
 
 impl UnlockCredentials {
@@ -144,6 +154,7 @@ impl UnlockCredentials {
             email: None,
             api_key_client_id: None,
             api_key_client_secret: None,
+            persist_for_auto_unlock: false,
         }
     }
 }
@@ -256,8 +267,25 @@ impl std::error::Error for SecretError {}
 /// CodeTerm talks to `dyn SecretStore`.
 #[async_trait]
 pub trait SecretStore: Send + Sync {
-    /// Stable backend id — `"mock"`, `"bitwarden"`, `"keychain"`, …
+    /// Stable backend id — `"mock"`, `"bitwarden"`, `"keychain"`, …. An
+    /// identifier for display and storage only; never branch behaviour on it.
     fn id(&self) -> &'static str;
+
+    /// What this backend declares it can do. Core asks this instead of asking
+    /// which backend is active.
+    fn capabilities(&self) -> StoreCapabilities {
+        StoreCapabilities::NONE
+    }
+
+    /// Whether the credential a headless unlock needs is already present.
+    /// Default: the host-owned plugin bucket for this backend's id — the same
+    /// location `host.secretSet` writes from inside a plugin. Only meaningful
+    /// when `capabilities().auto_unlock` is declared.
+    fn auto_unlock_armed(&self) -> bool {
+        capability::plugin_secret_bucket(self.id())
+            .get(capability::AUTO_UNLOCK_CREDENTIAL_KEY)
+            .is_ok()
+    }
 
     async fn status(&self) -> StoreStatus;
 
@@ -405,7 +433,7 @@ pub fn migrate_native_bitwarden_to_plugin(config: &mut crate::config::schema::Ap
         }
     }
     let native = secret_file::SecretFile::new("codeterm.secrets.bitwarden");
-    let plugin = secret_file::SecretFile::new("codeterm.plugin.bitwarden");
+    let plugin = capability::plugin_secret_bucket("bitwarden");
     for (from, to) in [
         ("session", "session"),
         ("master_password", "master_password"),
