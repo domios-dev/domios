@@ -84,7 +84,6 @@ fn repository_watch_failures_are_explicit() {
     let lane = holder.path().join("doomed");
     let (live, live_rx) = live_registry();
     let sub = live.subscribe(&lane).expect("lane subscribe");
-    settle(&live_rx);
     std::fs::remove_dir_all(&lane).expect("delete the watched worktree");
     let reported = expect_unavailable(
         &live_rx,

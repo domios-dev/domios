@@ -144,7 +144,18 @@ impl RepoWatchRegistry {
         let sink = self.sink.clone();
         let handler = Box::new(move |signal: WatchSignal| match signal {
             WatchSignal::Batch(paths) => dispatch(&sink, &owner, WatchHalf::Worktree, &paths),
-            WatchSignal::Failed(detail) => fail(&sink, std::slice::from_ref(&owner), &detail),
+            WatchSignal::Rescan => untrusted(
+                &sink,
+                std::slice::from_ref(&owner),
+                RepoWatchUnavailable::RescanRequired,
+                "backend reported a rescan: events may have been missed",
+            ),
+            WatchSignal::Failed(detail) => untrusted(
+                &sink,
+                std::slice::from_ref(&owner),
+                RepoWatchUnavailable::BackendFailed,
+                &detail,
+            ),
         });
         self.backend
             .build(&specs, handler)
@@ -184,7 +195,18 @@ impl RepoWatchRegistry {
                         dispatch(&sink, target, WatchHalf::SharedRefs, &paths);
                     }
                 }
-                WatchSignal::Failed(detail) => fail(&sink, &targets, &detail),
+                WatchSignal::Rescan => untrusted(
+                    &sink,
+                    &targets,
+                    RepoWatchUnavailable::RescanRequired,
+                    "backend reported a rescan: events may have been missed",
+                ),
+                WatchSignal::Failed(detail) => untrusted(
+                    &sink,
+                    &targets,
+                    RepoWatchUnavailable::BackendFailed,
+                    &detail,
+                ),
             }
         });
         let watch = self
@@ -258,9 +280,16 @@ fn dispatch(
     }
 }
 
-fn fail(sink: &Arc<dyn RepoEventSink>, targets: &[RepoIdentity], detail: &str) {
+/// The watch can no longer be trusted. Never rescan, retry or synthesize a
+/// change here: say so and let the UI show an honest unknown.
+fn untrusted(
+    sink: &Arc<dyn RepoEventSink>,
+    targets: &[RepoIdentity],
+    reason: RepoWatchUnavailable,
+    detail: &str,
+) {
     for target in targets {
-        log::warn!("[repowatch] backend failed for {}: {detail}", target.id);
-        sink.repository_unavailable(&target.id, RepoWatchUnavailable::BackendFailed);
+        log::warn!("[repowatch] {} untrusted ({}): {detail}", target.id, reason.as_str());
+        sink.repository_unavailable(&target.id, reason);
     }
 }

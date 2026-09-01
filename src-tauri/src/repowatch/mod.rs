@@ -12,7 +12,8 @@ mod registry;
 mod tests;
 
 pub use backend::{
-    ActiveWatch, BatchHandler, NotifyBackend, WatchBackend, WatchSignal, WatchSpec, DEBOUNCE,
+    is_rescan, ActiveWatch, BatchHandler, NotifyBackend, RescanRelay, RescanSink, WatchBackend,
+    WatchSignal, WatchSpec, DEBOUNCE,
 };
 pub use events::{RepoEventSink, RepoWatchError, RepoWatchUnavailable, TauriRepoEventSink};
 pub use handles::open_handle_count;

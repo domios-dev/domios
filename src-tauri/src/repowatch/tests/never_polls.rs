@@ -34,6 +34,8 @@ fn repository_watch_never_polls() {
 
     // notify's Windows and Linux backends are unconditional per-target deps;
     // only macOS FSEvents needs a feature, and losing it falls back to kqueue.
+    guard_oracles_never_wait_on_time(&manifest);
+
     let cargo = std::fs::read_to_string(manifest.join("Cargo.toml")).expect("read Cargo.toml");
     let notify_line = cargo
         .lines()
@@ -63,4 +65,35 @@ fn collect(dir: &Path) -> Vec<PathBuf> {
         }
     }
     found
+}
+
+/// The oracles must never coordinate on elapsed time. Only `support.rs` holds
+/// the sanctioned channel waits; this file is skipped because it names them.
+fn guard_oracles_never_wait_on_time(manifest: &Path) {
+    let dir = manifest.join("src").join("repowatch").join("tests");
+    let entries = std::fs::read_dir(&dir).expect("repository-watch tests directory");
+    let mut checked = 0;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default()
+            .to_string();
+        if !name.ends_with(".rs") || name == "never_polls.rs" {
+            continue;
+        }
+        checked += 1;
+        let text = std::fs::read_to_string(&path).expect("read oracle source");
+        for needle in ["settle", "sleep", "quiesce"] {
+            assert!(!text.contains(needle), "{name} must not contain {needle}");
+        }
+        if name != "support.rs" {
+            assert!(
+                !text.contains("recv_timeout"),
+                "{name} must wait through support.rs, not on its own timed recv"
+            );
+        }
+    }
+    assert!(checked >= 8, "expected the oracle sources, found {checked}");
 }
