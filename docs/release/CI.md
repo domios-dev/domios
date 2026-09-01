@@ -110,6 +110,14 @@ check summary. `scripts/tests/test_release_issue_contract.py` guards these rules
 `tests` workflow and `./build.sh release-preflight`. Source declarations become `Closes #N` only in the final `develop` → `master` PR;
 public declarations close only after publication.
 
+The closing block is rendered, never typed. `reconcile` checks the release PR body against the
+range that actually merged and refuses a body that names an issue nothing fixed or drops one that
+was fixed; `audit-commits` fails on a closing keyword outside that set, on a fixed issue no commit
+claims, and on any closing keyword naming a `codeterm-releases` issue, which closes on verified
+publication rather than on merge - including GitHub's full-URL closing form, which a `#N`-only
+reader would miss. `scripts/tests/test_release_workflow_contract.py` asserts the
+lane gates against the parsed workflow YAML, so a lane cannot quietly lose its verification.
+
 The tag-driven `.github/workflows/release.yml` has a serialized publication boundary:
 
 1. Build and publish the private archive and public mirror.
@@ -166,4 +174,4 @@ To unblock notarization:
   inline merge is sufficient for the current release cadence.
 - Cross-compiling Linux ARM (`aarch64-unknown-linux-gnu`).
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->
