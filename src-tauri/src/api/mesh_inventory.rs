@@ -352,12 +352,8 @@ mod tests {
         assert!(protected_cron.capabilities[&InventoryOperation::Disable].allowed);
     }
 
-    /// Pins the backend contract codeterm#370's frontend fix must consume rather
-    /// than re-derive: a fresh, unprotected, fully-accessible Cron resource is
-    /// allowed for every InventoryOperation, and never carries
-    /// UnsupportedResourceKind. Must stay green before and after the frontend
-    /// change — proving the frontend was made right by consuming this
-    /// projection, not by loosening it.
+    /// Pins the backend capability projection consumed by the cron UI.
+    /// A fresh, unprotected cron remains allowed for every operation.
     #[test]
     fn cron_resource_supports_every_operation() {
         let resource = project_resource(

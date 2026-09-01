@@ -563,12 +563,18 @@ fn relay_refusal_distinguishes_unroutable_from_unpaired() {
     mesh.paired_peers.insert("peer-a".into(), peer.clone());
 
     // Genuinely unknown peer: no paired record at all.
-    let unpaired = resolve_relay_peer(&mesh, "no-such-peer").unwrap_err();
+    let unpaired = match resolve_relay_peer(&mesh, "no-such-peer") {
+        Ok(_) => panic!("unknown peer unexpectedly resolved"),
+        Err(error) => error,
+    };
     assert_eq!(unpaired.0, StatusCode::NOT_FOUND);
     assert!(unpaired.1.starts_with(PEER_NOT_PAIRED_REASON), "got: {}", unpaired.1);
 
     // Known, paired peer — but no reachable address, so client_for returns None.
-    let unroutable = resolve_relay_peer(&mesh, "peer-a").unwrap_err();
+    let unroutable = match resolve_relay_peer(&mesh, "peer-a") {
+        Ok(_) => panic!("addressless peer unexpectedly resolved"),
+        Err(error) => error,
+    };
     assert_eq!(unroutable.0, StatusCode::SERVICE_UNAVAILABLE);
     assert!(unroutable.1.starts_with(PEER_UNROUTABLE_REASON), "got: {}", unroutable.1);
     assert_ne!(unpaired.0, unroutable.0, "distinct status codes for distinct causes");
