@@ -58,6 +58,11 @@ All in-binary prompt sources live in `src-tauri/prompts/`. Their loader constant
 | `seed/rule_save_to_mem.md` | `RULE_SAVE_TO_MEM` | Bundled seed | — | private `codeterm-mem/src/seed.rs` constant |
 | `seed/rule_search_before_asking.md` | `RULE_SEARCH_BEFORE_ASKING` | Bundled seed | — | private `codeterm-mem/src/seed.rs` constant |
 | `seed/skill_codeterm.md` | `SKILL_CODETERM` | Bundled seed | — | private `codeterm-mem/src/seed.rs` constant |
+| `seed/legacy_1_10_7/identity_placeholder.md` | `LEGACY_1_10_7_IDENTITY_BODY` | Frozen seed reference | — | private `codeterm-mem/src/seed.rs` bootstrap constant; never edit |
+| `seed/legacy_1_10_7/rule_never_edit_autogen.md` | `LEGACY_1_10_7_RULE_NEVER_EDIT_AUTOGEN` | Frozen seed reference | — | private `codeterm-mem/src/seed.rs` bootstrap constant; never edit |
+| `seed/legacy_1_10_7/rule_save_to_mem.md` | `LEGACY_1_10_7_RULE_SAVE_TO_MEM` | Frozen seed reference | — | private `codeterm-mem/src/seed.rs` bootstrap constant; never edit |
+| `seed/legacy_1_10_7/rule_search_before_asking.md` | `LEGACY_1_10_7_RULE_SEARCH_BEFORE_ASKING` | Frozen seed reference | — | private `codeterm-mem/src/seed.rs` bootstrap constant; never edit |
+| `seed/legacy_1_10_7/skill_codeterm.md` | `LEGACY_1_10_7_SKILL_CODETERM` | Frozen seed reference | — | private `codeterm-mem/src/seed.rs` bootstrap constant; never edit |
 
 ### Placeholder rules
 Substitution is plain `String::replace()` — there is no template engine. This means:
@@ -108,6 +113,8 @@ Four of the prompts above (`worker_task_preamble`, `mem_extraction`, `dreaming_r
 `plugin_agent_task_preamble.md` is the wrapper applied by `service/plugin_host.rs` when a plugin spawns an agent through the host API. It injects the plugin-owned `{task}` and keeps that agent out of the memory graph-worker protocol: plugin agents should operate through verbs exposed as `codeterm plugin <id> <verb>`, which dispatches to the plugin's `onAgentCommand` handler.
 
 `codeterm-mem/src/seed.rs` privately loads markdown sources under `prompts/seed/` and inserts them as baseline `NewMemItem` rows. `seed_bundled` runs on every startup, not just a fresh install: each item's overwrite authority is the `mem_items.seed_fingerprint` column (see `docs/MEMORY.md`), a hash of every field the seeder manages, so a prompt edit here reaches an already-seeded machine on its next restart precisely when nothing else has touched that item since it was last (bootstrapped or refreshed) to match. A real edit through `mem update`/the API to any managed field clears the fingerprint in that same write, so the item is left untouched from then on. They live in the mem store and are surfaced to agents only via `codeterm mem search`/`get`.
+
+`prompts/seed/legacy_1_10_7/` is the byte-exact reference payload shipped before fingerprints existed. It lets startup prove that an old row is still unedited before assigning ownership and refreshing it; these files are historical evidence, not current prompts, and must never be changed after release.
 
 ## Role presets — one resolver, one composition table
 
@@ -237,4 +244,4 @@ owning loader module (pub const &str)
 - `docs/PROMPT-TIERS.md` — progressive-disclosure tiers and their evaluation boundary
 - `.claude/skills/prompt-evaluator/SKILL.md` — the harness it drives
 
-<!-- revision: 30 -->
+<!-- revision: 31 -->
