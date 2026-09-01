@@ -148,6 +148,8 @@ does not publish a release or alter GitHub assets.
 | Self-install succeeds but gateway history reports `owner_lost` | An older build script kept the gateway owned until after the installer restarted CodeTerm and killed the calling Tab | Update the build scripts and run `build.ps1 install-local`; the current operation releases the verified build before detached installer handoff. Prove installation separately with `self-install.log`, port 7685 health, and `codeterm identify`. |
 | Repeated local install recompiles the full release graph | The clean-room `build` route was used instead of the persistent local cache | Use `build.ps1 install-local`; reserve `build` for public-release-equivalent verification. |
 | A focused Rust test spends most of its runtime linking app binaries | The test omitted `--lib`, so Cargo built unrelated binary test targets | Run the focused filter through `scripts/test-capped.sh ... --lib <filter>`. |
+| PowerShell drops the standalone `--` before `--nocapture`, so Cargo rejects `--nocapture` as its own option | Native argument forwarding consumed the test-harness separator before Git Bash received it | Run the exact wrapper command through `bash -lc 'scripts/test-capped.sh ... <filter> -- --nocapture'` so the separator reaches Cargo's test binary. |
+| `verify` fails `daemon_windows_spawns_use_no_window_helper` after adding a Rust test fixture that invokes Git | The fixture constructed `std::process::Command` directly, so Windows could flash a console and the repository spawn audit rejected it | Build the command in a mutable variable and call `crate::process_util::no_window_std(&mut command)` before execution; run the spawn audit and the owning focused test, then retry `verify`. |
 | A fresh lane's focused Rust test reports missing `../dist` or `bundled-cli/*` | Ignored Tauri resource directories have not been staged in that worktree | Run `node scripts/dev-resource-preflight.mjs` and `node scripts/prepare-cli-stub.js`, then rerun the same focused test. Do not substitute a frontend build. |
 | `sccache: incremental compilation is prohibited` | `CARGO_INCREMENTAL=1` was combined with the shared sccache wrapper | Keep `CARGO_INCREMENTAL=0`; reuse the persistent completed target and sccache entries instead. |
 | Release-signing negative test passes despite a missing fixture key | The shell inherited `TAURI_SIGNING_PRIVATE_KEY` from the canonical `.env` | Run the repository check; its missing-key fixture explicitly removes the inherited key before asserting failure. |
@@ -271,4 +273,4 @@ production app during startup, in-app update, or `install-local`.
 
 Tooling, outputs, platform notes, and repository layout: `docs/BUILD-REFERENCE.md`. Test workflows: `codeterm docs TESTING`.
 
-<!-- revision: 117 -->
+<!-- revision: 118 -->
