@@ -26,6 +26,17 @@ CLOSING_KEYWORD = re.compile(
     r"https?://(?:www\.)?github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/issues/[0-9]+)\b",
     re.IGNORECASE,
 )
+# GitHub honours the full issue URL as a closing keyword too, so an audit that
+# only reads the #N forms would pass a commit closing an issue by link.
+CLOSING_KEYWORD_TARGET = re.compile(
+    r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+"
+    r"(?:"
+    r"(?P<repository>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#(?P<number>[0-9]+)"
+    r"|https?://(?:www\.)?github\.com/"
+    r"(?P<url_repository>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/issues/(?P<url_number>[0-9]+)"
+    r")\b",
+    re.IGNORECASE,
+)
 ISSUE_LIKE = re.compile(r"(?<![A-Za-z0-9_])(?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#[0-9]+\b")
 PUBLIC_ISSUE_URL = re.compile(
     r"https?://(?:www\.)?github\.com/rollacode/codeterm-releases/issues/[0-9]+\b",
@@ -97,6 +108,77 @@ def repository_closes(body: str) -> list[str]:
         f"Closes #{reference.rsplit('#', 1)[1]}"
         for reference in parse_metadata(body)[1]
     ]
+
+
+def _reference_numbers(references: list[str]) -> set[int]:
+    return {int(reference.rsplit("#", 1)[1]) for reference in references}
+
+
+def reconcile(body: str, commits: list[dict], prs: list[dict]) -> list[str]:
+    """The rendered closing block is the only source of the closing set.
+
+    A body is not evidence about itself: it is checked against the range that
+    actually merged, so an issue nobody fixed cannot be closed by writing its
+    number down, and an issue that was fixed cannot be dropped by forgetting it.
+    """
+    declared = parse_metadata(body)[1]
+    resolved = [
+        issue["reference"]
+        for issue in resolve_sources(commits, prs)["repository_issues"]
+    ]
+    unfixed = sorted(set(declared) - set(resolved), key=lambda value: int(value.rsplit("#", 1)[1]))
+    undeclared = sorted(set(resolved) - set(declared), key=lambda value: int(value.rsplit("#", 1)[1]))
+    errors = []
+    if unfixed:
+        errors.append(
+            "body declares issues no merged commit or PR fixed: " + ", ".join(unfixed)
+        )
+    if undeclared:
+        errors.append(
+            "merged range fixed issues the body does not declare: " + ", ".join(undeclared)
+        )
+    if errors:
+        raise ContractError("\n".join(errors))
+    return repository_closes(body)
+
+
+def audit_commits(commits: list[dict], body: str) -> None:
+    """A closing keyword is a promise the merge will keep. Auditing only that the
+    promises are present would pass on a range that closes the wrong issues, so
+    both directions are checked: no keyword outside the fixed set, and no fixed
+    issue left unclaimed."""
+    fixed = _reference_numbers(parse_metadata(body)[1])
+    claimed: set[int] = set()
+    errors: list[str] = []
+    for commit in commits:
+        sha = commit.get("sha")
+        if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}", sha):
+            raise ContractError("each commit requires a full lowercase sha")
+        for match in CLOSING_KEYWORD_TARGET.finditer(commit.get("body") or ""):
+            repository = match.group("repository") or match.group("url_repository")
+            number = match.group("number") or match.group("url_number")
+            if repository and repository != SOURCE_REPOSITORY:
+                errors.append(
+                    f"commit {sha}: closing keyword for {repository}#{number}; "
+                    "public release issues close after verified publication, never on merge"
+                )
+                continue
+            value = int(number)
+            if value not in fixed:
+                errors.append(
+                    f"commit {sha}: closing keyword names {SOURCE_REPOSITORY}#{value}, "
+                    "which this range did not fix"
+                )
+                continue
+            claimed.add(value)
+    unclaimed = sorted(fixed - claimed)
+    if unclaimed:
+        errors.append(
+            "fixed issues no commit claims with a closing keyword: "
+            + ", ".join(f"{SOURCE_REPOSITORY}#{number}" for number in unclaimed)
+        )
+    if errors:
+        raise ContractError("\n".join(errors))
 
 
 def resolve_sources(commits: list[dict], prs: list[dict]) -> dict:
@@ -224,6 +306,13 @@ def main() -> int:
     plan_parser.add_argument("--resolved-file", required=True)
     plan_parser.add_argument("--states-file", required=True)
     plan_parser.add_argument("--version", required=True)
+    reconcile_parser = subparsers.add_parser("reconcile")
+    reconcile_parser.add_argument("--body-file", required=True)
+    reconcile_parser.add_argument("--commits-file", required=True)
+    reconcile_parser.add_argument("--prs-file", required=True)
+    audit_parser = subparsers.add_parser("audit-commits")
+    audit_parser.add_argument("--commits-file", required=True)
+    audit_parser.add_argument("--body-file", required=True)
     range_parser = subparsers.add_parser("range-start")
     range_parser.add_argument("--releases-file", required=True)
     args = parser.parse_args()
@@ -234,6 +323,18 @@ def main() -> int:
         elif args.command == "repository-closes":
             for line in repository_closes(Path(args.body_file).read_text(encoding="utf-8")):
                 print(line)
+        elif args.command == "reconcile":
+            for line in reconcile(
+                Path(args.body_file).read_text(encoding="utf-8"),
+                read_json(args.commits_file),
+                read_json(args.prs_file),
+            ):
+                print(line)
+        elif args.command == "audit-commits":
+            audit_commits(
+                read_json(args.commits_file),
+                Path(args.body_file).read_text(encoding="utf-8"),
+            )
         elif args.command == "resolve":
             print(json.dumps(resolve_sources(read_json(args.commits_file), read_json(args.prs_file)), indent=2))
         elif args.command == "plan-close":
