@@ -114,6 +114,22 @@ mod tests {
         FakeStore { id, caps, armed }
     }
 
+    const STATUS_SIGNATURE: &str = "pub async fn status(";
+
+    /// One top-level `fn`, sliced by lines so the check never depends on the
+    /// checkout's line endings - `str::lines` drops a trailing carriage return.
+    fn top_level_fn(src: &str, signature: &str) -> String {
+        let mut lines = src.lines().skip_while(|l| !l.contains(signature));
+        let mut body = vec![lines.next().expect("source declares the function")];
+        for line in lines {
+            body.push(line);
+            if line == "}" {
+                return body.join("\n");
+            }
+        }
+        panic!("{signature} is not terminated by a closing brace at column zero");
+    }
+
     #[test]
     fn master_password_saved_agrees_with_active_backend() {
         // Declared and present — the only combination the flag may report true.
@@ -186,14 +202,11 @@ mod tests {
 
         // Structural: the handler that publishes the auto-unlock surface names
         // no provider, and neither does the decision it delegates to.
-        let api_src = include_str!("api.rs");
-        let status_handler = api_src
-            .split("pub async fn status(")
-            .nth(1)
-            .and_then(|rest| rest.split("
-}
-").next())
-            .expect("api.rs exposes a status handler");
+        let status_handler = top_level_fn(include_str!("api.rs"), STATUS_SIGNATURE);
+        assert!(
+            status_handler.contains("master_password_saved"),
+            "extraction missed the real status handler"
+        );
         assert!(
             !status_handler.contains("bitwarden"),
             "the status handler must not branch on a provider id"
@@ -206,6 +219,30 @@ mod tests {
             !decision.contains("bitwarden"),
             "the auto-unlock decision must not name a provider"
         );
+    }
+
+    #[test]
+    fn the_status_extractor_catches_a_provider_named_handler() {
+        // Positive control: a status handler that does name a provider must
+        // be caught, under LF and CRLF alike.
+        let named = concat!(
+            "pub async fn status(\n",
+            "    state: State,\n",
+            ") -> Json {\n",
+            "    let saved = store.id() == \"bitwarden\";\n",
+            "}\n",
+            "pub fn unrelated() -> u8 { 0 }\n",
+        );
+        let crlf = named.replace('\n', "\r\n");
+        assert!(crlf.contains("\r\n"), "the CRLF fixture must really be CRLF");
+        for src in [named, crlf.as_str()] {
+            let body = top_level_fn(src, STATUS_SIGNATURE);
+            assert!(body.contains("bitwarden"), "control must detect the id");
+            assert!(
+                !body.contains("unrelated"),
+                "extraction must stop at the handler's closing brace"
+            );
+        }
     }
 
     #[test]
