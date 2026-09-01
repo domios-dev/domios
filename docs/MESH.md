@@ -92,6 +92,15 @@ Both incoming and outgoing relay paths reject a peer with `426 Upgrade
 Required`; the Mesh card keeps **Open** disabled and asks the user to update
 that peer.
 
+`POST /api/mesh/relay-to` distinguishes two refusals that used to collapse
+into the same "not paired" message: no paired record for the target id/name at
+all (`404`, reason `peer_not_paired`) versus a paired record that currently has
+no reachable address — `client_for` found nothing to sign a request against
+(`503`, reason `peer_unroutable`). The paired record is real in the second
+case; only routing to it failed right now. Both reasons are stable string
+constants (`PEER_NOT_PAIRED_REASON` / `PEER_UNROUTABLE_REASON` in
+`api::mesh_routes::relay`), not prose to match against.
+
 The browser origin that served the SPA remains its gateway. An already-loaded
 page can render during a gateway outage, but it cannot fetch data or switch
 peers until that gateway returns. Safe gateway failover requires a separate
@@ -237,4 +246,4 @@ Mesh inventory is target-authoritative: machine-qualified rows carry provenance 
 
 Inventory opens as a full-screen searchable List beside the existing Mesh network graph. One shared mode bubble switches between the List and the graph of connected computers. Keyboard navigation preserves resource identity and focus; peer detail separates Services and Schedules and labels cached, offline, denied, and partial states.
 
-<!-- revision: 22 -->
+<!-- revision: 23 -->

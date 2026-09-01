@@ -352,6 +352,32 @@ mod tests {
         assert!(protected_cron.capabilities[&InventoryOperation::Disable].allowed);
     }
 
+    /// Pins the backend contract codeterm#370's frontend fix must consume rather
+    /// than re-derive: a fresh, unprotected, fully-accessible Cron resource is
+    /// allowed for every InventoryOperation, and never carries
+    /// UnsupportedResourceKind. Must stay green before and after the frontend
+    /// change — proving the frontend was made right by consuming this
+    /// projection, not by loosening it.
+    #[test]
+    fn cron_resource_supports_every_operation() {
+        let resource = project_resource(
+            "machine-a",
+            "Alpha",
+            service(ServiceKind::Cron),
+            &AccessLevel::Full,
+            &provenance(InventoryFreshness::Fresh),
+        );
+        for operation in InventoryOperation::all() {
+            let capability = &resource.capabilities[&operation];
+            assert!(capability.allowed, "{operation:?} should be allowed");
+            assert_ne!(
+                capability.unavailable_reason,
+                Some(InventoryUnavailableReason::UnsupportedResourceKind),
+                "{operation:?} must not be reachable via UnsupportedResourceKind"
+            );
+        }
+    }
+
     #[test]
     fn mesh_inventory_partial_failure_retains_healthy_and_cached_rows() {
         let cached = project_view(
