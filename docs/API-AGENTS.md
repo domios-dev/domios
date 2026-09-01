@@ -64,7 +64,7 @@ Every active plan must reference exactly one live Team, and a live Team may have
 
 ### Close Team (POST /api/teams/{team_id}/close)
 
-Explicitly closes every Team member through the Team cascade path, removes the Team registry entry, archives and detaches every bound plan, retires each plan owner into owner history, clears its owner/planner routing authority, and emits one committed `mux-state-changed`. This is the only user operation that removes a Team; ordinary tab closes always retain the Team record. The `X-CodeTerm-Tab-Id` header is required and must identify the Team's Orchestrator or planner-profile Manager. Missing header returns `400`, unauthorized or foreign callers return `403`, and an unknown or already closed Team returns structured `404`.
+Explicitly closes every Team member through the Team cascade path, removes the Team registry entry, archives and detaches every bound plan, retires each plan owner into owner history, clears its owner/planner routing authority, and emits one committed `mux-state-changed`. This is the only user operation that removes a Team. Ordinary tab closes retain the Team record; the single automatic exception is a pair-minted startup lease, whose forming, empty, fully owned Team is reaped once its two reserved launch attempts are gone. The `X-CodeTerm-Tab-Id` header is required and must identify the Team's Orchestrator or planner-profile Manager. Missing header returns `400`, unauthorized or foreign callers return `403`, and an unknown or already closed Team returns structured `404`.
 
 | Method | Path | Body / Query | Description |
 |--------|------|--------------|-------------|
@@ -218,4 +218,4 @@ On error, individual commands return `{"error": "message", "method": "..."}` but
 | `can-spawn` | `tab_id` | `can_spawn` (default: true) |
 | `report` | `tab_id`, `message` | — |
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->

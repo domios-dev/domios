@@ -7,6 +7,11 @@ use parking_lot::Mutex;
 use serde_json::{json, Value};
 
 use crate::agent::reports::ReportDetails;
+use crate::multiplexer::state::MultiplexerState;
+use crate::service::startup_lease::{
+    authorize_startup_hold, ChildStartupState, StartupAuthority, StartupHoldRefusal,
+    StartupHoldRejection, StartupTeamLease,
+};
 
 use super::ServiceContext;
 
@@ -64,13 +69,14 @@ struct WorkerAckWaiter {
 }
 
 struct AgentStartupWaiter {
-    attempt_id: String,
+    authority: StartupAuthority,
     sender: Sender<AgentStartupSignal>,
 }
 
 struct PendingAgentStartupSupervisor {
     supervisor_tab_id: String,
     agent_title: String,
+    team_id: Option<String>,
 }
 
 pub(crate) fn is_agent_spawner(tab: &crate::multiplexer::types::Tab) -> bool {
@@ -91,6 +97,7 @@ pub(crate) struct WorkerAckRegistry {
     waiters: Mutex<HashMap<String, WorkerAckWaiter>>,
     startup_waiters: Mutex<HashMap<String, AgentStartupWaiter>>,
     startup_supervisors: Mutex<HashMap<String, PendingAgentStartupSupervisor>>,
+    startup_leases: Mutex<HashMap<String, StartupTeamLease>>,
     startup_cleanup: Mutex<()>,
 }
 
@@ -134,18 +141,11 @@ impl WorkerAckRegistry {
         }
     }
 
-    pub(crate) fn arm_startup(
-        &self,
-        tab_id: &str,
-        attempt_id: &str,
-    ) -> Receiver<AgentStartupSignal> {
+    pub(crate) fn arm_startup(&self, authority: StartupAuthority) -> Receiver<AgentStartupSignal> {
         let (sender, receiver) = mpsc::channel();
         let previous = self.startup_waiters.lock().insert(
-            tab_id.to_string(),
-            AgentStartupWaiter {
-                attempt_id: attempt_id.to_string(),
-                sender: sender.clone(),
-            },
+            authority.child_tab_id.clone(),
+            AgentStartupWaiter { authority, sender },
         );
         if let Some(previous) = previous {
             let _ = previous.sender.send(AgentStartupSignal::Superseded);
@@ -153,33 +153,68 @@ impl WorkerAckRegistry {
         receiver
     }
 
-    pub(crate) fn mark_startup_ready(&self, tab_id: &str, attempt_id: &str) -> bool {
+    /// Retire the exact matching waiter and, when it carried a Team lease,
+    /// release that lease: a started attempt makes its Team a normal Team.
+    fn retire_startup_waiter(
+        &self,
+        tab_id: &str,
+        attempt_id: &str,
+        signal: AgentStartupSignal,
+    ) -> Option<StartupAuthority> {
         let waiter = {
             let mut waiters = self.startup_waiters.lock();
             match waiters.get(tab_id) {
-                Some(waiter) if waiter.attempt_id == attempt_id => waiters.remove(tab_id),
+                Some(waiter) if waiter.authority.attempt_id == attempt_id => waiters.remove(tab_id),
                 _ => None,
             }
-        };
-        waiter.is_some_and(|waiter| waiter.sender.send(AgentStartupSignal::Ready).is_ok())
+        }?;
+        let AgentStartupWaiter { authority, sender } = waiter;
+        if let Some(team_id) = authority.team_id.as_deref() {
+            self.release_startup_lease(team_id);
+        }
+        sender.send(signal).is_ok().then_some(authority)
     }
 
-    pub(crate) fn hold_startup(&self, tab_id: &str, attempt_id: &str) -> bool {
-        let waiter = {
-            let mut waiters = self.startup_waiters.lock();
-            match waiters.get(tab_id) {
-                Some(waiter) if waiter.attempt_id == attempt_id => waiters.remove(tab_id),
-                _ => None,
-            }
+    pub(crate) fn mark_startup_ready(&self, tab_id: &str, attempt_id: &str) -> bool {
+        self.retire_startup_waiter(tab_id, attempt_id, AgentStartupSignal::Ready)
+            .is_some()
+    }
+
+    /// Authorize and hold under one lock so a replacement attempt armed
+    /// concurrently can never be held by the previous attempt's creator.
+    pub(crate) fn hold_startup_authorized(
+        &self,
+        caller_tab_id: &str,
+        tab_id: &str,
+        attempt_id: &str,
+        child: Option<&ChildStartupState>,
+    ) -> Result<StartupAuthority, (StartupHoldRefusal, Option<StartupAuthority>)> {
+        let mut waiters = self.startup_waiters.lock();
+        let supervised = waiters.get(tab_id).map(|waiter| waiter.authority.clone());
+        let authority = match authorize_startup_hold(
+            caller_tab_id,
+            tab_id,
+            attempt_id,
+            supervised.as_ref(),
+            child,
+        ) {
+            Ok(authority) => authority,
+            Err(refusal) => return Err((refusal, supervised)),
         };
-        waiter.is_some_and(|waiter| waiter.sender.send(AgentStartupSignal::Held).is_ok())
+        let waiter = waiters.remove(tab_id).expect("waiter authorized above");
+        drop(waiters);
+        if let Some(team_id) = authority.team_id.as_deref() {
+            self.release_startup_lease(team_id);
+        }
+        let _ = waiter.sender.send(AgentStartupSignal::Held);
+        Ok(authority)
     }
 
     pub(crate) fn mark_startup_process_exited(&self, tab_id: &str, attempt_id: &str) -> bool {
         self.startup_waiters
             .lock()
             .get(tab_id)
-            .filter(|waiter| waiter.attempt_id == attempt_id)
+            .filter(|waiter| waiter.authority.attempt_id == attempt_id)
             .is_some_and(|waiter| {
                 waiter
                     .sender
@@ -188,16 +223,21 @@ impl WorkerAckRegistry {
             })
     }
 
-    pub(crate) fn expire_startup(&self, tab_id: &str, attempt_id: &str) -> bool {
+    /// Retire the exact expired attempt, handing back its recorded ownership so
+    /// only that attempt's terminal path can act. A stale timer gets `None`.
+    pub(crate) fn expire_startup(
+        &self,
+        tab_id: &str,
+        attempt_id: &str,
+    ) -> Option<StartupAuthority> {
         let mut waiters = self.startup_waiters.lock();
         if waiters
             .get(tab_id)
-            .is_some_and(|waiter| waiter.attempt_id == attempt_id)
+            .is_some_and(|waiter| waiter.authority.attempt_id == attempt_id)
         {
-            waiters.remove(tab_id);
-            true
+            waiters.remove(tab_id).map(|waiter| waiter.authority)
         } else {
-            false
+            None
         }
     }
 
@@ -206,14 +246,42 @@ impl WorkerAckRegistry {
         tab_id: &str,
         supervisor_tab_id: &str,
         agent_title: &str,
+        team_id: Option<&str>,
     ) {
         self.startup_supervisors.lock().insert(
             tab_id.to_string(),
             PendingAgentStartupSupervisor {
                 supervisor_tab_id: supervisor_tab_id.to_string(),
                 agent_title: agent_title.to_string(),
+                team_id: team_id.map(str::to_string),
             },
         );
+    }
+
+    fn register_startup_lease(&self, lease: StartupTeamLease) {
+        self.startup_leases
+            .lock()
+            .insert(lease.team_id.clone(), lease);
+    }
+
+    fn release_startup_lease(&self, team_id: &str) -> Option<StartupTeamLease> {
+        self.startup_leases.lock().remove(team_id)
+    }
+
+    #[cfg(test)]
+    fn active_startup_leases(&self) -> Vec<StartupTeamLease> {
+        self.startup_leases.lock().values().cloned().collect()
+    }
+
+    /// Decides and consumes under the lease lock, never from a copy: a lease a
+    /// concurrent Ready/Held retired is already gone. Mux guard is the caller's.
+    fn reap_startup_leases(&self, mux: &mut MultiplexerState) -> Vec<String> {
+        let mut leases = self.startup_leases.lock();
+        let reaped = crate::service::startup_lease::reap_orphaned_leases(mux, leases.values());
+        for team_id in &reaped {
+            leases.remove(team_id);
+        }
+        reaped
     }
 
     fn has_startup_supervisor(&self, tab_id: &str) -> bool {
@@ -325,12 +393,53 @@ impl ServiceContext {
         agent_tab_id: &str,
         agent_title: &str,
     ) {
-        self.worker_ack
-            .register_startup_supervisor(agent_tab_id, supervisor_tab_id, agent_title);
+        self.worker_ack.register_startup_supervisor(
+            agent_tab_id,
+            supervisor_tab_id,
+            agent_title,
+            None,
+        );
+    }
+
+    /// Register the two launch attempts a pair mint owns together with the lease
+    /// on the Team it minted for them.
+    pub(crate) fn register_pair_startup_lease(
+        &self,
+        lease: StartupTeamLease,
+        titled_members: &[(&str, &str)],
+    ) {
+        for (agent_tab_id, agent_title) in titled_members.iter().copied() {
+            self.worker_ack.register_startup_supervisor(
+                agent_tab_id,
+                &lease.creator_tab_id,
+                agent_title,
+                Some(&lease.team_id),
+            );
+        }
+        self.worker_ack.register_startup_lease(lease);
     }
 
     pub(crate) fn cancel_agent_startup_supervision(&self, agent_tab_id: &str) {
         self.worker_ack.cancel_startup_supervisor(agent_tab_id);
+    }
+
+    /// Retire the lease itself. The caller has already settled the Team, so no
+    /// later sweep may act on this reservation again.
+    pub(crate) fn forget_pair_startup_lease(&self, team_id: &str) {
+        self.worker_ack.release_startup_lease(team_id);
+    }
+
+    /// Reaps every lifecycle-owned forming Team whose reserved members are gone.
+    /// Mux locks first, lease map inside: no lease-map holder may reach for mux.
+    pub(crate) fn reap_orphaned_startup_teams(&self) -> Vec<String> {
+        let reaped = {
+            let mut mux = self.mux.write();
+            self.worker_ack.reap_startup_leases(&mut mux)
+        };
+        for team_id in &reaped {
+            log::info!("[startup-lease] reaped empty forming pair Team {team_id}");
+        }
+        reaped
     }
 
     pub(crate) fn prepare_agent_startup_supervision(&self, agent_tab_id: &str) -> bool {
@@ -369,11 +478,20 @@ impl ServiceContext {
             return;
         };
         self.arm_agent_startup_deadline(
-            &supervisor.supervisor_tab_id,
-            agent_tab_id,
+            StartupAuthority::new(&supervisor.supervisor_tab_id, agent_tab_id, attempt_id)
+                .in_team(supervisor.team_id.clone()),
             &supervisor.agent_title,
-            attempt_id,
         );
+    }
+
+    fn child_startup_state(&self, tab_id: &str) -> Option<ChildStartupState> {
+        self.mux
+            .read()
+            .get_tab(tab_id)
+            .map(|tab| ChildStartupState {
+                attempt_id: tab.pty_id.clone(),
+                team_id: tab.team_id.clone(),
+            })
     }
 
     fn startup_attempt_is_current(&self, tab_id: &str, attempt_id: &str) -> bool {
@@ -460,44 +578,52 @@ impl ServiceContext {
             .mark_startup_process_exited(tab_id, attempt_id);
     }
 
+    /// Only the recorded creator of this exact child attempt may hold it. The
+    /// accepted and refused shapes both carry auditable provenance.
     pub(crate) fn hold_agent_startup(
         &self,
         caller_tab_id: &str,
         tab_id: &str,
         attempt_id: &str,
-    ) -> Result<bool, String> {
-        let caller_is_general_agent = self
-            .mux
-            .read()
-            .get_tab(caller_tab_id)
-            .is_some_and(crate::service::general_agent::is_general_agent);
-        let authorized = self.mux.read().get_tab(tab_id).is_some_and(|tab| {
-            tab.pty_id.as_deref() == Some(attempt_id)
-                && (tab.parent_tab_id.as_deref() == Some(caller_tab_id)
-                    || tab.spawned_by_tab_id.as_deref() == Some(caller_tab_id)
-                    || caller_is_general_agent)
-        });
-        if !authorized {
-            return Err(format!(
-                "Tab {caller_tab_id} cannot hold startup attempt {attempt_id} for Tab {tab_id}"
-            ));
+    ) -> Result<Value, StartupHoldRejection> {
+        let child = self.child_startup_state(tab_id);
+        match self.worker_ack.hold_startup_authorized(
+            caller_tab_id,
+            tab_id,
+            attempt_id,
+            child.as_ref(),
+        ) {
+            Ok(authority) => Ok(json!({
+                "ok": true,
+                "held": true,
+                "state": "held_by_creator",
+                "tab_id": authority.child_tab_id,
+                "attempt_id": authority.attempt_id,
+                "authority": authority.provenance(),
+            })),
+            Err((refusal, supervised)) => Err(StartupHoldRejection {
+                message: refusal.message(caller_tab_id, tab_id, attempt_id),
+                provenance: refusal.provenance(
+                    caller_tab_id,
+                    tab_id,
+                    attempt_id,
+                    supervised.as_ref(),
+                ),
+            }),
         }
-        Ok(self.worker_ack.hold_startup(tab_id, attempt_id))
     }
 
     pub(crate) fn arm_agent_startup_deadline(
         &self,
-        supervisor_tab_id: &str,
-        agent_tab_id: &str,
+        authority: StartupAuthority,
         agent_title: &str,
-        attempt_id: &str,
     ) {
-        let receiver = self.worker_ack.arm_startup(agent_tab_id, attempt_id);
+        let supervisor_tab_id = authority.creator_tab_id.clone();
+        let agent_tab_id = authority.child_tab_id.clone();
+        let attempt_id = authority.attempt_id.clone();
+        let receiver = self.worker_ack.arm_startup(authority);
         let service = self.clone();
-        let supervisor_tab_id = supervisor_tab_id.to_string();
-        let agent_tab_id = agent_tab_id.to_string();
         let agent_title = agent_title.to_string();
-        let attempt_id = attempt_id.to_string();
         std::thread::spawn(move || {
             let final_deadline = std::time::Instant::now()
                 + AGENT_STARTUP_NOTICE_TIMEOUT
@@ -567,20 +693,32 @@ impl ServiceContext {
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => break,
                 }
             }
-            if !service
+            let Some(expired) = service
                 .worker_ack
                 .expire_startup(&agent_tab_id, &attempt_id)
-                || !service.startup_attempt_is_current(&agent_tab_id, &attempt_id)
-            {
+            else {
+                return;
+            };
+            if !service.startup_attempt_is_current(&agent_tab_id, &attempt_id) {
                 return;
             }
+            // The close itself sweeps the lease, so the Team is reaped only
+            // after this exact owned member is gone.
             let cleanup_error = serialize_agent_startup_cleanup(&service.worker_ack, || {
-                service
+                let error = service
                     .close_tab_with_reason(
                         &agent_tab_id,
                         crate::multiplexer::types::TabCloseReason::PolicyStartup,
                     )
-                    .err()
+                    .err();
+                if error.is_some() {
+                    if let Some(team_id) = expired.team_id.as_deref() {
+                        log::warn!(
+                            "[startup-lease] Team {team_id} keeps its lease: Tab {agent_tab_id} did not close"
+                        );
+                    }
+                }
+                error
             });
             service.publish_agent_startup_report(
                 &supervisor_tab_id,
@@ -905,183 +1043,4 @@ fn epoch_ms() -> u64 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn acknowledgement_resolves_only_the_matching_attempt() {
-        let registry = WorkerAckRegistry::default();
-        let receiver = registry.arm("tab", "attempt-a");
-
-        assert!(!registry.acknowledge("tab", "attempt-b"));
-        assert!(registry.acknowledge("tab", "attempt-a"));
-        assert_eq!(receiver.recv().unwrap(), WorkerAckSignal::Acknowledged);
-    }
-
-    #[test]
-    fn rearm_supersedes_the_previous_deadline() {
-        let registry = WorkerAckRegistry::default();
-        let previous = registry.arm("tab", "attempt-a");
-        let current = registry.arm("tab", "attempt-b");
-
-        assert_eq!(previous.recv().unwrap(), WorkerAckSignal::Superseded);
-        assert!(registry.acknowledge("tab", "attempt-b"));
-        assert_eq!(current.recv().unwrap(), WorkerAckSignal::Acknowledged);
-    }
-
-    #[test]
-    fn expiry_removes_only_the_matching_deadline() {
-        let registry = WorkerAckRegistry::default();
-        let receiver = registry.arm("tab", "attempt-a");
-
-        assert!(!registry.expire("tab", "attempt-b"));
-        assert!(registry.expire("tab", "attempt-a"));
-        assert!(receiver.recv().is_err());
-    }
-
-    #[test]
-    fn bound_worker_missing_ack_gets_one_system_reminder() {
-        assert_eq!(
-            first_deadline_action(true),
-            WorkerAckFirstDeadline::SystemReminder
-        );
-        assert_eq!(
-            WORKER_ACK_REMINDER,
-            "Acknowledge this Worker assignment with codeterm agent ack before doing any work. If acknowledgement is still absent at the final bounded startup deadline, this tab will be cleaned up."
-        );
-        assert!(!WORKER_ACK_REMINDER.contains("Task body"));
-    }
-
-    #[test]
-    fn unbound_worker_gets_no_ack_reminder_or_input() {
-        assert_eq!(
-            first_deadline_action(false),
-            WorkerAckFirstDeadline::StartupUnbound
-        );
-    }
-
-    #[test]
-    fn worker_ack_final_deadline_cleans_once() {
-        let registry = WorkerAckRegistry::default();
-        let receiver = registry.arm("tab", "attempt");
-
-        assert!(registry.expire("tab", "attempt"));
-        assert!(!registry.expire("tab", "attempt"));
-        assert!(receiver.recv().is_err());
-    }
-
-    #[test]
-    fn worker_ack_close_tab_failure_is_a_coordination_incident() {
-        let cleanup_error = close_worker_after_final_deadline(|| Err("tab remained open".into()));
-        let event = worker_ack_timeout_event(
-            "plan",
-            "task",
-            "tab",
-            "attempt",
-            "codeterm plan task dispatch plan task",
-            cleanup_error.as_deref(),
-        );
-
-        assert_eq!(cleanup_error.as_deref(), Some("tab remained open"));
-        assert_eq!(event["kind"], "worker_ack_cleanup_failed");
-        assert_eq!(event["cleanup"]["ok"], false);
-        assert!(event["impact"]
-            .as_str()
-            .unwrap()
-            .contains("ORCHESTRATION PRODUCT INCIDENT"));
-        assert!(event["fallback"].as_str().unwrap().contains("still live"));
-    }
-
-    #[test]
-    fn startup_acknowledgement_and_hold_resolve_only_the_current_attempt() {
-        let registry = WorkerAckRegistry::default();
-        let ready = registry.arm_startup("tab-a", "launch-a");
-        assert!(!registry.mark_startup_ready("tab-a", "launch-old"));
-        assert!(registry.mark_startup_ready("tab-a", "launch-a"));
-        assert_eq!(ready.recv().unwrap(), AgentStartupSignal::Ready);
-
-        let held = registry.arm_startup("tab-a", "launch-b");
-        assert!(!registry.hold_startup("tab-a", "launch-old"));
-        assert!(registry.hold_startup("tab-a", "launch-b"));
-        assert_eq!(held.recv().unwrap(), AgentStartupSignal::Held);
-
-        let exited = registry.arm_startup("tab-a", "launch-c");
-        assert!(!registry.mark_startup_process_exited("tab-a", "launch-old"));
-        assert!(registry.mark_startup_process_exited("tab-a", "launch-c"));
-        assert_eq!(exited.recv().unwrap(), AgentStartupSignal::ProcessExited);
-        assert!(registry.hold_startup("tab-a", "launch-c"));
-        assert_eq!(exited.recv().unwrap(), AgentStartupSignal::Held);
-    }
-
-    #[test]
-    fn startup_ack_requires_the_current_pty_and_launch_nonce() {
-        let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
-        let tab = mux.get_tab_mut(&tab_id).unwrap();
-        tab.pty_id = Some("pty-current".into());
-        tab.session_binding_nonce = Some("nonce-current".into());
-
-        assert!(startup_ack_owns_attempt(
-            tab,
-            "pty-current",
-            "nonce-current"
-        ));
-        assert!(!startup_ack_owns_attempt(tab, "pty-stale", "nonce-current"));
-        assert!(!startup_ack_owns_attempt(tab, "pty-current", "nonce-stale"));
-    }
-
-    #[test]
-    fn startup_supervisor_registration_is_consumed_once() {
-        let registry = WorkerAckRegistry::default();
-        registry.register_startup_supervisor("tab-a", "parent", "Planner");
-
-        let supervisor = registry.take_startup_supervisor("tab-a").unwrap();
-        assert_eq!(supervisor.supervisor_tab_id, "parent");
-        assert_eq!(supervisor.agent_title, "Planner");
-        assert!(registry.take_startup_supervisor("tab-a").is_none());
-    }
-
-    #[test]
-    fn startup_notice_exposes_inspect_respond_and_hold_without_task_resend() {
-        let event = agent_startup_notice_event("child", "Planner", "launch-a");
-        assert_eq!(event["kind"], "agent_startup_overdue");
-        assert_eq!(event["deadline_seconds"], 30);
-        assert_eq!(
-            event["hold"],
-            "codeterm agent startup-hold --tab child --attempt launch-a"
-        );
-        assert!(event["inspect"].as_array().unwrap().iter().any(|command| {
-            command
-                .as_str()
-                .is_some_and(|command| command.contains("tab get-text"))
-        }));
-        assert!(!event.to_string().contains("send the task"));
-    }
-
-    #[test]
-    fn exited_startup_is_cleaned_at_one_minute() {
-        let event = agent_startup_failed_event("child", "Planner", "launch-a", None);
-        assert_eq!(event["kind"], "agent_startup_failed");
-        assert_eq!(event["deadline_seconds"], 60);
-        assert_eq!(event["cleanup"]["ok"], true);
-    }
-
-    #[test]
-    fn startup_cleanup_holds_the_gate_across_tab_close() {
-        let registry = Arc::new(WorkerAckRegistry::default());
-        let (entered_tx, entered_rx) = mpsc::channel();
-        let (release_tx, release_rx) = mpsc::channel();
-
-        let cleanup_registry = registry.clone();
-        let cleanup = std::thread::spawn(move || {
-            serialize_agent_startup_cleanup(&cleanup_registry, || {
-                entered_tx.send(()).unwrap();
-                release_rx.recv().unwrap();
-            });
-        });
-        entered_rx.recv().unwrap();
-        assert!(registry.startup_cleanup.try_lock().is_none());
-        release_tx.send(()).unwrap();
-        cleanup.join().unwrap();
-        assert!(registry.startup_cleanup.try_lock().is_some());
-    }
-}
+mod tests;

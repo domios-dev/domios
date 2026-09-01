@@ -9,7 +9,6 @@ Use `offset` parameter for efficient polling without fetching the full buffer:
 # First call — get all output
 curl "http://host:7685/api/tabs/$TAB/output"
 # Response: {"output": "...", "offset": 1234}
-
 # Subsequent calls — only new data
 curl "http://host:7685/api/tabs/$TAB/output?offset=1234"
 # Response: {"output": "new stuff", "offset": 1500}
@@ -48,13 +47,11 @@ curl -N "http://host:7685/api/tabs/$TAB/output/stream"
 WS=$(curl -s -X POST http://host:7685/api/workspaces \
   -H "Content-Type: application/json" \
   -d '{"name":"my-project"}' | python3 -c "import sys,json;print(json.load(sys.stdin)['id'])")
-
 # Get tab and run command
 TAB=$(curl -s http://host:7685/api/tabs | python3 -c "import sys,json;print(json.load(sys.stdin)[-1]['id'])")
 curl -X POST "http://host:7685/api/tabs/$TAB/exec" \
   -H "Content-Type: application/json" \
   -d '{"command": "npm test", "timeout_ms": 30000}'
-
 # Send with batch (e.g. launch Claude Code)
 curl -X POST "http://host:7685/api/tabs/$TAB/send" \
   -H "Content-Type: application/json" \
@@ -69,7 +66,6 @@ curl -X POST http://host:7685/api/webhooks \
 curl -X POST http://host:7685/api/webhooks \
   -H "Content-Type: application/json" \
   -d '{"url": "https://my-orchestrator/done", "events": ["agent.task_complete"], "once": true, "tab_id": "'"$TAB"'"}'
-
 ```
 The updater and Git surfaces are not transport; they live in API-INTEGRATIONS.
 
@@ -210,6 +206,8 @@ exact command).
 | `agent.link` | `{tab_id, parent_tab_id}` | Link tab under parent tab |
 | `agent.report` | `{tab_id, message}` | Send report to direct parent |
 | `agent.restart` | `{tab_id, force?, grace_secs?}` | Restart the agent in a tab; resumes only when the recorded session is valid. |
+| `agent.startup_ack` | `{caller_tab_id, attempt_id, binding_nonce}` | A spawned agent acknowledges its own first startup turn. Accepted only when the caller tab still owns that PTY attempt and launch nonce. |
+| `agent.startup_hold` | `{caller_tab_id, tab_id, attempt_id}` | Cancel automatic cleanup for one inspected startup attempt. Authority is the tuple `(creator_tab_id, team_id, child_tab_id, attempt_id)`: only the tab recorded as the attempt's creator may hold it, the child must still be running that exact attempt, and a pair-leased attempt must still sit in its leased Team. No role bypasses this - a General Agent may hold only the children it spawned. The result carries `authority: {creator_tab_id, child_tab_id, attempt_id, team_id}`; a refusal returns `-32603` whose `data` carries `{held:false, reason, caller_tab_id, child_tab_id, attempt_id, authority}` with `reason` one of `unknown_child_tab`, `no_supervised_attempt`, `creator_mismatch`, `attempt_replaced`, `team_mismatch`. |
 | `plan.task.attempts` | `{plan_id, task_id}` | List execution attempts for one plan task |
 | `plan.task.attempt.show` | `{plan_id, task_id, attempt_id}` | Show one historical task attempt |
 | `plan.task.respawn` | `{plan_id, task_id, attempt_id, provider?, model?, parent_tab_id?, workspace_id?, title?}` | Spawn a new Worker from one prior task attempt and record a new live attempt |
@@ -233,8 +231,10 @@ exact command).
 | `activity.list` | `{source?, since?, limit?}` | Read recent activity events (push / health / peer / cron). Defaults: `limit=500`. |
 | `bridge.send` | `{text, chat_id?, service?, append?, type?, file?, caption?, filename?}` | Send message or media to external service (Telegram). `type`: `text`/`photo`/`document`/`voice`/`animation`/`video`/`sticker`. `file`: absolute path for media. `append`: concatenate to previous message. |
 
+A `team pair` mints its Team together with the two launch attempts it reserves, and holds a lease on that exact reservation. When a leased attempt starts, is held, or the pair rolls back, the lease is retired and the Team becomes an ordinary Team. When a leased attempt instead reaches its terminal startup deadline, the closing tab sweeps the lease and removes that exact Team - only while it is still forming, empty, and free of any member the reservation never claimed. Normal, active, adopted, manually created, nonempty, and mismatched Teams are never touched, and `team.close` is unchanged.
+
 `team.adopt_agent` and the `agent.spawn` / `tab` creation `{team_id, creator_tab_id}` pair share one membership check: the caller tab must exist, already carry that `team_id`, sit in the Team's workspace, and the Team must have a live anchoring Orchestrator. Failing any of those refuses before the tab is created or mutated. `team.adopt_agent` additionally refuses a missing tab, a tab already bound to a Team, and a role-bearing tab — a role- or plan-task-bound spawn derives its Team from that binding, so `agent.spawn` rejects `team_id` combined with `role` or `plan_task`.
 
 For `team.rename` and `team.close`, omitted `caller_tab_id` is the trusted direct-user path on the local socket. `team.adopt_plan` requires a non-empty caller belonging to the destination Team as its Orchestrator or planner-profile Manager; missing callers, Workers, and foreign tabs are rejected before mutation. Adoption preserves the structured `team_already_has_active_plan` conflict when the Team already owns another active plan. Events are emitted only after persistence succeeds.
 
-<!-- revision: 10 -->
+<!-- revision: 12 -->

@@ -6,6 +6,7 @@
 // Usage:
 //   verify-updater-manifest.mjs --manifest <file|url> [--pubkey <base64|@file>]
 //                               [--local <dir>] [--platform <key>]
+//                               [--require-platform <key>]...
 // The pubkey defaults to src-tauri/tauri.conf.json's updater key.
 // --local resolves each URL to <dir>/<basename> instead of downloading.
 
@@ -24,19 +25,52 @@ const TAURI_CONF = path.join(
 const SPKI_ED25519_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
 
 function parseArgs(argv) {
-  const args = { manifest: null, pubkey: null, local: null, platform: null };
+  const args = {
+    manifest: null,
+    pubkey: null,
+    local: null,
+    platform: null,
+    requiredPlatforms: [],
+  };
   for (let i = 2; i < argv.length; i++) {
     const flag = argv[i];
     if (flag === '--manifest') args.manifest = argv[++i];
     else if (flag === '--pubkey') args.pubkey = argv[++i];
     else if (flag === '--local') args.local = argv[++i];
     else if (flag === '--platform') args.platform = argv[++i];
+    else if (flag === '--require-platform') args.requiredPlatforms.push(argv[++i]);
     else throw new Error(`Unknown argument: ${flag}`);
   }
   if (!args.manifest) {
-    throw new Error('Usage: --manifest <file|url> [--pubkey <base64|@file>] [--local <dir>] [--platform <key>]');
+    throw new Error(
+      'Usage: --manifest <file|url> [--pubkey <base64|@file>] [--local <dir>] '
+      + '[--platform <key>] [--require-platform <key>]...',
+    );
   }
   return args;
+}
+
+const PLATFORM_ARTIFACTS = new Map([
+  ['darwin-aarch64', 'CodeTerm_aarch64.app.tar.gz'],
+  ['darwin-x86_64', 'CodeTerm_x64.app.tar.gz'],
+]);
+
+function validatePlatformContract(platforms, requiredPlatforms) {
+  for (const name of requiredPlatforms) {
+    if (!Object.hasOwn(platforms, name)) {
+      throw new Error(`manifest is missing required platform '${name}'`);
+    }
+  }
+  for (const [name, expectedArtifact] of PLATFORM_ARTIFACTS) {
+    const entry = platforms[name];
+    if (!entry) continue;
+    const actualArtifact = path.basename(new URL(entry.url).pathname);
+    if (actualArtifact !== expectedArtifact) {
+      throw new Error(
+        `${name} must reference ${expectedArtifact}, found ${actualArtifact || '<empty>'}`,
+      );
+    }
+  }
 }
 
 async function readSource(source) {
@@ -91,7 +125,9 @@ async function main() {
   });
 
   const manifest = JSON.parse((await readSource(args.manifest)).toString('utf8'));
-  const platforms = Object.entries(manifest.platforms ?? {}).filter(
+  const declaredPlatforms = manifest.platforms ?? {};
+  validatePlatformContract(declaredPlatforms, args.requiredPlatforms);
+  const platforms = Object.entries(declaredPlatforms).filter(
     ([name]) => !args.platform || name === args.platform,
   );
   if (platforms.length === 0) throw new Error('manifest declares no matching platform');

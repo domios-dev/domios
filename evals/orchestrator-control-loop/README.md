@@ -2,8 +2,8 @@
 
 This prompt eval proves that an Orchestrator remains responsive during long
 work, batches verification proportionally, preserves the Worker/QA boundary,
-and waits for acknowledgement rather than treating dispatch readiness as work
-started.
+waits for acknowledgement rather than treating dispatch readiness as work
+started, and leaves a healthy acknowledged Worker autonomous until its report.
 
 ## Run
 
@@ -16,7 +16,7 @@ python .agents/skills/prompt-evaluator/runner.py \
 
 ## Pass
 
-The markdown report marks all five cases as passing for all three samples and
+The markdown report marks all six cases as passing for all three samples and
 the runner exits zero.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

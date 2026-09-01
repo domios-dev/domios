@@ -280,3 +280,42 @@ fn agent_ack_prints_task_and_attempt() {
         "ACKNOWLEDGED — task task_demo, attempt attempt_demo. Continue work."
     );
 }
+
+#[test]
+fn startup_hold_prints_the_authority_provenance() {
+    let response = serde_json::json!({
+        "ok": true,
+        "held": true,
+        "state": "held_by_creator",
+        "tab_id": "child",
+        "attempt_id": "launch-a",
+        "authority": {
+            "creator_tab_id": "creator",
+            "child_tab_id": "child",
+            "attempt_id": "launch-a",
+            "team_id": "team_pair",
+        },
+    });
+
+    assert_eq!(
+        render_startup_hold(&response),
+        "STARTUP HOLD ACCEPTED — tab child, attempt launch-a, creator creator, team team_pair."
+    );
+}
+
+#[test]
+fn startup_hold_without_a_team_lease_renders_a_placeholder() {
+    let response = serde_json::json!({
+        "authority": {
+            "creator_tab_id": "creator",
+            "child_tab_id": "child",
+            "attempt_id": "launch-a",
+            "team_id": serde_json::Value::Null,
+        },
+    });
+
+    assert_eq!(
+        render_startup_hold(&response),
+        "STARTUP HOLD ACCEPTED — tab child, attempt launch-a, creator creator, team -."
+    );
+}

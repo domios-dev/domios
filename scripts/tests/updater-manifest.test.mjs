@@ -114,11 +114,11 @@ function minisignKeypair() {
   return { pubkeyField, signatureFor };
 }
 
-function verify(dir, manifest, pubkey) {
+function verify(dir, manifest, pubkey, extraArgs = []) {
   try {
     const stdout = execFileSync(
       process.execPath,
-      [VERIFY, "--manifest", manifest, "--pubkey", pubkey, "--local", dir],
+      [VERIFY, "--manifest", manifest, "--pubkey", pubkey, "--local", dir, ...extraArgs],
       { cwd: ROOT, encoding: "utf8" },
     );
     return { code: 0, stdout };
@@ -157,6 +157,78 @@ test("verification passes for signed bytes and fails once the artifact is rebuil
     const after = verify(dir, manifest, pubkeyField);
     assert.equal(after.code, 1);
     assert.match(after.stdout, /signature does not match the served bytes/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("mac updater contract requires both architectures and maps M2 to the arm artifact", () => {
+  const dir = scratch();
+  try {
+    const { pubkeyField, signatureFor } = minisignKeypair();
+    const armArtifact = path.join(dir, "CodeTerm_aarch64.app.tar.gz");
+    const intelArtifact = path.join(dir, "CodeTerm_x64.app.tar.gz");
+    writeFileSync(armArtifact, Buffer.from("arm64 updater bytes"));
+    writeFileSync(intelArtifact, Buffer.from("x64 updater bytes"));
+    const manifest = path.join(dir, "latest.json");
+    writeFileSync(
+      manifest,
+      JSON.stringify({
+        version: "9.9.9",
+        pub_date: "2026-01-01T00:00:00Z",
+        platforms: {
+          "darwin-aarch64": {
+            url: "https://example.invalid/v9.9.9/CodeTerm_aarch64.app.tar.gz",
+            signature: signatureFor(readFileSync(armArtifact)),
+          },
+          "darwin-x86_64": {
+            url: "https://example.invalid/v9.9.9/CodeTerm_x64.app.tar.gz",
+            signature: signatureFor(readFileSync(intelArtifact)),
+          },
+        },
+      }),
+    );
+    const required = [
+      "--require-platform", "darwin-aarch64",
+      "--require-platform", "darwin-x86_64",
+    ];
+
+    const valid = verify(dir, manifest, pubkeyField, required);
+    assert.equal(valid.code, 0, valid.stdout);
+    assert.match(valid.stdout, /all 2 platform signature\(s\) verify/);
+
+    const parsed = JSON.parse(readFileSync(manifest, "utf8"));
+    delete parsed.platforms["darwin-aarch64"];
+    writeFileSync(manifest, JSON.stringify(parsed));
+    const missingArm = verify(dir, manifest, pubkeyField, required);
+    assert.equal(missingArm.code, 1);
+    assert.match(missingArm.stdout, /missing required platform 'darwin-aarch64'/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("mac updater contract rejects an Intel artifact under the Apple Silicon key", () => {
+  const dir = scratch();
+  try {
+    const { pubkeyField } = minisignKeypair();
+    const manifest = path.join(dir, "latest.json");
+    writeFileSync(
+      manifest,
+      JSON.stringify({
+        version: "9.9.9",
+        platforms: {
+          "darwin-aarch64": {
+            url: "https://example.invalid/v9.9.9/CodeTerm_x64.app.tar.gz",
+            signature: "unused",
+          },
+        },
+      }),
+    );
+
+    const result = verify(dir, manifest, pubkeyField);
+    assert.equal(result.code, 1);
+    assert.match(result.stdout, /darwin-aarch64 must reference CodeTerm_aarch64\.app\.tar\.gz/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

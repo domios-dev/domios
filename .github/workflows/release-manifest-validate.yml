@@ -26,16 +26,23 @@ jobs:
           JSON=$(curl -sfL "$URL")
           echo "$JSON" | jq .
 
-          darwin=$(echo "$JSON" | jq -r '.platforms["darwin-x86_64"].url // .platforms["darwin-aarch64"].url // empty')
+          darwin_arm=$(echo "$JSON" | jq -r '.platforms["darwin-aarch64"].url // empty')
+          darwin_x64=$(echo "$JSON" | jq -r '.platforms["darwin-x86_64"].url // empty')
           windows=$(echo "$JSON" | jq -r '.platforms["windows-x86_64"].url // empty')
           linux=$(echo "$JSON" | jq -r '.platforms["linux-x86_64"].url // .platforms["linux-aarch64"].url // empty')
 
           fail=0
-          if [ -z "$darwin" ]; then
-            echo "::error::manifest missing both darwin-aarch64 and darwin-x86_64 entries"
+          if [ -z "$darwin_arm" ]; then
+            echo "::error::manifest missing darwin-aarch64 entry"
             fail=1
           else
-            echo "$darwin" | grep -qE '\.app\.tar\.gz(\?|$)' || { echo "::error::darwin url missing .app.tar.gz: $darwin"; fail=1; }
+            echo "$darwin_arm" | grep -qE '/CodeTerm_aarch64\.app\.tar\.gz(\?|$)' || { echo "::error::darwin-aarch64 points to the wrong artifact: $darwin_arm"; fail=1; }
+          fi
+          if [ -z "$darwin_x64" ]; then
+            echo "::error::manifest missing darwin-x86_64 entry"
+            fail=1
+          else
+            echo "$darwin_x64" | grep -qE '/CodeTerm_x64\.app\.tar\.gz(\?|$)' || { echo "::error::darwin-x86_64 points to the wrong artifact: $darwin_x64"; fail=1; }
           fi
           if [ -z "$windows" ]; then
             echo "::error::manifest missing windows-x86_64 entry"

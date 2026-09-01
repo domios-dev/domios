@@ -116,6 +116,22 @@ export interface SilenceDeadline {
   clear(): void;
 }
 
+export interface SilenceDeadlineScheduler {
+  schedule(callback: () => void, timeoutMs: number): unknown;
+  cancel(handle: unknown): void;
+}
+
+const systemSilenceDeadlineScheduler: SilenceDeadlineScheduler = {
+  schedule(callback, timeoutMs) {
+    const timer = setTimeout(callback, timeoutMs);
+    (timer as unknown as { unref?: () => void }).unref?.();
+    return timer;
+  },
+  cancel(handle) {
+    clearTimeout(handle as ReturnType<typeof setTimeout>);
+  },
+};
+
 // A remote SSE connection can go silent after a 200+headers — before its first
 // byte, or after a keep-alive or two on an empty-ring tab (a dropped path
 // mid-replay): reader.read() never resolves, the stream never ends, the channel
@@ -130,20 +146,20 @@ export function createSilenceDeadline<C>(
   generation: number,
   controller: AbortController,
   timeoutMs: number = REMOTE_SILENCE_TIMEOUT_MS,
+  scheduler: SilenceDeadlineScheduler = systemSilenceDeadlineScheduler,
 ): SilenceDeadline {
-  let timer: ReturnType<typeof setTimeout> | null = null;
+  let timer: unknown | null = null;
   const clear = (): void => {
     if (timer === null) return;
-    clearTimeout(timer);
+    scheduler.cancel(timer);
     timer = null;
   };
   const arm = (): void => {
     clear();
-    timer = setTimeout(() => {
+    timer = scheduler.schedule(() => {
       timer = null;
       parkStalledConnection(recovery, generation, controller);
     }, timeoutMs);
-    (timer as unknown as { unref?: () => void }).unref?.(); // a background deadline must not hold the runtime
   };
   return { arm, clear };
 }

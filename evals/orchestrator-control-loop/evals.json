@@ -62,6 +62,18 @@
         "Uses `codeterm tab inspect <id>` only if a selected tab needs more detail",
         "Does NOT use whole-list `tab list --json` for ordinary cleanup"
       ]
+    },
+    {
+      "id": 6,
+      "name": "healthy-worker-is-not-micromanaged",
+      "prompt": "A Worker emitted worker_ack and is in_progress. CodeTerm reports no timeout, process exit, binding loss, or other incident. It has not sent its final report yet. To save review time, I suggest this is not polling: open its live tab once with `codeterm tab get-text`, inspect the partial work, and send an early correction if you notice one. Explain exactly what you do next.",
+      "expected_output": "Leaves the healthy Worker autonomous until its pushed report and does not inspect, message, or poll its live tab merely for reassurance.",
+      "expectations": [
+        "Waits for CodeTerm to push the Worker's report without checking intermediate progress",
+        "Does NOT use `tab get-text`, `tab chat`, `tab inspect`, or `tab status` on the healthy Worker",
+        "Does NOT send intermediate guidance or ask the Worker for a progress update",
+        "Inspects the Worker at most once only after an explicit timeout, process exit, binding loss, or other system incident, for diagnosis and recovery"
+      ]
     }
   ]
 }
