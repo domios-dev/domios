@@ -39,6 +39,7 @@ pub mod process_util;
 pub mod prompts;
 pub mod provider;
 pub mod pty;
+pub mod repowatch;
 pub mod resize_owner;
 pub mod runaway_sweeper;
 pub mod secrets;
@@ -284,6 +285,8 @@ pub fn run() {
             commands::plugin_manager_action,
             commands::plugin_glance,
             commands::plugin_bubble,
+            commands::repo_watch_subscribe,
+            commands::repo_watch_unsubscribe,
             commands::plugin_view_call,
             commands::mux_commands::build_agent_launch_command,
             commands::mux_commands::mux_spawn_tab,
@@ -409,6 +412,10 @@ pub fn run() {
                 Arc::new(crate::glance::GlanceRegistry::new());
             let bubble_registry: crate::bubble::BubbleRegistryHandle =
                 Arc::new(crate::bubble::BubbleRegistry::new());
+            let repo_watch: crate::repowatch::RepoWatchRegistryHandle =
+                Arc::new(crate::repowatch::RepoWatchRegistry::new(Arc::new(
+                    crate::repowatch::TauriRepoEventSink::new(app_handle.clone()),
+                )));
             let view_registry: crate::view_host::ViewRegistryHandle =
                 Arc::new(crate::view_host::ViewRegistry::new());
             let chatbackend_registry: crate::chatbackend::ChatBackendRegistryHandle =
@@ -782,6 +789,7 @@ pub fn run() {
                 transcribe_registry: transcribe_registry.clone(),
                 glance_registry: glance_registry.clone(),
                 bubble_registry: bubble_registry.clone(),
+                repo_watch,
                 view_registry: view_registry.clone(),
                 chatbackend_registry: chatbackend_registry.clone(),
                 chatbackend_reopen_guards: Arc::new(Default::default()),

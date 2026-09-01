@@ -12,6 +12,7 @@ import { SELECT_EXTENSION_EVENT } from "../Titlebar/extensionsTrayLogic";
 import type { Tone } from "./ViewNodeRenderer";
 import { ensurePluginSnapshot, usePluginSnapshotStore } from "../../lib/pluginSnapshotStore";
 import { subscribePluginBubble, type BubbleData, type PluginBubbleSubscription } from "../../lib/pluginBubbleCache";
+import { watchRepository, type RepoWatchState } from "../../lib/repoWatch";
 
 interface BubblePlugin {
   id: string;
@@ -58,6 +59,7 @@ export function PluginBubbles({
   const snapshotState = usePluginSnapshotStore();
   const [pills, setPills] = useState<Record<string, BubbleData | null>>({});
   const [open, setOpen] = useState<{ id: string; name: string; configHelp?: string; anchor: GlanceAnchor } | null>(null);
+  const [watch, setWatch] = useState<RepoWatchState | null>(null);
   const plugins = useMemo(
     () =>
       (snapshotState.snapshot.plugins as SnapPlugin[])
@@ -93,7 +95,22 @@ export function PluginBubbles({
     for (const sub of subscriptionsRef.current) sub.setActive(isActive);
   }, [isActive]);
 
+  // Visible ⇒ exactly one watch lease; hidden or unmounted ⇒ exactly one
+  // release. An unwatched repo is never rendered as live.
+  useEffect(() => {
+    if (!isActive || !cwd) {
+      setWatch(null);
+      return;
+    }
+    const lease = watchRepository(cwd, setWatch);
+    return () => {
+      lease.release();
+      setWatch(null);
+    };
+  }, [isActive, cwd]);
+
   const visible = plugins.filter((p) => pills[p.id]);
+  const watchReason = watch?.status === "unavailable" ? watch.reason : null;
 
   const onClick = useCallback((p: BubblePlugin, e: React.MouseEvent) => {
     const pill = pills[p.id];
@@ -116,14 +133,19 @@ export function PluginBubbles({
     <>
       {visible.map((p) => {
         const b = pills[p.id] as BubbleData;
-        const c = TONE[b.tone ?? "default"];
+        const base = b.tooltip || p.display_name || p.id;
+        const c = watchReason ? TONE.muted : TONE[b.tone ?? "default"];
+        const tooltip = watchReason
+          ? `${base} — repository watch unavailable (${watchReason})`
+          : base;
         return (
           <button
             key={p.id}
             data-testid={`plugin-bubble-${p.id}`}
+            data-watch-state={watchReason ? "unavailable" : "live"}
             onClick={(e) => onClick(p, e)}
             onMouseDown={(e) => e.preventDefault()}
-            title={b.tooltip || p.display_name || p.id}
+            title={tooltip}
             style={{
               display: "flex",
               alignItems: "center",

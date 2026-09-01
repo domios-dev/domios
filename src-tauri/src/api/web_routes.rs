@@ -822,6 +822,50 @@ pub async fn plugin_bubble(
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RepoWatchSubscribeReq {
+    pub cwd: String,
+}
+
+/// Web-mirror twin of the `repo_watch_subscribe` Tauri command.
+pub async fn repo_watch_subscribe(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<RepoWatchSubscribeReq>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let registry = state.svc.repo_watch.clone();
+    let value = tokio::task::spawn_blocking(move || {
+        crate::commands::repo_watch::subscribe(&registry, std::path::PathBuf::from(req.cwd))
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(value))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoWatchUnsubscribeReq {
+    pub token: String,
+}
+
+/// Web-mirror twin of the `repo_watch_unsubscribe` Tauri command.
+pub async fn repo_watch_unsubscribe(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<RepoWatchUnsubscribeReq>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let registry = state.svc.repo_watch.clone();
+    let value = tokio::task::spawn_blocking(move || {
+        crate::commands::repo_watch::unsubscribe(&registry, &req.token)
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(value))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ViewCallReq {
     pub plugin_id: String,
     pub method: String,

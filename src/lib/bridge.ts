@@ -114,6 +114,8 @@ const HTTP_MAP: Record<string, Mapper> = {
   plugin_manager_action: (a) => webJson("POST", "/api/plugins/action", a.action),
   plugin_glance: (a) => webJson("POST", "/api/plugins/glance", a),
   plugin_bubble: (a) => webJson("POST", "/api/plugins/bubble", a),
+  repo_watch_subscribe: (a) => webJson("POST", "/api/repo-watch/subscribe", a),
+  repo_watch_unsubscribe: (a) => webJson("POST", "/api/repo-watch/unsubscribe", a),
   plugin_view_call: (a) => webJson("POST", "/api/plugins/view-call", a),
   chatbackend_session_info: (a) =>
     webJson("POST", "/api/plugins/chatbackend/session-info", {
