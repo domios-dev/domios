@@ -276,7 +276,7 @@ fn conpty_shell_does_not_spawn_legacy_child_conhost() {
     assert!(!got.is_empty(), "ConPTY child produced no output");
 
     let child_pid = child.process_id().expect("child pid");
-    let legacy = legacy_conhost_children(child_pid);
+    let legacy = legacy_conhost_children(child_pid).expect("observe legacy conhost children");
     assert!(
         legacy.is_empty(),
         "ConPTY child {} spawned legacy conhost children {:?}; only the headless ConPTY host should exist",
@@ -290,7 +290,7 @@ fn conpty_shell_does_not_spawn_legacy_child_conhost() {
 fn kill_reaps_conpty_host_before_next_spawn() {
     let _guard = exclusive_conpty_test();
     let mut manager = PtyManager::new();
-    let before = conpty_host_children_of_current_process();
+    let before = conpty_host_children_of_current_process().expect("observe ConPTY hosts before");
     let (old_pty, old_session) = manager
         .spawn(None, None, 80, 24, HashMap::new())
         .expect("spawn old pty");
@@ -300,7 +300,7 @@ fn kill_reaps_conpty_host_before_next_spawn() {
         .expect("old child mutex")
         .process_id()
         .expect("old child pid");
-    let old_hosts = new_conpty_hosts(&before);
+    let old_hosts = new_conpty_hosts(&before).expect("observe old ConPTY host");
     assert_eq!(
         old_hosts.len(),
         1,
@@ -324,11 +324,12 @@ fn kill_reaps_conpty_host_before_next_spawn() {
         "old child {old_child} and ConPTY hosts {old_hosts:?} must exit after kill"
     );
 
-    let after_old = conpty_host_children_of_current_process();
+    let after_old =
+        conpty_host_children_of_current_process().expect("observe ConPTY hosts after kill");
     let (new_pty, new_session) = manager
         .spawn(None, None, 80, 24, HashMap::new())
         .expect("spawn new pty");
-    let new_hosts = new_conpty_hosts(&after_old);
+    let new_hosts = new_conpty_hosts(&after_old).expect("observe new ConPTY host");
     assert_eq!(
         new_hosts.len(),
         1,
@@ -363,7 +364,7 @@ fn kill_reaps_conpty_host_before_next_spawn() {
 fn shutdown_reaps_every_owned_pty_and_conpty_host() {
     let _guard = exclusive_conpty_test();
     let mut manager = PtyManager::new();
-    let before = conpty_host_children_of_current_process();
+    let before = conpty_host_children_of_current_process().expect("observe ConPTY hosts before");
     let mut child_pids = Vec::new();
     let mut first_session = None;
     for _ in 0..2 {
@@ -380,7 +381,7 @@ fn shutdown_reaps_every_owned_pty_and_conpty_host() {
                 .expect("child pid"),
         );
     }
-    let hosts = new_conpty_hosts(&before);
+    let hosts = new_conpty_hosts(&before).expect("observe owned ConPTY hosts");
     assert_eq!(hosts.len(), 2, "each owned PTY must have a tracked host");
     let first_session = first_session.expect("first session");
     first_session
