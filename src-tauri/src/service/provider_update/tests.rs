@@ -1,5 +1,4 @@
 use std::sync::{Arc, Barrier};
-use std::time::Duration;
 
 use super::*;
 use crate::multiplexer::state::MultiplexerState;
@@ -112,9 +111,7 @@ fn await_effect(
     matches: impl Fn(&ProviderUpdateTestEffect) -> bool,
 ) -> ProviderUpdateTestEffect {
     loop {
-        let effect = receiver
-            .recv_timeout(Duration::from_secs(10))
-            .expect("provider update effect deadline");
+        let effect = receiver.recv().expect("provider update effect channel");
         if matches(&effect) {
             return effect;
         }
