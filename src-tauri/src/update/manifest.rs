@@ -20,15 +20,45 @@ pub struct Manifest {
 }
 
 pub fn current_platform_key() -> Option<&'static str> {
-    if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
+    platform_key(
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+        macos_process_is_translated(),
+    )
+}
+
+fn platform_key(os: &str, arch: &str, macos_translated: bool) -> Option<&'static str> {
+    if os == "windows" && arch == "x86_64" {
         Some("windows-x86_64")
-    } else if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+    } else if os == "macos" && (arch == "aarch64" || macos_translated) {
         Some("darwin-aarch64")
-    } else if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
+    } else if os == "macos" && arch == "x86_64" {
         Some("darwin-x86_64")
     } else {
         None
     }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_process_is_translated() -> bool {
+    let name = b"sysctl.proc_translated\0";
+    let mut value: libc::c_int = 0;
+    let mut size = std::mem::size_of_val(&value);
+    let result = unsafe {
+        libc::sysctlbyname(
+            name.as_ptr().cast(),
+            (&mut value as *mut libc::c_int).cast(),
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    result == 0 && value == 1
+}
+
+#[cfg(not(target_os = "macos"))]
+fn macos_process_is_translated() -> bool {
+    false
 }
 
 pub async fn fetch(url: &str) -> Result<Manifest, String> {
@@ -183,6 +213,22 @@ mod tests {
         } else {
             assert_eq!(key, None);
         }
+    }
+
+    #[test]
+    fn apple_silicon_maps_to_the_arm_updater_platform() {
+        assert_eq!(
+            platform_key("macos", "aarch64", false),
+            Some("darwin-aarch64")
+        );
+        assert_eq!(
+            platform_key("macos", "x86_64", true),
+            Some("darwin-aarch64")
+        );
+        assert_eq!(
+            platform_key("macos", "x86_64", false),
+            Some("darwin-x86_64")
+        );
     }
 
     fn manifest_with_version(v: &str) -> Manifest {

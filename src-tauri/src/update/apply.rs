@@ -95,20 +95,25 @@ async fn check_and_apply_plugin(
     let local_version = env!("CARGO_PKG_VERSION");
     let target_arch = std::env::consts::ARCH;
     let target_os = std::env::consts::OS;
+    let platform_key = manifest::current_platform_key();
 
     log::info!(
-        "[updater] check_and_apply channel={} url={} local={} os={} arch={}",
+        "[updater] check_and_apply channel={} url={} local={} os={} arch={} platform={:?}",
         opts.channel,
         endpoint,
         local_version,
         target_os,
         target_arch,
+        platform_key,
     );
 
-    let builder = app
+    let mut builder = app
         .updater_builder()
         .endpoints(vec![endpoint.clone()])
         .map_err(|e| format!("failed to set updater endpoint: {}", e))?;
+    if let Some(target) = platform_key {
+        builder = builder.target(target);
+    }
     let updater = builder
         .build()
         .map_err(|e| format!("failed to build updater: {}", e))?;

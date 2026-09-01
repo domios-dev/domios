@@ -334,6 +334,8 @@ Don't skip this — a stale `develop` makes the next release start from a missin
   source release can upload with `GITHUB_TOKEN`, but the public mirror is a different repo.
 - **macOS updater URLs must be arch-specific** (`CodeTerm_aarch64.app.tar.gz` /
   `CodeTerm_x64.app.tar.gz`), never both pointing at a generic `CodeTerm.app.tar.gz`.
+- **An x86_64 build running through Rosetta updates to `darwin-aarch64`.** The updater reads
+  `sysctl.proc_translated`; native Intel remains on `darwin-x86_64`.
 - **`latest.json` URLs must point at `rollacode/codeterm-releases`, not the private source repo** —
   the updater runs anonymously.
 - **If source release assets are valid but the mirror failed**, download from `rollacode/codeterm`,
@@ -387,4 +389,4 @@ The minisign updater key (`~/.tauri/codeterm.key`, empty password; its public ha
 the `github-release` skill lists the exact ids and restore paths. A builder without the minisign
 key produces artifacts the updater can't verify.
 
-<!-- revision: 30 -->
+<!-- revision: 31 -->
