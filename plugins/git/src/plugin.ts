@@ -57,10 +57,18 @@ function parseLog(out: string | undefined): string[] {
     .filter((l) => l.length > 0);
 }
 
+// Repository identity (branch) rarely changes as often as working-tree state
+// does, so a resolved branch is cached per cwd — a status-bubble refresh
+// (poll or invalidation) then costs one `git status` shell-out, not two.
+const branchCache = new Map<string, string | null>();
+
 function branchOf(cwd: string): string | null {
+  const cached = branchCache.get(cwd);
+  if (cached !== undefined) return cached;
   const r = git(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]);
-  if (r.error || r.code !== 0) return null;
-  return (r.stdout || "").trim() || null;
+  const branch = r.error || r.code !== 0 ? null : (r.stdout || "").trim() || null;
+  branchCache.set(cwd, branch);
+  return branch;
 }
 
 // --- capabilities ---

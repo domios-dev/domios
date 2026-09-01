@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import { daemonHttpBase, daemonAuthToken, type DaemonApiConfig } from "../../lib/webApi";
+import { invalidatePluginBubble } from "../../lib/pluginBubbleCache";
 
 type ApiCfg = DaemonApiConfig;
 
@@ -80,6 +81,10 @@ export function PluginView({
               ? { ...m.args, cwd }
               : m.args;
           const result = await invoke("plugin_view_call", { pluginId, method: m.method, args });
+          // Explicit in-panel actions (stage/commit/checkout/…) are the
+          // Git plugin's invalidation source — no repository watcher exists.
+          const usedCwd = (args as { cwd?: unknown } | undefined)?.cwd;
+          if (typeof usedCwd === "string") invalidatePluginBubble(pluginId, usedCwd);
           win.postMessage({ __ctReply: m.__ctInvoke, result }, "*");
         } catch (err) {
           win.postMessage({ __ctReply: m.__ctInvoke, error: String(err) }, "*");
