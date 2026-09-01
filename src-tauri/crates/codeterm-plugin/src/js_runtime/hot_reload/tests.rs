@@ -627,9 +627,10 @@ fn chatbackend_spawnable_true_to_false_emits_contribution_inverse() {
 
     let backend = caps.chatbackend.get("hide-chatbackend").unwrap();
     assert!(!backend.spawnable());
+    let models = backend.list_models().expect("backend still lists models");
     assert_eq!(
-        backend.describe().available_models[0].id,
-        "still-registered"
+        models.first().map(|model| model.id.as_str()),
+        Some("still-registered")
     );
     assert_eq!(
         watcher.contribution_event_count(),
