@@ -59,8 +59,41 @@ pub(crate) enum WorkerAckSignal {
 pub(crate) enum AgentStartupSignal {
     Ready,
     Held,
-    ProcessExited,
+    LaunchCommandFinished,
     Superseded,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AgentStartupNoticeOutcome {
+    Resolved,
+    Overdue,
+}
+
+fn await_agent_startup_notice(
+    receiver: &Receiver<AgentStartupSignal>,
+    timeout: Duration,
+) -> AgentStartupNoticeOutcome {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        if remaining.is_zero() {
+            return AgentStartupNoticeOutcome::Overdue;
+        }
+        match receiver.recv_timeout(remaining) {
+            Ok(
+                AgentStartupSignal::Ready
+                | AgentStartupSignal::Held
+                | AgentStartupSignal::Superseded,
+            )
+            | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                return AgentStartupNoticeOutcome::Resolved;
+            }
+            Ok(AgentStartupSignal::LaunchCommandFinished) => {}
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                return AgentStartupNoticeOutcome::Overdue;
+            }
+        }
+    }
 }
 
 struct WorkerAckWaiter {
@@ -210,7 +243,11 @@ impl WorkerAckRegistry {
         Ok(authority)
     }
 
-    pub(crate) fn mark_startup_process_exited(&self, tab_id: &str, attempt_id: &str) -> bool {
+    pub(crate) fn mark_startup_launch_command_finished(
+        &self,
+        tab_id: &str,
+        attempt_id: &str,
+    ) -> bool {
         self.startup_waiters
             .lock()
             .get(tab_id)
@@ -218,7 +255,7 @@ impl WorkerAckRegistry {
             .is_some_and(|waiter| {
                 waiter
                     .sender
-                    .send(AgentStartupSignal::ProcessExited)
+                    .send(AgentStartupSignal::LaunchCommandFinished)
                     .is_ok()
             })
     }
@@ -371,18 +408,6 @@ fn agent_startup_failed_event(
         } else {
             "Treat the tab as live and close it explicitly before spawning a replacement."
         },
-    })
-}
-
-fn agent_startup_process_exited_event(tab_id: &str, title: &str, attempt_id: &str) -> Value {
-    json!({
-        "kind": "agent_startup_process_exited",
-        "tab_id": tab_id,
-        "title": title,
-        "attempt_id": attempt_id,
-        "impact": "The exact provider launch command ended before its startup acknowledgement.",
-        "hold": format!("codeterm agent startup-hold --tab {tab_id} --attempt {attempt_id}"),
-        "fallback": "Inspect the tab. Hold this exact attempt if its shell must be preserved; otherwise CodeTerm will close it at the bounded cleanup deadline.",
     })
 }
 
@@ -573,9 +598,13 @@ impl ServiceContext {
             .mark_startup_ready(caller_tab_id, attempt_id))
     }
 
-    pub(crate) fn observe_agent_startup_process_exited(&self, tab_id: &str, attempt_id: &str) {
+    pub(crate) fn observe_agent_startup_launch_command_finished(
+        &self,
+        tab_id: &str,
+        attempt_id: &str,
+    ) {
         self.worker_ack
-            .mark_startup_process_exited(tab_id, attempt_id);
+            .mark_startup_launch_command_finished(tab_id, attempt_id);
     }
 
     /// Only the recorded creator of this exact child attempt may hold it. The
@@ -628,39 +657,21 @@ impl ServiceContext {
             let final_deadline = std::time::Instant::now()
                 + AGENT_STARTUP_NOTICE_TIMEOUT
                 + AGENT_STARTUP_FINAL_TIMEOUT;
-            let mut process_exited = false;
-            match receiver.recv_timeout(AGENT_STARTUP_NOTICE_TIMEOUT) {
-                Ok(
-                    AgentStartupSignal::Ready
-                    | AgentStartupSignal::Held
-                    | AgentStartupSignal::Superseded,
-                ) => return,
-                Ok(AgentStartupSignal::ProcessExited) => {
-                    process_exited = true;
-                    service.publish_agent_startup_report(
-                        &supervisor_tab_id,
-                        &agent_tab_id,
-                        &agent_title,
-                        agent_startup_process_exited_event(
-                            &agent_tab_id,
-                            &agent_title,
-                            &attempt_id,
-                        ),
-                    );
-                }
-                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                    if !service.startup_attempt_is_current(&agent_tab_id, &attempt_id) {
-                        return;
-                    }
-                    service.publish_agent_startup_report(
-                        &supervisor_tab_id,
-                        &agent_tab_id,
-                        &agent_title,
-                        agent_startup_notice_event(&agent_tab_id, &agent_title, &attempt_id),
-                    );
-                }
+            if matches!(
+                await_agent_startup_notice(&receiver, AGENT_STARTUP_NOTICE_TIMEOUT),
+                AgentStartupNoticeOutcome::Resolved
+            ) {
+                return;
             }
+            if !service.startup_attempt_is_current(&agent_tab_id, &attempt_id) {
+                return;
+            }
+            service.publish_agent_startup_report(
+                &supervisor_tab_id,
+                &agent_tab_id,
+                &agent_title,
+                agent_startup_notice_event(&agent_tab_id, &agent_title, &attempt_id),
+            );
             if !service.startup_attempt_is_current(&agent_tab_id, &attempt_id) {
                 return;
             }
@@ -675,20 +686,7 @@ impl ServiceContext {
                         | AgentStartupSignal::Held
                         | AgentStartupSignal::Superseded,
                     ) => return,
-                    Ok(AgentStartupSignal::ProcessExited) if !process_exited => {
-                        process_exited = true;
-                        service.publish_agent_startup_report(
-                            &supervisor_tab_id,
-                            &agent_tab_id,
-                            &agent_title,
-                            agent_startup_process_exited_event(
-                                &agent_tab_id,
-                                &agent_title,
-                                &attempt_id,
-                            ),
-                        );
-                    }
-                    Ok(AgentStartupSignal::ProcessExited) => {}
+                    Ok(AgentStartupSignal::LaunchCommandFinished) => {}
                     Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => break,
                 }

@@ -48,7 +48,7 @@ fn delivery_fixture() -> (
 }
 
 #[test]
-fn worker_brief_without_ingestion_is_not_confirmed() {
+fn post_write_uncertainty_keeps_one_payload_pending_without_failing_launch() {
     let (mux, tab_id, gate) = delivery_fixture();
     let sink = DeliverySink::default();
     let payload_writes = Cell::new(0);
@@ -78,10 +78,28 @@ fn worker_brief_without_ingestion_is_not_confirmed() {
     assert_eq!(payload_writes.get(), 1);
     assert_eq!(cleanup_calls.get(), 0);
     assert_eq!(pending.state(), PendingDeliveryState::Unconfirmed);
-    assert_eq!(
-        consumption.unwrap_err().delivery.code(),
-        "submit_unconfirmed"
-    );
+    let error = consumption.unwrap_err();
+    assert_eq!(error.delivery.code(), "submit_unconfirmed");
+    assert!(!error.surfaces_as_launch_failure());
+}
+
+#[test]
+fn pre_write_refusal_remains_a_launch_failure() {
+    let (mux, tab_id, gate) = delivery_fixture();
+    let sink = DeliverySink::default();
+    let transaction_calls = Cell::new(0);
+    let consumption = gate.consume_injection(&mux, &tab_id, &sink, || {
+        transaction_calls.set(transaction_calls.get() + 1);
+        Err(crate::service::inject_verify::InjectionError::AgentInputUnavailable {
+            pty_id: "closed-before-write".into(),
+        })
+    });
+
+    let error = consumption.unwrap_err();
+    assert_eq!(transaction_calls.get(), 1);
+    assert_eq!(error.delivery.code(), "tab_busy_refused");
+    assert!(!error.delivery.bytes_written());
+    assert!(error.surfaces_as_launch_failure());
 }
 
 #[test]

@@ -123,9 +123,12 @@ fn startup_acknowledgement_and_hold_resolve_only_the_current_attempt() {
     assert_eq!(held.recv().unwrap(), AgentStartupSignal::Held);
 
     let exited = registry.arm_startup(creator_authority("tab-a", "launch-c"));
-    assert!(!registry.mark_startup_process_exited("tab-a", "launch-old"));
-    assert!(registry.mark_startup_process_exited("tab-a", "launch-c"));
-    assert_eq!(exited.recv().unwrap(), AgentStartupSignal::ProcessExited);
+    assert!(!registry.mark_startup_launch_command_finished("tab-a", "launch-old"));
+    assert!(registry.mark_startup_launch_command_finished("tab-a", "launch-c"));
+    assert_eq!(
+        exited.recv().unwrap(),
+        AgentStartupSignal::LaunchCommandFinished
+    );
     assert!(registry
         .hold_startup_authorized(
             "creator",
@@ -135,6 +138,19 @@ fn startup_acknowledgement_and_hold_resolve_only_the_current_attempt() {
         )
         .is_ok());
     assert_eq!(exited.recv().unwrap(), AgentStartupSignal::Held);
+}
+
+#[test]
+fn launch_command_finish_cannot_outrank_readiness() {
+    let registry = WorkerAckRegistry::default();
+    let receiver = registry.arm_startup(creator_authority("tab-a", "launch-a"));
+
+    assert!(registry.mark_startup_launch_command_finished("tab-a", "launch-a"));
+    assert!(registry.mark_startup_ready("tab-a", "launch-a"));
+    assert_eq!(
+        await_agent_startup_notice(&receiver, Duration::from_secs(1)),
+        AgentStartupNoticeOutcome::Resolved
+    );
 }
 
 #[test]
