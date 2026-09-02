@@ -1041,13 +1041,11 @@ pub trait AgentProvider: Send + Sync {
     }
 
     /// Build the wire descriptor reported to the frontend.
-    ///
     /// **Contract:** this method MUST be pure, cheap, and free of I/O.
     /// No locks, no `.await`, no remote calls. It is invoked while
     /// holding a read lock on the agent registry, and the result is
     /// serialized to JSON for REST/Socket/Tauri callers. The default
-    /// impl just assembles the other metadata methods — providers
-    /// rarely need to override it.
+    /// impl just assembles the other metadata methods.
     fn describe(&self) -> ProviderDescriptor {
         let platform = current_platform_tag();
         let mut settings = self.settings_schema();
@@ -1062,8 +1060,7 @@ pub trait AgentProvider: Send + Sync {
             icon_hint: self.icon_hint().map(|s| s.to_string()),
             icon_svg: self.icon_svg().map(|s| s.to_string()),
             icon_color: self.icon_color().map(|s| s.to_string()),
-            available_models: self
-                .available_models()
+            available_models: self.available_models()
                 .into_iter()
                 .filter(|model| model.available != Some(false))
                 .collect(),
