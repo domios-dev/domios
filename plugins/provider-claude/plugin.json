@@ -45,22 +45,22 @@
   "models": [
     {
       "id": "opus",
-      "displayName": "Claude Opus 5 (1M context)",
+      "displayName": "Claude Opus",
       "description": "Best for everyday, complex tasks."
     },
     {
       "id": "sonnet",
-      "displayName": "Claude Sonnet 5",
+      "displayName": "Claude Sonnet",
       "description": "Efficient for routine tasks."
     },
     {
       "id": "haiku",
-      "displayName": "Claude Haiku 4.5",
+      "displayName": "Claude Haiku",
       "description": "Fastest for quick answers."
     },
     {
       "id": "fable",
-      "displayName": "Claude Fable 5",
+      "displayName": "Claude Fable",
       "description": "Most capable for your hardest and longest-running tasks.",
       "available": false
     }
