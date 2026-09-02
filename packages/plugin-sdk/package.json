@@ -1,6 +1,6 @@
 {
   "name": "@codeterm/plugin-sdk",
-  "version": "1.10.8",
+  "version": "1.10.9",
   "type": "module",
   "description": "Type-only SDK for authoring CodeTerm plugin logic (host API + capability contracts) in TypeScript.",
   "license": "ISC",
