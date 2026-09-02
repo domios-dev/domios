@@ -26,10 +26,20 @@ impl UpdateGate {
         }
     }
 
-    /// No single flight yet: every request is granted, which is what lets two
-    /// callers start two installers.
+    /// Grants at most one lease at a time. A caller that loses is refused, not
+    /// queued: a second installer must never start behind the first.
     pub fn try_acquire(&self) -> Option<UpdateLease<'_>> {
-        Some(UpdateLease { gate: self })
+        // Constructed only on the winning exchange: a lease built eagerly and
+        // discarded would release the winner's claim on drop.
+        if self
+            .in_flight
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
+            Some(UpdateLease { gate: self })
+        } else {
+            None
+        }
     }
 
     pub fn is_in_flight(&self) -> bool {
