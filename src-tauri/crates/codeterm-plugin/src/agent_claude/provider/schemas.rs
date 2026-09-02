@@ -236,9 +236,11 @@ mod tests {
         assert_eq!(p.default_model().as_deref(), Some("sonnet"));
         let seed = manifest_defaults();
         assert_eq!(seed.default.as_deref(), Some("sonnet"));
-        assert!(
-            seed.models.iter().all(|m| m.available.is_none()),
-            "static seed availability must stay unknown; only genuine discovery may publish it"
+        assert!(seed.models.iter().filter(|m| m.id != "fable").all(|m| m.available.is_none()));
+        assert_eq!(
+            seed.models.iter().find(|m| m.id == "fable").and_then(|m| m.available),
+            Some(false),
+            "the version-gated alias must fail closed until discovery confirms the CLI"
         );
     }
 
