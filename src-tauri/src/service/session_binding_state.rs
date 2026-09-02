@@ -24,6 +24,15 @@ pub(crate) struct SessionBindingState {
     pub reason: Option<String>,
 }
 
+/// The deferral still describes this tab when the session it was protecting is
+/// the one the tab is on; otherwise the tab has moved past it.
+fn deferral_holds_current_session(
+    current_session_id: Option<&str>,
+    binding: &DeferredSessionBinding,
+) -> bool {
+    current_session_id == Some(binding.previous_session_id.as_str())
+}
+
 fn classify_session_binding_state(
     tab_id: &str,
     current_session_id: Option<&str>,
@@ -32,18 +41,23 @@ fn classify_session_binding_state(
     refused: Option<RefusedSessionBinding>,
 ) -> SessionBindingState {
     if let Some(binding) = pending {
-        let kind = if current_session_id == Some(binding.previous_session_id.as_str()) {
-            SessionBindingStateKind::DeferredPending
-        } else {
-            SessionBindingStateKind::StalePending
-        };
-        return SessionBindingState {
-            tab_id: tab_id.to_string(),
-            kind,
-            current_session_id: current_session_id.map(str::to_string),
-            requested_session_id: Some(binding.session_id),
-            reason: None,
-        };
+        let holds_current = deferral_holds_current_session(current_session_id, &binding);
+        // A live agent answering on its own session is working, not recovering:
+        // the deferral is a rebind queued behind it, not a broken binding.
+        let outranked_by_liveness = holds_current && agent_alive;
+        if !outranked_by_liveness {
+            return SessionBindingState {
+                tab_id: tab_id.to_string(),
+                kind: if holds_current {
+                    SessionBindingStateKind::DeferredPending
+                } else {
+                    SessionBindingStateKind::StalePending
+                },
+                current_session_id: current_session_id.map(str::to_string),
+                requested_session_id: Some(binding.session_id),
+                reason: None,
+            };
+        }
     }
     if let Some(refusal) =
         refused.filter(|refusal| refusal.previous_session_id.as_deref() == current_session_id)
@@ -93,7 +107,27 @@ impl ServiceContext {
         ))
     }
 
+    /// Emission is the transition boundary, so a deferral the tab has already
+    /// moved past is retired here instead of left for a later read to trust.
+    fn retire_resolved_session_binding(&self, tab_id: &str) {
+        let current_session_id = {
+            let mux = self.mux.read();
+            mux.get_tab(tab_id)
+                .and_then(|tab| tab.agent_session_id.clone())
+        };
+        if self
+            .deferred_session_bindings
+            .retire_resolved(tab_id, current_session_id.as_deref())
+        {
+            log::info!(
+                "[session-binding-deferral] retired resolved deferral for Tab {}",
+                tab_id
+            );
+        }
+    }
+
     pub(crate) fn emit_session_binding_state(&self, tab_id: &str) {
+        self.retire_resolved_session_binding(tab_id);
         if let Some(state) = self.session_binding_state(tab_id) {
             crate::api::events::emit_everywhere(
                 &self.app_handle,
