@@ -17,7 +17,7 @@ pub mod agent_pad;
 pub mod agent_restart;
 mod agent_transition;
 pub mod boot_stage;
-mod boot_wait;
+pub(crate) mod boot_wait;
 pub(crate) mod chat_send_evidence;
 pub(crate) mod chat_send_transaction;
 mod command_port_impl;
@@ -458,22 +458,23 @@ impl ServiceContext {
     pub(crate) fn confirm_pending_delivery(
         &self,
         tab_id: &str,
+        attempt_id: &str,
     ) -> Result<(), pending_delivery_payloads::PayloadStoreError> {
-        self.cleanup_pending_delivery(tab_id, true, "confirmed")
+        self.cleanup_pending_delivery(tab_id, true, "confirmed", Some(attempt_id))
     }
 
     pub(crate) fn cleanup_confirmed_pending_delivery(
         &self,
         tab_id: &str,
     ) -> Result<(), pending_delivery_payloads::PayloadStoreError> {
-        self.cleanup_pending_delivery(tab_id, true, "confirmed")
+        self.cleanup_pending_delivery(tab_id, true, "confirmed", None)
     }
 
     fn discard_pending_delivery(
         &self,
         tab_id: &str,
     ) -> Result<(), pending_delivery_payloads::PayloadStoreError> {
-        self.cleanup_pending_delivery(tab_id, false, "explicit_discard")
+        self.cleanup_pending_delivery(tab_id, false, "explicit_discard", None)
     }
 
     fn cleanup_pending_delivery(
@@ -481,6 +482,7 @@ impl ServiceContext {
         tab_id: &str,
         accepted_only: bool,
         decision: &str,
+        expected_attempt_id: Option<&str>,
     ) -> Result<(), pending_delivery_payloads::PayloadStoreError> {
         let record = {
             let mut mux = self.mux.write();
@@ -493,6 +495,15 @@ impl ServiceContext {
                     .as_ref()
                     .is_some_and(|record| record.state().is_accepted())
             {
+                return Ok(());
+            }
+            if expected_attempt_id.is_some_and(|expected| {
+                !tab.pending_delivery.as_ref().is_some_and(|record| {
+                    record
+                        .attempt_provenance()
+                        .is_some_and(|attempt| attempt.attempt_id == expected)
+                })
+            }) {
                 return Ok(());
             }
             tab.pending_delivery.take()

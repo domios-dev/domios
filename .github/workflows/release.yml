@@ -114,6 +114,10 @@ jobs:
         run: |
           .codeterm/build-machine/scripts/publish-release.sh "${{ steps.ver.outputs.ver }}"
 
+      - name: Sync full release notes to source and public mirror
+        run: |
+          node scripts/sync-release-notes.mjs --tag "${{ steps.ver.outputs.tag }}"
+
       - name: Verify published public mirror
         run: |
           TAG="${{ steps.ver.outputs.tag }}"

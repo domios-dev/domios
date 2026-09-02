@@ -479,11 +479,11 @@ impl ServiceContext {
             return;
         };
         for event in &events {
-            if matches!(
-                event,
-                crate::agent::command_detection::CommandLifecycle::Finished { .. }
-            ) {
-                self.observe_agent_startup_process_exited(tab_id, pty_id);
+            if let crate::agent::command_detection::CommandLifecycle::Finished {
+                exit_code, ..
+            } = event
+            {
+                self.observe_agent_startup_launch_command_finished(tab_id, pty_id, *exit_code);
             }
             crate::api::events::emit_everywhere(
                 &self.app_handle,

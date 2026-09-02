@@ -1,5 +1,7 @@
 import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { Window } from "happy-dom";
 import {
   sessionBindingSurfaceFromFact,
@@ -81,6 +83,39 @@ const tests: Test[] = [
     );
     assert(surface.agentState?.state === "quiet", "the #291 route does not fall through as healthy");
     assert(surface.showRecoveryAction, "the unbound tab offers the recovery mechanism");
+  }],
+  ["binding_state_surface silences a fact carrying a foreign current session", () => {
+    const foreign = sessionBindingSurfaceFromFact(
+      "tab-a",
+      "session-a",
+      fact("deferred_pending", { current_session_id: "session-foreign" }),
+    );
+    assert(foreign.agentState === null, "a fact about another session cannot speak for this tab");
+    assert(!foreign.showRecoveryAction, "the foreign fact offers no action either");
+    const own = sessionBindingSurfaceFromFact("tab-a", "session-a", fact("deferred_pending"));
+    assert(own.agentState?.state === "quiet", "the guard still lets this tab's own fact through");
+  }],
+  ["binding_state_surface stays non-authoritative on a deferred fact", () => {
+    const deferred = sessionBindingSurfaceFromFact("tab-a", "session-a", fact("deferred_pending"));
+    const healthy = sessionBindingSurfaceFromFact("tab-a", "session-a", fact("healthy"));
+    assert(healthy.agentState === null, "healthy is the only silent verdict of the two");
+    assert(
+      deferred.agentState?.state === "quiet"
+        && typeof deferred.agentState.status_line === "string"
+        && deferred.agentState.status_line.length > 0
+        && !deferred.showRecoveryAction,
+      "a backend deferral keeps its own quiet line and is never optimistically cleared",
+    );
+  }],
+  ["binding_state_surface subscription is event-driven with no timer", () => {
+    const source = readFileSync(
+      fileURLToPath(new URL("./useSessionBindingSurface.ts", import.meta.url)),
+      "utf8",
+    );
+    for (const timer of ["setInterval", "setTimeout", "requestAnimationFrame", "Date.now"]) {
+      assert(!source.includes(timer), `the surface subscription must not reach for ${timer}`);
+    }
+    assert(source.includes("session-binding-state-changed"), "correction arrives on the daemon event");
   }],
   ["binding_state_surface reaches rebind through the visible repair mechanism", async () => {
     const window = new Window({ url: "http://localhost:7686/" });

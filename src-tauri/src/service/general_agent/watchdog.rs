@@ -2,8 +2,13 @@
 
 use super::{lifecycle, GENERAL_ALIAS};
 
-fn needs_restart_decision(in_grace: bool, pty_is_live: bool, has_agent_type: bool) -> bool {
-    !in_grace && !pty_is_live && has_agent_type
+fn needs_restart_decision(
+    quiescing: bool,
+    in_grace: bool,
+    pty_is_live: bool,
+    has_agent_type: bool,
+) -> bool {
+    !quiescing && !in_grace && !pty_is_live && has_agent_type
 }
 
 pub fn start_watchdog(
@@ -48,11 +53,13 @@ pub fn start_watchdog(
                     Some((in_grace, tab.pty_id.clone(), tab.agent_type.is_some()))
                 })
             };
+            // A declared shutdown means the dying PTYs are a handoff, not a crash.
+            let quiescing = crate::crash::shutdown::is_shutting_down();
             let needs_restart = tab_liveness.map(|(in_grace, pty_id, has_agent_type)| {
                 let pty_is_live = pty_id
                     .as_deref()
                     .is_some_and(|id| pty.lock().get_session(id).is_some());
-                needs_restart_decision(in_grace, pty_is_live, has_agent_type)
+                needs_restart_decision(quiescing, in_grace, pty_is_live, has_agent_type)
             });
 
             match needs_restart {
@@ -94,22 +101,36 @@ mod tests {
 
     #[test]
     fn grace_period_blocks_restart() {
-        assert!(!needs_restart_decision(true, false, true));
-        assert!(!needs_restart_decision(true, true, true));
+        assert!(!needs_restart_decision(false, true, false, true));
+        assert!(!needs_restart_decision(false, true, true, true));
     }
 
     #[test]
     fn cosmetic_agent_type_without_pty_triggers_restart() {
-        assert!(needs_restart_decision(false, false, true));
+        assert!(needs_restart_decision(false, false, false, true));
     }
 
     #[test]
     fn no_pty_no_agent_type_does_not_restart() {
-        assert!(!needs_restart_decision(false, false, false));
+        assert!(!needs_restart_decision(false, false, false, false));
     }
 
     #[test]
     fn live_pty_never_authorizes_screen_based_restart() {
-        assert!(!needs_restart_decision(false, true, true));
+        assert!(!needs_restart_decision(false, false, true, true));
+    }
+
+    #[test]
+    fn watchdog_does_not_restart_during_declared_quiesce() {
+        // The update handoff reaps the general agent's PTY on purpose.
+        assert!(
+            !needs_restart_decision(true, false, false, true),
+            "a declared quiesce must not be restarted into"
+        );
+        // Narrowed, not disabled: the same dead process outside a quiesce still restarts.
+        assert!(
+            needs_restart_decision(false, false, false, true),
+            "outside a declared quiesce the watchdog still restarts a dead agent"
+        );
     }
 }

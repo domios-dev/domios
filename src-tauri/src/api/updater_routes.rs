@@ -7,9 +7,10 @@ use serde::Deserialize;
 
 use crate::api::routes::{check_auth, AppState};
 use crate::update::apply::{
-    check_and_apply, check_stage_deb_update, debian_preflight_status, gate_staged_deb_async,
-    ApplyOptions, ApplyResult, DebianElevationStatus, DebianStageGate,
+    check_stage_deb_update, debian_preflight_status, gate_staged_deb_async, ApplyOptions,
+    ApplyResult, DebianElevationStatus, DebianStageGate,
 };
+use crate::update::single_flight;
 use crate::update::InstallMethod;
 use crate::update::UpdatePhase;
 
@@ -105,6 +106,12 @@ pub async fn install_update(
     // Auto update checks bypass the daemon's short-check cache to avoid stale "up_to_date" right after release.
     // Keep cache useful for polling badge and manual browser fallback paths.
     if q.method.as_deref() == Some("auto") {
+        let Some(lease) = single_flight::global().try_acquire() else {
+            return Ok(Json(serde_json::json!({
+                "status": single_flight::ALREADY_IN_FLIGHT,
+                "message": "An update is already being applied."
+            })));
+        };
         let app = state.svc.app_handle.clone();
         let (channel, install_method) = {
             let us = state.update_state.lock();
@@ -202,7 +209,8 @@ pub async fn install_update(
                     }
                 };
                 rt.block_on(async move {
-                    match crate::update::apply::install_staged_deb_and_restart(
+                    match single_flight::install_staged_deb_with_lease(
+                        lease,
                         &app,
                         version.clone(),
                         path,
@@ -254,7 +262,14 @@ pub async fn install_update(
                     install_method,
                     initiating_tab_id: continue_tab,
                 };
-                match check_and_apply(&app, opts.clone(), update_state.clone()).await {
+                let outcome = single_flight::apply_with_lease(
+                    lease,
+                    &app,
+                    opts.clone(),
+                    update_state.clone(),
+                )
+                .await;
+                match outcome {
                     Ok(result) => match result {
                         ApplyResult::Restarting => {
                             update_state.lock().set_phase(UpdatePhase::Success);

@@ -729,6 +729,32 @@ fn availability_flag_is_carried_through_resolve() {
 }
 
 #[test]
+fn unavailable_declared_model_falls_back_to_an_available_model() {
+    let id = "test-unavailable-model-resolution";
+    cleanup(id);
+    register(
+        id,
+        RegisteredDefaults {
+            models: vec![
+                model("stable", "Stable"),
+                ModelInfo {
+                    id: "future".into(),
+                    display_name: "Future".into(),
+                    description: None,
+                    available: Some(false),
+                },
+            ],
+            default: Some("stable".into()),
+        },
+    );
+
+    let unavailable = resolve_model(id, Some("future"));
+    assert_eq!(unavailable.id, "stable");
+    assert!(unavailable.fell_back);
+    cleanup(id);
+}
+
+#[test]
 fn sanitize_live_drops_non_chat_and_dedups() {
     let cleaned = sanitize_live(vec![
         model("gpt-chat", "Chat"),
