@@ -264,5 +264,8 @@ jobs:
       - name: Release closure authority tests
         run: node --test scripts/tests/release-closure-authority.test.mjs
 
+      - name: Release notes synchronization tests
+        run: node --test scripts/tests/release-notes-sync.test.mjs
+
       - name: Biome (TS lint)
         run: pnpm lint

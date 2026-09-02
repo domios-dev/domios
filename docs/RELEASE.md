@@ -463,4 +463,21 @@ The minisign updater key (`~/.tauri/codeterm.key`, empty password; its public ha
 the `github-release` skill lists the exact ids and restore paths. A builder without the minisign
 key produces artifacts the updater can't verify.
 
-<!-- revision: 35 -->
+## Release notes contract
+
+Every published version has one canonical notes body shared by the private source release and the
+public download mirror. The main release workflow runs `scripts/sync-release-notes.mjs --tag vX.Y.Z`
+after both releases exist and before served-byte verification. An authored source body is preserved;
+an empty or known placeholder body is replaced with the release PR summary, falling back to
+GitHub-generated notes only when no substantive PR body exists.
+
+Backfill the latest published releases with the same fail-closed rule:
+
+```bash
+node scripts/sync-release-notes.mjs --backfill 10
+```
+
+The command refuses missing mirror releases, empty generated notes, and bodies too short to be
+meaningful. It then writes the exact same Markdown to both repositories.
+
+<!-- revision: 36 -->
