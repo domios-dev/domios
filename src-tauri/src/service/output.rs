@@ -483,7 +483,7 @@ impl ServiceContext {
                 event,
                 crate::agent::command_detection::CommandLifecycle::Finished { .. }
             ) {
-                self.observe_agent_startup_process_exited(tab_id, pty_id);
+                self.observe_agent_startup_launch_command_finished(tab_id, pty_id);
             }
             crate::api::events::emit_everywhere(
                 &self.app_handle,

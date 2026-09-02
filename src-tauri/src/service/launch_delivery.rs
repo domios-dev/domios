@@ -8,7 +8,7 @@ use crate::multiplexer::types::{
     DeliveryAttemptProvenance, PendingDeliveryChannel, PendingDeliveryRecord,
 };
 use crate::service::boot_stage::{BootStage, BootStageSink};
-use crate::service::delivery_error::DeliveryError;
+use crate::service::delivery_error::{DeliveryError, SendOrigin};
 use crate::service::inject_verify::{InjectionError, InjectionResult};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,6 +74,12 @@ impl std::fmt::Display for LaunchConsumptionError {
 }
 
 impl std::error::Error for LaunchConsumptionError {}
+
+impl LaunchConsumptionError {
+    pub(crate) fn surfaces_as_launch_failure(&self) -> bool {
+        self.delivery.surfaces_as_failure(SendOrigin::Programmatic)
+    }
+}
 
 pub(crate) struct LaunchDeliveryGate {
     stage: LaunchConsumptionStage,
