@@ -287,6 +287,14 @@ pub fn handle_update(
                             }
                             poll_update_status(&http, &base_url);
                         }
+                        "already_in_flight" => {
+                            println!(
+                                "{}",
+                                body["message"]
+                                    .as_str()
+                                    .unwrap_or("An update is already being applied.")
+                            );
+                        }
                         _ => println!("{}", body),
                     }
                 }
