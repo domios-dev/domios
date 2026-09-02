@@ -123,7 +123,10 @@ pub async fn apply_with_lease(
     opts: ApplyOptions,
     update_state: std::sync::Arc<parking_lot::Mutex<UpdateState>>,
 ) -> Result<ApplyResult, String> {
-    run_holding_lease(lease, || super::apply::check_and_apply(app, opts, update_state)).await
+    run_holding_lease(lease, || {
+        super::apply::check_and_apply(app, opts, update_state)
+    })
+    .await
 }
 
 pub async fn install_staged_deb_with_lease(
@@ -145,7 +148,10 @@ pub async fn request_apply(
     opts: ApplyOptions,
     update_state: std::sync::Arc<parking_lot::Mutex<UpdateState>>,
 ) -> Result<UpdateRequestOutcome, String> {
-    run_single_flight(gate, || super::apply::check_and_apply(app, opts, update_state)).await
+    run_single_flight(gate, || {
+        super::apply::check_and_apply(app, opts, update_state)
+    })
+    .await
 }
 
 #[cfg(test)]
@@ -252,9 +258,10 @@ mod tests {
             "a failed update must never block the next one"
         );
 
-        let after_failure = run_single_flight(&gate, || async { fake.apply(ApplyResult::NoUpdate) })
-            .await
-            .expect("the request after a failure is accepted");
+        let after_failure =
+            run_single_flight(&gate, || async { fake.apply(ApplyResult::NoUpdate) })
+                .await
+                .expect("the request after a failure is accepted");
         assert_eq!(
             after_failure,
             UpdateRequestOutcome::Applied(ApplyResult::NoUpdate)

@@ -262,9 +262,13 @@ pub async fn install_update(
                     install_method,
                     initiating_tab_id: continue_tab,
                 };
-                let outcome =
-                    single_flight::apply_with_lease(lease, &app, opts.clone(), update_state.clone())
-                        .await;
+                let outcome = single_flight::apply_with_lease(
+                    lease,
+                    &app,
+                    opts.clone(),
+                    update_state.clone(),
+                )
+                .await;
                 match outcome {
                     Ok(result) => match result {
                         ApplyResult::Restarting => {
