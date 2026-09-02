@@ -932,10 +932,20 @@ pub(crate) fn launch_agent_in_background_with_env(
                 )
             });
             let delivery_error = match consumption {
-                Ok(crate::service::launch_delivery::LaunchConsumptionOutcome::Confirmed) => svc
-                    .confirm_pending_delivery(&tab_id)
+                Ok(receipt)
+                    if receipt.outcome
+                        == crate::service::launch_delivery::LaunchConsumptionOutcome::Confirmed =>
+                {
+                    svc.confirm_pending_delivery(
+                        &tab_id,
+                        receipt
+                            .attempt_id
+                            .as_deref()
+                            .expect("confirmed launch delivery carries its attempt"),
+                    )
                     .err()
-                    .map(|error| error.to_string()),
+                    .map(|error| error.to_string())
+                }
                 Ok(_) => None,
                 Err(error) if error.surfaces_as_launch_failure() => Some(error.to_string()),
                 Err(error) => {

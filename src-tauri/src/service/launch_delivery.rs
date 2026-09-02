@@ -62,6 +62,12 @@ pub(crate) enum LaunchConsumptionOutcome {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LaunchConsumptionReceipt {
+    pub outcome: LaunchConsumptionOutcome,
+    pub attempt_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LaunchConsumptionError {
     pub delivery: DeliveryError,
     pub transaction: Option<String>,
@@ -106,13 +112,19 @@ impl LaunchDeliveryGate {
         tab_id: &str,
         sink: &impl BootStageSink,
         transaction: F,
-    ) -> Result<LaunchConsumptionOutcome, LaunchConsumptionError>
+    ) -> Result<LaunchConsumptionReceipt, LaunchConsumptionError>
     where
         F: FnOnce() -> Result<InjectionResult, InjectionError>,
     {
-        if let Some(outcome) = self.prepare_consumption(mux, tab_id) {
-            return Ok(outcome);
-        }
+        let attempt = match self.prepare_consumption(mux, tab_id) {
+            Ok(attempt) => attempt,
+            Err(outcome) => {
+                return Ok(LaunchConsumptionReceipt {
+                    outcome,
+                    attempt_id: None,
+                })
+            }
+        };
 
         let result = dispatch_initial_delivery(
             LaunchDeliveryMode::ConfirmedFallback,
@@ -125,7 +137,11 @@ impl LaunchDeliveryGate {
         let evidence = result
             .map(|injection| injection.echo_observed && injection.submit_observed)
             .map_err(|error| DeliveryError::from_injection(tab_id, error));
-        self.finish_consumption(mux, tab_id, evidence, transaction_error)
+        self.finish_consumption(mux, tab_id, &attempt, evidence, transaction_error)
+            .map(|outcome| LaunchConsumptionReceipt {
+                outcome,
+                attempt_id: Some(attempt.attempt_id),
+            })
     }
 
     #[cfg(test)]
@@ -139,9 +155,10 @@ impl LaunchDeliveryGate {
     where
         F: FnOnce() -> Result<bool, String>,
     {
-        if let Some(outcome) = self.prepare_consumption(mux, tab_id) {
-            return Ok(outcome);
-        }
+        let attempt = match self.prepare_consumption(mux, tab_id) {
+            Ok(attempt) => attempt,
+            Err(outcome) => return Ok(outcome),
+        };
         let result = dispatch_initial_delivery(
             LaunchDeliveryMode::ConfirmedFallback,
             sink,
@@ -156,7 +173,7 @@ impl LaunchDeliveryGate {
                 .get_tab_mut(tab_id)
                 .and_then(|tab| tab.pending_delivery.as_mut())
                 .expect("fallback launch retains its pending delivery record");
-            confirm_fallback(tab_id, pending, submission_observed)
+            confirm_fallback_for_attempt(tab_id, pending, &attempt, submission_observed)
         };
         match delivery {
             Ok(()) => result
@@ -179,10 +196,11 @@ impl LaunchDeliveryGate {
         &self,
         mux: &MuxState,
         tab_id: &str,
-    ) -> Option<LaunchConsumptionOutcome> {
+    ) -> Result<DeliveryAttemptProvenance, LaunchConsumptionOutcome> {
         if self.stage != LaunchConsumptionStage::ProviderReady {
-            return Some(LaunchConsumptionOutcome::NotReady);
+            return Err(LaunchConsumptionOutcome::NotReady);
         }
+        let attempt = next_attempt();
         let should_submit = {
             let mut mux = mux.write();
             let pending = mux
@@ -190,15 +208,18 @@ impl LaunchDeliveryGate {
                 .and_then(|tab| tab.pending_delivery.as_mut())
                 .expect("fallback launch owns a pending delivery record");
             !pending.state().is_accepted()
-                && begin_fallback_attempt(tab_id, pending, next_attempt()).is_ok()
+                && begin_fallback_attempt(tab_id, pending, attempt.clone()).is_ok()
         };
-        (!should_submit).then_some(LaunchConsumptionOutcome::AlreadyConfirmed)
+        should_submit
+            .then_some(attempt)
+            .ok_or(LaunchConsumptionOutcome::AlreadyConfirmed)
     }
 
     fn finish_consumption(
         &self,
         mux: &MuxState,
         tab_id: &str,
+        attempt: &DeliveryAttemptProvenance,
         evidence: Result<bool, DeliveryError>,
         transaction: Option<String>,
     ) -> Result<LaunchConsumptionOutcome, LaunchConsumptionError> {
@@ -208,7 +229,7 @@ impl LaunchDeliveryGate {
                 .get_tab_mut(tab_id)
                 .and_then(|tab| tab.pending_delivery.as_mut())
                 .expect("fallback launch retains its pending delivery record");
-            reconcile_pending_delivery(tab_id, pending, evidence)
+            reconcile_pending_delivery_for_attempt(tab_id, pending, attempt, evidence)
         };
         delivery
             .map(|_| LaunchConsumptionOutcome::Confirmed)
@@ -399,6 +420,37 @@ pub(crate) fn confirm_fallback(
             tab: tab_id.to_string(),
             detail: format!("pending delivery transition: {error:?}"),
         })
+}
+
+#[cfg(test)]
+fn confirm_fallback_for_attempt(
+    tab_id: &str,
+    pending: &mut PendingDeliveryRecord,
+    attempt: &DeliveryAttemptProvenance,
+    submission_observed: bool,
+) -> Result<(), DeliveryError> {
+    if pending.attempt_provenance() != Some(attempt) {
+        return Err(DeliveryError::SubmitUnconfirmed {
+            tab: tab_id.to_string(),
+            detail: "delivery attempt was superseded before acknowledgement".into(),
+        });
+    }
+    confirm_fallback(tab_id, pending, submission_observed)
+}
+
+fn reconcile_pending_delivery_for_attempt(
+    tab_id: &str,
+    pending: &mut PendingDeliveryRecord,
+    attempt: &DeliveryAttemptProvenance,
+    evidence: Result<bool, DeliveryError>,
+) -> Result<(), DeliveryError> {
+    if pending.attempt_provenance() != Some(attempt) {
+        return Err(DeliveryError::SubmitUnconfirmed {
+            tab: tab_id.to_string(),
+            detail: "delivery attempt was superseded before reconciliation".into(),
+        });
+    }
+    reconcile_pending_delivery(tab_id, pending, evidence)
 }
 
 pub(crate) fn reconcile_pending_delivery(
@@ -678,8 +730,8 @@ mod tests {
         let mut gate = LaunchDeliveryGate::new();
         gate.mark_shell_ready();
         gate.mark_provider_ready();
-        assert_eq!(
-            gate.consume_injection(&mux, &tab_id, &sink, || {
+        let receipt = gate
+            .consume_injection(&mux, &tab_id, &sink, || {
                 submitted.push(spec.payload.clone());
                 Ok(InjectionResult {
                     bytes_written: spec.payload.len(),
@@ -690,9 +742,9 @@ mod tests {
                     elapsed: Duration::ZERO,
                 })
             })
-            .unwrap(),
-            LaunchConsumptionOutcome::Confirmed
-        );
+            .unwrap();
+        assert_eq!(receipt.outcome, LaunchConsumptionOutcome::Confirmed);
+        assert!(receipt.attempt_id.is_some());
         let pending = mux
             .read()
             .get_tab(&tab_id)
@@ -862,6 +914,33 @@ mod tests {
         assert_eq!(pending.attempt_provenance().unwrap().attempt_id, "retry");
         confirm_fallback("tab", &mut pending, true).unwrap();
         assert_eq!(pending.state(), PendingDeliveryState::AcceptedWeak);
+    }
+
+    #[test]
+    fn superseded_attempt_cannot_confirm_the_replacement_record() {
+        let mut pending = pending_record_for("task");
+        let first = DeliveryAttemptProvenance {
+            attempt_id: "first".into(),
+            started_at_ms: 1,
+        };
+        begin_fallback_attempt("tab", &mut pending, first.clone()).unwrap();
+        begin_fallback_attempt(
+            "tab",
+            &mut pending,
+            DeliveryAttemptProvenance {
+                attempt_id: "replacement".into(),
+                started_at_ms: 2,
+            },
+        )
+        .unwrap();
+
+        let error = confirm_fallback_for_attempt("tab", &mut pending, &first, true).unwrap_err();
+        assert_eq!(error.code(), "submit_unconfirmed");
+        assert_eq!(pending.state(), PendingDeliveryState::Pending);
+        assert_eq!(
+            pending.attempt_provenance().unwrap().attempt_id,
+            "replacement"
+        );
     }
 
     #[test]

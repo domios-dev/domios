@@ -64,7 +64,10 @@ fn post_write_uncertainty_keeps_one_payload_pending_without_failing_launch() {
         })
     });
     let cleanup_calls = Cell::new(0);
-    if matches!(consumption, Ok(LaunchConsumptionOutcome::Confirmed)) {
+    if consumption
+        .as_ref()
+        .is_ok_and(|receipt| receipt.outcome == LaunchConsumptionOutcome::Confirmed)
+    {
         cleanup_calls.set(cleanup_calls.get() + 1);
     }
     let pending = mux
@@ -90,9 +93,11 @@ fn pre_write_refusal_remains_a_launch_failure() {
     let transaction_calls = Cell::new(0);
     let consumption = gate.consume_injection(&mux, &tab_id, &sink, || {
         transaction_calls.set(transaction_calls.get() + 1);
-        Err(crate::service::inject_verify::InjectionError::AgentInputUnavailable {
-            pty_id: "closed-before-write".into(),
-        })
+        Err(
+            crate::service::inject_verify::InjectionError::AgentInputUnavailable {
+                pty_id: "closed-before-write".into(),
+            },
+        )
     });
 
     let error = consumption.unwrap_err();
@@ -131,7 +136,8 @@ fn worker_brief_is_one_payload_and_one_turn() {
         })
         .unwrap();
 
-    assert_eq!(consumption, LaunchConsumptionOutcome::Confirmed);
+    assert_eq!(consumption.outcome, LaunchConsumptionOutcome::Confirmed);
+    assert!(consumption.attempt_id.is_some());
     assert_eq!(payloads.borrow().as_slice(), &[payload]);
     assert_eq!(turns.get(), 1);
     assert_eq!(queued_characters.get(), 0);
