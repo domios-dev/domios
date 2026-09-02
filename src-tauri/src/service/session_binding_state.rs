@@ -236,7 +236,10 @@ mod tests {
             None,
         );
         assert_eq!(not_yet_live.kind, SessionBindingStateKind::DeferredPending);
-        assert_eq!(not_yet_live.requested_session_id.as_deref(), Some("requested"));
+        assert_eq!(
+            not_yet_live.requested_session_id.as_deref(),
+            Some("requested")
+        );
     }
 
     /// The other three kinds, each pinned on its own case, so the change cannot
