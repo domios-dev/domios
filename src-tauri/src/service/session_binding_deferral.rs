@@ -125,6 +125,19 @@ impl DeferredSessionBindingRegistry {
         }
     }
 
+    /// Retire a deferral the tab has already moved past: it can never bind, and
+    /// a record left behind reads as live to everything that looks at it later.
+    pub(crate) fn retire_resolved(&self, tab_id: &str, current_session_id: Option<&str>) -> bool {
+        let mut entries = self.entries.lock();
+        let resolved = entries.get(tab_id).is_some_and(|entry| {
+            Some(entry.binding.previous_session_id.as_str()) != current_session_id
+        });
+        if resolved {
+            entries.remove(tab_id);
+        }
+        resolved
+    }
+
     pub(crate) fn pending(&self, tab_id: &str) -> Option<DeferredSessionBinding> {
         self.entries
             .lock()
