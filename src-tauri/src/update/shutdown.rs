@@ -46,9 +46,13 @@ pub async fn graceful_shutdown(
     let (desk, reaped) = capture_desk_before(&svc, reap_owned_ptys(&svc)).await?;
     let conpty_hosts = super::conpty_cleanup::cleanup_before_installer().await?;
 
-    persist_desk(app, &desk)?;
+    persist_desk_off_runtime(app, desk).await?;
 
-    if let Err(e) = svc.mem.checkpoint_and_close() {
+    let mem_owner = svc.clone();
+    let checkpoint = tokio::task::spawn_blocking(move || mem_owner.mem.checkpoint_and_close())
+        .await
+        .map_err(|error| format!("mem checkpoint task failed: {error}"))?;
+    if let Err(e) = checkpoint {
         log::warn!("[updater] mem WAL checkpoint failed: {}", e);
     }
 
@@ -157,18 +161,20 @@ async fn capture_desk_before<T>(
     Ok((desk, result))
 }
 
-/// Write the pre-teardown capture verbatim — never re-reads the live mux.
-fn persist_desk(
+/// Writes the pre-teardown capture verbatim — never re-reads the live mux. The
+/// store write is disk IO, so it runs off the async runtime.
+async fn persist_desk_off_runtime(
     app: &tauri::AppHandle,
-    desk: &crate::session::SessionSnapshot,
+    desk: crate::session::SessionSnapshot,
 ) -> Result<(), String> {
     let session = app
         .try_state::<crate::session::SessionState>()
         .ok_or_else(|| "SessionState not registered".to_string())?
         .inner()
         .clone();
-    let store = session.lock();
-    persist_desk_into(&store, desk)
+    tokio::task::spawn_blocking(move || persist_desk_into(&session.lock(), &desk))
+        .await
+        .map_err(|error| format!("desk persist task failed: {error}"))?
 }
 
 /// The capture-then-persist seam: a refused reduction keeps the fuller disk desk
@@ -251,7 +257,8 @@ mod tests {
             "teardown must have removed the worker tab from the live desk"
         );
 
-        persist_desk(fixture._app.handle(), &desk).unwrap();
+        rt.block_on(persist_desk_off_runtime(fixture._app.handle(), desk))
+            .unwrap();
         let recorded = session.lock().load_last().unwrap().expect("desk on disk");
         assert!(
             snapshot_tab_ids(&recorded).contains(&worker),
