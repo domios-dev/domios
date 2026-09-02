@@ -125,7 +125,7 @@ mod tests {
         let deferred = classify_session_binding_state(
             "tab-a",
             Some("previous"),
-            true,
+            false,
             Some(pending("previous")),
             None,
         );
@@ -172,5 +172,131 @@ mod tests {
         let state = classify_session_binding_state("tab-a", Some("current"), true, None, None);
         assert_eq!(state.kind, SessionBindingStateKind::Healthy);
         assert_eq!(state.current_session_id.as_deref(), Some("current"));
+    }
+
+    /// rollacode/codeterm#381: the deferral record outranked liveness, so a
+    /// bound agent that was answering still reported "recovering".
+    #[test]
+    fn live_bound_agent_is_not_classified_deferred() {
+        let state = classify_session_binding_state(
+            "tab-a",
+            Some("previous"),
+            true,
+            Some(pending("previous")),
+            None,
+        );
+        assert_ne!(state.kind, SessionBindingStateKind::DeferredPending);
+        assert_eq!(state.kind, SessionBindingStateKind::Healthy);
+        assert_eq!(state.current_session_id.as_deref(), Some("previous"));
+    }
+
+    /// The guard on the fix above: a true deferral is still a deferral, so the
+    /// false positive is narrowed rather than the branch deleted.
+    #[test]
+    fn genuinely_deferred_binding_still_classifies_deferred() {
+        let not_yet_live = classify_session_binding_state(
+            "tab-a",
+            Some("previous"),
+            false,
+            Some(pending("previous")),
+            None,
+        );
+        assert_eq!(not_yet_live.kind, SessionBindingStateKind::DeferredPending);
+        assert_eq!(not_yet_live.requested_session_id.as_deref(), Some("requested"));
+    }
+
+    /// The other three kinds, each pinned on its own case, so the change cannot
+    /// be satisfied by collapsing the state machine into two states.
+    #[test]
+    fn binding_state_kinds_are_unchanged() {
+        let stale = classify_session_binding_state(
+            "tab-a",
+            Some("replacement"),
+            true,
+            Some(pending("previous")),
+            None,
+        );
+        assert_eq!(stale.kind, SessionBindingStateKind::StalePending);
+
+        let refused = classify_session_binding_state(
+            "tab-a",
+            Some("previous"),
+            true,
+            None,
+            Some(RefusedSessionBinding {
+                session_id: "requested".into(),
+                previous_session_id: Some("previous".into()),
+                reason: "refused".into(),
+            }),
+        );
+        assert_eq!(refused.kind, SessionBindingStateKind::Refused);
+        assert_eq!(refused.reason.as_deref(), Some("refused"));
+
+        let unbound = classify_session_binding_state("tab-a", None, true, None, None);
+        assert_eq!(unbound.kind, SessionBindingStateKind::Unbound);
+    }
+
+    /// The second half of rollacode/codeterm#381: masking a resolved record in
+    /// classification still leaves it for the next reader, so emission retires it.
+    #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+    #[test]
+    fn resolved_binding_retires_its_deferral_record() {
+        let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+        let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+        let workspace = fixture
+            .service
+            .mux
+            .write()
+            .create_workspace("binding".into(), None)
+            .id;
+        let tab_id = fixture.service.mux.write().create_tab(&workspace).unwrap();
+        fixture
+            .service
+            .mux
+            .write()
+            .get_tab_mut(&tab_id)
+            .unwrap()
+            .agent_session_id = Some("previous".into());
+        fixture
+            .service
+            .deferred_session_bindings
+            .defer(
+                &tab_id,
+                "provider",
+                "requested",
+                "previous",
+                fixture.temp.path().join("requested.jsonl"),
+                std::sync::Arc::new(|_, _| {}),
+            )
+            .unwrap();
+
+        fixture.service.emit_session_binding_state(&tab_id);
+        assert!(
+            fixture
+                .service
+                .deferred_session_bindings
+                .pending(&tab_id)
+                .is_some(),
+            "an unresolved deferral is still armed and must survive emission"
+        );
+
+        // The binding resolves exactly as `commit_reported_session` commits it.
+        fixture
+            .service
+            .mux
+            .write()
+            .get_tab_mut(&tab_id)
+            .unwrap()
+            .agent_session_id = Some("requested".into());
+        fixture.service.emit_session_binding_state(&tab_id);
+
+        assert!(
+            fixture
+                .service
+                .deferred_session_bindings
+                .pending(&tab_id)
+                .is_none(),
+            "a resolved binding leaves no deferral record for a later reader"
+        );
     }
 }
