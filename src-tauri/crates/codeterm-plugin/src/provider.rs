@@ -1060,7 +1060,8 @@ pub trait AgentProvider: Send + Sync {
             icon_hint: self.icon_hint().map(|s| s.to_string()),
             icon_svg: self.icon_svg().map(|s| s.to_string()),
             icon_color: self.icon_color().map(|s| s.to_string()),
-            available_models: self.available_models()
+            available_models: self
+                .available_models()
                 .into_iter()
                 .filter(|model| model.available != Some(false))
                 .collect(),

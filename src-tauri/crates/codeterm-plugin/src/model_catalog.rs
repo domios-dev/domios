@@ -461,9 +461,8 @@ pub fn resolve_default_reasoning_effort(provider_id: &str) -> Option<String> {
 pub fn resolve_model(provider_id: &str, requested: Option<&str>) -> Resolved {
     let models = resolve_models(provider_id);
     let requested = requested.map(str::trim).filter(|m| !m.is_empty());
-    let requested_is_declared = requested.is_some_and(|needle| {
-        models.iter().any(|model| model_matches(model, needle))
-    });
+    let requested_is_declared =
+        requested.is_some_and(|needle| models.iter().any(|model| model_matches(model, needle)));
 
     if let Some(requested) = requested {
         if let Some(model) = find_model(&models, requested) {
