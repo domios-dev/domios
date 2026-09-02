@@ -380,6 +380,7 @@ console.log("\n--- discoverModels: genuine discovery only ---\n");
 
 {
   const p = loadClaudeWithHost(baseHost({
+    exec: () => JSON.stringify({ code: 0, stdout: "2.1.258 (Claude Code)" }),
     envGet: (name: string) => name === "ANTHROPIC_API_KEY" ? "test-key" : null,
     fetch: () => JSON.stringify({
       status: 200,
@@ -388,7 +389,7 @@ console.log("\n--- discoverModels: genuine discovery only ---\n");
           { id: "claude-opus-5", display_name: "Claude Opus 5" },
           { id: "claude-sonnet-5", display_name: "Claude Sonnet 5" },
           { id: "claude-haiku-4-5", display_name: "Claude Haiku 4.5" },
-          { id: "claude-fable-5", display_name: "Claude Fable 5" },
+          { id: "claude-fable-5-1", display_name: "Claude Fable 5.1" },
         ],
       }),
     }),
@@ -396,10 +397,10 @@ console.log("\n--- discoverModels: genuine discovery only ---\n");
   eq(
     p.discoverModels(),
     [
-      { id: "opus", displayName: "Claude Opus 5 (1M context)", description: "Best for everyday, complex tasks.", available: true },
+      { id: "opus", displayName: "Claude Opus 5", description: "Best for everyday, complex tasks.", available: true },
       { id: "sonnet", displayName: "Claude Sonnet 5", description: "Efficient for routine tasks.", available: true },
       { id: "haiku", displayName: "Claude Haiku 4.5", description: "Fastest for quick answers.", available: true },
-      { id: "fable", displayName: "Claude Fable 5", description: "Most capable for your hardest and longest-running tasks.", available: true },
+      { id: "fable", displayName: "Claude Fable 5.1", description: "Most capable for your hardest and longest-running tasks.", available: true },
     ],
     "genuine /v1/models discovery maps concrete ids onto the same stable aliases with live availability",
   );
@@ -407,10 +408,11 @@ console.log("\n--- discoverModels: genuine discovery only ---\n");
 
 {
   const p = loadClaudeWithHost(baseHost({
+    exec: () => JSON.stringify({ code: 0, stdout: "2.1.258 (Claude Code)" }),
     envGet: (name: string) => name === "ANTHROPIC_API_KEY" ? "test-key" : null,
     fetch: () => JSON.stringify({
       status: 200,
-      body: JSON.stringify({ data: [{ id: "claude-fable-5", display_name: "Claude Fable 5" }] }),
+      body: JSON.stringify({ data: [{ id: "claude-fable-5-1", display_name: "Claude Fable 5.1" }] }),
     }),
   }));
   const partial = p.discoverModels() as Array<{ id: string; displayName: string; available: boolean }>;
@@ -418,16 +420,27 @@ console.log("\n--- discoverModels: genuine discovery only ---\n");
   eq(partial.map((m) => m.available), [false, false, false, true], "partial discovery publishes account availability");
   eq(
     partial.map((m) => m.displayName),
-    manifestSeed.models.map((m) => m.displayName),
-    "aliases missing from the account keep their current manifest labels",
+    ["Claude Opus", "Claude Sonnet", "Claude Haiku", "Claude Fable 5.1"],
+    "only the discovered alias receives its current concrete version",
   );
 }
 
 {
   const p = loadClaudeWithHost(baseHost({
+    exec: () => JSON.stringify({ code: 0, stdout: "2.1.71 (Claude Code)" }),
     fetch: () => { throw new Error("network must not be touched without credentials"); },
   }));
-  eq(p.discoverModels(), null, "discoverModels returns null when both API keys are absent (fetch forbidden)");
+  const models = p.discoverModels() as Array<{ id: string; available?: boolean }>;
+  eq(models.find((model) => model.id === "fable")?.available, false, "installed CLI without fable support does not advertise it");
+}
+
+{
+  const p = loadClaudeWithHost(baseHost({
+    exec: () => JSON.stringify({ code: 0, stdout: "2.1.258 (Claude Code)" }),
+    fetch: () => { throw new Error("network must not be touched without credentials"); },
+  }));
+  const models = p.discoverModels() as Array<{ id: string; available?: boolean }>;
+  eq(models.find((model) => model.id === "fable")?.available, true, "installed CLI with fable support advertises it without requiring an API-key probe");
 }
 
 for (const [label, fetchImpl] of [
@@ -440,7 +453,8 @@ for (const [label, fetchImpl] of [
     envGet: (name: string) => name === "CLAUDE_API_KEY" ? "test-key" : null,
     fetch: fetchImpl,
   }));
-  eq(p.discoverModels(), null, `discoverModels returns null on ${label} — never the manifest fallback`);
+  const models = p.discoverModels() as Array<{ id: string; available?: boolean }>;
+  eq(models.find((model) => model.id === "fable")?.available, false, `discoverModels fails closed on ${label}`);
 }
 
 console.log("\n--- integration consent and exact-byte transactions ---\n");
@@ -763,13 +777,9 @@ for (const [label, response, expected] of [
   assert(!message.includes("secret-token"), `${label} diagnostics omit credentials`);
 }
 
-console.log("\n--- claude_alias_catalog_matches_model_picker_r3 ---\n");
+console.log("\n--- versionless Claude alias catalog ---\n");
 {
   const repoRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
-  const picker = JSON.parse(fs.readFileSync(
-    path.join(repoRoot, "testbench", "snapshots", "claude", "model-picker-r3", "expected.json"),
-    "utf8",
-  )) as { expected: { options: string[] } };
   const manifest = JSON.parse(fs.readFileSync(
     path.join(repoRoot, "plugins", "provider-claude", "plugin.json"),
     "utf8",
@@ -781,31 +791,17 @@ console.log("\n--- claude_alias_catalog_matches_model_picker_r3 ---\n");
     "stable alias ids stay opus,sonnet,haiku,fable in order",
   );
   eq(manifest.defaultModel, "sonnet", "default alias remains sonnet");
-
-  for (const family of ["Opus", "Sonnet", "Haiku", "Fable"]) {
-    const option = picker.expected.options.find((o) => new RegExp(`${family}\\s+\\d`).test(o));
-    assert(!!option, `picker fixture has a ${family} row`);
-    const version = new RegExp(`${family}\\s+(\\d+(?:\\.\\d+)?)`).exec(option!)?.[1];
-    assert(!!version, `picker fixture carries a ${family} version`);
-    const alias = manifest.models.find((m) => m.displayName.includes(family));
-    assert(!!alias, `manifest has a ${family} alias`);
-    assert(
-      alias!.displayName.includes(`${family} ${version}`),
-      `manifest ${family} label matches captured picker version`,
-      `expected label containing "${family} ${version}", got "${alias!.displayName}"`,
-    );
-  }
-  const opus = manifest.models.find((m) => m.id === "opus");
-  assert(
-    /1M context/i.test(opus?.displayName ?? ""),
-    "opus label carries the 1M-context marker from the captured picker",
+  eq(
+    manifest.models.map((m) => m.displayName),
+    ["Claude Opus", "Claude Sonnet", "Claude Haiku", "Claude Fable"],
+    "cold catalog labels stay stable and versionless",
   );
   for (const m of manifest.models) {
-    assert(
-      !("available" in m),
-      `static seed availability is unknown for ${m.id}`,
-      `expected "available" absent, got ${JSON.stringify(m.available)}`,
-    );
+    if (m.id === "fable") {
+      eq(m.available, false, "fable stays unavailable until installed-CLI discovery proves support");
+    } else {
+      assert(!("available" in m), `static seed availability is unknown for ${m.id}`);
+    }
     assert(typeof m.description === "string" && m.description.length > 0, `${m.id} keeps a description`);
   }
 }

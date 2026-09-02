@@ -931,18 +931,33 @@ pub(crate) fn launch_agent_in_background_with_env(
                     None,
                 )
             });
-            let cleanup_error = if matches!(
-                &consumption,
-                Ok(crate::service::launch_delivery::LaunchConsumptionOutcome::Confirmed)
-            ) {
-                svc.confirm_pending_delivery(&tab_id)
+            let delivery_error = match consumption {
+                Ok(receipt)
+                    if receipt.outcome
+                        == crate::service::launch_delivery::LaunchConsumptionOutcome::Confirmed =>
+                {
+                    svc.confirm_pending_delivery(
+                        &tab_id,
+                        receipt
+                            .attempt_id
+                            .as_deref()
+                            .expect("confirmed launch delivery carries its attempt"),
+                    )
                     .err()
                     .map(|error| error.to_string())
-            } else {
-                None
+                }
+                Ok(_) => None,
+                Err(error) if error.surfaces_as_launch_failure() => Some(error.to_string()),
+                Err(error) => {
+                    log::warn!(
+                        "[launch-delivery] tab={} pty={} state={} bytes_written=true; pending evidence retained",
+                        tab_id,
+                        pty_id,
+                        error.delivery.code(),
+                    );
+                    None
+                }
             };
-            let delivery_error =
-                cleanup_error.or_else(|| consumption.err().map(|error| error.to_string()));
             if let Some(e) = delivery_error {
                 let (title, body) = worker_brief_delivery_incident(&tab_id, &e);
                 svc.create_notification(title, Some(body), Some("error"));

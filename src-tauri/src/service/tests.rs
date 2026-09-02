@@ -368,3 +368,109 @@ fn focus_tab_hot_path_does_not_refresh_agent_model_inline() {
     assert_eq!(*emitted.lock(), vec![tab_id.clone()]);
     assert_eq!(scheduled.load(Ordering::SeqCst), 1);
 }
+
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+#[test]
+fn confirmed_delivery_cleanup_is_scoped_to_its_exact_attempt() {
+    use crate::multiplexer::types::{DeliveryAttemptProvenance, PendingDeliveryChannel};
+    use crate::service::test_fixture::ServiceFixture;
+    use crate::session::SessionStore;
+    use tauri::Manager;
+
+    let (mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    let session: crate::session::SessionState = std::sync::Arc::new(parking_lot::Mutex::new(
+        SessionStore::for_test_dir(fixture.temp.path().join("sessions")),
+    ));
+    fixture._app.manage(session);
+    fixture
+        .service
+        .create_pending_delivery(&tab_id, PendingDeliveryChannel::FallbackBootstrap, "brief")
+        .unwrap();
+    {
+        let mut mux = fixture.service.mux.write();
+        let pending = mux
+            .get_tab_mut(&tab_id)
+            .unwrap()
+            .pending_delivery
+            .as_mut()
+            .unwrap();
+        pending
+            .begin_attempt(DeliveryAttemptProvenance {
+                attempt_id: "attempt-b".into(),
+                started_at_ms: 2,
+            })
+            .unwrap();
+        pending.confirm().unwrap();
+    }
+
+    fixture
+        .service
+        .confirm_pending_delivery(&tab_id, "attempt-a")
+        .unwrap();
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .unwrap()
+        .pending_delivery
+        .is_some());
+
+    fixture
+        .service
+        .confirm_pending_delivery(&tab_id, "attempt-b")
+        .unwrap();
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .unwrap()
+        .pending_delivery
+        .is_none());
+}
+
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+#[test]
+fn unproven_delivery_attempt_is_never_cleanup_wildcard() {
+    use crate::multiplexer::types::PendingDeliveryChannel;
+    use crate::service::test_fixture::ServiceFixture;
+    use crate::session::SessionStore;
+    use tauri::Manager;
+
+    let (mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    let session: crate::session::SessionState = std::sync::Arc::new(parking_lot::Mutex::new(
+        SessionStore::for_test_dir(fixture.temp.path().join("sessions")),
+    ));
+    fixture._app.manage(session);
+    fixture
+        .service
+        .create_pending_delivery(&tab_id, PendingDeliveryChannel::FallbackBootstrap, "brief")
+        .unwrap();
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab_id)
+        .unwrap()
+        .pending_delivery
+        .as_mut()
+        .unwrap()
+        .confirm()
+        .unwrap();
+
+    fixture
+        .service
+        .confirm_pending_delivery(&tab_id, "attempt-a")
+        .unwrap();
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .unwrap()
+        .pending_delivery
+        .is_some());
+}

@@ -15,7 +15,7 @@ use super::failure_report::{UpdateAbort, UpdateFailureSink};
 ///
 /// `shutdown` returns the tab ids it tore down so the abort artifact can name
 /// them.
-pub async fn install_after_shutdown<V, VF, S, SF, I>(
+pub async fn install_after_shutdown<V, VF, S, SF, I, IF>(
     verified_bytes: Vec<u8>,
     viability: V,
     shutdown: S,
@@ -27,7 +27,8 @@ where
     VF: Future<Output = Result<(), String>>,
     S: FnOnce() -> SF,
     SF: Future<Output = Result<Vec<String>, String>>,
-    I: FnOnce(Vec<u8>) -> Result<(), String>,
+    I: FnOnce(Vec<u8>) -> IF,
+    IF: Future<Output = Result<(), String>>,
 {
     viability().await?;
 
@@ -39,7 +40,7 @@ where
         }
     };
 
-    match install(verified_bytes) {
+    match install(verified_bytes).await {
         Ok(()) => Ok(()),
         Err(cause) => {
             sink.abort(&UpdateAbort::new("install", &cause, torn_down));
@@ -77,7 +78,7 @@ mod tests {
                 s.lock().unwrap().push("shutdown");
                 Ok(vec!["w-1".to_string()])
             },
-            move |bytes| {
+            move |bytes| async move {
                 assert_eq!(bytes, [1, 2, 3]);
                 i.lock().unwrap().push("install");
                 Ok(())
@@ -111,7 +112,7 @@ mod tests {
                     Ok(Vec::new())
                 }
             },
-            move |_| {
+            move |_| async move {
                 *i.lock().unwrap() = true;
                 Ok(())
             },
@@ -138,7 +139,7 @@ mod tests {
             vec![1],
             || async { Ok(()) },
             || async { Ok(vec!["w-1".to_string(), "w-2".to_string()]) },
-            |_| Err("installer launch failed: exit 1".to_string()),
+            |_| async { Err("installer launch failed: exit 1".to_string()) },
             &sink,
         )
         .await
@@ -161,7 +162,7 @@ mod tests {
             vec![1],
             || async { Ok(()) },
             || async { Err("PTY reap failed".to_string()) },
-            move |_| {
+            move |_| async move {
                 *i.lock().unwrap() = true;
                 Ok(())
             },

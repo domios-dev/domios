@@ -13,6 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS = ROOT / ".github" / "workflows"
 VERIFIER = "scripts/verify-updater-manifest.mjs"
+RELEASE_NOTES_SYNC = "scripts/sync-release-notes.mjs"
 DARWIN_PLATFORMS = ("darwin-aarch64", "darwin-x86_64")
 
 # Published with no escape hatch: darwin from the build machine, windows x64
@@ -228,6 +229,20 @@ class ProductionPublicationGateTest(unittest.TestCase):
             run = step["run"]
             self.assertIn("check-release-closure.mjs", run, "close runs with no authority check")
             self.assertLess(run.index("check-release-closure.mjs"), run.index("gh issue close"))
+
+
+class ReleaseNotesContractTest(unittest.TestCase):
+    def test_full_notes_are_synced_after_publish_and_before_verification(self):
+        parsed = steps(read("release.yml"))
+        publishing = [index for index, step in enumerate(parsed) if "publish-release.sh" in step.get("run", "")]
+        syncing = [index for index, step in enumerate(parsed) if RELEASE_NOTES_SYNC in step.get("run", "")]
+        verifying = [index for index, step in enumerate(parsed) if VERIFIER in step.get("run", "")]
+        self.assertEqual(len(publishing), 1, "release.yml must have one publication step")
+        self.assertEqual(len(syncing), 1, "release.yml must sync one canonical notes body")
+        self.assertEqual(len(verifying), 1, "release.yml must have one served-byte verifier")
+        self.assertLess(publishing[0], syncing[0], "notes sync runs before releases exist")
+        self.assertLess(syncing[0], verifying[0], "verification ran before both releases received notes")
+        self.assertIn("--tag", parsed[syncing[0]].get("run", ""))
 
 
 class ManifestValidateTriggerTest(unittest.TestCase):

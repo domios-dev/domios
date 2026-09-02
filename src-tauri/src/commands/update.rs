@@ -43,17 +43,20 @@ pub async fn check_for_update(
     Ok(val)
 }
 
+/// Answers with the same `status` discriminant the HTTP route uses, so a caller
+/// can tell a refused concurrent request from "no update available".
 #[tauri::command]
 pub async fn install_app_update(
     app: AppHandle,
     update_state: tauri::State<'_, UpdateStateHandle>,
-) -> Result<(), String> {
+) -> Result<serde_json::Value, String> {
     let (channel, install_method) = {
         let us = update_state.lock();
         (us.channel, us.install_method.clone())
     };
     let handle: UpdateStateHandle = update_state.inner().clone();
-    crate::update::apply::check_and_apply(
+    let outcome = crate::update::single_flight::request_apply(
+        crate::update::single_flight::global(),
         &app,
         crate::update::apply::ApplyOptions {
             channel,
@@ -63,8 +66,8 @@ pub async fn install_app_update(
         },
         handle,
     )
-    .await
-    .map(|_| ())
+    .await?;
+    Ok(serde_json::json!({ "status": outcome.discriminant() }))
 }
 
 #[tauri::command]

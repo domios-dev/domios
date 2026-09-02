@@ -123,9 +123,12 @@ fn startup_acknowledgement_and_hold_resolve_only_the_current_attempt() {
     assert_eq!(held.recv().unwrap(), AgentStartupSignal::Held);
 
     let exited = registry.arm_startup(creator_authority("tab-a", "launch-c"));
-    assert!(!registry.mark_startup_process_exited("tab-a", "launch-old"));
-    assert!(registry.mark_startup_process_exited("tab-a", "launch-c"));
-    assert_eq!(exited.recv().unwrap(), AgentStartupSignal::ProcessExited);
+    assert!(!registry.mark_startup_launch_command_finished("tab-a", "launch-old", Some(9)));
+    assert!(registry.mark_startup_launch_command_finished("tab-a", "launch-c", Some(9)));
+    assert_eq!(
+        exited.recv().unwrap(),
+        AgentStartupSignal::LaunchCommandFinished(Some(9))
+    );
     assert!(registry
         .hold_startup_authorized(
             "creator",
@@ -135,6 +138,19 @@ fn startup_acknowledgement_and_hold_resolve_only_the_current_attempt() {
         )
         .is_ok());
     assert_eq!(exited.recv().unwrap(), AgentStartupSignal::Held);
+}
+
+#[test]
+fn launch_command_finish_cannot_outrank_readiness() {
+    let registry = WorkerAckRegistry::default();
+    let receiver = registry.arm_startup(creator_authority("tab-a", "launch-a"));
+
+    assert!(registry.mark_startup_launch_command_finished("tab-a", "launch-a", Some(1)));
+    assert!(registry.mark_startup_ready("tab-a", "launch-a"));
+    assert_eq!(
+        await_agent_startup_notice(&receiver, Duration::from_secs(1)),
+        AgentStartupNoticeOutcome::Resolved
+    );
 }
 
 #[test]
@@ -343,10 +359,19 @@ fn startup_notice_exposes_inspect_respond_and_hold_without_task_resend() {
 
 #[test]
 fn exited_startup_is_cleaned_at_one_minute() {
-    let event = agent_startup_failed_event("child", "Planner", "launch-a", None);
+    let event = agent_startup_failed_event(
+        "child",
+        "Planner",
+        "launch-a",
+        None,
+        Some(17),
+        Some("synthetic provider rejection"),
+    );
     assert_eq!(event["kind"], "agent_startup_failed");
     assert_eq!(event["deadline_seconds"], 60);
     assert_eq!(event["cleanup"]["ok"], true);
+    assert_eq!(event["provider"]["exit_code"], 17);
+    assert_eq!(event["provider"]["output"], "synthetic provider rejection");
 }
 
 #[test]
