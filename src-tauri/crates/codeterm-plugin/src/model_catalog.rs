@@ -461,6 +461,9 @@ pub fn resolve_default_reasoning_effort(provider_id: &str) -> Option<String> {
 pub fn resolve_model(provider_id: &str, requested: Option<&str>) -> Resolved {
     let models = resolve_models(provider_id);
     let requested = requested.map(str::trim).filter(|m| !m.is_empty());
+    let requested_is_declared = requested.is_some_and(|needle| {
+        models.iter().any(|model| model_matches(model, needle))
+    });
 
     if let Some(requested) = requested {
         if let Some(model) = find_model(&models, requested) {
@@ -472,14 +475,13 @@ pub fn resolve_model(provider_id: &str, requested: Option<&str>) -> Resolved {
         if let Some(model) = find_model(&models, &default) {
             return resolved_from_model(model, requested.is_some());
         }
-        return Resolved {
-            id: default.clone(),
-            display: default,
-            fell_back: requested.is_some(),
-        };
     }
 
-    if let Some(requested) = requested {
+    if let Some(model) = models.iter().find(|model| model.available != Some(false)) {
+        return resolved_from_model(model, requested.is_some());
+    }
+
+    if let Some(requested) = requested.filter(|_| !requested_is_declared) {
         return Resolved {
             id: requested.to_string(),
             display: requested.to_string(),
@@ -783,7 +785,11 @@ where
 fn find_model<'a>(models: &'a [ModelInfo], needle: &str) -> Option<&'a ModelInfo> {
     models
         .iter()
-        .find(|m| m.id.eq_ignore_ascii_case(needle) || m.display_name.eq_ignore_ascii_case(needle))
+        .find(|model| model.available != Some(false) && model_matches(model, needle))
+}
+
+fn model_matches(model: &ModelInfo, needle: &str) -> bool {
+    model.id.eq_ignore_ascii_case(needle) || model.display_name.eq_ignore_ascii_case(needle)
 }
 
 fn resolved_from_model(model: &ModelInfo, fell_back: bool) -> Resolved {
