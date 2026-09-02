@@ -7,6 +7,7 @@ pub mod manifest;
 pub mod orchestrate;
 pub mod post_update;
 pub mod shutdown;
+pub mod single_flight;
 pub mod viability;
 
 pub use channel::Channel;

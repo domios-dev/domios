@@ -55,7 +55,7 @@ pub struct ApplyOptions {
     pub initiating_tab_id: Option<String>,
 }
 
-pub async fn check_and_apply(
+pub(super) async fn check_and_apply(
     app: &tauri::AppHandle,
     opts: ApplyOptions,
     update_state: std::sync::Arc<parking_lot::Mutex<UpdateState>>,
@@ -333,7 +333,7 @@ where
     }
 }
 
-pub async fn install_staged_deb_and_restart(
+pub(super) async fn install_staged_deb_and_restart(
     app: &tauri::AppHandle,
     version: String,
     path: std::path::PathBuf,
