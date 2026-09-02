@@ -79,6 +79,11 @@ Pushing `release-X.Y.Z` triggers the runners, which **fully automatically**:
    with a signed `latest.json`, marks `--latest` →
 5. verifies anon updater URLs return 200 and the manifest version is live.
 
+The publication path also runs `scripts/sync-release-notes.mjs --tag vX.Y.Z` after both GitHub
+releases exist. It preserves authored source notes or replaces a known placeholder with generated
+notes from the release PR (with GitHub generation as fallback), then writes the identical body to
+the private release and public mirror.
+
 End-to-end ≈ 25–30 min, hands-off. Watch it: `gh run watch --repo rollacode/codeterm`.
 
 **Prereqs for the automated path** (one-time, see `docs/build_machine_setup.md`):
@@ -535,6 +540,16 @@ gh release view v$VER --json assets --jq '.assets[] | "\(.name)  \(.size)B"'
 # and re-upload --clobber. Verify GUI updater can resolve anonymously:
 curl -sIL https://github.com/rollacode/codeterm-releases/releases/latest/download/latest.json | grep '^HTTP' | tail -1
 ```
+
+Verify the notes contract or repair it idempotently:
+
+```bash
+node scripts/sync-release-notes.mjs --tag "v$VER"
+```
+
+For historical cleanup, `node scripts/sync-release-notes.mjs --backfill 10` preserves meaningful
+source notes, replaces only placeholders or weak generated bodies, and synchronizes the chosen
+release-PR summary to both repos.
 
 ### 10. Sync develop with master + return to develop
 
