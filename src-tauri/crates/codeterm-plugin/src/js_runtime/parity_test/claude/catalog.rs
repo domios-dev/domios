@@ -176,7 +176,7 @@ impl AgentProvider for FixtureNativeReader {
 }
 
 #[test]
-fn claude_manifest_aliases_map_to_concrete_execution_ids() {
+fn claude_manifest_aliases_remain_versionless_at_execution() {
     if require_plugins().is_none() {
         return;
     }
@@ -185,12 +185,6 @@ fn claude_manifest_aliases_map_to_concrete_execution_ids() {
     assert_eq!(ids, ["opus", "sonnet", "haiku", "fable"]);
     assert_eq!(manifest_default.as_deref(), Some("sonnet"));
     for alias in ids {
-        let concrete = codeterm_types::agent::models::resolve_model_id(alias);
-        assert_ne!(concrete, alias, "alias {alias} must map to a concrete id");
-        assert_eq!(
-            codeterm_types::agent::models::canonicalize_short(concrete),
-            alias,
-            "concrete id {concrete} must canonicalize back to {alias}"
-        );
+        assert_eq!(codeterm_types::agent::models::resolve_model_id(alias), alias);
     }
 }
