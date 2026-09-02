@@ -185,6 +185,9 @@ fn claude_manifest_aliases_remain_versionless_at_execution() {
     assert_eq!(ids, ["opus", "sonnet", "haiku", "fable"]);
     assert_eq!(manifest_default.as_deref(), Some("sonnet"));
     for alias in ids {
-        assert_eq!(codeterm_types::agent::models::resolve_model_id(alias), alias);
+        assert_eq!(
+            codeterm_types::agent::models::resolve_model_id(alias),
+            alias
+        );
     }
 }
