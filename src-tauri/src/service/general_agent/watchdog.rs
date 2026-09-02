@@ -2,14 +2,13 @@
 
 use super::{lifecycle, GENERAL_ALIAS};
 
-// The declared quiesce is observable here but not yet part of the decision.
 fn needs_restart_decision(
-    _quiescing: bool,
+    quiescing: bool,
     in_grace: bool,
     pty_is_live: bool,
     has_agent_type: bool,
 ) -> bool {
-    !in_grace && !pty_is_live && has_agent_type
+    !quiescing && !in_grace && !pty_is_live && has_agent_type
 }
 
 pub fn start_watchdog(

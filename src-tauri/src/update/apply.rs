@@ -67,6 +67,15 @@ pub(super) async fn check_and_apply(
     check_and_apply_plugin(app, opts, update_state).await
 }
 
+/// Filesystem copies and, on Windows, a `reg` subprocess: never on the Tauri
+/// async runtime, where it would stall every other tab's IPC.
+async fn refresh_bundled_cli_off_runtime(app: &tauri::AppHandle) -> Result<(), String> {
+    let handle = app.clone();
+    tokio::task::spawn_blocking(move || crate::startup::refresh_bundled_cli(&handle))
+        .await
+        .map_err(|e| format!("bundled CLI refresh task failed: {e}"))
+}
+
 async fn resolve_manifest_endpoint(opts: &ApplyOptions) -> Result<String, String> {
     if let Some(url) = &opts.manifest_url {
         return Ok(url.clone());
@@ -176,7 +185,7 @@ async fn check_and_apply_plugin(
     update_state.lock().set_phase(UpdatePhase::Applying);
 
     // the new app without waiting on the next cold startup (v1.5.6 stale-shim bug).
-    crate::startup::refresh_bundled_cli(app);
+    refresh_bundled_cli_off_runtime(app).await?;
 
     let verified_len = bytes.len();
     let initiating_tab_id = opts.initiating_tab_id.clone();
@@ -205,11 +214,15 @@ async fn check_and_apply_plugin(
                     )
                 })
         },
-        |verified_bytes| {
+        move |verified_bytes| async move {
             log::info!("[updater] starting verified installer after PTY shutdown");
-            update
-                .install(verified_bytes)
-                .map_err(|e| format!("installer launch failed: {}", e))
+            tokio::task::spawn_blocking(move || {
+                update
+                    .install(verified_bytes)
+                    .map_err(|e| format!("installer launch failed: {}", e))
+            })
+            .await
+            .map_err(|e| format!("installer launch task failed: {e}"))?
         },
         &sink,
     )
@@ -341,7 +354,7 @@ pub(super) async fn install_staged_deb_and_restart(
 ) -> Result<(), String> {
     install_verified_deb_async(path, version).await?;
 
-    crate::startup::refresh_bundled_cli(app);
+    refresh_bundled_cli_off_runtime(app).await?;
     if let Err(e) = shutdown::graceful_shutdown(app, initiating_tab_id).await {
         log::error!("[updater] graceful shutdown failed: {}", e);
     }
