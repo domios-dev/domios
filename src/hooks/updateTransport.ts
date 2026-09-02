@@ -8,6 +8,6 @@ export function getUpdateStatus(): Promise<unknown> {
   return invoke("get_update_status");
 }
 
-export function installAppUpdate(): Promise<void> {
+export function installAppUpdate(): Promise<unknown> {
   return invoke("install_app_update");
 }
