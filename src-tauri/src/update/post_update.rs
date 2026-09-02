@@ -2,16 +2,18 @@
 //!
 //! When `update --apply --after-update TEXT` runs, the backend writes the
 //! text to a file before triggering the Tauri restart. On next boot this
-//! module picks it up, waits for the General Agent tab to be ready, sends
-//! the text through `send` semantics (as if the user typed it), and
-//! deletes the file.
+//! module picks it up, waits for the General Agent tab to declare itself
+//! ready, sends the text through `send` semantics (as if the user typed it),
+//! and deletes the file.
 
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
+use crate::service::boot_stage::BootStage;
 use crate::service::ServiceState;
 
 const FILENAME: &str = "post-update-message.txt";
+const READY_DEADLINE: Duration = Duration::from_secs(60);
 
 fn path() -> PathBuf {
     crate::paths::data_dir().join(FILENAME)
@@ -44,36 +46,15 @@ async fn run(svc: &ServiceState) -> Result<(), String> {
         text.len()
     );
 
-    // takes a few seconds to come up after restart.
-    let deadline = std::time::Instant::now() + Duration::from_secs(60);
-    let mut tab_id: Option<String> = None;
-    while std::time::Instant::now() < deadline {
-        let candidate = {
-            let mux = svc.mux.write();
-            mux.resolve_tab_id(crate::service::general_agent::GENERAL_ALIAS)
-        };
-        if let Some(id) = candidate {
-            let has_pty = svc
-                .mux
-                .write()
-                .get_tab(&id)
-                .and_then(|p| p.pty_id.clone())
-                .is_some();
-            if has_pty {
-                tab_id = Some(id);
-                break;
-            }
-        }
-        tokio::time::sleep(Duration::from_millis(500)).await;
-    }
+    let mux = svc.mux.clone();
+    let ready = tokio::task::spawn_blocking(move || await_ready_general_tab(&mux, READY_DEADLINE))
+        .await
+        .map_err(|e| format!("readiness wait task failed: {e}"))?;
 
-    let Some(tab_id) = tab_id else {
+    let Some(tab_id) = ready else {
         log::warn!("[post-update] general Tab never became ready — leaving message file in place");
         return Ok(());
     };
-
-    // Grace for the agent to finish drawing its prompt and accept input.
-    tokio::time::sleep(Duration::from_secs(5)).await;
 
     match svc.send_text(&tab_id, &text) {
         Ok(_) => {
@@ -90,4 +71,47 @@ async fn run(svc: &ServiceState) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+fn await_ready_general_tab(mux: &crate::MuxState, deadline: Duration) -> Option<String> {
+    let mut ready = None;
+    crate::service::boot_wait::wait_until(Instant::now() + deadline, || {
+        ready = ready_general_tab(mux);
+        ready.is_some()
+    });
+    ready
+}
+
+fn ready_general_tab(mux: &crate::MuxState) -> Option<String> {
+    let mux = mux.read();
+    let tab_id = mux.resolve_tab_id(crate::service::general_agent::GENERAL_ALIAS)?;
+    let tab = mux.get_tab(&tab_id)?;
+    accepts_injected_message(tab.pty_id.as_deref(), tab.boot_stage).then_some(tab_id)
+}
+
+fn accepts_injected_message(pty_id: Option<&str>, stage: Option<BootStage>) -> bool {
+    pty_id.is_some() && stage == Some(BootStage::AgentReady)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn injection_waits_for_the_declared_ready_stage() {
+        assert!(accepts_injected_message(
+            Some("pty-ga"),
+            Some(BootStage::AgentReady)
+        ));
+    }
+
+    #[test]
+    fn a_live_pty_short_of_ready_is_not_injectable() {
+        assert!(!accepts_injected_message(Some("pty-ga"), None));
+        assert!(!accepts_injected_message(
+            Some("pty-ga"),
+            Some(BootStage::SpawnFailed)
+        ));
+        assert!(!accepts_injected_message(None, Some(BootStage::AgentReady)));
+    }
 }
