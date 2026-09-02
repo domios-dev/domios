@@ -17,7 +17,7 @@ pub mod agent_pad;
 pub mod agent_restart;
 mod agent_transition;
 pub mod boot_stage;
-mod boot_wait;
+pub(crate) mod boot_wait;
 pub(crate) mod chat_send_evidence;
 pub(crate) mod chat_send_transaction;
 mod command_port_impl;
