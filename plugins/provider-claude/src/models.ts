@@ -6,19 +6,28 @@ interface AnthropicModelsResponse { data?: AnthropicModel[] }
 interface AnthropicModel { id?: string; display_name?: string; displayName?: string }
 
 const FAMILIES = ["opus", "sonnet", "haiku", "fable"];
+const MINIMUM_CLI_BY_MODEL: Record<string, number[]> = {
+  fable: [2, 1, 258],
+};
 
 export function discoverAnthropicModels(): ModelInfo[] | null {
+  const installed = installedCliVersion();
   const key = host.envGet("ANTHROPIC_API_KEY") || host.envGet("CLAUDE_API_KEY");
-  if (!key) return null;
+  if (!key) return applyInstalledCapabilities(manifestModels(), installed);
   const live = fetchLiveModels(key);
-  if (!live) return null;
+  if (!live) return applyInstalledCapabilities(manifestModels(), installed);
   const mapped = mapAliasesToLive(manifestModels(), live);
-  return mapped.length ? mapped : null;
+  return mapped.length ? applyInstalledCapabilities(mapped, installed) : null;
 }
 
 export function manifestModels(): ModelInfo[] {
   const m = manifest();
-  return Array.isArray(m && m.models) ? m!.models! : [];
+  if (!Array.isArray(m && m.models)) return [];
+  return m!.models!.map((model) => ({
+    id: model.id,
+    displayName: model.displayName,
+    ...(model.description ? { description: model.description } : {}),
+  }));
 }
 
 function fetchLiveModels(key: string): AnthropicModel[] | null {
@@ -47,6 +56,34 @@ function fetchLiveModels(key: string): AnthropicModel[] | null {
     if (item && typeof item.id === "string" && item.id.trim()) out.push(item);
   }
   return out.length ? out : null;
+}
+
+function installedCliVersion(): number[] | null {
+  const result = safeJson(host.exec(JSON.stringify({
+    bin: "claude",
+    args: ["--version"],
+    timeoutMs: 3000,
+  }))) as { code?: number; stdout?: string } | null;
+  if (!result || result.code !== 0) return null;
+  const match = /(\d+)\.(\d+)\.(\d+)/.exec(String(result.stdout || ""));
+  return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
+}
+
+function applyInstalledCapabilities(models: ModelInfo[], version: number[] | null): ModelInfo[] {
+  return models.map((model) => {
+    const minimum = MINIMUM_CLI_BY_MODEL[model.id];
+    if (!minimum) return { ...model };
+    return { ...model, available: model.available !== false && atLeast(version, minimum) };
+  });
+}
+
+function atLeast(version: number[] | null, minimum: number[]): boolean {
+  if (!version) return false;
+  for (let i = 0; i < minimum.length; i++) {
+    const actual = version[i] || 0;
+    if (actual !== minimum[i]) return actual > minimum[i];
+  }
+  return true;
 }
 
 function mapAliasesToLive(aliases: ModelInfo[], live: AnthropicModel[]): ModelInfo[] {

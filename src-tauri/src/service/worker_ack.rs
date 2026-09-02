@@ -59,14 +59,14 @@ pub(crate) enum WorkerAckSignal {
 pub(crate) enum AgentStartupSignal {
     Ready,
     Held,
-    LaunchCommandFinished,
+    LaunchCommandFinished(Option<i32>),
     Superseded,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AgentStartupNoticeOutcome {
     Resolved,
-    Overdue,
+    Overdue { exit_code: Option<i32> },
 }
 
 fn await_agent_startup_notice(
@@ -74,10 +74,11 @@ fn await_agent_startup_notice(
     timeout: Duration,
 ) -> AgentStartupNoticeOutcome {
     let deadline = std::time::Instant::now() + timeout;
+    let mut exit_code = None;
     loop {
         let remaining = deadline.saturating_duration_since(std::time::Instant::now());
         if remaining.is_zero() {
-            return AgentStartupNoticeOutcome::Overdue;
+            return AgentStartupNoticeOutcome::Overdue { exit_code };
         }
         match receiver.recv_timeout(remaining) {
             Ok(
@@ -88,9 +89,9 @@ fn await_agent_startup_notice(
             | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                 return AgentStartupNoticeOutcome::Resolved;
             }
-            Ok(AgentStartupSignal::LaunchCommandFinished) => {}
+            Ok(AgentStartupSignal::LaunchCommandFinished(code)) => exit_code = code,
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                return AgentStartupNoticeOutcome::Overdue;
+                return AgentStartupNoticeOutcome::Overdue { exit_code };
             }
         }
     }
@@ -247,6 +248,7 @@ impl WorkerAckRegistry {
         &self,
         tab_id: &str,
         attempt_id: &str,
+        exit_code: Option<i32>,
     ) -> bool {
         self.startup_waiters
             .lock()
@@ -255,7 +257,7 @@ impl WorkerAckRegistry {
             .is_some_and(|waiter| {
                 waiter
                     .sender
-                    .send(AgentStartupSignal::LaunchCommandFinished)
+                    .send(AgentStartupSignal::LaunchCommandFinished(exit_code))
                     .is_ok()
             })
     }
@@ -389,6 +391,8 @@ fn agent_startup_failed_event(
     title: &str,
     attempt_id: &str,
     cleanup_error: Option<&str>,
+    exit_code: Option<i32>,
+    provider_output: Option<&str>,
 ) -> Value {
     let cleanup_ok = cleanup_error.is_none();
     json!({
@@ -398,6 +402,7 @@ fn agent_startup_failed_event(
         "attempt_id": attempt_id,
         "deadline_seconds": (AGENT_STARTUP_NOTICE_TIMEOUT + AGENT_STARTUP_FINAL_TIMEOUT).as_secs(),
         "cleanup": { "ok": cleanup_ok, "error": cleanup_error },
+        "provider": { "exit_code": exit_code, "output": provider_output },
         "impact": if cleanup_ok {
             "The exact spawned attempt did not acknowledge startup; its tab was closed at the bounded cleanup deadline."
         } else {
@@ -602,9 +607,10 @@ impl ServiceContext {
         &self,
         tab_id: &str,
         attempt_id: &str,
+        exit_code: Option<i32>,
     ) {
         self.worker_ack
-            .mark_startup_launch_command_finished(tab_id, attempt_id);
+            .mark_startup_launch_command_finished(tab_id, attempt_id, exit_code);
     }
 
     /// Only the recorded creator of this exact child attempt may hold it. The
@@ -657,12 +663,11 @@ impl ServiceContext {
             let final_deadline = std::time::Instant::now()
                 + AGENT_STARTUP_NOTICE_TIMEOUT
                 + AGENT_STARTUP_FINAL_TIMEOUT;
-            if matches!(
-                await_agent_startup_notice(&receiver, AGENT_STARTUP_NOTICE_TIMEOUT),
-                AgentStartupNoticeOutcome::Resolved
-            ) {
-                return;
-            }
+            let mut exit_code =
+                match await_agent_startup_notice(&receiver, AGENT_STARTUP_NOTICE_TIMEOUT) {
+                    AgentStartupNoticeOutcome::Resolved => return,
+                    AgentStartupNoticeOutcome::Overdue { exit_code } => exit_code,
+                };
             if !service.startup_attempt_is_current(&agent_tab_id, &attempt_id) {
                 return;
             }
@@ -686,7 +691,7 @@ impl ServiceContext {
                         | AgentStartupSignal::Held
                         | AgentStartupSignal::Superseded,
                     ) => return,
-                    Ok(AgentStartupSignal::LaunchCommandFinished) => {}
+                    Ok(AgentStartupSignal::LaunchCommandFinished(code)) => exit_code = code,
                     Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => break,
                 }
@@ -700,6 +705,16 @@ impl ServiceContext {
             if !service.startup_attempt_is_current(&agent_tab_id, &attempt_id) {
                 return;
             }
+            let provider_output = service
+                .screen_state
+                .lock()
+                .get_screen_text(&attempt_id)
+                .map(|output| {
+                    crate::service::launch_diagnostics::redact_secrets(
+                        &crate::service::launch_diagnostics::tail_bytes(&output, 4096),
+                    )
+                })
+                .filter(|output| !output.trim().is_empty());
             // The close itself sweeps the lease, so the Team is reaped only
             // after this exact owned member is gone.
             let cleanup_error = serialize_agent_startup_cleanup(&service.worker_ack, || {
@@ -727,6 +742,8 @@ impl ServiceContext {
                     &agent_title,
                     &attempt_id,
                     cleanup_error.as_deref(),
+                    exit_code,
+                    provider_output.as_deref(),
                 ),
             );
         });

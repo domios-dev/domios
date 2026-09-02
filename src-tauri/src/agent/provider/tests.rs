@@ -278,6 +278,22 @@ impl AgentProvider for StubProvider {
     fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
         None
     }
+    fn available_models(&self) -> Vec<ModelInfo> {
+        vec![
+            ModelInfo {
+                id: "offered".into(),
+                display_name: "Offered".into(),
+                description: None,
+                available: Some(true),
+            },
+            ModelInfo {
+                id: "unsupported".into(),
+                display_name: "Unsupported".into(),
+                description: None,
+                available: Some(false),
+            },
+        ]
+    }
 }
 
 #[test]
@@ -287,7 +303,8 @@ fn default_describe_assembles_from_methods() {
     assert_eq!(desc.schema_version, PROVIDER_DESCRIPTOR_SCHEMA_VERSION);
     assert_eq!(desc.id, "stub");
     assert_eq!(desc.display_name, "Stub");
-    assert!(desc.available_models.is_empty());
+    assert_eq!(desc.available_models.len(), 1);
+    assert_eq!(desc.available_models[0].id, "offered");
     assert!(desc.settings_schema.is_empty());
     assert!(!desc.supports_lazy_skills); // default false
     assert!(!desc.has_hooks); // default false

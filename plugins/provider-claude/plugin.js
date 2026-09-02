@@ -367,17 +367,26 @@ function capitalize(s) {
 
 // plugins/provider-claude/src/models.ts
 var FAMILIES = ["opus", "sonnet", "haiku", "fable"];
+var MINIMUM_CLI_BY_MODEL = {
+  fable: [2, 1, 258]
+};
 function discoverAnthropicModels() {
+  const installed = installedCliVersion();
   const key = host.envGet("ANTHROPIC_API_KEY") || host.envGet("CLAUDE_API_KEY");
-  if (!key) return null;
+  if (!key) return applyInstalledCapabilities(manifestModels(), installed);
   const live = fetchLiveModels(key);
-  if (!live) return null;
+  if (!live) return applyInstalledCapabilities(manifestModels(), installed);
   const mapped = mapAliasesToLive(manifestModels(), live);
-  return mapped.length ? mapped : null;
+  return mapped.length ? applyInstalledCapabilities(mapped, installed) : null;
 }
 function manifestModels() {
   const m = manifest();
-  return Array.isArray(m && m.models) ? m.models : [];
+  if (!Array.isArray(m && m.models)) return [];
+  return m.models.map((model) => ({
+    id: model.id,
+    displayName: model.displayName,
+    ...model.description ? { description: model.description } : {}
+  }));
 }
 function fetchLiveModels(key) {
   let raw;
@@ -405,6 +414,31 @@ function fetchLiveModels(key) {
     if (item && typeof item.id === "string" && item.id.trim()) out.push(item);
   }
   return out.length ? out : null;
+}
+function installedCliVersion() {
+  const result = safeJson2(host.exec(JSON.stringify({
+    bin: "claude",
+    args: ["--version"],
+    timeoutMs: 3e3
+  })));
+  if (!result || result.code !== 0) return null;
+  const match = /(\d+)\.(\d+)\.(\d+)/.exec(String(result.stdout || ""));
+  return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
+}
+function applyInstalledCapabilities(models, version) {
+  return models.map((model) => {
+    const minimum = MINIMUM_CLI_BY_MODEL[model.id];
+    if (!minimum) return { ...model };
+    return { ...model, available: model.available !== false && atLeast(version, minimum) };
+  });
+}
+function atLeast(version, minimum) {
+  if (!version) return false;
+  for (let i = 0; i < minimum.length; i++) {
+    const actual = version[i] || 0;
+    if (actual !== minimum[i]) return actual > minimum[i];
+  }
+  return true;
 }
 function mapAliasesToLive(aliases, live) {
   const out = [];

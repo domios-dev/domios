@@ -61,7 +61,8 @@
     {
       "id": "fable",
       "displayName": "Claude Fable 5",
-      "description": "Most capable for your hardest and longest-running tasks."
+      "description": "Most capable for your hardest and longest-running tasks.",
+      "available": false
     }
   ],
   "defaultModel": "sonnet",
@@ -123,6 +124,7 @@
   "permissions": {
     "subprocess": {
       "allow": [
+        "claude",
         "security"
       ]
     },

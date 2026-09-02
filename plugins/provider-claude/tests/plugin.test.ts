@@ -380,6 +380,7 @@ console.log("\n--- discoverModels: genuine discovery only ---\n");
 
 {
   const p = loadClaudeWithHost(baseHost({
+    exec: () => JSON.stringify({ code: 0, stdout: "2.1.258 (Claude Code)" }),
     envGet: (name: string) => name === "ANTHROPIC_API_KEY" ? "test-key" : null,
     fetch: () => JSON.stringify({
       status: 200,
@@ -407,6 +408,7 @@ console.log("\n--- discoverModels: genuine discovery only ---\n");
 
 {
   const p = loadClaudeWithHost(baseHost({
+    exec: () => JSON.stringify({ code: 0, stdout: "2.1.258 (Claude Code)" }),
     envGet: (name: string) => name === "ANTHROPIC_API_KEY" ? "test-key" : null,
     fetch: () => JSON.stringify({
       status: 200,
@@ -425,9 +427,20 @@ console.log("\n--- discoverModels: genuine discovery only ---\n");
 
 {
   const p = loadClaudeWithHost(baseHost({
+    exec: () => JSON.stringify({ code: 0, stdout: "2.1.71 (Claude Code)" }),
     fetch: () => { throw new Error("network must not be touched without credentials"); },
   }));
-  eq(p.discoverModels(), null, "discoverModels returns null when both API keys are absent (fetch forbidden)");
+  const models = p.discoverModels() as Array<{ id: string; available?: boolean }>;
+  eq(models.find((model) => model.id === "fable")?.available, false, "installed CLI without fable support does not advertise it");
+}
+
+{
+  const p = loadClaudeWithHost(baseHost({
+    exec: () => JSON.stringify({ code: 0, stdout: "2.1.258 (Claude Code)" }),
+    fetch: () => { throw new Error("network must not be touched without credentials"); },
+  }));
+  const models = p.discoverModels() as Array<{ id: string; available?: boolean }>;
+  eq(models.find((model) => model.id === "fable")?.available, true, "installed CLI with fable support advertises it without requiring an API-key probe");
 }
 
 for (const [label, fetchImpl] of [
@@ -440,7 +453,8 @@ for (const [label, fetchImpl] of [
     envGet: (name: string) => name === "CLAUDE_API_KEY" ? "test-key" : null,
     fetch: fetchImpl,
   }));
-  eq(p.discoverModels(), null, `discoverModels returns null on ${label} — never the manifest fallback`);
+  const models = p.discoverModels() as Array<{ id: string; available?: boolean }>;
+  eq(models.find((model) => model.id === "fable")?.available, false, `discoverModels fails closed on ${label}`);
 }
 
 console.log("\n--- integration consent and exact-byte transactions ---\n");
@@ -801,11 +815,11 @@ console.log("\n--- claude_alias_catalog_matches_model_picker_r3 ---\n");
     "opus label carries the 1M-context marker from the captured picker",
   );
   for (const m of manifest.models) {
-    assert(
-      !("available" in m),
-      `static seed availability is unknown for ${m.id}`,
-      `expected "available" absent, got ${JSON.stringify(m.available)}`,
-    );
+    if (m.id === "fable") {
+      eq(m.available, false, "fable stays unavailable until installed-CLI discovery proves support");
+    } else {
+      assert(!("available" in m), `static seed availability is unknown for ${m.id}`);
+    }
     assert(typeof m.description === "string" && m.description.length > 0, `${m.id} keeps a description`);
   }
 }
