@@ -505,6 +505,7 @@ impl crate::service::ServiceContext {
                             "[chat-send] user send to Tab {tab_id} degraded to pending ({})",
                             err.code()
                         );
+                        svc.park_refused_user_send(&tab_id, text, &err);
                         err.into_surfaced(crate::service::delivery_error::SendOrigin::User)
                     })
             });
