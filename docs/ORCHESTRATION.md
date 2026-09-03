@@ -45,9 +45,7 @@ GOAL → Spec (WHAT/WHY) ⊥ Plan (HOW) → Tasks → Strides
 The Orchestrator states the GOAL and delegates planning to the Planner by default;
 the Planner drafts structure, and the Orchestrator approves or revises it,
 dispatches execution, judges reports, integrates accepted lanes, and owns cleanup.
-The Planner's authority to add and edit sections and tasks is durable, not
-phase-scoped: a bound Planner may keep mutating structure after approval, not
-only pre-approval. Approval and dispatch stay exclusively the Orchestrator's.
+A bound Planner's authority over sections and tasks is durable, not phase-scoped: it survives approval. Approval and dispatch stay the Orchestrator's alone.
 The Orchestrator may implement a genuinely small local change when delegation
 would cost more than the work, but Worker dispatch is the default for plan-owned source work. Never self-assign a normal implementation task merely because canonical is writable.
 When Team-bound, ordinary utility shells and cron jobs inherit the same Team so
@@ -238,6 +236,5 @@ the assignment and lane intact, and every verdict requires `--note`, never
 codeterm plan review reconcile-credit <plan> --reason "<incident evidence>"
 ```
 
-Both mutations require the live bound Orchestrator session and record an
-immutable plan stride.
+Both mutations require the live bound Orchestrator session and record an immutable plan stride.
 <!-- revision: 71 -->
