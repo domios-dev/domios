@@ -114,6 +114,30 @@ fn spawned_worker_receives_the_codeterm_primer() {
     assert!(composed.contains(crate::prompts::WORKER_CODETERM_CONTEXT.trim()));
 }
 
+/// A task narrows the doctrine its worker runs under through the existing
+/// identity-overlay seam: `Task.role_guidance` is composed into an identity
+/// block (`worker_identity::attach_worker_identity`), delimited by
+/// `WORKER_IDENTITY_END`, then `worker_agent_system_prompt` splits it back out
+/// and threads it through `persona::guidance_for` as the Worker preset's
+/// `Task`-sourced fragment. This proves the round trip with an opaque
+/// test-supplied token — never prompt wording — and that the transport marker
+/// leaves no residue in the composed brief.
+#[test]
+fn per_task_doctrine_override_reaches_the_composed_worker_brief() {
+    const TASK_DOCTRINE_TOKEN: &str = "OPAQUE-TASK-DOCTRINE-OVERRIDE-9f2c1";
+    let identity = format!("You are the Worker. {TASK_DOCTRINE_TOKEN}");
+    let brief = crate::service::plan::worker_identity::attach_worker_identity(
+        &identity,
+        "# Task body",
+    );
+
+    let composed = super::role_onboarding_task(Some(&brief), Some("Worker"), None)
+        .expect("worker system prompt");
+
+    assert_eq!(composed.matches(TASK_DOCTRINE_TOKEN).count(), 1);
+    assert!(!composed.contains(crate::service::plan::worker_identity::WORKER_IDENTITY_END));
+}
+
 /// Rich-rendering guidance is a delivery fact. Two tests in prompts.rs were named
 /// for the primer and the worker context but asserted phrases inside
 /// RICH_RENDERING_GUIDANCE itself, so they proved nothing about either recipient.

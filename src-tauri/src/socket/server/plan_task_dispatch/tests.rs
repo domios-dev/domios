@@ -5,7 +5,7 @@ use super::{
     preflight_review_capacity, regression_blocked_error, resolve_dispatch_lane,
     resolve_dispatch_routing, rollback_failed_dispatch, task_launch_authority_for_dispatch,
     unqualified_model_error, verify_dispatched_task_binding, worker_ack_timeout_event,
-    DispatchEvidence,
+    DispatchEvidence, DispatchWaitFailure,
 };
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::AgentRole;
@@ -643,7 +643,7 @@ fn every_transaction_stage_failure_runs_compensation() {
             Instant::now() + Duration::from_secs(1),
             |_| {
                 if failure == "agent_ready" {
-                    Err("launch failed".into())
+                    Err(DispatchWaitFailure::Definitive("launch failed".into()))
                 } else {
                     Ok(())
                 }
@@ -653,7 +653,7 @@ fn every_transaction_stage_failure_runs_compensation() {
                     failure,
                     "tab_removed" | "missing_session" | "wrong_tab_session"
                 ) {
-                    Err(failure.into())
+                    Err(DispatchWaitFailure::Definitive(failure.into()))
                 } else {
                     Ok("session-worker".into())
                 }
@@ -690,7 +690,11 @@ fn binding_failure_never_false_starts() {
     let error = complete_dispatch_transaction(
         Instant::now() + Duration::from_secs(1),
         |_| Ok(()),
-        |_| Err("spawned tab did not bind a session".into()),
+        |_| {
+            Err(DispatchWaitFailure::Definitive(
+                "spawned tab did not bind a session".into(),
+            ))
+        },
         || Ok(Some(provenance())),
         |_, _| {
             committed.set(true);
@@ -708,30 +712,114 @@ fn binding_failure_never_false_starts() {
     assert!(rolled_back.get());
 }
 
+/// rel#66: a dispatch whose readiness evidence is merely absent — the ready
+/// deadline elapsed with no signal either way — is not a dispatch that
+/// failed. The worker may still be starting, so the lane and tab must
+/// survive. Fails on unmodified `complete_dispatch_transaction`, which rolls
+/// back on any stage error regardless of what the error means.
 #[test]
-fn agent_ready_oneshot_error_closed_sender_and_expired_deadline_fail() {
+fn agent_ready_timeout_never_rolls_back_a_possibly_live_worker() {
+    let error = complete_dispatch_transaction(
+        Instant::now() + Duration::from_secs(1),
+        |_| {
+            Err(DispatchWaitFailure::Uncertain(
+                "agent readiness deadline expired".into(),
+            ))
+        },
+        |_| Ok("session-worker".into()),
+        || Ok(Some(provenance())),
+        |_, _| Ok(()),
+        || panic!("readiness evidence being absent must never roll back a possibly-live worker"),
+    )
+    .unwrap_err();
+
+    assert_eq!(error.data.unwrap()["stage"], "agent_ready");
+}
+
+/// Same rel#66 guarantee at the session-binding stage: the tab is still
+/// present, only its session hasn't bound yet, so the worker may still be
+/// alive under it.
+#[test]
+fn session_binding_timeout_never_rolls_back_a_possibly_live_worker() {
+    let error = complete_dispatch_transaction(
+        Instant::now() + Duration::from_secs(1),
+        |_| Ok(()),
+        |_| {
+            Err(DispatchWaitFailure::Uncertain(
+                "spawned tab did not bind a session before the deadline".into(),
+            ))
+        },
+        || Ok(Some(provenance())),
+        |_, _| Ok(()),
+        || panic!("readiness evidence being absent must never roll back a possibly-live worker"),
+    )
+    .unwrap_err();
+
+    assert_eq!(error.data.unwrap()["stage"], "session_binding");
+}
+
+/// Companion to the two tests above: a dispatch that DEFINITIVELY failed
+/// (the worker explicitly signaled failure) must still roll back. Without
+/// this, "never roll back a possibly-live worker" would be satisfied by
+/// simply never rolling back at all.
+#[test]
+fn agent_ready_definitive_failure_still_rolls_back_the_lane() {
+    let rolled_back = Cell::new(false);
+    let error = complete_dispatch_transaction(
+        Instant::now() + Duration::from_secs(1),
+        |_| {
+            Err(DispatchWaitFailure::Definitive(
+                "provider rejected launch".into(),
+            ))
+        },
+        |_| Ok("session-worker".into()),
+        || Ok(Some(provenance())),
+        |_, _| Ok(()),
+        || {
+            rolled_back.set(true);
+            Ok(())
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(error.data.unwrap()["stage"], "agent_ready");
+    assert!(rolled_back.get());
+}
+
+#[test]
+fn agent_ready_explicit_error_is_definitive_channel_close_and_timeout_are_uncertain() {
     let (error_tx, error_rx) = tokio::sync::oneshot::channel();
     error_tx
         .send(Err("provider rejected launch".into()))
         .unwrap();
-    assert_eq!(
-        await_agent_ready(error_rx, Instant::now() + Duration::from_secs(1)).unwrap_err(),
-        "provider rejected launch"
+    let explicit = await_agent_ready(error_rx, Instant::now() + Duration::from_secs(1))
+        .unwrap_err();
+    assert_eq!(explicit.message(), "provider rejected launch");
+    assert!(
+        matches!(explicit, DispatchWaitFailure::Definitive(_)),
+        "an explicit launch error must be definitive"
     );
 
+    // A superseded launch generation drops the sender without a signal (see
+    // LaunchGeneration::emit) — the worker may still be alive under the
+    // newer generation, so a closed channel is absent evidence, not proof.
     let (closed_tx, closed_rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
     drop(closed_tx);
+    let closed = await_agent_ready(closed_rx, Instant::now() + Duration::from_secs(1))
+        .unwrap_err();
+    assert!(closed.message().contains("closed"));
     assert!(
-        await_agent_ready(closed_rx, Instant::now() + Duration::from_secs(1))
-            .unwrap_err()
-            .contains("closed")
+        matches!(closed, DispatchWaitFailure::Uncertain(_)),
+        "a closed channel must be uncertain, never definitive"
     );
 
     let (_pending_tx, pending_rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
+    let expired = await_agent_ready(pending_rx, Instant::now() - Duration::from_secs(1))
+        .unwrap_err();
+    assert!(expired.message().contains("expired"));
     assert!(
-        await_agent_ready(pending_rx, Instant::now() - Duration::from_secs(1))
-            .unwrap_err()
-            .contains("expired")
+        matches!(expired, DispatchWaitFailure::Uncertain(_)),
+        "a readiness deadline expiring must be uncertain, never definitive"
     );
 }
 
@@ -775,7 +863,11 @@ fn launch_delivery_failure_restores_exact_original_task_and_attempt_state() {
     let closed = Cell::new(false);
     let error = complete_dispatch_transaction(
         Instant::now() + Duration::from_secs(1),
-        |_| Err("TaskDeliveryFailed: rejected".into()),
+        |_| {
+            Err(DispatchWaitFailure::Definitive(
+                "TaskDeliveryFailed: rejected".into(),
+            ))
+        },
         |_| Ok("session-worker".into()),
         || Ok(Some(actual.clone())),
         |provenance, session| {

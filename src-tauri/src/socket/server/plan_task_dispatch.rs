@@ -145,21 +145,54 @@ fn task_launch_authority_for_dispatch(
     }
 }
 
+/// A wait-stage failure the transaction must classify before deciding whether
+/// to roll back. `Uncertain` means readiness evidence is merely absent — the
+/// worker may still come up — and must never destroy the lane. `Definitive`
+/// means the worker is confirmed not going to become ready.
+pub(super) enum DispatchWaitFailure {
+    Uncertain(String),
+    Definitive(String),
+}
+
+impl DispatchWaitFailure {
+    pub(super) fn message(&self) -> &str {
+        match self {
+            DispatchWaitFailure::Uncertain(message) | DispatchWaitFailure::Definitive(message) => {
+                message
+            }
+        }
+    }
+
+    fn is_definitive(&self) -> bool {
+        matches!(self, DispatchWaitFailure::Definitive(_))
+    }
+}
+
 pub(super) fn await_agent_ready(
     ready_rx: tokio::sync::oneshot::Receiver<Result<(), String>>,
     deadline: Instant,
-) -> Result<(), String> {
+) -> Result<(), DispatchWaitFailure> {
     let remaining = deadline.saturating_duration_since(Instant::now());
     if remaining.is_zero() {
-        return Err("agent readiness deadline expired".into());
+        return Err(DispatchWaitFailure::Uncertain(
+            "agent readiness deadline expired".into(),
+        ));
     }
     match tauri::async_runtime::block_on(
         async move { tokio::time::timeout(remaining, ready_rx).await },
     ) {
         Ok(Ok(Ok(()))) => Ok(()),
-        Ok(Ok(Err(error))) => Err(error),
-        Ok(Err(_)) => Err("agent readiness channel closed".into()),
-        Err(_) => Err("agent readiness deadline expired".into()),
+        Ok(Ok(Err(error))) => Err(DispatchWaitFailure::Definitive(error)),
+        // The sender drops without a signal when a newer launch generation
+        // supersedes this one (see LaunchGeneration::emit); the worker may
+        // still be coming up under that generation, so this is absent
+        // evidence, not proof of failure.
+        Ok(Err(_)) => Err(DispatchWaitFailure::Uncertain(
+            "agent readiness channel closed".into(),
+        )),
+        Err(_) => Err(DispatchWaitFailure::Uncertain(
+            "agent readiness deadline expired".into(),
+        )),
     }
 }
 
@@ -167,7 +200,7 @@ pub(super) fn wait_for_tab_session(
     svc: &ServiceState,
     tab_id: &str,
     deadline: Instant,
-) -> Result<String, String> {
+) -> Result<String, DispatchWaitFailure> {
     crate::service::general_agent::binding_wait::wait_for_session_binding(deadline, || {
         svc.mux
             .read()
@@ -177,9 +210,14 @@ pub(super) fn wait_for_tab_session(
     })
     .ok_or_else(|| {
         if svc.mux.read().get_tab(tab_id).is_none() {
-            format!("spawned tab '{tab_id}' was removed before session binding")
+            // The tab is confirmed gone: no worker can be alive under it.
+            DispatchWaitFailure::Definitive(format!(
+                "spawned tab '{tab_id}' was removed before session binding"
+            ))
         } else {
-            format!("spawned tab '{tab_id}' did not bind a session before the deadline")
+            DispatchWaitFailure::Uncertain(format!(
+                "spawned tab '{tab_id}' did not bind a session before the deadline"
+            ))
         }
     })
 }
@@ -545,6 +583,14 @@ impl DispatchStartup {
     }
 }
 
+/// Runs the dispatch readiness transaction and reacts to the outcome.
+///
+/// A stage failure only triggers the destructive `rollback` (task-snapshot
+/// restore + tab close + lane cleanup) when it is a *definitive* failure. When
+/// `agent_ready` or `session_binding` fail with evidence that is merely
+/// absent (a deadline, or a channel closed by a superseded launch
+/// generation), the worker may still be alive; the transaction surfaces the
+/// error to the caller without touching the lane or the tab.
 fn complete_dispatch_transaction<Ready, Binding, Provenance, Commit, Rollback>(
     deadline: Instant,
     await_ready: Ready,
@@ -554,27 +600,37 @@ fn complete_dispatch_transaction<Ready, Binding, Provenance, Commit, Rollback>(
     rollback: Rollback,
 ) -> Result<DispatchEvidence, JsonRpcError>
 where
-    Ready: FnOnce(Instant) -> Result<(), String>,
-    Binding: FnOnce(Instant) -> Result<String, String>,
+    Ready: FnOnce(Instant) -> Result<(), DispatchWaitFailure>,
+    Binding: FnOnce(Instant) -> Result<String, DispatchWaitFailure>,
     Provenance: FnOnce() -> Result<Option<WorkerLaneProvenance>, String>,
     Commit: FnOnce(&Option<WorkerLaneProvenance>, &str) -> Result<(), String>,
     Rollback: FnOnce() -> Result<(), String>,
 {
+    let mut worker_may_be_alive = false;
     let outcome = (|| {
-        await_ready(deadline).map_err(|error| dispatch_failed("agent_ready", error))?;
-        let session_id =
-            wait_binding(deadline).map_err(|error| dispatch_failed("session_binding", error))?;
+        await_ready(deadline).map_err(|failure| {
+            worker_may_be_alive = !failure.is_definitive();
+            dispatch_failed("agent_ready", failure.message().to_string())
+        })?;
+        let session_id = wait_binding(deadline).map_err(|failure| {
+            worker_may_be_alive = !failure.is_definitive();
+            dispatch_failed("session_binding", failure.message().to_string())
+        })?;
         let lane =
             validate_provenance().map_err(|error| dispatch_failed("provenance_readback", error))?;
         commit(&lane, &session_id).map_err(|error| dispatch_failed("task_commit", error))?;
         Ok(DispatchEvidence { session_id, lane })
     })();
-    if outcome.is_err() {
-        if let Err(cleanup) = rollback() {
-            return Err(dispatch_failed("compensation", cleanup));
-        }
+    match outcome {
+        Ok(evidence) => Ok(evidence),
+        // Readiness evidence being absent is not proof the dispatch failed:
+        // never destroy a lane whose worker may still be alive.
+        Err(error) if worker_may_be_alive => Err(error),
+        Err(error) => match rollback() {
+            Ok(()) => Err(error),
+            Err(cleanup) => Err(dispatch_failed("compensation", cleanup)),
+        },
     }
-    outcome
 }
 
 fn gate_keys(gates: &[RegressionGate]) -> String {
