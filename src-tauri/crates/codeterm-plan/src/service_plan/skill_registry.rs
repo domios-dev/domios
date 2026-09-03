@@ -11,10 +11,12 @@ const REGISTRY_LINE_MAX_SLUGS: usize = 8;
 const REGISTRY_LINE_MAX_SLUG_CHARS: usize = 32;
 const REGISTRY_LINE_MAX_PURPOSE_CHARS: usize = 56;
 
+// `pub`, not `pub(super)`: the app crate's heartbeat-delivery tests assert
+// against this structured summary directly rather than parsing rendered text.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct PlanSkillRegistrySummary {
-    pub(super) slug: String,
-    pub(super) purpose: Option<String>,
+pub struct PlanSkillRegistrySummary {
+    pub slug: String,
+    pub purpose: Option<String>,
 }
 
 fn plan_skill_state_dir(plan: &Plan) -> Option<PathBuf> {
@@ -41,7 +43,7 @@ pub fn list_plan_skill_slugs(plan: &Plan) -> Vec<String> {
         .collect()
 }
 
-pub(super) fn list_plan_skill_summaries(plan: &Plan) -> Vec<PlanSkillRegistrySummary> {
+pub fn list_plan_skill_summaries(plan: &Plan) -> Vec<PlanSkillRegistrySummary> {
     super::plan_skills::plan_skill_manifest_for_plan(plan)
         .unwrap_or_default()
         .into_iter()
