@@ -29,5 +29,5 @@ A short completion or progress note may be filed at `verbose`; keep it a periodi
 waiting on the user, `failure` means it broke and you stopped. Without a level,
 or with a level the user switched off, the notification is filed in the bell and
 never alerts. Name the level that is true; whether it interrupts is the user's setting, not yours.
-An escalation may ask rather than announce: repeat `--choice "Label"` once per option (no cap) and the tapped label returns to the tab that asked; blank and duplicate labels are refused.
+An escalation may ask rather than announce: repeat `--choice "Label"` once per option (no cap) and the tapped label returns to the tab that asked; blank and duplicate labels are refused. Asking the user a question goes through this same path and never through a provider-native question or prompt tool — those render only inside this tab, so the bell, Telegram, push, and mesh never carry the question and a user who is away cannot answer it.
 A send that reports `unseen` surfaces under the id is information, not a failure: the record was kept and the exit is still 0, so nothing is waiting to be retried.
