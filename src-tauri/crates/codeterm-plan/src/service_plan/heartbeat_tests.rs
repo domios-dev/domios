@@ -747,9 +747,7 @@ fn outstanding_work_is_one_shared_derivation_across_next_status_and_heartbeat() 
     let waiting = snapshot
         .next_actions
         .iter()
-        .filter(|action| {
-            action.kind == super::next_actions::NextActionKind::WaitingOnDependency
-        })
+        .filter(|action| action.kind == super::next_actions::NextActionKind::WaitingOnDependency)
         .count();
     assert_eq!(waiting, 6, "plan next must name all six gated lanes");
 
