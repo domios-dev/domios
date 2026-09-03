@@ -237,3 +237,37 @@ fn json_surface_carries_code_and_write_state() {
     );
     assert_eq!(json["error"]["tab"], serde_json::json!("53854ac8"));
 }
+
+/// A refused user send is parked for later delivery only when nothing reached
+/// the PTY. `SubmitUnconfirmed` is the sole variant whose payload may already
+/// be there, so parking it would risk writing the same text twice. The match is
+/// exhaustive on purpose: a new variant cannot be added without deciding which
+/// side of this line it falls on.
+#[test]
+fn submit_unconfirmed_is_the_only_refusal_that_cannot_be_parked() {
+    let tab = "tab-1".to_string();
+    let detail = "detail".to_string();
+    let variants = [
+        DeliveryError::TabNotReachableOnPeer { tab: tab.clone() },
+        DeliveryError::TabBusyRefused {
+            tab: tab.clone(),
+            detail: detail.clone(),
+        },
+        DeliveryError::PtyUnavailable {
+            tab: tab.clone(),
+            detail: detail.clone(),
+        },
+        DeliveryError::SubmitUnconfirmed { tab, detail },
+    ];
+
+    for variant in &variants {
+        let parkable = !variant.bytes_written();
+        let expected = match variant {
+            DeliveryError::TabNotReachableOnPeer { .. }
+            | DeliveryError::TabBusyRefused { .. }
+            | DeliveryError::PtyUnavailable { .. } => true,
+            DeliveryError::SubmitUnconfirmed { .. } => false,
+        };
+        assert_eq!(parkable, expected, "variant {}", variant.code());
+    }
+}

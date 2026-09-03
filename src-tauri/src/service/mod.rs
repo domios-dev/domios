@@ -402,6 +402,46 @@ impl ServiceContext {
         }
     }
 
+    /// Park a user send refused before any byte reached the PTY, so the tab's
+    /// next `AgentReady` transition can deliver it once. The gate lives here and
+    /// not at the call site: `SubmitUnconfirmed` is the only variant whose
+    /// payload may already sit in the PTY, and parking it would risk a second
+    /// write of the same text.
+    pub(crate) fn park_refused_user_send(
+        &self,
+        tab_id: &str,
+        text: &str,
+        error: &delivery_error::DeliveryError,
+    ) {
+        if error.bytes_written() || text.is_empty() {
+            return;
+        }
+        if let Err(store_error) = self.create_pending_delivery(
+            tab_id,
+            crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
+            text,
+        ) {
+            log::warn!("[chat-send] Tab {tab_id} refused send could not be parked: {store_error}");
+        }
+    }
+
+    /// Deliver a parked user send, once. A send that fails again is reconciled
+    /// and left alone rather than retried, so one park yields at most one write.
+    pub(crate) fn deliver_parked_user_send(&self, tab_id: &str) {
+        let Ok(Some(text)) = self.resolve_pending_delivery(tab_id) else {
+            return;
+        };
+        let evidence = self
+            .send_chat_text_claimed(tab_id, &text, None)
+            .map(|()| true);
+        if let Err(error) = self.reconcile_pending_delivery(tab_id, evidence) {
+            log::warn!(
+                "[chat-send] parked send for Tab {tab_id} not delivered: {}",
+                error.code()
+            );
+        }
+    }
+
     pub(crate) fn reconcile_pending_delivery(
         &self,
         tab_id: &str,
