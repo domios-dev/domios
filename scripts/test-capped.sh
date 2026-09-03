@@ -69,9 +69,12 @@ configure_windows_test_target() {
         printf '[test-capped] using isolated Windows test target: %s\n' "$CARGO_TARGET_DIR"
         if command -v sccache >/dev/null 2>&1; then
             RUSTC_WRAPPER=sccache
-            SCCACHE_BASEDIRS="${SCCACHE_BASEDIRS:-$ROOT}"
-            export RUSTC_WRAPPER SCCACHE_BASEDIRS
-            printf '[test-capped] sccache enabled for the isolated Windows test target.\n'
+            export RUSTC_WRAPPER
+            # SCCACHE_BASEDIRS strips the worktree path before hashing, which lets a
+            # cache hit return an artifact built from a different worktree's sources
+            # (codeterm#327). Never set it, and drop it if a parent shell leaked one in.
+            unset SCCACHE_BASEDIRS
+            printf '[test-capped] sccache enabled for the isolated Windows test target (basedir rewriting disabled; see docs/BUILD.md).\n'
         fi
     fi
     return 0

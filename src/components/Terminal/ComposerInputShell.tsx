@@ -35,10 +35,10 @@ export function ComposerInputShell({
     <div
       ref={shellRef}
       data-testid="composer-input-shell"
-      className="ct-composer-input-shell relative flex min-h-10 flex-1 items-center rounded-[1.35rem] border px-3.5 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
+      className="ct-composer-input-shell relative flex min-h-10 flex-1 items-center rounded-[1.35rem] border px-3.5 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] focus-within:ring-2 focus-within:ring-[var(--ct-accent)]"
       style={{
         background: "var(--ct-bg-elev, var(--ct-surface, #161b22))",
-        borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 30%, transparent)",
+        borderColor: "var(--ct-border, #30363d)",
       }}
     >
       {composerHidden && (

@@ -392,6 +392,10 @@ fn parse_plan_document(document: &str) -> Result<(Plan, usize), String> {
     let mut value: serde_json::Value =
         serde_json::from_str(document).map_err(|error| error.to_string())?;
     let normalized_fields = codeterm_types::startup_records::normalize_pane_id_fields(&mut value)?;
+    // Key-rename and tag-value migration are separate concerns: the normalizer
+    // above rewrites `pane_id` -> `tab_id` keys and structurally cannot touch
+    // the `planner.kind` tag VALUE, which this migrates independently.
+    codeterm_types::plan::types::migrate_legacy_planner_tag(&mut value);
     serde_json::from_value(value)
         .map(|plan| (plan, normalized_fields))
         .map_err(|error| error.to_string())
@@ -747,5 +751,86 @@ mod tests {
             )
             .unwrap();
         assert_eq!(malformed_count, 1);
+    }
+
+    #[test]
+    fn legacy_planner_tag_value_migrates_without_quarantine() {
+        let raw = serde_json::json!({
+            "id": "pl_legacy_tag",
+            "title": "Legacy tag",
+            "status": "active",
+            "owner": {},
+            "project_path": "/repo",
+            "created_at": 1,
+            "updated_at": 2,
+            "planner": {"kind": "pane", "tab_id": "tab_x"}
+        })
+        .to_string();
+
+        let (plan, _) =
+            parse_plan_document(&raw).expect("a legacy-tag document must load, not quarantine");
+        assert!(matches!(
+            plan.planner,
+            Some(PlannerRef::Tab { ref tab_id, .. }) if tab_id == "tab_x"
+        ));
+
+        // Idempotent: re-parsing the already-migrated document yields the same value.
+        let migrated_json = serde_json::to_string(&plan).unwrap();
+        let (reparsed, _) = parse_plan_document(&migrated_json).unwrap();
+        assert_eq!(reparsed.planner, plan.planner);
+
+        // A document that never carried the legacy tag round-trips unchanged.
+        let mut current = Plan::new(
+            "Current".into(),
+            "/repo".into(),
+            OrchestratorRef::from_tab("orch"),
+        );
+        current.planner = Some(PlannerRef::Tab {
+            tab_id: "tab_y".into(),
+            session_id: None,
+            title: None,
+        });
+        let current_json = serde_json::to_string(&current).unwrap();
+        let (reparsed_current, normalized) = parse_plan_document(&current_json).unwrap();
+        assert_eq!(reparsed_current.planner, current.planner);
+        assert_eq!(normalized, 0);
+    }
+
+    #[test]
+    fn normalize_pane_id_fields_alone_does_not_fix_legacy_planner_tag_value() {
+        // Pins the distinction this task exists to protect: the key
+        // normalizer only rewrites `pane_id` -> `tab_id` field NAMES and is
+        // structurally unable to rewrite the `kind` tag VALUE. If this test
+        // ever passes, the value migration has been collapsed back into the
+        // key normalizer and rel#41 has regressed.
+        let mut value = serde_json::json!({
+            "id": "pl_legacy_tag",
+            "title": "Legacy tag",
+            "status": "active",
+            "owner": {},
+            "project_path": "/repo",
+            "created_at": 1,
+            "updated_at": 2,
+            "planner": {"kind": "pane", "pane_id": "tab_x"}
+        });
+
+        let normalized =
+            codeterm_types::startup_records::normalize_pane_id_fields(&mut value).unwrap();
+        assert_eq!(
+            normalized, 1,
+            "the pane_id -> tab_id key rename still applies"
+        );
+        assert_eq!(value["planner"]["tab_id"], serde_json::json!("tab_x"));
+        assert_eq!(
+            value["planner"]["kind"],
+            serde_json::json!("pane"),
+            "the key normalizer must not have touched the tag value"
+        );
+
+        let result: Result<Plan, _> = serde_json::from_value(value);
+        assert!(
+            result.is_err(),
+            "normalize_pane_id_fields alone must not make a legacy-tag document parse"
+        );
     }
 }

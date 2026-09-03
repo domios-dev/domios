@@ -34,6 +34,10 @@ fn platform_key(os: &str, arch: &str, macos_translated: bool) -> Option<&'static
         Some("darwin-aarch64")
     } else if os == "macos" && arch == "x86_64" {
         Some("darwin-x86_64")
+    } else if os == "linux" && arch == "x86_64" {
+        Some("linux-x86_64")
+    } else if os == "linux" && arch == "aarch64" {
+        Some("linux-aarch64")
     } else {
         None
     }
@@ -160,6 +164,26 @@ pub fn diff(local: &str, m: &Manifest) -> Result<Option<String>, String> {
     }
 }
 
+/// A client is only ever offered an artifact that exists for its own platform.
+/// `diff` alone answers "is the manifest newer"; this additionally requires the
+/// manifest to actually publish an entry for `platform` before treating the
+/// newer version as an offer — a manifest whose matrix covers only some
+/// platforms (a staggered publish, or a genuinely partial release) must not
+/// read as "update available" to a platform it never shipped for.
+pub fn offered_version(
+    local: &str,
+    m: &Manifest,
+    platform: Option<&str>,
+) -> Result<Option<String>, String> {
+    let Some(newer) = diff(local, m)? else {
+        return Ok(None);
+    };
+    match platform {
+        Some(key) if m.platforms.contains_key(key) => Ok(Some(newer)),
+        _ => Ok(None),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -210,9 +234,23 @@ mod tests {
             assert_eq!(key, Some("darwin-aarch64"));
         } else if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
             assert_eq!(key, Some("darwin-x86_64"));
+        } else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+            assert_eq!(key, Some("linux-x86_64"));
+        } else if cfg!(all(target_os = "linux", target_arch = "aarch64")) {
+            assert_eq!(key, Some("linux-aarch64"));
         } else {
             assert_eq!(key, None);
         }
+    }
+
+    #[test]
+    fn linux_arches_map_to_updater_platform_keys() {
+        assert_eq!(platform_key("linux", "x86_64", false), Some("linux-x86_64"));
+        assert_eq!(
+            platform_key("linux", "aarch64", false),
+            Some("linux-aarch64")
+        );
+        assert_eq!(platform_key("linux", "arm", false), None);
     }
 
     #[test]
@@ -264,6 +302,93 @@ mod tests {
         assert!(diff("1.0.0", &m).is_err());
         let m = manifest_with_version("1.0.0");
         assert!(diff("not-a-version", &m).is_err());
+    }
+
+    fn manifest_for_platforms(v: &str, keys: &[&str]) -> Manifest {
+        let mut platforms = HashMap::new();
+        for key in keys {
+            platforms.insert(
+                key.to_string(),
+                ManifestPlatform {
+                    url: format!("https://example.com/{key}"),
+                    signature: "sig".to_string(),
+                },
+            );
+        }
+        Manifest {
+            version: v.to_string(),
+            notes: None,
+            pub_date: None,
+            platforms,
+        }
+    }
+
+    // rel#47 (retitled): a client is only ever offered an artifact that exists
+    // for its own platform, even when a newer version genuinely exists.
+    #[test]
+    fn windows_only_manifest_offers_nothing_to_macos_or_linux() {
+        let m = manifest_for_platforms("1.2.0", &["windows-x86_64"]);
+        assert_eq!(
+            offered_version("1.0.0", &m, Some("darwin-aarch64")).unwrap(),
+            None
+        );
+        assert_eq!(
+            offered_version("1.0.0", &m, Some("darwin-x86_64")).unwrap(),
+            None
+        );
+        assert_eq!(
+            offered_version("1.0.0", &m, Some("linux-x86_64")).unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn windows_only_manifest_still_offers_windows_the_update() {
+        let m = manifest_for_platforms("1.2.0", &["windows-x86_64"]);
+        assert_eq!(
+            offered_version("1.0.0", &m, Some("windows-x86_64")).unwrap(),
+            Some("1.2.0".to_string())
+        );
+    }
+
+    #[test]
+    fn complete_matrix_offers_every_platform_the_update() {
+        let m = manifest_for_platforms(
+            "1.2.0",
+            &[
+                "windows-x86_64",
+                "darwin-aarch64",
+                "darwin-x86_64",
+                "linux-x86_64",
+            ],
+        );
+        for key in [
+            "windows-x86_64",
+            "darwin-aarch64",
+            "darwin-x86_64",
+            "linux-x86_64",
+        ] {
+            assert_eq!(
+                offered_version("1.0.0", &m, Some(key)).unwrap(),
+                Some("1.2.0".to_string()),
+                "platform {key} should be offered the update"
+            );
+        }
+    }
+
+    #[test]
+    fn no_newer_version_offers_nothing_regardless_of_platform_coverage() {
+        let m = manifest_for_platforms("1.0.0", &["windows-x86_64", "darwin-aarch64"]);
+        assert_eq!(
+            offered_version("1.0.0", &m, Some("windows-x86_64")).unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn unresolved_client_platform_is_never_offered_an_update() {
+        let m = manifest_for_platforms("1.2.0", &["windows-x86_64"]);
+        assert_eq!(offered_version("1.0.0", &m, None).unwrap(), None);
     }
 
     #[test]
