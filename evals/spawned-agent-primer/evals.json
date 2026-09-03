@@ -5,6 +5,7 @@
     {
       "id": 1,
       "name": "rich-workflow-visualization",
+      "response_mode": "text",
       "prompt": "Without running commands, briefly explain which native CodeTerm rendering formats you would use for a workflow visualization and when inline HTML is appropriate.",
       "expected_output": "Knows the shared rich-rendering contract available to every spawned CodeTerm agent.",
       "expectations": [
@@ -15,6 +16,7 @@
     {
       "id": 2,
       "name": "sandboxed-html-runtime",
+      "response_mode": "text",
       "prompt": "Without running commands, briefly describe how you would directly render an animated interactive HTML status card in CodeTerm. Also say what you would do only if the card later needed an unfamiliar CodeTerm-specific runtime capability or a local file chosen by the user.",
       "expected_output": "Knows the safe self-contained HTML runtime without assuming network or arbitrary filesystem access.",
       "expectations": [
@@ -27,10 +29,11 @@
     {
       "id": 3,
       "name": "file-backed-html-render",
+      "response_mode": "text",
       "prompt": "You created C:\\Users\\User\\Desktop\\design-system.html and the user wants that exact file to be the single source rendered in the current CodeTerm reply. Show the minimal reply syntax. Do not copy the file contents.",
       "expected_output": "Uses the file-backed HTML fence rather than duplicating the file or asking the user to pick it.",
       "expectations": [
-        "Includes an html fence whose entire body is @file C:\\Users\\User\\Desktop\\design-system.html",
+        "Renders the file through a standalone file-backed directive naming the exact absolute path C:\\Users\\User\\Desktop\\design-system.html (either @ct-page or the still-supported @file html fence)",
         "Does NOT copy or paraphrase the HTML file contents",
         "Does NOT use ct.file.pick() or ct.file.renderHtml() for a known file path"
       ]
@@ -38,6 +41,7 @@
     {
       "id": 4,
       "name": "batch-related-edits-before-testing",
+      "response_mode": "text",
       "prompt": "Without running commands, briefly describe your edit and verification order when the same transport change is needed in twelve related command handlers.",
       "expected_output": "Batches the coherent edit set before running verification.",
       "expectations": [
@@ -48,6 +52,7 @@
     {
       "id": 5,
       "name": "notify-escalation-role-and-trigger",
+      "response_mode": "text",
       "prompt": "Without running commands, answer three independent scenarios and name exact commands where relevant. (a) You are a Worker tab and you just finished your assigned task normally — do you send the user a notification, and what do you do instead if not? (b) You are an Orchestrator blocked because only the user can make a required decision and no autonomous path remains — how do you reach the user? (c) You are a solo agent, the user earlier said 'notify me when the build finishes', and the build just finished — what do you do?",
       "expected_output": "Role-scoped rare-escalation policy: Workers never notify the user directly; solo agents and Orchestrators use codeterm notify send only for genuine user-attention need or an explicit user request.",
       "expectations": [
@@ -55,6 +60,17 @@
         "In scenario (b) uses codeterm notify send to escalate the genuinely blocked decision to the user",
         "In scenario (c) uses codeterm notify send because the user explicitly asked to be notified",
         "Does NOT propose provider-native or OS-level notification mechanisms in place of codeterm notify send"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "ask-the-user-through-notify-not-a-native-tool",
+      "prompt": "Without running commands: you are a solo agent, you have reached a genuine fork that only the user can decide between two named options, and no autonomous path remains. The user is not watching this tab. Name the exact command you use to put the question in front of them, and say what you would not use instead.",
+      "expected_output": "Asks through codeterm notify send with tappable --choice labels, and rejects a provider-native question or prompt tool.",
+      "expectations": [
+        "Uses codeterm notify send to ask the question, at a level that alerts rather than only filing in the bell",
+        "Offers the two options as repeated --choice \"Label\" flags rather than expecting free text",
+        "Does NOT use or propose a provider-native question, prompt, or ask-the-user tool for the question"
       ]
     }
   ]
