@@ -714,6 +714,14 @@ pub(crate) fn submit_text_with_key(
     )
 }
 
+/// A submit key beyond the initial write means the bounded recovery burst ran.
+/// Reporting on this rather than on `submit_anomaly` keeps `recovered` bivalent:
+/// `submit_anomaly` is `two_phase && !submit_observed`, so it can never coexist
+/// with a recovered submit.
+pub(crate) fn recovery_attempted(result: &InjectionResult) -> bool {
+    result.submit_key_writes > 1
+}
+
 pub(crate) fn submit_text_with_key_claimed(
     svc: &ServiceContext,
     pty_id: &str,
@@ -749,11 +757,12 @@ pub(crate) fn submit_text_with_key_claimed(
     };
     let result = run_with_submit_key(&transport, text, enter, submit_key, strategy, opts).inspect(
         |result| {
-            if result.submit_anomaly {
+            if recovery_attempted(result) {
                 log::warn!(
-                    "[submit-recovery] pty={} recovered={} payload_repeated=false key_writes={} elapsed_ms={}",
+                    "[submit-recovery] pty={} recovered={} bytes_written={} key_writes={} elapsed_ms={}",
                     pty_id,
                     result.submit_observed,
+                    result.bytes_written,
                     result.submit_key_writes,
                     result.elapsed.as_millis()
                 );
