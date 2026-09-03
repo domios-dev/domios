@@ -95,10 +95,9 @@ mod persist_state_deadlock {
         save_and_sync_sidecars(&mux, &session, Some(&output_buf));
 
         assert_eq!(
-            session
-                .lock()
-                .load_scrollback_tail(&live_tab)
-                .expect("save_and_sync_sidecars must have run the post-save scrollback sidecar sync"),
+            session.lock().load_scrollback_tail(&live_tab).expect(
+                "save_and_sync_sidecars must have run the post-save scrollback sidecar sync"
+            ),
             b"live shutdown output",
         );
     }

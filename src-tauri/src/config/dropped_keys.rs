@@ -66,7 +66,8 @@ focus_pane_left = "Alt+ArrowLeft"
 
     #[test]
     fn a_config_without_retired_keys_detects_nothing() {
-        let contents = "[orchestration]\nnudge_interval_secs = 1800\n\n[keybindings]\nnew_tab = \"Ctrl+T\"\n";
+        let contents =
+            "[orchestration]\nnudge_interval_secs = 1800\n\n[keybindings]\nnew_tab = \"Ctrl+T\"\n";
         assert!(detect(contents).is_empty());
     }
 

@@ -126,10 +126,8 @@ fn spawned_worker_receives_the_codeterm_primer() {
 fn per_task_doctrine_override_reaches_the_composed_worker_brief() {
     const TASK_DOCTRINE_TOKEN: &str = "OPAQUE-TASK-DOCTRINE-OVERRIDE-9f2c1";
     let identity = format!("You are the Worker. {TASK_DOCTRINE_TOKEN}");
-    let brief = crate::service::plan::worker_identity::attach_worker_identity(
-        &identity,
-        "# Task body",
-    );
+    let brief =
+        crate::service::plan::worker_identity::attach_worker_identity(&identity, "# Task body");
 
     let composed = super::role_onboarding_task(Some(&brief), Some("Worker"), None)
         .expect("worker system prompt");

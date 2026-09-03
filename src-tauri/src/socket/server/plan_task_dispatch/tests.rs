@@ -792,8 +792,8 @@ fn agent_ready_explicit_error_is_definitive_channel_close_and_timeout_are_uncert
     error_tx
         .send(Err("provider rejected launch".into()))
         .unwrap();
-    let explicit = await_agent_ready(error_rx, Instant::now() + Duration::from_secs(1))
-        .unwrap_err();
+    let explicit =
+        await_agent_ready(error_rx, Instant::now() + Duration::from_secs(1)).unwrap_err();
     assert_eq!(explicit.message(), "provider rejected launch");
     assert!(
         matches!(explicit, DispatchWaitFailure::Definitive(_)),
@@ -805,8 +805,7 @@ fn agent_ready_explicit_error_is_definitive_channel_close_and_timeout_are_uncert
     // newer generation, so a closed channel is absent evidence, not proof.
     let (closed_tx, closed_rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
     drop(closed_tx);
-    let closed = await_agent_ready(closed_rx, Instant::now() + Duration::from_secs(1))
-        .unwrap_err();
+    let closed = await_agent_ready(closed_rx, Instant::now() + Duration::from_secs(1)).unwrap_err();
     assert!(closed.message().contains("closed"));
     assert!(
         matches!(closed, DispatchWaitFailure::Uncertain(_)),
@@ -814,8 +813,8 @@ fn agent_ready_explicit_error_is_definitive_channel_close_and_timeout_are_uncert
     );
 
     let (_pending_tx, pending_rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
-    let expired = await_agent_ready(pending_rx, Instant::now() - Duration::from_secs(1))
-        .unwrap_err();
+    let expired =
+        await_agent_ready(pending_rx, Instant::now() - Duration::from_secs(1)).unwrap_err();
     assert!(expired.message().contains("expired"));
     assert!(
         matches!(expired, DispatchWaitFailure::Uncertain(_)),

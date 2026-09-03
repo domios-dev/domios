@@ -545,7 +545,11 @@ mod tests {
 
         let registry = GraphWorkerRegistry::load(path.clone());
         let workers = registry.list();
-        assert_eq!(workers.len(), 1, "pre-upgrade record must be retained, not quarantined");
+        assert_eq!(
+            workers.len(),
+            1,
+            "pre-upgrade record must be retained, not quarantined"
+        );
         assert_eq!(workers[0].worker_id, "gw_legacy");
         assert_eq!(workers[0].tab_id, "tab1");
         assert_eq!(std::fs::read_to_string(path).unwrap(), fixture);
