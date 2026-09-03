@@ -149,7 +149,7 @@ pub const NOTIFY_RARE_ESCALATION_RULE: &str =
 /// The ask clause carried by every surface that teaches notify. One sentence,
 /// one source: an escalation that already earned its rarity may ask instead of
 /// announce, and this is the grammar for asking.
-pub const NOTIFY_ASK_CLAUSE: &str = "An escalation may ask rather than announce: repeat `--choice \"Label\"` once per option (no cap) and the tapped label returns to the tab that asked; blank and duplicate labels are refused.";
+pub const NOTIFY_ASK_CLAUSE: &str = "An escalation may ask rather than announce: repeat `--choice \"Label\"` once per option (no cap) and the tapped label returns to the tab that asked; blank and duplicate labels are refused. Asking the user a question goes through this same path and never through a provider-native question or prompt tool — those render only inside this tab, so the bell, Telegram, push, and mesh never carry the question and a user who is away cannot answer it.";
 
 /// The surviving half of the relaxation: a periodic status, never one
 /// notification per step. Kept as its own constant, and as a substring of
