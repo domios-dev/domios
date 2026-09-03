@@ -610,3 +610,38 @@ fn transport_capability_paths_receive_the_primer_for_plain_orchestrator() {
         other => panic!("expected chatBackend route, got {other:?}"),
     }
 }
+
+/// rel#68 sequencing: the config file must land before the doctrine carve-out
+/// is usable, because `load_repo_lane_config` (`config/lane.rs`) is the only
+/// thing that arms lane bootstrap (`worker_lane_bootstrap::bootstrap_lane`).
+/// Without a `.codeterm/config.toml` in the repo root, a fresh isolated lane
+/// gets no `node_modules` share and no setup command, so a doctrine that
+/// permits `tsc --noEmit` in that lane would permit a check the lane cannot
+/// run. Asserts the parsed values this test supplies, never the file's prose.
+#[test]
+fn repo_lane_config_is_discovered_and_arms_bootstrap_for_this_checkout() {
+    let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("src-tauri has a parent repo root")
+        .to_path_buf();
+    let config = crate::config::lane::load_repo_lane_config(&repo_root);
+    assert!(
+        !config.is_empty(),
+        "repo .codeterm/config.toml must parse into a non-empty lane bootstrap config, \
+         otherwise lane bootstrap never runs and a fresh lane has no node_modules"
+    );
+    assert!(
+        config
+            .shared_directories
+            .iter()
+            .any(|dir| dir == "node_modules"),
+        "node_modules must be shared into a fresh lane so tsc can resolve modules"
+    );
+    assert!(
+        config
+            .setup_command
+            .as_deref()
+            .is_some_and(|command| !command.trim().is_empty()),
+        "a setup command must be queued as a fallback when the share is unavailable"
+    );
+}

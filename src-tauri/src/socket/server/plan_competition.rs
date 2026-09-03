@@ -602,7 +602,7 @@ pub(super) fn compete(
                         json!({
                             "kind": "dispatch_startup_failed",
                             "stage": "agent_ready",
-                            "error": error,
+                            "error": error.message(),
                         }),
                     );
                 }
