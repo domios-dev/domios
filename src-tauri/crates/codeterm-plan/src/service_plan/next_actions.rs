@@ -18,6 +18,7 @@ pub enum NextActionKind {
     RegressionGate,
     Continue,
     ReviewWipBlocked,
+    WaitingOnDependency,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -41,6 +42,25 @@ fn planning_next_action_message(s: &PlanStateSnapshot) -> String {
         msg.push('.');
     }
     msg
+}
+
+fn dependency_wait_names(waits: &[super::state::DependencyWait]) -> String {
+    waits
+        .iter()
+        .map(|wait| {
+            if wait.missing {
+                format!("{} (missing)", wait.task_id)
+            } else {
+                let status = wait
+                    .status
+                    .as_ref()
+                    .map(|status| format!("{status:?}"))
+                    .unwrap_or_else(|| "unknown".to_string());
+                format!("{} ({status})", wait.task_id)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 // Running loop with no headroom left: at or one short of budget, or past 80%.
@@ -118,6 +138,24 @@ pub fn compute_next_actions(s: &PlanStateSnapshot) -> Vec<NextAction> {
             task_id: Some(lane.task_id.clone()),
             loop_id: None,
             message: format!("advance/unblock {} ({})", lane.task_id, lane.name),
+        });
+    }
+
+    // Dependency-gated pending lanes never reach ordinary dispatch below, so
+    // without this the whole gated tail of a plan reports as "nothing to do"
+    // once its unblocking task goes in_progress — codeterm#397.
+    for lane in s.open_lanes.iter().filter(|lane| lane.waiting_on_dependencies) {
+        actions.push(NextAction {
+            priority: 2,
+            kind: NextActionKind::WaitingOnDependency,
+            task_id: Some(lane.task_id.clone()),
+            loop_id: None,
+            message: format!(
+                "{} ({}) waiting on: {}",
+                lane.task_id,
+                lane.name,
+                dependency_wait_names(&lane.dependency_waits)
+            ),
         });
     }
 
@@ -304,6 +342,7 @@ mod tests {
             open_lanes: vec![],
             lanes: vec![],
             lane_history_count: 0,
+            blocked_or_gated_count: 0,
             blocked_lanes: vec![],
             live_agents: vec![],
             recent_strides: vec![],

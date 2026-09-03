@@ -55,34 +55,67 @@ pub(super) fn plan_skill_manifest_for_plan(
     plan_skill_manifest_from_dir(&plan_dir)
 }
 
-pub(super) fn plan_skill_manifest_from_dir(
-    plan_dir: &Path,
-) -> Result<Vec<crate::plan::PlanSkillManifestEntry>, PlanError> {
-    let latest_verdicts = read_ledger(&plan_dir).into_iter().fold(
+/// A ledgered skill directory paired with its true latest ledger verdict.
+/// The single read of disk + ledger that every plan-skill read surface
+/// builds on: the AI-context manifest (keep-only) and the human/audit
+/// `list_plan_skills` (every ledgered skill, real verdict) both derive from
+/// this instead of each re-deciding what "on disk" means.
+struct PlanSkillFileEntry {
+    slug: String,
+    verdict: String,
+    title: String,
+    purpose: String,
+    check: Option<String>,
+    content_digest: String,
+}
+
+// A directory with SKILL.md but no ledger entry was never committed —
+// `create_plan_skill` always writes both atomically — so it is skipped here.
+fn plan_skill_file_entries(plan_dir: &Path) -> Result<Vec<PlanSkillFileEntry>, PlanError> {
+    let latest_verdicts = read_ledger(plan_dir).into_iter().fold(
         std::collections::HashMap::new(),
         |mut verdicts, entry| {
             verdicts.insert(entry.slug, entry.verdict);
             verdicts
         },
     );
-    let mut manifest = Vec::new();
-    for slug in list_slugs(&plan_dir) {
-        if latest_verdicts.get(&slug).map(String::as_str) != Some("keep") {
+    let mut entries = Vec::new();
+    for slug in list_slugs(plan_dir) {
+        let Some(verdict) = latest_verdicts.get(&slug).cloned() else {
             continue;
-        }
+        };
         let path = plan_dir.join("skills").join(&slug).join("SKILL.md");
         let body = std::fs::read(&path).map_err(|error| io_error("read plan skill body", error))?;
         let text = std::str::from_utf8(&body)
             .map_err(|error| io_error("decode plan skill body", error))?;
-        let (title, purpose, _) = parse_frontmatter(text);
-        manifest.push(crate::plan::PlanSkillManifestEntry {
+        let (title, purpose, check) = parse_frontmatter(text);
+        entries.push(PlanSkillFileEntry {
             slug: slug.clone(),
+            verdict,
             title: title.unwrap_or_else(|| titleize(&slug)),
             purpose: purpose.unwrap_or_default(),
+            check,
             content_digest: format!("sha256:{:x}", Sha256::digest(&body)),
         });
     }
-    Ok(manifest)
+    Ok(entries)
+}
+
+// AI-context surface only: still filtered to the currently-kept roster, so a
+// discarded/superseded skill is never injected into a prompt as if active.
+pub(super) fn plan_skill_manifest_from_dir(
+    plan_dir: &Path,
+) -> Result<Vec<crate::plan::PlanSkillManifestEntry>, PlanError> {
+    Ok(plan_skill_file_entries(plan_dir)?
+        .into_iter()
+        .filter(|entry| entry.verdict == "keep")
+        .map(|entry| crate::plan::PlanSkillManifestEntry {
+            slug: entry.slug,
+            title: entry.title,
+            purpose: entry.purpose,
+            content_digest: entry.content_digest,
+        })
+        .collect())
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
@@ -458,26 +491,28 @@ pub fn create_plan_skill(
     })
 }
 
+// Human/audit surface: every skill ever committed to the ledger stays
+// listed, carrying its real current verdict — a discard/supersede is a
+// recorded state change, not an erasure of the skill from the roster.
 pub fn list_plan_skills(
     store: &PlanStore,
     plan_id: &str,
 ) -> Result<Vec<PlanSkillSummary>, PlanError> {
     let plan_dir = plan_dir_for(store, plan_id)?;
-    Ok(plan_skill_manifest(store, plan_id)?
+    Ok(plan_skill_file_entries(&plan_dir)?
         .into_iter()
-        .map(|entry| {
-            let skill_dir = plan_dir.join("skills").join(&entry.slug);
-            let md = std::fs::read_to_string(skill_dir.join("SKILL.md")).unwrap_or_default();
-            let (_, _, check) = parse_frontmatter(&md);
-            PlanSkillSummary {
-                slug: entry.slug,
-                title: entry.title,
-                purpose: entry.purpose,
-                check,
-                verdict: "keep".to_string(),
-                content_digest: entry.content_digest,
-                skill_dir: skill_dir.display().to_string(),
-            }
+        .map(|entry| PlanSkillSummary {
+            skill_dir: plan_dir
+                .join("skills")
+                .join(&entry.slug)
+                .display()
+                .to_string(),
+            slug: entry.slug,
+            title: entry.title,
+            purpose: entry.purpose,
+            check: entry.check,
+            verdict: entry.verdict,
+            content_digest: entry.content_digest,
         })
         .collect())
 }
@@ -878,8 +913,14 @@ mod tests {
         .unwrap();
         drop(ledger);
 
+        // `list_plan_skills` is the audit surface: a written skill stays on
+        // the roster with its true verdict, never erased by a later verdict
+        // change. The AI-context manifest (heartbeat/prompt injection) is a
+        // different, deliberately keep-only view and stays empty here.
         let listed = list_plan_skills(&store, &plan.id).unwrap();
-        assert!(listed.is_empty());
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].slug, "external-state");
+        assert_eq!(listed[0].verdict, "revise");
         assert_eq!(
             crate::service_plan::skill_registry::count_plan_skills_for(&plan),
             0
