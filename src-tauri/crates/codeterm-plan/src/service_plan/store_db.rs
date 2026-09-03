@@ -816,7 +816,10 @@ mod tests {
 
         let normalized =
             codeterm_types::startup_records::normalize_pane_id_fields(&mut value).unwrap();
-        assert_eq!(normalized, 1, "the pane_id -> tab_id key rename still applies");
+        assert_eq!(
+            normalized, 1,
+            "the pane_id -> tab_id key rename still applies"
+        );
         assert_eq!(value["planner"]["tab_id"], serde_json::json!("tab_x"));
         assert_eq!(
             value["planner"]["kind"],

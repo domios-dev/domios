@@ -575,11 +575,12 @@ impl PlanStore {
                 p.tasks[idx].status_label.as_deref(),
                 Some("awaiting_continuation" | "bounce_continuation_failed" | "review bounced")
             ) {
-                let attempt_index = exact_review_continuation_attempt(&p.tasks[idx]).ok_or_else(
-                    || PlanError::ReviewContinuationAttemptNotFound {
-                        task_id: p.tasks[idx].id.clone(),
-                    },
-                )?;
+                let attempt_index =
+                    exact_review_continuation_attempt(&p.tasks[idx]).ok_or_else(|| {
+                        PlanError::ReviewContinuationAttemptNotFound {
+                            task_id: p.tasks[idx].id.clone(),
+                        }
+                    })?;
                 let attempt = &p.tasks[idx].execution_attempts[attempt_index];
                 if attempt.continuation.review_round != Some(p.tasks[idx].review_round) {
                     return Err(PlanError::ReviewContinuationAttemptNotFound {
@@ -619,11 +620,12 @@ impl PlanStore {
                 return Ok(());
             }
             require_in_review(&p.tasks[idx])?;
-            let attempt_index = exact_review_continuation_attempt(&p.tasks[idx]).ok_or_else(
-                || PlanError::ReviewContinuationAttemptNotFound {
-                    task_id: p.tasks[idx].id.clone(),
-                },
-            )?;
+            let attempt_index =
+                exact_review_continuation_attempt(&p.tasks[idx]).ok_or_else(|| {
+                    PlanError::ReviewContinuationAttemptNotFound {
+                        task_id: p.tasks[idx].id.clone(),
+                    }
+                })?;
             let mid = crate::plan::ids::mint_id("ms", |c| plan_contains_id(p, c));
             {
                 let task = &mut p.tasks[idx];

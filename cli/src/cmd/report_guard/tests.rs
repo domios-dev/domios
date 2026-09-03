@@ -779,9 +779,8 @@ fn only_a_manager_role_is_exempt_from_the_task_half_of_binding() {
 /// reproduce here. An unbound tab (no plan, no task, no role) stays refused.
 #[test]
 fn planner_plan_only_binding_is_not_refused_but_an_unbound_tab_still_is() {
-    let task_bound = |role_env: Option<&str>, has_task: bool| {
-        has_task || role_owns_plan_without_task(role_env)
-    };
+    let task_bound =
+        |role_env: Option<&str>, has_task: bool| has_task || role_owns_plan_without_task(role_env);
     assert!(worker_binding_resolved(
         false,
         true,

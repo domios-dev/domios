@@ -138,7 +138,10 @@ mod store_index_tests {
                  older than this build is served a plugin it cannot run"
             );
 
-            let rel = plugin.path.as_ref().expect("each channel plugin needs a path");
+            let rel = plugin
+                .path
+                .as_ref()
+                .expect("each channel plugin needs a path");
             let pj = std::fs::read_to_string(plugins_dir.join(rel).join("plugin.json"))
                 .unwrap_or_else(|_| panic!("plugin.json missing for {id}"));
             let pjv: serde_json::Value = serde_json::from_str(&pj).expect("plugin.json parses");

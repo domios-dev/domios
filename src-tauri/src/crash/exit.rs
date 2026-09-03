@@ -77,7 +77,11 @@ pub fn persist_state(app: &tauri::AppHandle) {
         (app.try_state::<MuxState>(), app.try_state::<SessionState>())
     {
         let output_buf = app.try_state::<OutputBufferState>();
-        save_and_sync_sidecars(mux.inner(), session.inner(), output_buf.as_ref().map(|s| s.inner()));
+        save_and_sync_sidecars(
+            mux.inner(),
+            session.inner(),
+            output_buf.as_ref().map(|s| s.inner()),
+        );
     }
 
     if let Some(svc) = app.try_state::<crate::service::ServiceState>() {

@@ -513,12 +513,7 @@ fn relaunch_tab(fixture: &ServiceFixture, tab_id: &str, new_nonce: &str) {
 
 /// Genuine session transition: retire the current nonce under the OLD session,
 /// then move the live tab onto a brand-new session id + nonce.
-fn transition_session(
-    fixture: &ServiceFixture,
-    tab_id: &str,
-    new_session: &str,
-    new_nonce: &str,
-) {
+fn transition_session(fixture: &ServiceFixture, tab_id: &str, new_session: &str, new_nonce: &str) {
     let mut mux = fixture.service.mux.write();
     let tab = mux.get_tab_mut(tab_id).unwrap();
     tab.remember_superseded_binding_nonce();
@@ -544,10 +539,7 @@ fn sessionless(caller: &AuthenticatedPlanCaller) -> AuthenticatedPlanCaller {
 }
 
 // Mirror the W3-C task gate so both authority paths are proven on one input.
-fn w3c_task_binding_matches(
-    fixture: &ServiceFixture,
-    caller: &AuthenticatedPlanCaller,
-) -> bool {
+fn w3c_task_binding_matches(fixture: &ServiceFixture, caller: &AuthenticatedPlanCaller) -> bool {
     let mux = fixture.service.mux.read();
     let tab = mux.get_tab(caller.tab_id.as_deref().unwrap()).unwrap();
     let nonce = caller.binding_nonce.as_deref();
@@ -743,7 +735,16 @@ fn planner_structure_authority_survives_approval() {
     fixture
         .service
         .plan_store
-        .add_section(&plan_id, "Post-approval phase", "Added late", None, &[], None, None, 5)
+        .add_section(
+            &plan_id,
+            "Post-approval phase",
+            "Added late",
+            None,
+            &[],
+            None,
+            None,
+            5,
+        )
         .expect("a bound Planner may add sections after approval");
     fixture
         .service

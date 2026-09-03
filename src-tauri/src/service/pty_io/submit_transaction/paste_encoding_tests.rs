@@ -1,8 +1,8 @@
 //! WHAT: paste-frame encoding at the transport seam.
 //! WHY: a chat line must arrive as one frame, a bootstrap as one hidden turn.
 //! ORACLE: the encoded frames themselves, independent of any submit harness.
-use super::*;
 use super::tests::tui;
+use super::*;
 
 #[test]
 fn xterm_paste_normalizes_newlines_and_obeys_the_live_mode() {

@@ -5,7 +5,6 @@ use super::*;
 use std::cell::{Cell, RefCell};
 use std::time::Duration;
 
-
 #[test]
 fn newer_ingress_claim_cancels_the_prior_submit_cycle() {
     let first = claim_submit_cycle("rapid-ingress-claim");

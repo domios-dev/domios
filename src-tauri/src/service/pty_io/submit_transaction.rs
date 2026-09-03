@@ -804,9 +804,9 @@ mod collapsed_paste_tests;
 #[cfg(test)]
 mod dropped_enter_tests;
 #[cfg(test)]
-mod submission_matrix;
-#[cfg(test)]
 mod paste_encoding_tests;
+#[cfg(test)]
+mod submission_matrix;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
