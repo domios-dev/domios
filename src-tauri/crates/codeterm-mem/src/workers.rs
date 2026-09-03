@@ -342,7 +342,22 @@ fn load_worker_records(
         return;
     };
     for (index, record) in records.iter().enumerate() {
-        match serde_json::from_value::<GraphWorkerInfo>(record.clone()) {
+        // Pre-upgrade records carry `pane_id` where `GraphWorkerInfo::tab_id`
+        // (required, non-optional) now lives; normalize the field name before
+        // deserializing so a 1.7.x history record is retained, not quarantined.
+        let mut normalized_record = record.clone();
+        if let Err(error) =
+            codeterm_types::startup_records::normalize_pane_id_fields(&mut normalized_record)
+        {
+            log::error!(
+                "[graph-workers] quarantined record at index {} in {}: {}; source left unchanged",
+                index,
+                path.display(),
+                error
+            );
+            continue;
+        }
+        match serde_json::from_value::<GraphWorkerInfo>(normalized_record) {
             Ok(mut item) => {
                 if !item.status.is_terminal() {
                     item.status = WorkerStatus::Orphaned;
@@ -513,6 +528,27 @@ mod tests {
         let id = new_worker_id();
         assert!(id.starts_with("gw_"));
         assert_eq!(id.len(), 3 + 8);
+    }
+
+    #[test]
+    fn load_retains_pre_upgrade_record_carrying_pane_id_instead_of_tab_id() {
+        let path = tmp_path("pre-upgrade-pane-id");
+        let mut legacy_record = serde_json::to_value(fresh_info("gw_legacy")).unwrap();
+        let legacy_tab_id = legacy_record
+            .as_object_mut()
+            .unwrap()
+            .remove("tab_id")
+            .unwrap();
+        legacy_record["pane_id"] = legacy_tab_id;
+        let fixture = serde_json::json!([legacy_record]).to_string();
+        std::fs::write(&path, &fixture).unwrap();
+
+        let registry = GraphWorkerRegistry::load(path.clone());
+        let workers = registry.list();
+        assert_eq!(workers.len(), 1, "pre-upgrade record must be retained, not quarantined");
+        assert_eq!(workers[0].worker_id, "gw_legacy");
+        assert_eq!(workers[0].tab_id, "tab1");
+        assert_eq!(std::fs::read_to_string(path).unwrap(), fixture);
     }
 
     #[test]

@@ -136,6 +136,32 @@ pub enum PlannerRef {
     },
 }
 
+/// Rewrites a legacy 1.7.x `planner.kind = "pane"` tag value to the current
+/// `"tab"` variant. `PlannerRef` only ever had a `Pane` variant renamed to
+/// `Tab`; the key normalizer in `startup_records.rs` renames `pane_id` ->
+/// `tab_id` fields but cannot touch this tag value, so a document carrying
+/// the old tag matches no `PlannerRef` variant and fails to deserialize.
+/// Forward-only and idempotent: a document already on `"tab"`, or one that
+/// never had a `planner` object, is returned untouched.
+pub fn migrate_legacy_planner_tag(document: &mut serde_json::Value) -> bool {
+    let Some(planner) = document.get_mut("planner") else {
+        return false;
+    };
+    let Some(planner_object) = planner.as_object_mut() else {
+        return false;
+    };
+    match planner_object.get("kind") {
+        Some(serde_json::Value::String(kind)) if kind == "pane" => {
+            planner_object.insert(
+                "kind".to_string(),
+                serde_json::Value::String("tab".to_string()),
+            );
+            true
+        }
+        _ => false,
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum PlannerRequestState {
@@ -900,6 +926,32 @@ mod tests {
         assert!(json.contains("solo"));
         let back: Plan = serde_json::from_str(&json).unwrap();
         assert_eq!(back.planner, p.planner);
+    }
+
+    #[test]
+    fn migrate_legacy_planner_tag_rewrites_pane_to_tab() {
+        let mut doc = serde_json::json!({
+            "planner": {"kind": "pane", "tab_id": "tab_x"}
+        });
+        assert!(migrate_legacy_planner_tag(&mut doc));
+        assert_eq!(doc["planner"]["kind"], serde_json::json!("tab"));
+    }
+
+    #[test]
+    fn migrate_legacy_planner_tag_is_idempotent_on_current_tag() {
+        let mut doc = serde_json::json!({
+            "planner": {"kind": "tab", "tab_id": "tab_x"}
+        });
+        assert!(!migrate_legacy_planner_tag(&mut doc));
+        assert_eq!(doc["planner"]["kind"], serde_json::json!("tab"));
+    }
+
+    #[test]
+    fn migrate_legacy_planner_tag_leaves_document_without_planner_untouched() {
+        let mut doc = serde_json::json!({"id": "pl_1"});
+        let before = doc.clone();
+        assert!(!migrate_legacy_planner_tag(&mut doc));
+        assert_eq!(doc, before);
     }
 
     #[test]
