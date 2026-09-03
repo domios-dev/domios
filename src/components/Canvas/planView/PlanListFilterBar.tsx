@@ -67,10 +67,11 @@ export function PlanListFilterBar({
       <input
         type="search"
         data-testid="plan-list-filter-text"
+        aria-label="Filter rows"
         value={textQuery}
         onChange={(e) => onTextQuery(e.target.value)}
         placeholder="Filter rows…"
-        className="min-w-[8rem] flex-1 rounded border px-2 py-0.5 text-[11px] outline-none"
+        className="min-w-[8rem] flex-1 rounded border px-2 py-0.5 text-[11px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--ct-accent)]"
         style={{
           maxWidth: "14rem",
           borderColor: "color-mix(in srgb, var(--ct-border) 70%, transparent)",

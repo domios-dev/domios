@@ -48,3 +48,58 @@ fn only_a_genuine_quit_declares_clean_exit_on_macos() {
     assert!(!plan_run_exit(true, false).declare_clean_exit);
     assert!(plan_run_exit(true, true).declare_clean_exit);
 }
+
+mod persist_state_deadlock {
+    use std::sync::Arc;
+
+    use parking_lot::Mutex;
+
+    use super::*;
+    use crate::lock_hold::{TimedMutex, TimedRwLock};
+    use crate::multiplexer::commands::MuxState;
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::pty::manager::OutputBuffer;
+    use crate::session::store::SessionStore;
+    use crate::session::SessionState;
+    use crate::OutputBufferState;
+
+    /// Regression for rel#65: `save_and_sync_sidecars` (the lock pair
+    /// `persist_state` calls on every exit route) used to re-lock
+    /// `SessionState` from inside a `match` whose scrutinee held the guard
+    /// for the whole match, deadlocking on the non-reentrant parking_lot
+    /// mutex. Calling it directly — no `AppHandle`, no Tauri runtime — names
+    /// exactly the lock pair at fault instead of the shutdown path that
+    /// happens to contain it. This test must both COMPLETE (a regression
+    /// hangs forever, bounded only by the external test runner) and prove the
+    /// sidecar sync actually executed — a fix that merely stops calling the
+    /// sync would complete but fail the assertion below.
+    #[test]
+    fn save_and_sync_sidecars_completes_and_runs_the_scrollback_sync() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let mut mux_state = MultiplexerState::empty();
+        let ws = mux_state.create_workspace("ws".to_string(), None);
+        let live_tab = mux_state.create_tab(&ws.id).unwrap();
+        mux_state.link_pty(&live_tab, "pty-live".to_string());
+
+        let mut buf = OutputBuffer::new(65536);
+        buf.append("pty-live", b"live shutdown output");
+
+        let mux: MuxState = Arc::new(TimedRwLock::new("mux", mux_state));
+        let output_buf: OutputBufferState = Arc::new(TimedMutex::new("output_buf", buf));
+        let session: SessionState = Arc::new(Mutex::new(SessionStore::for_test_dir(
+            dir.path().to_path_buf(),
+        )));
+
+        // A deadlocked guard re-lock hangs here forever on unmodified develop.
+        save_and_sync_sidecars(&mux, &session, Some(&output_buf));
+
+        assert_eq!(
+            session
+                .lock()
+                .load_scrollback_tail(&live_tab)
+                .expect("save_and_sync_sidecars must have run the post-save scrollback sidecar sync"),
+            b"live shutdown output",
+        );
+    }
+}

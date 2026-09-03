@@ -51,7 +51,15 @@ fn record_toast_permission(state: PermissionState) {
 }
 
 /// The one seam onto the OS. tauri-plugin-notification's desktop build answers
-/// `Granted` from a stub, so a truthful macOS probe replaces this function alone.
+/// `Granted` from a stub on every platform, so Windows reads the shell's own
+/// toast switch instead of trusting the stub; a truthful macOS probe still
+/// needs to replace this function's other platform arm.
+#[cfg(windows)]
+fn ask_the_os(_app: &tauri::AppHandle) -> PermissionState {
+    windows_shell_permission()
+}
+
+#[cfg(not(windows))]
 fn ask_the_os(app: &tauri::AppHandle) -> PermissionState {
     app.notification()
         .request_permission()
@@ -59,8 +67,33 @@ fn ask_the_os(app: &tauri::AppHandle) -> PermissionState {
 }
 
 /// The same seam, reading rather than asking: it must never raise a prompt.
+#[cfg(windows)]
+fn read_the_os(_app: &tauri::AppHandle) -> Option<PermissionState> {
+    Some(windows_shell_permission())
+}
+
+#[cfg(not(windows))]
 fn read_the_os(app: &tauri::AppHandle) -> Option<PermissionState> {
     app.notification().permission_state().ok()
+}
+
+/// The real Windows answer: the shell's own Notifications switch, never the
+/// plugin's hardcoded `Granted` stub. An absent registry entry is the factory
+/// state, which presents toasts.
+#[cfg(windows)]
+fn windows_shell_permission() -> PermissionState {
+    permission_from_toast_switch(read_user_toast_switch())
+}
+
+/// Pure translation of the raw switch value, split out so the branch can be
+/// exercised without touching the registry or the plugin.
+#[cfg(any(windows, test))]
+fn permission_from_toast_switch(user_toast_switch: Option<u32>) -> PermissionState {
+    if shell_presents_toasts(user_toast_switch) {
+        PermissionState::Granted
+    } else {
+        PermissionState::Denied
+    }
 }
 
 /// Permission belongs to the enabling gesture: switching a surface ON asks the

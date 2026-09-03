@@ -326,6 +326,16 @@ function ChatComposerImpl({
   const [delayedBusyId, setDelayedBusyId] = useState<string | null>(null);
   const [scheduleBusy, setScheduleBusy] = useState(false);
   const [modelSuggestionDismissedFor, setModelSuggestionDismissedFor] = useState<string | null>(null);
+  // Screen-reader-visible mirror of showComposerError: the field's current
+  // content was rejected, until the user edits it again.
+  const [composerInvalid, setComposerInvalid] = useState(false);
+  const flagComposerError = useCallback(
+    (message: string) => {
+      setComposerInvalid(true);
+      showComposerError(message);
+    },
+    [showComposerError],
+  );
   const firstLine = input.split("\n")[0] || "";
   const modelCommandQuery = useMemo(() => {
     const match = firstLine.match(/^\/model\s+([^\n]*)$/i);
@@ -486,12 +496,12 @@ function ChatComposerImpl({
         }
         await sendRawToPty(`${formatModelSwitch(format, model.id)}\r`);
       } catch (e) {
-        showComposerError(e instanceof Error ? e.message : String(e));
+        flagComposerError(e instanceof Error ? e.message : String(e));
       } finally {
         refocusComposer();
       }
     },
-    [providerDescriptor, refocusComposer, sendRawToPty, setInput, showComposerError],
+    [flagComposerError, providerDescriptor, refocusComposer, sendRawToPty, setInput],
   );
 
   function completeModelDraft(model: ModelInfo) {
@@ -573,7 +583,7 @@ function ChatComposerImpl({
       && modelCommandQuery !== null
       && filteredModelOptions.length === 0
     ) {
-      showComposerError(modelSuggestionEmptyMessage);
+      flagComposerError(modelSuggestionEmptyMessage);
       refocusComposer();
       return;
     }
@@ -592,7 +602,7 @@ function ChatComposerImpl({
     if (allAttachments.length === 0 && composed.trim() === "/model") {
       setInput("");
       if (modelOptions.length === 0 || !providerDescriptor?.model_switch_format) {
-        showComposerError(
+        flagComposerError(
           providerDescriptor && modelOptions.length === 0
             ? `${providerDescriptor.display_name} does not publish switchable models.`
             : providerDescriptor
@@ -614,6 +624,7 @@ function ChatComposerImpl({
       onWillSendMessage();
       optimisticId = addOptimistic(composed);
     }
+    setComposerInvalid(false);
     setInput("");
     clearAttachments();
     refocusComposer();
@@ -654,11 +665,11 @@ function ChatComposerImpl({
         draft.recordedVoiceAttachments,
       );
       if (transcribeFailed) {
-        showComposerError(VOICE_TRANSCRIBE_ERROR);
+        flagComposerError(VOICE_TRANSCRIBE_ERROR);
         return;
       }
       if (draft.allAttachments.length === 0 && composed.trim() === "/model") {
-        showComposerError("Model picker cannot be scheduled.");
+        flagComposerError("Model picker cannot be scheduled.");
         return;
       }
       await createDelayedMessage(tabId, composed, scheduledAtMs);
@@ -668,7 +679,7 @@ function ChatComposerImpl({
       setDelayedQueueOpen(true);
       await refreshDelayedMessages();
     } catch (e) {
-      showComposerError(e instanceof Error ? e.message : String(e));
+      flagComposerError(e instanceof Error ? e.message : String(e));
     } finally {
       setScheduleBusy(false);
       refocusComposer();
@@ -833,7 +844,7 @@ function ChatComposerImpl({
             setDelayedQueueOpen(false);
           }}
           onSendWithAttachments={(paths) => void send(paths)}
-          onError={showComposerError}
+          onError={flagComposerError}
           sendDisabled={!input.trim() && attachments.length === 0}
           hasText={input.trim().length > 0 || attachments.length > 0}
         >
@@ -854,9 +865,13 @@ function ChatComposerImpl({
             data-testid="chat-composer"
             data-tab-id={tabId}
             aria-label="Message composer"
+            aria-invalid={composerInvalid}
             ref={textareaRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => {
+              setComposerInvalid(false);
+              setInput(e.target.value);
+            }}
             onBeforeInput={(e) => {
               recordComposerBeforeInput(e.nativeEvent.inputType || "beforeinput");
             }}

@@ -187,6 +187,70 @@ fn provider_updates_coalesce_into_one_live_actionable_record() {
     assert!(store.list(false).is_empty());
 }
 
+/// Regression for ct#379: a `provider_updates` mapping whose target record
+/// was evicted by the notification cap used to survive forever. Left in
+/// place, it can later be picked instead of a genuinely live mapping and
+/// stack a second visible "update available" record instead of collapsing
+/// onto the one that is still live.
+#[test]
+fn stale_provider_update_mappings_are_pruned_when_their_record_is_evicted() {
+    let mut store = NotificationStore::new(2);
+    let provenance = NotificationProvenance {
+        tab_id: Some("tab-1".into()),
+        tab_title: Some("Codex".into()),
+        workspace_id: Some("workspace-1".into()),
+        peer_name: None,
+    };
+    let action = |prompt: &str| NotificationAction::Invoke {
+        label: format!("Update {prompt}"),
+        command: codeterm_types::notification::DaemonCommand::RespondProviderUpdatePrompt,
+        args: Some(serde_json::json!({ "promptId": prompt, "accept": true })),
+    };
+
+    let first = store.add_provider_update(
+        "prompt-a".into(),
+        "Codex update available".into(),
+        "1.2.3 is ready".into(),
+        vec![action("prompt-a")],
+        provenance.clone(),
+    );
+    let id_a = match first {
+        DedupAdmission::Added(id) => id,
+        other => panic!("unexpected first admission: {other:?}"),
+    };
+
+    // Unrelated notification traffic pushes the store past its cap, evicting
+    // the oldest record — the provider-update record itself — while its
+    // prompt-a -> id_a mapping is left dangling.
+    store.add("filler 1".into(), None, NotificationSeverity::Info, None, None);
+    store.add("filler 2".into(), None, NotificationSeverity::Info, None, None);
+    assert!(
+        store.notification(&id_a).is_none(),
+        "setup: the provider-update record must actually be evicted"
+    );
+
+    let second = store.add_provider_update(
+        "prompt-b".into(),
+        "Codex update available".into(),
+        "1.2.4 is ready".into(),
+        vec![action("prompt-b")],
+        provenance,
+    );
+    let id_b = match second {
+        DedupAdmission::Added(id) => id,
+        other => panic!("unexpected second admission: {other:?}"),
+    };
+
+    assert_eq!(
+        store.provider_updates.len(),
+        1,
+        "the dead prompt-a mapping must be pruned once its record is gone — left in \
+         place, it can later mask the live prompt-b mapping and stack a duplicate \
+         notification instead of collapsing onto the one still live"
+    );
+    assert!(store.provider_updates.values().all(|id| id == &id_b));
+}
+
 /// Every test here is synchronous and clock-free by construction: needing a
 /// runtime or a time advance would prove a timer, not the mechanism.
 mod notification_admission {

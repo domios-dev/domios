@@ -124,6 +124,7 @@ export default function FloatingInput({ ptyId, agentType, pendingPrompt }: Float
           >
             <textarea
               ref={textareaRef}
+              aria-label="Message agent"
               value={input}
               onChange={handleInput}
               onKeyDown={handleKeyDown}
@@ -131,7 +132,7 @@ export default function FloatingInput({ ptyId, agentType, pendingPrompt }: Float
               onBlur={() => { if (!input) { if (lastSent) setVisible(false); } }}
               placeholder="Message agent... (Enter to send, Esc to close)"
               rows={1}
-              className="w-full bg-transparent text-xs outline-none resize-none leading-relaxed px-3 py-2"
+              className="w-full bg-transparent text-xs outline-none resize-none leading-relaxed px-3 py-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--ct-accent)]"
               style={{
                 color: "var(--ct-fg)",
                 minHeight: "32px",
