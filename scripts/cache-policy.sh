@@ -51,6 +51,28 @@ ct_forbid_mutable_cache_dir() {
   done
 }
 
+# SCCACHE_BASEDIRS makes sccache strip a path prefix from source paths before
+# hashing, so two builds under different absolute roots can hit the same cache
+# entry. That is unsafe for this repo: parallel worktrees share one
+# SCCACHE_DIR/server but each has its own (possibly diverged) sources at the
+# same relative paths, so a stripped basedir can return an artifact built from
+# a different worktree's sources (codeterm#327). Never derive or forward it —
+# see docs/BUILD.md#development.
+ct_reject_basedir_rewriting() {
+  if [ -n "${SCCACHE_BASEDIRS:-}" ]; then
+    echo "[cache-policy] WARNING: SCCACHE_BASEDIRS='${SCCACHE_BASEDIRS}' inherited from environment; unsetting." >&2
+    echo "[cache-policy] Basedir rewriting is disallowed for this repo: it can hand back a cache hit built from a different worktree's sources. See docs/BUILD.md." >&2
+  fi
+  unset SCCACHE_BASEDIRS
+}
+
+# Cache-key-relevant path scope once basedir rewriting is disabled: sccache
+# hashes the real absolute worktree path, so this is what makes two worktrees'
+# cache keys diverge. Used by scripts/check-sccache-basedir-isolation.sh.
+ct_effective_cache_key_scope() {
+  ct_abs_path "$(ct_repo_root)"
+}
+
 ct_configure_sccache() {
   [ "${CODETERM_USE_SCCACHE:-1}" = "0" ] && return 0
   command -v sccache >/dev/null 2>&1 || {
@@ -59,12 +81,12 @@ ct_configure_sccache() {
   }
   ct_verify_target_dir
   ct_forbid_mutable_cache_dir "${SCCACHE_DIR:-}"
+  ct_reject_basedir_rewriting
   export RUSTC_WRAPPER=sccache
-  [ -n "${SCCACHE_BASEDIRS:-}" ] || export SCCACHE_BASEDIRS="$(ct_repo_root)"
   echo "[cache-policy] sccache verified before build server start"
   echo "[cache-policy] RUSTC_WRAPPER=$RUSTC_WRAPPER"
   echo "[cache-policy] SCCACHE_DIR=${SCCACHE_DIR:-<default>}"
-  echo "[cache-policy] SCCACHE_BASEDIRS=${SCCACHE_BASEDIRS}"
+  echo "[cache-policy] SCCACHE_BASEDIRS=<disabled: per-worktree cache-key isolation, see docs/BUILD.md>"
   echo "[cache-policy] $(sccache --version)"
   sccache --start-server >/dev/null 2>&1 || true
   sccache --show-stats 2>/dev/null | sed -n '/Cache location/,$p' || true
@@ -81,12 +103,12 @@ ct_require_prestarted_sccache() {
     echo "[cache-policy] Start it once from the machine integration environment." >&2
     return 2
   fi
+  ct_reject_basedir_rewriting
   export RUSTC_WRAPPER=sccache
-  [ -n "${SCCACHE_BASEDIRS:-}" ] || export SCCACHE_BASEDIRS="$(ct_repo_root)"
   echo "[cache-policy] prestarted shared sccache verified"
   echo "[cache-policy] RUSTC_WRAPPER=$RUSTC_WRAPPER"
   echo "[cache-policy] SCCACHE_DIR=${SCCACHE_DIR:-<default>}"
-  echo "[cache-policy] SCCACHE_BASEDIRS=$SCCACHE_BASEDIRS"
+  echo "[cache-policy] SCCACHE_BASEDIRS=<disabled: per-worktree cache-key isolation, see docs/BUILD.md>"
   echo "[cache-policy] $(sccache --version)"
 }
 

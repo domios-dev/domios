@@ -4,7 +4,9 @@ Focused provider restore eval for dev CodeTerm on port 7686.
 
 This replaces the old broad `evals/session-restore` flow as the acceptance oracle for provider session restore. It creates one workspace named `RESTORE-MATRIX-<runid>`, attempts N tabs per system provider (`claude`, `codex`, `opencode`, `cursor`), sends a unique `RESTORE-MARKER-<uuid>` to each active tab, proves the marker materialized in that provider's session store before kill, hard-restarts dev, and requires API identity, `/chat` isolation, and a scoped ChatView UI-visible marker assertion.
 
-Run from the repo root with Git Bash:
+Run from the repo root with bash (Git Bash on Windows; native bash on macOS/Linux). The
+matrix workspace's scratch `cwd` is `C:/temp/RESTORE-MATRIX-<runid>` on Windows and
+`/tmp/RESTORE-MATRIX-<runid>` on macOS/Linux (`evals/_lib/lib.sh`'s `is_windows` switches it):
 
 ```bash
 bash evals/restore-matrix/run.sh                                  # defaults below
