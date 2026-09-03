@@ -1,4 +1,5 @@
 mod agent_access;
+mod dropped_keys;
 pub mod lane;
 pub mod schema;
 
@@ -275,6 +276,14 @@ fn load_config_uncached_at(path: &std::path::Path) -> Result<AppConfig, ()> {
             Ok(contents) => match toml::from_str::<AppConfig>(&contents) {
                 Ok(mut config) => {
                     let migrated_agent_access = agent_access::migrate(&mut config, &contents);
+                    let dropped_keys = dropped_keys::detect(&contents);
+                    if !dropped_keys.is_empty() {
+                        log::warn!(
+                            "[config] upgrade dropped keys with no replacement, still present in {}: {}",
+                            path.display(),
+                            dropped_keys.join(", ")
+                        );
+                    }
                     resolve_theme(&mut config);
                     normalize_runtime_defaults(&mut config);
                     // Mesh tab disabled → force offline. Tab is the on/off switch for the whole subsystem; flag is the runtime presence state.
@@ -723,6 +732,51 @@ enabled = true
         assert_eq!(
             config.integrations.voice_transcribe.active,
             schema::default_transcribe_active()
+        );
+    }
+
+    /// General config invariant: a key the current schema does not recognise
+    /// (a future field, or one dropped in this codebase's own history) is not
+    /// silently destroyed by a load-modify-save round trip. Per-provider
+    /// settings use `#[serde(flatten)] extra: HashMap<String, toml::Value>`
+    /// specifically so plugin-declared keys survive a schema that predates
+    /// them; this pins that the flatten bag actually round-trips.
+    #[test]
+    fn load_modify_save_round_trip_preserves_unrecognized_provider_keys() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("config.toml");
+        std::fs::write(
+            &path,
+            "[agents.claude]\nresume_sessions = true\nfuture_unknown_key = \"kept\"\n",
+        )
+        .unwrap();
+
+        let cache: ConfigCache = Mutex::new(None);
+        let mut config = load_config_cached(&path, &cache);
+        assert_eq!(
+            config
+                .agents
+                .get("claude")
+                .and_then(|p| p.extra.get("future_unknown_key"))
+                .and_then(|v| v.as_str()),
+            Some("kept"),
+            "an unrecognized key must survive the initial load"
+        );
+
+        config.font.size = 20; // unrelated modification the round trip must also keep
+        let toml_str = toml::to_string_pretty(&config).unwrap();
+        std::fs::write(&path, &toml_str).unwrap();
+
+        let reloaded: AppConfig = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(reloaded.font.size, 20);
+        assert_eq!(
+            reloaded
+                .agents
+                .get("claude")
+                .and_then(|p| p.extra.get("future_unknown_key"))
+                .and_then(|v| v.as_str()),
+            Some("kept"),
+            "the unrecognized key must still be present after save + reload"
         );
     }
 
