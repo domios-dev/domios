@@ -111,6 +111,45 @@ mod store_index_tests {
         }
     }
 
+    // rel#62: `sync-plugin-versions.mjs` bumps `version` on every release but
+    // historically left `minCodeterm` frozen at whatever it was first set to.
+    // A minCodeterm that never tracks its own plugin's version is a no-op gate:
+    // it can never block an app older than the build it ships with, so the
+    // channel always serves the absolute newest plugin build to every app
+    // regardless of version — the exact shape of rel#62's report.
+    #[test]
+    fn system_plugin_min_codeterm_tracks_its_own_version() {
+        let plugins_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins");
+        let text = std::fs::read_to_string(plugins_dir.join("channel.json"))
+            .expect("plugins/channel.json must exist (store index)");
+        let manifest: ChannelManifest =
+            serde_json::from_str(&text).expect("channel.json must parse as ChannelManifest");
+
+        for id in SYSTEM_PLUGIN_IDS {
+            let plugin = manifest
+                .plugins
+                .iter()
+                .find(|p| p.id == id)
+                .unwrap_or_else(|| panic!("{id} missing from the codeterm-core channel"));
+            assert_eq!(
+                plugin.min_codeterm.as_deref(),
+                plugin.version.as_deref(),
+                "{id}'s minCodeterm must track its own version — otherwise an app \
+                 older than this build is served a plugin it cannot run"
+            );
+
+            let rel = plugin.path.as_ref().expect("each channel plugin needs a path");
+            let pj = std::fs::read_to_string(plugins_dir.join(rel).join("plugin.json"))
+                .unwrap_or_else(|_| panic!("plugin.json missing for {id}"));
+            let pjv: serde_json::Value = serde_json::from_str(&pj).expect("plugin.json parses");
+            assert_eq!(
+                pjv.get("minCodeterm").and_then(|v| v.as_str()),
+                pjv.get("version").and_then(|v| v.as_str()),
+                "{id}/plugin.json's own minCodeterm must also track its version"
+            );
+        }
+    }
+
     #[test]
     fn default_system_channel_points_at_develop_plugins_index() {
         assert_eq!(
@@ -962,6 +1001,154 @@ exit /b 0
             );
 
             restore_env("CODETERM_VERSION", prev_v);
+        });
+    }
+
+    fn write_system_channel(
+        dir: &Path,
+        plugins: &[(&str, &str, &str, &str)], // (id, path, version, min_codeterm)
+    ) {
+        std::fs::create_dir_all(dir).unwrap();
+        let entries = plugins
+            .iter()
+            .map(|(id, path, version, min_codeterm)| {
+                serde_json::json!({
+                    "id": id,
+                    "version": version,
+                    "path": path,
+                    "minCodeterm": min_codeterm,
+                })
+            })
+            .collect::<Vec<_>>();
+        std::fs::write(
+            dir.join("channel.json"),
+            serde_json::json!({
+                "schemaVersion": 1,
+                "name": SYSTEM_CHANNEL_NAME,
+                "plugins": entries,
+            })
+            .to_string(),
+        )
+        .unwrap();
+        for (id, path, version, min_codeterm) in plugins {
+            let plugin_dir = dir.join(path);
+            std::fs::create_dir_all(&plugin_dir).unwrap();
+            std::fs::write(
+                plugin_dir.join("plugin.json"),
+                serde_json::json!({
+                    "id": id,
+                    "version": version,
+                    "displayName": id,
+                    "main": "plugin.js",
+                    "minCodeterm": min_codeterm,
+                })
+                .to_string(),
+            )
+            .unwrap();
+            std::fs::write(plugin_dir.join("plugin.js"), "module.exports = {};").unwrap();
+        }
+    }
+
+    // rel#62: the channel serves an older app the newest manifest that app can
+    // actually run, not the newest that exists — and an app blocked from a newer
+    // system-plugin build keeps the providers it already had rather than losing
+    // them. Assertions go by plugin id and on-disk install state, never by any
+    // wording in the manifest.
+    #[test]
+    fn old_app_keeps_codex_and_opencode_when_the_channel_outruns_it() {
+        with_data_root(|root| {
+            let prev_system_url = std::env::var("CODETERM_SYSTEM_PLUGIN_CHANNEL_URL").ok();
+            let prev_version = std::env::var("CODETERM_VERSION").ok();
+
+            let source = root.join("system-source");
+            std::env::set_var(
+                "CODETERM_SYSTEM_PLUGIN_CHANNEL_URL",
+                format!("file://{}", source.display()),
+            );
+            std::env::set_var("CODETERM_VERSION", "1.9.6");
+
+            // Baseline: the app's own bundled build — everything compatible.
+            write_system_channel(
+                &source,
+                &[
+                    ("claude", "provider-claude", "1.0.0", "1.0.0"),
+                    ("codex", "provider-codex", "1.0.0", "1.0.0"),
+                    ("opencode", "provider-opencode", "1.0.0", "1.0.0"),
+                ],
+            );
+            update_system_command(None).expect("baseline sync installs compatible providers");
+            for id in ["claude", "codex", "opencode"] {
+                assert!(
+                    plugin_dir(id).join("plugin.json").exists(),
+                    "{id} should be installed at baseline"
+                );
+            }
+
+            // The channel moves on to 1.10.3 and correctly declares that codex
+            // and opencode now require an app at least that new (the rel#62
+            // fix: minCodeterm tracks the plugin's own version instead of
+            // sitting frozen at 1.0.0). claude stays compatible.
+            write_system_channel(
+                &source,
+                &[
+                    ("claude", "provider-claude", "1.10.3", "1.0.0"),
+                    ("codex", "provider-codex", "1.10.3", "1.10.3"),
+                    ("opencode", "provider-opencode", "1.10.3", "1.10.3"),
+                ],
+            );
+
+            // The app is still 1.9.6: it is served the newest manifest it can
+            // run (claude updates), and codex/opencode are never touched.
+            let result = update_system_command(None)
+                .expect("a partially-compatible sync must not error out entirely");
+            assert_eq!(result["updated"], serde_json::json!(["claude"]));
+            let warnings: Vec<String> = result["warnings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|w| w.as_str().unwrap().to_string())
+                .collect();
+            assert!(warnings.iter().any(|w| w.contains("codex")), "{warnings:?}");
+            assert!(
+                warnings.iter().any(|w| w.contains("opencode")),
+                "{warnings:?}"
+            );
+
+            assert_eq!(
+                manifest_version(&plugin_dir("claude")).unwrap(),
+                Some("1.10.3".to_string()),
+                "claude should take the compatible update"
+            );
+            assert_eq!(
+                manifest_version(&plugin_dir("codex")).unwrap(),
+                Some("1.0.0".to_string()),
+                "codex must keep the version this app can actually run"
+            );
+            assert_eq!(
+                manifest_version(&plugin_dir("opencode")).unwrap(),
+                Some("1.0.0".to_string()),
+                "opencode must keep the version this app can actually run"
+            );
+
+            // Never take this on manifest wording: assert by plugin id that the
+            // real, on-disk (not the always-present virtual bundled row) entries
+            // for codex and opencode are still in the served provider set.
+            let listed = list_installed().unwrap();
+            let rows = listed["plugins"].as_array().unwrap();
+            for id in ["codex", "opencode"] {
+                let row = rows
+                    .iter()
+                    .find(|p| p["id"] == serde_json::json!(id))
+                    .unwrap_or_else(|| panic!("{id} missing from the served provider set"));
+                assert_eq!(
+                    row["state"],
+                    serde_json::json!("installed"),
+                    "{id} should be a real install, not a virtual placeholder"
+                );
+            }
+
+            restore_env("CODETERM_SYSTEM_PLUGIN_CHANNEL_URL", prev_system_url);
+            restore_env("CODETERM_VERSION", prev_version);
         });
     }
 }
