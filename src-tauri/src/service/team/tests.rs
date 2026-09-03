@@ -739,91 +739,6 @@ fn adopt_plan_destination_owner_avoids_both_team_gate() {
     assert_eq!(adopted.team_id.as_deref(), Some(destination_team.as_str()));
 }
 
-#[test]
-fn ordinary_close_preserves_team_but_explicit_close_removes_it() {
-    let (mut mux, team_id, orchestrator, planner, worker) = team_members();
-    let (_plan_dir, plan_store) = isolated_plan_store();
-    mux.close_tab(&orchestrator).unwrap();
-    mux.close_tab(&planner).unwrap();
-    mux.close_tab(&worker).unwrap();
-    assert!(mux.get_team(&team_id).is_some());
-    let events = crate::api::events::EventBroadcaster::new();
-    close_team_with_state_change(
-        &mut mux,
-        &events,
-        &plan_store,
-        &team_id,
-        &TeamMutationCaller::Human,
-        1,
-    )
-    .unwrap();
-    assert!(mux.get_team(&team_id).is_none());
-}
-
-#[test]
-fn close_team_unknown_and_repeat_are_structured_errors() {
-    let (mut mux, team_id, orchestrator, _, _) = team_members();
-    let (_plan_dir, plan_store) = isolated_plan_store();
-    let events = crate::api::events::EventBroadcaster::new();
-    assert!(close_team_with_state_change(
-        &mut mux,
-        &events,
-        &plan_store,
-        "team_missing",
-        &TeamMutationCaller::AgentTab(orchestrator.clone()),
-        1,
-    )
-    .unwrap_err()
-    .contains("not found"));
-    close_team_with_state_change(
-        &mut mux,
-        &events,
-        &plan_store,
-        &team_id,
-        &TeamMutationCaller::AgentTab(orchestrator.clone()),
-        1,
-    )
-    .unwrap();
-    assert!(close_team_with_state_change(
-        &mut mux,
-        &events,
-        &plan_store,
-        &team_id,
-        &TeamMutationCaller::AgentTab(orchestrator.clone()),
-        1,
-    )
-    .unwrap_err()
-    .contains("not found"));
-}
-
-#[test]
-fn close_team_removes_chat_backend_member_and_registry() {
-    let (mut mux, team_id, orchestrator, _, worker) = team_members();
-    let (_plan_dir, plan_store) = isolated_plan_store();
-    mux.get_tab_mut(&worker).unwrap().backing = TabBacking::ChatBackend {
-        plugin_id: "chat-backend".into(),
-        session_id: "session-1".into(),
-    };
-    let events = crate::api::events::EventBroadcaster::new();
-
-    let (_, cleanup, _) = close_team_with_state_change(
-        &mut mux,
-        &events,
-        &plan_store,
-        &team_id,
-        &TeamMutationCaller::AgentTab(orchestrator.clone()),
-        1,
-    )
-    .unwrap();
-
-    assert!(mux.get_team(&team_id).is_none());
-    assert!(mux.get_tab(&worker).is_none());
-    assert_eq!(
-        cleanup.chat_backings,
-        vec![("chat-backend".into(), "session-1".into())]
-    );
-}
-
 fn spawn_fixture_member(
     mux: &mut MultiplexerState,
     workspace_id: &str,
@@ -1178,3 +1093,5 @@ fn add_team_member_rejects_worker_foreign_and_unspawnable_without_mutation() {
     assert_eq!(mux.tab_count_in_workspace(&workspace_id), before_tabs);
     assert_eq!(mux.team_count(), before_teams);
 }
+
+mod close_lifecycle;

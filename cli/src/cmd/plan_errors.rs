@@ -264,6 +264,16 @@ Use spec/plan sections for plan rules or mem for durable preferences:\n\
             task_id.unwrap_or("<task_id>"),
             task_id.unwrap_or("<task_id>")
         )),
+        "review_continuation_attempt_not_found" => {
+            let task = data
+                .get("task_id")
+                .and_then(|v| v.as_str())
+                .or(task_id)
+                .unwrap_or("<task_id>");
+            Some(format!(
+                "✗ task '{task}' was found, but no single execution attempt on it resolves to bounce.\nfix: inspect its attempts, then retry:\n  codeterm plan task show {plan_id} {task}"
+            ))
+        }
         "write_pending" => render_write_pending(data, plan_id, task_id),
         "readback_mismatch" => render_readback_mismatch(data, plan_id, task_id),
         "io" => Some(render_io(data, plan_id, params)),
