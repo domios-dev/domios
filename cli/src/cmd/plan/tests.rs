@@ -624,3 +624,90 @@ mod plan_rpc {
         assert_eq!(error.message, "socket is gone");
     }
 }
+
+/// rel#67: `bounce`, `hold`, and `accept` are sibling `plan review` verbs that
+/// must all resolve the identical task reference. Neither the CLI nor these
+/// handlers ever interpret the reference locally — they forward it verbatim
+/// to the daemon's one shared resolver (`plan_refs::resolve_task`, exercised
+/// end to end in `src-tauri/.../socket/server/plan_refs.rs`) — so this test
+/// pins the CLI half of that contract: no verb may rewrite, trim, or
+/// substitute the reference before it reaches the wire.
+mod review_ref_forwarding {
+    use super::*;
+    use crate::args::plan::PlanReviewAction;
+    use crate::client::{RpcClient, SocketCallError};
+
+    #[derive(Default)]
+    struct Recorder {
+        calls: Vec<(String, Option<Value>)>,
+    }
+
+    impl RpcClient for Recorder {
+        fn call_detailed(
+            &mut self,
+            method: &str,
+            params: Option<Value>,
+        ) -> Result<Value, SocketCallError> {
+            self.calls.push((method.to_string(), params));
+            Ok(json!({
+                "plan_id": "pl_1",
+                "task_id": "resolved",
+                "milestone_id": "ms_1",
+                "task_name": "t",
+                "verdict": "Bounce",
+                "review_round": 1
+            }))
+        }
+    }
+
+    #[test]
+    fn bounce_hold_and_accept_forward_the_identical_task_reference() {
+        for reference in ["task_full_id_123", "task_pre", "handle-name"] {
+            let mut client = Recorder::default();
+            crate::cmd::plan::review_cmd::handle(
+                &mut client,
+                true,
+                PlanReviewAction::Bounce {
+                    plan_id: Some("pl_1".into()),
+                    task_id: reference.into(),
+                    note: "n".into(),
+                    changed_executable_surfaces: false,
+                    distinct_oracle: false,
+                },
+            )
+            .unwrap();
+            crate::cmd::plan::review_cmd::handle(
+                &mut client,
+                true,
+                PlanReviewAction::Hold {
+                    plan_id: Some("pl_1".into()),
+                    task_id: reference.into(),
+                    note: "n".into(),
+                },
+            )
+            .unwrap();
+            crate::cmd::plan::review_cmd::handle(
+                &mut client,
+                true,
+                PlanReviewAction::Accept {
+                    plan_id: Some("pl_1".into()),
+                    task_id: reference.into(),
+                    note: "n".into(),
+                    changed_executable_surfaces: false,
+                    distinct_oracle: false,
+                    residual_risk: None,
+                },
+            )
+            .unwrap();
+
+            assert_eq!(client.calls.len(), 3, "{reference}");
+            for (method, params) in &client.calls {
+                let params = params.as_ref().expect("params");
+                assert_eq!(
+                    params["task_id"], reference,
+                    "{method} must forward '{reference}' unchanged"
+                );
+            }
+        }
+    }
+}

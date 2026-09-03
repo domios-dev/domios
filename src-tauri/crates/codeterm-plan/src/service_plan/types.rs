@@ -58,6 +58,13 @@ pub enum PlanError {
     ReviewOracleScopeExpansion,
     ReviewOverrideIncomplete,
     ReviewNotInReview,
+    /// The task itself resolved, but the exact single execution attempt a
+    /// review verdict must act on did not — zero, multiple, or a stale
+    /// candidate. Distinct from `TaskNotFound` because the remedy is not "the
+    /// task does not exist", it is "inspect why the attempt isn't exact".
+    ReviewContinuationAttemptNotFound {
+        task_id: String,
+    },
     GateNotFound,
     GateAlreadyAnswered,
     GateRequiresQuestion,
@@ -253,6 +260,10 @@ impl fmt::Display for PlanError {
                 "review override requires non-empty owner, reason, and reproduction"
             ),
             PlanError::ReviewNotInReview => write!(f, "task is not in_review"),
+            PlanError::ReviewContinuationAttemptNotFound { task_id } => write!(
+                f,
+                "task '{task_id}' was found but has no single resolvable execution attempt to bounce; inspect its attempts with `codeterm plan task show <plan_id> {task_id}` before retrying"
+            ),
             PlanError::GateNotFound => write!(f, "decision gate not found"),
             PlanError::GateAlreadyAnswered => {
                 write!(f, "gate is already answered; answers are immutable")
@@ -433,6 +444,10 @@ impl PlanError {
                 serde_json::json!({ "type": "review_override_incomplete" })
             }
             PlanError::ReviewNotInReview => serde_json::json!({ "type": "review_not_in_review" }),
+            PlanError::ReviewContinuationAttemptNotFound { task_id } => serde_json::json!({
+                "type": "review_continuation_attempt_not_found",
+                "task_id": task_id
+            }),
             PlanError::GateNotFound => serde_json::json!({ "type": "gate_not_found" }),
             PlanError::GateAlreadyAnswered => {
                 serde_json::json!({ "type": "gate_already_answered" })

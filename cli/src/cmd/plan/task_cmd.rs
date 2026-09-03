@@ -308,8 +308,30 @@ pub(super) fn run_task(
                 }
             }
             if shown == 0 && !response["task_list_summary"].is_string() {
-                if let Some(message) = response.get("empty_reason").and_then(render_empty_reason) {
-                    response["task_list_message"] = json!(message);
+                if let Some(reason) = response.get("empty_reason").cloned() {
+                    let kind = reason
+                        .get("kind")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string();
+                    if matches!(
+                        kind.as_str(),
+                        EMPTY_REASON_PLAN_NOT_FOUND
+                            | EMPTY_REASON_PLAN_ARCHIVED
+                            | EMPTY_REASON_PLAN_OUTSIDE_PROJECT
+                    ) {
+                        // These three name a plan the caller explicitly asked
+                        // for and cannot be listed as requested — a refusal,
+                        // not an empty result. Rendering it as an empty list
+                        // at exit 0 is exactly how a mis-rooted plan (#384)
+                        // looked healthy through an entire drafting pass.
+                        let detail = render_empty_reason(&reason)
+                            .unwrap_or_else(|| "task list refused".to_string());
+                        return Err(format!("{kind}: {detail}"));
+                    }
+                    if let Some(message) = render_empty_reason(&reason) {
+                        response["task_list_message"] = json!(message);
+                    }
                 }
             }
             Ok(Some(response))

@@ -163,19 +163,25 @@ fn hidden_summary_names_each_hidden_status_and_all_flag() {
     assert!(summary.contains("Use --all"), "{summary}");
 }
 
+/// ct#384: a plan outside the requested project is a refusal, not an empty
+/// result — rendering it at exit 0 is exactly how a mis-rooted plan looked
+/// healthy through an entire drafting pass. `run_task` must surface it as an
+/// `Err` (which the CLI's `handle_plan` turns into a non-zero exit) naming the
+/// machine-readable reason code, still built from the daemon's own report.
 #[test]
-fn empty_list_message_comes_from_the_daemon_without_a_second_lookup() {
+fn plan_outside_project_is_a_refusal_not_an_empty_result() {
     let mut client = FakeRpc::scripted([empty_with_reason(mismatch_reason())]);
 
-    let out = run_task(&mut client, true, list_action(Some("done")))
-        .expect("empty list is a valid result")
-        .expect("json returns the value");
+    let error = run_task(&mut client, true, list_action(Some("done")))
+        .expect_err("a plan outside its project must refuse, not report success");
 
     assert_eq!(client.methods(), vec!["task.list"]);
-    let message = out["task_list_message"].as_str().expect("rendered message");
-    assert!(message.contains(DAEMON_PLAN_PROJECT), "{message}");
-    assert!(message.contains(DAEMON_CALLER_PROJECT), "{message}");
-    assert_eq!(out["empty_reason"], mismatch_reason());
+    assert!(
+        error.starts_with(EMPTY_REASON_PLAN_OUTSIDE_PROJECT),
+        "{error}"
+    );
+    assert!(error.contains(DAEMON_PLAN_PROJECT), "{error}");
+    assert!(error.contains(DAEMON_CALLER_PROJECT), "{error}");
 }
 
 #[test]
@@ -190,12 +196,12 @@ fn filter_miss_never_renders_as_a_project_mismatch() {
     assert!(!miss.contains(DAEMON_CALLER_PROJECT), "{miss}");
 }
 
+/// These reason kinds mean "nothing matched", not "the request was refused":
+/// the plan was found, in scope, and listable — exit 0 with a human hint
+/// stays correct for all of them.
 #[test]
-fn every_empty_reason_kind_renders_a_message_and_exits_zero() {
+fn empty_scope_and_filter_reasons_render_a_message_and_exit_zero() {
     for reason in [
-        json!({ "kind": EMPTY_REASON_PLAN_NOT_FOUND, "plan_id": "pl_1" }),
-        json!({ "kind": EMPTY_REASON_PLAN_ARCHIVED, "plan_id": "pl_1" }),
-        mismatch_reason(),
         json!({ "kind": EMPTY_REASON_NO_PLANS_IN_SCOPE, "requested_project": DAEMON_CALLER_PROJECT }),
         json!({ "kind": EMPTY_REASON_NO_TASKS_IN_SCOPE, "plan_id": "pl_1" }),
         json!({ "kind": EMPTY_REASON_ALL_TASKS_INACTIVE, "hidden": 4 }),
@@ -209,6 +215,27 @@ fn every_empty_reason_kind_renders_a_message_and_exits_zero() {
             .expect("json returns the value");
 
         assert!(out["task_list_message"].is_string(), "{kind}");
+    }
+}
+
+/// ct#384 + the exit-0 sweep: `plan_not_found`, `plan_archived`, and
+/// `plan_outside_project` name a plan the caller explicitly asked for that
+/// cannot be listed as requested. Each must refuse (non-zero exit) and name
+/// its own reason code — never collapse into a friendly empty list.
+#[test]
+fn plan_scoped_refusal_reasons_error_and_name_their_code() {
+    for reason in [
+        json!({ "kind": EMPTY_REASON_PLAN_NOT_FOUND, "plan_id": "pl_1" }),
+        json!({ "kind": EMPTY_REASON_PLAN_ARCHIVED, "plan_id": "pl_1" }),
+        mismatch_reason(),
+    ] {
+        let kind = reason["kind"].as_str().expect("kind").to_string();
+        let mut client = FakeRpc::scripted([empty_with_reason(reason)]);
+
+        let error = run_task(&mut client, true, list_action(Some("done")))
+            .expect_err(&format!("{kind} must refuse, not report success"));
+
+        assert!(error.starts_with(&kind), "{kind}: {error}");
     }
 }
 
