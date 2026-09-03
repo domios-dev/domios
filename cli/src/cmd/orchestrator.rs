@@ -165,6 +165,10 @@ fn status_snapshot(
             "agents": state.get("live_agents").cloned().unwrap_or_else(|| json!([])),
             "heartbeat": state.get("heartbeat").cloned().unwrap_or_else(|| json!({})),
         },
+        // Blocked-status lanes plus dependency-gated pending lanes — the same
+        // derivation `plan next` and the heartbeat use. See
+        // `codeterm_plan::service_plan::state::outstanding_blocked_count`.
+        "blocked_or_gated_count": state.get("blocked_or_gated_count").cloned().unwrap_or(json!(0)),
         "drift": state.get("drift").cloned().unwrap_or_else(|| json!({})),
         "next_actions": state.get("next_actions").cloned().unwrap_or_else(|| json!([])),
         "reminder": state.get("reminder").cloned().unwrap_or_else(|| json!({})),
@@ -199,12 +203,20 @@ fn compact_status(value: &Value) -> Value {
             })
         })
         .collect();
+    // `blocked_or_gated_count` is the shared derivation (see
+    // codeterm_plan::service_plan::state::outstanding_blocked_count); it
+    // includes dependency-gated pending lanes, not just literal Blocked
+    // status, so it can exceed the `live_lanes.blocked` array length.
+    let blocked_or_gated = value
+        .get("blocked_or_gated_count")
+        .and_then(Value::as_u64)
+        .unwrap_or_else(|| count(&["live_lanes", "blocked"]) as u64);
     json!({
         "plan_id": value.get("plan_id").cloned().unwrap_or(Value::Null),
         "tab_id": value.get("tab_id").cloned().unwrap_or(Value::Null),
         "live_lanes": {
             "open": count(&["live_lanes", "open"]),
-            "blocked": count(&["live_lanes", "blocked"]),
+            "blocked": blocked_or_gated,
             "agents": count(&["live_lanes", "agents"]),
         },
         "drift": drift,
@@ -537,6 +549,31 @@ mod tests {
             rendered.contains("codeterm task show task_a && codeterm plan task close pl_1 task_a")
         );
         assert!(rendered.contains("codeterm plan reconcile pl_1"));
+    }
+
+    // codeterm#397: six lanes gated behind an in_progress task must not
+    // render as `blocked=0` just because `live_lanes.blocked` (literal
+    // TaskStatus::Blocked only) stays empty.
+    #[test]
+    fn status_renderer_counts_dependency_gated_lanes_as_blocked() {
+        let rendered = render_status(&compact_status(&json!({
+            "plan_id": "pl_1",
+            "tab_id": "tab1",
+            "live_lanes": {
+                "open": [
+                    {"task_id": "task_audit"},
+                    {"task_id": "task_a"}, {"task_id": "task_b"}, {"task_id": "task_c"},
+                    {"task_id": "task_d"}, {"task_id": "task_e"}, {"task_id": "task_f"}
+                ],
+                "blocked": [],
+                "agents": [{"tab_id": "worker1"}]
+            },
+            "blocked_or_gated_count": 6,
+            "drift": {"total": 0, "items": []},
+            "next_actions": []
+        })));
+
+        assert!(rendered.contains("live_lanes: open=7 blocked=6 agents=1"));
     }
 
     #[test]

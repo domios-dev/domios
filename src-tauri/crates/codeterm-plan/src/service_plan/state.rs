@@ -155,6 +155,23 @@ pub fn task_projection(plan: &Plan, task: &crate::plan::Task) -> TaskProjection 
     }
 }
 
+/// The single count of tasks the Orchestrator still owes attention to beyond
+/// ordinary dispatch: every task explicitly `Blocked`, plus every `Pending`
+/// task still gated on an unmet dependency. `plan next`, the orchestrator
+/// status projection, and the heartbeat all call this one function instead
+/// of each deciding independently what "blocked" means — a fixture change
+/// here moves all three surfaces together.
+pub fn outstanding_blocked_count(plan: &Plan) -> usize {
+    plan.tasks
+        .iter()
+        .filter(|task| {
+            task.status == TaskStatus::Blocked
+                || (task.status == TaskStatus::Pending
+                    && !task_projection(plan, task).dependency_waits.is_empty())
+        })
+        .count()
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct LiveAgent {
     pub task_id: String,
@@ -205,6 +222,9 @@ pub struct PlanStateSnapshot {
     pub lanes: Vec<lane_rows::LaneRow>,
     pub lane_history_count: usize,
     pub blocked_lanes: Vec<OpenLane>,
+    // Blocked-status tasks plus dependency-gated pending tasks — see
+    // `outstanding_blocked_count`. Always >= blocked_lanes.len().
+    pub blocked_or_gated_count: usize,
     pub live_agents: Vec<LiveAgent>,
     pub recent_strides: Vec<StrideSnapshot>,
     pub pending_regression_gates: Vec<super::milestone_gates::RegressionGate>,
@@ -595,6 +615,7 @@ pub fn build_plan_state_snapshot(
         open_lanes,
         lanes,
         lane_history_count,
+        blocked_or_gated_count: outstanding_blocked_count(plan),
         blocked_lanes,
         live_agents,
         recent_strides: recent_strides(plan),
