@@ -74,6 +74,27 @@ fn notify_permission_gate_refuses_until_the_os_grants() {
     );
 }
 
+/// Regression for ct#324: the plugin's desktop `permission_state`/
+/// `request_permission` are stubs that always answer `Granted`. The real
+/// Windows answer must come from the shell's own toast switch, not that stub.
+#[test]
+fn notify_permission_branches_on_the_real_switch_not_the_plugin_stub() {
+    assert_eq!(
+        permission_from_toast_switch(Some(0)),
+        PermissionState::Denied,
+        "the plugin's stub always answers Granted; the real switch must override it"
+    );
+    assert_eq!(
+        permission_from_toast_switch(Some(1)),
+        PermissionState::Granted
+    );
+    assert_eq!(
+        permission_from_toast_switch(None),
+        PermissionState::Granted,
+        "an absent registry entry is the factory default, which presents toasts"
+    );
+}
+
 #[test]
 fn notify_permission_where_delivery_cannot_happen_the_fallback_window_is_reachable() {
     let attempted = Cell::new(false);
