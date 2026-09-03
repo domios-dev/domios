@@ -1,80 +1,64 @@
 name: release-manifest-validate
 
-# Asserts that the public auto-update manifest (latest.json hosted on the
-# rollacode/codeterm-releases mirror) declares the right artifact extensions
-# per platform. Tauri's updater silently fails if it gets a .dmg / .msi where
-# it expects an updater bundle (.app.tar.gz / .exe / .AppImage for our
-# current Tauri v2 `createUpdaterArtifacts=true` configuration),
-# so this guard catches a broken manifest before users try to update.
+# Asserts that the public auto-update manifest is complete and installable
+# before it is trusted: every platform this release ships must actually carry
+# a verified entry, or the release is not "done" no matter how many of its
+# platform legs went green on their own. codeterm#383: release.yml,
+# release-windows.yml and release-linux.yml each verify only what THEY
+# published; nothing verified the release as a whole was complete. This
+# workflow is that coordinating gate, and it fails the run (non-zero exit)
+# rather than warn — a gate that only warns is not a gate.
 #
 # Trigger:
-#   - workflow_dispatch for manual re-checks. The self-hosted release workflow
-#     already verifies updater URLs during publish, so this workflow is fallback-only.
-
+#   - workflow_run, once each publishing leg (release.yml, release-windows,
+#     release-linux) completes for a release-* tag push. All three legs are
+#     independent, uncoordinated tag-triggered workflows, so they fire this
+#     workflow separately and out of order. An early leg's run can observe a
+#     genuinely incomplete matrix and fail — that failure is expected and
+#     self-clears once the last leg's completion re-triggers a run that sees
+#     the full matrix. A leg that never completes (a real build failure)
+#     leaves this workflow red for good, which is the point: an incomplete
+#     artifact matrix must fail loudly in CI, not silently ship, and must not
+#     depend on a human running a checklist.
+#   - workflow_dispatch for manual re-checks.
 on:
+  workflow_run:
+    workflows:
+      - "Release (self-hosted build machine)"
+      - "release-windows"
+      - "release-linux"
+    types:
+      - completed
   workflow_dispatch:
 
 jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
-      - name: Fetch latest.json from public mirror and validate per-platform URLs
-        shell: bash
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.22.0'
+
+      # Reuses the same verifier release.yml's own publish-time gate uses:
+      # --require-platform fails the run the moment any listed platform is
+      # missing from the manifest, and every present entry's signature is
+      # checked against the bytes actually served (a 200 proves nothing on
+      # its own — see scripts/verify-updater-manifest.mjs).
+      - name: Validate latest.json covers every shipped platform
         run: |
-          set -euo pipefail
-          URL="https://github.com/rollacode/codeterm-releases/releases/latest/download/latest.json"
-          JSON=$(curl -sfL "$URL")
-          echo "$JSON" | jq .
+          node scripts/verify-updater-manifest.mjs \
+            --manifest "https://github.com/rollacode/codeterm-releases/releases/latest/download/latest.json?cb=$(date +%s)" \
+            --require-platform darwin-aarch64 \
+            --require-platform darwin-x86_64 \
+            --require-platform windows-x86_64 \
+            --require-platform linux-x86_64
 
-          darwin_arm=$(echo "$JSON" | jq -r '.platforms["darwin-aarch64"].url // empty')
-          darwin_x64=$(echo "$JSON" | jq -r '.platforms["darwin-x86_64"].url // empty')
-          windows=$(echo "$JSON" | jq -r '.platforms["windows-x86_64"].url // empty')
-          linux=$(echo "$JSON" | jq -r '.platforms["linux-x86_64"].url // .platforms["linux-aarch64"].url // empty')
-
-          fail=0
-          if [ -z "$darwin_arm" ]; then
-            echo "::error::manifest missing darwin-aarch64 entry"
-            fail=1
-          else
-            echo "$darwin_arm" | grep -qE '/CodeTerm_aarch64\.app\.tar\.gz(\?|$)' || { echo "::error::darwin-aarch64 points to the wrong artifact: $darwin_arm"; fail=1; }
-          fi
-          if [ -z "$darwin_x64" ]; then
-            echo "::error::manifest missing darwin-x86_64 entry"
-            fail=1
-          else
-            echo "$darwin_x64" | grep -qE '/CodeTerm_x64\.app\.tar\.gz(\?|$)' || { echo "::error::darwin-x86_64 points to the wrong artifact: $darwin_x64"; fail=1; }
-          fi
-          if [ -z "$windows" ]; then
-            echo "::error::manifest missing windows-x86_64 entry"
-            fail=1
-          else
-            echo "$windows" | grep -qE '\.exe(\?|$)' || { echo "::error::windows url missing .exe: $windows"; fail=1; }
-          fi
-          if [ -z "$linux" ]; then
-            echo "::error::manifest missing linux updater entry"
-            fail=1
-          else
-            echo "$linux" | grep -qE '\.AppImage(\?|$)' || { echo "::error::linux url missing .AppImage: $linux"; fail=1; }
-          fi
-
-          if [ "$fail" -ne 0 ]; then exit 1; fi
-          echo "OK — manifest looks correct"
-
-      - name: Fetch latest-deb.json and validate Debian updater URL
-        shell: bash
+      - name: Validate latest-deb.json covers its platform
         run: |
-          set -euo pipefail
-          URL="https://github.com/rollacode/codeterm-releases/releases/latest/download/latest-deb.json"
-          JSON=$(curl -sfL "$URL")
-          echo "$JSON" | jq .
-
-          linux=$(echo "$JSON" | jq -r '.platforms["linux-x86_64"].url // empty')
-          if [ -z "$linux" ]; then
-            echo "::error::latest-deb.json missing linux-x86_64 entry"
-            exit 1
-          fi
-          echo "$linux" | grep -qE '\.deb(\?|$)' || {
-            echo "::error::debian manifest linux url missing .deb: $linux"
-            exit 1
-          }
-          echo "OK — Debian manifest looks correct"
+          node scripts/verify-updater-manifest.mjs \
+            --manifest "https://github.com/rollacode/codeterm-releases/releases/latest/download/latest-deb.json?cb=$(date +%s)" \
+            --require-platform linux-x86_64

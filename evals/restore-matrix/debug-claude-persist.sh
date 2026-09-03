@@ -10,21 +10,26 @@ source "$REPO_ROOT/evals/_lib/lib.sh"
 
 RUN="dbg$(date +%s 2>/dev/null || echo 0)"
 WS_NAME="RM-DEBUG-$RUN"
-CWD="C:/temp/$WS_NAME/rm-claude-1"
+if is_windows; then
+  WS_BASE="C:/temp/$WS_NAME"
+else
+  WS_BASE="/tmp/$WS_NAME"
+fi
+CWD="$WS_BASE/rm-claude-1"
 MARKER="RESTORE-MARKER-DEBUG-$RUN"
 mkdir -p "$CWD"
 
 echo "== create workspace $WS_NAME"
-WS_ID=$(dc workspace create "$WS_NAME" --cwd "C:/temp/$WS_NAME" --json | python -c "import json,sys;print(json.load(sys.stdin)['id'])")
+WS_ID=$(dc workspace create "$WS_NAME" --cwd "$WS_BASE" --json | python3 -c "import json,sys;print(json.load(sys.stdin)['id'])")
 echo "ws=$WS_ID"
 
 echo "== spawn claude tab (haiku)"
-TAB=$(dc agent spawn claude --workspace "$WS_ID" --cwd "$CWD" --title rm-claude-1 --model haiku --json | python -c "import json,sys;print(json.load(sys.stdin)['tab_id'])")
+TAB=$(dc agent spawn claude --workspace "$WS_ID" --cwd "$CWD" --title rm-claude-1 --model haiku --json | python3 -c "import json,sys;print(json.load(sys.stdin)['tab_id'])")
 echo "tab=$TAB"
 
 echo "== send marker prompt"
 curl -s --max-time 60 -X POST -H "$CODETERM_DEV_AUTH_HEADER" -H "Content-Type: application/json" \
-  --data "$(python -c "import json,sys;print(json.dumps({'text':'Reply with exactly '+sys.argv[1]+' and nothing else.','enter':True}))" "$MARKER")" \
+  --data "$(python3 -c "import json,sys;print(json.dumps({'text':'Reply with exactly '+sys.argv[1]+' and nothing else.','enter':True}))" "$MARKER")" \
   "http://127.0.0.1:7686/api/tabs/$TAB/send" > /dev/null
 echo "sent at t=0"
 

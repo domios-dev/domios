@@ -21,6 +21,10 @@ pub struct HeartbeatShowResult {
     pub plan_id: String,
     pub heartbeat: OrchestratorHeartbeat,
     pub reinjection: String,
+    // Same derivation `plan next` and orchestrator status use — see
+    // `service_plan::state::outstanding_blocked_count`. A structured count,
+    // not text, so callers never have to parse `reinjection` to know it.
+    pub blocked_or_gated_count: usize,
 }
 
 fn gen_id() -> String {
@@ -167,6 +171,21 @@ fn reflect_every_gates() -> u32 {
     *REFLECT_EVERY_GATES.get().unwrap_or(&5)
 }
 
+// Same derivation `plan next` and orchestrator status use — see
+// `service_plan::state::outstanding_blocked_count`. Rendered so a plan whose
+// only notable state is gated/blocked work doesn't silently drop that
+// heartbeat entirely — codeterm#397.
+fn render_outstanding_gated(plan: &Plan, out: &mut String) {
+    let count = super::state::outstanding_blocked_count(plan);
+    if count == 0 {
+        return;
+    }
+    out.push_str(&format!(
+        "Outstanding blocked/gated: {count} task(s) — see `codeterm plan next {}`.\n",
+        plan.id
+    ));
+}
+
 fn render_open_gates(plan: &Plan, now_ms: u64, out: &mut String) {
     let open: Vec<_> = plan.gates.iter().filter(|g| g.is_open()).collect();
     if open.is_empty() {
@@ -250,6 +269,7 @@ fn render_heartbeat(
     let has_reflection =
         !super::reflection::pending_reflections(plan, reflect_every_gates()).is_empty();
     let has_digests = !extra_digest_lines.is_empty();
+    let has_outstanding_gated = super::state::outstanding_blocked_count(plan) > 0;
     if !has_learnings
         && !has_running_loops
         && !has_competitive_attempts
@@ -259,6 +279,7 @@ fn render_heartbeat(
         && !has_review_gate
         && !has_reflection
         && !has_digests
+        && !has_outstanding_gated
     {
         return String::new();
     }
@@ -284,6 +305,7 @@ fn render_heartbeat(
     render_competitive_attempts(plan, &mut out);
     render_running_loops(loops, &mut out);
     render_open_gates(plan, now_ms(), &mut out);
+    render_outstanding_gated(plan, &mut out);
     if has_digests {
         out.push_str("Digests:\n");
         for line in extra_digest_lines
@@ -538,6 +560,7 @@ impl PlanStore {
         Ok(HeartbeatShowResult {
             plan_id: plan.id.clone(),
             reinjection: render_heartbeat(&plan, &heartbeat, &plan.loops, &[]),
+            blocked_or_gated_count: super::state::outstanding_blocked_count(&plan),
             heartbeat,
         })
     }

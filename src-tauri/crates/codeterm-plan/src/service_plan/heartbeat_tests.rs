@@ -1,5 +1,5 @@
 use super::{NewTask, PlanStore};
-use crate::plan::{AgentRef, OrchestratorRef, PlanMode, PlannerRef};
+use crate::plan::{AgentRef, OrchestratorRef, PlanMode, PlannerRef, TaskStatus};
 
 fn store_with_plan(owner: &str) -> (tempfile::TempDir, PlanStore, String) {
     let dir = tempfile::tempdir().unwrap();
@@ -603,4 +603,164 @@ fn heartbeat_renders_digest_lines_without_other_state() {
     assert!(text.contains("Digests:"));
     assert!(text.contains("5 reports await your verdict"));
     assert!(text.contains("claude: 62% weekly"));
+}
+
+/// codeterm#397: `plan next`, orchestrator status, and the heartbeat must
+/// report the SAME outstanding-work count for the exact shape the report
+/// named as under-counted — one task in_progress gating six pending tasks,
+/// plus an ordinary explicit blocked task and an in_review task thrown in to
+/// prove those statuses are not mistaken for gating. A fixture change (the
+/// gate clearing) must move all three together, proving one derivation
+/// rather than three that happen to agree today.
+#[test]
+fn outstanding_work_is_one_shared_derivation_across_next_status_and_heartbeat() {
+    let (_dir, store, plan_id) = store_with_plan("orch-audit");
+
+    let audit_id = store
+        .add_task(
+            &plan_id,
+            NewTask {
+                name: "audit".into(),
+                kind: "implement".into(),
+                ..Default::default()
+            },
+            20,
+        )
+        .unwrap();
+    store
+        .with_plan(&plan_id, 21, |plan| {
+            plan.tasks
+                .iter_mut()
+                .find(|t| t.id == audit_id)
+                .unwrap()
+                .status = TaskStatus::InProgress;
+            Ok(())
+        })
+        .unwrap();
+
+    for i in 0u64..6 {
+        store
+            .add_task(
+                &plan_id,
+                NewTask {
+                    name: format!("gated-{i}"),
+                    kind: "implement".into(),
+                    depends_on: vec![audit_id.clone()],
+                    ..Default::default()
+                },
+                22 + i,
+            )
+            .unwrap();
+    }
+
+    let review_id = store
+        .add_task(
+            &plan_id,
+            NewTask {
+                name: "in review".into(),
+                kind: "implement".into(),
+                ..Default::default()
+            },
+            40,
+        )
+        .unwrap();
+    store
+        .with_plan(&plan_id, 41, |plan| {
+            plan.tasks
+                .iter_mut()
+                .find(|t| t.id == review_id)
+                .unwrap()
+                .status = TaskStatus::InReview;
+            Ok(())
+        })
+        .unwrap();
+
+    let blocked_id = store
+        .add_task(
+            &plan_id,
+            NewTask {
+                name: "blocked".into(),
+                kind: "implement".into(),
+                ..Default::default()
+            },
+            42,
+        )
+        .unwrap();
+    store
+        .with_plan(&plan_id, 43, |plan| {
+            plan.tasks
+                .iter_mut()
+                .find(|t| t.id == blocked_id)
+                .unwrap()
+                .status = TaskStatus::Blocked;
+            Ok(())
+        })
+        .unwrap();
+
+    fn assert_outstanding(store: &PlanStore, plan_id: &str, expected: usize) {
+        let plan = store.get(plan_id).unwrap();
+        // The heartbeat's own derivation, called directly as heartbeat.rs
+        // does — not re-derived here.
+        let heartbeat_count = super::state::outstanding_blocked_count(&plan);
+        assert_eq!(heartbeat_count, expected);
+
+        // The orchestrator status / plan next projection.
+        let coverage = crate::plan::coverage::compute_coverage_report(&plan);
+        let snapshot = super::state::build_plan_state_snapshot(
+            &plan,
+            coverage,
+            vec![],
+            vec![],
+            vec![],
+            &std::collections::HashSet::new(),
+            None,
+            50,
+        );
+        assert_eq!(snapshot.blocked_or_gated_count, expected);
+        assert_eq!(
+            snapshot.blocked_or_gated_count, heartbeat_count,
+            "orchestrator status and heartbeat must agree without re-deriving"
+        );
+
+        // The heartbeat RPC surface (`plan.heartbeat.show`), structured, not
+        // rendered text.
+        let shown = store.show_heartbeat(Some(plan_id), None, None).unwrap();
+        assert_eq!(shown.blocked_or_gated_count, expected);
+    }
+
+    // 1 explicit blocked + 6 dependency-gated pending; the in_review task and
+    // the in_progress audit task are neither.
+    assert_outstanding(&store, &plan_id, 7);
+
+    let plan = store.get(&plan_id).unwrap();
+    let coverage = crate::plan::coverage::compute_coverage_report(&plan);
+    let snapshot = super::state::build_plan_state_snapshot(
+        &plan,
+        coverage,
+        vec![],
+        vec![],
+        vec![],
+        &std::collections::HashSet::new(),
+        None,
+        50,
+    );
+    let waiting = snapshot
+        .next_actions
+        .iter()
+        .filter(|action| action.kind == super::next_actions::NextActionKind::WaitingOnDependency)
+        .count();
+    assert_eq!(waiting, 6, "plan next must name all six gated lanes");
+
+    // Fixture change: clear the gate. All three surfaces must move together
+    // down to just the one explicit blocked task.
+    store
+        .close_task(
+            &plan_id,
+            &audit_id,
+            Some("done"),
+            AgentRef::from_tab("orch-audit"),
+            60,
+        )
+        .unwrap();
+    assert_outstanding(&store, &plan_id, 1);
 }
