@@ -191,6 +191,36 @@ recorded decision, not an omission nobody noticed.
 A failed verification is uploaded too, so a release that could not be verified leaves a record
 saying so rather than silence.
 
+**Coordinating gate across all three legs (codeterm#383).** `release.yml`, `release-windows.yml`
+and `release-linux.yml` are independent, uncoordinated tag-triggered workflows: each verifies only
+what it itself published, so nothing verified the release as a whole was complete before serving
+it — a staggered publish could leave `latest.json` live with only some platforms mirrored.
+`release-manifest-validate.yml` closes that gap: it now runs on `workflow_run` after **each** of
+the three legs completes (in addition to `workflow_dispatch` for manual re-checks), and re-runs
+`scripts/verify-updater-manifest.mjs --require-platform ...` against the live public mirror for
+both `latest.json` (all four platforms) and `latest-deb.json` (`linux-x86_64`). Because the three
+legs finish independently and out of order, an early leg's re-check can observe a genuinely
+incomplete matrix and fail — that failure is expected and self-clears once the last leg's
+completion triggers a run that sees the full matrix. A leg that never completes leaves this
+workflow red for good, which is the point: it fails loudly in CI rather than warn, and does not
+depend on a human running it as a checklist.
+
+**Client-side platform gate (codeterm-releases#47, retitled).** The release-side trigger for #47
+was already resolved; the surviving client-side half lives in `src-tauri/src/update/manifest.rs`
+(`offered_version`) — a client is only ever offered an artifact that exists for its own platform,
+even when a newer version genuinely exists in the manifest. This is the other half of the same
+hazard #383 covers: fixing the publisher does not close the client, because the window reopens on
+any staggered publish where the manifest is live before every platform's artifact is.
+
+**Plugin channel version compatibility (codeterm-releases#62).** `scripts/sync-plugin-versions.mjs`
+now keeps `minCodeterm` locked to each of `claude`/`codex`/`opencode`'s own `version` in both
+`plugins/provider-<id>/plugin.json` and `plugins/channel.json`, on every release. Previously
+`minCodeterm` was set once and never synced, so it stayed frozen while `version` kept climbing —
+a no-op compatibility gate that let the channel serve every app the absolute newest plugin build
+regardless of how old that app was. `cursor` and `chat-preprocessor` stay outside this sync (see
+`AGENTS.md`'s plugin-capability-discipline section), so a clean `npm run check:versions` is not
+proof those two are current.
+
 ## 5. Rerunning a failed workflow — without retagging
 
 A failed or cancelled run at the **same commit** the tag already points at does not need a new
@@ -480,4 +510,4 @@ node scripts/sync-release-notes.mjs --backfill 10
 The command refuses missing mirror releases, empty generated notes, and bodies too short to be
 meaningful. It then writes the exact same Markdown to both repositories.
 
-<!-- revision: 36 -->
+<!-- revision: 37 -->
