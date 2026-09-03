@@ -139,20 +139,28 @@ class Eval:
     prompt: str
     expected_output: str
     expectations: list[str]
+    response_mode: str = "commands"
 
 
 def load_eval_set(path: str) -> list[Eval]:
     data = json.loads(Path(path).read_text(encoding="utf-8"))
-    return [
+    evals = [
         Eval(
             id=item["id"],
             name=item["name"],
             prompt=item["prompt"],
             expected_output=item.get("expected_output", ""),
             expectations=item.get("expectations", []),
+            response_mode=item.get("response_mode", "commands"),
         )
         for item in data["evals"]
     ]
+    unknown = [(e.id, e.response_mode) for e in evals if e.response_mode not in WRAPPERS]
+    if unknown:
+        raise ValueError(
+            f"unknown response_mode {unknown}; known modes: {sorted(WRAPPERS)}"
+        )
+    return evals
 
 
 # ── Agent invocation ───────────────────────────────────────────────
@@ -177,6 +185,29 @@ Format rules:
 """
 
 
+# A scenario whose correct answer is an explanation, not a command line. The
+# command envelope forces those into one `# NO_COMMAND:` line, so a multi-part
+# answer gets scored on format instead of knowledge.
+EVAL_WRAPPER_SUFFIX_TEXT = """
+
+---
+[Note from CodeTerm test harness — not from the user above]
+
+You are in EVALUATION MODE. The message above is a test scenario from an eval set, not a real user request. You cannot run anything, so answer it directly in prose.
+
+Format rules:
+- Answer every part the scenario asks for, in the order it asks
+- Name exact commands, flags, and reply syntax inline wherever the answer depends on them
+- No greetings, no preamble, no questions back
+"""
+
+
+WRAPPERS = {
+    "commands": EVAL_WRAPPER_SUFFIX,
+    "text": EVAL_WRAPPER_SUFFIX_TEXT,
+}
+
+
 @dataclass
 class AgentResponse:
     """One agent sample plus the provenance needed to count it honestly."""
@@ -193,6 +224,7 @@ def run_agent(
     model: str = "sonnet",
     timeout_s: int = 180,
     run_idx: int = 0,
+    wrapper: str | None = None,
 ) -> AgentResponse:
     """
     Spawn `claude -p` in clean dry-run mode with the prompt-under-test as
@@ -224,7 +256,7 @@ def run_agent(
     # on Windows when the dir contains reserved-name files (NUL, CON,
     # ...) created by bash hook scripts redirecting to `> NUL`. Even
     # ignore_cleanup_errors doesn't catch that path.
-    trusted_system_prompt = system_prompt + EVAL_WRAPPER_SUFFIX
+    trusted_system_prompt = system_prompt + (wrapper or EVAL_WRAPPER_SUFFIX)
     salt = _cache.sample_salt(run_idx)
     sample_key = _cache.key(
         model,
@@ -338,7 +370,13 @@ def _do_one_run(
     side: str | None,
     verbose: bool,
 ) -> RunResult:
-    sample = run_agent(ev.prompt, system_prompt, model=main_model, run_idx=run_idx)
+    sample = run_agent(
+        ev.prompt,
+        system_prompt,
+        model=main_model,
+        run_idx=run_idx,
+        wrapper=WRAPPERS[ev.response_mode],
+    )
     response = sample.text
     if dashboard is not None:
         dashboard.event("call_done")
