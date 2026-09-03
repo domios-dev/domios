@@ -806,6 +806,8 @@ mod dropped_enter_tests;
 #[cfg(test)]
 mod submission_matrix;
 #[cfg(test)]
+mod paste_encoding_tests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod turn_signal_tests;
