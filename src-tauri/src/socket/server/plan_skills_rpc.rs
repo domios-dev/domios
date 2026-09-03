@@ -423,7 +423,10 @@ mod tests {
             json!({ "plan_id": "plan_missing", "slug": "deploy" }),
         )
         .unwrap_err();
-        assert_eq!(unknown_show.code, crate::socket::server::error_codes::NOT_FOUND);
+        assert_eq!(
+            unknown_show.code,
+            crate::socket::server::error_codes::NOT_FOUND
+        );
         assert_eq!(unknown_show.data.unwrap()["type"], "ref_not_found");
 
         let failing_plan = store
