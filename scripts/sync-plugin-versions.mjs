@@ -33,6 +33,11 @@ updateTomlPackageVersion(path.join(repoRoot, "cli", "Cargo.toml"));
 for (const id of providers) {
   updateJson(path.join(repoRoot, "plugins", `provider-${id}`, "plugin.json"), (json) => {
     json.version = version;
+    // codeterm-releases#62: minCodeterm must track this plugin's own version,
+    // not sit frozen at whatever it was first set to. These three providers
+    // ship version-locked to the app (see AGENTS.md #5), so an app older than
+    // this build can never correctly run this build's plugin bundle.
+    json.minCodeterm = version;
     return json;
   });
   updateJson(path.join(repoRoot, "plugins", `provider-${id}`, "package.json"), (json) => {
@@ -52,6 +57,7 @@ updateJson(path.join(repoRoot, "plugins", "channel.json"), (json) => {
   for (const plugin of json.plugins ?? []) {
     if (providers.includes(plugin.id)) {
       plugin.version = version;
+      plugin.minCodeterm = version;
     }
   }
   return json;
