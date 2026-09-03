@@ -276,10 +276,19 @@ pub async fn check_stage_deb_update(
     let endpoint = Url::parse(&endpoint_str)
         .map_err(|e| format!("invalid manifest URL '{}': {}", endpoint_str, e))?;
 
-    let updater = app
+    // Pin the target explicitly, matching the plugin apply path: without it the
+    // updater plugin falls back to its own default OS/arch detection, which is
+    // never wrong for a plain Linux x86_64 host today but leaves "which artifact
+    // this client can install" implicit rather than driven by the one platform
+    // key the rest of the updater uses.
+    let mut builder = app
         .updater_builder()
         .endpoints(vec![endpoint.clone()])
-        .map_err(|e| format!("failed to set updater endpoint: {}", e))?
+        .map_err(|e| format!("failed to set updater endpoint: {}", e))?;
+    if let Some(target) = manifest::current_platform_key() {
+        builder = builder.target(target);
+    }
+    let updater = builder
         .build()
         .map_err(|e| format!("failed to build updater: {}", e))?;
 
@@ -292,7 +301,7 @@ pub async fn check_stage_deb_update(
         return Ok(DebianUpdatePlan::NoUpdate);
     };
 
-    if !update.download_url.path().ends_with(".deb") {
+    if !is_debian_package_url(&update.download_url) {
         return Err(format!(
             "Debian updater refused non-.deb payload: {}",
             update.download_url
@@ -667,29 +676,43 @@ impl CommandRunner for RealCommandRunner {
 async fn diagnose_no_update(endpoint: &str, local_version: &str) {
     match manifest::fetch(endpoint).await {
         Ok(m) => {
-            let plat_key = manifest::current_platform_key().unwrap_or("<unknown>");
-            let has_payload = m.platforms.contains_key(plat_key);
+            let plat_key = manifest::current_platform_key();
+            let has_payload = plat_key.is_some_and(|key| m.platforms.contains_key(key));
             log::warn!(
                 "[updater] manual manifest probe: remote_version={} platform_key={} has_payload_for_platform={} platforms={:?}",
                 m.version,
-                plat_key,
+                plat_key.unwrap_or("<unknown>"),
                 has_payload,
                 m.platforms.keys().collect::<Vec<_>>(),
             );
-            match manifest::diff(local_version, &m) {
+            // A client is only ever offered an artifact that exists for its own
+            // platform (rel#47), so this diagnostic reflects the same rule the
+            // real apply path relies on, not a bare version compare.
+            match manifest::offered_version(local_version, &m, plat_key) {
                 Ok(Some(v)) => log::error!(
-                    "[updater] DIAGNOSTIC: manual compare says local {} < remote {} (UPDATE AVAILABLE) but plugin returned None — likely missing/mismatched platform key '{}' or signature issue",
-                    local_version, v, plat_key,
+                    "[updater] DIAGNOSTIC: manual compare says local {} < remote {} with a payload for '{}' (UPDATE AVAILABLE) but plugin returned None — likely a signature issue",
+                    local_version, v, plat_key.unwrap_or("<unknown>"),
                 ),
-                Ok(None) => log::info!(
+                Ok(None) if has_payload => log::info!(
                     "[updater] manual compare confirms local {} >= remote {} — already up to date",
                     local_version, m.version,
+                ),
+                Ok(None) => log::info!(
+                    "[updater] manual compare: remote {} has no payload for platform '{}' — nothing to offer this client",
+                    m.version, plat_key.unwrap_or("<unknown>"),
                 ),
                 Err(e) => log::error!("[updater] manual diff parse error: {}", e),
             }
         }
         Err(e) => log::warn!("[updater] manual manifest fetch failed: {}", e),
     }
+}
+
+/// The Debian updater must never hand `dpkg -i` anything but the `.deb` bytes
+/// it was verified to fetch. `Url::path()` is percent-encoded but unaffected
+/// here since GitHub release asset names are already URL-safe.
+fn is_debian_package_url(url: &Url) -> bool {
+    url.path().ends_with(".deb")
 }
 
 #[cfg(test)]
@@ -1025,5 +1048,32 @@ mod debian_tests {
     #[test]
     fn appimage_is_not_debian() {
         assert_ne!(InstallMethod::AppImage, InstallMethod::Deb);
+    }
+
+    // The exact shape `build-updater-fragment.py` / release-linux.yml's Debian
+    // fragment step publishes: a versioned .deb asset under the public mirror's
+    // release-download path. This must be accepted, not refused.
+    #[test]
+    fn genuine_debian_release_asset_url_is_accepted() {
+        let url = Url::parse(
+            "https://github.com/rollacode/codeterm-releases/releases/download/v1.10.9/CodeTerm_1.10.9_amd64.deb",
+        )
+        .unwrap();
+        assert!(is_debian_package_url(&url));
+    }
+
+    #[test]
+    fn appimage_or_tarball_url_is_still_refused() {
+        let appimage = Url::parse(
+            "https://github.com/rollacode/codeterm-releases/releases/download/v1.10.9/CodeTerm_1.10.9_amd64.AppImage",
+        )
+        .unwrap();
+        assert!(!is_debian_package_url(&appimage));
+
+        let wrapped = Url::parse(
+            "https://github.com/rollacode/codeterm-releases/releases/download/v1.10.9/CodeTerm_1.10.9_amd64.deb.tar.gz",
+        )
+        .unwrap();
+        assert!(!is_debian_package_url(&wrapped));
     }
 }

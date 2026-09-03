@@ -245,14 +245,71 @@ class ReleaseNotesContractTest(unittest.TestCase):
         self.assertIn("--tag", parsed[syncing[0]].get("run", ""))
 
 
-class ManifestValidateTriggerTest(unittest.TestCase):
-    """#47 is closeable only if this workflow runs at release time. It does not:
-    it is manual-only, and no safe published-release trigger exists yet."""
+RELEASE_MANIFEST_VALIDATE = "release-manifest-validate.yml"
 
-    def test_workflow_is_manual_only(self):
+# The three independent, uncoordinated tag-triggered legs that publish the
+# release. release-manifest-validate.yml must re-run after each of them
+# completes so an incomplete matrix is caught no matter which leg finishes
+# last (codeterm#383).
+PUBLISHING_WORKFLOW_NAMES = (
+    "Release (self-hosted build machine)",
+    "release-windows",
+    "release-linux",
+)
+
+
+class ManifestValidateTriggerTest(unittest.TestCase):
+    """codeterm#383: a gate that only ever runs on workflow_dispatch is not a
+    release-time gate — it is a checklist nobody is required to run. This
+    workflow must fire on its own after every publishing leg completes, and
+    must actually fail the run (not just print a warning) when the matrix it
+    finds is incomplete."""
+
+    def test_workflow_triggers_after_every_publishing_leg_completes(self):
         self.assertEqual(
-            triggers(read("release-manifest-validate.yml")),
-            {"workflow_dispatch"},
-            "release-manifest-validate.yml gained a trigger; re-check whether it can run "
-            "before every platform has mirrored before treating it as a release-time gate",
+            triggers(read(RELEASE_MANIFEST_VALIDATE)),
+            {"workflow_run", "workflow_dispatch"},
+            "release-manifest-validate.yml must run automatically after each publishing "
+            "leg completes (workflow_run), in addition to workflow_dispatch for manual "
+            "re-checks — a manual-only trigger is a checklist, not a gate",
+        )
+
+    def test_workflow_run_watches_every_publishing_leg(self):
+        text = read(RELEASE_MANIFEST_VALIDATE)
+        for name in PUBLISHING_WORKFLOW_NAMES:
+            self.assertIn(
+                f'"{name}"',
+                text,
+                f"release-manifest-validate.yml's workflow_run trigger does not name "
+                f"{name!r}; an incomplete matrix from that leg would never be re-checked",
+            )
+
+    def test_latest_json_validation_covers_every_shipped_platform(self):
+        found = verifier_steps(read(RELEASE_MANIFEST_VALIDATE))
+        self.assertTrue(
+            found,
+            "release-manifest-validate.yml no longer invokes the updater signature "
+            "verifier for latest.json — a format-only check is not proof of installability",
+        )
+        covered = set()
+        for step in found:
+            covered |= required_platforms(step)
+        for platform in RELEASE_PLATFORMS:
+            self.assertIn(
+                platform,
+                covered,
+                f"release-manifest-validate.yml's latest.json check does not require "
+                f"{platform}; an incomplete matrix on that platform would pass silently",
+            )
+
+    def test_debian_manifest_validation_requires_its_platform(self):
+        found = verifier_steps(read(RELEASE_MANIFEST_VALIDATE))
+        covered = set()
+        for step in found:
+            covered |= required_platforms(step)
+        self.assertIn(
+            "linux-x86_64",
+            covered,
+            "release-manifest-validate.yml must require linux-x86_64 somewhere "
+            "(latest-deb.json's only platform) or a missing Debian artifact ships silently",
         )
