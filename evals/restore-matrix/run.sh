@@ -25,7 +25,11 @@ print(uuid.uuid4().hex[:10])
 PY
 )"
 WORKSPACE_NAME="RESTORE-MATRIX-$RUN_ID"
-WORKSPACE_CWD="C:/temp/$WORKSPACE_NAME"
+if is_windows; then
+  WORKSPACE_CWD="C:/temp/$WORKSPACE_NAME"
+else
+  WORKSPACE_CWD="/tmp/$WORKSPACE_NAME"
+fi
 RUN_DIR="$EVAL_LIB_OUT_BASE/restore-matrix-$RUN_ID"
 MANIFEST="$RUN_DIR/manifest.json"
 SLOTS_TSV="$RUN_DIR/slots.tsv"
