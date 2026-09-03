@@ -837,7 +837,6 @@ fn close_team_with_state_change_using<F>(
 where
     F: FnMut(&mut MultiplexerState, &str) -> Result<Vec<String>, String>,
 {
-    authorize_team_manager(mux, team_id, caller)?;
     let member_tab_ids: Vec<String> = mux
         .snapshot()
         .tabs
@@ -845,6 +844,7 @@ where
         .filter(|tab| tab.team_id.as_deref() == Some(team_id))
         .map(|tab| tab.id.clone())
         .collect();
+    authorize_team_close(mux, team_id, caller, &member_tab_ids)?;
     let chat_backings = member_tab_ids
         .iter()
         .filter_map(|tab_id| match mux.get_tab(tab_id)?.backing.clone() {
@@ -967,6 +967,29 @@ fn authorize_team_manager(
         ));
     }
     Ok(())
+}
+
+/// Close is the one Team mutation a zero-member Team must still be able to
+/// satisfy: the ordinary member-authority check below requires the caller to
+/// currently BE a member, which a Team with no members can never again make
+/// true. Closing an empty Team is the normal end of its life, not a mutation
+/// that needs an existing member's authority — there is nothing left to
+/// protect. Every other mutation (rename, add member, adopt a plan) keeps the
+/// stricter `authorize_team_manager` gate.
+fn authorize_team_close(
+    mux: &MultiplexerState,
+    team_id: &str,
+    caller: &TeamMutationCaller,
+    member_tab_ids: &[String],
+) -> Result<(), String> {
+    if mux.get_team(team_id).is_none() {
+        return Err(format!("Team {team_id} not found"));
+    }
+    reject_remote_team_mutation(mux, team_id)?;
+    if member_tab_ids.is_empty() {
+        return Ok(());
+    }
+    authorize_team_manager(mux, team_id, caller)
 }
 
 fn authorize_team_mutation(

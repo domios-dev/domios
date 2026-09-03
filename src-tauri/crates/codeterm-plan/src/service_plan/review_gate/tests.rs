@@ -1145,4 +1145,5 @@ fn stale_review_escalation_is_idempotent() {
     assert!(!not_stale_yet);
 }
 
+mod bounce_ref_resolution;
 mod qa_waves;
