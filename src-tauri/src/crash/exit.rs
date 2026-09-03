@@ -48,7 +48,11 @@ pub fn persist_state(app: &tauri::AppHandle) {
         (app.try_state::<MuxState>(), app.try_state::<SessionState>())
     {
         let snapshot = mux.write().to_session_snapshot();
-        match session.lock().save(&snapshot) {
+        // The guard must drop before this match runs: a match scrutinee's
+        // temporaries live for the whole match, and the Ok arm re-locks the
+        // same non-reentrant parking_lot mutex via the sidecar sync.
+        let save_result = session.lock().save(&snapshot);
+        match save_result {
             Ok(outcome) => {
                 log::info!("[shutdown] session snapshot saved");
                 crate::session::scrollback_sync::sync_scrollback_sidecars_after_save(app, &outcome);

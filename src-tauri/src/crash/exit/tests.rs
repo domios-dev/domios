@@ -48,3 +48,63 @@ fn only_a_genuine_quit_declares_clean_exit_on_macos() {
     assert!(!plan_run_exit(true, false).declare_clean_exit);
     assert!(plan_run_exit(true, true).declare_clean_exit);
 }
+
+mod persist_state_deadlock {
+    use std::sync::Arc;
+
+    use parking_lot::Mutex;
+    use tauri::Manager;
+
+    use super::*;
+    use crate::lock_hold::{TimedMutex, TimedRwLock};
+    use crate::multiplexer::commands::MuxState;
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::pty::manager::OutputBuffer;
+    use crate::session::store::SessionStore;
+    use crate::session::SessionState;
+    use crate::OutputBufferState;
+
+    /// Regression for rel#65: `persist_state` used to re-lock `SessionState`
+    /// from inside a `match` whose scrutinee held the guard for the whole
+    /// match, deadlocking on the non-reentrant parking_lot mutex. This test
+    /// must both COMPLETE (a regression hangs forever, bounded only by the
+    /// external test runner) and prove the sidecar sync actually executed —
+    /// a fix that merely stops calling the sync would complete but fail the
+    /// assertion below.
+    #[test]
+    fn persist_state_completes_and_runs_scrollback_sidecar_sync() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let mut mux_state = MultiplexerState::empty();
+        let ws = mux_state.create_workspace("ws".to_string(), None);
+        let live_tab = mux_state.create_tab(&ws.id).unwrap();
+        mux_state.link_pty(&live_tab, "pty-live".to_string());
+
+        let mut buf = OutputBuffer::new(65536);
+        buf.append("pty-live", b"live shutdown output");
+
+        let mux: MuxState = Arc::new(TimedRwLock::new("mux", mux_state));
+        let output_buf: OutputBufferState = Arc::new(TimedMutex::new("output_buf", buf));
+        let session: SessionState = Arc::new(Mutex::new(SessionStore::for_test_dir(
+            dir.path().to_path_buf(),
+        )));
+
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        app.handle().manage(mux);
+        app.handle().manage(output_buf);
+        app.handle().manage(session.clone());
+
+        // A deadlocked guard re-lock hangs here forever on unmodified develop.
+        persist_state(app.handle());
+
+        assert_eq!(
+            session
+                .lock()
+                .load_scrollback_tail(&live_tab)
+                .expect("persist_state must have run the post-save scrollback sidecar sync"),
+            b"live shutdown output",
+        );
+    }
+}

@@ -1,5 +1,5 @@
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
@@ -425,6 +425,16 @@ impl NotificationStore {
         if let Some(id) = self.provider_updates.get(&prompt_id) {
             return DedupAdmission::Duplicate(id.clone());
         }
+        // A mapping whose target record no longer exists — evicted by the
+        // notification cap, or cleared — is not a live collapse target.
+        // Left in place, it silently falls through below and opens a SECOND
+        // notification while the dead mapping lingers: the collapse this
+        // registry exists for stops working. Drop dead mappings before
+        // deciding whether one is still live to coalesce onto.
+        let live_ids: HashSet<&str> = self.notifications.iter().map(|n| n.id.as_str()).collect();
+        self.provider_updates
+            .retain(|_, id| live_ids.contains(id.as_str()));
+
         if let Some(id) = self.provider_updates.values().next().cloned() {
             if let Some(notification) = self.notifications.iter_mut().find(|item| item.id == id) {
                 notification.title = "Provider updates available".to_string();
