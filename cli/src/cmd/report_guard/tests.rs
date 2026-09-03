@@ -770,3 +770,26 @@ fn only_a_manager_role_is_exempt_from_the_task_half_of_binding() {
     assert!(!role_owns_plan_without_task(Some("Worker")));
     assert!(!role_owns_plan_without_task(None));
 }
+
+/// ct#385 diagnosis (no code change here — see the task report): reproduces
+/// `cli/src/cmd/agent.rs`'s `agent report` composition of these two helpers
+/// line for line. A Planner tab (CODETERM_ROLE=Manager) bound only to a plan
+/// (--plan, no --task) is NOT refused — codeterm#371's exemption already
+/// covers this on this source tree, so the reported refusal does not
+/// reproduce here. An unbound tab (no plan, no task, no role) stays refused.
+#[test]
+fn planner_plan_only_binding_is_not_refused_but_an_unbound_tab_still_is() {
+    let task_bound = |role_env: Option<&str>, has_task: bool| {
+        has_task || role_owns_plan_without_task(role_env)
+    };
+    assert!(worker_binding_resolved(
+        false,
+        true,
+        task_bound(Some("Manager"), false)
+    ));
+    assert!(!worker_binding_resolved(
+        false,
+        false,
+        task_bound(None, false)
+    ));
+}
