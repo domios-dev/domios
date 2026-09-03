@@ -311,6 +311,45 @@ mod tests {
         assert_eq!(std::fs::read_dir(caller.path()).unwrap().count(), 0);
     }
 
+    /// codeterm#396: the heartbeat's own skill registry — the exact structure
+    /// `render_heartbeat` reads from, not rendered prose — must contain a
+    /// skill written through the daemon-side write path. Asserted by slug.
+    #[test]
+    fn plan_skill_write_is_visible_to_the_heartbeat_registry_by_slug() {
+        let daemon_root = tempfile::tempdir().unwrap();
+        let project = tempfile::tempdir().unwrap();
+        crate::service::plan::paths::mark_test_project_root(project.path());
+        let store = PlanStore::new_for_test(daemon_root.path());
+        let plan = store
+            .create_plan_for_team(
+                "Skills".into(),
+                project.path().display().to_string(),
+                OrchestratorRef::from_tab("orch"),
+                "team-heartbeat-visibility".into(),
+                vec![],
+                1,
+            )
+            .unwrap();
+
+        rpc(
+            &store,
+            "plan.skills.new",
+            json!({
+                "plan_id": plan.id,
+                "slug": "issue-verdict-evidence",
+                "rationale": "written for heartbeat visibility regression"
+            }),
+        )
+        .unwrap();
+
+        let refreshed = store.get(&plan.id).unwrap();
+        let summaries = crate::service::plan::skill_registry::list_plan_skill_summaries(&refreshed);
+        assert!(
+            summaries.iter().any(|s| s.slug == "issue-verdict-evidence"),
+            "a just-written plan skill must be visible to the heartbeat's skill registry: {summaries:?}"
+        );
+    }
+
     #[test]
     fn plan_skills_rpc_failures_are_structured_and_atomic() {
         let daemon_root = tempfile::tempdir().unwrap();
@@ -363,13 +402,29 @@ mod tests {
         .unwrap();
         assert_eq!(shown["skill"]["ledger"].as_array().unwrap().len(), 1);
 
+        // A genuine refusal on the plan-skill read verbs must carry the same
+        // machine-readable exit signal every other plan RPC carries — never
+        // downgraded to a bare, uncoded failure — codeterm#397's exit-code
+        // requirement extended to these read verbs.
         let unknown = rpc(
             &store,
             "plan.skills.list",
             json!({ "plan_id": "plan_missing" }),
         )
         .unwrap_err();
-        assert!(unknown.data.is_some());
+        assert_eq!(unknown.code, crate::socket::server::error_codes::NOT_FOUND);
+        let unknown_data = unknown.data.unwrap();
+        assert_eq!(unknown_data["type"], "ref_not_found");
+        assert_eq!(unknown_data["kind"], "plan");
+
+        let unknown_show = rpc(
+            &store,
+            "plan.skills.show",
+            json!({ "plan_id": "plan_missing", "slug": "deploy" }),
+        )
+        .unwrap_err();
+        assert_eq!(unknown_show.code, crate::socket::server::error_codes::NOT_FOUND);
+        assert_eq!(unknown_show.data.unwrap()["type"], "ref_not_found");
 
         let failing_plan = store
             .create_plan_for_team(

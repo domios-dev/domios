@@ -545,7 +545,11 @@ pub(super) fn dispatch(
         "plan.next" => {
             let id = plan_refs::resolve_plan(store, params)?;
             let snapshot = svc.build_plan_state(&id, now).map_err(plan_rpc_err)?;
-            Ok(json!({ "plan_id": id, "next_actions": snapshot.next_actions }))
+            Ok(json!({
+                "plan_id": id,
+                "next_actions": snapshot.next_actions,
+                "blocked_or_gated_count": snapshot.blocked_or_gated_count,
+            }))
         }
 
         "plan.reconcile" => {
