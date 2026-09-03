@@ -53,7 +53,6 @@ mod persist_state_deadlock {
     use std::sync::Arc;
 
     use parking_lot::Mutex;
-    use tauri::Manager;
 
     use super::*;
     use crate::lock_hold::{TimedMutex, TimedRwLock};
@@ -64,15 +63,18 @@ mod persist_state_deadlock {
     use crate::session::SessionState;
     use crate::OutputBufferState;
 
-    /// Regression for rel#65: `persist_state` used to re-lock `SessionState`
-    /// from inside a `match` whose scrutinee held the guard for the whole
-    /// match, deadlocking on the non-reentrant parking_lot mutex. This test
-    /// must both COMPLETE (a regression hangs forever, bounded only by the
-    /// external test runner) and prove the sidecar sync actually executed —
-    /// a fix that merely stops calling the sync would complete but fail the
-    /// assertion below.
+    /// Regression for rel#65: `save_and_sync_sidecars` (the lock pair
+    /// `persist_state` calls on every exit route) used to re-lock
+    /// `SessionState` from inside a `match` whose scrutinee held the guard
+    /// for the whole match, deadlocking on the non-reentrant parking_lot
+    /// mutex. Calling it directly — no `AppHandle`, no Tauri runtime — names
+    /// exactly the lock pair at fault instead of the shutdown path that
+    /// happens to contain it. This test must both COMPLETE (a regression
+    /// hangs forever, bounded only by the external test runner) and prove the
+    /// sidecar sync actually executed — a fix that merely stops calling the
+    /// sync would complete but fail the assertion below.
     #[test]
-    fn persist_state_completes_and_runs_scrollback_sidecar_sync() {
+    fn save_and_sync_sidecars_completes_and_runs_the_scrollback_sync() {
         let dir = tempfile::tempdir().unwrap();
 
         let mut mux_state = MultiplexerState::empty();
@@ -89,21 +91,14 @@ mod persist_state_deadlock {
             dir.path().to_path_buf(),
         )));
 
-        let app = tauri::test::mock_builder()
-            .build(tauri::test::mock_context(tauri::test::noop_assets()))
-            .unwrap();
-        app.handle().manage(mux);
-        app.handle().manage(output_buf);
-        app.handle().manage(session.clone());
-
         // A deadlocked guard re-lock hangs here forever on unmodified develop.
-        persist_state(app.handle());
+        save_and_sync_sidecars(&mux, &session, Some(&output_buf));
 
         assert_eq!(
             session
                 .lock()
                 .load_scrollback_tail(&live_tab)
-                .expect("persist_state must have run the post-save scrollback sidecar sync"),
+                .expect("save_and_sync_sidecars must have run the post-save scrollback sidecar sync"),
             b"live shutdown output",
         );
     }
