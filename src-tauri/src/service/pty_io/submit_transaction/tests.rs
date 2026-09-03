@@ -1182,3 +1182,49 @@ fn messenger_report_planner_send_share_submit_transaction() {
         assert_eq!(submit_calls, 1);
     }
 }
+
+/// The recovery report used to key off `submit_anomaly`, which is
+/// `two_phase && !submit_observed` — so a recovered submit could never be
+/// reported and `recovered=` had exactly one reachable value.
+#[test]
+fn recovery_reporting_admits_a_successful_recovery() {
+    let recovered = InjectionResult {
+        bytes_written: 12,
+        echo_observed: true,
+        submit_observed: true,
+        submit_anomaly: false,
+        submit_key_writes: 2,
+        elapsed: std::time::Duration::from_millis(1),
+    };
+    assert!(recovery_attempted(&recovered));
+    assert!(recovered.submit_observed);
+}
+
+#[test]
+fn recovery_reporting_admits_a_failed_recovery() {
+    let failed = InjectionResult {
+        bytes_written: 12,
+        echo_observed: true,
+        submit_observed: false,
+        submit_anomaly: true,
+        submit_key_writes: 3,
+        elapsed: std::time::Duration::from_millis(1),
+    };
+    assert!(recovery_attempted(&failed));
+    assert!(!failed.submit_observed);
+}
+
+#[test]
+fn recovery_reporting_ignores_a_submit_that_needed_no_recovery() {
+    for key_writes in [0usize, 1] {
+        let clean = InjectionResult {
+            bytes_written: 12,
+            echo_observed: true,
+            submit_observed: true,
+            submit_anomaly: false,
+            submit_key_writes: key_writes,
+            elapsed: std::time::Duration::from_millis(1),
+        };
+        assert!(!recovery_attempted(&clean), "key_writes={key_writes}");
+    }
+}
