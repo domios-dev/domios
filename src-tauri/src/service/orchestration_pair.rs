@@ -15,6 +15,7 @@ use crate::service::messenger::MessageEnvelope;
 use crate::service::orchestrator::SpawnAgentParams;
 use crate::service::startup_lease::StartupTeamLease;
 use crate::service::ServiceContext;
+use crate::multiplexer::types::TabCloseReason;
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct OrchestrationPairParams {
@@ -521,7 +522,10 @@ impl ServiceContext {
                     if let Some(tab) = mux.get_tab_mut(&reserved.orchestrator_tab_id) {
                         tab.agent_booting = false;
                     }
-                    let _ = mux.close_tab(&reserved.planner_tab_id);
+                    let _ = mux.close_tab_with_reason(
+                        &reserved.planner_tab_id,
+                        TabCloseReason::SpawnRollback,
+                    );
                     release_minted_pair_team(&mut mux, &reserved);
                 }
                 self.forget_pair_startup_lease(&reserved.team.id);

@@ -7,6 +7,7 @@ use serde::Deserialize;
 
 use crate::api::routes::{check_auth, AppState};
 use crate::mem::workers::{self, GraphWorkerInfo, WorkerStatus};
+use crate::multiplexer::types::TabCloseReason;
 
 pub async fn workers_list(
     AxumState(state): AxumState<AppState>,
@@ -173,7 +174,7 @@ pub async fn workers_report(
     let tab_id = info.tab_id.clone();
     tokio::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-        if let Err(e) = svc.close_tab(&tab_id) {
+        if let Err(e) = svc.close_tab_with_reason(&tab_id, TabCloseReason::AgentRunEnded) {
             log::warn!("[graph-workers] auto-close Tab {}: {}", tab_id, e);
         }
     });
@@ -196,7 +197,7 @@ pub fn cancel_worker(
         }
     };
     if !info.tab_id.is_empty() {
-        if let Err(e) = svc.close_tab(&info.tab_id) {
+        if let Err(e) = svc.close_tab_with_reason(&info.tab_id, TabCloseReason::Cancelled) {
             log::warn!("[graph-workers] cancel Tab {}: {}", info.tab_id, e);
         }
     }

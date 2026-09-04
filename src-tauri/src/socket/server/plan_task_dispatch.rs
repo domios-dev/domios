@@ -33,6 +33,7 @@ use lane_safety::{
     refuse_unsafe_mutating_write,
 };
 use routing::{dispatch_worker_identity, resolve_dispatch_routing, unqualified_model_error};
+use crate::multiplexer::types::TabCloseReason;
 
 fn owned_str(p: Option<&Value>, key: &str) -> Option<String> {
     p.and_then(|x| x.get(key))
@@ -226,7 +227,7 @@ fn close_tab_if_present(svc: &ServiceState, tab_id: &str) -> Result<(), String> 
     if svc.mux.read().get_tab(tab_id).is_none() {
         Ok(())
     } else {
-        svc.close_tab(tab_id)
+        svc.close_tab_with_reason(tab_id, TabCloseReason::SpawnRollback)
     }
 }
 

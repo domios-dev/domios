@@ -2,6 +2,7 @@ use super::ServiceContext;
 use crate::cron::store::{CronCreateParams, CronJob, CronRunInfo, CronRunStatus, CronUpdateParams};
 use crate::CronState;
 use crate::CronWake;
+use crate::multiplexer::types::TabCloseReason;
 
 impl ServiceContext {
     pub fn cron_create(
@@ -99,7 +100,7 @@ impl ServiceContext {
             owned_tabs.into_iter().chain(history_tabs).collect();
         for tab_id in &all_tabs {
             store.unregister_tab(tab_id);
-            let _ = self.close_tab(tab_id);
+            let _ = self.close_tab_with_reason(tab_id, TabCloseReason::Cancelled);
         }
 
         let logs_dir = store.logs_dir().join(id);
@@ -149,7 +150,7 @@ impl ServiceContext {
 
         let count = to_close.len();
         for tab_id in &to_close {
-            let _ = self.close_tab(tab_id);
+            let _ = self.close_tab_with_reason(tab_id, TabCloseReason::Cancelled);
         }
         self.emit_cron_changed();
         Ok(count)
@@ -382,7 +383,7 @@ impl ServiceContext {
             let job_id = job_id.clone();
             std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_millis(250));
-                let _ = svc.close_tab(&tab_id);
+                let _ = svc.close_tab_with_reason(&tab_id, TabCloseReason::AgentRunEnded);
                 if is_oneshot {
                     log::info!("Oneshot cron auto-deleting: job={}", job_id);
                     if let Err(e) = svc.cron_delete(&cron, &wake, &job_id) {

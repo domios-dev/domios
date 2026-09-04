@@ -10,6 +10,7 @@ use super::plan_fields::tab_role;
 use super::plan_refs;
 use super::plan_role_helpers::record_spawned_attempt_reporting_close;
 use super::{get_string_param, JsonRpcError};
+use crate::multiplexer::types::TabCloseReason;
 
 pub(super) fn metadata_field(
     p: Option<&Value>,
@@ -329,7 +330,7 @@ fn compensate_competition(
     });
     let mut outcome = compensate_spawned_competitors(
         competitors,
-        |tab_id| svc.close_tab(tab_id),
+        |tab_id| svc.close_tab_with_reason(tab_id, TabCloseReason::Cancelled),
         |tab_id| {
             svc.plan_store
                 .flag_tab_gone(plan_id, task_id, tab_id, now)
@@ -590,7 +591,8 @@ pub(super) fn compete(
                     );
                 }
                 Err(error) => {
-                    let _ = svc_for_ready.close_tab(&tab_id);
+                    let _ = svc_for_ready
+                        .close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
                     emit_plan_changed(&app_for_ready, &plan_id);
                     super::plan_task_dispatch::publish_startup_report(
                         &svc_for_ready,
