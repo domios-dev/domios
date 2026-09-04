@@ -195,6 +195,7 @@ pub enum VmError {
     MissingFunction(String),
     InvalidJson(String, String),
     ArgSerialize(String, serde_json::Error),
+    AsyncJobTimedOut,
 }
 
 impl std::fmt::Display for VmError {
@@ -214,6 +215,7 @@ impl std::fmt::Display for VmError {
             VmError::ArgSerialize(name, err) => {
                 write!(f, "argument serialization failed for `{name}`: {err}")
             }
+            VmError::AsyncJobTimedOut => write!(f, "{ASYNC_JOB_TIMEOUT_ERROR}"),
         }
     }
 }
@@ -227,6 +229,9 @@ impl std::error::Error for VmError {
         }
     }
 }
+
+/// Stable refusal returned when an async host job misses the VM call bound.
+pub const ASYNC_JOB_TIMEOUT_ERROR: &str = "plugin async job exceeded its bounded wait";
 
 /// One plugin = one VM. Holds the QuickJS runtime + context behind a
 /// mutex so cross-thread callers serialize cleanly. Cheap to clone via
@@ -552,7 +557,10 @@ fn call_json_inner<R: serde::de::DeserializeOwned>(
         CALL_YIELDED.with(|y| y.set(true));
         // No guard is held here: the frame unwound to produce the marker, so the
         // context is idle and this wait costs no other caller.
-        let job_result = super::host_exec::wait_json(vm.sandbox.plugin_id(), &pending.job);
+        let job_result = match super::host_exec::wait_json(vm.sandbox.plugin_id(), &pending.job) {
+            super::host_exec::WaitResult::Completed(result) => result,
+            super::host_exec::WaitResult::TimedOut => return Err(VmError::AsyncJobTimedOut),
+        };
         result_json = resume_call(vm, method, &pending.continuation, &job_result)?;
     }
     serde_json::from_str(&result_json)
