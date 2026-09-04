@@ -30,8 +30,15 @@ pub async fn mesh_sync(
         .unwrap_or_default()
         .as_secs();
     if let Some(voucher) = sender_id.as_deref() {
+        // Log the peers this snapshot actually taught us. Announcing every peer
+        // in every gossip exchange claimed a discovery that had already happened
+        // — one machine carried 550k such lines, two thirds of its whole log.
+        let known_before = mesh.known_public_keys();
         mesh.apply_gossip_snapshot(voucher, payload.generation, &payload.peers, now);
         for peer_info in &payload.peers {
+            if known_before.contains_key(&peer_info.instance_id) {
+                continue;
+            }
             log::info!(
                 "[mesh/gossip] Learned about peer {} ({})",
                 peer_info.instance_name,
@@ -624,7 +631,10 @@ async fn perform_relay(
     sender_id: &str,
     cmd: &crate::mesh::types::RelayCommand,
 ) -> Result<crate::mesh::types::RelayResponse, (StatusCode, String)> {
-    log::info!(
+    // One line per relayed request is an access log, not an event. Polling peers
+    // put 285k `GET /api/mux/state` lines in a single rotated generation — the
+    // largest single contributor to a 250 MB log directory.
+    log::debug!(
         "[mesh/relay] {} {} from {}",
         cmd.method,
         cmd.path,
