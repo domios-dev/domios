@@ -1,0 +1,32 @@
+⚠ Skipped loading 1 skill(s) due to invalid SKILL.md files.
+⚠ D:\Developer\codeterm\.agents\skills\gap-analysis\SKILL.md: missing field `description`
+╭──────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.153.0)                       │
+│                                                  │
+│ model:     gpt-5.6-sol medium   /model to change │
+│ directory: D:\Developer\codeterm                 │
+╰──────────────────────────────────────────────────╯
+  Tip: Try the Desktop app. Run 'codex app' or visit https://chatgpt.com/codex?app-landing-page=true
+• You have 1 usage limit reset available. Run /usage to use one.
+/status
+╭────────────────────────────────────────────────────────────────────────────────────────╮
+│  >_ OpenAI Codex (v0.153.0)                                                            │
+│                                                                                        │
+│ Visit https://chatgpt.com/codex/settings/usage for up-to-date                          │
+│ information on rate limits and credits                                                 │
+│                                                                                        │
+│  Model:                       gpt-5.6-sol (reasoning medium, summaries auto)           │
+│  Directory:                   D:\Developer\codeterm                                    │
+│  Permissions:                 Workspace (Ask for approval)                             │
+│  Agents.md:                   AGENTS.md                                                │
+│  Account:                     user1@example.com (Pro)                                  │
+│  Collaboration mode:          Default                                                  │
+│  Session:                     01a06b83-722a-7f02-91f9-55d6c38f8345                     │
+│                                                                                        │
+│  Weekly limit:                [████████████████████] 99% left (resets 09:47 on 11 Sep) │
+│  GPT-5.3-Codex-Spark limit:                                                            │
+│  5h limit:                    [████████████████████] 100% left (resets 16:22)          │
+│  Weekly limit:                [███████████░░░░░░░░░] 55% left (resets 10:42 on 10 Sep) │
+╰────────────────────────────────────────────────────────────────────────────────────────╯
+› Ask Codex to do anything
+  gpt-5.6-sol medium · D:\Developer\codeterm
