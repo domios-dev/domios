@@ -163,6 +163,33 @@ HOME="$shared_home" CODETERM_EMBED_CACHE_DIR="$explicit_embed_cache" CARGO_TEST_
     exit 1
 }
 
+# A test process launched from a CodeTerm tab inherits CODETERM_CONPTY_DIR
+# pointing at the real installed conpty bundle. The wrapper must refuse to let
+# that ambient value reach the test command at all, not merely usually strip it.
+production_conpty_dir='C:\Users\dev\AppData\Local\CodeTerm\conpty\x64'
+HOME="$shared_home" CODETERM_CONPTY_DIR="$production_conpty_dir" CARGO_TEST_CMD=bash \
+    "$WRAPPER" -c 'printf "resolved=%s\n" "${CODETERM_CONPTY_DIR:-<unset>}"' \
+    >"$TMPDIR/conpty-isolation.out" 2>&1
+! grep -qF "resolved=$production_conpty_dir" "$TMPDIR/conpty-isolation.out" || {
+    printf 'conpty-isolation: wrapper let an ambient production CODETERM_CONPTY_DIR reach the test command\n' >&2
+    exit 1
+}
+grep -qF 'resolved=<unset>' "$TMPDIR/conpty-isolation.out" || {
+    printf 'conpty-isolation: expected CODETERM_CONPTY_DIR to be unset for the test command\n' >&2
+    exit 1
+}
+
+# Fail-closed: the isolation marker is exported even when no CODETERM_CONPTY_DIR
+# was ever present in the parent env — never conditioned on the leaked
+# variable happening to exist, so pty-fork's fork-side gate always has it.
+HOME="$shared_home" CARGO_TEST_CMD=bash \
+    "$WRAPPER" -c 'printf "marker=%s\n" "${CODETERM_CONPTY_TEST_ISOLATION:-<unset>}"' \
+    >"$TMPDIR/conpty-isolation-marker.out" 2>&1
+grep -qF 'marker=1' "$TMPDIR/conpty-isolation-marker.out" || {
+    printf 'conpty-isolation-marker: wrapper did not export CODETERM_CONPTY_TEST_ISOLATION\n' >&2
+    exit 1
+}
+
 windows_sidecar="$base_repo/src-tauri/bundled-embed/codeterm-embed-x86_64-pc-windows-msvc.exe"
 mkdir -p "$(dirname "$windows_sidecar")"
 printf 'real-sidecar' >"$windows_sidecar"
