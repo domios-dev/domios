@@ -4,7 +4,6 @@ import {
   parseCodexPrompt,
   responseKeysForIndex,
 } from "./prompt";
-import { readSessionMeta, SESSION_MODEL_TAIL_BYTES } from "./sessionMeta";
 import { fetchCodexUsage, parseCodexUsage } from "./usage";
 import { summarizeExecScript, unwrapShellCommand } from "./execWrapper";
 import { patchEdits } from "./patchEdits";
@@ -13,14 +12,22 @@ import {
   type TabStateClassification,
   type TabStateSnapshot,
 } from "./tabState";
-import { grantCodexHookTrust } from "./appServer";
 import {
-  codexWindowsHookScript,
-  isCodetermCodexHook,
-  isOwnedCodexWindowsHookScript,
-  CODETERM_CODEX_HOOK_MARKER,
-  CODETERM_CODEX_PROFILE_CLEANUP_MARKER,
-} from "./hooks";
+  detectSessionId as detectCodexSessionId,
+  detectSessionModel as detectCodexSessionModel,
+  enumerateSessions as enumerateCodexSessions,
+  extractSessionUuid,
+  sessionFilePath as resolveCodexSessionFilePath,
+} from "./sessions";
+import {
+  checkIntegration as checkCodexIntegration,
+  ensureIntegrationOnStartup as ensureCodexIntegrationOnStartup,
+  grantIntegrationTrust as grantCodexIntegrationTrust,
+  installIntegration as installCodexIntegration,
+  restoreIntegration as restoreCodexIntegration,
+  uninstallIntegration as uninstallCodexIntegration,
+  type CodexIntegrationInstallOptions,
+} from "./integration";
 
 const TITLE_RE = /codex/i;
 const OUTPUT_FINGERPRINTS = [
@@ -203,40 +210,11 @@ const plugin: PluginModule = {
     return parts.join(" ");
   },
 
-  // Rollout-tree detection: scan `~/.codex/sessions/.../rollout-*.jsonl`, reading only `session_meta` headers.
   sessionFilePath(_cwd: string, sessionId: string): string | null {
-    const root = codexSessionsRoot();
-    if (!root) return null;
-    // A session id resolves to one rollout file for good, but this is called on
-    // every chat poll — and the scan below reads a header out of every rollout
-    // in the tree. On a months-old sessions directory that is thousands of file
-    // opens per poll, which is what pegged a daemon's CPU and starved the mesh
-    // relay behind it (#319). Remember the answer; re-scan only if it vanishes.
-    const remembered = sessionPathCache[sessionId];
-    if (remembered && host.fs.fileExists(remembered)) return remembered;
-    let hit: string | null = null;
-    const files = host.fs.walkDir(root, 5);
-    for (let i = 0; i < files.length; i++) {
-      const f = files[i];
-      if (!f.isFile || !endsWith(f.name, ".jsonl")) continue;
-      const stem = f.name.substring(0, f.name.length - 6);
-      // The rollout's own session_meta id is provider-owned evidence and wins
-      // over filename reconstruction; files without one keep stem matching.
-      const meta = readSessionMeta(f.path);
-      const storedId = meta && meta.sessionId;
-      const matched = storedId
-        ? storedId === sessionId
-        : stem === sessionId || extractSessionUuid(stem) === sessionId;
-      if (matched) {
-        hit = f.path;
-        break;
-      }
-    }
-    if (hit) sessionPathCache[sessionId] = hit;
-    return hit;
+    return resolveCodexSessionFilePath(_cwd, sessionId);
   },
 
-  // Chat uses generic JSONL-session hook; codex paths resolve via sessionFilePath.
+  // Codex 0.153 has no per-session JSONL transcript; keep the path capability honest.
   sessionJsonlPath(cwd: string, sessionId: string): string | null {
     return this.sessionFilePath!(cwd, sessionId);
   },
@@ -364,353 +342,38 @@ const plugin: PluginModule = {
   },
 
   detectSessionId(cwd: string, exclude?: string[] | string, maxAgeMs?: number): string | null {
-    const root = codexSessionsRoot();
-    if (!root || !host.fs.fileExists(root)) return null;
-    const excluded = new Set(Array.isArray(exclude) ? exclude : (exclude ? [exclude] : []));
-    const now = host.unixNowMs ? host.unixNowMs() : Date.now();
-    const ageLimit = Number.isFinite(maxAgeMs) && (maxAgeMs as number) > 0 ? (maxAgeMs as number) : 300000;
-    let best: { sid: string; modifiedMs: number } | null = null;
-    const files = host.fs.walkDir(root, 5);
-    for (let i = 0; i < files.length; i++) {
-      const f = files[i];
-      if (!f.isFile || !endsWith(f.name, ".jsonl")) continue;
-      const modifiedMs = f.modifiedMs || 0;
-      if (modifiedMs > 0 && now - modifiedMs > ageLimit) continue;
-      const stem = f.name.substring(0, f.name.length - 6);
-      const meta = readSessionMeta(f.path);
-      const sid = (meta && meta.sessionId) || extractSessionUuid(stem);
-      if (!sid || excluded.has(sid) || excluded.has(stem)) continue;
-      const project = meta && meta.cwd;
-      if (cwd && project && !host.path.equal(project, cwd)) continue;
-      if (!best || modifiedMs > best.modifiedMs) best = { sid, modifiedMs };
-    }
-    return best ? best.sid : null;
+    return detectCodexSessionId(cwd, exclude, maxAgeMs);
   },
 
   checkIntegration(): unknown {
-    const path = codexHooksPath();
-    if (!path || !host.fs.fileExists(path)) {
-      return { hooks_file_exists: false, hooks_installed: false, session_start_hook: false, stop_hook: false, hook_trust_state: "missing", hook_trust_enabled: null, target: path || "~/.codex/hooks.json", backup_exists: !!path && host.fs.fileExists(path + ".codeterm-backup"), proposed_changes: ["SessionStart hook", "Stop hook", "hook trust"] };
-    }
-    const json = host.fs.readJson<CodexHooks>(path);
-    if (!json) {
-      return { hooks_file_exists: true, hooks_installed: false, session_start_hook: false, stop_hook: false, hook_trust_state: "missing", hook_trust_enabled: null };
-    }
-    const arr = json.hooks && json.hooks.SessionStart;
-    const stopArr = json.hooks && json.hooks.Stop;
-    const installed = Array.isArray(arr) && arr.some(isCodetermCodexHook);
-    const stopInstalled = Array.isArray(stopArr) && stopArr.some(isCodetermCodexHook)
-      && (host.platform() !== "windows" || stopArr.some(hasCodetermCodexWindowsCommand));
-    const winScript = codexWindowsHookScriptPath();
-    const winScriptText = winScript && host.fs.fileExists(winScript)
-      ? String(host.fs.readFile(winScript) || "")
-      : "";
-    const windowsReady = host.platform() !== "windows" || (
-      !!winScript &&
-      winScriptText.indexOf(CODETERM_CODEX_PROFILE_CLEANUP_MARKER) !== -1 &&
-      Array.isArray(arr) &&
-      arr.some(hasCodetermCodexWindowsCommand)
-    );
-    const contractOk = host.platform() === "windows"
-      ? winScriptText.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1 &&
-        winScriptText.indexOf("CODETERM_TAB_ID") !== -1 &&
-        winScriptText.indexOf("/api/tabs/") !== -1
-      : (Array.isArray(arr) && arr.some((entry) => {
-          const hk = entry && entry.hooks;
-          return Array.isArray(hk) && hk.some((h) => {
-            const command = String(h?.command || "");
-            return command.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1 &&
-              command.indexOf("CODETERM_TAB_ID") !== -1 &&
-              command.indexOf("/api/tabs/") !== -1;
-          });
-        }));
-    const current = installed && windowsReady && contractOk;
-    const trustState = codexHookTrustState(path);
-    const trustOk = trustState !== "disabled";
-    return {
-      hooks_file_exists: true,
-      hooks_installed: current && stopInstalled && trustOk,
-      session_start_hook: current && trustOk,
-      stop_hook: stopInstalled && trustOk,
-      hook_trust_state: trustState,
-      hook_trust_enabled: trustState === "enabled" ? true : (trustState === "disabled" ? false : null),
-      target: path,
-      backup_exists: host.fs.fileExists(path + ".codeterm-backup"),
-      proposed_changes: ["SessionStart hook", "Stop hook", "hook trust"],
-    };
+    return checkCodexIntegration();
   },
 
   installIntegration(
     apiPort: number,
     options?: { consent?: boolean },
   ): unknown {
-    // The hook content is instance-agnostic by design; the port stays in the
-    // signature because the host API passes it to every provider.
-    void apiPort;
-    if (!options || options.consent !== true) {
-      return { ok: false, error: "provider integration installation requires explicit local-user consent" };
-    }
-    const path = codexHooksPath();
-    if (!path) return { ok: false, error: "could not resolve ~/.codex/hooks.json" };
-
-    const hooksExisted = host.fs.fileExists(path);
-    const originalHooksValue = hooksExisted ? host.fs.readFile(path) : null;
-    if (hooksExisted && typeof originalHooksValue !== "string") {
-      return { ok: false, error: "could not read existing hooks JSON at " + path };
-    }
-    const originalHooks = typeof originalHooksValue === "string" ? originalHooksValue : "";
-    let parsedHooks: unknown = {};
-    if (hooksExisted) {
-      try {
-        parsedHooks = JSON.parse(originalHooks);
-      } catch (_) {
-        return { ok: false, error: "existing hooks JSON is malformed at " + path };
-      }
-    }
-    if (!parsedHooks || typeof parsedHooks !== "object" || Array.isArray(parsedHooks)) {
-      return { ok: false, error: "existing hooks JSON must contain an object at " + path };
-    }
-    const json = parsedHooks as CodexHooks;
-    if (json.hooks !== undefined && (typeof json.hooks !== "object" || Array.isArray(json.hooks))) {
-      return { ok: false, error: "hooks is not an object" };
-    }
-    if (json.hooks?.SessionStart !== undefined && !Array.isArray(json.hooks.SessionStart)) {
-      return { ok: false, error: "hooks.SessionStart is not an array" };
-    }
-    if (json.hooks?.Stop !== undefined && !Array.isArray(json.hooks.Stop)) {
-      return { ok: false, error: "hooks.Stop is not an array" };
-    }
-    const configPath = codexConfigPath();
-    const configExisted = !!configPath && host.fs.fileExists(configPath);
-    const originalConfigValue = configPath && configExisted ? host.fs.readFile(configPath) : null;
-    if (configExisted && typeof originalConfigValue !== "string") {
-      return { ok: false, error: "could not read existing Codex config at " + configPath };
-    }
-    const originalConfig = typeof originalConfigValue === "string" ? originalConfigValue : "";
-    const scriptPath = host.platform() === "windows" ? codexWindowsHookScriptPath() : null;
-    const scriptExisted = !!scriptPath && host.fs.fileExists(scriptPath);
-    const originalScriptValue = scriptExisted && scriptPath ? host.fs.readFile(scriptPath) : null;
-    if (scriptExisted && typeof originalScriptValue !== "string") {
-      return { ok: false, error: "could not read existing hook script at " + scriptPath };
-    }
-    const originalScript = typeof originalScriptValue === "string" ? originalScriptValue : "";
-    const ownershipPath = codexHookTrustOwnershipPath();
-    const ownershipSnapshot = ownershipPath ? captureIntegrationFile(ownershipPath) : null;
-    if (ownershipPath && !ownershipSnapshot) {
-      return { ok: false, error: "could not read existing Codex trust ownership record" };
-    }
-    const artifactPaths = [
-      path + ".codeterm-backup",
-      path + ".codeterm-backup-state",
-      ...(configPath && configExisted ? [configPath + ".codeterm-backup"] : []),
-      ...(scriptPath ? [scriptPath + ".codeterm-backup", scriptPath + ".codeterm-backup-state"] : []),
-    ];
-    const artifactSnapshots = artifactPaths.map(captureIntegrationFile);
-    if (artifactSnapshots.some((snapshot) => snapshot === null)) {
-      return { ok: false, error: "could not snapshot existing CodeTerm integration artifacts" };
-    }
-    const rollbackSnapshots: IntegrationFileSnapshot[] = [
-      { path, existed: hooksExisted, bytes: originalHooks },
-      ...(configPath ? [{ path: configPath, existed: configExisted, bytes: originalConfig }] : []),
-      ...(scriptPath ? [{ path: scriptPath, existed: scriptExisted, bytes: originalScript }] : []),
-      ...(ownershipSnapshot ? [ownershipSnapshot] : []),
-      ...(artifactSnapshots as IntegrationFileSnapshot[]),
-    ];
-    const fail = (error: string) => {
-      const restored = restoreIntegrationFiles(rollbackSnapshots);
-      return { ok: false, error: restored ? error : error + "; exact rollback failed" };
-    };
-    if (!host.fs.writeFile(path + ".codeterm-backup", originalHooks)
-      || !host.fs.writeFile(path + ".codeterm-backup-state", hooksExisted ? "present" : "absent")) {
-      return fail("could not write recoverable backup for " + path);
-    }
-    if (configPath && configExisted
-      && !host.fs.writeFile(configPath + ".codeterm-backup", originalConfig)) {
-      return fail("could not write recoverable backup for " + configPath);
-    }
-    if (scriptPath && (!host.fs.writeFile(scriptPath + ".codeterm-backup", originalScript)
-      || !host.fs.writeFile(scriptPath + ".codeterm-backup-state", scriptExisted ? "present" : "absent"))) {
-      return fail("could not write recoverable backup for " + scriptPath);
-    }
-    if (!json.hooks) json.hooks = {};
-    for (const event of ["SessionStart", "Stop"] as const) {
-      const existing = json.hooks[event];
-      if (existing !== undefined && !Array.isArray(existing)) {
-        return { ok: false, error: "hooks." + event + " is not an array" };
-      }
-      json.hooks[event] = (existing || []).filter((entry) => !isCodetermCodexHook(entry));
-    }
-
-    const authH = '-H "Authorization: Bearer ${CODETERM_API_TOKEN}"';
-    const nonceH = '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}"';
-    const guard = 'if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ]; then ';
-    const hookCmd = (route: string) => guard + 'curl -s -X POST "$CODETERM_API_URL'
-      + "/api/tabs/$CODETERM_TAB_ID/hook/" + route + '" '
-      + "-H 'Content-Type: application/json' "
-      + "-H 'X-CodeTerm-Agent-Provider: codex' "
-      + nonceH + " "
-      + authH
-      + ' --data-binary @- > /dev/null 2>&1 || true; fi';
-    // One shared Windows script posting the event name — never one script per event.
-    const winCmd = (route: string) => scriptPath
-      ? 'powershell -NoProfile -ExecutionPolicy Bypass -File "' + scriptPath + '" -HookEvent ' + route
-      : hookCmd(route);
-
-    if (scriptPath && !host.fs.writeFile(scriptPath, codexWindowsHookScript())) {
-      return fail("writeFile failed for " + scriptPath);
-    }
-
-    json.hooks.SessionStart!.push({
-      matcher: "startup|resume|clear|compact",
-      hooks: [{
-        type: "command",
-        command: hookCmd("session_start"),
-        commandWindows: winCmd("session_start"),
-        timeout: 5,
-        _source: CODETERM_CODEX_HOOK_MARKER,
-      }],
-    });
-    json.hooks.Stop!.push({
-      hooks: [{
-        type: "command",
-        command: hookCmd("stop"),
-        commandWindows: winCmd("stop"),
-        timeout: 5,
-        _source: CODETERM_CODEX_HOOK_MARKER,
-      }],
-    });
-
-    const ok = host.fs.writeJson(path, json);
-    if (ok) {
-      const trust = enableExistingCodexHookTrust(path);
-      if (trust.write_failed) return fail("could not enable existing Codex hook trust");
-      if (trust.changed) {
-        if (!ownershipPath || !host.fs.writeFile(ownershipPath, path)) {
-          return fail("could not record owned Codex hook trust expansion");
-        }
-      }
-      host.log("info", "[codex-plugin] SessionStart + Stop hooks installed at " + path);
-      return { ok: true, hook_trust_state: trust.state };
-    }
-    return fail("writeJson failed for " + path);
+    return installCodexIntegration(apiPort, options);
   },
 
   // integration.trust_grant capability: core invokes this once per install
   // with the manifest-declared managed hook key(s). Codex is the only hash
   // authority — the grant lane never computes a trust hash CodeTerm-side.
   grantIntegrationTrust(managedKeys: string[]): unknown {
-    const hooksPath = codexHooksPath();
-    if (!hooksPath) {
-      return { granted: false, wrote: false, degraded: true, verify_failed: false, reason: "could not resolve ~/.codex/hooks.json" };
-    }
-    return grantCodexHookTrust({
-      hooksPath: hooksPath,
-      configPath: codexConfigPath(),
-      managedLabels: Array.isArray(managedKeys) ? managedKeys.map(String) : [],
-      listCwd: host.homeDir() || ".",
-    });
+    return grantCodexIntegrationTrust(managedKeys);
   },
 
   uninstallIntegration(): unknown {
-    const path = codexHooksPath();
-    if (!path) return { ok: true };
-    let hooksOk = true;
-    if (host.fs.fileExists(path)) {
-      const json = host.fs.readJson<CodexHooks>(path);
-      if (!json || !json.hooks || typeof json.hooks !== "object") {
-        return { ok: false, error: "could not safely read hooks JSON at " + path };
-      }
-      if (Array.isArray(json.hooks.SessionStart)) {
-        json.hooks.SessionStart = json.hooks.SessionStart.filter((entry) => !isCodetermCodexHook(entry));
-      }
-      if (Array.isArray(json.hooks.Stop)) {
-        json.hooks.Stop = json.hooks.Stop.filter((entry) => !isCodetermCodexHook(entry));
-      }
-      hooksOk = host.fs.writeJson(path, json);
-    }
-    const ownershipPath = codexHookTrustOwnershipPath();
-    if (ownershipPath && host.fs.fileExists(ownershipPath)) {
-      const ownedTarget = host.fs.readFile(ownershipPath);
-      if (ownedTarget === path && disableOwnedCodexHookTrust(path)) {
-        host.fs.removeFile(ownershipPath);
-      }
-    }
-    const scriptPath = codexWindowsHookScriptPath();
-    if (scriptPath && host.fs.fileExists(scriptPath) && isOwnedCodexWindowsHookScript(scriptPath)) {
-      host.fs.removeFile(scriptPath);
-    }
-    return hooksOk ? { ok: true } : { ok: false, error: "writeJson failed for " + path };
+    return uninstallCodexIntegration();
   },
 
   restoreIntegration(): unknown {
-    const path = codexHooksPath();
-    if (!path) return { ok: false, error: "could not resolve ~/.codex/hooks.json" };
-    const backup = path + ".codeterm-backup";
-    if (!host.fs.fileExists(backup)) return { ok: false, error: "no recoverable backup at " + backup };
-    const hooks = host.fs.readFile(backup);
-    if (typeof hooks !== "string") return { ok: false, error: "restore failed for " + path };
-    const hooksState = host.fs.readFile(path + ".codeterm-backup-state");
-    if (hooksState === "absent" || (typeof hooksState !== "string" && hooks === "")) {
-      if (host.fs.fileExists(path) && !host.fs.removeFile(path)) return { ok: false, error: "restore failed for " + path };
-    } else if (!host.fs.writeFile(path, hooks)) {
-      return { ok: false, error: "restore failed for " + path };
-    }
-    const config = codexConfigPath();
-    if (config && host.fs.fileExists(config + ".codeterm-backup")) {
-      const original = host.fs.readFile(config + ".codeterm-backup");
-      if (typeof original !== "string" || !host.fs.writeFile(config, original)) return { ok: false, error: "restore failed for " + config };
-      const ownershipPath = codexHookTrustOwnershipPath();
-      if (ownershipPath && host.fs.fileExists(ownershipPath)) host.fs.removeFile(ownershipPath);
-    }
-    const script = host.platform() === "windows" ? codexWindowsHookScriptPath() : null;
-    if (script && host.fs.fileExists(script + ".codeterm-backup")) {
-      const original = host.fs.readFile(script + ".codeterm-backup");
-      if (typeof original !== "string") return { ok: false, error: "restore failed for " + script };
-      const scriptState = host.fs.readFile(script + ".codeterm-backup-state");
-      if (scriptState === "absent" || (typeof scriptState !== "string" && original === "")) {
-        if (host.fs.fileExists(script) && !host.fs.removeFile(script)) return { ok: false, error: "restore failed for " + script };
-      } else if (!host.fs.writeFile(script, original)) {
-        return { ok: false, error: "restore failed for " + script };
-      }
-    }
-    return { ok: true };
+    return restoreCodexIntegration();
   },
 
-  // A hook we own that no longer matches what this build writes is stale: the
-  // user consented to our hook, so refreshing it is upkeep, not a new install.
   ensureIntegrationOnStartup(apiPort: number): unknown {
-    const path = codexHooksPath();
-    if (!path || !host.fs.fileExists(path)) return { ok: true, changed: false };
-    const json = host.fs.readJson<CodexHooks>(path);
-    if (!json || !json.hooks) return { ok: true, changed: false };
-    const owned = (json.hooks.SessionStart || []).filter(isCodetermCodexHook);
-    if (owned.length === 0) return { ok: true, changed: false };
-    // An explicit "off" is a user decision, not staleness. Refreshing would
-    // rewrite the hook and silently re-arm what they turned off.
-    if (codexHookTrustState(path) === "disabled") {
-      return { ok: true, changed: false, reason: "hook trust is explicitly disabled" };
-    }
-
-    const scriptPath = codexWindowsHookScriptPath();
-    const scriptStale =
-      host.platform() === "windows" &&
-      !!scriptPath &&
-      (!host.fs.fileExists(scriptPath) || !isOwnedCodexWindowsHookScript(scriptPath));
-    const commandStale = owned.some((entry) => {
-      const hooks = (entry && entry.hooks) || [];
-      return hooks.some(
-        (hook) => hook && String(hook.command || "").indexOf("$CODETERM_API_URL") === -1,
-      );
-    });
-    if (!scriptStale && !commandStale) return { ok: true, changed: false };
-
-    const result = this.installIntegration!(apiPort, { consent: true }) as {
-      ok?: boolean;
-      error?: string;
-    };
-    return result && result.ok
-      ? { ok: true, changed: true, reason: "refreshed a stale CodeTerm-owned hook" }
-      : { ok: false, changed: false, error: (result && result.error) || "refresh failed" };
+    return ensureCodexIntegrationOnStartup(apiPort, (port, options) =>
+      installCodexIntegration(port, options as CodexIntegrationInstallOptions));
   },
 
   // Parse the `/status` TUI screen into a UsageSnapshot; gauges report "% left", snapshot stores "% used".
@@ -727,49 +390,12 @@ const plugin: PluginModule = {
   },
 
   enumerateSessions(): unknown[] {
-    const root = codexSessionsRoot();
-    if (!root || !host.fs.fileExists(root)) return [];
-    const out: unknown[] = [];
-    const files = host.fs.walkDir(root, 5);
-    for (let i = 0; i < files.length; i++) {
-      const f = files[i];
-      if (!f.isFile || !endsWith(f.name, ".jsonl")) continue;
-      const stem = f.name.substring(0, f.name.length - 6);
-      const meta = readSessionMeta(f.path);
-      const sid = (meta && meta.sessionId) || extractSessionUuid(stem);
-      if (!sid) continue;
-      out.push({
-        sessionId: sid,
-        provider: "codex",
-        projectPath: meta && meta.cwd ? meta.cwd : null,
-        title: null,
-        summary: null,
-        filePath: f.path,
-        createdTs: f.createdMs ? Math.floor(f.createdMs / 1000) : null,
-        modifiedTs: f.modifiedMs ? Math.floor(f.modifiedMs / 1000) : null,
-      });
-    }
-    return out;
+    return enumerateCodexSessions();
   },
 
   // Read the exact model identity from this session's latest turn context.
   detectSessionModel(cwd: string, sessionId: string): string | null {
-    const path = this.sessionFilePath!(cwd, sessionId);
-    if (!path) return null;
-    // Bounded tail read: a partial leading line just fails JSON.parse below and is skipped.
-    const contents = host.fs.readFileTail(path, SESSION_MODEL_TAIL_BYTES);
-    if (!contents) return null;
-    const lines = contents.split("\n");
-    for (let i = lines.length - 1; i >= 0; i--) {
-      const line = lines[i];
-      if (!line) continue;
-      let v: CodexEntry;
-      try { v = JSON.parse(line); } catch (_) { continue; }
-      if (!v || v.type !== "turn_context") continue;
-      const m = v.payload && v.payload.model;
-      if (typeof m === "string" && m.trim()) return m.trim();
-    }
-    return null;
+    return detectCodexSessionModel(cwd, sessionId);
   },
 
   // Mirror native parse_session_messages for response_item message blocks.
@@ -888,7 +514,6 @@ function nestedApplyPatch(raw: string): string | null {
   }
 }
 export interface CodexHookEntry { matcher?: string; hooks?: CodexHookCmd[] }
-interface CodexHooks { hooks?: { SessionStart?: CodexHookEntry[]; Stop?: CodexHookEntry[] } }
 
 function canonicalToolFields(name: string, input: Record<string, unknown>): Record<string, unknown> {
   const raw = typeof input.raw === "string" ? input.raw : "";
@@ -903,181 +528,6 @@ function canonicalToolFields(name: string, input: Record<string, unknown>): Reco
   if (edits.length > 0) return { tool_kind: "edit", tool_summary: edits[0].path, tool_detail: patch, tool_edits: edits };
   if (patch.indexOf("*** Begin Patch") >= 0) return { tool_kind: "edit", tool_summary: "Apply patch", tool_detail: patch, tool_edits: [] };
   return { tool_kind: "generic", tool_summary: name || "Tool call", tool_detail: name || "Tool call" };
-}
-
-// Use function declarations for QuickJS strict-mode compatibility with bundler rewrites.
-function endsWith(s: string, suffix: string): boolean {
-  return s.length >= suffix.length
-    && s.substring(s.length - suffix.length) === suffix;
-}
-
-/// Resolved rollout path per session id. The mapping is immutable once a session
-/// exists, so the only invalidation needed is the file going away.
-const sessionPathCache: Record<string, string> = {};
-
-function codexSessionsRoot(): string | null {
-  const override = host.envGet("CODETERM_CODEX_SESSIONS_ROOT");
-  if (override) return override;
-  const home = host.homeDir();
-  if (!home) return null;
-  const sep = host.platform() === "windows" ? "\\" : "/";
-  return home + sep + ".codex" + sep + "sessions";
-}
-
-function codexHooksPath(): string | null {
-  const home = host.homeDir();
-  if (!home) return null;
-  const sep = host.platform() === "windows" ? "\\" : "/";
-  return home + sep + ".codex" + sep + "hooks.json";
-}
-
-function codexConfigPath(): string | null {
-  const home = host.homeDir();
-  if (!home) return null;
-  const sep = host.platform() === "windows" ? "\\" : "/";
-  return home + sep + ".codex" + sep + "config.toml";
-}
-function codexWindowsHookScriptPath(): string | null {
-  const home = host.homeDir();
-  if (!home) return null;
-  const sep = host.platform() === "windows" ? "\\" : "/";
-  return home + sep + ".codex" + sep + "codeterm-session-start.ps1";
-}
-
-function codexHookTrustOwnershipPath(): string | null {
-  const config = codexConfigPath();
-  return config ? config + ".codeterm-hook-trust-owned" : null;
-}
-
-interface IntegrationFileSnapshot {
-  path: string;
-  existed: boolean;
-  bytes: string;
-}
-
-function captureIntegrationFile(path: string): IntegrationFileSnapshot | null {
-  const existed = host.fs.fileExists(path);
-  const bytes = existed ? host.fs.readFile(path) : "";
-  return typeof bytes === "string" ? { path, existed, bytes } : null;
-}
-
-function restoreIntegrationFiles(snapshots: IntegrationFileSnapshot[]): boolean {
-  let restored = true;
-  for (let i = snapshots.length - 1; i >= 0; i--) {
-    const snapshot = snapshots[i];
-    const ok = snapshot.existed
-      ? host.fs.writeFile(snapshot.path, snapshot.bytes)
-      : (!host.fs.fileExists(snapshot.path) || host.fs.removeFile(snapshot.path));
-    restored = ok && restored;
-  }
-  return restored;
-}
-
-function codexHookTrustState(hooksPath: string): "enabled" | "disabled" | "missing" | "unknown" | "trusted" {
-  const cfg = codexConfigPath();
-  if (!cfg || !host.fs.fileExists(cfg)) return "missing";
-  const text = String(host.fs.readFile(cfg) || "");
-  if (!text) return "missing";
-  const block = findCodexHookTrustBlock(text, hooksPath);
-  if (block == null) return "missing";
-  const m = block.match(/(?:^|\n)\s*enabled\s*=\s*(true|false)\s*(?:\n|$)/);
-  if (m) return m[1] === "true" ? "enabled" : "disabled";
-  // Codex >=0.129 per-hook trust: app-server config/batchWrite stores a
-  // Codex-computed trusted_hash without an enabled key.
-  if (/(?:^|\n)\s*trusted_hash\s*=/.test(block)) return "trusted";
-  return "unknown";
-}
-
-function enableExistingCodexHookTrust(
-  hooksPath: string,
-): { state: "enabled" | "missing" | "unknown" | "trusted"; changed: boolean; write_failed: boolean } {
-  const cfg = codexConfigPath();
-  if (!cfg || !host.fs.fileExists(cfg)) return { state: "missing", changed: false, write_failed: false };
-  const text = String(host.fs.readFile(cfg) || "");
-  if (!text) return { state: "missing", changed: false, write_failed: false };
-  const span = findCodexHookTrustBlockSpan(text, hooksPath);
-  if (!span) return { state: "missing", changed: false, write_failed: false };
-  const block = text.substring(span.start, span.end);
-  if (!/(?:^|\n)\s*enabled\s*=\s*false\s*(?:\n|$)/.test(block)) {
-    const current = codexHookTrustState(hooksPath);
-    const state = current === "enabled" || current === "trusted" ? current : "unknown";
-    return { state, changed: false, write_failed: false };
-  }
-  const nextBlock = block.replace(/(^|\n)(\s*enabled\s*=\s*)false(\s*(?:\n|$))/, "$1$2true$3");
-  const next = text.substring(0, span.start) + nextBlock + text.substring(span.end);
-  return host.fs.writeFile(cfg, next)
-    ? { state: "enabled", changed: true, write_failed: false }
-    : { state: "unknown", changed: false, write_failed: true };
-}
-
-function disableOwnedCodexHookTrust(hooksPath: string): boolean {
-  const cfg = codexConfigPath();
-  if (!cfg || !host.fs.fileExists(cfg)) return true;
-  const text = host.fs.readFile(cfg);
-  if (typeof text !== "string") return false;
-  const span = findCodexHookTrustBlockSpan(text, hooksPath);
-  if (!span) return true;
-  const block = text.substring(span.start, span.end);
-  const nextBlock = block.replace(/(^|\n)(\s*enabled\s*=\s*)true(\s*(?:\n|$))/, "$1$2false$3");
-  if (nextBlock === block) return true;
-  const next = text.substring(0, span.start) + nextBlock + text.substring(span.end);
-  return host.fs.writeFile(cfg, next);
-}
-
-function findCodexHookTrustBlock(text: string, hooksPath: string): string | null {
-  const span = findCodexHookTrustBlockSpan(text, hooksPath);
-  return span ? text.substring(span.start, span.end) : null;
-}
-
-function findCodexHookTrustBlockSpan(text: string, hooksPath: string): { start: number; end: number } | null {
-  const marker = hooksPath + ":session_start:";
-  const lines = text.split("\n");
-  let offset = 0;
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const trimmed = line.trim();
-    const isHeader = trimmed.charAt(0) === "[" && trimmed.charAt(trimmed.length - 1) === "]";
-    if (isHeader && trimmed.indexOf("hooks.state.") !== -1 && trimmed.indexOf(marker) !== -1) {
-      const start = offset;
-      let end = text.length;
-      let scanOffset = offset + line.length + 1;
-      for (let j = i + 1; j < lines.length; j++) {
-        const t = lines[j].trim();
-        if (t.charAt(0) === "[" && t.charAt(t.length - 1) === "]") {
-          end = scanOffset;
-          break;
-        }
-        scanOffset += lines[j].length + 1;
-      }
-      return { start: start, end: end };
-    }
-    offset += line.length + 1;
-  }
-  return null;
-}
-
-function hasCodetermCodexWindowsCommand(entry: CodexHookEntry): boolean {
-  const hooks = entry && entry.hooks;
-  if (!Array.isArray(hooks)) return false;
-  for (let i = 0; i < hooks.length; i++) {
-    const hook = hooks[i];
-    if (!hook || hook._source !== CODETERM_CODEX_HOOK_MARKER) continue;
-    const command = String(hook.commandWindows || "");
-    if (command.indexOf("codeterm-session-start.ps1") !== -1) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function extractSessionUuid(stem: string): string | null {
-  if (typeof stem !== "string") return null;
-  const prefix = "rollout-";
-  if (stem.indexOf(prefix) !== 0) return null;
-  const rest = stem.substring(prefix.length);
-  if (rest.length <= 20) return null;
-  if (rest.charAt(19) !== "-") return null;
-  return rest.substring(20);
 }
 
 function isValidCodexSessionDelta(v: CodexEntry): boolean {

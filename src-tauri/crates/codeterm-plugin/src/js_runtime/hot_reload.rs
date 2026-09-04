@@ -9,6 +9,7 @@ use std::time::{Duration, SystemTime};
 use parking_lot::Mutex;
 
 use crate::host_traits::{PluginHostCtx, PluginProviderRegistrar, SecretBackendRegistrar};
+use crate::provider::AgentProvider;
 
 use super::{load_one, PluginManifest};
 
@@ -439,6 +440,9 @@ impl HotReloadRegistry {
                     return Some(id);
                 }
                 self.bind_service(provider.vm());
+                if let Some(api_port) = runtime_api_port() {
+                    provider.ensure_integration_on_startup(api_port);
+                }
                 self.caps
                     .register_plugin(provider.manifest(), provider.vm());
                 if provider.manifest().capabilities.view {
@@ -503,6 +507,12 @@ impl HotReloadRegistry {
         self.contribution_event_count
             .load(std::sync::atomic::Ordering::SeqCst)
     }
+}
+
+fn runtime_api_port() -> Option<u16> {
+    std::env::var("CODETERM_API_PORT")
+        .ok()
+        .and_then(|value| value.parse().ok())
 }
 
 fn mtime_or_epoch(p: &std::path::Path) -> SystemTime {

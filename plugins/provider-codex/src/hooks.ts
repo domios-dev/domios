@@ -38,18 +38,33 @@ export function isCodetermCodexHook(entry: CodexHookEntry): boolean {
   const hooks = entry && entry.hooks;
   if (!Array.isArray(hooks)) return false;
   for (let i = 0; i < hooks.length; i++) {
-    const hook = hooks[i];
-    if (!hook) continue;
-    if (hook._source === CODETERM_CODEX_HOOK_MARKER) return true;
-    const cmd = String(hook.command || "");
-    if (
-      (cmd.indexOf("/hook/session_start") !== -1 || cmd.indexOf("/hook/stop") !== -1) &&
-      cmd.indexOf("X-CodeTerm-Agent-Provider: codex") !== -1
-    ) {
-      return true;
-    }
+    if (isOwnedCodexHook(hooks[i])) return true;
   }
   return false;
+}
+
+export function removeOwnedCodexHooks(entries: CodexHookEntry[]): CodexHookEntry[] {
+  const out: CodexHookEntry[] = [];
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    const hooks = entry && entry.hooks;
+    if (!Array.isArray(hooks)) {
+      out.push(entry);
+      continue;
+    }
+    const kept = hooks.filter((hook) => !isOwnedCodexHook(hook));
+    if (kept.length === hooks.length) out.push(entry);
+    else if (kept.length > 0) out.push({ ...entry, hooks: kept });
+  }
+  return out;
+}
+
+function isOwnedCodexHook(hook: NonNullable<CodexHookEntry["hooks"]>[number] | undefined): boolean {
+  if (!hook) return false;
+  if (hook._source !== undefined) return hook._source === CODETERM_CODEX_HOOK_MARKER;
+  const cmd = String(hook.command || "");
+  return (cmd.indexOf("/hook/session_start") !== -1 || cmd.indexOf("/hook/stop") !== -1)
+    && cmd.indexOf("X-CodeTerm-Agent-Provider: codex") !== -1;
 }
 
 export function isOwnedCodexWindowsHookScript(path: string): boolean {
