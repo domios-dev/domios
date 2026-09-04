@@ -79,6 +79,25 @@ function TableRow({ row, now }: { row: UsageSnapshot; now: number }) {
   );
 }
 
+/// `failure_reason` is always written as `KIND: detail` (usage/store.rs), so the
+/// real kind is already on the row. The pill used to render "timeout" for every
+/// failure, which reported a parse or fetch error as a probe that never answered.
+const FAILURE_LABELS: Record<string, string> = {
+  TIMEOUT: "timeout",
+  FETCH_ERROR: "fetch failed",
+  SOURCE_UNAVAILABLE: "no source",
+  INTERNAL: "internal",
+  PARSE_ERROR: "unreadable",
+  SKIP: "skipped",
+  NO_PARSER: "no parser",
+  DB_INSERT: "store failed",
+};
+
+export function usageFailureLabel(row: UsageSnapshot): string {
+  const kind = (row.failure_reason || "").split(":", 1)[0].trim();
+  return FAILURE_LABELS[kind] ?? "failed";
+}
+
 export function usageFailureCopy(row: UsageSnapshot): {
   providerLabel: string;
   command: string;
@@ -120,7 +139,7 @@ function ErrorPill({ row, now }: { row: UsageSnapshot; now: number }) {
         tabIndex={0}
       >
         <span className="d" />
-        timeout
+        {usageFailureLabel(row)}
       </span>
       {tip &&
         createPortal(
