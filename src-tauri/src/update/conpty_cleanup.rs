@@ -100,11 +100,7 @@ pub(crate) fn reap_orphaned_hosts_in_background() {
         let Some(dir) = std::env::var_os("CODETERM_CONPTY_DIR") else {
             return;
         };
-        match cleanup_bundled_hosts(
-            Path::new(&dir),
-            std::process::id(),
-            HostSelection::Orphaned,
-        ) {
+        match cleanup_bundled_hosts(Path::new(&dir), std::process::id(), HostSelection::Orphaned) {
             Ok(0) => {}
             Ok(count) => log::info!("[conpty] reaped {count} orphaned bundled ConPTY host(s)"),
             Err(error) => log::warn!("[conpty] orphan sweep failed: {error}"),
@@ -265,9 +261,14 @@ mod windows {
         let mut matches = Vec::new();
         for (pid, parent_pid) in hosts {
             let parent_alive = live_pids.contains(&parent_pid);
-            if let Some(process) =
-                open_matching_process(pid, parent_pid, parent_alive, owner_pid, expected, selection)
-            {
+            if let Some(process) = open_matching_process(
+                pid,
+                parent_pid,
+                parent_alive,
+                owner_pid,
+                expected,
+                selection,
+            ) {
                 matches.push(process);
             }
         }
@@ -303,9 +304,12 @@ mod windows {
             return None;
         }
         let access = PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE | SYNCHRONIZE;
-        let handle = OwnedHandle::new(unsafe { OpenProcess(access, 0, candidate.pid) }, "terminate")
-            .inspect_err(|error| log::debug!("[conpty] skipping OpenConsole {pid}: {error}"))
-            .ok()?;
+        let handle = OwnedHandle::new(
+            unsafe { OpenProcess(access, 0, candidate.pid) },
+            "terminate",
+        )
+        .inspect_err(|error| log::debug!("[conpty] skipping OpenConsole {pid}: {error}"))
+        .ok()?;
         let executable_path = query_executable_path(handle.0, candidate.pid).ok()?;
         let confirmed = ProcessCandidate {
             executable_path,
@@ -575,7 +579,10 @@ mod tests {
         // sweep must leave it alone; only the replacement sweep may reap it.
         let spared = cleanup_bundled_hosts(&dir, u32::MAX, HostSelection::Orphaned).unwrap();
         assert_eq!(spared, 0);
-        assert!(child.try_wait().unwrap().is_none(), "helper was reaped early");
+        assert!(
+            child.try_wait().unwrap().is_none(),
+            "helper was reaped early"
+        );
 
         let cleaned = cleanup_bundled_hosts(&dir, u32::MAX, HostSelection::All).unwrap();
         assert_eq!(cleaned, 1);
