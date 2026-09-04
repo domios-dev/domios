@@ -44,7 +44,7 @@ const baseHost = (index: string, sqliteRows: (db: string, sql: string, params: u
       manifestJson: () => "null",
       homeDir: () => "/tmp/home",
       platform: () => "linux",
-      unixNowMs: () => Date.parse("2026-09-01T12:00:00Z"),
+      unixNowMs: () => Date.parse("2026-09-01T12:05:00Z"),
       path: { equal: (a: string, b: string) => a === b },
       expandHome: (v: string) => v.replace(/^~/, "/tmp/home"),
       envGet: (name: string) => name === "CODETERM_CODEX_SESSION_INDEX_PATH"
@@ -73,9 +73,9 @@ const baseHost = (index: string, sqliteRows: (db: string, sql: string, params: u
 };
 
 const index = [
-  JSON.stringify({ id: projectSession, thread_name: "new project prompt", updated_at: "2026-09-01T10:00:00Z" }),
-  JSON.stringify({ id: foreignSession, thread_name: "foreign newer prompt", updated_at: "2026-09-01T11:00:00Z" }),
-  JSON.stringify({ id: projectSession, thread_name: "older duplicate", updated_at: "2026-09-01T09:00:00Z" }),
+  JSON.stringify({ id: projectSession, thread_name: "new project prompt", updated_at: "2026-09-01T12:02:00Z" }),
+  JSON.stringify({ id: foreignSession, thread_name: "foreign newer prompt", updated_at: "2026-09-01T12:04:00Z" }),
+  JSON.stringify({ id: projectSession, thread_name: "older duplicate", updated_at: "2026-09-01T12:01:00Z" }),
 ].join("\n");
 
 console.log("\n--- session_index folding and shared store paths ---\n");
