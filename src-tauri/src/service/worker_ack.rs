@@ -8,6 +8,7 @@ use serde_json::{json, Value};
 
 use crate::agent::reports::ReportDetails;
 use crate::multiplexer::state::MultiplexerState;
+use crate::service::message_gateway::{DeliveryClass, MessageBody, MessageOrigin, OutboundMessage};
 use crate::service::startup_lease::{
     authorize_startup_hold, ChildStartupState, StartupAuthority, StartupHoldRefusal,
     StartupHoldRejection, StartupTeamLease,
@@ -15,39 +16,19 @@ use crate::service::startup_lease::{
 
 use super::ServiceContext;
 
-const WORKER_ACK_TIMEOUT: Duration = Duration::from_secs(60);
-const WORKER_ACK_FINAL_TIMEOUT: Duration = Duration::from_secs(60);
-const AGENT_STARTUP_NOTICE_TIMEOUT: Duration = Duration::from_secs(30);
-const AGENT_STARTUP_FINAL_TIMEOUT: Duration = Duration::from_secs(30);
-const WORKER_ACK_REMINDER: &str = "Acknowledge this Worker assignment with codeterm agent ack before doing any work. If acknowledgement is still absent at the final bounded startup deadline, this tab will be cleaned up.";
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum WorkerAckFirstDeadline {
-    SystemReminder,
-    StartupUnbound,
-}
-
-fn first_deadline_action(authenticated_attempt_binding: bool) -> WorkerAckFirstDeadline {
-    if authenticated_attempt_binding {
-        WorkerAckFirstDeadline::SystemReminder
-    } else {
-        WorkerAckFirstDeadline::StartupUnbound
-    }
-}
-
-fn close_worker_after_final_deadline(
-    close_tab: impl FnOnce() -> Result<(), String>,
-) -> Option<String> {
-    close_tab().err()
-}
-
-fn serialize_agent_startup_cleanup<T>(
-    registry: &WorkerAckRegistry,
-    close_tab: impl FnOnce() -> T,
-) -> T {
-    let _cleanup = registry.startup_cleanup.lock();
-    close_tab()
-}
+const MEASURED_CLAUDE_COLD_START_SECS: u64 = 34;
+const MEASURED_CODEX_COLD_START_SECS: u64 = 38;
+const COLD_START_DEADLINE_SECS: u64 = 120;
+const COLD_START_MEASUREMENT_METHOD: &str =
+    "visible-spawn launch to first session binding in lifecycle logs";
+pub(crate) const TAB_STATE_ALIVE_AWAITING_INSPECTION: &str = "alive_awaiting_inspection";
+pub(crate) const ATTEMPT_STATE_FINALIZED: &str = "finalized";
+pub(crate) const STARTUP_BINDING_DEADLINE: Duration = Duration::from_secs(COLD_START_DEADLINE_SECS);
+const WORKER_ACK_TIMEOUT: Duration = STARTUP_BINDING_DEADLINE;
+const WORKER_ACK_FINAL_TIMEOUT: Duration = Duration::from_secs(COLD_START_DEADLINE_SECS);
+const AGENT_STARTUP_NOTICE_TIMEOUT: Duration = STARTUP_BINDING_DEADLINE;
+const AGENT_STARTUP_FINAL_TIMEOUT: Duration = Duration::from_secs(COLD_START_DEADLINE_SECS);
+const WORKER_ACK_REMINDER: &str = "The startup binding for this tab looks wrong. Check whether CODETERM_TASK_ID names a task with no live attempt or whether this session never bound. If the assignment is live, acknowledge it with codeterm agent ack.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum WorkerAckSignal {
@@ -132,7 +113,6 @@ pub(crate) struct WorkerAckRegistry {
     startup_waiters: Mutex<HashMap<String, AgentStartupWaiter>>,
     startup_supervisors: Mutex<HashMap<String, PendingAgentStartupSupervisor>>,
     startup_leases: Mutex<HashMap<String, StartupTeamLease>>,
-    startup_cleanup: Mutex<()>,
 }
 
 impl WorkerAckRegistry {
@@ -342,11 +322,9 @@ pub(crate) fn worker_ack_timeout_event(
     tab_id: &str,
     attempt_id: &str,
     spawn_command: &str,
-    cleanup_error: Option<&str>,
 ) -> Value {
-    let cleanup_ok = cleanup_error.is_none();
     json!({
-        "kind": if cleanup_ok { "worker_ack_startup_failed" } else { "worker_ack_cleanup_failed" },
+        "kind": "worker_ack_startup_failed",
         "plan_id": plan_id,
         "task_id": task_id,
         "tab_id": tab_id,
@@ -354,17 +332,16 @@ pub(crate) fn worker_ack_timeout_event(
         "deadline_seconds": (WORKER_ACK_TIMEOUT + WORKER_ACK_FINAL_TIMEOUT).as_secs(),
         "expected_command": "codeterm agent ack",
         "spawn_command": spawn_command,
-        "cleanup": { "ok": cleanup_ok, "error": cleanup_error },
-        "impact": if cleanup_ok {
-            "Worker startup failed; the exact attempt was closed and its tab assignment was cleared."
-        } else {
-            "ORCHESTRATION PRODUCT INCIDENT: the startup attempt was fenced, but its tab could not be closed."
+        "tab_state": TAB_STATE_ALIVE_AWAITING_INSPECTION,
+        "attempt_state": ATTEMPT_STATE_FINALIZED,
+        "deadline_basis": {
+            "measurement_method": COLD_START_MEASUREMENT_METHOD,
+            "claude_cold_start_seconds": MEASURED_CLAUDE_COLD_START_SECS,
+            "codex_cold_start_seconds": MEASURED_CODEX_COLD_START_SECS,
+            "selected_phase_seconds": COLD_START_DEADLINE_SECS,
         },
-        "fallback": if cleanup_ok {
-            "Inspect the preserved lane before dispatching a replacement Worker."
-        } else {
-            "Treat the tab as still live and close it explicitly before dispatching a replacement Worker."
-        },
+        "impact": "Worker startup did not acknowledge; the attempt was finalized while its tab remains alive for inspection.",
+        "fallback": "Inspect the surviving tab before dispatching a replacement Worker.",
     })
 }
 
@@ -375,6 +352,13 @@ fn agent_startup_notice_event(tab_id: &str, title: &str, attempt_id: &str) -> Va
         "title": title,
         "attempt_id": attempt_id,
         "deadline_seconds": AGENT_STARTUP_NOTICE_TIMEOUT.as_secs(),
+        "tab_state": TAB_STATE_ALIVE_AWAITING_INSPECTION,
+        "deadline_basis": {
+            "measurement_method": COLD_START_MEASUREMENT_METHOD,
+            "claude_cold_start_seconds": MEASURED_CLAUDE_COLD_START_SECS,
+            "codex_cold_start_seconds": MEASURED_CODEX_COLD_START_SECS,
+            "selected_phase_seconds": COLD_START_DEADLINE_SECS,
+        },
         "impact": "The spawned agent has not acknowledged its startup contract. The tab may be waiting on a provider prompt.",
         "inspect": [
             format!("codeterm tab status --tab {tab_id}"),
@@ -390,29 +374,25 @@ fn agent_startup_failed_event(
     tab_id: &str,
     title: &str,
     attempt_id: &str,
-    cleanup_error: Option<&str>,
     exit_code: Option<i32>,
     provider_output: Option<&str>,
 ) -> Value {
-    let cleanup_ok = cleanup_error.is_none();
     json!({
-        "kind": if cleanup_ok { "agent_startup_failed" } else { "agent_startup_cleanup_failed" },
+        "kind": "agent_startup_failed",
         "tab_id": tab_id,
         "title": title,
         "attempt_id": attempt_id,
         "deadline_seconds": (AGENT_STARTUP_NOTICE_TIMEOUT + AGENT_STARTUP_FINAL_TIMEOUT).as_secs(),
-        "cleanup": { "ok": cleanup_ok, "error": cleanup_error },
+        "tab_state": TAB_STATE_ALIVE_AWAITING_INSPECTION,
+        "deadline_basis": {
+            "measurement_method": COLD_START_MEASUREMENT_METHOD,
+            "claude_cold_start_seconds": MEASURED_CLAUDE_COLD_START_SECS,
+            "codex_cold_start_seconds": MEASURED_CODEX_COLD_START_SECS,
+            "selected_phase_seconds": COLD_START_DEADLINE_SECS,
+        },
         "provider": { "exit_code": exit_code, "output": provider_output },
-        "impact": if cleanup_ok {
-            "The exact spawned attempt did not acknowledge startup; its tab was closed at the bounded cleanup deadline."
-        } else {
-            "ORCHESTRATION PRODUCT INCIDENT: provider startup expired, but the tab could not be closed."
-        },
-        "fallback": if cleanup_ok {
-            "Inspect the provider and spawn a replacement only after fixing the startup prompt or provider failure."
-        } else {
-            "Treat the tab as live and close it explicitly before spawning a replacement."
-        },
+        "impact": "Provider startup expired; the tab remains alive for inspection.",
+        "fallback": "Inspect the surviving tab before spawning a replacement.",
     })
 }
 
@@ -671,6 +651,11 @@ impl ServiceContext {
             if !service.startup_attempt_is_current(&agent_tab_id, &attempt_id) {
                 return;
             }
+            if let Err(error) = service.deliver_worker_ack_reminder(&agent_tab_id, &attempt_id) {
+                log::warn!(
+                    "[agent-startup] binding reminder delivery failed attempt={attempt_id}: {error}"
+                );
+            }
             service.publish_agent_startup_report(
                 &supervisor_tab_id,
                 &agent_tab_id,
@@ -696,7 +681,7 @@ impl ServiceContext {
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => break,
                 }
             }
-            let Some(expired) = service
+            let Some(_expired) = service
                 .worker_ack
                 .expire_startup(&agent_tab_id, &attempt_id)
             else {
@@ -715,24 +700,6 @@ impl ServiceContext {
                     )
                 })
                 .filter(|output| !output.trim().is_empty());
-            // The close itself sweeps the lease, so the Team is reaped only
-            // after this exact owned member is gone.
-            let cleanup_error = serialize_agent_startup_cleanup(&service.worker_ack, || {
-                let error = service
-                    .close_tab_with_reason(
-                        &agent_tab_id,
-                        crate::multiplexer::types::TabCloseReason::PolicyStartup,
-                    )
-                    .err();
-                if error.is_some() {
-                    if let Some(team_id) = expired.team_id.as_deref() {
-                        log::warn!(
-                            "[startup-lease] Team {team_id} keeps its lease: Tab {agent_tab_id} did not close"
-                        );
-                    }
-                }
-                error
-            });
             service.publish_agent_startup_report(
                 &supervisor_tab_id,
                 &agent_tab_id,
@@ -741,7 +708,6 @@ impl ServiceContext {
                     &agent_tab_id,
                     &agent_title,
                     &attempt_id,
-                    cleanup_error.as_deref(),
                     exit_code,
                     provider_output.as_deref(),
                 ),
@@ -771,26 +737,13 @@ impl ServiceContext {
         })
     }
 
-    fn deliver_worker_ack_reminder(&self, tab_id: &str, attempt_id: &str) -> Result<(), String> {
-        use crate::service::message_gateway::{
-            DeliveryClass, MessageBody, MessageOrigin, OutboundMessage,
-        };
-        let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder("worker-ack")
-            .id(Some(attempt_id.to_string()));
+    pub(crate) fn deliver_worker_ack_reminder(
+        &self,
+        tab_id: &str,
+        attempt_id: &str,
+    ) -> Result<(), String> {
         self.gateway
-            .submit(
-                self,
-                OutboundMessage {
-                    target: tab_id.to_string(),
-                    body: MessageBody::Text {
-                        body: WORKER_ACK_REMINDER.to_string(),
-                    },
-                    envelope: Some(envelope),
-                    class: DeliveryClass::SystemNotice,
-                    origin: MessageOrigin::System,
-                    idempotency_key: Some(format!("worker-ack-reminder:{attempt_id}")),
-                },
-            )
+            .submit(self, worker_ack_reminder_message(tab_id, attempt_id))
             .map(|_| ())
             .map_err(|error| error.to_string())
     }
@@ -917,26 +870,18 @@ impl ServiceContext {
                     Some(session_id),
                 )
             });
-            match first_deadline_action(reminder_allowed) {
-                WorkerAckFirstDeadline::SystemReminder => {
-                    if let Err(error) =
-                        service.deliver_worker_ack_reminder(&worker_tab_id, &attempt_id)
-                    {
-                        log::warn!(
-                            "[worker-ack] reminder delivery failed attempt={attempt_id}: {error}"
-                        );
-                    }
-                }
-                WorkerAckFirstDeadline::StartupUnbound => {
-                    let _ = service.plan_store.mark_worker_startup_deadline(
-                        &plan_id,
-                        &task_id,
-                        &worker_tab_id,
-                        &attempt_id,
-                        false,
-                        epoch_ms(),
-                    );
-                }
+            if let Err(error) = service.deliver_worker_ack_reminder(&worker_tab_id, &attempt_id) {
+                log::warn!("[worker-ack] reminder delivery failed attempt={attempt_id}: {error}");
+            }
+            if !reminder_allowed {
+                let _ = service.plan_store.mark_worker_startup_deadline(
+                    &plan_id,
+                    &task_id,
+                    &worker_tab_id,
+                    &attempt_id,
+                    false,
+                    epoch_ms(),
+                );
             }
             match receiver.recv_timeout(WORKER_ACK_FINAL_TIMEOUT) {
                 Ok(WorkerAckSignal::Acknowledged) | Ok(WorkerAckSignal::Superseded) => return,
@@ -960,18 +905,9 @@ impl ServiceContext {
             if !finalized {
                 return;
             }
-            let cleanup_error = close_worker_after_final_deadline(|| {
-                service.close_tab_with_reason(
-                    &worker_tab_id,
-                    crate::multiplexer::types::TabCloseReason::PolicyWorker,
-                )
-            });
-            if cleanup_error.is_some() {
-                let _ = service.plan_store.mark_worker_startup_cleanup_failed(
-                    &plan_id,
-                    &task_id,
-                    &attempt_id,
-                    epoch_ms(),
+            if let Err(error) = service.deliver_worker_ack_reminder(&worker_tab_id, &attempt_id) {
+                log::warn!(
+                    "[worker-ack] final binding reminder delivery failed attempt={attempt_id}: {error}"
                 );
             }
             service.publish_worker_lifecycle_report(
@@ -986,7 +922,6 @@ impl ServiceContext {
                     &worker_tab_id,
                     &attempt_id,
                     &spawn_command,
-                    cleanup_error.as_deref(),
                 ),
             );
         });
@@ -1047,6 +982,21 @@ impl ServiceContext {
             Duration::ZERO,
         );
         Ok(true)
+    }
+}
+
+fn worker_ack_reminder_message(tab_id: &str, attempt_id: &str) -> OutboundMessage {
+    let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder("worker-ack")
+        .id(Some(attempt_id.to_string()));
+    OutboundMessage {
+        target: tab_id.to_string(),
+        body: MessageBody::Text {
+            body: WORKER_ACK_REMINDER.to_string(),
+        },
+        envelope: Some(envelope),
+        class: DeliveryClass::SystemNotice,
+        origin: MessageOrigin::System,
+        idempotency_key: Some(format!("worker-ack-reminder:{attempt_id}")),
     }
 }
 

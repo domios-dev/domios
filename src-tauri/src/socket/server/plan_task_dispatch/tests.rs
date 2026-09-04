@@ -1,11 +1,12 @@
 use super::{
     apply_dispatch_starting_contract, await_agent_ready, build_brief, build_brief_with_personality,
     checkout_required, complete_dispatch_transaction, dispatch_ready_event,
-    dispatch_worker_identity, lane_metadata_for_dispatch, preflight_dispatch_task_status,
-    preflight_review_capacity, regression_blocked_error, resolve_dispatch_lane,
-    resolve_dispatch_routing, rollback_failed_dispatch, task_launch_authority_for_dispatch,
-    unqualified_model_error, verify_dispatched_task_binding, worker_ack_timeout_event,
-    DispatchEvidence, DispatchWaitFailure,
+    dispatch_startup_failed_event, dispatch_worker_identity, lane_metadata_for_dispatch,
+    preflight_dispatch_task_status, preflight_review_capacity, regression_blocked_error,
+    resolve_dispatch_lane, resolve_dispatch_routing, rollback_failed_dispatch,
+    task_launch_authority_for_dispatch, unqualified_model_error, verify_dispatched_task_binding,
+    worker_ack_timeout_event, DispatchEvidence, DispatchFailureDisposition, DispatchWaitFailure,
+    DISPATCH_READY_TIMEOUT,
 };
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::AgentRole;
@@ -733,7 +734,9 @@ fn agent_ready_timeout_never_rolls_back_a_possibly_live_worker() {
     )
     .unwrap_err();
 
-    assert_eq!(error.data.unwrap()["stage"], "agent_ready");
+    let data = error.data.unwrap();
+    assert_eq!(data["stage"], "agent_ready");
+    assert_eq!(data["worker_may_be_alive"], true);
 }
 
 /// Same rel#66 guarantee at the session-binding stage: the tab is still
@@ -755,7 +758,59 @@ fn session_binding_timeout_never_rolls_back_a_possibly_live_worker() {
     )
     .unwrap_err();
 
-    assert_eq!(error.data.unwrap()["stage"], "session_binding");
+    let data = error.data.unwrap();
+    assert_eq!(data["stage"], "session_binding");
+    assert_eq!(data["worker_may_be_alive"], true);
+}
+
+#[test]
+fn dispatch_binding_wait_uses_the_measured_startup_deadline() {
+    assert_eq!(
+        DISPATCH_READY_TIMEOUT,
+        crate::service::worker_ack::STARTUP_BINDING_DEADLINE
+    );
+}
+
+#[test]
+fn survivor_report_omits_cleanup_and_names_the_live_tab_state() {
+    let event = dispatch_startup_failed_event(
+        "plan",
+        "task",
+        "tab",
+        "attempt",
+        "session_binding",
+        "binding deadline expired",
+        DispatchFailureDisposition::Survivor {
+            attempt_finalized: true,
+        },
+    );
+
+    assert_eq!(
+        event["tab_state"],
+        crate::service::worker_ack::TAB_STATE_ALIVE_AWAITING_INSPECTION
+    );
+    assert_eq!(
+        event["attempt_state"],
+        crate::service::worker_ack::ATTEMPT_STATE_FINALIZED
+    );
+    assert!(event.get("cleanup").is_none());
+    assert!(event.get("cleanup_error").is_none());
+}
+
+#[test]
+fn definitive_dispatch_failure_keeps_truthful_cleanup_result() {
+    let event = dispatch_startup_failed_event(
+        "plan",
+        "task",
+        "tab",
+        "attempt",
+        "task_commit",
+        "commit rejected",
+        DispatchFailureDisposition::Cleanup { ok: true },
+    );
+
+    assert_eq!(event["cleanup"]["ok"], true);
+    assert!(event.get("tab_state").is_none());
 }
 
 /// Companion to the two tests above: a dispatch that DEFINITIVELY failed
