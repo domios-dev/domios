@@ -45,4 +45,4 @@ pub use manifest::{
     SerdeTaskDelivery, SerdeVerifySubmit, SessionsConfig, SkillsConfig, SpawnConfig,
     TrustGrantConfig, UsageConfig, LAUNCH_TEMPLATE_PLACEHOLDERS, RESUME_TEMPLATE_PLACEHOLDERS,
 };
-pub use vm::{call_json, has_method, PluginVm, VmError};
+pub use vm::{call_json, has_method, PluginVm, VmError, ASYNC_JOB_TIMEOUT_ERROR};

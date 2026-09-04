@@ -151,7 +151,10 @@ the plugin's own iframe view; `"openTabl:<name>"` opens a built-in tabl.
   in it. `host.awaitJob(jobId, then)` is the same yield over any `host.exec.start`
   job. The frame fully unwinds before the host waits, so two calls still never
   run inside one context; a plugin that yields does let an unrelated call be
-  served before its own continuation, which is the point.
+  served before its own continuation. The host waits at most five seconds for
+  the completion event, then refuses the call with the stable error
+  `plugin async job exceeded its bounded wait`; this is a failure boundary, not
+  readiness. A bubble caller keeps its last cached value on that refusal.
 - `host.fetch(json)` → HTTP to an allow-listed host (full body buffered).
 - `host.fetchStream(json)` → `{jobId}`; `host.fetchStreamPoll(jobId)` → `{chunks, done, status?, error?}`; `host.fetchStreamClose(jobId)` — chunked streaming GET/POST (token streaming for shells). Same network allowlist as `host.fetch`.
 - `host.fs.{fileExists, readFile, readJson, writeFile, writeJson}`, `host.makeDirs`.
@@ -665,4 +668,4 @@ share these consent, backup, merge, uninstall, and restore semantics.
      release the app first/together** (see "App + plugin ship together"). Test
      path: install the new app, then `codeterm plugin install <id>`.
 
-<!-- revision: 21 -->
+<!-- revision: 22 -->
