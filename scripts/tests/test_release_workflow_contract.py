@@ -12,9 +12,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS = ROOT / ".github" / "workflows"
+ORDER_CHECK = ROOT / "scripts" / "check-release-verification-order.sh"
 VERIFIER = "scripts/verify-updater-manifest.mjs"
 RELEASE_NOTES_SYNC = "scripts/sync-release-notes.mjs"
-DARWIN_PLATFORMS = ("darwin-aarch64", "darwin-x86_64")
 
 # Published with no escape hatch: darwin from the build machine, windows x64
 # from its matrix leg, linux-x86_64 from the AppImage lane.
@@ -24,10 +24,6 @@ RELEASE_PLATFORMS = (
     "windows-x86_64",
     "linux-x86_64",
 )
-
-# windows-aarch64 may be dropped when the ARM64 runner is unavailable
-# (docs/RELEASE.md; 1.7.2 shipped without it); linux-aarch64 rides LINUX_ARM_SIG.
-OPTIONAL_PLATFORMS = ("windows-aarch64", "linux-aarch64")
 
 STEP_START = re.compile(r"^ {6}-\s+(.*)$")
 STEP_KEY = re.compile(r"^ {8}([A-Za-z_][A-Za-z0-9_-]*):\s?(.*)$")
@@ -135,100 +131,72 @@ def dead_condition(condition: str, events: set[str]) -> bool:
     return True
 
 
-class MacosSignatureGateTest(unittest.TestCase):
-    def invocations(self) -> list[dict]:
-        """Every check here goes through this. A test that iterates the step list
-        without it passes on a lane that invokes the verifier nowhere at all."""
-        found = verifier_steps(read("release-macos.yml"))
-        self.assertTrue(
-            found,
-            "release-macos.yml never invokes the updater signature verifier",
-        )
-        return found
+class PublisherCompletionSignalTest(unittest.TestCase):
+    PUBLISHERS = (
+        ("release.yml", "release-completion-release.json"),
+        ("release-linux.yml", "release-completion-release-linux.json"),
+        ("release-windows.yml", "release-completion-release-windows.json"),
+        ("release-macos.yml", "release-completion-release-macos.json"),
+    )
 
-    def test_macos_lane_verifies_both_darwin_platforms(self):
-        covered = set()
-        for step in self.invocations():
-            covered |= required_platforms(step)
-        for platform in DARWIN_PLATFORMS:
-            self.assertIn(platform, covered, f"macOS lane does not require {platform}")
-
-    def test_no_macos_step_is_guarded_by_an_event_it_never_receives(self):
-        """A gate whose condition no trigger can satisfy is not a gate: the mirror
-        step carried a push predicate on a workflow_dispatch-only lane."""
-        text = read("release-macos.yml")
-        events = triggers(text)
-        for step in steps(text):
-            condition = step.get("if", "")
-            if not condition:
-                continue
-            self.assertFalse(
-                dead_condition(condition, events),
-                f"step {step.get('name', '<unnamed>')!r} is guarded by {condition!r}, "
-                f"unsatisfiable under triggers {sorted(events)}",
-            )
-
-    def test_macos_lane_pins_the_release_it_verifies(self):
-        """Without --require-version this path never exercises the foreign-evidence
-        refusal, so a previous release's manifest would satisfy it."""
-        for step in self.invocations():
-            self.assertIn("--require-version", step.get("run", ""))
-
-    def test_linux_and_windows_lanes_still_verify(self):
-        for name in ("release-linux.yml", "release-windows.yml"):
+    def test_publishers_defer_served_byte_verification(self):
+        for name, _ in self.PUBLISHERS:
             with self.subTest(workflow=name):
-                self.assertTrue(
+                self.assertFalse(
                     verifier_steps(read(name)),
-                    f"{name} lost its published-manifest verification",
+                    f"{name} still verifies a manifest before all publishers finish",
+                )
+
+    def test_publishers_publish_named_completion_signals(self):
+        for name, marker in self.PUBLISHERS:
+            with self.subTest(workflow=name):
+                text = read(name)
+                self.assertIn("release-completion-v1", text)
+                self.assertIn(marker, text)
+        self.assertIn("release-completion-release-windows-x86_64.json", read("release-windows.yml"))
+
+    def test_no_manual_only_step_is_guarded_by_an_event_it_never_receives(self):
+        for name, _ in self.PUBLISHERS:
+            text = read(name)
+            events = triggers(text)
+            for step in steps(text):
+                condition = step.get("if", "")
+                if not condition:
+                    continue
+                self.assertFalse(
+                    dead_condition(condition, events),
+                    f"step {step.get('name', '<unnamed>')!r} is guarded by {condition!r}, "
+                    f"unsatisfiable under triggers {sorted(events)}",
                 )
 
 
 class ProductionPublicationGateTest(unittest.TestCase):
-    """release.yml is the path that actually ships macOS. Its mirror check proved
-    structure and HTTP reachability only, which is the state #58 was in."""
+    """release.yml publishes a completion signal; the coordinating workflow owns
+    the served-byte gate and closure authority."""
 
-    def verifier_step(self) -> dict:
-        invocations = verifier_steps(read("release.yml"))
-        self.assertTrue(invocations, "release.yml never verifies the published manifest")
-        return invocations[0]
-
-    def test_published_mirror_verification_covers_every_shipped_platform(self):
-        covered = required_platforms(self.verifier_step())
-        for platform in RELEASE_PLATFORMS:
-            self.assertIn(platform, covered, f"published-mirror check does not require {platform}")
-
-    def test_conditionally_built_platforms_are_not_required(self):
-        covered = required_platforms(self.verifier_step())
-        for platform in OPTIONAL_PLATFORMS:
-            self.assertNotIn(
-                platform,
-                covered,
-                f"{platform} is built conditionally; requiring it refuses valid releases",
-            )
-
-    def test_published_manifest_is_fetched_with_a_cache_buster(self):
-        self.assertIn("cb=", self.verifier_step().get("run", ""))
-
-    def test_closure_evidence_is_minted_only_after_signature_verification(self):
-        """issue-closure-boundary.json authorises closing public issues later."""
-        run = self.verifier_step().get("run", "")
-        self.assertIn("issue-closure-boundary.json", run, "boundary is minted in another step")
-        self.assertLess(
-            run.index(VERIFIER),
-            run.index("issue-closure-boundary.json"),
-            "closure evidence is written before the signatures are verified",
-        )
+    def test_release_workflow_defers_served_byte_verification(self):
+        self.assertFalse(verifier_steps(read("release.yml")))
+        self.assertIn("needs: release", read("release.yml"))
+        self.assertIn("release-completion-release.json", read("release.yml"))
 
     def test_closing_a_public_issue_is_guarded_by_the_verification_record(self):
         closing = [
-            step for step in steps(read("release.yml"))
+            step for step in steps(read("release-manifest-validate.yml"))
             if "gh issue close" in step.get("run", "")
         ]
-        self.assertTrue(closing, "release.yml no longer closes public issues")
+        self.assertTrue(closing, "manifest validation no longer closes public issues")
         for step in closing:
             run = step["run"]
             self.assertIn("check-release-closure.mjs", run, "close runs with no authority check")
             self.assertLess(run.index("check-release-closure.mjs"), run.index("gh issue close"))
+
+    def test_closure_boundary_is_minted_after_served_byte_verification(self):
+        parsed = steps(read(RELEASE_MANIFEST_VALIDATE))
+        verifying = [index for index, step in enumerate(parsed) if VERIFIER in step.get("run", "")]
+        minting = [index for index, step in enumerate(parsed) if "issue-closure-boundary.json" in step.get("run", "")]
+        self.assertTrue(verifying)
+        self.assertTrue(minting)
+        self.assertLess(verifying[0], minting[0])
 
 
 class ReleaseNotesContractTest(unittest.TestCase):
@@ -239,31 +207,26 @@ class ReleaseNotesContractTest(unittest.TestCase):
         verifying = [index for index, step in enumerate(parsed) if VERIFIER in step.get("run", "")]
         self.assertEqual(len(publishing), 1, "release.yml must have one publication step")
         self.assertEqual(len(syncing), 1, "release.yml must sync one canonical notes body")
-        self.assertEqual(len(verifying), 1, "release.yml must have one served-byte verifier")
+        self.assertEqual(len(verifying), 0, "release.yml must defer served-byte verification")
         self.assertLess(publishing[0], syncing[0], "notes sync runs before releases exist")
-        self.assertLess(syncing[0], verifying[0], "verification ran before both releases received notes")
+        self.assertIn("release-completion-release.json", read("release.yml"))
         self.assertIn("--tag", parsed[syncing[0]].get("run", ""))
 
 
 RELEASE_MANIFEST_VALIDATE = "release-manifest-validate.yml"
 
-# The three independent, uncoordinated tag-triggered legs that publish the
-# release. release-manifest-validate.yml must re-run after each of them
-# completes so an incomplete matrix is caught no matter which leg finishes
-# last (codeterm#383).
+# The independent legs publish completion assets before this gate is triggered.
 PUBLISHING_WORKFLOW_NAMES = (
     "Release (self-hosted build machine)",
     "release-windows",
     "release-linux",
+    "release-macos",
 )
 
 
 class ManifestValidateTriggerTest(unittest.TestCase):
-    """codeterm#383: a gate that only ever runs on workflow_dispatch is not a
-    release-time gate — it is a checklist nobody is required to run. This
-    workflow must fire on its own after every publishing leg completes, and
-    must actually fail the run (not just print a warning) when the matrix it
-    finds is incomplete."""
+    """The coordinating gate waits for published completion assets and distinguishes
+    pending matrix formation from a terminal publisher failure."""
 
     def test_workflow_triggers_after_every_publishing_leg_completes(self):
         self.assertEqual(
@@ -271,7 +234,7 @@ class ManifestValidateTriggerTest(unittest.TestCase):
             {"workflow_run", "workflow_dispatch"},
             "release-manifest-validate.yml must run automatically after each publishing "
             "leg completes (workflow_run), in addition to workflow_dispatch for manual "
-            "re-checks — a manual-only trigger is a checklist, not a gate",
+            "re-checks",
         )
 
     def test_workflow_run_watches_every_publishing_leg(self):
@@ -313,3 +276,27 @@ class ManifestValidateTriggerTest(unittest.TestCase):
             "release-manifest-validate.yml must require linux-x86_64 somewhere "
             "(latest-deb.json's only platform) or a missing Debian artifact ships silently",
         )
+
+    def test_incomplete_matrix_defers_without_invoking_verifier(self):
+        text = read(RELEASE_MANIFEST_VALIDATE)
+        self.assertIn("check-release-verification-order.sh", text)
+        self.assertIn("MATRIX_COMPLETE:", text)
+        self.assertIn("MATRIX_PENDING:", ORDER_CHECK.read_text(encoding="utf-8"))
+        self.assertIn("steps.matrix.outputs.ready == 'true'", text)
+
+    def test_terminal_matrix_failure_has_a_named_reason(self):
+        self.assertIn("MATRIX_FAILED:", ORDER_CHECK.read_text(encoding="utf-8"))
+
+    def test_ordering_uses_no_elapsed_time_as_completion(self):
+        workflow = read(RELEASE_MANIFEST_VALIDATE)
+        script = ORDER_CHECK.read_text(encoding="utf-8")
+        self.assertNotIn("sleep", workflow.lower())
+        self.assertNotIn("poll", workflow.lower())
+        self.assertNotIn("sleep", script.lower())
+        self.assertNotIn("poll", script.lower())
+
+    def test_ordering_fixtures_cover_pending_complete_and_failure(self):
+        fixtures = ROOT / "scripts" / "tests" / "fixtures" / "release-verification"
+        for name in ("macos-only.json", "full.json", "never-completes.json"):
+            with self.subTest(fixture=name):
+                self.assertTrue((fixtures / name).is_file())
