@@ -1,3 +1,4 @@
+use crate::multiplexer::types::TabCloseReason;
 use crate::{
     service::orchestrator::types::SpawnAgentParams,
     service::{boot_stage::BootStage, ServiceContext},
@@ -602,7 +603,7 @@ pub(crate) fn launch_agent_in_background_with_env(
                         error
                     );
                     launch.fail(&svc, failure);
-                    let _ = svc.close_tab(&tab_id);
+                    let _ = svc.close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
                     set_booting(false);
                     if let Some(tx) = ready_tx {
                         let _ = tx.send(Err(format!("backend PTY spawn failed: {}", error)));
@@ -621,7 +622,7 @@ pub(crate) fn launch_agent_in_background_with_env(
             let error = LaunchFailure::TabClosed.reason();
             launch.fail(&svc, LaunchFailure::TabClosed);
             set_booting(false);
-            let _ = svc.close_tab(&tab_id);
+            let _ = svc.close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
             if let Some(tx) = ready_tx {
                 let _ = tx.send(Err(error));
             }

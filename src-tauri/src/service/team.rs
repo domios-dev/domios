@@ -8,6 +8,7 @@ use crate::multiplexer::types::{AgentRole, TabBacking};
 use crate::service::general_agent::{refuse_general_agent_team_membership, shape_for_tab};
 use crate::service::plan::PlanError;
 use crate::service::ServiceContext;
+use crate::multiplexer::types::TabCloseReason;
 
 #[derive(Debug, Clone)]
 pub(crate) struct AddTeamMemberParams {
@@ -752,7 +753,7 @@ pub(crate) fn commit_team_member_spawn(
         || tab.role_kind_id() != expected_kind_id
         || mux.find_workspace_for_tab(tab_id) != expected_workspace;
     if invalid_hierarchy {
-        mux.close_tab(tab_id)?;
+        mux.close_tab_with_reason(tab_id, TabCloseReason::SpawnRollback)?;
         return Err("Team member spawn did not preserve the manager hierarchy".into());
     }
     if anchors {

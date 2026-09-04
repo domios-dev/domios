@@ -2,6 +2,7 @@
 
 use crate::service::plan::PlanStore;
 use crate::service::{ServiceContext, SpawnAgentParams};
+use crate::multiplexer::types::TabCloseReason;
 
 pub(crate) fn worker_spawn_plan_task_ref(params: &SpawnAgentParams) -> Option<&str> {
     params
@@ -281,7 +282,7 @@ impl ServiceContext {
             })?,
             now_ms,
             || {
-                let _ = self.close_tab(tab_id);
+                let _ = self.close_tab_with_reason(tab_id, TabCloseReason::SpawnRollback);
             },
         )?;
         crate::api::events::emit_everywhere(

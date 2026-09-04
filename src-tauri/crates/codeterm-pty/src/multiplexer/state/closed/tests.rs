@@ -683,3 +683,67 @@ fn single_close_still_works_alongside_groups() {
     assert_eq!(view[0].index, 0);
     assert!(!view[0].orphaned);
 }
+
+const CODETERM_INITIATED: [TabCloseReason; 6] = [
+    TabCloseReason::Watchdog,
+    TabCloseReason::PtyExit,
+    TabCloseReason::SpawnRollback,
+    TabCloseReason::AgentRunEnded,
+    TabCloseReason::Cancelled,
+    TabCloseReason::WorkspaceClosed,
+];
+
+#[test]
+fn every_close_reason_carries_a_distinct_attribution_label() {
+    let all = [
+        TabCloseReason::User,
+        TabCloseReason::PolicyWorker,
+        TabCloseReason::PolicyStartup,
+        TabCloseReason::Watchdog,
+        TabCloseReason::PtyExit,
+        TabCloseReason::SpawnRollback,
+        TabCloseReason::AgentRunEnded,
+        TabCloseReason::Cancelled,
+        TabCloseReason::WorkspaceClosed,
+    ];
+    let labels: HashSet<&str> = all.iter().map(|reason| reason.label()).collect();
+    assert_eq!(
+        labels.len(),
+        all.len(),
+        "two reasons sharing a label make a close unattributable"
+    );
+    assert!(!labels.contains(""), "an empty label attributes nothing");
+    assert_eq!(TabCloseReason::default().label(), "user");
+}
+
+#[test]
+fn a_codeterm_initiated_close_keeps_the_ordinary_history_behaviour() {
+    for reason in CODETERM_INITIATED {
+        let (mut state, _root) = MultiplexerState::new();
+        let wsid = ws_id(&state);
+        let visible = state.create_tab(&wsid).unwrap();
+        state.close_tab_with_reason(&visible, reason).unwrap();
+        assert_eq!(
+            state.list_recently_closed(&wsid).len(),
+            1,
+            "{} must still record a reopenable entry",
+            reason.label()
+        );
+    }
+}
+
+#[test]
+fn only_the_policy_worker_reason_lifts_the_hidden_skip() {
+    for reason in CODETERM_INITIATED {
+        let (mut state, _root) = MultiplexerState::new();
+        let wsid = ws_id(&state);
+        let hidden = make_hidden_worker(&mut state, &wsid);
+        state.close_tab_with_reason(&hidden, reason).unwrap();
+        assert!(
+            state.list_recently_closed(&wsid).is_empty(),
+            "{} must not gain PolicyWorker's hidden-worker exemption",
+            reason.label()
+        );
+    }
+}
+

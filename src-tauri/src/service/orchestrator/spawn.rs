@@ -8,6 +8,7 @@ use crate::service::general_agent::{
     refuse_general_agent_team_membership, refuse_parenting_under_general_agent, shape_for_tab,
 };
 use crate::service::{spawn_title, ServiceContext};
+use crate::multiplexer::types::TabCloseReason;
 
 /// Build effort provenance for a launch where the requested effort has already
 /// passed capability validation. No silent downgrade ⇒ `resolved == requested`.
@@ -496,7 +497,7 @@ impl ServiceContext {
                 emit_state_change,
             ) {
                 // A post-creation hierarchy failure must not leave an orphan tab.
-                let _ = self.close_tab(&tab_id);
+                let _ = self.close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
                 return Err(error);
             }
         }
@@ -516,7 +517,7 @@ impl ServiceContext {
             );
             if let Err(refusal) = guard {
                 drop(mux);
-                let _ = self.close_tab(&tab_id);
+                let _ = self.close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
                 return Err(refusal.to_string());
             }
             if mux.get_team(team_id).is_some() {
@@ -697,7 +698,7 @@ impl ServiceContext {
             if let Err(error) =
                 self.create_pending_delivery(&tab_id, spec.channel.clone(), &spec.payload)
             {
-                let _ = self.close_tab(&tab_id);
+                let _ = self.close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
                 return Err(error.to_string());
             }
         }

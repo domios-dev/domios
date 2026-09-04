@@ -83,7 +83,11 @@ fn epoch_ms() -> u64 {
 }
 
 impl ServiceContext {
-    pub(crate) fn prepare_tab_close(&self, tab_id: &str) -> Result<(), String> {
+    pub(crate) fn prepare_tab_close(
+        &self,
+        tab_id: &str,
+        reason: TabCloseReason,
+    ) -> Result<(), String> {
         self.chat_registry.shutdown_tab(tab_id);
         self.deferred_session_bindings.clear(tab_id);
 
@@ -91,9 +95,12 @@ impl ServiceContext {
             let _ = self.chatbackend_close(&plugin_id, &session_id);
         }
 
+        log::info!("[tab-close] tab={tab_id} reason={}", reason.label());
         self.record_lifecycle_end(
             tab_id,
-            crate::session::lifecycle::LifecycleTransition::Closed,
+            crate::session::lifecycle::LifecycleTransition::Closed {
+                reason: reason.label().to_string(),
+            },
         );
         self.discard_pending_delivery(tab_id)
             .map_err(|error| format!("pending delivery discard failed: {error}"))?;
@@ -190,7 +197,7 @@ impl ServiceContext {
                 mux.reserve_tab_close(tab_id)?,
             )
         };
-        if let Err(error) = self.prepare_tab_close(tab_id) {
+        if let Err(error) = self.prepare_tab_close(tab_id, reason) {
             self.mux.write().abort_tab_close(&reservation);
             return Err(error);
         }
