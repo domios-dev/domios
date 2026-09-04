@@ -236,6 +236,49 @@ fn integration_silence_unconsented_provider_announces_at_launch() {
     assert_eq!(display_name, FIXTURE_PROVIDER);
 }
 
+#[test]
+fn integration_silence_states_have_distinct_constants_and_remedies() {
+    let cases = [
+        (
+            INTEGRATION_STATE_ABSENT,
+            IntegrationState::Absent,
+            IntegrationRemedy::INSTALL_PATH,
+            false,
+        ),
+        (
+            INTEGRATION_STATE_STALE_VERSION,
+            IntegrationState::StaleVersion,
+            IntegrationRemedy::REFRESH_PATH,
+            true,
+        ),
+        (
+            INTEGRATION_STATE_UNTRUSTED_HASH,
+            IntegrationState::UntrustedHash,
+            IntegrationRemedy::TRUST_PATH,
+            true,
+        ),
+    ];
+    for (state_constant, state, remedy_path, consent_recorded) in cases {
+        let registry = registry_with(FixtureProvider::new(
+            FIXTURE_PROVIDER,
+            true,
+            json!({
+                "integration_state": state_constant,
+                "session_start_hook": false,
+                "hooks_installed": false,
+                "target": FIXTURE_TARGET
+            }),
+        ));
+        let (facts, _) =
+            read_provider_facts(&registry, FIXTURE_PROVIDER, consent_recorded).unwrap();
+        assert_eq!(facts.state, Some(state));
+        assert_eq!(state.as_str(), state_constant);
+        let silence = silence_of(evaluate(FIXTURE_PROVIDER, &facts));
+        assert_eq!(silence.state, state);
+        assert_eq!(silence.remedy.next_step(), remedy_path);
+    }
+}
+
 /// Negative control: an installed integration registers sessions, so there is
 /// nothing to announce.
 #[test]
