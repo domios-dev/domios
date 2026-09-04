@@ -4,6 +4,24 @@ pub const ACK_CAUSE_NO_LIVE_ATTEMPT: &str = "worker_ack_no_live_attempt";
 pub const ACK_CAUSE_PLAN_NOT_ACTIVE: &str = "worker_ack_plan_not_active";
 pub const ACK_CAUSE_TASK_NOT_OPEN: &str = "worker_ack_task_not_open";
 pub const ACK_CAUSE_AMBIGUOUS_ATTEMPTS: &str = "worker_ack_ambiguous_live_attempts";
+pub const ACK_CAUSE_ATTEMPT_SUPERSEDED: &str = "worker_ack_attempt_superseded";
+
+/// A newer dispatch closed this tab's attempt while it was still starting. No
+/// later ack from this tab can succeed, so it must stop rather than retry.
+pub fn superseded_subject_cause(
+    tab_id: &str,
+    plan_id: &str,
+    task_id: &str,
+    live_tab: Option<&str>,
+) -> String {
+    let owner = live_tab
+        .map(|tab| format!(", now held by tab {tab}"))
+        .unwrap_or_default();
+    format!(
+        "{ACK_CAUSE_ATTEMPT_SUPERSEDED}: tab {tab_id} was superseded by a newer dispatch of \
+         {plan_id}/{task_id}{owner}. Stop and exit; do not retry the ack."
+    )
+}
 
 /// One live attempt reached through its executor tab. The tab binding is the
 /// authority; a caller-supplied plan/task subject only disambiguates.
