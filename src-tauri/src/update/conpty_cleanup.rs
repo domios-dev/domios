@@ -6,26 +6,31 @@ use std::path::{Path, PathBuf};
 struct ProcessCandidate {
     pid: u32,
     parent_pid: u32,
+    parent_alive: bool,
     executable_path: PathBuf,
 }
 
 #[cfg(any(windows, test))]
 #[derive(Clone, Copy)]
 enum HostSelection {
-    Stale,
+    /// Hosts whose parent is absent from the same snapshot. A sibling instance
+    /// running this same install keeps its hosts; only leftovers are selected.
+    Orphaned,
+    /// Every host running the exact bundled image, ours included. The file
+    /// cannot be replaced while any process runs it, so replacement needs this.
     All,
 }
 
 #[cfg(any(windows, test))]
 fn is_selected_bundled_host(
     candidate: &ProcessCandidate,
-    owner_pid: u32,
+    _owner_pid: u32,
     expected_executable: &Path,
     selection: HostSelection,
 ) -> bool {
     windows_paths_match(&candidate.executable_path, expected_executable)
         && match selection {
-            HostSelection::Stale => candidate.parent_pid != owner_pid,
+            HostSelection::Orphaned => !candidate.parent_alive,
             HostSelection::All => true,
         }
 }
@@ -73,7 +78,7 @@ fn cleanup_stale_from_environment() -> Result<usize, String> {
     let Some(dir) = std::env::var_os("CODETERM_CONPTY_DIR") else {
         return Ok(0);
     };
-    cleanup_bundled_hosts(Path::new(&dir), std::process::id(), HostSelection::Stale)
+    cleanup_bundled_hosts(Path::new(&dir), std::process::id(), HostSelection::Orphaned)
 }
 
 #[cfg(windows)]
@@ -83,6 +88,32 @@ fn cleanup_from_environment() -> Result<usize, String> {
     };
     cleanup_bundled_hosts(Path::new(&dir), std::process::id(), HostSelection::All)
 }
+
+/// Reap bundled hosts left behind by a previous run. Runs off the startup path;
+/// hosts owned by any live process (this one or another instance) are spared.
+///
+/// `Orphaned` is load-bearing here: this races our own first PTY spawns, and a
+/// host born now has us as a live parent, so a wider selection would kill it.
+#[cfg(windows)]
+pub(crate) fn reap_orphaned_hosts_in_background() {
+    std::thread::spawn(|| {
+        let Some(dir) = std::env::var_os("CODETERM_CONPTY_DIR") else {
+            return;
+        };
+        match cleanup_bundled_hosts(
+            Path::new(&dir),
+            std::process::id(),
+            HostSelection::Orphaned,
+        ) {
+            Ok(0) => {}
+            Ok(count) => log::info!("[conpty] reaped {count} orphaned bundled ConPTY host(s)"),
+            Err(error) => log::warn!("[conpty] orphan sweep failed: {error}"),
+        }
+    });
+}
+
+#[cfg(not(windows))]
+pub(crate) fn reap_orphaned_hosts_in_background() {}
 
 #[cfg(windows)]
 fn cleanup_bundled_hosts(
@@ -213,14 +244,14 @@ mod windows {
             return Err(last_error("failed to read process snapshot"));
         }
 
-        let mut matches = Vec::new();
+        // Parent liveness is judged against the same snapshot that produced the
+        // hosts, so a parent exiting mid-sweep cannot flip a host's classification.
+        let mut live_pids = std::collections::HashSet::new();
+        let mut hosts = Vec::new();
         loop {
+            live_pids.insert(entry.th32ProcessID);
             if wide_name(&entry.szExeFile).eq_ignore_ascii_case("OpenConsole.exe") {
-                if let Some(process) =
-                    open_matching_process(&entry, owner_pid, expected, selection)?
-                {
-                    matches.push(process);
-                }
+                hosts.push((entry.th32ProcessID, entry.th32ParentProcessID));
             }
             if unsafe { Process32NextW(snapshot.0, &mut entry) } == 0 {
                 let error = std::io::Error::last_os_error();
@@ -230,51 +261,61 @@ mod windows {
                 return Err(format!("failed to advance process snapshot: {error}"));
             }
         }
+
+        let mut matches = Vec::new();
+        for (pid, parent_pid) in hosts {
+            let parent_alive = live_pids.contains(&parent_pid);
+            if let Some(process) =
+                open_matching_process(pid, parent_pid, parent_alive, owner_pid, expected, selection)
+            {
+                matches.push(process);
+            }
+        }
         Ok(matches)
     }
 
+    /// A host this process cannot open or query is one it could never terminate
+    /// either, so it is skipped rather than aborting the sweep for every host.
     fn open_matching_process(
-        entry: &PROCESSENTRY32W,
+        pid: u32,
+        parent_pid: u32,
+        parent_alive: bool,
         owner_pid: u32,
         expected: &Path,
         selection: HostSelection,
-    ) -> Result<Option<ProcessHandle>, String> {
+    ) -> Option<ProcessHandle> {
         let query_handle = OwnedHandle::new(
-            unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, entry.th32ProcessID) },
-            &format!(
-                "failed to open owned OpenConsole process {}",
-                entry.th32ProcessID
-            ),
-        )?;
-        let executable_path = query_executable_path(query_handle.0, entry.th32ProcessID)?;
+            unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) },
+            "query",
+        )
+        .inspect_err(|error| log::debug!("[conpty] skipping OpenConsole {pid}: {error}"))
+        .ok()?;
+        let executable_path = query_executable_path(query_handle.0, pid)
+            .inspect_err(|error| log::debug!("[conpty] skipping OpenConsole {pid}: {error}"))
+            .ok()?;
         let candidate = ProcessCandidate {
-            pid: entry.th32ProcessID,
-            parent_pid: entry.th32ParentProcessID,
+            pid,
+            parent_pid,
+            parent_alive,
             executable_path,
         };
         if !is_selected_bundled_host(&candidate, owner_pid, expected, selection) {
-            return Ok(None);
+            return None;
         }
         let access = PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE | SYNCHRONIZE;
-        let handle = OwnedHandle::new(
-            unsafe { OpenProcess(access, 0, candidate.pid) },
-            &format!(
-                "failed to open bundled OpenConsole process {}",
-                candidate.pid
-            ),
-        )?;
-        let executable_path = query_executable_path(handle.0, candidate.pid)?;
+        let handle = OwnedHandle::new(unsafe { OpenProcess(access, 0, candidate.pid) }, "terminate")
+            .inspect_err(|error| log::debug!("[conpty] skipping OpenConsole {pid}: {error}"))
+            .ok()?;
+        let executable_path = query_executable_path(handle.0, candidate.pid).ok()?;
         let confirmed = ProcessCandidate {
             executable_path,
             ..candidate
         };
-        Ok(
-            is_selected_bundled_host(&confirmed, owner_pid, expected, selection).then_some(
-                ProcessHandle {
-                    pid: confirmed.pid,
-                    handle,
-                },
-            ),
+        is_selected_bundled_host(&confirmed, owner_pid, expected, selection).then_some(
+            ProcessHandle {
+                pid: confirmed.pid,
+                handle,
+            },
         )
     }
 
@@ -335,35 +376,89 @@ mod tests {
         ProcessCandidate {
             pid,
             parent_pid,
+            parent_alive: true,
             executable_path: PathBuf::from(path),
         }
     }
 
+    fn orphan(pid: u32, parent_pid: u32, path: &str) -> ProcessCandidate {
+        ProcessCandidate {
+            parent_alive: false,
+            ..candidate(pid, parent_pid, path)
+        }
+    }
+
     #[test]
-    fn stale_selection_requires_foreign_parent_and_exact_bundled_path() {
+    fn orphan_selection_spares_every_host_with_a_live_parent() {
+        let expected = Path::new(r"C:\CodeTerm\conpty\x64\OpenConsole.exe");
+        let path = expected.to_str().unwrap();
+
+        assert!(is_selected_bundled_host(
+            &orphan(10, 8, path),
+            7,
+            expected,
+            HostSelection::Orphaned,
+        ));
+
+        // A sibling instance of this same install owns hosts with a foreign but
+        // LIVE parent. Its terminals are not ours to reap.
+        let other_instance = candidate(10, 8, path);
+        assert!(!is_selected_bundled_host(
+            &other_instance,
+            7,
+            expected,
+            HostSelection::Orphaned,
+        ));
+        assert!(is_selected_bundled_host(
+            &other_instance,
+            7,
+            expected,
+            HostSelection::All,
+        ));
+
+        assert!(!is_selected_bundled_host(
+            &candidate(10, 7, path),
+            7,
+            expected,
+            HostSelection::Orphaned,
+        ));
+    }
+
+    #[test]
+    fn orphan_selection_still_requires_the_exact_bundled_path() {
+        let expected = Path::new(r"C:\CodeTerm\conpty\x64\OpenConsole.exe");
+        for path in [
+            r"C:\Windows\System32\OpenConsole.exe",
+            r"C:\CodeTerm-dev\conpty\x64\OpenConsole.exe",
+        ] {
+            assert!(!is_selected_bundled_host(
+                &orphan(10, 8, path),
+                7,
+                expected,
+                HostSelection::Orphaned,
+            ));
+        }
+    }
+
+    #[test]
+    fn orphan_selection_matches_the_bundled_path_case_insensitively() {
         let expected =
             Path::new(r"C:\Users\dev\AppData\Local\CodeTerm\conpty\x64\OpenConsole.exe");
         assert!(is_selected_bundled_host(
-            &candidate(
+            &orphan(
                 10,
                 8,
                 r"\\?\c:\users\user\appdata\local\codeterm\conpty\x64\OPENCONSOLE.EXE"
             ),
             7,
             expected,
-            HostSelection::Stale,
+            HostSelection::Orphaned,
         ));
         assert!(!is_selected_bundled_host(
-            &candidate(10, 7, expected.to_str().unwrap()),
+            &orphan(10, 8, r"C:\work\codeterm\conpty\x64\OpenConsole.exe"),
             7,
             expected,
-            HostSelection::Stale,
-        ));
-        assert!(!is_selected_bundled_host(
-            &candidate(10, 7, r"C:\work\codeterm\conpty\x64\OpenConsole.exe"),
-            7,
-            expected,
-            HostSelection::Stale,
+            HostSelection::Orphaned,
         ));
     }
 
@@ -446,7 +541,7 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn stale_cleanup_reaps_exact_foreign_parent_before_destructive_shutdown() {
+    fn orphan_cleanup_spares_a_live_parents_host_but_all_reaps_it() {
         use std::process::{Command, Stdio};
         use std::time::Duration;
 
@@ -476,7 +571,13 @@ mod tests {
         }
         assert!(readiness, "OpenConsole helper did not become ready");
 
-        let cleaned = cleanup_bundled_hosts(&dir, u32::MAX, HostSelection::Stale).unwrap();
+        // The helper's parent is this live test process, so the pre-installer
+        // sweep must leave it alone; only the replacement sweep may reap it.
+        let spared = cleanup_bundled_hosts(&dir, u32::MAX, HostSelection::Orphaned).unwrap();
+        assert_eq!(spared, 0);
+        assert!(child.try_wait().unwrap().is_none(), "helper was reaped early");
+
+        let cleaned = cleanup_bundled_hosts(&dir, u32::MAX, HostSelection::All).unwrap();
         assert_eq!(cleaned, 1);
         child.wait().unwrap();
     }
