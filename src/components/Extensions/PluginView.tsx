@@ -7,7 +7,7 @@
  * forward each call to the host (which stamps the plugin id + checks permissions).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke } from "../../lib/bridge";
+import { invoke, listen, type UnlistenFn } from "../../lib/bridge";
 import { daemonHttpBase, daemonAuthToken, type DaemonApiConfig } from "../../lib/webApi";
 import { invalidatePluginBubble } from "../../lib/pluginBubbleCache";
 
@@ -53,7 +53,27 @@ export function PluginView({
   // bridge's __ctResize). Fullscreen views fill their container instead.
   const [contentHeight, setContentHeight] = useState<number | null>(null);
 
-  const src = `${daemonHttpBase(api)}/api/plugins/${encodeURIComponent(pluginId)}/ui/index.html?token=${encodeURIComponent(daemonAuthToken(api))}`;
+  // A hot-reloaded plugin ships a new bundle, but the iframe keeps the one it
+  // already loaded until its src changes, so the reload has to bust it.
+  const [reloadNonce, setReloadNonce] = useState(0);
+  useEffect(() => {
+    let active = true;
+    let unlisten: UnlistenFn | undefined;
+    listen<{ kind: string }>("contributions-changed", (event) => {
+      if (active && event.payload.kind === `plugin_view:${pluginId}`) {
+        setReloadNonce((n) => n + 1);
+      }
+    }).then((fn) => {
+      if (active) unlisten = fn;
+      else fn();
+    });
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, [pluginId]);
+
+  const src = `${daemonHttpBase(api)}/api/plugins/${encodeURIComponent(pluginId)}/ui/index.html?token=${encodeURIComponent(daemonAuthToken(api))}&r=${reloadNonce}`;
 
   const onMessage = useCallback(
     async (e: MessageEvent) => {

@@ -764,3 +764,51 @@ fn concurrent_tick_and_reload_does_not_deadlock() {
         "final removal must clear tracked ids"
     );
 }
+
+#[test]
+fn reloading_a_view_plugin_announces_it_so_an_open_iframe_can_rebuild() {
+    let root = tempfile::tempdir().unwrap();
+    let caps = test_caps();
+    let watcher = HotReloadRegistry::new(
+        vec![root.path().to_path_buf()],
+        TestRegistrar::new(),
+        caps.clone(),
+    );
+    let viewer = root.path().join("viewer");
+    let headless = root.path().join("headless");
+    write(
+        &viewer.join("plugin.json"),
+        &capability_manifest_for("viewer", "view"),
+    );
+    write(&viewer.join("plugin.js"), &plugin_for("viewer"));
+    write(
+        &headless.join("plugin.json"),
+        &capability_manifest_for("headless", "transcriber"),
+    );
+    write(&headless.join("plugin.js"), &plugin_for("headless"));
+
+    assert!(
+        tick_until(&watcher, || caps.view.get("viewer").is_some()),
+        "the view plugin must register"
+    );
+    assert_eq!(watcher.view_reload_events(), vec!["viewer".to_string()]);
+
+    let prior = std::fs::metadata(viewer.join("plugin.js"))
+        .unwrap()
+        .modified()
+        .unwrap();
+    write(&viewer.join("plugin.js"), &plugin_for("viewer"));
+    set_mtime(&viewer.join("plugin.js"), prior + Duration::from_secs(2));
+    assert!(
+        tick_until(&watcher, || watcher.view_reload_events().len() == 2),
+        "a reloaded view plugin must announce again, or an open iframe keeps the old bundle"
+    );
+
+    // A plugin with no view has no iframe to rebuild; announcing would reload
+    // every other plugin's view for nothing.
+    assert!(
+        watcher.view_reload_events().iter().all(|id| id == "viewer"),
+        "only view-capable plugins may announce, got {:?}",
+        watcher.view_reload_events()
+    );
+}
