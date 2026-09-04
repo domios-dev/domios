@@ -4,19 +4,19 @@ use crate::service::worker_ack::{ATTEMPT_STATE_FINALIZED, TAB_STATE_ALIVE_AWAITI
 
 use super::{dispatch_failed, JsonRpcError};
 
-pub(super) enum DispatchWaitFailure {
+pub(in crate::socket::server) enum DispatchWaitFailure {
     Uncertain(String),
     Definitive(String),
 }
 
 impl DispatchWaitFailure {
-    pub(super) fn message(&self) -> &str {
+    pub(in crate::socket::server) fn message(&self) -> &str {
         match self {
             Self::Uncertain(message) | Self::Definitive(message) => message,
         }
     }
 
-    pub(super) fn is_definitive(&self) -> bool {
+    pub(in crate::socket::server) fn is_definitive(&self) -> bool {
         matches!(self, Self::Definitive(_))
     }
 }
