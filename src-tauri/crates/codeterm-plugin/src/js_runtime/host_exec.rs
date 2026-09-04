@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use wait_timeout::ChildExt;
 
 const MAX_EXEC_JOBS: usize = 128;
+const ASYNC_JOB_WAIT_BOUND: Duration = Duration::from_secs(5);
 
 thread_local! {
     static HOST_EXEC_ENV: RefCell<Vec<HashMap<String, String>>> = const { RefCell::new(Vec::new()) };
@@ -313,8 +314,8 @@ pub(super) fn bin_of(opts_json: &str) -> Option<String> {
 
 // ── Async exec (job-id + poll) ──────────────────────────────────────────────
 
-/// Completion signal for one job. A waiter blocks on the condvar; the worker
-/// flips `done` and notifies. No polling and no elapsed-time check anywhere.
+/// Completion signal for one job. A waiter uses the condvar; the worker flips
+/// `done` and notifies, with the call boundary applying any failure deadline.
 #[derive(Default)]
 struct DoneEvent {
     done: Mutex<bool>,
@@ -327,11 +328,12 @@ impl DoneEvent {
         self.cv.notify_all();
     }
 
-    fn wait(&self) {
+    fn wait_for(&self, timeout: Duration) -> bool {
         let mut done = self.done.lock();
-        while !*done {
-            self.cv.wait(&mut done);
+        if !*done {
+            self.cv.wait_while_for(&mut done, |done| !*done, timeout);
         }
+        *done
     }
 }
 
@@ -456,22 +458,30 @@ pub(super) fn drop_plugin_jobs(plugin_id: &str) {
     });
 }
 
-/// Block until `job_id` finishes, then hand back the payload `poll` would have
-/// produced. The caller must hold no VM lock: this is the wait that used to sit
-/// inside the plugin's JS frame, where it serialized every other call.
-pub(super) fn wait_json(plugin_id: &str, job_id: &str) -> String {
+/// Wait for `job_id` without a VM lock, or return the bounded refusal outcome.
+pub(super) enum WaitResult {
+    Completed(String),
+    TimedOut,
+}
+
+pub(super) fn wait_json(plugin_id: &str, job_id: &str) -> WaitResult {
     let plugin_id = normalize_plugin_id(plugin_id);
     let event = {
         let jobs = EXEC_JOBS.lock();
         match jobs.get(job_id).filter(|job| job.plugin_id == plugin_id) {
             Some(job) => job.done_event.clone(),
             None => {
-                return serde_json::json!({ "done": true, "error": "job not found" }).to_string()
+                return WaitResult::Completed(
+                    serde_json::json!({ "done": true, "error": "job not found" }).to_string(),
+                )
             }
         }
     };
-    event.wait();
-    poll(&plugin_id, job_id)
+    if !event.wait_for(ASYNC_JOB_WAIT_BOUND) {
+        close(&plugin_id, job_id);
+        return WaitResult::TimedOut;
+    }
+    WaitResult::Completed(poll(&plugin_id, job_id))
 }
 
 /// Test-only job whose completion is driven by `gate` instead of a subprocess,
