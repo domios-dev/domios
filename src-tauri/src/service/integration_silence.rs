@@ -66,11 +66,19 @@ impl IntegrationState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IntegrationRemedy {
     /// Nothing was ever consented to, so granting consent is the whole repair.
-    GrantConsentAndInstall { target: Option<String> },
+    GrantConsentAndInstall {
+        target: Option<String>,
+    },
     /// Consent stands and the hooks are gone, so the same path reinstalls them.
-    ReinstallIntegration { target: Option<String> },
-    RefreshIntegration { target: Option<String> },
-    GrantHookTrust { target: Option<String> },
+    ReinstallIntegration {
+        target: Option<String>,
+    },
+    RefreshIntegration {
+        target: Option<String>,
+    },
+    GrantHookTrust {
+        target: Option<String>,
+    },
 }
 
 impl IntegrationRemedy {
@@ -82,7 +90,9 @@ impl IntegrationRemedy {
 
     pub fn next_step(&self) -> &'static str {
         match self {
-            Self::GrantConsentAndInstall { .. } | Self::ReinstallIntegration { .. } => Self::INSTALL_PATH,
+            Self::GrantConsentAndInstall { .. } | Self::ReinstallIntegration { .. } => {
+                Self::INSTALL_PATH
+            }
             Self::RefreshIntegration { .. } => Self::REFRESH_PATH,
             Self::GrantHookTrust { .. } => Self::TRUST_PATH,
         }
@@ -93,9 +103,7 @@ impl IntegrationRemedy {
             Self::GrantConsentAndInstall { target }
             | Self::ReinstallIntegration { target }
             | Self::RefreshIntegration { target }
-            | Self::GrantHookTrust { target } => {
-                target.as_deref()
-            }
+            | Self::GrantHookTrust { target } => target.as_deref(),
         }
     }
 }
@@ -247,7 +255,11 @@ pub fn evaluate(provider_id: &str, facts: &IntegrationFacts) -> LaunchVerdict {
     }
     match facts.state {
         Some(IntegrationState::Installed) => LaunchVerdict::Registering,
-        Some(state @ (IntegrationState::Absent | IntegrationState::StaleVersion | IntegrationState::UntrustedHash)) => {
+        Some(
+            state @ (IntegrationState::Absent
+            | IntegrationState::StaleVersion
+            | IntegrationState::UntrustedHash),
+        ) => {
             let target = facts.target.clone();
             LaunchVerdict::Silent(IntegrationSilence {
                 provider_id: provider_id.to_string(),
@@ -256,8 +268,12 @@ pub fn evaluate(provider_id: &str, facts: &IntegrationFacts) -> LaunchVerdict {
                     IntegrationState::Absent if facts.consent_recorded => {
                         IntegrationRemedy::ReinstallIntegration { target }
                     }
-                    IntegrationState::Absent => IntegrationRemedy::GrantConsentAndInstall { target },
-                    IntegrationState::StaleVersion => IntegrationRemedy::RefreshIntegration { target },
+                    IntegrationState::Absent => {
+                        IntegrationRemedy::GrantConsentAndInstall { target }
+                    }
+                    IntegrationState::StaleVersion => {
+                        IntegrationRemedy::RefreshIntegration { target }
+                    }
                     IntegrationState::UntrustedHash => IntegrationRemedy::GrantHookTrust { target },
                     IntegrationState::Installed => unreachable!(),
                 },

@@ -409,7 +409,10 @@ fn session_fs_capabilities_over_current_stores() {
 
     let _env = EnvGuard::new(&[
         ("CODETERM_CODEX_SESSION_INDEX_PATH", index.to_str().unwrap()),
-        ("CODETERM_CODEX_THREAD_HISTORY_PATH", history.to_str().unwrap()),
+        (
+            "CODETERM_CODEX_THREAD_HISTORY_PATH",
+            history.to_str().unwrap(),
+        ),
     ]);
     let j = codex();
 
