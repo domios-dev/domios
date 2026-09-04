@@ -12,12 +12,21 @@ export interface AppConfigShape {
   [k: string]: unknown;
 }
 
+// Headers depend only on the auth token, so a token keeps the same headers
+// object across calls — callers use it as a stable effect dependency instead
+// of re-firing on every render.
+const headersByToken = new Map<string, Record<string, string>>();
+
 export function apiBaseOf(config: AppConfigShape | null): { base: string; headers: Record<string, string> } {
   const api = config?.api;
   const base = daemonHttpBase(api);
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
   const token = daemonAuthToken(api);
-  if (token) headers.Authorization = `Bearer ${token}`;
+  let headers = headersByToken.get(token);
+  if (!headers) {
+    headers = { "Content-Type": "application/json" };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    headersByToken.set(token, headers);
+  }
   return { base, headers };
 }
 
