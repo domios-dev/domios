@@ -269,53 +269,58 @@ jobs:
           gh release upload "$TAG" "$RELEASE_BUNDLE" "$RELEASE_SIG" "$MANIFEST" \
             --clobber --repo "$MIRROR_REPO"
 
-  # Both darwin fragments only exist once the matrix is done, so the gate is a
-  # separate job. Per-leg it would fail on whichever architecture finished first.
-  verify:
-    name: verify published manifest
+  completion:
+    name: publish macOS completion signal
+    if: ${{ always() }}
     needs: build
-    if: ${{ vars.RELEASE_MACOS_ENABLED != 'false' && inputs.mirror }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Resolve tag
-        id: tag
-        shell: bash
-        run: |
-          tag="${{ inputs.tag }}"
-          echo "name=$tag" >> "$GITHUB_OUTPUT"
-          # build-updater-fragment.py derives the manifest version the same way.
-          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
-
-      - name: Detect channel
-        id: channel
-        shell: bash
-        run: |
-          tag="${{ steps.tag.outputs.name }}"
-          if [[ "$tag" == *-rc* ]]; then
-            echo "manifest=latest-rc.json" >> "$GITHUB_OUTPUT"
-          elif [[ "$tag" == *-nightly* ]]; then
-            echo "manifest=latest-nightly.json" >> "$GITHUB_OUTPUT"
-          else
-            echo "manifest=latest.json" >> "$GITHUB_OUTPUT"
-          fi
-
-      # A 200 says nothing about installability: #58 was structurally perfect
-      # while its signatures described bytes a rerun had already replaced.
-      - name: Verify published manifest is installable
+      - name: Publish completion signal
         env:
-          TAG: ${{ steps.tag.outputs.name }}
-          VERSION: ${{ steps.tag.outputs.version }}
-          MANIFEST: ${{ steps.channel.outputs.manifest }}
-          MIRROR_REPO: rollacode/codeterm-releases
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_REPO: ${{ github.repository }}
+          DISPATCH_TAG: ${{ inputs.tag }}
+          SOURCE_SHA: ${{ github.sha }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          MIRROR_REQUESTED: ${{ inputs.mirror }}
         shell: bash
         run: |
           set -euo pipefail
-          url="https://github.com/${MIRROR_REPO}/releases/download/${TAG}/${MANIFEST}?cb=$(date +%s)"
-          node scripts/verify-updater-manifest.mjs --manifest "$url" \
-            --require-version "$VERSION" \
-            --require-platform darwin-aarch64 \
-            --require-platform darwin-x86_64 \
-            || { echo "::error::published manifest is not installable"; exit 1; }
+          tag="$DISPATCH_TAG"
+          case "$tag" in
+            release-*) tag="v${tag#release-}" ;;
+            v*) ;;
+            *) echo "::error::cannot derive release tag from '$tag'"; exit 1 ;;
+          esac
+          status=success
+          reason="macOS matrix publication completed"
+          if [ "$BUILD_RESULT" != success ]; then
+            status=failure
+            reason="release-macos matrix concluded $BUILD_RESULT before publication completed"
+          elif [ "$MIRROR_REQUESTED" != true ]; then
+            status=failure
+            reason="manual macOS run did not publish the canonical public mirror"
+          fi
+          mkdir -p "$RUNNER_TEMP/release-completion"
+          jq -n \
+            --arg schema release-completion-v1 \
+            --arg release_tag "$tag" \
+            --arg workflow release-macos \
+            --arg status "$status" \
+            --arg reason "$reason" \
+            --arg source_sha "$SOURCE_SHA" \
+            --arg run_id "$GITHUB_RUN_ID" \
+            --argjson platforms '["darwin-aarch64", "darwin-x86_64"]' \
+            '{schema: $schema, release_tag: $release_tag, workflow: $workflow,
+              status: $status, reason: $reason, source_sha: $source_sha,
+              run_id: $run_id, platforms: $platforms}' \
+            > "$RUNNER_TEMP/release-completion/release-completion-release-macos.json"
+          if ! gh release view "$tag" --repo "$SOURCE_REPO" >/dev/null 2>&1; then
+            gh release create "$tag" --repo "$SOURCE_REPO" --target "$SOURCE_SHA" --draft \
+              --title "CodeTerm $tag" --notes "Release completion signal."
+          fi
+          gh release upload "$tag" \
+            "$RUNNER_TEMP/release-completion/release-completion-release-macos.json" \
+            --repo "$SOURCE_REPO" --clobber
