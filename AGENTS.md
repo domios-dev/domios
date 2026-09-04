@@ -249,6 +249,32 @@ Launch/bootstrap input is delivered optimistically to the exact PTY already
 owned by the lifecycle. Never route pre-ready input through public `send_text`,
 which is a post-ready Tab API and may wait on the lifecycle that called it.
 
+## Provider hook files are a danger zone
+
+`~/.codex/hooks.json`, `~/.claude/settings.json` and their generated helper
+scripts are **global, one per machine, and shared by every CodeTerm instance** —
+prod, dev, and every worktree. They are also trusted by content: Codex records a
+`trusted_hash` per hook entry in its own `config.toml` and silently refuses to run
+a hook whose content changed. A rewrite therefore does not just churn a file, it
+disarms the hook until the user re-grants trust, and session binding dies with it
+("Session not connected", `dispatch failed at session_binding`).
+
+Rules when touching that code:
+
+- **Hook content must be instance-agnostic.** Never bake a port, URL, token or
+  instance name into it. Route through `CODETERM_API_URL` / `CODETERM_API_TOKEN` /
+  `CODETERM_TAB_ID` from the agent's environment and fail closed when they are
+  absent. A default port is the specific bug: it silently sends prod's agents to
+  dev. Dev and prod must write byte-identical content, which is what makes it safe
+  for both to run.
+- **Never rewrite a hook you do not own.** Match your own marker first.
+- **Refresh your own hook when it goes stale**, or a machine keeps running a hook
+  from an old release forever; `ensureIntegrationOnStartup` exists for exactly this
+  and must not be a stub.
+- Changing hook content costs the user a re-trust in the provider. Do it when the
+  content is genuinely wrong, not to tidy formatting.
+- Windows reserved names apply here too: redirect to `/dev/null`, never `NUL`.
+
 ## Process safety
 
 **NEVER kill prod CodeTerm.** Identify by port:
@@ -348,4 +374,4 @@ Bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
 - `docs/spikes/llm-codemap-eval.md` — code-map bake-off; why SCIP is the adopted code-navigation index
 - `docs/contributing/` — agents, style, architecture, per-feature testing recipes
 
-<!-- revision: 31 -->
+<!-- revision: 32 -->
