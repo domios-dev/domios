@@ -95,7 +95,7 @@ pub fn sealed_checkpoints(records: &[JournalRecord]) -> Vec<LifecycleCheckpoint>
                 };
                 apply(builder, entry.seq, &entry.transition, &entry.recorded_at);
                 match &entry.transition {
-                    LifecycleTransition::Closed => {
+                    LifecycleTransition::Closed { .. } => {
                         sealed.remove(&tab_id);
                         open.remove(&tab_id);
                     }
@@ -155,7 +155,7 @@ fn apply(
             builder.sealed_through = Some(seq);
             builder.sealed_at = recorded_at.to_string();
         }
-        LifecycleTransition::RolledBack { .. } | LifecycleTransition::Closed => {
+        LifecycleTransition::RolledBack { .. } | LifecycleTransition::Closed { .. } => {
             builder.abandoned = true;
             builder.sealed_through = None;
         }
@@ -203,7 +203,7 @@ fn closed_tabs(records: &[JournalRecord]) -> std::collections::HashSet<&str> {
     for record in records {
         match record {
             JournalRecord::Transition { entry } => match &entry.transition {
-                LifecycleTransition::Closed => {
+                LifecycleTransition::Closed { .. } => {
                     closed.insert(entry.key.tab_id.as_str());
                 }
                 _ => {

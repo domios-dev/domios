@@ -1,7 +1,8 @@
 /**
  * Codex CLI provider plugin — entry point.
  *
- * Codex stores session turns in `rollout-*.jsonl`. This plugin
+ * Codex stores session identities in `session_index.jsonl` and thread data in
+ * `thread_history_1.sqlite`. This plugin
  * contributes:
  *   - title detection
  *   - PTY fingerprint detection

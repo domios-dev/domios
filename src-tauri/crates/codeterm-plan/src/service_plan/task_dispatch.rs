@@ -5,9 +5,9 @@ use super::readback::pending_after_verified;
 use super::{PlanError, PlanStore};
 
 pub use worker_ack_subject::{
-    ambiguous_subject_cause, unresolved_subject_cause, LiveTabAttempt,
-    ACK_CAUSE_AMBIGUOUS_ATTEMPTS, ACK_CAUSE_NO_LIVE_ATTEMPT, ACK_CAUSE_PLAN_NOT_ACTIVE,
-    ACK_CAUSE_TASK_NOT_OPEN,
+    ambiguous_subject_cause, superseded_subject_cause, unresolved_subject_cause, LiveTabAttempt,
+    ACK_CAUSE_AMBIGUOUS_ATTEMPTS, ACK_CAUSE_ATTEMPT_SUPERSEDED, ACK_CAUSE_NO_LIVE_ATTEMPT,
+    ACK_CAUSE_PLAN_NOT_ACTIVE, ACK_CAUSE_TASK_NOT_OPEN,
 };
 
 fn startup_attempt<'a>(
@@ -666,6 +666,33 @@ impl PlanStore {
             .collect()
     }
 
+    /// A closed attempt this tab owned on a task that is live on another tab.
+    /// Distinguishes an orphan of a superseded dispatch from a stray shell.
+    pub fn superseded_attempt_for_tab(
+        &self,
+        tab_id: &str,
+    ) -> Option<(String, String, Option<String>)> {
+        self.list_full().into_iter().find_map(|plan| {
+            let plan_id = plan.id.clone();
+            plan.tasks.into_iter().find_map(|task| {
+                let owned = task
+                    .execution_attempts
+                    .iter()
+                    .rfind(|attempt| attempt.executor_tab_id == tab_id)?;
+                owned.closed_at?;
+                let live = task
+                    .execution_attempts
+                    .iter()
+                    .rfind(|attempt| attempt.closed_at.is_none() && attempt.retired_at.is_none());
+                Some((
+                    plan_id.clone(),
+                    task.id.clone(),
+                    live.map(|attempt| attempt.executor_tab_id.clone()),
+                ))
+            })
+        })
+    }
+
     /// The tab binding selects the subject; `plan_hint`/`task_hint` come from the
     /// Worker's environment and only break a tie, so a stale pair cannot fence a
     /// Worker out of acknowledging the attempt it actually owns.
@@ -686,10 +713,13 @@ impl PlanStore {
         let selected = match acknowledgeable.len() {
             1 => acknowledgeable[0],
             0 => {
-                return Err(Self::task_readback_error(
-                    "task_dispatch_ack",
-                    unresolved_subject_cause(tab_id, &bound),
-                ))
+                let cause = match self.superseded_attempt_for_tab(tab_id) {
+                    Some((plan_id, task_id, live_tab)) if bound.is_empty() => {
+                        superseded_subject_cause(tab_id, &plan_id, &task_id, live_tab.as_deref())
+                    }
+                    _ => unresolved_subject_cause(tab_id, &bound),
+                };
+                return Err(Self::task_readback_error("task_dispatch_ack", cause));
             }
             _ => {
                 let hinted = acknowledgeable

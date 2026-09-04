@@ -341,58 +341,106 @@ fn detect_active_session_is_null() {
     assert_eq!(j.detect_active_session("/work/proj", "current-sid"), None);
 }
 
-/// Filesystem-backed capabilities, driven through the `CODETERM_CODEX_SESSIONS_ROOT`
-/// override so the plugin walks a controlled rollout tree instead of `~/.codex`.
-/// One test owns the env var (serialized via `EnvGuard`) so the cases share a
-/// single fixture and can't race a sibling reader.
+/// Codex's current index and thread-history stores are the only session sources.
+/// One test owns the env vars (serialized via `EnvGuard`) so the fixture cannot
+/// race a sibling reader.
 #[test]
-fn session_fs_capabilities_over_rollout_tree() {
+fn session_fs_capabilities_over_current_stores() {
     if require_plugins().is_none() {
         return;
     }
     let dir = tempfile::tempdir().unwrap();
-    let nested = dir.path().join("2026").join("05").join("01");
-    std::fs::create_dir_all(&nested).unwrap();
-    let file = nested.join(format!("{CODEX_STEM}.jsonl"));
-    let contents = concat!(
-        r#"{"type":"session_meta","payload":{"id":"11111111-1111-1111-1111-111111111111","cwd":"/work/proj"}}"#,
-        "\n",
-        r#"{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hi"}]}}"#,
-        "\n",
-        r#"{"type":"turn_context","payload":{"model":"gpt-5.6-sol"}}"#,
-        "\n",
-    );
-    std::fs::write(&file, contents).unwrap();
+    let index = dir.path().join("session_index.jsonl");
+    let history = dir.path().join("thread_history_1.sqlite");
+    std::fs::write(
+        &index,
+        format!(
+            "{}\n{}\n{}\n",
+            serde_json::json!({
+                "id": CODEX_UUID,
+                "thread_name": "project prompt",
+                "updated_at": "2026-09-01T10:00:00Z"
+            }),
+            serde_json::json!({
+                "id": "22222222-2222-2222-2222-222222222222",
+                "thread_name": "foreign newer prompt",
+                "updated_at": "2026-09-01T11:00:00Z"
+            }),
+            serde_json::json!({
+                "id": CODEX_UUID,
+                "thread_name": "older duplicate",
+                "updated_at": "2026-09-01T09:00:00Z"
+            }),
+        ),
+    )
+    .unwrap();
+    let db = rusqlite::Connection::open(&history).unwrap();
+    db.execute_batch(
+        "CREATE TABLE thread_items (
+            thread_id TEXT, item_type TEXT, item_json TEXT,
+            rollout_ordinal INTEGER, created_at_ms INTEGER
+        );",
+    )
+    .unwrap();
+    db.execute(
+        "INSERT INTO thread_items VALUES (?1, 'thread_meta', ?2, 0, 0)",
+        rusqlite::params![
+            CODEX_UUID,
+            r#"{"type":"thread_meta","payload":{"cwd":"/work/proj"}}"#
+        ],
+    )
+    .unwrap();
+    db.execute(
+        "INSERT INTO thread_items VALUES (?1, 'turn_context', ?2, 1, 1)",
+        rusqlite::params![
+            CODEX_UUID,
+            r#"{"type":"turn_context","payload":{"model":"gpt-5.6-sol"}}"#
+        ],
+    )
+    .unwrap();
+    db.execute(
+        "INSERT INTO thread_items VALUES (?1, 'thread_meta', ?2, 0, 0)",
+        rusqlite::params![
+            "22222222-2222-2222-2222-222222222222",
+            r#"{"type":"thread_meta","payload":{"cwd":"/other/proj"}}"#
+        ],
+    )
+    .unwrap();
 
-    let _env = EnvGuard::new(&[("CODETERM_CODEX_SESSIONS_ROOT", dir.path().to_str().unwrap())]);
+    let _env = EnvGuard::new(&[
+        ("CODETERM_CODEX_SESSION_INDEX_PATH", index.to_str().unwrap()),
+        (
+            "CODETERM_CODEX_THREAD_HISTORY_PATH",
+            history.to_str().unwrap(),
+        ),
+    ]);
     let j = codex();
 
     assert_eq!(
-        j.detect_session_id("/work/proj", &[], None).as_deref(),
+        j.detect_session_id(
+            "/work/proj",
+            &[],
+            Some(std::time::Duration::from_secs(365 * 24 * 60 * 60)),
+        )
+        .as_deref(),
         Some(CODEX_UUID)
     );
     assert_eq!(j.detect_session_id("/other/proj", &[], None), None);
 
-    // sessionFilePath / sessionJsonlPath resolve the rollout by its trailing uuid.
-    let fp = j
-        .session_file_path("/work/proj", CODEX_UUID)
-        .expect("sessionFilePath must resolve the rollout");
-    assert_eq!(fp, file, "resolved path must be the rollout file");
-    let jp = j
-        .session_jsonl_path("/work/proj", CODEX_UUID)
-        .expect("sessionJsonlPath delegates to sessionFilePath");
-    assert_eq!(jp, file);
+    assert_eq!(j.session_file_path("/work/proj", CODEX_UUID), None);
+    assert_eq!(j.session_jsonl_path("/work/proj", CODEX_UUID), None);
 
-    // enumerateSessions reads the session_meta header into native SessionMetadata.
     let sessions = j.enumerate_sessions();
-    assert_eq!(sessions.len(), 1, "{sessions:#?}");
-    let s = &sessions[0];
+    assert_eq!(sessions.len(), 2, "{sessions:#?}");
+    let s = sessions
+        .iter()
+        .find(|session| session.session_id == CODEX_UUID)
+        .expect("folded project session must be enumerated");
     assert_eq!(s.session_id, CODEX_UUID);
     assert_eq!(s.provider, "codex");
     assert_eq!(s.project_path.as_deref(), Some("/work/proj"));
-    assert_eq!(s.file_path, file.to_string_lossy());
+    assert_eq!(s.file_path, index.to_string_lossy());
 
-    // detectSessionModel preserves the exact model reported by this session.
     let model = j
         .detect_session_model("/work/proj", CODEX_UUID)
         .expect("detectSessionModel must resolve a model");

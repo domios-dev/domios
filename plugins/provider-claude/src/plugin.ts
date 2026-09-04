@@ -665,8 +665,10 @@ const plugin: PluginModule = {
         if (!Array.isArray(hooks)) continue;
         for (let j = 0; j < hooks.length; j++) {
           const hook = hooks[j];
+          // Identity is the command signature. Claude Code rewrites
+          // settings.json and its serializer drops `_source`, so requiring it
+          // reports a working hook as missing.
           if (hook && typeof hook.command === "string"
-              && hook._source === CODETERM_HOOK_MARKER
               && hook.command.indexOf("CODETERM_TAB_ID") !== -1
               && hook.command.indexOf("CODETERM_API_URL") !== -1
               && hook.command.indexOf("CODETERM_API_TOKEN") !== -1
@@ -686,7 +688,6 @@ const plugin: PluginModule = {
         for (let j = 0; j < hooks.length; j++) {
           const h = hooks[j];
           if (h && typeof h.command === "string"
-              && h._source === CODETERM_HOOK_MARKER
               && h.command.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1
               && h.command.indexOf("CODETERM_TAB_ID") !== -1
               && h.command.indexOf("CODETERM_API_URL") !== -1

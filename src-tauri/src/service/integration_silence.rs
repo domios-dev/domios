@@ -36,32 +36,74 @@ pub struct IntegrationFacts {
     pub consent_recorded: bool,
     /// Where the provider says its integration lives.
     pub target: Option<String>,
+    pub state: Option<IntegrationState>,
 }
 
-/// The next step the message names. Both arms are the same install path; which
-/// one applies is what the consent record decides.
+pub const INTEGRATION_STATE_ABSENT: &str = "absent";
+pub const INTEGRATION_STATE_STALE_VERSION: &str = "stale_version";
+pub const INTEGRATION_STATE_UNTRUSTED_HASH: &str = "untrusted_hash";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IntegrationState {
+    Absent,
+    StaleVersion,
+    UntrustedHash,
+    Installed,
+}
+
+impl IntegrationState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Absent => INTEGRATION_STATE_ABSENT,
+            Self::StaleVersion => INTEGRATION_STATE_STALE_VERSION,
+            Self::UntrustedHash => INTEGRATION_STATE_UNTRUSTED_HASH,
+            Self::Installed => "installed",
+        }
+    }
+}
+
+/// The next step the message names for the state the provider reported.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IntegrationRemedy {
     /// Nothing was ever consented to, so granting consent is the whole repair.
-    GrantConsentAndInstall { target: Option<String> },
+    GrantConsentAndInstall {
+        target: Option<String>,
+    },
     /// Consent stands and the hooks are gone, so the same path reinstalls them.
-    ReinstallIntegration { target: Option<String> },
+    ReinstallIntegration {
+        target: Option<String>,
+    },
+    RefreshIntegration {
+        target: Option<String>,
+    },
+    GrantHookTrust {
+        target: Option<String>,
+    },
 }
 
 impl IntegrationRemedy {
     /// Named by constant so a surface can render it and a test can assert it
     /// without either one quoting a sentence.
     pub const INSTALL_PATH: &'static str = "Settings > Integrations > Install integration";
+    pub const REFRESH_PATH: &'static str = "Settings > Integrations > Refresh integration";
+    pub const TRUST_PATH: &'static str = "Settings > Integrations > Grant hook trust";
 
     pub fn next_step(&self) -> &'static str {
-        Self::INSTALL_PATH
+        match self {
+            Self::GrantConsentAndInstall { .. } | Self::ReinstallIntegration { .. } => {
+                Self::INSTALL_PATH
+            }
+            Self::RefreshIntegration { .. } => Self::REFRESH_PATH,
+            Self::GrantHookTrust { .. } => Self::TRUST_PATH,
+        }
     }
 
     pub fn target(&self) -> Option<&str> {
         match self {
-            Self::GrantConsentAndInstall { target } | Self::ReinstallIntegration { target } => {
-                target.as_deref()
-            }
+            Self::GrantConsentAndInstall { target }
+            | Self::ReinstallIntegration { target }
+            | Self::RefreshIntegration { target }
+            | Self::GrantHookTrust { target } => target.as_deref(),
         }
     }
 }
@@ -72,6 +114,7 @@ pub struct IntegrationSilence {
     pub provider_id: String,
     pub level: NotifyLevel,
     pub remedy: IntegrationRemedy,
+    pub state: IntegrationState,
     /// The standing condition this announces, and the latch that keeps a
     /// second launch quiet.
     pub condition: String,
@@ -79,18 +122,22 @@ pub struct IntegrationSilence {
 
 impl IntegrationSilence {
     pub fn title(&self, provider_display_name: &str) -> String {
-        format!("{provider_display_name} registers no sessions")
+        format!(
+            "{provider_display_name} registers no sessions ({})",
+            self.state.as_str()
+        )
     }
 
     /// The standing explanation, named by constant so the record and the words
     /// the user reads cannot disagree.
     pub const EXPLANATION: &'static str =
-        "This provider reports its sessions through an integration that is not installed, so nothing launched here is bound to a session.";
+        "This provider reports its sessions through an integration that is not ready, so nothing launched here is bound to a session.";
 
     /// Composed from the remedy, so the message always names a next step.
     pub fn body(&self) -> String {
         let mut lines = vec![
             Self::EXPLANATION.to_string(),
+            format!("Integration state: {}", self.state.as_str()),
             format!("Next: {}", self.remedy.next_step()),
         ];
         if let Some(target) = self.remedy.target() {
@@ -140,6 +187,31 @@ pub fn read_installed(status: &Json) -> Option<bool> {
     None
 }
 
+pub fn read_state(status: &Json, installed: Option<bool>) -> Option<IntegrationState> {
+    if let Some(state) = status.get("integration_state").and_then(Json::as_str) {
+        return match state {
+            INTEGRATION_STATE_ABSENT => Some(IntegrationState::Absent),
+            INTEGRATION_STATE_STALE_VERSION => Some(IntegrationState::StaleVersion),
+            INTEGRATION_STATE_UNTRUSTED_HASH => Some(IntegrationState::UntrustedHash),
+            "installed" => Some(IntegrationState::Installed),
+            _ => None,
+        };
+    }
+    match installed {
+        Some(true) => Some(IntegrationState::Installed),
+        Some(false) if status.get("hooks_owned").and_then(Json::as_bool) == Some(true) => {
+            match status.get("hook_trust_state").and_then(Json::as_str) {
+                Some("disabled") | Some("missing") | Some("unknown") => {
+                    Some(IntegrationState::UntrustedHash)
+                }
+                _ => Some(IntegrationState::StaleVersion),
+            }
+        }
+        Some(false) => Some(IntegrationState::Absent),
+        None => None,
+    }
+}
+
 pub fn read_target(status: &Json) -> Option<String> {
     status
         .get("target")
@@ -164,10 +236,12 @@ pub fn read_provider_facts(
                 provider.display_name().to_string(),
             )
         })?;
+    let installed = read_installed(&status);
     Some((
         IntegrationFacts {
             registers_sessions_via_hooks,
-            installed: read_installed(&status),
+            state: read_state(&status, installed),
+            installed,
             consent_recorded,
             target: read_target(&status),
         },
@@ -179,22 +253,35 @@ pub fn evaluate(provider_id: &str, facts: &IntegrationFacts) -> LaunchVerdict {
     if !facts.registers_sessions_via_hooks {
         return LaunchVerdict::Registering;
     }
-    match facts.installed {
-        None => LaunchVerdict::Unreadable,
-        Some(true) => LaunchVerdict::Registering,
-        Some(false) => {
+    match facts.state {
+        Some(IntegrationState::Installed) => LaunchVerdict::Registering,
+        Some(
+            state @ (IntegrationState::Absent
+            | IntegrationState::StaleVersion
+            | IntegrationState::UntrustedHash),
+        ) => {
             let target = facts.target.clone();
             LaunchVerdict::Silent(IntegrationSilence {
                 provider_id: provider_id.to_string(),
                 level: NotifyLevel::ActionNeeded,
-                remedy: if facts.consent_recorded {
-                    IntegrationRemedy::ReinstallIntegration { target }
-                } else {
-                    IntegrationRemedy::GrantConsentAndInstall { target }
+                remedy: match state {
+                    IntegrationState::Absent if facts.consent_recorded => {
+                        IntegrationRemedy::ReinstallIntegration { target }
+                    }
+                    IntegrationState::Absent => {
+                        IntegrationRemedy::GrantConsentAndInstall { target }
+                    }
+                    IntegrationState::StaleVersion => {
+                        IntegrationRemedy::RefreshIntegration { target }
+                    }
+                    IntegrationState::UntrustedHash => IntegrationRemedy::GrantHookTrust { target },
+                    IntegrationState::Installed => unreachable!(),
                 },
+                state,
                 condition: provider_integration_missing_condition(provider_id),
             })
         }
+        None => LaunchVerdict::Unreadable,
     }
 }
 

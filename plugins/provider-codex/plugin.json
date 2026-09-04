@@ -1,7 +1,7 @@
 {
   "id": "codex",
-  "version": "1.10.10",
-  "minCodeterm": "1.10.10",
+  "version": "1.10.11",
+  "minCodeterm": "1.10.11",
   "hostApi": 2,
   "displayName": "Codex",
   "binaryName": "codex",
@@ -87,6 +87,11 @@
       "id": "high",
       "displayName": "High",
       "description": "Greater reasoning depth for complex problems."
+    },
+    {
+      "id": "xhigh",
+      "displayName": "Extra high",
+      "description": "Extended reasoning for difficult work."
     }
   ],
   "defaultReasoningEffort": "medium",

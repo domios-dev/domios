@@ -523,9 +523,18 @@ impl ServiceContext {
     }
 
     /// Queue text without making the caller wait for PTY or TUI evidence.
+    /// The delivery outcome `send_text` already computes, returned instead of
+    /// discarded. The detached form reports `Ok` before the write is attempted,
+    /// so an API caller was told "delivered" for a tab that never received.
+    /// `submit_unconfirmed` stays distinct from a hard failure: the payload may
+    /// have landed, and a caller must never read it as "nothing happened".
     pub async fn send_text_when_ready(&self, tab_id: &str, text: &str) -> Result<(), String> {
-        self.send_text_detached(tab_id, text);
-        Ok(())
+        let svc = self.clone();
+        let tab = tab_id.to_string();
+        let text = text.to_string();
+        tokio::task::spawn_blocking(move || svc.send_text(&tab, &text))
+            .await
+            .map_err(|error| format!("send task failed: {error}"))?
     }
 
     pub(crate) async fn stage_text_when_ready(

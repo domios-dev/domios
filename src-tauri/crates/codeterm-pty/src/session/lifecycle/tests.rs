@@ -4,7 +4,7 @@ use tempfile::TempDir;
 
 use super::*;
 use crate::multiplexer::state::MultiplexerState;
-use crate::multiplexer::types::{AgentRole, Tab};
+use crate::multiplexer::types::{AgentRole, Tab, TabCloseReason};
 use crate::session::store::{
     AgentIdentitySnapshot, SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot,
 };
@@ -513,7 +513,12 @@ fn compaction_preserves_checkpoints_and_bounds_the_file() {
     commit_full_launch(&journal, &key("tab-a", 1, "op-a"), "session-a");
     commit_full_launch(&journal, &key("tab-b", 1, "op-b"), "session-b");
     journal
-        .append(key("tab-b", 1, "op-b"), LifecycleTransition::Closed)
+        .append(
+            key("tab-b", 1, "op-b"),
+            LifecycleTransition::Closed {
+                reason: "user".to_string(),
+            },
+        )
         .unwrap();
     let before = checkpoints(&journal.load());
     let raw_records = journal.load().records.len();
@@ -603,4 +608,58 @@ fn next_epoch_follows_the_tabs_own_history() {
     assert_eq!(next_epoch_for(&load, "tab-a"), LifecycleEpoch(2));
     assert_eq!(next_epoch_for(&load, "tab-b"), LifecycleEpoch(8));
     assert_eq!(next_epoch_for(&load, "tab-fresh"), LifecycleEpoch::first());
+}
+
+#[test]
+fn a_close_reason_survives_the_journal_round_trip() {
+    let (journal, _dir) = new_journal();
+    let k = key("tab-a", 1, "op-a");
+    commit_full_launch(&journal, &k, "session-a");
+    journal
+        .append(
+            k.clone(),
+            LifecycleTransition::Closed {
+                reason: TabCloseReason::Watchdog.label().to_string(),
+            },
+        )
+        .unwrap();
+
+    // Bind the load: `closed` borrows from it, so it must outlive the statement.
+    let loaded = journal.load();
+    let closed: Vec<&LifecycleTransition> = loaded
+        .records
+        .iter()
+        .filter_map(|record| match record {
+            JournalRecord::Transition { entry } => Some(&entry.transition),
+            _ => None,
+        })
+        .filter(|transition| matches!(transition, LifecycleTransition::Closed { .. }))
+        .collect();
+    assert_eq!(closed.len(), 1);
+    assert_eq!(
+        closed[0],
+        &LifecycleTransition::Closed {
+            reason: TabCloseReason::Watchdog.label().to_string(),
+        },
+        "the journal must name the seam that closed the tab"
+    );
+}
+
+#[test]
+fn a_close_record_written_before_attribution_reads_as_unattributed() {
+    let decoded: LifecycleTransition = serde_json::from_str(r#"{"transition":"closed"}"#).unwrap();
+    assert_eq!(
+        decoded,
+        LifecycleTransition::Closed {
+            reason: "unattributed".to_string(),
+        },
+        "a pre-attribution journal line still loads, and says so"
+    );
+    assert_ne!(
+        decoded,
+        LifecycleTransition::Closed {
+            reason: TabCloseReason::User.label().to_string(),
+        },
+        "an unattributed close must never be read back as a user close"
+    );
 }
