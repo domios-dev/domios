@@ -145,6 +145,8 @@ pub struct HotReloadRegistry {
     load_count: std::sync::atomic::AtomicUsize,
     #[cfg(test)]
     contribution_event_count: std::sync::atomic::AtomicUsize,
+    #[cfg(test)]
+    view_reload_events: Mutex<Vec<String>>,
 }
 
 static WATCHER: OnceLock<Arc<HotReloadRegistry>> = OnceLock::new();
@@ -181,6 +183,8 @@ impl HotReloadRegistry {
             load_count: std::sync::atomic::AtomicUsize::new(0),
             #[cfg(test)]
             contribution_event_count: std::sync::atomic::AtomicUsize::new(0),
+            #[cfg(test)]
+            view_reload_events: Mutex::new(Vec::new()),
         })
     }
 
@@ -240,6 +244,17 @@ impl HotReloadRegistry {
 
     pub fn capability_registries(&self) -> &CapabilityRegistries {
         &self.caps
+    }
+
+    /// An open plugin view keeps running the bundle it already loaded, so a
+    /// reload that swaps only the VM leaves the user looking at the old UI.
+    fn emit_plugin_view_reloaded(&self, id: &str) {
+        #[cfg(test)]
+        self.view_reload_events.lock().push(id.to_string());
+        let svc = self.service.lock().clone().and_then(|w| w.upgrade());
+        if let Some(svc) = svc {
+            svc.contributions_changed(&format!("plugin_view:{id}"));
+        }
     }
 
     fn emit_agent_provider_changed(&self) {
@@ -426,6 +441,9 @@ impl HotReloadRegistry {
                 self.bind_service(provider.vm());
                 self.caps
                     .register_plugin(provider.manifest(), provider.vm());
+                if provider.manifest().capabilities.view {
+                    self.emit_plugin_view_reloaded(&id);
+                }
                 if provider.manifest().capabilities.agent_provider {
                     provider.set_registrar(self.registrar.clone());
                     self.registrar.register_provider(Box::new(provider));
@@ -473,6 +491,11 @@ impl HotReloadRegistry {
     #[cfg(test)]
     pub fn load_count(&self) -> usize {
         self.load_count.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    #[cfg(test)]
+    pub fn view_reload_events(&self) -> Vec<String> {
+        self.view_reload_events.lock().clone()
     }
 
     #[cfg(test)]
