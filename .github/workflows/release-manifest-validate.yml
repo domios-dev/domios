@@ -1,64 +1,394 @@
 name: release-manifest-validate
 
-# Asserts that the public auto-update manifest is complete and installable
-# before it is trusted: every platform this release ships must actually carry
-# a verified entry, or the release is not "done" no matter how many of its
-# platform legs went green on their own. codeterm#383: release.yml,
-# release-windows.yml and release-linux.yml each verify only what THEY
-# published; nothing verified the release as a whole was complete. This
-# workflow is that coordinating gate, and it fails the run (non-zero exit)
-# rather than warn — a gate that only warns is not a gate.
-#
-# Trigger:
-#   - workflow_run, once each publishing leg (release.yml, release-windows,
-#     release-linux) completes for a release-* tag push. All three legs are
-#     independent, uncoordinated tag-triggered workflows, so they fire this
-#     workflow separately and out of order. An early leg's run can observe a
-#     genuinely incomplete matrix and fail — that failure is expected and
-#     self-clears once the last leg's completion re-triggers a run that sees
-#     the full matrix. A leg that never completes (a real build failure)
-#     leaves this workflow red for good, which is the point: an incomplete
-#     artifact matrix must fail loudly in CI, not silently ship, and must not
-#     depend on a human running a checklist.
-#   - workflow_dispatch for manual re-checks.
+# The publishing workflows emit release assets before this coordinating gate runs.
+# An absent signal is pending; a terminal failure signal fails with its reason.
 on:
   workflow_run:
     workflows:
       - "Release (self-hosted build machine)"
       - "release-windows"
       - "release-linux"
+      - "release-macos"
     types:
       - completed
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Published release tag to verify (for example v1.10.11)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: release-manifest-${{ github.event.workflow_run.head_branch || inputs.tag }}
+  cancel-in-progress: false
 
 jobs:
   validate:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.event == 'push' }}
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+      SOURCE_REPO: ${{ github.repository }}
+      MIRROR_REPO: rollacode/codeterm-releases
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22.22.0'
 
-      # Reuses the same verifier release.yml's own publish-time gate uses:
-      # --require-platform fails the run the moment any listed platform is
-      # missing from the manifest, and every present entry's signature is
-      # checked against the bytes actually served (a 200 proves nothing on
-      # its own — see scripts/verify-updater-manifest.mjs).
-      - name: Validate latest.json covers every shipped platform
+      - name: Resolve release tag
+        id: release
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          WORKFLOW_REF: ${{ github.event.workflow_run.head_branch }}
+          INPUT_TAG: ${{ inputs.tag }}
+          EVENT_SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+        shell: bash
         run: |
+          set -euo pipefail
+          ref="$WORKFLOW_REF"
+          source_sha="$EVENT_SOURCE_SHA"
+          [ "$EVENT_NAME" = workflow_dispatch ] && ref="$INPUT_TAG"
+          case "$ref" in
+            release-*) tag="v${ref#release-}" ;;
+            v*) tag="$ref" ;;
+            [0-9]*) tag="v$ref" ;;
+            *)
+              trigger=$(git tag --points-at "$source_sha" --list 'release-*' | head -n1)
+              [ -n "$trigger" ] || { echo "::error::cannot derive release tag from '$ref'"; exit 1; }
+              tag="v${trigger#release-}"
+              ;;
+          esac
+          version="${tag#v}"
+          if [ -z "$source_sha" ]; then
+            source_sha=$(git rev-parse "release-${version}^{commit}" 2>/dev/null \
+              || git rev-parse "$tag^{commit}")
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Detect channel
+        id: channel
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$TAG" == *-rc* ]]; then
+            echo "manifest=latest-rc.json" >> "$GITHUB_OUTPUT"
+          elif [[ "$TAG" == *-nightly* ]]; then
+            echo "manifest=latest-nightly.json" >> "$GITHUB_OUTPUT"
+          else
+            echo "manifest=latest.json" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Collect published completion signals
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+          MANIFEST: ${{ steps.channel.outputs.manifest }}
+          TRIGGER_WORKFLOW: ${{ github.event.workflow_run.name }}
+          TRIGGER_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          signal_dir="$RUNNER_TEMP/release-completion"
+          mirror_dir="$RUNNER_TEMP/public-mirror"
+          mkdir -p "$signal_dir" "$mirror_dir"
+          gh release download "$TAG" --repo "$SOURCE_REPO" \
+            --pattern 'release-completion-*.json' --dir "$signal_dir" 2>/dev/null || true
+          gh release download "$TAG" --repo "$MIRROR_REPO" \
+            --pattern "$MANIFEST" --dir "$mirror_dir" 2>/dev/null || true
+          python3 - "$signal_dir" "$mirror_dir/$MANIFEST" "$TAG" \
+            "$TRIGGER_WORKFLOW" "$TRIGGER_CONCLUSION" > "$RUNNER_TEMP/matrix-fixture.json" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          signal_dir, manifest_path, tag, trigger, conclusion = sys.argv[1:]
+          names = {
+              "Release (self-hosted build machine)": "release",
+              "release-linux": "release-linux",
+              "release-windows": "release-windows",
+              "release-macos": "release-macos",
+          }
+          file_names = {
+              "release-completion-release.json": "release",
+              "release-completion-release-linux.json": "release-linux",
+              "release-completion-release-windows.json": "release-windows",
+              "release-completion-release-macos.json": "release-macos",
+          }
+          signals = {}
+          for path in sorted(Path(signal_dir).glob("release-completion-*.json")):
+              lane = file_names.get(path.name)
+              if lane not in ("release", "release-linux", "release-windows"):
+                  continue
+              try:
+                  signal = json.loads(path.read_text(encoding="utf-8"))
+              except (OSError, json.JSONDecodeError):
+                  signals[lane] = {
+                      "status": "failure",
+                      "reason": "completion signal is not valid JSON",
+                  }
+                  continue
+              if signal.get("release_tag") != tag:
+                  signals[lane] = {
+                      "status": "failure",
+                      "reason": "completion signal names a different release tag",
+                  }
+                  continue
+              if names.get(signal.get("workflow")) != lane:
+                  signals[lane] = {
+                      "status": "failure",
+                      "reason": "completion signal names a different workflow",
+                  }
+                  continue
+              signals[lane] = signal
+
+          current_lane = names.get(trigger)
+          if current_lane in ("release", "release-linux", "release-windows") \
+                  and current_lane not in signals:
+              if conclusion == "success":
+                  reason = "successful workflow did not publish its completion signal"
+              else:
+                  reason = f"workflow concluded {conclusion or 'unknown'} before publishing completion signal"
+              signals[current_lane] = {
+                  "status": "failure",
+                  "reason": reason,
+              }
+
+          published = []
+          try:
+              manifest = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+              published = sorted((manifest.get("platforms") or {}).keys())
+          except (OSError, json.JSONDecodeError):
+              pass
+          print(json.dumps({"signals": signals, "published_platforms": published}))
+          PY
+
+      - name: Check matrix completion signal
+        id: matrix
+        env:
+          FIXTURE: ${{ runner.temp }}/matrix-fixture.json
+        shell: bash
+        run: |
+          set +e
+          output=$(bash scripts/check-release-verification-order.sh "$FIXTURE" 2>&1)
+          status=$?
+          set -e
+          printf '%s\n' "$output"
+          [ "$status" -eq 0 ] || exit "$status"
+          if [[ "$output" == MATRIX_COMPLETE:* ]]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Verify published public mirror
+        if: steps.matrix.outputs.ready == 'true'
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+          VER: ${{ steps.release.outputs.version }}
+          MANIFEST: ${{ steps.channel.outputs.manifest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_release=$(gh release view "$TAG" --repo "$SOURCE_REPO" \
+            --json isDraft,publishedAt)
+          test "$(printf '%s' "$source_release" | jq -r .isDraft)" = false
+          test "$(printf '%s' "$source_release" | jq -r .publishedAt)" != null
+          release=$(gh release view "$TAG" --repo "$MIRROR_REPO" \
+            --json isDraft,publishedAt,assets)
+          test "$(printf '%s' "$release" | jq -r .isDraft)" = false
+          test "$(printf '%s' "$release" | jq -r .publishedAt)" != null
+          printf '%s' "$release" | jq -e --arg manifest "$MANIFEST" \
+            '.assets | any(.name == $manifest)' >/dev/null
+          gh release download "$TAG" --repo "$MIRROR_REPO" \
+            --pattern "$MANIFEST" --dir "$RUNNER_TEMP/public-mirror"
+          jq -e --arg ver "$VER" '
+            (.version == $ver)
+            and (.platforms["darwin-aarch64"].signature | type == "string" and length > 0)
+            and (.platforms["darwin-aarch64"].url | endswith("/CodeTerm_aarch64.app.tar.gz"))
+            and (.platforms["darwin-x86_64"].signature | type == "string" and length > 0)
+            and (.platforms["darwin-x86_64"].url | endswith("/CodeTerm_x64.app.tar.gz"))
+          ' "$RUNNER_TEMP/public-mirror/$MANIFEST" >/dev/null
+          jq -r '.platforms[].url' "$RUNNER_TEMP/public-mirror/$MANIFEST" \
+            | while IFS= read -r url; do
+                case "$url" in
+                  https://github.com/rollacode/codeterm-releases/releases/download/"$TAG"/*) ;;
+                  *) echo "::error::non-versioned or non-public updater URL: $url"; exit 1 ;;
+                esac
+                curl --fail --silent --show-error --location --head "$url" >/dev/null
+              done
+          verification=0
           node scripts/verify-updater-manifest.mjs \
-            --manifest "https://github.com/rollacode/codeterm-releases/releases/latest/download/latest.json?cb=$(date +%s)" \
+            --manifest "https://github.com/rollacode/codeterm-releases/releases/download/$TAG/$MANIFEST?cb=$(date +%s)" \
+            --require-version "$VER" \
             --require-platform darwin-aarch64 \
             --require-platform darwin-x86_64 \
             --require-platform windows-x86_64 \
+            --require-platform linux-x86_64 \
+            --evidence "$RUNNER_TEMP/manifest-verification.json" || verification=$?
+          gh release upload "$TAG" "$RUNNER_TEMP/manifest-verification.json" \
+            --repo "$MIRROR_REPO" --clobber || true
+          if [ "$verification" -ne 0 ]; then
+            echo "::error::published manifest is not installable"; exit 1
+          fi
+
+      - name: Verify published Debian manifest
+        if: steps.matrix.outputs.ready == 'true'
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+          VER: ${{ steps.release.outputs.version }}
+          MANIFEST: ${{ steps.channel.outputs.manifest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$MANIFEST" in
+            latest.json) deb_manifest=latest-deb.json ;;
+            latest-rc.json) deb_manifest=latest-rc-deb.json ;;
+            latest-nightly.json) deb_manifest=latest-nightly-deb.json ;;
+            *) echo "::error::unknown channel manifest $MANIFEST"; exit 1 ;;
+          esac
+          node scripts/verify-updater-manifest.mjs \
+            --manifest "https://github.com/rollacode/codeterm-releases/releases/download/$TAG/$deb_manifest?cb=$(date +%s)" \
+            --require-version "$VER" \
             --require-platform linux-x86_64
 
-      - name: Validate latest-deb.json covers its platform
+      - name: Mint issue closure boundary
+        if: steps.matrix.outputs.ready == 'true'
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+          VER: ${{ steps.release.outputs.version }}
+          SOURCE_SHA: ${{ steps.release.outputs.source_sha }}
+        shell: bash
         run: |
-          node scripts/verify-updater-manifest.mjs \
-            --manifest "https://github.com/rollacode/codeterm-releases/releases/latest/download/latest-deb.json?cb=$(date +%s)" \
-            --require-platform linux-x86_64
+          set -euo pipefail
+          jq -n --arg version "$VER" --arg sha "$SOURCE_SHA" \
+            --slurpfile verification "$RUNNER_TEMP/manifest-verification.json" \
+            '{version: $version, source_sha: $sha, public_mirror_verified: true,
+              manifest_verification: $verification[0]}' \
+            > "$RUNNER_TEMP/issue-closure-boundary.json"
+          gh release upload "$TAG" "$RUNNER_TEMP/issue-closure-boundary.json" \
+            --repo "$SOURCE_REPO" --clobber
+          gh release upload "$TAG" "$RUNNER_TEMP/issue-closure-boundary.json" \
+            --repo "$MIRROR_REPO" --clobber
+
+      - name: Resolve included private source public issues
+        if: steps.matrix.outputs.ready == 'true'
+        env:
+          VER: ${{ steps.release.outputs.version }}
+          SOURCE_SHA: ${{ steps.release.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          CURRENT="release-$VER"
+          printf '[]' > "$RUNNER_TEMP/release-history.json"
+          for trigger in $(git tag --merged "$SOURCE_SHA" --list 'release-*' --sort=-version:refname \
+            | grep -v -x "$CURRENT"); do
+            version="${trigger#release-}"
+            tag="v$version"
+            sha=$(git rev-parse "$trigger^{commit}")
+            private_published=false
+            public_published=false
+            mirror_verified=false
+            private=$(gh release view "$tag" --repo "$SOURCE_REPO" \
+              --json isDraft,publishedAt,assets 2>/dev/null || true)
+            private_marker=false
+            if [ -n "$private" ] \
+              && [ "$(printf '%s' "$private" | jq -r .isDraft)" = false ] \
+              && [ "$(printf '%s' "$private" | jq -r .publishedAt)" != null ]; then
+              private_published=true
+              if printf '%s' "$private" \
+                | jq -e '.assets | any(.name == "issue-closure-boundary.json")' >/dev/null; then
+                private_marker=true
+              fi
+            fi
+            public=$(gh release view "$tag" --repo "$MIRROR_REPO" \
+              --json isDraft,publishedAt,assets 2>/dev/null || true)
+            if [ -n "$public" ] \
+              && [ "$(printf '%s' "$public" | jq -r .isDraft)" = false ] \
+              && [ "$(printf '%s' "$public" | jq -r .publishedAt)" != null ]; then
+              public_published=true
+              if [ "$private_marker" = true ] \
+                && printf '%s' "$public" \
+                  | jq -e '.assets
+                    | (any(.name == "latest.json")
+                       and any(.name == "issue-closure-boundary.json"))' >/dev/null; then
+                mirror_verified=true
+              fi
+            fi
+            jq --arg version "$version" --arg sha "$sha" \
+              --argjson private "$private_published" \
+              --argjson public "$public_published" \
+              --argjson mirror "$mirror_verified" \
+              '. + [{version: $version, sha: $sha, private_published: $private,
+                      public_published: $public, mirror_verified: $mirror}]' \
+              "$RUNNER_TEMP/release-history.json" > "$RUNNER_TEMP/release-history.next.json"
+            mv "$RUNNER_TEMP/release-history.next.json" "$RUNNER_TEMP/release-history.json"
+          done
+          START=$(python3 scripts/release_issue_contract.py range-start \
+            --releases-file "$RUNNER_TEMP/release-history.json")
+          if [ -n "$START" ]; then RANGE="$START..$SOURCE_SHA"; else RANGE="$SOURCE_SHA"; fi
+          printf '[]' > "$RUNNER_TEMP/release-commits.json"
+          printf '[]' > "$RUNNER_TEMP/release-prs.json"
+          for sha in $(git rev-list "$RANGE"); do
+            git show -s --format=%B "$sha" > "$RUNNER_TEMP/commit-body.txt"
+            jq --arg sha "$sha" \
+              --arg url "https://github.com/${SOURCE_REPO}/commit/$sha" \
+              --rawfile body "$RUNNER_TEMP/commit-body.txt" \
+              '. + [{sha: $sha, url: $url, body: $body}]' \
+              "$RUNNER_TEMP/release-commits.json" > "$RUNNER_TEMP/release-commits.next.json"
+            mv "$RUNNER_TEMP/release-commits.next.json" "$RUNNER_TEMP/release-commits.json"
+            gh api "repos/${SOURCE_REPO}/commits/$sha/pulls" \
+              --jq '[.[] | select(.merged_at != null) | {number, url: .html_url, body, base_ref: .base.ref}]' \
+              > "$RUNNER_TEMP/commit-prs.json"
+            jq -s 'add | unique_by(.number)' \
+              "$RUNNER_TEMP/release-prs.json" "$RUNNER_TEMP/commit-prs.json" \
+              > "$RUNNER_TEMP/release-prs.next.json"
+            mv "$RUNNER_TEMP/release-prs.next.json" "$RUNNER_TEMP/release-prs.json"
+          done
+          python3 scripts/release_issue_contract.py resolve \
+            --commits-file "$RUNNER_TEMP/release-commits.json" \
+            --prs-file "$RUNNER_TEMP/release-prs.json" \
+            > "$RUNNER_TEMP/resolved-public-issues.json"
+          jq -r '.issues[].reference' "$RUNNER_TEMP/resolved-public-issues.json" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Close shipped public issues
+        if: steps.matrix.outputs.ready == 'true'
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+          VER: ${{ steps.release.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/check-release-closure.mjs \
+            --evidence "$RUNNER_TEMP/manifest-verification.json" \
+            --version "$VER"
+          jq -r '.issues[].reference' "$RUNNER_TEMP/resolved-public-issues.json" | while IFS= read -r reference; do
+            number="${reference##*#}"
+            state=$(gh issue view "$number" --repo "$MIRROR_REPO" --json state --jq .state)
+            printf '%s\t%s\n' "$reference" "$state"
+          done | jq -Rn '[inputs | split("\t") | {(.[0]): .[1]}] | add // {}' \
+            > "$RUNNER_TEMP/public-issue-states.json"
+          python3 scripts/release_issue_contract.py plan-close \
+            --resolved-file "$RUNNER_TEMP/resolved-public-issues.json" \
+            --states-file "$RUNNER_TEMP/public-issue-states.json" \
+            --version "$VER" \
+            > "$RUNNER_TEMP/public-issue-close-plan.json"
+          jq -r '.[] | @base64' "$RUNNER_TEMP/public-issue-close-plan.json" | while IFS= read -r row; do
+            action=$(printf '%s' "$row" | base64 --decode)
+            number=$(printf '%s' "$action" | jq -r .number)
+            comment=$(printf '%s' "$action" | jq -r .comment)
+            gh issue close "$number" --repo "$MIRROR_REPO" --comment "$comment"
+          done
