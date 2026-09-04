@@ -108,9 +108,6 @@ pub(crate) fn reap_orphaned_hosts_in_background() {
     });
 }
 
-#[cfg(not(windows))]
-pub(crate) fn reap_orphaned_hosts_in_background() {}
-
 #[cfg(windows)]
 fn cleanup_bundled_hosts(
     dir: &Path,
