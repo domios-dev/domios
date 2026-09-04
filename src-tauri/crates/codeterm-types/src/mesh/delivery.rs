@@ -25,3 +25,24 @@ pub const PEER_LOCAL_API_UNREACHABLE: &str = "peer_local_api_unreachable";
 pub const PEER_RELAY_NOT_AUTHORIZED: &str = "peer_relay_not_authorized";
 /// Relay protocol versions differ between the peers. Nothing was written.
 pub const PEER_RELAY_PROTOCOL_MISMATCH: &str = "peer_relay_protocol_mismatch";
+
+// ── Sender hop (outbound `PeerClient::send_relay`) ──────────────────────────
+// The codes above classify what the RECEIVING peer did with a relayed command.
+// These classify the SENDER's own transport leg — did the request ever leave
+// this instance before the failure — so a caller can tell nothing-landed from
+// landed-unknown before deciding whether a retry is safe.
+
+/// The connection itself failed: refused, DNS failure, TLS handshake failure.
+/// The only case where the request is provably never written. Nothing was sent.
+pub const MESH_TRANSPORT_NOTHING_SENT: &str = "mesh_transport_nothing_sent";
+/// Anything past a successful connect — a timeout, or a connection reset
+/// mid-request. The payload may already have been written and be in flight —
+/// never treat this as nothing-landed.
+pub const MESH_TRANSPORT_SUBMIT_UNCONFIRMED: &str = "mesh_transport_submit_unconfirmed";
+/// The peer answered the relay POST itself with a non-success status (e.g. its
+/// own auth check rejected before dispatch). The transport hop landed; whether
+/// the relayed command ran is a separate, peer-side question.
+pub const MESH_TRANSPORT_PEER_REJECTED: &str = "mesh_transport_peer_rejected";
+/// The peer answered with a success status but the response body could not be
+/// parsed as a relay response.
+pub const MESH_TRANSPORT_BAD_RESPONSE: &str = "mesh_transport_bad_response";

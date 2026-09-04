@@ -95,6 +95,8 @@ older peers with `426 Upgrade Required`; the Mesh card disables **Open** and req
 
 A relayed send succeeds only when the TARGET confirms delivery — the relay hop's `ok` attests acceptance, the peer's body is the evidence, so `data.ok = false` on `POST /api/tabs/{id}/send` is a failure under an accepting envelope. Codes are the constants in `codeterm-types` (`mesh::delivery`); `bytes_written` is three-valued (`false` nothing landed, `true` landed but unconfirmed, absent unknown) and absent never means zero. The relay's send deadline outlives that route's readiness wait so the peer's answer decides the outcome; reads keep the short deadline.
 
+The SENDER'S own transport leg to `/api/mesh/relay` is classified the same way instead of collapsing to a bare `502`: `PeerClient::send_relay` (`codeterm-mesh::transport`) returns a `TransportError` carrying one of the `mesh_transport_*` constants in `codeterm-types` (`mesh::delivery`) — `mesh_transport_nothing_sent` only for a connect-phase failure (refused, DNS, TLS handshake) with `bytes_written=false`, since that is the sole case where the request is provably never written. Everything past a successful connect — a timeout, or a connection reset mid-request — classifies as `mesh_transport_submit_unconfirmed` with `bytes_written` absent, because the payload may already be in flight and a bare "not a timeout" is not proof it wasn't. `mesh_transport_peer_rejected` / `mesh_transport_bad_response` cover the case where the peer answered but the outer relay call itself could not be used. `mesh_relay_to_peer` maps these onto the same `relay_failure()` envelope the receiving hop uses, so a caller reads one vocabulary regardless of which leg failed.
+
 The serving browser origin remains its gateway. During an outage an already-loaded page can render,
 but cannot fetch or switch peers. Failover needs a short-lived, single-use handoff grant, never a permanent token.
 
@@ -237,4 +239,4 @@ Mesh inventory is target-authoritative: machine-qualified rows carry provenance 
 
 Inventory opens as a full-screen searchable List beside the existing Mesh network graph. One shared mode bubble switches between the List and the graph of connected computers. Keyboard navigation preserves resource identity and focus; peer detail separates Services and Schedules and labels cached, offline, denied, and partial states.
 
-<!-- revision: 24 -->
+<!-- revision: 26 -->
