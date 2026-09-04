@@ -271,10 +271,7 @@ fn hot_reload_reaches_provider_integration_refresh_without_restart() {
         test_caps(),
     );
     let dir = root.path().join("refreshable");
-    write(
-        &dir.join("plugin.json"),
-        &manifest_for("refreshable"),
-    );
+    write(&dir.join("plugin.json"), &manifest_for("refreshable"));
     write(
         &dir.join("plugin.js"),
         "module.exports.default = { ensureIntegrationOnStartup() {}, detectFromTitle() { return false; } };",
@@ -294,9 +291,12 @@ fn hot_reload_reaches_provider_integration_refresh_without_restart() {
     );
     watcher.tick();
 
-    assert!(registrar
-        .with_provider("refreshable", |p| p.detect_from_title("refresh"))
-        .unwrap_or(false), "hot reload must call the provider refresh seam");
+    assert!(
+        registrar
+            .with_provider("refreshable", |p| p.detect_from_title("refresh"))
+            .unwrap_or(false),
+        "hot reload must call the provider refresh seam"
+    );
 }
 
 #[test]

@@ -211,12 +211,7 @@ fn peer_delivery_verdict(data: &serde_json::Value) -> PeerVerdict {
     let Some(error) = data.get("error").filter(|e| e.is_object()) else {
         return PeerVerdict::default();
     };
-    let text = |key: &str| {
-        error
-            .get(key)
-            .and_then(|v| v.as_str())
-            .map(str::to_string)
-    };
+    let text = |key: &str| error.get(key).and_then(|v| v.as_str()).map(str::to_string);
     PeerVerdict {
         code: text("code"),
         bytes_written: error.get("bytes_written").and_then(|v| v.as_bool()),

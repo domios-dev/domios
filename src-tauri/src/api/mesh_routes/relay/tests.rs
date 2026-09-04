@@ -668,7 +668,11 @@ fn a_send_is_never_abandoned_before_the_delivery_route_can_answer() {
 #[test]
 fn an_abandoned_forward_is_unknown_and_an_unreachable_one_wrote_nothing() {
     let abandoned = forward_failure_response(true, "deadline".into());
-    let error = abandoned.data.as_ref().and_then(|d| d.get("error")).expect("error object");
+    let error = abandoned
+        .data
+        .as_ref()
+        .and_then(|d| d.get("error"))
+        .expect("error object");
     assert!(!abandoned.ok);
     assert_eq!(
         error.get("code").and_then(|v| v.as_str()),
@@ -684,12 +688,19 @@ fn an_abandoned_forward_is_unknown_and_an_unreachable_one_wrote_nothing() {
     );
 
     let unreachable = forward_failure_response(false, "connection refused".into());
-    let error = unreachable.data.as_ref().and_then(|d| d.get("error")).expect("error object");
+    let error = unreachable
+        .data
+        .as_ref()
+        .and_then(|d| d.get("error"))
+        .expect("error object");
     assert_eq!(
         error.get("code").and_then(|v| v.as_str()),
         Some(codeterm_types::mesh::delivery::PEER_LOCAL_API_UNREACHABLE)
     );
-    assert_eq!(error.get("bytes_written").and_then(|v| v.as_bool()), Some(false));
+    assert_eq!(
+        error.get("bytes_written").and_then(|v| v.as_bool()),
+        Some(false)
+    );
     assert!(
         !outcome_holds_dedupe(&unreachable),
         "nothing was written — the safe retry must not be swallowed"
@@ -734,7 +745,10 @@ fn locally_generated_relay_refusals_carry_a_code_not_a_bare_status() {
             Some(code)
         );
         assert!(
-            response.error.as_deref().is_some_and(|e| e.starts_with(code)),
+            response
+                .error
+                .as_deref()
+                .is_some_and(|e| e.starts_with(code)),
             "the forwarded summary leads with the code, never a bare HTTP status"
         );
     }
@@ -754,15 +768,27 @@ fn shared_delivery_constants_match_the_delivery_error_taxonomy() {
         delivery::TAB_NOT_REACHABLE_ON_PEER
     );
     assert_eq!(
-        DeliveryError::TabBusyRefused { tab: tab(), detail: detail() }.code(),
+        DeliveryError::TabBusyRefused {
+            tab: tab(),
+            detail: detail()
+        }
+        .code(),
         delivery::TAB_BUSY_REFUSED
     );
     assert_eq!(
-        DeliveryError::PtyUnavailable { tab: tab(), detail: detail() }.code(),
+        DeliveryError::PtyUnavailable {
+            tab: tab(),
+            detail: detail()
+        }
+        .code(),
         delivery::PTY_UNAVAILABLE
     );
     assert_eq!(
-        DeliveryError::SubmitUnconfirmed { tab: tab(), detail: detail() }.code(),
+        DeliveryError::SubmitUnconfirmed {
+            tab: tab(),
+            detail: detail()
+        }
+        .code(),
         delivery::SUBMIT_UNCONFIRMED
     );
 }

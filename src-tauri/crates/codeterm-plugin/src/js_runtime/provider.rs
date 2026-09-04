@@ -1096,10 +1096,8 @@ impl AgentProvider for JsProvider {
     }
 
     fn ensure_integration_on_startup(&self, api_port: u16) {
-        let _ = self.try_call::<serde_json::Value>(
-            "ensureIntegrationOnStartup",
-            &[json!(api_port)],
-        );
+        let _ =
+            self.try_call::<serde_json::Value>("ensureIntegrationOnStartup", &[json!(api_port)]);
     }
 }
 
