@@ -176,26 +176,7 @@ bash scripts/test-capped.test.sh
 ```
 
 **Windows: ConPTY test isolation**
-A test process launched from inside a CodeTerm tab inherits `CODETERM_CONPTY_DIR`,
-which production (`startup/conpty_host.rs`) points at the installed conpty
-bundle so a PTY test suite would otherwise sideload the real host DLL and spawn
-`OpenConsole.exe` into the user's install. `scripts/test-capped.sh`
-unconditionally unsets `CODETERM_CONPTY_DIR` and exports
-`CODETERM_CONPTY_TEST_ISOLATION=1` before every test command — never
-conditioned on the variable happening to be absent already. On the fork side,
-`src-tauri/pty-fork/src/win/psuedocon.rs` refuses to honor `CODETERM_CONPTY_DIR`
-at all while that marker is set; the pure `conpty_dir_candidates` helper and
-its unit tests assert the resolved candidate list directly. Production never
-sets the marker, so nothing about how the running app resolves its bundled
-host changes. Verify pty-fork's own boundary contract with:
-
-```bash
-./build.sh test-one pty-fork test_isolation_marker_refuses_ambient_production_dir
-```
-
-`pty-fork` is excluded from the main Cargo workspace (its own `Cargo.lock`), so
-it is a separate `test-one` scope rather than folded into `pty`
-(`crates/codeterm-pty`) — see `./build.sh help`.
+A test process launched from a CodeTerm tab inherits `CODETERM_CONPTY_DIR` and would sideload the installed host into the user's install. `scripts/test-capped.sh` unsets it and exports `CODETERM_CONPTY_TEST_ISOLATION=1`; `pty-fork/src/win/psuedocon.rs` refuses the variable while that marker is set, and production never sets it. Verify: `./build.sh test-one pty-fork test_isolation_marker_refuses_ambient_production_dir`.
 
 **Windows: cargo test target isolation**
 Running the Rust test wrapper against the app crate while a dev build occupies the same
