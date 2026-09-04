@@ -6,8 +6,8 @@ use super::compat::{
 };
 
 /// A logical tab send (POST `.../send`) — the only relay shape that gets a
-/// delivery id for at-most-once dedupe on the target.
-#[cfg(test)]
+/// delivery id for at-most-once dedupe on the target, and the only one whose
+/// success must be confirmed by the peer's own body rather than the relay hop.
 pub(crate) fn is_send_relay(method: &str, path: &str) -> bool {
     method.eq_ignore_ascii_case("POST") && path.split('?').next().unwrap_or(path).ends_with("/send")
 }
@@ -94,12 +94,17 @@ pub fn mesh_relay_fetch_json(
 }
 
 /// A relay/spawn failure: peer, reason, and a retry hint, for both human and
-/// script output.
+/// script output. `code` and `bytes_written` carry the peer's own delivery
+/// taxonomy so a caller branches on a constant, never on the reason text.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct MeshSpawnFailure {
     pub(crate) peer: String,
     pub(crate) reason: String,
     pub(crate) retry_hint: String,
+    pub(crate) code: Option<String>,
+    /// `Some(false)` nothing landed, `Some(true)` the payload reached the target
+    /// PTY, `None` the outcome is unknown — never read absence as "nothing".
+    pub(crate) bytes_written: Option<bool>,
 }
 
 impl MeshSpawnFailure {
@@ -108,18 +113,30 @@ impl MeshSpawnFailure {
             peer: peer.to_string(),
             reason: reason.into(),
             retry_hint: retry_hint.into(),
+            code: None,
+            bytes_written: None,
         }
     }
 
+    fn with_delivery(mut self, code: Option<String>, bytes_written: Option<bool>) -> Self {
+        self.code = code;
+        self.bytes_written = bytes_written;
+        self
+    }
+
     pub(crate) fn to_json(&self) -> serde_json::Value {
-        serde_json::json!({
-            "ok": false,
-            "error": {
-                "peer": self.peer,
-                "reason": self.reason,
-                "retry_hint": self.retry_hint,
-            },
-        })
+        let mut error = serde_json::json!({
+            "peer": self.peer,
+            "reason": self.reason,
+            "retry_hint": self.retry_hint,
+        });
+        if let Some(code) = &self.code {
+            error["code"] = serde_json::json!(code);
+        }
+        if let Some(written) = self.bytes_written {
+            error["bytes_written"] = serde_json::json!(written);
+        }
+        serde_json::json!({ "ok": false, "error": error })
     }
 
     /// Render and exit(1); kept apart from classification so that stays
@@ -181,10 +198,66 @@ pub(crate) fn tailscale_unreachable_hint(text: &str) -> Option<String> {
     })
 }
 
+/// The peer's own delivery verdict, read off the relayed body.
+#[derive(Default)]
+struct PeerVerdict {
+    code: Option<String>,
+    /// Three-valued: absent means unknown, never zero.
+    bytes_written: Option<bool>,
+    message: Option<String>,
+}
+
+fn peer_delivery_verdict(data: &serde_json::Value) -> PeerVerdict {
+    let Some(error) = data.get("error").filter(|e| e.is_object()) else {
+        return PeerVerdict::default();
+    };
+    let text = |key: &str| {
+        error
+            .get(key)
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+    };
+    PeerVerdict {
+        code: text("code"),
+        bytes_written: error.get("bytes_written").and_then(|v| v.as_bool()),
+        message: text("message"),
+    }
+}
+
+/// What a caller may safely do next, given what the payload is known to have
+/// done. An unknown outcome is never advertised as a free retry.
+fn delivery_retry_hint(
+    data: &serde_json::Value,
+    code: Option<&str>,
+    bytes_written: Option<bool>,
+    status: u16,
+) -> String {
+    if let Some(hint) = data
+        .get("error")
+        .and_then(|e| e.get("retry_hint"))
+        .and_then(|v| v.as_str())
+    {
+        return hint.to_string();
+    }
+    match (code, bytes_written) {
+        (Some(_), Some(true)) => "the payload already reached the target PTY — check the target \
+             before resending; a retry may deliver it twice"
+            .to_string(),
+        (Some(_), Some(false)) => {
+            "nothing was written to the target — safe to retry once".to_string()
+        }
+        (Some(_), None) => "the delivery outcome is unknown — confirm on the target before \
+             resending; a blind retry may deliver it twice"
+            .to_string(),
+        _ => generic_retry_hint(status),
+    }
+}
+
 /// Classify a completed relay response into success data or a structured
 /// failure. Pure — no I/O, no process exit — so tests can drive it directly.
 fn classify_relay_response(
     peer_name: &str,
+    relayed: (&str, &str),
     status: reqwest::StatusCode,
     bytes: &[u8],
 ) -> Result<serde_json::Value, MeshSpawnFailure> {
@@ -209,21 +282,53 @@ fn classify_relay_response(
         return Err(MeshSpawnFailure::new(peer_name, reason, retry));
     }
 
+    let data = val.get("data").cloned().unwrap_or(serde_json::Value::Null);
+    let PeerVerdict {
+        code,
+        bytes_written,
+        message,
+    } = peer_delivery_verdict(&data);
+    let envelope_status = val
+        .get("status")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(status.as_u16() as u64) as u16;
+
     // Relay returns 200+ok:false on auth/HTTP failures inside the envelope.
-    if let Some(err) = val.get("error").and_then(|v| v.as_str()) {
-        if val.get("ok").and_then(|v| v.as_bool()) == Some(false) {
-            let hint = val
-                .get("data")
-                .and_then(|d| d.get("error"))
-                .and_then(|e| e.get("retry_hint"))
-                .and_then(|v| v.as_str())
-                .map(str::to_string)
-                .unwrap_or_else(|| generic_retry_hint(status.as_u16()));
-            return Err(MeshSpawnFailure::new(peer_name, err.to_string(), hint));
-        }
+    if val.get("ok").and_then(|v| v.as_bool()) == Some(false) {
+        let reason = val
+            .get("error")
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .or_else(|| match (&code, &message) {
+                (Some(code), Some(message)) => Some(format!("{code}: {message}")),
+                (Some(code), None) => Some(code.clone()),
+                _ => None,
+            })
+            .unwrap_or_else(|| format!("HTTP {envelope_status}"));
+        let hint = delivery_retry_hint(&data, code.as_deref(), bytes_written, envelope_status);
+        return Err(
+            MeshSpawnFailure::new(peer_name, reason, hint).with_delivery(code, bytes_written)
+        );
     }
 
-    Ok(val.get("data").cloned().unwrap_or(serde_json::Value::Null))
+    // The relay hop's `ok` attests that the peer ACCEPTED the send, not that the
+    // peer delivered it. On a send the peer's own body is the only delivery
+    // evidence, so its `ok: false` outranks an accepting envelope.
+    let peer_refused = data.get("ok").and_then(|v| v.as_bool()) == Some(false);
+    if is_send_relay(relayed.0, relayed.1) && peer_refused {
+        let reason = match (&code, &message) {
+            (Some(code), Some(message)) => format!("{code}: {message}"),
+            (Some(code), None) => code.clone(),
+            (None, Some(message)) => message.clone(),
+            _ => format!("peer did not confirm delivery (HTTP {envelope_status})"),
+        };
+        let hint = delivery_retry_hint(&data, code.as_deref(), bytes_written, envelope_status);
+        return Err(
+            MeshSpawnFailure::new(peer_name, reason, hint).with_delivery(code, bytes_written)
+        );
+    }
+
+    Ok(data)
 }
 
 /// POST an already-built relay envelope to a resolved peer URL and classify
@@ -253,7 +358,7 @@ pub(crate) fn perform_mesh_relay_call(
         })?;
     let status = resp.status();
     let bytes = resp.bytes().unwrap_or_default();
-    classify_relay_response(peer_name, status, &bytes)
+    classify_relay_response(peer_name, (method, path), status, &bytes)
 }
 
 #[cfg(test)]
@@ -329,7 +434,7 @@ pub(crate) fn mesh_relay_invoke_result(
         })?;
     let status = response.status();
     let bytes = response.bytes().unwrap_or_default();
-    classify_relay_response(target, status, &bytes)
+    classify_relay_response(target, (method, path), status, &bytes)
 }
 
 /// Like `mesh_relay_invoke_result`, but prints and exits(1) on failure —
@@ -609,6 +714,9 @@ pub fn mesh_close_tab_and_forget_remote_worker(
 }
 
 #[cfg(test)]
+mod delivery_classification_tests;
+
+#[cfg(test)]
 mod mesh_spawn_failure_tests {
     use super::*;
     use std::io::{Read, Write};
@@ -688,6 +796,7 @@ mod mesh_spawn_failure_tests {
         // renders as plain text, not JSON — this reproduces that exact body.
         let failure = classify_relay_response(
             "blackstar",
+            ("POST", "/api/agents/spawn"),
             reqwest::StatusCode::INTERNAL_SERVER_ERROR,
             b"checkout guard rejected: dirty worktree",
         )
@@ -717,6 +826,7 @@ mod mesh_spawn_failure_tests {
         });
         let failure = classify_relay_response(
             "blackstar",
+            ("POST", "/api/agents/spawn"),
             reqwest::StatusCode::OK,
             body.to_string().as_bytes(),
         )
@@ -734,6 +844,7 @@ mod mesh_spawn_failure_tests {
         let body = serde_json::json!({"ok": true, "status": 200, "data": {"tab_id": "abc"}});
         let data = classify_relay_response(
             "blackstar",
+            ("POST", "/api/agents/spawn"),
             reqwest::StatusCode::OK,
             body.to_string().as_bytes(),
         )
