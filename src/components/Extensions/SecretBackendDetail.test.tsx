@@ -5,7 +5,9 @@ import { SecretBackendDetail } from "./SecretBackendDetail";
 import type { CatalogEntry } from "./pluginCatalog";
 import type { AppConfigShape } from "./shared";
 
-function assert(condition: unknown, message: string): asserts condition {
+// Deliberately not an `asserts` predicate: narrowing a counter to the literal
+// it was just checked against turns the next count check into a type error.
+function assert(condition: unknown, message: string): void {
   if (!condition) throw new Error(message);
 }
 
@@ -94,24 +96,25 @@ async function main() {
   setupDom();
   const timer = installDelayTimerFake(STATUS_REFRESH_DELAY_MS);
 
-  let statusCalls = 0;
-  let orgCalls = 0;
-  let collCalls = 0;
+  // An object, not three `let`s: assert() is an `asserts` predicate, so it
+  // narrows a bare binding to the literal it just checked and the next count
+  // check becomes a type error instead of a test.
+  const calls = { status: 0, orgs: 0, colls: 0 };
   let statusGate = deferred<void>();
 
   globalThis.fetch = (async (url: string | URL) => {
     const u = String(url);
     if (u.includes("/api/secrets/status")) {
-      statusCalls++;
+      calls.status++;
       await statusGate.promise;
       return { ok: true, json: async () => ({ backend: "local", status: { status: "unlocked" } }) } as Response;
     }
     if (u.includes("/api/secrets/organizations")) {
-      orgCalls++;
+      calls.orgs++;
       return { ok: true, json: async () => ({ organizations: [] }) } as Response;
     }
     if (u.includes("/api/secrets/collections")) {
-      collCalls++;
+      calls.colls++;
       return { ok: true, json: async () => ({ collections: [] }) } as Response;
     }
     return { ok: true, json: async () => ({}) } as Response;
@@ -144,7 +147,7 @@ async function main() {
   await renderOnce();
   await flush();
 
-  assert(statusCalls === 1, `mount must issue exactly one status fetch, got ${statusCalls}`);
+  assert(calls.status === 1, `mount must issue exactly one status fetch, got ${calls.status}`);
   assert(timer.pendingCount() === 0, "no refresh may be scheduled while the first status fetch is still in flight");
 
   // THE REGRESSION: force several parent re-renders with unchanged props
@@ -157,7 +160,7 @@ async function main() {
   await renderOnce();
   await flush();
 
-  assert(statusCalls === 1, `re-rendering with unchanged config must not issue additional status fetches, got ${statusCalls}`);
+  assert(calls.status === 1, `re-rendering with unchanged config must not issue additional status fetches, got ${calls.status}`);
   assert(timer.pendingCount() === 0, "re-rendering must not start a second refresh while one is in flight");
 
   // Resolve the in-flight status as "unlocked". This should fire the
@@ -169,8 +172,8 @@ async function main() {
   resolveFirstStatus();
   await flush();
 
-  assert(orgCalls === 1, `organizations effect must fire once when unlocked, got ${orgCalls}`);
-  assert(collCalls === 1, `collections effect must fire once when unlocked, got ${collCalls}`);
+  assert(calls.orgs === 1, `organizations effect must fire once when unlocked, got ${calls.orgs}`);
+  assert(calls.colls === 1, `collections effect must fire once when unlocked, got ${calls.colls}`);
   assert(timer.pendingCount() === 1, `exactly one next-refresh timer must be scheduled after completion, got ${timer.pendingCount()}`);
 
   // Re-render again with unchanged config now that we're unlocked: the
@@ -178,8 +181,8 @@ async function main() {
   await renderOnce();
   await renderOnce();
   await flush();
-  assert(orgCalls === 1, `organizations effect must not re-fire on unchanged config across re-renders, got ${orgCalls}`);
-  assert(collCalls === 1, `collections effect must not re-fire on unchanged config across re-renders, got ${collCalls}`);
+  assert(calls.orgs === 1, `organizations effect must not re-fire on unchanged config across re-renders, got ${calls.orgs}`);
+  assert(calls.colls === 1, `collections effect must not re-fire on unchanged config across re-renders, got ${calls.colls}`);
 
   // Fire the scheduled timer: this starts the second refresh. A backend
   // slower than STATUS_REFRESH_DELAY_MS must not be issued a third call
@@ -188,15 +191,15 @@ async function main() {
   assert(timer.flushOne(), "the scheduled timer callback must exist and be runnable");
   await flush();
 
-  assert(statusCalls === 2, `the scheduled timer must start exactly one new refresh, got ${statusCalls}`);
+  assert(calls.status === 2, `the scheduled timer must start exactly one new refresh, got ${calls.status}`);
   assert(timer.pendingCount() === 0, "no third refresh may be scheduled while the second one is still in flight");
   assert(!timer.flushOne(), "there must be nothing to flush while a refresh is in flight");
 
   statusGate.resolve();
   await flush();
-  assert(statusCalls === 2, "resolving the second refresh must not, by itself, start a third");
+  assert(calls.status === 2, "resolving the second refresh must not, by itself, start a third");
   assert(timer.pendingCount() === 1, "completion of the second refresh must schedule exactly the next one");
-  assert(orgCalls === 1 && collCalls === 1, "a repeat 'unlocked' status must not re-fire the organizations/collections effects");
+  assert(calls.orgs === 1 && calls.colls === 1, "a repeat 'unlocked' status must not re-fire the organizations/collections effects");
 
   await act(async () => root.unmount());
   timer.restore();
