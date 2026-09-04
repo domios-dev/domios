@@ -591,8 +591,8 @@ pub(super) fn compete(
                     );
                 }
                 Err(error) => {
-                    let _ = svc_for_ready
-                        .close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
+                    let _ =
+                        svc_for_ready.close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
                     emit_plan_changed(&app_for_ready, &plan_id);
                     super::plan_task_dispatch::publish_startup_report(
                         &svc_for_ready,

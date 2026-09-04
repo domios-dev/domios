@@ -4,11 +4,11 @@ use codeterm_types::team::general_agent_membership::MembershipAttempt;
 use super::launch::{build_agent_command, launch_agent_in_background, skip_local_worker_role};
 use super::prompt_compose::{agent_system_prompt, role_onboarding_task, spawn_launch_task};
 use super::types::{ReasoningEffortProvenance, SpawnAgentParams, SpawnResult};
+use crate::multiplexer::types::TabCloseReason;
 use crate::service::general_agent::{
     refuse_general_agent_team_membership, refuse_parenting_under_general_agent, shape_for_tab,
 };
 use crate::service::{spawn_title, ServiceContext};
-use crate::multiplexer::types::TabCloseReason;
 
 /// Build effort provenance for a launch where the requested effort has already
 /// passed capability validation. No silent downgrade ⇒ `resolved == requested`.

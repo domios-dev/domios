@@ -311,10 +311,8 @@ mod windows {
         // hosts, so a parent exiting mid-sweep cannot flip a host's classification.
         let (live_pids, hosts) = enumerate_processes()?;
 
-        let matches = super::collect_selected_hosts(
-            &hosts,
-            &live_pids,
-            |pid, parent_pid, parent_alive| {
+        let matches =
+            super::collect_selected_hosts(&hosts, &live_pids, |pid, parent_pid, parent_alive| {
                 open_matching_process(
                     pid,
                     parent_pid,
@@ -323,8 +321,7 @@ mod windows {
                     expected,
                     selection,
                 )
-            },
-        );
+            });
         match selection {
             HostSelection::Orphaned => confirm_still_orphaned(matches),
             HostSelection::All => Ok(matches),
@@ -571,7 +568,11 @@ mod tests {
             (pid != 11).then_some(pid)
         });
         assert_eq!(attempted, vec![10, 11, 12], "every host is still attempted");
-        assert_eq!(selected, vec![10, 12], "the unopenable one is skipped, not fatal");
+        assert_eq!(
+            selected,
+            vec![10, 12],
+            "the unopenable one is skipped, not fatal"
+        );
     }
 
     #[test]

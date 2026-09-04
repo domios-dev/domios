@@ -26,6 +26,7 @@ mod routing;
 use super::safety_nudge::{
     apply_safety_nudges, safety_incident_text, SafetyNudge, SAFETY_INCIDENT_KIND,
 };
+use crate::multiplexer::types::TabCloseReason;
 use brief::build_brief_with_manifest;
 #[cfg(test)]
 pub(super) use brief::{build_brief, build_brief_with_personality};
@@ -39,7 +40,6 @@ use lane_safety::{
     refuse_unsafe_mutating_write,
 };
 use routing::{dispatch_worker_identity, resolve_dispatch_routing, unqualified_model_error};
-use crate::multiplexer::types::TabCloseReason;
 
 fn owned_str(p: Option<&Value>, key: &str) -> Option<String> {
     p.and_then(|x| x.get(key))

@@ -7,8 +7,8 @@ use parking_lot::Mutex;
 use serde::Deserialize;
 use tauri::Manager;
 
-use crate::service::ServiceContext;
 use crate::multiplexer::types::TabCloseReason;
+use crate::service::ServiceContext;
 
 // Default idle wait is 30s (Claude can think between events while still streaming partials).
 // `memory.worker_timeout_seconds` can lower/higher this at runtime.

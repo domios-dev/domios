@@ -624,8 +624,9 @@ fn a_close_reason_survives_the_journal_round_trip() {
         )
         .unwrap();
 
-    let closed: Vec<&LifecycleTransition> = journal
-        .load()
+    // Bind the load: `closed` borrows from it, so it must outlive the statement.
+    let loaded = journal.load();
+    let closed: Vec<&LifecycleTransition> = loaded
         .records
         .iter()
         .filter_map(|record| match record {
@@ -646,8 +647,7 @@ fn a_close_reason_survives_the_journal_round_trip() {
 
 #[test]
 fn a_close_record_written_before_attribution_reads_as_unattributed() {
-    let decoded: LifecycleTransition =
-        serde_json::from_str(r#"{"transition":"closed"}"#).unwrap();
+    let decoded: LifecycleTransition = serde_json::from_str(r#"{"transition":"closed"}"#).unwrap();
     assert_eq!(
         decoded,
         LifecycleTransition::Closed {
@@ -663,4 +663,3 @@ fn a_close_record_written_before_attribution_reads_as_unattributed() {
         "an unattributed close must never be read back as a user close"
     );
 }
-

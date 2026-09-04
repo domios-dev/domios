@@ -12,8 +12,8 @@ use crate::mem::ports::{
     MemCronCreateParams, MemCronJob, MemEventSink, MemHostContext, MemSchedulerPort,
 };
 use crate::mem::workers::{self, GraphWorkerInfo, WorkerStatus};
-use crate::service::ServiceContext;
 use crate::multiplexer::types::TabCloseReason;
+use crate::service::ServiceContext;
 
 fn cron_to_mem(job: &store::CronJob) -> MemCronJob {
     MemCronJob {

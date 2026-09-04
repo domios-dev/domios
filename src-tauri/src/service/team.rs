@@ -4,11 +4,11 @@ use codeterm_types::team::Team;
 use tauri::Manager;
 
 use crate::multiplexer::state::MultiplexerState;
+use crate::multiplexer::types::TabCloseReason;
 use crate::multiplexer::types::{AgentRole, TabBacking};
 use crate::service::general_agent::{refuse_general_agent_team_membership, shape_for_tab};
 use crate::service::plan::PlanError;
 use crate::service::ServiceContext;
-use crate::multiplexer::types::TabCloseReason;
 
 #[derive(Debug, Clone)]
 pub(crate) struct AddTeamMemberParams {
