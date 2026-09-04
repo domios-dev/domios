@@ -1,7 +1,6 @@
 /**
- * Codex session-path resolution tests: the rollout's own session_meta id is
- * provider-owned evidence and wins over filename reconstruction
- * (transcript_path drift, DN-2).
+ * Codex 0.153 session store tests. The index has no cwd, so detection must
+ * use exact thread-history evidence and return null when that evidence is absent.
  * Run: npx tsx plugins/provider-codex/tests/session-paths.test.ts
  */
 
@@ -32,134 +31,91 @@ function loadCodexWithHost(host: unknown) {
   return context.module.exports.default;
 }
 
-const baseHost = (over: Record<string, unknown>) => ({
-  manifestJson: () => "null",
-  homeDir: () => "/tmp/home",
-  platform: () => "linux",
-  unixNowMs: () => 1_000_000,
-  path: { equal: (a: string, b: string) => a === b },
-  expandHome: (v: string) => v.replace(/^~/, "/tmp/home"),
-  envGet: (k: string) => (k === "CODETERM_CODEX_SESSIONS_ROOT" ? "/sessions" : null),
-  log: () => {},
-  shell: { quoteFor: (v: unknown) => String(v), quote: (v: unknown) => String(v) },
-  fs: {
-    fileExists: () => true,
-    readFile: () => null,
-    readFileHead: () => null,
-    readFileTail: () => null,
-    readJson: () => null,
-    writeJson: () => true,
-    writeFile: () => true,
-    writeTempFile: () => "/tmp/codeterm-task.md",
-    walkDir: () => [],
-  },
-  ...over,
-});
+const indexPath = "/tmp/home/.codex/session_index.jsonl";
+const historyPath = "/tmp/home/.codex/thread_history_1.sqlite";
+const projectSession = "01900000-0000-7000-8000-000000000001";
+const foreignSession = "01900000-0000-7000-8000-000000000002";
 
-console.log("\n--- sessionFilePath: session_meta stored id wins over filename (transcript_path drift) ---\n");
-{
-  // Provider-owned evidence: the rollout header names the real session id even
-  // when the vendor named the file with a different uuid.
-  const driftedMeta = '{"type":"session_meta","payload":{"id":"44444444-4444-4444-4444-444444444444","cwd":"/work/proj"}}';
-  const drifted = {
-    isFile: true,
-    name: "rollout-2026-06-01T10-00-00-99999999-9999-9999-9999-999999999999.jsonl",
-    path: "/sessions/drifted.jsonl",
-    modifiedMs: 1000,
-  };
-  const bare = {
-    isFile: true,
-    name: "rollout-2026-06-01T11-00-00-55555555-5555-5555-5555-555555555555.jsonl",
-    path: "/sessions/bare.jsonl",
-    modifiedMs: 2000,
-  };
-  const p = loadCodexWithHost(baseHost({
-    fs: {
-      ...baseHost({}).fs,
-      readFileHead: (file: string) => (file === "/sessions/drifted.jsonl" ? driftedMeta + "\n" : null),
-      walkDir: () => [drifted, bare],
+const baseHost = (index: string, sqliteRows: (db: string, sql: string, params: unknown[]) => unknown[]) => {
+  const files = new Map([[indexPath, index], [historyPath, "sqlite"]]);
+  let sqliteCalls = 0;
+  return {
+    host: {
+      manifestJson: () => "null",
+      homeDir: () => "/tmp/home",
+      platform: () => "linux",
+      unixNowMs: () => Date.parse("2026-09-01T12:00:00Z"),
+      path: { equal: (a: string, b: string) => a === b },
+      expandHome: (v: string) => v.replace(/^~/, "/tmp/home"),
+      envGet: (name: string) => name === "CODETERM_CODEX_SESSION_INDEX_PATH"
+        ? indexPath
+        : (name === "CODETERM_CODEX_THREAD_HISTORY_PATH" ? historyPath : null),
+      log: () => {},
+      shell: { quoteFor: (v: unknown) => String(v), quote: (v: unknown) => String(v) },
+      fs: {
+        fileExists: (file: string) => files.has(file),
+        readFile: (file: string) => files.get(file) ?? null,
+        sqliteQuery: (db: string, sql: string, params: unknown[]) => {
+          sqliteCalls++;
+          return sqliteRows(db, sql, params);
+        },
+        readFileHead: () => null,
+        readFileTail: () => null,
+        readJson: () => null,
+        writeJson: () => true,
+        writeFile: () => true,
+        writeTempFile: () => "/tmp/codeterm-task.md",
+        walkDir: () => [],
+      },
     },
-  }));
+    sqliteCalls: () => sqliteCalls,
+  };
+};
+
+const index = [
+  JSON.stringify({ id: projectSession, thread_name: "new project prompt", updated_at: "2026-09-01T10:00:00Z" }),
+  JSON.stringify({ id: foreignSession, thread_name: "foreign newer prompt", updated_at: "2026-09-01T11:00:00Z" }),
+  JSON.stringify({ id: projectSession, thread_name: "older duplicate", updated_at: "2026-09-01T09:00:00Z" }),
+].join("\n");
+
+console.log("\n--- session_index folding and shared store paths ---\n");
+{
+  const fixture = baseHost(index, () => []);
+  const p = loadCodexWithHost(fixture.host);
+  const sessions = p.enumerateSessions();
+  eq(sessions.length, 2, "repeated index ids fold to one session record");
+  const folded = sessions.find((session: any) => session.sessionId === projectSession);
+  eq(folded?.title, "new project prompt", "folding keeps the record with the newest updated_at");
+  eq(folded?.filePath, indexPath, "enumeration reports the current session index store");
+  eq(p.sessionFilePath("/work/proj", projectSession), null, "the new store has no JSONL session file");
+  eq(p.sessionJsonlPath("/work/proj", projectSession), null, "chat path stays honest when no JSONL transcript exists");
+}
+
+console.log("\n--- detection refuses a cross-project recency guess ---\n");
+{
+  const fixture = baseHost(index, () => []);
+  const p = loadCodexWithHost(fixture.host);
   eq(
-    p.sessionFilePath("/work/proj", "44444444-4444-4444-4444-444444444444"),
-    "/sessions/drifted.jsonl",
-    "stored session_meta id resolves the rollout when the filename drifted",
-  );
-  eq(
-    p.sessionFilePath("/work/proj", "99999999-9999-9999-9999-999999999999"),
+    p.detectSessionId("/work/proj"),
     null,
-    "a session_meta-bearing rollout is never matched by its drifted filename",
+    "missing SQLite cwd evidence returns null instead of binding the newer foreign session",
   );
-  eq(
-    p.sessionFilePath("/work/proj", "55555555-5555-5555-5555-555555555555"),
-    "/sessions/bare.jsonl",
-    "rollouts without session_meta keep today's stem reconstruction",
-  );
-  eq(
-    p.sessionJsonlPath("/work/proj", "44444444-4444-4444-4444-444444444444"),
-    "/sessions/drifted.jsonl",
-    "chat tail path resolves through the same stored-id preference",
-  );
+  assert(fixture.sqliteCalls() > 0, "detection consults thread history before deciding unknown");
 }
 
-console.log("\n--- sessionFilePath: a resolved id is remembered, not re-scanned ---\n");
+console.log("\n--- detection accepts one exact SQLite project match ---\n");
 {
-  // The scan reads a header out of every rollout in the tree, and chat polls this
-  // on a loop. Re-walking on every call is what pegged a daemon's CPU (#319).
-  const meta = '{"type":"session_meta","payload":{"id":"77777777-7777-7777-7777-777777777777","cwd":"/work/proj"}}';
-  const entry = {
-    isFile: true,
-    name: "rollout-2026-06-01T10-00-00-77777777-7777-7777-7777-777777777777.jsonl",
-    path: "/sessions/remembered.jsonl",
-    modifiedMs: 1000,
-  };
-  let walks = 0;
-  let existsChecks = 0;
-  const p = loadCodexWithHost(baseHost({
-    fs: {
-      ...baseHost({}).fs,
-      walkDir: () => { walks++; return [entry]; },
-      readFileHead: () => meta,
-      fileExists: () => { existsChecks++; return true; },
-    },
-  }));
-
-  const id = "77777777-7777-7777-7777-777777777777";
-  const first = p.sessionJsonlPath("/work/proj", id);
-  eq(first, "/sessions/remembered.jsonl", "first lookup resolves the rollout");
-  eq(p.sessionJsonlPath("/work/proj", id), first, "a repeat lookup returns the same path");
-  eq(p.sessionJsonlPath("/work/proj", id), first, "and keeps returning it");
-  eq(walks, 1, "three lookups walk the sessions tree exactly once");
-  assert(existsChecks >= 2, "the remembered path is revalidated before it is reused");
+  const fixture = baseHost(index, (_db, _sql, params) => {
+    const id = params[0];
+    if (id === projectSession) {
+      return [{ item_type: "thread_meta", item_json: JSON.stringify({ type: "thread_meta", payload: { cwd: "/work/proj" } }) }];
+    }
+    return [{ item_type: "thread_meta", item_json: JSON.stringify({ type: "thread_meta", payload: { cwd: "/other/proj" } }) }];
+  });
+  const p = loadCodexWithHost(fixture.host);
+  eq(p.detectSessionId("/work/proj", [], 24 * 60 * 60 * 1000), projectSession, "exact SQLite cwd match wins over a newer foreign session");
+  eq(p.detectSessionId("/work/proj", projectSession, 24 * 60 * 60 * 1000), null, "an excluded exact match leaves detection unknown");
 }
-
-console.log("\n--- sessionFilePath: a vanished rollout is re-scanned, never served stale ---\n");
-{
-  const meta = '{"type":"session_meta","payload":{"id":"88888888-8888-8888-8888-888888888888","cwd":"/work/proj"}}';
-  const entry = {
-    isFile: true,
-    name: "rollout-2026-06-01T10-00-00-88888888-8888-8888-8888-888888888888.jsonl",
-    path: "/sessions/gone.jsonl",
-    modifiedMs: 1000,
-  };
-  let walks = 0;
-  let alive = true;
-  const p = loadCodexWithHost(baseHost({
-    fs: {
-      ...baseHost({}).fs,
-      walkDir: () => { walks++; return alive ? [entry] : []; },
-      readFileHead: () => meta,
-      fileExists: () => alive,
-    },
-  }));
-
-  const id = "88888888-8888-8888-8888-888888888888";
-  eq(p.sessionJsonlPath("/work/proj", id), "/sessions/gone.jsonl", "resolves while the rollout exists");
-  alive = false;
-  eq(p.sessionJsonlPath("/work/proj", id), null, "a removed rollout is not served from memory");
-  eq(walks, 2, "the second lookup re-scans instead of trusting the cache");
-}
-
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

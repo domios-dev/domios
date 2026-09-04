@@ -214,7 +214,7 @@ const plugin: PluginModule = {
     return resolveCodexSessionFilePath(_cwd, sessionId);
   },
 
-  // Chat uses generic JSONL-session hook; codex paths resolve via sessionFilePath.
+  // Codex 0.153 has no per-session JSONL transcript; keep the path capability honest.
   sessionJsonlPath(cwd: string, sessionId: string): string | null {
     return this.sessionFilePath!(cwd, sessionId);
   },
