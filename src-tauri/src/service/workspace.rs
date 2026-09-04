@@ -2,7 +2,7 @@
 
 use super::ServiceContext;
 use crate::multiplexer::state::WorkspaceInfo;
-use crate::multiplexer::types::ClosedTab;
+use crate::multiplexer::types::{ClosedTab, TabCloseReason};
 use crate::service::session_persist::{self, SessionPersistUrgency};
 
 enum WorkspaceCloseCaller<'a> {
@@ -200,7 +200,7 @@ impl ServiceContext {
     pub fn close_workspace(&self, id: &str) -> Result<(), String> {
         self.close_workspace_with_teardown(
             id,
-            |service, tab_id| service.prepare_tab_close(tab_id),
+            |service, tab_id| service.prepare_tab_close(tab_id, TabCloseReason::WorkspaceClosed),
             |service, tab_id| service.finish_tab_close(tab_id),
         )
     }

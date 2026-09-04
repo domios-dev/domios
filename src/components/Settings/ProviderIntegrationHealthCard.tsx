@@ -13,6 +13,9 @@ import { SettingsCard, SettingsPill } from "./shared";
 export type ProviderIntegrationState =
   | "checking"
   | "healthy"
+  | "absent"
+  | "stale-version"
+  | "untrusted-hash"
   | "needs-repair"
   | "unknown"
   | "error";
@@ -27,6 +30,10 @@ export function providerIntegrationState(
   health: ProviderIntegrationHealth | null,
 ): Exclude<ProviderIntegrationState, "checking" | "error"> {
   if (!health) return "unknown";
+  if (health.integration_state === "absent") return "absent";
+  if (health.integration_state === "stale_version") return "stale-version";
+  if (health.integration_state === "untrusted_hash") return "untrusted-hash";
+  if (health.integration_state === "installed") return "healthy";
   if (typeof health.session_start_hook === "boolean") {
     const stopHookMissing = health.stop_hook === false;
     return health.session_start_hook && !stopHookMissing ? "healthy" : "needs-repair";
@@ -134,13 +141,19 @@ export function ProviderIntegrationHealthCard({
         data-provider-integration-state={phase}
         className="space-y-2.5"
       >
-        {phase === "needs-repair" && (
+        {(phase === "needs-repair" || phase === "absent" || phase === "stale-version" || phase === "untrusted-hash") && (
           <div
             role="alert"
             data-provider-integration-stale-hooks={staleHooks.join(",")}
             className="rounded border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-[var(--ct-fg)]"
           >
-            {staleSessionStart
+            {phase === "absent"
+              ? "The integration is absent. Install it before starting a new agent session."
+              : phase === "stale-version"
+                ? "The integration is from an older release. Refresh it before starting a new agent session."
+                : phase === "untrusted-hash"
+                  ? "Codex does not trust this hook content. Grant trust before starting a new agent session."
+                  : staleSessionStart
               ? "The session-start hook is missing or stale. Repair the integration before starting a new agent session."
               : staleStopHook
                 ? "The stop hook is missing or stale. Repair the integration to restore agent stop callbacks."
@@ -186,7 +199,7 @@ export function ProviderIntegrationHealthCard({
               Uninstall
             </Button>
           )}
-          {phase === "needs-repair" && (
+          {(phase === "needs-repair" || phase === "absent" || phase === "stale-version" || phase === "untrusted-hash") && (
             <Button
               variant="primary"
               size="compact"
@@ -197,7 +210,7 @@ export function ProviderIntegrationHealthCard({
               data-provider-integration-action="repair"
               className="text-[10px]"
             >
-              Repair
+              {phase === "absent" ? "Install" : phase === "stale-version" ? "Refresh" : phase === "untrusted-hash" ? "Grant trust" : "Repair"}
             </Button>
           )}
         </div>
@@ -208,6 +221,9 @@ export function ProviderIntegrationHealthCard({
 
 function IntegrationStatePill({ state }: { state: ProviderIntegrationState }) {
   if (state === "healthy") return <SettingsPill tone="green">healthy</SettingsPill>;
+  if (state === "absent") return <SettingsPill tone="amber">absent</SettingsPill>;
+  if (state === "stale-version") return <SettingsPill tone="amber">stale version</SettingsPill>;
+  if (state === "untrusted-hash") return <SettingsPill tone="red">untrusted hook</SettingsPill>;
   if (state === "needs-repair") return <SettingsPill tone="amber">needs repair</SettingsPill>;
   if (state === "error") return <SettingsPill tone="red">check failed</SettingsPill>;
   if (state === "checking") return <SettingsPill>checking</SettingsPill>;

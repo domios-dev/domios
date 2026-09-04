@@ -75,12 +75,44 @@ impl ReasoningEffortIdentity {
 
 /// Why a tab is being closed. A `PolicyWorker` close (system/exhaustion) of a
 /// task-owning worker overrides the hidden-skip so it lands in recently-closed.
+/// Every variant other than `User` names a close CodeTerm issued on its own
+/// initiative; `User` means a person or an agent asked for this exact tab.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TabCloseReason {
     #[default]
     User,
     PolicyWorker,
     PolicyStartup,
+    /// A bounded run watchdog retired a tab that never reached a terminal state.
+    Watchdog,
+    /// The tab's own PTY exited; the role-bearing tab is pruned after it.
+    PtyExit,
+    /// Spawn or launch failed after the tab existed, so the half-built tab goes.
+    SpawnRollback,
+    /// The agent run this tab hosted finished and reported.
+    AgentRunEnded,
+    /// An explicit cancel or kill of the worker this tab hosts.
+    Cancelled,
+    /// The whole workspace is closing and takes its tabs with it.
+    WorkspaceClosed,
+}
+
+impl TabCloseReason {
+    /// Stable attribution token. Journalled and logged verbatim, so a reader
+    /// can name the seam; never derived from a display string.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::User => "user",
+            Self::PolicyWorker => "policy_worker",
+            Self::PolicyStartup => "policy_startup",
+            Self::Watchdog => "watchdog",
+            Self::PtyExit => "pty_exit",
+            Self::SpawnRollback => "spawn_rollback",
+            Self::AgentRunEnded => "agent_run_ended",
+            Self::Cancelled => "cancelled",
+            Self::WorkspaceClosed => "workspace_closed",
+        }
+    }
 }
 
 /// A closed tab retained for browser-style reopen. Captures just enough to

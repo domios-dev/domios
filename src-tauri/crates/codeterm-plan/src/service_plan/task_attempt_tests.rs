@@ -561,3 +561,50 @@ fn report_on_unassigned_task_never_binds_reporter() {
     assert!(task.lane.tab_id.is_none());
     assert_eq!(task.lane.branch.as_deref(), Some("lane/b"));
 }
+
+#[test]
+fn a_superseded_dispatch_is_told_it_lost_the_task_not_that_it_owns_nothing() {
+    let (_dir, store, plan_id, task_id) = bound_report_store();
+    let lane = TaskLaneMetadata::default();
+
+    store
+        .begin_task_dispatch(&plan_id, &task_id, "loser-tab", "Worker", lane.clone(), 3)
+        .unwrap();
+    // A second dispatch closes the first attempt by design (last writer wins).
+    store
+        .begin_task_dispatch(&plan_id, &task_id, "winner-tab", "Worker", lane, 4)
+        .unwrap();
+
+    let refusal = store
+        .acknowledge_live_task_attempt_for_tab("loser-tab", Some(&plan_id), Some(&task_id), 5)
+        .expect_err("a superseded tab must not acknowledge");
+    let message = refusal.to_string();
+    assert!(
+        message.contains(super::task_dispatch::ACK_CAUSE_ATTEMPT_SUPERSEDED),
+        "the loser must be told it was superseded, got: {message}"
+    );
+    assert!(
+        message.contains("winner-tab"),
+        "the refusal must name the tab that now holds the task, got: {message}"
+    );
+    assert!(
+        !message.contains(super::task_dispatch::ACK_CAUSE_NO_LIVE_ATTEMPT),
+        "'owns no live attempt' reads as a bug and makes the worker retry, got: {message}"
+    );
+
+    // A tab that never had an attempt is still the plain unresolved case.
+    let stray = store
+        .acknowledge_live_task_attempt_for_tab("stray-tab", None, None, 6)
+        .expect_err("a stray shell must not acknowledge");
+    assert!(
+        stray
+            .to_string()
+            .contains(super::task_dispatch::ACK_CAUSE_NO_LIVE_ATTEMPT),
+        "a tab with no attempt history keeps the unresolved cause, got: {stray}"
+    );
+
+    // The winner is unaffected by the loser's refusal.
+    store
+        .acknowledge_live_task_attempt_for_tab("winner-tab", Some(&plan_id), Some(&task_id), 7)
+        .expect("the live attempt must still acknowledge");
+}

@@ -7,6 +7,7 @@ use parking_lot::Mutex;
 use serde::Deserialize;
 use tauri::Manager;
 
+use crate::multiplexer::types::TabCloseReason;
 use crate::service::ServiceContext;
 
 // Default idle wait is 30s (Claude can think between events while still streaming partials).
@@ -652,7 +653,7 @@ fn finish_run(svc: &ServiceContext, state: &RunState, success: bool, summary: St
                     .set_run_session(worker_id, sid.clone(), run_cwd.clone());
             }
             let _ = svc.workers.complete(worker_id.clone().as_str(), summary);
-            let _ = svc.close_tab(&state.tab_id);
+            let _ = svc.close_tab_with_reason(&state.tab_id, TabCloseReason::AgentRunEnded);
         }
         AgentRunKind::Cron { job_id, run_id } => {
             if let Some(cron_state) = svc.app_handle.try_state::<crate::CronState>() {
@@ -683,7 +684,7 @@ fn finish_run(svc: &ServiceContext, state: &RunState, success: bool, summary: St
                 if fresh_transition {
                     crate::cron::notify::notify_on_consecutive_failure(svc, &cron_state, job_id);
                 }
-                let _ = svc.close_tab(&state.tab_id);
+                let _ = svc.close_tab_with_reason(&state.tab_id, TabCloseReason::AgentRunEnded);
                 if is_oneshot {
                     if let Some(cron_wake) = svc.app_handle.try_state::<crate::CronWake>() {
                         log::info!("Oneshot cron auto-deleting: job={}", job_id);

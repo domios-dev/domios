@@ -517,43 +517,105 @@ pub async fn mesh_relay(
 /// A retry-safe, definitively-not-delivered response for a saturated dedupe
 /// window: nothing was written, so `bytes_written=false` tells the sender to retry.
 fn saturated_response() -> crate::mesh::types::RelayResponse {
-    let data = serde_json::json!({
-        "ok": false,
-        "error": {
-            "code": "mesh_delivery_window_saturated",
-            "bytes_written": false,
-            "message": "mesh delivery window saturated by in-flight sends; nothing written"
-        }
-    });
+    relay_failure(
+        StatusCode::SERVICE_UNAVAILABLE.as_u16(),
+        codeterm_types::mesh::delivery::MESH_DELIVERY_WINDOW_SATURATED,
+        Some(false),
+        "mesh delivery window saturated by in-flight sends; nothing written".into(),
+    )
+}
+
+/// A logical tab send (POST `.../send`).
+fn is_tab_send(method: &str, path: &str) -> bool {
+    let bare = path.split('?').next().unwrap_or(path);
+    method.eq_ignore_ascii_case("POST") && bare.ends_with("/send")
+}
+
+/// A logical tab send gets a fresh delivery id for at-most-once dedupe; every
+/// other relayed operation opts out (None).
+fn relay_send_delivery_id(method: &str, path: &str) -> Option<String> {
+    is_tab_send(method, path).then(|| uuid::Uuid::new_v4().to_string())
+}
+
+/// Failure deadline for the relay's own loopback call to a tab send. The send
+/// route waits on the target's own readiness for up to 90s and answers with a
+/// classified delivery code; a shorter deadline here discards that answer and
+/// reports a bare transport error instead. Stays under the mesh client's 120s
+/// relay budget so the peer's classification, not the sender's transport, decides.
+const SEND_FORWARD_DEADLINE: std::time::Duration = std::time::Duration::from_secs(110);
+
+/// Reads answer in milliseconds; they keep the short failure deadline.
+const READ_FORWARD_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
+
+fn local_forward_deadline(method: &str, path: &str) -> std::time::Duration {
+    if is_tab_send(method, path) {
+        SEND_FORWARD_DEADLINE
+    } else {
+        READ_FORWARD_DEADLINE
+    }
+}
+
+/// A locally generated relay failure that carries a delivery code the sender can
+/// branch on. `bytes_written` is `None` when the outcome is genuinely unknown —
+/// absent never means "nothing happened".
+fn relay_failure(
+    status: u16,
+    code: &str,
+    bytes_written: Option<bool>,
+    message: String,
+) -> crate::mesh::types::RelayResponse {
+    let mut error = serde_json::json!({ "code": code, "message": message });
+    if let Some(written) = bytes_written {
+        error["bytes_written"] = serde_json::json!(written);
+    }
+    let data = serde_json::json!({ "ok": false, "error": error });
     crate::mesh::types::RelayResponse {
         ok: false,
-        status: 503,
-        error: Some(relay_error_summary(503, &data)),
+        status,
+        error: Some(relay_error_summary(status, &data)),
         data: Some(data),
     }
 }
 
-/// A logical tab send (POST `.../send`) gets a fresh delivery id for at-most-once
-/// dedupe; every other relayed operation opts out (None).
-fn relay_send_delivery_id(method: &str, path: &str) -> Option<String> {
-    let bare = path.split('?').next().unwrap_or(path);
-    (method.eq_ignore_ascii_case("POST") && bare.ends_with("/send"))
-        .then(|| uuid::Uuid::new_v4().to_string())
+/// The relay's own loopback call never produced a peer answer. A deadline leaves
+/// the outcome unknown (the route may still be writing); anything else — a
+/// refused or broken loopback connection — wrote nothing. Pure, so a test can
+/// drive both arms without fabricating a transport error.
+fn forward_failure_response(timed_out: bool, detail: String) -> crate::mesh::types::RelayResponse {
+    if timed_out {
+        relay_failure(
+            StatusCode::GATEWAY_TIMEOUT.as_u16(),
+            codeterm_types::mesh::delivery::RELAY_DELIVERY_DEADLINE_EXCEEDED,
+            None,
+            format!("local delivery route did not answer within the relay deadline: {detail}"),
+        )
+    } else {
+        relay_failure(
+            StatusCode::BAD_GATEWAY.as_u16(),
+            codeterm_types::mesh::delivery::PEER_LOCAL_API_UNREACHABLE,
+            Some(false),
+            format!("local relay failed: {detail}"),
+        )
+    }
 }
 
-/// Keep an outcome deduped only if it delivered or is in-doubt (bytes reached the
-/// PTY). Definitively-not-delivered is released so its safe-retry isn't lost.
+fn local_forward_failure(error: &reqwest::Error) -> crate::mesh::types::RelayResponse {
+    forward_failure_response(error.is_timeout(), error.to_string())
+}
+
+/// Keep an outcome deduped unless it is definitively-not-delivered, whose
+/// safe-retry must not be lost. A classified outcome with no `bytes_written` is
+/// in doubt, so it holds — releasing it would invite a duplicate write.
 fn outcome_holds_dedupe(resp: &crate::mesh::types::RelayResponse) -> bool {
     if resp.ok {
         return true;
     }
-    matches!(
-        resp.data
-            .as_ref()
-            .and_then(|d| d.get("error"))
-            .and_then(|e| e.get("bytes_written"))
-            .and_then(|b| b.as_bool()),
-        Some(true)
+    let Some(error) = resp.data.as_ref().and_then(|d| d.get("error")) else {
+        return false;
+    };
+    !matches!(
+        error.get("bytes_written").and_then(|b| b.as_bool()),
+        Some(false)
     )
 }
 
@@ -580,12 +642,12 @@ async fn perform_relay(
             .map(|peer| (peer.access_level.clone(), peer.relay_protocol_version))
             .unwrap_or((crate::mesh::types::AccessLevel::ReadOnly, 0));
         if protocol_version != crate::mesh::types::RELAY_PROTOCOL_VERSION {
-            return Ok(crate::mesh::types::RelayResponse {
-                ok: false,
-                status: StatusCode::UPGRADE_REQUIRED.as_u16(),
-                data: None,
-                error: Some("Incompatible Mesh relay protocol; update CodeTerm".into()),
-            });
+            return Ok(relay_failure(
+                StatusCode::UPGRADE_REQUIRED.as_u16(),
+                codeterm_types::mesh::delivery::PEER_RELAY_PROTOCOL_MISMATCH,
+                Some(false),
+                "Incompatible Mesh relay protocol; update CodeTerm".into(),
+            ));
         }
         let method = Method::from_bytes(cmd.method.as_bytes()).map_err(|_| {
             (
@@ -595,15 +657,15 @@ async fn perform_relay(
         })?;
         match authorize_peer_relay(sender_id, &access, &method, &cmd.path, &cmd.body) {
             PeerRelayAuthorization::Rejected => {
-                return Ok(crate::mesh::types::RelayResponse {
-                    ok: false,
-                    status: 403,
-                    data: None,
-                    error: Some(format!(
+                return Ok(relay_failure(
+                    StatusCode::FORBIDDEN.as_u16(),
+                    codeterm_types::mesh::delivery::PEER_RELAY_NOT_AUTHORIZED,
+                    Some(false),
+                    format!(
                         "Peer not authorized to {} {} (access_level={:?})",
                         cmd.method, cmd.path, access
-                    )),
-                });
+                    ),
+                ));
             }
             PeerRelayAuthorization::WorkspaceClose {
                 peer_id,
@@ -638,7 +700,7 @@ async fn perform_relay(
     })?;
 
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
+        .timeout(local_forward_deadline(&cmd.method, &cmd.path))
         // off the whitelisted path — forward the redirect verbatim instead.
         .redirect(reqwest::redirect::Policy::none())
         .build()
@@ -657,16 +719,14 @@ async fn perform_relay(
         }
     };
 
-    let resp = req
+    let resp = match req
         .header("Authorization", format!("Bearer {}", signed_token))
         .send()
         .await
-        .map_err(|e| {
-            (
-                StatusCode::BAD_GATEWAY,
-                format!("Local relay failed: {}", e),
-            )
-        })?;
+    {
+        Ok(resp) => resp,
+        Err(error) => return Ok(local_forward_failure(&error)),
+    };
 
     let status = resp.status().as_u16();
     let data: serde_json::Value = resp.json().await.unwrap_or(serde_json::json!(null));

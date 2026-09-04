@@ -407,6 +407,10 @@ module.exports.default = {
       return { tag: tag, code: r.code };
     });
   },
+  bounded: function (release) {
+    var job = host.testGateStart(release);
+    return host.awaitJob(job, function () { return { state: "completed" }; });
+  },
   boom: function (entered, release) {
     if (typeof host.awaitJob !== "function") {
       host.testGateOpen(entered);
@@ -501,6 +505,57 @@ fn vm_serialization_slow_call_does_not_block_an_unrelated_call() {
         .expect("slow call failed");
     assert_eq!(slow_out["tag"], "slow");
     assert_eq!(slow_out["code"], 0);
+}
+
+#[test]
+fn slow_plugin_does_not_block_an_unrelated_plugin() {
+    let entered = "vm_serialization_cross_plugin.entered";
+    let release = "vm_serialization_cross_plugin.release";
+    call_gate::reset(entered);
+    call_gate::reset(release);
+
+    let slow_vm = serialization_vm("vm-cross-plugin-slow");
+    let fast_vm = serialization_vm("vm-cross-plugin-fast");
+    let slow = thread::spawn(move || {
+        call_json::<serde_json::Value>(
+            &slow_vm,
+            "gated",
+            &[json!(entered), json!(release), json!("slow")],
+        )
+    });
+    assert!(
+        call_gate::wait_opened(entered, WEDGED),
+        "the slow plugin never reached its blocking point"
+    );
+
+    let fast = recv_call(
+        &spawn_call(&fast_vm, "fast", vec![json!("other")]),
+        "the unrelated plugin call",
+    );
+    assert_eq!(fast.expect("the unrelated plugin call failed"), json!(7));
+    assert!(
+        !call_gate::is_open(release),
+        "the slow plugin was released before the unrelated call completed"
+    );
+
+    call_gate::open(release);
+    slow.join()
+        .expect("slow plugin thread panicked")
+        .expect("slow plugin call failed");
+}
+
+#[test]
+fn vm_async_call_refuses_after_its_bounded_event_wait() {
+    let release = "vm_serialization_timeout.release";
+    call_gate::reset(release);
+
+    let vm = serialization_vm("vm-serialization-timeout");
+    let result = call_json::<serde_json::Value>(&vm, "bounded", &[json!(release)]);
+
+    call_gate::open(release);
+    let error = result.expect_err("a wedged async job must be refused at the call bound");
+    assert!(matches!(error, VmError::AsyncJobTimedOut));
+    assert_eq!(error.to_string(), super::super::ASYNC_JOB_TIMEOUT_ERROR);
 }
 
 #[test]

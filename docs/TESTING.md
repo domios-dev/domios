@@ -175,6 +175,9 @@ Verify the wrapper itself with the focused shell test:
 bash scripts/test-capped.test.sh
 ```
 
+**Windows: ConPTY test isolation**
+A test process launched from a CodeTerm tab inherits `CODETERM_CONPTY_DIR` and would sideload the installed host into the user's install. `scripts/test-capped.sh` unsets it and exports `CODETERM_CONPTY_TEST_ISOLATION=1`; `pty-fork/src/win/psuedocon.rs` refuses the variable while that marker is set, and production never sets it. Verify: `./build.sh test-one pty-fork test_isolation_marker_refuses_ambient_production_dir`.
+
 **Windows: cargo test target isolation**
 Running the Rust test wrapper against the app crate while a dev build occupies the same
 `target/` directory fails with `Os error 5` — tauri-build cannot overwrite the
@@ -231,4 +234,4 @@ Git for Windows at its standard location and rerun the same command.
 
 End-to-end and cross-platform verification: `codeterm docs E2E-TESTING`. Prompt detection: `codeterm docs PROMPT-DETECTION`. Test design rules: `codeterm docs TEST-AUTHORING`.
 
-<!-- revision: 35 -->
+<!-- revision: 36 -->

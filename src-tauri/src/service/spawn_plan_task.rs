@@ -1,5 +1,6 @@
 //! Worker spawn binds a named plan task (`--plan-task`) to the new tab.
 
+use crate::multiplexer::types::TabCloseReason;
 use crate::service::plan::PlanStore;
 use crate::service::{ServiceContext, SpawnAgentParams};
 
@@ -281,7 +282,7 @@ impl ServiceContext {
             })?,
             now_ms,
             || {
-                let _ = self.close_tab(tab_id);
+                let _ = self.close_tab_with_reason(tab_id, TabCloseReason::SpawnRollback);
             },
         )?;
         crate::api::events::emit_everywhere(

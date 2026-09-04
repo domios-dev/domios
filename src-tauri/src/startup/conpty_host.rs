@@ -20,6 +20,7 @@ pub(crate) fn setup_conpty_host(app: &tauri::App) {
     if dir.join("conpty.dll").exists() {
         std::env::set_var("CODETERM_CONPTY_DIR", &dir);
         log::info!("[conpty] bundled host dir: {}", dir.display());
+        crate::update::conpty_cleanup::reap_orphaned_hosts_in_background();
     } else {
         log::warn!("[conpty] bundled host missing at {}", dir.display());
     }

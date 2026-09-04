@@ -93,6 +93,28 @@ async function testStaleHookIsActionable() {
   });
 }
 
+async function testCodexIntegrationStatesStayDistinguishable() {
+  for (const [reported, surfaced] of [
+    ["absent", "absent"],
+    ["stale_version", "stale-version"],
+    ["untrusted_hash", "untrusted-hash"],
+  ] as const) {
+    await withInvoke(async () => ({ integration_state: reported }), async () => {
+      const { host, root } = await renderCard();
+      await flush();
+      assert(
+        host.querySelector(`[data-provider-integration-state="${surfaced}"]`),
+        `integration state ${reported} reaches its distinct UI state constant`,
+      );
+      assert(
+        host.querySelector('[data-provider-integration-action="repair"]'),
+        `integration state ${reported} exposes its recovery action`,
+      );
+      await cleanup(root);
+    });
+  }
+}
+
 async function testHealthyHookHasNoRepairAction() {
   await withInvoke(async () => ({ hooks_installed: true, session_start_hook: true }), async () => {
     const { host, root } = await renderCard();
@@ -213,6 +235,7 @@ async function testBridgeWrappersUseRegisteredCommands() {
 async function main() {
   await testCapabilitySelectsIntegrationProviders();
   await testStaleHookIsActionable();
+  await testCodexIntegrationStatesStayDistinguishable();
   await testHealthyHookHasNoRepairAction();
   await testMissingStopHookIsDegraded();
   await testStopHookHealthyWithSessionStart();

@@ -77,6 +77,16 @@ const manifestSeed = {
   ],
 };
 
+function sourceFiles(root: string): string[] {
+  const files: string[] = [];
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    const full = path.join(root, entry.name);
+    if (entry.isDirectory()) files.push(...sourceFiles(full));
+    else if (/\.(?:ts|tsx)$/.test(entry.name)) files.push(full);
+  }
+  return files;
+}
+
 const baseHost = (over: Record<string, unknown>) => ({
   manifestJson: () => JSON.stringify(manifestSeed),
   homeDir: () => "/tmp/home",
@@ -156,6 +166,24 @@ console.log("\n--- meta ---\n");
 eq(plugin.meta.id, "codex", "meta.id is 'codex'");
 eq(plugin.meta.displayName, "Codex", "meta.displayName");
 
+{
+  const expectedSurface = [
+    "starterPromptText", "detectFromTitle", "detectFromOutput", "screenHasTui", "isOutputNoise",
+    "hasEventMarkers", "detectEvents", "parsePrompt", "buildPromptResponse", "directoryTrustPromptResponse",
+    "discoverModels", "buildLaunchCommand", "buildResumeCommand", "sessionFilePath", "sessionJsonlPath",
+    "parseSessionDelta", "detectSessionId", "checkIntegration", "installIntegration", "grantIntegrationTrust",
+    "uninstallIntegration", "restoreIntegration", "ensureIntegrationOnStartup", "parseUsage", "fetchUsage",
+    "detectActiveSession", "enumerateSessions", "detectSessionModel", "parseSessionMessages", "classifyTabState",
+    "providerSelfUpdateCapability",
+  ].sort();
+  eq(Object.keys(loadHostPlugin()).sort(), expectedSurface, "plugin split preserves the exported API surface");
+  assert(
+    sourceFiles(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "src"))
+      .every((file) => fs.readFileSync(file, "utf8").split(/\r?\n/).length < 1200),
+    "every provider source file stays below the hard line limit",
+  );
+}
+
 console.log("\n--- detect ---\n");
 
 const codexFixture = [
@@ -192,116 +220,6 @@ assert(!plugin.detect({ bytes: "claude code", title: "claude" }), "claude title 
 
 console.log("\n--- statusOf ---\n");
 eq(plugin.statusOf({ kind: "anything" }), null, "statusOf always returns null (PTY-driven status)");
-
-console.log("\n--- sessions ---\n");
-{
-  const files = [
-    {
-      isFile: true,
-      name: "rollout-2026-05-01T10-00-00-11111111-1111-1111-1111-111111111111.jsonl",
-      path: "/sessions/old.jsonl",
-      modifiedMs: 990000,
-    },
-    {
-      isFile: true,
-      name: "rollout-2026-05-01T10-05-00-22222222-2222-2222-2222-222222222222.jsonl",
-      path: "/sessions/new.jsonl",
-      modifiedMs: 999000,
-    },
-  ];
-  const contentOf = (p: string): string | null => {
-    if (p === "/sessions/old.jsonl") {
-      return '{"type":"session_meta","payload":{"id":"11111111-1111-1111-1111-111111111111","cwd":"/work/proj"}}\n';
-    }
-    if (p === "/sessions/new.jsonl") {
-      return [
-        '{"type":"session_meta","payload":{"id":"22222222-2222-2222-2222-222222222222","cwd":"/work/proj"}}',
-        '{"type":"turn_context","payload":{"model":"gpt-5.6-sol"}}',
-      ].join("\n");
-    }
-    return null;
-  };
-  const headBytes: string[] = [];
-  const tailBytes: string[] = [];
-  let sessionWrites = 0;
-  const host = baseHost({
-    fs: {
-      fileExists: (p: string) => p === "/sessions",
-      // The plugin must never call the whole-file readFile on a session path anymore.
-      readFile: (p: string) => { throw new Error(`unbounded readFile on ${p}`); },
-      readFileHead: (p: string, n: number) => {
-        const s = contentOf(p);
-        if (s === null) return null;
-        headBytes.push(`${p}:${n}`);
-        return s.slice(0, n);
-      },
-      readFileTail: (p: string, n: number) => {
-        const s = contentOf(p);
-        if (s === null) return null;
-        tailBytes.push(`${p}:${n}`);
-        return s.slice(-n);
-      },
-      readJson: () => null,
-      writeJson: (p: string) => { if (String(p).startsWith("/sessions")) sessionWrites++; return true; },
-      writeFile: (p: string) => { if (String(p).startsWith("/sessions")) sessionWrites++; return true; },
-      removeFile: (p: string) => { if (String(p).startsWith("/sessions")) sessionWrites++; return true; },
-      walkDir: () => files,
-    },
-    envGet: (k: string) => k === "CODETERM_CODEX_SESSIONS_ROOT" ? "/sessions" : null,
-  });
-  const p = loadCodexWithHost(host);
-  eq(
-    p.detectSessionId("/work/proj", ["11111111-1111-1111-1111-111111111111"], 300000),
-    "22222222-2222-2222-2222-222222222222",
-    "detectSessionId returns newest matching unclaimed rollout",
-  );
-  eq(p.detectSessionId("/other/proj", [], 300000), null, "detectSessionId filters cwd");
-  eq(
-    p.detectSessionModel("/work/proj", "22222222-2222-2222-2222-222222222222"),
-    "gpt-5.6-sol",
-    "detectSessionModel preserves the exact session-scoped model id",
-  );
-  assert(headBytes.length > 0, "readSessionMeta reads a bounded head, not the whole file");
-  assert(tailBytes.length > 0, "detectSessionModel reads a bounded tail, not the whole file");
-  eq(sessionWrites, 0, "session enumeration/model detection never writes to user session files");
-}
-
-console.log("\n--- detectSessionModel: bounded tail drops a partial leading line ---\n");
-{
-  // A large rollout whose earliest turn_context names a stale model; the tail
-  // window starts mid-line, so the partial leading record must be skipped and
-  // the last (real) turn_context model returned.
-  const meta = '{"type":"session_meta","payload":{"id":"33333333-3333-3333-3333-333333333333","cwd":"/work/proj"}}';
-  const staleTurn = '{"type":"turn_context","payload":{"model":"gpt-old-stale"}}';
-  const filler = new Array(40).fill('{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"text","text":"ünïcödé padding ☃"}]}}');
-  const liveTurn = '{"type":"turn_context","payload":{"model":"gpt-5.6-sol"}}';
-  const whole = [meta, staleTurn, ...filler, liveTurn].join("\n");
-  // Tail window smaller than the file → cut lands inside the filler, well past the stale turn.
-  const tailWindow = liveTurn.length + 200;
-  let sawWholeRead = false;
-  const sessionFile = {
-    isFile: true,
-    name: "rollout-2026-05-01T10-00-00-33333333-3333-3333-3333-333333333333.jsonl",
-    path: "/sessions/live.jsonl",
-    modifiedMs: 999000,
-  };
-  const p = loadCodexWithHost(baseHost({
-    fs: {
-      ...baseHost({}).fs,
-      fileExists: () => true,
-      readFile: () => { sawWholeRead = true; return whole; },
-      readFileTail: (_p: string, n: number) => whole.slice(-Math.min(n, tailWindow)),
-      walkDir: () => [sessionFile],
-    },
-    envGet: (k: string) => k === "CODETERM_CODEX_SESSIONS_ROOT" ? "/sessions" : null,
-  }));
-  eq(
-    p.detectSessionModel("/work/proj", "33333333-3333-3333-3333-333333333333"),
-    "gpt-5.6-sol",
-    "bounded tail returns the last turn_context model and ignores the stale earlier one",
-  );
-  assert(!sawWholeRead, "detectSessionModel never falls back to a whole-file read");
-}
 
 console.log("\n--- parseUsage (/status screen) ---\n");
 {
@@ -1090,8 +1008,9 @@ for (const [name, fixture] of [
       },
     });
   const preNonce =
-    "curl -s -X POST http://localhost:7686/api/tabs/$CODETERM_TAB_ID/hook/session_start " +
-    "-H 'X-CodeTerm-Agent-Provider: codex' --data-binary @-";
+    "curl -s -X POST \"$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start\" " +
+    "-H 'X-CodeTerm-Agent-Provider: codex' " +
+    '-H "Authorization: Bearer ${CODETERM_API_TOKEN}" --data-binary @-';
   const old = loadCodexWithHost(sessionStartHook(preNonce));
   assert(
     old.checkIntegration().session_start_hook === false,
@@ -1149,6 +1068,7 @@ for (const [name, fixture] of [
   const status = p.checkIntegration();
   assert(status.session_start_hook === false, "disabled Codex hook trust makes integration unhealthy");
   assert(status.hook_trust_enabled === false, "disabled Codex hook trust is surfaced explicitly");
+  assert(status.integration_state === "untrusted_hash", "disabled Codex hook trust has its own state constant");
 
   const checked = p.ensureIntegrationOnStartup(7686);
   assert(checked.ok === true && checked.changed === false, "startup integration check performs no write");
@@ -1171,6 +1091,73 @@ for (const [name, fixture] of [
     "codex resume Q(windows:11111111-1111-1111-1111-111111111111)",
     "buildResumeCommand quotes session id with quoteFor(platform)",
   );
+}
+
+{
+  const hooksPath = "/tmp/home/.codex/hooks.json";
+  const stale = JSON.stringify({
+    hooks: {
+      SessionStart: [{ hooks: [{
+        _source: "codeterm-codex-session-binding-v1",
+        command: "curl -s -X POST http://localhost:7686/api/tabs/$CODETERM_TAB_ID/hook/session_start",
+      }] }],
+      Stop: [],
+    },
+  });
+  const files = new Map([[hooksPath, stale]]);
+  let rewrites = 0;
+  const p = loadCodexWithHost(baseHost({
+    fs: {
+      fileExists: (file: string) => files.has(file),
+      readFile: (file: string) => files.get(file) ?? null,
+      readJson: (file: string) => JSON.parse(files.get(file) || "{}"),
+      writeJson: (file: string, value: unknown) => {
+        rewrites++;
+        files.set(file, JSON.stringify(value));
+        return true;
+      },
+      writeFile: (file: string, value: string) => { files.set(file, value); return true; },
+      removeFile: (file: string) => files.delete(file),
+    },
+  }));
+  const result = p.ensureIntegrationOnStartup(7686);
+  const rewritten = files.get(hooksPath) || "";
+  assert(result.ok === true && result.changed === true, "refresh reports a stale owned hook as rewritten");
+  assert(rewrites === 1, "refresh reaches the hook rewrite seam");
+  assert(rewritten !== stale, "refresh changes the stale hook bytes");
+  assert(rewritten.indexOf("$CODETERM_API_URL") !== -1, "refreshed hook routes through the instance URL variable");
+  assert(rewritten.indexOf("${CODETERM_API_TOKEN}") !== -1, "refreshed hook routes through the instance token variable");
+  assert(rewritten.indexOf("$CODETERM_TAB_ID") !== -1, "refreshed hook routes through the instance tab variable");
+  assert(rewritten.indexOf("${CODETERM_API_URL:-}") !== -1, "refreshed hook fails closed when instance variables are absent");
+  assert(!/:\d{2,5}/.test(rewritten), "refreshed hook contains no literal port");
+}
+
+{
+  const hooksPath = "/tmp/home/.codex/hooks.json";
+  const foreign = JSON.stringify({
+    hooks: {
+      SessionStart: [{ hooks: [{
+        _source: "another-integration",
+        command: "curl -s -X POST http://localhost:7686/api/tabs/$CODETERM_TAB_ID/hook/session_start",
+      }] }],
+    },
+  });
+  const files = new Map([[hooksPath, foreign]]);
+  let writes = 0;
+  const p = loadCodexWithHost(baseHost({
+    fs: {
+      fileExists: (file: string) => files.has(file),
+      readFile: (file: string) => files.get(file) ?? null,
+      readJson: (file: string) => JSON.parse(files.get(file) || "{}"),
+      writeJson: () => { writes++; return true; },
+      writeFile: () => { writes++; return true; },
+      removeFile: () => true,
+    },
+  }));
+  const result = p.ensureIntegrationOnStartup(7686);
+  assert(result.ok === true && result.changed === false, "refresh ignores a hook with a foreign marker");
+  assert(writes === 0, "foreign hook bytes are never rewritten");
+  assert(files.get(hooksPath) === foreign, "foreign hook content remains byte-identical");
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

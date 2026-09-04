@@ -13,6 +13,8 @@ import { apiBaseOf, GroupLabel, iconOf, readApiError, type AppConfigShape } from
 import type { CatalogEntry } from "./pluginCatalog";
 import { ConfigureWithAiButton } from "./ConfigureWithAiButton";
 
+const STATUS_REFRESH_DELAY_MS = 5000;
+
 interface SecretStatus {
   backend: string;
   status: { status: "logged_out" | "locked" | "unlocked"; endpoint?: string; user?: string | null };
@@ -57,10 +59,24 @@ export function SecretBackendDetail({
     }
   }, [base, headers]);
 
+  // Chains the next refresh off THIS one's completion instead of a fixed
+  // interval, so a backend slower than the delay self-throttles rather than
+  // queueing overlapping requests.
   useEffect(() => {
-    void refresh();
-    const t = setInterval(() => void refresh(), 5000);
-    return () => clearInterval(t);
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const tick = () => {
+      void refresh().finally(() => {
+        if (!cancelled) timer = setTimeout(tick, STATUS_REFRESH_DELAY_MS);
+      });
+    };
+    tick();
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
   }, [refresh]);
 
   const unlocked = status?.status.status === "unlocked";

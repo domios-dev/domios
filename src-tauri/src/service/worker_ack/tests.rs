@@ -1,4 +1,53 @@
 use super::*;
+use crate::service::message_gateway::{DeliverySeam, KeyStroke, MessageGateway};
+use crate::service::messenger::{Delivery, MessageEnvelope};
+use crate::service::pty_io::SendBatchItem;
+use std::cell::RefCell;
+
+#[derive(Default)]
+struct ReminderDeliverySeam {
+    targets: RefCell<Vec<String>>,
+}
+
+impl DeliverySeam for ReminderDeliverySeam {
+    fn deliver_enveloped(
+        &self,
+        to_tab: &str,
+        _envelope: MessageEnvelope,
+        body: &str,
+    ) -> Result<Delivery, String> {
+        self.targets.borrow_mut().push(to_tab.to_string());
+        Ok(Delivery::Pty {
+            text: body.to_string(),
+        })
+    }
+
+    fn deliver_text(&self, _tab: &str, _text: &str) -> Result<(), String> {
+        panic!("reminder must use enveloped delivery")
+    }
+
+    fn deliver_batch(&self, _tab: &str, _batch: Vec<SendBatchItem>) -> Result<(), String> {
+        panic!("reminder must use enveloped delivery")
+    }
+
+    fn deliver_keys(&self, _tab: &str, _text: &str, _strokes: &[KeyStroke]) -> Result<(), String> {
+        panic!("reminder must use enveloped delivery")
+    }
+}
+
+#[test]
+fn worker_ack_reminder_uses_the_gateway_delivery_target() {
+    let gateway = MessageGateway::new();
+    let seam = ReminderDeliverySeam::default();
+
+    gateway
+        .submit(&seam, worker_ack_reminder_message("agent-tab", "attempt-a"))
+        .unwrap();
+
+    let targets = seam.targets.borrow();
+    assert_eq!(targets.len(), 1);
+    assert_eq!(targets[0], "agent-tab");
+}
 
 #[test]
 fn acknowledgement_resolves_only_the_matching_attempt() {
@@ -32,28 +81,23 @@ fn expiry_removes_only_the_matching_deadline() {
 }
 
 #[test]
-fn bound_worker_missing_ack_gets_one_system_reminder() {
+fn startup_deadlines_exceed_measured_provider_cold_starts() {
+    assert_eq!(WORKER_ACK_TIMEOUT.as_secs(), COLD_START_DEADLINE_SECS);
+    assert_eq!(WORKER_ACK_FINAL_TIMEOUT.as_secs(), COLD_START_DEADLINE_SECS);
     assert_eq!(
-        first_deadline_action(true),
-        WorkerAckFirstDeadline::SystemReminder
+        AGENT_STARTUP_NOTICE_TIMEOUT.as_secs(),
+        COLD_START_DEADLINE_SECS
     );
     assert_eq!(
-        WORKER_ACK_REMINDER,
-        "Acknowledge this Worker assignment with codeterm agent ack before doing any work. If acknowledgement is still absent at the final bounded startup deadline, this tab will be cleaned up."
+        AGENT_STARTUP_FINAL_TIMEOUT.as_secs(),
+        COLD_START_DEADLINE_SECS
     );
-    assert!(!WORKER_ACK_REMINDER.contains("Task body"));
+    assert!(AGENT_STARTUP_NOTICE_TIMEOUT > Duration::from_secs(MEASURED_CLAUDE_COLD_START_SECS));
+    assert!(AGENT_STARTUP_NOTICE_TIMEOUT > Duration::from_secs(MEASURED_CODEX_COLD_START_SECS));
 }
 
 #[test]
-fn unbound_worker_gets_no_ack_reminder_or_input() {
-    assert_eq!(
-        first_deadline_action(false),
-        WorkerAckFirstDeadline::StartupUnbound
-    );
-}
-
-#[test]
-fn worker_ack_final_deadline_cleans_once() {
+fn worker_ack_final_deadline_expires_once() {
     let registry = WorkerAckRegistry::default();
     let receiver = registry.arm("tab", "attempt");
 
@@ -63,25 +107,40 @@ fn worker_ack_final_deadline_cleans_once() {
 }
 
 #[test]
-fn worker_ack_close_tab_failure_is_a_coordination_incident() {
-    let cleanup_error = close_worker_after_final_deadline(|| Err("tab remained open".into()));
+fn worker_ack_timeout_reports_a_surviving_finalized_attempt() {
     let event = worker_ack_timeout_event(
         "plan",
         "task",
         "tab",
         "attempt",
         "codeterm plan task dispatch plan task",
-        cleanup_error.as_deref(),
     );
 
-    assert_eq!(cleanup_error.as_deref(), Some("tab remained open"));
-    assert_eq!(event["kind"], "worker_ack_cleanup_failed");
-    assert_eq!(event["cleanup"]["ok"], false);
-    assert!(event["impact"]
-        .as_str()
-        .unwrap()
-        .contains("ORCHESTRATION PRODUCT INCIDENT"));
-    assert!(event["fallback"].as_str().unwrap().contains("still live"));
+    assert_eq!(event["kind"], "worker_ack_startup_failed");
+    assert_eq!(event["tab_state"], TAB_STATE_ALIVE_AWAITING_INSPECTION);
+    assert_eq!(event["attempt_state"], ATTEMPT_STATE_FINALIZED);
+    assert!(event.get("cleanup").is_none());
+    assert!(event.get("cleanup_error").is_none());
+    assert_eq!(
+        event["deadline_seconds"],
+        (WORKER_ACK_TIMEOUT + WORKER_ACK_FINAL_TIMEOUT).as_secs()
+    );
+    assert_eq!(
+        event["deadline_basis"]["measurement_method"],
+        COLD_START_MEASUREMENT_METHOD
+    );
+    assert_eq!(
+        event["deadline_basis"]["claude_cold_start_seconds"],
+        MEASURED_CLAUDE_COLD_START_SECS
+    );
+    assert_eq!(
+        event["deadline_basis"]["codex_cold_start_seconds"],
+        MEASURED_CODEX_COLD_START_SECS
+    );
+    assert_eq!(
+        event["deadline_basis"]["selected_phase_seconds"],
+        COLD_START_DEADLINE_SECS
+    );
 }
 
 fn creator_authority(child_tab_id: &str, attempt_id: &str) -> StartupAuthority {
@@ -188,7 +247,7 @@ fn creator_hold_is_refused_for_every_other_caller() {
 }
 
 #[test]
-fn stale_startup_cleanup_cannot_reap_replaced_attempt() {
+fn stale_startup_expiry_cannot_reap_replaced_attempt() {
     let registry = WorkerAckRegistry::default();
     let lease = StartupTeamLease {
         team_id: "team_pair".into(),
@@ -344,7 +403,11 @@ fn startup_supervisor_registration_is_consumed_once() {
 fn startup_notice_exposes_inspect_respond_and_hold_without_task_resend() {
     let event = agent_startup_notice_event("child", "Planner", "launch-a");
     assert_eq!(event["kind"], "agent_startup_overdue");
-    assert_eq!(event["deadline_seconds"], 30);
+    assert_eq!(
+        event["deadline_seconds"],
+        AGENT_STARTUP_NOTICE_TIMEOUT.as_secs()
+    );
+    assert_eq!(event["tab_state"], TAB_STATE_ALIVE_AWAITING_INSPECTION);
     assert_eq!(
         event["hold"],
         "codeterm agent startup-hold --tab child --attempt launch-a"
@@ -354,42 +417,26 @@ fn startup_notice_exposes_inspect_respond_and_hold_without_task_resend() {
             .as_str()
             .is_some_and(|command| command.contains("tab get-text"))
     }));
-    assert!(!event.to_string().contains("send the task"));
+    assert!(event.get("deadline_basis").is_some());
 }
 
 #[test]
-fn exited_startup_is_cleaned_at_one_minute() {
+fn expired_startup_reports_a_surviving_tab_without_cleanup_schema() {
     let event = agent_startup_failed_event(
         "child",
         "Planner",
         "launch-a",
-        None,
         Some(17),
         Some("synthetic provider rejection"),
     );
     assert_eq!(event["kind"], "agent_startup_failed");
-    assert_eq!(event["deadline_seconds"], 60);
-    assert_eq!(event["cleanup"]["ok"], true);
+    assert_eq!(
+        event["deadline_seconds"],
+        (AGENT_STARTUP_NOTICE_TIMEOUT + AGENT_STARTUP_FINAL_TIMEOUT).as_secs()
+    );
+    assert_eq!(event["tab_state"], TAB_STATE_ALIVE_AWAITING_INSPECTION);
+    assert!(event.get("cleanup").is_none());
+    assert!(event.get("cleanup_error").is_none());
     assert_eq!(event["provider"]["exit_code"], 17);
     assert_eq!(event["provider"]["output"], "synthetic provider rejection");
-}
-
-#[test]
-fn startup_cleanup_holds_the_gate_across_tab_close() {
-    let registry = Arc::new(WorkerAckRegistry::default());
-    let (entered_tx, entered_rx) = mpsc::channel();
-    let (release_tx, release_rx) = mpsc::channel();
-
-    let cleanup_registry = registry.clone();
-    let cleanup = std::thread::spawn(move || {
-        serialize_agent_startup_cleanup(&cleanup_registry, || {
-            entered_tx.send(()).unwrap();
-            release_rx.recv().unwrap();
-        });
-    });
-    entered_rx.recv().unwrap();
-    assert!(registry.startup_cleanup.try_lock().is_none());
-    release_tx.send(()).unwrap();
-    cleanup.join().unwrap();
-    assert!(registry.startup_cleanup.try_lock().is_some());
 }
