@@ -23,6 +23,15 @@ struct Tracked {
     config_mtime: SystemTime,
 }
 
+/// The file state a load was attempted against. A load that cannot succeed is
+/// retried only once this changes, so a broken plugin stops instead of spinning.
+#[derive(PartialEq)]
+struct LoadFingerprint {
+    manifest_mtime: SystemTime,
+    entry_mtime: SystemTime,
+    config_mtime: SystemTime,
+}
+
 #[derive(Clone)]
 pub struct CapabilityRegistries {
     pub transcribe: Arc<crate::transcribe::TranscribeRegistry>,
@@ -141,9 +150,12 @@ pub struct HotReloadRegistry {
     vms: Mutex<HashMap<String, std::sync::Weak<super::PluginVm>>>,
     activated_startup: Mutex<HashSet<String>>,
     pending_reload: Mutex<HashSet<String>>,
+    failed: Mutex<HashMap<PathBuf, LoadFingerprint>>,
     service: Mutex<Option<std::sync::Weak<dyn PluginHostCtx>>>,
     #[cfg(test)]
     load_count: std::sync::atomic::AtomicUsize,
+    #[cfg(test)]
+    failed_attempt_count: std::sync::atomic::AtomicUsize,
     #[cfg(test)]
     contribution_event_count: std::sync::atomic::AtomicUsize,
     #[cfg(test)]
@@ -179,9 +191,12 @@ impl HotReloadRegistry {
             vms: Mutex::new(HashMap::new()),
             activated_startup: Mutex::new(HashSet::new()),
             pending_reload: Mutex::new(HashSet::new()),
+            failed: Mutex::new(HashMap::new()),
             service: Mutex::new(None),
             #[cfg(test)]
             load_count: std::sync::atomic::AtomicUsize::new(0),
+            #[cfg(test)]
+            failed_attempt_count: std::sync::atomic::AtomicUsize::new(0),
             #[cfg(test)]
             contribution_event_count: std::sync::atomic::AtomicUsize::new(0),
             #[cfg(test)]
@@ -241,6 +256,40 @@ impl HotReloadRegistry {
 
     pub fn pending_reload_ids(&self) -> Vec<String> {
         self.pending_reload.lock().iter().cloned().collect()
+    }
+
+    /// Manifest paths whose last load attempt failed. They stay recorded — and
+    /// unattempted — until the files they failed against change.
+    pub fn failed_load_paths(&self) -> Vec<PathBuf> {
+        self.failed.lock().keys().cloned().collect()
+    }
+
+    fn already_failed(&self, path: &std::path::Path, fingerprint: &LoadFingerprint) -> bool {
+        self.failed
+            .lock()
+            .get(path)
+            .is_some_and(|f| f == fingerprint)
+    }
+
+    /// A recorded failure blocks the retry until the files change; a changed
+    /// fingerprint drops the record so the next attempt runs.
+    fn retry_allowed(&self, path: &std::path::Path, fingerprint: &LoadFingerprint) -> bool {
+        let mut failed = self.failed.lock();
+        let Some(recorded) = failed.get(path) else {
+            return true;
+        };
+        if recorded == fingerprint {
+            return false;
+        }
+        failed.remove(path);
+        true
+    }
+
+    fn record_failure(&self, path: &std::path::Path, fingerprint: LoadFingerprint) {
+        self.failed.lock().insert(path.to_path_buf(), fingerprint);
+        #[cfg(test)]
+        self.failed_attempt_count
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     }
 
     pub fn capability_registries(&self) -> &CapabilityRegistries {
@@ -316,6 +365,7 @@ impl HotReloadRegistry {
         if provider_changed {
             self.emit_agent_provider_changed();
         }
+        self.failed.lock().retain(|path, _| path.exists());
     }
 
     fn discover_candidates(&self) -> BTreeMap<String, Vec<PathBuf>> {
@@ -340,7 +390,17 @@ impl HotReloadRegistry {
                 let manifest = match PluginManifest::load(&manifest_path) {
                     Ok(m) => m,
                     Err(e) => {
-                        log::warn!("[plugin-watcher] {} parse: {e}", manifest_path.display());
+                        // The entry is unreachable while the manifest is unparsable, so the
+                        // manifest's own mtime is what a fix has to move.
+                        let fingerprint = LoadFingerprint {
+                            manifest_mtime: mtime_or_epoch(&manifest_path),
+                            entry_mtime: SystemTime::UNIX_EPOCH,
+                            config_mtime: config_mtime_for(&manifest_path),
+                        };
+                        if !self.already_failed(&manifest_path, &fingerprint) {
+                            log::warn!("[plugin-watcher] {} parse: {e}", manifest_path.display());
+                            self.record_failure(&manifest_path, fingerprint);
+                        }
                         continue;
                     }
                 };
@@ -358,7 +418,15 @@ impl HotReloadRegistry {
         let manifest = match PluginManifest::load(manifest_path) {
             Ok(m) => m,
             Err(e) => {
-                log::warn!("[plugin-watcher] {} parse: {e}", manifest_path.display());
+                let fingerprint = LoadFingerprint {
+                    manifest_mtime,
+                    entry_mtime: SystemTime::UNIX_EPOCH,
+                    config_mtime: config_mtime_for(manifest_path),
+                };
+                if !self.already_failed(manifest_path, &fingerprint) {
+                    log::warn!("[plugin-watcher] {} parse: {e}", manifest_path.display());
+                    self.record_failure(manifest_path, fingerprint);
+                }
                 return None;
             }
         };
@@ -368,6 +436,15 @@ impl HotReloadRegistry {
         }
         let entry_mtime = mtime_or_epoch(&entry_path);
         let config_mtime = config_mtime_for(manifest_path);
+
+        let fingerprint = LoadFingerprint {
+            manifest_mtime,
+            entry_mtime,
+            config_mtime,
+        };
+        if !self.retry_allowed(manifest_path, &fingerprint) {
+            return None;
+        }
 
         let prior = self.state.lock().get(&manifest.id).cloned();
         if let Some(prev) = prior {
@@ -483,6 +560,14 @@ impl HotReloadRegistry {
                     "[plugin-watcher] {} load failed: {e}",
                     manifest_path.display()
                 );
+                self.record_failure(
+                    manifest_path,
+                    LoadFingerprint {
+                        manifest_mtime,
+                        entry_mtime,
+                        config_mtime,
+                    },
+                );
                 None
             }
         }
@@ -495,6 +580,12 @@ impl HotReloadRegistry {
     #[cfg(test)]
     pub fn load_count(&self) -> usize {
         self.load_count.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    #[cfg(test)]
+    pub fn failed_attempt_count(&self) -> usize {
+        self.failed_attempt_count
+            .load(std::sync::atomic::Ordering::SeqCst)
     }
 
     #[cfg(test)]
