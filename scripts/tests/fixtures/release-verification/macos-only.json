@@ -1,0 +1,12 @@
+{
+  "signals": {
+    "release": {
+      "status": "success",
+      "reason": "macOS publication completed"
+    }
+  },
+  "published_platforms": [
+    "darwin-aarch64",
+    "darwin-x86_64"
+  ]
+}

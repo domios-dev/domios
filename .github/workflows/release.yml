@@ -118,171 +118,49 @@ jobs:
         run: |
           node scripts/sync-release-notes.mjs --tag "${{ steps.ver.outputs.tag }}"
 
-      - name: Verify published public mirror
-        run: |
-          TAG="${{ steps.ver.outputs.tag }}"
-          VER="${{ steps.ver.outputs.ver }}"
-          source_release=$(gh release view "$TAG" \
-            --repo "$GITHUB_REPOSITORY" \
-            --json isDraft,publishedAt)
-          test "$(printf '%s' "$source_release" | jq -r .isDraft)" = false
-          test "$(printf '%s' "$source_release" | jq -r .publishedAt)" != null
-          release=$(gh release view "$TAG" \
-            --repo rollacode/codeterm-releases \
-            --json isDraft,publishedAt,assets)
-          test "$(printf '%s' "$release" | jq -r .isDraft)" = false
-          test "$(printf '%s' "$release" | jq -r .publishedAt)" != null
-          printf '%s' "$release" | jq -e '.assets | any(.name == "latest.json")' >/dev/null
-          gh release download "$TAG" \
-            --repo rollacode/codeterm-releases \
-            --pattern latest.json \
-            --dir "$RUNNER_TEMP/public-mirror"
-          jq -e --arg ver "$VER" '
-            (.version == $ver)
-            and (.platforms["darwin-aarch64"].signature | type == "string" and length > 0)
-            and (.platforms["darwin-aarch64"].url | endswith("/CodeTerm_aarch64.app.tar.gz"))
-            and (.platforms["darwin-x86_64"].signature | type == "string" and length > 0)
-            and (.platforms["darwin-x86_64"].url | endswith("/CodeTerm_x64.app.tar.gz"))
-          ' \
-            "$RUNNER_TEMP/public-mirror/latest.json" >/dev/null
-          jq -r '.platforms[].url' "$RUNNER_TEMP/public-mirror/latest.json" | while IFS= read -r url; do
-            case "$url" in
-              https://github.com/rollacode/codeterm-releases/releases/download/"$TAG"/*) ;;
-              *) echo "::error::non-versioned or non-public updater URL: $url"; exit 1 ;;
-            esac
-            curl --fail --silent --show-error --location --head "$url" >/dev/null
-          done
-          # Structure and a 200 are the state codeterm-releases#58 shipped in; the
-          # closure boundary is minted only once the signatures verify.
-          verification=0
-          node scripts/verify-updater-manifest.mjs \
-            --manifest "https://github.com/rollacode/codeterm-releases/releases/download/$TAG/latest.json?cb=$(date +%s)" \
-            --require-version "$VER" \
-            --require-platform darwin-aarch64 \
-            --require-platform darwin-x86_64 \
-            --require-platform windows-x86_64 \
-            --require-platform linux-x86_64 \
-            --evidence "$RUNNER_TEMP/manifest-verification.json" || verification=$?
-          # A failed verification is uploaded too: a release that could not be
-          # verified must leave a record saying so, not silence.
-          gh release upload "$TAG" "$RUNNER_TEMP/manifest-verification.json" \
-            --repo rollacode/codeterm-releases --clobber || true
-          if [ "$verification" -ne 0 ]; then
-            echo "::error::published manifest is not installable"; exit 1
-          fi
-          jq -n --arg version "$VER" --arg sha "$GITHUB_SHA" \
-            --slurpfile verification "$RUNNER_TEMP/manifest-verification.json" \
-            '{version: $version, source_sha: $sha, public_mirror_verified: true, manifest_verification: $verification[0]}' \
-            > "$RUNNER_TEMP/issue-closure-boundary.json"
-          gh release upload "$TAG" "$RUNNER_TEMP/issue-closure-boundary.json" \
-            --repo "$GITHUB_REPOSITORY" --clobber
-          gh release upload "$TAG" "$RUNNER_TEMP/issue-closure-boundary.json" \
-            --repo rollacode/codeterm-releases --clobber
-
-      - name: Resolve included private source public issues
-        run: |
-          CURRENT="release-${{ steps.ver.outputs.ver }}"
-          printf '[]' > "$RUNNER_TEMP/release-history.json"
-          for trigger in $(git tag --merged "$GITHUB_SHA" --list 'release-*' --sort=-version:refname \
-            | grep -v -x "$CURRENT"); do
-            version="${trigger#release-}"
-            tag="v$version"
-            sha=$(git rev-parse "$trigger^{commit}")
-            private_published=false
-            public_published=false
-            mirror_verified=false
-            private=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" \
-              --json isDraft,publishedAt,assets 2>/dev/null || true)
-            private_marker=false
-            if [ -n "$private" ] \
-              && [ "$(printf '%s' "$private" | jq -r .isDraft)" = false ] \
-              && [ "$(printf '%s' "$private" | jq -r .publishedAt)" != null ]; then
-              private_published=true
-              if printf '%s' "$private" \
-                | jq -e '.assets | any(.name == "issue-closure-boundary.json")' >/dev/null; then
-                private_marker=true
-              fi
-            fi
-            public=$(gh release view "$tag" --repo rollacode/codeterm-releases \
-              --json isDraft,publishedAt,assets 2>/dev/null || true)
-            if [ -n "$public" ] \
-              && [ "$(printf '%s' "$public" | jq -r .isDraft)" = false ] \
-              && [ "$(printf '%s' "$public" | jq -r .publishedAt)" != null ]; then
-              public_published=true
-              if [ "$private_marker" = true ] \
-                && printf '%s' "$public" \
-                  | jq -e '.assets
-                    | (any(.name == "latest.json")
-                       and any(.name == "issue-closure-boundary.json"))' >/dev/null; then
-                mirror_verified=true
-              fi
-            fi
-            jq --arg version "$version" --arg sha "$sha" \
-              --argjson private "$private_published" \
-              --argjson public "$public_published" \
-              --argjson mirror "$mirror_verified" \
-              '. + [{version: $version, sha: $sha, private_published: $private,
-                      public_published: $public, mirror_verified: $mirror}]' \
-              "$RUNNER_TEMP/release-history.json" > "$RUNNER_TEMP/release-history.next.json"
-            mv "$RUNNER_TEMP/release-history.next.json" "$RUNNER_TEMP/release-history.json"
-          done
-          START=$(python3 scripts/release_issue_contract.py range-start \
-            --releases-file "$RUNNER_TEMP/release-history.json")
-          if [ -n "$START" ]; then
-            RANGE="$START..$GITHUB_SHA"
-          else
-            RANGE="$GITHUB_SHA"
-          fi
-          printf '[]' > "$RUNNER_TEMP/release-commits.json"
-          printf '[]' > "$RUNNER_TEMP/release-prs.json"
-          for sha in $(git rev-list "$RANGE"); do
-            git show -s --format=%B "$sha" > "$RUNNER_TEMP/commit-body.txt"
-            jq --arg sha "$sha" \
-              --arg url "https://github.com/${GITHUB_REPOSITORY}/commit/$sha" \
-              --rawfile body "$RUNNER_TEMP/commit-body.txt" \
-              '. + [{sha: $sha, url: $url, body: $body}]' \
-              "$RUNNER_TEMP/release-commits.json" > "$RUNNER_TEMP/release-commits.next.json"
-            mv "$RUNNER_TEMP/release-commits.next.json" "$RUNNER_TEMP/release-commits.json"
-            gh api "repos/${GITHUB_REPOSITORY}/commits/$sha/pulls" \
-              --jq '[.[] | select(.merged_at != null) | {number, url: .html_url, body, base_ref: .base.ref}]' \
-              > "$RUNNER_TEMP/commit-prs.json"
-            jq -s 'add | unique_by(.number)' \
-              "$RUNNER_TEMP/release-prs.json" "$RUNNER_TEMP/commit-prs.json" \
-              > "$RUNNER_TEMP/release-prs.next.json"
-            mv "$RUNNER_TEMP/release-prs.next.json" "$RUNNER_TEMP/release-prs.json"
-          done
-          python3 scripts/release_issue_contract.py resolve \
-            --commits-file "$RUNNER_TEMP/release-commits.json" \
-            --prs-file "$RUNNER_TEMP/release-prs.json" \
-            > "$RUNNER_TEMP/resolved-public-issues.json"
-          jq -r '.issues[].reference' "$RUNNER_TEMP/resolved-public-issues.json" \
-            | tee -a "$GITHUB_STEP_SUMMARY"
-
-      - name: Close shipped public issues
+  completion:
+    name: publish release completion signal
+    if: ${{ always() }}
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Publish completion signal
         env:
-          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_REPO: ${{ github.repository }}
+          RELEASE_REF: ${{ github.ref_name }}
+          SOURCE_SHA: ${{ github.sha }}
+          RELEASE_RESULT: ${{ needs.release.result }}
+        shell: bash
         run: |
-          # Being the release owner is not evidence. The close is authorised by
-          # the verification record for THIS release or it does not happen.
-          node scripts/check-release-closure.mjs \
-            --evidence "$RUNNER_TEMP/manifest-verification.json" \
-            --version "${{ steps.ver.outputs.ver }}"
-          jq -r '.issues[].reference' "$RUNNER_TEMP/resolved-public-issues.json" | while IFS= read -r reference; do
-            number="${reference##*#}"
-            state=$(gh issue view "$number" --repo rollacode/codeterm-releases --json state --jq .state)
-            printf '%s\t%s\n' "$reference" "$state"
-          done | jq -Rn '[inputs | split("\t") | {(.[0]): .[1]}] | add // {}' \
-            > "$RUNNER_TEMP/public-issue-states.json"
-          python3 scripts/release_issue_contract.py plan-close \
-            --resolved-file "$RUNNER_TEMP/resolved-public-issues.json" \
-            --states-file "$RUNNER_TEMP/public-issue-states.json" \
-            --version "${{ steps.ver.outputs.ver }}" \
-            > "$RUNNER_TEMP/public-issue-close-plan.json"
-          jq -r '.[] | @base64' "$RUNNER_TEMP/public-issue-close-plan.json" | while IFS= read -r row; do
-            action=$(printf '%s' "$row" | base64 --decode)
-            number=$(printf '%s' "$action" | jq -r .number)
-            comment=$(printf '%s' "$action" | jq -r .comment)
-            gh issue close "$number" \
-              --repo rollacode/codeterm-releases \
-              --comment "$comment"
-          done
+          set -euo pipefail
+          tag="v${RELEASE_REF#release-}"
+          status=success
+          reason="release publication and notes synchronization completed"
+          if [ "$RELEASE_RESULT" != success ]; then
+            status=failure
+            reason="release workflow concluded $RELEASE_RESULT before publication completed"
+          fi
+          mkdir -p "$RUNNER_TEMP/release-completion"
+          jq -n \
+            --arg schema release-completion-v1 \
+            --arg release_tag "$tag" \
+            --arg workflow "Release (self-hosted build machine)" \
+            --arg status "$status" \
+            --arg reason "$reason" \
+            --arg source_sha "$SOURCE_SHA" \
+            --arg run_id "$GITHUB_RUN_ID" \
+            --argjson platforms '["darwin-aarch64", "darwin-x86_64", "linux-aarch64"]' \
+            '{schema: $schema, release_tag: $release_tag, workflow: $workflow,
+              status: $status, reason: $reason, source_sha: $source_sha,
+              run_id: $run_id, platforms: $platforms}' \
+            > "$RUNNER_TEMP/release-completion/release-completion-release.json"
+          if ! gh release view "$tag" --repo "$SOURCE_REPO" >/dev/null 2>&1; then
+            gh release create "$tag" --repo "$SOURCE_REPO" --target "$SOURCE_SHA" --draft \
+              --title "CodeTerm $tag" --notes "Release completion signal."
+          fi
+          gh release upload "$tag" \
+            "$RUNNER_TEMP/release-completion/release-completion-release.json" \
+            --repo "$SOURCE_REPO" --clobber

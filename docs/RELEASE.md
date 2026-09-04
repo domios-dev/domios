@@ -170,17 +170,17 @@ every exit path - so a verification that ran and failed is distinguishable from 
 Both published-manifest gates pass `--require-version`. Without it neither path exercises the
 foreign-evidence refusal at all.
 
-All three lanes now run this check, not two. `release-macos.yml` verifies in a separate `verify`
-job that `needs: build`, requiring `darwin-aarch64` and `darwin-x86_64`: both fragments exist only
-once the matrix is done, so a per-leg check would fail on whichever architecture finished first.
+The publisher workflows do not run this check inline. They publish completion assets only after
+their matrices and mirror mutations finish; `release-manifest-validate.yml` owns the one complete
+release verification after all required signals exist.
 
 `release-macos.yml` is a `workflow_dispatch` fallback lane and gained a `mirror` input matching the
 Linux lane's. Before that its mirror step carried a `github.event_name == 'push'` guard its only
 trigger could never satisfy, so the step - and any gate bound to it - was unreachable.
 
-`release.yml`, the path that actually ships macOS, verifies the cache-busted served manifest before
-it writes `issue-closure-boundary.json`. It requires the four platforms every release publishes
-with no escape hatch - `darwin-aarch64`, `darwin-x86_64`, `windows-x86_64`, `linux-x86_64`.
+The coordinating validator verifies the cache-busted served manifest before it writes
+`issue-closure-boundary.json`. It requires the four platforms every release publishes with no
+escape hatch - `darwin-aarch64`, `darwin-x86_64`, `windows-x86_64`, `linux-x86_64`.
 
 The other two are reconciled explicitly rather than silently certified. `windows-aarch64` may be
 dropped when the ARM64 runner is unavailable (see the troubleshooting row below; 1.7.2 shipped
@@ -192,18 +192,33 @@ A failed verification is uploaded too, so a release that could not be verified l
 saying so rather than silence.
 
 **Coordinating gate across all three legs (codeterm#383).** `release.yml`, `release-windows.yml`
-and `release-linux.yml` are independent, uncoordinated tag-triggered workflows: each verifies only
-what it itself published, so nothing verified the release as a whole was complete before serving
-it — a staggered publish could leave `latest.json` live with only some platforms mirrored.
-`release-manifest-validate.yml` closes that gap: it now runs on `workflow_run` after **each** of
-the three legs completes (in addition to `workflow_dispatch` for manual re-checks), and re-runs
-`scripts/verify-updater-manifest.mjs --require-platform ...` against the live public mirror for
-both `latest.json` (all four platforms) and `latest-deb.json` (`linux-x86_64`). Because the three
-legs finish independently and out of order, an early leg's re-check can observe a genuinely
-incomplete matrix and fail — that failure is expected and self-clears once the last leg's
-completion triggers a run that sees the full matrix. A leg that never completes leaves this
-workflow red for good, which is the point: it fails loudly in CI rather than warn, and does not
-depend on a human running it as a checklist.
+and `release-linux.yml` are independent tag-triggered workflows. Each now publishes a
+`release-completion-*.json` asset after its own publication path, including a terminal failure
+reason when its build or publication did not complete. The Windows matrix also publishes a
+required-x64 signal per leg, so an optional ARM64 failure cannot hide a completed x64 release.
+`release-manifest-validate.yml` is the separate coordinating workflow: `workflow_run` starts it
+after each publishing leg, and it reads those published signals plus the public `latest.json`
+platform map.
+
+An early run reports `MATRIX_PENDING` and exits without invoking the manifest verifier while any
+required signal is absent. Once all signals are successful and the required public platform keys
+are present, it runs `scripts/verify-updater-manifest.mjs --require-platform ...` against the
+cache-busted public mirror and then mints the closure boundary. A terminal signal failure is a
+named `MATRIX_FAILED` result, so a release whose matrix never completes is still red. No sleep,
+fixed delay, or polling interval is part of this ordering; the signal is the published completion
+asset and the artifact keys in the served manifest. The Linux ARM64 updater key remains optional,
+as documented in the artifact matrix above.
+
+The same workflow also supports an explicit `workflow_dispatch` re-check:
+
+```bash
+gh workflow run release-manifest-validate.yml --ref master -f tag=vX.Y.Z
+```
+
+Do not use a manual re-check to bypass a pending signal. On the next release, watch
+`gh run watch --repo rollacode/codeterm` and confirm that each publisher uploads its completion
+asset, the early validator run says `MATRIX_PENDING`, and the validator run after the last signal
+verifies all required signatures before uploading `issue-closure-boundary.json`.
 
 **Client-side platform gate (codeterm-releases#47, retitled).** The release-side trigger for #47
 was already resolved; the surviving client-side half lives in `src-tauri/src/update/manifest.rs`
@@ -354,12 +369,12 @@ issue prose but reject malformed `Public-Issue:` metadata. The validator uses
 prints the normalized set in the check summary. This metadata is deliberately not a GitHub
 closing keyword, so merging private source cannot close a public issue prematurely.
 
-After publishing, `release.yml` independently verifies that the private and matching public
-releases are published, that the mirror has `latest.json`, and that every version-pinned public
-updater asset URL resolves. Only then does it resolve commits and associated private PRs in the
-release range, union their validated metadata, and close still-open public issues. Each close
-comment names `vX.Y.Z` and a declaring commit or private PR URL. Already-closed issues are skipped,
-making reruns idempotent.
+After all publisher completion signals are present, `release-manifest-validate.yml` verifies that
+the private and matching public releases are published, that the mirror has `latest.json`, and
+that every version-pinned public updater asset URL resolves. Only then does it resolve commits and
+associated private PRs in the release range, union their validated metadata, and close still-open
+public issues. Each close comment names `vX.Y.Z` and a declaring commit or private PR URL.
+Already-closed issues are skipped, making reruns idempotent.
 
 The close step is downstream of build, private/public publication, and mirror verification.
 Queued, cancelled, skipped, failed, or mirror-unverified runs therefore execute no issue mutation.
@@ -510,4 +525,4 @@ node scripts/sync-release-notes.mjs --backfill 10
 The command refuses missing mirror releases, empty generated notes, and bodies too short to be
 meaningful. It then writes the exact same Markdown to both repositories.
 
-<!-- revision: 37 -->
+<!-- revision: 38 -->

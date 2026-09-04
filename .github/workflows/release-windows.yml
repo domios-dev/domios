@@ -436,18 +436,110 @@ jobs:
           $env:GH_TOKEN = $env:MIRROR_TOKEN
           gh release upload "$env:TAG" "$env:MANIFEST" --clobber --repo "$env:MIRROR_REPO"
 
-      # A 200 says nothing about installability: verify every signature in the
-      # published manifest against the bytes actually served.
-      - name: Verify published manifest is installable
-        if: github.event_name == 'push'
+      - name: Publish required Windows x64 completion signal
+        if: ${{ always() && matrix.platform_key == 'windows-x86_64' }}
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_REPO: ${{ github.repository }}
           TAG: ${{ steps.tag.outputs.name }}
-          MANIFEST: ${{ steps.channel.outputs.manifest }}
-          MIRROR_REPO: rollacode/codeterm-releases
+          SOURCE_SHA: ${{ github.sha }}
+          LEG_RESULT: ${{ job.status }}
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $bust = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-          $url = "https://github.com/$env:MIRROR_REPO/releases/download/$env:TAG/$env:MANIFEST" + "?cb=$bust"
-          node scripts/verify-updater-manifest.mjs --manifest $url
-          if ($LASTEXITCODE -ne 0) { Write-Error "published manifest is not installable"; exit 1 }
+          if (-not $env:TAG) { Write-Error 'Windows x64 completion signal has no release tag'; exit 1 }
+          $status = $env:LEG_RESULT
+          $reason = 'Windows x64 publication completed; ARM64 remains optional'
+          if ($status -ne 'success') {
+            $reason = "Windows x64 matrix leg concluded $status before publication completed"
+          }
+          $signal = [ordered]@{
+            schema = 'release-completion-v1'
+            release_tag = $env:TAG
+            workflow = 'release-windows'
+            platform = 'windows-x86_64'
+            status = $status
+            reason = $reason
+            source_sha = $env:SOURCE_SHA
+            run_id = $env:GITHUB_RUN_ID
+          }
+          $path = Join-Path $env:RUNNER_TEMP 'release-completion-release-windows-x86_64.json'
+          $signal | ConvertTo-Json -Depth 5 | Set-Content -Path $path -Encoding utf8
+          if (-not (gh release view $env:TAG --repo $env:SOURCE_REPO 2>$null)) {
+            gh release create $env:TAG --repo $env:SOURCE_REPO --target $env:SOURCE_SHA --draft `
+              --title "CodeTerm $env:TAG" --notes 'Release completion signal.'
+          }
+          gh release upload $env:TAG $path --repo $env:SOURCE_REPO --clobber
+
+  completion:
+    name: publish Windows completion signal
+    if: ${{ always() }}
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Publish completion signal
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_REPO: ${{ github.repository }}
+          RELEASE_REF: ${{ github.ref_name }}
+          DISPATCH_TAG: ${{ inputs.tag }}
+          SOURCE_SHA: ${{ github.sha }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          EVENT_NAME: ${{ github.event_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ref="$RELEASE_REF"
+          [ "$EVENT_NAME" = workflow_dispatch ] && ref="$DISPATCH_TAG"
+          case "$ref" in
+            release-*) tag="v${ref#release-}" ;;
+            v*) tag="$ref" ;;
+            *) echo "::error::cannot derive release tag from '$ref'"; exit 1 ;;
+          esac
+          status=success
+          reason="Windows x64 required publication completed"
+          if [ "$EVENT_NAME" != push ]; then
+            status=failure
+            reason="manual Windows run did not publish the canonical public mirror"
+          else
+            signal_dir="$RUNNER_TEMP/windows-x64-signal"
+            mkdir -p "$signal_dir"
+            gh release download "$tag" --repo "$SOURCE_REPO" \
+              --pattern 'release-completion-release-windows-x86_64.json' \
+              --dir "$signal_dir" 2>/dev/null || true
+            signal="$signal_dir/release-completion-release-windows-x86_64.json"
+            if [ ! -f "$signal" ]; then
+              status=failure
+              reason="Windows x64 completion signal is absent after the matrix concluded $BUILD_RESULT"
+            else
+              signal_status=$(jq -r '.status // "missing"' "$signal")
+              signal_reason=$(jq -r '.reason // "Windows x64 completion signal has no reason"' "$signal")
+              if [ "$signal_status" != success ]; then
+                status=failure
+                reason="$signal_reason"
+              fi
+            fi
+          fi
+          mkdir -p "$RUNNER_TEMP/release-completion"
+          jq -n \
+            --arg schema release-completion-v1 \
+            --arg release_tag "$tag" \
+            --arg workflow release-windows \
+            --arg status "$status" \
+            --arg reason "$reason" \
+            --arg source_sha "$SOURCE_SHA" \
+            --arg run_id "$GITHUB_RUN_ID" \
+            --argjson platforms '["windows-x86_64"]' \
+            '{schema: $schema, release_tag: $release_tag, workflow: $workflow,
+              status: $status, reason: $reason, source_sha: $source_sha,
+              run_id: $run_id, platforms: $platforms}' \
+            > "$RUNNER_TEMP/release-completion/release-completion-release-windows.json"
+          if ! gh release view "$tag" --repo "$SOURCE_REPO" >/dev/null 2>&1; then
+            gh release create "$tag" --repo "$SOURCE_REPO" --target "$SOURCE_SHA" --draft \
+              --title "CodeTerm $tag" --notes "Release completion signal."
+          fi
+          gh release upload "$tag" \
+            "$RUNNER_TEMP/release-completion/release-completion-release-windows.json" \
+            --repo "$SOURCE_REPO" --clobber

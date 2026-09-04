@@ -372,17 +372,60 @@ jobs:
           export GH_TOKEN="$MIRROR_TOKEN"
           gh release upload "$TAG" "$MANIFEST" "_final_deb/$DEB_MANIFEST" --clobber --repo "$MIRROR_REPO"
 
-      # A 200 says nothing about installability: verify every signature in the
-      # published manifest against the bytes actually served.
-      - name: Verify published manifest is installable
-        if: github.event_name == 'push'
+  completion:
+    name: publish Linux completion signal
+    if: ${{ always() }}
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Publish completion signal
         env:
-          TAG: ${{ steps.tag.outputs.name }}
-          MANIFEST: ${{ steps.channel.outputs.manifest }}
-          MIRROR_REPO: rollacode/codeterm-releases
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_REPO: ${{ github.repository }}
+          RELEASE_REF: ${{ github.ref_name }}
+          DISPATCH_TAG: ${{ inputs.tag }}
+          SOURCE_SHA: ${{ github.sha }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          EVENT_NAME: ${{ github.event_name }}
         shell: bash
         run: |
           set -euo pipefail
-          url="https://github.com/${MIRROR_REPO}/releases/download/${TAG}/${MANIFEST}?cb=$(date +%s)"
-          node scripts/verify-updater-manifest.mjs --manifest "$url" \
-            || { echo "::error::published manifest is not installable"; exit 1; }
+          ref="$RELEASE_REF"
+          [ "$EVENT_NAME" = workflow_dispatch ] && ref="$DISPATCH_TAG"
+          case "$ref" in
+            release-*) tag="v${ref#release-}" ;;
+            v*) tag="$ref" ;;
+            *) echo "::error::cannot derive release tag from '$ref'"; exit 1 ;;
+          esac
+          status=success
+          reason="Linux x86_64 publication completed"
+          if [ "$BUILD_RESULT" != success ]; then
+            status=failure
+            reason="release-linux build concluded $BUILD_RESULT before publication completed"
+          elif [ "$EVENT_NAME" != push ]; then
+            status=failure
+            reason="manual Linux run did not publish the canonical public mirror"
+          fi
+          mkdir -p "$RUNNER_TEMP/release-completion"
+          jq -n \
+            --arg schema release-completion-v1 \
+            --arg release_tag "$tag" \
+            --arg workflow release-linux \
+            --arg status "$status" \
+            --arg reason "$reason" \
+            --arg source_sha "$SOURCE_SHA" \
+            --arg run_id "$GITHUB_RUN_ID" \
+            --argjson platforms '["linux-x86_64"]' \
+            '{schema: $schema, release_tag: $release_tag, workflow: $workflow,
+              status: $status, reason: $reason, source_sha: $source_sha,
+              run_id: $run_id, platforms: $platforms}' \
+            > "$RUNNER_TEMP/release-completion/release-completion-release-linux.json"
+          if ! gh release view "$tag" --repo "$SOURCE_REPO" >/dev/null 2>&1; then
+            gh release create "$tag" --repo "$SOURCE_REPO" --target "$SOURCE_SHA" --draft \
+              --title "CodeTerm $tag" --notes "Release completion signal."
+          fi
+          gh release upload "$tag" \
+            "$RUNNER_TEMP/release-completion/release-completion-release-linux.json" \
+            --repo "$SOURCE_REPO" --clobber
