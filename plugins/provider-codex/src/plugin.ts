@@ -14,9 +14,14 @@ import {
   type TabStateSnapshot,
 } from "./tabState";
 import { grantCodexHookTrust } from "./appServer";
+import {
+  codexWindowsHookScript,
+  isCodetermCodexHook,
+  isOwnedCodexWindowsHookScript,
+  CODETERM_CODEX_HOOK_MARKER,
+  CODETERM_CODEX_PROFILE_CLEANUP_MARKER,
+} from "./hooks";
 
-const CODETERM_CODEX_HOOK_MARKER = "codeterm-codex-session-binding-v1";
-const CODETERM_CODEX_PROFILE_CLEANUP_MARKER = "codeterm-profile-cleanup-v1";
 const TITLE_RE = /codex/i;
 const OUTPUT_FINGERPRINTS = [
   "OpenAI Codex",
@@ -439,6 +444,9 @@ const plugin: PluginModule = {
     apiPort: number,
     options?: { consent?: boolean },
   ): unknown {
+    // The hook content is instance-agnostic by design; the port stays in the
+    // signature because the host API passes it to every provider.
+    void apiPort;
     if (!options || options.consent !== true) {
       return { ok: false, error: "provider integration installation requires explicit local-user consent" };
     }
@@ -853,7 +861,7 @@ interface CodexPayload {
   success?: boolean;
 }
 interface CodexEntry { type?: string; payload?: CodexPayload; timestamp?: string }
-interface CodexHookCmd { type?: string; command?: string; commandWindows?: string; timeout?: number; _source?: string }
+export interface CodexHookCmd { type?: string; command?: string; commandWindows?: string; timeout?: number; _source?: string }
 
 function nestedApplyPatch(raw: string): string | null {
   const call = /\btools\.apply_patch\(\s*([A-Za-z_$][\w$]*|"(?:\\.|[^"\\])*")\s*\)/.exec(raw);
@@ -874,7 +882,7 @@ function nestedApplyPatch(raw: string): string | null {
     return null;
   }
 }
-interface CodexHookEntry { matcher?: string; hooks?: CodexHookCmd[] }
+export interface CodexHookEntry { matcher?: string; hooks?: CodexHookCmd[] }
 interface CodexHooks { hooks?: { SessionStart?: CodexHookEntry[]; Stop?: CodexHookEntry[] } }
 
 function canonicalToolFields(name: string, input: Record<string, unknown>): Record<string, unknown> {
@@ -958,58 +966,6 @@ function restoreIntegrationFiles(snapshots: IntegrationFileSnapshot[]): boolean 
     restored = ok && restored;
   }
   return restored;
-}
-
-function codexWindowsHookScript(): string {
-  return [
-    "# " + CODETERM_CODEX_HOOK_MARKER,
-    "# " + CODETERM_CODEX_PROFILE_CLEANUP_MARKER,
-    'param([string]$HookEvent = "session_start")',
-    '$ErrorActionPreference = "SilentlyContinue"',
-    "$tab = $env:CODETERM_TAB_ID",
-    "if ([string]::IsNullOrWhiteSpace($tab) -or [string]::IsNullOrWhiteSpace($env:CODETERM_API_URL) -or [string]::IsNullOrWhiteSpace($env:CODETERM_API_TOKEN)) { exit 0 }",
-    '$base = $env:CODETERM_API_URL.TrimEnd("/")',
-    "$headers = @{",
-    '  "Content-Type" = "application/json"',
-    '  "X-CodeTerm-Agent-Provider" = "codex"',
-    "}",
-    "if ($env:CODETERM_SESSION_BINDING_NONCE) {",
-    '  $headers["X-CodeTerm-Binding-Nonce"] = $env:CODETERM_SESSION_BINDING_NONCE',
-    "}",
-    '$headers["Authorization"] = "Bearer $($env:CODETERM_API_TOKEN)"',
-    "$body = [Console]::In.ReadToEnd()",
-    'Invoke-RestMethod -Method Post -Uri "$base/api/tabs/$tab/hook/$HookEvent" -Headers $headers -Body $body -TimeoutSec 5 | Out-Null',
-    'if ($HookEvent -eq "session_start") {',
-    "  $profileSuffix = $tab -replace '[^A-Za-z0-9_-]', '-'",
-    '  $profilePath = Join-Path $env:USERPROFILE (".codex\\codeterm-$profileSuffix.config.toml")',
-    "  Remove-Item -LiteralPath $profilePath -Force -ErrorAction SilentlyContinue",
-    "}",
-    "exit 0",
-    "",
-  ].join("\n");
-}
-
-function isCodetermCodexHook(entry: CodexHookEntry): boolean {
-  const hooks = entry && entry.hooks;
-  if (!Array.isArray(hooks)) return false;
-  for (let i = 0; i < hooks.length; i++) {
-    const hook = hooks[i];
-    if (!hook) continue;
-    if (hook._source === CODETERM_CODEX_HOOK_MARKER) return true;
-    const cmd = String(hook.command || "");
-    if (
-      (cmd.indexOf("/hook/session_start") !== -1 || cmd.indexOf("/hook/stop") !== -1) &&
-      cmd.indexOf("X-CodeTerm-Agent-Provider: codex") !== -1
-    ) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function isOwnedCodexWindowsHookScript(path: string): boolean {
-  const text = host.fs.readFile(path);
-  return typeof text === "string" && text === codexWindowsHookScript();
 }
 
 function codexHookTrustState(hooksPath: string): "enabled" | "disabled" | "missing" | "unknown" | "trusted" {

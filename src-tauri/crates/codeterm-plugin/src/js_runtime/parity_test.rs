@@ -884,7 +884,7 @@ fn reasoning_effort_capability_is_declared_and_gated() {
     let ids: Vec<String> = d.reasoning_efforts.iter().map(|e| e.id.clone()).collect();
     assert_eq!(
         ids,
-        vec!["low", "medium", "high"],
+        vec!["low", "medium", "high", "xhigh"],
         "codex must surface its declared effort levels"
     );
     assert_eq!(d.default_reasoning_effort.as_deref(), Some("medium"));
@@ -906,7 +906,7 @@ fn reasoning_effort_capability_is_declared_and_gated() {
         .validate_reasoning_effort(Some("ultra"))
         .expect_err("unsupported effort must be rejected");
     assert_eq!(rejection.requested, "ultra");
-    assert_eq!(rejection.supported, vec!["low", "medium", "high"]);
+    assert_eq!(rejection.supported, vec!["low", "medium", "high", "xhigh"]);
 
     let claude = load_js("claude");
     let claude_ids: Vec<String> = claude
