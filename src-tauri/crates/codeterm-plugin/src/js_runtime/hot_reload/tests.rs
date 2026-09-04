@@ -852,3 +852,176 @@ fn reloading_a_view_plugin_announces_it_so_an_open_iframe_can_rebuild() {
         watcher.view_reload_events()
     );
 }
+
+// `load_count` is incremented on the same statement that calls
+// `audit::append_daemon_reloaded`, so it counts daemon-reloaded events 1:1.
+fn bump_mtime(path: &std::path::Path) {
+    let current = std::fs::metadata(path).unwrap().modified().unwrap();
+    set_mtime(path, current + Duration::from_secs(10));
+}
+
+#[test]
+fn a_pass_over_unchanged_plugins_emits_no_daemon_reloaded_event() {
+    let root = tempfile::tempdir().unwrap();
+    let watcher = HotReloadRegistry::new(
+        vec![root.path().to_path_buf()],
+        TestRegistrar::new(),
+        test_caps(),
+    );
+    for id in ["alpha", "beta", "gamma"] {
+        let dir = root.path().join(id);
+        write(&dir.join("plugin.json"), &manifest_for(id));
+        write(&dir.join("plugin.js"), &plugin_for(id));
+    }
+
+    watcher.tick();
+    assert_eq!(
+        watcher.load_count(),
+        3,
+        "the first pass loads each plugin once"
+    );
+
+    for _ in 0..10 {
+        watcher.tick();
+    }
+    assert_eq!(
+        watcher.load_count(),
+        3,
+        "ten passes over unchanged mtimes must emit zero further daemon-reloaded events"
+    );
+    assert_eq!(watcher.tracked_ids().len(), 3);
+}
+
+#[test]
+fn a_changed_plugin_reloads_exactly_once() {
+    let root = tempfile::tempdir().unwrap();
+    let registrar = TestRegistrar::new();
+    let watcher = HotReloadRegistry::new(
+        vec![root.path().to_path_buf()],
+        registrar.clone(),
+        test_caps(),
+    );
+    let dir = root.path().join("refreshable");
+    write(&dir.join("plugin.json"), &manifest_for("refreshable"));
+    write(&dir.join("plugin.js"), &plugin_for("v1"));
+    watcher.tick();
+    assert_eq!(watcher.load_count(), 1);
+
+    write(&dir.join("plugin.js"), &plugin_for("v2"));
+    bump_mtime(&dir.join("plugin.js"));
+    watcher.tick();
+    assert_eq!(
+        watcher.load_count(),
+        2,
+        "a changed entry must reload — otherwise the unchanged-pass guarantee is met by never reloading"
+    );
+    assert!(registrar
+        .with_provider("refreshable", |p| p.detect_from_title("v2"))
+        .unwrap_or(false));
+
+    for _ in 0..10 {
+        watcher.tick();
+    }
+    assert_eq!(
+        watcher.load_count(),
+        2,
+        "the change must reload exactly once, not once per pass"
+    );
+}
+
+#[test]
+fn an_unparsable_manifest_is_recorded_failed_and_not_retried_every_pass() {
+    let root = tempfile::tempdir().unwrap();
+    let watcher = HotReloadRegistry::new(
+        vec![root.path().to_path_buf()],
+        TestRegistrar::new(),
+        test_caps(),
+    );
+    let dir = root.path().join("unparsable");
+    let manifest_path = dir.join("plugin.json");
+    write(&manifest_path, "{ this is not a manifest ");
+    write(&dir.join("plugin.js"), &plugin_for("unparsable"));
+
+    for _ in 0..10 {
+        watcher.tick();
+    }
+    assert_eq!(
+        watcher.failed_attempt_count(),
+        1,
+        "a manifest that cannot parse is attempted once, not once per pass"
+    );
+    assert!(
+        watcher.failed_load_paths().contains(&manifest_path),
+        "the failure must be recorded state, not an elapsed-time backoff"
+    );
+    assert_eq!(watcher.load_count(), 0);
+    assert!(watcher.tracked_ids().is_empty());
+
+    write(&manifest_path, &manifest_for("unparsable"));
+    watcher.tick();
+    assert_eq!(
+        watcher.load_count(),
+        1,
+        "repairing the manifest must release the recorded failure"
+    );
+    assert!(watcher.failed_load_paths().is_empty());
+    assert_eq!(watcher.tracked_ids(), vec!["unparsable".to_string()]);
+}
+
+#[test]
+fn an_entry_that_cannot_load_is_recorded_failed_and_not_retried_every_pass() {
+    let root = tempfile::tempdir().unwrap();
+    let watcher = HotReloadRegistry::new(
+        vec![root.path().to_path_buf()],
+        TestRegistrar::new(),
+        test_caps(),
+    );
+    let dir = root.path().join("brokenentry");
+    let manifest_path = dir.join("plugin.json");
+    let entry_path = dir.join("plugin.js");
+    write(&manifest_path, &manifest_for("brokenentry"));
+    write(&entry_path, "module.exports.default = {");
+
+    for _ in 0..10 {
+        watcher.tick();
+    }
+    assert_eq!(
+        watcher.failed_attempt_count(),
+        1,
+        "an entry that cannot load is attempted once, not once per pass"
+    );
+    assert!(watcher.failed_load_paths().contains(&manifest_path));
+    assert_eq!(watcher.load_count(), 0);
+    assert!(watcher.tracked_ids().is_empty());
+
+    write(&entry_path, &plugin_for("brokenentry"));
+    bump_mtime(&entry_path);
+    watcher.tick();
+    assert_eq!(
+        watcher.load_count(),
+        1,
+        "repairing the entry must reload it"
+    );
+    assert!(watcher.failed_load_paths().is_empty());
+}
+
+#[test]
+fn a_vanished_failing_plugin_stops_being_recorded() {
+    let root = tempfile::tempdir().unwrap();
+    let watcher = HotReloadRegistry::new(
+        vec![root.path().to_path_buf()],
+        TestRegistrar::new(),
+        test_caps(),
+    );
+    let dir = root.path().join("gone");
+    write(&dir.join("plugin.json"), "{ broken ");
+    watcher.tick();
+    assert_eq!(watcher.failed_load_paths().len(), 1);
+
+    std::fs::remove_dir_all(&dir).unwrap();
+    watcher.tick();
+    assert!(
+        watcher.failed_load_paths().is_empty(),
+        "a removed folder must not keep a failure record alive"
+    );
+}
