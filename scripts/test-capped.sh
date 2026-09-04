@@ -15,6 +15,11 @@
 #   TEST_CAP_SECS   optional positive seconds before SIGTERM + banner
 #   CARGO_TEST_CMD  command to run instead of "cargo test" (for testing this script itself)
 #   CODETERM_EMBED_CACHE_DIR shared machine cache for immutable embedding models
+#
+# Not overridable — always cleared/set before the test command runs:
+#   CODETERM_CONPTY_DIR unset unconditionally (an inherited value can point at
+#     a real user install; see pty-fork/src/win/psuedocon.rs test isolation)
+#   CODETERM_CONPTY_TEST_ISOLATION always exported as 1
 
 set -euo pipefail
 
@@ -36,6 +41,15 @@ configure_embed_cache() {
     CODETERM_EMBED_CACHE_DIR="$HOME/.codeterm/fastembed_cache"
     export CODETERM_EMBED_CACHE_DIR
     printf '[test-capped] shared embed cache: %s\n' "$CODETERM_EMBED_CACHE_DIR"
+}
+
+# A test launched from a CodeTerm tab inherits CODETERM_CONPTY_DIR pointing at
+# the installed conpty bundle. Always clear it and mark test isolation — never
+# rely on it happening to be absent. See pty-fork/src/win/psuedocon.rs.
+isolate_conpty_test_dir() {
+    unset CODETERM_CONPTY_DIR
+    CODETERM_CONPTY_TEST_ISOLATION=1
+    export CODETERM_CONPTY_TEST_ISOLATION
 }
 
 [[ -n "$HOST_TRIPLE" ]] || {
@@ -109,6 +123,7 @@ fi
 
 configure_windows_test_target
 configure_embed_cache
+isolate_conpty_test_dir
 ensure_embed_sidecar
 
 # The cap owns the bounded failure deadline. It preserves the child status unless
