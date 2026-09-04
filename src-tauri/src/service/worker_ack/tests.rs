@@ -50,6 +50,15 @@ fn worker_ack_reminder_uses_the_gateway_delivery_target() {
 }
 
 #[test]
+fn agent_ack_reminder_keeps_its_own_context_constant() {
+    let message = worker_ack_reminder_message("agent-tab", "attempt-a");
+    assert_eq!(
+        message.envelope.and_then(|envelope| envelope.context),
+        Some(WORKER_ACK_CONTEXT.to_string())
+    );
+}
+
+#[test]
 fn acknowledgement_resolves_only_the_matching_attempt() {
     let registry = WorkerAckRegistry::default();
     let receiver = registry.arm("tab", "attempt-a");
