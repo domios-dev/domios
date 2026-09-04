@@ -430,10 +430,21 @@ pub async fn mesh_relay_to_peer(
         body: relay_body,
         delivery_id,
     };
-    let resp = client
-        .send_relay(&cmd)
-        .await
-        .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
+    // The sender hop's own transport failure (connection refused, timeout,
+    // ...) is classified into the same relay_failure() vocabulary the
+    // receiving hop already uses, instead of collapsing to a bare 502 with no
+    // code — see relay_error_summary below for the receiving side's contract.
+    let resp = match client.send_relay(&cmd).await {
+        Ok(resp) => resp,
+        Err(err) => {
+            return Ok(Json(relay_failure(
+                err.http_status(),
+                err.code(),
+                err.bytes_written(),
+                err.to_string(),
+            )));
+        }
+    };
 
     // sidebar ghosts it under the report target immediately (no report yet).
     if let Some((report_to, remote_tab, title, model)) =

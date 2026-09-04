@@ -754,6 +754,137 @@ fn locally_generated_relay_refusals_carry_a_code_not_a_bare_status() {
     }
 }
 
+/// The sender hop's own transport failure — connection refused before any
+/// bytes left, or a timeout after the peer accepted the connection — must
+/// thread through the same `relay_failure()` vocabulary the receiving hop
+/// uses, with distinguishable, retry-decidable codes. Exercises the exact
+/// composition `mesh_relay_to_peer` performs on a `send_relay` error, driven
+/// against real sockets so the reqwest classification itself is under test,
+/// not a fabricated error.
+#[tokio::test]
+async fn sender_transport_failure_reports_the_same_vocabulary_as_the_receiver() {
+    let probe_cmd = crate::mesh::types::RelayCommand {
+        method: "GET".into(),
+        path: "/api/mesh/status".into(),
+        body: serde_json::Value::Null,
+        delivery_id: None,
+    };
+
+    // Port 1 (TCPMUX) essentially never has a listener; connecting to it on
+    // loopback reliably yields a synchronous connection refusal without
+    // depending on a bind/drop race for a free ephemeral port.
+    let refused_client = crate::mesh::transport::PeerClient::new_unauthenticated("127.0.0.1", 1);
+    let refused_err = refused_client
+        .send_relay(&probe_cmd)
+        .await
+        .expect_err("nothing listens on 127.0.0.1:1");
+    let nothing_sent = relay_failure(
+        refused_err.http_status(),
+        refused_err.code(),
+        refused_err.bytes_written(),
+        refused_err.to_string(),
+    );
+
+    // A peer that accepts the connection (the write lands) and then never
+    // answers must time out, not fail to connect.
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind ephemeral port");
+    let addr = listener.local_addr().expect("local addr");
+    tokio::spawn(async move {
+        if let Ok((_socket, _)) = listener.accept().await {
+            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+        }
+    });
+    let stalled_client =
+        crate::mesh::transport::PeerClient::new_unauthenticated(&addr.ip().to_string(), addr.port());
+    let stalled_err = stalled_client
+        .send_relay(&probe_cmd)
+        .await
+        .expect_err("the peer never answers");
+    let submit_unconfirmed = relay_failure(
+        stalled_err.http_status(),
+        stalled_err.code(),
+        stalled_err.bytes_written(),
+        stalled_err.to_string(),
+    );
+
+    for (response, code, bytes_written) in [
+        (
+            &nothing_sent,
+            codeterm_types::mesh::delivery::MESH_TRANSPORT_NOTHING_SENT,
+            Some(false),
+        ),
+        (
+            &submit_unconfirmed,
+            codeterm_types::mesh::delivery::MESH_TRANSPORT_SUBMIT_UNCONFIRMED,
+            None,
+        ),
+    ] {
+        assert!(!response.ok);
+        let error = response
+            .data
+            .as_ref()
+            .and_then(|d| d.get("error"))
+            .expect("error object");
+        assert_eq!(error.get("code").and_then(|v| v.as_str()), Some(code));
+        assert_eq!(
+            error.get("bytes_written").and_then(|v| v.as_bool()),
+            bytes_written
+        );
+        assert!(
+            response.error.as_deref().is_some_and(|e| e.starts_with(code)),
+            "leads with the code, never a bare HTTP status: {:?}",
+            response.error
+        );
+    }
+
+    assert_ne!(
+        nothing_sent
+            .data
+            .as_ref()
+            .and_then(|d| d.get("error"))
+            .and_then(|e| e.get("code")),
+        submit_unconfirmed
+            .data
+            .as_ref()
+            .and_then(|d| d.get("error"))
+            .and_then(|e| e.get("code")),
+        "nothing-landed and landed-unknown must remain distinguishable so a retry decision is decidable"
+    );
+}
+
+/// Regression guard: the receiving hop's own classification is out of scope
+/// for this change and pinned by the tests above/below it — this asserts it
+/// still leads with the delivery code constant, not a bare status, unchanged
+/// by the sender hop gaining its own classification.
+#[test]
+fn receiving_classification_still_leads_with_the_delivery_code() {
+    use codeterm_types::mesh::delivery;
+
+    let submit_unconfirmed = crate::service::delivery_error::DeliveryError::SubmitUnconfirmed {
+        tab: "53854ac8".into(),
+        detail: "x".into(),
+    }
+    .to_json();
+    assert!(relay_error_summary(502, &submit_unconfirmed).starts_with(delivery::SUBMIT_UNCONFIRMED));
+
+    let tab_busy = crate::service::delivery_error::DeliveryError::TabBusyRefused {
+        tab: "53854ac8".into(),
+        detail: "x".into(),
+    }
+    .to_json();
+    assert!(relay_error_summary(409, &tab_busy).starts_with(delivery::TAB_BUSY_REFUSED));
+
+    let tab_unreachable = crate::service::delivery_error::DeliveryError::TabNotReachableOnPeer {
+        tab: "ghost".into(),
+    }
+    .to_json();
+    assert!(
+        relay_error_summary(404, &tab_unreachable).starts_with(delivery::TAB_NOT_REACHABLE_ON_PEER)
+    );
+}
+
 /// The shared constants and the delivery taxonomy are one contract; a rename on
 /// either side must fail here rather than silently stop matching on the wire.
 #[test]
