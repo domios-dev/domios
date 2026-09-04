@@ -685,6 +685,11 @@ const plugin: PluginModule = {
     if (!json || !json.hooks) return { ok: true, changed: false };
     const owned = (json.hooks.SessionStart || []).filter(isCodetermCodexHook);
     if (owned.length === 0) return { ok: true, changed: false };
+    // An explicit "off" is a user decision, not staleness. Refreshing would
+    // rewrite the hook and silently re-arm what they turned off.
+    if (codexHookTrustState(path) === "disabled") {
+      return { ok: true, changed: false, reason: "hook trust is explicitly disabled" };
+    }
 
     const scriptPath = codexWindowsHookScriptPath();
     const scriptStale =

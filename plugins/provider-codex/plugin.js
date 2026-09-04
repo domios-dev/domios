@@ -461,14 +461,28 @@ function secondsToMs(value) {
 function windowDuration(window) {
   return numberAt(window, "limit_window_seconds");
 }
+var CODEX_BORDER_RE = /^[\s─-╿]+|[\s─-╿]+$/g;
+function stripCodexBorder(raw) {
+  return String(raw || "").replace(CODEX_BORDER_RE, "");
+}
+var CODEX_HEADER_RE = /\blimit\s*:?\s*$/i;
+function isCodexSectionHeader(line) {
+  if (!line || line.indexOf("%") !== -1) return false;
+  return CODEX_HEADER_RE.test(line);
+}
 function parseCodexLimits(lines, nowMs) {
   const out = [];
+  let sectionHeader = null;
   for (let i = 0; i < lines.length; i++) {
-    const line = String(lines[i] || "").trim();
+    const line = stripCodexBorder(lines[i]);
     if (!line) continue;
+    if (isCodexSectionHeader(line)) {
+      sectionHeader = line;
+      continue;
+    }
     let context = line;
     for (let j = i - 1; j >= 0; j--) {
-      const prev = String(lines[j] || "").trim();
+      const prev = stripCodexBorder(lines[j]);
       if (prev) {
         context = `${prev} ${line}`;
         break;
@@ -476,7 +490,7 @@ function parseCodexLimits(lines, nowMs) {
     }
     const gauge = parseCodexGaugeLine(line, context, nowMs);
     if (gauge.pct === null && gauge.resetsMs === null) continue;
-    const family = codexLimitFamily(context);
+    const family = codexLimitFamily(context, sectionHeader);
     if (family !== "model") {
       out.push({ family, pct: gauge.pct, resetsMs: gauge.resetsMs });
     }
@@ -502,12 +516,13 @@ function codexPctToUsed(value, mode) {
   const pct = rawMode === "used" ? value : 100 - value;
   return Math.min(100, Math.max(0, pct));
 }
-function codexLimitFamily(text) {
+var CODEX_MODEL_NAME_RE = /\b(?:gpt|opus|haiku|sonnet|claude|codex|o\d|gemini)\b.*\d+\.\d+/i;
+function codexLimitFamily(text, sectionHeader) {
   const lower = String(text || "").toLowerCase();
   const hasGeneral = /\bgeneral\b/.test(lower);
   const hasWeekly = /\bweekly\b/.test(lower);
   const hasSession = /\b5(?:\s*|-\s*)(?:h|hour|hours)\b/.test(lower);
-  const hasModel = /\b(?:gpt|opus|haiku|sonnet|claude|codex|o\d|gemini)\b.*\d+\.\d+/.test(lower);
+  const hasModel = CODEX_MODEL_NAME_RE.test(lower) || sectionHeader !== null && CODEX_MODEL_NAME_RE.test(sectionHeader);
   if (hasModel) return "model";
   if (hasGeneral) return hasWeekly ? "weekly" : "general";
   if (hasWeekly) return "weekly";
@@ -1789,6 +1804,9 @@ var plugin = {
     if (!json || !json.hooks) return { ok: true, changed: false };
     const owned = (json.hooks.SessionStart || []).filter(isCodetermCodexHook);
     if (owned.length === 0) return { ok: true, changed: false };
+    if (codexHookTrustState(path) === "disabled") {
+      return { ok: true, changed: false, reason: "hook trust is explicitly disabled" };
+    }
     const scriptPath = codexWindowsHookScriptPath();
     const scriptStale = host.platform() === "windows" && !!scriptPath && (!host.fs.fileExists(scriptPath) || !isOwnedCodexWindowsHookScript(scriptPath));
     const commandStale = owned.some((entry) => {
