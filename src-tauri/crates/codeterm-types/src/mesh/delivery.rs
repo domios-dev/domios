@@ -32,12 +32,12 @@ pub const PEER_RELAY_PROTOCOL_MISMATCH: &str = "peer_relay_protocol_mismatch";
 // this instance before the failure — so a caller can tell nothing-landed from
 // landed-unknown before deciding whether a retry is safe.
 
-/// The outbound request never reached the peer: connection refused, DNS
-/// failure, TLS handshake failure, or another pre-write transport error.
-/// Nothing was sent.
+/// The connection itself failed: refused, DNS failure, TLS handshake failure.
+/// The only case where the request is provably never written. Nothing was sent.
 pub const MESH_TRANSPORT_NOTHING_SENT: &str = "mesh_transport_nothing_sent";
-/// The outbound request timed out waiting on the peer. The payload may already
-/// have been written and be in flight — never treat this as nothing-landed.
+/// Anything past a successful connect — a timeout, or a connection reset
+/// mid-request. The payload may already have been written and be in flight —
+/// never treat this as nothing-landed.
 pub const MESH_TRANSPORT_SUBMIT_UNCONFIRMED: &str = "mesh_transport_submit_unconfirmed";
 /// The peer answered the relay POST itself with a non-success status (e.g. its
 /// own auth check rejected before dispatch). The transport hop landed; whether

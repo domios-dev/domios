@@ -74,11 +74,12 @@ const RELAY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 /// nothing-landed from landed-unknown before deciding whether a retry is safe.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransportErrorKind {
-    /// Failed before the request reached the peer: connection refused, DNS,
-    /// TLS handshake. Nothing was sent.
+    /// The connection itself failed (refused, DNS, TLS handshake) — the only
+    /// case where the request is provably never written. Nothing was sent.
     NothingSent,
-    /// The request timed out waiting on the peer. It may already have been
-    /// written and be in flight on the peer's side.
+    /// Anything past a successful connect: a timeout, or a connection reset
+    /// mid-request. The payload may already have been written and be in
+    /// flight on the peer's side, so this is never treated as nothing-sent.
     SubmitUnconfirmed,
     /// The peer answered the relay POST itself with a non-success status.
     PeerRejected,
@@ -102,14 +103,17 @@ impl TransportError {
         }
     }
 
-    /// Classifies a `reqwest::Error` from `.send()`. A timeout may fire at any
-    /// phase of the request, including after the payload was fully written, so
-    /// it is the only case treated as landed-unknown rather than nothing-sent.
+    /// Classifies a `reqwest::Error` from `.send()`. Only a connect-phase
+    /// failure (`is_connect()`) proves the request itself was never written —
+    /// that is the sole nothing-sent case. Every other failure (a timeout, or
+    /// a connection that was accepted and then reset mid-request) cannot rule
+    /// out that the payload already reached the peer, so it must land on the
+    /// conservative, retry-unsafe side rather than be assumed harmless.
     fn from_send_error(error: &reqwest::Error) -> Self {
-        let kind = if error.is_timeout() {
-            TransportErrorKind::SubmitUnconfirmed
-        } else {
+        let kind = if error.is_connect() {
             TransportErrorKind::NothingSent
+        } else {
+            TransportErrorKind::SubmitUnconfirmed
         };
         Self::new(kind, error.to_string())
     }
