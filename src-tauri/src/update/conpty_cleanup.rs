@@ -35,6 +35,53 @@ fn is_selected_bundled_host(
         }
 }
 
+/// Parent liveness comes from a process ENUMERATION, never from `OpenProcess`.
+/// A live parent we lack the rights to open is still enumerated, so it reads
+/// alive and its host is spared; judging by open-failure would kill it.
+#[cfg(any(windows, test))]
+fn parent_is_alive(parent_pid: u32, enumerated_pids: &std::collections::HashSet<u32>) -> bool {
+    enumerated_pids.contains(&parent_pid)
+}
+
+/// Second-look confirmation for `Orphaned`, run once the terminate handle pins
+/// the pid against reuse. A pid freed between the first enumeration and the
+/// open can land on a host we are spawning right now; that impostor has a LIVE
+/// parent in this fresh enumeration, so it drops out. Strictly narrowing — it
+/// can only spare hosts the first pass selected, never add one.
+#[cfg(any(windows, test))]
+fn confirms_still_orphaned(
+    pid: u32,
+    host_parents: &std::collections::HashMap<u32, u32>,
+    enumerated_pids: &std::collections::HashSet<u32>,
+) -> bool {
+    match host_parents.get(&pid) {
+        Some(parent_pid) => !parent_is_alive(*parent_pid, enumerated_pids),
+        // Gone from the enumeration: it exited on its own, nothing to terminate.
+        None => false,
+    }
+}
+
+/// Collect the hosts this sweep will terminate. A host that cannot be opened or
+/// queried yields `None` and is SKIPPED — one unreachable host must never abort
+/// the sweep for every other host.
+#[cfg(any(windows, test))]
+fn collect_selected_hosts<T>(
+    hosts: &[(u32, u32)],
+    enumerated_pids: &std::collections::HashSet<u32>,
+    mut open_selected: impl FnMut(u32, u32, bool) -> Option<T>,
+) -> Vec<T> {
+    hosts
+        .iter()
+        .filter_map(|(pid, parent_pid)| {
+            open_selected(
+                *pid,
+                *parent_pid,
+                parent_is_alive(*parent_pid, enumerated_pids),
+            )
+        })
+        .collect()
+}
+
 #[cfg(any(windows, test))]
 fn windows_paths_match(left: &Path, right: &Path) -> bool {
     normalized_windows_path(left).eq_ignore_ascii_case(&normalized_windows_path(right))
@@ -139,6 +186,7 @@ fn cleanup_bundled_hosts(
 #[cfg(windows)]
 mod windows {
     use super::{is_selected_bundled_host, HostSelection, ProcessCandidate};
+    use std::collections::{HashMap, HashSet};
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
     use std::path::{Path, PathBuf};
@@ -222,11 +270,10 @@ mod windows {
         }
     }
 
-    pub(super) fn matching_processes(
-        owner_pid: u32,
-        expected: &Path,
-        selection: HostSelection,
-    ) -> Result<Vec<ProcessHandle>, String> {
+    /// One Toolhelp pass: every live pid, and every OpenConsole host with the
+    /// parent pid recorded by that SAME pass. A partial walk is an error, never
+    /// a short list — a truncated enumeration would read live parents as dead.
+    pub(super) fn enumerate_processes() -> Result<(HashSet<u32>, Vec<(u32, u32)>), String> {
         let snapshot = OwnedHandle::new(
             unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) },
             "failed to enumerate processes",
@@ -237,9 +284,7 @@ mod windows {
             return Err(last_error("failed to read process snapshot"));
         }
 
-        // Parent liveness is judged against the same snapshot that produced the
-        // hosts, so a parent exiting mid-sweep cannot flip a host's classification.
-        let mut live_pids = std::collections::HashSet::new();
+        let mut live_pids = HashSet::new();
         let mut hosts = Vec::new();
         loop {
             live_pids.insert(entry.th32ProcessID);
@@ -254,22 +299,62 @@ mod windows {
                 return Err(format!("failed to advance process snapshot: {error}"));
             }
         }
+        Ok((live_pids, hosts))
+    }
 
-        let mut matches = Vec::new();
-        for (pid, parent_pid) in hosts {
-            let parent_alive = live_pids.contains(&parent_pid);
-            if let Some(process) = open_matching_process(
-                pid,
-                parent_pid,
-                parent_alive,
-                owner_pid,
-                expected,
-                selection,
-            ) {
-                matches.push(process);
-            }
+    pub(super) fn matching_processes(
+        owner_pid: u32,
+        expected: &Path,
+        selection: HostSelection,
+    ) -> Result<Vec<ProcessHandle>, String> {
+        // Parent liveness is judged against the same enumeration that produced the
+        // hosts, so a parent exiting mid-sweep cannot flip a host's classification.
+        let (live_pids, hosts) = enumerate_processes()?;
+
+        let matches = super::collect_selected_hosts(
+            &hosts,
+            &live_pids,
+            |pid, parent_pid, parent_alive| {
+                open_matching_process(
+                    pid,
+                    parent_pid,
+                    parent_alive,
+                    owner_pid,
+                    expected,
+                    selection,
+                )
+            },
+        );
+        match selection {
+            HostSelection::Orphaned => confirm_still_orphaned(matches),
+            HostSelection::All => Ok(matches),
         }
-        Ok(matches)
+    }
+
+    /// Re-read the process table now that every candidate's pid is pinned by an
+    /// open handle, and keep only those whose parent is still absent.
+    fn confirm_still_orphaned(
+        candidates: Vec<ProcessHandle>,
+    ) -> Result<Vec<ProcessHandle>, String> {
+        if candidates.is_empty() {
+            return Ok(candidates);
+        }
+        let (live_pids, hosts) = enumerate_processes()?;
+        let host_parents: HashMap<u32, u32> = hosts.into_iter().collect();
+        Ok(candidates
+            .into_iter()
+            .filter(|candidate| {
+                let confirmed =
+                    super::confirms_still_orphaned(candidate.pid, &host_parents, &live_pids);
+                if !confirmed {
+                    log::debug!(
+                        "[conpty] sparing OpenConsole {}: no longer a confirmed orphan",
+                        candidate.pid
+                    );
+                }
+                confirmed
+            })
+            .collect())
     }
 
     /// A host this process cannot open or query is one it could never terminate
@@ -367,11 +452,21 @@ mod windows {
     fn last_error(operation: &str) -> String {
         format!("{operation}: {}", std::io::Error::last_os_error())
     }
+
+    #[cfg(test)]
+    pub(super) fn can_query_process(pid: u32) -> bool {
+        OwnedHandle::new(
+            unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) },
+            "query",
+        )
+        .is_ok()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::{HashMap, HashSet};
 
     fn candidate(pid: u32, parent_pid: u32, path: &str) -> ProcessCandidate {
         ProcessCandidate {
@@ -423,6 +518,85 @@ mod tests {
             expected,
             HostSelection::Orphaned,
         ));
+    }
+
+    #[test]
+    fn an_enumerated_parent_is_alive_however_openprocess_answers() {
+        let expected = Path::new(r"C:\CodeTerm\conpty\x64\OpenConsole.exe");
+        let enumerated = HashSet::from([0u32, 7, 10]);
+
+        assert!(parent_is_alive(0, &enumerated));
+        assert!(!parent_is_alive(99, &enumerated));
+
+        // Parent 0 is the one pid nothing can ever open. It is enumerated, so
+        // it is alive, and its host is spared. A liveness test built on
+        // `OpenProcess` would call it dead and kill a live terminal.
+        let unopenable_parent = ProcessCandidate {
+            pid: 10,
+            parent_pid: 0,
+            parent_alive: parent_is_alive(0, &enumerated),
+            executable_path: expected.to_path_buf(),
+        };
+        assert!(!is_selected_bundled_host(
+            &unopenable_parent,
+            7,
+            expected,
+            HostSelection::Orphaned,
+        ));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn the_unopenable_system_pid_is_still_enumerated() {
+        let (enumerated, _) = windows::enumerate_processes().unwrap();
+        assert!(
+            !windows::can_query_process(0),
+            "pid 0 must be unopenable for this to prove anything"
+        );
+        assert!(
+            enumerated.contains(&0),
+            "an unopenable process is still enumerated; liveness must read the enumeration"
+        );
+        assert!(parent_is_alive(0, &enumerated));
+    }
+
+    #[test]
+    fn one_unopenable_host_does_not_abort_the_sweep() {
+        let enumerated = HashSet::from([7u32, 10, 11, 12]);
+        let hosts = [(10u32, 99u32), (11, 99), (12, 99)];
+        let mut attempted = Vec::new();
+        let selected = collect_selected_hosts(&hosts, &enumerated, |pid, _, parent_alive| {
+            attempted.push(pid);
+            assert!(!parent_alive, "parent 99 is absent from the enumeration");
+            (pid != 11).then_some(pid)
+        });
+        assert_eq!(attempted, vec![10, 11, 12], "every host is still attempted");
+        assert_eq!(selected, vec![10, 12], "the unopenable one is skipped, not fatal");
+    }
+
+    #[test]
+    fn a_pid_reused_by_a_live_parents_host_is_dropped_before_termination() {
+        // Orphan 10 (parent 99, dead) exits between the enumeration and the
+        // open, and pid 10 lands on a host WE just spawned — parent 7, us.
+        let live = HashSet::from([7u32, 10]);
+        let impostor = HashMap::from([(10u32, 7u32)]);
+        assert!(!confirms_still_orphaned(10, &impostor, &live));
+
+        // A host that is genuinely still orphaned survives the second look.
+        let genuine = HashMap::from([(10u32, 99u32)]);
+        assert!(confirms_still_orphaned(10, &genuine, &live));
+
+        // A host that exited on its own is simply not terminated.
+        assert!(!confirms_still_orphaned(10, &HashMap::new(), &live));
+    }
+
+    #[test]
+    fn the_second_look_never_selects_a_host_the_first_pass_spared() {
+        let live = HashSet::from([7u32, 8, 10]);
+        let parents = HashMap::from([(10u32, 8u32)]);
+        // Parent 8 is live, so the first pass never offered 10; the second look
+        // must not resurrect it either.
+        assert!(!confirms_still_orphaned(10, &parents, &live));
     }
 
     #[test]

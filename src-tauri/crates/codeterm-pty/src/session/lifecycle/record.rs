@@ -88,7 +88,16 @@ pub enum LifecycleTransition {
     RolledBack {
         reason: String,
     },
-    Closed,
+    /// Terminal. `reason` is a `TabCloseReason` label, so the journal can name
+    /// which seam closed the tab; pre-attribution records read `unattributed`.
+    Closed {
+        #[serde(default = "unattributed_close_reason")]
+        reason: String,
+    },
+}
+
+fn unattributed_close_reason() -> String {
+    "unattributed".to_string()
 }
 
 impl LifecycleTransition {
@@ -102,7 +111,7 @@ impl LifecycleTransition {
             Self::LaunchReady => "launch_ready",
             Self::RestartRequested => "restart_requested",
             Self::RolledBack { .. } => "rolled_back",
-            Self::Closed => "closed",
+            Self::Closed { .. } => "closed",
         }
     }
 }

@@ -7,6 +7,7 @@ use crate::plugin::activity::{emit_plugin_activity, PluginActivity, PluginActivi
 use crate::secrets::secret_file::SecretFile;
 use crate::service::spawn::{AgentSpawnSpec, SpawnTabSpec, TabCommand, TabVisibility};
 use crate::service::ServiceContext;
+use crate::multiplexer::types::TabCloseReason;
 
 // ── Progress activity id map (mirrors host_compute) ─────────────────────────
 
@@ -291,7 +292,11 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
     fn agent_reap_json(&self, session_id: &str) -> String {
         if let Some(w) = self.workers.get(session_id) {
             if !w.tab_id.is_empty() {
-                let _ = ServiceContext::close_tab(self, &w.tab_id);
+                let _ = ServiceContext::close_tab_with_reason(
+                    self,
+                    &w.tab_id,
+                    TabCloseReason::Cancelled,
+                );
             }
             let _ = self.workers.kill(session_id);
         }
@@ -523,7 +528,7 @@ fn enqueue_agent_turn(
                 let _ = svc_task
                     .workers
                     .update_status(&worker_id_task, workers::WorkerStatus::Orphaned);
-                let _ = svc_task.close_tab(&handle.tab_id);
+                let _ = svc_task.close_tab_with_reason(&handle.tab_id, TabCloseReason::Watchdog);
                 break;
             }
         }

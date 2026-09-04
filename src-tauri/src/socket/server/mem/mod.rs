@@ -16,6 +16,7 @@ use crate::mem::store::{with_changed_by, MemKind, MemScope, MemUpdate, NewMemIte
 use crate::service::ServiceState;
 
 use super::{get_string_param, JsonRpcError};
+use crate::multiplexer::types::TabCloseReason;
 
 pub(super) fn dispatch(
     method: &str,
@@ -658,7 +659,7 @@ fn mem_worker_report(
     let tab_id = info.tab_id.clone();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-        if let Err(e) = svc_close.close_tab(&tab_id) {
+        if let Err(e) = svc_close.close_tab_with_reason(&tab_id, TabCloseReason::AgentRunEnded) {
             log::warn!("[graph-workers] auto-close Tab {}: {}", tab_id, e);
         }
     });
@@ -671,7 +672,7 @@ fn mem_worker_kill(
 ) -> Result<serde_json::Value, JsonRpcError> {
     let id = get_string_param(&params, "id")?;
     let info = svc.workers.kill(&id).map_err(not_found)?;
-    if let Err(e) = svc.close_tab(&info.tab_id) {
+    if let Err(e) = svc.close_tab_with_reason(&info.tab_id, TabCloseReason::Cancelled) {
         log::warn!("[graph-workers] kill Tab {}: {}", info.tab_id, e);
     }
     crate::api::events::emit_everywhere(&svc.app_handle, "graph-worker-done", &info);
