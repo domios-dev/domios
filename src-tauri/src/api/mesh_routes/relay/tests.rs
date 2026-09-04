@@ -761,6 +761,14 @@ fn locally_generated_relay_refusals_carry_a_code_not_a_bare_status() {
 /// composition `mesh_relay_to_peer` performs on a `send_relay` error, driven
 /// against real sockets so the reqwest classification itself is under test,
 /// not a fabricated error.
+///
+/// The timeout half genuinely waits out `send_relay`'s real ~120s
+/// `RELAY_TIMEOUT` (transport.rs) rather than a shorter stand-in: an earlier
+/// version of this test held the peer connection open for only 10s and then
+/// dropped it, which produced a connection *reset*, not a timeout — a
+/// different `reqwest::Error` kind that happened to reach the same
+/// conclusion by accident (`is_connect()` false) without ever exercising the
+/// bound production actually uses. This test is intentionally slow.
 #[tokio::test]
 async fn sender_transport_failure_reports_the_same_vocabulary_as_the_receiver() {
     let probe_cmd = crate::mesh::types::RelayCommand {
@@ -785,15 +793,18 @@ async fn sender_transport_failure_reports_the_same_vocabulary_as_the_receiver() 
         refused_err.to_string(),
     );
 
-    // A peer that accepts the connection (the write lands) and then never
-    // answers must time out, not fail to connect.
+    // A peer that accepts the connection (the request write lands) and then
+    // holds it open FOREVER — never answering, never closing — so the only
+    // thing that can end the wait is `send_relay`'s own governing timeout.
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind ephemeral port");
     let addr = listener.local_addr().expect("local addr");
     tokio::spawn(async move {
         if let Ok((_socket, _)) = listener.accept().await {
-            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+            // Never drop `_socket`: closing it would race a connection reset
+            // against the real timeout this test exists to prove.
+            std::future::pending::<()>().await;
         }
     });
     let stalled_client =
@@ -801,7 +812,7 @@ async fn sender_transport_failure_reports_the_same_vocabulary_as_the_receiver() 
     let stalled_err = stalled_client
         .send_relay(&probe_cmd)
         .await
-        .expect_err("the peer never answers");
+        .expect_err("the peer never answers, so send_relay's own RELAY_TIMEOUT must fire");
     let submit_unconfirmed = relay_failure(
         stalled_err.http_status(),
         stalled_err.code(),
