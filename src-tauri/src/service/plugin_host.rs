@@ -3,11 +3,11 @@ use std::sync::LazyLock;
 use parking_lot::Mutex;
 
 use crate::mem::{workers, SearchQuery};
+use crate::multiplexer::types::TabCloseReason;
 use crate::plugin::activity::{emit_plugin_activity, PluginActivity, PluginActivityRegistry};
 use crate::secrets::secret_file::SecretFile;
 use crate::service::spawn::{AgentSpawnSpec, SpawnTabSpec, TabCommand, TabVisibility};
 use crate::service::ServiceContext;
-use crate::multiplexer::types::TabCloseReason;
 
 // ── Progress activity id map (mirrors host_compute) ─────────────────────────
 

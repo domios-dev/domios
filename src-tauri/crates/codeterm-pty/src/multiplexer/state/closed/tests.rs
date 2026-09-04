@@ -746,4 +746,3 @@ fn only_the_policy_worker_reason_lifts_the_hidden_skip() {
         );
     }
 }
-

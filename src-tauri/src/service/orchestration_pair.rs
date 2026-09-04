@@ -10,12 +10,12 @@ use codeterm_types::agent::role_kind::builtins::{ORCHESTRATOR, PLANNER};
 use codeterm_types::team::general_agent_membership::{CorrectiveShape, MembershipAttempt};
 use serde::{Deserialize, Serialize};
 
+use crate::multiplexer::types::TabCloseReason;
 use crate::plan::{OrchestratorRef, PlannerRef};
 use crate::service::messenger::MessageEnvelope;
 use crate::service::orchestrator::SpawnAgentParams;
 use crate::service::startup_lease::StartupTeamLease;
 use crate::service::ServiceContext;
-use crate::multiplexer::types::TabCloseReason;
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct OrchestrationPairParams {

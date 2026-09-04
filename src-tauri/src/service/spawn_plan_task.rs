@@ -1,8 +1,8 @@
 //! Worker spawn binds a named plan task (`--plan-task`) to the new tab.
 
+use crate::multiplexer::types::TabCloseReason;
 use crate::service::plan::PlanStore;
 use crate::service::{ServiceContext, SpawnAgentParams};
-use crate::multiplexer::types::TabCloseReason;
 
 pub(crate) fn worker_spawn_plan_task_ref(params: &SpawnAgentParams) -> Option<&str> {
     params

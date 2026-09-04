@@ -200,9 +200,7 @@ impl ServiceContext {
     pub fn close_workspace(&self, id: &str) -> Result<(), String> {
         self.close_workspace_with_teardown(
             id,
-            |service, tab_id| {
-                service.prepare_tab_close(tab_id, TabCloseReason::WorkspaceClosed)
-            },
+            |service, tab_id| service.prepare_tab_close(tab_id, TabCloseReason::WorkspaceClosed),
             |service, tab_id| service.finish_tab_close(tab_id),
         )
     }

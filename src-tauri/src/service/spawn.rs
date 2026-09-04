@@ -23,8 +23,8 @@ pub(crate) use spawn_model::{
 
 #[path = "spawn_hidden_delivery.rs"]
 mod spawn_hidden_delivery;
-use spawn_hidden_delivery::deliver_hidden_pty_task;
 use crate::multiplexer::types::TabCloseReason;
+use spawn_hidden_delivery::deliver_hidden_pty_task;
 
 #[path = "spawn_identity.rs"]
 mod spawn_identity;
