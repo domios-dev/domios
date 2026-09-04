@@ -1612,14 +1612,12 @@ var plugin = {
       }
       json.hooks[event] = (existing || []).filter((entry) => !isCodetermCodexHook(entry));
     }
-    const nullDev = host.platform() === "windows" ? "NUL" : "/dev/null";
-    const port = apiPort | 0;
     const authH = '-H "Authorization: Bearer ${CODETERM_API_TOKEN}"';
     const nonceH = '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}"';
     const guard = 'if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ]; then ';
-    const hookCmd = (route) => guard + 'curl -s -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/' + route + `" -H 'Content-Type: application/json' -H 'X-CodeTerm-Agent-Provider: codex' ` + nonceH + " " + authH + " --data-binary @- > " + nullDev + " 2>&1 || true; fi";
+    const hookCmd = (route) => guard + 'curl -s -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/' + route + `" -H 'Content-Type: application/json' -H 'X-CodeTerm-Agent-Provider: codex' ` + nonceH + " " + authH + " --data-binary @- > /dev/null 2>&1 || true; fi";
     const winCmd = (route) => scriptPath ? 'powershell -NoProfile -ExecutionPolicy Bypass -File "' + scriptPath + '" -HookEvent ' + route : hookCmd(route);
-    if (scriptPath && !host.fs.writeFile(scriptPath, codexWindowsHookScript(port))) {
+    if (scriptPath && !host.fs.writeFile(scriptPath, codexWindowsHookScript())) {
       return fail("writeFile failed for " + scriptPath);
     }
     json.hooks.SessionStart.push({
@@ -1733,9 +1731,26 @@ var plugin = {
     }
     return { ok: true };
   },
+  // A hook we own that no longer matches what this build writes is stale: the
+  // user consented to our hook, so refreshing it is upkeep, not a new install.
   ensureIntegrationOnStartup(apiPort) {
-    void apiPort;
-    return { ok: true, changed: false };
+    const path = codexHooksPath();
+    if (!path || !host.fs.fileExists(path)) return { ok: true, changed: false };
+    const json = host.fs.readJson(path);
+    if (!json || !json.hooks) return { ok: true, changed: false };
+    const owned = (json.hooks.SessionStart || []).filter(isCodetermCodexHook);
+    if (owned.length === 0) return { ok: true, changed: false };
+    const scriptPath = codexWindowsHookScriptPath();
+    const scriptStale = host.platform() === "windows" && !!scriptPath && (!host.fs.fileExists(scriptPath) || !isOwnedCodexWindowsHookScript(scriptPath));
+    const commandStale = owned.some((entry) => {
+      const hooks = entry && entry.hooks || [];
+      return hooks.some(
+        (hook) => hook && String(hook.command || "").indexOf("$CODETERM_API_URL") === -1
+      );
+    });
+    if (!scriptStale && !commandStale) return { ok: true, changed: false };
+    const result = this.installIntegration(apiPort, { consent: true });
+    return result && result.ok ? { ok: true, changed: true, reason: "refreshed a stale CodeTerm-owned hook" } : { ok: false, changed: false, error: result && result.error || "refresh failed" };
   },
   // Parse the `/status` TUI screen into a UsageSnapshot; gauges report "% left", snapshot stores "% used".
   parseUsage(rawText, nowMs) {
@@ -1940,7 +1955,7 @@ function restoreIntegrationFiles(snapshots) {
   }
   return restored;
 }
-function codexWindowsHookScript(_apiPort) {
+function codexWindowsHookScript() {
   return [
     "# " + CODETERM_CODEX_HOOK_MARKER,
     "# " + CODETERM_CODEX_PROFILE_CLEANUP_MARKER,
@@ -1984,7 +1999,7 @@ function isCodetermCodexHook(entry) {
 }
 function isOwnedCodexWindowsHookScript(path) {
   const text = host.fs.readFile(path);
-  return typeof text === "string" && text === codexWindowsHookScript(0);
+  return typeof text === "string" && text === codexWindowsHookScript();
 }
 function codexHookTrustState(hooksPath) {
   const cfg = codexConfigPath();
