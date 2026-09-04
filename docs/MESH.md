@@ -93,6 +93,39 @@ older peers with `426 Upgrade Required`; the Mesh card disables **Open** and req
 `POST /api/mesh/relay-to` returns `404 peer_not_paired` when no paired record exists and
 `503 peer_unroutable` when the paired peer has no reachable address. Both reasons are stable constants.
 
+### Relayed send outcomes
+
+A relayed tab send is successful only when the TARGET confirms delivery. The
+relay hop's own `ok` attests that the peer accepted the request; the peer's body
+is the delivery evidence, so a `data.ok = false` on a `POST /api/tabs/{id}/send`
+is a failure even under an accepting envelope.
+
+Every relay failure carries `data.error.code` from the shared taxonomy in
+`codeterm-types` (`mesh::delivery`) rather than a bare HTTP status:
+
+| code | written |
+|---|---|
+| `tab_not_reachable_on_peer` | nothing |
+| `tab_busy_refused` | nothing |
+| `pty_unavailable` | nothing |
+| `submit_unconfirmed` | payload reached the target PTY |
+| `payload_too_large` | nothing |
+| `mesh_delivery_window_saturated` | nothing |
+| `relay_delivery_deadline_exceeded` | **unknown** |
+| `peer_local_api_unreachable` | nothing |
+| `peer_relay_not_authorized` | nothing |
+| `peer_relay_protocol_mismatch` | nothing |
+
+`bytes_written` is three-valued: `false` nothing landed, `true` the payload
+landed but submission was unconfirmed, and **absent** the outcome is unknown.
+Absent never means zero — a caller must confirm on the target before resending,
+and the at-most-once window keeps an unknown outcome deduped for that reason.
+
+The relay forwards a send to its own local API under a failure deadline that
+outlives that route's readiness wait, so the peer's classified answer decides the
+outcome instead of the relay's transport giving up first. Reads keep the short
+deadline.
+
 The serving browser origin remains its gateway. During an outage an already-loaded page can render,
 but cannot fetch or switch peers. Failover needs a short-lived, single-use handoff grant, never a permanent token.
 
@@ -235,4 +268,4 @@ Mesh inventory is target-authoritative: machine-qualified rows carry provenance 
 
 Inventory opens as a full-screen searchable List beside the existing Mesh network graph. One shared mode bubble switches between the List and the graph of connected computers. Keyboard navigation preserves resource identity and focus; peer detail separates Services and Schedules and labels cached, offline, denied, and partial states.
 
-<!-- revision: 23 -->
+<!-- revision: 24 -->

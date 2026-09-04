@@ -638,3 +638,131 @@ mod notification_provenance {
         }
     }
 }
+
+/// The relay's own loopback deadline must outlive the deadline of the route it
+/// calls, or it discards a classified delivery answer and reports a bare
+/// transport error instead. It must also stay inside the mesh client's relay
+/// budget, or the sender gives up before the peer's answer arrives.
+#[test]
+fn a_send_is_never_abandoned_before_the_delivery_route_can_answer() {
+    // `/api/tabs/{id}/send` waits on the target's own readiness for this long.
+    const ROUTE_READINESS_WAIT: std::time::Duration = std::time::Duration::from_secs(90);
+    // `codeterm-mesh` transport RELAY_TIMEOUT — the sender's whole-hop budget.
+    const MESH_RELAY_BUDGET: std::time::Duration = std::time::Duration::from_secs(120);
+
+    let send = local_forward_deadline("POST", "/api/tabs/e35319d7/send");
+    assert!(
+        send > ROUTE_READINESS_WAIT,
+        "the relay must outlast the delivery route's own wait, else its answer is thrown away"
+    );
+    assert!(
+        send < MESH_RELAY_BUDGET,
+        "the peer must answer inside the sender's hop budget"
+    );
+    assert!(
+        local_forward_deadline("GET", "/api/tabs") < send,
+        "reads keep the short failure deadline"
+    );
+}
+
+#[test]
+fn an_abandoned_forward_is_unknown_and_an_unreachable_one_wrote_nothing() {
+    let abandoned = forward_failure_response(true, "deadline".into());
+    let error = abandoned.data.as_ref().and_then(|d| d.get("error")).expect("error object");
+    assert!(!abandoned.ok);
+    assert_eq!(
+        error.get("code").and_then(|v| v.as_str()),
+        Some(codeterm_types::mesh::delivery::RELAY_DELIVERY_DEADLINE_EXCEEDED)
+    );
+    assert!(
+        error.get("bytes_written").is_none(),
+        "the route may still be writing — claiming zero bytes would invite a duplicate"
+    );
+    assert!(
+        outcome_holds_dedupe(&abandoned),
+        "an in-doubt outcome stays deduped so a retry cannot double-deliver"
+    );
+
+    let unreachable = forward_failure_response(false, "connection refused".into());
+    let error = unreachable.data.as_ref().and_then(|d| d.get("error")).expect("error object");
+    assert_eq!(
+        error.get("code").and_then(|v| v.as_str()),
+        Some(codeterm_types::mesh::delivery::PEER_LOCAL_API_UNREACHABLE)
+    );
+    assert_eq!(error.get("bytes_written").and_then(|v| v.as_bool()), Some(false));
+    assert!(
+        !outcome_holds_dedupe(&unreachable),
+        "nothing was written — the safe retry must not be swallowed"
+    );
+}
+
+#[test]
+fn locally_generated_relay_refusals_carry_a_code_not_a_bare_status() {
+    let cases = [
+        (
+            saturated_response(),
+            codeterm_types::mesh::delivery::MESH_DELIVERY_WINDOW_SATURATED,
+        ),
+        (
+            relay_failure(
+                403,
+                codeterm_types::mesh::delivery::PEER_RELAY_NOT_AUTHORIZED,
+                Some(false),
+                "not authorized".into(),
+            ),
+            codeterm_types::mesh::delivery::PEER_RELAY_NOT_AUTHORIZED,
+        ),
+        (
+            relay_failure(
+                426,
+                codeterm_types::mesh::delivery::PEER_RELAY_PROTOCOL_MISMATCH,
+                Some(false),
+                "protocol mismatch".into(),
+            ),
+            codeterm_types::mesh::delivery::PEER_RELAY_PROTOCOL_MISMATCH,
+        ),
+    ];
+    for (response, code) in cases {
+        assert!(!response.ok);
+        assert_eq!(
+            response
+                .data
+                .as_ref()
+                .and_then(|d| d.get("error"))
+                .and_then(|e| e.get("code"))
+                .and_then(|v| v.as_str()),
+            Some(code)
+        );
+        assert!(
+            response.error.as_deref().is_some_and(|e| e.starts_with(code)),
+            "the forwarded summary leads with the code, never a bare HTTP status"
+        );
+    }
+}
+
+/// The shared constants and the delivery taxonomy are one contract; a rename on
+/// either side must fail here rather than silently stop matching on the wire.
+#[test]
+fn shared_delivery_constants_match_the_delivery_error_taxonomy() {
+    use crate::service::delivery_error::DeliveryError;
+    use codeterm_types::mesh::delivery;
+
+    let tab = || "e35319d7".to_string();
+    let detail = || String::new();
+    assert_eq!(
+        DeliveryError::TabNotReachableOnPeer { tab: tab() }.code(),
+        delivery::TAB_NOT_REACHABLE_ON_PEER
+    );
+    assert_eq!(
+        DeliveryError::TabBusyRefused { tab: tab(), detail: detail() }.code(),
+        delivery::TAB_BUSY_REFUSED
+    );
+    assert_eq!(
+        DeliveryError::PtyUnavailable { tab: tab(), detail: detail() }.code(),
+        delivery::PTY_UNAVAILABLE
+    );
+    assert_eq!(
+        DeliveryError::SubmitUnconfirmed { tab: tab(), detail: detail() }.code(),
+        delivery::SUBMIT_UNCONFIRMED
+    );
+}
