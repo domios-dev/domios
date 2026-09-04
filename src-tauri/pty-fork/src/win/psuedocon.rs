@@ -49,18 +49,35 @@ shared_library!(ConPtyFuncs,
     pub fn ClosePseudoConsole(hpc: HPCON),
 );
 
+// Set only by scripts/test-capped.sh, never by the running product. Its
+// presence refuses any ambient CODETERM_CONPTY_DIR outright, even one leaked from a real install via a parent CodeTerm tab.
+const CODETERM_CONPTY_TEST_ISOLATION_VAR: &str = "CODETERM_CONPTY_TEST_ISOLATION";
+
+// Pure and side-effect-free so the isolation contract is assertable directly,
+// without loading a DLL through the process-wide `CONPTY` lazy_static (which only ever resolves once).
+fn conpty_dir_candidates(
+    env: impl Fn(&str) -> Option<std::ffi::OsString>,
+    exe_dir: Option<std::path::PathBuf>,
+) -> Vec<std::path::PathBuf> {
+    let mut dirs: Vec<std::path::PathBuf> = Vec::new();
+    if env(CODETERM_CONPTY_TEST_ISOLATION_VAR).is_none() {
+        if let Some(d) = env("CODETERM_CONPTY_DIR") {
+            dirs.push(std::path::PathBuf::from(d));
+        }
+    }
+    if let Some(parent) = exe_dir {
+        dirs.push(parent);
+    }
+    dirs
+}
+
 // Sideload conpty.dll (+ its sibling OpenConsole.exe) by ABSOLUTE path so
 // CreatePseudoConsole uses the windowless host, not the flashing in-box conhost.
 fn sideloaded_conpty() -> Option<ConPtyFuncs> {
-    let mut dirs: Vec<std::path::PathBuf> = Vec::new();
-    if let Some(d) = std::env::var_os("CODETERM_CONPTY_DIR") {
-        dirs.push(std::path::PathBuf::from(d));
-    }
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            dirs.push(parent.to_path_buf());
-        }
-    }
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|parent| parent.to_path_buf()));
+    let dirs = conpty_dir_candidates(|key| std::env::var_os(key), exe_dir);
     for dir in dirs {
         let dll = dir.join("conpty.dll");
         if dll.exists() {
@@ -226,6 +243,9 @@ fn conpty_startup_info() -> STARTUPINFOEXW {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsString;
+    use std::path::PathBuf;
+
     #[test]
     fn conpty_child_does_not_inherit_daemon_stdio() {
         let startup = conpty_startup_info();
@@ -233,6 +253,83 @@ mod tests {
         assert_eq!(startup.StartupInfo.hStdInput, INVALID_HANDLE_VALUE);
         assert_eq!(startup.StartupInfo.hStdOutput, INVALID_HANDLE_VALUE);
         assert_eq!(startup.StartupInfo.hStdError, INVALID_HANDLE_VALUE);
+    }
+
+    // check 1 (leak boundary): a production-looking CODETERM_CONPTY_DIR must
+    // never reach the candidate list once the test-isolation marker is set —
+    // asserted on the resolved candidates, not a log line.
+    #[test]
+    fn test_isolation_marker_refuses_ambient_production_dir() {
+        let production_dir = PathBuf::from(r"C:\Users\dev\AppData\Local\CodeTerm\conpty\x64");
+        let exe_dir = PathBuf::from(r"C:\test\target\debug\deps");
+        let production_dir_for_env = production_dir.clone();
+        let env = move |key: &str| -> Option<OsString> {
+            match key {
+                CODETERM_CONPTY_TEST_ISOLATION_VAR => Some(OsString::from("1")),
+                "CODETERM_CONPTY_DIR" => Some(production_dir_for_env.clone().into_os_string()),
+                _ => None,
+            }
+        };
+
+        let dirs = conpty_dir_candidates(env, Some(exe_dir.clone()));
+
+        assert!(
+            !dirs.contains(&production_dir),
+            "test isolation must refuse the ambient production dir, got {dirs:?}"
+        );
+        assert_eq!(
+            dirs,
+            vec![exe_dir],
+            "only the exe-relative fallback may remain under test isolation"
+        );
+    }
+
+    // check 2 (fail-closed contract): with no CODETERM_CONPTY_DIR at all, the
+    // test-isolation marker must not change resolution into an error or a
+    // silently empty list — the exe-relative fallback is the named contract,
+    // and the test drives the same constant the implementation gates on.
+    #[test]
+    fn test_isolation_fail_closed_without_any_dir() {
+        let exe_dir = PathBuf::from(r"C:\test\target\debug\deps");
+        let env = |key: &str| -> Option<OsString> {
+            if key == CODETERM_CONPTY_TEST_ISOLATION_VAR {
+                Some(OsString::from("1"))
+            } else {
+                None
+            }
+        };
+
+        let dirs = conpty_dir_candidates(env, Some(exe_dir.clone()));
+
+        assert_eq!(
+            dirs,
+            vec![exe_dir],
+            "fail-closed fallback contract must hold when nothing else is provided"
+        );
+    }
+
+    // check 3 (product unchanged): with the test-isolation marker absent —
+    // the state of every real, non-test process, including the running
+    // product — CODETERM_CONPTY_DIR must resolve exactly as it always has.
+    #[test]
+    fn production_without_isolation_marker_still_honors_conpty_dir() {
+        let bundled_dir = PathBuf::from(r"C:\Program Files\CodeTerm\conpty\x64");
+        let exe_dir = PathBuf::from(r"C:\Program Files\CodeTerm");
+        let bundled_dir_for_env = bundled_dir.clone();
+        let env = move |key: &str| -> Option<OsString> {
+            match key {
+                "CODETERM_CONPTY_DIR" => Some(bundled_dir_for_env.clone().into_os_string()),
+                _ => None,
+            }
+        };
+
+        let dirs = conpty_dir_candidates(env, Some(exe_dir.clone()));
+
+        assert_eq!(
+            dirs,
+            vec![bundled_dir, exe_dir],
+            "production resolution order must be unchanged when no test isolation marker is present"
+        );
     }
 }
 
