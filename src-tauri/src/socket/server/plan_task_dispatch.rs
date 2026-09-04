@@ -7,6 +7,7 @@ use crate::service::plan::milestone_gates::{
     regression_dispatch_decision, DispatchExemption, RegressionDispatchDecision, RegressionGate,
 };
 use crate::service::plan::PlanError;
+use crate::service::worker_ack::STARTUP_BINDING_DEADLINE;
 use crate::service::{
     verify_worker_lane, LaneProtection, ProvisionedWorkerLane, ServiceState, SpawnAgentParams,
     WorkerLaneProvenance,
@@ -17,6 +18,7 @@ use super::plan_refs;
 use super::JsonRpcError;
 
 mod brief;
+mod dispatch_failure;
 mod lane_resolution;
 pub(super) mod lane_safety;
 mod routing;
@@ -27,6 +29,10 @@ use super::safety_nudge::{
 use brief::build_brief_with_manifest;
 #[cfg(test)]
 pub(super) use brief::{build_brief, build_brief_with_personality};
+use dispatch_failure::{
+    dispatch_startup_failed_event, dispatch_wait_failed, DispatchFailureDisposition,
+    DispatchWaitFailure,
+};
 use lane_resolution::{checkout_required, invalid_dispatch, resolve_dispatch_lane};
 use lane_safety::{
     atomic_lane_commitment, dispatch_safety_nudges, preflight_checkout_occupancy,
@@ -45,7 +51,7 @@ fn dispatch_reasoning_effort(p: Option<&Value>) -> (Option<String>, Option<Strin
     (requested.clone(), requested)
 }
 
-const DISPATCH_READY_TIMEOUT: Duration = Duration::from_secs(60);
+const DISPATCH_READY_TIMEOUT: Duration = STARTUP_BINDING_DEADLINE;
 /// A queued `lane.setup_command` runs before the agent boots, so the ready
 /// deadline must leave room for it. Failure bound only, never a readiness signal.
 const LANE_SETUP_READY_ALLOWANCE: Duration = Duration::from_secs(540);
@@ -142,29 +148,6 @@ fn task_launch_authority_for_dispatch(
         task_id: task_id.to_string(),
         attempt_id: attempt_id.to_string(),
         lane_base: lane.base.clone(),
-    }
-}
-
-/// A wait-stage failure the transaction must classify before deciding whether
-/// to roll back. `Uncertain` means readiness evidence is merely absent — the
-/// worker may still come up — and must never destroy the lane. `Definitive`
-/// means the worker is confirmed not going to become ready.
-pub(super) enum DispatchWaitFailure {
-    Uncertain(String),
-    Definitive(String),
-}
-
-impl DispatchWaitFailure {
-    pub(super) fn message(&self) -> &str {
-        match self {
-            DispatchWaitFailure::Uncertain(message) | DispatchWaitFailure::Definitive(message) => {
-                message
-            }
-        }
-    }
-
-    fn is_definitive(&self) -> bool {
-        matches!(self, DispatchWaitFailure::Definitive(_))
     }
 }
 
@@ -400,7 +383,6 @@ fn worker_ack_timeout_event(
         tab_id,
         attempt_id,
         spawn_command,
-        None,
     )
 }
 
@@ -558,7 +540,45 @@ impl DispatchStartup {
                     .and_then(Value::as_str)
                     .unwrap_or("startup")
                     .to_string();
+                let worker_may_be_alive = error
+                    .data
+                    .as_ref()
+                    .and_then(|data| data.get("worker_may_be_alive"))
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
                 let reason = error.message.clone();
+                let attempt_finalized = if worker_may_be_alive {
+                    match self.svc.plan_store.mark_worker_startup_deadline(
+                        &self.plan_id,
+                        &self.task_id,
+                        &self.tab_id,
+                        &self.attempt_id,
+                        true,
+                        epoch_ms(),
+                    ) {
+                        Ok(finalized) => finalized,
+                        Err(error) => {
+                            log::warn!(
+                                "[task-dispatch] survivor finalization failed attempt={}: {error}",
+                                self.attempt_id
+                            );
+                            false
+                        }
+                    }
+                } else {
+                    false
+                };
+                if worker_may_be_alive {
+                    if let Err(error) = self
+                        .svc
+                        .deliver_worker_ack_reminder(&self.tab_id, &self.attempt_id)
+                    {
+                        log::warn!(
+                            "[task-dispatch] survivor reminder failed attempt={}: {error}",
+                            self.attempt_id
+                        );
+                    }
+                }
                 emit_plan_changed(&self.app, &self.plan_id);
                 publish_startup_report(
                     &self.svc,
@@ -567,16 +587,21 @@ impl DispatchStartup {
                     &self.worker_title,
                     &self.plan_id,
                     &self.task_id,
-                    json!({
-                        "kind": "dispatch_startup_failed",
-                        "plan_id": self.plan_id,
-                        "task_id": self.task_id,
-                        "tab_id": self.tab_id,
-                        "attempt_id": self.attempt_id,
-                        "stage": stage,
-                        "error": reason,
-                        "cleanup": {"ok": stage != "compensation"},
-                    }),
+                    dispatch_startup_failed_event(
+                        &self.plan_id,
+                        &self.task_id,
+                        &self.tab_id,
+                        &self.attempt_id,
+                        &stage,
+                        &reason,
+                        if worker_may_be_alive {
+                            DispatchFailureDisposition::Survivor { attempt_finalized }
+                        } else {
+                            DispatchFailureDisposition::Cleanup {
+                                ok: stage != "compensation",
+                            }
+                        },
+                    ),
                 );
             }
         }
@@ -610,11 +635,11 @@ where
     let outcome = (|| {
         await_ready(deadline).map_err(|failure| {
             worker_may_be_alive = !failure.is_definitive();
-            dispatch_failed("agent_ready", failure.message().to_string())
+            dispatch_wait_failed("agent_ready", failure)
         })?;
         let session_id = wait_binding(deadline).map_err(|failure| {
             worker_may_be_alive = !failure.is_definitive();
-            dispatch_failed("session_binding", failure.message().to_string())
+            dispatch_wait_failed("session_binding", failure)
         })?;
         let lane =
             validate_provenance().map_err(|error| dispatch_failed("provenance_readback", error))?;

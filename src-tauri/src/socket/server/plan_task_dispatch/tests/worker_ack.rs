@@ -289,16 +289,24 @@ fn timeout_event_is_actionable_without_authorizing_a_resend() {
     );
 
     assert_eq!(event["kind"], "worker_ack_startup_failed");
-    assert_eq!(event["deadline_seconds"], 120);
+    assert_eq!(
+        event["deadline_seconds"],
+        event["deadline_basis"]["selected_phase_seconds"]
+            .as_u64()
+            .unwrap()
+            * 2
+    );
     assert_eq!(event["expected_command"], "codeterm agent ack");
-    assert!(event["fallback"]
-        .as_str()
-        .unwrap()
-        .contains("Inspect the preserved lane"));
-    assert!(event["fallback"]
-        .as_str()
-        .unwrap()
-        .contains("replacement Worker"));
+    assert_eq!(
+        event["tab_state"],
+        crate::service::worker_ack::TAB_STATE_ALIVE_AWAITING_INSPECTION
+    );
+    assert_eq!(
+        event["attempt_state"],
+        crate::service::worker_ack::ATTEMPT_STATE_FINALIZED
+    );
+    assert!(event.get("cleanup").is_none());
+    assert!(event.get("cleanup_error").is_none());
 }
 
 #[test]
@@ -545,7 +553,7 @@ fn worker_ack_replay_or_stale_attempt_does_not_transition_task() {
 }
 
 #[test]
-fn worker_ack_final_deadline_projects_one_startup_failure_cleanup() {
+fn worker_ack_final_deadline_finalizes_attempt_for_redispatch() {
     let root = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(root.path());
     let plan = store
@@ -610,17 +618,37 @@ fn worker_ack_final_deadline_projects_one_startup_failure_cleanup() {
     assert_eq!(failed.lane.tab_id, None);
     assert_eq!(failed.execution_attempts[0].closed_at, None);
     assert_eq!(failed.execution_attempts[1].closed_at, Some(7));
-    assert!(store
-        .mark_worker_startup_cleanup_failed(&plan.id, &task_id, &attempt_id, 9)
-        .unwrap());
+    let event = worker_ack_timeout_event(
+        &plan.id,
+        &task_id,
+        "tab-worker",
+        &attempt_id,
+        "dispatch command",
+    );
     assert_eq!(
-        store
-            .show_task(&task_id)
-            .unwrap()
-            .task
-            .status_label
-            .as_deref(),
-        Some("startup_cleanup_failed")
+        event["tab_state"],
+        crate::service::worker_ack::TAB_STATE_ALIVE_AWAITING_INSPECTION
+    );
+    assert_eq!(
+        event["attempt_state"],
+        crate::service::worker_ack::ATTEMPT_STATE_FINALIZED
+    );
+    let replacement_attempt = store
+        .begin_task_dispatch(
+            &plan.id,
+            &task_id,
+            "tab-worker",
+            "Ada",
+            failed.lane.clone(),
+            9,
+        )
+        .unwrap();
+    assert_ne!(replacement_attempt, attempt_id);
+    let redispatched = store.show_task(&task_id).unwrap().task;
+    assert_eq!(redispatched.assigned_tab_id.as_deref(), Some("tab-worker"));
+    assert_eq!(
+        redispatched.execution_attempts.last().unwrap().closed_at,
+        None
     );
 }
 
