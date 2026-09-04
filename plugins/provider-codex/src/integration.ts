@@ -3,6 +3,7 @@ import { grantCodexHookTrust } from "./appServer";
 import {
   codexWindowsHookScript,
   isCodetermCodexHook,
+  removeOwnedCodexHooks,
   isOwnedCodexWindowsHookScript,
   CODETERM_CODEX_HOOK_MARKER,
   CODETERM_CODEX_PROFILE_CLEANUP_MARKER,
@@ -24,6 +25,11 @@ declare const host: {
 
 export interface CodexIntegrationInstallOptions { consent?: boolean }
 
+export const CODEX_INTEGRATION_STATE_ABSENT = "absent";
+export const CODEX_INTEGRATION_STATE_STALE_VERSION = "stale_version";
+export const CODEX_INTEGRATION_STATE_UNTRUSTED_HASH = "untrusted_hash";
+export const CODEX_INTEGRATION_STATE_INSTALLED = "installed";
+
 interface CodexHooks {
   hooks?: { SessionStart?: CodexHookEntry[]; Stop?: CodexHookEntry[] };
 }
@@ -37,11 +43,11 @@ interface IntegrationFileSnapshot {
 export function checkIntegration(): unknown {
   const path = codexHooksPath();
   if (!path || !host.fs.fileExists(path)) {
-    return { hooks_file_exists: false, hooks_installed: false, session_start_hook: false, stop_hook: false, hook_trust_state: "missing", hook_trust_enabled: null, target: path || "~/.codex/hooks.json", backup_exists: !!path && host.fs.fileExists(path + ".codeterm-backup"), proposed_changes: ["SessionStart hook", "Stop hook", "hook trust"] };
+    return emptyIntegrationStatus(path, false);
   }
   const json = host.fs.readJson<CodexHooks>(path);
   if (!json) {
-    return { hooks_file_exists: true, hooks_installed: false, session_start_hook: false, stop_hook: false, hook_trust_state: "missing", hook_trust_enabled: null };
+    return emptyIntegrationStatus(path, true);
   }
   const arr = json.hooks && json.hooks.SessionStart;
   const stopArr = json.hooks && json.hooks.Stop;
@@ -61,6 +67,9 @@ export function checkIntegration(): unknown {
   const contractOk = host.platform() === "windows"
     ? winScriptText.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1 &&
       winScriptText.indexOf("CODETERM_TAB_ID") !== -1 &&
+      winScriptText.indexOf("CODETERM_API_URL") !== -1 &&
+      winScriptText.indexOf("CODETERM_API_TOKEN") !== -1 &&
+      !hasLiteralPort(winScriptText) &&
       winScriptText.indexOf("/api/tabs/") !== -1
     : (Array.isArray(arr) && arr.some((entry) => {
         const hk = entry && entry.hooks;
@@ -68,12 +77,20 @@ export function checkIntegration(): unknown {
           const command = String(h?.command || "");
           return command.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1 &&
             command.indexOf("CODETERM_TAB_ID") !== -1 &&
+            command.indexOf("CODETERM_API_URL") !== -1 &&
+            command.indexOf("CODETERM_API_TOKEN") !== -1 &&
+            !hasLiteralPort(command) &&
             command.indexOf("/api/tabs/") !== -1;
         });
       }));
   const current = installed && windowsReady && contractOk;
   const trustState = codexHookTrustState(path);
   const trustOk = trustState !== "disabled";
+  const integrationState = !installed
+    ? CODEX_INTEGRATION_STATE_ABSENT
+    : (!trustOk || trustState === "missing" || trustState === "unknown"
+      ? CODEX_INTEGRATION_STATE_UNTRUSTED_HASH
+      : (!current || !stopInstalled ? CODEX_INTEGRATION_STATE_STALE_VERSION : CODEX_INTEGRATION_STATE_INSTALLED));
   return {
     hooks_file_exists: true,
     hooks_installed: current && stopInstalled && trustOk,
@@ -81,8 +98,28 @@ export function checkIntegration(): unknown {
     stop_hook: stopInstalled && trustOk,
     hook_trust_state: trustState,
     hook_trust_enabled: trustState === "enabled" ? true : (trustState === "disabled" ? false : null),
+    integration_state: integrationState,
+    hooks_owned: installed,
+    hook_contract_current: current && stopInstalled,
     target: path,
     backup_exists: host.fs.fileExists(path + ".codeterm-backup"),
+    proposed_changes: ["SessionStart hook", "Stop hook", "hook trust"],
+  };
+}
+
+function emptyIntegrationStatus(path: string | null, fileExists: boolean): unknown {
+  return {
+    hooks_file_exists: fileExists,
+    hooks_installed: false,
+    session_start_hook: false,
+    stop_hook: false,
+    hook_trust_state: "missing",
+    hook_trust_enabled: null,
+    integration_state: CODEX_INTEGRATION_STATE_ABSENT,
+    hooks_owned: false,
+    hook_contract_current: false,
+    target: path || "~/.codex/hooks.json",
+    backup_exists: !!path && host.fs.fileExists(path + ".codeterm-backup"),
     proposed_changes: ["SessionStart hook", "Stop hook", "hook trust"],
   };
 }
@@ -183,7 +220,7 @@ export function installIntegration(
     if (existing !== undefined && !Array.isArray(existing)) {
       return { ok: false, error: "hooks." + event + " is not an array" };
     }
-    json.hooks[event] = (existing || []).filter((entry) => !isCodetermCodexHook(entry));
+    json.hooks[event] = removeOwnedCodexHooks(existing || []);
   }
 
   const authH = '-H "Authorization: Bearer ${CODETERM_API_TOKEN}"';
@@ -262,10 +299,10 @@ export function uninstallIntegration(): unknown {
       return { ok: false, error: "could not safely read hooks JSON at " + path };
     }
     if (Array.isArray(json.hooks.SessionStart)) {
-      json.hooks.SessionStart = json.hooks.SessionStart.filter((entry) => !isCodetermCodexHook(entry));
+      json.hooks.SessionStart = removeOwnedCodexHooks(json.hooks.SessionStart);
     }
     if (Array.isArray(json.hooks.Stop)) {
-      json.hooks.Stop = json.hooks.Stop.filter((entry) => !isCodetermCodexHook(entry));
+      json.hooks.Stop = removeOwnedCodexHooks(json.hooks.Stop);
     }
     hooksOk = host.fs.writeJson(path, json);
   }
@@ -327,6 +364,9 @@ export function ensureIntegrationOnStartup(
   if (!json || !json.hooks) return { ok: true, changed: false };
   const owned = (json.hooks.SessionStart || []).filter(isCodetermCodexHook);
   if (owned.length === 0) return { ok: true, changed: false };
+  if (codexHookTrustState(path) === "disabled") {
+    return { ok: true, changed: false, reason: "Codex hook trust is disabled" };
+  }
 
   const scriptPath = codexWindowsHookScriptPath();
   const scriptStale =
@@ -336,7 +376,13 @@ export function ensureIntegrationOnStartup(
   const commandStale = owned.some((entry) => {
     const hooks = (entry && entry.hooks) || [];
     return hooks.some(
-      (hook) => hook && String(hook.command || "").indexOf("$CODETERM_API_URL") === -1,
+      (hook) => {
+        const command = String(hook && hook.command || "");
+        return command.indexOf("$CODETERM_API_URL") === -1
+          || command.indexOf("${CODETERM_API_TOKEN}") === -1
+          || command.indexOf("$CODETERM_TAB_ID") === -1
+          || hasLiteralPort(command);
+      },
     );
   });
   if (!scriptStale && !commandStale) return { ok: true, changed: false };
@@ -352,6 +398,10 @@ function codexHooksPath(): string | null {
   if (!home) return null;
   const sep = host.platform() === "windows" ? "\\" : "/";
   return home + sep + ".codex" + sep + "hooks.json";
+}
+
+function hasLiteralPort(value: string): boolean {
+  return /:\d{2,5}/.test(value);
 }
 
 function codexConfigPath(): string | null {

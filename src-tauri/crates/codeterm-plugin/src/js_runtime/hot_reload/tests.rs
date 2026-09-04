@@ -1,5 +1,5 @@
 use super::*;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use crate::host_traits::PluginProviderRegistrar;
 use crate::provider::AgentProvider;
@@ -257,6 +257,46 @@ fn tick_registers_new_plugins_added_after_start() {
     assert!(registrar
         .with_provider("foo", |p| p.detect_from_title("foo cli"))
         .unwrap_or(false));
+}
+
+#[test]
+fn hot_reload_reaches_provider_integration_refresh_without_restart() {
+    let mut env = codeterm_util::test_env::EnvGuard::lock();
+    env.set("CODETERM_API_PORT", "7686");
+    let root = tempfile::tempdir().unwrap();
+    let registrar = TestRegistrar::new();
+    let watcher = HotReloadRegistry::new(
+        vec![root.path().to_path_buf()],
+        registrar.clone(),
+        test_caps(),
+    );
+    let dir = root.path().join("refreshable");
+    write(
+        &dir.join("plugin.json"),
+        &manifest_for("refreshable"),
+    );
+    write(
+        &dir.join("plugin.js"),
+        "module.exports.default = { ensureIntegrationOnStartup() {}, detectFromTitle() { return false; } };",
+    );
+    watcher.tick();
+    assert!(!registrar
+        .with_provider("refreshable", |p| p.detect_from_title("refresh"))
+        .unwrap_or(true));
+
+    write(
+        &dir.join("plugin.js"),
+        "let refreshed = false; module.exports.default = { ensureIntegrationOnStartup() { refreshed = true; }, detectFromTitle() { return refreshed; } };",
+    );
+    set_mtime(
+        &dir.join("plugin.js"),
+        SystemTime::now() + Duration::from_secs(1),
+    );
+    watcher.tick();
+
+    assert!(registrar
+        .with_provider("refreshable", |p| p.detect_from_title("refresh"))
+        .unwrap_or(false), "hot reload must call the provider refresh seam");
 }
 
 #[test]
