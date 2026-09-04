@@ -24,6 +24,7 @@ pub(crate) use spawn_model::{
 #[path = "spawn_hidden_delivery.rs"]
 mod spawn_hidden_delivery;
 use spawn_hidden_delivery::deliver_hidden_pty_task;
+use crate::multiplexer::types::TabCloseReason;
 
 #[path = "spawn_identity.rs"]
 mod spawn_identity;
@@ -485,7 +486,10 @@ impl ServiceContext {
                 super::team::apply_team_attachment(&mut mux, attachment, &tab_id)
             };
             if let Err(error) = applied {
-                let _ = self.mux.write().close_tab(&tab_id);
+                let _ = self
+                    .mux
+                    .write()
+                    .close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
                 self.emit_state_changed();
                 return Err(error);
             }
@@ -628,7 +632,7 @@ impl ServiceContext {
             if let Err(error) =
                 self.create_pending_delivery(&tab_id, spec.channel.clone(), &spec.payload)
             {
-                let _ = self.close_tab(&tab_id);
+                let _ = self.close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback);
                 return Err(error.to_string());
             }
         }

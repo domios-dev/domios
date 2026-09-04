@@ -13,6 +13,7 @@ use crate::mem::ports::{
 };
 use crate::mem::workers::{self, GraphWorkerInfo, WorkerStatus};
 use crate::service::ServiceContext;
+use crate::multiplexer::types::TabCloseReason;
 
 fn cron_to_mem(job: &store::CronJob) -> MemCronJob {
     MemCronJob {
@@ -308,7 +309,7 @@ pub fn spawn_headless_worker(
                 let _ = svc_task
                     .workers
                     .update_status(&worker_id_task, WorkerStatus::Orphaned);
-                let _ = svc_task.close_tab(&handle.tab_id);
+                let _ = svc_task.close_tab_with_reason(&handle.tab_id, TabCloseReason::Watchdog);
                 break;
             }
         }

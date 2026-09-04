@@ -14,6 +14,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::task::JoinHandle;
 
 use super::ServiceState;
+use crate::multiplexer::types::TabCloseReason;
 
 fn epoch_ms() -> u64 {
     SystemTime::now()
@@ -415,7 +416,7 @@ fn handle_pty_death_with_cause(
         let Some(role_label) = leaf_role else {
             return PtyDeathOutcome::NotRoleBearing;
         };
-        if let Err(e) = svc.close_tab(pid) {
+        if let Err(e) = svc.close_tab_with_reason(pid, TabCloseReason::PtyExit) {
             log::warn!(
                 "[{}-death] prune of dead {} {} failed: {}",
                 role_label,
