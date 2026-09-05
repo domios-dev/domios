@@ -83,6 +83,12 @@ pub(crate) struct RebindOutcome {
     pub resynced: bool,
 }
 
+#[derive(Debug)]
+pub(crate) enum OrchestratorLearningError {
+    Authority(String),
+    Store(PlanError),
+}
+
 /// Distinguish a same-session stale nonce from a foreign binding failure.
 fn binding_failure_class(
     tab: &Tab,
@@ -121,6 +127,31 @@ impl ServiceContext {
                 Err("only the live Plan Orchestrator has execution authority".into())
             }
         }
+    }
+
+    pub(crate) fn add_orchestrator_heartbeat_learning(
+        &self,
+        plan_id: &str,
+        caller: &AuthenticatedPlanCaller,
+        text: &str,
+        tag: Option<&str>,
+        now_ms: u64,
+    ) -> Result<
+        crate::service::plan::heartbeat::HeartbeatLearnResult,
+        OrchestratorLearningError,
+    > {
+        self.authorize_plan_orchestrator(plan_id, caller)
+            .map_err(OrchestratorLearningError::Authority)?;
+        self.plan_store
+            .add_heartbeat_learning(
+                Some(plan_id),
+                caller.tab_id.as_deref(),
+                caller.session_id.as_deref(),
+                text,
+                tag,
+                now_ms,
+            )
+            .map_err(OrchestratorLearningError::Store)
     }
 
     pub(crate) fn authorize_draft_structure_mutation(

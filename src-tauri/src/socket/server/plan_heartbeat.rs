@@ -4,7 +4,7 @@ use serde_json::{json, Value};
 use tauri::AppHandle;
 
 use crate::service::plan::PlanError;
-use crate::service::ServiceState;
+use crate::service::{OrchestratorLearningError, ServiceState};
 
 use super::{get_string_param, JsonRpcError};
 
@@ -20,6 +20,17 @@ fn plan_rpc_err(e: PlanError) -> JsonRpcError {
         code: e.rpc_code(),
         message: e.to_string(),
         data: Some(e.to_json()),
+    }
+}
+
+fn learning_error(error: OrchestratorLearningError) -> JsonRpcError {
+    match error {
+        OrchestratorLearningError::Authority(message) => JsonRpcError {
+            code: super::error_codes::PLAN_ORCHESTRATOR_REQUIRED,
+            message,
+            data: Some(json!({ "type": "plan_orchestrator_required" })),
+        },
+        OrchestratorLearningError::Store(error) => plan_rpc_err(error),
     }
 }
 
@@ -41,17 +52,30 @@ pub(super) fn dispatch(
     match method {
         "plan.heartbeat.learn" => {
             let text = get_string_param(params, "text")?;
+            let plan_id = super::plan_refs::resolve_plan(&svc.plan_store, params)?;
+            let caller = crate::service::AuthenticatedPlanCaller {
+                tab_id: body
+                    .get("caller_tab_id")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                session_id: body
+                    .get("session_id")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                binding_nonce: body
+                    .get("session_binding_nonce")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+            };
             let result = svc
-                .plan_store
-                .add_heartbeat_learning(
-                    body.get("plan_id").and_then(|v| v.as_str()),
-                    body.get("tab_id").and_then(|v| v.as_str()),
-                    body.get("session_id").and_then(|v| v.as_str()),
+                .add_orchestrator_heartbeat_learning(
+                    &plan_id,
+                    &caller,
                     &text,
                     body.get("tag").and_then(|v| v.as_str()),
                     epoch_ms(),
                 )
-                .map_err(plan_rpc_err)?;
+                .map_err(learning_error)?;
             emit_plan_changed(app, &result.plan_id);
             if let Some(tab_id) = body.get("tab_id").and_then(|v| v.as_str()) {
                 svc.maybe_refresh_after_reflection(
@@ -86,5 +110,22 @@ pub(super) fn dispatch(
             message: "Method not found".to_string(),
             data: None,
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::learning_error;
+    use crate::service::OrchestratorLearningError;
+
+    #[test]
+    fn orchestrator_learning_refusal_uses_the_authority_error_code() {
+        let error = learning_error(OrchestratorLearningError::Authority("refused".into()));
+
+        assert_eq!(
+            error.code,
+            super::super::error_codes::PLAN_ORCHESTRATOR_REQUIRED
+        );
+        assert_eq!(error.data.unwrap()["type"], "plan_orchestrator_required");
     }
 }

@@ -141,7 +141,7 @@ fn caller(params: &Option<Value>) -> crate::service::AuthenticatedPlanCaller {
 
 fn authority_error(message: String) -> JsonRpcError {
     JsonRpcError {
-        code: -32003,
+        code: super::error_codes::PLAN_ORCHESTRATOR_REQUIRED,
         message,
         data: Some(json!({ "type": "plan_approval_authorization_required" })),
     }
