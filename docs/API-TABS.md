@@ -141,6 +141,25 @@ User-facing recovery is `codeterm tab rebind SESSION_ID --tab ID`. It binds the 
 
 `GET /api/tabs/{id}/session/binding-state` reads the tab-scoped fact the daemon already holds rather than inferring one: `healthy`, `deferred_pending`, `refused`, `unbound`, or `stale_pending`, with the current and requested session identities when known. `healthy` is the ordinary answer for almost every tab and carries no registry entry, so an absent entry alone never means trouble.
 
+#### Identity Repair (POST /api/tabs/{id}/repair)
+
+`codeterm tab repair` corrects a live PTY tab without restarting it. An empty
+request or `{"from_evidence":true}` verifies the tab's bound session and unique
+provider record, then corrects the provider label and clears its parser lock.
+`{"provider":"codex"}` adds an assertion that must match that evidence;
+`{"session_id":"..."}` consumes verified rebind; and
+`{"from_journal":true}` walks lifecycle checkpoints newest-first until provider
+and session match the live evidence. It reports the restored checkpoint and all
+newer records skipped with reasons. Parser-origin checkpoints are never sources.
+
+The caller is proven from the tab and binding headers injected into a CodeTerm
+PTY, plus the session header when the launch already knew it. Only the target
+tab's own agent or the live owner of its bound Plan task may repair it. Refusals
+use stable `tab_repair_*` error codes, including
+`tab_repair_verified_session_required` and `tab_repair_not_authorized`. Every
+accepted identity write is journaled with origin `repair`, previous/new provider,
+caller tab, session id, and the verification facts used.
+
 #### Hook auth
 
 `/api/tabs/*/hook/*` and `/api/mem/flush` require the standard Bearer token â€” there is no auth-exempt loopback path. CodeTerm injects `CODETERM_API_TOKEN` into every PTY (alongside `CODETERM_API_PORT` and `CODETERM_TAB_ID`), and the installed Claude hook commands reference `${CODETERM_API_TOKEN}` directly. External callers wiring custom hooks must set the same header.
@@ -236,4 +255,4 @@ The `connect`, `approve`, `reject`, and `disconnect` endpoints are high-level â€
 
 Memory item, graph, calibration, and worker endpoints: `codeterm docs API-MEMORY`.
 
-<!-- revision: 20 -->
+<!-- revision: 21 -->
