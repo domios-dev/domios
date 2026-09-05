@@ -43,9 +43,7 @@ use lane_safety::{
 };
 use preflight::{preflight_dispatch_task_status, preflight_review_capacity};
 use routing::{dispatch_worker_identity, resolve_dispatch_routing, unqualified_model_error};
-use workspace_admission::{
-    admit_dispatch_workspace, preflight_dispatch_workspace, DISPATCH_WORKSPACE_CLOSING_CODE,
-};
+use workspace_admission::preflight_dispatch_workspace;
 
 fn owned_str(p: Option<&Value>, key: &str) -> Option<String> {
     p.and_then(|x| x.get(key))
