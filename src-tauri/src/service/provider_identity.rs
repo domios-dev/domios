@@ -500,6 +500,7 @@ impl ServiceContext {
 mod tests {
     use super::*;
     use crate::agent::provider_identity::provider_for_claimed_session;
+    use crate::service::test_fixture::ServiceFixture;
 
     fn claimed_tab(provider: &str) -> crate::multiplexer::types::Tab {
         let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
@@ -563,6 +564,94 @@ mod tests {
             Some(&evidence),
         );
         assert!(matches!(kept.outcome, AgentTypeWriteOutcome::Kept { .. }));
+    }
+
+    #[test]
+    #[cfg_attr(
+        not(windows),
+        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+    )]
+    fn hook_identity_write_applies_verified_claim() {
+        let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+        let evidence = {
+            let tab = mux.get_tab_mut(&tab_id).unwrap();
+            tab.cwd = Some("D:/repo".into());
+            tab.agent_session_id = Some("claimed-session".into());
+            tab.session_binding_nonce = Some("binding-nonce".into());
+            tab.reported_session_binding_nonce = Some("binding-nonce".into());
+            ProviderIdentityEvidence::capture(tab)
+        };
+        let fixture = ServiceFixture::new(mux);
+        assert!(evidence.nonce_verified());
+
+        let outcome = fixture.service.write_hook_tab_agent_type_from_claim(
+            &tab_id,
+            "claude".into(),
+            Some(&tab_id),
+            &evidence,
+        );
+
+        assert!(matches!(
+            outcome,
+            Some(AgentTypeWriteOutcome::Applied {
+                previous: TabAgentTypeState {
+                    provider: None,
+                    locked: false,
+                },
+                current: TabAgentTypeState {
+                    provider: Some(ref provider),
+                    locked: true,
+                },
+            }) if provider == "claude"
+        ));
+        let mux = fixture.service.mux.read();
+        let tab = mux.get_tab(&tab_id).unwrap();
+        assert_eq!(tab.agent_type.as_deref(), Some("claude"));
+        assert!(tab.agent_type_locked);
+    }
+
+    #[test]
+    #[cfg_attr(
+        not(windows),
+        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+    )]
+    fn hook_identity_write_refuses_stale_claim_evidence() {
+        let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+        let evidence = {
+            let tab = mux.get_tab_mut(&tab_id).unwrap();
+            tab.cwd = Some("D:/repo".into());
+            tab.agent_type = Some("claude".into());
+            tab.agent_type_locked = true;
+            tab.agent_session_id = Some("claimed-session".into());
+            tab.session_binding_nonce = Some("binding-nonce".into());
+            tab.reported_session_binding_nonce = Some("binding-nonce".into());
+            ProviderIdentityEvidence::capture(tab)
+        };
+        let fixture = ServiceFixture::new(mux);
+        fixture
+            .service
+            .mux
+            .write()
+            .get_tab_mut(&tab_id)
+            .unwrap()
+            .agent_session_id = Some("replacement-session".into());
+
+        let outcome = fixture.service.write_hook_tab_agent_type_from_claim(
+            &tab_id,
+            "codex".into(),
+            Some(&tab_id),
+            &evidence,
+        );
+
+        assert!(matches!(
+            outcome,
+            Some(AgentTypeWriteOutcome::EvidenceChanged { .. })
+        ));
+        let mux = fixture.service.mux.read();
+        let tab = mux.get_tab(&tab_id).unwrap();
+        assert_eq!(tab.agent_type.as_deref(), Some("claude"));
+        assert!(tab.agent_type_locked);
+        assert_eq!(tab.agent_session_id.as_deref(), Some("replacement-session"));
     }
 
     #[test]
