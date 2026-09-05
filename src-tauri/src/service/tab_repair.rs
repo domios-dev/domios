@@ -239,8 +239,8 @@ impl ServiceContext {
         }
         if caller_matches_tab(&tab, caller) {
             return Ok(AuthorizedRepairTarget {
-                tab_id: tab.id,
                 identity: ProviderIdentityEvidence::capture(&tab),
+                tab_id: tab.id,
             });
         }
         let Some(plan_id) = live_task_plan(self, &tab) else {
@@ -249,8 +249,8 @@ impl ServiceContext {
         self.authorize_plan_orchestrator(&plan_id, caller)
             .map_err(|_| not_authorized(tab_id))?;
         Ok(AuthorizedRepairTarget {
-            tab_id: tab.id,
             identity: ProviderIdentityEvidence::capture(&tab),
+            tab_id: tab.id,
         })
     }
 
