@@ -79,7 +79,7 @@ fn tab_repair_parses_each_evidence_mode_and_target() {
 
 #[test]
 fn tab_repair_modes_are_mutually_exclusive() {
-    let error = Cli::try_parse_from([
+    let error = match Cli::try_parse_from([
         "codeterm",
         "tab",
         "repair",
@@ -87,8 +87,10 @@ fn tab_repair_modes_are_mutually_exclusive() {
         "codex",
         "--session",
         "session-live",
-    ])
-    .expect_err("repair cannot combine assertion modes");
+    ]) {
+        Ok(_) => panic!("repair cannot combine assertion modes"),
+        Err(error) => error,
+    };
 
     assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
 }
