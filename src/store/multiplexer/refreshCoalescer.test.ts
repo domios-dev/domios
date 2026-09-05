@@ -149,7 +149,7 @@ void (async () => {
     await coalescer.request();
     await coalescer.request();
     await coalescer.request();
-    assert(calls === 3, `expected 3 sequential fetches, got ${calls}`);
+    assert((calls as number) === 3, `expected 3 sequential fetches, got ${calls}`);
   });
 
   // The daemon refuses snapshots past its own concurrency bound (503). Those
@@ -176,7 +176,7 @@ void (async () => {
     // The next event's request must run a real fetch, not a cached answer.
     assert((await coalescer.request()) === true, "the next request recovers");
     assert(!coalescer.lastWasRefused(), "recovery clears the refusal");
-    assert(calls === 3, `expected 3 attempts, got ${calls}`);
+    assert((calls as number) === 3, `expected 3 attempts, got ${calls}`);
   });
 
   await test("a storm of refusals never becomes a tight loop", async () => {
@@ -190,14 +190,14 @@ void (async () => {
     const coalescer = createRefreshCoalescer(refusing, isRefusal);
     const requests = Array.from({ length: 500 }, () => coalescer.request());
     await tick();
-    assert(calls === 1, `500 refused requests opened ${calls} fetches`);
+    assert((calls as number) === 1, `500 refused requests opened ${calls} fetches`);
     backend.releaseNext();
     await tick();
     assert((calls as number) === 2, `expected the single follow-up, got ${calls}`);
     backend.releaseNext();
     const results = await Promise.all(requests);
     assert(results.every((r) => r === false), "every waiter is answered, none left hanging");
-    assert(calls === 2, `500 refused requests cost ${calls} fetches, expected 2`);
+    assert((calls as number) === 2, `500 refused requests cost ${calls} fetches, expected 2`);
   });
 
   await test("a refusal is distinguished from an ordinary failure", async () => {
