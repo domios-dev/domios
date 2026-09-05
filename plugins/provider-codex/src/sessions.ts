@@ -27,7 +27,11 @@ interface ThreadItemRow {
   item_json?: unknown;
 }
 
+// Host-set, non-secret path variables. They are on the host's `HOST_PROVIDED_ENV`
+// allowlist because the confinement heuristic refuses any name containing
+// "SESSION" and cannot tell a directory path from a credential.
 const sessionStoreOverrides = {
+  root: "CODETERM_CODEX_SESSIONS_ROOT",
   index: "CODETERM_CODEX_SESSION_INDEX_PATH",
   threadHistory: "CODETERM_CODEX_THREAD_HISTORY_PATH",
 };
@@ -133,18 +137,31 @@ export function extractSessionUuid(stem: string): string | null {
 }
 
 function codexSessionStore(): CodexSessionStore | null {
-  const home = host.homeDir();
   const indexOverride = host.envGet(sessionStoreOverrides.index);
   const historyOverride = host.envGet(sessionStoreOverrides.threadHistory);
   if (indexOverride && historyOverride) {
     return { indexPath: indexOverride, threadHistoryPath: historyOverride };
   }
-  if (!home) return null;
   const sep = host.platform() === "windows" ? "\\" : "/";
+  const root = codexSessionsRoot(sep);
+  if (!root) return null;
   return {
-    indexPath: indexOverride || home + sep + ".codex" + sep + "session_index.jsonl",
-    threadHistoryPath: historyOverride || home + sep + ".codex" + sep + "thread_history_1.sqlite",
+    indexPath: indexOverride || root + sep + "session_index.jsonl",
+    threadHistoryPath: historyOverride || root + sep + "thread_history_1.sqlite",
   };
+}
+
+function trimTrailingSeparators(path: string): string {
+  let end = path.length;
+  while (end > 1 && (path.charAt(end - 1) === "/" || path.charAt(end - 1) === "\\")) end--;
+  return path.substring(0, end);
+}
+
+function codexSessionsRoot(sep: string): string | null {
+  const override = host.envGet(sessionStoreOverrides.root);
+  if (override) return trimTrailingSeparators(override);
+  const home = host.homeDir();
+  return home ? home + sep + ".codex" : null;
 }
 
 function readSessionIndex(path: string): CodexSessionIndexEntry[] {

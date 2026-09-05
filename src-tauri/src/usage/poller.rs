@@ -22,6 +22,23 @@ const BACKOFF_STEPS_S: [u64; 5] = [600, 1200, 1800, 2400, 3000];
 /// timer from hammering the provider every tick.
 const RESET_PROBE_MIN_INTERVAL: Duration = Duration::from_secs(120);
 
+/// Classify a probe failure. A confined plugin that was denied a capability is
+/// its own kind: nothing upstream is broken, the provider simply cannot reach
+/// what it needs, and that is the state a frozen gauge has to be able to name.
+fn failure_kind_for(error: &super::probe::ProbeError) -> UsageFailureKind {
+    match error {
+        super::probe::ProbeError::FetchFailed(detail)
+            if crate::plugin::provider::is_capability_denied(detail) =>
+        {
+            UsageFailureKind::CapabilityDenied
+        }
+        super::probe::ProbeError::FetchFailed(_) => UsageFailureKind::FetchError,
+        super::probe::ProbeError::NoQuotaFreeSource(_) => UsageFailureKind::SourceUnavailable,
+        super::probe::ProbeError::Internal(_) => UsageFailureKind::Internal,
+        super::probe::ProbeError::BinaryMissing(_) => UsageFailureKind::SourceUnavailable,
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct TabActivity {
     inner: Arc<Mutex<HashMap<String, Instant>>>,
@@ -372,14 +389,7 @@ async fn run_probe_for(inner: Arc<UsagePollerInner>, key: AccountKey) -> Result<
         }
         Err(e) => {
             let msg = e.to_string();
-            let failure_kind = match &e {
-                super::probe::ProbeError::FetchFailed(_) => UsageFailureKind::FetchError,
-                super::probe::ProbeError::NoQuotaFreeSource(_) => {
-                    UsageFailureKind::SourceUnavailable
-                }
-                super::probe::ProbeError::Internal(_) => UsageFailureKind::Internal,
-                super::probe::ProbeError::BinaryMissing(_) => UsageFailureKind::SourceUnavailable,
-            };
+            let failure_kind = failure_kind_for(&e);
             let _ = inner.store.insert_failure_kind(
                 &key.provider,
                 key.account_id.as_deref(),
@@ -560,11 +570,13 @@ fn emit_event(svc: &ServiceContext, key: &AccountKey, snapshot_id: i64) {
 #[cfg(test)]
 mod tests {
     use super::{
-        evaluate_exhaustion_debounce, row_reset_due, snapshot_is_exhausted, ExhaustionSignal,
-        EXHAUSTION_CONFIRM_THRESHOLD,
+        evaluate_exhaustion_debounce, failure_kind_for, row_reset_due, snapshot_is_exhausted,
+        ExhaustionSignal, EXHAUSTION_CONFIRM_THRESHOLD,
     };
     use crate::agent::usage_parser::UsageSnapshot;
-    use crate::usage::store::UsageSnapshotRow;
+    use crate::plugin::provider::CAPABILITY_DENIED_ERROR;
+    use crate::usage::probe::ProbeError;
+    use crate::usage::store::{UsageFailureKind, UsageSnapshotRow};
 
     fn snap_with(session: Option<f32>, weekly: Option<f32>, spend: Option<f64>) -> UsageSnapshot {
         let mut snap = UsageSnapshot::empty("claude", "", 0);
@@ -767,5 +779,24 @@ mod tests {
             super::provider_pollable(false, true),
             "Tab present → still poll"
         );
+    }
+
+    /// A confined plugin's dead probe and a real upstream fetch failure look
+    /// identical from the outside; only the marker separates them, and if it
+    /// stops doing so a lost capability goes back to reading as a network blip.
+    #[test]
+    fn a_capability_denial_is_classified_apart_from_an_upstream_fetch_failure() {
+        let denied = ProbeError::FetchFailed(format!(
+            "{CAPABILITY_DENIED_ERROR} fetchUsage returned null"
+        ));
+        assert_eq!(
+            failure_kind_for(&denied),
+            UsageFailureKind::CapabilityDenied,
+            "a denied capability must name itself"
+        );
+
+        let upstream = ProbeError::FetchFailed("request timed out".to_string());
+        assert_eq!(failure_kind_for(&upstream), UsageFailureKind::FetchError);
+        assert_ne!(failure_kind_for(&upstream), failure_kind_for(&denied));
     }
 }

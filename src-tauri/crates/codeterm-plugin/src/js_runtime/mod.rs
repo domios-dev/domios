@@ -8,6 +8,7 @@ mod glance;
 pub mod grants;
 mod host_api;
 mod host_compute;
+mod host_credentials;
 mod host_exec;
 mod host_net;
 pub mod hot_reload;
@@ -39,8 +40,9 @@ pub use provider::JsProvider;
 
 pub use manifest::{
     manifest_settings_sections, resolve_hook_event_roster, substitute_template,
-    unknown_template_placeholder, CommandsConfig, CwdEncoding, IntegrationConfig, IntegrationKind,
-    PermissionsConfig, PluginManifest, RuleConfig, SerdeHookEventBinding, SerdeModelInfo,
+    unknown_template_placeholder, CommandsConfig, CredentialConfig, CwdEncoding,
+    IntegrationConfig, IntegrationKind, PermissionsConfig, PluginManifest, RuleConfig,
+    SerdeHookEventBinding, SerdeModelInfo,
     SerdeProviderReadinessStrategy, SerdeReadinessStrategy, SerdeSessionIdInjection,
     SerdeTaskDelivery, SerdeVerifySubmit, SessionsConfig, SkillsConfig, SpawnConfig,
     TrustGrantConfig, UsageConfig, LAUNCH_TEMPLATE_PLACEHOLDERS, RESUME_TEMPLATE_PLACEHOLDERS,
