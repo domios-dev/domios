@@ -563,16 +563,22 @@ fn run_plan(
                 constraint,
                 postulate,
             } => {
-                let vision = resolve_text(vision, vision_file)?
-                    .or(goal_text)
-                    .unwrap_or_default();
-                let mut params = json!({
-                    "plan_id": plan_id,
-                    "vector": vector,
-                    "vision": vision,
-                    "constraints": constraint,
-                    "postulates": postulate,
-                });
+                // Only fields the caller actually named are sent; an absent key
+                // is what the daemon reads as "keep this one".
+                let vision = resolve_text(vision, vision_file)?.or(goal_text);
+                let mut params = json!({ "plan_id": plan_id });
+                if let Some(vector) = vector {
+                    params["vector"] = json!(vector);
+                }
+                if let Some(vision) = vision {
+                    params["vision"] = json!(vision);
+                }
+                if !constraint.is_empty() {
+                    params["constraints"] = json!(constraint);
+                }
+                if !postulate.is_empty() {
+                    params["postulates"] = json!(postulate);
+                }
                 maybe_inject_caller_tab(&mut params);
                 call(client, "plan.goal.set", params)
             }

@@ -794,6 +794,11 @@ mod tests {
         })
     }
 
+    fn required_long(cmd: &Command, long: &str) -> bool {
+        cmd.get_arguments()
+            .any(|a| a.get_long() == Some(long) && a.is_required_set())
+    }
+
     #[test]
     fn documented_plan_task_flags_exist_on_their_subcommands() {
         let root = Cli::command();
@@ -853,9 +858,17 @@ mod tests {
         );
 
         let goal_set = subcommand(&root, &["plan", "goal", "set"]).expect("plan goal set exists");
+        // Present but optional: `plan goal set` is a partial update, so every
+        // field it does not receive is kept rather than replaced.
+        for field in ["vector", "vision", "constraint", "postulate"] {
+            assert!(
+                has_long(goal_set, field),
+                "plan goal set exposes --{field}"
+            );
+        }
         assert!(
-            has_long(goal_set, "vector"),
-            "plan goal set requires --vector"
+            !required_long(goal_set, "vector"),
+            "plan goal set keeps --vector optional; it is required only for a plan with no goal yet"
         );
 
         let accept =

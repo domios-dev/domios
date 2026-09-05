@@ -163,13 +163,6 @@ impl PlanStore {
         })
     }
 
-    pub fn set_goal(&self, plan_id: &str, goal: Goal, now_ms: u64) -> Result<(), PlanError> {
-        self.with_plan(plan_id, now_ms, |p| {
-            p.goal = Some(goal);
-            Ok(())
-        })
-    }
-
     pub fn link_plan(&self, plan_id: &str, to: &str, now_ms: u64) -> Result<(), PlanError> {
         self.with_plan(plan_id, now_ms, |p| {
             if !p.links.iter().any(|l| l == to) {

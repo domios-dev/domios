@@ -181,6 +181,7 @@ fn dispatch_placement_destination_advice_is_carried_by_dispatch_ready() {
             session_id: "session".into(),
             lane: None,
         },
+        "/canonical/project",
         &super::super::lane_safety::dispatch_safety_nudges(
             "plan",
             "task",

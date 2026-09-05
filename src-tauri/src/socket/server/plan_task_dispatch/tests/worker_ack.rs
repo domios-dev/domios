@@ -356,7 +356,8 @@ fn worker_ack_transitions_exact_pending_task_to_in_progress() {
         )
         .unwrap();
     let original = store.show_task(&task_id).unwrap().task;
-    let lane_metadata = lane_metadata_for_dispatch(&original.lane, &actual);
+    let lane_metadata =
+        lane_metadata_for_dispatch(&original.lane, &actual, project.to_str().unwrap());
     let attempt_id = store
         .begin_task_dispatch(
             &plan.id,

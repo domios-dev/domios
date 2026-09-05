@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 51 -->
+<!-- revision: 52 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -1529,13 +1529,13 @@ Plan north-star goal
 
 #### `codeterm plan goal set`
 
-Set the plan's goal vector, vision, constraints, and postulates
+Update the plan's goal; fields not passed keep their current value
 
-- `--constraint`
+- `--constraint` — Replaces the constraint list; repeatable. Omit to keep, pass an empty value to clear
 - `<goal_text>` — Optional trailing goal statement; stored as vision unless --vision/--vision-file is given
 - `<plan_id>`
-- `--postulate`
-- `--vector`
+- `--postulate` — Replaces the postulate list; repeatable. Omit to keep, pass an empty value to clear
+- `--vector` — Goal vector; required the first time a goal is set. Every field you omit is kept
 - `--vision`
 - `--vision-file`
 

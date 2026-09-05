@@ -282,6 +282,9 @@ Use spec/plan sections for plan rules or mem for durable preferences:\n\
                 task_id.unwrap_or("<task_id>")
             ))
         }
+        "goal_vector_required" => Some(format!(
+            "\u{2717} a plan goal must name its vector.\nfix: pass --vector; every field you omit is kept unchanged:\n  codeterm plan goal set {plan_id} --vector \"<the one sentence this plan steers by>\""
+        )),
         "review_oracle_scope_expansion" => Some(format!(
             "✗ correction review cannot expand the fixed acceptance oracle without new reproducible release-impact evidence.\nfix: record a P0 override to justify the scope change:\n  codeterm plan review override {plan_id} {} --owner <you> --reason \"<why>\" --reproduction \"<repro steps>\"",
             task_id.unwrap_or("<task_id>")
@@ -582,6 +585,47 @@ do not retry blindly: inspect current state first with `codeterm task show {targ
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// Selected by `data.type`, and the rendered remedy carries the flag the
+    /// server named. Neither half asserts the refusal's prose.
+    #[test]
+    fn goal_vector_required_renders_the_flag_the_server_named() {
+        let message = render_plan_error(
+            &json!({ "type": "goal_vector_required", "remedy": { "flag": "--vector" } }),
+            &json!({ "plan_id": "plan_a" }),
+        )
+        .expect("goal_vector_required must have a remedy renderer");
+        assert!(message.contains("--vector"), "{message}");
+        assert!(
+            message.contains("codeterm plan goal set plan_a"),
+            "{message}"
+        );
+    }
+
+    /// The two review gates render distinct remedies, selected by their own
+    /// discriminants; a shared renderer would hide the wrong-gate defect again.
+    #[test]
+    fn the_two_review_gates_render_distinct_remedies() {
+        let context = json!({ "plan_id": "plan_a", "task_id": "task_b" });
+        let round = render_plan_error(
+            &json!({ "type": "review_round_exceeded", "round": 2, "max_rounds": 2 }),
+            &context,
+        )
+        .unwrap();
+        let scope =
+            render_plan_error(&json!({ "type": "review_oracle_scope_expansion" }), &context)
+                .unwrap();
+        assert_ne!(
+            round, scope,
+            "the round bound and the oracle scope must not render the same refusal"
+        );
+        for message in [&round, &scope] {
+            assert!(
+                message.contains("codeterm plan review override plan_a task_b"),
+                "{message}"
+            );
+        }
+    }
 
     #[test]
     fn checkout_occupied_error_is_actionable() {
