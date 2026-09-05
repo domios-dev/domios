@@ -46,10 +46,7 @@ fn caller_is_bound_plan_planner(
         return false;
     };
     client
-        .call_detailed(
-            "plan.get",
-            Some(serde_json::json!({ "plan_id": plan_id })),
-        )
+        .call_detailed("plan.get", Some(serde_json::json!({ "plan_id": plan_id })))
         .ok()
         .and_then(|plan| plan_planner_tab_id(&plan).map(str::to_string))
         .is_some_and(|bound| bound == caller_tab_id)

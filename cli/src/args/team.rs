@@ -151,9 +151,10 @@ mod tests {
         .expect("team pair --acknowledge-leaf parses");
         match parsed.command {
             Commands::Team {
-                action: TeamAction::Pair {
-                    acknowledge_leaf, ..
-                },
+                action:
+                    TeamAction::Pair {
+                        acknowledge_leaf, ..
+                    },
             } => assert!(acknowledge_leaf),
             _ => panic!("expected team pair"),
         }
