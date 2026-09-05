@@ -357,18 +357,65 @@ mod tests {
         );
     }
 
-    /// The grant itself: a declared root is readable, everything outside every
-    /// root is not, and the declared credential stays unreadable even though it
-    /// sits inside the granted root.
+    /// Where the grant comes from, proved on the SHIPPED manifest without
+    /// touching a filesystem: the confined read set is exactly bundle + data +
+    /// temp + the ONE home codex declares. Set equality is what makes "declared
+    /// root, never a blanket widening" a real claim — an extra entry appearing
+    /// here is a widening, and the codex home disappearing is the original bug.
+    #[test]
+    fn the_confined_read_set_is_exactly_the_base_roots_plus_the_one_declared_home() {
+        let bundle = PathBuf::from("/bundle");
+        let data = PathBuf::from("/data");
+        let codex_home = dirs::home_dir().expect("home dir").join(".codex");
+
+        let (with_root, write_roots) = confined_roots(&shipped_codex_manifest(), &bundle, &data);
+        assert_eq!(
+            with_root,
+            vec![
+                bundle.clone(),
+                data.clone(),
+                std::env::temp_dir(),
+                codex_home.clone()
+            ],
+            "codex gets its declared home and nothing else"
+        );
+        assert_eq!(
+            write_roots,
+            vec![bundle.clone(), data.clone(), std::env::temp_dir()],
+            "a declared session root is read-only — it is never a write root"
+        );
+
+        let rootless: PluginManifest =
+            serde_json::from_str(&min_manifest("rootless")).expect("manifest parses");
+        let (without_root, _) = confined_roots(&rootless, &bundle, &data);
+        assert_eq!(
+            without_root,
+            vec![bundle, data, std::env::temp_dir()],
+            "no declaration, no extra root — the state that produced the bug"
+        );
+        assert_eq!(
+            with_root.len(),
+            without_root.len() + 1,
+            "the declaration adds exactly one root"
+        );
+        assert!(!without_root.contains(&codex_home));
+    }
+
+    /// Enforcement, with the base roots deliberately left out.
+    ///
+    /// `confined_roots` always grants `std::env::temp_dir()`, and every
+    /// `tempfile::tempdir()` lives INSIDE it — so a fixture that builds its
+    /// "outside" path from a tempdir while granting temp proves nothing in
+    /// either direction. The sandbox here is granted the declared home ALONE,
+    /// which is what makes both the allow and the deny meaningful.
     #[test]
     fn a_declared_root_is_granted_while_outside_and_the_credential_stay_denied() {
         use crate::js_runtime::host_api::PluginSandbox;
 
         let tmp = tempfile::tempdir().unwrap();
-        let bundle = tmp.path().join("bundle");
-        let data = tmp.path().join("data");
         let home = tmp.path().join("codex-home");
-        for dir in [&bundle, &data, &home] {
+        let elsewhere = tmp.path().join("not-the-codex-home");
+        for dir in [&home, &elsewhere] {
             std::fs::create_dir_all(dir).unwrap();
         }
 
@@ -378,15 +425,19 @@ mod tests {
             credential.file = home.join("auth.json").to_string_lossy().into_owned();
         }
 
-        let (read_roots, write_roots) = confined_roots(&manifest, &bundle, &data);
-        let sandbox = PluginSandbox::restricted(read_roots, write_roots)
-            .with_credentials(&manifest.credentials);
-
         let index = home.join("session_index.jsonl");
         std::fs::write(&index, "").unwrap();
         std::fs::write(home.join("auth.json"), "{}").unwrap();
-        let outside = tmp.path().join("elsewhere.json");
+        let outside = elsewhere.join("secrets.json");
         std::fs::write(&outside, "{}").unwrap();
+
+        // The granted root comes from the manifest declaration, not from the
+        // fixture — only the base roots are left out.
+        let declared = PluginManifest::expand_home(&manifest.sessions.as_ref().unwrap().root_dir)
+            .expect("declared root expands");
+        assert_eq!(declared, home, "the sandbox is granted what codex declared");
+        let sandbox = PluginSandbox::restricted(vec![declared], vec![])
+            .with_credentials(&manifest.credentials);
 
         assert!(
             sandbox.can_read(index.to_str().unwrap()),
@@ -394,7 +445,7 @@ mod tests {
         );
         assert!(
             !sandbox.can_read(outside.to_str().unwrap()),
-            "the grant is the declared root only, never a blanket widening"
+            "a sibling of the declared home is outside the grant"
         );
         assert!(
             !sandbox.can_read(home.join("auth.json").to_str().unwrap()),
@@ -406,22 +457,71 @@ mod tests {
         );
     }
 
-    /// A provider that declares no home gets none — the state that produced the
-    /// bug. Kept as a named expectation so the grant can only come from a
-    /// declaration, never from a default that quietly widens every plugin.
+    /// The carve-out has to beat EVERY root, not just the declared one. With the
+    /// real `confined_roots` set the credential sits under two grants at once —
+    /// the declared home and temp — and must still be refused, or a credential
+    /// would be readable through a root that has nothing to do with it.
     #[test]
-    fn a_manifest_without_a_declared_root_is_granted_no_provider_home() {
+    fn the_credential_carve_out_survives_a_second_root_that_also_covers_it() {
+        use crate::js_runtime::host_api::PluginSandbox;
+
         let tmp = tempfile::tempdir().unwrap();
-        let bundle = tmp.path().join("bundle");
-        let data = tmp.path().join("data");
-        let manifest: PluginManifest =
-            serde_json::from_str(&min_manifest("rootless")).expect("manifest parses");
-        let (read_roots, _) = confined_roots(&manifest, &bundle, &data);
-        assert_eq!(
-            read_roots,
-            vec![bundle.clone(), data, std::env::temp_dir()],
-            "no declaration, no extra root"
+        let home = tmp.path().join("codex-home");
+        std::fs::create_dir_all(&home).unwrap();
+        let auth = home.join("auth.json");
+        std::fs::write(&auth, "{}").unwrap();
+
+        let mut manifest = shipped_codex_manifest();
+        manifest.sessions.as_mut().unwrap().root_dir = home.to_string_lossy().into_owned();
+        for credential in &mut manifest.credentials {
+            credential.file = auth.to_string_lossy().into_owned();
+        }
+
+        let (read_roots, write_roots) =
+            confined_roots(&manifest, &tmp.path().join("bundle"), &tmp.path().join("data"));
+        assert!(
+            read_roots.iter().any(|r| auth.starts_with(r)),
+            "fixture precondition: the credential really is under a granted root"
         );
+
+        let sandbox = PluginSandbox::restricted(read_roots, write_roots)
+            .with_credentials(&manifest.credentials);
+        assert!(
+            !sandbox.can_read(auth.to_str().unwrap()),
+            "the deny-list is checked before every root, not just the declared one"
+        );
+    }
+
+    /// `path_under` canonicalizes both sides, and falls back to a lexical path
+    /// when a target and its parent do not exist. On Windows a canonicalized
+    /// root carries the `\\?\` verbatim prefix and a lexical target does not,
+    /// so the two shapes cannot match — the mismatch must fail CLOSED. A root
+    /// that fails to canonicalize grants nothing either. Pinned for all three
+    /// target shapes so neither direction can drift into an accidental match.
+    #[test]
+    fn a_path_outside_every_root_is_denied_whether_or_not_it_exists() {
+        use crate::js_runtime::host_api::PluginSandbox;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("granted");
+        let outside = tmp.path().join("ungranted");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        let existing = outside.join("present.json");
+        std::fs::write(&existing, "{}").unwrap();
+
+        let sandbox = PluginSandbox::restricted(vec![root], vec![]);
+        for target in [
+            existing,
+            outside.join("absent.json"),
+            outside.join("missing-parent").join("absent.json"),
+        ] {
+            assert!(
+                !sandbox.can_read(target.to_str().unwrap()),
+                "outside every root must be refused: {}",
+                target.display()
+            );
+        }
     }
 
     fn min_manifest(id: &str) -> String {
