@@ -81,6 +81,37 @@ pub(super) fn dispatch(
                 .map_err(team_plan_rpc_err)?;
             Ok(serde_json::json!({ "team_id": team_id, "plan": plan }))
         }
+        "team.add_member" => {
+            let team_id = get_string_param(params, "team_id")?;
+            let provider = get_string_param(params, "provider")?;
+            let role = get_string_param(params, "role")?;
+            // A Team whose Orchestrator is gone has no membership left to spend,
+            // so this verb accepts an absent caller and lets staffing judge it.
+            let caller_tab_id = opt_string_param(params, "caller_tab_id")
+                .filter(|tab_id| !tab_id.trim().is_empty());
+            let svc_ref = &**svc;
+            let result = tauri::async_runtime::block_on(svc_ref.add_team_member(
+                &team_id,
+                caller_tab_id.as_deref(),
+                crate::service::AddTeamMemberParams {
+                    provider,
+                    role,
+                    title: opt_string_param(params, "title"),
+                    task: opt_string_param(params, "task"),
+                    model: opt_string_param(params, "model"),
+                },
+            ))
+            .map_err(|message| JsonRpcError {
+                code: -32602,
+                message,
+                data: None,
+            })?;
+            serde_json::to_value(result).map_err(|error| JsonRpcError {
+                code: -32603,
+                message: error.to_string(),
+                data: None,
+            })
+        }
         "team.adopt_agent" => {
             let team_id = get_string_param(params, "team_id")?;
             let tab_id = get_string_param(params, "tab_id")?;

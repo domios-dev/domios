@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 pub mod general_agent_membership;
+pub mod staffing;
 
 /// Team lifecycle. Shaped to later support ephemeral orchestration; only manual
 /// transitions ship in this phase.

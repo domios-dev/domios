@@ -8,15 +8,15 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 const MAX_PLAN_REMINDER_POLL_SECS: u64 = 60;
 
 #[derive(Debug, PartialEq, Eq)]
-enum PlanReminderTarget {
+pub(crate) enum PlanReminderTarget {
     Owner { plan_id: String },
     Worker,
 }
 
 #[derive(Debug, PartialEq, Eq)]
-struct TimedPlanReminderTarget {
-    tab_id: String,
-    target: PlanReminderTarget,
+pub(crate) struct TimedPlanReminderTarget {
+    pub(crate) tab_id: String,
+    pub(crate) target: PlanReminderTarget,
 }
 
 pub(crate) fn start_plan_reminder_scheduler(svc: ServiceState) {
@@ -302,7 +302,7 @@ fn current_epoch_secs() -> u64 {
         .as_secs()
 }
 
-fn timed_plan_reminder_targets(plans: &[Plan]) -> Vec<TimedPlanReminderTarget> {
+pub(crate) fn timed_plan_reminder_targets(plans: &[Plan]) -> Vec<TimedPlanReminderTarget> {
     let mut targets = BTreeMap::<String, PlanReminderTarget>::new();
     for plan in plans.iter().filter(|plan| {
         plan.status == PlanStatus::Active
