@@ -77,6 +77,29 @@ function reconcileTabStatuses(
   return merged;
 }
 
+/**
+ * A non-sticky toast expires when its life animation ends, which only runs
+ * while it is mounted. The rail mounts at most two, so anything pushed past
+ * the render window never animates and never expires — a burst strands its
+ * own overflow permanently behind a growing "+N". Bound the queue itself:
+ * drop the oldest expendable entries. Sticky toasts and ones carrying actions
+ * are answers the user still owes, so they are never dropped.
+ */
+const MAX_QUEUED_TOASTS = 12;
+
+function capToasts(toasts: Notification[]): Notification[] {
+  if (toasts.length <= MAX_QUEUED_TOASTS) return toasts;
+  const expendable = (toast: Notification) => !toast.sticky && !toast.actions?.length;
+  const excess = toasts.length - MAX_QUEUED_TOASTS;
+  let dropped = 0;
+  const kept = toasts.filter((toast) => {
+    if (dropped >= excess || !expendable(toast)) return true;
+    dropped += 1;
+    return false;
+  });
+  return kept;
+}
+
 function attachRemoteTabs(
   workspaces: Workspace[],
   baseTabs: Record<string, Tab>,
@@ -486,7 +509,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
       return {
         ...state,
         notifications: replaceById(state.notifications, action.notification),
-        toasts: replaceById(state.toasts, action.notification),
+        toasts: capToasts(replaceById(state.toasts, action.notification)),
       };
     }
 
@@ -495,7 +518,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         ? state.toasts.findIndex((toast) => toast.key === action.toast.key)
         : state.toasts.findIndex((toast) => toast.id === action.toast.id);
       if (existingIndex === -1) {
-        return { ...state, toasts: [...state.toasts, action.toast] };
+        return { ...state, toasts: capToasts([...state.toasts, action.toast]) };
       }
       const toasts = [...state.toasts];
       toasts[existingIndex] = action.toast;
