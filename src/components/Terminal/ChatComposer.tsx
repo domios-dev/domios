@@ -483,6 +483,10 @@ function ChatComposerImpl({
 
   const chooseModel = useCallback(
     async (model: ModelInfo) => {
+      if (model.available === false) {
+        flagComposerError(`${model.display_name} is not available yet.`);
+        return;
+      }
       setModelPickerOpen(false);
       setInput("");
       try {
@@ -796,25 +800,34 @@ function ChatComposerImpl({
               </p>
             ) : modelOptions.map((model, i) => {
               const selected = i === modelHighlight;
+              const unavailable = model.available === false;
               return (
                 <button
                   key={model.id}
                   type="button"
+                  disabled={unavailable}
                   onMouseDown={(e) => e.preventDefault()}
                   onMouseEnter={() => setModelHighlight(i)}
                   onClick={() => void chooseModel(model)}
                   aria-pressed={selected}
+                  aria-disabled={unavailable}
+                  title={unavailable ? `${model.display_name} is not available yet` : undefined}
                   className="w-full grid grid-cols-[1rem_minmax(0,1fr)] gap-2 rounded px-2 py-1.5 text-left text-xs"
                   style={{
-                    background: selected
+                    background: selected && !unavailable
                       ? "color-mix(in srgb, var(--ct-accent, #58a6ff) 18%, transparent)"
                       : "transparent",
-                    color: selected ? "var(--ct-fg)" : "var(--ct-muted-fg)",
+                    color: selected && !unavailable ? "var(--ct-fg)" : "var(--ct-muted-fg)",
+                    opacity: unavailable ? 0.5 : 1,
+                    cursor: unavailable ? "not-allowed" : undefined,
                   }}
                 >
-                  <span className="text-center font-mono">{selected ? ">" : ""}</span>
+                  <span className="text-center font-mono">{selected && !unavailable ? ">" : ""}</span>
                   <span className="min-w-0">
-                    <span className="block truncate font-medium">{model.display_name}</span>
+                    <span className="block truncate font-medium">
+                      {model.display_name}
+                      {unavailable ? " (unavailable)" : ""}
+                    </span>
                     <span className="block truncate opacity-60 font-mono">{model.id}</span>
                   </span>
                 </button>
