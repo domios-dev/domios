@@ -165,11 +165,15 @@ The hierarchy (Orchestrator -> Worker) is a logical chain, not nested layouts. E
   "model": "sonnet",           // optional; must match the provider's advertised model list when one exists
   "args": ["--verbose"],       // extra agent args
   "workspace_id": "b4e2c8d1", // optional, defaults to active workspace
+  "plan_id": "pl_a9zejn",      // plan a Planner binds, or a verification Worker runs under
+  "plan_task": "task_8n7m9o",  // task a Worker binds; omitted by a verification Worker
+  "execution_intent": "read_only", // read_only | mutating; mutating requires a task binding
+  "authorized_gates": ["./build.sh verify"], // exact commands a task-less Worker may claim
   "audience": "automation"     // optional: suppress user bells for bench/probe tabs
 }
 ```
 
-All fields are optional. `agent` defaults to `"claude"`. Permission behavior comes only from the global `agent.full_access` setting; spawn callers cannot override it. If the user has not made the first choice yet, the spawn is rejected before tab creation with an instruction to choose access in CodeTerm. `audience` controls user notifications only. When `model` is provided and the provider advertises models, unknown ids are rejected before tab creation; run `codeterm agent models <provider>` for valid ids. Reasoning effort is capability-validated before launch, and response provenance separates host-owned `planned` plan-task intent from client `requested`, provider `resolved`, and exact-session `actual`; ordinary spawn payloads cannot set `planned`. When `task` is provided, it is passed through the provider's declared launch delivery. When `agent_name` is provided, it maps to the provider's named-agent launch option when supported. The CLI flag `codeterm agent spawn --non-user-facing` sends `audience=automation`.
+All fields are optional. `agent` defaults to `"claude"`. Permission behavior comes only from the global `agent.full_access` setting; spawn callers cannot override it. If the user has not made the first choice yet, the spawn is rejected before tab creation with an instruction to choose access in CodeTerm. `audience` controls user notifications only. When `model` is provided and the provider advertises models, unknown ids are rejected before tab creation; run `codeterm agent models <provider>` for valid ids. Reasoning effort is capability-validated before launch, and response provenance separates host-owned `planned` plan-task intent from client `requested`, provider `resolved`, and exact-session `actual`; ordinary spawn payloads cannot set `planned`. When `task` is provided, it is passed through the provider's declared launch delivery. When `agent_name` is provided, it maps to the provider's named-agent launch option when supported. The CLI flag `codeterm agent spawn --non-user-facing` sends `audience=automation`. A `Worker` spawn needs no task binding when `execution_intent` is `read_only` — the canonical verification Worker: it owns no task, so it can report against none and transition none, and `authorized_gates` is its whole command scope, rendered into its brief. `execution_intent: "mutating"` without `plan_task`/`task_id` is refused, and `authorized_gates` is rejected alongside `plan_task` (a task-bound Worker declares gates on `plan.task.dispatch`, where they are enforced).
 
 **Response** (returned immediately, before agent is fully started):
 ```json
@@ -226,4 +230,4 @@ On error, individual commands return `{"error": "message", "method": "..."}` but
 | `can-spawn` | `tab_id` | `can_spawn` (default: true) |
 | `report` | `tab_id`, `message` | — |
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->

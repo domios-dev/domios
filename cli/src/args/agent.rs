@@ -326,12 +326,19 @@ pub enum AgentAction {
         /// Team whose Orchestrator is gone and carries no other spawn flag.
         #[arg(long, value_name = "TEAM_ID", conflicts_with = "plan_task")]
         team: Option<String>,
-        #[arg(
-            long = "execution-intent",
-            value_parser = ["read_only", "mutating"],
-            requires = "plan_task"
-        )]
+        /// Declared execution intent. `mutating` requires a task binding;
+        /// `read_only` is also the task-less verification-Worker shape.
+        #[arg(long = "execution-intent", value_parser = ["read_only", "mutating"])]
         execution_intent: Option<String>,
+        /// Gate token this Worker may claim as executed; repeatable. Carried
+        /// into its brief. For a task-bound Worker declare gates on the
+        /// dispatch instead (`plan task dispatch --authorized-gate`).
+        #[arg(
+            long = "authorized-gate",
+            value_name = "GATE",
+            allow_hyphen_values = true
+        )]
+        authorized_gates: Vec<String>,
         #[arg(long = "provider-reserve-pct", default_value_t = 5.0)]
         provider_reserve_pct: f32,
         /// Declare the tab non-user-facing (bench/probe): its interactive
@@ -596,6 +603,71 @@ mod tests {
                 assert!(matches!(role, Some(SpawnRole::Worker)));
                 assert_eq!(plan.as_deref(), Some("pl_test"));
                 assert_eq!(plan_task.as_deref(), Some("my-task"));
+            }
+            _ => panic!("expected agent spawn"),
+        }
+    }
+
+    /// The verification-Worker spawn: read-only, no `--plan-task`, and its
+    /// declared gate tokens travel as repeats of the same flag the dispatch
+    /// path already uses.
+    #[test]
+    fn spawn_read_only_worker_parses_without_a_plan_task() {
+        let action = parse_spawn(&[
+            "codex",
+            "--role",
+            "Worker",
+            "--plan",
+            "pl_test",
+            "--execution-intent",
+            "read_only",
+            "--authorized-gate",
+            "./build.sh test-one app verifier",
+            "--authorized-gate",
+            "./build.sh verify",
+        ])
+        .expect("a read-only Worker needs no plan task");
+        match action {
+            AgentAction::Spawn {
+                role,
+                plan,
+                plan_task,
+                execution_intent,
+                authorized_gates,
+                ..
+            } => {
+                assert!(matches!(role, Some(SpawnRole::Worker)));
+                assert_eq!(plan.as_deref(), Some("pl_test"));
+                assert!(plan_task.is_none());
+                assert_eq!(execution_intent.as_deref(), Some("read_only"));
+                assert_eq!(
+                    authorized_gates,
+                    vec![
+                        "./build.sh test-one app verifier".to_string(),
+                        "./build.sh verify".to_string()
+                    ]
+                );
+            }
+            _ => panic!("expected agent spawn"),
+        }
+    }
+
+    /// The reported defect: clap demanded `--plan-task` for any
+    /// `--execution-intent`, so the documented verifier could not be spawned.
+    #[test]
+    fn execution_intent_no_longer_requires_a_plan_task_at_parse_time() {
+        let action = parse_spawn(&["codex", "--role", "Worker", "--execution-intent", "read_only"])
+            .expect("--execution-intent must parse on its own");
+        match action {
+            AgentAction::Spawn {
+                execution_intent,
+                plan,
+                plan_task,
+                ..
+            } => {
+                assert_eq!(execution_intent.as_deref(), Some("read_only"));
+                assert!(plan.is_none());
+                assert!(plan_task.is_none());
             }
             _ => panic!("expected agent spawn"),
         }

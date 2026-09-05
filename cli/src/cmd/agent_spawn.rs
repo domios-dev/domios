@@ -3,27 +3,93 @@ use codeterm_types::team::staffing as team_codes;
 use crate::args::agent::{AgentAction, SpawnRole};
 use crate::client::SocketClient;
 
-#[allow(clippy::too_many_arguments)]
-pub(super) fn validate_spawn_context(
-    role: Option<&SpawnRole>,
-    has_workspace: bool,
-    has_team: bool,
-    has_parent: bool,
-    has_plan: bool,
-    has_bound_task: bool,
-    has_plan_task: bool,
-) -> Result<(), &'static str> {
+/// The flag combination an `agent spawn` was invoked with, as the validator
+/// needs to see it. A bag of bare booleans stopped being readable once the
+/// task-less verification Worker gave `--execution-intent` a meaning of its own.
+#[derive(Default)]
+pub(super) struct SpawnContext<'a> {
+    pub role: Option<&'a SpawnRole>,
+    pub has_workspace: bool,
+    pub has_team: bool,
+    pub has_parent: bool,
+    pub has_plan: bool,
+    pub has_bound_task: bool,
+    pub has_plan_task: bool,
+    pub execution_intent: Option<&'a str>,
+    pub has_authorized_gates: bool,
+}
+
+impl SpawnContext<'_> {
+    fn is_worker(&self) -> bool {
+        matches!(self.role, Some(SpawnRole::Worker))
+    }
+
+    fn task_bound(&self) -> bool {
+        self.has_bound_task || self.has_plan_task
+    }
+
+    fn read_only(&self) -> bool {
+        self.execution_intent == Some(READ_ONLY)
+    }
+
+    /// A Worker that owns no task and declares read-only intent: the shape an
+    /// Orchestrator staffs post-merge QA with. It runs the commands it declared
+    /// and, holding no binding, can transition nothing.
+    pub(super) fn is_verification_worker(&self) -> bool {
+        self.is_worker() && !self.task_bound() && self.read_only()
+    }
+}
+
+const READ_ONLY: &str = "read_only";
+const MUTATING: &str = "mutating";
+
+/// Both supported task-less Worker shapes, named in every refusal that turns a
+/// caller away — an error that only demands `--plan-task` hides the other one.
+const WORKER_SHAPES: &str = concat!(
+    "a Worker that changes source owns a task (--plan-task <task>, or --plan <id> ",
+    "--task-id <task>); a Worker that only verifies owns none and declares ",
+    "--execution-intent read_only, optionally with repeated --authorized-gate <command>"
+);
+
+pub(super) fn validate_spawn_context(ctx: &SpawnContext<'_>) -> Result<(), String> {
     // A Team names the workspace its recovery Orchestrator lands in.
-    if matches!(role, Some(SpawnRole::Orchestrator)) && !has_workspace && !has_parent && !has_team {
-        return Err("--workspace is required when spawning --role Orchestrator");
+    if matches!(ctx.role, Some(SpawnRole::Orchestrator))
+        && !ctx.has_workspace
+        && !ctx.has_parent
+        && !ctx.has_team
+    {
+        return Err("--workspace is required when spawning --role Orchestrator".into());
     }
-    if matches!(role, Some(SpawnRole::Planner)) && !has_plan && !has_parent {
-        return Err("--plan <id> is required when spawning --role Planner (or pass --parent)");
-    }
-    if matches!(role, Some(SpawnRole::Worker)) && has_plan && !has_bound_task && !has_plan_task {
+    if matches!(ctx.role, Some(SpawnRole::Planner)) && !ctx.has_plan && !ctx.has_parent {
         return Err(
-            "--role Worker with --plan requires --task-id or --plan-task; omit --role/--plan for a roleless solo agent",
+            "--plan <id> is required when spawning --role Planner (or pass --parent)".into(),
         );
+    }
+    if ctx.has_authorized_gates {
+        if !ctx.is_worker() {
+            return Err("--authorized-gate is only valid with --role Worker".into());
+        }
+        if ctx.has_plan_task {
+            return Err(concat!(
+                "--authorized-gate is not carried by a task-bound spawn; declare the gates ",
+                "where they are also enforced: codeterm plan task dispatch <plan> <task> ",
+                "--authorized-gate <command>"
+            )
+            .into());
+        }
+    }
+    if ctx.is_worker() && !ctx.task_bound() {
+        if ctx.execution_intent == Some(MUTATING) {
+            return Err(format!(
+                "--execution-intent mutating requires a task binding: {WORKER_SHAPES}"
+            ));
+        }
+        if ctx.has_plan {
+            return Err(format!(
+                "--role Worker with --plan requires a task binding or read-only intent: \
+                 {WORKER_SHAPES}. Omit --role/--plan for a roleless solo agent."
+            ));
+        }
     }
     Ok(())
 }
@@ -108,24 +174,29 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
         plan_task,
         team,
         execution_intent,
+        authorized_gates,
         provider_reserve_pct,
         non_user_facing,
     } = action
     else {
         unreachable!("agent_spawn::handle received a non-spawn action")
     };
-    if let Err(error) = validate_spawn_context(
-        role.as_ref(),
-        workspace.is_some(),
-        team.is_some(),
-        parent.is_some(),
-        plan.is_some(),
-        bound_task.is_some(),
-        plan_task.is_some(),
-    ) {
+    let context = SpawnContext {
+        role: role.as_ref(),
+        has_workspace: workspace.is_some(),
+        has_team: team.is_some(),
+        has_parent: parent.is_some(),
+        has_plan: plan.is_some(),
+        has_bound_task: bound_task.is_some(),
+        has_plan_task: plan_task.is_some(),
+        execution_intent: execution_intent.as_deref(),
+        has_authorized_gates: !authorized_gates.is_empty(),
+    };
+    if let Err(error) = validate_spawn_context(&context) {
         eprintln!("Error: {error}");
         std::process::exit(1);
     }
+    let verification_worker = context.is_verification_worker();
     if team.is_some() {
         if let Err(error) = validate_team_spawn_role(role.as_ref()) {
             eprintln!("Error: {error}");
@@ -249,7 +320,11 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
         plan.is_some(),
         bound_task.is_some(),
     );
-    if let Some(hint) = crate::cmd::hints::unbound_worker_binding_hint(is_worker, worker_bound) {
+    if let Some(hint) = crate::cmd::hints::unbound_worker_binding_hint(
+        is_worker,
+        worker_bound,
+        verification_worker,
+    ) {
         eprintln!("{hint}");
     }
     let mut body = serde_json::json!({
@@ -343,6 +418,9 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
     if let Some(intent) = execution_intent {
         body["execution_intent"] = serde_json::json!(intent);
         body["provider_reserve_pct"] = serde_json::json!(provider_reserve_pct);
+    }
+    if !authorized_gates.is_empty() {
+        body["authorized_gates"] = serde_json::json!(authorized_gates);
     }
     if non_user_facing {
         body["audience"] = serde_json::json!("automation");
@@ -454,68 +532,109 @@ mod tests {
     use crate::cmd::hints::unbound_worker_binding_hint;
     use crate::cmd::report_guard::worker_binding_resolved;
 
+    fn worker(execution_intent: Option<&'static str>, has_plan: bool) -> SpawnContext<'static> {
+        SpawnContext {
+            role: Some(&SpawnRole::Worker),
+            has_plan,
+            execution_intent,
+            ..Default::default()
+        }
+    }
+
     /// codeterm#305: an unbound Worker spawn is accepted (docs/SKILLS.md's
     /// ad-hoc pattern) but carries the shared advisory constant.
     #[test]
     fn worker_without_plan_binding_is_refused_or_warned_at_spawn() {
-        assert!(validate_spawn_context(
-            Some(&SpawnRole::Worker),
-            false,
-            false,
-            false,
-            false,
-            false,
-            false
-        )
-        .is_ok());
+        assert!(validate_spawn_context(&worker(None, false)).is_ok());
         let bound = worker_binding_resolved(false, false, false);
         assert!(!bound);
-        assert!(unbound_worker_binding_hint(true, bound).is_some());
+        assert!(unbound_worker_binding_hint(true, bound, false).is_some());
     }
 
     #[test]
     fn plan_bound_worker_requires_an_exact_task_identity() {
-        assert!(validate_spawn_context(
-            Some(&SpawnRole::Worker),
-            false,
-            false,
-            false,
-            true,
-            false,
-            false
-        )
-        .is_err());
-        assert!(validate_spawn_context(
-            Some(&SpawnRole::Worker),
-            false,
-            false,
-            false,
-            true,
-            true,
-            false
-        )
+        assert!(validate_spawn_context(&worker(None, true)).is_err());
+        assert!(validate_spawn_context(&SpawnContext {
+            has_bound_task: true,
+            ..worker(None, true)
+        })
         .is_ok());
-        assert!(validate_spawn_context(
-            Some(&SpawnRole::Worker),
-            false,
-            false,
-            false,
-            true,
-            false,
-            true
-        )
+        assert!(validate_spawn_context(&SpawnContext {
+            has_plan_task: true,
+            ..worker(None, true)
+        })
         .is_ok());
-        assert!(validate_spawn_context(
-            Some(&SpawnRole::Worker),
-            false,
-            false,
-            false,
-            false,
-            false,
-            false
-        )
+        assert!(validate_spawn_context(&worker(None, false)).is_ok());
+        assert!(validate_spawn_context(&SpawnContext {
+            has_plan: true,
+            ..Default::default()
+        })
         .is_ok());
-        assert!(validate_spawn_context(None, false, false, false, true, false, false).is_ok());
+    }
+
+    /// The verification Worker: read-only, owns no task, and is accepted with
+    /// or without the plan it was spawned under.
+    #[test]
+    fn a_read_only_worker_is_accepted_without_any_task_binding() {
+        for has_plan in [false, true] {
+            let context = worker(Some(READ_ONLY), has_plan);
+            assert!(
+                validate_spawn_context(&context).is_ok(),
+                "read-only Worker with has_plan={has_plan} must be accepted"
+            );
+            assert!(context.is_verification_worker());
+        }
+    }
+
+    /// The safeguard that stays: source-changing work still owns a task.
+    #[test]
+    fn a_mutating_worker_without_a_task_is_refused_and_names_both_shapes() {
+        for has_plan in [false, true] {
+            let error = validate_spawn_context(&worker(Some(MUTATING), has_plan))
+                .expect_err("a mutating Worker owns a task");
+            assert!(error.contains("--plan-task"), "{error}");
+            assert!(error.contains("--execution-intent read_only"), "{error}");
+        }
+        assert!(validate_spawn_context(&SpawnContext {
+            has_plan_task: true,
+            ..worker(Some(MUTATING), true)
+        })
+        .is_ok());
+    }
+
+    /// A refusal that only demanded the flag left the other supported shape
+    /// invisible, which is how a verifier had nowhere to be spawned from.
+    #[test]
+    fn the_plan_bound_worker_refusal_names_the_read_only_shape() {
+        let error = validate_spawn_context(&worker(None, true))
+            .expect_err("--plan without a task binding is refused");
+        assert!(error.contains("--execution-intent read_only"), "{error}");
+        assert!(error.contains("--authorized-gate"), "{error}");
+        assert!(error.contains("--plan-task"), "{error}");
+    }
+
+    #[test]
+    fn declared_gates_belong_to_a_task_less_worker_only() {
+        assert!(validate_spawn_context(&SpawnContext {
+            has_authorized_gates: true,
+            ..worker(Some(READ_ONLY), true)
+        })
+        .is_ok());
+
+        let roleless = validate_spawn_context(&SpawnContext {
+            has_authorized_gates: true,
+            ..Default::default()
+        })
+        .expect_err("gates are a Worker concept");
+        assert!(roleless.contains("--role Worker"), "{roleless}");
+
+        let task_bound = validate_spawn_context(&SpawnContext {
+            has_authorized_gates: true,
+            has_plan_task: true,
+            ..worker(Some(READ_ONLY), true)
+        })
+        .expect_err("a task-bound spawn declares its gates on the dispatch");
+        assert!(task_bound.contains("plan task dispatch"), "{task_bound}");
     }
 
     #[test]
@@ -541,25 +660,16 @@ mod tests {
     /// no `--workspace`; the Team names the workspace.
     #[test]
     fn team_supplies_the_workspace_for_an_orchestrator_spawn() {
-        assert!(validate_spawn_context(
-            Some(&SpawnRole::Orchestrator),
-            false,
-            true,
-            false,
-            false,
-            false,
-            false
-        )
+        assert!(validate_spawn_context(&SpawnContext {
+            role: Some(&SpawnRole::Orchestrator),
+            has_team: true,
+            ..Default::default()
+        })
         .is_ok());
-        assert!(validate_spawn_context(
-            Some(&SpawnRole::Orchestrator),
-            false,
-            false,
-            false,
-            false,
-            false,
-            false
-        )
+        assert!(validate_spawn_context(&SpawnContext {
+            role: Some(&SpawnRole::Orchestrator),
+            ..Default::default()
+        })
         .is_err());
     }
 

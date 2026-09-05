@@ -42,6 +42,8 @@ Never use `--status done`; only the Orchestrator closes an accepted task.
 
 For blocked reports, use `--status-label human-decision` when the unblocker is an escalated choice outside agent authority. Use `--status-label human-verify` when the unblocker is an external leg the agent cannot physically drive, such as OAuth, real email/payment, or a production side effect.
 
-Plan milestone attachment is automatic when your tab is assigned to a task: the assignment exports `CODETERM_PLAN_ID` and `CODETERM_TASK_ID` into your environment and the CLI reads them, so use the chosen command above without `--plan`/`--task`. Unassigned, the CLI refuses the report locally before the daemon is asked; then pass explicit `--plan`/`--task`, or report from an assigned tab.
+Plan milestone attachment is automatic when your tab is assigned to a task: the assignment exports `CODETERM_PLAN_ID` and `CODETERM_TASK_ID` into your environment and the CLI reads them, so use the chosen command above without `--plan`/`--task`. Unassigned, the CLI refuses a `--status` report locally before the daemon is asked; then pass explicit `--plan`/`--task`, or report from an assigned tab.
+
+One Worker shape owns no task on purpose: a read-only verification Worker, spawned with `--execution-intent read_only` and no `--plan-task` to run declared gates in the canonical checkout. If that is you, none of the statuses above apply — you have no task to move. Report the gate result to your parent WITHOUT `--status`, run only the commands listed under `## Authorized gates` in your brief, and never name a task you were not assigned.
 
 If a required CodeTerm command is not covered above, load the provider skill named `codeterm` as the fallback reference.
