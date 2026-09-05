@@ -55,8 +55,13 @@ Applying the rule above to those two legs:
 | silent seq gaps | 9 | 0 | **the failure itself** |
 
 `origin` looks like the discriminator and is not usable as one: the two legs
-ran different daemon builds AND different event rates. The column that
-survives is the publish RATE, which is what the mechanism predicts.
+ran different daemon builds AND different event rates.
+
+REFINED once a third leg isolated the variable (FINDINGS 1g): a sequential
+driver on the same peer over the same relay produced ZERO silent gaps at
+9.25 Hz, while the bench at concurrency 8 produced six on the same machine
+minutes later. The surviving column is **concurrent publishers**, not rate and
+not origin. Rate matters only because it raises the chance of overlap.
 
 Cause: seq allocation and bus publish are not atomic, so concurrent publishers
 reach the broadcast out of order and the stream's monotonic guard drops the
