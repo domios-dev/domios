@@ -13,15 +13,28 @@ use std::sync::OnceLock;
 
 pub const IDENTITY_UNAVAILABLE: &str = "<unavailable>";
 
+/// What the sidecar prints, and the key the symbols are filed under. The key is
+/// the canonical Windows symbol-store form so `build.sh` and
+/// `scripts/pdb_identity.py` can compute the same string from the PDB alone.
+pub struct Identity {
+    pub display: String,
+    pub key: String,
+}
+
+fn identity() -> Option<&'static Identity> {
+    static ID: OnceLock<Option<Identity>> = OnceLock::new();
+    ID.get_or_init(|| std::env::current_exe().ok().and_then(|p| extract(&p)))
+        .as_ref()
+}
+
 /// `Debug id:` in the sidecar. Cached; safe to call from a crash handler.
 pub fn image_debug_id() -> &'static str {
-    static ID: OnceLock<String> = OnceLock::new();
-    ID.get_or_init(|| {
-        std::env::current_exe()
-            .ok()
-            .and_then(|path| extract(&path))
-            .unwrap_or_else(|| IDENTITY_UNAVAILABLE.to_string())
-    })
+    identity().map_or(IDENTITY_UNAVAILABLE, |i| i.display.as_str())
+}
+
+/// The directory name this build's symbols are retained under.
+pub fn debug_key() -> Option<&'static str> {
+    identity().map(|i| i.key.as_str())
 }
 
 /// `Image:` in the sidecar — where the binary that crashed lived.
@@ -39,6 +52,15 @@ pub fn image_path() -> &'static str {
 /// compared by eye. The GUID's first three fields are little-endian, the rest is
 /// byte order as stored; that is the layout every Windows symbol tool expects.
 pub fn render_rsds(record: &[u8]) -> Option<String> {
+    rsds(record).map(|i| i.display)
+}
+
+/// The symbol-store key for an RSDS record: 32 GUID hex digits then the age in hex.
+pub fn rsds_key(record: &[u8]) -> Option<String> {
+    rsds(record).map(|i| i.key)
+}
+
+fn rsds(record: &[u8]) -> Option<Identity> {
     if record.len() < 24 || &record[0..4] != b"RSDS" {
         return None;
     }
@@ -57,16 +79,19 @@ pub fn render_rsds(record: &[u8]) -> Option<String> {
     let name = name.replace('\\', "/");
     let name = name.rsplit('/').next().unwrap_or("").to_string();
 
-    Some(format!(
-        "{:08X}-{:04X}-{:04X}-{}-{} age={} pdb={}",
-        d1,
-        d2,
-        d3,
-        &tail[0..4],
-        &tail[4..],
-        age,
-        name
-    ))
+    Some(Identity {
+        display: format!(
+            "{:08X}-{:04X}-{:04X}-{}-{} age={} pdb={}",
+            d1,
+            d2,
+            d3,
+            &tail[0..4],
+            &tail[4..],
+            age,
+            name
+        ),
+        key: format!("{:08X}{:04X}{:04X}{}{:X}", d1, d2, d3, tail, age),
+    })
 }
 
 /// Render a raw build-id / UUID byte string as uppercase hex.
@@ -93,7 +118,7 @@ fn u32_at(buf: &[u8], off: usize) -> Option<u32> {
 }
 
 #[cfg(target_os = "windows")]
-fn extract(path: &std::path::Path) -> Option<String> {
+fn extract(path: &std::path::Path) -> Option<Identity> {
     let mut file = std::fs::File::open(path).ok()?;
     let head = read_at(&mut file, 0, 0x40)?;
     let pe_off = u32_at(&head, 0x3C)? as u64;
@@ -138,13 +163,13 @@ fn extract(path: &std::path::Path) -> Option<String> {
         let size = u32_at(&entries, e + 16)? as usize;
         let ptr = u32_at(&entries, e + 24)? as u64;
         let record = read_at(&mut file, ptr, size)?;
-        return render_rsds(&record);
+        return rsds(&record);
     }
     None
 }
 
 #[cfg(target_os = "linux")]
-fn extract(path: &std::path::Path) -> Option<String> {
+fn extract(path: &std::path::Path) -> Option<Identity> {
     let mut file = std::fs::File::open(path).ok()?;
     let head = read_at(&mut file, 0, 64)?;
     if &head[0..4] != b"\x7fELF" || head[4] != 2 {
@@ -171,7 +196,11 @@ fn extract(path: &std::path::Path) -> Option<String> {
             let desc_at = name_at + name_size.div_ceil(4) * 4;
             if note_type == 3 && notes.get(name_at..name_at + 4) == Some(b"GNU\0") {
                 let id = notes.get(desc_at..desc_at + desc_size)?;
-                return Some(format!("build-id={}", render_hex_id(id)));
+                let hex = render_hex_id(id);
+                return Some(Identity {
+                    display: format!("build-id={}", hex),
+                    key: hex,
+                });
             }
             cursor = desc_at + desc_size.div_ceil(4) * 4;
         }
@@ -180,7 +209,7 @@ fn extract(path: &std::path::Path) -> Option<String> {
 }
 
 #[cfg(target_os = "macos")]
-fn extract(path: &std::path::Path) -> Option<String> {
+fn extract(path: &std::path::Path) -> Option<Identity> {
     let mut file = std::fs::File::open(path).ok()?;
     let head = read_at(&mut file, 0, 32)?;
     let magic = u32_at(&head, 0)?;
@@ -199,7 +228,11 @@ fn extract(path: &std::path::Path) -> Option<String> {
         if kind == 0x1B {
             // LC_UUID
             let uuid = read_at(&mut file, cursor + 8, 16)?;
-            return Some(format!("uuid={}", render_hex_id(&uuid)));
+            let hex = render_hex_id(&uuid);
+            return Some(Identity {
+                display: format!("uuid={}", hex),
+                key: hex,
+            });
         }
         cursor += size;
     }

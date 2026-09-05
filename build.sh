@@ -827,27 +827,45 @@ prune_dev_pdb_store() {
   done <<< "$stale"
 }
 
-retain_dev_pdb() {
-  local sha="$1" src="${2:-$(dev_pdb_source)}" store dest
-  if [ -z "$sha" ]; then
-    echo "[symbols] no build sha; symbol file not retained" >&2
-    return 0
+# The symbol file's own debug identity, which is what the crash sidecar names.
+# A commit sha cannot be the key: the same source relinks to a different symbol
+# file every time, and a foreground retention runs after HEAD may have moved.
+dev_pdb_key() {
+  local src="$1" python_bin
+  python_bin="$(command -v python3 || command -v python || true)"
+  if [ -z "$python_bin" ]; then
+    return 1
   fi
+  "$python_bin" scripts/pdb_identity.py "$src" 2>/dev/null
+}
+
+retain_dev_pdb() {
+  local sha="$1" src="${2:-$(dev_pdb_source)}" key="${3:-}" store dest
   if [ ! -f "$src" ]; then
     # Only the MSVC toolchain emits a PDB; elsewhere symbols live in the binary.
     return 0
   fi
+  if [ -z "$key" ]; then
+    key="$(dev_pdb_key "$src" || true)"
+  fi
+  if [ -z "$key" ]; then
+    echo "[symbols] no debug identity in $src; symbol file not retained" >&2
+    return 0
+  fi
   store="$(dev_pdb_store)"
-  dest="$store/$sha"
+  dest="$store/$key"
   mkdir -p "$dest"
   if [ ! -f "$dest/codeterm.pdb" ] || [ "$src" -nt "$dest/codeterm.pdb" ]; then
     cp -f "$src" "$dest/codeterm.pdb.partial"
     mv -f "$dest/codeterm.pdb.partial" "$dest/codeterm.pdb"
-    echo "[symbols] retained ${sha:0:12} -> $dest/codeterm.pdb"
+    echo "[symbols] retained $key -> $dest/codeterm.pdb"
   else
     # Touch so an unchanged rerun still counts as the most recently used build.
     touch "$dest"
   fi
+  # The sha is informative only — which source the symbols came from, for a human.
+  printf '%s
+' "${sha:-unknown}" > "$dest/build-sha.txt"
   prune_dev_pdb_store
 }
 
@@ -1364,7 +1382,7 @@ CodeTerm build commands
 
   dev                         Start the visible shared dev instance
   dev-prebuilt                Restart a validated dev build without Cargo
-  retain-pdb <sha> [pdb]      Keep a linked dev build's symbol file (last 3)
+  retain-pdb <sha> [pdb] [key]  Keep a linked dev build's symbol file (last 3)
   check                       Fast Rust compile check
   frontend                    Production frontend typecheck + bundle
   release-inputs              Build target-aware frontend, CLI, and embed bundle inputs
@@ -1474,9 +1492,9 @@ EOF
     esac
     ;;
   retain-pdb)
-    # ./build.sh retain-pdb <build-sha> [pdb-path] — the seam the dev paths call
+    # ./build.sh retain-pdb <build-sha> [pdb-path] [key] — the seam the dev paths call
     # and scripts/check-build-pdb-retention.sh drives against a fixture store.
-    retain_dev_pdb "${2:-}" "${3:-$(dev_pdb_source)}"
+    retain_dev_pdb "${2:-}" "${3:-$(dev_pdb_source)}" "${4:-}"
     ;;
   check)
     enter_build_gateway "$CMD ${*:2}"
