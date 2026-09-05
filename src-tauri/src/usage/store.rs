@@ -24,6 +24,10 @@ const MAX_ROWS_PER_PROVIDER: i64 = 10_000;
 pub enum UsageFailureKind {
     Timeout,
     FetchError,
+    /// The provider plugin is confined and was denied a sandbox capability it
+    /// needs. Distinct from FetchError: nothing upstream is wrong, the plugin
+    /// simply cannot reach what it declared, and only the user can fix that.
+    CapabilityDenied,
     SourceUnavailable,
     Internal,
     ParseError,
@@ -33,10 +37,11 @@ pub enum UsageFailureKind {
 }
 
 impl UsageFailureKind {
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Timeout => "TIMEOUT",
             Self::FetchError => "FETCH_ERROR",
+            Self::CapabilityDenied => "CAPABILITY_DENIED",
             Self::SourceUnavailable => "SOURCE_UNAVAILABLE",
             Self::Internal => "INTERNAL",
             Self::ParseError => "PARSE_ERROR",
@@ -191,6 +196,45 @@ impl UsageStore {
             .query_row(params![provider, account_id], row_to_header)
             .ok();
         Ok(row)
+    }
+
+    /// Newest failed probe, whether or not a good reading came after it.
+    pub fn get_latest_failure(
+        &self,
+        provider: &str,
+        account_id: Option<&str>,
+    ) -> Result<Option<UsageSnapshotRow>, String> {
+        let conn = self.conn.lock();
+        let sql = format!(
+            "{} WHERE provider = ?1 AND (?2 IS NULL OR account_id = ?2) AND parsed_ok = 0 ORDER BY captured_at DESC LIMIT 1",
+            SELECT_HEADER
+        );
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(|e| format!("prepare get_latest_failure: {}", e))?;
+        Ok(stmt.query_row(params![provider, account_id], row_to_header).ok())
+    }
+
+    /// The latest good reading, carrying the reason it stopped moving.
+    ///
+    /// A frozen gauge with nothing to explain it is the failure this exists to
+    /// prevent: when the newest probe failed AFTER the newest good reading, the
+    /// row the UI already renders comes back stamped with that failure, so the
+    /// staleness has a stated cause instead of being silent.
+    pub fn get_latest_with_stale_reason(
+        &self,
+        provider: &str,
+        account_id: Option<&str>,
+    ) -> Result<Option<UsageSnapshotRow>, String> {
+        let Some(mut latest) = self.get_latest(provider, account_id)? else {
+            return Ok(None);
+        };
+        if let Some(failure) = self.get_latest_failure(provider, account_id)? {
+            if failure.captured_at > latest.captured_at {
+                latest.failure_reason = failure.failure_reason;
+            }
+        }
+        Ok(Some(latest))
     }
 
     pub fn get_history(
@@ -698,6 +742,71 @@ mod tests {
             .as_deref()
             .unwrap_or("")
             .contains("100%/100%"));
+    }
+
+    /// The failure mode that cost a day: the gauge kept rendering its last good
+    /// reading and nothing anywhere said why it had stopped moving. The newest
+    /// failure now rides on the row the panel already draws.
+    #[test]
+    fn a_frozen_reading_carries_the_failure_that_froze_it() {
+        let store = UsageStore::open_in_memory().unwrap();
+        let now = chrono::Utc::now().timestamp_millis();
+        store
+            .insert_snapshot(&codex_snapshot(now - 86_400_000, 12.0, 7.0, 0, 0))
+            .unwrap();
+        store
+            .insert_failure_kind(
+                "codex",
+                None,
+                None,
+                UsageFailureKind::CapabilityDenied,
+                "plugin denied readFile",
+                None,
+            )
+            .unwrap();
+
+        let row = store
+            .get_latest_with_stale_reason("codex", None)
+            .unwrap()
+            .expect("the last good reading is still what the panel renders");
+        assert!(row.parsed_ok, "the rendered row is still the good reading");
+        assert_eq!(row.weekly_pct, Some(7.0));
+        let reason = row
+            .failure_reason
+            .as_deref()
+            .expect("staleness must name its cause");
+        assert!(
+            reason.starts_with(UsageFailureKind::CapabilityDenied.as_str()),
+            "the cause is carried as the kind constant, got {reason}"
+        );
+    }
+
+    #[test]
+    fn a_reading_newer_than_the_last_failure_is_not_marked_stale() {
+        let store = UsageStore::open_in_memory().unwrap();
+        let now = chrono::Utc::now().timestamp_millis();
+        store
+            .insert_failure_kind(
+                "codex",
+                None,
+                None,
+                UsageFailureKind::CapabilityDenied,
+                "plugin denied readFile",
+                None,
+            )
+            .unwrap();
+        store
+            .insert_snapshot(&codex_snapshot(now + 3_600_000, 12.0, 7.0, 0, 0))
+            .unwrap();
+
+        let row = store
+            .get_latest_with_stale_reason("codex", None)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            row.failure_reason, None,
+            "a recovered probe must not keep flagging a cause that has passed"
+        );
     }
 
     #[test]

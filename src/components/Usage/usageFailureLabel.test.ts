@@ -12,6 +12,7 @@ test("each failure kind gets its own label, and none of them borrows timeout", (
   const kinds = [
     "TIMEOUT",
     "FETCH_ERROR",
+    "CAPABILITY_DENIED",
     "SOURCE_UNAVAILABLE",
     "INTERNAL",
     "PARSE_ERROR",
@@ -26,7 +27,7 @@ test("each failure kind gets its own label, and none of them borrows timeout", (
 
 test("a non-timeout kind never renders as timeout", () => {
   const timeout = usageFailureLabel(row("TIMEOUT: probe did not answer"));
-  for (const kind of ["FETCH_ERROR", "PARSE_ERROR", "SOURCE_UNAVAILABLE"]) {
+  for (const kind of ["FETCH_ERROR", "PARSE_ERROR", "SOURCE_UNAVAILABLE", "CAPABILITY_DENIED"]) {
     assert.notEqual(usageFailureLabel(row(`${kind}: detail`)), timeout);
   }
 });
