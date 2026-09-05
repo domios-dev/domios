@@ -52,15 +52,26 @@ WORKSPACE_ID="$(dc workspace create "$WORKSPACE_NAME" --json \
 echo ">>> workspace $WORKSPACE_ID ($WORKSPACE_NAME)"
 
 TAB_IDS=""
+MARKERS=""
+NONCE="$(date +%s)-$$"
+MARKER_INDEX=0
+# Each tab prints a unique marker from its OWN startup command. Nothing here
+# writes to a PTY: input delivery is a fragile path gated on explicit approval,
+# and the output path is what this oracle is about.
 for _ in $(seq 1 "$TABCOUNT"); do
-  id="$(dc tab new --workspace "$WORKSPACE_ID" --json \
-    | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+  MARKER_INDEX=$((MARKER_INDEX + 1))
+  MARK="WMSMARK-${NONCE}-${MARKER_INDEX}"
+  id="$(dc tab new --workspace "$WORKSPACE_ID" --cmd "echo $MARK" --json     | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
   TAB_IDS="${TAB_IDS:+$TAB_IDS,}$id"
+  MARKERS="${MARKERS:+$MARKERS,}$id=$MARK"
 done
 echo ">>> $TABCOUNT tabs created"
 
 PEER_ID=""
-if [ -n "${WMS_PEER_NAME:-}" ]; then
+if [ -n "${WMS_PEER_INSTANCE_ID:-}" ]; then
+  PEER_ID="$WMS_PEER_INSTANCE_ID"
+  echo ">>> cross-peer origin: instance $PEER_ID (explicit)"
+elif [ -n "${WMS_PEER_NAME:-}" ]; then
   PEER_ID="$(dc mesh peers --json | python3 -c '
 import json, sys
 name = sys.argv[1]
@@ -84,5 +95,27 @@ export WMS_TABS="$TAB_IDS"
 export WMS_PEER_ID="$PEER_ID"
 export WMS_SKIP_OVERFLOW="${WMS_SKIP_OVERFLOW:-0}"
 export WMS_ORIGIN_SWITCHES="${WMS_ORIGIN_SWITCHES:-0}"
+export WMS_MARKERS="$MARKERS"
 export MSYS_NO_PATHCONV=1
+set +e
 node --import "$LOADER_URL" "$ENTRY"
+HARNESS_STATUS=$?
+set -e
+
+# A missing marker is only a mirror bug if the daemon actually has it.
+# Cross-check here, in bash, where dc lives.
+LOST="$ROOT/target-check/evals/web-mirror-switch-sync/output-missing.txt"
+if [ -s "$LOST" ]; then
+  echo ">>> cross-checking lost output against the daemon"
+  while read -r lost_tab; do
+    [ -n "$lost_tab" ] || continue
+    want="${MARKERS#*${lost_tab}=}"
+    want="${want%%,*}"
+    if dc tab get-text --tab "$lost_tab" 2>/dev/null | grep -q "$want"; then
+      echo "    $lost_tab: daemon HAS $want, client did not receive it -> MIRROR LOSS"
+    else
+      echo "    $lost_tab: daemon does not have $want either -> not a mirror loss"
+    fi
+  done < "$LOST"
+fi
+exit "$HARNESS_STATUS"
