@@ -124,6 +124,42 @@ pub fn validate_dispatch_review_capacity(plan: &Plan, task: &Task) -> Result<(),
     })
 }
 
+/// The gate a review re-entry actually trips, before any override is considered.
+/// Both arms are reachable from the same input, so which one is NAMED has to be
+/// a decision rather than source order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ReviewEntryGate {
+    RoundBound,
+    OracleScope,
+}
+
+/// A BOUNCE recorded with `distinct_oracle` is the reviewer stating that this
+/// correction needs a different acceptance oracle. The correction answering it
+/// is compliance, not expansion, so the scope gate must not claim it — otherwise
+/// every compliant correction to such a bounce is refused as scope expansion and
+/// the operator is moved onto the scope remedy for a round-domain event.
+fn latest_bounce_reopened_oracle(task: &Task) -> bool {
+    task.review_evidence
+        .iter()
+        .rev()
+        .find(|evidence| evidence.verdict == ReviewVerdict::Bounce)
+        .is_some_and(|evidence| evidence.distinct_oracle)
+}
+
+/// Single source of gate selection: the round bound is the outer bound on how
+/// many times a task may iterate, so it is named whenever it is breached; the
+/// scope gate speaks only for an oracle change no bounce authorized.
+fn tripped_review_gate(task: &Task, rounds: u32) -> Option<ReviewEntryGate> {
+    if task.review_round >= rounds {
+        return Some(ReviewEntryGate::RoundBound);
+    }
+    if task.review_round == 0 || latest_bounce_reopened_oracle(task) {
+        return None;
+    }
+    let prev_oracle = task.review_oracle.as_deref()?;
+    (prev_oracle != oracle_signature(task)).then_some(ReviewEntryGate::OracleScope)
+}
+
 /// Validates entry into `in_review`: evidence, review-depth bound, and oracle
 /// stability. Does NOT check WIP/credit — that gates ordinary dispatch
 /// (Pending -> in_progress), not review entry, so a task already in flight can
@@ -133,48 +169,43 @@ pub fn validate_enter_review(task: &Task) -> Result<(), PlanError> {
         return Err(PlanError::ReviewEvidenceRequired);
     }
     let rounds = max_review_rounds();
-    if task.review_round >= rounds {
-        match &task.review_override {
-            Some(o) if override_is_complete(o) => {}
-            Some(_) => return Err(PlanError::ReviewOverrideIncomplete),
-            None => {
-                return Err(PlanError::ReviewRoundExceeded {
-                    round: task.review_round,
-                    max_rounds: rounds,
-                })
-            }
-        }
+    let Some(gate) = tripped_review_gate(task, rounds) else {
+        return Ok(());
+    };
+    match &task.review_override {
+        Some(o) if override_is_complete(o) => Ok(()),
+        Some(_) => Err(PlanError::ReviewOverrideIncomplete),
+        None => Err(match gate {
+            ReviewEntryGate::RoundBound => PlanError::ReviewRoundExceeded {
+                round: task.review_round,
+                max_rounds: rounds,
+            },
+            ReviewEntryGate::OracleScope => PlanError::ReviewOracleScopeExpansion,
+        }),
     }
-    if task.review_round > 0 {
-        if let Some(prev_oracle) = task.review_oracle.as_deref() {
-            let current = oracle_signature(task);
-            let has_override = task
-                .review_override
-                .as_ref()
-                .is_some_and(override_is_complete);
-            if prev_oracle != current && !has_override {
-                return Err(PlanError::ReviewOracleScopeExpansion);
-            }
-        }
-    }
-    Ok(())
 }
 
 /// Fixes the acceptance oracle on first review entry or an authorized correction.
-/// Consumes bounded-round overrides into the immutable audit log.
+/// Consumes a spent override into the immutable audit log.
 pub fn fix_oracle_and_consume_override(task: &mut Task, now_ms: u64) {
     let rounds = max_review_rounds();
+    // Read before the oracle moves: the gate verdict depends on the stored one.
+    let override_was_spent = tripped_review_gate(task, rounds).is_some();
     let current_oracle = oracle_signature(task);
     let authorized_correction = task.review_round > 0
-        && task
-            .review_override
-            .as_ref()
-            .is_some_and(override_is_complete)
-        && task.review_oracle.as_deref() != Some(current_oracle.as_str());
+        && task.review_oracle.as_deref() != Some(current_oracle.as_str())
+        && (latest_bounce_reopened_oracle(task)
+            || task
+                .review_override
+                .as_ref()
+                .is_some_and(override_is_complete));
     if task.review_oracle.is_none() || authorized_correction {
         task.review_oracle = Some(current_oracle);
     }
-    if task.review_round >= rounds {
+    // Consumed whenever it cleared a gate, not only at the round bound. An
+    // override recorded for scope used to survive unconsumed and then silently
+    // satisfy the round bound later — one gate's remedy waiving the other's.
+    if override_was_spent {
         if let Some(o) = task.review_override.take() {
             if override_is_complete(&o) {
                 task.review_audit.push(ReviewAuditEntry {

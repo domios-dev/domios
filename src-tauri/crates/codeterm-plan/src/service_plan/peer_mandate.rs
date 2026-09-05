@@ -58,15 +58,17 @@ pub fn planner_peer_intro_line(plan_id: &str, orchestrator_tab_id: Option<&str>)
     )
 }
 
-/// Compact prefix to prepend to an Orchestrator's plan reminder while the
-/// plan has no live Planner. `None` once attached or explicitly waived —
-/// the nudge must stop immediately in both cases. A dead planner tab
-/// (`OrchestratorFallback`) still nudges, since attachment has effectively
-/// lapsed.
+/// Compact prefix to prepend to an Orchestrator's plan reminder while the plan
+/// has no live Planner. `None` once attached or explicitly waived — the nudge
+/// must stop immediately in both cases. A dead planner tab still nudges, since
+/// attachment has effectively lapsed, but with its OWN text: it IS bound, and
+/// telling its owner nothing is bound sends them to re-bind the tab they already
+/// bound, which is a remedy that cannot work (codeterm#427).
 pub fn planner_pairing_nudge_prefix(resolution: &PeerResolution) -> Option<&'static str> {
     match resolution {
-        PeerResolution::Unbound | PeerResolution::OrchestratorFallback { .. } => {
-            Some(super::prompts_plan::PEER_WAIVER_HINT)
+        PeerResolution::Unbound => Some(super::prompts_plan::PEER_WAIVER_HINT),
+        PeerResolution::OrchestratorFallback { .. } => {
+            Some(super::prompts_plan::PEER_PLANNER_DOWN_HINT)
         }
         PeerResolution::Planner { .. } | PeerResolution::Waived { .. } => None,
     }
@@ -77,15 +79,26 @@ mod tests {
     use super::*;
     use crate::service_plan::prompts_plan;
 
+    /// Both unpaired states nudge, and each names its OWN state. Asserted by
+    /// constant identity, never by the words inside either constant.
     #[test]
     fn nudge_prefix_fires_only_when_unpaired() {
-        assert!(planner_pairing_nudge_prefix(&PeerResolution::Unbound).is_some());
-        assert!(
+        assert_eq!(
+            planner_pairing_nudge_prefix(&PeerResolution::Unbound),
+            Some(prompts_plan::PEER_WAIVER_HINT)
+        );
+        assert_eq!(
             planner_pairing_nudge_prefix(&PeerResolution::OrchestratorFallback {
                 bound_tab_id: "orch-1".into(),
                 reason: "planner tab gone".into(),
-            })
-            .is_some()
+            }),
+            Some(prompts_plan::PEER_PLANNER_DOWN_HINT),
+            "a bound-but-down Planner must not be reported as none bound: the bind remedy cannot fix a liveness failure"
+        );
+        assert_ne!(
+            prompts_plan::PEER_WAIVER_HINT,
+            prompts_plan::PEER_PLANNER_DOWN_HINT,
+            "the two states must not collapse onto one constant again"
         );
         assert!(planner_pairing_nudge_prefix(&PeerResolution::Planner {
             tab_id: "p-1".into()

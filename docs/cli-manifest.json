@@ -6639,7 +6639,7 @@
           "subcommands": [
             {
               "name": "set",
-              "about": "Set the plan's goal vector, vision, constraints, and postulates",
+              "about": "Update the plan's goal; fields not passed keep their current value",
               "aliases": [],
               "args": [
                 {
@@ -6649,7 +6649,7 @@
                   "value_name": "CONSTRAINT",
                   "possible_values": [],
                   "default": null,
-                  "help": null,
+                  "help": "Replaces the constraint list; repeatable. Omit to keep, pass an empty value to clear",
                   "aliases": []
                 },
                 {
@@ -6679,17 +6679,17 @@
                   "value_name": "POSTULATE",
                   "possible_values": [],
                   "default": null,
-                  "help": null,
+                  "help": "Replaces the postulate list; repeatable. Omit to keep, pass an empty value to clear",
                   "aliases": []
                 },
                 {
                   "name": "vector",
                   "positional": false,
-                  "required": true,
+                  "required": false,
                   "value_name": "VECTOR",
                   "possible_values": [],
                   "default": null,
-                  "help": null,
+                  "help": "Goal vector; required the first time a goal is set. Every field you omit is kept",
                   "aliases": []
                 },
                 {
