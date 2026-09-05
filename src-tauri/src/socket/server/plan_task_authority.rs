@@ -417,3 +417,5 @@ fn rpc_error(message: impl ToString) -> JsonRpcError {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod planner_authority_tests;
