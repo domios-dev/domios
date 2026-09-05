@@ -53,6 +53,15 @@ from ctypes import wintypes
 from dataclasses import dataclass, field
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pdb_identity import (  # noqa: E402  (sibling file, not a package)
+    cv_identity as module_identity,
+    describe_cv,
+    identity_key,
+    pdb_identity,
+    pe_cv_record,
+)
+
 MINIDUMP_SIGNATURE = 0x504D444D
 
 STREAM_THREAD_LIST = 3
@@ -248,124 +257,6 @@ def parse(path: Path) -> Minidump:
     return dump
 
 
-def pe_cv_record(image: Path) -> bytes:
-    """Read the RSDS debug record straight out of an on-disk PE."""
-    try:
-        data = image.read_bytes()
-    except OSError:
-        return b""
-    try:
-        (e_lfanew,) = struct.unpack_from("<I", data, 0x3C)
-        (n_sections,) = struct.unpack_from("<H", data, e_lfanew + 6)
-        (opt_size,) = struct.unpack_from("<H", data, e_lfanew + 20)
-        opt_off = e_lfanew + 24
-        (magic,) = struct.unpack_from("<H", data, opt_off)
-        dir_off = opt_off + (112 if magic == 0x20B else 96)
-        debug_rva, debug_size = struct.unpack_from("<II", data, dir_off + 6 * 8)
-        if debug_rva == 0:
-            return b""
-
-        sections = []
-        sec_off = opt_off + opt_size
-        for i in range(n_sections):
-            off = sec_off + i * 40
-            virt_size, virt_addr, raw_size, raw_ptr = struct.unpack_from("<IIII", data, off + 8)
-            sections.append((virt_addr, max(virt_size, raw_size), raw_ptr))
-
-        def to_offset(rva: int) -> int | None:
-            for virt_addr, size, raw_ptr in sections:
-                if virt_addr <= rva < virt_addr + size:
-                    return raw_ptr + (rva - virt_addr)
-            return None
-
-        table = to_offset(debug_rva)
-        if table is None:
-            return b""
-        for i in range(debug_size // 28):
-            entry = table + i * 28
-            (entry_type,) = struct.unpack_from("<I", data, entry + 12)
-            size_of_data, _rva, ptr = struct.unpack_from("<III", data, entry + 16)
-            if entry_type == 2:  # IMAGE_DEBUG_TYPE_CODEVIEW
-                return data[ptr : ptr + size_of_data]
-    except (struct.error, IndexError):
-        return b""
-    return b""
-
-
-def describe_cv(record: bytes) -> str:
-    if len(record) < 24 or record[:4] != b"RSDS":
-        return "<no RSDS record>"
-    d1, d2, d3 = struct.unpack_from("<IHH", record, 4)
-    d4 = record[12:20]
-    (age,) = struct.unpack_from("<I", record, 20)
-    pdb = record[24:].split(b"\x00", 1)[0].decode("utf-8", "replace")
-    guid = f"{d1:08X}-{d2:04X}-{d3:04X}-{d4[:2].hex().upper()}-{d4[2:].hex().upper()}"
-    return f"{guid} age={age} pdb={pdb.replace(chr(92), '/').rsplit('/', 1)[-1]}"
-
-
-MSF_MAGIC = b"Microsoft C/C++ MSF 7.00" + bytes([13, 10, 26]) + b"DS" + bytes([0, 0, 0])
-
-
-def pdb_identity(path: Path) -> tuple[str, int] | None:
-    """(GUID, age) a PDB claims for itself, read from its MSF PDB-info stream.
-
-    This is the half a symbol file can be checked by when the binary it was linked
-    with is gone: a PDB that does not carry the dump's GUID names other functions.
-    """
-    try:
-        with path.open("rb") as handle:
-            header = handle.read(56)
-            if not header.startswith(MSF_MAGIC):
-                return None
-            block_size, _free_map, _blocks, dir_bytes, _unknown, block_map = struct.unpack_from(
-                "<IIIIII", header, 32)
-            if block_size == 0:
-                return None
-
-            def read_block(index: int) -> bytes:
-                handle.seek(index * block_size)
-                return handle.read(block_size)
-
-            n_dir_blocks = -(-dir_bytes // block_size)
-            map_bytes = read_block(block_map)
-            dir_blocks = struct.unpack_from(f"<{n_dir_blocks}I", map_bytes, 0)
-            directory = b"".join(read_block(b) for b in dir_blocks)[:dir_bytes]
-
-            (n_streams,) = struct.unpack_from("<I", directory, 0)
-            sizes = struct.unpack_from(f"<{n_streams}I", directory, 4)
-            cursor = 4 + n_streams * 4
-            # Stream 1 is the PDB info stream; walk past stream 0's block list.
-            for index in range(2):
-                size = sizes[index] if sizes[index] != 0xFFFFFFFF else 0
-                count = -(-size // block_size)
-                if index == 1:
-                    blocks = struct.unpack_from(f"<{count}I", directory, cursor)
-                    info = b"".join(read_block(b) for b in blocks)[:size]
-                    if len(info) < 28:
-                        return None
-                    _version, _signature, age = struct.unpack_from("<III", info, 0)
-                    d1, d2, d3 = struct.unpack_from("<IHH", info, 12)
-                    d4 = info[20:28]
-                    guid = (f"{d1:08X}-{d2:04X}-{d3:04X}-"
-                            f"{d4[:2].hex().upper()}-{d4[2:].hex().upper()}")
-                    return guid, age
-                cursor += count * 4
-    except (OSError, struct.error, IndexError):
-        return None
-    return None
-
-
-def module_identity(record: bytes) -> tuple[str, int] | None:
-    """(GUID, age) a dump's module recorded, in the same shape as pdb_identity."""
-    if len(record) < 24 or record[:4] != b"RSDS":
-        return None
-    d1, d2, d3 = struct.unpack_from("<IHH", record, 4)
-    d4 = record[12:20]
-    (age,) = struct.unpack_from("<I", record, 20)
-    return (f"{d1:08X}-{d2:04X}-{d3:04X}-"
-            f"{d4[:2].hex().upper()}-{d4[2:].hex().upper()}"), age
-
-
 def sidecar_symbols_dir(sidecar: Path) -> Path | None:
     """The `Symbols:` line crash::report writes — where build.sh retained the PDB."""
     try:
@@ -468,7 +359,7 @@ class Symbolizer:
         self._prototypes()
         self.handle = wintypes.HANDLE(self.FAKE_PROCESS)
         self.dbghelp.SymSetOptions(
-            SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS | SYMOPT_LOAD_LINES
+            SYMOPT_UNDNAME | SYMOPT_LOAD_LINES
             | SYMOPT_EXACT_SYMBOLS | SYMOPT_FAIL_CRITICAL_ERRORS | SYMOPT_NO_PROMPTS)
         if not self.dbghelp.SymInitialize(self.handle, symbol_path.encode(), False):
             raise DumpError(f"SymInitialize failed: {ctypes.GetLastError()}")
@@ -619,15 +510,12 @@ MS_SYMBOL_SERVER = "https://msdl.microsoft.com/download/symbols"
 
 
 def cv_key(record: bytes) -> tuple[str, str] | None:
-    """(pdb file name, GUID+age key) as the Microsoft symbol server indexes it."""
-    if len(record) < 24 or record[:4] != b"RSDS":
+    """(pdb file name, symbol-store key) as the Microsoft symbol server indexes it."""
+    key = identity_key(module_identity(record))
+    if key is None:
         return None
-    d1, d2, d3 = struct.unpack_from("<IHH", record, 4)
-    d4 = record[12:20]
-    (age,) = struct.unpack_from("<I", record, 20)
     name = record[24:].split(b"\x00", 1)[0].decode("utf-8", "replace")
-    name = name.replace("\\", "/").rsplit("/", 1)[-1]
-    return name, f"{d1:08X}{d2:04X}{d3:04X}{d4.hex().upper()}{age:X}"
+    return name.replace("\\", "/").rsplit("/", 1)[-1], key
 
 
 def fetch_symbols(dump: Minidump, destination: Path) -> None:
@@ -694,12 +582,16 @@ def resolve_symbol_file(args, crash_module: Module | None) -> tuple[dict[int, Pa
         stores.append(from_sidecar)
     if args.pdb_store:
         stores.append(args.pdb_store)
+    missed: list[str] = []
     for store in stores:
         found = find_pdb(store, wanted)
         if found is not None:
             candidates.append(found)
         else:
-            return {}, f"no symbol file in {store} matches {wanted[0]} age={wanted[1]}"
+            # A store that holds nothing matching is not the end of the search: the
+            # sidecar names where the symbols were meant to land, which is not always
+            # where they did.
+            missed.append(str(store))
 
     for candidate in candidates:
         identity = pdb_identity(candidate)
@@ -710,6 +602,8 @@ def resolve_symbol_file(args, crash_module: Module | None) -> tuple[dict[int, Pa
                         f"{wanted[0]} age={wanted[1]} - REFUSED")
         return {crash_module.base: candidate}, f"{candidate} (identity verified)"
 
+    if missed:
+        return {}, f"nothing matching {wanted[0]} age={wanted[1]} in " + ", ".join(missed)
     return {}, "none supplied"
 
 
@@ -760,6 +654,7 @@ def main() -> int:
         if dump.exception_context and len(dump.exception_context) >= CTX_SIZE
         else 0
     )
+    extra_symbol_dirs: list[str] = []
     crash_module = dump.module_for(captured_rip)
     if crash_module is None and override:
         crash_module = next(m for m in dump.modules if m.base in override)
@@ -768,6 +663,11 @@ def main() -> int:
     symbols_without_image = bool(symbol_files) and crash_module is not None         and not crash_module.verified
     if symbols_without_image:
         crash_module.verified = True
+    elif symbol_files:
+        # The image is present and verified, so it stays the module source: x64
+        # unwinding needs its .pdata. The symbol file only joins the search path.
+        extra_symbol_dirs.extend(str(p.parent) for p in symbol_files.values())
+        symbol_files = {}
 
     print(f"Dump         : {args.dump}  ({args.dump.stat().st_size} bytes)")
     print(f"Threads      : {len(dump.threads)}    Modules: {len(dump.modules)}"
@@ -794,6 +694,9 @@ def main() -> int:
         fetch_symbols(dump, args.fetch_symbols)
 
     search = [str(args.image.parent)] if args.image else []
+    search.extend(extra_symbol_dirs)
+    if crash_module is not None and not args.image:
+        search.append(str(Path(crash_module.name).parent))
     if args.fetch_symbols:
         search.append(str(args.fetch_symbols))
     symbol_path = args.symbol_path or ";".join(search) or "."
