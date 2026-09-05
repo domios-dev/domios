@@ -8,7 +8,7 @@ import {
 } from "react";
 import { invoke, reopenClosedTab, reopenClosedGroup, restoreOrphanedTab } from "../../lib/bridge";
 import { listen } from "../../lib/bridge";
-import { IS_WEB, webJson } from "../../lib/webApi";
+import { IS_WEB, webJson, WebApiError } from "../../lib/webApi";
 import {
   loadCachedStateSync,
   loadCachedStateAsync,
@@ -40,6 +40,7 @@ import { isCodeTermFrontendTestMode } from "../../components/Terminal/useChatSes
 import { MultiplexerActionsContext, MuxStateStoreContext, type MultiplexerActionsContextType, type SpawnedTab } from "./context";
 import { createMuxStateStore } from "./selectorStore";
 import { createRefreshCoalescer } from "./refreshCoalescer";
+import { createPeerRebindGate } from "./peerRebindGate";
 import type { Tab } from "../../lib/types";
 import { remoteTabsFromOrdinaryProjection } from "./remoteTabProjection";
 import {
@@ -90,6 +91,12 @@ function buildInitialState(): ExtendedState {
     recently_closed: cached.recently_closed,
     generation: HYDRATED_GENERATION,
   };
+}
+
+/** The daemon refuses snapshots past its concurrency bound. Distinct from a
+ *  failure: the state is fine, the request was declined. */
+function isSnapshotRefusal(error: unknown): boolean {
+  return error instanceof WebApiError && error.status === 503;
 }
 
 export function muxStateEventAction(payload: unknown): "apply-snapshot" | "refresh" {
@@ -397,12 +404,16 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     };
     const rebindPeerContext = (event: Event) => {
       const switchId = (event as CustomEvent<{ switchId: number }>).detail.switchId;
+      peerRebindGateRef.current.open(switchId);
       void refreshFromBackend().then((success) => {
-        if (peerSwitchRef.current !== switchId) return;
-        if (success) writeGateRef.current.unlock();
-        window.dispatchEvent(new CustomEvent("codeterm-peer-switch-ready", {
-          detail: { switchId, success },
-        }));
+        if (peerSwitchRef.current !== switchId || success) return;
+        // A refusal is not-yet: stay open and let a later accepted snapshot
+        // settle it. Anything else is a real failure and closes the rebind.
+        if (refreshCoalescerRef.current.lastWasRefused()) {
+          peerRebindGateRef.current.refused(switchId);
+          return;
+        }
+        peerRebindGateRef.current.failed(switchId);
       });
     };
     window.addEventListener("codeterm-peer-switch-reset", resetPeerContext);
@@ -449,9 +460,15 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   const runRefresh = useCallback(async (): Promise<boolean> => {
     try {
       const s = await invoke<MultiplexerState>("mux_get_state");
-      if (s) applyBackendState(s);
+      if (s) {
+        applyBackendState(s);
+        peerRebindGateRef.current.acceptedSnapshot(peerSwitchRef.current);
+      }
       return !!s;
     } catch (e) {
+      // Back-pressure, not failure: rethrow so the coalescer records it and
+      // the next event's request retries. Never logged as an error.
+      if (isSnapshotRefusal(e)) throw e;
       if (!(e instanceof DOMException && e.name === "AbortError")) {
         console.warn("Failed to refresh state:", e);
       }
@@ -460,7 +477,18 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   }, [applyBackendState]);
   const runRefreshRef = useRef(runRefresh);
   runRefreshRef.current = runRefresh;
-  const refreshCoalescerRef = useRef(createRefreshCoalescer(() => runRefreshRef.current()));
+  const refreshCoalescerRef = useRef(
+    createRefreshCoalescer(() => runRefreshRef.current(), isSnapshotRefusal),
+  );
+  const peerRebindGateRef = useRef(
+    createPeerRebindGate({
+      unlock: () => writeGateRef.current.unlock(),
+      announce: (switchId, success) =>
+        window.dispatchEvent(new CustomEvent("codeterm-peer-switch-ready", {
+          detail: { switchId, success },
+        })),
+    }),
+  );
   const refreshFromBackend = useCallback(
     (): Promise<boolean> => refreshCoalescerRef.current.request(),
     [],

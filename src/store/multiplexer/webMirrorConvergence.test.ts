@@ -31,8 +31,12 @@ function base(): ExtendedState {
 
 const WS = "ws-1";
 
+/** `generation` is optional on the wire but this fixture always stamps one,
+ *  so the fixture type says so and the checks below need no fallback. */
+type StampedSnapshot = MultiplexerState & { generation: number };
+
 /** The daemon's state after `switches` switches: `tabCount` tabs, one focused. */
-function daemonSnapshot(generation: number, tabCount: number, focusedIndex: number): MultiplexerState {
+function daemonSnapshot(generation: number, tabCount: number, focusedIndex: number): StampedSnapshot {
   const tabIds = Array.from({ length: tabCount }, (_, i) => `t-${i}`);
   const tabs: Record<string, Tab> = {};
   for (const id of tabIds) {
@@ -65,13 +69,13 @@ type Step =
  */
 function replay(
   steps: Step[],
-  deliver: (snapshots: MultiplexerState[]) => MultiplexerState[],
+  deliver: (snapshots: StampedSnapshot[]) => StampedSnapshot[],
   startGeneration = 0,
-): { store: ExtendedState; daemon: MultiplexerState } {
+): { store: ExtendedState; daemon: StampedSnapshot } {
   let generation = startGeneration;
   let store = base();
   const dispatch = (action: Action) => { store = reducer(store, action); };
-  const pending: MultiplexerState[] = [];
+  const pending: StampedSnapshot[] = [];
   let latest = daemonSnapshot(generation, 8, 0);
 
   for (const step of steps) {
@@ -94,7 +98,7 @@ function replay(
   return { store, daemon: latest };
 }
 
-function assertConverged(store: ExtendedState, daemon: MultiplexerState, label: string): void {
+function assertConverged(store: ExtendedState, daemon: StampedSnapshot, label: string): void {
   assert(
     Object.keys(store.tabs).sort().join(",") === Object.keys(daemon.tabs).sort().join(","),
     `${label}: tab set differs (store=${Object.keys(store.tabs).length} daemon=${Object.keys(daemon.tabs).length})`,
@@ -109,12 +113,12 @@ function assertConverged(store: ExtendedState, daemon: MultiplexerState, label: 
   );
 }
 
-const inOrder = (s: MultiplexerState[]): MultiplexerState[] => s;
-const reversed = (s: MultiplexerState[]): MultiplexerState[] => [...s].reverse();
+const inOrder = (s: StampedSnapshot[]): StampedSnapshot[] => s;
+const reversed = (s: StampedSnapshot[]): StampedSnapshot[] => [...s].reverse();
 /** Deterministic interleave standing in for overlapping refetches resolving
  *  out of order - the shape a relayed round trip produces. */
-const shuffledPairs = (s: MultiplexerState[]): MultiplexerState[] => {
-  const out: MultiplexerState[] = [];
+const shuffledPairs = (s: StampedSnapshot[]): StampedSnapshot[] => {
+  const out: StampedSnapshot[] = [];
   for (let i = 0; i < s.length; i += 2) {
     if (i + 1 < s.length) out.push(s[i + 1], s[i]);
     else out.push(s[i]);
