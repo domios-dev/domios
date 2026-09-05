@@ -195,13 +195,45 @@ pub async fn spawn_pty_core(
         };
         let session_id = restore.session_id;
         let tab_cwd = restore.cwd;
-        let agent_type = restore.provider_id;
+        let stored_agent_type = restore.provider_id;
         let tab_model = restore.model;
         let tab_role = restore.role;
         let tab_role_profile = restore.role_profile;
+        let agent_type = match (session_id.as_deref(), tab_cwd.as_deref()) {
+            (Some(session_id), Some(cwd)) => {
+                let registry = svc.agent_registry.clone();
+                let cwd = cwd.to_string();
+                let session_id = session_id.to_string();
+                tokio::task::spawn_blocking(move || {
+                    crate::agent::provider_identity::provider_for_claimed_session(
+                        &registry,
+                        &cwd,
+                        &session_id,
+                    )
+                })
+                .await
+                .map_err(|error| format!("restore provider probe failed: {error}"))?
+            }
+            (Some(_), None) => None,
+            (None, _) => Some(stored_agent_type),
+        };
+        let Some(agent_type) = agent_type else {
+            svc.emit_boot_stage(pid, BootStage::PtySpawned, None);
+            svc.clear_unproven_restored_provider(pid);
+            svc.emit_boot_stage(pid, BootStage::ShellReady, None);
+            svc.emit_state_changed();
+            return Ok(pty_id);
+        };
         let mut should_fresh_launch = true;
         let agent_type_for_fresh = agent_type.clone();
         svc.emit_boot_stage(pid, BootStage::PtySpawned, None);
+        svc.set_and_lock_tab_agent_type_from(
+            pid,
+            agent_type.clone(),
+            crate::session::lifecycle::AgentTypeWriteOrigin::Restore,
+            None,
+        );
+        svc.emit_state_changed();
 
         // Resume only restored snapshots; direct spawn uses backend start.
         if let Some(session_id) = session_id {
@@ -225,9 +257,6 @@ pub async fn spawn_pty_core(
                 svc.set_agent_session_id(pid, None);
                 svc.emit_state_changed();
             } else {
-                svc.set_and_lock_tab_agent_type(pid, provider_id.clone());
-                svc.emit_state_changed();
-
                 // Build resume command from provider and global fallback config.
                 let pc = crate::config::provider_config(&provider_id);
                 let resume_enabled = pc.resume_sessions.unwrap_or(true);
@@ -940,8 +969,7 @@ fn mark_user_activity(
 }
 
 /// Feed bytes to the input parser when the destination tab is not locked.
-/// On match, lock `agent_type` to the detected provider — user typed an explicit
-/// launch command, which is the highest-authority intent next to a real spawn.
+/// A match may claim a bare shell, but cannot contradict a claimed session.
 fn parse_pty_input(
     svc: &ServiceState,
     mux: &crate::multiplexer::commands::MuxState,

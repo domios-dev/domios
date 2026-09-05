@@ -17,6 +17,7 @@ pub mod permission_request;
 pub mod plugin_registrar;
 pub mod prompt;
 pub mod provider;
+pub(crate) mod provider_identity;
 #[cfg(test)]
 mod question_removal_tests;
 pub mod recovered_seat_auth;

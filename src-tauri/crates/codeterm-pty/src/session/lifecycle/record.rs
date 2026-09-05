@@ -35,6 +35,48 @@ pub struct LifecycleKey {
     pub operation_id: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentTypeWriteOrigin {
+    Spawn,
+    Hook,
+    Parser,
+    Rebind,
+    Ui,
+    Restore,
+    Repair,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentTypeWriteAudit {
+    pub origin: AgentTypeWriteOrigin,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new_provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attempted_provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caller_tab_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub nonce_verified: bool,
+    pub applied: bool,
+    pub recorded_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LifecycleCheckpointHistoryEntry {
+    pub key: LifecycleKey,
+    pub committed_through: JournalSeq,
+    pub authority: CommittedAuthority,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_type_write: Option<AgentTypeWriteAudit>,
+    #[serde(default)]
+    pub sealed_at: String,
+}
+
 impl LifecycleKey {
     pub fn new(
         tab_id: impl Into<String>,
@@ -59,6 +101,24 @@ pub enum LifecycleTransition {
     /// Provider identity accepted for this operation.
     ProviderIdentityCommitted {
         provider: String,
+    },
+    /// Diagnostic provenance for a mutable tab label. This never grants
+    /// lifecycle authority; only `ProviderIdentityCommitted` can do that.
+    AgentTypeWrite {
+        origin: AgentTypeWriteOrigin,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        previous_provider: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        new_provider: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        attempted_provider: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        caller_tab_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        session_id: Option<String>,
+        #[serde(default)]
+        nonce_verified: bool,
+        applied: bool,
     },
     /// Provider session bound and proven by the echoed launch nonce.
     SessionBound {
@@ -105,6 +165,7 @@ impl LifecycleTransition {
         match self {
             Self::EpochOpened => "epoch_opened",
             Self::ProviderIdentityCommitted { .. } => "provider_identity_committed",
+            Self::AgentTypeWrite { .. } => "agent_type_write",
             Self::SessionBound { .. } => "session_bound",
             Self::RoleBinding { .. } => "role_binding",
             Self::TeamBinding { .. } => "team_binding",
@@ -156,9 +217,38 @@ pub struct LifecycleCheckpoint {
     /// Journal position that sealed this operation.
     pub committed_through: JournalSeq,
     pub authority: CommittedAuthority,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_type_write: Option<AgentTypeWriteAudit>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub prior_checkpoints: Vec<LifecycleCheckpointHistoryEntry>,
     /// Diagnostic UTC stamp copied from the sealing transition. Never evidence.
     #[serde(default)]
     pub sealed_at: String,
+}
+
+impl LifecycleCheckpoint {
+    pub fn history_entry(&self) -> LifecycleCheckpointHistoryEntry {
+        LifecycleCheckpointHistoryEntry {
+            key: self.key.clone(),
+            committed_through: self.committed_through,
+            authority: self.authority.clone(),
+            agent_type_write: self.agent_type_write.clone(),
+            sealed_at: self.sealed_at.clone(),
+        }
+    }
+}
+
+impl LifecycleCheckpointHistoryEntry {
+    pub fn checkpoint(&self) -> LifecycleCheckpoint {
+        LifecycleCheckpoint {
+            key: self.key.clone(),
+            committed_through: self.committed_through,
+            authority: self.authority.clone(),
+            agent_type_write: self.agent_type_write.clone(),
+            prior_checkpoints: Vec::new(),
+            sealed_at: self.sealed_at.clone(),
+        }
+    }
 }
 
 /// A journal line. Compaction replaces transitions with the checkpoints they

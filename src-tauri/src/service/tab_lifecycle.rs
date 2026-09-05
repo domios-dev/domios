@@ -49,6 +49,18 @@ impl ServiceContext {
         append(TabLifecycleJournal::shared(), key, transition);
     }
 
+    pub(crate) fn record_agent_type_write(&self, tab_id: &str, transition: LifecycleTransition) {
+        let journal = TabLifecycleJournal::shared();
+        let key = self.mux.read().lifecycle_key(tab_id).unwrap_or_else(|| {
+            LifecycleKey::new(
+                tab_id,
+                crate::session::lifecycle::next_epoch_for(&journal.load(), tab_id),
+                format!("agent-type-write-{}", uuid::Uuid::new_v4()),
+            )
+        });
+        append(journal, key, transition);
+    }
+
     /// End the tab's authority and drop its lineage, so no snapshot can match
     /// a dead operation.
     pub(crate) fn record_lifecycle_end(&self, tab_id: &str, transition: LifecycleTransition) {

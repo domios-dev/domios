@@ -182,7 +182,12 @@ impl ServiceContext {
         }
         outcome.old_pty_torn_down = true;
 
-        self.set_and_lock_tab_agent_type(&snap.tab_id, snap.provider.clone());
+        self.set_and_lock_tab_agent_type_from(
+            &snap.tab_id,
+            snap.provider.clone(),
+            crate::session::lifecycle::AgentTypeWriteOrigin::Spawn,
+            None,
+        );
         crate::service::orchestrator::launch_agent_in_background(
             self.clone(),
             snap.tab_id.clone(),

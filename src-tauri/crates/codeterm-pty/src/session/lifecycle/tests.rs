@@ -446,6 +446,164 @@ fn a_plain_shell_restores_as_a_plain_shell() {
 // ---------------------------------------------------------------------------
 
 #[test]
+fn agent_type_write_provenance_does_not_change_committed_authority() {
+    let (journal, _dir) = new_journal();
+    let key = key("tab-a", 1, "op-a");
+    commit_full_launch(&journal, &key, "session-a");
+    journal
+        .append(
+            key,
+            LifecycleTransition::AgentTypeWrite {
+                origin: AgentTypeWriteOrigin::Parser,
+                previous_provider: Some("claude".into()),
+                new_provider: Some("claude".into()),
+                attempted_provider: Some("codex".into()),
+                caller_tab_id: Some("tab-caller".into()),
+                session_id: Some("session-a".into()),
+                nonce_verified: true,
+                applied: false,
+            },
+        )
+        .unwrap();
+
+    let load = journal.load();
+    let write = load.records.iter().find_map(|record| match record {
+        JournalRecord::Transition { entry }
+            if matches!(
+                &entry.transition,
+                LifecycleTransition::AgentTypeWrite { .. }
+            ) =>
+        {
+            Some(&entry.transition)
+        }
+        _ => None,
+    });
+    assert!(matches!(
+        write,
+        Some(LifecycleTransition::AgentTypeWrite {
+            origin: AgentTypeWriteOrigin::Parser,
+            previous_provider: Some(previous),
+            new_provider: Some(new),
+            attempted_provider: Some(attempted),
+            caller_tab_id: Some(caller),
+            session_id: Some(session),
+            nonce_verified: true,
+            applied: false,
+        }) if previous == "claude"
+            && new == "claude"
+            && attempted == "codex"
+            && caller == "tab-caller"
+            && session == "session-a"
+    ));
+    assert_eq!(checkpoints(&load)[0].authority.provider, "claude");
+    assert!(checkpoints(&load)[0].agent_type_write.is_none());
+}
+
+#[test]
+fn verified_identity_write_advances_checkpoint_and_survives_compaction() {
+    let (journal, _dir) = new_journal();
+    let key = key("tab-a", 1, "op-a");
+    commit_full_launch(&journal, &key, "session-a");
+    journal
+        .append(
+            key.clone(),
+            LifecycleTransition::AgentTypeWrite {
+                origin: AgentTypeWriteOrigin::Repair,
+                previous_provider: Some("claude".into()),
+                new_provider: Some("codex".into()),
+                attempted_provider: Some("codex".into()),
+                caller_tab_id: Some("repair-tab".into()),
+                session_id: Some("session-a".into()),
+                nonce_verified: true,
+                applied: true,
+            },
+        )
+        .unwrap();
+    journal
+        .append(
+            key.clone(),
+            LifecycleTransition::ProviderIdentityCommitted {
+                provider: "codex".into(),
+            },
+        )
+        .unwrap();
+    journal
+        .append(
+            key,
+            LifecycleTransition::SessionBound {
+                session_id: "session-a".into(),
+                binding_nonce: "nonce-1".into(),
+            },
+        )
+        .unwrap();
+
+    let history = checkpoint_history(&journal.load(), "tab-a");
+    assert_eq!(history.first().unwrap().authority.provider, "codex");
+    assert_eq!(
+        history
+            .first()
+            .unwrap()
+            .agent_type_write
+            .as_ref()
+            .unwrap()
+            .origin,
+        AgentTypeWriteOrigin::Repair
+    );
+    assert_eq!(history.last().unwrap().authority.provider, "claude");
+
+    journal.compact().unwrap();
+    let load = journal.load();
+    assert_eq!(checkpoints(&load)[0].authority.provider, "codex");
+    assert_eq!(
+        checkpoints(&load)[0]
+            .agent_type_write
+            .as_ref()
+            .unwrap()
+            .origin,
+        AgentTypeWriteOrigin::Repair
+    );
+    let compacted_history = checkpoint_history(&load, "tab-a");
+    assert_eq!(
+        compacted_history.last().unwrap().authority.provider,
+        "claude"
+    );
+    assert!(compacted_history.len() <= PRIOR_CHECKPOINT_LIMIT + 1);
+    assert!(load.records.iter().any(|record| matches!(
+        record,
+        JournalRecord::Transition { entry }
+            if matches!(
+                &entry.transition,
+                LifecycleTransition::AgentTypeWrite {
+                    origin: AgentTypeWriteOrigin::Repair,
+                    applied: true,
+                    ..
+                }
+            )
+    )));
+}
+
+#[test]
+fn compaction_retains_the_bounded_recent_checkpoint_lineage() {
+    let (journal, _dir) = new_journal();
+    for epoch in 1..=20 {
+        commit_full_launch(
+            &journal,
+            &key("tab-a", epoch, &format!("op-{epoch}")),
+            &format!("session-{epoch}"),
+        );
+    }
+
+    let before = checkpoint_history(&journal.load(), "tab-a");
+    assert_eq!(before.len(), PRIOR_CHECKPOINT_LIMIT + 1);
+    assert_eq!(before.first().unwrap().key.epoch, LifecycleEpoch(20));
+    assert_eq!(before.last().unwrap().key.epoch, LifecycleEpoch(4));
+
+    journal.compact().unwrap();
+    let after = checkpoint_history(&journal.load(), "tab-a");
+    assert_eq!(after, before);
+}
+
+#[test]
 fn unsealed_launch_never_becomes_a_checkpoint() {
     let (journal, _dir) = new_journal();
     let key = key("tab-a", 1, "op-a");
