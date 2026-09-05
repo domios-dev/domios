@@ -99,9 +99,9 @@ struct RingEntry {
     event: SystemEvent,
 }
 
-/// Bounded single-writer replay ring, separate from the broadcast channel.
-/// `next_seq` allocates the gap-free cursor under the same lock as the push,
-/// so ring order == seq order.
+/// Bounded replay ring, separate from the broadcast channel. `next_seq`
+/// allocates the gap-free cursor under the push lock, which `send_bus` also
+/// holds across the broadcast send so delivery order == seq order.
 struct ReplayRing {
     entries: VecDeque<RingEntry>,
     next_seq: u64,
@@ -269,11 +269,15 @@ impl EventBroadcaster {
     }
 
     /// The single bus fan-out choke point — every published event passes here.
-    /// Stamps the D1 cursor (seq allocated inside the leaf `ring` lock so ring
-    /// order == seq order) and records it in the replay ring. The `ring` guard
-    /// drops before `send()`; it is a leaf, never held across `.await`.
+    /// Allocating the D1 cursor and publishing it are ONE critical section, so
+    /// delivery order == seq order; the subscriber's `seq <= replayed_max`
+    /// guard silently drops an out-of-order arrival, which ring order alone
+    /// does not prevent. `ring` stays a leaf and `broadcast::send` is
+    /// synchronous and non-blocking, so the guard never spans an `.await`.
     fn send_bus(&self, event: SystemEvent) {
-        let seq = self.ring.lock().push(event.clone(), Instant::now());
+        let for_ring = event.clone();
+        let mut ring = self.ring.lock();
+        let seq = ring.push(for_ring, Instant::now());
         let _ = self.system_bus.send(SeqEvent { seq, event });
     }
 
@@ -564,6 +568,167 @@ mod tests {
             seen.push(se.seq);
         }
         assert_eq!(seen, vec![3, 4, 5, 6]); // exact missed set, no gap, no dup at the seam
+    }
+
+    /// Concurrency load for the ordering test. A window of
+    /// PUBLISHERS * PER_PUBLISHER stays inside the bus capacity and the ring
+    /// bound, so a correct run cannot lag or evict; ROUNDS repeats the race.
+    const ORDER_PUBLISHERS: usize = 24;
+    const ORDER_PER_PUBLISHER: usize = 10;
+    const ORDER_ROUNDS: usize = 20;
+
+    #[test]
+    fn concurrent_publishers_deliver_every_seq_in_order() {
+        use std::sync::Barrier;
+        let total = ORDER_PUBLISHERS * ORDER_PER_PUBLISHER;
+        assert!(total < SYSTEM_BUS_CAPACITY, "window must fit the bus");
+        assert!(total < RING_MAX_COUNT, "window must fit the ring");
+        let expected: Vec<u64> = (1..=total as u64).collect();
+
+        for round in 0..ORDER_ROUNDS {
+            let bc = Arc::new(EventBroadcaster::new());
+            let mut rx = bc.subscribe();
+            let gate = Arc::new(Barrier::new(ORDER_PUBLISHERS));
+            let mut handles = Vec::with_capacity(ORDER_PUBLISHERS);
+            for p in 0..ORDER_PUBLISHERS {
+                let bc = Arc::clone(&bc);
+                let gate = Arc::clone(&gate);
+                handles.push(std::thread::spawn(move || {
+                    gate.wait();
+                    for i in 0..ORDER_PER_PUBLISHER {
+                        bc.send_bus(SystemEvent::AgentIdle {
+                            tab_id: format!("p{p}"),
+                            duration_secs: i as u64,
+                        });
+                    }
+                }));
+            }
+            for h in handles {
+                h.join().expect("publisher panicked");
+            }
+
+            let mut delivered = Vec::with_capacity(total);
+            loop {
+                match rx.try_recv() {
+                    Ok(se) => delivered.push(se.seq),
+                    Err(broadcast::error::TryRecvError::Empty)
+                    | Err(broadcast::error::TryRecvError::Closed) => break,
+                    Err(broadcast::error::TryRecvError::Lagged(n)) => {
+                        panic!("round {round}: spurious overflow, bus lagged by {n}")
+                    }
+                }
+            }
+            assert_eq!(delivered.len(), total, "round {round}: lost a publication");
+            assert_eq!(
+                delivered,
+                expected,
+                "round {round}: delivery order != seq order, first inversion at index {:?}",
+                delivered.iter().zip(expected.iter()).position(|(a, b)| a != b)
+            );
+        }
+    }
+
+    /// Mirrors the `events_stream` decision table in web_routes.rs (read-only
+    /// here): one overflow frame per plan classification, one per live `Lagged`.
+    fn overflow_count_for(plan: &ReplayPlan) -> usize {
+        match plan {
+            ReplayPlan::FromNow | ReplayPlan::Covered { .. } => 0,
+            ReplayPlan::BootChanged { .. } | ReplayPlan::Evicted { .. } => 1,
+        }
+    }
+
+    #[test]
+    fn full_ring_emits_exactly_one_overflow() {
+        let bc = EventBroadcaster::new();
+        flood(&bc, RING_MAX_COUNT as u64 + 64);
+
+        let mut rx = bc.subscribe();
+        let snap = bc.snapshot_ring();
+        let boot = snap.boot_id.clone();
+        let plan = snap.plan(Some((&boot, 0)));
+        let mut overflows = overflow_count_for(&plan);
+        let (mut replayed_max, replay) = match plan {
+            ReplayPlan::Evicted {
+                next_seq, replay, ..
+            } => (next_seq.saturating_sub(1), replay),
+            _ => panic!("expected Evicted for a full ring with a stale cursor"),
+        };
+        assert_eq!(overflows, 1, "stale cursor must produce exactly one overflow");
+        assert_eq!(replay.len(), RING_MAX_COUNT);
+
+        flood(&bc, 4);
+        let mut live = Vec::new();
+        loop {
+            match rx.try_recv() {
+                Ok(se) => {
+                    if se.seq <= replayed_max {
+                        continue;
+                    }
+                    replayed_max = se.seq;
+                    live.push(se.seq);
+                }
+                Err(broadcast::error::TryRecvError::Empty)
+                | Err(broadcast::error::TryRecvError::Closed) => break,
+                Err(broadcast::error::TryRecvError::Lagged(_)) => overflows += 1,
+            }
+        }
+        assert_eq!(live.len(), 4, "live tail after overflow must be gap-free");
+        assert_eq!(overflows, 1, "a full ring must emit exactly one overflow");
+    }
+
+    #[test]
+    fn live_loop_still_drops_replay_overlap() {
+        let bc = EventBroadcaster::new();
+        let mut rx = bc.subscribe();
+        flood(&bc, 5);
+        let snap = bc.snapshot_ring();
+        let boot = snap.boot_id.clone();
+        let cursor = 2u64;
+        let replay = match snap.plan(Some((&boot, cursor))) {
+            ReplayPlan::Covered { replay } => replay,
+            _ => panic!("expected Covered"),
+        };
+        let mut replayed_max = cursor;
+        let mut yielded = Vec::new();
+        for se in &replay {
+            replayed_max = se.seq;
+            yielded.push(se.seq);
+        }
+        assert_eq!(yielded, vec![3, 4, 5]);
+
+        flood(&bc, 1);
+        let mut dropped = 0usize;
+        while let Ok(se) = rx.try_recv() {
+            if se.seq <= replayed_max {
+                dropped += 1;
+                continue;
+            }
+            replayed_max = se.seq;
+            yielded.push(se.seq);
+        }
+        assert_eq!(dropped, 5, "the guard must drop the whole 1..=5 overlap");
+        assert_eq!(yielded, vec![3, 4, 5, 6], "no duplicate at the reconnect seam");
+    }
+
+    #[test]
+    fn send_bus_critical_section_stays_under_lock_hold_threshold() {
+        const SAMPLES: u64 = 10_000;
+        let bc = EventBroadcaster::new();
+        let _rx = bc.subscribe();
+        let mut worst = Duration::ZERO;
+        for i in 0..SAMPLES {
+            let started = Instant::now();
+            bc.send_bus(SystemEvent::AgentIdle {
+                tab_id: "p".into(),
+                duration_secs: i,
+            });
+            worst = worst.max(started.elapsed());
+        }
+        println!("send_bus worst critical section over {SAMPLES} calls: {worst:?}");
+        assert!(
+            worst < Duration::from_millis(50),
+            "critical section crossed the [LOCK-HOLD] threshold: {worst:?}"
+        );
     }
 
     #[test]
