@@ -541,3 +541,90 @@ fn write_returns_err_for_unknown_pty() {
         err
     );
 }
+
+/// Toolchain-selection variables decide which agent binary — and which helper
+/// binaries that binary resolves next to itself — a tab reaches. The launch
+/// stamper owns identity, never toolchain selection, so every one of these must
+/// arrive at the child byte-identical to what the daemon inherited.
+#[test]
+fn pty_env_never_rewrites_agent_toolchain_selection() {
+    let inherited = [
+        ("HOME", "/inherited/home"),
+        ("CODEX_HOME", "/inherited/home/.codex"),
+        ("CODEX_MANAGED_BY_NPM", "1"),
+        ("CODEX_MANAGED_PACKAGE_ROOT", "/inherited/npm/@openai/codex"),
+        ("XDG_CONFIG_HOME", "/inherited/home/.config"),
+        ("XDG_DATA_HOME", "/inherited/home/.local/share"),
+    ];
+    let mut cmd = CommandBuilder::new("agent");
+    for (key, value) in inherited {
+        cmd.env(key, value);
+    }
+
+    apply_pty_env(&mut cmd, &HashMap::from([
+        ("CODETERM_TAB_ID".to_string(), "tab-1".to_string()),
+        ("CODETERM_API_URL".to_string(), "http://127.0.0.1:7686".to_string()),
+    ]));
+
+    for (key, value) in inherited {
+        assert_eq!(
+            cmd.get_env(key),
+            Some(std::ffi::OsStr::new(value)),
+            "{key} must reach the tab exactly as inherited"
+        );
+    }
+}
+
+/// A tab's PATH decides which `codex` (and therefore which sibling code-mode
+/// host) it reaches. The only entry CodeTerm may add is its own CLI directory;
+/// every inherited entry keeps its value and its relative order.
+#[test]
+fn pty_env_changes_path_only_by_the_codeterm_cli_dir() {
+    let cli_path = if cfg!(windows) {
+        r"C:\ct\bin\codeterm.exe"
+    } else {
+        "/opt/ct/bin/codeterm"
+    };
+    let inherited_dirs: Vec<std::path::PathBuf> = if cfg!(windows) {
+        vec![
+            r"C:\Program Files\OpenAI\Codex\bin".into(),
+            r"C:\Users\u\AppData\Roaming\npm".into(),
+            r"C:\Windows\system32".into(),
+        ]
+    } else {
+        vec![
+            "/Applications/ChatGPT.app/Contents/Resources".into(),
+            "/opt/homebrew/bin".into(),
+            "/usr/bin".into(),
+        ]
+    };
+    let inherited = std::env::join_paths(&inherited_dirs).unwrap();
+    let mut cmd = CommandBuilder::new("agent");
+
+    apply_pty_env(
+        &mut cmd,
+        &HashMap::from([
+            ("CODETERM_CLI_PATH".to_string(), cli_path.to_string()),
+            ("PATH".to_string(), inherited.to_string_lossy().into_owned()),
+        ]),
+    );
+
+    let spawned: Vec<std::path::PathBuf> =
+        std::env::split_paths(cmd.get_env("PATH").expect("PATH is stamped")).collect();
+    let cli_dir = std::path::Path::new(cli_path).parent().unwrap();
+    let survivors: Vec<std::path::PathBuf> = spawned
+        .iter()
+        .filter(|dir| dir.as_path() != cli_dir)
+        .cloned()
+        .collect();
+
+    assert_eq!(
+        survivors, inherited_dirs,
+        "inherited PATH entries must survive unchanged and in order"
+    );
+    assert_eq!(
+        spawned.len(),
+        inherited_dirs.len() + 1,
+        "exactly one directory may be added to a tab's PATH"
+    );
+}
