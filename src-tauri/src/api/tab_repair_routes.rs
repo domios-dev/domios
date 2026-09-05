@@ -198,7 +198,7 @@ async fn repair_tab_from_session(
     .await
     {
         Ok(VerifiedRebindOutcome::Committed(commit)) => commit,
-        Ok(VerifiedRebindOutcome::EvidenceChanged { .. }) => {
+        Ok(VerifiedRebindOutcome::EvidenceChanged) => {
             return Err(TabRepairError::new(
                 TabRepairErrorKind::EvidenceChanged,
                 "tab session evidence changed before the repair rebind committed",
@@ -215,7 +215,7 @@ async fn repair_tab_from_session(
         }
     };
     let nonce_verified = commit.claim.identity_evidence().nonce_verified();
-    finish_session_binding(
+    let _ = finish_session_binding(
         state,
         &target.tab_id,
         &commit.provider_id,

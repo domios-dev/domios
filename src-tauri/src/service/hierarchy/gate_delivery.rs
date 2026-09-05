@@ -84,6 +84,6 @@ pub(super) fn planner_owner_for_gate<'a>(
         return None;
     };
     (asked_by_tab_id == Some(tab_id.as_str()))
-        .then(|| plan.owner.tab_id.as_deref())
+        .then_some(plan.owner.tab_id.as_deref())
         .flatten()
 }
