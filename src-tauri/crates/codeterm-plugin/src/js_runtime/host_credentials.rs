@@ -31,9 +31,9 @@ fn read_document(cred: &CredentialConfig) -> Option<Value> {
 fn resolve_fields(doc: &Value, spec: &BTreeMap<String, String>) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
     for (name, dotted) in spec {
-        if let Some(text) = value_at(doc, dotted).and_then(|v| match v {
-            Value::String(s) => Some(s.clone()),
-            other => Some(other.to_string()),
+        if let Some(text) = value_at(doc, dotted).map(|v| match v {
+            Value::String(s) => s.clone(),
+            other => other.to_string(),
         }) {
             out.insert(name.clone(), text);
         }
