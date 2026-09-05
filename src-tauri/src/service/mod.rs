@@ -92,6 +92,7 @@ pub(crate) mod tab;
 pub mod tab_budget;
 pub mod tab_chat;
 pub(crate) mod tab_lifecycle;
+pub(crate) mod tab_repair;
 pub(crate) mod tab_session_binding;
 pub mod tab_transport;
 pub mod tab_transport_chat;
