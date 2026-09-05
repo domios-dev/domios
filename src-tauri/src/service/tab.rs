@@ -482,7 +482,7 @@ impl ServiceContext {
         });
     }
 
-    fn refresh_session_model_once(&self, tab_id: &str, agent_id: &str) {
+    pub(crate) fn refresh_session_model_once(&self, tab_id: &str, agent_id: &str) {
         let (cwd, session_id) = {
             let mux = self.mux.read();
             let Some(p) = mux.get_tab(tab_id) else {
@@ -630,7 +630,7 @@ impl ServiceContext {
     /// is settled. Stops as soon as a name is found (or after a budget) so
     /// the regex doesn't spin on every output chunk. See AgentProvider::
     /// extract_session_name; Claude returns "vivid-bhabha-1234" etc. (#99).
-    fn kick_off_session_name_detection(&self, tab_id: &str, agent_id: &str) {
+    pub(crate) fn kick_off_session_name_detection(&self, tab_id: &str, agent_id: &str) {
         if tab_id.is_empty() || agent_id.is_empty() {
             return;
         }
@@ -695,7 +695,7 @@ impl ServiceContext {
         });
     }
 
-    fn replay_inbound_buffer(&self, tab_id: &str, new_type: &str) {
+    pub(crate) fn replay_inbound_buffer(&self, tab_id: &str, new_type: &str) {
         let queued = crate::bridge::inbound_buffer::drain(tab_id);
         if queued.is_empty() {
             return;
