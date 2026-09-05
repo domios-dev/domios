@@ -20,10 +20,10 @@ use super::JsonRpcError;
 mod brief;
 mod dispatch_failure;
 mod lane_resolution;
-mod preflight;
-mod workspace_admission;
 pub(super) mod lane_safety;
+mod preflight;
 mod routing;
+mod workspace_admission;
 
 use super::safety_nudge::{
     apply_safety_nudges, safety_incident_text, SafetyNudge, SAFETY_INCIDENT_KIND,

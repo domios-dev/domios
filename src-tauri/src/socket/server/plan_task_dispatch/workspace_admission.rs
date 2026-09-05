@@ -44,8 +44,11 @@ pub(super) fn preflight_dispatch_workspace(
             parent_tab_id,
             caller_tab_id,
             |tab_id| mux.find_workspace_for_tab(tab_id),
-            mux.get_active_workspace().map(|workspace| workspace.id.clone()),
-            mux.list_workspaces().first().map(|workspace| workspace.id.clone()),
+            mux.get_active_workspace()
+                .map(|workspace| workspace.id.clone()),
+            mux.list_workspaces()
+                .first()
+                .map(|workspace| workspace.id.clone()),
         )
         .ok()
     };
