@@ -249,7 +249,8 @@ ct_gateway_record_owner_lost() {
 }
 
 ct_gateway_reap_stale_owner_locked() {
-  local dir="$1" lock="$dir/lock" pid start_token job
+  local dir="$1" pid start_token job
+  local lock="$dir/lock"
   [ -d "$lock" ] || return 0
   pid="$(cat "$lock/pid" 2>/dev/null || true)"
   start_token="$(cat "$lock/start_token" 2>/dev/null || true)"
