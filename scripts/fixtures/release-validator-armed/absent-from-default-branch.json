@@ -1,0 +1,7 @@
+{
+  "validator": "release-manifest-validate",
+  "leg": "release-linux",
+  "default_branch": "master",
+  "state": "active",
+  "default_branch_source": null
+}

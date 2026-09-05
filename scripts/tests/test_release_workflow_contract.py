@@ -6,8 +6,14 @@ does not acquire an ambient PyYAML install.
 """
 
 import re
+import subprocess
+import sys
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from release_validator_armed import subscribed_workflows
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -300,3 +306,158 @@ class ManifestValidateTriggerTest(unittest.TestCase):
         for name in ("macos-only.json", "full.json", "never-completes.json"):
             with self.subTest(fixture=name):
                 self.assertTrue((fixtures / name).is_file())
+VALIDATOR_ARMED_CHECK = "scripts/release_validator_armed.py"
+ARMED_FIXTURES = ROOT / "scripts" / "fixtures" / "release-validator-armed"
+
+
+def completion_steps(text: str) -> list[dict]:
+    """Steps of the leg's `completion` job — the last thing a publishing leg runs."""
+    _, marker, tail = text.partition("  completion:\n")
+    if not marker:
+        raise AssertionError("publishing leg has no completion job")
+    return steps(tail)
+
+
+class ValidatorArmedGateTest(unittest.TestCase):
+    """A workflow file on disk is not an armed workflow.
+
+    Every contract test above reads the validator's source; none of them can see
+    that GitHub had it disabled, which is how it went ten weeks without running
+    while they all stayed green. Each publishing leg now asserts the validator's
+    runtime state as its final step, so an unarmed validator fails the release
+    instead of silently skipping it.
+    """
+
+    LEGS = ("release.yml", "release-linux.yml", "release-windows.yml", "release-macos.yml")
+
+    def run_check(self, fixture: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [sys.executable, str(ROOT / VALIDATOR_ARMED_CHECK), str(ARMED_FIXTURES / fixture)],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+
+    def test_every_publishing_leg_ends_by_asserting_the_validator_is_armed(self):
+        for name in self.LEGS:
+            with self.subTest(workflow=name):
+                parsed = completion_steps(read(name))
+                self.assertIn(
+                    VALIDATOR_ARMED_CHECK,
+                    parsed[-1].get("run", ""),
+                    f"{name}'s completion job does not end by asserting the validator is "
+                    f"armed; a disabled validator would let this leg publish unvalidated",
+                )
+
+    def test_the_armed_assertion_survives_a_failed_publication(self):
+        for name in self.LEGS:
+            with self.subTest(workflow=name):
+                step = completion_steps(read(name))[-1]
+                self.assertIn(
+                    "always()",
+                    step.get("if", ""),
+                    f"{name}'s armed assertion is skipped when the leg fails, which is "
+                    f"exactly when an unvalidated release is most likely",
+                )
+
+    def test_the_armed_assertion_can_read_the_validators_runtime_state(self):
+        for name in self.LEGS:
+            with self.subTest(workflow=name):
+                _, _, tail = read(name).partition("  completion:\n")
+                self.assertIn(
+                    "actions: read",
+                    tail,
+                    f"{name}'s completion job cannot query the validator's enabled state",
+                )
+
+    def test_the_armed_assertion_fails_the_leg_loudly(self):
+        for name in self.LEGS:
+            with self.subTest(workflow=name):
+                run = completion_steps(read(name))[-1].get("run", "")
+                self.assertIn("::error::", run, f"{name} reports an unarmed validator quietly")
+
+    def test_an_active_subscribed_validator_is_armed(self):
+        result = self.run_check("armed.json")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("VALIDATOR_ARMED", result.stdout)
+
+    def test_a_disabled_validator_is_not_armed(self):
+        for fixture in ("disabled.json", "disabled-by-inactivity.json"):
+            with self.subTest(fixture=fixture):
+                result = self.run_check(fixture)
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn("VALIDATOR_UNARMED", result.stdout)
+                self.assertIn("gh workflow enable", result.stdout)
+
+    def test_a_validator_absent_from_the_default_branch_is_not_armed(self):
+        result = self.run_check("absent-from-default-branch.json")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("VALIDATOR_UNARMED", result.stdout)
+
+    def test_an_unreadable_enabled_state_is_not_armed(self):
+        """A lookup that did not answer is not evidence that the validator will run."""
+        result = self.run_check("unreadable-state.json")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("VALIDATOR_UNARMED", result.stdout)
+        self.assertNotIn("absent from", result.stdout)
+
+    def test_a_manual_dispatch_only_validator_is_not_armed(self):
+        result = self.run_check("manual-dispatch-only.json")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("VALIDATOR_UNARMED", result.stdout)
+
+    def test_a_leg_the_validator_does_not_watch_is_not_armed(self):
+        result = self.run_check("unsubscribed-leg.json")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("VALIDATOR_UNARMED", result.stdout)
+
+    def leg_name(self, workflow: str) -> str:
+        declared = re.search(r'^name:\s*(.+?)\s*$', read(workflow), re.MULTILINE)
+        self.assertIsNotNone(declared, f"{workflow} declares no workflow name")
+        return declared.group(1)
+
+    def test_every_publishing_leg_name_is_one_the_validator_subscribes_to(self):
+        """The leg reports `github.workflow`; a rename must not silently unsubscribe it.
+
+        Read from the live validator, never a fixture snapshot: a stale copy would go
+        green on exactly the drift this gate exists to catch.
+        """
+        watched = set(subscribed_workflows(read(RELEASE_MANIFEST_VALIDATE)))
+        self.assertTrue(watched, "the validator subscribes to no publishing leg at all")
+        for workflow in self.LEGS:
+            with self.subTest(workflow=workflow):
+                self.assertIn(
+                    self.leg_name(workflow),
+                    watched,
+                    f"{workflow}'s workflow name is not in the validator's workflow_run list",
+                )
+
+    def test_each_live_leg_is_armed_against_the_live_validator(self):
+        """End to end on today's files, with no snapshot in the way."""
+        import json
+        import tempfile
+
+        for workflow in self.LEGS:
+            with self.subTest(workflow=workflow):
+                fixture = {
+                    "validator": "release-manifest-validate",
+                    "leg": self.leg_name(workflow),
+                    "default_branch": "master",
+                    "state": "active",
+                    "default_branch_source": read(RELEASE_MANIFEST_VALIDATE),
+                }
+                with tempfile.TemporaryDirectory() as directory:
+                    built = Path(directory) / "validator-armed.json"
+                    built.write_text(json.dumps(fixture), encoding="utf-8")
+                    result = subprocess.run(
+                        [sys.executable, str(ROOT / VALIDATOR_ARMED_CHECK), str(built)],
+                        cwd=ROOT,
+                        text=True,
+                        capture_output=True,
+                        timeout=10,
+                        check=False,
+                    )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("VALIDATOR_ARMED", result.stdout)

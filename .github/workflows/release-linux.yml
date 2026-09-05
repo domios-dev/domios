@@ -378,8 +378,12 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: write
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Publish completion signal
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -429,3 +433,28 @@ jobs:
           gh release upload "$tag" \
             "$RUNNER_TEMP/release-completion/release-completion-release-linux.json" \
             --repo "$SOURCE_REPO" --clobber
+
+      - name: Assert the release validator is armed
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_REPO: ${{ github.repository }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          LEG: ${{ github.workflow }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          validator=release-manifest-validate
+          file=".github/workflows/$validator.yml"
+          api="repos/$SOURCE_REPO"
+          raw="Accept: application/vnd.github.raw"
+          state=$(gh api "$api/actions/workflows/$validator.yml" --jq .state 2>/dev/null || true)
+          source=$(gh api "$api/contents/$file?ref=$DEFAULT_BRANCH" -H "$raw" 2>/dev/null || true)
+          fixture="$RUNNER_TEMP/validator-armed.json"
+          jq -n --arg validator "$validator" --arg leg "$LEG" --arg branch "$DEFAULT_BRANCH" --arg state "$state" --arg source "$source" '{validator: $validator, leg: $leg, default_branch: $branch, state: (if $state == "" then null else $state end), default_branch_source: (if $source == "" then null else $source end)}' > "$fixture"
+          set +e
+          output=$(python3 scripts/release_validator_armed.py "$fixture" 2>&1)
+          status=$?
+          set -e
+          printf '%s\n' "$output"
+          [ "$status" -eq 0 ] || { echo "::error::$output"; exit "$status"; }

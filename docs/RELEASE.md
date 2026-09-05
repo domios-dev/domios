@@ -220,6 +220,57 @@ Do not use a manual re-check to bypass a pending signal. On the next release, wa
 asset, the early validator run says `MATRIX_PENDING`, and the validator run after the last signal
 verifies all required signatures before uploading `issue-closure-boundary.json`.
 
+### The validator runs, or the release goes red
+
+A workflow file in the repository is not an armed workflow. GitHub tracks an enabled state per
+workflow, and a disabled one receives no `workflow_run` event and rejects `workflow_dispatch` with
+`HTTP 422: Cannot trigger a 'workflow_dispatch' on a disabled workflow`. Nothing in the repository
+can see that state, which is why the validator's contract tests stayed green across every release
+from 1.5.0 to 1.10.12 while it did not run once.
+
+Two causes stacked, and the second hid the first being fixed:
+
+1. On 2026-06-23 an Actions spending-limit failure stopped every GitHub-hosted job in this
+   repository — the validator's last automatic run, `28021342987`, carries the annotation `The job
+   was not started because recent account payments have failed or your spending limit needs to be
+   increased`, and `file-sizes`, `cli-source-of-truth` and `comment-length` carry the identical one
+   the next day. The reaction that day was to stop the hosted workflows from firing: `d3e2a1e5b`
+   and `943fa6578` made the validator `workflow_dispatch`-only, and it and its `ubuntu-latest`
+   siblings were disabled by hand in the Actions UI. The validator was never re-enabled.
+2. `b5b2583be` (2026-09-03) restored the `workflow_run` trigger in the file, so from that point the
+   source said the validator was wired to every publishing leg. It still could not run: the
+   workflow was disabled, and a disabled workflow gets no event no matter what its file declares.
+   1.10.11 and 1.10.12 published under a subscription that existed only on disk.
+
+The validator's checks were never the problem — it was never asked to run.
+
+Each publishing leg's `completion` job therefore ends with **Assert the release validator is
+armed**, which runs `scripts/release_validator_armed.py` against the validator's live state and
+fails the leg with a `::error::` naming `release-manifest-validate` when any of these holds:
+
+| Unarmed state | Why no event arrives |
+|---|---|
+| `state` is not `active` | a disabled workflow gets no `workflow_run` and refuses dispatch |
+| absent from the default branch | `workflow_run` is only evaluated from the default-branch copy |
+| no `on.workflow_run.workflows` list | nothing subscribes the validator to a leg completing |
+| this leg's name is not in that list | a renamed leg silently unsubscribes itself |
+
+The step runs under `if: always()`, so a failed publication still reports whether the release it
+attempted would have been validated. It needs `actions: read` on the job token. A release that
+cannot be validated now ends red at its last step instead of looking finished; a silent skip is not
+a reachable outcome.
+
+To re-arm after an intentional disable:
+
+```bash
+gh workflow enable release-manifest-validate.yml
+gh workflow list --all --json name,path,state   # audit every workflow's enabled state
+```
+
+The `workflow_dispatch` fallback above remains for re-checks and for validating a release that
+published before this gate existed. It is a fallback, not a step of the runbook: needing it means
+the gate above should have gone red.
+
 **Client-side platform gate (codeterm-releases#47, retitled).** The release-side trigger for #47
 was already resolved; the surviving client-side half lives in `src-tauri/src/update/manifest.rs`
 (`offered_version`) — a client is only ever offered an artifact that exists for its own platform,
@@ -525,4 +576,4 @@ node scripts/sync-release-notes.mjs --backfill 10
 The command refuses missing mirror releases, empty generated notes, and bodies too short to be
 meaningful. It then writes the exact same Markdown to both repositories.
 
-<!-- revision: 38 -->
+<!-- revision: 39 -->
