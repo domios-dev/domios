@@ -400,6 +400,91 @@ owns the mirror. Filed against #428's family, at
 My client-side coalescer does not address this and never could: it bounds how
 many snapshots the client asks for, not which events the daemon delivers.
 
+## 1g. Cross-peer rows and the matched capture: it is CONCURRENCY, not rate
+
+Both live legs ran on dev 56f7372bd against Mac-Air 4d5797d0c (7d55b9a5),
+paired, protocol 1.
+
+### Reverse capture (BLACKSTAR client, Mac-Air source, Tor driving)
+555 switches in 60.01 s, measured 9.25 Hz, **sequential** - one focus per tick.
+2077 frames in the driven window, 545 tab-focused, 582 mux-state-changed.
+37 seqs missing, **all 37 bounded by the overflow's `next_seq`** - signalled
+loss across a reconnect. **Silent gaps: 0.**
+
+### Cross-peer bench rows (same direction, same peer, concurrency 8)
+| run | rate | overflow | per origin switch | refetch | err | inflight | silent gaps |
+|---|---|---|---|---|---|---|---|
+| 1 | 22.1 Hz | 8 boot-changed | **1.0** | 126 | 1 | 1 | 1 |
+| 2 | 25.1 Hz | 8 boot-changed | **1.0** | 150 | 0 | 1 | 1 |
+| 3 | 21.8 Hz | 8 boot-changed | **1.0** | 165 | 0 | 1 | 1 |
+| 4 | 23.5 Hz | 10 boot-changed | **1.0** | 127 | 1 | 1 | 3 |
+| 5 | 22.0 Hz | 7 boot-changed | **1.0** | 126 | 0 | 1 | 0 |
+
+5/5 converged, no daemon death, ceiling held cross-peer.
+
+### What the pair proves
+
+The capture and the rows drove the SAME source machine over the SAME relay in
+the SAME direction within minutes of each other. One found zero silent gaps and
+the other found six. The difference is not rate - the capture ran at 9.25 Hz and
+the rows at 22-25 Hz, a factor of ~2.5, nowhere near enough to explain it. The
+difference is **shape**: Tor's driver issues one focus and waits; the bench
+issues eight at once.
+
+Collecting every leg measured so far:
+
+| leg | publishing shape | silent gaps |
+|---|---|---|
+| Mac-Air source, Tor sequential 9.25 Hz | sequential | **0** |
+| Mac-Air source, local, sequential | sequential | **0** |
+| Mac-Air source, bench concurrency 8 | 8 concurrent | **6 over 5 runs** |
+| BLACKSTAR source, busy with many agents | many concurrent | **9** |
+
+Every leg without concurrent publishers is clean. Every leg with them loses
+frames. Origin does not predict loss and neither does rate on its own.
+
+**This refines section 1f, which called the discriminator "publish RATE".**
+That was the best reading of two legs that differed in rate AND build AND
+busyness. With a third leg that isolates shape, the honest column is
+**concurrent publishers**, which is what the mechanism said all along: a
+sequential publisher cannot interleave with itself, so seq allocation and the
+bus send cannot reorder. Rate only matters because it raises the chance of
+overlap.
+
+### The detector earned its place immediately
+
+Every gap above was found by the client-side detector added the same day, and
+logged with both seqs, e.g.
+
+```
+[event-seq-gap] expected 17909 got 17911 (boot 721026989a184e378fcb5f0fc25cae40)
+```
+
+Single and double holes - the exact signature of a two- and three-way
+interleave. Without it these rows would have read "5/5 converged" and said
+nothing, because the client resyncs and the tab list ends up correct.
+
+### P1 confirmed, P2 still untested
+
+`overflow_per_origin_switch` is **1.0 on every run**: six origin switches, six
+`boot-changed` overflows. The replay cursor is not scoped by origin, so every
+peer switch presents the previous origin's boot and costs a full global resync.
+That is prediction P1 from section 4c, confirmed on the wire.
+
+P2 (output does not follow an origin switch) is **not** tested by these rows:
+the cross-peer run reuses the peer's existing tabs and creates nothing there, so
+there are no markers and `out=0/0`. It needs its own run with tabs created on
+the peer, which I did not do because it would leave state on someone else's
+machine.
+
+### One thing I nearly got wrong
+
+The cross-peer driver originally posted its switches to the LOCAL daemon while
+the mirror watched the peer, so the oracle would have compared two different
+machines and every row would have been meaningless. Caught before the run;
+`api()` now relays when a peer target is set, so the storm and the oracle follow
+the mirror.
+
 ## 2. Not established
 
 The cross-peer half **did not run**. Dev's mesh has no paired peers

@@ -77,10 +77,39 @@ export interface DaemonSnapshot {
   tabs: Record<string, { title?: string }>;
 }
 
+/**
+ * The driver must target the same daemon the mirror is watching. With a relay
+ * peer set the mirror reads the PEER through /api/mesh/relay-to, so the storm
+ * and the oracle have to go the same way -- driving the local daemon while the
+ * mirror watches the peer compares two different machines and every row is
+ * meaningless.
+ */
 async function api<T>(o: ScenarioOptions, method: string, path: string, body?: unknown): Promise<T> {
+  const headers = {
+    Authorization: `Bearer ${o.token}`,
+    "Content-Type": "application/json",
+  };
+  if (o.relayPeer) {
+    const res = await fetch(`${o.origin}/api/mesh/relay-to`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        target_peer_id: o.relayPeer.id,
+        method,
+        path,
+        body: body ?? null,
+      }),
+    });
+    if (!res.ok) throw new Error(`relay ${method} ${path} -> HTTP ${res.status}`);
+    const envelope = (await res.json()) as { ok: boolean; status: number; data: unknown };
+    if (envelope.status >= 400) {
+      throw new Error(`relay ${method} ${path} -> peer HTTP ${envelope.status}`);
+    }
+    return envelope.data as T;
+  }
   const res = await fetch(`${o.origin}${path}`, {
     method,
-    headers: { Authorization: `Bearer ${o.token}`, "Content-Type": "application/json" },
+    headers,
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`${method} ${path} -> HTTP ${res.status}`);

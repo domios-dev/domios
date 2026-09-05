@@ -28,6 +28,9 @@ WORKSPACE_ID=""
 TSX_LOADER="${WMS_TSX_LOADER:-$ROOT/node_modules/tsx/dist/loader.mjs}"
 
 cleanup() {
+  # A peer workspace is not ours to close: cross-peer runs reuse what the
+  # peer already has and create nothing there.
+  [ -z "${WMS_PEER_INSTANCE_ID:-}" ] || return 0
   [ -n "$WORKSPACE_ID" ] || return 0
   [ "${WMS_KEEP:-0}" = 1 ] && return 0
   dc workspace close "$WORKSPACE_ID" --force >/dev/null 2>&1 || true
@@ -47,11 +50,28 @@ fi
 dev_env
 echo ">>> dev target: $(dev_api_url)  data_dir=$CODETERM_DEV_DATA_DIR"
 
-WORKSPACE_ID="$(dc workspace create "$WORKSPACE_NAME" --json \
-  | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+if [ -n "${WMS_PEER_INSTANCE_ID:-}" ]; then
+  # Cross-peer: drive the PEER's existing tabs through the relay. Nothing is
+  # created on the peer, so its state is exactly as its owner left it.
+  PEER_STATE="$(curl -s --max-time 20 -X POST -H "$CODETERM_DEV_AUTH_HEADER"     -H "Content-Type: application/json"     --data "{\"target_peer_id\":\"$WMS_PEER_INSTANCE_ID\",\"method\":\"GET\",\"path\":\"/api/mux/state\",\"body\":null}"     "$(dev_api_url)/api/mesh/relay-to")"
+  read -r WORKSPACE_ID TAB_IDS <<EOF
+$(printf '%s' "$PEER_STATE" | python3 -c '
+import json, sys
+count = int(sys.argv[1])
+data = json.load(sys.stdin).get("data") or {}
+spaces = sorted(data.get("workspaces", []), key=lambda w: len(w.get("tabs", [])), reverse=True)
+if not spaces or not spaces[0].get("tabs"):
+    sys.exit("peer has no workspace with tabs")
+best = spaces[0]
+print(best["id"], ",".join(best["tabs"][:count]))
+' "$TABCOUNT")
+EOF
+  echo ">>> peer workspace $WORKSPACE_ID, reusing $(printf '%s' "$TAB_IDS" | tr ',' '
+' | grep -c .) of its tabs (created nothing)"
+  MARKERS=""
+else
+WORKSPACE_ID="$(dc workspace create "$WORKSPACE_NAME" --json   | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
 echo ">>> workspace $WORKSPACE_ID ($WORKSPACE_NAME)"
-
-TAB_IDS=""
 MARKERS=""
 NONCE="$(date +%s)-$$"
 MARKER_INDEX=0
@@ -61,11 +81,12 @@ MARKER_INDEX=0
 for _ in $(seq 1 "$TABCOUNT"); do
   MARKER_INDEX=$((MARKER_INDEX + 1))
   MARK="WMSMARK-${NONCE}-${MARKER_INDEX}"
-  id="$(dc tab new --workspace "$WORKSPACE_ID" --cmd "echo $MARK" --json     | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+  id="$(dc tab new --workspace "$WORKSPACE_ID" --cmd "echo $MARK" --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
   TAB_IDS="${TAB_IDS:+$TAB_IDS,}$id"
   MARKERS="${MARKERS:+$MARKERS,}$id=$MARK"
 done
 echo ">>> $TABCOUNT tabs created"
+fi
 
 PEER_ID=""
 if [ -n "${WMS_PEER_INSTANCE_ID:-}" ]; then
