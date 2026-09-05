@@ -13385,6 +13385,64 @@
           "subcommands": []
         },
         {
+          "name": "repair",
+          "about": "Repair a live tab's provider identity from verified session evidence",
+          "aliases": [],
+          "args": [
+            {
+              "name": "from-evidence",
+              "positional": false,
+              "required": false,
+              "value_name": "FROM_EVIDENCE",
+              "possible_values": [],
+              "default": null,
+              "help": "Derive provider and session from this tab's live evidence. This is the default",
+              "aliases": []
+            },
+            {
+              "name": "from-journal",
+              "positional": false,
+              "required": false,
+              "value_name": "FROM_JOURNAL",
+              "possible_values": [],
+              "default": null,
+              "help": "Restore the newest eligible journal identity backed by verified session evidence",
+              "aliases": []
+            },
+            {
+              "name": "provider",
+              "positional": false,
+              "required": false,
+              "value_name": "PROVIDER",
+              "possible_values": [],
+              "default": null,
+              "help": "Require the bound, nonce-verified session to belong to this provider",
+              "aliases": []
+            },
+            {
+              "name": "session",
+              "positional": false,
+              "required": false,
+              "value_name": "SESSION",
+              "possible_values": [],
+              "default": null,
+              "help": "Rebind this verified session and reassert its provider identity",
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "required": false,
+              "value_name": "TAB",
+              "possible_values": [],
+              "default": null,
+              "help": "Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "respond",
           "about": "Answer the tab's current provider-declared prompt by numbered option. Sends only when a pending prompt exists; use this instead of raw keys",
           "aliases": [],

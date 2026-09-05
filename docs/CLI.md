@@ -2864,6 +2864,16 @@ Rename a tab (default: current tab)
 - `--tab` — Tab ID to rename (default: $CODETERM_TAB_ID; no focused-tab fallback)
 - `<title>` — New title
 
+#### `codeterm tab repair`
+
+Repair a live tab's provider identity from verified session evidence
+
+- `--from-evidence` — Derive provider and session from this tab's live evidence. This is the default
+- `--from-journal` — Restore the newest eligible journal identity backed by verified session evidence
+- `--provider` — Require the bound, nonce-verified session to belong to this provider
+- `--session` — Rebind this verified session and reassert its provider identity
+- `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
+
 #### `codeterm tab respond`
 
 Answer the tab's current provider-declared prompt by numbered option. Sends only when a pending prompt exists; use this instead of raw keys
