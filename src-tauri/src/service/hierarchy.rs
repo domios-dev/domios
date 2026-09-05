@@ -23,7 +23,9 @@ use planner_delivery::{
 };
 use report_persistence::{persist_authorized_local_task_report, rejected_report_delivery_message};
 
-use super::{RejectedTaskTransition, ReportResult, ServiceContext, ServiceState};
+use super::{
+    RejectedTaskTransition, ReportResult, ReportSubmissionError, ServiceContext, ServiceState,
+};
 use crate::agent::ledger::LedgerRow;
 use crate::agent::reports::{ReportDetails, ReportModelIdentity, ReportStatus};
 use crate::plan::AgentRef;
@@ -396,7 +398,7 @@ impl ServiceContext {
         plan_id: Option<&str>,
         task_id: Option<&str>,
         milestone_kind: Option<&str>,
-    ) -> Result<ReportResult, String> {
+    ) -> Result<ReportResult, ReportSubmissionError> {
         let (task_status, mut task_transition_refusal) =
             match report_task_status_transition(details.status) {
                 Ok(status) => (status, None),
@@ -453,7 +455,7 @@ impl ServiceContext {
             let (from_title, target_opt) = match resolve_report_target(&mux, tab_id) {
                 Ok(resolved) => resolved,
                 Err(_) if eff_plan_id.is_some() => (tab_id.to_string(), None),
-                Err(e) => return Err(e),
+                Err(e) => return Err(e.into()),
             };
             let tab = mux.get_tab(tab_id);
             let model_identity = tab.map(|p| ReportModelIdentity {
@@ -552,6 +554,19 @@ impl ServiceContext {
         } else {
             false
         };
+
+        if let (Some(plan_id), Some(task_id)) = (eff_plan_id.as_deref(), eff_task_id.as_deref()) {
+            if !homed_to_remote && !foreign {
+                self.plan_store
+                    .validate_worker_gate_claim(
+                        plan_id,
+                        task_id,
+                        tab_id,
+                        details.test_cmd.as_deref(),
+                    )
+                    .map_err(ReportSubmissionError::from)?;
+            }
+        }
 
         if let Some(ref plan_id) = eff_plan_id {
             if !homed_to_remote && !foreign && rejected_task_transition.is_none() {

@@ -65,6 +65,7 @@ pub struct TaskRespawnDraft {
     pub task_prompt: String,
     pub report_command: String,
     pub plan_skill_manifest: Vec<crate::plan::PlanSkillManifestEntry>,
+    pub authorized_gates: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -215,6 +216,7 @@ fn build_prompt(
     model: Option<&str>,
     report_command: &str,
     manifest: &[crate::plan::PlanSkillManifestEntry],
+    authorized_gates: &[String],
 ) -> String {
     let identity =
         super::worker_identity::compose_task_worker_identity(task, task.personality.as_deref());
@@ -227,6 +229,9 @@ fn build_prompt(
     out.push_str(&format!("Plan: {plan_id}\nTask: {}\n", task.id));
     out.push_str(&super::task_brief::render_plan_skill_manifest(
         plan_id, manifest,
+    ));
+    out.push_str(&super::task_brief::render_authorized_gates(
+        authorized_gates,
     ));
     out.push_str(&format!("Task name: {}\n", task.name));
     out.push_str(&format!("Provider/model preference: {provider}"));
@@ -767,6 +772,7 @@ impl PlanStore {
             model.as_deref(),
             &report_command,
             &source.plan_skill_manifest,
+            source.authorized_gates.as_deref().unwrap_or(&[]),
         );
         Ok(attempt_view(&plan.id, task, source, Some(prompt)))
     }
@@ -809,6 +815,7 @@ impl PlanStore {
             model.as_deref(),
             &report_command,
             &manifest,
+            source.authorized_gates.as_deref().unwrap_or(&[]),
         );
         Ok(TaskRespawnDraft {
             plan_id: plan.id,
@@ -828,6 +835,7 @@ impl PlanStore {
             task_prompt,
             report_command,
             plan_skill_manifest: manifest,
+            authorized_gates: source.authorized_gates.clone(),
         })
     }
 
@@ -867,6 +875,7 @@ impl PlanStore {
             attempt.executor_title = draft.title.clone();
             attempt.parent_tab_id = draft.parent_tab_id.clone();
             attempt.plan_skill_manifest = draft.plan_skill_manifest.clone();
+            attempt.authorized_gates = draft.authorized_gates.clone();
             record_noncompetitive_replacement_attempt(
                 &mut task.execution_attempts,
                 attempt.clone(),
@@ -1049,6 +1058,11 @@ impl PlanStore {
             if plan.tasks[task_index].assigned_tab_id.as_deref() != Some(reporter_tab) {
                 return Ok(false);
             }
+            super::task_attempt_gates::validate_authorized_gate_claim(
+                &plan.tasks[task_index],
+                reporter_tab,
+                report.test_cmd.as_deref(),
+            )?;
             let interruption = &plan.tasks[task_index].interruption;
             if interruption.handoff_required
                 || (interruption.owner_epoch > 0

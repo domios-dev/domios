@@ -21,6 +21,7 @@ pub(in crate::socket::server) fn build_brief_with_personality(
         None,
         None,
         &[],
+        &[],
     )
 }
 
@@ -29,6 +30,7 @@ pub(super) fn build_brief_with_manifest(
     sections: &[TaskSection],
     plan_id: &str,
     manifest: &[crate::plan::PlanSkillManifestEntry],
+    authorized_gates: &[String],
 ) -> String {
     crate::service::plan::task_brief::render_task_brief(
         task,
@@ -37,5 +39,6 @@ pub(super) fn build_brief_with_manifest(
         None,
         Some(plan_id),
         manifest,
+        authorized_gates,
     )
 }

@@ -141,7 +141,9 @@ impl ServiceContext {
         let tab_id = json_str(params, "tab_id").ok_or("tab_id required")?;
         let message = json_str(params, "message").ok_or("message required")?;
         let details = serde_json::from_value(params.clone()).unwrap_or_default();
-        let result = self.submit_report(&tab_id, &message, details, None, None, None)?;
+        let result = self
+            .submit_report(&tab_id, &message, details, None, None, None)
+            .map_err(|error| error.to_string())?;
         Ok(serde_json::json!({"ok": true, "report_id": result.report_id}))
     }
 }

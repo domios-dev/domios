@@ -76,6 +76,7 @@ pub(crate) fn prepare_worker_plan_task_prompt(
         instruction.as_deref(),
         Some(&resolved.plan_id),
         &manifest,
+        &[],
     );
     params.plan_skill_manifest = Some(manifest);
     params.task = Some(brief);

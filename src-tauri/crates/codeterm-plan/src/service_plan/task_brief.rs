@@ -21,6 +21,20 @@ pub fn render_plan_skill_manifest(
     out
 }
 
+pub fn render_authorized_gates(authorized_gates: &[String]) -> String {
+    if authorized_gates.is_empty() {
+        return String::new();
+    }
+    let mut out = String::from("## Authorized gates\n");
+    for gate in authorized_gates {
+        out.push_str("- ");
+        out.push_str(gate);
+        out.push('\n');
+    }
+    out.push('\n');
+    out
+}
+
 pub fn render_task_brief(
     task: &Task,
     sections: &[TaskSection],
@@ -28,6 +42,7 @@ pub fn render_task_brief(
     orchestrator_instruction: Option<&str>,
     plan_id: Option<&str>,
     plan_skills: &[crate::plan::PlanSkillManifestEntry],
+    authorized_gates: &[String],
 ) -> String {
     let mut out = String::new();
     let identity =
@@ -74,6 +89,8 @@ pub fn render_task_brief(
     {
         out.push_str(&format!("## Test plan\n{test_plan}\n\n"));
     }
+
+    out.push_str(&render_authorized_gates(authorized_gates));
 
     if !sections.is_empty() {
         out.push_str("## Sections\n");
@@ -127,5 +144,23 @@ mod tests {
         assert!(rendered.contains("sha256:abc"));
         assert!(!rendered.contains("# Alpha"));
         assert!(render_plan_skill_manifest("pl_zzmxgb", &[]).is_empty());
+    }
+
+    #[test]
+    fn authorized_gate_tokens_round_trip_without_placeholder_residue() {
+        let task: Task = serde_json::from_value(serde_json::json!({
+            "id": "task_gates",
+            "name": "gate transport",
+            "type": "code",
+            "status": "pending"
+        }))
+        .unwrap();
+        let gates = vec!["gate-token-alpha".into(), "gate-token-beta".into()];
+        let rendered = render_task_brief(&task, &[], None, None, None, &[], &gates);
+
+        for gate in &gates {
+            assert_eq!(rendered.matches(gate).count(), 1);
+        }
+        assert!(!rendered.contains("{authorized_gates}"));
     }
 }

@@ -124,6 +124,7 @@ mod workspace;
 
 pub(crate) const AGENT_TAB_CLOSE_REFUSAL_PREFIX: &str = "workspace close refused";
 
+use std::fmt;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -826,6 +827,47 @@ pub(crate) fn publish_mux_state_changed(events: &crate::api::events::EventBroadc
 }
 
 // ── Shared data types ───────────────────────────────────────────────
+
+#[derive(Debug)]
+pub struct ReportSubmissionError {
+    pub code: i32,
+    pub message: String,
+    pub data: Option<serde_json::Value>,
+}
+
+impl ReportSubmissionError {
+    pub(crate) fn contains(&self, needle: &str) -> bool {
+        self.message.contains(needle)
+    }
+}
+
+impl fmt::Display for ReportSubmissionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.message.fmt(f)
+    }
+}
+
+impl std::error::Error for ReportSubmissionError {}
+
+impl From<String> for ReportSubmissionError {
+    fn from(message: String) -> Self {
+        Self {
+            code: crate::service::plan::RPC_INTERNAL_ERROR,
+            message,
+            data: None,
+        }
+    }
+}
+
+impl From<crate::service::plan::PlanError> for ReportSubmissionError {
+    fn from(error: crate::service::plan::PlanError) -> Self {
+        Self {
+            code: error.rpc_code(),
+            message: error.to_string(),
+            data: Some(error.to_json()),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ReportResult {
