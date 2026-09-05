@@ -170,6 +170,59 @@ regardless of which way a given run's assertion lands, and it is the number I
 would carry into the mesh half, where each of those is a signed relay round
 trip instead of a loopback GET.
 
+## 1c. Build c9245a513: the sync bug does not reproduce, the daemon crash does
+
+Five runs requested at concurrency 8. Four completed; the fifth killed the
+daemon.
+
+| run | rate | overflow | refetch | maxInFlight | slowest refetch | diverged |
+|---|---|---|---|---|---|---|
+| 1 | 177 Hz | 1 | 1275 | 1050 | 2090 ms | no |
+| 2 | 202 Hz | 1 | 1240 | 1028 | 1921 ms | no |
+| 3 | 157 Hz | 1 | 1238 | 1031 | 1947 ms | no |
+| 4 | 166 Hz | 1 | 1237 | 1029 | 2182 ms | no |
+| 5 | - | - | - | - | - | **daemon died mid-storm** |
+
+### The sync divergence is build-specific
+
+`generation-lag` now stands at **0/4 on c9245a513** plus 0/1 on 190b80704:
+**0/5 across the two newer builds**, against 2/2 on 7e7dda609. The
+concurrency-8 shape is not a reproduction of Andrey's bug on current code. The
+retraction in 1b stands and hardens: whatever those two failures were, they do
+not survive either rebuild, and `concurrency` is not established as the
+discriminator.
+
+### The daemon crash does reproduce
+
+Twice, on two different builds:
+
+| when | build | dump | teardown in the window? |
+|---|---|---|---|
+| 11:22:28Z | 190b80704 | yes, `0xc000001d` (Rust abort) | yes - `workspace close --force` on 12 PTYs |
+| run 5, ~11:27:4xZ | c9245a513 | **no dump written** | **no** |
+
+The second death isolates it. It happened inside `Promise.all` on a concurrent
+focus batch (`ECONNRESET` on a `POST .../focus`), with no `workspace close
+--force` anywhere in the window - runs 2 through 5 tear nothing down between
+them. **The switch storm alone can take the daemon out.** The forced 12-PTY
+teardown, the other candidate from the first crash, is not required.
+
+Two differences worth keeping rather than smoothing over: the first death
+wrote a minidump and the second wrote none, and `.clean_exit` is stale
+(10:52) in both cases, so neither was a clean shutdown. A crash reporter that
+catches one and misses the other may be two failure modes or one racing its
+own reporter. Not established.
+
+### What is solid across every run
+
+`maxInFlight` sits at **1028-1050 concurrent `GET /api/mux/state`** in every
+single concurrency-8 run, with the slowest single refetch 1.9-2.2 s. That is
+the most stable number this bench produces, it is the per-event refetch with
+no coalescing and no in-flight dedup, and it is present in the runs that pass
+as well as the ones that kill the daemon.
+
+Tracked as https://github.com/rollacode/codeterm/issues/428.
+
 ## 2. Not established
 
 The cross-peer half **did not run**. Dev's mesh has no paired peers
