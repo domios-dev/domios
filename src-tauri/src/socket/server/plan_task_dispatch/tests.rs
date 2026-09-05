@@ -1,12 +1,13 @@
 use super::{
-    apply_dispatch_starting_contract, await_agent_ready, build_brief, build_brief_with_personality,
+    apply_dispatch_starting_contract, await_agent_ready, build_brief, build_brief_with_manifest,
+    build_brief_with_personality,
     checkout_required, complete_dispatch_transaction, dispatch_ready_event,
     dispatch_startup_failed_event, dispatch_worker_identity, lane_metadata_for_dispatch,
     preflight_dispatch_task_status, preflight_review_capacity, regression_blocked_error,
     resolve_dispatch_lane, resolve_dispatch_routing, rollback_failed_dispatch,
     task_launch_authority_for_dispatch, unqualified_model_error, verify_dispatched_task_binding,
     worker_ack_timeout_event, DispatchEvidence, DispatchFailureDisposition, DispatchWaitFailure,
-    DISPATCH_READY_TIMEOUT,
+    DISPATCH_READY_TIMEOUT, dispatch_authorized_gates,
 };
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::AgentRole;
@@ -65,6 +66,18 @@ fn dispatch_effort_becomes_host_owned_plan_intent() {
     let (planned, requested) = super::dispatch_reasoning_effort(Some(&params));
     assert_eq!(planned.as_deref(), Some("high"));
     assert_eq!(requested.as_deref(), Some("high"));
+}
+
+#[test]
+fn dispatch_gate_tokens_are_preserved_as_opaque_values() {
+    let params = json!({
+        "authorized_gates": ["gate-token-alpha", "gate-token-beta"]
+    });
+    assert_eq!(
+        dispatch_authorized_gates(Some(&params)).unwrap(),
+        vec!["gate-token-alpha", "gate-token-beta"]
+    );
+    assert!(dispatch_authorized_gates(None).unwrap().is_empty());
 }
 
 #[test]

@@ -58,6 +58,30 @@ fn role_guidance_contract_delivery_reaches_the_composed_worker_context_first() {
 }
 
 #[test]
+fn declared_gate_tokens_reach_worker_context_without_placeholder_residue() {
+    let gates = vec!["gate-token-alpha".to_string(), "gate-token-beta".to_string()];
+    let t = task(json!({
+        "id": "task_gates",
+        "name": "Gate delivery fixture",
+        "type": "code",
+        "status": "pending",
+    }));
+    let brief = build_brief_with_manifest(&t, &[], "plan_gates", &[], &gates);
+    let params = crate::service::SpawnAgentParams {
+        role: Some("Worker".into()),
+        task: Some(brief),
+        ..Default::default()
+    };
+    let context = crate::service::spawn_onboarding_task(&params)
+        .expect("worker launch context is composed");
+
+    for gate in &gates {
+        assert_eq!(context.matches(gate).count(), 1);
+    }
+    assert!(!context.contains("{authorized_gates}"));
+}
+
+#[test]
 fn brief_deduplicates_matching_persona_guidance_prefix() {
     let t = task(json!({
         "id": "task_dup",
