@@ -131,6 +131,16 @@ and is out of scope. Use the supported spawn-then-bind pattern instead:
    codeterm agent spawn claude --mesh PEER --role Worker --task "<brief>"
    ```
 
+   This is a **supported task-less Worker shape**, including for work that
+   changes source on the peer: it owns no task because none can exist for it,
+   and it declares no `--execution-intent`. Keep `--role Worker` — that is the
+   field the peer resolves the Worker doctrine from, including the rule that
+   every turn ends in exactly one `codeterm agent report`. A roleless spawn is
+   accepted too and loses that doctrine silently, which on a remote machine
+   means the work never reports home. `--execution-intent mutating` is still
+   refused without a task binding, on the peer's own daemon; the mesh has no
+   binding to give it, so leave the flag off.
+
 2. Have the remote Worker report with **explicit origin ids** — it never has env
    ids, so pass them by hand. The daemon homes the report to the plan's owning
    machine over the mesh (text/status only; attachments are not relayed):
@@ -237,4 +247,4 @@ Mesh inventory is target-authoritative: machine-qualified rows carry provenance 
 
 Inventory opens as a full-screen searchable List beside the existing Mesh network graph. One shared mode bubble switches between the List and the graph of connected computers. Keyboard navigation preserves resource identity and focus; peer detail separates Services and Schedules and labels cached, offline, denied, and partial states.
 
-<!-- revision: 26 -->
+<!-- revision: 27 -->

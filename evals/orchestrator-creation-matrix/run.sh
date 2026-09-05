@@ -592,7 +592,7 @@ sys.stdout.write(json.dumps({
 }, separators=(",", ":")))
 PY
 )
-  h2_resp=$(curl -s --max-time 30 -X POST -H "$CODETERM_DEV_AUTH_HEADER" \
+  h2_resp=$(curl -s --max-time 30 -X POST -H "$(dev_auth_header)" \
     -H "Content-Type: application/json" --data-binary "$h2_body" \
     "http://127.0.0.1:7686/api/orchestration/new")
   h2_p_after=$(tab_count)

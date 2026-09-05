@@ -710,6 +710,20 @@ mod tests {
         ));
     }
 
+    /// The provisioning Worker staffed on a mesh peer: it changes source, but
+    /// `plan task dispatch` is local-only, so no binding exists for it to own.
+    /// That shape is admitted, and the mutating declaration — the one case
+    /// where a binding is possible and therefore required — still is not.
+    #[test]
+    fn a_mesh_worker_owns_no_task_and_is_still_admitted() {
+        validate_spawn_context(&worker(None, false))
+            .expect("a Worker with no plan and no declared intent is a supported shape");
+
+        let refused = validate_spawn_context(&worker(Some(MUTATING), false))
+            .expect_err("declaring mutating intent asks for a binding");
+        assert!(refused.contains("--plan-task"), "{refused}");
+    }
+
     #[test]
     fn unsupported_recovery_flags_are_named_not_dropped() {
         assert!(unsupported_team_orchestrator_flags(&[("--cwd", false)]).is_empty());

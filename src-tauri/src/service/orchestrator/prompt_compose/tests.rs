@@ -154,3 +154,52 @@ fn every_spawned_recipient_receives_rich_rendering_guidance() {
         );
     }
 }
+
+/// A Worker staffed on a mesh peer owns no plan task — `plan task dispatch` is
+/// local-only, so the peer receives `role: "Worker"` and nothing else binding.
+/// The doctrine has to arrive on that shape alone: it carries the rule that
+/// every turn ends in one `codeterm agent report`, which for a remote agent is
+/// the difference between work landing and work sitting unread in a tab on
+/// another machine. Identity is asserted by constant and the composed context
+/// by an opaque test-supplied token, never by prompt wording.
+#[test]
+fn a_task_less_worker_shape_still_receives_the_worker_doctrine() {
+    use codeterm_types::agent::role_kind::builtins;
+    const ASSIGNMENT_TOKEN: &str = "OPAQUE-MESH-ASSIGNMENT-4b71e";
+
+    let doctrine = crate::service::role_preset::builtin_guidance(builtins::WORKER)
+        .expect("the builtin Worker kind carries bundled doctrine");
+    let composed = super::role_onboarding_task(Some(ASSIGNMENT_TOKEN), Some("Worker"), None)
+        .expect("worker system prompt");
+
+    assert_eq!(
+        composed.matches(ASSIGNMENT_TOKEN).count(),
+        1,
+        "the assignment reaches the composed context exactly once"
+    );
+    assert_eq!(
+        composed.matches(doctrine.trim()).count(),
+        1,
+        "the Worker doctrine reaches the task-less shape exactly once"
+    );
+}
+
+/// The roleless spawn is the fallback an operator reaches for when a shape is
+/// refused, and it is the one that silently loses the doctrine. Pinning the
+/// difference keeps `--role Worker` the answer rather than a habit.
+#[test]
+fn the_roleless_fallback_shape_carries_no_worker_doctrine() {
+    use codeterm_types::agent::role_kind::builtins;
+    const ASSIGNMENT_TOKEN: &str = "OPAQUE-ROLELESS-ASSIGNMENT-8d33a";
+
+    let doctrine = crate::service::role_preset::builtin_guidance(builtins::WORKER)
+        .expect("the builtin Worker kind carries bundled doctrine");
+    let composed = super::role_onboarding_task(Some(ASSIGNMENT_TOKEN), None, None)
+        .expect("roleless system prompt");
+
+    assert_eq!(composed.matches(ASSIGNMENT_TOKEN).count(), 1);
+    assert!(
+        !composed.contains(doctrine.trim()),
+        "a roleless spawn carries no Worker doctrine, which is why it is not the mesh shape"
+    );
+}

@@ -28,7 +28,7 @@ TAB=$(dc agent spawn claude --workspace "$WS_ID" --cwd "$CWD" --title rm-claude-
 echo "tab=$TAB"
 
 echo "== send marker prompt"
-curl -s --max-time 60 -X POST -H "$CODETERM_DEV_AUTH_HEADER" -H "Content-Type: application/json" \
+curl -s --max-time 60 -X POST -H "$(dev_auth_header)" -H "Content-Type: application/json" \
   --data "$(python3 -c "import json,sys;print(json.dumps({'text':'Reply with exactly '+sys.argv[1]+' and nothing else.','enter':True}))" "$MARKER")" \
   "http://127.0.0.1:7686/api/tabs/$TAB/send" > /dev/null
 echo "sent at t=0"
