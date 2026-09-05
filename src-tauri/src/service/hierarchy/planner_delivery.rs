@@ -161,10 +161,9 @@ fn gate_answerer<'a>(
     plan: &'a crate::plan::Plan,
     gate: &'a crate::plan::DecisionGate,
 ) -> Option<&'a str> {
-    if let Some(owner) = super::gate_delivery::planner_owner_for_gate(
-        plan,
-        gate.asked_by_tab_id.as_deref(),
-    ) {
+    if let Some(owner) =
+        super::gate_delivery::planner_owner_for_gate(plan, gate.asked_by_tab_id.as_deref())
+    {
         return Some(owner);
     }
     gate.routed_to_tab_id.as_deref()

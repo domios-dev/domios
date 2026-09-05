@@ -762,11 +762,7 @@ impl ServiceContext {
             "[task in_review] '{task_name}' ({task_id}) → in_review by {who}{intent_part}\nReview it, then judge done or bounce back."
         );
         let _ = crate::service::orchestrator_digests::deliver_orchestrator_notice_exact(
-            self,
-            plan_id,
-            owner,
-            "plan",
-            &text,
+            self, plan_id, owner, "plan", &text,
         );
     }
 

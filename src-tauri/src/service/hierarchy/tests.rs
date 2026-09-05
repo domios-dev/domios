@@ -1,8 +1,8 @@
 use super::planner_delivery::{PLANNER_REHYDRATE_HEADER, PLANNER_REHYDRATE_MAX_BYTES};
 use super::{
     is_explicit_plan_foreign, ledger_with_live_children, milestone_text, planner_rehydrate_payload,
-    planner_request_payload, report_task_status_transition, resolve_plan_ctx, resolve_report_target,
-    worker_death_report, ReportTarget,
+    planner_request_payload, report_task_status_transition, resolve_plan_ctx,
+    resolve_report_target, worker_death_report, ReportTarget,
 };
 use crate::agent::ledger::LedgerRow;
 use crate::agent::reports::{ReportStatus, ReportStore};
@@ -360,17 +360,15 @@ fn planner_rehydrate_after_rebind_is_a_bounded_open_gate_list() {
     answered.status = GateStatus::Answered;
     plan.gates.push(answered);
     store.save(&mut plan, 1).unwrap();
-    assert!(
-        store
-            .rebind_planner_session(
-                &plan.id,
-                "planner-tab",
-                "rebound-session",
-                "rebound-nonce",
-                2,
-            )
-            .unwrap()
-    );
+    assert!(store
+        .rebind_planner_session(
+            &plan.id,
+            "planner-tab",
+            "rebound-session",
+            "rebound-nonce",
+            2,
+        )
+        .unwrap());
 
     let rebound = store.get(&plan.id).unwrap();
     let payload = planner_rehydrate_payload(&rebound);
@@ -389,12 +387,10 @@ fn planner_rehydrate_after_rebind_is_a_bounded_open_gate_list() {
     assert!(!payload.contains("answered-gate"));
     assert!(!payload.contains("CONTEXT-MUST-NOT-REHYDRATE"));
     assert!(!payload.contains("task-0"));
-    assert!(
-        serde_json::from_str::<serde_json::Value>(
-            payload.strip_prefix(PLANNER_REHYDRATE_HEADER).unwrap()
-        )
-        .is_err()
-    );
+    assert!(serde_json::from_str::<serde_json::Value>(
+        payload.strip_prefix(PLANNER_REHYDRATE_HEADER).unwrap()
+    )
+    .is_err());
 }
 
 #[test]

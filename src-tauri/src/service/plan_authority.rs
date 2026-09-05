@@ -136,10 +136,8 @@ impl ServiceContext {
         text: &str,
         tag: Option<&str>,
         now_ms: u64,
-    ) -> Result<
-        crate::service::plan::heartbeat::HeartbeatLearnResult,
-        OrchestratorLearningError,
-    > {
+    ) -> Result<crate::service::plan::heartbeat::HeartbeatLearnResult, OrchestratorLearningError>
+    {
         self.authorize_plan_orchestrator(plan_id, caller)
             .map_err(OrchestratorLearningError::Authority)?;
         self.plan_store

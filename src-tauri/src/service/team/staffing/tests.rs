@@ -132,7 +132,10 @@ fn live_orchestrator_count_ignores_a_removed_or_dead_anchor() {
 fn a_headless_team_accepts_a_new_orchestrator_with_no_caller() {
     let (mut mux, team_id, orchestrator, planner, _worker) = live_team();
     mux.close_tab(&orchestrator).unwrap();
-    assert!(mux.get_tab(&planner).is_some(), "members outlive the anchor");
+    assert!(
+        mux.get_tab(&planner).is_some(),
+        "members outlive the anchor"
+    );
 
     let prepared = prepare_team_member_spawn(&mux, &team_id, None, orchestrator_params())
         .expect("a Team with no live Orchestrator accepts one");

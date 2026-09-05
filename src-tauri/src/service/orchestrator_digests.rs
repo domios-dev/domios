@@ -22,40 +22,33 @@ pub fn deliver_orchestrator_notice_exact(
         .tab_id
         .as_deref()
         .ok_or("plan owner has no local delivery target")?;
-    deliver_exact_role_target(
-        "orchestrator",
-        plan_id,
-        owner,
-        requested_target,
-        |target| {
-            let injected = if crate::service::plan::heartbeat::is_plan_complete(&plan) {
-                text.to_string()
-            } else {
-                let digest_lines = collect_digest_lines(svc, &plan, Some(owner));
-                svc.plan_store
-                    .prepend_heartbeat_for_plan_with_digests(plan_id, text, &digest_lines)
-            };
-            let envelope =
-                crate::service::messenger::MessageEnvelope::codeterm_reminder(context);
-            let result = svc.gateway_deliver(
-                target,
-                envelope,
-                &injected,
-                crate::service::message_gateway::DeliveryClass::SystemNotice,
-            );
-            if result.is_ok() {
-                let heartbeat_bytes = injected.len().saturating_sub(text.len());
-                if heartbeat_bytes > 0 {
-                    svc.record_kpi_event(
-                        owner,
-                        crate::agent::kpi_ledger::KpiEventKind::Heartbeat,
-                        heartbeat_bytes,
-                    );
-                }
+    deliver_exact_role_target("orchestrator", plan_id, owner, requested_target, |target| {
+        let injected = if crate::service::plan::heartbeat::is_plan_complete(&plan) {
+            text.to_string()
+        } else {
+            let digest_lines = collect_digest_lines(svc, &plan, Some(owner));
+            svc.plan_store
+                .prepend_heartbeat_for_plan_with_digests(plan_id, text, &digest_lines)
+        };
+        let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder(context);
+        let result = svc.gateway_deliver(
+            target,
+            envelope,
+            &injected,
+            crate::service::message_gateway::DeliveryClass::SystemNotice,
+        );
+        if result.is_ok() {
+            let heartbeat_bytes = injected.len().saturating_sub(text.len());
+            if heartbeat_bytes > 0 {
+                svc.record_kpi_event(
+                    owner,
+                    crate::agent::kpi_ledger::KpiEventKind::Heartbeat,
+                    heartbeat_bytes,
+                );
             }
-            result
-        },
-    )
+        }
+        result
+    })
 }
 
 pub(crate) fn deliver_exact_role_target<T>(
