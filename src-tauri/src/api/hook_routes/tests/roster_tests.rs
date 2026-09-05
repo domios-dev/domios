@@ -123,6 +123,12 @@ fn hook_event_roster_attributes_ingestion_to_non_claude_descriptor() {
     let provider_id = sole_hook_route_declarer(&registry, HookIngestionRoute::SessionStart)
         .expect("sole declarer resolves");
     bind_reported_session(&mux, &registry, &tab_id, &provider_id, "sid-a", None).unwrap();
+    crate::agent::provider_identity::apply_provider_identity(
+        mux.write().get_tab_mut(&tab_id).unwrap(),
+        provider_id,
+        true,
+        crate::session::lifecycle::AgentTypeWriteOrigin::Hook,
+    );
     assert_eq!(
         mux.read().get_tab(&tab_id).unwrap().agent_type.as_deref(),
         Some("fixture-hooks")

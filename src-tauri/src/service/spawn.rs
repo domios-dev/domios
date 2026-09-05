@@ -421,7 +421,12 @@ impl ServiceContext {
 
         // Identity before authority: a role without a launchable provider
         // restores as a role-bearing shell.
-        self.set_and_lock_tab_agent_type(&tab_id, agent_cmd.clone());
+        self.set_and_lock_tab_agent_type_from(
+            &tab_id,
+            agent_cmd.clone(),
+            crate::session::lifecycle::AgentTypeWriteOrigin::Spawn,
+            agent.spawned_by_tab_id.as_deref(),
+        );
         let startup_supervised = self.prepare_agent_startup_supervision(&tab_id);
         // `can_spawn` is only forced when the caller explicitly passed
         // --can-spawn (Some), preserving the kind's default.
@@ -766,7 +771,12 @@ impl ServiceContext {
             result
         };
 
-        self.set_and_lock_tab_agent_type(&tab_id, agent.provider.clone());
+        self.set_and_lock_tab_agent_type_from(
+            &tab_id,
+            agent.provider.clone(),
+            crate::session::lifecycle::AgentTypeWriteOrigin::Spawn,
+            agent.spawned_by_tab_id.as_deref(),
+        );
         let launch_session_id = if agent.resume_session_id.is_none() {
             self.agent_registry
                 .with_provider(&agent.provider, |p| p.session_id_injection())

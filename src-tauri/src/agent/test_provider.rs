@@ -18,6 +18,7 @@ pub struct MockProvider {
     system_prompt_delivery: SystemPromptDelivery,
     status_bar_rows: u16,
     update_command: Option<String>,
+    sessions: std::collections::HashSet<String>,
 }
 
 impl MockProvider {
@@ -29,6 +30,7 @@ impl MockProvider {
             system_prompt_delivery: SystemPromptDelivery::External,
             status_bar_rows: 0,
             update_command: None,
+            sessions: Default::default(),
         }
     }
 
@@ -75,6 +77,13 @@ impl MockProvider {
     pub fn with_update_command(id: &str, command: &str) -> Self {
         Self {
             update_command: Some(command.to_string()),
+            ..Self::new(id)
+        }
+    }
+
+    pub fn with_session(id: &str, session_id: &str) -> Self {
+        Self {
+            sessions: [session_id.to_string()].into_iter().collect(),
             ..Self::new(id)
         }
     }
@@ -134,6 +143,9 @@ impl AgentProvider for MockProvider {
     }
     fn session_file_path(&self, _cwd: &str, _session_id: &str) -> Option<PathBuf> {
         None
+    }
+    fn session_exists(&self, _cwd: &str, session_id: &str) -> bool {
+        self.sessions.contains(session_id)
     }
     fn build_resume_command(&self, session_id: &str, _skip_permissions: bool) -> Option<String> {
         Some(format!("{}-cli --resume {session_id}", self.id))
