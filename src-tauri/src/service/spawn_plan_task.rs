@@ -599,6 +599,18 @@ mod tests {
         .expect("a task-bound mutating Worker is unchanged");
     }
 
+    /// The mesh Worker: it changes source on a peer, but the origin plan store
+    /// is on another machine, so it declares no intent and owns no task. The
+    /// daemon a mesh spawn lands on is where that shape is finally admitted.
+    #[test]
+    fn validate_accepts_a_worker_that_declares_no_intent_and_owns_no_task() {
+        validate_worker_plan_task_spawn(&SpawnAgentParams {
+            role: Some("Worker".into()),
+            ..Default::default()
+        })
+        .expect("a Worker with no binding and no declared intent is a supported shape");
+    }
+
     #[test]
     fn validate_rejects_gates_a_spawn_cannot_enforce() {
         let roleless = validate_worker_plan_task_spawn(&SpawnAgentParams {
