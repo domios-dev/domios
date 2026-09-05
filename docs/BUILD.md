@@ -129,6 +129,42 @@ does not publish a release or alter GitHub assets.
    intentionally slower and isolated. The updater helper stops only the
    current-user installed CodeTerm, runs NSIS, and restarts it.
 
+### Repairing a corrupted user PATH (Windows)
+
+CodeTerm adds only its own `bin/` directory to `HKCU\Environment` `Path`, and
+now refuses any directory under the system temp directory. Machines that ran the
+Windows CLI-install tests before that refusal existed accumulated dead
+`<temp>\.tmp*\.codeterm\bin` entries, which count against the 32,767-character
+user-PATH cap.
+
+The repair is never automatic. Run it yourself, once:
+
+```powershell
+$exe = @(
+  "$env:LOCALAPPDATA\codeterm\codeterm.exe",
+  "$env:LOCALAPPDATA\Programs\codeterm\CodeTerm.exe",
+  "$env:ProgramFiles\CodeTerm\CodeTerm.exe"
+) | Where-Object { Test-Path $_ } | Select-Object -First 1
+& $exe repair-user-path
+Get-Content "$env:TEMP\codeterm-user-path-repair.txt"
+```
+
+It removes only entries of the dead `<temp>\.tmp*\.codeterm\bin` shape, leaves
+every other entry untouched and in order, reports how many it removed, and is
+safe to run twice — a second run removes nothing and does not write the
+registry. Where there is no registry it reports zero rather than failing. The
+installed app is a GUI binary with no console, so the report is written to the
+file above as well as stdout.
+
+Measure before and after:
+
+```powershell
+$p = (Get-ItemProperty -Path HKCU:\Environment -Name Path).Path
+"{0} entries, {1} chars" -f $p.Split(';').Count, $p.Length
+```
+
+Sign out and back in for a repaired PATH to reach new processes.
+
 ### Local production troubleshooting
 
 | Symptom | Cause | Recovery |
@@ -306,4 +342,4 @@ production app during startup, in-app update, or `install-local`.
 
 Tooling, outputs, platform notes, and repository layout: `docs/BUILD-REFERENCE.md`. Test workflows: `codeterm docs TESTING`.
 
-<!-- revision: 123 -->
+<!-- revision: 124 -->

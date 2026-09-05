@@ -17,6 +17,7 @@ mod servers;
 #[cfg(test)]
 mod stall_tests;
 mod states;
+mod user_path;
 mod window;
 
 pub(crate) use background::start_background_tasks;
@@ -36,4 +37,5 @@ pub(crate) use rest_api::{
 };
 pub(crate) use servers::start_servers;
 pub(crate) use states::init_states;
+pub(crate) use user_path::run_user_path_repair_if_invoked;
 pub(crate) use window::{build_system_tray, setup_window_styling};
