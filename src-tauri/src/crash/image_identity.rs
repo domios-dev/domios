@@ -62,6 +62,7 @@ pub fn rsds_key(record: &[u8]) -> Option<String> {
     rsds(record).map(|i| i.key)
 }
 
+#[cfg(any(windows, test))]
 fn rsds(record: &[u8]) -> Option<Identity> {
     if record.len() < 24 || &record[0..4] != b"RSDS" {
         return None;
