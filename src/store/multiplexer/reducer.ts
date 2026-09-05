@@ -198,24 +198,6 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
           ...(agentType ? { agent_type: agentType } : {}),
         };
       }
-      const newToasts: Notification[] = [];
-      for (const [id, tab] of Object.entries(mergedTabs)) {
-        const oldTab = state.tabs[id];
-        if (tab.pending_prompt && !oldTab?.pending_prompt) {
-          newToasts.push({
-            id: `prompt-${id}-${Date.now()}`,
-            tab_id: id,
-            workspace_id: null,
-            title: tab.title || "Agent",
-            body: "Needs your attention",
-            severity: "Warning" as const,
-            level: "action_needed" as const,
-            read: false,
-            sticky: false,
-            timestamp: Date.now(),
-          });
-        }
-      }
       // Remote-projected tabs live outside the local snapshot; re-attach them so an
       // authoritative local snapshot never drops their identity, selection, or focus.
       const remoteTabs = Object.fromEntries(
@@ -246,7 +228,6 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         teams: action.state.teams ?? [],
         focused_tab_id,
         active_workspace_id: action.state.active_workspace_id,
-        toasts: [...state.toasts, ...newToasts],
         activeTabIds,
         // Prefer the authoritative recently closed list when it is present.
         recently_closed: action.state.recently_closed ?? state.recently_closed,
