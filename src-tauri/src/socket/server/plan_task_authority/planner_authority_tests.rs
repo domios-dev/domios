@@ -9,7 +9,9 @@ use crate::multiplexer::types::AgentRole;
 use crate::plan::{OrchestratorRef, Plan, TaskStatus};
 use crate::service::plan::NewTask;
 use crate::service::test_fixture::ServiceFixture;
+use crate::service::ServiceState;
 use serde_json::{json, Value};
+use std::sync::Arc;
 
 const PLANNER_SESSION: &str = "planner-session";
 const PLANNER_NONCE: &str = "planner-nonce";
@@ -20,7 +22,12 @@ const OWNER_NONCE: &str = "owner-nonce";
 const DISPATCHED_EPOCH: u64 = 4;
 
 struct PlannerFixture {
-    fixture: ServiceFixture,
+    /// Held for its TempDir and app lifetime. `service` is the handle the seam
+    /// actually takes: `ServiceState` is `Arc<ServiceContext>` and the fixture
+    /// stores the bare context, so the Arc is built once here rather than at
+    /// every call site.
+    _fixture: ServiceFixture,
+    service: ServiceState,
     plan_id: String,
     planner_tab: String,
 }
@@ -66,8 +73,10 @@ fn planner_fixture() -> PlannerFixture {
     );
     plan.team_id = Some(team_id);
     fixture.service.plan_store.save(&mut plan, 1).unwrap();
+    let service = Arc::new(fixture.service.clone());
     PlannerFixture {
-        fixture,
+        _fixture: fixture,
+        service,
         plan_id: plan.id,
         planner_tab,
     }
@@ -76,7 +85,7 @@ fn planner_fixture() -> PlannerFixture {
 /// A task the Planner authored that has since been dispatched at least once, so
 /// its owner epoch is non-zero and the seam's zero-epoch shortcut cannot apply.
 fn dispatched_task(harness: &PlannerFixture, status: TaskStatus) -> String {
-    let store = &harness.fixture.service.plan_store;
+    let store = &harness.service.plan_store;
     let task_id = store
         .add_task(
             &harness.plan_id,
@@ -146,7 +155,7 @@ fn planner_updates_task_structure_on_a_dispatched_task() {
                 "acceptance_criteria": ["the stored lane equals the reported one"],
             }),
         );
-        verify_owner_epoch_for_task_mutation("plan.task.update", &params, &harness.fixture.service)
+        verify_owner_epoch_for_task_mutation("plan.task.update", &params, &harness.service)
             .unwrap_or_else(|error| {
                 panic!("the bound Planner must edit structure on a {status:?} task: {error:?}")
             });
@@ -178,7 +187,7 @@ fn planner_is_still_refused_for_status_assignment_and_execution_fields() {
         let error = verify_owner_epoch_for_task_mutation(
             "plan.task.update",
             &params,
-            &harness.fixture.service,
+            &harness.service,
         )
         .unwrap_err();
         assert_eq!(
@@ -206,7 +215,7 @@ fn planner_structure_grant_does_not_extend_to_execution_verbs() {
         let harness = planner_fixture();
         let task_id = dispatched_task(&harness, TaskStatus::InProgress);
         let params = planner_update(&harness, &task_id, json!({}));
-        let error = verify_owner_epoch_for_task_mutation(method, &params, &harness.fixture.service)
+        let error = verify_owner_epoch_for_task_mutation(method, &params, &harness.service)
             .unwrap_err();
         assert_eq!(
             refusal_type(&error),
@@ -229,7 +238,6 @@ fn planner_may_not_approve_the_plan() {
     };
     assert!(
         harness
-            .fixture
             .service
             .authorize_plan_orchestrator(&harness.plan_id, &caller)
             .is_err(),
@@ -238,7 +246,6 @@ fn planner_may_not_approve_the_plan() {
     assert!(
         matches!(
             harness
-                .fixture
                 .service
                 .classify_planning_caller(&harness.plan_id, &caller),
             Ok(crate::plan::PlanningAuthor::Planner { .. })
