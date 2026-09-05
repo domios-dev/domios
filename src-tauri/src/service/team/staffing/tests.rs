@@ -237,7 +237,10 @@ fn the_new_orchestrator_takes_the_plan_over_and_the_heartbeat_follows() {
     assert_eq!(transfer.from.tab_id.as_deref(), Some(orchestrator.as_str()));
     assert_eq!(transfer.to.tab_id.as_deref(), Some(result.tab_id.as_str()));
 
-    let owner_targets: Vec<&str> = timed_plan_reminder_targets(&[store.get(&plan_id).unwrap()])
+    let reloaded = store.get(&plan_id).unwrap();
+    let plans = [reloaded];
+    let reminder_targets = timed_plan_reminder_targets(&plans);
+    let owner_targets: Vec<&str> = reminder_targets
         .iter()
         .filter(|target| matches!(&target.target, PlanReminderTarget::Owner { .. }))
         .map(|target| target.tab_id.as_str())

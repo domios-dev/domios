@@ -422,7 +422,7 @@ mod tests {
                 task: Some("Plan it".into()),
                 model: Some("model".into()),
             },
-            |team_id, caller_tab_id, body: AddTeamMemberBody| async move {
+            |team_id, caller_tab_id: Option<String>, body: AddTeamMemberBody| async move {
                 assert_eq!(team_id, "team_x");
                 assert_eq!(caller_tab_id.as_deref(), Some("manager"));
                 assert_eq!(body.role, "planner");
