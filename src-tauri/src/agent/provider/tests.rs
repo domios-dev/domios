@@ -303,8 +303,10 @@ fn default_describe_assembles_from_methods() {
     assert_eq!(desc.schema_version, PROVIDER_DESCRIPTOR_SCHEMA_VERSION);
     assert_eq!(desc.id, "stub");
     assert_eq!(desc.display_name, "Stub");
-    assert_eq!(desc.available_models.len(), 1);
+    assert_eq!(desc.available_models.len(), 2);
     assert_eq!(desc.available_models[0].id, "offered");
+    assert_eq!(desc.available_models[1].id, "unsupported");
+    assert_eq!(desc.available_models[1].available, Some(false));
     assert!(desc.settings_schema.is_empty());
     assert!(!desc.supports_lazy_skills); // default false
     assert!(!desc.has_hooks); // default false

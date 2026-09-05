@@ -61,8 +61,7 @@
     {
       "id": "fable",
       "displayName": "Claude Fable",
-      "description": "Most capable for your hardest and longest-running tasks.",
-      "available": false
+      "description": "Most capable for your hardest and longest-running tasks."
     }
   ],
   "defaultModel": "sonnet",
