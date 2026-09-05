@@ -67,6 +67,11 @@ pub(crate) const DOCS: &[EmbeddedDoc] = &[
         "../../../docs/API-TABS.md"
     ),
     doc!(
+        "API-REPAIR",
+        "Tab identity repair REST contract",
+        "../../../docs/API-REPAIR.md"
+    ),
+    doc!(
         "API-INTEGRATIONS",
         "Bridge, hook, notification, and cron REST contracts",
         "../../../docs/API-INTEGRATIONS.md"

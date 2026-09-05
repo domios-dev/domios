@@ -139,26 +139,7 @@ Response: `{"ok": true, "changed": true}` when the persisted id changed, `{"ok":
 
 User-facing recovery is `codeterm tab rebind SESSION_ID --tab ID`. It binds the named existing provider session through the same validation as `SessionStart`, without restarting or interrupting the agent. The response names `found_session_id`, `requested_session_id`, and whether the binding changed. A missing session cannot evict a materialized session and returns a conflict naming both ids.
 
-`GET /api/tabs/{id}/session/binding-state` reads the tab-scoped fact the daemon already holds rather than inferring one: `healthy`, `deferred_pending`, `refused`, `unbound`, or `stale_pending`, with the current and requested session identities when known. `healthy` is the ordinary answer for almost every tab and carries no registry entry, so an absent entry alone never means trouble.
-
-#### Identity Repair (POST /api/tabs/{id}/repair)
-
-`codeterm tab repair` corrects a live PTY tab without restarting it. An empty
-request or `{"from_evidence":true}` verifies the tab's bound session and unique
-provider record, then corrects the provider label and clears its parser lock.
-`{"provider":"codex"}` adds an assertion that must match that evidence;
-`{"session_id":"..."}` consumes verified rebind; and
-`{"from_journal":true}` walks lifecycle checkpoints newest-first until provider
-and session match the live evidence. It reports the restored checkpoint and all
-newer records skipped with reasons. Parser-origin checkpoints are never sources.
-
-The caller is proven from the tab and binding headers injected into a CodeTerm
-PTY, plus the session header when the launch already knew it. Only the target
-tab's own agent or the live owner of its bound Plan task may repair it. Refusals
-use stable `tab_repair_*` error codes, including
-`tab_repair_verified_session_required` and `tab_repair_not_authorized`. Every
-accepted identity write is journaled with origin `repair`, previous/new provider,
-caller tab, session id, and the verification facts used.
+`GET /api/tabs/{id}/session/binding-state` reads the tab-scoped fact the daemon already holds rather than inferring one: `healthy`, `deferred_pending`, `refused`, `unbound`, or `stale_pending`, with the current and requested session identities when known. `healthy` is the ordinary answer for almost every tab and carries no registry entry, so an absent entry alone never means trouble. Repair: `codeterm docs API-REPAIR`.
 
 #### Hook auth
 
@@ -255,4 +236,4 @@ The `connect`, `approve`, `reject`, and `disconnect` endpoints are high-level â€
 
 Memory item, graph, calibration, and worker endpoints: `codeterm docs API-MEMORY`.
 
-<!-- revision: 21 -->
+<!-- revision: 22 -->
