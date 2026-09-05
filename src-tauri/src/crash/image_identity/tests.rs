@@ -86,3 +86,36 @@ fn the_running_image_reports_an_identity_or_says_it_has_none() {
         );
     }
 }
+
+#[test]
+fn the_key_is_the_symbol_store_form_of_the_same_record() {
+    // scripts/pdb_identity.py prints exactly this for the PDB of that build; the
+    // two must agree or the sidecar names a directory retention never wrote.
+    let key = rsds_key(&rsds(CRASHED_BUILD_GUID, 1, "codeterm.pdb")).expect("renders");
+    assert_eq!(key, "4B469720F59E45EF97AB215696E6BF031");
+    assert_eq!(key.len(), 33, "32 GUID hex digits then the age in hex");
+    assert!(!key.contains('-'), "the key carries no separators: {key}");
+}
+
+#[test]
+fn the_key_separates_builds_that_differ_only_in_age() {
+    let first = rsds_key(&rsds(CRASHED_BUILD_GUID, 1, "codeterm.pdb")).expect("renders");
+    let second = rsds_key(&rsds(CRASHED_BUILD_GUID, 2, "codeterm.pdb")).expect("renders");
+    assert_ne!(first, second);
+}
+
+#[test]
+fn a_record_with_no_identity_has_no_key() {
+    assert!(rsds_key(b"NB10").is_none());
+}
+
+#[test]
+fn the_retained_symbols_dir_is_keyed_by_identity_not_by_a_commit() {
+    let dir = crate::crash::report::retained_symbols_dir();
+    let name = dir.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+    assert!(dir.parent().is_some_and(|p| p.ends_with("pdb")) || name == "pdb");
+    if let Some(key) = debug_key() {
+        assert_eq!(name, key, "the sidecar must name the directory retention writes");
+        assert_ne!(name, env!("BUILD_HASH"), "a commit is not a symbol identity");
+    }
+}

@@ -16,15 +16,17 @@ store="$fixture/pdb"
 src="$fixture/codeterm.pdb"
 printf 'pdb-for-build-one' > "$src"
 
-retain() { # sha
-  CODETERM_DEV_PDB_DIR="$store" ./build.sh retain-pdb "$1" "$src" >/dev/null
+# The key is supplied explicitly so this check needs neither a real PDB nor a
+# build; dev computes it from the symbol file via scripts/pdb_identity.py.
+retain() { # key [sha]
+  CODETERM_DEV_PDB_DIR="$store" ./build.sh retain-pdb "${2:-deadbee}" "$src" "$1" >/dev/null
 }
 
 # The copy keeps the linker's own file name — Windows symbol lookup finds a PDB by
 # the name in the binary's RSDS record, so a renamed file would never be found.
-retain aaaaaaaaaaaa
+retain aaaaaaaaaaaa b9ba09cf3
 if [ ! -f "$store/aaaaaaaaaaaa/codeterm.pdb" ]; then
-  echo "retain-pdb must store the symbol file at <store>/<sha>/codeterm.pdb" >&2
+  echo "retain-pdb must store the symbol file at <store>/<key>/codeterm.pdb" >&2
   find "$store" >&2 || true
   exit 1
 fi
@@ -33,11 +35,17 @@ if [ "$(cat "$store/aaaaaaaaaaaa/codeterm.pdb")" != "pdb-for-build-one" ]; then
   exit 1
 fi
 
-# A rerun on the same sha must not fork a second copy.
-retain aaaaaaaaaaaa
-retained_for_sha="$(find "$store/aaaaaaaaaaaa" -name '*.pdb' | wc -l | tr -d ' ')"
-if [ "$retained_for_sha" != "1" ]; then
-  echo "a repeated retain must not duplicate the symbol file (found $retained_for_sha)" >&2
+# The build sha is recorded beside the symbols, informative only.
+if [ "$(cat "$store/aaaaaaaaaaaa/build-sha.txt")" != "b9ba09cf3" ]; then
+  echo "retain-pdb must record the build sha beside the retained symbols" >&2
+  exit 1
+fi
+
+# A rerun on the same key must not fork a second copy.
+retain aaaaaaaaaaaa b9ba09cf3
+retained_for_key="$(find "$store/aaaaaaaaaaaa" -name '*.pdb' | wc -l | tr -d ' ')"
+if [ "$retained_for_key" != "1" ]; then
+  echo "a repeated retain must not duplicate the symbol file (found $retained_for_key)" >&2
   exit 1
 fi
 
@@ -48,9 +56,9 @@ if find "$store" -name '*.partial' | grep -q .; then
 fi
 
 # A fourth distinct build evicts the oldest; exactly three are kept.
-for sha in bbbbbbbbbbbb cccccccccccc dddddddddddd; do
-  printf 'pdb-for-%s' "$sha" > "$src"
-  retain "$sha"
+for key in bbbbbbbbbbbb cccccccccccc dddddddddddd; do
+  printf 'pdb-for-%s' "$key" > "$src"
+  retain "$key"
 done
 
 kept="$(find "$store" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')"
@@ -63,9 +71,9 @@ if [ -d "$store/aaaaaaaaaaaa" ]; then
   echo "the oldest build must be pruned first" >&2
   exit 1
 fi
-for sha in bbbbbbbbbbbb cccccccccccc dddddddddddd; do
-  if [ ! -f "$store/$sha/codeterm.pdb" ]; then
-    echo "pruning removed a build that is still within the retention count: $sha" >&2
+for key in bbbbbbbbbbbb cccccccccccc dddddddddddd; do
+  if [ ! -f "$store/$key/codeterm.pdb" ]; then
+    echo "pruning removed a build that is still within the retention count: $key" >&2
     exit 1
   fi
 done
@@ -82,6 +90,25 @@ CODETERM_DEV_PDB_DIR="$missing_store" ./build.sh retain-pdb eeeeeeeeeeee \
   "$fixture/does-not-exist.pdb" >/dev/null
 if [ -d "$missing_store/eeeeeeeeeeee" ]; then
   echo "a build without a PDB must not create an empty store entry" >&2
+  exit 1
+fi
+
+# Without a key and with an unreadable symbol file, nothing is filed under a guess.
+unkeyed_store="$fixture/pdb-unkeyed"
+CODETERM_DEV_PDB_DIR="$unkeyed_store" ./build.sh retain-pdb b9ba09cf3 "$src" >/dev/null 2>&1 || true
+if find "$unkeyed_store" -name 'codeterm.pdb' 2>/dev/null | grep -q .; then
+  echo "a file with no readable debug identity must not be retained under a guessed key" >&2
+  exit 1
+fi
+
+# The key comes from the symbol file's own identity, never from a commit sha.
+if ! grep -q 'dev_pdb_key' build.sh; then
+  echo "retention must derive its key from the symbol file, not from a sha" >&2
+  exit 1
+fi
+key_from_helper="$(python scripts/pdb_identity.py build.sh 2>/dev/null || true)"
+if [ -n "$key_from_helper" ]; then
+  echo "pdb_identity must report no identity for a non-PE, non-PDB file" >&2
   exit 1
 fi
 
