@@ -13,6 +13,19 @@ Windows install), so a crash artifact can be read with nothing installed.
     python scripts/symbolicate-minidump.py <dump.dmp> --image <exe> \
         --symbol-path "<exe-dir>;srv*C:\\symbols*https://msdl.microsoft.com/download/symbols"
 
+When the crashing binary has been relinked away, point the tool at the symbol file
+`build.sh dev` retained for that build — the crash sidecar's `Symbols:` line names
+the directory:
+
+    python scripts/symbolicate-minidump.py <dump.dmp> --sidecar <crash-...-native.txt>
+    python scripts/symbolicate-minidump.py <dump.dmp> --pdb <codeterm.pdb>
+    python scripts/symbolicate-minidump.py <dump.dmp> --pdb-store ~/.codeterm-dev/pdb
+
+A symbol file is accepted only when the GUID and age it records for itself match the
+dump module's RSDS, and dbghelp then loads it as the module source. Frame NAMES come
+back; x64 unwind data lives in the binary, so the frame ORDER does not — read `--scan`
+as the authority in that mode.
+
 Identity is checked per module: the RSDS (GUID + age) recorded in the dump is
 compared against the RSDS in the on-disk file at the same path. A module whose
 image no longer matches is attributed as `module+0xRVA` and its symbols are
@@ -290,6 +303,92 @@ def describe_cv(record: bytes) -> str:
     return f"{guid} age={age} pdb={pdb.replace(chr(92), '/').rsplit('/', 1)[-1]}"
 
 
+MSF_MAGIC = b"Microsoft C/C++ MSF 7.00" + bytes([13, 10, 26]) + b"DS" + bytes([0, 0, 0])
+
+
+def pdb_identity(path: Path) -> tuple[str, int] | None:
+    """(GUID, age) a PDB claims for itself, read from its MSF PDB-info stream.
+
+    This is the half a symbol file can be checked by when the binary it was linked
+    with is gone: a PDB that does not carry the dump's GUID names other functions.
+    """
+    try:
+        with path.open("rb") as handle:
+            header = handle.read(56)
+            if not header.startswith(MSF_MAGIC):
+                return None
+            block_size, _free_map, _blocks, dir_bytes, _unknown, block_map = struct.unpack_from(
+                "<IIIIII", header, 32)
+            if block_size == 0:
+                return None
+
+            def read_block(index: int) -> bytes:
+                handle.seek(index * block_size)
+                return handle.read(block_size)
+
+            n_dir_blocks = -(-dir_bytes // block_size)
+            map_bytes = read_block(block_map)
+            dir_blocks = struct.unpack_from(f"<{n_dir_blocks}I", map_bytes, 0)
+            directory = b"".join(read_block(b) for b in dir_blocks)[:dir_bytes]
+
+            (n_streams,) = struct.unpack_from("<I", directory, 0)
+            sizes = struct.unpack_from(f"<{n_streams}I", directory, 4)
+            cursor = 4 + n_streams * 4
+            # Stream 1 is the PDB info stream; walk past stream 0's block list.
+            for index in range(2):
+                size = sizes[index] if sizes[index] != 0xFFFFFFFF else 0
+                count = -(-size // block_size)
+                if index == 1:
+                    blocks = struct.unpack_from(f"<{count}I", directory, cursor)
+                    info = b"".join(read_block(b) for b in blocks)[:size]
+                    if len(info) < 28:
+                        return None
+                    _version, _signature, age = struct.unpack_from("<III", info, 0)
+                    d1, d2, d3 = struct.unpack_from("<IHH", info, 12)
+                    d4 = info[20:28]
+                    guid = (f"{d1:08X}-{d2:04X}-{d3:04X}-"
+                            f"{d4[:2].hex().upper()}-{d4[2:].hex().upper()}")
+                    return guid, age
+                cursor += count * 4
+    except (OSError, struct.error, IndexError):
+        return None
+    return None
+
+
+def module_identity(record: bytes) -> tuple[str, int] | None:
+    """(GUID, age) a dump's module recorded, in the same shape as pdb_identity."""
+    if len(record) < 24 or record[:4] != b"RSDS":
+        return None
+    d1, d2, d3 = struct.unpack_from("<IHH", record, 4)
+    d4 = record[12:20]
+    (age,) = struct.unpack_from("<I", record, 20)
+    return (f"{d1:08X}-{d2:04X}-{d3:04X}-"
+            f"{d4[:2].hex().upper()}-{d4[2:].hex().upper()}"), age
+
+
+def sidecar_symbols_dir(sidecar: Path) -> Path | None:
+    """The `Symbols:` line crash::report writes — where build.sh retained the PDB."""
+    try:
+        for line in sidecar.read_text(encoding="utf-8", errors="replace").splitlines():
+            if line.startswith("Symbols:"):
+                return Path(line.split(":", 1)[1].strip())
+            if line.startswith("Recent log tail"):
+                break
+    except OSError:
+        return None
+    return None
+
+
+def find_pdb(store: Path, wanted: tuple[str, int]) -> Path | None:
+    """The PDB under `store` whose own identity matches the dump's module."""
+    if not store.is_dir():
+        return None
+    for candidate in sorted(store.rglob("*.pdb")):
+        if pdb_identity(candidate) == wanted:
+            return candidate
+    return None
+
+
 class ADDRESS64(ctypes.Structure):
     _fields_ = [("Offset", ctypes.c_uint64), ("Segment", ctypes.c_uint16),
                 ("Mode", ctypes.c_uint32)]
@@ -362,7 +461,8 @@ class Symbolizer:
 
     FAKE_PROCESS = 0x0DEFACED
 
-    def __init__(self, dump: Minidump, symbol_path: str, image_override: dict[int, Path]):
+    def __init__(self, dump: Minidump, symbol_path: str, image_override: dict[int, Path],
+                 symbol_files: dict[int, Path] | None = None):
         self.dump = dump
         self.dbghelp = ctypes.WinDLL("dbghelp.dll")
         self._prototypes()
@@ -373,12 +473,18 @@ class Symbolizer:
         if not self.dbghelp.SymInitialize(self.handle, symbol_path.encode(), False):
             raise DumpError(f"SymInitialize failed: {ctypes.GetLastError()}")
 
+        symbol_files = symbol_files or {}
         for module in dump.modules:
-            if not module.verified:
-                continue
-            path = image_override.get(module.base, Path(module.name))
+            # A retained PDB stands in for an image that is gone: dbghelp accepts the
+            # symbol file itself as the module source, which recovers names even
+            # though the unwind info in the binary is not available.
+            source = symbol_files.get(module.base)
+            if source is None:
+                if not module.verified:
+                    continue
+                source = image_override.get(module.base, Path(module.name))
             self.dbghelp.SymLoadModuleEx(
-                self.handle, None, str(path).encode(), None,
+                self.handle, None, str(source).encode(), None,
                 module.base, module.size, None, 0)
 
         self._read_cb = READ_MEMORY(self._read_memory)
@@ -563,6 +669,50 @@ def verify_modules(dump: Minidump, image_override: dict[int, Path]) -> None:
             module.verified = True
 
 
+def resolve_symbol_file(args, crash_module: Module | None) -> tuple[dict[int, Path], str]:
+    """Pick a symbol file for the crashing module and prove it belongs to this dump.
+
+    A PDB is only accepted when its own recorded GUID and age match the module's
+    RSDS. That is the whole point of retaining one: the binary may be gone, but a
+    symbol file that cannot prove its identity names other functions.
+    """
+    if crash_module is None:
+        return {}, "no crashing module identified"
+
+    wanted = module_identity(crash_module.cv_record)
+    if wanted is None:
+        return {}, "the dump records no RSDS for the crashing module"
+
+    candidates: list[Path] = []
+    if args.pdb:
+        candidates.append(args.pdb)
+    stores: list[Path] = []
+    if args.sidecar:
+        from_sidecar = sidecar_symbols_dir(args.sidecar)
+        if from_sidecar is None:
+            return {}, f"{args.sidecar} carries no Symbols: line"
+        stores.append(from_sidecar)
+    if args.pdb_store:
+        stores.append(args.pdb_store)
+    for store in stores:
+        found = find_pdb(store, wanted)
+        if found is not None:
+            candidates.append(found)
+        else:
+            return {}, f"no symbol file in {store} matches {wanted[0]} age={wanted[1]}"
+
+    for candidate in candidates:
+        identity = pdb_identity(candidate)
+        if identity is None:
+            return {}, f"{candidate} is not a readable PDB"
+        if identity != wanted:
+            return {}, (f"{candidate} is {identity[0]} age={identity[1]}, the dump wants "
+                        f"{wanted[0]} age={wanted[1]} - REFUSED")
+        return {crash_module.base: candidate}, f"{candidate} (identity verified)"
+
+    return {}, "none supplied"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -570,6 +720,12 @@ def main() -> int:
     parser.add_argument("--image", type=Path, default=None,
                         help="the exact main binary that crashed, if it is not at its recorded path")
     parser.add_argument("--symbol-path", default=None, help="dbghelp symbol path")
+    parser.add_argument("--pdb", type=Path, default=None,
+                        help="symbol file for the crashing module, used when its binary is gone")
+    parser.add_argument("--pdb-store", type=Path, default=None,
+                        help="directory of retained symbol files to search by identity")
+    parser.add_argument("--sidecar", type=Path, default=None,
+                        help="crash .txt whose Symbols: line names the retained symbol directory")
     parser.add_argument("--all-threads", action="store_true")
     parser.add_argument("--scan", action="store_true",
                         help="raw stack scan (use when the main module fails verification)")
@@ -599,6 +755,20 @@ def main() -> int:
 
     verify_modules(dump, override)
 
+    captured_rip = (
+        struct.unpack_from("<Q", dump.exception_context, CTX_RIP)[0]
+        if dump.exception_context and len(dump.exception_context) >= CTX_SIZE
+        else 0
+    )
+    crash_module = dump.module_for(captured_rip)
+    if crash_module is None and override:
+        crash_module = next(m for m in dump.modules if m.base in override)
+
+    symbol_files, symbol_note = resolve_symbol_file(args, crash_module)
+    symbols_without_image = bool(symbol_files) and crash_module is not None         and not crash_module.verified
+    if symbols_without_image:
+        crash_module.verified = True
+
     print(f"Dump         : {args.dump}  ({args.dump.stat().st_size} bytes)")
     print(f"Threads      : {len(dump.threads)}    Modules: {len(dump.modules)}"
           f"    Verified: {sum(1 for m in dump.modules if m.verified)}")
@@ -627,11 +797,10 @@ def main() -> int:
     if args.fetch_symbols:
         search.append(str(args.fetch_symbols))
     symbol_path = args.symbol_path or ";".join(search) or "."
-    sym = Symbolizer(dump, symbol_path, override)
+    print(f"Symbol file  : {symbol_note}")
+    sym = Symbolizer(dump, symbol_path, override, symbol_files)
 
-    main_module = dump.module_for(
-        struct.unpack_from("<Q", dump.exception_context, CTX_RIP)[0]
-        if dump.exception_context and len(dump.exception_context) >= CTX_SIZE else 0)
+    main_module = crash_module
     if main_module is not None:
         info = sym.module_info(main_module.base) if main_module.verified else None
         state = (f"{SYM_TYPE_NAMES.get(info.SymType, info.SymType)} "
@@ -643,9 +812,18 @@ def main() -> int:
             print("!" * 78)
             print(f"! {main_module.short_name} FAILED IDENTITY VERIFICATION: {main_module.note}.")
             print("! Its frames are reported as module+RVA only. x64 unwinding also needs this")
-            print("! image's .pdata, so StackWalk64 through it is not trustworthy either —")
+            print("! image's .pdata, so StackWalk64 through it is not trustworthy either -")
             print("! use --scan and read the result as a superset.")
+            print("! A symbol file retained for this build recovers the names: pass --pdb,")
+            print("! --pdb-store, or --sidecar <the crash .txt>.")
             print("!" * 78)
+        elif symbols_without_image:
+            print()
+            print("-" * 78)
+            print(f"- Names come from the retained symbol file; {main_module.short_name} itself")
+            print("- is gone, so x64 unwind data is not available. Frame NAMES are trustworthy,")
+            print("- the StackWalk64 frame ORDER is not. Read --scan as the authority.")
+            print("-" * 78)
         print()
 
     faulting = [t for t in dump.threads if t.thread_id == dump.exception_thread_id]

@@ -25,10 +25,26 @@ pub fn header(kind: &str) -> String {
         env!("CARGO_PKG_VERSION"),
         env!("BUILD_HASH")
     );
+    let _ = writeln!(s, "Image: {}", super::image_identity::image_path());
+    let _ = writeln!(
+        s,
+        "Debug id: {}",
+        super::image_identity::image_debug_id()
+    );
+    let _ = writeln!(s, "Symbols: {}", retained_symbols_dir().display());
     let _ = writeln!(s, "Platform: {}", platform_name());
     let _ = writeln!(s, "Hostname: {}", hostname());
     let _ = writeln!(s, "PID: {}", std::process::id());
     s
+}
+
+/// Where `build.sh dev` retains this build's symbol file. A dev PDB is otherwise
+/// overwritten by the next link, which is how the 2026-09-05 dump became
+/// unsymbolizable nine minutes after it was written.
+pub fn retained_symbols_dir() -> PathBuf {
+    crate::paths::data_dir()
+        .join("pdb")
+        .join(env!("BUILD_HASH"))
 }
 
 fn platform_name() -> &'static str {

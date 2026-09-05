@@ -282,6 +282,34 @@ the release binary only into the active development data directory. Dev builds
 never overwrite `~/.codeterm/bin`: production CLI updates come from the bundled
 production app during startup, in-app update, or `install-local`.
 
+### Crash symbols for dev builds
+
+A dev link overwrites `src-tauri/target/debug/codeterm.pdb`, so a crash artifact
+stops being symbolizable as soon as anyone rebuilds — that is how the 2026-09-05
+abort lost its frame names nine minutes after it was written.
+
+`./build.sh dev` therefore retains the symbol file of each build it runs under
+`~/.codeterm-dev/pdb/<build sha>/codeterm.pdb`, keeping the newest three
+(`DEV_PDB_KEEP_DEFAULT` in `build.sh`; override the store with
+`CODETERM_DEV_PDB_DIR`, the count with `CODETERM_DEV_PDB_KEEP`). `--wait` retains
+once `/api/health` confirms which build is running; a foreground session retains
+when it ends, which is also when a daemon that crashed stops holding its binary.
+The copy keeps the name `codeterm.pdb` because Windows symbol lookup finds a PDB by
+the name recorded in the binary — a renamed file is never found, so the sha is the
+directory.
+
+Every crash report names its own build: `Debug id:` is the RSDS GUID and age, and
+`Symbols:` is the retained directory to look in. To read a dump:
+
+```bash
+python scripts/symbolicate-minidump.py <dump.dmp> --sidecar <crash-...-native.txt>
+```
+
+The tool accepts a symbol file only when the identity it records for itself matches
+the dump's, so a stale PDB is refused rather than used to print the wrong names.
+Frame names come back from the symbol file alone; x64 unwind data lives in the
+binary, so when only the PDB survives read `--scan` rather than the frame order.
+
 ### Development troubleshooting
 
 | Symptom | Cause | Recovery |
@@ -342,4 +370,4 @@ production app during startup, in-app update, or `install-local`.
 
 Tooling, outputs, platform notes, and repository layout: `docs/BUILD-REFERENCE.md`. Test workflows: `codeterm docs TESTING`.
 
-<!-- revision: 124 -->
+<!-- revision: 125 -->

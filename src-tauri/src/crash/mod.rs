@@ -10,6 +10,7 @@
 
 pub mod dump_record;
 pub mod exit;
+pub mod image_identity;
 pub mod lifecycle;
 #[cfg(target_os = "macos")]
 pub mod macos_quit;
@@ -25,6 +26,10 @@ use std::path::{Path, PathBuf};
 /// any thread spawn. The native `CrashHandler` is leaked to keep it alive for
 /// the lifetime of the process.
 pub fn install() {
+    // Resolved here so the crash handler only formats a cached string — a handler
+    // is no place to open and parse the executable.
+    let _ = image_identity::image_debug_id();
+    let _ = image_identity::image_path();
     panic::install_panic_hook();
     if let Some(h) = native::install() {
         Box::leak(Box::new(h));

@@ -88,9 +88,8 @@ fn write_minidump(ctx: &crash_handler::CrashContext, path: &std::path::Path) -> 
     let Ok(mut file) = std::fs::File::create(path) else {
         return false;
     };
-    // The faulting context has to be threaded through: `dump_local_context` calls
-    // RtlCaptureContext on whatever thread is running the handler and zeroes the
-    // exception record, so the dump names this callback instead of the crash.
+    // `dump_local_context` captures the handler's own thread and zeroes the exception
+    // record, so the faulting context has to be threaded through explicitly.
     let crash_context = crash_context::CrashContext {
         exception_pointers: ctx.exception_pointers,
         exception_code: ctx.exception_code,
