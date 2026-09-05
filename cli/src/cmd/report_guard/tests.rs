@@ -1,4 +1,5 @@
 use super::*;
+use crate::client::{RpcClient, SocketCallError};
 use crate::cmd::report_attribution::ReportBase;
 use std::fs;
 use tempfile::TempDir;
@@ -763,32 +764,65 @@ fn spawn_and_report_agree_on_plan_binding_requirement() {
     }
 }
 
-/// codeterm#371: a live Planner reports plan-only and counts as bound.
-#[test]
-fn only_a_manager_role_is_exempt_from_the_task_half_of_binding() {
-    assert!(role_owns_plan_without_task(Some("Manager")));
-    assert!(!role_owns_plan_without_task(Some("Worker")));
-    assert!(!role_owns_plan_without_task(None));
+/// A `plan.get` stand-in whose `planner.tab_id` is fixed by the test, so the
+/// binding check can be driven without a live daemon. Any method other than
+/// `plan.get` is a bug in the caller under test.
+struct FakePlanRpc {
+    planner_tab_id: Option<&'static str>,
 }
 
-/// ct#385 diagnosis (no code change here — see the task report): reproduces
-/// `cli/src/cmd/agent.rs`'s `agent report` composition of these two helpers
-/// line for line. A Planner tab (CODETERM_ROLE=Manager) bound only to a plan
-/// (--plan, no --task) is NOT refused — codeterm#371's exemption already
-/// covers this on this source tree, so the reported refusal does not
-/// reproduce here. An unbound tab (no plan, no task, no role) stays refused.
+impl RpcClient for FakePlanRpc {
+    fn call_detailed(
+        &mut self,
+        method: &str,
+        _params: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value, SocketCallError> {
+        assert_eq!(method, "plan.get", "unexpected RPC method {method}");
+        Ok(match self.planner_tab_id {
+            Some(tab_id) => serde_json::json!({
+                "id": "pl_1",
+                "planner": { "kind": "tab", "tab_id": tab_id },
+            }),
+            None => serde_json::json!({ "id": "pl_1", "planner": null }),
+        })
+    }
+}
+
+/// codeterm#385: a Planner's plan-only report binding is resolved from the
+/// plan's own recorded Planner tab (durable, server-side — the same field
+/// `plan_doctor`'s `planner_unpaired` check reads), never from CODETERM_ROLE.
+/// Removed from the environment entirely, so a pass here cannot be explained
+/// by an env sniff — only by the RPC query.
 #[test]
-fn planner_plan_only_binding_is_not_refused_but_an_unbound_tab_still_is() {
-    let task_bound =
-        |role_env: Option<&str>, has_task: bool| has_task || role_owns_plan_without_task(role_env);
-    assert!(worker_binding_resolved(
-        false,
-        true,
-        task_bound(Some("Manager"), false)
-    ));
-    assert!(!worker_binding_resolved(
-        false,
-        false,
-        task_bound(None, false)
-    ));
+fn bound_planner_reports_plan_scoped_stride_without_a_task() {
+    std::env::remove_var("CODETERM_ROLE");
+    let mut client = FakePlanRpc {
+        planner_tab_id: Some("tab-planner"),
+    };
+    let bound =
+        report_task_binding_resolved(&mut client, Some("pl_1"), None, "tab-planner");
+    assert!(bound, "the plan's recorded Planner tab must satisfy the binding");
+    assert!(worker_binding_resolved(false, true, bound));
+}
+
+/// The companion: without this, the previous test would pass merely by
+/// allowing everything. A caller that is not the plan's recorded Planner —
+/// whether a foreign tab or a plan with no Planner bound at all — stays
+/// refused.
+#[test]
+fn caller_not_the_plans_bound_planner_is_still_refused() {
+    std::env::remove_var("CODETERM_ROLE");
+    let mut foreign = FakePlanRpc {
+        planner_tab_id: Some("tab-planner"),
+    };
+    let bound = report_task_binding_resolved(&mut foreign, Some("pl_1"), None, "tab-other");
+    assert!(!bound, "a foreign tab must not inherit another tab's Planner binding");
+    assert!(!worker_binding_resolved(false, true, bound));
+
+    let mut unpaired = FakePlanRpc {
+        planner_tab_id: None,
+    };
+    let bound = report_task_binding_resolved(&mut unpaired, Some("pl_1"), None, "tab-other");
+    assert!(!bound, "a plan with no Planner bound must refuse every caller");
+    assert!(!worker_binding_resolved(false, true, bound));
 }

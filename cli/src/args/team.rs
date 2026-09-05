@@ -48,6 +48,12 @@ pub enum TeamAction {
         workspace: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         title: Option<String>,
+        /// Explicit "I know I am a leaf and I am doing this deliberately"
+        /// declaration — required only when the calling tab holds a Manager
+        /// or Worker role. Creation is then attributed to this tab, never to
+        /// an intermediary shell.
+        #[arg(long)]
+        acknowledge_leaf: bool,
     },
 }
 
@@ -114,13 +120,41 @@ mod tests {
                         planner,
                         workspace,
                         title,
+                        acknowledge_leaf,
                     },
             } => {
                 assert_eq!(orchestrator, "claude:fable");
                 assert_eq!(planner, "codex");
                 assert_eq!(workspace.as_deref(), Some("ws1"));
                 assert_eq!(title.as_deref(), Some("My Plan"));
+                assert!(!acknowledge_leaf, "the flag defaults to false when absent");
             }
+            _ => panic!("expected team pair"),
+        }
+    }
+
+    /// codeterm#400: a leaf caller declares intent with `--acknowledge-leaf`,
+    /// carried through to the daemon so a leaf-attributed pair is never
+    /// created silently.
+    #[test]
+    fn pair_parses_the_acknowledge_leaf_declaration() {
+        let parsed = Cli::try_parse_from([
+            "codeterm",
+            "team",
+            "pair",
+            "--orchestrator",
+            "claude",
+            "--planner",
+            "codex",
+            "--acknowledge-leaf",
+        ])
+        .expect("team pair --acknowledge-leaf parses");
+        match parsed.command {
+            Commands::Team {
+                action: TeamAction::Pair {
+                    acknowledge_leaf, ..
+                },
+            } => assert!(acknowledge_leaf),
             _ => panic!("expected team pair"),
         }
     }
