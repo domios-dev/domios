@@ -39,6 +39,7 @@ import { mountMuxPerfTestHook } from "./muxPerfTestHook";
 import { isCodeTermFrontendTestMode } from "../../components/Terminal/useChatSession";
 import { MultiplexerActionsContext, MuxStateStoreContext, type MultiplexerActionsContextType, type SpawnedTab } from "./context";
 import { createMuxStateStore } from "./selectorStore";
+import { createRefreshCoalescer } from "./refreshCoalescer";
 import type { Tab } from "../../lib/types";
 import { remoteTabsFromOrdinaryProjection } from "./remoteTabProjection";
 import {
@@ -443,7 +444,9 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     };
   }, [applyBackendState]);
 
-  const refreshFromBackend = useCallback(async (): Promise<boolean> => {
+  // A bare `mux-state-changed` frame carries no snapshot, so every one of them
+  // asks for a full state fetch. The coalescer keeps a burst to one in flight.
+  const runRefresh = useCallback(async (): Promise<boolean> => {
     try {
       const s = await invoke<MultiplexerState>("mux_get_state");
       if (s) applyBackendState(s);
@@ -455,6 +458,13 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       return false;
     }
   }, [applyBackendState]);
+  const runRefreshRef = useRef(runRefresh);
+  runRefreshRef.current = runRefresh;
+  const refreshCoalescerRef = useRef(createRefreshCoalescer(() => runRefreshRef.current()));
+  const refreshFromBackend = useCallback(
+    (): Promise<boolean> => refreshCoalescerRef.current.request(),
+    [],
+  );
 
   const createTab = useCallback(async (workspaceId: string, cwd?: string) => {
     try {
