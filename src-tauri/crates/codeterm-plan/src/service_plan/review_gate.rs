@@ -224,11 +224,41 @@ fn review_milestone(
     }
 }
 
+/// The milestone `kind` `codeterm plan record --step decision:<text>` writes.
+/// Selection for the strategy warning below keys off this constant, never off
+/// rendered message text, so the mechanism stays assertable independent of wording.
+pub const DECISION_STRIDE_KIND: &str = "decision";
+
+/// A recorded decision, carried structurally (id/text/ts) rather than folded
+/// into the warning's prose so a caller can re-read it without parsing text.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct DecisionStride {
+    pub id: String,
+    pub text: String,
+    pub ts: u64,
+}
+
+fn task_decision_strides(task: &Task) -> Vec<DecisionStride> {
+    task.milestones
+        .iter()
+        .filter(|m| m.kind == DECISION_STRIDE_KIND)
+        .map(|m| DecisionStride {
+            id: m.id.clone(),
+            text: m.text.clone(),
+            ts: m.ts,
+        })
+        .collect()
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct StrategyWarning {
     pub consecutive_bounces: usize,
     pub review_round: u32,
     pub message: String,
+    /// The task's recorded decisions, so the moment most likely to need them
+    /// (a stuck strategy) is the moment they're re-surfaced. Empty when none
+    /// were ever recorded — the warning still fires; it never gets suppressed.
+    pub decisions: Vec<DecisionStride>,
 }
 
 pub fn strategy_warning(task: &Task) -> Option<StrategyWarning> {
@@ -246,6 +276,7 @@ pub fn strategy_warning(task: &Task) -> Option<StrategyWarning> {
         consecutive_bounces,
         review_round: task.review_round,
         message: REPEATED_STRATEGY_MESSAGE.into(),
+        decisions: task_decision_strides(task),
     })
 }
 

@@ -1,5 +1,6 @@
 # Bounce-unwinding protocol
 
+- At the third consecutive stagnant bounce (no changed executable surfaces, no distinct oracle), the strategy warning's `decisions` field carries the task's recorded `decision`-kind strides — the same milestones `codeterm plan record <plan> --task <task> --step decision:<text>` writes. Re-read them (`codeterm task show <task>`) before any other repo surface; an empty set means no decision was ever recorded for this task, not that none applied.
 - Treat a bounce as evidence that the task, plan, oracle, or routing may be wrong. Diagnose it instead of requesting a blind retry.
 - Research is repo-first and bounded. Start with local code, touched files, plan skills, existing evals, and executable fixtures. External research is allowed only when those surfaces cannot answer the one missing fact that blocked the bounce.
 - Start a missing-symbol or missing-fact check with `rg -n "<symbol>" <named repo surfaces>`, then inspect `codeterm task show <task>` and the relevant `codeterm plan section show <plan> <section>` or `codeterm plan skill show <plan> <skill>` before any external lookup.

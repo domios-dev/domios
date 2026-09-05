@@ -533,6 +533,14 @@ pub enum PlanGroupsAction {
         #[arg(long)]
         groups: String,
     },
+    /// Explicitly close a declared group's reflection window, even before
+    /// every task in it reaches `done`
+    Close {
+        plan_id: String,
+        key: String,
+        #[arg(long)]
+        note: String,
+    },
 }
 
 #[derive(Subcommand)]
