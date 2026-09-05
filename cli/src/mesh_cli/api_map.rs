@@ -44,8 +44,9 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                     planner,
                     workspace,
                     title,
+                    acknowledge_leaf,
                 },
-        } => team_pair_to_api(orchestrator, planner, workspace, title),
+        } => team_pair_to_api(orchestrator, planner, workspace, title, *acknowledge_leaf),
         Commands::Identify => ("GET".into(), "/api/identify".into(), None),
         Commands::SendText {
             text,

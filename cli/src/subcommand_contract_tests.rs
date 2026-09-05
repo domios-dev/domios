@@ -598,6 +598,23 @@ fn team_pair_reaches_the_same_creation_path() {
     }
 }
 
+/// codeterm#400: `--acknowledge-leaf` reaches the same REST body, and its
+/// absence must not silently opt a leaf caller in.
+#[test]
+fn team_pair_carries_the_acknowledge_leaf_declaration_only_when_passed() {
+    let declared = pair_command(&["--acknowledge-leaf"]);
+    let (_, _, body) = crate::mesh_cli::api_map::cli_command_to_api(&declared);
+    let body: serde_json::Value =
+        serde_json::from_str(&body.expect("pair posts a body")).expect("body is JSON");
+    assert_eq!(body["leaf_creation_acknowledged"], true);
+
+    let undeclared = pair_command(&[]);
+    let (_, _, body) = crate::mesh_cli::api_map::cli_command_to_api(&undeclared);
+    let body: serde_json::Value =
+        serde_json::from_str(&body.expect("pair posts a body")).expect("body is JSON");
+    assert!(body.get("leaf_creation_acknowledged").is_none());
+}
+
 #[test]
 fn team_non_pair_actions_keep_meshrpc_path() {
     for argv in [
@@ -646,7 +663,7 @@ fn team_pair_starts_unbound() {
         );
     }
 
-    let params = crate::cmd::team::pair_params("claude:opus", "codex", None, None);
+    let params = crate::cmd::team::pair_params("claude:opus", "codex", None, None, false);
     let params = params.as_object().expect("object params");
     assert!(params.contains_key("orchestrator_agent"));
     assert!(params.contains_key("planner_agent"));
