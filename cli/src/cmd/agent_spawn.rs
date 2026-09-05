@@ -322,11 +322,9 @@ pub(super) fn handle(client: &mut SocketClient, json: bool, action: AgentAction)
         plan.is_some(),
         bound_task.is_some(),
     );
-    if let Some(hint) = crate::cmd::hints::unbound_worker_binding_hint(
-        is_worker,
-        worker_bound,
-        verification_worker,
-    ) {
+    if let Some(hint) =
+        crate::cmd::hints::unbound_worker_binding_hint(is_worker, worker_bound, verification_worker)
+    {
         eprintln!("{hint}");
     }
     let mut body = serde_json::json!({
@@ -514,7 +512,9 @@ fn add_team_orchestrator(
                 .and_then(|t| t.get("error"))
                 .and_then(|v| v.as_str());
             match (plan_id, takeover_error) {
-                (Some(plan_id), None) => println!("Plan {plan_id} now owned by the new Orchestrator"),
+                (Some(plan_id), None) => {
+                    println!("Plan {plan_id} now owned by the new Orchestrator")
+                }
                 (Some(plan_id), Some(error)) => {
                     eprintln!("WARNING: plan {plan_id} ownership did not move: {error}")
                 }
@@ -702,7 +702,10 @@ mod tests {
             Some(&SpawnRole::Orchestrator),
             Some("team_alpha")
         ));
-        assert!(!routes_to_team_staffing(Some(&SpawnRole::Orchestrator), None));
+        assert!(!routes_to_team_staffing(
+            Some(&SpawnRole::Orchestrator),
+            None
+        ));
         assert!(!routes_to_team_staffing(None, Some("team_alpha")));
         assert!(!routes_to_team_staffing(
             Some(&SpawnRole::Worker),

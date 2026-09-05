@@ -932,9 +932,7 @@ pub(super) fn dispatch(
     let bootstrap_warnings = lane_for_commit.bootstrap_warnings.clone();
     let starting_lane = initial_provenance
         .as_ref()
-        .map(|provenance| {
-            lane_metadata_for_dispatch(&lane_for_commit, provenance, &canonical_cwd)
-        })
+        .map(|provenance| lane_metadata_for_dispatch(&lane_for_commit, provenance, &canonical_cwd))
         .unwrap_or_else(|| {
             let mut lane = lane_for_commit.clone();
             lane.worktree_path = None;

@@ -51,7 +51,10 @@ fn a_dump_write_that_fails_still_leaves_a_record_saying_so() {
     assert_eq!(outcome, DumpOutcome::Failed(REASON_RETURNED_FALSE));
     let record = std::fs::read_to_string(&p.txt).expect("a record exists after a failed dump");
     assert!(record.contains(FAILED), "record was: {record}");
-    assert!(record.contains(REASON_RETURNED_FALSE), "record was: {record}");
+    assert!(
+        record.contains(REASON_RETURNED_FALSE),
+        "record was: {record}"
+    );
 }
 
 #[test]

@@ -136,11 +136,7 @@ fn extract(path: &std::path::Path) -> Option<Identity> {
         return None;
     }
 
-    let table = read_at(
-        &mut file,
-        opt_off + opt_size as u64,
-        sections as usize * 40,
-    )?;
+    let table = read_at(&mut file, opt_off + opt_size as u64, sections as usize * 40)?;
     let to_offset = |rva: u32| -> Option<u64> {
         (0..sections as usize).find_map(|i| {
             let s = i * 40;
@@ -185,7 +181,7 @@ fn extract(path: &std::path::Path) -> Option<Identity> {
             continue; // PT_NOTE
         }
         let offset = u64::from_le_bytes(ph.get(8..16)?.try_into().ok()?);
-        let size = u64::from_le_bytes(ph.get(32..40)?.try_into().ok()? ) as usize;
+        let size = u64::from_le_bytes(ph.get(32..40)?.try_into().ok()?) as usize;
         let notes = read_at(&mut file, offset, size)?;
         let mut cursor = 0usize;
         while cursor + 12 <= notes.len() {

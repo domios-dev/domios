@@ -93,7 +93,10 @@ fn goal_patch_keeps_every_field_it_was_not_passed() {
         .unwrap();
     assert_eq!(after_vector.vector, "a sharpened vector");
     assert_eq!(after_vector.vision, "the original vision");
-    assert_eq!(after_vector.constraints, vec!["backend only", "no new deps"]);
+    assert_eq!(
+        after_vector.constraints,
+        vec!["backend only", "no new deps"]
+    );
     assert_eq!(after_vector.postulates, vec!["reread the plan"]);
 
     let after_constraint = store

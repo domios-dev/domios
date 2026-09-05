@@ -513,8 +513,11 @@ fn lane_bootstrap_record_survives_isolated_dispatch_and_clears_on_canonical() {
     };
 
     let lane = provision_lane_for_test(project.to_str().unwrap(), "bootstrap-record").unwrap();
-    let isolated =
-        lane_metadata_for_dispatch(&original, &lane.verify().unwrap(), project.to_str().unwrap());
+    let isolated = lane_metadata_for_dispatch(
+        &original,
+        &lane.verify().unwrap(),
+        project.to_str().unwrap(),
+    );
     assert_eq!(isolated.bootstrap_links, original.bootstrap_links);
     assert_eq!(isolated.bootstrap_warnings, original.bootstrap_warnings);
     lane.cleanup().unwrap();

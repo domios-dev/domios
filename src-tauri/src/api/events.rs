@@ -623,7 +623,10 @@ mod tests {
                 delivered,
                 expected,
                 "round {round}: delivery order != seq order, first inversion at index {:?}",
-                delivered.iter().zip(expected.iter()).position(|(a, b)| a != b)
+                delivered
+                    .iter()
+                    .zip(expected.iter())
+                    .position(|(a, b)| a != b)
             );
         }
     }
@@ -653,7 +656,10 @@ mod tests {
             } => (next_seq.saturating_sub(1), replay),
             _ => panic!("expected Evicted for a full ring with a stale cursor"),
         };
-        assert_eq!(overflows, 1, "stale cursor must produce exactly one overflow");
+        assert_eq!(
+            overflows, 1,
+            "stale cursor must produce exactly one overflow"
+        );
         assert_eq!(replay.len(), RING_MAX_COUNT);
 
         flood(&bc, 4);
@@ -707,7 +713,11 @@ mod tests {
             yielded.push(se.seq);
         }
         assert_eq!(dropped, 5, "the guard must drop the whole 1..=5 overlap");
-        assert_eq!(yielded, vec![3, 4, 5, 6], "no duplicate at the reconnect seam");
+        assert_eq!(
+            yielded,
+            vec![3, 4, 5, 6],
+            "no duplicate at the reconnect seam"
+        );
     }
 
     #[test]

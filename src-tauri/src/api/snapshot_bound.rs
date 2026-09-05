@@ -55,7 +55,8 @@ impl SnapshotBound {
     }
 
     pub fn in_flight(&self) -> usize {
-        self.limit().saturating_sub(self.permits.available_permits())
+        self.limit()
+            .saturating_sub(self.permits.available_permits())
     }
 }
 
