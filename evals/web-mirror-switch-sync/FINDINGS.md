@@ -309,6 +309,97 @@ verification grepped the constant's declaration rather than its use. The
 assertion is real now (`in-flight-ceiling:N`), and the lesson is that grepping
 for a symbol proves it exists, not that anything calls it.
 
+## 1f. THE CAUSE: seq allocation and bus publish are not atomic
+
+Found in Tor's captures, not in my bench. Two 60 s captures of the same
+27-tab workspace, same harness, no `tab_id` filter on either.
+
+| leg | source build | frames | mux-state-changed | silent seq gaps |
+|---|---|---|---|---|
+| peer (Mac-Air client, BLACKSTAR source) | b9ba09cf3 | 9739 | 4994 | **9** |
+| local (Mac-Air client and source) | 190b80704 | 2184 | 585 | **0** |
+
+Nineteen seqs are absent from the peer leg. Ten of them (21462-21471) are
+bounded by the overflow's `next_seq: 21472` -- signalled loss, working as
+designed. The other **nine are silent**: 12436, 15256, 15418, 15435, 15436,
+18252, 18266, 18415, 18594.
+
+Every one of the nine is:
+- inside a single connection (no reconnect, no `stream_error`),
+- with **no overflow frame anywhere near it**,
+- with its two neighbours timestamped **0.0 ms apart** -- they arrived in the
+  same 64 KB read,
+- and the capture recorded **zero** `malformed` frames, so nothing was
+  mis-parsed.
+
+The relay is exonerated: `mesh_relay_stream` is
+`Body::from_stream(resp.bytes_stream())`, a pure byte pipe. Byte truncation
+would corrupt a frame into a `malformed` record, not cleanly remove one while
+its neighbours arrive intact in the same chunk.
+
+### The mechanism
+
+`EventBus::send_bus` (`src-tauri/src/api/events.rs:276`):
+
+```rust
+let seq = self.ring.lock().push(event.clone(), Instant::now());
+let _ = self.system_bus.send(SeqEvent { seq, event });
+```
+
+The seq is allocated under the ring lock; the temporary guard is dropped at the
+end of that statement, so the broadcast `send` happens **outside** it. Two
+concurrent publishers can therefore interleave:
+
+```
+A: lock -> seq = N   -> unlock
+B: lock -> seq = N+1 -> unlock
+B: system_bus.send(N+1)      <-- reaches the bus first
+A: system_bus.send(N)
+```
+
+and the live loop in `events_stream` (`web_routes.rs`) then does:
+
+```rust
+if se.seq <= replayed_max { continue; }   // N <= N+1 -> dropped, silently
+replayed_max = se.seq;
+```
+
+N is discarded with no overflow frame. **The design's stated invariant --
+"Loss has exactly one signal: overflow" -- is violated.** The ring still holds
+N in order, so a reconnect with `?since=` recovers it; until something forces
+one, the mirror is silently short one event and diverges.
+
+Corroboration: both captures are **strictly increasing** in seq with zero
+decreasing steps. That is exactly what this guard predicts -- a reordered
+lower seq is never delivered late, it is dropped, so the loss is invisible in
+the stream itself and only shows as a hole. The double gap at 15435-15436 is
+a three-way interleave.
+
+### The discriminator is event RATE, not origin
+
+This is where I have to be careful, because the tempting read is "the mesh
+loses frames" and the data does not support it. The peer leg carried 9739
+frames to the local leg's 2184 in the same 60 s -- about 4.5x the publish
+rate -- and the two legs also ran different daemon builds. So peer-vs-local is
+confounded with both load and build. What the mechanism predicts, and what the
+data shows, is that the loss scales with **concurrent publishes**, which is a
+rate effect that the peer path amplifies rather than causes.
+
+That matches the report better than a mesh-specific theory does: more chats and
+more switching means more concurrent publishes means more reorders, and the
+cross-machine path is worse because relaying a busy peer multiplies the event
+volume the client sees.
+
+### Ownership
+
+This is the daemon half, in Rust, and it is not mine to fix: the client lane
+owns the mirror. Filed against #428's family, at
+`src-tauri/src/api/events.rs:276` (allocate and publish atomically) with
+`web_routes.rs`'s live-loop guard as the place the loss becomes silent.
+
+My client-side coalescer does not address this and never could: it bounds how
+many snapshots the client asks for, not which events the daemon delivers.
+
 ## 2. Not established
 
 The cross-peer half **did not run**. Dev's mesh has no paired peers
