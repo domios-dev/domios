@@ -375,16 +375,20 @@ lower seq is never delivered late, it is dropped, so the loss is invisible in
 the stream itself and only shows as a hole. The double gap at 15435-15436 is
 a three-way interleave.
 
-### The discriminator is event RATE, not origin
+### First reading: RATE, not origin -- superseded by 1g, corrected by 1j
 
-This is where I have to be careful, because the tempting read is "the mesh
-loses frames" and the data does not support it. The peer leg carried 9739
-frames to the local leg's 2184 in the same 60 s -- about 8.4x the switch-driven
-rate once repowatch noise is excluded (see 1j; I first wrote 4.5x from raw
-frame counts) -- and the two legs also ran different daemon builds. So peer-vs-local is
-confounded with both load and build. What the mechanism predicts, and what the
-data shows, is that the loss scales with **concurrent publishes**, which is a
-rate effect that the peer path amplifies rather than causes.
+The tempting read is "the mesh loses frames" and the data does not support
+it. The peer leg carried 9587 switch-driven frames to the local leg's 1141
+in the same 60 s -- 8.4x once repowatch noise is excluded; I first wrote 4.5x
+from raw frame counts, see 1j -- and the two legs also ran different daemon
+builds. So peer-vs-local is confounded with both load and build, and the
+column that looked like it survived was rate.
+
+**Both of those are now superseded.** 1g adds a leg that varies only shape,
+on the same source machine, and rate does not survive it either: the column
+is CONCURRENT PUBLISHES. This paragraph is kept rather than deleted because
+it is the reading the evidence supported at the time, and the next reader
+should see what it took to move off it.
 
 That matches the report better than a mesh-specific theory does: more chats and
 more switching means more concurrent publishes means more reorders, and the
