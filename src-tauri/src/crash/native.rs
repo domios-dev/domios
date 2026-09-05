@@ -12,6 +12,7 @@ use std::fmt::Write;
 
 use crash_handler::{make_crash_event, CrashEventResult, CrashHandler};
 
+use super::dump_record::{self, DumpOutcome};
 use super::report;
 
 /// Install the crash handler. The returned handler must be kept alive for the
@@ -39,25 +40,26 @@ fn on_crash(ctx: &crash_handler::CrashContext) {
     let dmp_path = dir.join(format!("crash-{}-native.dmp", ts));
     let txt_path = dir.join(format!("crash-{}-native.txt", ts));
 
-    // Best-effort: write the binary minidump first.
-    let dmp_ok = write_minidump(ctx, &dmp_path);
+    // Composed once per outcome and rendered twice: before the dump write, so a
+    // handler that dies inside it still leaves a record, and again afterwards.
+    let exception = describe_ctx(ctx);
+    let log_tail = report::log_tail(200);
+    let compose = |outcome: &DumpOutcome| {
+        let mut s = report::header("native");
+        let _ = writeln!(s);
+        let _ = writeln!(s, "Signal/Exception: {}", exception);
+        let _ = writeln!(s);
+        let _ = writeln!(s, "{}", outcome.render(&dmp_path));
+        let _ = writeln!(s);
+        let _ = writeln!(s, "Recent log tail (last 200 lines):");
+        let _ = writeln!(s, "---");
+        let _ = writeln!(s, "{}", log_tail);
+        s
+    };
 
-    // Always write the readable sidecar.
-    let mut s = report::header("native");
-    let _ = writeln!(s);
-    let _ = writeln!(s, "Signal/Exception: {}", describe_ctx(ctx));
-    let _ = writeln!(s);
-    let _ = writeln!(
-        s,
-        "Minidump: {} ({})",
-        dmp_path.display(),
-        if dmp_ok { "ok" } else { "failed" }
-    );
-    let _ = writeln!(s);
-    let _ = writeln!(s, "Recent log tail (last 200 lines):");
-    let _ = writeln!(s, "---");
-    let _ = writeln!(s, "{}", report::log_tail(200));
-    let _ = std::fs::write(&txt_path, &s);
+    dump_record::record_guarded_dump(&dmp_path, &txt_path, compose, || {
+        write_minidump(ctx, &dmp_path)
+    });
 
     crash_handler::write_stderr("\n[crash] native crash written, see ~/.codeterm/crashes/\n");
 }
@@ -86,10 +88,17 @@ fn write_minidump(ctx: &crash_handler::CrashContext, path: &std::path::Path) -> 
     let Ok(mut file) = std::fs::File::create(path) else {
         return false;
     };
-    // dump_local_context(exception_code, thread_id, minidump_type, dest). None for thread_id = current; None for type = default MinidumpNormal.
-    // The exception pointers are read internally from the OS — no need to thread them through this API.
-    MinidumpWriter::dump_local_context(Some(ctx.exception_code as i32), None, None, &mut file)
-        .is_ok()
+    // The faulting context has to be threaded through: `dump_local_context` calls
+    // RtlCaptureContext on whatever thread is running the handler and zeroes the
+    // exception record, so the dump names this callback instead of the crash.
+    let crash_context = crash_context::CrashContext {
+        exception_pointers: ctx.exception_pointers,
+        exception_code: ctx.exception_code,
+        process_id: ctx.process_id,
+        thread_id: ctx.thread_id,
+    };
+    // SAFETY: the SEH filter owns `exception_pointers` for the duration of this call.
+    MinidumpWriter::dump_crash_context(crash_context, None, &mut file).is_ok()
 }
 
 #[cfg(target_os = "linux")]

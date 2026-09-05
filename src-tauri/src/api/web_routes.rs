@@ -13,16 +13,32 @@ use serde::Deserialize;
 use std::time::{Duration, SystemTime};
 
 use crate::api::routes::{check_auth, AppState};
+use crate::api::snapshot_bound;
 
 pub use crate::api::web_plugin_routes::plugin_ui;
 
 /// Full multiplexer snapshot — the web bundle's `mux_get_state`.
+///
+/// Bounded: the snapshot clones the whole multiplexer under two locks, so a
+/// request storm is refused at the door instead of queued. The build itself runs
+/// on the blocking pool — on the async runtime it starves every other IPC caller.
 pub async fn mux_state(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let snapshot = state.svc.snapshot_with_reconciled_status();
+
+    let Some(_permit) = state.snapshot_bound.try_enter() else {
+        return Err((
+            snapshot_bound::SNAPSHOT_OVERLOAD_STATUS,
+            snapshot_bound::SNAPSHOT_OVERLOAD_BODY.to_string(),
+        ));
+    };
+
+    let svc = state.svc.clone();
+    let snapshot = tokio::task::spawn_blocking(move || svc.snapshot_with_reconciled_status())
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(serde_json::to_value(snapshot).unwrap_or_default()))
 }
 

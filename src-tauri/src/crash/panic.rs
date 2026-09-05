@@ -35,6 +35,10 @@ fn write_panic_report(info: &std::panic::PanicHookInfo<'_>) {
 
     let _ = writeln!(s, "Panic message:");
     let payload = panic_payload(info);
+    // The native sidecar embeds the log tail, so a panic that precedes an abort is
+    // only correlatable if it reaches the log — writing a file alone leaves the
+    // abort report showing no panic at all.
+    log::error!("[crash] panic at {}: {}", location, payload);
     for line in payload.lines() {
         let _ = writeln!(s, "  {}", line);
     }
