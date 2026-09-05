@@ -42,6 +42,28 @@ column list is fixed now and filled later.
 
 ## Status
 
-Rows exist for `origin=local` only, at two concurrencies. `origin=peer` has no
-rows at all, so the column Andrey's report points at cannot be compared. No
-cause is named. See `FINDINGS.md`.
+ANSWERED, and not by my bench. The deciding evidence is Tor's two 60 s SSE
+captures, not the switch-storm rows.
+
+Applying the rule above to those two legs:
+
+| column | peer leg | local leg | discriminates? |
+|---|---|---|---|
+| `origin` | peer | local | confounded -- see below |
+| frames / 60 s | 9739 | 2184 | **yes, 4.5x** |
+| `overflow_fired` | 1 | 1 | no -- identical |
+| silent seq gaps | 9 | 0 | **the failure itself** |
+
+`origin` looks like the discriminator and is not usable as one: the two legs
+ran different daemon builds AND different event rates. The column that
+survives is the publish RATE, which is what the mechanism predicts.
+
+Cause: seq allocation and bus publish are not atomic, so concurrent publishers
+reach the broadcast out of order and the stream's monotonic guard drops the
+lower seq with no overflow signal. `FINDINGS.md` 1f has the code and the
+evidence. It is a daemon defect; this lane owns the client and does not fix
+it.
+
+My own switch-storm rows never reproduced it: 0/5 on current builds. They
+drove switches sequentially or in batches of 8 from ONE client, which is not
+enough concurrent publishing. Tor's 10 Hz across 27 tabs was.

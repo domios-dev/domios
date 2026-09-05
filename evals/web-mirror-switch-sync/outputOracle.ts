@@ -29,16 +29,25 @@ export interface OutputOracle {
   detach(): void;
 }
 
+/**
+ * Process-lifetime, deliberately: `outputStream.ts` keeps a module-level
+ * `replayed` set so a re-mounted tab does NOT re-request its history -- the
+ * xterm widget still holds the scrollback. A per-run buffer would therefore
+ * read empty on the second run and look like total output loss, which is a
+ * property of the harness and not of the mirror. This models the scrollback
+ * the widget keeps.
+ */
+const buffers = new Map<string, string[]>();
+
 export async function createOutputOracle(): Promise<OutputOracle> {
   const { subscribeTabOutput } = await import("../../src/lib/outputStream");
-  const buffers = new Map<string, string[]>();
   const unsubscribes: Array<() => void> = [];
   let truncations = 0;
 
   return {
     async attach(tabIds) {
       for (const tabId of tabIds) {
-        buffers.set(tabId, []);
+        if (!buffers.has(tabId)) buffers.set(tabId, []);
         unsubscribes.push(
           subscribeTabOutput(tabId, {
             onOutput(text) {
