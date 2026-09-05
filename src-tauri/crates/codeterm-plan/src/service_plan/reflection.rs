@@ -1,9 +1,10 @@
 use serde::Serialize;
 use std::collections::HashSet;
 
-use crate::plan::{Plan, TaskStatus};
+use crate::plan::{AgentRef, Milestone, Plan, TaskStatus};
 
-use super::milestone_gates;
+use super::mutations::plan_contains_id;
+use super::{milestone_gates, PlanError, PlanStore};
 
 /// Default cadence for the gate/bounce reflection trigger (`reflect.every_gates`).
 pub const DEFAULT_REFLECT_EVERY_GATES: u32 = 15;
@@ -11,6 +12,11 @@ pub const DEFAULT_REFLECT_EVERY_GATES: u32 = 15;
 /// Kind for a bounce working point, when one is recorded. Bounces are not yet a
 /// first-class event, so the window count stays an honest zero until they are.
 pub const BOUNCE_MILESTONE_KIND: &str = "bounce";
+
+/// Kind for an explicit `plan groups close` stride — the alternative to the
+/// derived (every member task reaching `done`) group-completion signal. Lets an
+/// Orchestrator close a group's reflection window before every task is done.
+pub const GROUP_CLOSE_MILESTONE_KIND: &str = "group_close";
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct ReflectionWindow {
@@ -94,6 +100,31 @@ fn latest_cadence_boundary_ts(plan: &Plan, every: u32) -> Option<u64> {
     ts.get(boundary as usize - 1).copied()
 }
 
+// An explicit `plan groups close` stride, keyed by the same `group:<key>` link
+// convention `milestone_gates::regression_link` already uses.
+fn explicit_group_close_ts(plan: &Plan, key: &str) -> Option<u64> {
+    let link = milestone_gates::regression_link(key);
+    plan.strides
+        .iter()
+        .filter(|m| m.kind == GROUP_CLOSE_MILESTONE_KIND && m.links.iter().any(|l| l == &link))
+        .map(|m| m.ts)
+        .max()
+}
+
+// A group closes for reflection purposes either derived (every member task
+// terminal, at least one done) or explicit (`plan groups close`) — whichever
+// is later, so re-deriving after an explicit close still re-arms correctly.
+fn group_close_ts(plan: &Plan, key: &str) -> Option<u64> {
+    let derived = milestone_gates::group_completion(plan, key);
+    let explicit = explicit_group_close_ts(plan, key);
+    match (derived, explicit) {
+        (None, None) => None,
+        (Some(a), None) => Some(a),
+        (None, Some(b)) => Some(b),
+        (Some(a), Some(b)) => Some(a.max(b)),
+    }
+}
+
 fn reflection_window(plan: &Plan, since: u64) -> ReflectionWindow {
     let tasks_closed = plan
         .tasks
@@ -125,14 +156,22 @@ pub fn pending_reflections(plan: &Plan, every_gates: u32) -> Vec<Reflection> {
     let mut out = Vec::new();
 
     let mut seen = HashSet::new();
+    let mut keys: Vec<String> = Vec::new();
     for task in &plan.tasks {
-        let Some(key) = task.group.as_deref() else {
-            continue;
-        };
-        if !seen.insert(key.to_string()) {
-            continue;
+        if let Some(key) = task.group.as_deref() {
+            if seen.insert(key.to_string()) {
+                keys.push(key.to_string());
+            }
         }
-        let Some(completed_at) = milestone_gates::group_completion(plan, key) else {
+    }
+    // Declared groups with no member yet still admit an explicit close.
+    for group in &plan.task_groups {
+        if seen.insert(group.key.clone()) {
+            keys.push(group.key.clone());
+        }
+    }
+    for key in &keys {
+        let Some(completed_at) = group_close_ts(plan, key) else {
             continue;
         };
         if completed_at <= since {
@@ -140,7 +179,7 @@ pub fn pending_reflections(plan: &Plan, every_gates: u32) -> Vec<Reflection> {
         }
         out.push(Reflection {
             trigger: ReflectionTrigger::GroupClose {
-                key: key.to_string(),
+                key: key.clone(),
                 label: group_label(plan, key),
             },
             window: window.clone(),
@@ -191,6 +230,50 @@ pub fn render_reflection(plan: &Plan, every_gates: u32, out: &mut String) {
         &first.window,
     ));
     out.push('\n');
+}
+
+impl PlanStore {
+    /// Explicit alternative to the derived (last-member-task-done) group
+    /// closure: lets an Orchestrator close a group's reflection window before
+    /// every task in it reaches `done` (e.g. residual polish deliberately
+    /// deferred). Records a stride — the existing milestone primitive, no new
+    /// store — linked to the group the same way a regression run is.
+    pub fn close_group(
+        &self,
+        plan_id: &str,
+        group_key: &str,
+        note: &str,
+        from: AgentRef,
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
+        let note = note.trim();
+        if note.is_empty() {
+            return Err(PlanError::QaNoteRequired);
+        }
+        self.with_plan(plan_id, now_ms, |plan| {
+            let group = plan
+                .task_groups
+                .iter()
+                .find(|g| g.key == group_key)
+                .ok_or(PlanError::GroupNotFound)?;
+            let link = milestone_gates::regression_link(&group.key);
+            let stride_id =
+                crate::plan::ids::mint_id("ms", |candidate| plan_contains_id(plan, candidate));
+            plan.strides.push(Milestone {
+                id: stride_id,
+                from,
+                kind: GROUP_CLOSE_MILESTONE_KIND.into(),
+                text: note.into(),
+                ts: now_ms,
+                links: vec![link],
+                loop_id: None,
+                iteration: None,
+                canvas: Default::default(),
+                attachments: vec![],
+            });
+            Ok(())
+        })
+    }
 }
 
 #[cfg(test)]
