@@ -4,7 +4,9 @@
 //! load-bearing one.
 
 use crate::agent::classify_input::{ClassifyInputBuilder, ClassifyParts, StatusBarRows};
-use crate::agent::native_prompt::{resolve_pending_prompt, NativePromptInput};
+use crate::agent::native_prompt::{
+    pending_prompt_from_input, resolve_pending_prompt, NativePromptInput,
+};
 use crate::agent::offline_state_classifier::{
     classify_state, ClassifyInput, TabVerdict, TimelineState,
 };
@@ -235,13 +237,15 @@ fn scraped_picker_input() -> NativePromptInput {
 }
 
 #[test]
-fn question_removal_scrape_never_resolves_as_structured() {
+fn question_removal_scrape_without_structured_handle_resolves_to_nothing() {
     let input = scraped_picker_input();
-    let resolved = resolve_pending_prompt(None, Some(&input))
-        .expect("precondition: the structural detector accepts this screen");
     assert!(
-        !resolved.explicit,
-        "a scrape-derived prompt must never carry structured provenance"
+        pending_prompt_from_input(&input).is_some(),
+        "precondition: the structural detector accepts this screen"
+    );
+    assert!(
+        resolve_pending_prompt(None, Some(&input)).is_none(),
+        "a captured picker without a structured handle must not resolve"
     );
 
     let structured = structured_prompt("structured handle");
@@ -252,16 +256,19 @@ fn question_removal_scrape_never_resolves_as_structured() {
 }
 
 #[test]
-fn question_removal_provenance_round_trips_through_the_detector() {
+fn question_removal_scrape_does_not_create_detector_prompt() {
     let input = scraped_picker_input();
 
     let mut detector = PromptDetector::new();
-    let scraped = resolve_pending_prompt(None, Some(&input)).expect("scrape resolves");
-    detector.evaluate_pty_output_parsed("tab-scrape", true, true, Some(scraped));
-    assert_eq!(
-        detector.active_prompt_explicit("tab-scrape"),
-        Some(false),
-        "a scrape-derived prompt is never reported with explicit: true"
+    let scraped = resolve_pending_prompt(None, Some(&input));
+    assert!(
+        scraped.is_none(),
+        "a captured picker must not resolve from scraping"
+    );
+    detector.evaluate_pty_output_parsed("tab-scrape", true, true, scraped);
+    assert!(
+        detector.active_prompt("tab-scrape").is_none(),
+        "a scrape-derived prompt must not reach the detector"
     );
 
     let mut detector = PromptDetector::new();
