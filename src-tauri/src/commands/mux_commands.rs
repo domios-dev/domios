@@ -150,13 +150,15 @@ pub(crate) async fn mux_add_team_member_service_core(
     .await
 }
 
+/// `caller_tab_id` is optional on purpose: a Team with no spawn-capable member
+/// left has no tab to spend, and that is exactly when it needs an Orchestrator.
 #[tauri::command]
 pub async fn mux_add_team_member(
     svc: State<'_, ServiceState>,
     team_id: String,
     provider: String,
     role: String,
-    caller_tab_id: String,
+    caller_tab_id: Option<String>,
     title: Option<String>,
     task: Option<String>,
     model: Option<String>,
@@ -166,7 +168,7 @@ pub async fn mux_add_team_member(
         team_id,
         provider,
         role,
-        Some(caller_tab_id),
+        caller_tab_id.filter(|tab_id| !tab_id.trim().is_empty()),
         title,
         task,
         model,
