@@ -160,6 +160,7 @@ start_gate() {
     echo "FAIL: gate server did not publish a port" >&2
     return 1
   fi
+  port="${port%$'\r'}"
   command="$(agent_python) \"$(agent_gate_path)\" client $port $EVENT_TIMEOUT"
   printf 'Run this exact command immediately as a foreground terminal command:\n%s\nDo not substitute another command and do not finish this turn until it exits.\n' \
     "$command" >"$case_dir/gate-task.txt"
@@ -169,6 +170,7 @@ start_gate() {
     echo "FAIL: Codex did not connect to the gate within ${EVENT_TIMEOUT}s" >&2
     return 1
   fi
+  event="${event%$'\r'}"
   if [ "$event" != "CONNECTED" ]; then
     echo "FAIL: gate server reported '$event'" >&2
     return 1
