@@ -1,5 +1,7 @@
 PARSER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-parser() { python3 "$PARSER_DIR/parser.py" "$@"; }
+# The parser reads the dev connection from its own environment, which the
+# bench lib composes per call rather than leaving in this shell.
+parser() { dev_run python3 "$PARSER_DIR/parser.py" "$@"; }
 first_assistant() { parser first-assistant; }
 provider_id() { parser provider-id "$1"; }
 new_team_id() { parser team-id "$1"; }

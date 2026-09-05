@@ -12,7 +12,7 @@ TURN_START_TIMEOUT="${TURN_START_TIMEOUT:-15}"
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 OUT_DIR="${CODETERM_LONG_PASTE_OUT:-$ROOT/target-check/evals/long-paste-submit/$RUN_ID}"
 BENCH="$ROOT/evals/long-paste-submit"
-LOG_FILE="$CODETERM_DEV_DATA_DIR/logs/codeterm.log"
+LOG_FILE="$(dev_data_dir)/logs/codeterm.log"
 SHORT_TOKEN="SHORT_PASTE_${RUN_ID}"
 RECOVERY_TOKEN="RECOVERY_PROBE_${RUN_ID}"
 SHORT_PAYLOAD="$OUT_DIR/short-payload.txt"
@@ -97,7 +97,7 @@ capture_screen() {
 wait_for_tui() {
   local tab="$1" case_dir="$2"
   local url="$(dev_api_url)/api/output/stream?tab_id=$tab"
-  python3 "$BENCH/wait_sse.py" "$url" '\x1b\[\?2004h' "$EVENT_TIMEOUT" \
+  dev_run python3 "$BENCH/wait_sse.py" "$url" '\x1b\[\?2004h' "$EVENT_TIMEOUT" \
     >"$case_dir/tui-ready-event.txt" 2>"$case_dir/tui-ready-event.err"
   local status
   status="$(status_value "$tab")"
@@ -233,10 +233,9 @@ import json, pathlib, sys
 print(json.dumps({"text": pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"),
                   "client_token": sys.argv[2]}))
 ' "$payload" "bench-${RUN_ID}-${prefix##*/}" >"$prefix.request.json"
-  dev_env
   dev_assert_target
   if status="$(curl --silent --show-error --max-time 30 -o "$prefix.json" \
-      -w '%{http_code}' -X POST -H "$CODETERM_DEV_AUTH_HEADER" \
+      -w '%{http_code}' -X POST -H "$(dev_auth_header)" \
       -H 'Content-Type: application/json' --data-binary "@$prefix.request.json" \
       "$(dev_api_url)/api/tabs/$tab/chat-send" 2>"$prefix.err")" \
       && [[ "$status" == 2* ]]; then

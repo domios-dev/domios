@@ -7,20 +7,26 @@
 #   daemon (port 7685) is NEVER touched by these helpers. To make
 #   that impossible to break by accident:
 #
-#     1. Sourcing this file auto-calls dev_env (sets all four env
-#        vars for the dev daemon). You don't need to call dev_env
-#        yourself.
+#     1. Sourcing this file sets NO CODETERM_* variable in your shell.
+#        It resolves the dev connection into lib-private state and
+#        composes those variables per call, into the one child process
+#        that needs them. A shell that ran a bench is left exactly as
+#        it was, so a later bare `codeterm` still means what it meant.
 #     2. Use `dc <subcommand>` instead of `codeterm <subcommand>`.
-#        `dc` re-exports the dev env-vars in its own subshell so a
+#        `dc` composes the dev env-vars into the CLI's own process so a
 #        leaked CODETERM_API_PORT=7685 from the parent tab (which
 #        is what happens when a Claude session lives inside prod
 #        codeterm) cannot route the call to prod. It also executes
 #        the active dev CLI by absolute path, never through PATH.
 #     3. The HTTP helpers use the selected dev instance port and token.
+#     4. A child process that reads the connection from its environment
+#        runs under `dev_run <cmd...>`; shell code reads `dev_auth_header`
+#        and `dev_data_dir` instead of an inherited variable.
 #
 # Usage:
 #   source "$(git rev-parse --show-toplevel)/evals/_lib/lib.sh"
 #   dc workspace list           # safe — always dev
+#   dev_run python3 probe.py    # child sees dev; this shell does not
 #   snap_label=$(snapshot pre)
 #   reset_dev_state
 #
@@ -143,11 +149,14 @@ dev_data_dir() {
 }
 
 # Read the API token from the active dev instance.
+# The data dir comes from resolution, never from an inherited variable: a
+# parent naming prod's dir would otherwise hand back prod's token.
 dev_token() {
-  local cfg
-  cfg="${CODETERM_DEV_DATA_DIR:-$(dev_data_dir)}/config.toml"
+  local cfg data_dir
+  data_dir="$(dev_data_dir)" || return 7
+  cfg="$data_dir/config.toml"
   if [ ! -f "$cfg" ]; then
-    dev_resolution_error "$cfg" "${CODETERM_DEV_DATA_DIR:-$EVAL_LIB_RESOLVED_DATA_DIR}"
+    dev_resolution_error "$cfg" "$data_dir"
     return 7
   fi
   config_token "$cfg"
@@ -167,28 +176,54 @@ dev_socket_path() {
   fi
 }
 
-# Export the four env vars dc needs to target dev.
+# Resolve the dev connection into lib-private state. Exports nothing, so a
+# shell that sourced this file keeps whatever CODETERM_* it already had.
 # CLI selection remains dc's responsibility and never resolves through PATH.
-dev_env() {
+dev_resolve() {
   local token
   if [ -n "$EVAL_LIB_RESOLVED_DATA_DIR" ] && [ -n "$EVAL_LIB_RESOLVED_API_TOKEN" ]; then
-    export CODETERM_API_PORT="$EVAL_LIB_DEV_API_PORT"
-    export CODETERM_SOCKET_PATH="$EVAL_LIB_RESOLVED_SOCKET_PATH"
-    export CODETERM_DEV_DATA_DIR="$EVAL_LIB_RESOLVED_DATA_DIR"
-    export CODETERM_API_TOKEN="$EVAL_LIB_RESOLVED_API_TOKEN"
-    export CODETERM_DEV_AUTH_HEADER="Authorization: Bearer $EVAL_LIB_RESOLVED_API_TOKEN"
-    return
+    return 0
   fi
   dev_resolve_identity || return 7
-  export CODETERM_API_PORT="$EVAL_LIB_DEV_API_PORT"
-  export CODETERM_SOCKET_PATH="$EVAL_LIB_RESOLVED_SOCKET_PATH"
-  export CODETERM_DEV_DATA_DIR="$EVAL_LIB_RESOLVED_DATA_DIR"
-  export CODETERM_API_TOKEN=
-  export CODETERM_DEV_AUTH_HEADER=
+  EVAL_LIB_RESOLVED_API_TOKEN=""
   token="$(dev_token)" || return 7
   EVAL_LIB_RESOLVED_API_TOKEN="$token"
-  export CODETERM_API_TOKEN="$EVAL_LIB_RESOLVED_API_TOKEN"
-  export CODETERM_DEV_AUTH_HEADER="Authorization: Bearer $CODETERM_API_TOKEN"
+}
+
+# Kept for the benches that call it by name. It resolves; it no longer exports.
+dev_env() { dev_resolve; }
+
+dev_auth_header() {
+  dev_resolve || return 7
+  echo "Authorization: Bearer $EVAL_LIB_RESOLVED_API_TOKEN"
+}
+
+# Run ONE child process with the dev connection composed into its environment.
+# Those variables live for that process only, which is what keeps a leaked
+# parent CODETERM_API_PORT from redirecting the call and leaves this shell
+# unchanged. `--as-tab <id>` names the dev tab the child speaks as; the default
+# blanks the parent's tab id, which would prefix every send with [from <tab>].
+dev_run() {
+  local caller_tab_id=""
+  if [ "${1:-}" = "--as-tab" ]; then
+    caller_tab_id="${2:-}"
+    [ -n "$caller_tab_id" ] || {
+      echo "ERROR [dev_run]: --as-tab requires a dev Tab id" >&2
+      return 7
+    }
+    shift 2
+  fi
+  dev_resolve || return 7
+  local -a dev_vars=(
+    "CODETERM_API_PORT=$EVAL_LIB_DEV_API_PORT"
+    "CODETERM_API_TOKEN=$EVAL_LIB_RESOLVED_API_TOKEN"
+    "CODETERM_SOCKET_PATH=$EVAL_LIB_RESOLVED_SOCKET_PATH"
+    "CODETERM_DEV_DATA_DIR=$EVAL_LIB_RESOLVED_DATA_DIR"
+    "CODETERM_DEV_AUTH_HEADER=Authorization: Bearer $EVAL_LIB_RESOLVED_API_TOKEN"
+    "CODETERM_TAB_ID=$caller_tab_id"
+    "CODETERM_PARENT_TAB_ID="
+  )
+  env "${dev_vars[@]}" "$@"
 }
 
 dev_api_url() {
@@ -198,8 +233,8 @@ dev_api_url() {
 dev_assert_target() {
   local health actual_instance
   if ! health="$(curl -sS --max-time 1 "$(dev_api_url)/api/health")"; then
-    dev_resolution_error "${CODETERM_DEV_DATA_DIR:-<unresolved>}" \
-      "${CODETERM_DEV_DATA_DIR:-$(dev_default_data_dir)}"
+    dev_resolution_error "${EVAL_LIB_RESOLVED_DATA_DIR:-<unresolved>}" \
+      "${EVAL_LIB_RESOLVED_DATA_DIR:-$(dev_default_data_dir)}"
     return 7
   fi
   if [ -n "$EVAL_LIB_RESOLVED_INSTANCE" ]; then
@@ -208,8 +243,8 @@ import json, sys
 print(json.load(sys.stdin).get("instance", {}).get("name", ""))
 ')"
     if [ "$actual_instance" != "$EVAL_LIB_RESOLVED_INSTANCE" ]; then
-      dev_resolution_error "${CODETERM_DEV_DATA_DIR:-<unresolved>}" \
-        "${CODETERM_DEV_DATA_DIR:-$(dev_default_data_dir)}"
+      dev_resolution_error "${EVAL_LIB_RESOLVED_DATA_DIR:-<unresolved>}" \
+        "${EVAL_LIB_RESOLVED_DATA_DIR:-$(dev_default_data_dir)}"
       return 7
     fi
   fi
@@ -218,11 +253,12 @@ print(json.load(sys.stdin).get("instance", {}).get("name", ""))
 # Convenience: GET an API path, returns JSON. The selected dev port
 # cannot be replaced by an inherited prod CODETERM_API_PORT.
 dev_http() {
-  local method="$1" path="$2" body="${3:-}" response status
-  dev_env || return 7
+  local method="$1" path="$2" body="${3:-}" response status auth
+  dev_resolve || return 7
   dev_assert_target || return 7
+  auth="$(dev_auth_header)" || return 7
   local -a args=(-sS --max-time 30 -o - -w $'\n%{http_code}' -X "$method"
-    -H "$CODETERM_DEV_AUTH_HEADER")
+    -H "$auth")
   if [ "$method" = POST ]; then
     args+=(-H "Content-Type: application/json" --data "$body")
   fi
@@ -255,11 +291,12 @@ dev_post() {
 }
 
 dev_post_as_tab() {
-  local tab_id="$1" path="$2" body="${3:-{}}"
+  local tab_id="$1" path="$2" body="${3:-{}}" auth
   [ -n "$tab_id" ] || { echo "dev_post_as_tab requires tab id" >&2; return 7; }
-  dev_env || return 7
+  dev_resolve || return 7
   dev_assert_target || return 7
-  curl -s --fail --max-time 30 -X POST -H "$CODETERM_DEV_AUTH_HEADER" \
+  auth="$(dev_auth_header)" || return 7
+  curl -s --fail --max-time 30 -X POST -H "$auth" \
     -H "X-CodeTerm-Tab-Id: $tab_id" -H "Content-Type: application/json" \
     --data "$body" "$(dev_api_url)$path"
 }
@@ -285,11 +322,11 @@ dc() {
     }
     shift 2
   fi
-  dev_env || return 7
-  cli="$CODETERM_DEV_DATA_DIR/bin/codeterm"
+  dev_resolve || return 7
+  cli="$EVAL_LIB_RESOLVED_DATA_DIR/bin/codeterm"
   [ -x "$cli" ] || [ ! -x "$cli.exe" ] || cli="$cli.exe"
   if [ ! -x "$cli" ]; then
-    dev_resolution_error "$cli" "$CODETERM_DEV_DATA_DIR"
+    dev_resolution_error "$cli" "$EVAL_LIB_RESOLVED_DATA_DIR"
     echo "            Build it with: ./build.sh cli" >&2
     return 7
   fi
@@ -298,13 +335,11 @@ dc() {
     echo "             (would have leaked to prod via socket-discovery fallback)" >&2
     return 7
   fi
-  # Strip parent CODETERM_TAB_ID — would force a [from <prod-tab>] prefix on every send-text.
-  CODETERM_API_PORT="$EVAL_LIB_DEV_API_PORT" \
-  CODETERM_API_TOKEN="$CODETERM_API_TOKEN" \
-  CODETERM_SOCKET_PATH="$CODETERM_SOCKET_PATH" \
-  CODETERM_TAB_ID="$caller_tab_id" \
-  CODETERM_PARENT_TAB_ID= \
-  "$cli" "$@"
+  if [ -n "$caller_tab_id" ]; then
+    dev_run --as-tab "$caller_tab_id" "$cli" "$@"
+  else
+    dev_run "$cli" "$@"
+  fi
 }
 
 # --- Lifecycle -------------------------------------------------------
@@ -350,7 +385,7 @@ dev_wait_ready() {
 dev_start_bg() {
   (
     cd "$EVAL_LIB_REPO_ROOT" || exit 1
-    local log_dir="${CODETERM_DEV_DATA_DIR:-$(dev_data_dir)}/logs"
+    local log_dir; log_dir="$(dev_data_dir)/logs" || exit 7
     mkdir -p "$log_dir"
     "${BASH:-bash}" build.sh dev > "$log_dir/codeterm-stdout.log" 2> "$log_dir/codeterm-stderr.log" < /dev/null &
     disown "$!" 2>/dev/null || true
@@ -367,7 +402,7 @@ snapshot() {
   mkdir -p "$dir"
   dev_get /api/workspaces > "$dir/ws.json"
   dev_get /api/tabs      > "$dir/tabs.json"
-  python3 - "$dir" "${CODETERM_DEV_DATA_DIR:-$(dev_data_dir)}" <<'PYEOF'
+  python3 - "$dir" "$(dev_data_dir)" <<'PYEOF'
 import os, sys, shutil
 src = os.path.join(sys.argv[2], 'sessions', 'last.json')
 if os.path.exists(src):
@@ -479,8 +514,9 @@ for w in json.load(sys.stdin):
 # exactly one workspace (General). Slow (~30s) but bulletproof.
 reset_dev_state_hard() {
   dev_kill_hard
-  rm -f "$CODETERM_DEV_DATA_DIR/sessions/last.json"
-  rm -rf "$CODETERM_DEV_DATA_DIR/sessions/backups"
+  local data_dir; data_dir="$(dev_data_dir)" || return 7
+  rm -f "$data_dir/sessions/last.json"
+  rm -rf "$data_dir/sessions/backups"
   dev_start_bg
   dev_wait_ready 600
   sleep 3
@@ -491,7 +527,7 @@ reset_dev_state_hard() {
 # Uses python3's os.path.expanduser so the path resolves correctly on
 # Windows (git bash $HOME is /c/Users/X — invalid for native Python).
 assert_atomic_save_clean() {
-  python3 - "$CODETERM_DEV_DATA_DIR" <<'PYEOF' || { echo "  FAIL session file integrity check"; return 1; }
+  python3 - "$(dev_data_dir)" <<'PYEOF' || { echo "  FAIL session file integrity check"; return 1; }
 import json, os, sys
 sess = os.path.join(sys.argv[1], 'sessions')
 tmp = os.path.join(sess, 'last.json.tmp')
@@ -637,10 +673,10 @@ new_opencode_tab() {
   dc "${args[@]}" 2>&1 | grep -oE "tab [a-f0-9]+" | awk '{print $2}' | head -1
 }
 
-# --- Auto-init: source-time dev_env so callers can't forget. ---------
-# Without this, a forgotten `dev_env` call early in a bench leaks the
-# parent shell's CODETERM_API_PORT/SOCKET into `codeterm` calls — and
-# when the parent is a Claude tab inside prod codeterm, every CLI
-# call lands on prod (port 7685) instead of dev. Andrey's prod state
-# got minor cleanup damage from exactly this on 2026-05-07.
-dev_env > /dev/null 2>&1 || true
+# --- Auto-init: resolve the dev connection at source time. -----------
+# Resolution only, into lib-private state. Every helper composes the
+# connection into the process it invokes, so a bench that forgets to resolve
+# still cannot reach prod, and the shell that sourced this file keeps the
+# CODETERM_* it already had. Andrey's prod state got minor cleanup damage
+# from an inherited prod port on 2026-05-07; composition is what prevents it.
+dev_resolve > /dev/null 2>&1 || true
