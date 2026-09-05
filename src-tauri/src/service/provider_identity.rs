@@ -50,9 +50,7 @@ pub(crate) enum ConditionalAgentTypeWrite<T> {
         value: T,
         identity_write: AgentTypeWriteOutcome,
     },
-    EvidenceChanged {
-        identity_write: AgentTypeWriteOutcome,
-    },
+    EvidenceChanged,
 }
 
 struct IdentityMutation {
@@ -318,9 +316,7 @@ impl ServiceContext {
                 value,
                 identity_write: outcome,
             },
-            None => ConditionalAgentTypeWrite::EvidenceChanged {
-                identity_write: outcome,
-            },
+            None => ConditionalAgentTypeWrite::EvidenceChanged,
         }))
     }
 
@@ -499,7 +495,6 @@ impl ServiceContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::provider_identity::provider_for_claimed_session;
     use crate::service::test_fixture::ServiceFixture;
 
     fn claimed_tab(provider: &str) -> crate::multiplexer::types::Tab {

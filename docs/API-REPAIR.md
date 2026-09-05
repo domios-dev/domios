@@ -21,8 +21,7 @@ caller tab, session id, and the verification facts used.
 
 
 `POST /api/tabs/{id}/repair` reports `provider`, `session`, and `parser_lock`
-as `{status, previous, current}`, where `status` is `kept`, `corrected`, or
-`could_not_verify`. Its `evidence` names the session/provider plus separate
+as `{status, previous, current}`, where `status` is `kept` or `corrected`. Its `evidence` names the session/provider plus separate
 session-record and binding-nonce verification facts. Journal mode also returns `journal.restored_from` and every
 candidate skipped with its reason. An accepted write records an
 `agent_type_write` lifecycle transition with origin `repair`, previous/new and
@@ -32,4 +31,4 @@ sources. Missing session proof is refused with
 `tab_repair_verified_session_required`; a caller outside the self/plan-owner
 authority set is refused with `tab_repair_not_authorized`.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

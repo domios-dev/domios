@@ -24,9 +24,7 @@ pub(crate) struct VerifiedRebindCommit {
 #[derive(Debug)]
 pub(crate) enum VerifiedRebindOutcome {
     Committed(VerifiedRebindCommit),
-    EvidenceChanged {
-        identity_write: crate::service::provider_identity::AgentTypeWriteOutcome,
-    },
+    EvidenceChanged,
 }
 
 pub(crate) async fn binding_state(
@@ -68,7 +66,7 @@ pub(crate) async fn rebind_session(
     .await
     {
         Ok(VerifiedRebindOutcome::Committed(commit)) => commit,
-        Ok(VerifiedRebindOutcome::EvidenceChanged { .. }) => {
+        Ok(VerifiedRebindOutcome::EvidenceChanged) => {
             return Err((
                 StatusCode::CONFLICT,
                 "tab session evidence changed before provider identity commit".to_string(),
@@ -117,6 +115,7 @@ pub(crate) async fn rebind_session(
     })))
 }
 
+#[cfg(test)]
 pub(crate) fn rebind_session_core(
     mux: &crate::multiplexer::commands::MuxState,
     registry: &crate::agent::registry::AgentRegistry,
@@ -206,7 +205,6 @@ pub(crate) async fn validate_and_commit_rebind(
             |mux| {
                 crate::api::hook_routes::commit_materialized_rebind_session(
                     mux,
-                    svc.agent_registry.as_ref(),
                     tab_id,
                     &provider_id,
                     session_id,
@@ -221,10 +219,8 @@ pub(crate) async fn validate_and_commit_rebind(
             value,
             identity_write,
         } => (value, identity_write),
-        crate::service::provider_identity::ConditionalAgentTypeWrite::EvidenceChanged {
-            identity_write,
-        } => {
-            return Ok(VerifiedRebindOutcome::EvidenceChanged { identity_write });
+        crate::service::provider_identity::ConditionalAgentTypeWrite::EvidenceChanged => {
+            return Ok(VerifiedRebindOutcome::EvidenceChanged);
         }
     };
     Ok(VerifiedRebindOutcome::Committed(VerifiedRebindCommit {

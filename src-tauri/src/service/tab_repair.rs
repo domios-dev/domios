@@ -77,7 +77,6 @@ pub(crate) enum TabRepairSource {
 pub(crate) enum RepairFieldStatus {
     Kept,
     Corrected,
-    CouldNotVerify,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

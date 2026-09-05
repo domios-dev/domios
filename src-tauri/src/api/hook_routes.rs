@@ -16,9 +16,9 @@ use crate::api::{
 mod run_session;
 mod session_claim;
 
-pub(crate) use session_claim::{
-    bind_reported_session, bind_validated_rebind_session, commit_materialized_rebind_session,
-};
+#[cfg(test)]
+pub(crate) use session_claim::bind_validated_rebind_session;
+pub(crate) use session_claim::{bind_reported_session, commit_materialized_rebind_session};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SessionStartClaim {

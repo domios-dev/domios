@@ -51,11 +51,13 @@ pub fn image_path() -> &'static str {
 /// `scripts/symbolicate-minidump.py` prints for a dump's module, so the two can be
 /// compared by eye. The GUID's first three fields are little-endian, the rest is
 /// byte order as stored; that is the layout every Windows symbol tool expects.
+#[cfg(test)]
 pub fn render_rsds(record: &[u8]) -> Option<String> {
     rsds(record).map(|i| i.display)
 }
 
 /// The symbol-store key for an RSDS record: 32 GUID hex digits then the age in hex.
+#[cfg(test)]
 pub fn rsds_key(record: &[u8]) -> Option<String> {
     rsds(record).map(|i| i.key)
 }
@@ -95,6 +97,7 @@ fn rsds(record: &[u8]) -> Option<Identity> {
 }
 
 /// Render a raw build-id / UUID byte string as uppercase hex.
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
 pub fn render_hex_id(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{:02X}", b)).collect()
 }

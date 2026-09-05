@@ -29,6 +29,7 @@ pub(crate) fn bind_reported_session(
     )
 }
 
+#[cfg(test)]
 pub(crate) fn bind_validated_rebind_session(
     mux: &crate::multiplexer::commands::MuxState,
     registry: &crate::agent::registry::AgentRegistry,
@@ -52,7 +53,6 @@ pub(crate) fn bind_validated_rebind_session(
 
 pub(crate) fn commit_materialized_rebind_session(
     mux: &mut crate::multiplexer::state::MultiplexerState,
-    registry: &crate::agent::registry::AgentRegistry,
     tab_id: &str,
     provider_id: &str,
     session_id: &str,
