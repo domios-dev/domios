@@ -49,6 +49,8 @@ export interface RunRow {
   resync_fanout: number;
   mux_refetches: number;
   refetch_errors: number;
+  max_in_flight: number;
+  refetch_max_ms: number;
   client_gen: number;
   daemon_gen: number;
   diverged: boolean;
@@ -205,6 +207,8 @@ export async function runScenario(o: ScenarioOptions): Promise<RunRow> {
       resync_fanout: mirror.counters.resyncFanout,
       mux_refetches: mirror.counters.muxRefetches,
       refetch_errors: mirror.counters.refetchErrors,
+      max_in_flight: mirror.counters.maxInFlight,
+      refetch_max_ms: mirror.counters.refetchMaxMs,
       client_gen: mirror.state().generation,
       daemon_gen: daemon.generation,
       diverged: verdict.diverged,

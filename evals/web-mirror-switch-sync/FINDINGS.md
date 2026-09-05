@@ -22,6 +22,10 @@ Two instruments were used, and they are not interchangeable.
 | A | per-switch | 1 | 16 | 1532 | 268-457 Hz | 1 x `ring-evicted` | 5 | **0/5** |
 | B | catch-up | 8 | 12 | 1532 | 24-26 Hz | 1 x `ring-evicted` | 2 | **2/2** `generation-lag:7` |
 
+**Superseded in part - read section 1b before quoting the 2/2.** The same
+shape converged on the next build, so this is an intermittent reproduction,
+not a deterministic one.
+
 ```
 # ack-paced, converges
 WMS_TABCOUNT=16 WMS_SWITCHES=200 WMS_RUNS=5 evals/web-mirror-switch-sync/run.sh
@@ -40,16 +44,18 @@ daemon (41374/41375, 45779/45780), so this is **transient lag, not permanent
 divergence**: sync is lost for seconds at a time and then recovered, which is
 what "loses sync" looks like to someone using it.
 
-### The control that is missing
+### The control that was missing (now run - see 1b)
 
-**Instrument B has never been run at concurrency 1.** The clean comparison -
+At the time of writing, **instrument B had never been run at concurrency 1.** The clean comparison -
 same instrument, same shape, concurrency 1 vs 8 - is the thing that would show
 whether concurrency is the discriminator or whether instrument B's 8s bound is
 simply too tight for any shape. That run was started and was cut off when dev
 went down for the canonical QA window.
 
-Until it exists, run B is a reproduction of *something*, and I am not claiming
-it reproduces Andrey's bug. The exact missing command:
+It has since run: 0/2 diverged (section 1b). That is the comparison this
+paragraph asked for, and it is also why the concurrency-8 result needs a
+failure rate on a single build before `concurrency` can be called the
+discriminator. The command:
 
 ```
 WMS_TABCOUNT=12 WMS_SWITCHES=200 WMS_CONCURRENCY=1 WMS_RUNS=2   evals/web-mirror-switch-sync/run.sh
@@ -115,6 +121,54 @@ dispatches, 1 `codeterm-refresh-mux-state`, and 1 `fireResync()` round - against
 
 Under overlapping focus requests the daemon does **not** emit one `tab-focused`
 per request. This is why instrument A cannot measure a realistic storm.
+
+## 1b. Gate results on build 190b80704 - and a correction
+
+Gates 2 and 3 ran on the rebuilt dev. They change the picture.
+
+| shape | conc | tabs | switches | rate | overflow | maxInFlight | slowest refetch | runs | diverged |
+|---|---|---|---|---|---|---|---|---|---|
+| gate 3, no overflow leg | 1 | 12 | 400 | 72 Hz | 0 | - | - | 1 | 0/1 |
+| gate 2, control | 1 | 12 | 1532 | 208-211 Hz | 1 | - | - | 2 | **0/2** |
+| same shape as the failures | 8 | 12 | 1532 | 144 Hz | 1 | **1027** | 1684 ms | 1 | **0/1** |
+
+**Gate 3 confirms the 1:1 ratio from the committed tree:** 400 switches ->
+427 refetches. The 27 extra are background events from unrelated tabs, which
+is what one-refetch-per-`mux-state-changed` predicts.
+
+**Gate 2, the control, converged 0/2** at concurrency 1 with the same
+instrument, same tab count, same switch count and a real `ring-evicted`
+overflow. Elapsed 7.3 s per run against 59-62 s for the concurrency-8 runs.
+
+### The correction
+
+On build 7e7dda609 the concurrency-8 shape diverged **2/2**. On build
+190b80704 the same shape **converged 0/1**. So the earlier report's
+"diverges 2/2" is not a property of the shape: **the reproduction is
+intermittent and did not survive a rebuild.** One pass is thin evidence, but
+it is enough to retract "deterministic".
+
+Current honest tally for the concurrency-8 shape: **2 failures out of 3 runs,
+across two different builds** - and the two failures and the one pass are not
+on the same build, so they are not one sample. The failure rate on
+190b80704 is unmeasured; the run intended to measure it was cut off when dev
+went down.
+
+Consequence: `concurrency` looked like the discriminator against the control,
+and it may still be, but it cannot be called one on this evidence. No cause is
+named, and the brief's lead is still not the local explanation either -
+`overflow_fired` is 1 in the passing control *and* in the failing runs, so
+the overflow fan-out cannot by itself separate them.
+
+### One robust mechanism number
+
+Independent of pass or fail, the concurrency-8 run measured **1027 concurrent
+`GET /api/mux/state` requests in flight at peak**, with the slowest single
+refetch taking 1684 ms. That is the per-event refetch with no coalescing and
+no in-flight dedup, under overlapping switches. It is a fact about the client
+regardless of which way a given run's assertion lands, and it is the number I
+would carry into the mesh half, where each of those is a signed relay round
+trip instead of a loopback GET.
 
 ## 2. Not established
 
