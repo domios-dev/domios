@@ -339,7 +339,8 @@ print_case() {
 }
 
 run_case() {
-  local label="$1" mode="$2" payload="$3" token="$4" case_dir="$OUT_DIR/$label"
+  local label="$1" mode="$2" payload="$3" token="$4"
+  local case_dir="$OUT_DIR/$label"
   local tab pty log_offset
   mkdir -p "$case_dir"
   spawn_codex "$label" "$case_dir"
@@ -383,7 +384,8 @@ run_case() {
 }
 
 run_recovery_case() {
-  local label="long-mid-turn-next-send" case_dir="$OUT_DIR/$label"
+  local label="long-mid-turn-next-send"
+  local case_dir="$OUT_DIR/$label"
   local tab pty log_offset first_send_id second_send_id
   mkdir -p "$case_dir"
   spawn_codex "$label" "$case_dir"
