@@ -987,8 +987,9 @@ impl ServiceContext {
 }
 
 fn worker_ack_reminder_message(tab_id: &str, attempt_id: &str) -> OutboundMessage {
-    let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder(WORKER_ACK_CONTEXT)
-        .id(Some(attempt_id.to_string()));
+    let envelope =
+        crate::service::messenger::MessageEnvelope::codeterm_reminder(WORKER_ACK_CONTEXT)
+            .id(Some(attempt_id.to_string()));
     OutboundMessage {
         target: tab_id.to_string(),
         body: MessageBody::Text {

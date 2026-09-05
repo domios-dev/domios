@@ -23,7 +23,10 @@ fn rotate_if_oversized(path: &Path) {
     let previous = path.with_extension("log.1");
     let _ = fs::remove_file(&previous);
     if let Err(error) = fs::rename(path, &previous) {
-        log::warn!("[plugin/audit] rotation failed for {}: {error}", path.display());
+        log::warn!(
+            "[plugin/audit] rotation failed for {}: {error}",
+            path.display()
+        );
     }
 }
 
@@ -71,7 +74,10 @@ mod tests {
         append_event(root, &json!({"kind": "test"})).unwrap();
 
         let rotated = path.with_extension("log.1");
-        assert!(rotated.exists(), "the oversized generation must be kept as .1");
+        assert!(
+            rotated.exists(),
+            "the oversized generation must be kept as .1"
+        );
         let live = fs::metadata(&path).unwrap().len();
         assert!(
             live < MAX_AUDIT_BYTES,
@@ -87,15 +93,16 @@ mod tests {
         append_event(root, &json!({"kind": "second"})).unwrap();
 
         let path = log_path(root);
-        assert!(!path.with_extension("log.1").exists(), "a small log must not rotate");
+        assert!(
+            !path.with_extension("log.1").exists(),
+            "a small log must not rotate"
+        );
         assert_eq!(
             fs::read_to_string(&path).unwrap().lines().count(),
             2,
             "both events stay in the live log"
         );
     }
-
-    use super::*;
 
     #[test]
     fn append_event_writes_jsonl_under_logs_plugin_events() {
