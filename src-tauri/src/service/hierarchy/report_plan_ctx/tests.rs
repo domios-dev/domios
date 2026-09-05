@@ -276,23 +276,40 @@ impl ReportHarness {
 /// A Worker under a root Orchestrator, holding `held`, while `stale` has moved
 /// on to another tab.
 fn worker_harness() -> ReportHarness {
+    seed_plan(worker_mux(), None, Holding::Held)
+}
+
+/// The read-only verification Worker: same placement under the Orchestrator,
+/// but assigned nothing. Owning no task is the whole of what stops it
+/// transitioning one, so the fixture differs from `worker_harness` only there.
+fn verification_worker_harness() -> ReportHarness {
+    seed_plan(worker_mux(), None, Holding::Nothing)
+}
+
+fn worker_mux() -> (MultiplexerState, String, String) {
     let (mut mux, root) = MultiplexerState::new();
     let workspace = mux.find_workspace_for_tab(&root).unwrap();
     let caller = mux.create_tab(&workspace).unwrap();
     mux.set_tab_role(&caller, AgentRole::Worker, Some(&root))
         .expect("attach worker to orchestrator");
     mux.get_tab_mut(&caller).unwrap().agent_type = Some("claude".into());
-    seed_plan(mux, root, caller, None)
+    (mux, root, caller)
+}
+
+/// What the reporting tab owns in the seeded plan.
+#[derive(Clone, Copy, PartialEq)]
+enum Holding {
+    Held,
+    Nothing,
 }
 
 /// Binds the caller's live session on both sides of the seam — the tab record
 /// and the attempt the plan write authorizes against — so the nonce and epoch
 /// gates pass and only the task-hold predicate can refuse.
 fn seed_plan(
-    mux: MultiplexerState,
-    root: String,
-    caller: String,
+    (mux, root, caller): (MultiplexerState, String, String),
     owner: Option<&str>,
+    holding: Holding,
 ) -> ReportHarness {
     let fx = ServiceFixture::new(mux);
     {
@@ -314,20 +331,22 @@ fn seed_plan(
     store
         .assign_task(&plan.id, &stale, "someone-else", None, 3)
         .unwrap();
-    store
-        .assign_task(&plan.id, &held, &caller, None, 4)
-        .unwrap();
-    store
-        .update_attempt_executor_identity(
-            &plan.id,
-            &held,
-            &caller,
-            None,
-            Some("caller-session"),
-            Some("caller-nonce"),
-            5,
-        )
-        .unwrap();
+    if holding == Holding::Held {
+        store
+            .assign_task(&plan.id, &held, &caller, None, 4)
+            .unwrap();
+        store
+            .update_attempt_executor_identity(
+                &plan.id,
+                &held,
+                &caller,
+                None,
+                Some("caller-session"),
+                Some("caller-nonce"),
+                5,
+            )
+            .unwrap();
+    }
     ReportHarness {
         fx,
         root,
@@ -464,6 +483,58 @@ fn stale_task_report_absent_hint_still_transitions_the_held_task() {
     assert_eq!(h.shape(&h.stale), stale_before);
 }
 
+/// The verification Worker's safety is its emptiness, not a second gate: a tab
+/// that holds no task can name one and still transition nothing. Pinned here so
+/// permitting the task-less read-only spawn cannot quietly grow it a hold.
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+)]
+fn a_verification_worker_holds_no_task_and_can_transition_none() {
+    let h = verification_worker_harness();
+    let held_before = h.shape(&h.held);
+    let stale_before = h.shape(&h.stale);
+
+    // Naming a task explicitly.
+    let named =
+        h.fx.service
+            .submit_report(
+                &h.caller,
+                "VERIFIER_NAMED_TASK",
+                h.details(ReportStatus::InReview),
+                Some(&h.plan_id),
+                Some(&h.held),
+                None,
+            )
+            .expect("a refused transition must not swallow the report");
+    let rejection = named
+        .rejected_task_transition
+        .expect("a tab that holds nothing must not transition anything");
+    assert!(rejection.cause.contains(STALE_TASK_HINT_REFUSAL));
+    assert!(named.persisted_task.is_none());
+
+    // Naming none at all: the report is accepted with no task involved.
+    let unnamed =
+        h.fx.service
+            .submit_report(
+                &h.caller,
+                "VERIFIER_GATE_RESULT",
+                h.details(ReportStatus::InReview),
+                None,
+                None,
+                None,
+            )
+            .expect("a task-less report still reaches the parent");
+    assert!(unnamed.persisted_task.is_none());
+
+    assert_eq!(h.shape(&h.held), held_before);
+    assert_eq!(h.shape(&h.stale), stale_before);
+    assert!(h.task(&h.held).milestones.is_empty());
+    assert!(h.task(&h.stale).milestones.is_empty());
+    assert!(h.reports().contains("VERIFIER_GATE_RESULT"));
+}
+
 /// The B2 hazard. B2 widens a recovery hatch for a live Plan owner acting on a
 /// task whose owner session is gone; that hatch sits behind the dispatch gate
 /// for `plan.task.*` verbs, which `agent.report` never enters. Plan ownership
@@ -485,7 +556,7 @@ fn stale_task_report_plan_owner_in_recovery_cannot_land_a_stale_binding() {
         tab.team_id = Some("team-recovery".into());
     }
     let owner_id = owner.clone();
-    let h = seed_plan(mux, root, owner, Some(owner_id.as_str()));
+    let h = seed_plan((mux, root, owner), Some(owner_id.as_str()), Holding::Held);
 
     // Recovery-eligible on both halves of B2's predicate: the caller IS the live
     // Plan owner, and the stale task has no live owner session to fence against.

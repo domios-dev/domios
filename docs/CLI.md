@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 50 -->
+<!-- revision: 51 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -22,6 +22,8 @@ The Team verbs are `codeterm team list|show|rename|close|adopt-plan|adopt-agent|
 Agents join a Team two ways, both authorized against the caller's own membership (`CODETERM_TAB_ID` must already belong to that Team; a non-member is refused before any tab is created or mutated). `codeterm agent spawn <provider> --team <team_id>` attaches a fresh roleless agent at spawn time, mirroring `codeterm tab new --team`; it is rejected together with `--plan-task`, because a plan-bound agent already derives its Team from that binding. `codeterm team adopt-agent <team_id> <tab_id>` attaches an already-running roleless agent tab; adopting a tab that already belongs to a Team, holds a role, or does not exist fails with a specific error. Both bind the tab under the Team's live Orchestrator, and `codeterm team show <team_id>` lists the Team's member tabs.
 
 A Team whose Orchestrator is gone is not stranded. `codeterm agent spawn <provider> --team <team_id> --role Orchestrator` hands it a new one and is the only `--role` that combines with `--team`: it needs no `--workspace` (the Team names one), carries no other spawn flag, and lands on the same daemon staffing verb as the sidebar's add-member action and `POST /api/teams/{team_id}/members`. The new Orchestrator takes the Team's active plan over through the tab-gone owner rebind — owner and owner history move, the plan reactivates, and the Team's own Planner keeps its binding — so the plan heartbeat follows to the new tab. A Team is allowed at most one **live** Orchestrator, counted as live anchoring tabs: a removed tab is gone and a dead agent's identity is cleared on exit, so neither counts, while a second live one is refused by the `team_orchestrator_already_live` error code and logged with the Team, the role, and the cause.
+
+A Worker spawn without a task binding is permitted when it declares `--execution-intent read_only`: that is the canonical verification Worker `codeterm docs ORCHESTRATION-OPERATIONS` prescribes for post-merge QA. It is spawned under the plan it verifies (`--plan <plan_id>`), reports to `--parent-tab` / `--report-to`, and carries its command scope as repeated `--authorized-gate <command>` tokens, which are rendered into its brief. Holding no task, it can report against none and transition none — a report naming a task it does not hold is refused and writes nothing. The safeguard for source-changing work is unchanged: `--execution-intent mutating` without `--plan-task` (or `--plan` + `--task-id`) is refused, and so is `--role Worker --plan <id>` with neither a task binding nor read-only intent. Declare gates on the dispatch (`plan task dispatch --authorized-gate`) for a task-bound Worker; `agent spawn --authorized-gate` is rejected alongside `--plan-task`.
 
 `codeterm plan task dispatch` refuses a **mutating** dispatch before any tab exists when the resolved worktree is the canonical checkout or another task's lane; the error carries a stable `violation_id` (`lane.mutating_write_in_canonical_checkout`, `lane.mutating_write_in_foreign_lane`) plus the exact `plan task update --worktree/--branch/--base` command that supplies an isolated lane. A task with no recorded lane is not refused — the dispatcher provisions one and commits Team workspace identity together with the lane. Every other lane finding is advisory: the dispatch succeeds and prints a `safety_nudges` block on stderr, each line carrying a stable id and the exact fix. Read-only dispatch, General-Agent creation, and plain shell tabs are never obstructed, including in canonical.
 
@@ -137,12 +139,13 @@ Spawn a new agent; roleless unless --role is provided.
 
 - `<agent>` — Agent provider id. Run `codeterm agent providers` to list registered providers (e.g. claude, codex, opencode). Default: claude
 - `--args` — Extra provider args. Put this after all CodeTerm spawn options
+- `--authorized-gate` — Gate token this Worker may claim as executed; repeatable. Carried into its brief. For a task-bound Worker declare gates on the dispatch instead (`plan task dispatch --authorized-gate`)
 - `--can-spawn` — Override whether an explicit Orchestrator may spawn children
 - `--charter` — Watcher charter text
 - `--charter-file` — Read watcher charter text from a file
 - `--cwd` — Working directory
 - `--description` — Short tab description (max 200 chars)
-- `--execution-intent`
+- `--execution-intent` — Declared execution intent. `mutating` requires a task binding; `read_only` is also the task-less verification-Worker shape
 - `--interval` — Watcher tick interval, e.g. 90s, 5m, 1h
 - `--max-actions` — Max watcher actions per tick
 - `--model` — Model selector (e.g. "github-copilot/claude-haiku-4.5", "gpt-5"). The provider knows whether to emit `-m X` or `--model X` — caller passes the model string opaque. Run `codeterm agent models <provider>` to see what's available

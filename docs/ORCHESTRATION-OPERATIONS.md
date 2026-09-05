@@ -33,6 +33,30 @@ After integrating a lane candidate, run its focused oracle through a canonical
 verification Worker. If it fails, bounce the task with the exact command and
 failure evidence. Run broad suites only once for the compatible group.
 
+A verification Worker is spawned read-only and owns no task:
+
+```bash
+codeterm agent spawn <provider> --role Worker \
+  --parent-tab <your tab> --report-to <your tab> \
+  --cwd <canonical integration checkout> \
+  --plan <plan_id> --execution-intent read_only \
+  --authorized-gate "<exact command>" \
+  --task-file <brief>
+```
+
+`--plan-task` is deliberately absent. The plan's implementation task stays bound
+to the Worker whose lane was merged, and one task keeps one owner. The verifier
+binds to the plan it was spawned under, reports to its parent, and runs only the
+commands declared with `--authorized-gate`, which arrive in its brief. Because it
+holds no task it can report against none and transition none, so no verification
+run can move implementation state. Repeat `--authorized-gate` per command.
+
+Spawning it is not a way around task binding for source work: a Worker declaring
+`--execution-intent mutating` without a task is refused, and a task-bound Worker
+declares its gates on the dispatch (`plan task dispatch --authorized-gate`),
+where they are also enforced. The Orchestrator running the gate itself in its
+own canonical checkout remains the other sanctioned path.
+
 Design the smallest deterministic user-layer oracle before implementation so
 unit-green changes cannot silently break the real workflow. Keep that oracle
 fast, reusable, and event-driven.
@@ -130,4 +154,4 @@ An effort is complete only when:
 - the final handoff or retrospective is recorded;
 - the plan is archived.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

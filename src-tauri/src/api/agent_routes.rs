@@ -73,6 +73,9 @@ pub(crate) struct SpawnAgentBody {
     task_id: Option<String>,
     #[serde(alias = "plan-task")]
     plan_task: Option<String>,
+    /// Gate tokens a task-less read-only Worker may claim as executed.
+    #[serde(default)]
+    authorized_gates: Vec<String>,
     execution_intent: Option<crate::plan::ExecutionIntent>,
     provider_reserve_pct: Option<f32>,
     workspace_id: Option<String>,
@@ -267,6 +270,7 @@ pub async fn spawn_agent(
         task_launch_authority: None,
         plan_skill_manifest: None,
         plan_task: body.plan_task,
+        authorized_gates: body.authorized_gates,
         execution_intent: body.execution_intent,
         provider_reserve_pct: body.provider_reserve_pct,
         workspace_id: body.workspace_id,

@@ -41,6 +41,7 @@ impl SpawnAgentParams {
             task_launch_authority: None,
             plan_skill_manifest: None,
             plan_task: json_str(params, "plan_task").or_else(|| json_str(params, "plan-task")),
+            authorized_gates: json_string_list(params, "authorized_gates"),
             execution_intent: params
                 .get("execution_intent")
                 .cloned()
@@ -195,6 +196,22 @@ fn json_u64(params: &serde_json::Value, key: &str) -> Option<u64> {
     params.get(key).and_then(|v| v.as_u64())
 }
 
+fn json_string_list(params: &serde_json::Value, key: &str) -> Vec<String> {
+    params
+        .get(key)
+        .and_then(|value| value.as_array())
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(|value| value.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod normalization_tests {
     use super::*;
@@ -232,6 +249,31 @@ mod normalization_tests {
             normalized("Watcher", None),
             (Some("Manager".into()), Some(WATCHER.into()))
         );
+    }
+
+    /// The wire seam for a verification Worker's command scope: the CLI sends
+    /// `authorized_gates` as an array, and blank or non-string entries are
+    /// dropped rather than becoming a gate token nothing can match.
+    #[test]
+    fn authorized_gates_survive_the_spawn_wire_and_drop_empty_entries() {
+        let params = SpawnAgentParams::from_json(&serde_json::json!({
+            "agent": "codex",
+            "role": "Worker",
+            "execution_intent": "read_only",
+            "authorized_gates": ["  ./build.sh verify  ", "", 7, "./build.sh test-one app x"],
+        }))
+        .expect("a read-only Worker spawn parses");
+        assert_eq!(
+            params.authorized_gates,
+            vec![
+                "./build.sh verify".to_string(),
+                "./build.sh test-one app x".to_string()
+            ]
+        );
+
+        let none = SpawnAgentParams::from_json(&serde_json::json!({"agent": "codex"}))
+            .expect("a plain spawn parses");
+        assert!(none.authorized_gates.is_empty());
     }
 
     #[test]
