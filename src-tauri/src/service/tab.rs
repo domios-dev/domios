@@ -314,15 +314,6 @@ impl ServiceContext {
         }
     }
 
-    pub fn set_tab_agent_type(&self, tab_id: &str, agent_type: Option<String>) {
-        match agent_type {
-            Some(agent_type) => self.write_tab_agent_type(tab_id, agent_type, false),
-            None => {
-                self.clear_tab_agent_identity_for_lifecycle_exit(tab_id);
-            }
-        }
-    }
-
     pub(crate) fn invalidate_guarded_agent_input(&self, tab_id: &str) {
         let pty_id = self
             .mux
@@ -345,53 +336,6 @@ impl ServiceContext {
         if let Some(pty_id) = pty_id {
             let _ = self.pty.lock().rearm_guarded_input(&pty_id);
             crate::service::boot_wait::notify_boot_changed();
-        }
-    }
-
-    /// Same as `set_tab_agent_type` but also pins `agent_type_locked = true`.
-    /// Used by spawn paths and the typed-launch input parser to declare explicit
-    /// user intent. While locked, output-based re-detection is ignored.
-    pub fn set_and_lock_tab_agent_type(&self, tab_id: &str, agent_type: String) {
-        self.write_tab_agent_type(tab_id, agent_type, true);
-    }
-
-    /// Release the lock without changing `agent_type`. Public so a future Tauri
-    /// command can disconnect an agent identity without clearing it.
-    pub fn unlock_tab_agent_type(&self, tab_id: &str) {
-        let mut mux = self.mux.write();
-        if let Some(tab) = mux.get_tab_mut(tab_id) {
-            tab.agent_type_locked = false;
-        }
-    }
-
-    fn write_tab_agent_type(&self, tab_id: &str, agent_type: String, lock: bool) {
-        let transition = {
-            let mut mux = self.mux.write();
-            let Some(tab) = mux.get_tab_mut(tab_id) else {
-                return;
-            };
-            let prev = tab.agent_type.clone();
-            tab.agent_set_at = Some(std::time::Instant::now());
-            tab.exit_suspected_at = None;
-            tab.agent_type = Some(agent_type.clone());
-            if lock {
-                tab.agent_type_locked = true;
-            }
-            (prev, agent_type)
-        };
-        log::info!(
-            "[set_tab_agent_type] tab={} prev={:?} new={}",
-            tab_id,
-            transition.0,
-            transition.1,
-        );
-        let (prev, next) = transition;
-        if prev.is_none() {
-            self.replay_inbound_buffer(tab_id, &next);
-        }
-        if prev.as_deref() != Some(next.as_str()) {
-            self.kick_off_session_name_detection(tab_id, &next);
-            self.refresh_session_model_once(tab_id, &next);
         }
     }
 
@@ -538,7 +482,7 @@ impl ServiceContext {
         });
     }
 
-    fn refresh_session_model_once(&self, tab_id: &str, agent_id: &str) {
+    pub(crate) fn refresh_session_model_once(&self, tab_id: &str, agent_id: &str) {
         let (cwd, session_id) = {
             let mux = self.mux.read();
             let Some(p) = mux.get_tab(tab_id) else {
@@ -686,7 +630,7 @@ impl ServiceContext {
     /// is settled. Stops as soon as a name is found (or after a budget) so
     /// the regex doesn't spin on every output chunk. See AgentProvider::
     /// extract_session_name; Claude returns "vivid-bhabha-1234" etc. (#99).
-    fn kick_off_session_name_detection(&self, tab_id: &str, agent_id: &str) {
+    pub(crate) fn kick_off_session_name_detection(&self, tab_id: &str, agent_id: &str) {
         if tab_id.is_empty() || agent_id.is_empty() {
             return;
         }
@@ -751,7 +695,7 @@ impl ServiceContext {
         });
     }
 
-    fn replay_inbound_buffer(&self, tab_id: &str, new_type: &str) {
+    pub(crate) fn replay_inbound_buffer(&self, tab_id: &str, new_type: &str) {
         let queued = crate::bridge::inbound_buffer::drain(tab_id);
         if queued.is_empty() {
             return;

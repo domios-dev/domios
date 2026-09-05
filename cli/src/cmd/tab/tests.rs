@@ -476,6 +476,13 @@ fn every_tab_action_rejects_malformed_remote_before_local_transport() {
             session_id: "session-live".into(),
             tab: bad(),
         },
+        TabAction::Repair {
+            provider: None,
+            session: None,
+            from_evidence: true,
+            from_journal: false,
+            tab: bad(),
+        },
         TabAction::Stop { tab: bad() },
         TabAction::Chat {
             tab: bad(),

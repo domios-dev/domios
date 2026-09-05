@@ -267,6 +267,7 @@ impl PlanStore {
             allowance,
             provider,
             None,
+            None,
             now_ms,
         )
     }
@@ -295,6 +296,37 @@ impl PlanStore {
             allowance,
             provider,
             Some(attempt_id),
+            None,
+            now_ms,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn begin_task_dispatch_with_reserved_attempt_and_gates(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        tab_id: &str,
+        executor_title: &str,
+        lane: crate::plan::TaskLaneMetadata,
+        intent: crate::plan::ExecutionIntent,
+        allowance: Option<crate::plan::ProviderAllowance>,
+        provider: Option<&str>,
+        attempt_id: &str,
+        authorized_gates: Vec<String>,
+        now_ms: u64,
+    ) -> Result<String, PlanError> {
+        self.begin_task_dispatch_with_policy_inner(
+            plan_id,
+            task_id,
+            tab_id,
+            executor_title,
+            lane,
+            intent,
+            allowance,
+            provider,
+            Some(attempt_id),
+            Some(authorized_gates),
             now_ms,
         )
     }
@@ -311,6 +343,7 @@ impl PlanStore {
         allowance: Option<crate::plan::ProviderAllowance>,
         provider: Option<&str>,
         reserved_attempt_id: Option<&str>,
+        authorized_gates: Option<Vec<String>>,
         now_ms: u64,
     ) -> Result<String, PlanError> {
         super::interruption::provider_allowance_preflight(&intent, allowance.as_ref(), now_ms)?;
@@ -352,6 +385,7 @@ impl PlanStore {
             attempt.executor_title = Some(executor_title.to_string());
             attempt.provider = provider.map(str::to_string);
             attempt.agent_type = provider.map(str::to_string);
+            attempt.authorized_gates = authorized_gates.clone();
             task.interruption.execution_intent = intent.clone();
             task.interruption.allowance = allowance.clone();
             task.interruption.owner_epoch = task.interruption.owner_epoch.max(1);
@@ -402,6 +436,7 @@ impl PlanStore {
                 || task.interruption.allowance != allowance
                 || task.interruption.owner_tab_id.as_deref() != Some(tab_id)
                 || attempt.interruption.owner_epoch != task.interruption.owner_epoch
+                || attempt.authorized_gates != authorized_gates
             {
                 return Err(Self::task_readback_error(
                     "task_dispatch_start",

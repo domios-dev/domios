@@ -1,4 +1,8 @@
 
+// A test file with no top-level `import`/`export` is a global SCRIPT to TS,
+// so its helpers collide with every sibling script's helpers. Keep this.
+export {};
+
 class FakeStorage {
   private map = new Map<string, string>();
   getItem(key: string): string | null {

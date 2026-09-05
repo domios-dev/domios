@@ -28,6 +28,14 @@ pub struct OrchestrationPairParams {
     /// Blank picker tab to claim for the Orchestrator in place, instead of
     /// spawning it as a brand-new tab (new-session picker confirm path).
     pub existing_tab_id: Option<String>,
+    /// Explicit "I know I am a leaf and I am doing this deliberately"
+    /// declaration — codeterm#400. A caller tab holding a leaf role (Manager
+    /// or Worker) is refused unless this is set; it never widens who may
+    /// create a pair from a non-leaf tab, and it never substitutes an
+    /// intermediary — the newly minted Team is still attributed to the
+    /// declaring tab itself.
+    #[serde(default)]
+    pub leaf_creation_acknowledged: bool,
 }
 
 /// Success shape only — a failed Planner spawn returns `Err(String)` with the
@@ -114,6 +122,33 @@ fn is_pair_creation_leaf(tab: &crate::multiplexer::types::Tab) -> bool {
         Some(crate::multiplexer::types::AgentRole::Manager)
             | Some(crate::multiplexer::types::AgentRole::Worker)
     ) && !crate::service::general_agent::is_general_agent(tab)
+}
+
+/// The exact command a refused leaf caller runs to create the pair
+/// deliberately, attributed to its own tab — never to a throwaway
+/// intermediary shell.
+const LEAF_PAIR_CREATION_FIX_COMMAND: &str = "codeterm team pair --acknowledge-leaf ...";
+
+fn leaf_pair_creation_refusal() -> String {
+    format!(
+        "Manager and Worker Tabs need an explicit declaration to create orchestration pairs: \
+         pass --acknowledge-leaf to create it attributed to this tab, e.g. `{LEAF_PAIR_CREATION_FIX_COMMAND}`."
+    )
+}
+
+/// codeterm#400: gated on STATED INTENT, not a held capability. No grant for
+/// this exists today, and gating on one would leave the workaround this
+/// replaces open for every caller without the grant — a leaf still spawns an
+/// anonymous throwaway shell and creates the pair from there, attributed to
+/// that intermediary instead of the real caller. An explicit flag both proves
+/// the caller's awareness and is what lets attribution land on the caller's
+/// own tab; a held capability could not do the latter without also being
+/// granted to every leaf that would otherwise take the workaround.
+fn pair_creation_refusal_for_leaf(
+    is_leaf: bool,
+    leaf_creation_acknowledged: bool,
+) -> Option<String> {
+    (is_leaf && !leaf_creation_acknowledged).then(leaf_pair_creation_refusal)
 }
 
 #[derive(Debug)]
@@ -373,8 +408,10 @@ impl ServiceContext {
                 .map(|_| tab_id.clone())
         });
 
-        // Leaf roles cannot create orchestration pairs. The General Agent is a
-        // machine coordinator represented by Manager storage, not a Team leaf.
+        // Leaf roles need an explicit declaration to create orchestration
+        // pairs — codeterm#400. The General Agent is a machine coordinator
+        // represented by Manager storage, not a Team leaf, so it is exempt
+        // regardless of the flag.
         if let Some(ref spawner_id) = params.spawned_by_tab_id {
             if !spawner_id.is_empty() {
                 let is_leaf = {
@@ -383,12 +420,10 @@ impl ServiceContext {
                         .map(is_pair_creation_leaf)
                         .unwrap_or(false)
                 };
-                if is_leaf {
-                    return Err(
-                        "Manager and Worker Tabs cannot create orchestration pairs; \
-                         leaf roles cannot spawn orchestrators"
-                            .into(),
-                    );
+                if let Some(refusal) =
+                    pair_creation_refusal_for_leaf(is_leaf, params.leaf_creation_acknowledged)
+                {
+                    return Err(refusal);
                 }
             }
         }

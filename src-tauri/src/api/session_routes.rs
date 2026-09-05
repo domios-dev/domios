@@ -414,6 +414,7 @@ pub async fn resume_session_api(
         task_launch_authority: None,
         plan_skill_manifest: None,
         plan_task: None,
+        authorized_gates: Vec::new(),
         execution_intent: None,
         provider_reserve_pct: None,
         workspace_id: Some(ws_id.clone()),
@@ -449,9 +450,12 @@ pub async fn resume_session_api(
         .spawn_agent(spawn_params, None)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    state
-        .svc
-        .set_and_lock_tab_agent_type(&spawned.tab_id, meta.provider.clone());
+    state.svc.set_and_lock_tab_agent_type_from(
+        &spawned.tab_id,
+        meta.provider.clone(),
+        crate::session::lifecycle::AgentTypeWriteOrigin::Spawn,
+        None,
+    );
     state.svc.emit_state_changed();
 
     let identity_json = match identity {

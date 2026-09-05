@@ -62,6 +62,14 @@ Every active plan must reference exactly one live Team, and a live Team may have
 
 `POST /api/plans/{id}/transfer` accepts `{to: OrchestratorRef, reason?}` and requires `X-CodeTerm-Tab-Id` to identify the source Team's Orchestrator or planner-profile Manager. Missing callers, Workers, and foreign-Team tabs receive `403` without mutation. The destination must be a live Orchestrator belonging to a live Team. Owner, owner history, Team binding, and stale planner retirement are one storage mutation, followed by hierarchy relinking under the Team lock.
 
+### Team staffing and Orchestrator recovery (POST /api/teams/{team_id}/members)
+
+`{provider, role, title?, task?, model?}` adds one member to an existing Team; `role` is `worker`, `planner`, or `orchestrator`. This endpoint, the UI add-member action, the socket `team.add_member` verb, and `codeterm agent spawn <provider> --team <id> --role Orchestrator` are one service path.
+
+A Team holds **at most one live Orchestrator**, enforced as a headcount of live anchoring tabs rather than a ban on the role: a removed tab is gone from the multiplexer and a dead agent's identity is cleared on lifecycle exit, so neither counts. A Team whose Orchestrator is gone therefore accepts a new one, and the new anchor takes the Team's active plan over through the same tab-gone owner rebind used for a dead owner — owner and owner history move, the plan reactivates, and the Team's own Planner keeps its binding. The response carries `plan_takeover: {plan_id, owner_tab_id, error?}` when ownership moved. Because `plan.owner` moves, the plan heartbeat targets the new tab from the next scan on.
+
+`X-CodeTerm-Tab-Id` is optional on this endpoint alone: a Team whose Orchestrator is gone has no membership left to spend. A caller-less add can place only an anchoring role; `worker` and `planner` still need a spawn-capable member. Every structural refusal leads with an error-code constant from `codeterm-types::team::staffing` and is logged with the Team, the requested role, and the cause — `team_orchestrator_already_live`, `team_member_role_unknown`, `team_role_requires_spawner`, `team_caller_unauthorized`, `team_caller_cannot_spawn`, `team_workspace_unresolved`. A structural refusal is never surfaced as a retry prompt.
+
 ### Close Team (POST /api/teams/{team_id}/close)
 
 Explicitly closes every Team member through the Team cascade path, removes the Team registry entry, archives and detaches every bound plan, retires each plan owner into owner history, clears its owner/planner routing authority, and emits one committed `mux-state-changed`. This is the only user operation that removes a Team. Ordinary tab closes retain the Team record; the single automatic exception is a pair-minted startup lease, whose forming, empty, fully owned Team is reaped once its two reserved launch attempts are gone. The `X-CodeTerm-Tab-Id` header is required and must identify the Team's Orchestrator or planner-profile Manager. Missing header returns `400`, unauthorized or foreign callers return `403`, and an unknown or already closed Team returns structured `404`.
@@ -157,11 +165,15 @@ The hierarchy (Orchestrator -> Worker) is a logical chain, not nested layouts. E
   "model": "sonnet",           // optional; must match the provider's advertised model list when one exists
   "args": ["--verbose"],       // extra agent args
   "workspace_id": "b4e2c8d1", // optional, defaults to active workspace
+  "plan_id": "pl_a9zejn",      // plan a Planner binds, or a verification Worker runs under
+  "plan_task": "task_8n7m9o",  // task a Worker binds; omitted by a verification Worker
+  "execution_intent": "read_only", // read_only | mutating; mutating requires a task binding
+  "authorized_gates": ["./build.sh verify"], // exact commands a task-less Worker may claim
   "audience": "automation"     // optional: suppress user bells for bench/probe tabs
 }
 ```
 
-All fields are optional. `agent` defaults to `"claude"`. Permission behavior comes only from the global `agent.full_access` setting; spawn callers cannot override it. If the user has not made the first choice yet, the spawn is rejected before tab creation with an instruction to choose access in CodeTerm. `audience` controls user notifications only. When `model` is provided and the provider advertises models, unknown ids are rejected before tab creation; run `codeterm agent models <provider>` for valid ids. Reasoning effort is capability-validated before launch, and response provenance separates host-owned `planned` plan-task intent from client `requested`, provider `resolved`, and exact-session `actual`; ordinary spawn payloads cannot set `planned`. When `task` is provided, it is passed through the provider's declared launch delivery. When `agent_name` is provided, it maps to the provider's named-agent launch option when supported. The CLI flag `codeterm agent spawn --non-user-facing` sends `audience=automation`.
+All fields are optional. `agent` defaults to `"claude"`. Permission behavior comes only from the global `agent.full_access` setting; spawn callers cannot override it. If the user has not made the first choice yet, the spawn is rejected before tab creation with an instruction to choose access in CodeTerm. `audience` controls user notifications only. When `model` is provided and the provider advertises models, unknown ids are rejected before tab creation; run `codeterm agent models <provider>` for valid ids. Reasoning effort is capability-validated before launch, and response provenance separates host-owned `planned` plan-task intent from client `requested`, provider `resolved`, and exact-session `actual`; ordinary spawn payloads cannot set `planned`. When `task` is provided, it is passed through the provider's declared launch delivery. When `agent_name` is provided, it maps to the provider's named-agent launch option when supported. The CLI flag `codeterm agent spawn --non-user-facing` sends `audience=automation`. A `Worker` spawn needs no task binding when `execution_intent` is `read_only` — the canonical verification Worker: it owns no task, so it can report against none and transition none, and `authorized_gates` is its whole command scope, rendered into its brief. `execution_intent: "mutating"` without `plan_task`/`task_id` is refused, and `authorized_gates` is rejected alongside `plan_task` (a task-bound Worker declares gates on `plan.task.dispatch`, where they are enforced).
 
 **Response** (returned immediately, before agent is fully started):
 ```json
@@ -218,4 +230,8 @@ On error, individual commands return `{"error": "message", "method": "..."}` but
 | `can-spawn` | `tab_id` | `can_spawn` (default: true) |
 | `report` | `tab_id`, `message` | — |
 
-<!-- revision: 8 -->
+## Plan surface contracts
+
+Planner authority over task structure, partial `plan goal set`, lane persistence on dispatch, and recording an external executor: see `codeterm docs API-PLAN`.
+
+<!-- revision: 12 -->

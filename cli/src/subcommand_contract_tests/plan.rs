@@ -646,10 +646,38 @@ fn plan_goal_subcommands_parse() {
                 },
         } => {
             assert_eq!(plan_id, "pl_1");
-            assert_eq!(vector, "Ship foundation");
+            assert_eq!(vector.as_deref(), Some("Ship foundation"));
             assert_eq!(vision_file.as_deref(), Some("goal.md"));
             assert_eq!(constraint, vec!["backend only"]);
             assert_eq!(postulate, vec!["reread plan"]);
+        }
+        _ => panic!("expected plan goal set"),
+    }
+
+    // Every field is optional at the CLI: an omitted one is kept by the daemon,
+    // so a caller must be able to name exactly one.
+    let constraint_only = parse_plan_cli_result([
+        "codeterm",
+        "plan",
+        "goal",
+        "set",
+        "pl_1",
+        "--constraint",
+        "backend only",
+    ])
+    .expect("plan goal set parses with --constraint alone");
+    match constraint_only.command {
+        Commands::Plan {
+            action:
+                PlanAction::Goal {
+                    action:
+                        crate::args::plan::PlanGoalAction::Set {
+                            vector, constraint, ..
+                        },
+                },
+        } => {
+            assert!(vector.is_none(), "--vector must be optional");
+            assert_eq!(constraint, vec!["backend only"]);
         }
         _ => panic!("expected plan goal set"),
     }

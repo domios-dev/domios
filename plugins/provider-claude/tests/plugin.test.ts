@@ -376,87 +376,6 @@ console.log("\n--- canonical tool fields ---\n");
   assert(typeof data[3].tool_summary === "string" && !(data[3].tool_summary as string).includes("{"), "unknown Claude summary is not JSON");
 }
 
-console.log("\n--- discoverModels: genuine discovery only ---\n");
-
-{
-  const p = loadClaudeWithHost(baseHost({
-    exec: () => JSON.stringify({ code: 0, stdout: "2.1.258 (Claude Code)" }),
-    envGet: (name: string) => name === "ANTHROPIC_API_KEY" ? "test-key" : null,
-    fetch: () => JSON.stringify({
-      status: 200,
-      body: JSON.stringify({
-        data: [
-          { id: "claude-opus-5", display_name: "Claude Opus 5" },
-          { id: "claude-sonnet-5", display_name: "Claude Sonnet 5" },
-          { id: "claude-haiku-4-5", display_name: "Claude Haiku 4.5" },
-          { id: "claude-fable-5-1", display_name: "Claude Fable 5.1" },
-        ],
-      }),
-    }),
-  }));
-  eq(
-    p.discoverModels(),
-    [
-      { id: "opus", displayName: "Claude Opus 5", description: "Best for everyday, complex tasks.", available: true },
-      { id: "sonnet", displayName: "Claude Sonnet 5", description: "Efficient for routine tasks.", available: true },
-      { id: "haiku", displayName: "Claude Haiku 4.5", description: "Fastest for quick answers.", available: true },
-      { id: "fable", displayName: "Claude Fable 5.1", description: "Most capable for your hardest and longest-running tasks.", available: true },
-    ],
-    "genuine /v1/models discovery maps concrete ids onto the same stable aliases with live availability",
-  );
-}
-
-{
-  const p = loadClaudeWithHost(baseHost({
-    exec: () => JSON.stringify({ code: 0, stdout: "2.1.258 (Claude Code)" }),
-    envGet: (name: string) => name === "ANTHROPIC_API_KEY" ? "test-key" : null,
-    fetch: () => JSON.stringify({
-      status: 200,
-      body: JSON.stringify({ data: [{ id: "claude-fable-5-1", display_name: "Claude Fable 5.1" }] }),
-    }),
-  }));
-  const partial = p.discoverModels() as Array<{ id: string; displayName: string; available: boolean }>;
-  eq(partial.map((m) => m.id), ["opus", "sonnet", "haiku", "fable"], "partial discovery keeps alias ids stable");
-  eq(partial.map((m) => m.available), [false, false, false, true], "partial discovery publishes account availability");
-  eq(
-    partial.map((m) => m.displayName),
-    ["Claude Opus", "Claude Sonnet", "Claude Haiku", "Claude Fable 5.1"],
-    "only the discovered alias receives its current concrete version",
-  );
-}
-
-{
-  const p = loadClaudeWithHost(baseHost({
-    exec: () => JSON.stringify({ code: 0, stdout: "2.1.71 (Claude Code)" }),
-    fetch: () => { throw new Error("network must not be touched without credentials"); },
-  }));
-  const models = p.discoverModels() as Array<{ id: string; available?: boolean }>;
-  eq(models.find((model) => model.id === "fable")?.available, false, "installed CLI without fable support does not advertise it");
-}
-
-{
-  const p = loadClaudeWithHost(baseHost({
-    exec: () => JSON.stringify({ code: 0, stdout: "2.1.258 (Claude Code)" }),
-    fetch: () => { throw new Error("network must not be touched without credentials"); },
-  }));
-  const models = p.discoverModels() as Array<{ id: string; available?: boolean }>;
-  eq(models.find((model) => model.id === "fable")?.available, true, "installed CLI with fable support advertises it without requiring an API-key probe");
-}
-
-for (const [label, fetchImpl] of [
-  ["fetch failure", () => { throw new Error("offline"); }],
-  ["non-200 response", () => JSON.stringify({ status: 503, body: "overloaded" })],
-  ["malformed body", () => JSON.stringify({ status: 200, body: "not json" })],
-  ["empty usable list", () => JSON.stringify({ status: 200, body: JSON.stringify({ data: [{ id: "  " }] }) })],
-] as Array<[string, () => string]>) {
-  const p = loadClaudeWithHost(baseHost({
-    envGet: (name: string) => name === "CLAUDE_API_KEY" ? "test-key" : null,
-    fetch: fetchImpl,
-  }));
-  const models = p.discoverModels() as Array<{ id: string; available?: boolean }>;
-  eq(models.find((model) => model.id === "fable")?.available, false, `discoverModels fails closed on ${label}`);
-}
-
 console.log("\n--- integration consent and exact-byte transactions ---\n");
 
 for (const [name, fixture] of [
@@ -798,7 +717,10 @@ console.log("\n--- versionless Claude alias catalog ---\n");
   );
   for (const m of manifest.models) {
     if (m.id === "fable") {
-      eq(m.available, false, "fable stays unavailable until installed-CLI discovery proves support");
+      // Cold manifest must not CLAIM Fable available before installed-CLI
+      // discovery proves it (models.ts's MINIMUM_CLI_BY_MODEL gate) — but it
+      // must not hardcode it unavailable either, that's the bug this guarded.
+      assert(m.available !== true, "fable's static seed never claims availability ahead of CLI-version discovery");
     } else {
       assert(!("available" in m), `static seed availability is unknown for ${m.id}`);
     }

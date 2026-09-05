@@ -1,6 +1,7 @@
 //! Agent hierarchy: roles, reports, status queries.
 
-mod plan_reminder_nudge;
+mod gate_delivery;
+pub(crate) mod plan_reminder_nudge;
 mod planner_binding;
 mod planner_delivery;
 #[cfg(test)]
@@ -18,12 +19,12 @@ pub(crate) use report_plan_ctx::{resolve_plan_ctx, verify_planner_report_authori
 pub use status::TabStatusInfo;
 pub(crate) use team_plan_creation::{TeamPlanCaller, TeamPlanCreationError};
 
-use planner_delivery::{
-    epoch_ms, planner_rehydrate_payload, planner_request_payload, planner_specs_for_plan,
-};
+use planner_delivery::{epoch_ms, planner_rehydrate_payload, planner_request_payload};
 use report_persistence::{persist_authorized_local_task_report, rejected_report_delivery_message};
 
-use super::{RejectedTaskTransition, ReportResult, ServiceContext, ServiceState};
+use super::{
+    RejectedTaskTransition, ReportResult, ReportSubmissionError, ServiceContext, ServiceState,
+};
 use crate::agent::ledger::LedgerRow;
 use crate::agent::reports::{ReportDetails, ReportModelIdentity, ReportStatus};
 use crate::plan::AgentRef;
@@ -166,10 +167,7 @@ impl ServiceContext {
             let Some(rebound_plan) = self.plan_store.get(&plan.id) else {
                 continue;
             };
-            let rehydrate = planner_rehydrate_payload(
-                &rebound_plan,
-                planner_specs_for_plan(&self.plan_store, &rebound_plan),
-            );
+            let rehydrate = planner_rehydrate_payload(&rebound_plan);
             let rehydrate_id = format!("planner-rehydrate-{}-{}", plan.id, binding.session_id);
             if self
                 .deliver_to_routable_planner(
@@ -272,29 +270,42 @@ impl ServiceContext {
         message_id: String,
     ) -> Result<(), String> {
         let plan = self.plan_store.get(plan_id).ok_or("plan not found")?;
+        let intended_target = match &plan.planner {
+            Some(crate::plan::PlannerRef::Tab { tab_id, .. }) => tab_id.as_str(),
+            _ => return Err("agent_unavailable: plan has no bound planner".into()),
+        };
         let matches_binding = matches!(
             &plan.planner,
             Some(crate::plan::PlannerRef::Tab { tab_id: bound, session_id: Some(session), .. })
                 if bound == tab_id && session == expected_session_id
         );
-        if !matches_binding
-            || !self
-                .tab_probe(tab_id)
-                .planner_routable_for(Some(expected_session_id))
-        {
-            return Err("agent_unavailable".into());
-        }
-        let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder(context);
-        crate::service::messenger::Messenger::deliver_planner_session(
-            self,
+        crate::service::orchestrator_digests::deliver_exact_role_target(
+            "planner",
+            plan_id,
+            intended_target,
             tab_id,
-            expected_session_id,
-            expected_binding_nonce,
-            envelope,
-            body,
-            message_id,
+            |target| {
+                if !matches_binding
+                    || !self
+                        .tab_probe(target)
+                        .planner_routable_for(Some(expected_session_id))
+                {
+                    return Err("agent_unavailable".into());
+                }
+                let envelope =
+                    crate::service::messenger::MessageEnvelope::codeterm_reminder(context);
+                crate::service::messenger::Messenger::deliver_planner_session(
+                    self,
+                    target,
+                    expected_session_id,
+                    expected_binding_nonce,
+                    envelope,
+                    body,
+                    message_id,
+                )
+                .map(|_| ())
+            },
         )
-        .map(|_| ())
     }
 
     pub(crate) fn acknowledge_planner_request(
@@ -396,7 +407,7 @@ impl ServiceContext {
         plan_id: Option<&str>,
         task_id: Option<&str>,
         milestone_kind: Option<&str>,
-    ) -> Result<ReportResult, String> {
+    ) -> Result<ReportResult, ReportSubmissionError> {
         let (task_status, mut task_transition_refusal) =
             match report_task_status_transition(details.status) {
                 Ok(status) => (status, None),
@@ -453,7 +464,7 @@ impl ServiceContext {
             let (from_title, target_opt) = match resolve_report_target(&mux, tab_id) {
                 Ok(resolved) => resolved,
                 Err(_) if eff_plan_id.is_some() => (tab_id.to_string(), None),
-                Err(e) => return Err(e),
+                Err(e) => return Err(e.into()),
             };
             let tab = mux.get_tab(tab_id);
             let model_identity = tab.map(|p| ReportModelIdentity {
@@ -552,6 +563,19 @@ impl ServiceContext {
         } else {
             false
         };
+
+        if let (Some(plan_id), Some(task_id)) = (eff_plan_id.as_deref(), eff_task_id.as_deref()) {
+            if !homed_to_remote && !foreign {
+                self.plan_store
+                    .validate_worker_gate_claim(
+                        plan_id,
+                        task_id,
+                        tab_id,
+                        details.test_cmd.as_deref(),
+                    )
+                    .map_err(ReportSubmissionError::from)?;
+            }
+        }
 
         if let Some(ref plan_id) = eff_plan_id {
             if !homed_to_remote && !foreign && rejected_task_transition.is_none() {
@@ -737,18 +761,8 @@ impl ServiceContext {
         let text = format!(
             "[task in_review] '{task_name}' ({task_id}) → in_review by {who}{intent_part}\nReview it, then judge done or bounce back."
         );
-        let text = crate::service::orchestrator_digests::prepend_orchestrator_heartbeat(
-            self,
-            plan_id,
-            Some(owner),
-            &text,
-        );
-        let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder("plan");
-        let _ = self.gateway_deliver(
-            owner,
-            envelope,
-            &text,
-            crate::service::message_gateway::DeliveryClass::SystemNotice,
+        let _ = crate::service::orchestrator_digests::deliver_orchestrator_notice_exact(
+            self, plan_id, owner, "plan", &text,
         );
     }
 
@@ -777,12 +791,6 @@ impl ServiceContext {
         let text = format!(
             "[gate answered: {gate_id}] Answer: {preview}\n\
              Unblocked tasks are now pending. Review with: codeterm plan state {plan_id}"
-        );
-        let text = crate::service::orchestrator_digests::prepend_orchestrator_heartbeat(
-            self,
-            plan_id,
-            Some(asker),
-            &text,
         );
         let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder("plan");
         let _ = self.gateway_deliver(

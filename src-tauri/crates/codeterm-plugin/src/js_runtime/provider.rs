@@ -913,16 +913,20 @@ impl AgentProvider for JsProvider {
             return None;
         }
         let now_ms = chrono::Utc::now().timestamp_millis();
-        Some(
-            match call_json::<Option<String>>(&self.vm, "fetchUsage", &[json!(now_ms)]) {
-                Ok(Some(raw)) => Ok(raw),
-                Ok(None) => Err("fetchUsage returned null".to_string()),
-                Err(e) => Err(format!(
-                    "[plugin {}] fetchUsage failed: {e}",
-                    self.manifest.id
-                )),
-            },
-        )
+        let denials_before = self.vm.capability_denial_count();
+        let outcome = match call_json::<Option<String>>(&self.vm, "fetchUsage", &[json!(now_ms)]) {
+            Ok(Some(raw)) => Ok(raw),
+            Ok(None) => Err("fetchUsage returned null".to_string()),
+            Err(e) => Err(format!(
+                "[plugin {}] fetchUsage failed: {e}",
+                self.manifest.id
+            )),
+        };
+        Some(crate::provider::attribute_capability_denial(
+            outcome,
+            denials_before,
+            self.vm.capability_denial_count(),
+        ))
     }
 
     fn model_switch_format(&self) -> Option<&str> {

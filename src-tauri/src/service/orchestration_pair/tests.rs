@@ -401,6 +401,60 @@ fn general_agent_is_not_misclassified_as_a_pair_creation_leaf() {
     assert!(is_pair_creation_leaf(mux.get_tab(&manager).unwrap()));
 }
 
+// ── codeterm#400: leaf pair-creation gate ───────────────────────
+
+#[test]
+fn leaf_without_declaration_is_refused_and_names_the_flag() {
+    let refusal =
+        pair_creation_refusal_for_leaf(true, false).expect("an undeclared leaf must be refused");
+    assert!(
+        refusal.contains("--acknowledge-leaf"),
+        "refusal must name what the caller can do: {refusal}"
+    );
+    assert!(refusal.contains("team pair"));
+}
+
+#[test]
+fn declared_leaf_and_every_non_leaf_are_never_refused() {
+    assert!(pair_creation_refusal_for_leaf(true, true).is_none());
+    assert!(pair_creation_refusal_for_leaf(false, false).is_none());
+    assert!(pair_creation_refusal_for_leaf(false, true).is_none());
+}
+
+#[test]
+fn leaf_caller_pair_creation_is_attributed_to_the_leaf_tab_itself() {
+    // A Manager/Worker tab that declares its intent must be the recorded
+    // creator — never an intermediary throwaway shell (the workaround #400
+    // reports today).
+    let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let workspace_id = mux.list_workspaces()[0].id.clone();
+    let leaf_tab_id = mux.create_tab(&workspace_id).unwrap();
+    {
+        let tab = mux.get_tab_mut(&leaf_tab_id).unwrap();
+        tab.role = Some(crate::multiplexer::types::AgentRole::Worker);
+        tab.agent_type = Some("provider".into());
+    }
+    assert!(
+        is_pair_creation_leaf(mux.get_tab(&leaf_tab_id).unwrap()),
+        "test fixture must actually be a leaf"
+    );
+    assert!(crate::service::worker_ack::is_agent_spawner(
+        mux.get_tab(&leaf_tab_id).unwrap()
+    ));
+    assert!(
+        pair_creation_refusal_for_leaf(true, true).is_none(),
+        "a declared leaf must pass the gate"
+    );
+
+    let reserved =
+        reserve_pair_tabs(&mut mux, &workspace_id, None, &CorrectiveShape::default()).unwrap();
+    let lease = pair_startup_lease(&leaf_tab_id, &reserved).expect("a minted pair Team is leased");
+    assert_eq!(
+        lease.creator_tab_id, leaf_tab_id,
+        "the Team must record the CALLING leaf tab as creator, never an intermediary"
+    );
+}
+
 #[test]
 fn startup_supervision_applies_only_to_agent_spawners() {
     let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
@@ -464,4 +518,17 @@ fn general_agent_team_guard_transports_forward_the_claimed_tab_to_the_guarded_se
     assert_eq!(params.existing_tab_id.as_deref(), Some("tab_general"));
     assert_eq!(params.spawned_by_tab_id.as_deref(), Some("tab_caller"));
     assert_eq!(params.workspace_id.as_deref(), Some("ws_target_7"));
+}
+
+#[test]
+fn leaf_creation_acknowledged_defaults_false_for_every_existing_transport() {
+    // REST, socket and the Tauri command all deserialize this one struct, and
+    // none of them send the new field yet — a body without it must still gate
+    // a leaf caller, never silently opt it in.
+    let body = serde_json::json!({
+        "orchestrator_agent": "provider-alpha",
+        "planner_agent": "provider-beta",
+    });
+    let params: OrchestrationPairParams = serde_json::from_value(body).unwrap();
+    assert!(!params.leaf_creation_acknowledged);
 }

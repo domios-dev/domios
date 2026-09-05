@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::args::agent::ReportStatusArg;
+use crate::client::RpcClient;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReportGitMetadata {
@@ -21,9 +22,43 @@ pub fn worker_binding_resolved(has_plan_task: bool, has_plan: bool, has_task: bo
 }
 
 /// A Planner holds no task by design, so it is exempt from the task half of
-/// `worker_binding_resolved` — codeterm#371.
-pub fn role_owns_plan_without_task(role_env: Option<&str>) -> bool {
-    role_env == Some("Manager")
+/// `worker_binding_resolved` — codeterm#371. Resolved by querying the plan's
+/// own recorded Planner tab (durable, server-side, the same field
+/// `plan_doctor`'s `planner_unpaired` check reads) rather than sniffing the
+/// `CODETERM_ROLE` env var — that var is injected once at PTY launch and can
+/// be stale or absent for a tab whose Planner role was attached afterward,
+/// which let a live-bound Planner's report be refused anyway — codeterm#385.
+pub fn report_task_binding_resolved(
+    client: &mut dyn RpcClient,
+    plan_id: Option<&str>,
+    task_id: Option<&str>,
+    caller_tab_id: &str,
+) -> bool {
+    task_id.is_some() || caller_is_bound_plan_planner(client, plan_id, caller_tab_id)
+}
+
+fn caller_is_bound_plan_planner(
+    client: &mut dyn RpcClient,
+    plan_id: Option<&str>,
+    caller_tab_id: &str,
+) -> bool {
+    let Some(plan_id) = plan_id else {
+        return false;
+    };
+    client
+        .call_detailed("plan.get", Some(serde_json::json!({ "plan_id": plan_id })))
+        .ok()
+        .and_then(|plan| plan_planner_tab_id(&plan).map(str::to_string))
+        .is_some_and(|bound| bound == caller_tab_id)
+}
+
+/// Mirrors `plan_doctor`'s own `plan.get("planner")` read — the plan's bound
+/// Planner tab, or `None` when unset/waived.
+fn plan_planner_tab_id(plan: &serde_json::Value) -> Option<&str> {
+    plan.get("planner")
+        .filter(|value| !value.is_null())
+        .and_then(|value| value.get("tab_id"))
+        .and_then(serde_json::Value::as_str)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

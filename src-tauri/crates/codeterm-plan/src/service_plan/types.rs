@@ -8,6 +8,7 @@ use std::path::PathBuf;
 /// daemon fault so callers can branch on absence instead of parsing prose.
 pub const RPC_NOT_FOUND: i32 = -32001;
 pub const RPC_INTERNAL_ERROR: i32 = -32603;
+pub const RPC_UNAUTHORIZED_GATE_CLAIM: i32 = -32021;
 
 #[derive(Debug)]
 pub enum PlanError {
@@ -56,6 +57,8 @@ pub enum PlanError {
         max_rounds: u32,
     },
     ReviewOracleScopeExpansion,
+    /// A goal must always name its vector; a patch may not leave it empty.
+    GoalVectorRequired,
     ReviewOverrideIncomplete,
     ReviewNotInReview,
     /// The task itself resolved, but the exact single execution attempt a
@@ -109,6 +112,10 @@ pub enum PlanError {
     },
     InvalidPlanSkillSlug,
     InvalidExternalRef(String),
+    UnauthorizedGateClaim {
+        claimed: String,
+        authorized: Vec<String>,
+    },
     Io(String),
 }
 
@@ -255,6 +262,10 @@ impl fmt::Display for PlanError {
                 f,
                 "correction review cannot expand the fixed acceptance oracle without new reproducible release-impact evidence; record a P0 override to proceed"
             ),
+            PlanError::GoalVectorRequired => write!(
+                f,
+                "a plan goal must name its vector; pass --vector with the one sentence this plan steers by. Fields you do not pass are kept unchanged"
+            ),
             PlanError::ReviewOverrideIncomplete => write!(
                 f,
                 "review override requires non-empty owner, reason, and reproduction"
@@ -317,7 +328,7 @@ impl fmt::Display for PlanError {
                 existing_title,
             } => write!(
                 f,
-                "team {team_id} already owns active plan {existing_plan_id} «{existing_title}»; a team binds 1:1 to a plan. Create or use another Team for this effort (spawn a new team-bound orchestrator), or archive/complete {existing_plan_id} first."
+                "team {team_id} already owns active plan {existing_plan_id} «{existing_title}»; a team binds 1:1 to a plan. Create or use another Team for this effort (spawn a new team-bound orchestrator), or archive {existing_plan_id} first."
             ),
             PlanError::PlanAlreadyBoundToTeam { plan_id, team_id } => write!(
                 f,
@@ -337,6 +348,11 @@ impl fmt::Display for PlanError {
             PlanError::InvalidPlanSkillSlug => {
                 write!(f, "plan skill slug is empty after normalization")
             }
+            PlanError::UnauthorizedGateClaim { claimed, authorized } => write!(
+                f,
+                "worker report claims undeclared gate '{claimed}'; authorized gates: {}",
+                authorized.join(", ")
+            ),
             PlanError::Io(e) => write!(f, "io error: {e}"),
         }
     }
@@ -353,6 +369,7 @@ impl PlanError {
             | PlanError::GateNotFound
             | PlanError::GroupNotFound
             | PlanError::DependencyTaskNotFound { .. } => RPC_NOT_FOUND,
+            PlanError::UnauthorizedGateClaim { .. } => RPC_UNAUTHORIZED_GATE_CLAIM,
             _ => RPC_INTERNAL_ERROR,
         }
     }
@@ -440,6 +457,10 @@ impl PlanError {
             PlanError::ReviewOracleScopeExpansion => {
                 serde_json::json!({ "type": "review_oracle_scope_expansion" })
             }
+            PlanError::GoalVectorRequired => serde_json::json!({
+                "type": "goal_vector_required",
+                "remedy": { "flag": "--vector" }
+            }),
             PlanError::ReviewOverrideIncomplete => {
                 serde_json::json!({ "type": "review_override_incomplete" })
             }
@@ -529,6 +550,14 @@ impl PlanError {
             PlanError::InvalidPlanSkillSlug => {
                 serde_json::json!({ "type": "invalid_plan_skill_slug" })
             }
+            PlanError::UnauthorizedGateClaim {
+                claimed,
+                authorized,
+            } => serde_json::json!({
+                "type": "unauthorized_gate_claim",
+                "claimed": claimed,
+                "authorized_gates": authorized
+            }),
             PlanError::InvalidExternalRef(message) => serde_json::json!({
                 "type": "invalid_external_ref",
                 "message": message,

@@ -1,6 +1,8 @@
+use super::workspace_admission::{admit_dispatch_workspace, DISPATCH_WORKSPACE_CLOSING_CODE};
 use super::{
-    apply_dispatch_starting_contract, await_agent_ready, build_brief, build_brief_with_personality,
-    checkout_required, complete_dispatch_transaction, dispatch_ready_event,
+    apply_dispatch_starting_contract, await_agent_ready, build_brief, build_brief_with_manifest,
+    build_brief_with_personality, checkout_required, cleanup_succeeded,
+    complete_dispatch_transaction, dispatch_authorized_gates, dispatch_ready_event,
     dispatch_startup_failed_event, dispatch_worker_identity, lane_metadata_for_dispatch,
     preflight_dispatch_task_status, preflight_review_capacity, regression_blocked_error,
     resolve_dispatch_lane, resolve_dispatch_routing, rollback_failed_dispatch,
@@ -31,6 +33,7 @@ use std::time::{Duration, Instant};
 mod brief_tests;
 mod checkout_occupancy;
 mod dispatch_placement;
+mod lane_persist;
 mod lane_resolution_multirepo;
 mod lane_safety;
 mod qa_pass;
@@ -65,6 +68,18 @@ fn dispatch_effort_becomes_host_owned_plan_intent() {
     let (planned, requested) = super::dispatch_reasoning_effort(Some(&params));
     assert_eq!(planned.as_deref(), Some("high"));
     assert_eq!(requested.as_deref(), Some("high"));
+}
+
+#[test]
+fn dispatch_gate_tokens_are_preserved_as_opaque_values() {
+    let params = json!({
+        "authorized_gates": ["gate-token-alpha", "gate-token-beta"]
+    });
+    assert_eq!(
+        dispatch_authorized_gates(Some(&params)).unwrap(),
+        vec!["gate-token-alpha", "gate-token-beta"]
+    );
+    assert!(dispatch_authorized_gates(None).unwrap().is_empty());
 }
 
 #[test]
@@ -361,6 +376,7 @@ fn dispatch_response_never_claims_ready_before_event() {
             session_id: "session-worker".into(),
             lane: Some(provenance()),
         },
+        "/canonical/project",
         &[],
     );
     assert_eq!(event["kind"], "dispatch_ready");
@@ -401,6 +417,7 @@ fn one_dispatch_creates_exactly_one_tab() {
             &tab_id,
             "attempt",
             &evidence,
+            "/canonical/project",
             &[],
         ))
         .unwrap();
@@ -475,7 +492,11 @@ fn explicit_canonical_cwd_is_an_orchestrator_checkout_choice() {
         std::fs::canonicalize(&resolved.spawn_cwd).unwrap(),
         std::fs::canonicalize(&project).unwrap()
     );
-    let lane = lane_metadata_for_dispatch(&TaskLaneMetadata::default(), &provenance);
+    let lane = lane_metadata_for_dispatch(
+        &TaskLaneMetadata::default(),
+        &provenance,
+        project.to_str().unwrap(),
+    );
     assert!(lane.worktree_path.is_none());
     assert!(lane.branch.is_none());
     assert!(lane.base.is_none());
@@ -492,7 +513,11 @@ fn lane_bootstrap_record_survives_isolated_dispatch_and_clears_on_canonical() {
     };
 
     let lane = provision_lane_for_test(project.to_str().unwrap(), "bootstrap-record").unwrap();
-    let isolated = lane_metadata_for_dispatch(&original, &lane.verify().unwrap());
+    let isolated = lane_metadata_for_dispatch(
+        &original,
+        &lane.verify().unwrap(),
+        project.to_str().unwrap(),
+    );
     assert_eq!(isolated.bootstrap_links, original.bootstrap_links);
     assert_eq!(isolated.bootstrap_warnings, original.bootstrap_warnings);
     lane.cleanup().unwrap();
@@ -507,7 +532,7 @@ fn lane_bootstrap_record_survives_isolated_dispatch_and_clears_on_canonical() {
     .unwrap()
     .existing
     .expect("canonical provenance");
-    let shared = lane_metadata_for_dispatch(&original, &canonical);
+    let shared = lane_metadata_for_dispatch(&original, &canonical, project.to_str().unwrap());
     assert!(shared.bootstrap_links.is_empty());
     assert!(shared.bootstrap_warnings.is_empty());
 }
@@ -813,6 +838,78 @@ fn definitive_dispatch_failure_keeps_truthful_cleanup_result() {
     assert!(event.get("tab_state").is_none());
 }
 
+#[test]
+fn workspace_close_only_cleanup_failure_is_satisfied() {
+    let close_only = dispatch_startup_failed_event(
+        "plan",
+        "task",
+        "tab",
+        "attempt",
+        "compensation",
+        "Tab close failed: Workspace is closing: workspace",
+        DispatchFailureDisposition::Cleanup {
+            ok: cleanup_succeeded(
+                "compensation",
+                "Tab close failed: Workspace is closing: workspace",
+            ),
+        },
+    );
+    assert_eq!(close_only["cleanup"]["ok"], true);
+
+    let mixed_failure = dispatch_startup_failed_event(
+        "plan",
+        "task",
+        "tab",
+        "attempt",
+        "compensation",
+        "Tab close failed: Workspace is closing: workspace; lane cleanup failed: disk",
+        DispatchFailureDisposition::Cleanup {
+            ok: cleanup_succeeded(
+                "compensation",
+                "Tab close failed: Workspace is closing: workspace; lane cleanup failed: disk",
+            ),
+        },
+    );
+    assert_eq!(mixed_failure["cleanup"]["ok"], false);
+}
+
+#[test]
+fn closing_workspace_admission_refuses_before_spawn_seam() {
+    let (mut mux, _) = MultiplexerState::new();
+    let workspace_id = mux.list_workspaces()[0].id.clone();
+    let _reservation = mux.reserve_workspace_close(&workspace_id).unwrap();
+    let spawned = Cell::new(false);
+
+    let result = admit_dispatch_workspace(&workspace_id, |id| {
+        mux.ensure_workspace_membership_mutable(id)
+    });
+    if result.is_ok() {
+        spawned.set(true);
+    }
+    let error = result.unwrap_err();
+
+    assert_eq!(error.code, DISPATCH_WORKSPACE_CLOSING_CODE);
+    assert_eq!(error.data.unwrap()["type"], "dispatch_workspace_closing");
+    assert!(!spawned.get());
+}
+
+#[test]
+fn healthy_workspace_admission_reaches_spawn_seam() {
+    let (mux, _) = MultiplexerState::new();
+    let workspace_id = mux.list_workspaces()[0].id.clone();
+    let spawned = Cell::new(false);
+
+    let result = admit_dispatch_workspace(&workspace_id, |id| {
+        mux.ensure_workspace_membership_mutable(id)
+    });
+    if result.is_ok() {
+        spawned.set(true);
+    }
+    result.unwrap();
+
+    assert!(spawned.get());
+}
+
 /// Companion to the two tests above: a dispatch that DEFINITIVELY failed
 /// (the worker explicitly signaled failure) must still roll back. Without
 /// this, "never roll back a possibly-live worker" would be satisfied by
@@ -935,6 +1032,7 @@ fn launch_delivery_failure_restores_exact_original_task_and_attempt_state() {
                     lane_metadata_for_dispatch(
                         &original.lane,
                         provenance.as_ref().expect("repository provenance"),
+                        project.to_str().unwrap(),
                     ),
                     4,
                 )

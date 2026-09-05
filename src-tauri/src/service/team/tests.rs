@@ -1,5 +1,7 @@
 use super::*;
 
+use super::staffing::{prepare_team_member_spawn, team_member_role};
+
 use crate::api::events::SystemEvent;
 
 fn isolated_plan_store() -> (tempfile::TempDir, crate::service::plan::PlanStore) {

@@ -61,7 +61,9 @@ sockets) inside individual benches that then drift across platforms.
 
 `evals/_lib/lib.sh` collects every cross-cutting helper:
 
-- `dev_env` — exports the four env vars to target dev (port, token, socket path)
+- `dev_resolve` (alias `dev_env`) — resolves the dev connection (port, token, socket path) into lib-private state; exports nothing
+- `dev_run <cmd...>` — runs one child process with the dev connection composed into *its* environment
+- `dev_auth_header` / `dev_data_dir` — the resolved values, for shell code that used to read an exported variable
 - `dev_pid` / `dev_alive` — find the dev process via `lsof` (Unix) or `netstat` (Win)
 - `dev_kill_hard` — `kill -9` (Unix) or `taskkill /F` (Win) → simulates Windows reboot / OOM
 - `dev_wait_ready` — polls `/api/health` until dev is up
@@ -82,7 +84,7 @@ commands are POSIX-portable; Windows-only branches are isolated to
 #!/usr/bin/env bash
 set -u
 source "$(git rev-parse --show-toplevel)/evals/_lib/lib.sh"
-dev_env || exit 1
+dev_resolve || exit 1
 dev_alive || { echo "start dev first"; exit 1; }
 
 # 1. set up the scenario
@@ -106,7 +108,10 @@ Three notes for new benches:
 
 1. **Always source the lib via `git rev-parse --show-toplevel`** so the
    bench works regardless of where it's invoked from.
-2. **Always `dev_env` first**. Otherwise commands fall through to prod (port 7685) — that's how Andrey lost workspaces during a previous test.
+2. **Always go through `dc` / `dev_get` / `dev_run`.** A bare `codeterm` falls
+   through to prod (port 7685) — that's how Andrey lost workspaces during a
+   previous test. Sourcing the lib deliberately leaves your shell's own
+   `CODETERM_*` alone, so the wrappers are what target dev, not the environment.
 3. **Snapshot labels go under `target-check/evals/`** — gitignored,
    per-machine artifacts. Pre/post must use distinct labels.
 

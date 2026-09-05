@@ -137,7 +137,7 @@ PY
 signed="$(dev_get /api/mesh/debug/sign)"
 SIGNED_TOKEN="$(printf '%s' "$signed" | python -c 'import json,sys; print(json.load(sys.stdin)["token"])')"
 
-python - "$CODETERM_API_TOKEN" "$SIGNED_TOKEN" "$FIXTURE_CWD" \
+python - "$(dev_token)" "$SIGNED_TOKEN" "$FIXTURE_CWD" \
   "$TAB_ID" "$HEARTBEAT_TAB_ID" "$TRANSCRIPT_PATH" \
   "$REPORT_MARKER_PATH" "$HEARTBEAT_MARKER_PATH" <<'PY'
 import concurrent.futures

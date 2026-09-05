@@ -795,6 +795,80 @@ dev_cli_path() {
   fi
 }
 
+# A dev PDB is overwritten by the very next link. The 2026-09-05 abort became
+# unsymbolizable nine minutes after it was written, so the symbol file for each
+# linked dev build is retained under <data dir>/pdb/<build sha>/ and the store is
+# pruned to the newest few. The copy keeps the name codeterm.pdb because Windows
+# symbol lookup finds a PDB by the name recorded in the binary's RSDS record — a
+# renamed file is never found, which is why the sha is the directory.
+DEV_PDB_KEEP_DEFAULT=3
+
+dev_pdb_store() {
+  printf '%s
+' "${CODETERM_DEV_PDB_DIR:-$CT_DATA_DIR/pdb}"
+}
+
+dev_pdb_source() {
+  printf '%s
+' "${CARGO_TARGET_DIR:-$(pwd -P)/src-tauri/target}/debug/codeterm.pdb"
+}
+
+prune_dev_pdb_store() {
+  local store keep stale dir
+  store="$(dev_pdb_store)"
+  [ -d "$store" ] || return 0
+  keep="${CODETERM_DEV_PDB_KEEP:-$DEV_PDB_KEEP_DEFAULT}"
+  stale="$(ls -1dt "$store"/*/ 2>/dev/null | tail -n +$((keep + 1)) || true)"
+  [ -n "$stale" ] || return 0
+  while IFS= read -r dir; do
+    [ -n "$dir" ] || continue
+    rm -rf "$dir"
+    echo "[symbols] pruned $(basename "$dir")"
+  done <<< "$stale"
+}
+
+# The symbol file's own debug identity, which is what the crash sidecar names.
+# A commit sha cannot be the key: the same source relinks to a different symbol
+# file every time, and a foreground retention runs after HEAD may have moved.
+dev_pdb_key() {
+  local src="$1" python_bin
+  python_bin="$(command -v python3 || command -v python || true)"
+  if [ -z "$python_bin" ]; then
+    return 1
+  fi
+  "$python_bin" scripts/pdb_identity.py "$src" 2>/dev/null
+}
+
+retain_dev_pdb() {
+  local sha="$1" src="${2:-$(dev_pdb_source)}" key="${3:-}" store dest
+  if [ ! -f "$src" ]; then
+    # Only the MSVC toolchain emits a PDB; elsewhere symbols live in the binary.
+    return 0
+  fi
+  if [ -z "$key" ]; then
+    key="$(dev_pdb_key "$src" || true)"
+  fi
+  if [ -z "$key" ]; then
+    echo "[symbols] no debug identity in $src; symbol file not retained" >&2
+    return 0
+  fi
+  store="$(dev_pdb_store)"
+  dest="$store/$key"
+  mkdir -p "$dest"
+  if [ ! -f "$dest/codeterm.pdb" ] || [ "$src" -nt "$dest/codeterm.pdb" ]; then
+    cp -f "$src" "$dest/codeterm.pdb.partial"
+    mv -f "$dest/codeterm.pdb.partial" "$dest/codeterm.pdb"
+    echo "[symbols] retained $key -> $dest/codeterm.pdb"
+  else
+    # Touch so an unchanged rerun still counts as the most recently used build.
+    touch "$dest"
+  fi
+  # The sha is informative only — which source the symbols came from, for a human.
+  printf '%s
+' "${sha:-unknown}" > "$dest/build-sha.txt"
+  prune_dev_pdb_store
+}
+
 dev_provenance_record() {
   printf '%s\n' "$CT_DATA_DIR/dev-build-provenance.json"
 }
@@ -1308,6 +1382,7 @@ CodeTerm build commands
 
   dev                         Start the visible shared dev instance
   dev-prebuilt                Restart a validated dev build without Cargo
+  retain-pdb <sha> [pdb] [key]  Keep a linked dev build's symbol file (last 3)
   check                       Fast Rust compile check
   frontend                    Production frontend typecheck + bundle
   release-inputs              Build target-aware frontend, CLI, and embed bundle inputs
@@ -1415,6 +1490,11 @@ EOF
         ;;
       *) echo "Unknown gateway policy probe: ${2:-}" >&2; exit 2 ;;
     esac
+    ;;
+  retain-pdb)
+    # ./build.sh retain-pdb <build-sha> [pdb-path] [key] — the seam the dev paths call
+    # and scripts/check-build-pdb-retention.sh drives against a fixture store.
+    retain_dev_pdb "${2:-}" "${3:-$(dev_pdb_source)}" "${4:-}"
     ;;
   check)
     enter_build_gateway "$CMD ${*:2}"
@@ -1784,6 +1864,7 @@ EOF
               continue
             fi
             write_dev_provenance "$SHA"
+            retain_dev_pdb "$SHA"
             echo "Dev ready: build ${SHA:0:8}, instance '${CT_INSTANCE:-default}', launcher pid $DEV_PID, listener pid $(dev_listener_pid)"
             # Named --wait startup never acquires the shared gateway, so it must
             # not claim its canonical lock after readiness.
@@ -1798,7 +1879,13 @@ EOF
         sleep 2
       done
     else
-      pnpm tauri dev --no-watch --config "$(dev_conf_path)"
+      # Retained after the session, not before it: only then is the PDB on disk
+      # the one tauri just linked and ran. Nothing relinks until the next dev, so
+      # a daemon that died leaves its symbols intact for this copy.
+      dev_status=0
+      pnpm tauri dev --no-watch --config "$(dev_conf_path)" || dev_status=$?
+      retain_dev_pdb "$(git rev-parse HEAD 2>/dev/null || true)"
+      exit "$dev_status"
     fi
     ;;
   e2e)

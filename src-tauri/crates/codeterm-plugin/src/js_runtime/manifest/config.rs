@@ -322,6 +322,25 @@ fn default_session_ext() -> String {
     "jsonl".to_string()
 }
 
+/// A credential file the HOST reads on the plugin's behalf. Declaring one
+/// REVOKES the plugin's own read access to that file, even inside a read root:
+/// public fields come back through `host.credentialPublic`, secret fields are
+/// only ever substituted into an outbound `host.fetch` header by the host.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct CredentialConfig {
+    /// Name the plugin uses to reference this credential.
+    pub id: String,
+    /// JSON file holding it. May start with `~/`.
+    pub file: String,
+    /// Non-secret fields the plugin may read: name -> dotted path in the file.
+    #[serde(default)]
+    pub public: std::collections::BTreeMap<String, String>,
+    /// Secret fields: name -> dotted path. Never returned to the plugin.
+    #[serde(default)]
+    pub secret: std::collections::BTreeMap<String, String>,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum CwdEncoding {

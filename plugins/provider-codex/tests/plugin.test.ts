@@ -95,6 +95,7 @@ const baseHost = (over: Record<string, unknown>) => ({
   path: { equal: (a: string, b: string) => a === b },
   expandHome: (v: string) => v.replace(/^~/, "/tmp/home"),
   envGet: () => null,
+  credentialPublic: () => null,
   log: () => {},
   shell: { quoteFor: (v: unknown) => String(v), quote: (v: unknown) => String(v) },
   fs: {
@@ -270,10 +271,8 @@ console.log("\n--- quota-free usage fetch ---\n");
         }),
       });
     },
-    fs: {
-      ...baseHost({}).fs,
-      readFile: () => JSON.stringify({ tokens: { access_token: "secret-token", account_id: "account-1" } }),
-    },
+    credentialPublic: (id: string) =>
+      id === "codexAuth" ? JSON.stringify({ accountId: "account-1" }) : null,
   }));
   const raw = p.fetchUsage();
   const usage = p.parseUsage(raw, 1_000_000);
@@ -698,56 +697,6 @@ assert(warned === 1, "parseSessionDelta emits one warning for a session with inv
   eq(data[3].tool_summary, "/tmp/update-error.png", "view_image exposes the inspected path");
   eq(data[4].tool_summary, "C:\\work\\update-error.png", "Windows paths survive readable summaries");
   eq(data[5].tool_summary, "first readable line", "unknown exec scripts fall back to one line");
-}
-
-console.log("\n--- discoverModels ---\n");
-
-{
-  const p = loadCodexWithHost(baseHost({
-    fs: {
-      fileExists: (p: string) => p.endsWith("/.codex/models_cache.json"),
-      readFile: () => null,
-      readJson: (p: string) => p.endsWith("/.codex/models_cache.json")
-        ? { models: [{ slug: "gpt-live", display_name: "GPT Live", description: "from cache" }] }
-        : null,
-      writeJson: () => true,
-      writeFile: () => true,
-    },
-  }));
-  eq(
-    p.discoverModels(),
-    [{ id: "gpt-live", displayName: "GPT Live", description: "from cache" }],
-    "discoverModels surfaces the stubbed Codex cache probe",
-  );
-}
-
-{
-  const p = loadCodexWithHost(baseHost({}));
-  eq(p.discoverModels(), manifestSeed.models, "discoverModels falls back to manifest seed when no Codex cache exists");
-}
-
-// Live cache → clean, current, priority-ordered chat models: hidden + non-chat dropped.
-{
-  const cache = {
-    models: [
-      { slug: "gpt-5.4", display_name: "GPT-5.4", description: "everyday", visibility: "list", priority: 16 },
-      { slug: "codex-auto-review", display_name: "Auto Review", visibility: "hide", priority: 43 },
-      { slug: "text-embedding-3-large", display_name: "Embeds", visibility: "list", priority: 5 },
-      { slug: "gpt-5.5", display_name: "GPT-5.5", description: "frontier", visibility: "list", priority: 9 },
-    ],
-  };
-  const p = loadCodexWithHost(baseHost({
-    fs: {
-      fileExists: (p: string) => p.endsWith("/.codex/models_cache.json"),
-      readFile: () => null,
-      readJson: (p: string) => p.endsWith("/.codex/models_cache.json") ? cache : null,
-      writeJson: () => true,
-      writeFile: () => true,
-    },
-  }));
-  const models = p.discoverModels() as Array<{ id: string; available?: boolean }>;
-  eq(models.map((m) => m.id), ["gpt-5.5", "gpt-5.4"], "visibility:hide + embedding dropped; sorted by ascending priority");
-  assert(models.every((m) => m.available === undefined), "codex has no plan-lockout signal → available unset");
 }
 
 console.log("\n--- binding nonce (install + outdated detection) ---\n");

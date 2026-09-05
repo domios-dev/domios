@@ -81,12 +81,12 @@ cleanup_lane() {
 cleanup() {
   set +e
   if [ -n "$TEAM_ID" ] && [ -n "$MANAGER_ID" ]; then
-    curl -s --max-time 30 -X POST -H "$CODETERM_DEV_AUTH_HEADER" \
+    curl -s --max-time 30 -X POST -H "$(dev_auth_header)" \
       -H "X-CodeTerm-Tab-Id: $MANAGER_ID" -H "Content-Type: application/json" \
       --data '{}' "http://127.0.0.1:7686/api/teams/$TEAM_ID/close" >/dev/null
   fi
   for tab in "${CREATED_TABS[@]:-}"; do
-    [ -z "$tab" ] || curl -s --max-time 15 -X POST -H "$CODETERM_DEV_AUTH_HEADER" \
+    [ -z "$tab" ] || curl -s --max-time 15 -X POST -H "$(dev_auth_header)" \
       -H "Content-Type: application/json" --data '{}' \
       "http://127.0.0.1:7686/api/tabs/$tab/close" >/dev/null || true
   done
@@ -122,7 +122,7 @@ plan_body="$(python -c 'import json,sys; print(json.dumps({
     "project_path": sys.argv[2],
     "owner": {"tab_id": sys.argv[3]},
 }))' "CODEX-TRUST-$$" "$ROOT" "$MANAGER_ID")"
-plan_json="$(curl -s --max-time 30 -X POST -H "$CODETERM_DEV_AUTH_HEADER" \
+plan_json="$(curl -s --max-time 30 -X POST -H "$(dev_auth_header)" \
   -H "Content-Type: application/json" --data "$plan_body" \
   http://127.0.0.1:7686/api/plans)"
 PLAN_ID="$(printf '%s' "$plan_json" | json_value plan_id)"
@@ -133,7 +133,7 @@ dispatch_worker() {
   body="$(python -c 'import json,sys; print(json.dumps({
       "provider": "codex", "role": "worker", "title": sys.argv[1]
   }))' "ct-trust-worker-$suffix")"
-  dispatch="$(curl -s --max-time 90 -X POST -H "$CODETERM_DEV_AUTH_HEADER" \
+  dispatch="$(curl -s --max-time 90 -X POST -H "$(dev_auth_header)" \
     -H "X-CodeTerm-Tab-Id: $MANAGER_ID" -H "Content-Type: application/json" \
     --data "$body" "http://127.0.0.1:7686/api/teams/$TEAM_ID/members")"
   tab="$(printf '%s' "$dispatch" | json_value tab_id)"

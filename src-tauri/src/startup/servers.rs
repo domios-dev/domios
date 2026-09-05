@@ -144,6 +144,7 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
             test_clock: test_clock.clone(),
             events: states.event_broadcaster.clone(),
             web_dist: resolve_web_dist(app.path().resource_dir().ok()),
+            snapshot_bound: api::snapshot_bound::SnapshotBound::new(),
         };
         let router = api::routes::create_router(api_state);
         app.manage(api::routes::LocalApiRouter(router.clone()));

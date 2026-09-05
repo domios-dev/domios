@@ -87,6 +87,9 @@ pub use startup::{spawn_telegram_bridge, start_telegram_bridge};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Never automatic: only an explicit `repair-user-path` argv reaches it.
+    startup::run_user_path_repair_if_invoked();
+
     // Forward CLI-shaped argv to the bundled CLI before Tauri/logging init, otherwise GUI single-instance silently swallows the args (issue #51).
     startup::forward_to_cli_if_invoked();
 

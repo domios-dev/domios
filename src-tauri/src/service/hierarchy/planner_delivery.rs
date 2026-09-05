@@ -4,6 +4,12 @@ pub(super) struct PlannerDeliveryBinding {
     pub(super) transport: crate::plan::PlannerDeliveryTransport,
 }
 
+pub(super) const PLANNER_REHYDRATE_MAX_BYTES: usize = 4096;
+pub(super) const PLANNER_REHYDRATE_HEADER: &str = "[planner rehydrate]\n";
+const PLANNER_REHYDRATE_GATE_LIMIT: usize = 10;
+const PLANNER_REHYDRATE_FIELD_BYTES: usize = 64;
+const PLANNER_REHYDRATE_QUESTION_BYTES: usize = 192;
+
 impl crate::service::ServiceContext {
     pub(crate) fn bind_planner_session(&self, tab_id: &str) {
         let binding = {
@@ -107,41 +113,72 @@ impl crate::service::ServiceContext {
     }
 }
 
-pub(super) fn planner_specs_for_plan(
-    store: &crate::service::plan::PlanStore,
-    plan: &crate::plan::Plan,
-) -> Vec<crate::plan::Spec> {
-    let mut ids = std::collections::BTreeSet::new();
-    ids.extend(plan.spec_refs.iter().cloned());
-    ids.extend(plan.spec_links.iter().map(|link| link.spec_id.clone()));
-    ids.extend(plan.primary_spec_id.iter().cloned());
-    let mut specs: Vec<_> = store
-        .list_specs_full()
-        .into_iter()
-        .filter(|spec| spec.plan_id.as_deref() == Some(plan.id.as_str()) || ids.contains(&spec.id))
-        .collect();
-    specs.sort_by(|left, right| left.id.cmp(&right.id));
-    specs
+pub(super) fn planner_rehydrate_payload(plan: &crate::plan::Plan) -> String {
+    let open = plan
+        .gates
+        .iter()
+        .filter(|gate| gate.is_open())
+        .collect::<Vec<_>>();
+    let mut out = format!(
+        "{PLANNER_REHYDRATE_HEADER}Plan {} has {} open decision gate(s):\n",
+        truncate_utf8(&plan.id, PLANNER_REHYDRATE_FIELD_BYTES),
+        open.len()
+    );
+    for gate in open.iter().take(PLANNER_REHYDRATE_GATE_LIMIT) {
+        let status = match gate.status {
+            crate::plan::GateStatus::Open => "open",
+            crate::plan::GateStatus::Escalated => "escalated",
+            crate::plan::GateStatus::Answered => "answered",
+        };
+        let answerer = gate_answerer(plan, gate).unwrap_or("unrouted");
+        let question = gate
+            .question
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        out.push_str(&format!(
+            "- {} [{status}] answerer: {}\n  Question: {}\n",
+            truncate_utf8(&gate.id, PLANNER_REHYDRATE_FIELD_BYTES),
+            truncate_utf8(answerer, PLANNER_REHYDRATE_FIELD_BYTES),
+            truncate_utf8(&question, PLANNER_REHYDRATE_QUESTION_BYTES),
+        ));
+    }
+    if open.len() > PLANNER_REHYDRATE_GATE_LIMIT {
+        out.push_str(&format!(
+            "- … {} more open gate(s) omitted from this bounded recovery summary.\n",
+            open.len() - PLANNER_REHYDRATE_GATE_LIMIT
+        ));
+    }
+    out.push_str(&format!(
+        "Full gate records: codeterm plan decision list {} --open",
+        truncate_utf8(&plan.id, PLANNER_REHYDRATE_FIELD_BYTES)
+    ));
+    debug_assert!(out.len() <= PLANNER_REHYDRATE_MAX_BYTES);
+    out
 }
 
-pub(super) fn planner_rehydrate_payload(
-    plan: &crate::plan::Plan,
-    specs: Vec<crate::plan::Spec>,
-) -> String {
-    let snapshot = serde_json::json!({
-        "plan_id": plan.id,
-        "owner": plan.owner,
-        "goal": plan.goal,
-        "specs": specs,
-        "sections": plan.sections,
-        "tasks": plan.tasks,
-        "strides": plan.strides,
-        "gates": plan.gates,
-        "inbox": plan.planner_inbox,
-        "recent_decisions": plan.gates,
-        "plan": plan,
-    });
-    format!("[planner rehydrate]\n{}", snapshot)
+fn gate_answerer<'a>(
+    plan: &'a crate::plan::Plan,
+    gate: &'a crate::plan::DecisionGate,
+) -> Option<&'a str> {
+    if let Some(owner) =
+        super::gate_delivery::planner_owner_for_gate(plan, gate.asked_by_tab_id.as_deref())
+    {
+        return Some(owner);
+    }
+    gate.routed_to_tab_id.as_deref()
+}
+
+fn truncate_utf8(value: &str, max_bytes: usize) -> String {
+    if value.len() <= max_bytes {
+        return value.to_string();
+    }
+    let suffix = "…";
+    let mut end = max_bytes.saturating_sub(suffix.len()).min(value.len());
+    while !value.is_char_boundary(end) {
+        end = end.saturating_sub(1);
+    }
+    format!("{}{suffix}", &value[..end])
 }
 
 pub(super) fn planner_request_payload(

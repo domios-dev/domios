@@ -32,28 +32,35 @@ export function ModelSuggestionPicker({
       ) : models.map((model, i) => {
         const selected = i === highlighted;
         const isDefault = defaultModel === model.id;
+        const unavailable = model.available === false;
         return (
           <button
             key={model.id}
             type="button"
+            disabled={unavailable}
             onMouseDown={(e) => e.preventDefault()}
             onMouseEnter={() => onHighlight(i)}
             onClick={() => onPick(model)}
             role="option"
             aria-selected={selected}
-            title={model.description ?? model.id}
+            aria-disabled={unavailable}
+            title={unavailable ? `${model.display_name} is not available yet` : (model.description ?? model.id)}
             className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-2 py-1.5 text-left text-xs"
             style={{
-              background: selected
+              background: selected && !unavailable
                 ? "color-mix(in srgb, var(--ct-accent, #58a6ff) 20%, transparent)"
                 : "transparent",
-              color: selected ? "var(--ct-fg, #c9d1d9)" : "var(--ct-muted-fg, #8b949e)",
+              color: selected && !unavailable ? "var(--ct-fg, #c9d1d9)" : "var(--ct-muted-fg, #8b949e)",
               border: "none",
-              cursor: "pointer",
+              cursor: unavailable ? "not-allowed" : "pointer",
+              opacity: unavailable ? 0.5 : 1,
             }}
           >
             <span className="min-w-0">
-              <span className="block truncate font-medium">{model.display_name}</span>
+              <span className="block truncate font-medium">
+                {model.display_name}
+                {unavailable ? " (unavailable)" : ""}
+              </span>
               <span className="block truncate font-mono opacity-65">{model.id}</span>
             </span>
             {isDefault && (

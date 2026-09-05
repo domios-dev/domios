@@ -386,7 +386,7 @@ send_marker_and_wait() {
   local out evidence wait_result
 
   refresh_slot_pre "$provider" "$idx" || true
-  wait_result=$(PYTHONIOENCODING=utf-8 python3 - "$tab_id" "$marker" "$prompt" "$RM_MATERIALIZE_TIMEOUT" 2>&1 <<'PY'
+  wait_result=$(PYTHONIOENCODING=utf-8 dev_run python3 - "$tab_id" "$marker" "$prompt" "$RM_MATERIALIZE_TIMEOUT" 2>&1 <<'PY'
 import json, os, queue, sys, threading, time, urllib.request, uuid
 
 tab_id, marker, prompt, timeout_text = sys.argv[1:]
@@ -572,7 +572,7 @@ send_all_markers() {
 }
 
 assert_post_chat_isolation() {
-  PYTHONIOENCODING=utf-8 python3 - "$SLOTS_TSV" <<'PY'
+  PYTHONIOENCODING=utf-8 dev_run python3 - "$SLOTS_TSV" <<'PY'
 import json, os, pathlib, re, sys, urllib.error, urllib.request
 slots_path = pathlib.Path(sys.argv[1])
 token = os.environ.get("CODETERM_API_TOKEN", "")

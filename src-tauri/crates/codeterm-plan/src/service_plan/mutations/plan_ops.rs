@@ -163,13 +163,6 @@ impl PlanStore {
         })
     }
 
-    pub fn set_goal(&self, plan_id: &str, goal: Goal, now_ms: u64) -> Result<(), PlanError> {
-        self.with_plan(plan_id, now_ms, |p| {
-            p.goal = Some(goal);
-            Ok(())
-        })
-    }
-
     pub fn link_plan(&self, plan_id: &str, to: &str, now_ms: u64) -> Result<(), PlanError> {
         self.with_plan(plan_id, now_ms, |p| {
             if !p.links.iter().any(|l| l == to) {
@@ -1161,9 +1154,13 @@ mod team_binding_tests {
     fn archiving_frees_the_team_for_a_new_plan() {
         let (dir, s) = store();
         let first = create(&s, &dir, "First", "team_alpha", 1).unwrap();
-        s.archive(&first.id, 2).unwrap();
+        assert!(matches!(
+            create(&s, &dir, "Second", "team_alpha", 2),
+            Err(PlanError::TeamAlreadyHasActivePlan { .. })
+        ));
+        s.archive(&first.id, 3).unwrap();
         // The 1:1 rule counts only ACTIVE plans — an archived one no longer blocks.
-        let second = create(&s, &dir, "Second", "team_alpha", 3).unwrap();
+        let second = create(&s, &dir, "Second", "team_alpha", 4).unwrap();
         assert_eq!(second.team_id.as_deref(), Some("team_alpha"));
         assert_ne!(first.id, second.id);
     }

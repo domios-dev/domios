@@ -442,7 +442,7 @@ pub enum PlanSkillAction {
 
 #[derive(Subcommand)]
 pub enum PlanGoalAction {
-    /// Set the plan's goal vector, vision, constraints, and postulates
+    /// Update the plan's goal; fields not passed keep their current value
     Set {
         plan_id: String,
         #[arg(
@@ -450,15 +450,27 @@ pub enum PlanGoalAction {
             help = "Optional trailing goal statement; stored as vision unless --vision/--vision-file is given"
         )]
         goal_text: Option<String>,
-        #[arg(long, allow_hyphen_values = true)]
-        vector: String,
+        #[arg(
+            long,
+            allow_hyphen_values = true,
+            help = "Goal vector; required the first time a goal is set. Every field you omit is kept"
+        )]
+        vector: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         vision: Option<String>,
         #[arg(long, value_name = "PATH")]
         vision_file: Option<String>,
-        #[arg(long, allow_hyphen_values = true)]
+        #[arg(
+            long,
+            allow_hyphen_values = true,
+            help = "Replaces the constraint list; repeatable. Omit to keep, pass an empty value to clear"
+        )]
         constraint: Vec<String>,
-        #[arg(long, allow_hyphen_values = true)]
+        #[arg(
+            long,
+            allow_hyphen_values = true,
+            help = "Replaces the postulate list; repeatable. Omit to keep, pass an empty value to clear"
+        )]
         postulate: Vec<String>,
     },
     /// Show the plan's north-star goal (vector, vision, constraints, postulates)
@@ -532,6 +544,14 @@ pub enum PlanGroupsAction {
         plan_id: String,
         #[arg(long)]
         groups: String,
+    },
+    /// Explicitly close a declared group's reflection window, even before
+    /// every task in it reaches `done`
+    Close {
+        plan_id: String,
+        key: String,
+        #[arg(long)]
+        note: String,
     },
 }
 

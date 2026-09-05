@@ -318,7 +318,12 @@ pub fn start_general_agent(
     if let Some(orphan) = displaced {
         svc.kill_ptys(&[orphan]);
     }
-    svc.set_and_lock_tab_agent_type(&tab_id, provider_name.to_string());
+    svc.set_and_lock_tab_agent_type_from(
+        &tab_id,
+        provider_name.to_string(),
+        crate::session::lifecycle::AgentTypeWriteOrigin::Spawn,
+        None,
+    );
     // writes go to the wrong one.
     svc.emit_state_changed();
     log::info!("[general-agent] PTY {} linked to Tab {}", pty_id, tab_id);

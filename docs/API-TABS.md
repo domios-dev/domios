@@ -139,7 +139,7 @@ Response: `{"ok": true, "changed": true}` when the persisted id changed, `{"ok":
 
 User-facing recovery is `codeterm tab rebind SESSION_ID --tab ID`. It binds the named existing provider session through the same validation as `SessionStart`, without restarting or interrupting the agent. The response names `found_session_id`, `requested_session_id`, and whether the binding changed. A missing session cannot evict a materialized session and returns a conflict naming both ids.
 
-`GET /api/tabs/{id}/session/binding-state` reads the tab-scoped fact the daemon already holds rather than inferring one: `healthy`, `deferred_pending`, `refused`, `unbound`, or `stale_pending`, with the current and requested session identities when known. `healthy` is the ordinary answer for almost every tab and carries no registry entry, so an absent entry alone never means trouble.
+`GET /api/tabs/{id}/session/binding-state` reads the tab-scoped fact the daemon already holds rather than inferring one: `healthy`, `deferred_pending`, `refused`, `unbound`, or `stale_pending`, with the current and requested session identities when known. `healthy` is the ordinary answer for almost every tab and carries no registry entry, so an absent entry alone never means trouble. Repair: `codeterm docs API-REPAIR`.
 
 #### Hook auth
 
@@ -236,4 +236,4 @@ The `connect`, `approve`, `reject`, and `disconnect` endpoints are high-level â€
 
 Memory item, graph, calibration, and worker endpoints: `codeterm docs API-MEMORY`.
 
-<!-- revision: 20 -->
+<!-- revision: 22 -->

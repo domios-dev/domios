@@ -58,6 +58,7 @@ mod store_watch;
 pub mod stride_context;
 pub mod stride_log;
 pub mod tag_model;
+mod task_attempt_gates;
 pub mod task_attempts;
 pub mod task_brief;
 mod task_dispatch;
@@ -88,6 +89,8 @@ mod heartbeat_tests;
 mod readback_tests;
 #[cfg(test)]
 mod reminder_tests;
+#[cfg(test)]
+mod review_gate_selection_tests;
 #[cfg(test)]
 mod subtask_close_tests;
 #[cfg(test)]
@@ -122,7 +125,7 @@ pub use task_dispatch::{
 };
 pub use types::{
     IndexEntry, NewTask, OpenSubtask, PlanError, PlanIncident, ReconcileFixResult, SpecIndexEntry,
-    TaskLaneUpdate, RPC_INTERNAL_ERROR, RPC_NOT_FOUND,
+    TaskLaneUpdate, RPC_INTERNAL_ERROR, RPC_NOT_FOUND, RPC_UNAUTHORIZED_GATE_CLAIM,
 };
 
 pub struct PlanStore {

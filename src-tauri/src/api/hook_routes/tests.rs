@@ -19,6 +19,26 @@ fn shared_mux() -> (MuxState, String) {
     (Arc::new(TimedRwLock::new("mux-test", state)), tab_id)
 }
 
+fn unverified_evidence(
+    session_id: &str,
+) -> crate::agent::provider_identity::ProviderIdentityEvidence {
+    crate::agent::provider_identity::ProviderIdentityEvidence {
+        cwd: Some("/tmp/project".into()),
+        session_id: Some(session_id.into()),
+        configured_nonce: None,
+        reported_nonce: None,
+    }
+}
+
+fn current_identity_evidence(
+    mux: &MuxState,
+    tab_id: &str,
+) -> crate::agent::provider_identity::ProviderIdentityEvidence {
+    crate::agent::provider_identity::ProviderIdentityEvidence::capture(
+        mux.read().get_tab(tab_id).unwrap(),
+    )
+}
+
 struct HookProvider {
     id: &'static str,
     sessions: HashSet<&'static str>,
@@ -82,7 +102,9 @@ impl AgentProvider for HookProvider {
 }
 
 mod permission_request_tests;
+mod rebind_provider_tests;
 mod roster_tests;
+mod session_identity_tests;
 
 fn registry(ids: &[&'static str]) -> AgentRegistry {
     registry_with_sessions(
@@ -94,6 +116,14 @@ fn registry(ids: &[&'static str]) -> AgentRegistry {
 
 fn registry_with_sessions(items: Vec<(&'static str, Vec<&'static str>)>) -> AgentRegistry {
     let registry = AgentRegistry::new();
+    register_hook_providers(&registry, items);
+    registry
+}
+
+fn register_hook_providers(
+    registry: &AgentRegistry,
+    items: Vec<(&'static str, Vec<&'static str>)>,
+) {
     for (id, sessions) in items {
         registry.register_provider(Box::new(HookProvider {
             id,
@@ -101,7 +131,6 @@ fn registry_with_sessions(items: Vec<(&'static str, Vec<&'static str>)>) -> Agen
             materialization_root: None,
         }));
     }
-    registry
 }
 
 #[test]
@@ -117,6 +146,7 @@ fn reported_session_rebinds_same_tab_for_new_conversation() {
             prev: None,
             changed: true,
             nonce_verified: false,
+            identity_evidence: unverified_evidence("sid-a"),
         }
     );
     {
@@ -134,12 +164,13 @@ fn reported_session_rebinds_same_tab_for_new_conversation() {
             prev: Some("sid-a".into()),
             changed: true,
             nonce_verified: false,
+            identity_evidence: unverified_evidence("sid-b"),
         }
     );
     {
         let g = mux.read();
         let tab = g.get_tab(&tab_id).unwrap();
-        assert_eq!(tab.agent_type.as_deref(), Some("codex"));
+        assert_eq!(tab.agent_type, None);
         assert_eq!(tab.agent_session_id.as_deref(), Some("sid-b"));
         assert_eq!(
             tab.agent_requested_model.as_deref(),
@@ -150,7 +181,7 @@ fn reported_session_rebinds_same_tab_for_new_conversation() {
             Some("model-resolved")
         );
         assert!(tab.agent_session_model.is_none());
-        assert!(tab.agent_type_locked);
+        assert!(!tab.agent_type_locked);
     }
 
     let unchanged =
@@ -161,6 +192,7 @@ fn reported_session_rebinds_same_tab_for_new_conversation() {
             prev: Some("sid-b".into()),
             changed: false,
             nonce_verified: false,
+            identity_evidence: unverified_evidence("sid-b"),
         }
     );
 }
@@ -185,25 +217,6 @@ fn reported_session_rejects_cross_tab_duplicate_claim() {
             .agent_session_id
             .as_deref(),
         None
-    );
-}
-
-#[test]
-fn reported_session_rejects_wrong_provider_for_locked_tab() {
-    let (mux, tab_id) = shared_mux();
-    mux.write().get_tab_mut(&tab_id).unwrap().cwd = Some("/tmp/project".into());
-    let registry = registry(&["claude", "codex"]);
-
-    bind_reported_session(&mux, &registry, &tab_id, "claude", "sid-a", None).unwrap();
-    let err = bind_reported_session(&mux, &registry, &tab_id, "codex", "sid-b", None).unwrap_err();
-    assert_eq!(err.0, StatusCode::CONFLICT);
-    assert_eq!(
-        mux.read()
-            .get_tab(&tab_id)
-            .unwrap()
-            .agent_session_id
-            .as_deref(),
-        Some("sid-a")
     );
 }
 
@@ -280,60 +293,6 @@ fn reported_session_rejects_sid_not_owned_by_provider() {
     let tab = g.get_tab(&tab_id).unwrap();
     assert_eq!(tab.agent_type.as_deref(), None);
     assert_eq!(tab.agent_session_id.as_deref(), None);
-}
-
-#[test]
-fn reported_session_binds_sid_owned_by_provider() {
-    let (mux, tab_id) = shared_mux();
-    mux.write().get_tab_mut(&tab_id).unwrap().cwd = Some("/tmp/project".into());
-    let registry = registry_with_sessions(vec![("claude", vec!["claude-real"])]);
-
-    bind_reported_session(
-        &mux,
-        &registry,
-        &tab_id,
-        "claude",
-        "claude-real",
-        Some("nonce-1"),
-    )
-    .unwrap();
-
-    let g = mux.read();
-    let tab = g.get_tab(&tab_id).unwrap();
-    assert_eq!(tab.agent_type.as_deref(), Some("claude"));
-    assert_eq!(tab.agent_session_id.as_deref(), Some("claude-real"));
-}
-
-#[test]
-fn fresh_launch_with_matching_nonce_accepts_unpersisted_session() {
-    let (mux, tab_id) = shared_mux();
-    {
-        let mut g = mux.write();
-        let tab = g.get_tab_mut(&tab_id).unwrap();
-        tab.cwd = Some("/tmp/project".into());
-        tab.session_binding_nonce = Some("launch-nonce".into());
-    }
-    // Provider knows of NO persisted session for this sid.
-    let registry = registry_with_sessions(vec![("claude", vec![])]);
-
-    let claim = bind_reported_session(
-        &mux,
-        &registry,
-        &tab_id,
-        "claude",
-        "fresh-unpersisted-sid",
-        Some("launch-nonce"),
-    )
-    .expect("fresh launch with matching nonce must be accepted");
-    assert!(claim.changed);
-
-    let g = mux.read();
-    let tab = g.get_tab(&tab_id).unwrap();
-    assert_eq!(tab.agent_type.as_deref(), Some("claude"));
-    assert_eq!(
-        tab.agent_session_id.as_deref(),
-        Some("fresh-unpersisted-sid")
-    );
 }
 
 #[test]
@@ -1053,95 +1012,6 @@ fn session_binding_deferral_refused_session_completes_on_materialization() {
             .as_deref(),
         Some("new")
     );
-}
-
-#[test]
-fn session_binding_deferral_guard_still_guards_hook_and_rebind() {
-    let (_temp, mux, tab_id, registry, _new_path) = materializing_binding_fixture();
-    let hook = bind_reported_session(
-        &mux,
-        &registry,
-        &tab_id,
-        "codex",
-        "new",
-        Some("launch-nonce"),
-    )
-    .unwrap_err();
-    let verb = crate::api::session_binding_routes::rebind_session_core(
-        &mux, &registry, &tab_id, "codex", "new",
-    )
-    .unwrap_err();
-    assert_eq!(hook.0, StatusCode::CONFLICT);
-    assert_eq!(verb.0, StatusCode::CONFLICT);
-    assert_eq!(
-        mux.read()
-            .get_tab(&tab_id)
-            .unwrap()
-            .agent_session_id
-            .as_deref(),
-        Some("old")
-    );
-}
-
-#[test]
-fn session_binding_deferral_loses_to_legitimate_binding() {
-    let (temp, mux, tab_id, registry, new_path) = materializing_binding_fixture();
-    let pending = Arc::new(
-        crate::service::session_binding_deferral::DeferredSessionBindingRegistry::default(),
-    );
-    let callback_pending = pending.clone();
-    let callback_mux = mux.clone();
-    let (tx, rx) = std::sync::mpsc::channel();
-    let binding = pending
-        .defer(
-            &tab_id,
-            "codex",
-            "new",
-            "old",
-            new_path.clone(),
-            Arc::new(move |tab, generation| {
-                let held = callback_pending.get(&tab, generation).unwrap();
-                let _ = tx.send(deferred_binding_still_applies(&callback_mux, &held));
-            }),
-        )
-        .unwrap();
-    std::fs::write(temp.path().join("legitimate.jsonl"), "{}").unwrap();
-    crate::api::session_binding_routes::rebind_session_core(
-        &mux,
-        &registry,
-        &tab_id,
-        "codex",
-        "legitimate",
-    )
-    .unwrap();
-    assert!(!deferred_binding_still_applies(&mux, &binding));
-    std::fs::write(new_path, "{}").unwrap();
-    assert!(!rx
-        .recv_timeout(Duration::from_secs(2))
-        .expect("materialization event"));
-    assert_eq!(
-        mux.read()
-            .get_tab(&tab_id)
-            .unwrap()
-            .agent_session_id
-            .as_deref(),
-        Some("legitimate")
-    );
-}
-
-#[test]
-fn session_binding_deferral_rebind_preserves_agent_process() {
-    let (_temp, mux, tab_id, registry, new_path) = materializing_binding_fixture();
-    std::fs::write(new_path, "{}").unwrap();
-    let pty_before = mux.read().get_tab(&tab_id).unwrap().pty_id.clone();
-    crate::api::session_binding_routes::rebind_session_core(
-        &mux, &registry, &tab_id, "codex", "new",
-    )
-    .unwrap();
-    let guard = mux.read();
-    let tab = guard.get_tab(&tab_id).unwrap();
-    assert_eq!(tab.pty_id, pty_before);
-    assert_eq!(tab.agent_session_id.as_deref(), Some("new"));
 }
 
 #[test]

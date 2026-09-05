@@ -213,7 +213,7 @@ jobs:
           printf '%s' "$release" | jq -e --arg manifest "$MANIFEST" \
             '.assets | any(.name == $manifest)' >/dev/null
           gh release download "$TAG" --repo "$MIRROR_REPO" \
-            --pattern "$MANIFEST" --dir "$RUNNER_TEMP/public-mirror"
+            --pattern "$MANIFEST" --dir "$RUNNER_TEMP/public-mirror" --clobber
           jq -e --arg ver "$VER" '
             (.version == $ver)
             and (.platforms["darwin-aarch64"].signature | type == "string" and length > 0)
