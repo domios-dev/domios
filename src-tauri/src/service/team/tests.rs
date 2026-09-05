@@ -1,6 +1,6 @@
 use super::*;
 
-use super::staffing::prepare_team_member_spawn;
+use super::staffing::{prepare_team_member_spawn, team_member_role};
 
 use crate::api::events::SystemEvent;
 
