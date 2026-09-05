@@ -241,13 +241,14 @@ mod tests {
             .iter()
             .filter(|m| m.id != "fable")
             .all(|m| m.available.is_none()));
-        assert_eq!(
+        assert_ne!(
             seed.models
                 .iter()
                 .find(|m| m.id == "fable")
                 .and_then(|m| m.available),
-            Some(false),
-            "the version-gated alias must fail closed until discovery confirms the CLI"
+            Some(true),
+            "the static seed must not claim the version-gated alias available ahead of discovery; \
+             failing closed is the dynamic CLI-version gate's job, not the seed's"
         );
     }
 

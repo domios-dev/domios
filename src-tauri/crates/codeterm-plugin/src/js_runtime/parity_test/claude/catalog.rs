@@ -41,14 +41,15 @@ fn claude_manifest_catalog_is_identical_for_native_and_js_without_credentials() 
             .all(|model| model.available.is_none()),
         "unversioned aliases keep unknown static availability"
     );
-    assert_eq!(
+    assert_ne!(
         native_seed
             .models
             .iter()
             .find(|model| model.id == "fable")
             .and_then(|model| model.available),
-        Some(false),
-        "the version-gated alias fails closed in both manifest-backed seeds"
+        Some(true),
+        "the version-gated alias's static seed must not claim availability ahead of discovery, \
+         in either manifest-backed seed; failing closed is the dynamic CLI-version gate's job"
     );
 
     let (native, js) = pair();
