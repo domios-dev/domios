@@ -172,6 +172,59 @@ Read from source, not yet exercised:
   store. `RESET_PEER_CONTEXT` (-> -1) covers the switch itself; nothing covers a
   later boot-changed resetting it to 0 mid-peer-session.
 
+## 4b. The peer-switch sequence, read and verified
+
+`WebPeerPicker.switchTo` (`src/components/WebPeerPicker/WebPeerPicker.tsx:166`)
+is the whole origin switch, in order:
+
+1. `invalidateWebRequestContext()`
+2. `codeterm-peer-switch-reset` -> `RESET_PEER_CONTEXT` (store generation -> -1)
+3. `setRelayTarget()` / `clearRelayTarget()`
+4. `invalidateWebRequestContext()`
+5. `resetWebEvents()`
+6. `codeterm-peer-switch-rebind` -> `refreshFromBackend()`
+
+Two things are missing from that list, and both are verifiable without a peer.
+
+**`resetOutputStream()` is dead code.** It has exactly one reference in the
+repository - its own definition at `src/lib/outputStream.ts:498`:
+
+```
+$ grep -rn "resetOutputStream" --include=*.ts --include=*.tsx .
+./src/lib/outputStream.ts:498:export function resetOutputStream(): void {
+```
+
+Its doc comment says *"Tear down (peer switch) - next subscription reconnects
+to the current host."* No peer switch calls it. So across an origin switch the
+multiplexed PTY output stream is never torn down: its connection to the
+previous origin stays open, and its `offsets` and `replayed` maps stay keyed by
+the previous origin's tab ids. `outputStreamUrl()` reads `relayTarget()` only
+when it (re)connects, and nothing makes it reconnect.
+
+**The replay cursor is not reset either.** `resetWebEvents()` clears the
+watchdog, the abort controller and `started`, but not the module-level
+`cursor`. `CURSOR_KEY` is a single unscoped sessionStorage key, while every
+relay key in `webApi.ts` is scoped by `selfHost()`.
+
+## 4c. Falsifiable predictions for the cross-peer run
+
+Written before the peer exists, so the peer rows decide rather than illustrate.
+If a prediction fails, the observation above is wrong and I say so.
+
+- **P1.** Each origin switch produces exactly one `boot-changed` overflow,
+  because the reconnect presents the previous origin's `<boot>:<seq>` to a
+  different daemon. Measure: `overflow_fired` and `bootChanges()` per switch.
+- **P2.** Terminal output does not follow the origin switch: the output stream
+  stays attached to the previous origin. Measure: whether output frames for
+  the new origin's tab ids ever arrive without an unrelated reconnect.
+- **P3.** Steady-state refetch cost per event is unchanged in shape but each
+  refetch is a `POST /api/mesh/relay-to` round trip rather than a loopback
+  GET. Measure: `mux_refetches` against wall time, peer vs local.
+
+P1 and P2 follow from 4b and need only an origin switch. P3 is the term that
+would make the local-vs-mesh answer "same cause, worse constant"; P1 and P2
+would make it "distinct causes", which is a boundary, not a second fix here.
+
 ## 5. What would settle it
 
 Peer-side provisioning is task_tvoxxb (Worker Tor on Mac-Air): dev on 7686

@@ -50,8 +50,18 @@ export interface Mirror {
   /** Resolves once no snapshot refetch is in flight - the store has applied
    *  everything it asked for. An event-count wait, not a delay. */
   settle: (deadlineMs: number) => Promise<void>;
-  /** Resolves once the SSE transport has answered with headers. */
-  awaitStreamOpen: (deadlineMs: number) => Promise<void>;
+  /** Resolves once the SSE transport has answered with headers. `minOpens`
+   *  is the connection count to wait past, so a caller can wait for the NEXT
+   *  connection rather than be satisfied by one that is already gone. */
+  awaitStreamOpen: (deadlineMs: number, minOpens?: number) => Promise<void>;
+  /** Connections the event stream has opened so far. */
+  streamOpens: () => number;
+  /** Replays WebPeerPicker.switchTo's sequence for an origin switch. The
+   *  picker is a React component, so the sequence is modelled here; its steps
+   *  and their order are read from WebPeerPicker.tsx and listed in FINDINGS
+   *  4b. It deliberately does NOT call resetOutputStream(), because the picker
+   *  does not either - that omission is what prediction P2 tests. */
+  switchOrigin: (peer: { id: string; name: string } | null) => void;
   stop: () => void;
 }
 
@@ -88,7 +98,9 @@ export async function startMirror(options: MirrorOptions): Promise<Mirror> {
 
   const webEvents = await import("../../src/lib/webEvents");
   const { reducer } = await import("../../src/store/multiplexer/reducer");
-  const { webJson } = await import("../../src/lib/webApi");
+  const {
+    webJson, setRelayTarget, clearRelayTarget, invalidateWebRequestContext,
+  } = await import("../../src/lib/webApi");
 
   const counters: MirrorCounters = {
     frames: 0, resyncFanout: 0, muxRefetches: 0, refetchErrors: 0,
@@ -193,15 +205,32 @@ export async function startMirror(options: MirrorOptions): Promise<Mirror> {
         waiters.add(waiter);
       });
     },
-    awaitStreamOpen(deadlineMs) {
-      if (env.gate.opens() > 0) return Promise.resolve();
+    switchOrigin(peer) {
+      invalidateWebRequestContext();
+      apply({ type: "RESET_PEER_CONTEXT" });
+      if (peer) setRelayTarget(peer.id, peer.name);
+      else clearRelayTarget();
+      invalidateWebRequestContext();
+      webEvents.resetWebEvents();
+      void refetch();
+    },
+    streamOpens: () => env.gate.opens(),
+    awaitStreamOpen(deadlineMs, minOpens = 1) {
+      if (env.gate.opens() >= minOpens) return Promise.resolve();
       return new Promise<void>((resolve, reject) => {
         const deadline = setTimeout(
-          () => reject(new Error(`deadline: event stream did not open within ${deadlineMs}ms ` +
-            `(${env.gate.attempts()} attempt(s))`)),
+          () => reject(new Error(
+            `deadline: event stream did not reach ${minOpens} open(s) within ` +
+            `${deadlineMs}ms (${env.gate.attempts()} attempt(s), ` +
+            `${env.gate.opens()} open(s))`,
+          )),
           deadlineMs,
         );
-        env.gate.onOpen(() => { clearTimeout(deadline); resolve(); });
+        env.gate.onOpen(() => {
+          if (env.gate.opens() < minOpens) return;
+          clearTimeout(deadline);
+          resolve();
+        });
       });
     },
     settle(deadlineMs) {
