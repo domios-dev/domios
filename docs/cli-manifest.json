@@ -734,7 +734,7 @@
               "value_name": "TEAM_ID",
               "possible_values": [],
               "default": null,
-              "help": "Attach this roleless agent to an existing Team, mirroring `tab new --team`. The calling tab (CODETERM_TAB_ID) must already belong to that Team. Rejected together with --role or --plan-task: a role- or plan-bound agent takes its Team from that binding, never from here",
+              "help": "Attach this roleless agent to an existing Team, mirroring `tab new --team`. The calling tab (CODETERM_TAB_ID) must already belong to that Team. Rejected together with --plan-task, and with every --role but Orchestrator: a plan-bound agent takes its Team from that binding. `--team <id> --role Orchestrator` is the recovery add for a Team whose Orchestrator is gone and carries no other spawn flag",
               "aliases": []
             },
             {
