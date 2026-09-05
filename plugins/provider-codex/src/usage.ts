@@ -4,9 +4,10 @@ interface CodexGauge {
 }
 
 interface UsageHost {
-  expandHome(path: string): string | null;
+  // Non-secret fields of a manifest-declared credential. The access token is
+  // never among them: the host stamps it into the request itself.
+  credentialPublic(id: string): string | null;
   fetch(opts: string): string;
-  fs: { readFile(path: string): string | null };
 }
 
 interface CodexRateWindow {
@@ -21,24 +22,23 @@ interface CodexRateLimit {
 }
 
 const CODEX_USAGE_KIND = "codeterm_usage_v1";
+const CODEX_AUTH_CREDENTIAL = "codexAuth";
 
 export function fetchCodexUsage(host: UsageHost): string | null {
-  const authPath = host.expandHome("~/.codex/auth.json");
-  if (!authPath) return null;
-  const auth = safeJson(host.fs.readFile(authPath));
-  const tokens = objectAt(auth, "tokens");
-  const accessToken = stringAt(tokens, "access_token");
-  const accountId = stringAt(tokens, "account_id");
-  if (!accessToken || !accountId) return null;
+  const accountId = stringAt(safeJson(host.credentialPublic(CODEX_AUTH_CREDENTIAL)), "accountId");
+  if (!accountId) return null;
 
   const response = safeJson(host.fetch(JSON.stringify({
     url: "https://chatgpt.com/backend-api/wham/usage",
     method: "GET",
     timeoutMs: 6000,
     headers: {
-      Authorization: `Bearer ${accessToken}`,
       "ChatGPT-Account-Id": accountId,
       "User-Agent": "codeterm-usage/1.7.8",
+    },
+    credential: {
+      id: CODEX_AUTH_CREDENTIAL,
+      headers: { Authorization: "Bearer {accessToken}" },
     },
   })));
   if (numberAt(response, "status") !== 200) return null;

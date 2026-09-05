@@ -168,11 +168,43 @@ console.log("\n--- parseUsage never manufactures a timeout: unknown carries no f
   // downstream states — exactly the kind of collapse a literal string
   // comparison across the two paths would hide.
   const missingAuth = fetchCodexUsage({
-    expandHome: () => null,
+    credentialPublic: () => null,
     fetch: () => "",
-    fs: { readFile: () => null },
   });
   assert(missingAuth === null, "fetchCodexUsage returns null (not a thrown timeout) when credentials are unavailable");
+}
+
+// The plugin never touches ~/.codex/auth.json: it names the credential and the
+// header shape, and the host fills the bearer in. A confined bundle therefore
+// cannot read the OAuth token even though it can read the codex home.
+{
+  let request: Record<string, unknown> | null = null;
+  const raw = fetchCodexUsage({
+    credentialPublic: (id: string) =>
+      id === "codexAuth" ? JSON.stringify({ accountId: "account-1" }) : null,
+    fetch: (opts: string) => {
+      request = JSON.parse(opts);
+      return JSON.stringify({
+        status: 200,
+        body: JSON.stringify({
+          rate_limit: {
+            primary_window: { used_percent: 17, limit_window_seconds: 18_000, reset_at: 1_780_000_000 },
+            secondary_window: { used_percent: 92, limit_window_seconds: 604_800, reset_at: 1_781_000_000 },
+          },
+        }),
+      });
+    },
+  });
+  const headers = (request?.headers ?? {}) as Record<string, string>;
+  const credential = request?.credential as { id?: string; headers?: Record<string, string> } | undefined;
+  assert(raw !== null, "a resolvable credential produces a usage payload");
+  assert(!("Authorization" in headers), "the plugin never composes an Authorization header itself");
+  assert(credential?.id === "codexAuth", "the plugin names the declared credential instead of reading it");
+  assert(
+    (credential?.headers?.Authorization ?? "").indexOf("{accessToken}") !== -1,
+    "the bearer stays an unfilled template on the plugin side",
+  );
+  assert(String(raw).indexOf("accessToken") === -1, "no credential material reaches the stored payload");
 }
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

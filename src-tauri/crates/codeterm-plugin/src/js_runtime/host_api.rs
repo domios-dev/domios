@@ -20,7 +20,7 @@ use std::sync::{Arc, OnceLock, Weak};
 use rquickjs::function::Func;
 use rquickjs::{CatchResultExt, Ctx};
 
-use super::manifest::PluginManifest;
+use super::manifest::{CredentialConfig, PluginManifest};
 use super::vm::VmError;
 use crate::host_traits::PluginHostCtx;
 
@@ -56,6 +56,15 @@ pub(super) struct PluginSandbox {
     /// Read-roots granted at runtime for tab cwds the HOST hands the plugin
     /// (bubble/glance ctx). Never fed from plugin-authored values (view args).
     granted_read_roots: parking_lot::Mutex<Vec<PathBuf>>,
+    /// Files inside a read root the plugin still may not read — every declared
+    /// credential file. Declaring a credential is what revokes direct access.
+    denied_reads: Vec<PathBuf>,
+    /// Credential files the host resolves on the plugin's behalf.
+    credentials: Vec<CredentialConfig>,
+    /// Monotonic count of sandbox denials (`can_read`/`can_env`). A caller
+    /// snapshots it around a plugin call to tell "this plugin lost a capability
+    /// it needs" apart from "the source itself failed".
+    denials: std::sync::atomic::AtomicU64,
     /// Plugin id — namespaces the per-plugin secret bucket, so `host.secret*` is isolated.
     plugin_id: String,
     /// `host.exec` binary allowlist (host_api v2). Empty unless declared.
@@ -85,6 +94,9 @@ impl PluginSandbox {
             read_roots: Vec::new(),
             write_roots: Vec::new(),
             granted_read_roots: parking_lot::Mutex::new(Vec::new()),
+            denied_reads: Vec::new(),
+            credentials: Vec::new(),
+            denials: std::sync::atomic::AtomicU64::new(0),
             plugin_id: String::new(),
             exec_allow: Vec::new(),
             net_allow: Vec::new(),
@@ -103,6 +115,9 @@ impl PluginSandbox {
             read_roots,
             write_roots,
             granted_read_roots: parking_lot::Mutex::new(Vec::new()),
+            denied_reads: Vec::new(),
+            credentials: Vec::new(),
+            denials: std::sync::atomic::AtomicU64::new(0),
             plugin_id: String::new(),
             exec_allow: Vec::new(),
             net_allow: Vec::new(),
@@ -140,8 +155,32 @@ impl PluginSandbox {
         self
     }
 
+    /// Declare the manifest's credential files: the host resolves them, and the
+    /// plugin loses `readFile` on those exact paths even inside a read root.
+    pub(super) fn with_credentials(mut self, credentials: &[CredentialConfig]) -> Self {
+        self.denied_reads = super::host_credentials::declared_files(credentials);
+        self.credentials = credentials.to_vec();
+        self
+    }
+
     pub(super) fn plugin_id(&self) -> &str {
         &self.plugin_id
+    }
+
+    /// How many sandbox capabilities this plugin has been denied so far. Read
+    /// before and after a plugin call: a rise means the call failed because the
+    /// plugin is confined, not because its data source is down.
+    pub(super) fn denial_count(&self) -> u64 {
+        self.denials.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub(super) fn record_denial(&self) {
+        self.denials
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub(super) fn credentials(&self) -> &[CredentialConfig] {
+        &self.credentials
     }
 
     /// May the plugin run `bin` via `host.exec`?
@@ -256,24 +295,55 @@ impl PluginSandbox {
         }
     }
 
-    fn can_read(&self, path: &str) -> bool {
-        self.unrestricted
-            || Self::path_under(&self.read_roots, path)
-            || Self::path_under(&self.granted_read_roots.lock(), path)
+    /// A declared credential file stays unreadable to the plugin even when a
+    /// read root covers its directory — the host reads it instead.
+    pub(super) fn is_denied_read(&self, path: &str) -> bool {
+        if self.denied_reads.is_empty() {
+            return false;
+        }
+        let target = std::fs::canonicalize(path).unwrap_or_else(|_| PathBuf::from(path));
+        self.denied_reads.iter().any(|denied| {
+            let denied = std::fs::canonicalize(denied).unwrap_or_else(|_| denied.clone());
+            denied == target
+        })
     }
 
-    fn can_write(&self, path: &str) -> bool {
-        self.unrestricted || Self::path_under(&self.write_roots, path)
+    pub(super) fn can_read(&self, path: &str) -> bool {
+        if self.is_denied_read(path) {
+            self.record_denial();
+            return false;
+        }
+        let allowed = self.unrestricted
+            || Self::path_under(&self.read_roots, path)
+            || Self::path_under(&self.granted_read_roots.lock(), path);
+        if !allowed {
+            self.record_denial();
+        }
+        allowed
+    }
+
+    pub(super) fn can_write(&self, path: &str) -> bool {
+        let allowed = self.unrestricted || Self::path_under(&self.write_roots, path);
+        if !allowed {
+            self.record_denial();
+        }
+        allowed
     }
 
     /// `envGet` policy: unrestricted plugins read anything; confined ones can't
     /// read secret-looking vars (token/key/secret/password/credential/session).
-    fn can_env(&self, name: &str) -> bool {
+    /// The heuristic is a substring match, so it cannot tell a host-set path
+    /// variable from a secret — `HOST_PROVIDED_ENV` names the non-secret ones
+    /// the host itself exports and is consulted first.
+    pub(super) fn can_env(&self, name: &str) -> bool {
         if self.unrestricted {
             return true;
         }
+        if HOST_PROVIDED_ENV.contains(&name) {
+            return true;
+        }
         let n = name.to_ascii_uppercase();
-        ![
+        let allowed = ![
             "TOKEN",
             "KEY",
             "SECRET",
@@ -284,9 +354,24 @@ impl PluginSandbox {
             "SESSION",
         ]
         .iter()
-        .any(|needle| n.contains(needle))
+        .any(|needle| n.contains(needle));
+        if !allowed {
+            self.record_denial();
+        }
+        allowed
     }
 }
+
+/// Environment variables the HOST sets for plugins and that carry no secret —
+/// filesystem paths and roots. Exact names only: a prefix rule would readmit
+/// `CODETERM_API_TOKEN`, which shares the `CODETERM_` prefix with all of these.
+/// Every entry here must be host-written and non-secret; a plugin-authored or
+/// user-authored variable does not belong on this list.
+pub(super) const HOST_PROVIDED_ENV: &[&str] = &[
+    "CODETERM_CODEX_SESSIONS_ROOT",
+    "CODETERM_CODEX_SESSION_INDEX_PATH",
+    "CODETERM_CODEX_THREAD_HISTORY_PATH",
+];
 
 /// Install the `host` global into a fresh QuickJS context. Called by
 /// `PluginVm::from_source` (and `reload`) before the plugin bundle
@@ -523,13 +608,20 @@ pub(super) fn install(
     });
 
     let sb = sandbox.clone();
+    bind!("credentialPublic", move |id: String| -> Option<String> {
+        super::host_credentials::public_json(sb.credentials(), &id)
+    });
+    let sb = sandbox.clone();
     bind!("fetch", move |opts_json: String| -> String {
         let host = super::host_net::host_of(&opts_json).unwrap_or_default();
         if !sb.can_reach(&host) {
             log::warn!("[plugin] denied fetch({host}) — not in network.allow");
             return serde_json::json!({ "error": format!("fetch denied: {host}") }).to_string();
         }
-        super::host_net::run(&opts_json)
+        match super::host_credentials::inject(sb.credentials(), &opts_json) {
+            Ok(prepared) => super::host_net::run(&prepared),
+            Err(e) => serde_json::json!({ "error": e }).to_string(),
+        }
     });
     let sb = sandbox.clone();
     bind!("fetchStream", move |opts_json: String| -> String {

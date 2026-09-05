@@ -214,3 +214,63 @@ pub fn install_integration_with_trust_grant(
         .integration_trust_grant_capability()
         .map(|capability| provider.grant_integration_trust(&capability.managed_keys)))
 }
+
+/// Marker prefix on a provider error meaning the plugin was denied a sandbox
+/// capability during the call — it is confined and missing something it needs,
+/// which is a different fact from "the upstream source failed". Callers match
+/// on this constant, never on the sentence after it.
+pub const CAPABILITY_DENIED_ERROR: &str = "capability_denied:";
+
+/// Re-attribute a plugin call's failure when the sandbox denied a capability
+/// while it ran. A confined provider that quietly returns nothing is the
+/// failure mode that leaves a usage gauge frozen with nothing to explain it;
+/// this is what gives that state a name the host can carry to the user.
+pub fn attribute_capability_denial(
+    outcome: Result<String, String>,
+    denials_before: u64,
+    denials_after: u64,
+) -> Result<String, String> {
+    match outcome {
+        Ok(raw) => Ok(raw),
+        Err(detail) if denials_after > denials_before => {
+            Err(format!("{CAPABILITY_DENIED_ERROR} {detail}"))
+        }
+        Err(detail) => Err(detail),
+    }
+}
+
+/// Whether a provider error carries the capability-denied marker.
+pub fn is_capability_denied(error: &str) -> bool {
+    error.starts_with(CAPABILITY_DENIED_ERROR)
+}
+
+#[cfg(test)]
+mod capability_denial_tests {
+    use super::*;
+
+    #[test]
+    fn a_failure_with_a_fresh_denial_is_reported_as_lost_capability() {
+        let out = attribute_capability_denial(Err("fetchUsage returned null".into()), 3, 4);
+        let err = out.expect_err("still a failure");
+        assert!(
+            is_capability_denied(&err),
+            "a confined plugin's dead call must name itself: {err}"
+        );
+    }
+
+    #[test]
+    fn a_failure_without_a_denial_keeps_its_own_cause() {
+        let out = attribute_capability_denial(Err("request timed out".into()), 3, 3);
+        let err = out.expect_err("still a failure");
+        assert!(
+            !is_capability_denied(&err),
+            "an upstream failure must not be blamed on confinement: {err}"
+        );
+    }
+
+    #[test]
+    fn a_success_is_never_rewritten_even_if_something_else_was_denied() {
+        let out = attribute_capability_denial(Ok("weekly 7%".into()), 0, 9);
+        assert_eq!(out.unwrap(), "weekly 7%");
+    }
+}

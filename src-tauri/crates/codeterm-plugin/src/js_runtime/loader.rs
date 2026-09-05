@@ -129,6 +129,11 @@ pub fn load_one(manifest_path: &Path) -> Result<JsProvider, String> {
 /// alone can't gate this: `CODETERM_DEV=1` forces every plugin to `ThirdParty`,
 /// so the dev-edited bundled plugins must stay unrestricted — hence the
 /// location check.)
+///
+/// A provider only gets the roots it DECLARES: a confined plugin whose manifest
+/// names no `sessions.rootDir` cannot reach its own provider home, which is how
+/// the codex usage panel went quiet for a day. Declared credential files are
+/// carved back out of those roots — the host reads them instead.
 fn compute_sandbox(
     trust: &crate::provider::ProviderTrust,
     bundle_dir: &Path,
@@ -148,20 +153,14 @@ fn compute_sandbox(
     let base = if dev || matches!(trust, ProviderTrust::System) || !is_user_dropin {
         PluginSandbox::unrestricted()
     } else {
-        let data_dir = codeterm_paths::data_dir().join(&manifest.id);
-        let mut read_roots = vec![
-            bundle_dir.to_path_buf(),
-            data_dir.clone(),
-            std::env::temp_dir(),
-        ];
-        if let Some(sessions) = manifest.sessions.as_ref() {
-            if let Some(root) = PluginManifest::expand_home(&sessions.root_dir) {
-                read_roots.push(root);
-            }
-        }
-        let write_roots = vec![bundle_dir.to_path_buf(), data_dir, std::env::temp_dir()];
+        let (read_roots, write_roots) = confined_roots(
+            manifest,
+            bundle_dir,
+            &codeterm_paths::data_dir().join(&manifest.id),
+        );
         PluginSandbox::restricted(read_roots, write_roots)
     };
+    let base = base.with_credentials(&manifest.credentials);
 
     let settings_json =
         crate::js_runtime::plugin_config::resolve_settings_json(bundle_dir, &manifest.id);
@@ -172,6 +171,33 @@ fn compute_sandbox(
     // onto every path, including unrestricted/dev.
     base.with_identity_and_perms(&manifest.id, &perms)
         .with_settings(settings_json)
+}
+
+/// The filesystem a confined plugin gets: its own bundle, its own data dir,
+/// temp — and the provider home it DECLARES. A provider that declares nothing
+/// cannot reach its own files, which is not a safe default but a silent one.
+/// Pure so the declared-root grant is provable without a real install layout.
+pub(crate) fn confined_roots(
+    manifest: &PluginManifest,
+    bundle_dir: &Path,
+    data_dir: &Path,
+) -> (Vec<PathBuf>, Vec<PathBuf>) {
+    let mut read_roots = vec![
+        bundle_dir.to_path_buf(),
+        data_dir.to_path_buf(),
+        std::env::temp_dir(),
+    ];
+    if let Some(sessions) = manifest.sessions.as_ref() {
+        if let Some(root) = PluginManifest::expand_home(&sessions.root_dir) {
+            read_roots.push(root);
+        }
+    }
+    let write_roots = vec![
+        bundle_dir.to_path_buf(),
+        data_dir.to_path_buf(),
+        std::env::temp_dir(),
+    ];
+    (read_roots, write_roots)
 }
 
 /// Gate a third-party drop-in against the host contract before it loads.
@@ -292,6 +318,110 @@ mod tests {
             std::fs::create_dir_all(parent).unwrap();
         }
         std::fs::write(path, contents).unwrap();
+    }
+
+    /// The real `plugins/provider-codex/plugin.json`, so this test fails if the
+    /// shipped manifest ever loses the declaration that keeps a confined codex
+    /// plugin able to reach its own home.
+    fn shipped_codex_manifest() -> PluginManifest {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../plugins/provider-codex/plugin.json");
+        PluginManifest::load(&path).expect("the shipped codex manifest parses")
+    }
+
+    /// The defect this whole change exists for: a confined codex plugin whose
+    /// manifest declared no root could not read `~/.codex`, its usage fetch
+    /// returned nothing, and the panel froze. The shipped manifest must keep
+    /// declaring that home, and must keep the credential inside it declared so
+    /// the host — not the plugin — is what reads the OAuth token.
+    #[test]
+    fn the_shipped_codex_manifest_declares_the_home_and_credential_it_needs() {
+        let manifest = shipped_codex_manifest();
+        let sessions = manifest
+            .sessions
+            .as_ref()
+            .expect("codex must declare the home its provider logic needs");
+        assert_eq!(sessions.root_dir, "~/.codex");
+        let credential = manifest
+            .credentials
+            .iter()
+            .find(|c| c.file == "~/.codex/auth.json")
+            .expect("the codex OAuth file must be host-read, not plugin-read");
+        assert!(
+            credential.secret.values().any(|p| p == "tokens.access_token"),
+            "the access token must be declared secret so it never enters the VM"
+        );
+        assert!(
+            !credential.public.values().any(|p| p == "tokens.access_token"),
+            "the access token must never be exposed as a public field"
+        );
+    }
+
+    /// The grant itself: a declared root is readable, everything outside every
+    /// root is not, and the declared credential stays unreadable even though it
+    /// sits inside the granted root.
+    #[test]
+    fn a_declared_root_is_granted_while_outside_and_the_credential_stay_denied() {
+        use crate::js_runtime::host_api::PluginSandbox;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let bundle = tmp.path().join("bundle");
+        let data = tmp.path().join("data");
+        let home = tmp.path().join("codex-home");
+        for dir in [&bundle, &data, &home] {
+            std::fs::create_dir_all(dir).unwrap();
+        }
+
+        let mut manifest = shipped_codex_manifest();
+        manifest.sessions.as_mut().unwrap().root_dir = home.to_string_lossy().into_owned();
+        for credential in &mut manifest.credentials {
+            credential.file = home.join("auth.json").to_string_lossy().into_owned();
+        }
+
+        let (read_roots, write_roots) = confined_roots(&manifest, &bundle, &data);
+        let sandbox = PluginSandbox::restricted(read_roots, write_roots)
+            .with_credentials(&manifest.credentials);
+
+        let index = home.join("session_index.jsonl");
+        std::fs::write(&index, "").unwrap();
+        std::fs::write(home.join("auth.json"), "{}").unwrap();
+        let outside = tmp.path().join("elsewhere.json");
+        std::fs::write(&outside, "{}").unwrap();
+
+        assert!(
+            sandbox.can_read(index.to_str().unwrap()),
+            "the declared home is readable, so session detection and usage work confined"
+        );
+        assert!(
+            !sandbox.can_read(outside.to_str().unwrap()),
+            "the grant is the declared root only, never a blanket widening"
+        );
+        assert!(
+            !sandbox.can_read(home.join("auth.json").to_str().unwrap()),
+            "the declared credential is carved back out of the declared root"
+        );
+        assert!(
+            !sandbox.can_write(index.to_str().unwrap()),
+            "a declared session root is read-only"
+        );
+    }
+
+    /// A provider that declares no home gets none — the state that produced the
+    /// bug. Kept as a named expectation so the grant can only come from a
+    /// declaration, never from a default that quietly widens every plugin.
+    #[test]
+    fn a_manifest_without_a_declared_root_is_granted_no_provider_home() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bundle = tmp.path().join("bundle");
+        let data = tmp.path().join("data");
+        let manifest: PluginManifest =
+            serde_json::from_str(&min_manifest("rootless")).expect("manifest parses");
+        let (read_roots, _) = confined_roots(&manifest, &bundle, &data);
+        assert_eq!(
+            read_roots,
+            vec![bundle.clone(), data, std::env::temp_dir()],
+            "no declaration, no extra root"
+        );
     }
 
     fn min_manifest(id: &str) -> String {

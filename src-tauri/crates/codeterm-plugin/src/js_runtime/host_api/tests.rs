@@ -848,3 +848,96 @@ fn walk_under_the_budget_reports_every_entry() {
         );
     }
 }
+
+/// The confinement heuristic is a substring match, so it cannot tell a host-set
+/// directory path from a credential. Both halves live in one test on purpose: an
+/// allowlist that leaks, or a heuristic that stops refusing, fails here rather
+/// than passing because the other half was checked somewhere else.
+#[test]
+fn host_set_path_vars_are_readable_while_the_api_token_stays_refused() {
+    let sb = PluginSandbox::restricted(vec![], vec![]);
+
+    for name in HOST_PROVIDED_ENV.iter().copied() {
+        assert!(
+            sb.can_env(name),
+            "{name} is host-set and carries a path, not a secret"
+        );
+    }
+    assert!(
+        sb.can_env("CODETERM_CODEX_SESSIONS_ROOT"),
+        "the codex sessions root is the variable the substring rule wrongly refused"
+    );
+
+    assert!(
+        !sb.can_env("CODETERM_API_TOKEN"),
+        "the allowlist must be exact names — CODETERM_API_TOKEN shares the CODETERM_ prefix"
+    );
+    for secret in [
+        "AWS_SECRET_ACCESS_KEY",
+        "ANTHROPIC_API_KEY",
+        "GITHUB_PASSWORD",
+        "CODEX_SESSION_TOKEN",
+    ] {
+        assert!(!sb.can_env(secret), "{secret} must stay refused");
+    }
+}
+
+/// Declaring a credential is what takes direct access to it away: the codex home
+/// becomes readable so session detection works, and `auth.json` inside that same
+/// home does not, because the host reads it instead.
+#[test]
+fn a_declared_credential_file_stays_unreadable_inside_its_own_read_root() {
+    use crate::js_runtime::manifest::CredentialConfig;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join(".codex");
+    std::fs::create_dir_all(&home).unwrap();
+    let sessions = home.join("session_index.jsonl");
+    std::fs::write(&sessions, "{}").unwrap();
+    let auth = home.join("auth.json");
+    std::fs::write(&auth, r#"{"tokens":{"access_token":"t"}}"#).unwrap();
+
+    let credential = CredentialConfig {
+        id: "codexAuth".into(),
+        file: auth.to_string_lossy().into_owned(),
+        public: Default::default(),
+        secret: Default::default(),
+    };
+    let sb = PluginSandbox::restricted(vec![home.clone()], vec![])
+        .with_credentials(std::slice::from_ref(&credential));
+
+    assert!(
+        sb.can_read(sessions.to_str().unwrap()),
+        "operational data under the declared root must be readable"
+    );
+    assert!(
+        !sb.can_read(auth.to_str().unwrap()),
+        "the declared credential file is the host's to read, never the plugin's"
+    );
+}
+
+/// Every refusal has to leave a trace a caller can act on, or a provider that
+/// lost a capability just returns nothing and the panel goes quiet.
+#[test]
+fn each_denial_advances_the_counter_and_an_allowed_call_does_not() {
+    let tmp = tempfile::tempdir().unwrap();
+    let allowed = tmp.path().join("root");
+    std::fs::create_dir_all(&allowed).unwrap();
+    let inside = allowed.join("ok.json");
+    std::fs::write(&inside, "{}").unwrap();
+
+    let sb = PluginSandbox::restricted(vec![allowed], vec![]);
+    assert_eq!(sb.denial_count(), 0);
+
+    assert!(sb.can_read(inside.to_str().unwrap()));
+    assert_eq!(sb.denial_count(), 0, "an allowed read is not a denial");
+
+    assert!(!sb.can_read("/etc/passwd"));
+    assert_eq!(sb.denial_count(), 1);
+
+    assert!(!sb.can_env("CODETERM_API_TOKEN"));
+    assert_eq!(sb.denial_count(), 2, "a refused env var is a lost capability too");
+
+    assert!(sb.can_env("CODETERM_CODEX_SESSIONS_ROOT"));
+    assert_eq!(sb.denial_count(), 2, "an allowlisted name is not a denial");
+}

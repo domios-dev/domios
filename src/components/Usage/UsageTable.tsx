@@ -85,6 +85,7 @@ function TableRow({ row, now }: { row: UsageSnapshot; now: number }) {
 const FAILURE_LABELS: Record<string, string> = {
   TIMEOUT: "timeout",
   FETCH_ERROR: "fetch failed",
+  CAPABILITY_DENIED: "plugin confined",
   SOURCE_UNAVAILABLE: "no source",
   INTERNAL: "internal",
   PARSE_ERROR: "unreadable",
@@ -93,9 +94,14 @@ const FAILURE_LABELS: Record<string, string> = {
   DB_INSERT: "store failed",
 };
 
+export const CAPABILITY_DENIED_KIND = "CAPABILITY_DENIED";
+
+export function usageFailureKind(row: UsageSnapshot): string {
+  return (row.failure_reason || "").split(":", 1)[0].trim();
+}
+
 export function usageFailureLabel(row: UsageSnapshot): string {
-  const kind = (row.failure_reason || "").split(":", 1)[0].trim();
-  return FAILURE_LABELS[kind] ?? "failed";
+  return FAILURE_LABELS[usageFailureKind(row)] ?? "failed";
 }
 
 export function usageFailureCopy(row: UsageSnapshot): {

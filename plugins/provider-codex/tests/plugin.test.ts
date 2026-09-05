@@ -95,6 +95,7 @@ const baseHost = (over: Record<string, unknown>) => ({
   path: { equal: (a: string, b: string) => a === b },
   expandHome: (v: string) => v.replace(/^~/, "/tmp/home"),
   envGet: () => null,
+  credentialPublic: () => null,
   log: () => {},
   shell: { quoteFor: (v: unknown) => String(v), quote: (v: unknown) => String(v) },
   fs: {
@@ -270,10 +271,8 @@ console.log("\n--- quota-free usage fetch ---\n");
         }),
       });
     },
-    fs: {
-      ...baseHost({}).fs,
-      readFile: () => JSON.stringify({ tokens: { access_token: "secret-token", account_id: "account-1" } }),
-    },
+    credentialPublic: (id: string) =>
+      id === "codexAuth" ? JSON.stringify({ accountId: "account-1" }) : null,
   }));
   const raw = p.fetchUsage();
   const usage = p.parseUsage(raw, 1_000_000);
