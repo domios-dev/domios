@@ -78,7 +78,9 @@ pub(super) fn validate_spawn_context(ctx: &SpawnContext<'_>) -> Result<(), Strin
             .into());
         }
     }
-    if ctx.is_worker() && !ctx.task_bound() {
+    // Read-only intent is the exit both refusals below name, so it has to be
+    // the exit both of them honour.
+    if ctx.is_worker() && !ctx.task_bound() && !ctx.read_only() {
         if ctx.execution_intent == Some(MUTATING) {
             return Err(format!(
                 "--execution-intent mutating requires a task binding: {WORKER_SHAPES}"
