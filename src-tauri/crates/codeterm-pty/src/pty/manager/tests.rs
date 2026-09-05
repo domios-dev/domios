@@ -542,10 +542,11 @@ fn write_returns_err_for_unknown_pty() {
     );
 }
 
-/// Toolchain-selection variables decide which agent binary — and which helper
-/// binaries that binary resolves next to itself — a tab reaches. The launch
-/// stamper owns identity, never toolchain selection, so every one of these must
-/// arrive at the child byte-identical to what the daemon inherited.
+/// Codex resolves its code-mode host from
+/// `$CODEX_HOME/packages/standalone/releases/<version>-<triple>/bin`, so
+/// `CODEX_HOME` (default `$HOME/.codex`) — not PATH — decides which host a tab
+/// reaches. The launch stamper owns identity, never toolchain selection, so
+/// every one of these must arrive byte-identical to what the daemon inherited.
 #[test]
 fn pty_env_never_rewrites_agent_toolchain_selection() {
     let inherited = [
@@ -575,9 +576,9 @@ fn pty_env_never_rewrites_agent_toolchain_selection() {
     }
 }
 
-/// A tab's PATH decides which `codex` (and therefore which sibling code-mode
-/// host) it reaches. The only entry CodeTerm may add is its own CLI directory;
-/// every inherited entry keeps its value and its relative order.
+/// A tab's PATH decides which agent launcher it reaches, and the launcher
+/// decides which staged release tree runs. The only entry CodeTerm may add is
+/// its own CLI directory; every inherited entry keeps its value and its order.
 #[test]
 fn pty_env_changes_path_only_by_the_codeterm_cli_dir() {
     let cli_path = if cfg!(windows) {
