@@ -152,6 +152,63 @@ void (async () => {
     assert(calls === 3, `expected 3 sequential fetches, got ${calls}`);
   });
 
+  // The daemon refuses snapshots past its own concurrency bound (503). Those
+  // three cases are the contract with the daemon lane: back-pressure, not
+  // failure.
+
+  class Refusal extends Error {
+    constructor() {
+      super("503");
+    }
+  }
+  const isRefusal = (e: unknown): boolean => e instanceof Refusal;
+
+  await test("a refused snapshot does not become a permanent false", async () => {
+    let calls = 0;
+    const coalescer = createRefreshCoalescer(async () => {
+      calls++;
+      if (calls <= 2) throw new Refusal();
+      return true;
+    }, isRefusal);
+    assert((await coalescer.request()) === false, "a refusal resolves false");
+    assert(coalescer.lastWasRefused(), "the refusal is recorded as back-pressure");
+    assert((await coalescer.request()) === false, "still refused");
+    // The next event's request must run a real fetch, not a cached answer.
+    assert((await coalescer.request()) === true, "the next request recovers");
+    assert(!coalescer.lastWasRefused(), "recovery clears the refusal");
+    assert(calls === 3, `expected 3 attempts, got ${calls}`);
+  });
+
+  await test("a storm of refusals never becomes a tight loop", async () => {
+    let calls = 0;
+    const backend = controllable();
+    const refusing = async (): Promise<boolean> => {
+      calls++;
+      await backend.run();
+      throw new Refusal();
+    };
+    const coalescer = createRefreshCoalescer(refusing, isRefusal);
+    const requests = Array.from({ length: 500 }, () => coalescer.request());
+    await tick();
+    assert(calls === 1, `500 refused requests opened ${calls} fetches`);
+    backend.releaseNext();
+    await tick();
+    assert(calls === 2, `expected the single follow-up, got ${calls}`);
+    backend.releaseNext();
+    const results = await Promise.all(requests);
+    assert(results.every((r) => r === false), "every waiter is answered, none left hanging");
+    assert(calls === 2, `500 refused requests cost ${calls} fetches, expected 2`);
+  });
+
+  await test("a refusal is distinguished from an ordinary failure", async () => {
+    const coalescer = createRefreshCoalescer(async () => {
+      throw new Error("connection reset");
+    }, isRefusal);
+    assert((await coalescer.request()) === false, "an ordinary failure still resolves false");
+    assert(!coalescer.lastWasRefused(), "an ordinary failure is not back-pressure");
+  });
+
+
   console.log(failures === 0 ? "\nall passed" : `\n${failures} failed`);
   if (failures > 0) process.exitCode = 1;
 })();
