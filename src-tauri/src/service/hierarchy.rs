@@ -1,6 +1,6 @@
 //! Agent hierarchy: roles, reports, status queries.
 
-mod plan_reminder_nudge;
+pub(crate) mod plan_reminder_nudge;
 mod planner_binding;
 mod planner_delivery;
 #[cfg(test)]

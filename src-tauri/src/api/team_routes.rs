@@ -104,13 +104,16 @@ pub async fn close_team(
     Ok(Json(team))
 }
 
+/// The caller tab is optional here alone: a Team whose Orchestrator is gone has
+/// no membership left to spend, and staffing authorizes the caller-less add.
 async fn add_team_member_adapter<T>(
     headers: &HeaderMap,
     team_id: String,
     body: AddTeamMemberBody,
-    add_member: impl AsyncFnOnce(String, String, AddTeamMemberBody) -> Result<T, String>,
+    add_member: impl AsyncFnOnce(String, Option<String>, AddTeamMemberBody) -> Result<T, String>,
 ) -> Result<T, (StatusCode, String)> {
-    let caller_tab_id = require_caller_tab_id(headers)?;
+    let caller_tab_id = crate::api::tab_routes::caller_tab_header(headers)
+        .filter(|tab_id| !tab_id.trim().is_empty());
     add_member(team_id, caller_tab_id, body)
         .await
         .map_err(map_rename_error)
@@ -133,7 +136,7 @@ pub async fn add_team_member(
                 team_id,
                 body.provider,
                 body.role,
-                Some(caller_tab_id),
+                caller_tab_id,
                 body.title,
                 body.task,
                 body.model,
@@ -384,24 +387,25 @@ mod tests {
         );
     }
 
+    /// codeterm#418: the recovery add is the one Team verb a headless Team can
+    /// still reach, so an absent caller header travels as "no caller".
     #[tokio::test]
-    async fn http_add_team_member_requires_caller_tab_header() {
-        let error = add_team_member_adapter(
+    async fn http_add_team_member_passes_an_absent_caller_tab_through() {
+        let caller = add_team_member_adapter(
             &HeaderMap::new(),
             "team_x".into(),
             AddTeamMemberBody {
                 provider: "provider".into(),
-                role: "worker".into(),
+                role: "orchestrator".into(),
                 title: None,
                 task: None,
                 model: None,
             },
-            |_, _, _| async { Ok(()) },
+            |_, caller_tab_id, _| async move { Ok(caller_tab_id) },
         )
         .await
-        .unwrap_err();
-        assert_eq!(error.0, StatusCode::BAD_REQUEST);
-        assert_eq!(error.1, "X-CodeTerm-Tab-Id is required");
+        .expect("a caller-less add reaches the service");
+        assert_eq!(caller, None);
     }
 
     #[tokio::test]
@@ -420,7 +424,7 @@ mod tests {
             },
             |team_id, caller_tab_id, body: AddTeamMemberBody| async move {
                 assert_eq!(team_id, "team_x");
-                assert_eq!(caller_tab_id, "manager");
+                assert_eq!(caller_tab_id.as_deref(), Some("manager"));
                 assert_eq!(body.role, "planner");
                 Ok((body.provider, body.title, body.task, body.model))
             },
