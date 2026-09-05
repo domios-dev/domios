@@ -28,6 +28,9 @@ WORKSPACE_ID=""
 TSX_LOADER="${WMS_TSX_LOADER:-$ROOT/node_modules/tsx/dist/loader.mjs}"
 
 cleanup() {
+  # A peer workspace is not ours to close: cross-peer runs reuse what the
+  # peer already has and create nothing there.
+  [ -z "${WMS_PEER_INSTANCE_ID:-}" ] || return 0
   [ -n "$WORKSPACE_ID" ] || return 0
   [ "${WMS_KEEP:-0}" = 1 ] && return 0
   dc workspace close "$WORKSPACE_ID" --force >/dev/null 2>&1 || true
@@ -47,11 +50,37 @@ fi
 dev_env
 echo ">>> dev target: $(dev_api_url)  data_dir=$CODETERM_DEV_DATA_DIR"
 
-WORKSPACE_ID="$(dc workspace create "$WORKSPACE_NAME" --json \
-  | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+if [ -n "${WMS_PEER_INSTANCE_ID:-}" ]; then
+  # Cross-peer: drive the PEER's tabs through the relay.
+  # WMS_PEER_MARKERS ("tabid=MARK,...") names tabs the peer's owner created for
+  # us with a printing startup command; that is the only way the output oracle
+  # can run cross-peer, and it still writes no PTY input. Without it we reuse
+  # whatever the peer already has, read-only, and the output oracle sits out.
+  if [ -n "${WMS_PEER_MARKERS:-}" ]; then
+    MARKERS="$WMS_PEER_MARKERS"
+    TAB_IDS="$(printf '%s' "$MARKERS" | python3 -c 'import sys; print(",".join(p.split("=",1)[0] for p in sys.stdin.read().split(",") if p))')"
+    WORKSPACE_ID="${WMS_PEER_WORKSPACE:?WMS_PEER_MARKERS needs WMS_PEER_WORKSPACE}"
+    echo ">>> peer workspace $WORKSPACE_ID, marked tabs supplied by the peer"
+  else
+  PEER_STATE="$(curl -s --max-time 20 -X POST -H "$CODETERM_DEV_AUTH_HEADER" -H "Content-Type: application/json" --data "{\"target_peer_id\":\"$WMS_PEER_INSTANCE_ID\",\"method\":\"GET\",\"path\":\"/api/mux/state\",\"body\":null}" "$(dev_api_url)/api/mesh/relay-to")"
+  read -r WORKSPACE_ID TAB_IDS <<EOF
+$(printf '%s' "$PEER_STATE" | python3 -c '
+import json, sys
+count = int(sys.argv[1])
+data = json.load(sys.stdin).get("data") or {}
+spaces = sorted(data.get("workspaces", []), key=lambda w: len(w.get("tabs", [])), reverse=True)
+if not spaces or not spaces[0].get("tabs"):
+    sys.exit("peer has no workspace with tabs")
+best = spaces[0]
+print(best["id"], ",".join(best["tabs"][:count]))
+' "$TABCOUNT")
+EOF
+  echo ">>> peer workspace $WORKSPACE_ID, reusing peer tabs (created nothing)"
+  MARKERS=""
+  fi
+else
+WORKSPACE_ID="$(dc workspace create "$WORKSPACE_NAME" --json   | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
 echo ">>> workspace $WORKSPACE_ID ($WORKSPACE_NAME)"
-
-TAB_IDS=""
 MARKERS=""
 NONCE="$(date +%s)-$$"
 MARKER_INDEX=0
@@ -61,11 +90,12 @@ MARKER_INDEX=0
 for _ in $(seq 1 "$TABCOUNT"); do
   MARKER_INDEX=$((MARKER_INDEX + 1))
   MARK="WMSMARK-${NONCE}-${MARKER_INDEX}"
-  id="$(dc tab new --workspace "$WORKSPACE_ID" --cmd "echo $MARK" --json     | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+  id="$(dc tab new --workspace "$WORKSPACE_ID" --cmd "echo $MARK" --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
   TAB_IDS="${TAB_IDS:+$TAB_IDS,}$id"
   MARKERS="${MARKERS:+$MARKERS,}$id=$MARK"
 done
 echo ">>> $TABCOUNT tabs created"
+fi
 
 PEER_ID=""
 if [ -n "${WMS_PEER_INSTANCE_ID:-}" ]; then
@@ -95,6 +125,7 @@ export WMS_TABS="$TAB_IDS"
 export WMS_PEER_ID="$PEER_ID"
 export WMS_SKIP_OVERFLOW="${WMS_SKIP_OVERFLOW:-0}"
 export WMS_ORIGIN_SWITCHES="${WMS_ORIGIN_SWITCHES:-0}"
+WMS_PEER_NAME_FOR_CHECK="${WMS_PEER_INSTANCE_ID:+${WMS_PEER_CHECK_NAME:-Andreys-MacBook-Air-5}}"
 export WMS_MARKERS="$MARKERS"
 export MSYS_NO_PATHCONV=1
 set +e
@@ -111,7 +142,7 @@ if [ -s "$LOST" ]; then
     [ -n "$lost_tab" ] || continue
     want="${MARKERS#*${lost_tab}=}"
     want="${want%%,*}"
-    if dc tab get-text --tab "$lost_tab" 2>/dev/null | grep -q "$want"; then
+    if dc tab get-text --tab "$lost_tab" ${WMS_PEER_NAME_FOR_CHECK:+--mesh "$WMS_PEER_NAME_FOR_CHECK"} 2>/dev/null | grep -qE "${want}([^0-9]|$)"; then
       echo "    $lost_tab: daemon HAS $want, client did not receive it -> MIRROR LOSS"
     else
       echo "    $lost_tab: daemon does not have $want either -> not a mirror loss"

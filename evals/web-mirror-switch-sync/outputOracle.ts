@@ -39,6 +39,23 @@ export interface OutputOracle {
  */
 const buffers = new Map<string, string[]>();
 
+/**
+ * Anchored containment. Markers ending in a number are prefixes of each other
+ * -- WMSMARK-P2-1 sits inside WMSMARK-P2-10 -- so a bare `includes` would pass
+ * a tab whose own output never arrived as long as a higher-numbered tab's did.
+ * That is a false PASS on exactly the misrouting this oracle exists to catch.
+ */
+function containsMarker(haystack: string, marker: string): boolean {
+  let from = 0;
+  for (;;) {
+    const at = haystack.indexOf(marker, from);
+    if (at < 0) return false;
+    const next = haystack[at + marker.length];
+    if (next === undefined || next < "0" || next > "9") return true;
+    from = at + 1;
+  }
+}
+
 export async function createOutputOracle(): Promise<OutputOracle> {
   const { subscribeTabOutput } = await import("../../src/lib/outputStream");
   const unsubscribes: Array<() => void> = [];
@@ -67,7 +84,7 @@ export async function createOutputOracle(): Promise<OutputOracle> {
     missing(markers) {
       const lost: string[] = [];
       for (const [tabId, marker] of markers) {
-        if (!this.received(tabId).includes(marker)) lost.push(tabId);
+        if (!containsMarker(this.received(tabId), marker)) lost.push(tabId);
       }
       return lost;
     },
