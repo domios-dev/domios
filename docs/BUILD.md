@@ -289,14 +289,21 @@ stops being symbolizable as soon as anyone rebuilds — that is how the 2026-09-
 abort lost its frame names nine minutes after it was written.
 
 `./build.sh dev` therefore retains the symbol file of each build it runs under
-`~/.codeterm-dev/pdb/<build sha>/codeterm.pdb`, keeping the newest three
+`~/.codeterm-dev/pdb/<key>/codeterm.pdb`, keeping the newest three
 (`DEV_PDB_KEEP_DEFAULT` in `build.sh`; override the store with
 `CODETERM_DEV_PDB_DIR`, the count with `CODETERM_DEV_PDB_KEEP`). `--wait` retains
 once `/api/health` confirms which build is running; a foreground session retains
 when it ends, which is also when a daemon that crashed stops holding its binary.
-The copy keeps the name `codeterm.pdb` because Windows symbol lookup finds a PDB by
-the name recorded in the binary — a renamed file is never found, so the sha is the
-directory.
+
+**The key is the symbol file's own debug identity**, not a commit: the GUID's 32
+hex digits followed by the age in hex, the canonical Windows symbol-store form.
+`scripts/pdb_identity.py` computes it from either a PDB or a binary, and
+`crash::image_identity` computes the same string for the sidecar, so the directory
+a crash names is the directory retention wrote. A commit sha cannot be the key —
+the same source relinks to a different symbol file every time, and a foreground
+retention runs after HEAD may have moved. The sha is recorded beside the symbols in
+`build-sha.txt`, informative only. The copy keeps the name `codeterm.pdb` because
+Windows symbol lookup finds a PDB by the name recorded in the binary.
 
 Every crash report names its own build: `Debug id:` is the RSDS GUID and age, and
 `Symbols:` is the retained directory to look in. To read a dump:
@@ -370,4 +377,4 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 
 Tooling, outputs, platform notes, and repository layout: `docs/BUILD-REFERENCE.md`. Test workflows: `codeterm docs TESTING`.
 
-<!-- revision: 125 -->
+<!-- revision: 126 -->

@@ -41,10 +41,15 @@ pub fn header(kind: &str) -> String {
 /// Where `build.sh dev` retains this build's symbol file. A dev PDB is otherwise
 /// overwritten by the next link, which is how the 2026-09-05 dump became
 /// unsymbolizable nine minutes after it was written.
+///
+/// Keyed by the image's own debug identity, never by a commit: a build sha names
+/// the source, and the same source relinks to a different symbol file every time.
 pub fn retained_symbols_dir() -> PathBuf {
-    crate::paths::data_dir()
-        .join("pdb")
-        .join(env!("BUILD_HASH"))
+    let dir = crate::paths::data_dir().join("pdb");
+    match super::image_identity::debug_key() {
+        Some(key) => dir.join(key),
+        None => dir,
+    }
 }
 
 fn platform_name() -> &'static str {
