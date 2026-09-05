@@ -1,0 +1,50 @@
+/** Bench entry point. Receives an already dev-resolved origin/token from run.sh
+ *  (which sourced evals/_lib/lib.sh), runs N iterations, appends the run rows. */
+import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { runScenario, type RunRow } from "./scenario";
+
+const COLUMNS: Array<keyof RunRow> = [
+  "origin", "tabs", "concurrency", "switches", "switch_rate_hz", "overflow_fired", "overflow_reason",
+  "elapsed_ms", "resync_fanout", "mux_refetches", "refetch_errors", "client_gen", "daemon_gen",
+  "diverged", "divergence_kind",
+];
+
+function env(name: string): string {
+  const value = process.env[name];
+  if (!value) throw new Error(`missing ${name} — run through evals/web-mirror-switch-sync/run.sh`);
+  return value;
+}
+
+void (async () => {
+  const origin = env("WMS_ORIGIN");
+  const token = env("WMS_TOKEN");
+  const workspaceId = env("WMS_WORKSPACE");
+  const tabIds = env("WMS_TABS").split(",").filter(Boolean);
+  const switches = Number(process.env.WMS_SWITCHES ?? "200");
+  const concurrency = Number(process.env.WMS_CONCURRENCY ?? "1");
+  const runs = Number(process.env.WMS_RUNS ?? "5");
+  const peerId = process.env.WMS_PEER_ID ?? "";
+  const relayPeer = peerId ? { id: peerId, name: process.env.WMS_PEER_NAME ?? peerId } : null;
+
+  const outDir = path.resolve(process.cwd(), "target-check/evals/web-mirror-switch-sync");
+  mkdirSync(outDir, { recursive: true });
+  const tsv = path.join(outDir, "runs.tsv");
+  if (!existsSync(tsv)) writeFileSync(tsv, `${COLUMNS.join("\t")}\n`);
+
+  let failures = 0;
+  for (let i = 0; i < runs; i++) {
+    const row = await runScenario({ origin, token, workspaceId, tabIds, switches, concurrency, relayPeer });
+    appendFileSync(tsv, `${COLUMNS.map((c) => String(row[c])).join("\t")}\n`);
+    if (row.diverged) failures++;
+    console.log(
+      `run ${i + 1}/${runs} origin=${row.origin} tabs=${row.tabs} conc=${row.concurrency} switches=${row.switches} ` +
+      `rate=${row.switch_rate_hz}Hz overflow=${row.overflow_fired}(${row.overflow_reason}) ` +
+      `fanout=${row.resync_fanout} refetch=${row.mux_refetches} err=${row.refetch_errors} ` +
+      `gen=${row.client_gen}/${row.daemon_gen} ` +
+      `${row.diverged ? `DIVERGED ${row.divergence_kind}` : "converged"}`,
+    );
+  }
+  console.log(`\n${failures}/${runs} runs diverged — rows appended to ${tsv}`);
+  process.exit(failures > 0 ? 1 : 0);
+})();
