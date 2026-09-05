@@ -1,9 +1,52 @@
 # Web mirror under switch load - what the runs actually show
 
-Order of work, as required: the reproduction was built and run first; no
-product code has been changed. This file records evidence and separates it
+Order of work, as required: the reproduction was built and run first, and no
+product code was changed until it existed and had failed. Client-side changes
+shipped later are listed in section 0; the cause itself is a daemon defect and
+was never touched from this lane. This file records evidence and separates it
 from hypothesis. `commonality.md` (written before any feature was named) holds
 the discriminator rule.
+
+## 0. The answer, up front
+
+This file grew chronologically, so the sections below are a working record with
+readings that were later superseded. Each is marked where it stands. The
+conclusions:
+
+**The cause** (1f, sharpened in 1g). `EventBus::send_bus`
+(`src-tauri/src/api/events.rs:276`) allocates the seq under the ring lock and
+publishes to the broadcast bus after releasing it, so concurrent publishers can
+reach the bus out of order; `events_stream`'s monotonic `replayed_max` guard
+then drops the lower seq **with no overflow frame**. The stream's stated
+contract -- loss is signalled by exactly one overflow and never by a silent gap
+-- is violated. The ring still holds the event in order, so a reconnect
+recovers it, which is why the mirror diverges silently until something forces a
+resync. Daemon defect, Rust, its own lane.
+
+**The discriminator is CONCURRENT PUBLISHERS**, not rate and not origin. A
+sequential driver at 9.25 Hz on a given machine produced zero silent gaps;
+concurrency 8 on the same machine minutes later produced six. Rate matters only
+as a proxy for overlap. (An earlier reading called it rate; see 1f's superseded
+note and the arithmetic correction in 1j.)
+
+**Shipped in this lane**, all client-side and none of it the cause:
+- one snapshot fetch in flight, down from 1028-1050 (1d)
+- a 503 from the daemon treated as back-pressure, never a tight loop (commit)
+- a refused peer rebind holds the write gate open, not shut (commit)
+- silent seq gaps detected, resynced, counted and logged (1g), which is what
+  found every gap reported here
+
+**Carried out as a release finding, not fixed here** (1h): the replay cursor is
+not scoped by origin, costing a full global resync on every peer switch, 1.0
+boot-changed overflows per switch measured.
+
+**Predictions**: P1 confirmed twice, P2 falsified (1i), P3 partial. **Two
+`out=0/N` results that looked like dramatic mirror loss were my own harness**
+(1e, 1i) -- a uniform total loss across every tab is the signature of a harness
+fault, since real mirror loss has been partial and scattered every time.
+
+**Still open**: the daemon lane's atomic-publish fix, and the peer-oracle run
+that confirms it (expected `seq_gaps = 0` at concurrency 8).
 
 ## 1. Measured on dev 7686 (build 7e7dda609)
 
@@ -614,7 +657,12 @@ So the source daemon did not log the 502 or the refetch errors. That eliminates
 from - the relaying daemon, the transport, or the focus handler are all still
 open. Recorded as a negative result with its scope stated, not as a diagnosis.
 
-## 2. Not established
+## 2. Not established AT THE TIME -- resolved in 1f/1g/1i
+
+*Kept as written. The cross-peer half has since run, the cause is established
+in 1f, and the local-vs-mesh question is answered in 1g: the causes are not
+distinct, and origin was never the discriminator.*
+
 
 The cross-peer half **did not run**. Dev's mesh has no paired peers
 (`dc mesh peers` -> `paired: []`, `discovered: []`), and Mac-Air (`air`,
@@ -626,7 +674,12 @@ because the only origin that has been exercised is the one that passed, **the
 cause is not established.** The discriminator in `commonality.md` - `origin` -
 is exactly the column with no failing rows to compare.
 
-## 3. Leading hypothesis, explicitly not a conclusion
+## 3. Leading hypothesis at the time -- SUPERSEDED by 1f
+
+*The refetch storm was the leading hypothesis before the captures existed. It
+turned out to be a real defect worth fixing on its own numbers, and NOT the
+cause of the reported symptom. Kept so the reasoning is visible.*
+
 
 The brief's lead is that `runFullResync` is global and unscoped, so one tab's
 overflow re-runs every hook everywhere. That structure is real:
@@ -704,7 +757,14 @@ watchdog, the abort controller and `started`, but not the module-level
 `cursor`. `CURSOR_KEY` is a single unscoped sessionStorage key, while every
 relay key in `webApi.ts` is scoped by `selfHost()`.
 
-## 4c. Falsifiable predictions for the cross-peer run
+## 4c. Falsifiable predictions for the cross-peer run -- SCORED
+
+*Outcomes: **P1 confirmed** (1.0 overflow per origin switch, twice -- 1g, 1i).
+**P2 FALSIFIED** (1i: 12/12 markers arrived across six origin switches; peer
+output uses a separate per-tab remote path, so the dead `resetOutputStream()`
+costs it nothing). **P3 partial** -- relayed operations are ~10x slower, but it
+was never isolated as a cause.*
+
 
 Written before the peer exists, so the peer rows decide rather than illustrate.
 If a prediction fails, the observation above is wrong and I say so.
@@ -723,7 +783,10 @@ P1 and P2 follow from 4b and need only an origin switch. P3 is the term that
 would make the local-vs-mesh answer "same cause, worse constant"; P1 and P2
 would make it "distinct causes", which is a boundary, not a second fix here.
 
-## 5. What would settle it
+## 5. What would settle it -- SETTLED
+
+*It ran. See 1g for the result and 1j for the corrections to it.*
+
 
 Peer-side provisioning is task_tvoxxb (Worker Tor on Mac-Air): dev on 7686
 behind `tailscale serve` 443, paired into BLACKSTAR's dev mesh. Once the peer
