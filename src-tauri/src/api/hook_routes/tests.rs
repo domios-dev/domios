@@ -104,6 +104,7 @@ impl AgentProvider for HookProvider {
 mod permission_request_tests;
 mod rebind_provider_tests;
 mod roster_tests;
+mod session_identity_tests;
 
 fn registry(ids: &[&'static str]) -> AgentRegistry {
     registry_with_sessions(
@@ -115,6 +116,14 @@ fn registry(ids: &[&'static str]) -> AgentRegistry {
 
 fn registry_with_sessions(items: Vec<(&'static str, Vec<&'static str>)>) -> AgentRegistry {
     let registry = AgentRegistry::new();
+    register_hook_providers(&registry, items);
+    registry
+}
+
+fn register_hook_providers(
+    registry: &AgentRegistry,
+    items: Vec<(&'static str, Vec<&'static str>)>,
+) {
     for (id, sessions) in items {
         registry.register_provider(Box::new(HookProvider {
             id,
@@ -122,7 +131,6 @@ fn registry_with_sessions(items: Vec<(&'static str, Vec<&'static str>)>) -> Agen
             materialization_root: None,
         }));
     }
-    registry
 }
 
 #[test]
@@ -213,25 +221,6 @@ fn reported_session_rejects_cross_tab_duplicate_claim() {
 }
 
 #[test]
-fn reported_session_rejects_wrong_provider_for_locked_tab() {
-    let (mux, tab_id) = shared_mux();
-    mux.write().get_tab_mut(&tab_id).unwrap().cwd = Some("/tmp/project".into());
-    let registry = registry(&["claude", "codex"]);
-
-    bind_reported_session(&mux, &registry, &tab_id, "claude", "sid-a", None).unwrap();
-    let err = bind_reported_session(&mux, &registry, &tab_id, "codex", "sid-b", None).unwrap_err();
-    assert_eq!(err.0, StatusCode::CONFLICT);
-    assert_eq!(
-        mux.read()
-            .get_tab(&tab_id)
-            .unwrap()
-            .agent_session_id
-            .as_deref(),
-        Some("sid-a")
-    );
-}
-
-#[test]
 fn reported_session_enforces_binding_nonce() {
     let (mux, tab_id) = shared_mux();
     {
@@ -304,60 +293,6 @@ fn reported_session_rejects_sid_not_owned_by_provider() {
     let tab = g.get_tab(&tab_id).unwrap();
     assert_eq!(tab.agent_type.as_deref(), None);
     assert_eq!(tab.agent_session_id.as_deref(), None);
-}
-
-#[test]
-fn reported_session_binds_sid_owned_by_provider() {
-    let (mux, tab_id) = shared_mux();
-    mux.write().get_tab_mut(&tab_id).unwrap().cwd = Some("/tmp/project".into());
-    let registry = registry_with_sessions(vec![("claude", vec!["claude-real"])]);
-
-    bind_reported_session(
-        &mux,
-        &registry,
-        &tab_id,
-        "claude",
-        "claude-real",
-        Some("nonce-1"),
-    )
-    .unwrap();
-
-    let g = mux.read();
-    let tab = g.get_tab(&tab_id).unwrap();
-    assert_eq!(tab.agent_type.as_deref(), Some("claude"));
-    assert_eq!(tab.agent_session_id.as_deref(), Some("claude-real"));
-}
-
-#[test]
-fn fresh_launch_with_matching_nonce_accepts_unpersisted_session() {
-    let (mux, tab_id) = shared_mux();
-    {
-        let mut g = mux.write();
-        let tab = g.get_tab_mut(&tab_id).unwrap();
-        tab.cwd = Some("/tmp/project".into());
-        tab.session_binding_nonce = Some("launch-nonce".into());
-    }
-    // Provider knows of NO persisted session for this sid.
-    let registry = registry_with_sessions(vec![("claude", vec![])]);
-
-    let claim = bind_reported_session(
-        &mux,
-        &registry,
-        &tab_id,
-        "claude",
-        "fresh-unpersisted-sid",
-        Some("launch-nonce"),
-    )
-    .expect("fresh launch with matching nonce must be accepted");
-    assert!(claim.changed);
-
-    let g = mux.read();
-    let tab = g.get_tab(&tab_id).unwrap();
-    assert_eq!(tab.agent_type.as_deref(), Some("claude"));
-    assert_eq!(
-        tab.agent_session_id.as_deref(),
-        Some("fresh-unpersisted-sid")
-    );
 }
 
 #[test]
