@@ -1,3 +1,27 @@
+//! Shell prelude stamped onto an agent launch line.
+//!
+//! The PTY environment already puts the CodeTerm CLI directory first, but the
+//! interactive shell loads its profile afterwards and can demote or drop it
+//! (macOS `path_helper`, a PowerShell `$PROFILE` that rebuilds `$env:PATH`).
+//! This line runs after that, so it is the last owner of the prepend and
+//! applies the same rule as `path_with_cli_dir_first`: drop every existing
+//! copy, then prepend once. A launched tab therefore carries the directory
+//! exactly once end to end.
+
+fn powershell_cli_dir_prelude(dir: &str) -> String {
+    let quoted = dir.replace('\'', "''");
+    format!(
+        "$env:PATH=(@('{quoted}') + (($env:PATH -split ';') | Where-Object {{ $_ -and $_ -ne '{quoted}' }})) -join ';'; "
+    )
+}
+
+fn posix_cli_dir_prelude(dir: &str) -> String {
+    let quoted = dir.replace('\'', "'\"'\"'");
+    format!(
+        "export PATH=\"$(IFS=:; printf %s '{quoted}'; for entry in $PATH; do [ \"$entry\" = '{quoted}' ] || printf ':%s' \"$entry\"; done)\"; "
+    )
+}
+
 pub(super) fn command_with_binding_nonce_for_shell(
     command: &str,
     binding_nonce: &str,
@@ -5,55 +29,27 @@ pub(super) fn command_with_binding_nonce_for_shell(
     windows: bool,
     cli_path: Option<&std::ffi::OsStr>,
 ) -> String {
-    let cli_dir = cli_path
-        .map(std::path::Path::new)
-        .and_then(std::path::Path::parent)
-        .filter(|path| !path.as_os_str().is_empty());
+    let cli_dir = cli_path.and_then(crate::pty::manager::cli_dir_of);
     if windows {
         let binding = binding_nonce.replace('\'', "''");
         let startup_attempt = startup_attempt_id.replace('\'', "''");
-        let path = cli_dir.map(|dir| {
-            format!(
-                "$env:PATH='{};' + $env:PATH; ",
-                dir.to_string_lossy().replace('\'', "''")
-            )
-        });
+        let path = cli_dir
+            .map(|dir| powershell_cli_dir_prelude(&dir.to_string_lossy()))
+            .unwrap_or_default();
         format!(
-            "$env:CODETERM_SESSION_BINDING_NONCE='{binding}'; $env:CODETERM_STARTUP_ATTEMPT_ID='{startup_attempt}'; {}{command}",
-            path.unwrap_or_default()
+            "$env:CODETERM_SESSION_BINDING_NONCE='{binding}'; $env:CODETERM_STARTUP_ATTEMPT_ID='{startup_attempt}'; {path}{command}"
         )
     } else {
         let binding = binding_nonce.replace('\'', "'\"'\"'");
         let startup_attempt = startup_attempt_id.replace('\'', "'\"'\"'");
-        let path = cli_dir.map(|dir| {
-            format!(
-                "export PATH='{}':\"$PATH\"; ",
-                dir.to_string_lossy().replace('\'', "'\"'\"'")
-            )
-        });
+        let path = cli_dir
+            .map(|dir| posix_cli_dir_prelude(&dir.to_string_lossy()))
+            .unwrap_or_default();
         format!(
-            "export CODETERM_SESSION_BINDING_NONCE='{binding}'; export CODETERM_STARTUP_ATTEMPT_ID='{startup_attempt}'; {}{command}",
-            path.unwrap_or_default()
+            "export CODETERM_SESSION_BINDING_NONCE='{binding}'; export CODETERM_STARTUP_ATTEMPT_ID='{startup_attempt}'; {path}{command}"
         )
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn configured_cli_directory_is_restored_after_shell_profile_loading() {
-        let command = command_with_binding_nonce_for_shell(
-            "claude",
-            "nonce",
-            "pty-a",
-            false,
-            Some(std::ffi::OsStr::new("/dev/bin/codeterm")),
-        );
-        assert_eq!(
-            command,
-            "export CODETERM_SESSION_BINDING_NONCE='nonce'; export CODETERM_STARTUP_ATTEMPT_ID='pty-a'; export PATH='/dev/bin':\"$PATH\"; claude"
-        );
-    }
-}
+mod tests;
