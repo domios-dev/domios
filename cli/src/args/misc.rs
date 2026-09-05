@@ -219,6 +219,24 @@ pub enum TabAction {
         #[arg(long = "tab", value_name = "TAB")]
         tab: Option<String>,
     },
+    /// Repair a live tab's provider identity from verified session evidence.
+    Repair {
+        /// Require the bound, nonce-verified session to belong to this provider.
+        #[arg(long, value_name = "PROVIDER", conflicts_with_all = ["session", "from_evidence", "from_journal"])]
+        provider: Option<String>,
+        /// Rebind this verified session and reassert its provider identity.
+        #[arg(long, value_name = "SESSION", conflicts_with_all = ["provider", "from_evidence", "from_journal"])]
+        session: Option<String>,
+        /// Derive provider and session from this tab's live evidence. This is the default.
+        #[arg(long, conflicts_with_all = ["provider", "session", "from_journal"])]
+        from_evidence: bool,
+        /// Restore the newest eligible journal identity backed by verified session evidence.
+        #[arg(long, conflicts_with_all = ["provider", "session", "from_evidence"])]
+        from_journal: bool,
+        /// Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback).
+        #[arg(long = "tab", value_name = "TAB")]
+        tab: Option<String>,
+    },
     /// Fuzzy search tabs by id-prefix, tab title, friendly session name,
     /// agent type, or current model. Cross-script — "Далтон" matches "Dalton". Add
     /// `--mesh PEER` to search a paired peer (#99). `find` kept as alias.

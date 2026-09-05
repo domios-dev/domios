@@ -56,6 +56,12 @@ codeterm tab list
 # Get one tab's agent state (type, session, prompt)
 codeterm tab status --tab $WORKER
 
+# Repair a wrong live provider label from the tab's verified session, no restart
+codeterm tab repair --from-evidence
+
+# The Plan owner can repair an assigned worker through the same evidence boundary
+codeterm tab repair --from-evidence --tab $WORKER
+
 # Clear role: detach a Worker from its Orchestrator (or orphan an Orchestrator's Workers)
 codeterm agent unlink --tab $CODETERM_TAB_ID
 ```
@@ -114,4 +120,4 @@ CodeTerm tracks and restores terminal state across sessions:
 - **Cross-provider session search**: `codeterm sessions search` walks every registered provider's on-disk sessions (Claude JSONLs, Codex `~/.codex/sessions/YYYY/MM/DD/*.jsonl`). `codeterm sessions resume` opens the tab in the correct cwd and hands the resume id to the right provider.
 - **Auto-save**: Session state is persisted every 30 seconds.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->
