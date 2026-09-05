@@ -1,3 +1,7 @@
+// A test file with no top-level `import`/`export` is a global SCRIPT to TS,
+// so its helpers collide with every sibling script's helpers. Keep this.
+export {};
+
 function check(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
