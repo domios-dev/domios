@@ -3,6 +3,8 @@
 // self-heal AND stay loud about it, so a daemon regression cannot hide behind
 // the recovery. Real frames are fed through the real module.
 
+// A test file with no top-level `import`/`export` is a global SCRIPT to TS,
+// so its helpers collide with every sibling script's helpers. Keep this.
 export {};
 
 let failures = 0;
