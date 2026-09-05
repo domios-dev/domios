@@ -379,8 +379,9 @@ a three-way interleave.
 
 This is where I have to be careful, because the tempting read is "the mesh
 loses frames" and the data does not support it. The peer leg carried 9739
-frames to the local leg's 2184 in the same 60 s -- about 4.5x the publish
-rate -- and the two legs also ran different daemon builds. So peer-vs-local is
+frames to the local leg's 2184 in the same 60 s -- about 8.4x the switch-driven
+rate once repowatch noise is excluded (see 1j; I first wrote 4.5x from raw
+frame counts) -- and the two legs also ran different daemon builds. So peer-vs-local is
 confounded with both load and build. What the mechanism predicts, and what the
 data shows, is that the loss scales with **concurrent publishes**, which is a
 rate effect that the peer path amplifies rather than causes.
@@ -572,6 +573,42 @@ is not perfectly reliable under concurrent load. Not investigated here.
 Concurrency 4 produced **zero** silent seq gaps in these two runs, against six
 at concurrency 8 in the previous set -- directionally consistent with 1g,
 though two runs is not a rate.
+
+## 1j. Two corrections from the source side (Tor), and what they do not change
+
+### Frame counts are not event rates - a number of mine was wrong
+
+The Mac-Air-sourced legs carry repowatch noise: a workspace there points at a
+non-repo directory, so the daemon emits `repository-unavailable` continuously.
+Counting only switch-driven frames (`mux-state-changed` + `tab-focused`):
+
+| leg | total frames | repowatch/resize noise | switch-driven |
+|---|---|---|---|
+| peer, BLACKSTAR source | 9733 | 1 | **9587** |
+| local, Mac-Air source | 2178 | **1032** | **1141** |
+
+So the rate gap between that original pair is **8.4x**, not the 4.5x I quoted
+in 1f and 1g. I had compared raw frame counts and called them rate.
+
+**The conclusion is unchanged, and the correction does not rescue the rate
+hypothesis.** The decisive comparison in 1g is not that pair - it is Tor's
+reverse capture and my bench, both against the SAME Mac-Air source with the
+same noise profile: sequential 9.25 Hz produced 0 silent gaps, concurrency 8
+produced 6. Shape, not rate. If anything, correcting the older pair makes it a
+worse experiment than I thought, which is why the same-source pair is the one
+the finding rests on.
+
+### The relay 502: one branch eliminated, not an answer
+
+Tor checked Mac-Air's own dev log rather than guessing: **zero** relay/502/fail
+matches dated the day of these runs (the only hits are from a month earlier),
+and every WARN/ERROR that day is the repowatch noise above. Nothing from mesh
+or relay.
+
+So the source daemon did not log the 502 or the refetch errors. That eliminates
+"the source daemon reported an error" and says nothing about where they came
+from - the relaying daemon, the transport, or the focus handler are all still
+open. Recorded as a negative result with its scope stated, not as a diagnosis.
 
 ## 2. Not established
 
