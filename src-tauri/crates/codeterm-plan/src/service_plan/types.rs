@@ -57,6 +57,8 @@ pub enum PlanError {
         max_rounds: u32,
     },
     ReviewOracleScopeExpansion,
+    /// A goal must always name its vector; a patch may not leave it empty.
+    GoalVectorRequired,
     ReviewOverrideIncomplete,
     ReviewNotInReview,
     /// The task itself resolved, but the exact single execution attempt a
@@ -260,6 +262,10 @@ impl fmt::Display for PlanError {
                 f,
                 "correction review cannot expand the fixed acceptance oracle without new reproducible release-impact evidence; record a P0 override to proceed"
             ),
+            PlanError::GoalVectorRequired => write!(
+                f,
+                "a plan goal must name its vector; pass --vector with the one sentence this plan steers by. Fields you do not pass are kept unchanged"
+            ),
             PlanError::ReviewOverrideIncomplete => write!(
                 f,
                 "review override requires non-empty owner, reason, and reproduction"
@@ -451,6 +457,10 @@ impl PlanError {
             PlanError::ReviewOracleScopeExpansion => {
                 serde_json::json!({ "type": "review_oracle_scope_expansion" })
             }
+            PlanError::GoalVectorRequired => serde_json::json!({
+                "type": "goal_vector_required",
+                "remedy": { "flag": "--vector" }
+            }),
             PlanError::ReviewOverrideIncomplete => {
                 serde_json::json!({ "type": "review_override_incomplete" })
             }

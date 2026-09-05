@@ -90,6 +90,8 @@ mod readback_tests;
 #[cfg(test)]
 mod reminder_tests;
 #[cfg(test)]
+mod review_gate_selection_tests;
+#[cfg(test)]
 mod subtask_close_tests;
 #[cfg(test)]
 mod task_attempt_tests;

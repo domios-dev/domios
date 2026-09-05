@@ -3,11 +3,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
-use crate::plan::{Goal, OrchestratorRef};
+use crate::plan::OrchestratorRef;
+use crate::service::plan::mutations::goal_ops::GoalPatch;
 use crate::service::plan::PlanError;
 use crate::service::{ServiceState, TeamPlanCreationError};
 
-use super::{get_string_param, JsonRpcError};
+use super::JsonRpcError;
 
 fn epoch_ms() -> u64 {
     SystemTime::now()
@@ -28,6 +29,25 @@ fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
     crate::api::events::emit_everywhere(app, "plan-changed", json!({ "plan_id": plan_id }));
 }
 
+/// A list field the caller either did not mention (`None`, kept) or set. A single
+/// empty entry is how a caller clears the list without a dedicated flag.
+fn string_list_field(body: &Value, key: &str) -> Result<Option<Vec<String>>, JsonRpcError> {
+    let Some(value) = body.get(key).filter(|value| !value.is_null()) else {
+        return Ok(None);
+    };
+    let items: Vec<String> = serde_json::from_value(value.clone()).map_err(|error| JsonRpcError {
+        code: -32602,
+        message: format!("invalid {key}: {error}"),
+        data: None,
+    })?;
+    Ok(Some(
+        items
+            .into_iter()
+            .filter(|item| !item.trim().is_empty())
+            .collect(),
+    ))
+}
+
 pub(super) fn dispatch(
     method: &str,
     params: &Option<Value>,
@@ -44,21 +64,20 @@ pub(super) fn dispatch(
                 data: None,
             })?;
             let caller_tab = body.get("caller_tab_id").and_then(|v| v.as_str());
-            let goal = Goal {
-                vector: get_string_param(params, "vector")?.replace('\n', " "),
+            // Absent key means "not mentioned" and is kept; a present key sets the
+            // field, including to empty. A caller passing only --vector used to
+            // wipe the vision, constraints and postulates it never named.
+            let patch = GoalPatch {
+                vector: body
+                    .get("vector")
+                    .and_then(|v| v.as_str())
+                    .map(|value| value.replace('\n', " ")),
                 vision: body
                     .get("vision")
                     .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                constraints: body
-                    .get("constraints")
-                    .and_then(|v| serde_json::from_value(v.clone()).ok())
-                    .unwrap_or_default(),
-                postulates: body
-                    .get("postulates")
-                    .and_then(|v| serde_json::from_value(v.clone()).ok())
-                    .unwrap_or_default(),
+                    .map(str::to_string),
+                constraints: string_list_field(body, "constraints")?,
+                postulates: string_list_field(body, "postulates")?,
             };
             let mut created_team = None;
             let id = match super::plan_refs::resolve_plan(store, params) {
@@ -68,12 +87,19 @@ pub(super) fn dispatch(
                         .map(|tab| svc.tab_has_pending_paired_planner(tab))
                         .unwrap_or(false) =>
                 {
+                    // A plan minted here has no goal to keep fields from, so the
+                    // vector is mandatory — refused BEFORE the plan is created,
+                    // never after, or the refusal leaves a plan behind.
+                    if patch.vector.is_none() {
+                        return Err(plan_rpc_err(PlanError::GoalVectorRequired));
+                    }
                     let title = body
                         .get("title")
                         .and_then(|v| v.as_str())
                         .filter(|s| !s.trim().is_empty())
                         .map(str::to_string)
-                        .unwrap_or_else(|| goal.vector.clone());
+                        .or_else(|| patch.vector.clone())
+                        .unwrap_or_default();
                     let project = body
                         .get("project_path")
                         .and_then(|v| v.as_str())
@@ -108,11 +134,11 @@ pub(super) fn dispatch(
                 }
                 Err(err) => return Err(err),
             };
-            store
-                .set_goal(&id, goal, epoch_ms())
+            let goal = store
+                .patch_goal(&id, patch, epoch_ms())
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
-            let mut resp = json!({ "ok": true });
+            let mut resp = json!({ "ok": true, "goal": goal });
             if let Some(nudge) = store.get(&id).as_ref().and_then(|plan| {
                 crate::service::plan::hints::planner_ownership_nudge(plan, caller_tab)
             }) {

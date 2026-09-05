@@ -33,6 +33,7 @@ use std::time::{Duration, Instant};
 mod brief_tests;
 mod checkout_occupancy;
 mod dispatch_placement;
+mod lane_persist;
 mod lane_resolution_multirepo;
 mod lane_safety;
 mod qa_pass;
@@ -375,6 +376,7 @@ fn dispatch_response_never_claims_ready_before_event() {
             session_id: "session-worker".into(),
             lane: Some(provenance()),
         },
+        "/canonical/project",
         &[],
     );
     assert_eq!(event["kind"], "dispatch_ready");
@@ -489,7 +491,11 @@ fn explicit_canonical_cwd_is_an_orchestrator_checkout_choice() {
         std::fs::canonicalize(&resolved.spawn_cwd).unwrap(),
         std::fs::canonicalize(&project).unwrap()
     );
-    let lane = lane_metadata_for_dispatch(&TaskLaneMetadata::default(), &provenance);
+    let lane = lane_metadata_for_dispatch(
+        &TaskLaneMetadata::default(),
+        &provenance,
+        project.to_str().unwrap(),
+    );
     assert!(lane.worktree_path.is_none());
     assert!(lane.branch.is_none());
     assert!(lane.base.is_none());
@@ -506,7 +512,8 @@ fn lane_bootstrap_record_survives_isolated_dispatch_and_clears_on_canonical() {
     };
 
     let lane = provision_lane_for_test(project.to_str().unwrap(), "bootstrap-record").unwrap();
-    let isolated = lane_metadata_for_dispatch(&original, &lane.verify().unwrap());
+    let isolated =
+        lane_metadata_for_dispatch(&original, &lane.verify().unwrap(), project.to_str().unwrap());
     assert_eq!(isolated.bootstrap_links, original.bootstrap_links);
     assert_eq!(isolated.bootstrap_warnings, original.bootstrap_warnings);
     lane.cleanup().unwrap();
@@ -521,7 +528,7 @@ fn lane_bootstrap_record_survives_isolated_dispatch_and_clears_on_canonical() {
     .unwrap()
     .existing
     .expect("canonical provenance");
-    let shared = lane_metadata_for_dispatch(&original, &canonical);
+    let shared = lane_metadata_for_dispatch(&original, &canonical, project.to_str().unwrap());
     assert!(shared.bootstrap_links.is_empty());
     assert!(shared.bootstrap_warnings.is_empty());
 }
@@ -1021,6 +1028,7 @@ fn launch_delivery_failure_restores_exact_original_task_and_attempt_state() {
                     lane_metadata_for_dispatch(
                         &original.lane,
                         provenance.as_ref().expect("repository provenance"),
+                        project.to_str().unwrap(),
                     ),
                     4,
                 )

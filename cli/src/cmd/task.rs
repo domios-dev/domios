@@ -296,6 +296,7 @@ pub(crate) fn print_task_result(json: bool, val: &Value, show_opts: Option<TaskS
         print_task_presentation(val);
         print_competition(task, plan, id);
         print_executor_role(task);
+        print_executor(task);
         print_task_routing(task);
         print_external_refs(task);
         if let Some(body) = task
@@ -553,6 +554,40 @@ fn executor_role_line(task: &Value) -> Option<String> {
 
 fn print_executor_role(task: &Value) {
     if let Some(line) = executor_role_line(task) {
+        println!("{line}");
+    }
+}
+
+/// The tab actually executing this task, and the mesh peer it runs on. Recorded
+/// structurally by `plan task assign --tab <id> [--mesh <peer>]`; rendered here
+/// so a mesh-staffed task stops carrying its executor in a free-text reason,
+/// which is a record with no reader.
+fn executor_line(task: &Value) -> Option<String> {
+    let field = |key: &str| {
+        task.get(key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    };
+    let tab = field("assigned_tab_id").or_else(|| {
+        task.get("lane")
+            .and_then(|lane| lane.get("tab_id"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    })?;
+    let mut line = format!("executor: tab {tab}");
+    if let Some(peer) = field("peer") {
+        line.push_str(&format!(" on peer {peer}"));
+    }
+    if let Some(role) = field("taken_by_role") {
+        line.push_str(&format!(" (role {role})"));
+    }
+    Some(line)
+}
+
+fn print_executor(task: &Value) {
+    if let Some(line) = executor_line(task) {
         println!("{line}");
     }
 }

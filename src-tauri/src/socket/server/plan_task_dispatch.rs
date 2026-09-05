@@ -20,15 +20,14 @@ use super::JsonRpcError;
 mod brief;
 mod dispatch_failure;
 mod gates;
+mod lane_commit;
 mod lane_resolution;
 pub(super) mod lane_safety;
 mod preflight;
 mod routing;
 mod workspace_admission;
 
-use super::safety_nudge::{
-    apply_safety_nudges, safety_incident_text, SafetyNudge, SAFETY_INCIDENT_KIND,
-};
+use super::safety_nudge::{safety_incident_text, SAFETY_INCIDENT_KIND};
 use crate::multiplexer::types::TabCloseReason;
 use brief::build_brief_with_manifest;
 #[cfg(test)]
@@ -38,6 +37,7 @@ use dispatch_failure::{
     DispatchFailureDisposition, DispatchWaitFailure,
 };
 use gates::dispatch_authorized_gates;
+use lane_commit::{dispatch_ready_event, lane_metadata_for_dispatch, DispatchEvidence};
 use lane_resolution::{checkout_required, invalid_dispatch, resolve_dispatch_lane};
 use lane_safety::{
     atomic_lane_commitment, dispatch_safety_nudges, preflight_checkout_occupancy,
@@ -90,37 +90,6 @@ fn verify_dispatched_task_binding(
              no plan or task was guessed. Resolved binding: {binding:?}"
         )),
     }
-}
-
-fn lane_metadata_for_dispatch(
-    original: &TaskLaneMetadata,
-    provenance: &WorkerLaneProvenance,
-) -> TaskLaneMetadata {
-    let mut lane = original.clone();
-    let recorded_worktree = original.worktree_path.as_deref().is_some_and(|recorded| {
-        crate::service::ServiceContext::paths_equal(recorded, &provenance.worktree_path)
-    });
-    if !recorded_worktree
-        && crate::service::ServiceContext::paths_equal(
-            &provenance.worktree_path,
-            &provenance.canonical_cwd,
-        )
-    {
-        lane.worktree_path = None;
-        lane.branch = None;
-        lane.base = None;
-        lane.cleanup_status = None;
-        lane.bootstrap_links = Vec::new();
-        lane.bootstrap_warnings = Vec::new();
-        return lane;
-    }
-    lane.worktree_path = Some(provenance.worktree_path.clone());
-    // A waived detached lane has no branch; record the absence so the advisory
-    // nudge fires instead of persisting an empty branch name.
-    lane.branch = (!provenance.branch.is_empty()).then(|| provenance.branch.clone());
-    lane.base = Some(provenance.base.clone());
-    lane.cleanup_status = None;
-    lane
 }
 
 fn task_launch_authority_for_dispatch(
@@ -199,12 +168,6 @@ fn close_tab_if_present(svc: &ServiceState, tab_id: &str) -> Result<(), String> 
     }
 }
 
-#[derive(Clone, Debug)]
-struct DispatchEvidence {
-    session_id: String,
-    lane: Option<WorkerLaneProvenance>,
-}
-
 fn apply_dispatch_starting_contract(
     result: &mut Value,
     tab_id: &str,
@@ -222,34 +185,6 @@ fn apply_dispatch_starting_contract(
     });
     result["tab_id"] = json!(tab_id);
     result["spawn"] = spawn_metadata;
-}
-
-fn dispatch_ready_event(
-    plan_id: &str,
-    task_id: &str,
-    tab_id: &str,
-    attempt_id: &str,
-    evidence: &DispatchEvidence,
-    nudges: &[SafetyNudge],
-) -> Value {
-    let mut event = json!({
-        "kind": "dispatch_ready",
-        "plan_id": plan_id,
-        "task_id": task_id,
-        "tab_id": tab_id,
-        "attempt_id": attempt_id,
-        "session_id": evidence.session_id,
-    });
-    if let Some(lane) = evidence.lane.as_ref() {
-        event["lane"] = json!({
-            "worktree_path": lane.worktree_path,
-            "branch": lane.branch,
-            "base": lane.base,
-            "canonical_project_path": lane.canonical_cwd,
-        });
-    }
-    apply_safety_nudges(&mut event, nudges);
-    event
 }
 
 fn should_provision_worker_lane(
@@ -384,6 +319,7 @@ pub(super) struct DispatchStartup {
     pub(super) original_task: Task,
     pub(super) original_plan_mode: crate::plan::PlanMode,
     pub(super) lane_for_commit: TaskLaneMetadata,
+    pub(super) canonical_project_path: String,
     pub(super) provenance: Option<WorkerLaneProvenance>,
     pub(super) provisioned_lane: Option<ProvisionedWorkerLane>,
     pub(super) lane_protection: LaneProtection,
@@ -434,7 +370,13 @@ impl DispatchStartup {
                 let lane_metadata = atomic_lane_commitment(
                     &lane
                         .as_ref()
-                        .map(|lane| lane_metadata_for_dispatch(&self.lane_for_commit, lane))
+                        .map(|lane| {
+                            lane_metadata_for_dispatch(
+                                &self.lane_for_commit,
+                                lane,
+                                &self.canonical_project_path,
+                            )
+                        })
                         .unwrap_or_else(|| {
                             let mut metadata = self.lane_for_commit.clone();
                             metadata.worktree_path = None;
@@ -514,6 +456,7 @@ impl DispatchStartup {
                         &self.tab_id,
                         &self.attempt_id,
                         &evidence,
+                        &self.canonical_project_path,
                         &nudges,
                     ),
                 );
@@ -989,7 +932,9 @@ pub(super) fn dispatch(
     let bootstrap_warnings = lane_for_commit.bootstrap_warnings.clone();
     let starting_lane = initial_provenance
         .as_ref()
-        .map(|provenance| lane_metadata_for_dispatch(&lane_for_commit, provenance))
+        .map(|provenance| {
+            lane_metadata_for_dispatch(&lane_for_commit, provenance, &canonical_cwd)
+        })
         .unwrap_or_else(|| {
             let mut lane = lane_for_commit.clone();
             lane.worktree_path = None;
@@ -1113,6 +1058,7 @@ pub(super) fn dispatch(
         original_task,
         original_plan_mode,
         lane_for_commit,
+        canonical_project_path: canonical_cwd.clone(),
         provenance: initial_provenance.clone(),
         provisioned_lane,
         lane_protection,

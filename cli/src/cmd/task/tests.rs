@@ -481,3 +481,53 @@ mod error_contract_tests {
         }
     }
 }
+
+mod executor_render_tests {
+    use crate::cmd::task::executor_line;
+    use serde_json::json;
+
+    /// A mesh-staffed task's executor is a field, not a sentence in a pause
+    /// reason. Asserted on the rendered fields, not on the surrounding phrasing.
+    #[test]
+    fn task_show_renders_a_mesh_executor_tab_and_peer() {
+        let line = executor_line(&json!({
+            "assigned_tab_id": "ed4cbff7",
+            "peer": "Mac-Air",
+            "taken_by_role": "infra-dev",
+            "lane": { "tab_id": "ed4cbff7" },
+        }))
+        .expect("an assigned task must render its executor");
+        assert!(line.contains("ed4cbff7"), "{line}");
+        assert!(line.contains("Mac-Air"), "{line}");
+        assert!(line.contains("infra-dev"), "{line}");
+    }
+
+    /// The lane binding alone is enough: an executor recorded there is still an
+    /// executor, and must not go unrendered.
+    #[test]
+    fn task_show_falls_back_to_the_lane_tab_binding() {
+        let line = executor_line(&json!({
+            "assigned_tab_id": null,
+            "lane": { "tab_id": "7f2a91b0" },
+        }))
+        .expect("a lane-bound executor must still render");
+        assert!(line.contains("7f2a91b0"), "{line}");
+    }
+
+    /// No executor recorded anywhere renders nothing, rather than a line
+    /// claiming an empty tab.
+    #[test]
+    fn task_show_renders_no_executor_when_none_is_recorded() {
+        assert!(executor_line(&json!({
+            "assigned_tab_id": null,
+            "peer": null,
+            "lane": { "tab_id": null },
+        }))
+        .is_none());
+        assert!(executor_line(&json!({
+            "assigned_tab_id": "   ",
+            "lane": { "tab_id": "" },
+        }))
+        .is_none());
+    }
+}
