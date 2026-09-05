@@ -317,7 +317,7 @@ impl fmt::Display for PlanError {
                 existing_title,
             } => write!(
                 f,
-                "team {team_id} already owns active plan {existing_plan_id} «{existing_title}»; a team binds 1:1 to a plan. Create or use another Team for this effort (spawn a new team-bound orchestrator), or archive/complete {existing_plan_id} first."
+                "team {team_id} already owns active plan {existing_plan_id} «{existing_title}»; a team binds 1:1 to a plan. Create or use another Team for this effort (spawn a new team-bound orchestrator), or archive {existing_plan_id} first."
             ),
             PlanError::PlanAlreadyBoundToTeam { plan_id, team_id } => write!(
                 f,
