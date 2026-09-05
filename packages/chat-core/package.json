@@ -1,6 +1,6 @@
 {
   "name": "@codeterm/chat-core",
-  "version": "1.10.11",
+  "version": "1.10.12",
   "private": true,
   "type": "module",
   "description": "Shared normalized chat contracts and helpers for CodeTerm providers.",

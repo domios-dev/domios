@@ -277,6 +277,53 @@ test("end-to-end: hook-driven pending_prompt survives reload as attention (not W
   assert(Boolean(next.tabs["p-1"].pending_prompt), "pending_prompt itself survives the snapshot merge");
 });
 
+// pending_prompt is a screen-scraped guess. Minting an action_needed toast per
+// false->true edge stacked unbounded alerts the bell never showed, because they
+// were only ever pushed into toasts and never into notifications.
+test("a tab gaining pending_prompt mints no attention toast", () => {
+  const promptedTab = {
+    id: "p-1",
+    pty_id: "pty-1",
+    title: "shell",
+    pending_prompt: { question: "Allow?", options: [{ label: "Yes", value: "1" }] },
+  } as unknown as Tab;
+  const withPrompt = {
+    ...snap(5, "w-new"),
+    tabs: { "p-1": promptedTab },
+  };
+  const next = reducer(base(), { type: "SET_STATE", state: withPrompt });
+  assert(next.toasts.length === 0, `no toast synthesized, got ${next.toasts.length}`);
+});
+
+test("a burst of toasts cannot strand its own overflow", () => {
+  const toast = (i: number) =>
+    ({ id: `t-${i}`, title: "x", body: "y", timestamp: i }) as unknown as Notification;
+  let state = base();
+  for (let i = 0; i < 40; i += 1) {
+    state = reducer(state, { type: "UPSERT_TOAST", toast: toast(i) });
+  }
+  assert(state.toasts.length <= 12, `queue stays bounded, got ${state.toasts.length}`);
+  assert(state.toasts[state.toasts.length - 1].id === "t-39", "the newest toast survives");
+});
+
+test("a toast awaiting an answer is never dropped to make room", () => {
+  const owed = {
+    id: "owed",
+    title: "question",
+    body: "pick one",
+    timestamp: 0,
+    actions: [{ type: "answer", label: "Yes" }],
+  } as unknown as Notification;
+  let state = reducer(base(), { type: "UPSERT_TOAST", toast: owed });
+  for (let i = 0; i < 40; i += 1) {
+    state = reducer(state, {
+      type: "UPSERT_TOAST",
+      toast: { id: `t-${i}`, title: "x", body: "y", timestamp: i + 1 } as unknown as Notification,
+    });
+  }
+  assert(state.toasts.some((t) => t.id === "owed"), "the unanswered question survives the cap");
+});
+
 test("SET_STATE drops a stale Waiting once pending_prompt clears and no fresh status is reported", () => {
   const withWaiting = {
     ...base(),

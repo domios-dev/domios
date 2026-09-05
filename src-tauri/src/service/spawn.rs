@@ -555,15 +555,19 @@ impl ServiceContext {
             None => task,
         });
         let confirmed_first_turn = if startup_supervised {
-            let prompt = crate::agent::provider::StarterPrompt::StartupHandshake;
-            let text = self
-                .agent_registry
-                .with_provider(&agent_cmd, |provider| provider.starter_prompt_text(prompt))
-                .flatten();
-            Some(crate::service::launch_delivery::mark_starter_prompt(
-                prompt,
-                text.unwrap_or_default(),
-            ))
+            crate::service::launch_delivery::startup_handshake_confirmed_first_turn(
+                native_starter_capable,
+            )
+            .map(|prompt| {
+                let text = self
+                    .agent_registry
+                    .with_provider(&agent_cmd, |provider| provider.starter_prompt_text(prompt))
+                    .flatten();
+                crate::service::launch_delivery::mark_starter_prompt(
+                    prompt,
+                    text.unwrap_or_default(),
+                )
+            })
         } else {
             match task_selection.confirmed_first_turn {
                 Some(

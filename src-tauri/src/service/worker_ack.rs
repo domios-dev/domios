@@ -29,6 +29,7 @@ const WORKER_ACK_FINAL_TIMEOUT: Duration = Duration::from_secs(COLD_START_DEADLI
 const AGENT_STARTUP_NOTICE_TIMEOUT: Duration = STARTUP_BINDING_DEADLINE;
 const AGENT_STARTUP_FINAL_TIMEOUT: Duration = Duration::from_secs(COLD_START_DEADLINE_SECS);
 const WORKER_ACK_REMINDER: &str = "The startup binding for this tab looks wrong. Check whether CODETERM_TASK_ID names a task with no live attempt or whether this session never bound. If the assignment is live, acknowledge it with codeterm agent ack.";
+pub(crate) const WORKER_ACK_CONTEXT: &str = "worker-ack";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum WorkerAckSignal {
@@ -986,8 +987,9 @@ impl ServiceContext {
 }
 
 fn worker_ack_reminder_message(tab_id: &str, attempt_id: &str) -> OutboundMessage {
-    let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder("worker-ack")
-        .id(Some(attempt_id.to_string()));
+    let envelope =
+        crate::service::messenger::MessageEnvelope::codeterm_reminder(WORKER_ACK_CONTEXT)
+            .id(Some(attempt_id.to_string()));
     OutboundMessage {
         target: tab_id.to_string(),
         body: MessageBody::Text {
