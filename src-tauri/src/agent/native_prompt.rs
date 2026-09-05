@@ -22,22 +22,15 @@ pub struct ResolvedPrompt {
 }
 
 /// Live-path resolution for a tab's pending-prompt card.
-/// A structured handle (push/API) wins; otherwise the structurally gated
-/// attributed-grid detector extracts the picker from the tab's own screen.
-/// Provenance is preserved through the resolution instead of being discarded.
+/// A structured handle (push/API) is the only live source; screen input is
+/// retained at this seam only to prove that it cannot create a prompt.
 pub fn resolve_pending_prompt(
     structured: Option<PendingPrompt>,
-    input: Option<&NativePromptInput>,
+    _input: Option<&NativePromptInput>,
 ) -> Option<ResolvedPrompt> {
-    if let Some(prompt) = structured {
-        return Some(ResolvedPrompt {
-            prompt,
-            explicit: true,
-        });
-    }
-    Some(ResolvedPrompt {
-        prompt: input.and_then(pending_prompt_from_input)?,
-        explicit: false,
+    structured.map(|prompt| ResolvedPrompt {
+        prompt,
+        explicit: true,
     })
 }
 
@@ -238,30 +231,27 @@ mod tests {
     }
 
     #[test]
-    fn live_resolution_surfaces_native_picker_for_captured_model_frames() {
-        // Stage oracle: the live path (output.rs → resolve_pending_prompt) must
-        // surface a picker the native detector already accepts when no
-        // structured handle produced one.
+    fn live_resolution_ignores_captured_model_picker_without_structured_handle() {
+        // Stage oracle: a detector-positive frame must not become a live prompt
+        // when output.rs → resolve_pending_prompt has no structured handle.
         for case in ["claude/model-picker-r3", "codex/model-picker-r3"] {
             let dir = snapshots_root().join(case);
             let input = input_from_cast(&dir);
-            let native = pending_prompt_from_input(&input).unwrap_or_else(|| {
-                panic!("{case}: precondition — the fingerprint accepts this frame")
-            });
-            let resolved = resolve_pending_prompt(None, Some(&input)).unwrap_or_else(|| {
-                panic!("{case}: live resolution dropped a detector-accepted picker")
-            });
-            assert_eq!(resolved.prompt, native, "{case}");
             assert!(
-                !resolved.explicit,
-                "{case}: a scrape must never be resolved as structured"
+                pending_prompt_from_input(&input).is_some(),
+                "{case}: precondition — the fingerprint accepts this frame"
+            );
+            assert!(
+                resolve_pending_prompt(None, Some(&input)).is_none(),
+                "{case}: a captured picker without a structured handle must not resolve"
             );
         }
     }
 
     #[test]
-    fn structured_prompt_wins_over_native_detection() {
+    fn structured_prompt_resolves_explicit_on_captured_model_frame() {
         let input = input_from_cast(&snapshots_root().join("claude/model-picker-r3"));
+        assert!(pending_prompt_from_input(&input).is_some());
         let structured = PendingPrompt {
             question: "structured handle".to_string(),
             options: Vec::new(),

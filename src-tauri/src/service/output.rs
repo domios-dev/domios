@@ -225,9 +225,8 @@ impl ServiceContext {
                 } else {
                     None
                 };
-                // Structured handles (SSE/API) win; the native attributed-grid detector
-                // is the PTY fallback. Resolution carries the provenance, so a scrape
-                // is never recorded as structured.
+                // Structured handles (SSE/API) are the only live prompt source;
+                // PTY screen input cannot create a pending prompt here.
                 let parsed = crate::agent::prompt::parse_prompt_safely(|| {
                     crate::agent::native_prompt::resolve_pending_prompt(
                         structured,
