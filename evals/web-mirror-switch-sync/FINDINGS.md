@@ -264,6 +264,51 @@ address it, and 0/5 on current code says the local shape does not reproduce
 that symptom at all. This bounds a defect the bench found, at its own
 boundary.
 
+## 1e. The per-tab output oracle, and why the mux oracle was the wrong surface
+
+Andrey's words were "loses sync with the CHAT UI". Every result above compares
+the mux store: tab set, focused tab, titles. None of them ever looked at what
+is behind a tab. `outputStream.ts`, `remoteChannelRecovery.ts` and
+`useChatSession` are in the assigned surface and the bench exercised none of
+them.
+
+That is a plausible reason the local shape reads 0/5: a tab list can stay
+perfectly converged while the terminal content behind it is stale or missing,
+and the second is what a user calls losing sync with the chat.
+
+`outputOracle.ts` subscribes through the product's own `subscribeTabOutput`
+and asks a different question: after a switch storm, does every tab's output
+that the daemon produced actually reach the client?
+
+**No PTY input is written.** Each tab prints its marker from its own startup
+command (`dc tab new --cmd "echo WMSMARK-..."`). PTY input delivery is a
+fragile path gated on explicit approval, and the output path is what this
+oracle is about; `POST /api/pty/{id}/write` is deliberately not used.
+
+The storm supplies the pressure without any input: a tab's first subscription
+this page lifetime sets its offset to 0 and forces the single shared
+multiplexed stream to reconnect (`subscribeTabOutput` -> `forceReconnect`), so
+rapid switching tears that one connection down repeatedly while every other
+tab is still streaming through it.
+
+A missing marker is only a mirror bug if the daemon actually has it, so
+`run.sh` cross-checks each reported loss with `dc tab get-text` and prints
+`MIRROR LOSS` or `not a mirror loss` per tab. Row columns: `output_tabs`,
+`output_missing`, `output_truncations`; verdict `output-loss:N`.
+
+Not yet run: it needs a dev window. If it fails where the mux oracle passed,
+that is the first real local reproduction and the discriminator list gets its
+first honest failing row.
+
+### A correction to what I reported earlier
+
+I told the Orchestrator the bench "fails any run whose `max_in_flight`
+exceeds 1". It did not. The `IN_FLIGHT_CEILING` constant was committed but the
+verdict never used it -- an edit whose anchor silently missed, and my
+verification grepped the constant's declaration rather than its use. The
+assertion is real now (`in-flight-ceiling:N`), and the lesson is that grepping
+for a symbol proves it exists, not that anything calls it.
+
 ## 2. Not established
 
 The cross-peer half **did not run**. Dev's mesh has no paired peers

@@ -8,6 +8,8 @@
  * The only timers are failure deadlines.
  */
 import { startMirror, assertDevOrigin, type Mirror } from "./mirror";
+import { createOutputOracle } from "./outputOracle";
+import { writeFileSync } from "node:fs";
 
 const FRAME_DEADLINE_MS = 30_000;
 /** Catch-up is a per-batch check, not a stream wait - a short bound keeps a
@@ -37,6 +39,11 @@ export interface ScenarioOptions {
   /** Origin switches (local <-> peer) to perform after the storm. Tests P1/P2
    *  in FINDINGS 4c. Requires a relay peer. */
   originSwitches: number;
+  /** tabId -> the marker that tab's startup command printed. When set, the
+   *  per-tab output oracle runs alongside the mux oracle. */
+  outputMarkers: Map<string, string> | null;
+  /** Where to write ids of tabs whose output never arrived, or null. */
+  lostOutputPath: string | null;
   relayPeer?: { id: string; name: string } | null;
 }
 
@@ -52,6 +59,9 @@ export interface RunRow {
   resync_fanout: number;
   mux_refetches: number;
   refetch_errors: number;
+  output_tabs: number;
+  output_missing: number;
+  output_truncations: number;
   max_in_flight: number;
   refetch_max_ms: number;
   client_gen: number;
@@ -75,6 +85,12 @@ async function api<T>(o: ScenarioOptions, method: string, path: string, body?: u
   if (!res.ok) throw new Error(`${method} ${path} -> HTTP ${res.status}`);
   const text = await res.text();
   return (text ? JSON.parse(text) : null) as T;
+}
+
+/** Tabs whose output never arrived, for run.sh to cross-check with
+ *  `dc tab get-text`: a client-side loss, not a tab that never printed. */
+function reportLostOutput(tabIds: string[], path: string): void {
+  writeFileSync(path, tabIds.map((id) => id + "\n").join(""));
 }
 
 const focusPath = (o: ScenarioOptions, tabId: string): string =>
@@ -145,7 +161,10 @@ function compare(mirror: Mirror, daemon: DaemonSnapshot): { diverged: boolean; k
 export async function runScenario(o: ScenarioOptions): Promise<RunRow> {
   assertDevOrigin(o.origin);
   const mirror = await startMirror({ origin: o.origin, token: o.token, relayPeer: o.relayPeer ?? null });
+  const oracle = o.outputMarkers ? await createOutputOracle() : null;
   try {
+    // Attach before the storm, as a browser with these tabs mounted would be.
+    if (oracle && o.outputMarkers) await oracle.attach([...o.outputMarkers.keys()]);
     await mirror.awaitStreamOpen(FRAME_DEADLINE_MS);
     await api(o, "POST", focusPath(o, o.tabIds[0]));
     await catchUp(mirror, o);
@@ -190,9 +209,15 @@ export async function runScenario(o: ScenarioOptions): Promise<RunRow> {
     await mirror.settle(FRAME_DEADLINE_MS);
 
     const daemon = await api<DaemonSnapshot>(o, "GET", "/api/mux/state");
-    const verdict = laggedBatches > 0
-      ? { diverged: true, kind: `generation-lag:${laggedBatches}` }
-      : compare(mirror, daemon);
+    const lostOutput = oracle && o.outputMarkers ? oracle.missing(o.outputMarkers) : [];
+    if (lostOutput.length > 0 && o.lostOutputPath) reportLostOutput(lostOutput, o.lostOutputPath);
+    const verdict = mirror.counters.maxInFlight > IN_FLIGHT_CEILING
+      ? { diverged: true, kind: `in-flight-ceiling:${mirror.counters.maxInFlight}` }
+      : lostOutput.length > 0
+        ? { diverged: true, kind: `output-loss:${lostOutput.length}` }
+        : laggedBatches > 0
+          ? { diverged: true, kind: `generation-lag:${laggedBatches}` }
+          : compare(mirror, daemon);
     const totalSwitches = o.switches + flood;
     return {
       origin: o.relayPeer ? "peer" : "local",
@@ -210,6 +235,9 @@ export async function runScenario(o: ScenarioOptions): Promise<RunRow> {
       resync_fanout: mirror.counters.resyncFanout,
       mux_refetches: mirror.counters.muxRefetches,
       refetch_errors: mirror.counters.refetchErrors,
+      output_tabs: o.outputMarkers?.size ?? 0,
+      output_missing: lostOutput.length,
+      output_truncations: oracle?.truncations() ?? 0,
       max_in_flight: mirror.counters.maxInFlight,
       refetch_max_ms: mirror.counters.refetchMaxMs,
       client_gen: mirror.state().generation,
@@ -218,6 +246,7 @@ export async function runScenario(o: ScenarioOptions): Promise<RunRow> {
       divergence_kind: verdict.kind,
     };
   } finally {
+    oracle?.detach();
     mirror.stop();
   }
 }
