@@ -275,7 +275,8 @@ mod tests {
 
         assert!(
             !dirs.contains(&production_dir),
-            "test isolation must refuse the ambient production dir, got {dirs:?}"
+            "test isolation must refuse the ambient production dir, got {:?}",
+            dirs
         );
         assert_eq!(
             dirs,

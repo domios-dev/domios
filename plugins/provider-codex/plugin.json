@@ -1,7 +1,7 @@
 {
   "id": "codex",
-  "version": "1.10.11",
-  "minCodeterm": "1.10.11",
+  "version": "1.10.12",
+  "minCodeterm": "1.10.12",
   "hostApi": 2,
   "displayName": "Codex",
   "binaryName": "codex",

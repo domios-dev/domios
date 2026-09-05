@@ -807,8 +807,10 @@ async fn sender_transport_failure_reports_the_same_vocabulary_as_the_receiver() 
             std::future::pending::<()>().await;
         }
     });
-    let stalled_client =
-        crate::mesh::transport::PeerClient::new_unauthenticated(&addr.ip().to_string(), addr.port());
+    let stalled_client = crate::mesh::transport::PeerClient::new_unauthenticated(
+        &addr.ip().to_string(),
+        addr.port(),
+    );
     let stalled_err = stalled_client
         .send_relay(&probe_cmd)
         .await
@@ -844,7 +846,10 @@ async fn sender_transport_failure_reports_the_same_vocabulary_as_the_receiver() 
             bytes_written
         );
         assert!(
-            response.error.as_deref().is_some_and(|e| e.starts_with(code)),
+            response
+                .error
+                .as_deref()
+                .is_some_and(|e| e.starts_with(code)),
             "leads with the code, never a bare HTTP status: {:?}",
             response.error
         );

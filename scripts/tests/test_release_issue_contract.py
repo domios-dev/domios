@@ -232,20 +232,33 @@ class ReleaseIssueContractTest(unittest.TestCase):
             second = self.run_contract("plan-close", "--resolved-file", str(resolved_path), "--states-file", str(states_path), "--version", "1.8.0")
             self.assertEqual(json.loads(second.stdout), [])
 
-    def test_issue_mutation_is_after_verified_publication(self):
+    def test_publishing_workflow_mutates_no_issue(self):
+        """Publication and issue mutation live in different workflows now, so the
+        publisher's half of the ordering guarantee is that it closes nothing."""
         workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
-        publish = workflow.index("- name: Publish (private archive + public mirror + signed latest.json)")
+        self.assertIn("- name: Publish (private archive + public mirror + signed latest.json)", workflow)
+        self.assertNotIn("gh issue close", workflow)
+        self.assertNotIn("- name: Close shipped public issues", workflow)
+
+    def test_issue_mutation_is_after_verified_publication(self):
+        workflow = (ROOT / ".github" / "workflows" / "release-manifest-validate.yml").read_text(encoding="utf-8")
+        gate = workflow.index("- name: Check matrix completion signal")
         verify = workflow.index("- name: Verify published public mirror")
+        boundary = workflow.index("- name: Mint issue closure boundary")
         resolve = workflow.index("- name: Resolve included private source public issues")
         close = workflow.index("- name: Close shipped public issues")
-        self.assertLess(publish, verify)
-        self.assertLess(verify, resolve)
+        self.assertLess(gate, verify)
+        self.assertLess(verify, boundary)
+        self.assertLess(boundary, resolve)
         self.assertLess(resolve, close)
+        for start in (verify, boundary, resolve, close):
+            step = workflow[start:workflow.index("shell: bash", start)]
+            self.assertIn("if: steps.matrix.outputs.ready == 'true'", step)
         close_step = workflow[close:]
         self.assertNotIn("if: always()", close_step)
         self.assertNotIn("continue-on-error", close_step)
-        self.assertIn("--repo rollacode/codeterm-releases", close_step)
-        self.assertNotIn("gh issue close \"$number\" \\\n+              --repo \"$GITHUB_REPOSITORY\"", close_step)
+        self.assertIn('--repo "$MIRROR_REPO"', close_step)
+        self.assertNotIn('--repo "$GITHUB_REPOSITORY"', close_step)
 
     def test_pr_validation_includes_commit_metadata(self):
         workflow = (ROOT / ".github" / "workflows" / "ready-for-release.yml").read_text(encoding="utf-8")

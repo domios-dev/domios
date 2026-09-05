@@ -174,7 +174,9 @@ mod tests {
 
         rotate(dir.path());
 
-        let extra = dir.path().join(format!("codeterm.log.{}", LOG_GENERATIONS + 1));
+        let extra = dir
+            .path()
+            .join(format!("codeterm.log.{}", LOG_GENERATIONS + 1));
         assert!(!extra.exists(), "rotation must not create a new generation");
         assert_eq!(
             std::fs::read_to_string(dir.path().join("codeterm.log.1")).unwrap(),
