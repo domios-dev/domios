@@ -142,7 +142,7 @@ if [ -s "$LOST" ]; then
     [ -n "$lost_tab" ] || continue
     want="${MARKERS#*${lost_tab}=}"
     want="${want%%,*}"
-    if dc tab get-text --tab "$lost_tab" ${WMS_PEER_NAME_FOR_CHECK:+--mesh "$WMS_PEER_NAME_FOR_CHECK"} 2>/dev/null | grep -q "$want"; then
+    if dc tab get-text --tab "$lost_tab" ${WMS_PEER_NAME_FOR_CHECK:+--mesh "$WMS_PEER_NAME_FOR_CHECK"} 2>/dev/null | grep -qE "${want}([^0-9]|$)"; then
       echo "    $lost_tab: daemon HAS $want, client did not receive it -> MIRROR LOSS"
     else
       echo "    $lost_tab: daemon does not have $want either -> not a mirror loss"

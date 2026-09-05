@@ -519,6 +519,60 @@ relay path is a round trip per event of the ring replay that follows. Fixing it
 means scoping the cursor key by origin the way `webApi.ts` already scopes the
 relay keys, and clearing it in `resetWebEvents()`.
 
+## 1i. P2 is FALSIFIED: output does follow an origin switch
+
+Run on Tor's `wms-peer-p2` (workspace db43c6b9, 12 tabs each printing its own
+`WMSMARK-P2-<n>` from a startup command), Mac-Air dev 4d5797d0c, six origin
+switches per run.
+
+| run | conc | rate | overflow/origin sw | refetch | err | inflight | out | seq gaps |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 4 | 26.7 Hz | 1.0 | 225 | 1 | 1 | **12/12** | 0 |
+| 2 | 4 | 23.1 Hz | 1.0 | 222 | 0 | 1 | **12/12** | 0 |
+
+**Prediction P2 was wrong.** I predicted from source that because
+`resetOutputStream()` is dead code -- one reference in the repository, its own
+definition -- an origin switch would leave the output stream attached to the
+previous origin and a peer tab's output would not reach the client. Every
+marker arrived, across six origin switches, in both runs.
+
+The dead code is still real. The predicted consequence is not, and the reason
+is that a peer tab's output never travels on the stream `resetOutputStream()`
+would have torn down: `subscribeTabOutput` routes a composite
+`mesh:<peer>/<tab>` id to `subscribeRemoteTabOutput`, a separate per-tab remote
+path with its own recovery. The shared local multiplexed stream is simply not
+involved, so failing to reset it costs the peer path nothing.
+
+`resetOutputStream()` remains uncalled and should be either wired up or
+deleted, but it is a tidiness question, not the sync defect I suspected.
+
+### The harness lesson, stated because it nearly became a false finding twice
+
+The first P2 attempt reported `out=0/12` with the daemon confirmed to hold
+every marker -- "MIRROR LOSS" on all twelve tabs. That was **my harness**: it
+subscribed with the peer's BARE tab ids, which `parseCompositeTabId` rejects,
+so `subscribeTabOutput` treated them as local, subscribed to the local
+multiplexed stream, and correctly received nothing for tabs that do not exist
+on this machine.
+
+That is the second time an `out=0/N` shape looked like a dramatic mirror
+failure and was mine -- the first was the process-lifetime buffer in 1e. Both
+were caught before being reported, both by asking what the harness would do
+differently from the product rather than by admiring the number. A total,
+uniform loss across every tab is the signature of a harness fault; a real
+mirror defect has been partial and scattered every time we have seen one.
+
+### Relay flakiness worth noting separately
+
+The first attempt aborted on `relay POST .../focus -> peer HTTP 502` at
+concurrency 8, and `refetch_errors` shows 1 on several cross-peer runs. The
+coalescer treats those as failures and the runs still converged, but the relay
+is not perfectly reliable under concurrent load. Not investigated here.
+
+Concurrency 4 produced **zero** silent seq gaps in these two runs, against six
+at concurrency 8 in the previous set -- directionally consistent with 1g,
+though two runs is not a rate.
+
 ## 2. Not established
 
 The cross-peer half **did not run**. Dev's mesh has no paired peers
