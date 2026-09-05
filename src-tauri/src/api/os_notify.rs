@@ -1,20 +1,7 @@
 //! OS-level toast notification helpers.
 //! Used by other handlers to surface notifications to the user via tauri-plugin-notification.
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use tauri_plugin_notification::{NotificationExt, PermissionState};
-
-/// Send an OS-level toast notification if the CodeTerm window is not focused.
-pub fn _send_os_notification_if_unfocused(app: &tauri::AppHandle, title: &str, body: Option<&str>) {
-    use tauri::Manager;
-    let is_focused = app
-        .get_webview_window("main")
-        .and_then(|w| w.is_focused().ok())
-        .unwrap_or(true);
-
-    if !is_focused {
-        _send_os_notification(app, title, body);
-    }
-}
 
 const PERMISSION_PROMPT: u8 = 0;
 const PERMISSION_GRANTED: u8 = 1;
@@ -303,12 +290,6 @@ pub fn _send_os_notification(app: &tauri::AppHandle, title: &str, body: Option<&
 
     // Fallback: custom WebviewWindow popup where the native toast cannot arrive.
     {
-        use std::sync::atomic::{AtomicBool, Ordering};
-        use tauri::Manager;
-
-        static NOTIF_ACTIVE: AtomicBool = AtomicBool::new(false);
-        static LAST_MSG: parking_lot::Mutex<String> = parking_lot::Mutex::new(String::new());
-
         let msg = format!("{}: {}", title, body.unwrap_or(""));
 
         {
@@ -319,62 +300,97 @@ pub fn _send_os_notification(app: &tauri::AppHandle, title: &str, body: Option<&
         }
         *LAST_MSG.lock() = msg.clone();
 
-        let title = title.to_string();
-        let body = body.unwrap_or("").to_string();
-        let app = app.clone();
+        // `swap` so the decision to reuse or build is taken once, and the popup
+        // is marked live before the main thread is asked to raise it.
+        let request = NotifRequest {
+            title: title.to_string(),
+            body: body.unwrap_or("").to_string(),
+            reuse_existing: NOTIF_ACTIVE.swap(true, Ordering::Relaxed),
+        };
+        raise_popup(app, request);
+    }
+}
 
-        if NOTIF_ACTIVE.load(Ordering::Relaxed) {
-            if let Some(win) = app.get_webview_window("codeterm-notif") {
-                let html = _build_notif_html(&title, &body);
-                let _ = win.eval(&format!(
-                    "document.open();document.write({});document.close();",
-                    serde_json::to_string(&html).unwrap_or_default()
-                ));
+/// What the main thread is handed to raise the popup.
+///
+/// Data only, and `Serialize` is what enforces that: a `WebviewWindow` field would
+/// fail to derive. A `Send` bound would not catch it — `tauri-runtime-wry` declares
+/// `unsafe impl Send for DispatcherMainThreadContext`, so a webview handle is
+/// `Send` while transitively holding tao's `!Send` `Rc<EventLoopRunner>`. Cloning
+/// or dropping one off the main thread is what aborted the daemon on 2026-09-05.
+#[derive(Debug, Clone, serde::Serialize)]
+pub(crate) struct NotifRequest {
+    pub(crate) title: String,
+    pub(crate) body: String,
+    pub(crate) reuse_existing: bool,
+}
+
+pub(crate) const NOTIF_WINDOW_LABEL: &str = "codeterm-notif";
+
+/// How long the popup stays up. The window dismisses itself from its own document
+/// timer, so no thread waits on it and no handle outlives the closure below.
+pub(crate) const NOTIF_DWELL_MS: u32 = 4000;
+
+fn document_write(html: &str) -> String {
+    format!(
+        "document.open();document.write({});document.close();",
+        serde_json::to_string(html).unwrap_or_default()
+    )
+}
+
+/// Every webview handle in this path is obtained, used and dropped inside this
+/// closure, on the main thread. The caller runs on a tokio worker, a socket
+/// thread or the updater runtime and never touches one.
+fn raise_popup(app: &tauri::AppHandle, request: NotifRequest) {
+    let poster = app.clone();
+    let app = app.clone();
+    let posted = poster.run_on_main_thread(move || {
+        use tauri::Manager;
+
+        let html = _build_notif_html(&request.title, &request.body);
+
+        if request.reuse_existing {
+            if let Some(win) = app.get_webview_window(NOTIF_WINDOW_LABEL) {
+                let _ = win.eval(&document_write(&html));
                 return;
             }
         }
 
-        NOTIF_ACTIVE.store(true, Ordering::Relaxed);
+        let (wa_x, wa_y, wa_w, wa_h) = _get_workarea();
+        let win_w = 320.0;
+        let win_h = _calc_notif_height(&request.body, win_w);
+        let margin = 16.0;
 
-        std::thread::spawn(move || {
-            let (wa_x, wa_y, wa_w, wa_h) = _get_workarea();
-            let win_w = 320.0;
-            let win_h = _calc_notif_height(&body, win_w);
-            let margin = 16.0;
-
-            let html = _build_notif_html(&title, &body);
-
-            if let Ok(win) = tauri::WebviewWindowBuilder::new(
-                &app,
-                "codeterm-notif",
-                tauri::WebviewUrl::App("about:blank".into()),
-            )
-            .title("")
-            .inner_size(win_w, win_h)
-            .position(wa_x + wa_w - win_w - margin, wa_y + wa_h - win_h - margin)
-            .decorations(false)
-            .resizable(false)
-            .always_on_top(true)
-            .skip_taskbar(true)
-            .build()
-            {
-                let _ = win.eval(&format!(
-                    "document.open();document.write({});document.close();",
-                    serde_json::to_string(&html).unwrap_or_default()
-                ));
-
-                let app_clone = app.clone();
-                std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_secs(4));
-                    if let Some(w) = app_clone.get_webview_window("codeterm-notif") {
-                        let _ = w.close();
+        match tauri::WebviewWindowBuilder::new(
+            &app,
+            NOTIF_WINDOW_LABEL,
+            tauri::WebviewUrl::App("about:blank".into()),
+        )
+        .title("")
+        .inner_size(win_w, win_h)
+        .position(wa_x + wa_w - win_w - margin, wa_y + wa_h - win_h - margin)
+        .decorations(false)
+        .resizable(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .build()
+        {
+            Ok(win) => {
+                // Cleared when the window is actually gone, not when a timer says so.
+                win.on_window_event(|event| {
+                    if matches!(event, tauri::WindowEvent::Destroyed) {
+                        NOTIF_ACTIVE.store(false, Ordering::Relaxed);
                     }
-                    NOTIF_ACTIVE.store(false, Ordering::Relaxed);
                 });
-            } else {
-                NOTIF_ACTIVE.store(false, Ordering::Relaxed);
+                let _ = win.eval(&document_write(&html));
             }
-        });
+            Err(_) => NOTIF_ACTIVE.store(false, Ordering::Relaxed),
+        }
+    });
+    // A dead event loop would otherwise leave the popup marked live forever, and
+    // the dedupe above would suppress every later notification.
+    if posted.is_err() {
+        NOTIF_ACTIVE.store(false, Ordering::Relaxed);
     }
 }
 
@@ -393,9 +409,11 @@ fn _build_notif_html(title: &str, body: &str) -> String {
         <span class="i">&#10035;</span>
         <div class="t">{}</div>
         <div class="b">{}</div>
+        <script>setTimeout(function(){{window.close()}},{})</script>
         </body></html>"#,
         title.replace('<', "&lt;").replace('>', "&gt;"),
         body.replace('<', "&lt;").replace('>', "&gt;"),
+        NOTIF_DWELL_MS,
     )
 }
 
@@ -461,3 +479,6 @@ fn _get_workarea() -> (f64, f64, f64, f64) {
         (0.0, 0.0, 1920.0, 1080.0)
     }
 }
+
+#[cfg(test)]
+mod tests;
