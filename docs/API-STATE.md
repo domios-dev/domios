@@ -49,11 +49,33 @@ Pluggable secret-store layer. Active backend is selected by `integrations.secret
 | POST | `/api/workspaces/{id}/tabs/{tab_id}/close` | — | Close a tab. |
 | POST | `/api/tabs/{id}/chat-view` | `{enabled}` | Toggle a tab's chat view flag. |
 | GET | `/api/mesh/peers/{id}/services` | — | Peer services view (same cache+failover as the Mesh tab). |
-| GET | `/api/events/stream` | — | SSE of system events (`data: {event_type, data}`) — mux/mesh/tab-status changes; the web bundle's `listen()`. |
+| GET | `/api/events/stream` | `?since=<boot>:<seq>` | SSE of system events (`data: {seq, boot, event_type, data}`) - mux/mesh/tab-status changes; the web bundle's `listen()`. `since` replays the retained ring then goes live; absent, it starts live. Loss is signalled by one `{event_type:"overflow"}` frame carrying `{reason: boot-changed|ring-evicted|lagged, boot, next_seq, oldest?}`, never by a silent gap. `?tab_id=` filters to one tab (the web mirror does not use it). |
 | GET | `/api/output/stream` | `?since=<b64url cursor>` | Multiplexed SSE: ONE connection carries every Tab's PTY output as tab-tagged frames (`{tab_id, output, offset}`, plus per-tab `{truncated, from}` on ring eviction, `{ended}` on genuine PTY death, and a one-shot `{boot_changed, boot}` on daemon restart), replacing the per-tab long-poll below. `since` is a b64url `{boot, tabs:{id:offset}}` cursor. Killswitch: browser localStorage `codeterm-web-output-stream=off` falls back to `/api/pty/{id}/read`. With a mesh relay target set, the browser instead streams via `/api/mesh/relay-stream?path=/api/output/stream` — same frames, same cursor. |
 | GET | `/api/pty/{id}/read` | — | Long-poll one chunk of PTY output (JSON byte array) — the browser terminal's read loop; fallback when the output-stream killswitch is off. |
 | POST | `/api/pty/{id}/write` | `{data}` | Write input to a PTY. |
 | POST | `/api/pty/{id}/resize` | `{cols, rows}` | Resize a PTY. |
+
+
+**Snapshot refetch cost and its bound.** `mux-state-changed` is a bare signal
+(`{"event":"mux_state_changed"}`), not a snapshot, so each one costs the client a
+full `GET /api/mux/state`: one refetch per event, measured 1:1 over 1405 switches.
+Bursts and the ring replay after an `overflow` therefore multiply, and the browser
+once held >1000 concurrent snapshot requests. The bundle now coalesces to **one
+snapshot fetch in flight** (`src/store/multiplexer/refreshCoalescer.ts`): a request
+arriving mid-fetch never joins it -- that fetch may predate the request's event --
+so it waits for the next one and a burst of any size costs at most two round trips.
+The daemon independently refuses past its own concurrency bound with `503`; that is
+back-pressure, not failure, and a client must retry on its next event rather than
+on a timer.
+
+**Known defect (`rollacode/codeterm#428` family).** The "never by a silent gap"
+guarantee above does not hold today. `EventBus::send_bus` allocates the seq under
+the ring lock but publishes to the broadcast after releasing it, so concurrent
+publishers can reach the bus out of order and `events_stream`'s monotonic
+`replayed_max` guard then drops the lower seq with no `overflow` frame. The ring
+still holds it in order, so a reconnect with `since` recovers it. Observed as 9
+silent seq holes in a 9739-frame 60 s capture at high publish rate, none at ~4.5x
+lower rate. The relay is not implicated: it copies bytes through unmodified.
 
 #### Debug (test-only capabilities)
 | Method | Path | Body / Query | Description |
@@ -211,4 +233,4 @@ The HTTP response returns immediately (`{"status": "updating", "version": "..."}
 
 Service registration, health, and activity: `codeterm docs API-SERVICES`. Bridge and cron integrations: `codeterm docs API-INTEGRATIONS`.
 
-<!-- revision: 12 -->
+<!-- revision: 13 -->
