@@ -402,6 +402,14 @@ impl PluginVm {
         self.sandbox.agent_commands_allowed()
     }
 
+    /// How many sandbox capabilities this plugin has been denied. Snapshot it
+    /// around a plugin call: a rise means the call failed because the plugin is
+    /// confined, which is a state a user has to be told about rather than a
+    /// gauge that quietly stops moving.
+    pub fn capability_denial_count(&self) -> u64 {
+        self.sandbox.denial_count()
+    }
+
     /// Record a host-supplied tab cwd as a sandbox read-root (no-op when unrestricted).
     pub fn grant_cwd_read_root(&self, cwd: &str) {
         self.sandbox.grant_cwd_read_root(cwd);

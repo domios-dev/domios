@@ -20,8 +20,8 @@ use serde::{Deserialize, Serialize};
 pub use capabilities::{Capabilities, ChatBackendCap, ChatPreprocessorCap, SecretBackendCap};
 pub use config::{
     resolve_hook_event_roster, substitute_template, unknown_template_placeholder, CommandsConfig,
-    CwdEncoding, IntegrationConfig, IntegrationKind, NetworkPermission, PermissionsConfig,
-    RuleConfig, SerdeBusySubmit, SerdeHookEventBinding, SerdeModelInfo,
+    CredentialConfig, CwdEncoding, IntegrationConfig, IntegrationKind, NetworkPermission,
+    PermissionsConfig, RuleConfig, SerdeBusySubmit, SerdeHookEventBinding, SerdeModelInfo,
     SerdeProviderReadinessStrategy, SerdeReadinessStrategy, SerdeReasoningEffortInfo,
     SerdeSessionIdInjection, SerdeSystemPromptDelivery, SerdeTaskDelivery, SerdeVerifySubmit,
     SessionsConfig, SkillsConfig, SpawnConfig, SubprocessPermission, TrustGrantConfig, UsageConfig,
@@ -81,6 +81,10 @@ pub struct PluginManifest {
     // Optional features (most providers leave these omitted)
     #[serde(default)]
     pub sessions: Option<SessionsConfig>,
+    /// Credential files the host reads on the plugin's behalf. Declaring one
+    /// also revokes the plugin's own `readFile` access to that exact file.
+    #[serde(default)]
+    pub credentials: Vec<CredentialConfig>,
     #[serde(default)]
     pub integration: Option<IntegrationConfig>,
     #[serde(default)]

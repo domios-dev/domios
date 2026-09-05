@@ -335,6 +335,49 @@ fn orchestrator_approval_atomically_activates_draft_graph() {
 
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
+fn planner_cannot_approve_draft() {
+    let (fixture, plan_id, planner, _) = fixture();
+
+    let result = fixture
+        .service
+        .approve_and_activate_plan(&plan_id, &planner, None, 3);
+
+    assert!(result.is_err());
+    let plan = fixture.service.plan_store.get(&plan_id).unwrap();
+    assert_eq!(plan.planning_state, PlanningState::Drafting);
+    assert_eq!(plan.mode, PlanMode::Planning);
+    assert!(plan.planning_log.is_empty());
+}
+
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+#[test]
+fn planner_cannot_add_orchestrator_heartbeat_learning() {
+    let (fixture, plan_id, planner, _) = fixture();
+
+    let result = fixture.service.add_orchestrator_heartbeat_learning(
+        &plan_id,
+        &planner,
+        "opaque-learning",
+        None,
+        3,
+    );
+
+    assert!(matches!(
+        result,
+        Err(OrchestratorLearningError::Authority(_))
+    ));
+    assert!(fixture
+        .service
+        .plan_store
+        .get(&plan_id)
+        .unwrap()
+        .heartbeat
+        .learnings
+        .is_empty());
+}
+
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+#[test]
 fn draft_execution_actions_and_mode_activation_fail_before_approval() {
     let (fixture, plan_id, _, owner) = fixture();
     let task_id = fixture

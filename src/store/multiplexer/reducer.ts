@@ -56,8 +56,8 @@ export type Action =
  * `pending_prompt` clears, so the key is simply absent from every future
  * snapshot) — e.g. a hook-driven attention prompt on a tab that hasn't
  * opened a real terminal yet. Any OTHER status (real Idle/Working/Dead, or a
- * re-affirmed "Waiting" from a genuine PTY-detected permission prompt) is
- * left untouched since the fresh snapshot explicitly carries it.
+ * re-affirmed "Waiting" status) is left untouched since the fresh snapshot
+ * explicitly carries it.
  */
 function reconcileTabStatuses(
   prev: Record<string, TabStatus>,

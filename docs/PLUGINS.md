@@ -120,6 +120,54 @@ can restore its own session; it decides what the host OFFERS and never authorize
 operation). Permissions are the confinement contract for the
 host API (subprocess allow-list, network allow-list, secrets access).
 
+### Filesystem, env, and credentials under confinement
+
+A plugin loaded from `~/.codeterm/plugins/` that is not verified `System` runs
+confined: reads and writes are scoped to its bundle dir, its data dir, temp, and
+**the provider home it declares** in `sessions.rootDir`. A provider that declares
+no root cannot read its own files, and the only symptom is a feature that stops
+working — declare the root.
+
+`host.envGet` refuses secret-looking names (`TOKEN`, `KEY`, `SECRET`, `AUTH`,
+`SESSION`, …) under confinement. That is a substring rule and cannot tell a
+host-set path from a credential, so host-provided non-secret variables are
+allowlisted by **exact name** in `HOST_PROVIDED_ENV`
+(`js_runtime/host_api.rs`). Never widen it to a prefix: `CODETERM_API_TOKEN`
+shares the `CODETERM_` prefix with every path variable on that list.
+
+A credential file is declared, never read by the plugin:
+
+```json
+"credentials": [
+  {
+    "id": "codexAuth",
+    "file": "~/.codex/auth.json",
+    "public": { "accountId": "tokens.account_id" },
+    "secret": { "accessToken": "tokens.access_token" }
+  }
+]
+```
+
+Declaring it **revokes** the plugin's own `readFile` on that exact path, even
+inside a declared read root. `host.credentialPublic("codexAuth")` returns the
+public fields as JSON; secret fields only ever reach an outbound request:
+
+```ts
+host.fetch(JSON.stringify({
+  url: "https://chatgpt.com/backend-api/wham/usage",
+  credential: { id: "codexAuth", headers: { Authorization: "Bearer {accessToken}" } },
+}));
+```
+
+The host fills the template and sends the request; the value never enters the VM,
+so a tampered bundle can at most spend the token against its own
+`network.allow` list.
+
+A denied read or env lookup is counted on the sandbox, and a provider call that
+fails while its denial count rises is reported as `capability_denied:` rather
+than as an upstream failure — that is what stops a confined provider from going
+quiet (`UsageFailureKind::CapabilityDenied` reaches the usage card).
+
 ## Capabilities and the methods they expect
 
 Every capability is one Rust trait + a `CapabilityRegistry<dyn Trait>` + a `Js*` adapter
@@ -668,4 +716,4 @@ share these consent, backup, merge, uninstall, and restore semantics.
      release the app first/together** (see "App + plugin ship together"). Test
      path: install the new app, then `codeterm plugin install <id>`.
 
-<!-- revision: 22 -->
+<!-- revision: 23 -->

@@ -8,15 +8,15 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 const MAX_PLAN_REMINDER_POLL_SECS: u64 = 60;
 
 #[derive(Debug, PartialEq, Eq)]
-enum PlanReminderTarget {
+pub(crate) enum PlanReminderTarget {
     Owner { plan_id: String },
     Worker,
 }
 
 #[derive(Debug, PartialEq, Eq)]
-struct TimedPlanReminderTarget {
-    tab_id: String,
-    target: PlanReminderTarget,
+pub(crate) struct TimedPlanReminderTarget {
+    pub(crate) tab_id: String,
+    pub(crate) target: PlanReminderTarget,
 }
 
 pub(crate) fn start_plan_reminder_scheduler(svc: ServiceState) {
@@ -168,7 +168,7 @@ impl ServiceContext {
             return Ok(());
         }
         let mut text = crate::service::plan::reminders::nudge_text(kind);
-        let text = match target {
+        let delivered = match target {
             PlanReminderTarget::Owner { plan_id } => {
                 if let Some(named) = self.aged_task_callout(plan_id) {
                     text.push_str("\n\n");
@@ -194,22 +194,28 @@ impl ServiceContext {
                         text = format!("{defer}\n\n{text}");
                     }
                 }
-                crate::service::orchestrator_digests::prepend_orchestrator_heartbeat(
-                    self,
-                    plan_id,
-                    Some(tab_id),
-                    &text,
+                crate::service::orchestrator_digests::deliver_orchestrator_notice_exact(
+                    self, plan_id, tab_id, "system", &text,
                 )
+                .map(|_| {
+                    self.record_kpi_event(
+                        tab_id,
+                        crate::agent::kpi_ledger::KpiEventKind::Nudge,
+                        text.len(),
+                    );
+                })
             }
-            PlanReminderTarget::Worker => self
-                .plan_store
-                .prepend_worker_charter_for_tab(tab_id, &text),
+            PlanReminderTarget::Worker => {
+                let text = self
+                    .plan_store
+                    .prepend_worker_charter_for_tab(tab_id, &text);
+                self.deliver_automated_plan_reminder(tab_id, &text)
+            }
         };
-        self.deliver_automated_plan_reminder(tab_id, &text)
-            .map(|()| {
-                self.plan_turn_counter
-                    .mark_reminder_content_delivered(tab_id, state_key, now);
-            })
+        delivered.map(|()| {
+            self.plan_turn_counter
+                .mark_reminder_content_delivered(tab_id, state_key, now);
+        })
     }
 
     fn ensure_plan_reminder_routable(&self, tab_id: &str) -> Result<(), String> {
@@ -302,7 +308,7 @@ fn current_epoch_secs() -> u64 {
         .as_secs()
 }
 
-fn timed_plan_reminder_targets(plans: &[Plan]) -> Vec<TimedPlanReminderTarget> {
+pub(crate) fn timed_plan_reminder_targets(plans: &[Plan]) -> Vec<TimedPlanReminderTarget> {
     let mut targets = BTreeMap::<String, PlanReminderTarget>::new();
     for plan in plans.iter().filter(|plan| {
         plan.status == PlanStatus::Active

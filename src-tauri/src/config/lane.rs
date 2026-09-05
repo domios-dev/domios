@@ -220,6 +220,19 @@ mod tests {
     }
 
     #[test]
+    fn lane_bootstrap_config_loads_this_repository_defaults() {
+        let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("src-tauri has a repository parent");
+        let loaded = load_repo_lane_config(repo_root);
+        assert_eq!(loaded.shared_directories, vec!["node_modules"]);
+        assert_eq!(
+            loaded.setup_command.as_deref(),
+            Some("pnpm install --frozen-lockfile")
+        );
+    }
+
+    #[test]
     fn lane_bootstrap_config_oversized_file_yields_no_bootstrap() {
         let dir = tempfile::tempdir().unwrap();
         let config_dir = dir.path().join(".codeterm");

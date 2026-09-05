@@ -1,7 +1,7 @@
 {
   "id": "claude",
-  "version": "1.10.12",
-  "minCodeterm": "1.10.12",
+  "version": "1.10.13",
+  "minCodeterm": "1.10.13",
   "hostApi": 2,
   "displayName": "Claude Code",
   "binaryName": "claude",
@@ -61,8 +61,7 @@
     {
       "id": "fable",
       "displayName": "Claude Fable",
-      "description": "Most capable for your hardest and longest-running tasks.",
-      "available": false
+      "description": "Most capable for your hardest and longest-running tasks."
     }
   ],
   "defaultModel": "sonnet",

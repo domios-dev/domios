@@ -83,6 +83,12 @@ pub(crate) struct RebindOutcome {
     pub resynced: bool,
 }
 
+#[derive(Debug)]
+pub(crate) enum OrchestratorLearningError {
+    Authority(String),
+    Store(PlanError),
+}
+
 /// Distinguish a same-session stale nonce from a foreign binding failure.
 fn binding_failure_class(
     tab: &Tab,
@@ -121,6 +127,29 @@ impl ServiceContext {
                 Err("only the live Plan Orchestrator has execution authority".into())
             }
         }
+    }
+
+    pub(crate) fn add_orchestrator_heartbeat_learning(
+        &self,
+        plan_id: &str,
+        caller: &AuthenticatedPlanCaller,
+        text: &str,
+        tag: Option<&str>,
+        now_ms: u64,
+    ) -> Result<crate::service::plan::heartbeat::HeartbeatLearnResult, OrchestratorLearningError>
+    {
+        self.authorize_plan_orchestrator(plan_id, caller)
+            .map_err(OrchestratorLearningError::Authority)?;
+        self.plan_store
+            .add_heartbeat_learning(
+                Some(plan_id),
+                caller.tab_id.as_deref(),
+                caller.session_id.as_deref(),
+                text,
+                tag,
+                now_ms,
+            )
+            .map_err(OrchestratorLearningError::Store)
     }
 
     pub(crate) fn authorize_draft_structure_mutation(
@@ -342,6 +371,38 @@ impl ServiceContext {
     }
 }
 
+/// Task fields a Planner may never write: status, assignment, and everything an
+/// execution attempt owns. Routing (executor_role/personality/role_guidance) is
+/// planning, not execution: a draft Planner writes it at task-add time.
+///
+/// Shared so the owner-epoch seam and the update handler bound Planner authority
+/// by the SAME list. A field added here narrows both, never one of them.
+pub(crate) const PLANNER_EXECUTION_FIELDS: &[&str] = &[
+    "status",
+    "status_label",
+    "lane",
+    "assign_tab",
+    "assigned_tab_id",
+    "tab",
+    "peer",
+    "personality_provenance",
+    "attempt",
+    "attempt_id",
+    "attempts",
+    "competition",
+    "review_stage",
+    "qa_state",
+];
+
+/// The execution field this body carries, if any. `None` means the body is
+/// structure-only and therefore inside durable Planner authority.
+pub(crate) fn planner_forbidden_task_field(body: &Value) -> Option<&'static str> {
+    PLANNER_EXECUTION_FIELDS
+        .iter()
+        .copied()
+        .find(|field| body.get(field).is_some_and(|value| !value.is_null()))
+}
+
 pub(crate) fn ensure_planner_task_fields_are_structural(
     author: &PlanningAuthor,
     body: &Value,
@@ -349,27 +410,7 @@ pub(crate) fn ensure_planner_task_fields_are_structural(
     if !matches!(author, PlanningAuthor::Planner { .. }) {
         return Ok(());
     }
-    // Routing (executor_role/personality/role_guidance) is planning, not
-    // execution: a draft Planner writes it at task-add time, like any brief field.
-    const EXECUTION_FIELDS: &[&str] = &[
-        "status",
-        "status_label",
-        "lane",
-        "assign_tab",
-        "assigned_tab_id",
-        "tab",
-        "personality_provenance",
-        "attempt",
-        "attempt_id",
-        "attempts",
-        "competition",
-        "review_stage",
-        "qa_state",
-    ];
-    let field = EXECUTION_FIELDS
-        .iter()
-        .find(|field| body.get(**field).is_some_and(|value| !value.is_null()));
-    match field {
+    match planner_forbidden_task_field(body) {
         Some(field) => Err(format!(
             "draft Planners may only edit structural and routing task fields; '{field}' requires the Plan Orchestrator"
         )),

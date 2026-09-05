@@ -113,6 +113,36 @@ then retry the task add. If you intentionally need a draft task, pass `--force`.
         "task_dispatch_requires_approval" => Some(format!(
             "✗ this plan is not approved for dispatch.\nfix: inspect and approve it before dispatching:\n  codeterm plan state {plan_id}\n  codeterm plan doctor {plan_id} --kind quality\n  codeterm plan approve {plan_id}"
         )),
+        "unauthorized_gate_claim" => {
+            let claimed = data
+                .get("claimed")
+                .and_then(|v| v.as_str())
+                .unwrap_or("<command>");
+            let authorized = data
+                .get("authorized_gates")
+                .and_then(|v| v.as_array())
+                .map(|gates| {
+                    gates
+                        .iter()
+                        .filter_map(|gate| gate.as_str())
+                        .map(|gate| format!("  {gate}"))
+                        .collect::<Vec<_>>()
+                        .join("
+")
+                })
+                .unwrap_or_default();
+            let listing = if authorized.is_empty() {
+                "this dispatch declared no gates, so no gate claim is accepted.".to_string()
+            } else {
+                format!("this dispatch authorized:
+{authorized}")
+            };
+            Some(format!(
+                "✗ gate '{claimed}' was not authorized for this attempt.
+{listing}
+fix: report only a declared gate, or ask the Orchestrator to dispatch with --authorized-gate '{claimed}'."
+            ))
+        }
         "active_plan_requires_team" => Some(format!(
             "✗ active plan '{plan_id}' requires a live Team.\nfix: codeterm team adopt-plan <team-id> {plan_id}"
         )),
@@ -197,7 +227,7 @@ Use spec/plan sections for plan rules or mem for durable preferences:\n\
             task_id.unwrap_or("<task_id>")
         )),
         "team_already_has_active_plan" => Some(format!(
-            "✗ team '{}' already owns active plan '{}'.\nfix: use another Team, or archive/complete the existing plan first.",
+            "✗ team '{}' already owns active plan '{}'.\nfix: use another Team, or archive the existing plan first.",
             data.get("team_id").and_then(|v| v.as_str()).unwrap_or("<team-id>"),
             data.get("existing_plan_id")
                 .and_then(|v| v.as_str())
@@ -252,6 +282,9 @@ Use spec/plan sections for plan rules or mem for durable preferences:\n\
                 task_id.unwrap_or("<task_id>")
             ))
         }
+        "goal_vector_required" => Some(format!(
+            "\u{2717} a plan goal must name its vector.\nfix: pass --vector; every field you omit is kept unchanged:\n  codeterm plan goal set {plan_id} --vector \"<the one sentence this plan steers by>\""
+        )),
         "review_oracle_scope_expansion" => Some(format!(
             "✗ correction review cannot expand the fixed acceptance oracle without new reproducible release-impact evidence.\nfix: record a P0 override to justify the scope change:\n  codeterm plan review override {plan_id} {} --owner <you> --reason \"<why>\" --reproduction \"<repro steps>\"",
             task_id.unwrap_or("<task_id>")
@@ -553,6 +586,49 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    /// Selected by `data.type`, and the rendered remedy carries the flag the
+    /// server named. Neither half asserts the refusal's prose.
+    #[test]
+    fn goal_vector_required_renders_the_flag_the_server_named() {
+        let message = render_plan_error(
+            &json!({ "type": "goal_vector_required", "remedy": { "flag": "--vector" } }),
+            &json!({ "plan_id": "plan_a" }),
+        )
+        .expect("goal_vector_required must have a remedy renderer");
+        assert!(message.contains("--vector"), "{message}");
+        assert!(
+            message.contains("codeterm plan goal set plan_a"),
+            "{message}"
+        );
+    }
+
+    /// The two review gates render distinct remedies, selected by their own
+    /// discriminants; a shared renderer would hide the wrong-gate defect again.
+    #[test]
+    fn the_two_review_gates_render_distinct_remedies() {
+        let context = json!({ "plan_id": "plan_a", "task_id": "task_b" });
+        let round = render_plan_error(
+            &json!({ "type": "review_round_exceeded", "round": 2, "max_rounds": 2 }),
+            &context,
+        )
+        .unwrap();
+        let scope = render_plan_error(
+            &json!({ "type": "review_oracle_scope_expansion" }),
+            &context,
+        )
+        .unwrap();
+        assert_ne!(
+            round, scope,
+            "the round bound and the oracle scope must not render the same refusal"
+        );
+        for message in [&round, &scope] {
+            assert!(
+                message.contains("codeterm plan review override plan_a task_b"),
+                "{message}"
+            );
+        }
+    }
+
     #[test]
     fn checkout_occupied_error_is_actionable() {
         let update_command = "codeterm plan task update plan_a task_b --worktree (Read-Host 'Existing isolated worktree path') --branch (Read-Host 'Existing isolated branch') --base (Read-Host 'Base ref')";
@@ -584,6 +660,24 @@ mod tests {
             "{message}"
         );
         assert!(message.contains("No worker was spawned"), "{message}");
+    }
+
+    #[test]
+    fn active_team_conflict_renderer_preserves_server_identity() {
+        let message = render_plan_error(
+            &json!({
+                "type": "team_already_has_active_plan",
+                "team_id": "team_alpha",
+                "existing_plan_id": "plan_existing",
+            }),
+            &json!({}),
+        )
+        .expect("team conflict renderer");
+
+        assert!(message.contains("team_alpha"), "{message}");
+        assert!(message.contains("plan_existing"), "{message}");
+        assert!(!message.contains("<team-id>"), "{message}");
+        assert!(!message.contains("<plan-id>"), "{message}");
     }
 
     #[test]

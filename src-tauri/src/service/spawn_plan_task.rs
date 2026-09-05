@@ -1,4 +1,6 @@
-//! Worker spawn binds a named plan task (`--plan-task`) to the new tab.
+//! Worker spawn binds a named plan task (`--plan-task`) to the new tab. A
+//! read-only Worker binds none: it verifies, owns no task, and carries only the
+//! gate tokens it was spawned with.
 
 use crate::multiplexer::types::TabCloseReason;
 use crate::service::plan::PlanStore;
@@ -12,11 +14,67 @@ pub(crate) fn worker_spawn_plan_task_ref(params: &SpawnAgentParams) -> Option<&s
         .filter(|s| !s.is_empty())
 }
 
+fn is_worker_spawn(params: &SpawnAgentParams) -> bool {
+    params.role.as_deref() == Some("Worker")
+}
+
+/// A Worker holds a task when the spawn names one, by either flag that can.
+fn worker_spawn_is_task_bound(params: &SpawnAgentParams) -> bool {
+    worker_spawn_plan_task_ref(params).is_some()
+        || params
+            .task_id
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|task_id| !task_id.is_empty())
+}
+
+/// The safeguard that survives the task-less shape: work that changes source
+/// still owns the task it changes it under. Read-only verification does not.
 pub(crate) fn validate_worker_plan_task_spawn(params: &SpawnAgentParams) -> Result<(), String> {
-    if worker_spawn_plan_task_ref(params).is_some() && params.role.as_deref() != Some("Worker") {
+    if worker_spawn_plan_task_ref(params).is_some() && !is_worker_spawn(params) {
         return Err("--plan-task is only valid with --role Worker".into());
     }
+    if !params.authorized_gates.is_empty() {
+        if !is_worker_spawn(params) {
+            return Err("authorized gates are only valid with --role Worker".into());
+        }
+        if worker_spawn_plan_task_ref(params).is_some() {
+            return Err(concat!(
+                "authorized gates are not carried by a task-bound spawn; declare them ",
+                "on the dispatch, where they are also enforced"
+            )
+            .into());
+        }
+    }
+    if is_worker_spawn(params)
+        && !worker_spawn_is_task_bound(params)
+        && params.execution_intent == Some(crate::plan::ExecutionIntent::Mutating)
+    {
+        return Err(concat!(
+            "a mutating Worker must own a task: pass --plan-task <task> (or --plan <id> ",
+            "--task-id <task>). A Worker that only verifies declares ",
+            "--execution-intent read_only and owns none."
+        )
+        .into());
+    }
     Ok(())
+}
+
+/// The declared gates are the whole scope a task-less verification Worker has,
+/// so they ride into its brief through the writer the dispatch path already
+/// uses rather than a second renderer that could drift from it.
+fn append_authorized_gates(params: &mut SpawnAgentParams) {
+    if params.authorized_gates.is_empty() {
+        return;
+    }
+    let gates = crate::service::plan::task_brief::render_authorized_gates(&params.authorized_gates);
+    let existing = params.task.take().unwrap_or_default();
+    let existing = existing.trim_end();
+    params.task = Some(if existing.is_empty() {
+        gates
+    } else {
+        format!("{existing}\n\n{gates}")
+    });
 }
 
 /// Reject a WIP-gate-blocked dispatch before any tab is provisioned, so
@@ -49,6 +107,7 @@ pub(crate) fn prepare_worker_plan_task_prompt(
     params: &mut SpawnAgentParams,
 ) -> Result<(), String> {
     let Some(task_ref) = worker_spawn_plan_task_ref(params) else {
+        append_authorized_gates(params);
         return Ok(());
     };
     let resolved = store
@@ -76,6 +135,7 @@ pub(crate) fn prepare_worker_plan_task_prompt(
         instruction.as_deref(),
         Some(&resolved.plan_id),
         &manifest,
+        &[],
     );
     params.plan_skill_manifest = Some(manifest);
     params.task = Some(brief);
@@ -497,6 +557,111 @@ mod tests {
         })
         .unwrap_err();
         assert!(err.contains("--plan-task"));
+    }
+
+    fn verifier(gates: &[&str]) -> SpawnAgentParams {
+        SpawnAgentParams {
+            role: Some("Worker".into()),
+            execution_intent: Some(crate::plan::ExecutionIntent::ReadOnly),
+            authorized_gates: gates.iter().map(|gate| gate.to_string()).collect(),
+            ..Default::default()
+        }
+    }
+
+    /// The documented verification Worker: read-only, no task of its own.
+    #[test]
+    fn validate_accepts_a_read_only_worker_that_owns_no_task() {
+        validate_worker_plan_task_spawn(&verifier(&[])).expect("no gates declared is still valid");
+        validate_worker_plan_task_spawn(&SpawnAgentParams {
+            plan_id: Some("pl_owner".into()),
+            ..verifier(&["./build.sh verify"])
+        })
+        .expect("a read-only Worker binds no task");
+    }
+
+    /// The safeguard that stays: source-changing work owns the task it changes
+    /// source under, so the lane and the review gate have something to hang on.
+    #[test]
+    fn validate_rejects_a_mutating_worker_that_owns_no_task() {
+        let error = validate_worker_plan_task_spawn(&SpawnAgentParams {
+            execution_intent: Some(crate::plan::ExecutionIntent::Mutating),
+            ..verifier(&[])
+        })
+        .expect_err("a mutating Worker must own a task");
+        assert!(error.contains("--plan-task"), "{error}");
+        assert!(error.contains("read_only"), "{error}");
+
+        validate_worker_plan_task_spawn(&SpawnAgentParams {
+            execution_intent: Some(crate::plan::ExecutionIntent::Mutating),
+            task_id: Some("task_owned".into()),
+            ..verifier(&[])
+        })
+        .expect("a task-bound mutating Worker is unchanged");
+    }
+
+    /// The mesh Worker: it changes source on a peer, but the origin plan store
+    /// is on another machine, so it declares no intent and owns no task. The
+    /// daemon a mesh spawn lands on is where that shape is finally admitted.
+    #[test]
+    fn validate_accepts_a_worker_that_declares_no_intent_and_owns_no_task() {
+        validate_worker_plan_task_spawn(&SpawnAgentParams {
+            role: Some("Worker".into()),
+            ..Default::default()
+        })
+        .expect("a Worker with no binding and no declared intent is a supported shape");
+    }
+
+    #[test]
+    fn validate_rejects_gates_a_spawn_cannot_enforce() {
+        let roleless = validate_worker_plan_task_spawn(&SpawnAgentParams {
+            role: None,
+            ..verifier(&["./build.sh verify"])
+        })
+        .expect_err("gates are a Worker concept");
+        assert!(roleless.contains("--role Worker"), "{roleless}");
+
+        let task_bound = validate_worker_plan_task_spawn(&SpawnAgentParams {
+            plan_task: Some("spawn-bind".into()),
+            ..verifier(&["./build.sh verify"])
+        })
+        .expect_err("a task-bound spawn declares gates on the dispatch");
+        assert!(task_bound.contains("dispatch"), "{task_bound}");
+    }
+
+    /// The gates a verifier was scoped to must reach it, through the same
+    /// writer the plan-task dispatch path uses.
+    #[test]
+    fn declared_gates_reach_a_task_less_worker_brief() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, _plan_id, _) = store_with_task(dir.path());
+        let mut params = SpawnAgentParams {
+            task: Some("Verify the merged lane.".into()),
+            ..verifier(&["./build.sh test-one app verifier", "./build.sh verify"])
+        };
+
+        prepare_worker_plan_task_prompt(&store, &mut params).unwrap();
+
+        let brief = params.task.expect("the brief survives");
+        assert!(brief.starts_with("Verify the merged lane."), "{brief}");
+        let rendered = crate::service::plan::task_brief::render_authorized_gates(&[
+            "./build.sh test-one app verifier".to_string(),
+            "./build.sh verify".to_string(),
+        ]);
+        assert!(brief.ends_with(&rendered), "{brief}");
+    }
+
+    #[test]
+    fn a_task_less_worker_without_gates_keeps_its_brief_untouched() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, _plan_id, _) = store_with_task(dir.path());
+        let mut params = SpawnAgentParams {
+            task: Some("Verify the merged lane.".into()),
+            ..verifier(&[])
+        };
+
+        prepare_worker_plan_task_prompt(&store, &mut params).unwrap();
+
+        assert_eq!(params.task.as_deref(), Some("Verify the merged lane."));
     }
 
     fn block_review_wip(store: &PlanStore, plan_id: &str) {

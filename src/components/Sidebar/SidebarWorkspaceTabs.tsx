@@ -78,7 +78,7 @@ function newestActivePlansByTeam(
   return grouped;
 }
 
-interface TeamTabMember {
+export interface TeamTabMember {
   tab: Tab;
   index: number;
 }
@@ -93,9 +93,26 @@ const TEAM_MEMBER_ROLES = ["orchestrator", "planner", "worker"] as const;
 /// With no spawner inside, only an anchoring role can be placed: it takes no
 /// parent, so it is the door through which a stalled Team gets one.
 const BOOTSTRAP_ONLY_ROLES = ["orchestrator"] as const;
+/// A Team holds at most one live Orchestrator, so once it has one the role is
+/// not on offer — the daemon refuses it by code either way.
+const STAFFED_TEAM_ROLES = ["planner", "worker"] as const;
 
 function selectTeamStaffingManager(members: readonly TeamTabMember[]): string | null {
   return members.find(isEligibleTeamStaffingManager)?.tab.id ?? null;
+}
+
+/// Mirrors the daemon headcount: a removed Orchestrator is gone from the tab
+/// list and a dead one has had its agent identity cleared.
+function hasLiveOrchestrator(members: readonly TeamTabMember[]): boolean {
+  return members.some((member) => anchorsTeam(member.tab) && member.tab.agent_type != null);
+}
+
+export function addableTeamRoles(
+  members: readonly TeamTabMember[],
+  managerTabId: string | null,
+): readonly TeamMemberRole[] {
+  if (hasLiveOrchestrator(members)) return managerTabId ? STAFFED_TEAM_ROLES : [];
+  return managerTabId ? TEAM_MEMBER_ROLES : BOOTSTRAP_ONLY_ROLES;
 }
 
 export interface SidebarWorkspaceTabsProps {
@@ -449,7 +466,7 @@ export function SidebarWorkspaceTabs({
           onBeforeOpenPlan();
           openTeamPlanCanvas({ ...target, managerTabId });
         }}
-        addableRoles={managerTabId ? TEAM_MEMBER_ROLES : BOOTSTRAP_ONLY_ROLES}
+        addableRoles={addableTeamRoles(members, managerTabId)}
         onAddMember={onAddTeamMember
           ? (role, providerId, model) => onAddTeamMember(teamId, role, providerId, managerTabId, model)
           : undefined}

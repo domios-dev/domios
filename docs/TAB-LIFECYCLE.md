@@ -2,28 +2,30 @@
 
 CodeTerm keeps one append-only journal of every authoritative tab lifecycle
 transition. The journal is **telemetry**: a forensic record of what each launch
-committed and when. It is never consulted during session restore.
+committed and when. Normal session restore does not use it as authority.
 
-**Restore is unconditional.** Whatever tabs were open at shutdown come back
-exactly as persisted: agent tabs relaunch with their persisted provider session,
-plain shells come back as shells. No field is stripped, no proof is demanded,
-and no journal state — missing, mismatched, truncated, or absent — changes what
-a snapshot restores.
+**Tab restore is unconditional.** Whatever tabs were open at shutdown come
+back. A claimed PTY session re-establishes its provider only from its own
+provider session record; without unique ownership the restored tab remains a
+shell. Journal state — missing, mismatched, truncated, or absent — does not
+change that decision.
 
 ## The restore contract
 
 1. `sessions/last.json` is loaded and every tab it holds is rebuilt with its
-   persisted `agent_type`, `agent_session_id`, binding nonces, `role`,
+   persisted `agent_session_id`, binding nonces, `role`,
    `role_profile`, `team_id`, `parent_tab_id`, `can_spawn`, `depth`, model
    provenance, and chatBackend binding intact.
-2. An agent tab relaunches its provider with the persisted session
+2. A PTY agent tab resolves the unique provider whose store owns that tab's
+   claimed session id, then relaunches that provider with the session
    (`--resume`-style continuation; `commands::pty::spawn_pty` owns the choice).
-3. If the provider's session file no longer exists on disk, the relaunch falls
-   back to a fresh session — the tab still comes back, it just starts a new
-   provider conversation. This is the only restore-time downgrade, and it is
-   decided by the provider session file, never by the journal.
-4. Pre-journal snapshots (1.8.0-era and earlier) restore like everything else.
-   Lineage fields are optional telemetry, not an admission ticket.
+3. If a claimed session has no unique provider record, the tab comes back as a
+   shell with a null provider label. A snapshot with no claimed session may
+   still fresh-launch its explicitly persisted provider. Restore never chooses
+   a claimed session's provider from another tab, the newest session for a cwd,
+   or the journal.
+4. Pre-journal snapshots restore like everything else. Lineage fields are
+   optional telemetry, not an admission ticket.
 
 Role strings still pass through the literal legacy migration
 (`Orchestrator`/`Conductor` → Manager with the orchestrator kind); that is a
@@ -63,6 +65,9 @@ One JSON object per line, in journal order. Two record kinds:
   "authority":{"provider":"claude","session_id":"…","binding_nonce":"…",
                "role":"Manager","role_profile":"orchestrator",
                "team_id":"team_…","can_spawn":true,"depth":1},
+  "agent_type_write":{"origin":"spawn","new_provider":"claude",
+                       "session_id":"…","nonce_verified":true,"applied":true,
+                       "recorded_at":"2026-08-04T11:20:32Z"},
   "sealed_at":"2026-08-04T11:20:33Z"
 }}
 ```
@@ -98,6 +103,7 @@ affects only what the journal itself can report — it has no effect on restore.
 |--------------|---------|
 | `epoch_opened` | A launch operation begins. |
 | `provider_identity_committed` | Provider accepted for this operation. |
+| `agent_type_write` | Provider-label write audit: origin, previous/new/attempted provider, caller tab, claimed session, nonce verification, and whether it applied. Parser writes are diagnostic only. |
 | `session_bound` | Provider session bound and proven by the echoed launch nonce. |
 | `role_binding` | Role/profile/`can_spawn`/`depth` as committed. `role` absent means a role deliberately cleared. |
 | `team_binding` | Team and parent as committed. `team_id` absent means unbound. |
@@ -108,9 +114,9 @@ affects only what the journal itself can report — it has no effect on restore.
 
 Each transition is written by the code that commits the mutation, in the same
 operation that performs it. Nothing observes tab state afterwards and infers a
-transition from it. Only PTY transport commits lifecycle transitions;
-`open_lifecycle_epoch` refuses chatBackend tabs, so those tabs have no journal
-history.
+transition from it. Only PTY transport commits authoritative lifecycle
+transitions. Provider-label writes without an open lifecycle operation use a
+detached audit key and cannot produce a checkpoint.
 
 ### Checkpoints
 
@@ -126,7 +132,8 @@ The journal is bounded by explicit compaction, never by age:
 
 - Compaction triggers automatically past 4096 records, and can be performed
   directly through `TabLifecycleJournal::compact`.
-- It rewrites the file as one checkpoint per tab that has one, followed by the
+- It rewrites the file as one checkpoint per tab, a bounded 16-entry lineage
+  of prior identity checkpoints, the latest provider-label attempt, and the
   transitions belonging to operations no checkpoint covers.
 - Closed tabs leave nothing behind.
 - Replaying a compacted journal reaches exactly the checkpoints replaying the
@@ -188,9 +195,10 @@ transaction, so the intermediate state is never observable.
 ## Not in scope
 
 - **Tab creation** is not journaled; the first `epoch_opened` marks its lifecycle.
-- **chatBackend lifecycle commits do not exist.** No chatBackend path opens a
-  lifecycle operation, so those tabs have no journal history.
+- **chatBackend lifecycle authority does not exist.** Those tabs may have
+  detached provider-label audit records, but no lifecycle operation or
+  checkpoint.
 - **Rollback to a named checkpoint** is not implemented. The journal records
   history; it does not replay it.
 
-<!-- revision: 12 -->
+<!-- revision: 13 -->

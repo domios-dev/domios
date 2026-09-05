@@ -467,9 +467,10 @@ fn validate_task_status_transition_for(
 }
 
 pub mod agent_lifecycle;
+pub mod goal_ops;
 #[cfg(test)]
 mod in_progress_executor_tests;
-mod plan_ops;
+pub mod plan_ops;
 pub mod task_ops;
 #[cfg(test)]
 mod team_close_transaction_tests;

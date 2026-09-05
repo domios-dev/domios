@@ -9,33 +9,86 @@ use crate::service::ServiceContext;
 const CLEANUP_SOFT_LIMIT: usize = 5;
 const CLEANUP_CRITICAL_LIMIT: usize = 10;
 
-pub fn prepend_orchestrator_heartbeat(
+pub fn deliver_orchestrator_notice_exact(
     svc: &ServiceContext,
     plan_id: &str,
-    tab_id: Option<&str>,
+    requested_target: &str,
+    context: &str,
     text: &str,
-) -> String {
-    let Some(plan) = svc.plan_store.get(plan_id) else {
-        return text.to_string();
-    };
-    if crate::service::plan::heartbeat::is_plan_complete(&plan) {
-        return text.to_string();
-    }
-    let digest_lines = collect_digest_lines(svc, &plan, tab_id);
-    let injected =
-        svc.plan_store
-            .prepend_heartbeat_for_plan_with_digests(plan_id, text, &digest_lines);
-    if let Some(tab_id) = tab_id {
-        let heartbeat_bytes = injected.len().saturating_sub(text.len());
-        if heartbeat_bytes > 0 {
-            svc.record_kpi_event(
-                tab_id,
-                crate::agent::kpi_ledger::KpiEventKind::Heartbeat,
-                heartbeat_bytes,
-            );
+) -> Result<crate::service::messenger::Delivery, String> {
+    let plan = svc.plan_store.get(plan_id).ok_or("plan not found")?;
+    let owner = plan
+        .owner
+        .tab_id
+        .as_deref()
+        .ok_or("plan owner has no local delivery target")?;
+    deliver_exact_role_target("orchestrator", plan_id, owner, requested_target, |target| {
+        let injected = if crate::service::plan::heartbeat::is_plan_complete(&plan) {
+            text.to_string()
+        } else {
+            let digest_lines = collect_digest_lines(svc, &plan, Some(owner));
+            svc.plan_store
+                .prepend_heartbeat_for_plan_with_digests(plan_id, text, &digest_lines)
+        };
+        let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder(context);
+        let result = svc.gateway_deliver(
+            target,
+            envelope,
+            &injected,
+            crate::service::message_gateway::DeliveryClass::SystemNotice,
+        );
+        if result.is_ok() {
+            let heartbeat_bytes = injected.len().saturating_sub(text.len());
+            if heartbeat_bytes > 0 {
+                svc.record_kpi_event(
+                    owner,
+                    crate::agent::kpi_ledger::KpiEventKind::Heartbeat,
+                    heartbeat_bytes,
+                );
+            }
         }
+        result
+    })
+}
+
+pub(crate) fn deliver_exact_role_target<T>(
+    role: &str,
+    plan_id: &str,
+    intended_target: &str,
+    requested_target: &str,
+    deliver: impl FnOnce(&str) -> Result<T, String>,
+) -> Result<T, String> {
+    if intended_target != requested_target {
+        log::warn!(
+            "[plan-role-delivery] plan={} role={} intended_target={} actual_target=none outcome=refused requested_target={}",
+            plan_id,
+            role,
+            intended_target,
+            requested_target
+        );
+        return Err(format!(
+            "{role} payload target mismatch: intended {intended_target}, requested {requested_target}"
+        ));
     }
-    injected
+    let result = deliver(intended_target);
+    match &result {
+        Ok(_) => log::info!(
+            "[plan-role-delivery] plan={} role={} intended_target={} actual_target={} outcome=delivered",
+            plan_id,
+            role,
+            intended_target,
+            intended_target
+        ),
+        Err(error) => log::warn!(
+            "[plan-role-delivery] plan={} role={} intended_target={} actual_target={} outcome=failed error={}",
+            plan_id,
+            role,
+            intended_target,
+            intended_target,
+            error
+        ),
+    }
+    result
 }
 
 fn collect_digest_lines(svc: &ServiceContext, plan: &Plan, tab_id: Option<&str>) -> Vec<String> {
@@ -200,7 +253,9 @@ fn now_epoch_secs() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::cleanup_pressure_line;
+    use std::cell::RefCell;
+
+    use super::{cleanup_pressure_line, deliver_exact_role_target};
 
     #[test]
     fn cleanup_pressure_thresholds_are_soft_then_critical() {
@@ -213,5 +268,41 @@ mod tests {
             cleanup_pressure_line("Worker", 11, "clean").as_deref(),
             Some("CRITICAL Worker pressure: 11 active; clean before dispatching more")
         );
+    }
+
+    #[test]
+    fn owner_undeliverable_heartbeat_never_reaches_planner() {
+        let attempts = RefCell::new(Vec::new());
+        let result = deliver_exact_role_target(
+            "orchestrator",
+            "plan-one",
+            "owner-tab",
+            "owner-tab",
+            |target| {
+                attempts.borrow_mut().push(target.to_string());
+                Err::<(), _>("owner undeliverable".to_string())
+            },
+        );
+
+        assert!(result.is_err());
+        assert_eq!(attempts.into_inner(), vec!["owner-tab"]);
+    }
+
+    #[test]
+    fn owner_heartbeat_refuses_a_planner_target_before_delivery() {
+        let attempts = RefCell::new(Vec::new());
+        let result = deliver_exact_role_target(
+            "orchestrator",
+            "plan-one",
+            "owner-tab",
+            "planner-tab",
+            |target| {
+                attempts.borrow_mut().push(target.to_string());
+                Ok(())
+            },
+        );
+
+        assert!(result.is_err());
+        assert!(attempts.into_inner().is_empty());
     }
 }

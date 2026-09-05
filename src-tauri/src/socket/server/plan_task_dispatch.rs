@@ -19,27 +19,33 @@ use super::JsonRpcError;
 
 mod brief;
 mod dispatch_failure;
+mod gates;
+mod lane_commit;
 mod lane_resolution;
 pub(super) mod lane_safety;
+mod preflight;
 mod routing;
+mod workspace_admission;
 
-use super::safety_nudge::{
-    apply_safety_nudges, safety_incident_text, SafetyNudge, SAFETY_INCIDENT_KIND,
-};
+use super::safety_nudge::{safety_incident_text, SAFETY_INCIDENT_KIND};
 use crate::multiplexer::types::TabCloseReason;
 use brief::build_brief_with_manifest;
 #[cfg(test)]
 pub(super) use brief::{build_brief, build_brief_with_personality};
 use dispatch_failure::{
-    dispatch_startup_failed_event, dispatch_wait_failed, DispatchFailureDisposition,
-    DispatchWaitFailure,
+    cleanup_succeeded, dispatch_startup_failed_event, dispatch_wait_failed,
+    DispatchFailureDisposition, DispatchWaitFailure,
 };
+use gates::dispatch_authorized_gates;
+use lane_commit::{dispatch_ready_event, lane_metadata_for_dispatch, DispatchEvidence};
 use lane_resolution::{checkout_required, invalid_dispatch, resolve_dispatch_lane};
 use lane_safety::{
     atomic_lane_commitment, dispatch_safety_nudges, preflight_checkout_occupancy,
     refuse_unsafe_mutating_write,
 };
+use preflight::{preflight_dispatch_task_status, preflight_review_capacity};
 use routing::{dispatch_worker_identity, resolve_dispatch_routing, unqualified_model_error};
+use workspace_admission::preflight_dispatch_workspace;
 
 fn owned_str(p: Option<&Value>, key: &str) -> Option<String> {
     p.and_then(|x| x.get(key))
@@ -69,27 +75,6 @@ fn dispatch_failed(stage: &str, message: String) -> JsonRpcError {
     }
 }
 
-fn preflight_review_capacity(plan: &crate::plan::Plan, task: &Task) -> Result<(), PlanError> {
-    crate::service::plan::review_gate::validate_dispatch_review_capacity(plan, task)
-}
-
-fn preflight_dispatch_task_status(plan_id: &str, task: &Task) -> Result<(), JsonRpcError> {
-    if task.status != crate::plan::TaskStatus::Paused {
-        return Ok(());
-    }
-    let fix = format!("codeterm plan task resume {plan_id} {}", task.id);
-    Err(JsonRpcError {
-        code: -32602,
-        message: format!("task '{}' is paused\nfix: {fix}", task.id),
-        data: Some(json!({
-            "type": "invalid_task_dispatch",
-            "stage": "task_status",
-            "reason": "task is paused",
-            "fix": fix,
-        })),
-    })
-}
-
 fn verify_dispatched_task_binding(
     store: &crate::service::plan::PlanStore,
     plan_id: &str,
@@ -105,37 +90,6 @@ fn verify_dispatched_task_binding(
              no plan or task was guessed. Resolved binding: {binding:?}"
         )),
     }
-}
-
-fn lane_metadata_for_dispatch(
-    original: &TaskLaneMetadata,
-    provenance: &WorkerLaneProvenance,
-) -> TaskLaneMetadata {
-    let mut lane = original.clone();
-    let recorded_worktree = original.worktree_path.as_deref().is_some_and(|recorded| {
-        crate::service::ServiceContext::paths_equal(recorded, &provenance.worktree_path)
-    });
-    if !recorded_worktree
-        && crate::service::ServiceContext::paths_equal(
-            &provenance.worktree_path,
-            &provenance.canonical_cwd,
-        )
-    {
-        lane.worktree_path = None;
-        lane.branch = None;
-        lane.base = None;
-        lane.cleanup_status = None;
-        lane.bootstrap_links = Vec::new();
-        lane.bootstrap_warnings = Vec::new();
-        return lane;
-    }
-    lane.worktree_path = Some(provenance.worktree_path.clone());
-    // A waived detached lane has no branch; record the absence so the advisory
-    // nudge fires instead of persisting an empty branch name.
-    lane.branch = (!provenance.branch.is_empty()).then(|| provenance.branch.clone());
-    lane.base = Some(provenance.base.clone());
-    lane.cleanup_status = None;
-    lane
 }
 
 fn task_launch_authority_for_dispatch(
@@ -214,12 +168,6 @@ fn close_tab_if_present(svc: &ServiceState, tab_id: &str) -> Result<(), String> 
     }
 }
 
-#[derive(Clone, Debug)]
-struct DispatchEvidence {
-    session_id: String,
-    lane: Option<WorkerLaneProvenance>,
-}
-
 fn apply_dispatch_starting_contract(
     result: &mut Value,
     tab_id: &str,
@@ -237,34 +185,6 @@ fn apply_dispatch_starting_contract(
     });
     result["tab_id"] = json!(tab_id);
     result["spawn"] = spawn_metadata;
-}
-
-fn dispatch_ready_event(
-    plan_id: &str,
-    task_id: &str,
-    tab_id: &str,
-    attempt_id: &str,
-    evidence: &DispatchEvidence,
-    nudges: &[SafetyNudge],
-) -> Value {
-    let mut event = json!({
-        "kind": "dispatch_ready",
-        "plan_id": plan_id,
-        "task_id": task_id,
-        "tab_id": tab_id,
-        "attempt_id": attempt_id,
-        "session_id": evidence.session_id,
-    });
-    if let Some(lane) = evidence.lane.as_ref() {
-        event["lane"] = json!({
-            "worktree_path": lane.worktree_path,
-            "branch": lane.branch,
-            "base": lane.base,
-            "canonical_project_path": lane.canonical_cwd,
-        });
-    }
-    apply_safety_nudges(&mut event, nudges);
-    event
 }
 
 fn should_provision_worker_lane(
@@ -399,6 +319,7 @@ pub(super) struct DispatchStartup {
     pub(super) original_task: Task,
     pub(super) original_plan_mode: crate::plan::PlanMode,
     pub(super) lane_for_commit: TaskLaneMetadata,
+    pub(super) canonical_project_path: String,
     pub(super) provenance: Option<WorkerLaneProvenance>,
     pub(super) provisioned_lane: Option<ProvisionedWorkerLane>,
     pub(super) lane_protection: LaneProtection,
@@ -449,7 +370,13 @@ impl DispatchStartup {
                 let lane_metadata = atomic_lane_commitment(
                     &lane
                         .as_ref()
-                        .map(|lane| lane_metadata_for_dispatch(&self.lane_for_commit, lane))
+                        .map(|lane| {
+                            lane_metadata_for_dispatch(
+                                &self.lane_for_commit,
+                                lane,
+                                &self.canonical_project_path,
+                            )
+                        })
                         .unwrap_or_else(|| {
                             let mut metadata = self.lane_for_commit.clone();
                             metadata.worktree_path = None;
@@ -529,6 +456,7 @@ impl DispatchStartup {
                         &self.tab_id,
                         &self.attempt_id,
                         &evidence,
+                        &self.canonical_project_path,
                         &nudges,
                     ),
                 );
@@ -599,7 +527,7 @@ impl DispatchStartup {
                             DispatchFailureDisposition::Survivor { attempt_finalized }
                         } else {
                             DispatchFailureDisposition::Cleanup {
-                                ok: stage != "compensation",
+                                ok: cleanup_succeeded(&stage, &reason),
                             }
                         },
                     ),
@@ -692,6 +620,7 @@ pub(super) fn dispatch(
 ) -> Result<Value, JsonRpcError> {
     let store = &svc.plan_store;
     let p = params.as_ref();
+    let authorized_gates = dispatch_authorized_gates(p)?;
     let (plan_id, task_id) = plan_refs::resolve_task(store, params)?;
     let detail = store
         .show_task(&task_id)
@@ -732,10 +661,17 @@ pub(super) fn dispatch(
 
     // Parent defaults to the dispatching (caller) tab, resolved server-side.
     let parent = owned_str(p, "parent_tab_id").or_else(|| owned_str(p, "caller_tab_id"));
+    let caller_tab_id = owned_str(p, "caller_tab_id");
     let parent_tab_id = parent
         .clone()
         .or_else(|| plan.owner.tab_id.clone())
         .ok_or_else(|| invalid_dispatch("dispatch requires a parent Orchestrator tab"))?;
+    preflight_dispatch_workspace(
+        svc,
+        owned_str(p, "workspace_id"),
+        parent.as_deref(),
+        caller_tab_id.as_deref(),
+    )?;
     let routing = resolve_dispatch_routing(
         owned_str(p, "agent"),
         owned_str(p, "model"),
@@ -824,10 +760,15 @@ pub(super) fn dispatch(
     let (explicit_persona, title_provenance) = dispatch_worker_identity(&detail.task);
     let manifest = crate::service::plan::plan_skills::plan_skill_manifest(store, &plan_id)
         .map_err(plan_rpc_err)?;
-    let brief = build_brief_with_manifest(&detail.task, &detail.sections, &plan_id, &manifest);
+    let brief = build_brief_with_manifest(
+        &detail.task,
+        &detail.sections,
+        &plan_id,
+        &manifest,
+        &authorized_gates,
+    );
 
     let explicit_cwd = owned_str(p, "cwd");
-    let caller_tab_id = owned_str(p, "caller_tab_id");
     let canonical_cwd = if plan.canonical_project_path.trim().is_empty() {
         plan.project_path.clone()
     } else {
@@ -991,7 +932,7 @@ pub(super) fn dispatch(
     let bootstrap_warnings = lane_for_commit.bootstrap_warnings.clone();
     let starting_lane = initial_provenance
         .as_ref()
-        .map(|provenance| lane_metadata_for_dispatch(&lane_for_commit, provenance))
+        .map(|provenance| lane_metadata_for_dispatch(&lane_for_commit, provenance, &canonical_cwd))
         .unwrap_or_else(|| {
             let mut lane = lane_for_commit.clone();
             lane.worktree_path = None;
@@ -1028,7 +969,7 @@ pub(super) fn dispatch(
         }
     };
     let tab_id = spawn.tab_id.clone();
-    let attempt_id = match store.begin_task_dispatch_with_reserved_attempt(
+    let attempt_id = match store.begin_task_dispatch_with_reserved_attempt_and_gates(
         &plan_id,
         &task_id,
         &tab_id,
@@ -1038,6 +979,7 @@ pub(super) fn dispatch(
         allowance,
         Some(&resolved_provider),
         &reserved_attempt_id,
+        authorized_gates.clone(),
         now,
     ) {
         Ok(attempt_id) => attempt_id,
@@ -1114,6 +1056,7 @@ pub(super) fn dispatch(
         original_task,
         original_plan_mode,
         lane_for_commit,
+        canonical_project_path: canonical_cwd.clone(),
         provenance: initial_provenance.clone(),
         provisioned_lane,
         lane_protection,
@@ -1128,6 +1071,7 @@ pub(super) fn dispatch(
         "task_id": task_id,
         "attempt_id": attempt_id,
         "agent": resolved_provider,
+        "authorized_gates": authorized_gates,
     });
     if let Some(provenance) = initial_provenance.as_ref() {
         result["lane"] = json!({

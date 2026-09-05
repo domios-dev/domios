@@ -73,6 +73,9 @@ pub(crate) struct SpawnAgentBody {
     task_id: Option<String>,
     #[serde(alias = "plan-task")]
     plan_task: Option<String>,
+    /// Gate tokens a task-less read-only Worker may claim as executed.
+    #[serde(default)]
+    authorized_gates: Vec<String>,
     execution_intent: Option<crate::plan::ExecutionIntent>,
     provider_reserve_pct: Option<f32>,
     workspace_id: Option<String>,
@@ -267,6 +270,7 @@ pub async fn spawn_agent(
         task_launch_authority: None,
         plan_skill_manifest: None,
         plan_task: body.plan_task,
+        authorized_gates: body.authorized_gates,
         execution_intent: body.execution_intent,
         provider_reserve_pct: body.provider_reserve_pct,
         workspace_id: body.workspace_id,
@@ -621,7 +625,7 @@ pub async fn submit_report(
             body.task_id.as_deref(),
             body.kind.as_deref(),
         )
-        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
     Ok(Json(serde_json::json!({
         "ok": true,
         "accepted": true,
@@ -844,13 +848,27 @@ pub async fn clear_prompt(
 pub async fn set_agent_type(
     AxumState(state): AxumState<AppState>,
     Path(tab_id): Path<String>,
+    headers: HeaderMap,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let agent_type = body
         .get("agent_type")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
-    state.svc.set_tab_agent_type(&tab_id, agent_type);
+    match agent_type {
+        Some(agent_type) => {
+            state.svc.write_tab_agent_type_with_origin(
+                &tab_id,
+                agent_type,
+                false,
+                crate::session::lifecycle::AgentTypeWriteOrigin::Ui,
+                crate::api::tab_routes::caller_tab_header(&headers).as_deref(),
+            );
+        }
+        None => {
+            state.svc.set_tab_agent_type(&tab_id, None);
+        }
+    }
     state.svc.emit_state_changed();
     Ok(Json(serde_json::json!({"ok": true})))
 }

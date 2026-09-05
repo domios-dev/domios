@@ -9,6 +9,7 @@ pub fn handle(client: &mut dyn RpcClient, json_output: bool, action: TeamAction)
         planner,
         workspace,
         title,
+        acknowledge_leaf,
     } = action
     {
         handle_pair(
@@ -18,6 +19,7 @@ pub fn handle(client: &mut dyn RpcClient, json_output: bool, action: TeamAction)
             &planner,
             workspace,
             title,
+            acknowledge_leaf,
         );
         return;
     }
@@ -81,8 +83,9 @@ fn handle_pair(
     planner: &str,
     workspace: Option<String>,
     title: Option<String>,
+    acknowledge_leaf: bool,
 ) {
-    let params = pair_params(orchestrator, planner, workspace, title);
+    let params = pair_params(orchestrator, planner, workspace, title, acknowledge_leaf);
     match client.call("orchestration.new", Some(params)) {
         Ok(value) if json_output => println!(
             "{}",
@@ -115,6 +118,7 @@ pub(crate) fn pair_params(
     planner: &str,
     workspace: Option<String>,
     title: Option<String>,
+    acknowledge_leaf: bool,
 ) -> Value {
     let (orchestrator_agent, orchestrator_model) = split_provider_model(orchestrator);
     let (planner_agent, planner_model) = split_provider_model(planner);
@@ -139,6 +143,9 @@ pub(crate) fn pair_params(
         if !spawner.is_empty() {
             params["spawned_by_tab_id"] = json!(spawner);
         }
+    }
+    if acknowledge_leaf {
+        params["leaf_creation_acknowledged"] = json!(true);
     }
     params
 }
@@ -303,10 +310,21 @@ mod tests {
 
     #[test]
     fn general_agent_team_guard_pair_params_carry_the_workspace_the_refusal_teaches() {
-        let params = pair_params("alpha", "beta", Some("ws_7".into()), None);
+        let params = pair_params("alpha", "beta", Some("ws_7".into()), None, false);
         assert_eq!(params["orchestrator_agent"], "alpha");
         assert_eq!(params["planner_agent"], "beta");
         assert_eq!(params["workspace_id"], "ws_7");
+    }
+
+    /// codeterm#400: the CLI must not silently declare leaf intent — the flag
+    /// carries through to the daemon only when the caller actually passed it.
+    #[test]
+    fn pair_params_omit_leaf_declaration_unless_the_flag_was_passed() {
+        let params = pair_params("alpha", "beta", None, None, false);
+        assert!(params.get("leaf_creation_acknowledged").is_none());
+
+        let params = pair_params("alpha", "beta", None, None, true);
+        assert_eq!(params["leaf_creation_acknowledged"], true);
     }
 
     #[test]

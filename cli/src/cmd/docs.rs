@@ -67,6 +67,26 @@ pub(crate) const DOCS: &[EmbeddedDoc] = &[
         "../../../docs/API-TABS.md"
     ),
     doc!(
+        "API-REPAIR",
+        "Tab identity repair REST contract",
+        "../../../docs/API-REPAIR.md"
+    ),
+    doc!(
+        "API-EVENTS",
+        "Event stream and full-state snapshot load contracts",
+        "../../../docs/API-EVENTS.md"
+    ),
+    doc!(
+        "API-PLAN",
+        "Plan surface contracts: task structure, goals, lanes, executors",
+        "../../../docs/API-PLAN.md"
+    ),
+    doc!(
+        "MESH-BRIDGE",
+        "Moving a bridge between mesh peers",
+        "../../../docs/MESH-BRIDGE.md"
+    ),
+    doc!(
         "API-INTEGRATIONS",
         "Bridge, hook, notification, and cron REST contracts",
         "../../../docs/API-INTEGRATIONS.md"

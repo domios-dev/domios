@@ -3,6 +3,8 @@
 
 use super::*;
 
+use super::staffing::prepare_team_member_spawn;
+
 use codeterm_types::team::general_agent_membership::GENERAL_AGENT_TEAM_MEMBERSHIP_VIOLATION;
 
 use crate::service::general_agent::identity::apply_general_agent_kind;

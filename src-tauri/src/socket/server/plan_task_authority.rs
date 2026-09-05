@@ -76,6 +76,38 @@ pub(super) fn is_plan_owner_authority_method(method: &str) -> bool {
     PLAN_OWNER_AUTHORITY_METHODS.contains(&method)
 }
 
+/// Verbs a bound Planner may drive on a task it does not own, because they carry
+/// nothing but structure. Closed on purpose and deliberately NOT the recovery or
+/// plan-owner lists: status, assignment, dispatch and approval are absent, so a
+/// verb added to those lists inherits no Planner authority from this one.
+pub(super) const PLANNER_STRUCTURE_METHODS: &[&str] = &["plan.task.update"];
+
+/// A bound Planner editing task structure. Its authority over structure is
+/// durable for the plan's whole life, so it must not lapse the moment a task is
+/// dispatched once and its owner epoch leaves zero — that was the accidental
+/// grant this seam used to give through the `owner_epoch == 0` short-circuit.
+///
+/// Bounded by the SAME field list the update handler enforces, so widening here
+/// cannot widen what a Planner may write.
+fn planner_may_edit_structure(
+    method: &str,
+    params: &Option<Value>,
+    svc: &ServiceState,
+    plan_id: &str,
+) -> bool {
+    if !PLANNER_STRUCTURE_METHODS.contains(&method) {
+        return false;
+    }
+    let body = params.as_ref().unwrap_or(&Value::Null);
+    if crate::service::planner_forbidden_task_field(body).is_some() {
+        return false;
+    }
+    matches!(
+        svc.classify_planning_caller(plan_id, &plan_caller(params)),
+        Ok(crate::plan::PlanningAuthor::Planner { .. })
+    )
+}
+
 /// Stable discriminants for task-authority refusals, carried as `data.type`.
 /// Gates and tests key off these so the prose stays free to change.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -225,6 +257,11 @@ pub(super) fn verify_owner_epoch_for_task_mutation(
         return Ok(());
     }
     if detail.task.interruption.owner_epoch == 0 {
+        return Ok(());
+    }
+    // Structure-only, so the live attempt is neither fenced nor retired: the
+    // Planner edits the brief around a Worker that keeps its ownership.
+    if planner_may_edit_structure(method, params, svc, &detail.plan_id) {
         return Ok(());
     }
     if plan_owner_may_recover(
@@ -378,5 +415,7 @@ fn rpc_error(message: impl ToString) -> JsonRpcError {
     }
 }
 
+#[cfg(test)]
+mod planner_authority_tests;
 #[cfg(test)]
 mod tests;

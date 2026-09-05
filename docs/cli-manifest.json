@@ -489,6 +489,16 @@
               "aliases": []
             },
             {
+              "name": "authorized-gate",
+              "positional": false,
+              "required": false,
+              "value_name": "GATE",
+              "possible_values": [],
+              "default": null,
+              "help": "Gate token this Worker may claim as executed; repeatable. Carried into its brief. For a task-bound Worker declare gates on the dispatch instead (`plan task dispatch --authorized-gate`)",
+              "aliases": []
+            },
+            {
               "name": "can-spawn",
               "positional": false,
               "required": false,
@@ -548,7 +558,7 @@
                 "mutating"
               ],
               "default": null,
-              "help": null,
+              "help": "Declared execution intent. `mutating` requires a task binding; `read_only` is also the task-less verification-Worker shape",
               "aliases": []
             },
             {
@@ -734,7 +744,7 @@
               "value_name": "TEAM_ID",
               "possible_values": [],
               "default": null,
-              "help": "Attach this roleless agent to an existing Team, mirroring `tab new --team`. The calling tab (CODETERM_TAB_ID) must already belong to that Team. Rejected together with --role or --plan-task: a role- or plan-bound agent takes its Team from that binding, never from here",
+              "help": "Attach this roleless agent to an existing Team, mirroring `tab new --team`. The calling tab (CODETERM_TAB_ID) must already belong to that Team. Rejected together with --plan-task, and with every --role but Orchestrator: a plan-bound agent takes its Team from that binding. `--team <id> --role Orchestrator` is the recovery add for a Team whose Orchestrator is gone and carries no other spawn flag",
               "aliases": []
             },
             {
@@ -6629,7 +6639,7 @@
           "subcommands": [
             {
               "name": "set",
-              "about": "Set the plan's goal vector, vision, constraints, and postulates",
+              "about": "Update the plan's goal; fields not passed keep their current value",
               "aliases": [],
               "args": [
                 {
@@ -6639,7 +6649,7 @@
                   "value_name": "CONSTRAINT",
                   "possible_values": [],
                   "default": null,
-                  "help": null,
+                  "help": "Replaces the constraint list; repeatable. Omit to keep, pass an empty value to clear",
                   "aliases": []
                 },
                 {
@@ -6669,17 +6679,17 @@
                   "value_name": "POSTULATE",
                   "possible_values": [],
                   "default": null,
-                  "help": null,
+                  "help": "Replaces the postulate list; repeatable. Omit to keep, pass an empty value to clear",
                   "aliases": []
                 },
                 {
                   "name": "vector",
                   "positional": false,
-                  "required": true,
+                  "required": false,
                   "value_name": "VECTOR",
                   "possible_values": [],
                   "default": null,
-                  "help": null,
+                  "help": "Goal vector; required the first time a goal is set. Every field you omit is kept",
                   "aliases": []
                 },
                 {
@@ -6731,6 +6741,44 @@
           "aliases": [],
           "args": [],
           "subcommands": [
+            {
+              "name": "close",
+              "about": "Explicitly close a declared group's reflection window, even before every task in it reaches `done`",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "key",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "KEY",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "note",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "NOTE",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "PLAN_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
             {
               "name": "set",
               "about": "Set the task groups / phases (CSV)",
@@ -10132,6 +10180,16 @@
                   "aliases": []
                 },
                 {
+                  "name": "authorized-gate",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "GATE",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Gate token the worker may claim as executed; repeatable",
+                  "aliases": []
+                },
+                {
                   "name": "cwd",
                   "positional": false,
                   "required": false,
@@ -13337,6 +13395,64 @@
           "subcommands": []
         },
         {
+          "name": "repair",
+          "about": "Repair a live tab's provider identity from verified session evidence",
+          "aliases": [],
+          "args": [
+            {
+              "name": "from-evidence",
+              "positional": false,
+              "required": false,
+              "value_name": "FROM_EVIDENCE",
+              "possible_values": [],
+              "default": null,
+              "help": "Derive provider and session from this tab's live evidence. This is the default",
+              "aliases": []
+            },
+            {
+              "name": "from-journal",
+              "positional": false,
+              "required": false,
+              "value_name": "FROM_JOURNAL",
+              "possible_values": [],
+              "default": null,
+              "help": "Restore the newest eligible journal identity backed by verified session evidence",
+              "aliases": []
+            },
+            {
+              "name": "provider",
+              "positional": false,
+              "required": false,
+              "value_name": "PROVIDER",
+              "possible_values": [],
+              "default": null,
+              "help": "Require the bound, nonce-verified session to belong to this provider",
+              "aliases": []
+            },
+            {
+              "name": "session",
+              "positional": false,
+              "required": false,
+              "value_name": "SESSION",
+              "possible_values": [],
+              "default": null,
+              "help": "Rebind this verified session and reassert its provider identity",
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "required": false,
+              "value_name": "TAB",
+              "possible_values": [],
+              "default": null,
+              "help": "Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "respond",
           "about": "Answer the tab's current provider-declared prompt by numbered option. Sends only when a pending prompt exists; use this instead of raw keys",
           "aliases": [],
@@ -13710,6 +13826,16 @@
           "about": "Create an Orchestrator + Planner Team in one action. The Plan stays unbound until the first goal",
           "aliases": [],
           "args": [
+            {
+              "name": "acknowledge-leaf",
+              "positional": false,
+              "required": false,
+              "value_name": "ACKNOWLEDGE_LEAF",
+              "possible_values": [],
+              "default": null,
+              "help": "Explicit \"I know I am a leaf and I am doing this deliberately\" declaration — required only when the calling tab holds a Manager or Worker role. Creation is then attributed to this tab, never to an intermediary shell",
+              "aliases": []
+            },
             {
               "name": "orchestrator",
               "positional": false,

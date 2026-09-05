@@ -176,16 +176,32 @@ pub(crate) fn worker_spawn_hints(
 }
 
 /// codeterm#305: fires exactly when `agent report` will later refuse for
-/// the same unbound reason.
-pub(crate) fn unbound_worker_binding_hint(is_worker: bool, bound: bool) -> Option<String> {
+/// the same unbound reason. A read-only verification Worker reaches the same
+/// state on purpose, so it is told what its shape means instead of being
+/// pointed at a binding it must not take.
+pub(crate) fn unbound_worker_binding_hint(
+    is_worker: bool,
+    bound: bool,
+    verification: bool,
+) -> Option<String> {
     if !is_worker || bound {
         return None;
+    }
+    if verification {
+        return Some(
+            "note: read-only verification Worker — it owns no task by design, so no isolated \
+             lane is provisioned, it can transition no task, and `agent report --status ...` \
+             will refuse. Report to the parent without --status, and run only the commands \
+             declared with --authorized-gate."
+                .to_string(),
+        );
     }
     Some(format!(
         "hint: {UNBOUND_WORKER_BINDING_ADVISORY} — no --plan-task (or --plan + --task-id) was \
          given. Consequences: no isolated lane is provisioned for this Worker, and `agent report \
          --status ...` will refuse at the end for want of the binding that was optional here. \
-         Bind now with --plan-task <task>, or report without --status until you assign one."
+         Bind now with --plan-task <task>, declare --execution-intent read_only for a \
+         verification Worker, or report without --status until you assign one."
     ))
 }
 
@@ -208,11 +224,21 @@ mod tests {
     /// codeterm#305: fires only for an unbound Worker, named by constant.
     #[test]
     fn unbound_worker_binding_hint_fires_only_for_an_unbound_worker() {
-        assert_eq!(unbound_worker_binding_hint(false, false), None);
-        assert_eq!(unbound_worker_binding_hint(true, true), None);
-        assert_eq!(unbound_worker_binding_hint(false, true), None);
-        let hint = unbound_worker_binding_hint(true, false).unwrap();
+        assert_eq!(unbound_worker_binding_hint(false, false, false), None);
+        assert_eq!(unbound_worker_binding_hint(true, true, false), None);
+        assert_eq!(unbound_worker_binding_hint(false, true, false), None);
+        let hint = unbound_worker_binding_hint(true, false, false).unwrap();
         assert!(hint.contains(UNBOUND_WORKER_BINDING_ADVISORY));
+    }
+
+    /// A verification Worker is unbound on purpose, so it must not be told to
+    /// go take a binding — the advisory belongs to the accidental case only.
+    #[test]
+    fn a_verification_worker_is_not_told_to_bind_a_task() {
+        let note = unbound_worker_binding_hint(true, false, true).unwrap();
+        assert!(!note.contains(UNBOUND_WORKER_BINDING_ADVISORY), "{note}");
+        assert!(note.contains("--authorized-gate"), "{note}");
+        assert_eq!(unbound_worker_binding_hint(true, true, true), None);
     }
 
     #[test]

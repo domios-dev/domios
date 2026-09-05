@@ -164,6 +164,15 @@
   margin-bottom: 10px;
   line-height: 1.3;
 }
+.ct-usage-stale-banner[data-usage-stale-cause="capability-denied"],
+.ct-usage-stale-banner[data-usage-stale-cause="probe-failed"] {
+  color: var(--u-danger, var(--u-neutral));
+  opacity: 1;
+}
+.ct-usage-stale-detail {
+  margin-top: 3px;
+  opacity: 0.85;
+}
 .ct-usage-popover .title {
   font-size: 11px;
   font-weight: 500;

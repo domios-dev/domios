@@ -53,7 +53,7 @@ pub async fn usage_latest(
     let row = state
         .svc
         .usage_store
-        .get_latest(&q.provider, q.account_id.as_deref())
+        .get_latest_with_stale_reason(&q.provider, q.account_id.as_deref())
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "usage latest failed"))?;
     Ok(Json(
         serde_json::to_value(row).unwrap_or(serde_json::json!(null)),

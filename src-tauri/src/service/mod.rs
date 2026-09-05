@@ -52,6 +52,7 @@ mod plan_authority;
 pub(crate) mod plan_batch_authority;
 mod plan_reconcile;
 pub mod plugin_host;
+pub(crate) mod provider_identity;
 pub mod provider_update;
 pub(crate) mod pty_activation;
 pub mod pty_io;
@@ -91,6 +92,7 @@ pub(crate) mod tab;
 pub mod tab_budget;
 pub mod tab_chat;
 pub(crate) mod tab_lifecycle;
+pub(crate) mod tab_repair;
 pub(crate) mod tab_session_binding;
 pub mod tab_transport;
 pub mod tab_transport_chat;
@@ -116,7 +118,7 @@ mod worker_lane;
 #[cfg(test)]
 pub(crate) use worker_lane::provision_lane_for_test;
 pub(crate) use worker_lane::{
-    provision_isolated_lane, verify_worker_lane, LaneProtection, ProvisionedWorkerLane,
+    provision_isolated_lane, same_path, verify_worker_lane, LaneProtection, ProvisionedWorkerLane,
     WorkerLaneProvenance,
 };
 mod worker_persona;
@@ -124,6 +126,7 @@ mod workspace;
 
 pub(crate) const AGENT_TAB_CLOSE_REFUSAL_PREFIX: &str = "workspace close refused";
 
+use std::fmt;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -162,7 +165,8 @@ pub use orchestrator::{
     SpawnIdentityProvenance, SpawnResult,
 };
 pub(crate) use plan_authority::{
-    ensure_planner_task_fields_are_structural, AuthenticatedPlanCaller,
+    ensure_planner_task_fields_are_structural, planner_forbidden_task_field,
+    AuthenticatedPlanCaller, OrchestratorLearningError,
 };
 pub(crate) use session_binding_state::SessionBindingState;
 pub(crate) use spawn_params::starter_prompt_for_role;
@@ -275,8 +279,8 @@ pub struct ServiceContext {
     /// Ephemeral cross-mesh pastebin. In-memory only; daemon restart wipes
     /// all pastes. 20-entry cap, oldest-first eviction, TTL≤24h. (#98)
     pub pasteboard: crate::pasteboard::PasteboardState,
-    /// Watches bytes about to be written to PTYs; promotes typed `claude/codex/
-    /// opencode ...<Enter>` lines to a locked `agent_type` on the tab.
+    /// Watches bytes about to be written to PTYs; a typed provider launch may
+    /// claim a bare shell, but never contradict a claimed session.
     pub input_parser: Arc<input_parser::InputParser>,
     pub usage_store: crate::usage::UsageStoreHandle,
     pub usage_activity: crate::usage::TabActivity,
@@ -826,6 +830,48 @@ pub(crate) fn publish_mux_state_changed(events: &crate::api::events::EventBroadc
 }
 
 // ── Shared data types ───────────────────────────────────────────────
+
+#[derive(Debug)]
+pub struct ReportSubmissionError {
+    pub code: i32,
+    pub message: String,
+    pub data: Option<serde_json::Value>,
+}
+
+#[cfg(test)]
+impl ReportSubmissionError {
+    pub(crate) fn contains(&self, needle: &str) -> bool {
+        self.message.contains(needle)
+    }
+}
+
+impl fmt::Display for ReportSubmissionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.message.fmt(f)
+    }
+}
+
+impl std::error::Error for ReportSubmissionError {}
+
+impl From<String> for ReportSubmissionError {
+    fn from(message: String) -> Self {
+        Self {
+            code: crate::service::plan::RPC_INTERNAL_ERROR,
+            message,
+            data: None,
+        }
+    }
+}
+
+impl From<crate::service::plan::PlanError> for ReportSubmissionError {
+    fn from(error: crate::service::plan::PlanError) -> Self {
+        Self {
+            code: error.rpc_code(),
+            message: error.to_string(),
+            data: Some(error.to_json()),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ReportResult {

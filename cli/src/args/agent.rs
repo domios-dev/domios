@@ -320,16 +320,25 @@ pub enum AgentAction {
         plan_task: Option<String>,
         /// Attach this roleless agent to an existing Team, mirroring `tab new
         /// --team`. The calling tab (CODETERM_TAB_ID) must already belong to
-        /// that Team. Rejected together with --role or --plan-task: a role- or
-        /// plan-bound agent takes its Team from that binding, never from here.
-        #[arg(long, value_name = "TEAM_ID", conflicts_with_all = ["role", "plan_task"])]
+        /// that Team. Rejected together with --plan-task, and with every --role
+        /// but Orchestrator: a plan-bound agent takes its Team from that
+        /// binding. `--team <id> --role Orchestrator` is the recovery add for a
+        /// Team whose Orchestrator is gone and carries no other spawn flag.
+        #[arg(long, value_name = "TEAM_ID", conflicts_with = "plan_task")]
         team: Option<String>,
-        #[arg(
-            long = "execution-intent",
-            value_parser = ["read_only", "mutating"],
-            requires = "plan_task"
-        )]
+        /// Declared execution intent. `mutating` requires a task binding;
+        /// `read_only` is also the task-less verification-Worker shape.
+        #[arg(long = "execution-intent", value_parser = ["read_only", "mutating"])]
         execution_intent: Option<String>,
+        /// Gate token this Worker may claim as executed; repeatable. Carried
+        /// into its brief. For a task-bound Worker declare gates on the
+        /// dispatch instead (`plan task dispatch --authorized-gate`).
+        #[arg(
+            long = "authorized-gate",
+            value_name = "GATE",
+            allow_hyphen_values = true
+        )]
+        authorized_gates: Vec<String>,
         #[arg(long = "provider-reserve-pct", default_value_t = 5.0)]
         provider_reserve_pct: f32,
         /// Declare the tab non-user-facing (bench/probe): its interactive
@@ -599,6 +608,77 @@ mod tests {
         }
     }
 
+    /// The verification-Worker spawn: read-only, no `--plan-task`, and its
+    /// declared gate tokens travel as repeats of the same flag the dispatch
+    /// path already uses.
+    #[test]
+    fn spawn_read_only_worker_parses_without_a_plan_task() {
+        let action = parse_spawn(&[
+            "codex",
+            "--role",
+            "Worker",
+            "--plan",
+            "pl_test",
+            "--execution-intent",
+            "read_only",
+            "--authorized-gate",
+            "./build.sh test-one app verifier",
+            "--authorized-gate",
+            "./build.sh verify",
+        ])
+        .expect("a read-only Worker needs no plan task");
+        match action {
+            AgentAction::Spawn {
+                role,
+                plan,
+                plan_task,
+                execution_intent,
+                authorized_gates,
+                ..
+            } => {
+                assert!(matches!(role, Some(SpawnRole::Worker)));
+                assert_eq!(plan.as_deref(), Some("pl_test"));
+                assert!(plan_task.is_none());
+                assert_eq!(execution_intent.as_deref(), Some("read_only"));
+                assert_eq!(
+                    authorized_gates,
+                    vec![
+                        "./build.sh test-one app verifier".to_string(),
+                        "./build.sh verify".to_string()
+                    ]
+                );
+            }
+            _ => panic!("expected agent spawn"),
+        }
+    }
+
+    /// The reported defect: clap demanded `--plan-task` for any
+    /// `--execution-intent`, so the documented verifier could not be spawned.
+    #[test]
+    fn execution_intent_no_longer_requires_a_plan_task_at_parse_time() {
+        let action = parse_spawn(&[
+            "codex",
+            "--role",
+            "Worker",
+            "--execution-intent",
+            "read_only",
+        ])
+        .expect("--execution-intent must parse on its own");
+        match action {
+            AgentAction::Spawn {
+                execution_intent,
+                plan,
+                plan_task,
+                ..
+            } => {
+                assert_eq!(execution_intent.as_deref(), Some("read_only"));
+                assert!(plan.is_none());
+                assert!(plan_task.is_none());
+            }
+            _ => panic!("expected agent spawn"),
+        }
+    }
+
     #[test]
     fn spawn_provider_args_preserve_hyphen_values_after_codeterm_bindings() {
         let action = parse_spawn(&[
@@ -726,14 +806,30 @@ mod tests {
     }
 
     #[test]
-    fn spawn_team_conflicts_with_role_and_plan_task() {
-        for args in [
-            vec!["claude", "--team", "team_alpha", "--role", "Worker"],
-            vec!["claude", "--team", "team_alpha", "--plan-task", "task_one"],
-        ] {
-            let error = parse_spawn(&args).expect_err("--team must not combine with a binding");
-            assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+    fn spawn_team_conflicts_with_plan_task() {
+        let error = parse_spawn(&["claude", "--team", "team_alpha", "--plan-task", "task_one"])
+            .expect_err("--team must not combine with a plan binding");
+        assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+    }
+
+    /// codeterm#418: the role that anchors a Team is the one `--role` `--team`
+    /// accepts, so a stranded Team can be handed a new Orchestrator. Every other
+    /// role is refused later, by code, not by clap.
+    #[test]
+    fn spawn_team_parses_with_an_anchoring_role() {
+        let parsed = parse_spawn(&["claude", "--team", "team_alpha", "--role", "Orchestrator"])
+            .expect("--team --role Orchestrator parses");
+        match parsed {
+            AgentAction::Spawn { team, role, .. } => {
+                assert_eq!(team.as_deref(), Some("team_alpha"));
+                assert!(matches!(role, Some(SpawnRole::Orchestrator)));
+            }
+            _ => panic!("expected agent spawn"),
         }
+        assert!(
+            parse_spawn(&["claude", "--team", "team_alpha", "--role", "Worker"]).is_ok(),
+            "a non-anchoring role parses and is refused by the spawn verb, not by clap"
+        );
     }
 
     #[test]
