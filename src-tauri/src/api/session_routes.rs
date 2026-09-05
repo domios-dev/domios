@@ -414,6 +414,7 @@ pub async fn resume_session_api(
         task_launch_authority: None,
         plan_skill_manifest: None,
         plan_task: None,
+        authorized_gates: Vec::new(),
         execution_intent: None,
         provider_reserve_pct: None,
         workspace_id: Some(ws_id.clone()),
