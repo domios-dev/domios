@@ -31,6 +31,9 @@ export interface ScenarioOptions {
    *  whose refetch count is directly comparable to its switch count - the
    *  measurement behind "one full state refetch per event". */
   skipOverflow: boolean;
+  /** Origin switches (local <-> peer) to perform after the storm. Tests P1/P2
+   *  in FINDINGS 4c. Requires a relay peer. */
+  originSwitches: number;
   relayPeer?: { id: string; name: string } | null;
 }
 
@@ -152,6 +155,20 @@ export async function runScenario(o: ScenarioOptions): Promise<RunRow> {
       await Promise.all(batch);
       if (!(await catchUp(mirror, o))) laggedBatches++;
     }
+    // Origin switches: tests P1 (one boot-changed overflow per switch) and
+    // P2 (output stream does not follow the origin). FINDINGS 4c.
+    let originSwitchOverflows = 0;
+    if (o.originSwitches > 0 && o.relayPeer) {
+      const before = mirror.overflows();
+      for (let i = 0; i < o.originSwitches; i++) {
+        const opens = mirror.streamOpens();
+        mirror.switchOrigin(i % 2 === 0 ? null : o.relayPeer);
+        await mirror.awaitStreamOpen(FRAME_DEADLINE_MS, opens + 1);
+        await catchUp(mirror, o);
+      }
+      originSwitchOverflows = mirror.overflows() - before;
+    }
+
     let flood = 0;
     if (!o.skipOverflow) {
       flood = await induceOverflow(mirror, o);
@@ -180,6 +197,10 @@ export async function runScenario(o: ScenarioOptions): Promise<RunRow> {
       switch_rate_hz: Number(((totalSwitches / elapsed) * 1000).toFixed(2)),
       overflow_fired: mirror.overflows(),
       overflow_reason: mirror.bootChanges() > 0 ? "boot-changed" : "ring-evicted",
+      origin_switches: o.originSwitches,
+      overflow_per_origin_switch: o.originSwitches > 0
+        ? Number((originSwitchOverflows / o.originSwitches).toFixed(2))
+        : 0,
       elapsed_ms: Math.round(elapsed),
       resync_fanout: mirror.counters.resyncFanout,
       mux_refetches: mirror.counters.muxRefetches,

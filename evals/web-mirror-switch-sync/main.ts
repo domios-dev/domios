@@ -5,7 +5,7 @@ import path from "node:path";
 import { runScenario, type RunRow } from "./scenario";
 
 const COLUMNS: Array<keyof RunRow> = [
-  "origin", "tabs", "concurrency", "switches", "switch_rate_hz", "overflow_fired", "overflow_reason",
+  "origin", "tabs", "concurrency", "switches", "switch_rate_hz", "overflow_fired", "overflow_reason", "origin_switches", "overflow_per_origin_switch",
   "elapsed_ms", "resync_fanout", "mux_refetches", "refetch_errors", "client_gen", "daemon_gen",
   "diverged", "divergence_kind",
 ];
@@ -25,6 +25,7 @@ void (async () => {
   const concurrency = Number(process.env.WMS_CONCURRENCY ?? "1");
   const runs = Number(process.env.WMS_RUNS ?? "5");
   const skipOverflow = process.env.WMS_SKIP_OVERFLOW === "1";
+  const originSwitches = Number(process.env.WMS_ORIGIN_SWITCHES ?? "0");
   const peerId = process.env.WMS_PEER_ID ?? "";
   const relayPeer = peerId ? { id: peerId, name: process.env.WMS_PEER_NAME ?? peerId } : null;
 
@@ -35,7 +36,7 @@ void (async () => {
 
   let failures = 0;
   for (let i = 0; i < runs; i++) {
-    const row = await runScenario({ origin, token, workspaceId, tabIds, switches, concurrency, skipOverflow, relayPeer });
+    const row = await runScenario({ origin, token, workspaceId, tabIds, switches, concurrency, skipOverflow, originSwitches, relayPeer });
     appendFileSync(tsv, `${COLUMNS.map((c) => String(row[c])).join("\t")}\n`);
     if (row.diverged) failures++;
     console.log(
