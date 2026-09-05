@@ -13,6 +13,7 @@
  */
 import { apiHost, currentToken, IS_WEB, relayTarget } from "./webApi";
 import { fireResync } from "./resync";
+import { createSeqGapTracker } from "./eventSeqGaps";
 
 type Handler = (e: { payload: unknown }) => void;
 
@@ -58,6 +59,8 @@ function readCursor(): string | null {
 }
 
 let cursor: string | null = readCursor();
+const seqGaps = createSeqGapTracker();
+
 
 function saveCursor(next: string): void {
   cursor = next;
@@ -84,6 +87,7 @@ function dispatch(event: string, payload: unknown): void {
 function runFullResync(info: OverflowData): void {
   // as "last seen" means a later reconnect replays from next_seq forward.
   saveCursor(`${info.boot}:${info.next_seq - 1}`);
+  seqGaps.adopt(info.boot, info.next_seq - 1);
   window.dispatchEvent(new Event("codeterm-refresh-mux-state"));
   for (const ev of RESYNC_EVENTS) dispatch(ev, null);
   fireResync();
@@ -107,6 +111,18 @@ function handleFrame(dataLine: string): void {
     return;
   }
   if (msg.boot && typeof msg.seq === "number") {
+    const seen = seqGaps.observe(msg.boot, msg.seq);
+    if (seen.verdict === "gap") {
+      // Loss with no overflow frame: a contract violation, not a hiccup.
+      console.warn(
+        `[event-seq-gap] expected ${seen.expected} got ${msg.seq} (boot ${msg.boot})`,
+      );
+      runFullResync({ reason: "ring-evicted", boot: msg.boot, next_seq: msg.seq });
+      // runFullResync rebaselines to next_seq - 1 for a real overflow, where the
+      // next live frame is next_seq. Here this frame IS next_seq and is already
+      // consumed, so rebaseline past it or the following frame reads as a gap too.
+      seqGaps.adopt(msg.boot, msg.seq);
+    }
     saveCursor(`${msg.boot}:${msg.seq}`);
   }
   dispatch(msg.event_type, msg.data);
@@ -198,6 +214,12 @@ function ensureStarted(): void {
   startWatchdog();
 }
 
+/** Silent seq discontinuities seen this page lifetime. Non-zero means the
+ *  daemon dropped events without an overflow frame. */
+export function webEventSeqGaps(): number {
+  return seqGaps.gaps();
+}
+
 export function webListen(event: string, handler: Handler): () => void {
   ensureStarted();
   let set = handlers.get(event);
@@ -214,6 +236,7 @@ export function webListen(event: string, handler: Handler): () => void {
 /** Tear down the SSE connection (peer switch) — it reconnects to the
  * current apiHost automatically, replaying from the last cursor. */
 export function resetWebEvents(): void {
+  seqGaps.reset();
   if (watchdogTimer) {
     clearInterval(watchdogTimer);
     watchdogTimer = null;
@@ -225,6 +248,7 @@ export function resetWebEvents(): void {
 }
 
 export function __resetWebEventsForTest(): void {
+  seqGaps.reset();
   if (watchdogTimer) clearInterval(watchdogTimer);
   watchdogTimer = null;
   started = false;

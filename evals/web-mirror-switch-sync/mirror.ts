@@ -50,6 +50,9 @@ export interface Mirror {
   /** `boot-changed` overflows specifically. */
   bootChanges: () => number;
   muxRefreshes: () => number;
+  /** Silent seq discontinuities the client detected. Non-zero means the
+   *  daemon dropped events without an overflow frame (#428 family). */
+  seqGaps: () => number;
   state: () => ExtendedState;
   awaitFrame: (match: (frame: FrameRecord) => boolean, deadlineMs: number, label: string) => Promise<FrameRecord>;
   /** Resolves once no snapshot refetch is in flight - the store has applied
@@ -217,6 +220,7 @@ export async function startMirror(options: MirrorOptions): Promise<Mirror> {
     overflows: env.muxRefreshes,
     bootChanges: env.bootChanges,
     muxRefreshes: env.muxRefreshes,
+    seqGaps: webEvents.webEventSeqGaps,
     state: () => state,
     awaitFrame(match, deadlineMs, label) {
       return new Promise<FrameRecord>((resolve, reject) => {

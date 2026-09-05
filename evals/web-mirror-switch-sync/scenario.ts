@@ -62,6 +62,7 @@ export interface RunRow {
   output_tabs: number;
   output_missing: number;
   output_truncations: number;
+  seq_gaps: number;
   max_in_flight: number;
   refetch_max_ms: number;
   client_gen: number;
@@ -238,6 +239,7 @@ export async function runScenario(o: ScenarioOptions): Promise<RunRow> {
       output_tabs: o.outputMarkers?.size ?? 0,
       output_missing: lostOutput.length,
       output_truncations: oracle?.truncations() ?? 0,
+      seq_gaps: mirror.seqGaps(),
       max_in_flight: mirror.counters.maxInFlight,
       refetch_max_ms: mirror.counters.refetchMaxMs,
       client_gen: mirror.state().generation,
