@@ -936,7 +936,11 @@ fn each_denial_advances_the_counter_and_an_allowed_call_does_not() {
     assert_eq!(sb.denial_count(), 1);
 
     assert!(!sb.can_env("CODETERM_API_TOKEN"));
-    assert_eq!(sb.denial_count(), 2, "a refused env var is a lost capability too");
+    assert_eq!(
+        sb.denial_count(),
+        2,
+        "a refused env var is a lost capability too"
+    );
 
     assert!(sb.can_env("CODETERM_CODEX_SESSIONS_ROOT"));
     assert_eq!(sb.denial_count(), 2, "an allowlisted name is not a denial");

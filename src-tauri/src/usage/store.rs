@@ -212,7 +212,9 @@ impl UsageStore {
         let mut stmt = conn
             .prepare(&sql)
             .map_err(|e| format!("prepare get_latest_failure: {}", e))?;
-        Ok(stmt.query_row(params![provider, account_id], row_to_header).ok())
+        Ok(stmt
+            .query_row(params![provider, account_id], row_to_header)
+            .ok())
     }
 
     /// The latest good reading, carrying the reason it stopped moving.

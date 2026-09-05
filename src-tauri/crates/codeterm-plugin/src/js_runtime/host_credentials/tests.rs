@@ -83,7 +83,11 @@ fn a_declared_credential_fills_the_request_header_without_exposing_the_token() {
 fn an_unresolvable_credential_fails_the_fetch_instead_of_sending_it_unauthenticated() {
     let dir = tempfile::tempdir().unwrap();
     let mut cred = codex_credential(dir.path());
-    cred.file = dir.path().join("missing.json").to_string_lossy().into_owned();
+    cred.file = dir
+        .path()
+        .join("missing.json")
+        .to_string_lossy()
+        .into_owned();
     let opts = serde_json::json!({
         "url": "https://chatgpt.com/x",
         "credential": { "id": "codexAuth", "headers": { "Authorization": "Bearer {accessToken}" } }
