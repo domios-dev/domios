@@ -13,6 +13,9 @@ const FRAME_DEADLINE_MS = 30_000;
 /** Catch-up is a per-batch check, not a stream wait - a short bound keeps a
  *  storm of lagging batches from turning into a stalled run. */
 const CATCHUP_DEADLINE_MS = 8_000;
+/** createRefreshCoalescer bounds concurrent full-state fetches to one. Before
+ *  it, this bench measured 1028-1050 and the daemon died under that load. */
+const IN_FLIGHT_CEILING = 1;
 /** api/events.rs RING_MAX_COUNT. Exceeding it while parked forces `ring-evicted`. */
 const RING_MAX_COUNT = 2048;
 /** A focus emits `mux-state-changed` + `tab-focused`. */
