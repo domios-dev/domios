@@ -168,7 +168,7 @@ impl ServiceContext {
             return Ok(());
         }
         let mut text = crate::service::plan::reminders::nudge_text(kind);
-        let text = match target {
+        let delivered = match target {
             PlanReminderTarget::Owner { plan_id } => {
                 if let Some(named) = self.aged_task_callout(plan_id) {
                     text.push_str("\n\n");
@@ -194,22 +194,32 @@ impl ServiceContext {
                         text = format!("{defer}\n\n{text}");
                     }
                 }
-                crate::service::orchestrator_digests::prepend_orchestrator_heartbeat(
+                crate::service::orchestrator_digests::deliver_orchestrator_notice_exact(
                     self,
                     plan_id,
-                    Some(tab_id),
+                    tab_id,
+                    "system",
                     &text,
                 )
+                .map(|_| {
+                    self.record_kpi_event(
+                        tab_id,
+                        crate::agent::kpi_ledger::KpiEventKind::Nudge,
+                        text.len(),
+                    );
+                })
             }
-            PlanReminderTarget::Worker => self
-                .plan_store
-                .prepend_worker_charter_for_tab(tab_id, &text),
+            PlanReminderTarget::Worker => {
+                let text = self
+                    .plan_store
+                    .prepend_worker_charter_for_tab(tab_id, &text);
+                self.deliver_automated_plan_reminder(tab_id, &text)
+            }
         };
-        self.deliver_automated_plan_reminder(tab_id, &text)
-            .map(|()| {
-                self.plan_turn_counter
-                    .mark_reminder_content_delivered(tab_id, state_key, now);
-            })
+        delivered.map(|()| {
+            self.plan_turn_counter
+                .mark_reminder_content_delivered(tab_id, state_key, now);
+        })
     }
 
     fn ensure_plan_reminder_routable(&self, tab_id: &str) -> Result<(), String> {

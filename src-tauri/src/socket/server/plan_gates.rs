@@ -71,6 +71,31 @@ pub(super) fn dispatch(
                 .or_else(|| opt_str(p, "caller_tab_id"))
                 .map(str::to_string);
 
+            if let Some(owner) = svc.planner_gate_owner_answerer(&plan_id, asked_by.as_deref()) {
+                let gate = store
+                    .ask_gate(
+                        &plan_id,
+                        &question,
+                        &context,
+                        &blocking,
+                        Some(owner.clone()),
+                        asked_by.as_deref(),
+                        now,
+                    )
+                    .map_err(plan_rpc_err)?;
+                svc.deliver_planner_gate_to_owner(&plan_id, &owner, &gate)
+                    .map_err(|message| JsonRpcError {
+                        code: -32003,
+                        message,
+                        data: Some(json!({
+                            "type": "owner_gate_delivery_failed",
+                            "gate": gate.clone()
+                        })),
+                    })?;
+                emit_plan_changed(app, &plan_id);
+                return to_value(&gate);
+            }
+
             // Resolve where to route before storing, so heartbeat shows the routed tab.
             let routed_to = {
                 let plan = store.get(&plan_id);

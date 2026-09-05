@@ -1,14 +1,16 @@
+use super::planner_delivery::{PLANNER_REHYDRATE_HEADER, PLANNER_REHYDRATE_MAX_BYTES};
 use super::{
     is_explicit_plan_foreign, ledger_with_live_children, milestone_text, planner_rehydrate_payload,
-    planner_request_payload, planner_specs_for_plan, report_task_status_transition,
-    resolve_plan_ctx, resolve_report_target, worker_death_report, ReportTarget,
+    planner_request_payload, report_task_status_transition, resolve_plan_ctx, resolve_report_target,
+    worker_death_report, ReportTarget,
 };
 use crate::agent::ledger::LedgerRow;
 use crate::agent::reports::{ReportStatus, ReportStore};
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::AgentRole;
 use crate::plan::{
-    Goal, Milestone, OrchestratorRef, Plan, PlannerRequest, PlannerRequestState, Spec,
+    DecisionGate, GateStatus, OrchestratorRef, Plan, PlannerRef, PlannerRequest,
+    PlannerRequestState,
 };
 use crate::service::hierarchy::team_plan_creation::create_team_plan_for_orchestrator;
 use crate::service::plan::{NewTask, PlanError, PlanStore};
@@ -325,95 +327,74 @@ fn milestone_text_prefixes_structured_status_only() {
 }
 
 #[test]
-fn planner_rehydrate_preserves_all_36_tasks_and_strides() {
+fn planner_rehydrate_after_rebind_is_a_bounded_open_gate_list() {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());
     let mut plan = Plan::new(
-        "Windows recovery".into(),
+        "Planner recovery".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_tab("owner"),
+        OrchestratorRef::from_tab("owner-tab"),
     );
-    store.save(&mut plan, 1).unwrap();
-    for index in 0..36 {
-        store
-            .add_task(
-                &plan.id,
-                NewTask {
-                    name: format!("task {index}"),
-                    kind: "implement".into(),
-                    body: format!("body {index}"),
-                    competition: None,
-                    ..Default::default()
-                },
-                index + 2,
-            )
-            .unwrap();
+    plan.planner = Some(PlannerRef::Tab {
+        tab_id: "planner-tab".into(),
+        session_id: Some("old-session".into()),
+        title: Some("Planner".into()),
+    });
+    for index in 0..10 {
+        plan.gates.push(DecisionGate {
+            id: format!("gate-{index}"),
+            question: format!("QUESTION-{index} {}", "q".repeat(400)),
+            context: format!("CONTEXT-MUST-NOT-REHYDRATE-{index}"),
+            blocking_task_ids: vec![format!("task-{index}")],
+            routed_to_tab_id: Some("planner-tab".into()),
+            asked_by_tab_id: Some("planner-tab".into()),
+            asked_at: index,
+            status: GateStatus::Open,
+            answer: None,
+            escalated_at: None,
+            escalation_note: None,
+        });
     }
-    let mut hydrated = store.get(&plan.id).unwrap();
-    hydrated.goal = Some(Goal {
-        vector: "recover".into(),
-        ..Default::default()
-    });
-    let task_stride = Milestone {
-        id: "task-stride".into(),
-        from: OrchestratorRef::from_tab("worker"),
-        kind: "status_update".into(),
-        text: "task evidence".into(),
-        ts: 10,
-        links: vec![],
-        loop_id: None,
-        iteration: None,
-        canvas: Default::default(),
-        attachments: vec![],
-    };
-    hydrated.tasks[0].milestones.push(task_stride);
-    hydrated.strides.push(Milestone {
-        id: "plan-stride".into(),
-        from: OrchestratorRef::from_tab("owner"),
-        kind: "decision".into(),
-        text: "plan evidence".into(),
-        ts: 11,
-        links: vec![],
-        loop_id: None,
-        iteration: None,
-        canvas: Default::default(),
-        attachments: vec![],
-    });
-    let mut spec = Spec::new(
-        "Authoritative spec".into(),
-        dir.path().display().to_string(),
+    let mut answered = plan.gates[0].clone();
+    answered.id = "answered-gate".into();
+    answered.status = GateStatus::Answered;
+    plan.gates.push(answered);
+    store.save(&mut plan, 1).unwrap();
+    assert!(
+        store
+            .rebind_planner_session(
+                &plan.id,
+                "planner-tab",
+                "rebound-session",
+                "rebound-nonce",
+                2,
+            )
+            .unwrap()
     );
-    spec.plan_id = Some(plan.id.clone());
-    store.save_spec(&mut spec, 12).unwrap();
-    let mut linked_spec = Spec::new("Linked spec".into(), dir.path().display().to_string());
-    store.save_spec(&mut linked_spec, 13).unwrap();
-    hydrated.primary_spec_id = Some(spec.id.clone());
-    hydrated.spec_refs = vec![spec.id.clone(), linked_spec.id.clone()];
 
-    let payload = planner_rehydrate_payload(&hydrated, planner_specs_for_plan(&store, &hydrated));
-    let snapshot: serde_json::Value =
-        serde_json::from_str(payload.split_once('\n').unwrap().1).unwrap();
-    let tasks = snapshot["tasks"].as_array().unwrap();
-    assert_eq!(tasks.len(), 36);
-    assert_eq!(
-        tasks
-            .iter()
-            .filter_map(|task| task["id"].as_str())
-            .collect::<std::collections::HashSet<_>>()
-            .len(),
-        36
+    let rebound = store.get(&plan.id).unwrap();
+    let payload = planner_rehydrate_payload(&rebound);
+
+    assert!(payload.starts_with(PLANNER_REHYDRATE_HEADER));
+    assert!(
+        payload.len() <= PLANNER_REHYDRATE_MAX_BYTES,
+        "rehydrate bytes={}",
+        payload.len()
     );
-    assert_eq!(tasks[0]["milestones"][0]["id"], "task-stride");
-    assert_eq!(snapshot["strides"][0]["id"], "plan-stride");
-    assert_eq!(snapshot["goal"]["vector"], "recover");
-    assert_eq!(snapshot["specs"].as_array().unwrap().len(), 2);
-    let spec_titles = snapshot["specs"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter_map(|spec| spec["title"].as_str())
-        .collect::<std::collections::HashSet<_>>();
-    assert_eq!(spec_titles, ["Authoritative spec", "Linked spec"].into());
+    for index in 0..10 {
+        assert!(payload.contains(&format!("gate-{index}")));
+        assert!(payload.contains(&format!("QUESTION-{index}")));
+    }
+    assert_eq!(payload.matches("owner-tab").count(), 10);
+    assert!(!payload.contains("answered-gate"));
+    assert!(!payload.contains("CONTEXT-MUST-NOT-REHYDRATE"));
+    assert!(!payload.contains("task-0"));
+    assert!(
+        serde_json::from_str::<serde_json::Value>(
+            payload.strip_prefix(PLANNER_REHYDRATE_HEADER).unwrap()
+        )
+        .is_err()
+    );
 }
 
 #[test]
