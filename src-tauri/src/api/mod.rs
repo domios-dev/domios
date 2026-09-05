@@ -31,6 +31,7 @@ pub mod pty_routes;
 pub mod services_routes;
 pub(crate) mod session_binding_routes;
 pub mod session_routes;
+pub mod snapshot_bound;
 pub mod tab_agent_routes;
 pub mod tab_chat_routes;
 pub(crate) mod tab_repair_routes;
