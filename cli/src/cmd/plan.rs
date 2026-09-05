@@ -635,6 +635,11 @@ fn run_plan(
                 "plan.groups.set",
                 json!({ "plan_id": plan_id, "groups": groups }),
             ),
+            PlanGroupsAction::Close { plan_id, key, note } => {
+                let mut params = json!({ "plan_id": plan_id, "key": key, "note": note });
+                maybe_inject_caller_tab(&mut params);
+                call(client, "plan.groups.close", params)
+            }
         },
 
         PlanAction::Facets { action } => match action {

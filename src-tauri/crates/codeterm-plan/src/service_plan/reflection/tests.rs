@@ -89,6 +89,51 @@ fn group_close_fires_once_with_window_counts() {
 }
 
 #[test]
+fn explicit_group_close_fires_before_every_task_is_done() {
+    let (_d, store, pid, ids) = store_with_group();
+    // Only one of the two "wave-1" members closes; the derived path stays silent.
+    set_status(&store, &pid, &ids[0], TaskStatus::Done, 50);
+    assert!(
+        pending_reflections(&store.get(&pid).unwrap(), DEFAULT_REFLECT_EVERY_GATES).is_empty(),
+        "derived completion must not fire while a member task is still open"
+    );
+
+    store
+        .close_group(
+            &pid,
+            "wave-1",
+            "shipping wave 1 now; residual polish tracked separately",
+            AgentRef::from_tab("orch"),
+            60,
+        )
+        .unwrap();
+
+    let plan = store.get(&pid).unwrap();
+    let pending = pending_reflections(&plan, DEFAULT_REFLECT_EVERY_GATES);
+    assert_eq!(pending.len(), 1);
+    match &pending[0].trigger {
+        ReflectionTrigger::GroupClose { key, label } => {
+            assert_eq!(key, "wave-1");
+            assert_eq!(label, "Wave 1");
+        }
+        other => panic!("expected group close, got {other:?}"),
+    }
+}
+
+#[test]
+fn close_group_rejects_unknown_group_and_empty_note() {
+    let (_d, store, pid, _ids) = store_with_group();
+    assert!(matches!(
+        store.close_group(&pid, "wave-1", "  ", AgentRef::from_tab("orch"), 10),
+        Err(PlanError::QaNoteRequired)
+    ));
+    assert!(matches!(
+        store.close_group(&pid, "nope", "done", AgentRef::from_tab("orch"), 10),
+        Err(PlanError::GroupNotFound)
+    ));
+}
+
+#[test]
 fn recording_a_learning_silences_group_reflection() {
     let (_d, store, pid, ids) = store_with_group();
     close_group(&store, &pid, &ids, 100);

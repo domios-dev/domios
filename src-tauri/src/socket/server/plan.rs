@@ -574,6 +574,26 @@ pub(super) fn dispatch(
             Ok(json!({ "ok": true, "plan_id": id }))
         }
 
+        "plan.groups.close" => {
+            let id = plan_refs::resolve_plan(store, params)?;
+            let key = get_string_param(params, "key")?;
+            let note = p.and_then(|x| x.get("note")).and_then(|v| v.as_str()).unwrap_or("");
+            let from = p
+                .and_then(|x| x.get("from"))
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .or_else(|| {
+                    p.and_then(|x| x.get("caller_tab_id"))
+                        .and_then(|v| v.as_str())
+                        .map(crate::plan::AgentRef::from_tab)
+                })
+                .unwrap_or_else(|| crate::plan::AgentRef::from_tab("unknown"));
+            store
+                .close_group(&id, &key, note, from, now)
+                .map_err(plan_rpc_err)?;
+            emit_plan_changed(app, &id);
+            Ok(json!({ "ok": true, "plan_id": id, "key": key }))
+        }
+
         "plan.link" => {
             let id = plan_refs::resolve_plan(store, params)?;
             let to = get_string_param(params, "to")?;
