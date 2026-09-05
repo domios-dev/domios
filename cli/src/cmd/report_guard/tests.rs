@@ -799,9 +799,11 @@ fn bound_planner_reports_plan_scoped_stride_without_a_task() {
     let mut client = FakePlanRpc {
         planner_tab_id: Some("tab-planner"),
     };
-    let bound =
-        report_task_binding_resolved(&mut client, Some("pl_1"), None, "tab-planner");
-    assert!(bound, "the plan's recorded Planner tab must satisfy the binding");
+    let bound = report_task_binding_resolved(&mut client, Some("pl_1"), None, "tab-planner");
+    assert!(
+        bound,
+        "the plan's recorded Planner tab must satisfy the binding"
+    );
     assert!(worker_binding_resolved(false, true, bound));
 }
 
@@ -816,13 +818,19 @@ fn caller_not_the_plans_bound_planner_is_still_refused() {
         planner_tab_id: Some("tab-planner"),
     };
     let bound = report_task_binding_resolved(&mut foreign, Some("pl_1"), None, "tab-other");
-    assert!(!bound, "a foreign tab must not inherit another tab's Planner binding");
+    assert!(
+        !bound,
+        "a foreign tab must not inherit another tab's Planner binding"
+    );
     assert!(!worker_binding_resolved(false, true, bound));
 
     let mut unpaired = FakePlanRpc {
         planner_tab_id: None,
     };
     let bound = report_task_binding_resolved(&mut unpaired, Some("pl_1"), None, "tab-other");
-    assert!(!bound, "a plan with no Planner bound must refuse every caller");
+    assert!(
+        !bound,
+        "a plan with no Planner bound must refuse every caller"
+    );
     assert!(!worker_binding_resolved(false, true, bound));
 }

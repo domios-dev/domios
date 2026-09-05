@@ -113,6 +113,36 @@ then retry the task add. If you intentionally need a draft task, pass `--force`.
         "task_dispatch_requires_approval" => Some(format!(
             "✗ this plan is not approved for dispatch.\nfix: inspect and approve it before dispatching:\n  codeterm plan state {plan_id}\n  codeterm plan doctor {plan_id} --kind quality\n  codeterm plan approve {plan_id}"
         )),
+        "unauthorized_gate_claim" => {
+            let claimed = data
+                .get("claimed")
+                .and_then(|v| v.as_str())
+                .unwrap_or("<command>");
+            let authorized = data
+                .get("authorized_gates")
+                .and_then(|v| v.as_array())
+                .map(|gates| {
+                    gates
+                        .iter()
+                        .filter_map(|gate| gate.as_str())
+                        .map(|gate| format!("  {gate}"))
+                        .collect::<Vec<_>>()
+                        .join("
+")
+                })
+                .unwrap_or_default();
+            let listing = if authorized.is_empty() {
+                "this dispatch declared no gates, so no gate claim is accepted.".to_string()
+            } else {
+                format!("this dispatch authorized:
+{authorized}")
+            };
+            Some(format!(
+                "✗ gate '{claimed}' was not authorized for this attempt.
+{listing}
+fix: report only a declared gate, or ask the Orchestrator to dispatch with --authorized-gate '{claimed}'."
+            ))
+        }
         "active_plan_requires_team" => Some(format!(
             "✗ active plan '{plan_id}' requires a live Team.\nfix: codeterm team adopt-plan <team-id> {plan_id}"
         )),
