@@ -77,10 +77,39 @@ export interface DaemonSnapshot {
   tabs: Record<string, { title?: string }>;
 }
 
+/**
+ * The driver must target the same daemon the mirror is watching. With a relay
+ * peer set the mirror reads the PEER through /api/mesh/relay-to, so the storm
+ * and the oracle have to go the same way -- driving the local daemon while the
+ * mirror watches the peer compares two different machines and every row is
+ * meaningless.
+ */
 async function api<T>(o: ScenarioOptions, method: string, path: string, body?: unknown): Promise<T> {
+  const headers = {
+    Authorization: `Bearer ${o.token}`,
+    "Content-Type": "application/json",
+  };
+  if (o.relayPeer) {
+    const res = await fetch(`${o.origin}/api/mesh/relay-to`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        target_peer_id: o.relayPeer.id,
+        method,
+        path,
+        body: body ?? null,
+      }),
+    });
+    if (!res.ok) throw new Error(`relay ${method} ${path} -> HTTP ${res.status}`);
+    const envelope = (await res.json()) as { ok: boolean; status: number; data: unknown };
+    if (envelope.status >= 400) {
+      throw new Error(`relay ${method} ${path} -> peer HTTP ${envelope.status}`);
+    }
+    return envelope.data as T;
+  }
   const res = await fetch(`${o.origin}${path}`, {
     method,
-    headers: { Authorization: `Bearer ${o.token}`, "Content-Type": "application/json" },
+    headers,
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`${method} ${path} -> HTTP ${res.status}`);
@@ -165,7 +194,15 @@ export async function runScenario(o: ScenarioOptions): Promise<RunRow> {
   const oracle = o.outputMarkers ? await createOutputOracle() : null;
   try {
     // Attach before the storm, as a browser with these tabs mounted would be.
-    if (oracle && o.outputMarkers) await oracle.attach([...o.outputMarkers.keys()]);
+    // A peer tab's output only arrives through the REMOTE output path, which
+    // subscribeTabOutput selects on a composite `mesh:<peer>/<tab>` id. Bare
+    // peer ids look local, subscribe to the local stream, and report total
+    // loss that is the harness's fault rather than the mirror's.
+    const oracleMarkers = o.outputMarkers && o.relayPeer
+      ? new Map([...o.outputMarkers].map(([id, m]) =>
+          [`mesh:${o.relayPeer?.id}/${id}`, m] as [string, string]))
+      : o.outputMarkers;
+    if (oracle && oracleMarkers) await oracle.attach([...oracleMarkers.keys()]);
     await mirror.awaitStreamOpen(FRAME_DEADLINE_MS);
     await api(o, "POST", focusPath(o, o.tabIds[0]));
     await catchUp(mirror, o);
@@ -210,7 +247,8 @@ export async function runScenario(o: ScenarioOptions): Promise<RunRow> {
     await mirror.settle(FRAME_DEADLINE_MS);
 
     const daemon = await api<DaemonSnapshot>(o, "GET", "/api/mux/state");
-    const lostOutput = oracle && o.outputMarkers ? oracle.missing(o.outputMarkers) : [];
+    const lostOutput = (oracle && oracleMarkers ? oracle.missing(oracleMarkers) : [])
+      .map((id) => (id.startsWith("mesh:") ? id.slice(id.indexOf("/") + 1) : id));
     if (lostOutput.length > 0 && o.lostOutputPath) reportLostOutput(lostOutput, o.lostOutputPath);
     const verdict = mirror.counters.maxInFlight > IN_FLIGHT_CEILING
       ? { diverged: true, kind: `in-flight-ceiling:${mirror.counters.maxInFlight}` }
