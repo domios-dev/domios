@@ -190,3 +190,122 @@ fn dispatch_onto_the_canonical_project_records_no_lane() {
     assert!(stored.branch.is_none());
     assert!(stored.base.is_none());
 }
+
+/// Create `link` pointing at `target`, or `None` when this platform/CI account
+/// cannot make one (unprivileged Windows). Skipping is reported by the caller
+/// rather than silently passing.
+fn symlink_dir(target: &Path, link: &Path) -> Option<()> {
+    #[cfg(unix)]
+    let made = std::os::unix::fs::symlink(target, link);
+    #[cfg(windows)]
+    let made = std::os::windows::fs::symlink_dir(target, link);
+    made.ok()
+}
+
+/// The macOS shape, forced on every platform that can make a symlink: the plan
+/// records the project by a path that RESOLVES to the checkout rather than
+/// spelling it. `/var` -> `/private/var` is this exact case, and it is why the
+/// three canonical-branch tests passed on Windows and failed on CI macOS.
+///
+/// The comparison must answer "same directory", not "same string".
+#[test]
+fn a_symlinked_canonical_path_is_still_the_canonical_project() {
+    let container = tempfile::tempdir().unwrap();
+    let project = project(container.path());
+    let via_link = container.path().join("project-link");
+    let Some(()) = symlink_dir(&project, &via_link) else {
+        eprintln!("skipped: this platform/account cannot create a directory symlink");
+        return;
+    };
+
+    // Resolution canonicalizes, so the provenance holds the real path...
+    let provenance = resolve_dispatch_lane(
+        Some(via_link.to_str().unwrap()),
+        Some(project.to_str().unwrap()),
+        None,
+        &TaskLaneMetadata::default(),
+        LaneProtection::Enforced,
+    )
+    .unwrap()
+    .existing
+    .unwrap();
+
+    // ...while the plan still records the spelling it was created with.
+    let stored = lane_metadata_for_dispatch(
+        &TaskLaneMetadata::default(),
+        &provenance,
+        via_link.to_str().unwrap(),
+    );
+    assert!(
+        stored.worktree_path.is_none(),
+        "a symlinked spelling of the canonical project is not an isolated lane"
+    );
+    assert!(stored.branch.is_none());
+    assert!(stored.base.is_none());
+
+    // The same asymmetry on the OTHER comparison, arranged so it discriminates:
+    // the task deliberately recorded this checkout as its lane, spelled through
+    // the link. `recorded_worktree` must recognise it as the lane it already
+    // holds and keep it — a textual compare misses the match, falls through to
+    // the canonical branch, and silently deletes the operator's own record.
+    let recorded = lane_metadata_for_dispatch(
+        &TaskLaneMetadata {
+            worktree_path: Some(via_link.display().to_string()),
+            ..Default::default()
+        },
+        &provenance,
+        project.to_str().unwrap(),
+    );
+    assert_eq!(
+        recorded.worktree_path.as_deref(),
+        Some(provenance.worktree_path.as_str()),
+        "a lane the task recorded by a symlinked spelling is the lane it already holds"
+    );
+}
+
+/// A genuine linked worktree reached through a symlink is still a lane. This one
+/// passes before and after the fix; it is here as a guard against the repair
+/// over-reaching, not as a reproduction.
+#[test]
+fn a_symlinked_spelling_does_not_swallow_a_real_lane() {
+    let container = tempfile::tempdir().unwrap();
+    let project = project(container.path());
+    let lane_path = pre_created_worktree(&project, container.path());
+    let via_link = container.path().join("lane-link");
+    let Some(()) = symlink_dir(&lane_path, &via_link) else {
+        eprintln!("skipped: this platform/account cannot create a directory symlink");
+        git(
+            &project,
+            &["worktree", "remove", "--force", lane_path.to_str().unwrap()],
+        );
+        return;
+    };
+
+    let provenance = resolve_dispatch_lane(
+        Some(via_link.to_str().unwrap()),
+        Some(project.to_str().unwrap()),
+        None,
+        &TaskLaneMetadata::default(),
+        LaneProtection::Enforced,
+    )
+    .unwrap()
+    .existing
+    .unwrap();
+    let stored = lane_metadata_for_dispatch(
+        &TaskLaneMetadata::default(),
+        &provenance,
+        project.to_str().unwrap(),
+    );
+
+    assert!(
+        stored.worktree_path.is_some(),
+        "an isolated worktree reached through a symlink is still an isolated lane"
+    );
+    assert!(stored.branch.is_some());
+    assert!(stored.base.is_some());
+
+    git(
+        &project,
+        &["worktree", "remove", "--force", lane_path.to_str().unwrap()],
+    );
+}
