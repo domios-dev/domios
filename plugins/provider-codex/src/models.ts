@@ -23,8 +23,12 @@ interface CodexCachedModel {
   priority?: number;
 }
 
+interface CodexManifestModel extends ModelInfo {
+  visibility?: string;
+}
+
 interface CodexManifest {
-  models?: ModelInfo[];
+  models?: CodexManifestModel[];
 }
 
 export function discoverCodexModels(): ModelInfo[] {
@@ -78,7 +82,14 @@ function priorityOf(m: CodexCachedModel): number {
 function manifestModels(): ModelInfo[] {
   try {
     const m = JSON.parse(host.manifestJson() || "null") as CodexManifest | null;
-    return Array.isArray(m && m.models) ? m!.models! : [];
+    const raw = Array.isArray(m && m.models) ? m!.models! : [];
+    const kept: ModelInfo[] = [];
+    for (let i = 0; i < raw.length; i++) {
+      const item = raw[i];
+      if (item.visibility === "hide") continue;
+      kept.push({ id: item.id, displayName: item.displayName, description: item.description });
+    }
+    return kept;
   } catch (_) {
     return [];
   }
