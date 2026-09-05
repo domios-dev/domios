@@ -185,12 +185,19 @@ pub fn validate_enter_review(task: &Task) -> Result<(), PlanError> {
     }
 }
 
-/// Fixes the acceptance oracle on first review entry or an authorized correction.
-/// Consumes a spent override into the immutable audit log.
+/// Fixes the acceptance oracle on first review entry or an authorized correction,
+/// then retires the override it spent.
+///
+/// Consumption and auditing are separate on purpose. An override is CONSUMED
+/// whichever gate it cleared, so one recorded for scope cannot survive to
+/// silently satisfy the round bound later. It is AUDITED only when it cleared
+/// the round bound, because `ReviewAuditEntry` is by definition the record that
+/// a review-round-limit exception was used — writing scope corrections into it
+/// would rewrite that history into something it does not mean.
 pub fn fix_oracle_and_consume_override(task: &mut Task, now_ms: u64) {
     let rounds = max_review_rounds();
     // Read before the oracle moves: the gate verdict depends on the stored one.
-    let override_was_spent = tripped_review_gate(task, rounds).is_some();
+    let spent_on = tripped_review_gate(task, rounds);
     let current_oracle = oracle_signature(task);
     let authorized_correction = task.review_round > 0
         && task.review_oracle.as_deref() != Some(current_oracle.as_str())
@@ -202,24 +209,25 @@ pub fn fix_oracle_and_consume_override(task: &mut Task, now_ms: u64) {
     if task.review_oracle.is_none() || authorized_correction {
         task.review_oracle = Some(current_oracle);
     }
-    // Consumed whenever it cleared a gate, not only at the round bound. An
-    // override recorded for scope used to survive unconsumed and then silently
-    // satisfy the round bound later — one gate's remedy waiving the other's.
-    if override_was_spent {
-        if let Some(o) = task.review_override.take() {
-            if override_is_complete(&o) {
-                task.review_audit.push(ReviewAuditEntry {
-                    id: crate::plan::ids::short_id("aud"),
-                    owner: o.owner,
-                    reason: o.reason,
-                    reproduction: o.reproduction,
-                    round: task.review_round,
-                    at: now_ms,
-                });
-            } else {
-                task.review_override = Some(o);
-            }
-        }
+    let Some(gate) = spent_on else {
+        return;
+    };
+    let Some(spent) = task.review_override.take() else {
+        return;
+    };
+    if !override_is_complete(&spent) {
+        task.review_override = Some(spent);
+        return;
+    }
+    if gate == ReviewEntryGate::RoundBound {
+        task.review_audit.push(ReviewAuditEntry {
+            id: crate::plan::ids::short_id("aud"),
+            owner: spent.owner,
+            reason: spent.reason,
+            reproduction: spent.reproduction,
+            round: task.review_round,
+            at: now_ms,
+        });
     }
 }
 

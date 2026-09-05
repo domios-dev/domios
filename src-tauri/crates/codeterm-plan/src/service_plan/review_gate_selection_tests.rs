@@ -185,11 +185,14 @@ fn an_override_clears_the_gate_that_fired_and_incompleteness_is_named() {
     }
 }
 
-/// A spent override is consumed into the audit log whichever gate it cleared.
-/// Leaving a scope override standing turned it into a silent, permanent waiver
-/// of the round bound — one gate's remedy quietly answering the other's.
+/// Consumption and auditing are separate. A scope override is CONSUMED so it
+/// cannot survive to silently satisfy the round bound later, but it is NOT
+/// written to the audit log: `ReviewAuditEntry` records that a review-ROUND-LIMIT
+/// exception was used, and a correction below the bound is not one. Auditing it
+/// there would rewrite that history into something it does not mean — which is
+/// what `authorized_correction_rebuilds_oracle_without_rewriting_history` pins.
 #[test]
-fn a_spent_override_is_consumed_even_below_the_round_bound() {
+fn a_scope_override_is_consumed_below_the_bound_without_touching_the_audit_log() {
     let dir = tempfile::tempdir().unwrap();
     let mut task = reviewed_task(dir.path());
     task.review_round = 1;
@@ -203,14 +206,34 @@ fn a_spent_override_is_consumed_even_below_the_round_bound() {
         task.review_override.is_none(),
         "an override spent on the scope gate must not survive to waive the round bound"
     );
-    assert_eq!(task.review_audit.len(), 1);
-    assert_eq!(task.review_audit[0].round, 1);
+    assert!(
+        task.review_audit.is_empty(),
+        "the round-limit audit log records round-limit exceptions only"
+    );
     let fixed = oracle_signature(&task);
     assert_eq!(
         task.review_oracle.as_deref(),
         Some(fixed.as_str()),
         "the authorized correction fixes the new oracle"
     );
+}
+
+/// The other half of the same rule: clearing the ROUND bound is exactly what the
+/// audit log exists to record, so that one is written.
+#[test]
+fn a_round_bound_override_is_consumed_and_audited() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut task = reviewed_task(dir.path());
+    task.review_round = DEFAULT_MAX_REVIEW_ROUNDS;
+    task.review_evidence = vec![bounce(false)];
+    task.review_override = Some(complete_override());
+
+    super::review_gate::fix_oracle_and_consume_override(&mut task, 30);
+
+    assert!(task.review_override.is_none());
+    assert_eq!(task.review_audit.len(), 1);
+    assert_eq!(task.review_audit[0].round, DEFAULT_MAX_REVIEW_ROUNDS);
+    assert_eq!(task.review_audit[0].owner, "andrey");
 }
 
 /// Nothing tripped, nothing spent: an ordinary first entry must not burn an
