@@ -80,11 +80,13 @@ fn refresh(
 }
 
 fn heartbeat_params(plan: Option<String>) -> Value {
-    json!({
+    let caller = CallerContext::from_env();
+    let mut params = json!({
         "plan_id": plan,
-        "tab_id": std::env::var("CODETERM_TAB_ID").ok(),
-        "session_id": std::env::var("CODETERM_SESSION_ID").ok(),
-    })
+        "tab_id": caller.tab_id(),
+    });
+    caller.apply_trusted_session(&mut params);
+    params
 }
 
 fn learn(

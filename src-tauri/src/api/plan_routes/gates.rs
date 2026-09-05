@@ -40,6 +40,49 @@ pub async fn gate_ask(
     Json(body): Json<GateAskBody>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    if let Some(owner) = state
+        .svc
+        .planner_gate_owner_answerer(&id, body.asked_by_tab_id.as_deref())
+    {
+        let gate = state
+            .svc
+            .plan_store
+            .ask_gate(
+                &id,
+                &body.question,
+                &body.context,
+                &body.blocking_task_ids,
+                Some(owner.clone()),
+                body.asked_by_tab_id.as_deref(),
+                epoch_ms(),
+            )
+            .map_err(plan_err)?;
+        let svc = state.svc.clone();
+        let plan_id = id.clone();
+        let delivered_gate = gate.clone();
+        let delivery = tokio::task::spawn_blocking(move || {
+            svc.deliver_planner_gate_to_owner(&plan_id, &owner, &delivered_gate)
+        })
+        .await;
+        emit_plan_changed(&state, &id);
+        let delivery = delivery.map_err(|error| {
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": error.to_string() })),
+            )
+        })?;
+        if let Err(error) = delivery {
+            return Err((
+                axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({
+                    "error": "agent_unavailable",
+                    "detail": error,
+                    "gate": gate
+                })),
+            ));
+        }
+        return Ok(Json(serde_json::to_value(&gate).unwrap_or_default()));
+    }
     let routed_to = resolve_routed_tab(&state, &id);
     let caller_session_id = body.asked_by_tab_id.as_deref().and_then(|tab_id| {
         state
