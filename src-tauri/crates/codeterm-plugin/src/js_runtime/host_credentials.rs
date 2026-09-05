@@ -79,7 +79,8 @@ fn substitute(template: &str, fields: &BTreeMap<String, String>) -> Option<Strin
 /// Rewrite `host.fetch` opts so a declared credential's secret fields land in
 /// request headers without the plugin ever holding them.
 ///
-/// Opts shape: `"credential": { "id": "...", "headers": { "Authorization": "Bearer {accessToken}" } }`.
+/// Opts shape: `"credential": { "id": "...", "headers": { ... } }`, where each
+/// header value is a template such as `"Bearer {accessToken}"`.
 /// The `credential` key is stripped from the outgoing opts. `Err` when the
 /// credential is declared-but-unresolvable, so a missing token surfaces as a
 /// fetch error instead of an unauthenticated request.
