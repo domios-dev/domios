@@ -158,7 +158,7 @@ test("peer-sourced events converge after a peer switch", () => {
   const { store: peerStore, daemon } = replay(STORM, shuffledPairs, 0);
   assertConverged(peerStore, daemon, "peer-sourced");
   assert(
-    daemon.generation < 9_000,
+    (daemon.generation ?? Number.MAX_SAFE_INTEGER) < 9_000,
     "fixture check: the peer's counter is below the previous origin's",
   );
 });
