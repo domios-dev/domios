@@ -22,7 +22,12 @@ fn is_canonical_checkout(cwd: &str, workspace_cwd: Option<&str>) -> bool {
     git_is_primary_checkout(Path::new(cwd))
 }
 
-fn same_path(a: &str, b: &str) -> bool {
+/// Two spellings of the same directory. Resolves both sides before comparing,
+/// because a textual match is not the question: on macOS a tempdir reached as
+/// `/var/...` and the same directory resolved to `/private/var/...` name one
+/// place and differ as strings. Falls back to the textual compare only when a
+/// side cannot be resolved, so a not-yet-existing path still behaves.
+pub(crate) fn same_path(a: &str, b: &str) -> bool {
     match (std::fs::canonicalize(a).ok(), std::fs::canonicalize(b).ok()) {
         (Some(a), Some(b)) => a == b,
         _ => ServiceContext::paths_equal(a, b),
