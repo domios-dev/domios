@@ -12,7 +12,7 @@ const COLUMNS: Array<keyof RunRow> = [
 
 function env(name: string): string {
   const value = process.env[name];
-  if (!value) throw new Error(`missing ${name} — run through evals/web-mirror-switch-sync/run.sh`);
+  if (!value) throw new Error(`missing ${name} - run through evals/web-mirror-switch-sync/run.sh`);
   return value;
 }
 
@@ -24,6 +24,7 @@ void (async () => {
   const switches = Number(process.env.WMS_SWITCHES ?? "200");
   const concurrency = Number(process.env.WMS_CONCURRENCY ?? "1");
   const runs = Number(process.env.WMS_RUNS ?? "5");
+  const skipOverflow = process.env.WMS_SKIP_OVERFLOW === "1";
   const peerId = process.env.WMS_PEER_ID ?? "";
   const relayPeer = peerId ? { id: peerId, name: process.env.WMS_PEER_NAME ?? peerId } : null;
 
@@ -34,7 +35,7 @@ void (async () => {
 
   let failures = 0;
   for (let i = 0; i < runs; i++) {
-    const row = await runScenario({ origin, token, workspaceId, tabIds, switches, concurrency, relayPeer });
+    const row = await runScenario({ origin, token, workspaceId, tabIds, switches, concurrency, skipOverflow, relayPeer });
     appendFileSync(tsv, `${COLUMNS.map((c) => String(row[c])).join("\t")}\n`);
     if (row.diverged) failures++;
     console.log(
@@ -45,6 +46,6 @@ void (async () => {
       `${row.diverged ? `DIVERGED ${row.divergence_kind}` : "converged"}`,
     );
   }
-  console.log(`\n${failures}/${runs} runs diverged — rows appended to ${tsv}`);
+  console.log(`\n${failures}/${runs} runs diverged - rows appended to ${tsv}`);
   process.exit(failures > 0 ? 1 : 0);
 })();

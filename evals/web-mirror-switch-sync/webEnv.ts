@@ -46,7 +46,7 @@ export interface FetchGate {
   attempts(): number;
   /** Resolves when an event-stream response returns headers. The daemon
    *  subscribes to the bus before it answers, so headers are a sound
-   *  readiness signal — not a delay. */
+   *  readiness signal - not a delay. */
   onOpen(fn: () => void): void;
   opens(): number;
 }

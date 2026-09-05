@@ -11,10 +11,10 @@ let failures = 0;
 function test(name: string, fn: () => void) {
   try {
     fn();
-    console.log(`  ✓ ${name}`);
+    console.log(`  [ok] ${name}`);
   } catch (e) {
     failures++;
-    console.error(`  ✗ ${name}: ${e instanceof Error ? e.message : String(e)}`);
+    console.error(`  [x] ${name}: ${e instanceof Error ? e.message : String(e)}`);
   }
 }
 function assert(cond: unknown, msg: string): asserts cond {
@@ -112,7 +112,7 @@ function assertConverged(store: ExtendedState, daemon: MultiplexerState, label: 
 const inOrder = (s: MultiplexerState[]): MultiplexerState[] => s;
 const reversed = (s: MultiplexerState[]): MultiplexerState[] => [...s].reverse();
 /** Deterministic interleave standing in for overlapping refetches resolving
- *  out of order — the shape a relayed round trip produces. */
+ *  out of order - the shape a relayed round trip produces. */
 const shuffledPairs = (s: MultiplexerState[]): MultiplexerState[] => {
   const out: MultiplexerState[] = [];
   for (let i = 0; i < s.length; i += 2) {
@@ -137,7 +137,7 @@ for (const [name, deliver] of [
   ["reversed", reversed],
   ["overlapping refetches", shuffledPairs],
 ] as const) {
-  test(`switch storm with overflow converges — ${name} delivery`, () => {
+  test(`switch storm with overflow converges - ${name} delivery`, () => {
     const { store, daemon } = replay(STORM, deliver);
     assertConverged(store, daemon, name);
   });

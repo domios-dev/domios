@@ -9,6 +9,8 @@
 #   WMS_PEER_NAME=air evals/web-mirror-switch-sync/run.sh    # cross-peer origin
 #
 # Knobs: WMS_TABCOUNT (16), WMS_SWITCHES (200), WMS_CONCURRENCY (1), WMS_RUNS (5),
+#        WMS_SKIP_OVERFLOW=1 (storm only, no overflow - a refetch count
+#        directly comparable to the switch count),
 #        WMS_TSX_LOADER (path to tsx's loader.mjs when this checkout has no
 #        node_modules), WMS_KEEP=1 to leave the fixture workspace behind.
 
@@ -72,12 +74,12 @@ fi
 
 ENTRY="$(native_path "$ROOT/evals/web-mirror-switch-sync/main.ts")"
 LOADER_URL="$(file_uri "$(native_path "$TSX_LOADER")")"
-
 cd "$ROOT"
-WMS_ORIGIN="$(dev_api_url)" \
-WMS_TOKEN="$CODETERM_API_TOKEN" \
-WMS_WORKSPACE="$WORKSPACE_ID" \
-WMS_TABS="$TAB_IDS" \
-WMS_PEER_ID="$PEER_ID" \
-MSYS_NO_PATHCONV=1 \
-  node --import "$LOADER_URL" "$ENTRY"
+export WMS_ORIGIN="$(dev_api_url)"
+export WMS_TOKEN="$CODETERM_API_TOKEN"
+export WMS_WORKSPACE="$WORKSPACE_ID"
+export WMS_TABS="$TAB_IDS"
+export WMS_PEER_ID="$PEER_ID"
+export WMS_SKIP_OVERFLOW="${WMS_SKIP_OVERFLOW:-0}"
+export MSYS_NO_PATHCONV=1
+node --import "$LOADER_URL" "$ENTRY"

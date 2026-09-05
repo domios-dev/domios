@@ -27,13 +27,13 @@ export interface FrameRecord {
 
 export interface MirrorCounters {
   frames: number;
-  /** `overflow` never reaches a handler — webEvents swallows it into
+  /** `overflow` never reaches a handler - webEvents swallows it into
    *  runFullResync. Its only external signature is the null-payload
    *  re-dispatch of every RESYNC_EVENT, so one overflow == one such round. */
   resyncFanout: number;
   muxRefetches: number;
   /** A refetch that never returned a snapshot. The store cannot advance on one,
-   *  and nothing in the product retries it — so it is a divergence path. */
+   *  and nothing in the product retries it - so it is a divergence path. */
   refetchErrors: number;
 }
 
@@ -47,7 +47,7 @@ export interface Mirror {
   muxRefreshes: () => number;
   state: () => ExtendedState;
   awaitFrame: (match: (frame: FrameRecord) => boolean, deadlineMs: number, label: string) => Promise<FrameRecord>;
-  /** Resolves once no snapshot refetch is in flight — the store has applied
+  /** Resolves once no snapshot refetch is in flight - the store has applied
    *  everything it asked for. An event-count wait, not a delay. */
   settle: (deadlineMs: number) => Promise<void>;
   /** Resolves once the SSE transport has answered with headers. */
@@ -185,7 +185,7 @@ export async function startMirror(options: MirrorOptions): Promise<Mirror> {
     awaitFrame(match, deadlineMs, label) {
       return new Promise<FrameRecord>((resolve, reject) => {
         const waiter = { match, resolve: (f: FrameRecord) => { clearTimeout(deadline); resolve(f); } };
-        // Failure deadline only â€” expiry is never read as readiness.
+        // Failure deadline only - expiry is never read as readiness.
         const deadline = setTimeout(() => {
           waiters.delete(waiter);
           reject(new Error(`deadline: no frame matched "${label}" within ${deadlineMs}ms`));
