@@ -156,12 +156,16 @@ dc workspace list           # locked to dev — fails with exit 7 if dev is down
 dc --as-tab "$CODETERM_TAB_ID" plan create --title "smoke" # preserve an explicit dev caller
 ```
 
-Sourcing the lib auto-calls `dev_env` (port 7686 + dev token + dev
-socket pipe). The `dc` function asserts dev is alive on every call
-before invoking the CLI, and re-exports the dev env-vars into the
-CLI's process so a leaked parent var can't override it. HTTP
-helpers in the lib (`dev_get`, `dev_post`) are hardcoded to
-`http://127.0.0.1:7686` for the same reason.
+Sourcing the lib sets **no** `CODETERM_*` variable in your shell: it
+resolves the dev connection (port 7686 + dev token + dev socket pipe)
+into lib-private state and composes it per call. The `dc` function
+asserts dev is alive on every call before invoking the CLI, and composes
+the dev env-vars into the CLI's own process so a leaked parent var can't
+override it. HTTP helpers in the lib (`dev_get`, `dev_post`) are
+hardcoded to `http://127.0.0.1:7686` for the same reason. A child process
+that reads the connection from its environment runs under
+`dev_run <cmd...>`; shell code reads `dev_auth_header` and `dev_data_dir`
+rather than an inherited variable.
 
 Hard rule: **no bench script under `evals/` may invoke `codeterm`
 directly.** Use `dc`. If you really need a prod-targeted CLI call,

@@ -78,7 +78,7 @@ tab_status() {
 chat_send() {
   local tab="$1" text="$2"
   $PY -c "import json,sys;print(json.dumps({'text':sys.argv[1],'enter':True}))" "$text" \
-    | curl -s --max-time 30 -X POST -H "$CODETERM_DEV_AUTH_HEADER" \
+    | curl -s --max-time 30 -X POST -H "$(dev_auth_header)" \
         -H "Content-Type: application/json" --data @- \
         "http://127.0.0.1:7686/api/tabs/$tab/send" >/dev/null
 }
@@ -88,7 +88,7 @@ chat_send() {
 ledger_send() {
   local tab="$1" text="$2"
   $PY -c "import json,sys;print(json.dumps({'text':sys.argv[1]}))" "$text" \
-    | curl -s --max-time 60 -X POST -H "$CODETERM_DEV_AUTH_HEADER" \
+    | curl -s --max-time 60 -X POST -H "$(dev_auth_header)" \
         -H "Content-Type: application/json" --data @- \
         "http://127.0.0.1:7686/api/tabs/$tab/chat-send"
 }
@@ -100,10 +100,10 @@ send_raw_keys() {
   # MSYS vars: Git Bash on Windows rewrites argv "/model" into a C:/... path.
   MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL="*" \
     $PY -c "import json,sys;print(json.dumps({'text':sys.argv[1],'raw':True}))" "$text" \
-    | curl -s --max-time 30 -X POST -H "$CODETERM_DEV_AUTH_HEADER" \
+    | curl -s --max-time 30 -X POST -H "$(dev_auth_header)" \
         -H "Content-Type: application/json" --data @- \
         "$base/api/tabs/$tab/send" >/dev/null
-  curl -s --max-time 30 -X POST -H "$CODETERM_DEV_AUTH_HEADER" \
+  curl -s --max-time 30 -X POST -H "$(dev_auth_header)" \
       -H "Content-Type: application/json" --data '{"text":"\r","raw":true}' \
       "$base/api/tabs/$tab/send" >/dev/null
 }
@@ -122,7 +122,7 @@ print(rows[0]['state'] if rows else 'absent')" "$send_id" 2>/dev/null
 
 await_ledger_state() {
   local tab="$1" send_id="$2"
-  "$PY" - "$tab" "$send_id" "$TIMEOUT" <<'PY'
+  dev_run "$PY" - "$tab" "$send_id" "$TIMEOUT" <<'PY'
 import json, os, queue, sys, threading, time, urllib.request
 
 tab_id, send_id, timeout_text = sys.argv[1:]
@@ -285,7 +285,7 @@ clear_startup_gates() {
       value="$(echo "$gate" | $PY -c "import json,sys;print(json.load(sys.stdin)['value'])")"
       echo "[chat-roundtrip] $provider: startup gate '$kind' — responding '$value'"
       $PY -c "import json,sys;print(json.dumps({'value':sys.argv[1]}))" "$value" \
-        | curl -s --max-time 15 -X POST -H "$CODETERM_DEV_AUTH_HEADER" \
+        | curl -s --max-time 15 -X POST -H "$(dev_auth_header)" \
             -H "Content-Type: application/json" --data @- \
             "http://127.0.0.1:7686/api/tabs/$tab/prompt/respond" >/dev/null
       # An accepted update restarts the provider session — wait for it to
@@ -554,7 +554,7 @@ case_crossping() {
   echo "[messaging-core] $from_provider->$to_provider: envelope ping + agent-driven pong"
   $PY -c "import json,sys;print(json.dumps({'text':sys.argv[1],'source_tab':sys.argv[2]}))" \
       "MSGCORE-PING-$nonce" "$from_tab" \
-    | curl -s --max-time 30 -X POST -H "$CODETERM_DEV_AUTH_HEADER" \
+    | curl -s --max-time 30 -X POST -H "$(dev_auth_header)" \
         -H "Content-Type: application/json" --data @- \
         "http://127.0.0.1:7686/api/tabs/$to_tab/send" >/dev/null
   local deadline=$((SECONDS + TIMEOUT)) n=0

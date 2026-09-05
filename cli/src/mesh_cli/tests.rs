@@ -1116,3 +1116,40 @@ fn mesh_tab_list_json_leaves_the_relayed_rest_body_a_bare_array() {
         "an absent peer body still carries the tabs key"
     );
 }
+
+fn parse_spawn_command(args: &[&str]) -> Commands {
+    let mut full = vec!["codeterm", "agent", "spawn"];
+    full.extend_from_slice(args);
+    <crate::Cli as clap::Parser>::try_parse_from(full)
+        .expect("agent spawn must parse")
+        .command
+}
+
+/// `plan task dispatch` is local-only, so a Worker staffed on a peer owns no
+/// task and reaches that peer through this map alone. `role` is the field the
+/// peer resolves the Worker doctrine from, so a relay that dropped it would
+/// hand the remote agent no reporting contract at all.
+#[test]
+fn a_task_less_mesh_worker_relays_its_role_to_the_peer() {
+    let (method, path, body) = cli_command_to_api(&parse_spawn_command(&[
+        "claude",
+        "--role",
+        "Worker",
+        "--task",
+        "check out the repo, build it, serve it",
+    ]));
+
+    assert_eq!(method, "POST");
+    assert_eq!(path, "/api/agents/spawn");
+    let body: serde_json::Value =
+        serde_json::from_str(&body.expect("agent spawn carries a body")).unwrap();
+    assert_eq!(body["role"], "Worker");
+    assert!(
+        body.get("plan_task").is_none() && body.get("task_id").is_none(),
+        "the mesh Worker owns no binding: {body}"
+    );
+    assert!(
+        body.get("execution_intent").is_none(),
+        "no declared intent is its own shape: {body}"
+    );
+}
