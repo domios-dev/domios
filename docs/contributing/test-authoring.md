@@ -113,6 +113,15 @@ stdout, `--json` output gets wrapped. Parse defensively (extract the JSON,
 don't assume the stream is clean). The harness gets the same red-green
 treatment as the test.
 
+A TypeScript test file with no top-level `import` or `export` is a global
+*script*, not a module, so every helper it declares — `assert`, `passed`,
+`failed`, `MemoryStorage` — is a global that collides with the identically
+named helper in every sibling script. The collision surfaces as a `tsc` error
+attributed to whichever file was added last, not to the pair that shares the
+name. Declare `export {};` in any test that has no top-level import (a file
+that only imports dynamically inside its body counts as having none), and
+leave the one-line reason above it so it survives tidying.
+
 ## 8. Say what you test
 
 Every spec/drill opens with a 3–8 line header: **WHAT** is tested, **WHY**
@@ -154,4 +163,4 @@ Keeping the repo path in the role_guidance still matters for local contributors;
 the embedded copy gives spawned agents a stable recovery path when they are
 outside this checkout.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->
