@@ -193,7 +193,7 @@ void (async () => {
     assert(calls === 1, `500 refused requests opened ${calls} fetches`);
     backend.releaseNext();
     await tick();
-    assert(calls === 2, `expected the single follow-up, got ${calls}`);
+    assert((calls as number) === 2, `expected the single follow-up, got ${calls}`);
     backend.releaseNext();
     const results = await Promise.all(requests);
     assert(results.every((r) => r === false), "every waiter is answered, none left hanging");
