@@ -35,11 +35,12 @@ fn string_list_field(body: &Value, key: &str) -> Result<Option<Vec<String>>, Jso
     let Some(value) = body.get(key).filter(|value| !value.is_null()) else {
         return Ok(None);
     };
-    let items: Vec<String> = serde_json::from_value(value.clone()).map_err(|error| JsonRpcError {
-        code: -32602,
-        message: format!("invalid {key}: {error}"),
-        data: None,
-    })?;
+    let items: Vec<String> =
+        serde_json::from_value(value.clone()).map_err(|error| JsonRpcError {
+            code: -32602,
+            message: format!("invalid {key}: {error}"),
+            data: None,
+        })?;
     Ok(Some(
         items
             .into_iter()

@@ -612,9 +612,11 @@ mod tests {
             &context,
         )
         .unwrap();
-        let scope =
-            render_plan_error(&json!({ "type": "review_oracle_scope_expansion" }), &context)
-                .unwrap();
+        let scope = render_plan_error(
+            &json!({ "type": "review_oracle_scope_expansion" }),
+            &context,
+        )
+        .unwrap();
         assert_ne!(
             round, scope,
             "the round bound and the oracle scope must not render the same refusal"

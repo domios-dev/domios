@@ -42,8 +42,12 @@ fn the_age_and_pdb_name_are_carried_through_not_hardcoded() {
 #[test]
 fn a_pdb_path_is_reduced_to_its_file_name() {
     // MSVC records an absolute build-machine path; only the name is a lookup key.
-    let rendered = render_rsds(&rsds(CRASHED_BUILD_GUID, 1, r"D:\build\target\codeterm.pdb"))
-        .expect("renders");
+    let rendered = render_rsds(&rsds(
+        CRASHED_BUILD_GUID,
+        1,
+        r"D:\build\target\codeterm.pdb",
+    ))
+    .expect("renders");
     assert!(rendered.ends_with("pdb=codeterm.pdb"), "{rendered}");
     assert!(!rendered.contains("D:"), "{rendered}");
 }
@@ -115,7 +119,14 @@ fn the_retained_symbols_dir_is_keyed_by_identity_not_by_a_commit() {
     let name = dir.file_name().and_then(|n| n.to_str()).unwrap_or_default();
     assert!(dir.parent().is_some_and(|p| p.ends_with("pdb")) || name == "pdb");
     if let Some(key) = debug_key() {
-        assert_eq!(name, key, "the sidecar must name the directory retention writes");
-        assert_ne!(name, env!("BUILD_HASH"), "a commit is not a symbol identity");
+        assert_eq!(
+            name, key,
+            "the sidecar must name the directory retention writes"
+        );
+        assert_ne!(
+            name,
+            env!("BUILD_HASH"),
+            "a commit is not a symbol identity"
+        );
     }
 }

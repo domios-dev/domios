@@ -184,12 +184,9 @@ fn planner_is_still_refused_for_status_assignment_and_execution_fields() {
         let harness = planner_fixture();
         let task_id = dispatched_task(&harness, TaskStatus::InProgress);
         let params = planner_update(&harness, &task_id, fields.clone());
-        let error = verify_owner_epoch_for_task_mutation(
-            "plan.task.update",
-            &params,
-            &harness.service,
-        )
-        .unwrap_err();
+        let error =
+            verify_owner_epoch_for_task_mutation("plan.task.update", &params, &harness.service)
+                .unwrap_err();
         assert_eq!(
             refusal_type(&error),
             TaskAuthorityRefusal::CallerNotTaskOwner.discriminant(),
@@ -215,8 +212,8 @@ fn planner_structure_grant_does_not_extend_to_execution_verbs() {
         let harness = planner_fixture();
         let task_id = dispatched_task(&harness, TaskStatus::InProgress);
         let params = planner_update(&harness, &task_id, json!({}));
-        let error = verify_owner_epoch_for_task_mutation(method, &params, &harness.service)
-            .unwrap_err();
+        let error =
+            verify_owner_epoch_for_task_mutation(method, &params, &harness.service).unwrap_err();
         assert_eq!(
             refusal_type(&error),
             TaskAuthorityRefusal::CallerNotTaskOwner.discriminant(),

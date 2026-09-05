@@ -656,8 +656,14 @@ mod tests {
     /// `--execution-intent`, so the documented verifier could not be spawned.
     #[test]
     fn execution_intent_no_longer_requires_a_plan_task_at_parse_time() {
-        let action = parse_spawn(&["codex", "--role", "Worker", "--execution-intent", "read_only"])
-            .expect("--execution-intent must parse on its own");
+        let action = parse_spawn(&[
+            "codex",
+            "--role",
+            "Worker",
+            "--execution-intent",
+            "read_only",
+        ])
+        .expect("--execution-intent must parse on its own");
         match action {
             AgentAction::Spawn {
                 execution_intent,

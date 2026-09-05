@@ -861,10 +861,7 @@ mod tests {
         // Present but optional: `plan goal set` is a partial update, so every
         // field it does not receive is kept rather than replaced.
         for field in ["vector", "vision", "constraint", "postulate"] {
-            assert!(
-                has_long(goal_set, field),
-                "plan goal set exposes --{field}"
-            );
+            assert!(has_long(goal_set, field), "plan goal set exposes --{field}");
         }
         assert!(
             !required_long(goal_set, "vector"),

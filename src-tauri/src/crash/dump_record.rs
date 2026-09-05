@@ -23,7 +23,9 @@ pub enum DumpOutcome {
     /// The record was written before the dump was attempted. Reaching a reader in
     /// this state means the process died inside the dump write.
     Attempted,
-    Written { bytes: u64 },
+    Written {
+        bytes: u64,
+    },
     Failed(&'static str),
 }
 
@@ -32,7 +34,12 @@ impl DumpOutcome {
         match self {
             Self::Attempted => format!("Minidump: {} ({})", path.display(), ATTEMPTED),
             Self::Written { bytes } => {
-                format!("Minidump: {} ({}, {} bytes)", path.display(), WRITTEN, bytes)
+                format!(
+                    "Minidump: {} ({}, {} bytes)",
+                    path.display(),
+                    WRITTEN,
+                    bytes
+                )
             }
             Self::Failed(reason) => {
                 format!("Minidump: {} ({}: {})", path.display(), FAILED, reason)
