@@ -348,11 +348,17 @@ mod tests {
             .find(|c| c.file == "~/.codex/auth.json")
             .expect("the codex OAuth file must be host-read, not plugin-read");
         assert!(
-            credential.secret.values().any(|p| p == "tokens.access_token"),
+            credential
+                .secret
+                .values()
+                .any(|p| p == "tokens.access_token"),
             "the access token must be declared secret so it never enters the VM"
         );
         assert!(
-            !credential.public.values().any(|p| p == "tokens.access_token"),
+            !credential
+                .public
+                .values()
+                .any(|p| p == "tokens.access_token"),
             "the access token must never be exposed as a public field"
         );
     }
@@ -477,8 +483,11 @@ mod tests {
             credential.file = auth.to_string_lossy().into_owned();
         }
 
-        let (read_roots, write_roots) =
-            confined_roots(&manifest, &tmp.path().join("bundle"), &tmp.path().join("data"));
+        let (read_roots, write_roots) = confined_roots(
+            &manifest,
+            &tmp.path().join("bundle"),
+            &tmp.path().join("data"),
+        );
         assert!(
             read_roots.iter().any(|r| auth.starts_with(r)),
             "fixture precondition: the credential really is under a granted root"
