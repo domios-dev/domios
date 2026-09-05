@@ -11,6 +11,10 @@ const PERMISSION_DENIED: u8 = 2;
 /// until something asks, which is why enabling asks rather than the first send.
 static ESTABLISHED_PERMISSION: AtomicU8 = AtomicU8::new(PERMISSION_PROMPT);
 
+/// Popup dedupe and liveness; cleared from the window's own Destroyed event.
+static NOTIF_ACTIVE: AtomicBool = AtomicBool::new(false);
+static LAST_MSG: parking_lot::Mutex<String> = parking_lot::Mutex::new(String::new());
+
 fn permission_code(state: PermissionState) -> u8 {
     match state {
         PermissionState::Granted => PERMISSION_GRANTED,
