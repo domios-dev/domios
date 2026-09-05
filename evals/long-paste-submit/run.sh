@@ -99,12 +99,19 @@ wait_for_tui() {
   local url="$(dev_api_url)/api/output/stream?tab_id=$tab"
   dev_run python3 "$BENCH/wait_sse.py" "$url" '\x1b\[\?2004h' "$EVENT_TIMEOUT" \
     >"$case_dir/tui-ready-event.txt" 2>"$case_dir/tui-ready-event.err"
-  local status
+  local log_offset status
+  log_offset="$(wc -c <"$LOG_FILE")"
   status="$(status_value "$tab")"
+  if [ "$status" != "Idle" ]; then
+    python3 "$BENCH/wait_log.py" "$LOG_FILE" "$log_offset" \
+      "\\[idle-poll\\].* Idle \\(tab=$tab\\)" "$EVENT_TIMEOUT" \
+      >"$case_dir/status-idle-event.txt" 2>"$case_dir/status-idle-event.err"
+    status="$(status_value "$tab")"
+  fi
   status_json "$tab" >"$case_dir/status-ready.json"
   if [ "$status" != "Idle" ]; then
     capture_screen "$tab" >"$case_dir/screen-ready-mismatch.txt" || true
-    echo "FAIL: tab $tab reached bracketed-paste mode with status=$status, wanted Idle" >&2
+    echo "FAIL: tab $tab reached bracketed-paste mode but settled status=$status, wanted Idle" >&2
     return 1
   fi
 }
