@@ -330,6 +330,14 @@ pub(crate) fn mark_starter_prompt(
     }
 }
 
+/// A native starter turn already carries the handshake via the launch command;
+/// only a provider without one still needs the PTY-confirmed fallback turn.
+pub(crate) fn startup_handshake_confirmed_first_turn(
+    native_starter_capable: bool,
+) -> Option<crate::agent::provider::StarterPrompt> {
+    (!native_starter_capable).then_some(crate::agent::provider::StarterPrompt::StartupHandshake)
+}
+
 pub(crate) fn pending_delivery(text: &str) -> PendingDelivery {
     let digest = Sha256::digest(text.as_bytes());
     PendingDelivery {
@@ -576,6 +584,19 @@ mod tests {
                 provider_starter: None,
                 confirmed_first_turn: Some(VisibleSpawnFirstTurn::AssignedTaskStarter),
             }
+        );
+    }
+
+    #[test]
+    fn native_starter_capable_startup_handshake_is_not_confirmed_a_second_time() {
+        assert_eq!(startup_handshake_confirmed_first_turn(true), None);
+    }
+
+    #[test]
+    fn pty_only_startup_handshake_still_confirms_the_first_turn() {
+        assert_eq!(
+            startup_handshake_confirmed_first_turn(false),
+            Some(crate::agent::provider::StarterPrompt::StartupHandshake)
         );
     }
 
