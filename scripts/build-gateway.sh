@@ -46,10 +46,21 @@ ct_gateway_state_tool() {
   node "$(ct_repo_root)/scripts/build-gateway-state.mjs" "$@"
 }
 
+# Liveness gets one pid namespace: an MSYS pid under Git Bash is not a Windows
+# pid, so crossing the branches compares two unrelated processes.
+ct_gateway_pid_namespace() {
+  if [ -r /proc/self/stat ]; then
+    echo proc
+  else
+    echo native
+  fi
+}
+
 ct_gateway_process_start_token() {
   local pid="$1" value rest
   [ -n "$pid" ] || return 1
-  if [ -r "/proc/$pid/stat" ]; then
+  if [ "$(ct_gateway_pid_namespace)" = proc ]; then
+    [ -r "/proc/$pid/stat" ] || return 1
     value="$(cat "/proc/$pid/stat" 2>/dev/null)" || return 1
     rest="${value#*) }"
     awk '{print $20}' <<< "$rest"
@@ -73,7 +84,8 @@ ct_gateway_identity_alive() {
 
 ct_gateway_process_command() {
   local pid="$1"
-  if [ -r "/proc/$pid/cmdline" ]; then
+  if [ "$(ct_gateway_pid_namespace)" = proc ]; then
+    [ -r "/proc/$pid/cmdline" ] || return 1
     tr '\0' ' ' < "/proc/$pid/cmdline"
     return
   fi
@@ -213,16 +225,38 @@ ct_gateway_update_job() {
   ct_gateway_state_tool "${args[@]}"
 }
 
+# A job whose trap never ran left its own exit marker in its log; that recovered
+# status is what keeps owner_lost from erasing a command that had already passed.
+ct_gateway_recorded_command_exit() {
+  local log="$1/jobs/$2.log" value
+  [ -f "$log" ] || return 1
+  value="$(tail -c 8192 "$log" 2>/dev/null | tr -d '\r' |
+    sed -n "s/^Build gateway job $2 exit: \([0-9][0-9]*\)$/\1/p" | tail -1)"
+  [ -n "$value" ] || return 1
+  printf '%s\n' "$value"
+}
+
+ct_gateway_record_owner_lost() {
+  local dir="$1" job="$2" pid="$3" source="$4" command_exit
+  [ -n "$job" ] && [ -f "$dir/jobs/$job.json" ] || return 0
+  command_exit="$(ct_gateway_recorded_command_exit "$dir" "$job" 2>/dev/null || true)"
+  CT_BUILD_JOB_ID="$job" ct_gateway_update_job failed 255 owner_lost "" "$(ct_gateway_now)" "$command_exit" || true
+  if [ -n "$command_exit" ]; then
+    echo "Build gateway reaped $source job $job: owner pid $pid vanished after its command reported exit $command_exit, which the owner never recorded (state=failed outcome=owner_lost)." >&2
+  else
+    echo "Build gateway reaped $source job $job: owner pid $pid vanished before any command result was recorded (state=failed outcome=owner_lost, not a human cancellation)." >&2
+  fi
+}
+
 ct_gateway_reap_stale_owner_locked() {
-  local dir="$1" lock="$dir/lock" pid start_token job
+  local dir="$1" pid start_token job
+  local lock="$dir/lock"
   [ -d "$lock" ] || return 0
   pid="$(cat "$lock/pid" 2>/dev/null || true)"
   start_token="$(cat "$lock/start_token" 2>/dev/null || true)"
   if ! ct_gateway_identity_alive "$pid" "$start_token"; then
     job="$(cat "$lock/job_id" 2>/dev/null || true)"
-    if [ -n "$job" ] && [ -f "$dir/jobs/$job.json" ]; then
-      CT_BUILD_JOB_ID="$job" ct_gateway_update_job failed 255 owner_lost "" "$(ct_gateway_now)" || true
-    fi
+    ct_gateway_record_owner_lost "$dir" "$job" "$pid" running
     rm -rf "$lock"
   fi
 }
@@ -235,9 +269,7 @@ ct_gateway_reap_stale_queue_locked() {
     start_token="$(cat "$ticket/start_token" 2>/dev/null || true)"
     ct_gateway_identity_alive "$pid" "$start_token" && continue
     job="$(cat "$ticket/job_id" 2>/dev/null || true)"
-    if [ -n "$job" ] && [ -f "$dir/jobs/$job.json" ]; then
-      CT_BUILD_JOB_ID="$job" ct_gateway_update_job failed 255 owner_lost "" "$(ct_gateway_now)" || true
-    fi
+    ct_gateway_record_owner_lost "$dir" "$job" "$pid" queued
     rm -rf "$ticket"
   done
 }

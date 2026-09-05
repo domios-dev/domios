@@ -203,6 +203,34 @@ Gateway-backed commands fail fast when another job owns the machine slot, so
 an agent turn never blocks silently behind a long-lived dev process. Add
 `--wait-build` only when synchronous queueing is intentional.
 
+### Gateway recovery when an owner never runs its EXIT trap
+
+`ct_gateway_finish` releases the machine slot from the bash `EXIT` trap, and
+`SIGKILL` runs no trap. Recovery is `ct_gateway_reap_stale_owner_locked`, which
+every `gateway-status`, `gateway-cancel`, and acquire runs while holding the
+state mutex. Its trigger is a single observable fact — the owning process
+identity recorded with the lock is no longer running. Nothing in that path
+consults elapsed time; a stale job is never aged out, and a live owner always
+keeps blocking. `bash scripts/check-build-gateway-owner-reap.sh` covers both
+directions.
+
+Liveness is decided on exactly one pid namespace. `ct_gateway_pid_namespace`
+picks it once per call: a readable `/proc/self/stat` means every gateway pid is
+a `/proc` pid, and a pid missing from `/proc` is then authoritatively gone. The
+PowerShell fallback is reached only where no `/proc` exists, so an MSYS pid
+under Git Bash is never handed to `Get-Process`, which would answer for an
+unrelated Windows process holding the same number.
+
+A reaped job records `state=failed` with `outcome=owner_lost`, which is a
+different terminal state from the `cancelled` a human `gateway-cancel` writes.
+When the job's own log already carries its `Build gateway job <id> exit: <n>`
+marker, the reaper recovers that status into `command_exit_code` and prints the
+recovery to stderr, so a job that succeeded and lost its owner before the result
+was written is visible rather than silently reclassified.
+
+An owner that is wedged rather than dead is a different failure and is not
+reapable: see the `release-preflight` FIFO teardown row below.
+
 Use `./build.sh help` as the command index. `test-one <app|plan|pty|types|mem|mesh|plugin|cli> <filter>`
 hides manifest/package details for focused tests; `verify` runs the standard
 check, full Rust workspace library suite, and source-size integration gate.
@@ -252,6 +280,7 @@ production app during startup, in-app update, or `install-local`.
 | `pnpm test:unit <filter>` starts from PowerShell but its npm child says `node is not recognized` | The pnpm launcher found Node by absolute path, while the nested npm script re-resolved `node` through a child shell whose executable lookup failed. | Invoke the repository unit runner with the resolved Node executable and the same filter (`node scripts/run-ts-unit-tests.mjs <filter>`); do not alter global PATH during a gate. |
 | `release-preflight` times out a provider-update test while its focused suite passes | The event-driven test's failure deadline was shorter than full-suite scheduler contention, so a healthy background transition was classified as missing. | Keep the test waiting on the emitted effect and use the full-suite-safe failure deadline; rerun the focused provider-update suite, then `release-preflight`. Do not add a sleep or make elapsed time a success condition. |
 | Windows `release-preflight` prints `Build gateway job ... exit: 0` but never returns | Git Bash orphaned the FIFO `tee` reader after every gate completed, so gateway log teardown waited forever despite a successful command status. | Interrupt only the stuck wrapper, set `CT_BUILD_GATEWAY_NO_TEE=1` for the retry, and rerun the complete named operation. Do not treat the printed inner exit as a completed preflight. |
+| Every gateway-backed command exits 75 naming a job whose log already ended `exit: 0` | That wedged wrapper still owns the machine slot. `build_gateway_logging_on_exit` waits on the log reader before calling `ct_gateway_finish`, so the lock is held for the whole hang, and the owner is alive — the reaper correctly refuses to reap it. | Interrupt the wedged wrapper. The next acquire then reaps it on its own and records `owner_lost` with the recovered `command_exit_code`; `gateway-cancel` is only needed to inspect. Do not wait it out and do not age the lock. |
 | Dev opens with a runtime identity mismatch while `codeterm-web-watch.log` repeats `'vite' is not recognized` | The Windows watcher launched Vite through a nested pnpm lifecycle shell that lost local executable lookup, leaving `dist/` stale while the daemon rebuilt. | Use the current dev operation, which launches Vite through the resolved Node process and package entrypoint, then restart dev and verify the runtime/UI identity banner is gone. |
 | `build.ps1 check` cannot resolve a newly re-exported plan mutation type | A split mutation module relied on `use super::*`, but the parent module did not import that public service type. | Import the type explicitly from `crate::service_plan`, then rerun the same canonical check. |
 | A focused app test passes `&ServiceContext` to a helper that only borrows service state but compilation expects `&Arc<ServiceContext>` | The helper accepted the runtime `ServiceState` alias even though it did not need shared ownership, making ordinary test fixtures incompatible. | Narrow the helper parameter to `&ServiceContext`; runtime `Arc` callers deref-coerce while fixtures pass the same service directly. Rerun the exact focused test. |
@@ -277,4 +306,4 @@ production app during startup, in-app update, or `install-local`.
 
 Tooling, outputs, platform notes, and repository layout: `docs/BUILD-REFERENCE.md`. Test workflows: `codeterm docs TESTING`.
 
-<!-- revision: 122 -->
+<!-- revision: 123 -->
