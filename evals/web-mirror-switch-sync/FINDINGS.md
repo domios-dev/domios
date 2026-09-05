@@ -485,6 +485,40 @@ machines and every row would have been meaningless. Caught before the run;
 `api()` now relays when a peer target is set, so the storm and the oracle follow
 the mirror.
 
+## 1h. Finding for the next release: the replay cursor is not scoped by origin
+
+Confirmed on the wire and carried out of this lane as a release finding, not
+fixed here.
+
+`CURSOR_KEY` in `webEvents.ts` is a single unscoped `sessionStorage` key, while
+every relay key in `webApi.ts` is scoped by `selfHost()`. `resetWebEvents()`,
+the peer-switch teardown, does not clear it. So a reconnect after an origin
+switch presents the PREVIOUS origin's `<boot>:<seq>` to a different daemon.
+
+Measured: `overflow_per_origin_switch` = **1.0 on all five cross-peer runs** -
+six origin switches, six `boot-changed` overflows, each costing a full global
+resync.
+
+Independent corroboration from Tor's two captures, taken before this bench
+existed:
+
+| leg | source | stream boot | overflow `next_seq` |
+|---|---|---|---|
+| peer | b9ba09cf3 | `1b3ac1fb9a474c71958c8266887d19ee` | 21472 |
+| local | 190b80704 | `a6ceb4ed47e04ac890c6417d0a92ed0b` | 2466 |
+
+Two entirely separate namespaces, so both the boot id and the seq space belong
+to the SOURCE. Precisely stated: those captures establish the **precondition** -
+per-source boot and seq space - rather than the carryover itself, because in
+both legs the second connect presented a synthetic `00000...0:1` cursor rather
+than a real one held across an origin switch. The carryover is what the six
+origin switches measured directly.
+
+Cost of the defect: a full global resync on every peer switch, which on the
+relay path is a round trip per event of the ring replay that follows. Fixing it
+means scoping the cursor key by origin the way `webApi.ts` already scopes the
+relay keys, and clearing it in `resetWebEvents()`.
+
 ## 2. Not established
 
 The cross-peer half **did not run**. Dev's mesh has no paired peers
