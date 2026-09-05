@@ -194,7 +194,15 @@ export async function runScenario(o: ScenarioOptions): Promise<RunRow> {
   const oracle = o.outputMarkers ? await createOutputOracle() : null;
   try {
     // Attach before the storm, as a browser with these tabs mounted would be.
-    if (oracle && o.outputMarkers) await oracle.attach([...o.outputMarkers.keys()]);
+    // A peer tab's output only arrives through the REMOTE output path, which
+    // subscribeTabOutput selects on a composite `mesh:<peer>/<tab>` id. Bare
+    // peer ids look local, subscribe to the local stream, and report total
+    // loss that is the harness's fault rather than the mirror's.
+    const oracleMarkers = o.outputMarkers && o.relayPeer
+      ? new Map([...o.outputMarkers].map(([id, m]) =>
+          [`mesh:${o.relayPeer?.id}/${id}`, m] as [string, string]))
+      : o.outputMarkers;
+    if (oracle && oracleMarkers) await oracle.attach([...oracleMarkers.keys()]);
     await mirror.awaitStreamOpen(FRAME_DEADLINE_MS);
     await api(o, "POST", focusPath(o, o.tabIds[0]));
     await catchUp(mirror, o);
@@ -239,7 +247,8 @@ export async function runScenario(o: ScenarioOptions): Promise<RunRow> {
     await mirror.settle(FRAME_DEADLINE_MS);
 
     const daemon = await api<DaemonSnapshot>(o, "GET", "/api/mux/state");
-    const lostOutput = oracle && o.outputMarkers ? oracle.missing(o.outputMarkers) : [];
+    const lostOutput = (oracle && oracleMarkers ? oracle.missing(oracleMarkers) : [])
+      .map((id) => (id.startsWith("mesh:") ? id.slice(id.indexOf("/") + 1) : id));
     if (lostOutput.length > 0 && o.lostOutputPath) reportLostOutput(lostOutput, o.lostOutputPath);
     const verdict = mirror.counters.maxInFlight > IN_FLIGHT_CEILING
       ? { diverged: true, kind: `in-flight-ceiling:${mirror.counters.maxInFlight}` }
