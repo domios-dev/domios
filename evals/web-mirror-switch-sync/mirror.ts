@@ -103,6 +103,9 @@ export async function startMirror(options: MirrorOptions): Promise<Mirror> {
 
   const webEvents = await import("../../src/lib/webEvents");
   const { reducer } = await import("../../src/store/multiplexer/reducer");
+  const { createRefreshCoalescer } = await import(
+    "../../src/store/multiplexer/refreshCoalescer"
+  );
   const {
     webJson, setRelayTarget, clearRelayTarget, invalidateWebRequestContext,
   } = await import("../../src/lib/webApi");
@@ -149,7 +152,9 @@ export async function startMirror(options: MirrorOptions): Promise<Mirror> {
 
   let inFlight = 0;
   const idleWaiters = new Set<() => void>();
-  const refetch = async (): Promise<void> => {
+  // Routed through the product's own coalescer, so the bench measures the
+  // shipped in-flight ceiling rather than a model of it.
+  const runRefetch = async (): Promise<boolean> => {
     counters.muxRefetches++;
     inFlight++;
     if (inFlight > counters.maxInFlight) counters.maxInFlight = inFlight;
@@ -157,8 +162,10 @@ export async function startMirror(options: MirrorOptions): Promise<Mirror> {
     try {
       const snapshot = await webJson<MultiplexerState>("GET", "/api/mux/state");
       if (snapshot) apply({ type: "SET_STATE", state: snapshot });
+      return Boolean(snapshot);
     } catch {
       counters.refetchErrors++;
+      return false;
     } finally {
       const took = Date.now() - startedAt;
       if (took > counters.refetchMaxMs) counters.refetchMaxMs = took;
@@ -168,6 +175,10 @@ export async function startMirror(options: MirrorOptions): Promise<Mirror> {
         idleWaiters.clear();
       }
     }
+  };
+  const coalescer = createRefreshCoalescer(runRefetch);
+  const refetch = async (): Promise<void> => {
+    await coalescer.request();
   };
 
   env.onMuxRefresh(() => void refetch());

@@ -223,6 +223,47 @@ as well as the ones that kill the daemon.
 
 Tracked as https://github.com/rollacode/codeterm/issues/428.
 
+## 1d. The client fix: bounding the refetch storm
+
+Per the Orchestrator's ruling, the storm is a defect on its own numbers and
+the client half belongs to this lane. The daemon half (aborting under load
+instead of back-pressuring) is a separate Rust task on #428 and is not
+touched here.
+
+**Owning boundary.** All 24 call sites in `src/store/multiplexer/index.tsx`
+reach the daemon through one function, `refreshFromBackend`. The fix is a gate
+inside it, not a change at any call site.
+
+`src/store/multiplexer/refreshCoalescer.ts` allows one fetch in flight. A
+request arriving while a fetch is running never joins it -- that fetch may
+have started before the request's own event, so joining could answer with
+state older than the caller asked about. It waits for the next fetch instead.
+
+The contract, asserted in `refreshCoalescer.test.ts` on fetch counts:
+
+- a burst of 200 requests costs **2** fetches, never 2 at once. Not 1: the
+  first request cannot be answered by a fetch older than itself, so it opens
+  one immediately and the other 199 share the follow-up. Writing the test
+  expecting 1 is how that was found.
+- a sustained storm of 1000 requests across 20 rounds stays at **one** fetch
+  in flight throughout, at one fetch per round plus one.
+- no waiter is ever answered by a fetch that started before its request.
+- a thrown fetch resolves `false` rather than rejecting, and does not wedge
+  the queue.
+
+This covers the overflow replay storm by the same mechanism: the ~1024
+replayed `mux-state-changed` frames now collapse to at most two fetches.
+
+`mirror.ts` routes the bench through the product's coalescer rather than a
+model of it, and the bench now fails a run whose `max_in_flight` exceeds 1
+(`in-flight-ceiling:N`), so the authorized run proves the ceiling on the wire
+rather than in a unit test alone.
+
+**Not claimed:** that this fixes Andrey's reported sync symptom. It does not
+address it, and 0/5 on current code says the local shape does not reproduce
+that symptom at all. This bounds a defect the bench found, at its own
+boundary.
+
 ## 2. Not established
 
 The cross-peer half **did not run**. Dev's mesh has no paired peers
