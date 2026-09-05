@@ -1,29 +1,11 @@
 use codeterm_types::agent::role_kind::{self, builtins::ORCHESTRATOR, builtins::PLANNER};
-use codeterm_types::team::general_agent_membership::MembershipAttempt;
 use codeterm_types::team::Team;
 use tauri::Manager;
 
 use crate::multiplexer::state::MultiplexerState;
-use crate::multiplexer::types::TabCloseReason;
 use crate::multiplexer::types::{AgentRole, TabBacking};
-use crate::service::general_agent::{refuse_general_agent_team_membership, shape_for_tab};
 use crate::service::plan::PlanError;
 use crate::service::ServiceContext;
-
-#[derive(Debug, Clone)]
-pub(crate) struct AddTeamMemberParams {
-    pub provider: String,
-    pub role: String,
-    pub title: Option<String>,
-    pub task: Option<String>,
-    pub model: Option<String>,
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-pub(crate) struct AddTeamMemberResult {
-    pub tab_id: String,
-    pub team: Team,
-}
 
 #[derive(Debug)]
 pub(crate) enum TeamPlanError {
@@ -123,9 +105,13 @@ impl ServiceContext {
                 return Err(error);
             }
         };
+        let anchors = staffing::role_anchors_team(
+            &prepared.expected_role,
+            prepared.expected_profile.as_deref(),
+        );
         let result = {
             let mut mux = self.mux.write();
-            commit_team_member_spawn(
+            let mut result = commit_team_member_spawn(
                 &mut mux,
                 &self.events,
                 team_id,
@@ -133,7 +119,16 @@ impl ServiceContext {
                 &tab_id,
                 &prepared.expected_role,
                 &prepared.expected_profile,
-            )
+            );
+            // An anchor only ever lands in a Team with no live Orchestrator, so
+            // the plan it finds there is by definition owned by a gone tab.
+            if anchors {
+                if let Ok(committed) = result.as_mut() {
+                    committed.plan_takeover =
+                        take_over_team_plan(&mut mux, &self.plan_store, team_id, &tab_id, now_ms());
+                }
+            }
+            result
         };
         let result = match result {
             Ok(result) => result,
@@ -147,6 +142,13 @@ impl ServiceContext {
                 return Err(error);
             }
         };
+        if let Some(takeover) = result
+            .plan_takeover
+            .as_ref()
+            .filter(|takeover| takeover.error.is_none())
+        {
+            self.emit_plan_changed(&takeover.plan_id);
+        }
         self.emit_state_changed_after_bus_publish();
         Ok(result)
     }
@@ -168,9 +170,11 @@ impl ServiceContext {
             let team = mux
                 .get_team(team_id)
                 .ok_or_else(|| format!("Team {team_id} not found"))?;
+            // A Team stranded without members still records its workspace, so a
+            // recovery add can name the project it belongs to.
             let workspace_id = mux
                 .team_workspace(team_id)
-                .ok_or_else(|| format!("Team {team_id} has no live workspace"))?;
+                .unwrap_or_else(|| team.workspace_id.clone());
             let project = mux
                 .get_workspace(&workspace_id)
                 .map(|workspace| workspace.name.clone())
@@ -623,168 +627,6 @@ pub(crate) struct CloseTeamCleanup {
     pty_ids: Vec<String>,
 }
 
-#[derive(Debug)]
-struct PreparedTeamMemberSpawn {
-    spawn_params: crate::service::SpawnAgentParams,
-    expected_role: String,
-    expected_profile: Option<String>,
-}
-
-fn prepare_team_member_spawn(
-    mux: &MultiplexerState,
-    team_id: &str,
-    caller_tab_id: Option<&str>,
-    params: AddTeamMemberParams,
-) -> Result<PreparedTeamMemberSpawn, String> {
-    if let Some(caller_tab_id) = caller_tab_id {
-        // Membership door 2: growing an existing Team spends the caller's own
-        // membership. Guarded before authorization so the General Agent gets the
-        // teaching refusal whether or not it is already (wrongly) in the Team.
-        let shape = shape_for_tab(mux, caller_tab_id).with_agents(Some(&params.provider), None);
-        refuse_general_agent_team_membership(
-            mux,
-            caller_tab_id,
-            MembershipAttempt::ExerciseMembership,
-            &shape,
-        )?;
-    }
-    authorize_team_manager(mux, team_id, &TeamMutationCaller::from_tab(caller_tab_id))?;
-    if let Some(caller_tab_id) = caller_tab_id {
-        if !mux
-            .get_tab(caller_tab_id)
-            .is_some_and(|caller| caller.can_spawn)
-        {
-            return Err(format!(
-                "Caller tab {caller_tab_id} does not allow spawning Team members"
-            ));
-        }
-    }
-    let (role, role_profile) = team_member_role(&params.role)?;
-    let anchors =
-        role_kind::anchors_team(AgentRole::from_str_compat(&role), role_profile.as_deref());
-    // A caller-less add is the bootstrap door: a Team whose members cannot spawn
-    // would otherwise have no way to receive the manager they are told to route
-    // through. Only an anchoring role fits, because it takes no parent.
-    if caller_tab_id.is_none() && !anchors {
-        return Err(format!(
-            "{} takes a parent, so it needs a Team member that can spawn",
-            role
-        ));
-    }
-    let workspace_id = match caller_tab_id {
-        Some(caller_tab_id) => mux
-            .find_workspace_for_tab(caller_tab_id)
-            .ok_or_else(|| format!("Caller tab {caller_tab_id} has no workspace"))?,
-        None => mux
-            .get_team(team_id)
-            .map(|team| team.workspace_id.clone())
-            .ok_or_else(|| format!("Team {team_id} not found"))?,
-    };
-    let parent_tab_id = (!anchors).then(|| caller_tab_id.unwrap_or_default().into());
-    let task = params.task.filter(|task| !task.trim().is_empty());
-    let starter_prompt = crate::service::spawn_params::starter_prompt_for_creation(
-        Some(role.as_str()),
-        task.as_deref(),
-    );
-    Ok(PreparedTeamMemberSpawn {
-        expected_role: role.clone(),
-        expected_profile: role_profile.clone(),
-        spawn_params: crate::service::SpawnAgentParams {
-            agent: Some(params.provider),
-            title: params.title,
-            role: Some(role),
-            role_profile,
-            parent_tab_id,
-            task,
-            starter_prompt,
-            model: params.model,
-            workspace_id: Some(workspace_id),
-            report_target_tab_id: caller_tab_id.map(Into::into),
-            spawned_by_tab_id: caller_tab_id.map(Into::into),
-            ..Default::default()
-        },
-    })
-}
-
-fn prepare_team_member_spawn_with_provider_validation<F>(
-    mux: &MultiplexerState,
-    team_id: &str,
-    caller_tab_id: Option<&str>,
-    params: AddTeamMemberParams,
-    validate_provider: F,
-) -> Result<PreparedTeamMemberSpawn, String>
-where
-    F: FnOnce(&crate::service::SpawnAgentParams) -> Result<(), String>,
-{
-    let prepared = prepare_team_member_spawn(mux, team_id, caller_tab_id, params)?;
-    validate_provider(&prepared.spawn_params)?;
-    Ok(prepared)
-}
-
-pub(crate) fn commit_team_member_spawn(
-    mux: &mut MultiplexerState,
-    events: &crate::api::events::EventBroadcaster,
-    team_id: &str,
-    caller_tab_id: Option<&str>,
-    tab_id: &str,
-    expected_role: &str,
-    expected_profile: &Option<String>,
-) -> Result<AddTeamMemberResult, String> {
-    let (expected_role, expected_kind) =
-        ServiceContext::parse_role_kind(expected_role, expected_profile.as_deref())?;
-    // An anchoring member takes no parent and binds its Team after placement.
-    let anchors = role_kind::anchors_team(Some(expected_role), expected_kind.as_deref());
-    // Resolve the expectation through the same rule the tab reports itself by:
-    // a profileless Worker is the `worker` kind on both sides, never `None`.
-    let expected_kind_id = role_kind::kind_id(Some(expected_role), expected_kind.as_deref());
-    let expected_parent = (!anchors).then_some(caller_tab_id).flatten();
-    let tab = mux
-        .get_tab(tab_id)
-        .ok_or_else(|| format!("Tab {tab_id} not found after member spawn"))?;
-    // With no caller there is no caller workspace to compare against, so the Team's
-    // own workspace is the expectation — the same one the spawn was given.
-    let expected_workspace = match caller_tab_id {
-        Some(caller_tab_id) => mux.find_workspace_for_tab(caller_tab_id),
-        None => mux.get_team(team_id).map(|team| team.workspace_id.clone()),
-    };
-    let invalid_hierarchy = tab.parent_tab_id.as_deref() != expected_parent
-        || (!anchors && tab.team_id.as_deref() != Some(team_id))
-        || tab.role != Some(expected_role)
-        || tab.role_kind_id() != expected_kind_id
-        || mux.find_workspace_for_tab(tab_id) != expected_workspace;
-    if invalid_hierarchy {
-        mux.close_tab_with_reason(tab_id, TabCloseReason::SpawnRollback)?;
-        return Err("Team member spawn did not preserve the manager hierarchy".into());
-    }
-    if anchors {
-        let shape = shape_for_tab(mux, tab_id);
-        refuse_general_agent_team_membership(mux, tab_id, MembershipAttempt::Join, &shape)?;
-        mux.get_tab_mut(tab_id)
-            .expect("Tab validated before Team assignment")
-            .team_id = Some(team_id.into());
-    }
-    let team = mux
-        .get_team(team_id)
-        .cloned()
-        .ok_or_else(|| format!("Team {team_id} not found after member spawn"))?;
-    crate::service::publish_mux_state_changed(events);
-    Ok(AddTeamMemberResult {
-        tab_id: tab_id.into(),
-        team,
-    })
-}
-
-fn team_member_role(requested: &str) -> Result<(String, Option<String>), String> {
-    match requested.trim().to_ascii_lowercase().as_str() {
-        "worker" => Ok(("Worker".into(), None)),
-        "planner" => Ok(("Manager".into(), Some(PLANNER.into()))),
-        "orchestrator" => Ok(("Manager".into(), Some(ORCHESTRATOR.into()))),
-        other => Err(format!(
-            "Team member role must be worker, planner, or orchestrator, got '{other}'"
-        )),
-    }
-}
-
 pub(crate) fn rename_team_core(
     mux: &mut MultiplexerState,
     team_id: &str,
@@ -942,7 +784,7 @@ Safe recovery: run the mutation on {peer}."
     }
 }
 
-fn authorize_team_manager(
+pub(super) fn authorize_team_manager(
     mux: &MultiplexerState,
     team_id: &str,
     caller: &TeamMutationCaller,
@@ -1005,6 +847,12 @@ mod membership;
 pub(crate) use membership::{
     adopt_agent_into_team, apply_team_attachment, resolve_inherited_team_attachment,
     resolve_spawn_attachment,
+};
+
+mod staffing;
+pub(crate) use staffing::{
+    commit_team_member_spawn, prepare_team_member_spawn_with_provider_validation,
+    take_over_team_plan, AddTeamMemberParams, AddTeamMemberResult,
 };
 
 #[cfg(test)]

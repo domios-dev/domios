@@ -62,6 +62,14 @@ Every active plan must reference exactly one live Team, and a live Team may have
 
 `POST /api/plans/{id}/transfer` accepts `{to: OrchestratorRef, reason?}` and requires `X-CodeTerm-Tab-Id` to identify the source Team's Orchestrator or planner-profile Manager. Missing callers, Workers, and foreign-Team tabs receive `403` without mutation. The destination must be a live Orchestrator belonging to a live Team. Owner, owner history, Team binding, and stale planner retirement are one storage mutation, followed by hierarchy relinking under the Team lock.
 
+### Team staffing and Orchestrator recovery (POST /api/teams/{team_id}/members)
+
+`{provider, role, title?, task?, model?}` adds one member to an existing Team; `role` is `worker`, `planner`, or `orchestrator`. This endpoint, the UI add-member action, the socket `team.add_member` verb, and `codeterm agent spawn <provider> --team <id> --role Orchestrator` are one service path.
+
+A Team holds **at most one live Orchestrator**, enforced as a headcount of live anchoring tabs rather than a ban on the role: a removed tab is gone from the multiplexer and a dead agent's identity is cleared on lifecycle exit, so neither counts. A Team whose Orchestrator is gone therefore accepts a new one, and the new anchor takes the Team's active plan over through the same tab-gone owner rebind used for a dead owner — owner and owner history move, the plan reactivates, and the Team's own Planner keeps its binding. The response carries `plan_takeover: {plan_id, owner_tab_id, error?}` when ownership moved. Because `plan.owner` moves, the plan heartbeat targets the new tab from the next scan on.
+
+`X-CodeTerm-Tab-Id` is optional on this endpoint alone: a Team whose Orchestrator is gone has no membership left to spend. A caller-less add can place only an anchoring role; `worker` and `planner` still need a spawn-capable member. Every structural refusal leads with an error-code constant from `codeterm-types::team::staffing` and is logged with the Team, the requested role, and the cause — `team_orchestrator_already_live`, `team_member_role_unknown`, `team_role_requires_spawner`, `team_caller_unauthorized`, `team_caller_cannot_spawn`, `team_workspace_unresolved`. A structural refusal is never surfaced as a retry prompt.
+
 ### Close Team (POST /api/teams/{team_id}/close)
 
 Explicitly closes every Team member through the Team cascade path, removes the Team registry entry, archives and detaches every bound plan, retires each plan owner into owner history, clears its owner/planner routing authority, and emits one committed `mux-state-changed`. This is the only user operation that removes a Team. Ordinary tab closes retain the Team record; the single automatic exception is a pair-minted startup lease, whose forming, empty, fully owned Team is reaped once its two reserved launch attempts are gone. The `X-CodeTerm-Tab-Id` header is required and must identify the Team's Orchestrator or planner-profile Manager. Missing header returns `400`, unauthorized or foreign callers return `403`, and an unknown or already closed Team returns structured `404`.
@@ -218,4 +226,4 @@ On error, individual commands return `{"error": "message", "method": "..."}` but
 | `can-spawn` | `tab_id` | `can_spawn` (default: true) |
 | `report` | `tab_id`, `message` | — |
 
-<!-- revision: 8 -->
+<!-- revision: 9 -->

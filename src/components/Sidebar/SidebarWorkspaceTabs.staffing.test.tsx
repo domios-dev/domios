@@ -6,6 +6,7 @@ import type { ProviderDescriptor } from "../../lib/types";
 import type { TeamMemberRole } from "../../lib/teamActions";
 import { canvasFocusStore } from "../Canvas/canvasFocusStore";
 import { tab, TEAM } from "./SidebarWorkspaceTabs.fixtures.testdata";
+import { addableTeamRoles } from "./SidebarWorkspaceTabs";
 import {
   act,
   assert,
@@ -358,6 +359,49 @@ test("staffing provider action ignores an immediate double click", async () => {
   await act(async () => {});
   assert(!document.querySelector('[data-testid="team-menu"]'), "menu closes after successful staffing");
   await act(async () => root.unmount());
+});
+
+/// codeterm#418: the picker mirrors the daemon headcount instead of offering a
+/// role that would always be refused — and keeps offering it once the anchor is
+/// gone, which is the door a stranded Team recovers through.
+test("orchestrator is offered exactly while the Team has no live one", async () => {
+  const liveAnchor = tab({
+    id: "O1",
+    role: "Manager",
+    role_profile: "orchestrator",
+    team_id: TEAM.id,
+    agent_type: "provider-neutral",
+  });
+  const deadAnchor = tab({
+    id: "O1",
+    role: "Manager",
+    role_profile: "orchestrator",
+    team_id: TEAM.id,
+    agent_type: null,
+  });
+  const planner = tab({
+    id: "P1",
+    role: "Manager",
+    role_profile: "planner",
+    team_id: TEAM.id,
+    agent_type: "provider-neutral",
+  });
+
+  assert(
+    JSON.stringify(addableTeamRoles([{ tab: liveAnchor, index: 0 }], "O1"))
+      === JSON.stringify(["planner", "worker"]),
+    "a Team with a live Orchestrator is not offered a second one",
+  );
+  assert(
+    JSON.stringify(addableTeamRoles([{ tab: deadAnchor, index: 0 }], null))
+      === JSON.stringify(["orchestrator"]),
+    "a dead Orchestrator leaves the recovery door open",
+  );
+  assert(
+    JSON.stringify(addableTeamRoles([{ tab: planner, index: 0 }], null))
+      === JSON.stringify(["orchestrator"]),
+    "a Team whose Orchestrator was removed is offered one with no caller",
+  );
 });
 
 void run();

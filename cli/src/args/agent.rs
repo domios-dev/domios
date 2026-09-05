@@ -320,9 +320,11 @@ pub enum AgentAction {
         plan_task: Option<String>,
         /// Attach this roleless agent to an existing Team, mirroring `tab new
         /// --team`. The calling tab (CODETERM_TAB_ID) must already belong to
-        /// that Team. Rejected together with --role or --plan-task: a role- or
-        /// plan-bound agent takes its Team from that binding, never from here.
-        #[arg(long, value_name = "TEAM_ID", conflicts_with_all = ["role", "plan_task"])]
+        /// that Team. Rejected together with --plan-task, and with every --role
+        /// but Orchestrator: a plan-bound agent takes its Team from that
+        /// binding. `--team <id> --role Orchestrator` is the recovery add for a
+        /// Team whose Orchestrator is gone and carries no other spawn flag.
+        #[arg(long, value_name = "TEAM_ID", conflicts_with = "plan_task")]
         team: Option<String>,
         #[arg(
             long = "execution-intent",
@@ -726,14 +728,30 @@ mod tests {
     }
 
     #[test]
-    fn spawn_team_conflicts_with_role_and_plan_task() {
-        for args in [
-            vec!["claude", "--team", "team_alpha", "--role", "Worker"],
-            vec!["claude", "--team", "team_alpha", "--plan-task", "task_one"],
-        ] {
-            let error = parse_spawn(&args).expect_err("--team must not combine with a binding");
-            assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+    fn spawn_team_conflicts_with_plan_task() {
+        let error = parse_spawn(&["claude", "--team", "team_alpha", "--plan-task", "task_one"])
+            .expect_err("--team must not combine with a plan binding");
+        assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+    }
+
+    /// codeterm#418: the role that anchors a Team is the one `--role` `--team`
+    /// accepts, so a stranded Team can be handed a new Orchestrator. Every other
+    /// role is refused later, by code, not by clap.
+    #[test]
+    fn spawn_team_parses_with_an_anchoring_role() {
+        let parsed = parse_spawn(&["claude", "--team", "team_alpha", "--role", "Orchestrator"])
+            .expect("--team --role Orchestrator parses");
+        match parsed {
+            AgentAction::Spawn { team, role, .. } => {
+                assert_eq!(team.as_deref(), Some("team_alpha"));
+                assert!(matches!(role, Some(SpawnRole::Orchestrator)));
+            }
+            _ => panic!("expected agent spawn"),
         }
+        assert!(
+            parse_spawn(&["claude", "--team", "team_alpha", "--role", "Worker"]).is_ok(),
+            "a non-anchoring role parses and is refused by the spawn verb, not by clap"
+        );
     }
 
     #[test]

@@ -294,6 +294,39 @@ pub(crate) fn transition_plan_to_orchestrator_core(
     activate: bool,
     now_ms: u64,
 ) -> Result<crate::plan::Plan, String> {
+    transition_plan_owner(
+        mux, plan_store, plan_id, owner, team_id, reason, activate, true, now_ms,
+    )
+}
+
+/// Recovery seam for a Team whose Orchestrator is gone: a replacement anchor
+/// takes the plan over, and the Team's own Planner keeps its binding.
+pub(crate) fn recover_plan_ownership_for_new_orchestrator(
+    mux: &mut MultiplexerState,
+    plan_store: &crate::service::plan::PlanStore,
+    plan_id: &str,
+    owner: crate::plan::OrchestratorRef,
+    team_id: &str,
+    reason: &str,
+    now_ms: u64,
+) -> Result<crate::plan::Plan, String> {
+    transition_plan_owner(
+        mux, plan_store, plan_id, owner, team_id, reason, true, false, now_ms,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn transition_plan_owner(
+    mux: &mut MultiplexerState,
+    plan_store: &crate::service::plan::PlanStore,
+    plan_id: &str,
+    owner: crate::plan::OrchestratorRef,
+    team_id: &str,
+    reason: &str,
+    activate: bool,
+    clear_planner: bool,
+    now_ms: u64,
+) -> Result<crate::plan::Plan, String> {
     let tab_id = owner
         .tab_id
         .as_deref()
@@ -306,7 +339,7 @@ pub(crate) fn transition_plan_to_orchestrator_core(
         team_id: team_id.to_string(),
         reason: reason.to_string(),
         activate,
-        clear_planner: true,
+        clear_planner,
     };
     execute_transition_at(
         mux,

@@ -19,6 +19,7 @@ import {
   type PlanStatusCounts,
 } from "../shared/PlanStatusBreakdown";
 import { loadTeamDisclosureState, persistTeamDisclosureState } from "./teamDisclosureState";
+import { refusalText } from "../../lib/refusalText";
 
 export interface SidebarTeamActions {
   /// `managerTabId` is null when the Team holds no member that can spawn. The
@@ -231,7 +232,7 @@ function TeamMenu({
       setProviderRole(null);
       setSelectedProvider(null);
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : "Could not add team member. Try again.");
+      setActionError(refusalText(error, "Could not add team member."));
     } finally {
       addingMemberRef.current = false;
       setAddingMember(false);
@@ -508,7 +509,7 @@ export function TeamUnit({
       await onRenameTeam(team.id, trimmed);
       setEditing(false);
     } catch (error) {
-      setRenameError(error instanceof Error ? error.message : "Could not rename team. Try again.");
+      setRenameError(refusalText(error, "Could not rename team."));
     } finally {
       setRenaming(false);
     }
