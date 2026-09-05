@@ -330,7 +330,7 @@ print_case() {
   cat "$case_dir/exact-confirmation.txt.err" 2>/dev/null || true
   echo "--- transcript observation after third key ---"
   cat "$case_dir/transcript-summary.txt"
-  if [ -f "$case_dir/turn-start-observation.txt" ]; then
+  if [ -f "$case_dir/screen-after-turn-end.txt" ]; then
     echo "--- after the blocked control turn ended, with no further input ---"
     cat "$case_dir/turn-start-observation.txt"
     cat "$case_dir/turn-start-after-release.txt" 2>/dev/null || true
