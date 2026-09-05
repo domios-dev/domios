@@ -369,6 +369,27 @@ const INHERITED_ORCHESTRATION_ENV: &[&str] = &[
     "CODETERM_WORKER_ID",
 ];
 
+/// The single rule for putting the CodeTerm CLI directory on a PATH: every
+/// existing copy is dropped, then it is prepended once. Both owners of that
+/// prepend — the PTY environment here and the post-profile launch line — apply
+/// this rule, so a tab carries the directory exactly once end to end.
+pub fn path_with_cli_dir_first(
+    inherited: &std::ffi::OsStr,
+    cli_dir: &std::path::Path,
+) -> Option<std::ffi::OsString> {
+    let paths = std::iter::once(cli_dir.to_path_buf())
+        .chain(std::env::split_paths(inherited).filter(|path| path != cli_dir));
+    std::env::join_paths(paths).ok()
+}
+
+/// Directory holding the CLI named by `CODETERM_CLI_PATH`, if that names one.
+pub fn cli_dir_of(cli_path: &std::ffi::OsStr) -> Option<std::path::PathBuf> {
+    std::path::Path::new(cli_path)
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .map(std::path::Path::to_path_buf)
+}
+
 fn apply_pty_env(cmd: &mut CommandBuilder, env_vars: &HashMap<String, String>) {
     for key in INHERITED_ORCHESTRATION_ENV {
         cmd.env_remove(key);
@@ -382,20 +403,13 @@ fn apply_pty_env(cmd: &mut CommandBuilder, env_vars: &HashMap<String, String>) {
         .get("CODETERM_CLI_PATH")
         .map(std::ffi::OsString::from)
         .or_else(|| std::env::var_os("CODETERM_CLI_PATH"));
-    if let Some(cli_dir) = cli_path
-        .as_deref()
-        .map(std::path::Path::new)
-        .and_then(std::path::Path::parent)
-        .filter(|path| !path.as_os_str().is_empty())
-    {
+    if let Some(cli_dir) = cli_path.as_deref().and_then(cli_dir_of) {
         let inherited_path = env_vars
             .get("PATH")
             .map(std::ffi::OsString::from)
             .or_else(|| std::env::var_os("PATH"))
             .unwrap_or_default();
-        let paths = std::iter::once(cli_dir.to_path_buf())
-            .chain(std::env::split_paths(&inherited_path).filter(|path| path != cli_dir));
-        if let Ok(path) = std::env::join_paths(paths) {
+        if let Some(path) = path_with_cli_dir_first(&inherited_path, &cli_dir) {
             cmd.env("PATH", path);
         }
     }

@@ -111,6 +111,21 @@ fn resolve_bundled_cli_src(app: &impl tauri::Manager<tauri::Wry>) -> Option<std:
     })
 }
 
+/// The boundary every persistent user-PATH addition crosses. `refresh_installed_cli`
+/// only ever hands a directory to this, so a test that supplies its own
+/// implementation cannot reach `HKCU\Environment` at all.
+pub(crate) trait UserPathWriter {
+    fn add_dir(&self, dir: &std::path::Path);
+}
+
+struct SystemUserPath;
+
+impl UserPathWriter for SystemUserPath {
+    fn add_dir(&self, dir: &std::path::Path) {
+        super::user_path::add_to_user_path(dir);
+    }
+}
+
 /// Copy the bundled CLI (`src`) to the active data-dir `bin/` iff it differs by content
 /// (sha256, not size — same-size builds can differ, e.g. the v1.1.5→1.1.6
 /// incident that broke mesh signing). Repairs the `~/.local/bin` symlink on
@@ -120,6 +135,15 @@ pub(crate) fn refresh_installed_cli(
     src: &std::path::Path,
     home: &std::path::Path,
     data_dir: &std::path::Path,
+) -> std::io::Result<bool> {
+    refresh_installed_cli_with(src, home, data_dir, &SystemUserPath)
+}
+
+pub(crate) fn refresh_installed_cli_with(
+    src: &std::path::Path,
+    home: &std::path::Path,
+    data_dir: &std::path::Path,
+    user_path: &dyn UserPathWriter,
 ) -> std::io::Result<bool> {
     let bin_name = cli_bin_name();
     let dest_dir = data_dir.join("bin");
@@ -210,9 +234,8 @@ pub(crate) fn refresh_installed_cli(
             }
         }
     }
-    #[cfg(windows)]
     if is_prod_dest {
-        add_to_user_path(&dest_dir);
+        user_path.add_dir(&dest_dir);
     }
 
     Ok(needs_copy)
@@ -262,61 +285,29 @@ pub(crate) fn refresh_bundled_cli(app: &impl tauri::Manager<tauri::Wry>) {
     }
 }
 
-/// Add a directory to the Windows User PATH (persistent, no admin needed).
-#[cfg(windows)]
-fn add_to_user_path(dir: &std::path::Path) {
-    let dir_str = dir.to_string_lossy().replace('/', "\\");
-    let mut q = std::process::Command::new("reg");
-    q.args(["query", "HKCU\\Environment", "/v", "Path"]);
-    crate::process_util::no_window_std(&mut q);
-    let output = q.output();
-    let current = match output {
-        Ok(o) => String::from_utf8_lossy(&o.stdout).to_string(),
-        Err(_) => String::new(),
-    };
-    if current.contains(&*dir_str) {
-        return;
-    }
-    let current_val = current
-        .lines()
-        .find(|l| l.contains("REG_") && l.contains("Path"))
-        .and_then(|l| {
-            l.split("REG_EXPAND_SZ")
-                .nth(1)
-                .or_else(|| l.split("REG_SZ").nth(1))
-        })
-        .map(|v| v.trim().to_string())
-        .unwrap_or_default();
-    let new_val = if current_val.is_empty() {
-        dir_str.to_string()
-    } else {
-        format!("{};{}", current_val, dir_str)
-    };
-    let mut a = std::process::Command::new("reg");
-    a.args([
-        "add",
-        "HKCU\\Environment",
-        "/v",
-        "Path",
-        "/t",
-        "REG_EXPAND_SZ",
-        "/d",
-        &new_val,
-        "/f",
-    ]);
-    crate::process_util::no_window_std(&mut a);
-    let result = a.output();
-    if let Ok(o) = result {
-        if o.status.success() {
-            log::info!("[cli-install] Added {} to User PATH", dir_str);
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::file_sha256;
     use std::io::Write;
+
+    /// Stands in for the registry writer. With this wired in there is no code
+    /// path from a test to `HKCU\Environment` at all.
+    #[derive(Default)]
+    struct RecordingUserPath {
+        added: std::sync::Mutex<Vec<std::path::PathBuf>>,
+    }
+
+    impl RecordingUserPath {
+        fn added(&self) -> Vec<std::path::PathBuf> {
+            self.added.lock().unwrap().clone()
+        }
+    }
+
+    impl super::UserPathWriter for RecordingUserPath {
+        fn add_dir(&self, dir: &std::path::Path) {
+            self.added.lock().unwrap().push(dir.to_path_buf());
+        }
+    }
 
     #[test]
     fn startup_bundled_cli_never_overwrites_dev_cli() {
@@ -399,29 +390,48 @@ mod tests {
         let data_dir = home.path().join(".codeterm");
         let srcdir = tempfile::tempdir().unwrap();
         let src = srcdir.path().join("codeterm");
+        let user_path = RecordingUserPath::default();
         std::fs::File::create(&src)
             .unwrap()
             .write_all(b"v1.5.6-binary")
             .unwrap();
 
         // First refresh installs the CLI.
-        assert!(super::refresh_installed_cli(&src, home.path(), &data_dir).unwrap());
+        assert!(
+            super::refresh_installed_cli_with(&src, home.path(), &data_dir, &user_path).unwrap()
+        );
         let dest = data_dir.join("bin").join(super::cli_bin_name());
         assert!(dest.exists());
         assert_eq!(std::fs::read(&dest).unwrap(), b"v1.5.6-binary");
 
         // Same content → up-to-date, no reinstall.
-        assert!(!super::refresh_installed_cli(&src, home.path(), &data_dir).unwrap());
+        assert!(
+            !super::refresh_installed_cli_with(&src, home.path(), &data_dir, &user_path).unwrap()
+        );
 
         // New release with same name but different content → reinstall.
         std::fs::File::create(&src)
             .unwrap()
             .write_all(b"v1.5.7-binary-with-report-to")
             .unwrap();
-        assert!(super::refresh_installed_cli(&src, home.path(), &data_dir).unwrap());
+        assert!(
+            super::refresh_installed_cli_with(&src, home.path(), &data_dir, &user_path).unwrap()
+        );
         assert_eq!(
             std::fs::read(&dest).unwrap(),
             b"v1.5.7-binary-with-report-to"
+        );
+
+        // The registry is never reached: every prod-dest refresh hands the bin
+        // directory to the seam and nothing else.
+        assert_eq!(
+            user_path.added(),
+            vec![
+                data_dir.join("bin"),
+                data_dir.join("bin"),
+                data_dir.join("bin")
+            ],
+            "each refresh must hand exactly the installed bin directory to the seam"
         );
     }
 
@@ -437,7 +447,10 @@ mod tests {
             .write_all(b"dev-instance-binary")
             .unwrap();
 
-        assert!(super::refresh_installed_cli(&src, home.path(), &data_dir).unwrap());
+        let user_path = RecordingUserPath::default();
+        assert!(
+            super::refresh_installed_cli_with(&src, home.path(), &data_dir, &user_path).unwrap()
+        );
 
         let dev_dest = data_dir.join("bin").join(super::cli_bin_name());
         let prod_dest = home
@@ -449,6 +462,12 @@ mod tests {
         assert!(
             !prod_dest.exists(),
             "dev/named instance CLI refresh must not write prod bin"
+        );
+        // Companion to the seam assertion above: a non-prod destination reaches
+        // the seam with nothing, so a writer that records unconditionally fails.
+        assert!(
+            user_path.added().is_empty(),
+            "a dev/named instance must never touch the persistent user PATH"
         );
     }
 

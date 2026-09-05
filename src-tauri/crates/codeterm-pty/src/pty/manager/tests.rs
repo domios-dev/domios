@@ -562,10 +562,16 @@ fn pty_env_never_rewrites_agent_toolchain_selection() {
         cmd.env(key, value);
     }
 
-    apply_pty_env(&mut cmd, &HashMap::from([
-        ("CODETERM_TAB_ID".to_string(), "tab-1".to_string()),
-        ("CODETERM_API_URL".to_string(), "http://127.0.0.1:7686".to_string()),
-    ]));
+    apply_pty_env(
+        &mut cmd,
+        &HashMap::from([
+            ("CODETERM_TAB_ID".to_string(), "tab-1".to_string()),
+            (
+                "CODETERM_API_URL".to_string(),
+                "http://127.0.0.1:7686".to_string(),
+            ),
+        ]),
+    );
 
     for (key, value) in inherited {
         assert_eq!(
@@ -599,6 +605,70 @@ fn pty_env_changes_path_only_by_the_codeterm_cli_dir() {
             "/usr/bin".into(),
         ]
     };
+    let cli_dir = std::path::Path::new(cli_path).parent().unwrap();
+    // A PATH the daemon already carries the CLI dir on is the realistic case:
+    // the prepend must move it, not add a second copy.
+    let mut carried = inherited_dirs.clone();
+    carried.insert(1, cli_dir.to_path_buf());
+    let inherited = std::env::join_paths(&carried).unwrap();
+    let mut cmd = CommandBuilder::new("agent");
+
+    apply_pty_env(
+        &mut cmd,
+        &HashMap::from([
+            ("CODETERM_CLI_PATH".to_string(), cli_path.to_string()),
+            ("PATH".to_string(), inherited.to_string_lossy().into_owned()),
+        ]),
+    );
+
+    let spawned: Vec<std::path::PathBuf> =
+        std::env::split_paths(cmd.get_env("PATH").expect("PATH is stamped")).collect();
+    let survivors: Vec<std::path::PathBuf> = spawned
+        .iter()
+        .filter(|dir| dir.as_path() != cli_dir)
+        .cloned()
+        .collect();
+
+    assert_eq!(
+        survivors, inherited_dirs,
+        "inherited PATH entries must survive unchanged and in order"
+    );
+    assert_eq!(
+        spawned
+            .iter()
+            .filter(|dir| dir.as_path() == cli_dir)
+            .count(),
+        1,
+        "the CLI dir must appear exactly once on a tab's PATH"
+    );
+    assert_eq!(
+        spawned.first().map(std::path::PathBuf::as_path),
+        Some(cli_dir),
+        "the CLI dir must win precedence"
+    );
+    assert_eq!(
+        spawned.len(),
+        inherited_dirs.len() + 1,
+        "exactly one directory may be added to a tab's PATH"
+    );
+}
+
+/// Companion to the count above: an implementation that never filters would
+/// still pass a first-position check, and one that never prepends would still
+/// pass a "no duplicates" check. Pin both halves on a PATH without the dir.
+#[test]
+fn pty_env_adds_the_cli_dir_when_the_inherited_path_lacks_it() {
+    let cli_path = if cfg!(windows) {
+        r"C:\ct\bin\codeterm.exe"
+    } else {
+        "/opt/ct/bin/codeterm"
+    };
+    let cli_dir = std::path::Path::new(cli_path).parent().unwrap();
+    let inherited_dirs: Vec<std::path::PathBuf> = if cfg!(windows) {
+        vec![r"C:\Windows\system32".into()]
+    } else {
+        vec!["/usr/bin".into()]
+    };
     let inherited = std::env::join_paths(&inherited_dirs).unwrap();
     let mut cmd = CommandBuilder::new("agent");
 
@@ -612,20 +682,16 @@ fn pty_env_changes_path_only_by_the_codeterm_cli_dir() {
 
     let spawned: Vec<std::path::PathBuf> =
         std::env::split_paths(cmd.get_env("PATH").expect("PATH is stamped")).collect();
-    let cli_dir = std::path::Path::new(cli_path).parent().unwrap();
-    let survivors: Vec<std::path::PathBuf> = spawned
-        .iter()
-        .filter(|dir| dir.as_path() != cli_dir)
-        .cloned()
-        .collect();
-
     assert_eq!(
-        survivors, inherited_dirs,
-        "inherited PATH entries must survive unchanged and in order"
+        spawned
+            .iter()
+            .filter(|dir| dir.as_path() == cli_dir)
+            .count(),
+        1,
+        "the CLI dir must be added when the inherited PATH lacks it"
     );
     assert_eq!(
-        spawned.len(),
-        inherited_dirs.len() + 1,
-        "exactly one directory may be added to a tab's PATH"
+        spawned.first().map(std::path::PathBuf::as_path),
+        Some(cli_dir)
     );
 }
