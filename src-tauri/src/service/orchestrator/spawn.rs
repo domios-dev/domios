@@ -554,7 +554,12 @@ impl ServiceContext {
 
         // Pin agent_type before launch so detect_from_output can start session-id polling.
         // Without this tag, restarts can lose session_id and resume fails silently.
-        self.set_and_lock_tab_agent_type(&tab_id, agent_cmd.to_string());
+        self.set_and_lock_tab_agent_type_from(
+            &tab_id,
+            agent_cmd.to_string(),
+            crate::session::lifecycle::AgentTypeWriteOrigin::Spawn,
+            params.creator_tab_id.as_deref(),
+        );
         let startup_supervised = self.prepare_agent_startup_supervision(&tab_id);
 
         // 4c. Pin agent_session_id for resume up-front: we know the id from the user's request, so don't wait for detect_session_id polling.
