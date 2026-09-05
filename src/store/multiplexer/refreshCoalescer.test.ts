@@ -22,7 +22,7 @@ function assert(cond: unknown, msg: string): asserts cond {
 function controllable() {
   let inFlight = 0;
   let maxInFlight = 0;
-  let calls = 0;
+  let calls: number = 0;
   const releases: Array<() => void> = [];
   const run = (): Promise<boolean> => {
     calls++;
@@ -129,7 +129,7 @@ void (async () => {
   });
 
   await test("a failing fetch does not wedge the coalescer", async () => {
-    let calls = 0;
+    let calls: number = 0;
     const coalescer = createRefreshCoalescer(async () => {
       calls++;
       if (calls === 1) throw new Error("backend down");
@@ -141,7 +141,7 @@ void (async () => {
   });
 
   await test("sequential requests each get their own fetch", async () => {
-    let calls = 0;
+    let calls: number = 0;
     const coalescer = createRefreshCoalescer(async () => {
       calls++;
       return true;
@@ -164,7 +164,7 @@ void (async () => {
   const isRefusal = (e: unknown): boolean => e instanceof Refusal;
 
   await test("a refused snapshot does not become a permanent false", async () => {
-    let calls = 0;
+    let calls: number = 0;
     const coalescer = createRefreshCoalescer(async () => {
       calls++;
       if (calls <= 2) throw new Refusal();
@@ -180,7 +180,7 @@ void (async () => {
   });
 
   await test("a storm of refusals never becomes a tight loop", async () => {
-    let calls = 0;
+    let calls: number = 0;
     const backend = controllable();
     const refusing = async (): Promise<boolean> => {
       calls++;
