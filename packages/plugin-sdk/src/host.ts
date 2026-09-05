@@ -49,6 +49,17 @@ export interface FetchOpts {
   headers?: Record<string, string>;
   body?: string;
   timeoutMs?: number;
+  // Ask the host to stamp a manifest-declared credential into request headers.
+  // Templates are filled from that credential's fields (`{accessToken}`); the
+  // values themselves never enter the VM.
+  credential?: CredentialRequest;
+}
+
+// `plugin.json` -> `credentials[]` declares the file and its field paths; the
+// plugin only ever names the credential and the header shape it needs.
+export interface CredentialRequest {
+  id: string;
+  headers: Record<string, string>;
 }
 
 export interface FetchResult {
@@ -195,6 +206,9 @@ export interface Host {
   homeDir(): string | null;
   expandHome(path: string): string | null;
   envGet(name: string): string | null;
+  // Non-secret fields of a manifest-declared credential, as a JSON object.
+  // Secret fields are never returned — see `FetchOpts.credential`.
+  credentialPublic(id: string): string | null;
   unixNow(): number;
   unixNowMs(): number;
   md5(s: string): string;

@@ -20,6 +20,7 @@ import {
 } from "./cycle";
 import { BarTooltip, type BarHover } from "./BarTooltip";
 import { visibleUsageMetrics } from "./metrics";
+import { staleBannerCopy } from "./staleBanner";
 
 interface UsageDetailProps {
   snapshot: UsageSnapshot;
@@ -35,6 +36,16 @@ const STALE_MS = 20 * 60 * 1000;
 const REFRESH_TIMEOUT_MS = 12_000;
 const MERGE_MARKERS_WITHIN_PCT = 3;
 const INTRO_HINT_MAX_OPENS = 5;
+
+function StaleBanner({ snapshot, now }: { snapshot: UsageSnapshot; now: number }) {
+  const copy = staleBannerCopy(snapshot);
+  return (
+    <div className="ct-usage-stale-banner" data-usage-stale-cause={copy.cause}>
+      {copy.headline} — last updated {formatRelative(now, snapshot.captured_at)}
+      {copy.detail && <div className="ct-usage-stale-detail">{copy.detail}</div>}
+    </div>
+  );
+}
 
 export function UsageDetail({ snapshot, flipUp, onRefresh, onOpenHistory }: UsageDetailProps) {
   const [refreshing, setRefreshing] = useState(false);
@@ -125,11 +136,7 @@ export function UsageDetail({ snapshot, flipUp, onRefresh, onOpenHistory }: Usag
         </button>
       </div>
 
-      {isStale && (
-        <div className="ct-usage-stale-banner">
-          Data may be outdated — last updated {formatRelative(now, snapshot.captured_at)}
-        </div>
-      )}
+      {isStale && <StaleBanner snapshot={snapshot} now={now} />}
 
       {metrics.map((metric) => (
         <Gauge
@@ -209,11 +216,7 @@ export function UsageSpendDetail({ snapshot, flipUp, onRefresh }: UsageDetailPro
         </button>
       </div>
 
-      {isStale && (
-        <div className="ct-usage-stale-banner">
-          Data may be outdated — last updated {formatRelative(now, snapshot.captured_at)}
-        </div>
-      )}
+      {isStale && <StaleBanner snapshot={snapshot} now={now} />}
 
       <div className="ct-usage-spend">
         <span className="amount">{formatSpend(snapshot.spend_cents ?? 0)}</span>

@@ -348,22 +348,21 @@ function base64(value) {
 
 // plugins/provider-codex/src/usage.ts
 var CODEX_USAGE_KIND = "codeterm_usage_v1";
+var CODEX_AUTH_CREDENTIAL = "codexAuth";
 function fetchCodexUsage(host2) {
-  const authPath = host2.expandHome("~/.codex/auth.json");
-  if (!authPath) return null;
-  const auth = safeJson(host2.fs.readFile(authPath));
-  const tokens = objectAt(auth, "tokens");
-  const accessToken = stringAt(tokens, "access_token");
-  const accountId = stringAt(tokens, "account_id");
-  if (!accessToken || !accountId) return null;
+  const accountId = stringAt(safeJson(host2.credentialPublic(CODEX_AUTH_CREDENTIAL)), "accountId");
+  if (!accountId) return null;
   const response = safeJson(host2.fetch(JSON.stringify({
     url: "https://chatgpt.com/backend-api/wham/usage",
     method: "GET",
     timeoutMs: 6e3,
     headers: {
-      Authorization: `Bearer ${accessToken}`,
       "ChatGPT-Account-Id": accountId,
       "User-Agent": "codeterm-usage/1.7.8"
+    },
+    credential: {
+      id: CODEX_AUTH_CREDENTIAL,
+      headers: { Authorization: "Bearer {accessToken}" }
     }
   })));
   if (numberAt(response, "status") !== 200) return null;
@@ -935,6 +934,7 @@ function scoreAuthPrompt(screen) {
 
 // plugins/provider-codex/src/sessions.ts
 var sessionStoreOverrides = {
+  root: "CODETERM_CODEX_SESSIONS_ROOT",
   index: "CODETERM_CODEX_SESSION_INDEX_PATH",
   threadHistory: "CODETERM_CODEX_THREAD_HISTORY_PATH"
 };
@@ -1033,18 +1033,29 @@ function extractSessionUuid(stem) {
   return rest.substring(20);
 }
 function codexSessionStore() {
-  const home = host.homeDir();
   const indexOverride = host.envGet(sessionStoreOverrides.index);
   const historyOverride = host.envGet(sessionStoreOverrides.threadHistory);
   if (indexOverride && historyOverride) {
     return { indexPath: indexOverride, threadHistoryPath: historyOverride };
   }
-  if (!home) return null;
   const sep = host.platform() === "windows" ? "\\" : "/";
+  const root = codexSessionsRoot(sep);
+  if (!root) return null;
   return {
-    indexPath: indexOverride || home + sep + ".codex" + sep + "session_index.jsonl",
-    threadHistoryPath: historyOverride || home + sep + ".codex" + sep + "thread_history_1.sqlite"
+    indexPath: indexOverride || root + sep + "session_index.jsonl",
+    threadHistoryPath: historyOverride || root + sep + "thread_history_1.sqlite"
   };
+}
+function trimTrailingSeparators(path) {
+  let end = path.length;
+  while (end > 1 && (path.charAt(end - 1) === "/" || path.charAt(end - 1) === "\\")) end--;
+  return path.substring(0, end);
+}
+function codexSessionsRoot(sep) {
+  const override = host.envGet(sessionStoreOverrides.root);
+  if (override) return trimTrailingSeparators(override);
+  const home = host.homeDir();
+  return home ? home + sep + ".codex" : null;
 }
 function readSessionIndex(path) {
   if (!host.fs.fileExists(path)) return [];
