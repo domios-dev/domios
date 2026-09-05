@@ -2221,6 +2221,7 @@ Close a task from any lifecycle state. The authenticated Plan Orchestrator overr
 Spawn a worker, assign the task, and deliver its brief in one atomic call
 
 - `--agent` — Agent provider to spawn (e.g. claude, codex, opencode)
+- `--authorized-gate` — Gate token the worker may claim as executed; repeatable
 - `--cwd`
 - `--execution-intent` — Explicit task intent used by provider reserve policy
 - `--model`

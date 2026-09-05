@@ -345,6 +345,13 @@ pub enum PlanTaskAction {
         task_id: Option<String>,
         #[arg(long, help = "Agent provider to spawn (e.g. claude, codex, opencode)")]
         agent: Option<String>,
+        #[arg(
+            long = "authorized-gate",
+            value_name = "GATE",
+            allow_hyphen_values = true,
+            help = "Gate token the worker may claim as executed; repeatable"
+        )]
+        authorized_gates: Vec<String>,
         #[arg(long, allow_hyphen_values = true)]
         model: Option<String>,
         #[arg(

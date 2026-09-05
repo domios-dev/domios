@@ -830,6 +830,7 @@ impl ServiceContext {
             |message| {
                 self.submit_report(tab_id, message, ReportDetails::default(), None, None, None)
                     .map(|_| ())
+                    .map_err(|error| error.message)
             },
         );
     }

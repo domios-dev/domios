@@ -19,6 +19,7 @@ use super::JsonRpcError;
 
 mod brief;
 mod dispatch_failure;
+mod gates;
 mod lane_resolution;
 pub(super) mod lane_safety;
 mod preflight;
@@ -36,6 +37,7 @@ use dispatch_failure::{
     cleanup_succeeded, dispatch_startup_failed_event, dispatch_wait_failed,
     DispatchFailureDisposition, DispatchWaitFailure,
 };
+use gates::dispatch_authorized_gates;
 use lane_resolution::{checkout_required, invalid_dispatch, resolve_dispatch_lane};
 use lane_safety::{
     atomic_lane_commitment, dispatch_safety_nudges, preflight_checkout_occupancy,
@@ -675,6 +677,7 @@ pub(super) fn dispatch(
 ) -> Result<Value, JsonRpcError> {
     let store = &svc.plan_store;
     let p = params.as_ref();
+    let authorized_gates = dispatch_authorized_gates(p)?;
     let (plan_id, task_id) = plan_refs::resolve_task(store, params)?;
     let detail = store
         .show_task(&task_id)
@@ -814,7 +817,13 @@ pub(super) fn dispatch(
     let (explicit_persona, title_provenance) = dispatch_worker_identity(&detail.task);
     let manifest = crate::service::plan::plan_skills::plan_skill_manifest(store, &plan_id)
         .map_err(plan_rpc_err)?;
-    let brief = build_brief_with_manifest(&detail.task, &detail.sections, &plan_id, &manifest);
+    let brief = build_brief_with_manifest(
+        &detail.task,
+        &detail.sections,
+        &plan_id,
+        &manifest,
+        &authorized_gates,
+    );
 
     let explicit_cwd = owned_str(p, "cwd");
     let canonical_cwd = if plan.canonical_project_path.trim().is_empty() {
@@ -1017,7 +1026,7 @@ pub(super) fn dispatch(
         }
     };
     let tab_id = spawn.tab_id.clone();
-    let attempt_id = match store.begin_task_dispatch_with_reserved_attempt(
+    let attempt_id = match store.begin_task_dispatch_with_reserved_attempt_and_gates(
         &plan_id,
         &task_id,
         &tab_id,
@@ -1027,6 +1036,7 @@ pub(super) fn dispatch(
         allowance,
         Some(&resolved_provider),
         &reserved_attempt_id,
+        authorized_gates.clone(),
         now,
     ) {
         Ok(attempt_id) => attempt_id,
@@ -1117,6 +1127,7 @@ pub(super) fn dispatch(
         "task_id": task_id,
         "attempt_id": attempt_id,
         "agent": resolved_provider,
+        "authorized_gates": authorized_gates,
     });
     if let Some(provenance) = initial_provenance.as_ref() {
         result["lane"] = json!({
