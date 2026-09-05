@@ -417,6 +417,7 @@ fn one_dispatch_creates_exactly_one_tab() {
             &tab_id,
             "attempt",
             &evidence,
+            "/canonical/project",
             &[],
         ))
         .unwrap();
