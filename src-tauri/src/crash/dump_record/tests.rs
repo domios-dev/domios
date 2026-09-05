@@ -56,10 +56,8 @@ fn a_dump_write_that_fails_still_leaves_a_record_saying_so() {
 
 #[test]
 fn a_dump_write_that_dies_leaves_the_attempted_record_behind() {
-    // The 2026-09-05 regression: the handler entered write_minidump and never
-    // returned, so nothing recorded the attempt. The record must already be on
-    // disk while the dump write is still running — asserted from inside it,
-    // which is the only place the "died mid-write" state is observable.
+    // The record must already be on disk while the dump write runs — asserted from
+    // inside it, the only place the 2026-09-05 "died mid-write" state is observable.
     let p = paths();
     let observed_during_write = AtomicBool::new(false);
 
