@@ -52,6 +52,7 @@ mod plan_authority;
 pub(crate) mod plan_batch_authority;
 mod plan_reconcile;
 pub mod plugin_host;
+pub(crate) mod provider_identity;
 pub mod provider_update;
 pub(crate) mod pty_activation;
 pub mod pty_io;
@@ -276,8 +277,8 @@ pub struct ServiceContext {
     /// Ephemeral cross-mesh pastebin. In-memory only; daemon restart wipes
     /// all pastes. 20-entry cap, oldest-first eviction, TTL≤24h. (#98)
     pub pasteboard: crate::pasteboard::PasteboardState,
-    /// Watches bytes about to be written to PTYs; promotes typed `claude/codex/
-    /// opencode ...<Enter>` lines to a locked `agent_type` on the tab.
+    /// Watches bytes about to be written to PTYs; a typed provider launch may
+    /// claim a bare shell, but never contradict a claimed session.
     pub input_parser: Arc<input_parser::InputParser>,
     pub usage_store: crate::usage::UsageStoreHandle,
     pub usage_activity: crate::usage::TabActivity,

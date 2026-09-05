@@ -13,11 +13,19 @@ use crate::api::{
     routes::{resolve_tab, AppState},
 };
 
+mod run_session;
+mod session_claim;
+
+pub(crate) use session_claim::{
+    bind_reported_session, bind_validated_rebind_session, commit_materialized_rebind_session,
+};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SessionStartClaim {
     prev: Option<String>,
     changed: bool,
     nonce_verified: bool,
+    identity_evidence: crate::agent::provider_identity::ProviderIdentityEvidence,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -26,6 +34,20 @@ pub(crate) struct DeferredBindingPremise {
 }
 
 pub(crate) type SessionBindError = (StatusCode, String, Option<DeferredBindingPremise>);
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SessionBindingSource {
+    Hook,
+    ValidatedRebind,
+}
+
+impl SessionStartClaim {
+    pub(crate) fn identity_evidence(
+        &self,
+    ) -> &crate::agent::provider_identity::ProviderIdentityEvidence {
+        &self.identity_evidence
+    }
+}
 
 fn epoch_ms() -> u64 {
     SystemTime::now()
@@ -58,20 +80,26 @@ fn sole_hook_route_declarer(registry: &AgentRegistry, route: HookIngestionRoute)
     declarers.next().is_none().then_some(sole)
 }
 
-/// Ensure agent state is set when a hook fires.
-/// Hooks are authoritative — if a hook calls us, an agent IS running.
-/// This fixes detection on restored tabs, Windows (PowerShell doesn't reset title), etc.
+/// Attribute an unclaimed shell from the provider-specific permission route.
+/// A claimed session waits for SessionStart to prove its provider.
 fn ensure_agent_state(state: &AppState, tab_id: &str) {
     log::info!("[ensure_agent_state] called for Tab {}", tab_id);
-    let agent_type = {
-        let mux = state.svc.mux.write();
+    let (agent_type, session_id) = {
+        let mux = state.svc.mux.read();
         let tab = match mux.get_tab(tab_id) {
             Some(p) => p,
             None => return,
         };
-        tab.agent_type.clone()
+        (tab.agent_type.clone(), tab.agent_session_id.clone())
     };
     if agent_type.is_some() {
+        return;
+    }
+    if session_id.is_some() {
+        log::warn!(
+            "[hook] Tab {} fired the permission route with a claimed session; agent_type left unset until SessionStart proves ownership",
+            tab_id
+        );
         return;
     }
 
@@ -84,7 +112,12 @@ fn ensure_agent_state(state: &AppState, tab_id: &str) {
         );
         return;
     };
-    state.svc.set_and_lock_tab_agent_type(tab_id, owner.clone());
+    state.svc.set_and_lock_tab_agent_type_from(
+        tab_id,
+        owner.clone(),
+        crate::session::lifecycle::AgentTypeWriteOrigin::Hook,
+        Some(tab_id),
+    );
     log::info!("[hook] set agent_type={} for Tab {}", owner, tab_id);
     state.svc.emit_state_changed();
     state.svc.emit_session_binding_state(tab_id);
@@ -493,6 +526,7 @@ pub async fn hook_session_start(
         &provider_id,
         &sid,
         report_nonce.as_deref(),
+        Some(crate::session::lifecycle::AgentTypeWriteOrigin::Hook),
         &source,
         &body,
         claim,
@@ -611,6 +645,7 @@ async fn complete_deferred_session_binding(
                 &binding.provider_id,
                 &binding.session_id,
                 report_nonce.as_deref(),
+                Some(crate::session::lifecycle::AgentTypeWriteOrigin::Hook),
                 &source,
                 &body,
                 claim,
@@ -653,6 +688,7 @@ pub(crate) async fn finish_session_binding(
     provider_id: &str,
     sid: &str,
     report_nonce: Option<&str>,
+    identity_origin: Option<crate::session::lifecycle::AgentTypeWriteOrigin>,
     source: &str,
     body: &serde_json::Value,
     claim: SessionStartClaim,
@@ -686,9 +722,39 @@ pub(crate) async fn finish_session_binding(
         claim.nonce_verified,
         claim.changed,
     );
+    let identity_committed = if let Some(origin) = identity_origin {
+        if origin == crate::session::lifecycle::AgentTypeWriteOrigin::Hook {
+            matches!(
+                state.svc.write_hook_tab_agent_type_from_claim(
+                    tab_id,
+                    provider_id.to_string(),
+                    Some(tab_id),
+                    claim.identity_evidence(),
+                ),
+                Some(
+                    crate::service::provider_identity::AgentTypeWriteOutcome::Applied { .. }
+                        | crate::service::provider_identity::AgentTypeWriteOutcome::Kept { .. }
+                )
+            )
+        } else {
+            state.svc.set_and_lock_tab_agent_type_from(
+                tab_id,
+                provider_id.to_string(),
+                origin,
+                Some(tab_id),
+            );
+            true
+        }
+    } else {
+        false
+    };
     // Authoritative identity commit: journaled only on a nonce-proven binding,
     // so an unverified report can never become restorable authority.
-    if let (true, Some(binding_nonce)) = (claim.nonce_verified, reported_nonce.clone()) {
+    if let (true, true, Some(binding_nonce)) = (
+        identity_committed,
+        claim.nonce_verified,
+        reported_nonce.clone(),
+    ) {
         state.svc.record_lifecycle(
             &tab_id,
             crate::session::lifecycle::LifecycleTransition::ProviderIdentityCommitted {
@@ -710,7 +776,7 @@ pub(crate) async fn finish_session_binding(
     }
 
     // while it runs — not only after completion.
-    propagate_run_session(state, tab_id, sid);
+    run_session::propagate(state, tab_id, sid);
     if let Some(reported_transcript) = reported_transcript_path(body) {
         let evidence_sid = sid.to_string();
         let persisted = tokio::task::spawn_blocking(move || {
@@ -921,271 +987,6 @@ fn session_start_string(body: &serde_json::Value, path: &[&str]) -> Option<Strin
 fn reported_transcript_path(body: &serde_json::Value) -> Option<String> {
     session_start_string(body, &["transcript_path"])
         .or_else(|| session_start_string(body, &["payload", "transcript_path"]))
-}
-
-/// Push the just-bound session id (+cwd) onto whatever hidden run owns this tab
-/// (mem worker or cron run), so the read-only chat-ui can render it live.
-fn propagate_run_session(state: &AppState, tab_id: &str, sid: &str) {
-    use tauri::Manager;
-
-    let (worker_id, cwd) = {
-        let mux = state.svc.mux.write();
-        let tab = mux.get_tab(tab_id);
-        (
-            tab.and_then(|p| p.worker_id.clone()),
-            tab.and_then(|p| p.cwd.clone()),
-        )
-    };
-
-    if let Some(wid) = worker_id {
-        state
-            .svc
-            .workers
-            .set_run_session(&wid, sid.to_string(), cwd.clone());
-        if let Some(info) = state.svc.workers.get(&wid) {
-            crate::api::events::emit_everywhere(
-                &state.svc.app_handle,
-                "graph-worker-progress",
-                &info,
-            );
-        }
-    }
-
-    if let Some(cron_state) = state.svc.app_handle.try_state::<crate::CronState>() {
-        let owner = cron_state
-            .lock()
-            .get_tab_owner(tab_id)
-            .map(|(j, r)| (j.to_string(), r.to_string()));
-        if let Some((job_id, run_id)) = owner {
-            cron_state
-                .lock()
-                .set_run_session(&job_id, &run_id, sid, cwd.as_deref());
-            crate::api::events::emit_everywhere(&state.svc.app_handle, "cron-run-finished", ());
-        }
-    }
-}
-
-/// Materialization probe results captured OUTSIDE the mux lock, keyed on the
-/// tab fields (`cwd`, current `agent_session_id`) snapshotted just before.
-struct MaterializationProbe {
-    cwd: String,
-    prev_sid: Option<String>,
-    new_materialized: bool,
-    prev_materialized: bool,
-}
-
-pub(crate) fn bind_reported_session(
-    mux: &crate::multiplexer::commands::MuxState,
-    registry: &crate::agent::registry::AgentRegistry,
-    tab_id: &str,
-    provider_id: &str,
-    sid: &str,
-    report_nonce: Option<&str>,
-) -> Result<SessionStartClaim, SessionBindError> {
-    if registry.with_provider(provider_id, |_| ()).is_none() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            format!("unknown provider_id '{}'", provider_id),
-            None,
-        ));
-    }
-
-    // `session_exists` scans a QuickJS-backed store; under the mux lock that freezes every tab mutation.
-    // Snapshot probe inputs, probe unlocked, commit only if the snapshot still holds — a moved binding retries, never overwrites.
-    const MAX_ATTEMPTS: usize = 4;
-    for _ in 0..MAX_ATTEMPTS {
-        let (probe_cwd, probe_prev) = {
-            let mux = mux.read();
-            let Some(tab) = mux.get_tab(tab_id) else {
-                return Err((StatusCode::NOT_FOUND, "Tab not found".to_string(), None));
-            };
-            (
-                tab.cwd.clone().unwrap_or_default(),
-                tab.agent_session_id.clone(),
-            )
-        };
-
-        let new_materialized = registry
-            .with_provider(provider_id, |p| p.session_exists(&probe_cwd, sid))
-            .unwrap_or(false);
-        // A materialized parent protects its rollout from fileless eviction.
-        let prev_materialized = if !new_materialized {
-            match probe_prev.as_deref() {
-                Some(prev) if prev != sid => registry
-                    .with_provider(provider_id, |p| p.session_exists(&probe_cwd, prev))
-                    .unwrap_or(false),
-                _ => false,
-            }
-        } else {
-            false
-        };
-
-        let probe = MaterializationProbe {
-            cwd: probe_cwd,
-            prev_sid: probe_prev,
-            new_materialized,
-            prev_materialized,
-        };
-
-        let mut mux = mux.write();
-        match commit_reported_session(&mut mux, tab_id, provider_id, sid, report_nonce, &probe)? {
-            Some(claim) => return Ok(claim),
-            None => continue, // snapshot went stale under us — reprobe.
-        }
-    }
-
-    Err((
-        StatusCode::CONFLICT,
-        "session binding raced concurrent mutation; retry".to_string(),
-        None,
-    ))
-}
-
-/// Reacquire-and-commit half of [`bind_reported_session`]. Runs under the write
-/// lock with the out-of-lock probe results. Returns `Ok(None)` when the probe
-/// snapshot no longer matches live tab state, signalling the caller to reprobe.
-fn commit_reported_session(
-    mux: &mut crate::multiplexer::state::MultiplexerState,
-    tab_id: &str,
-    provider_id: &str,
-    sid: &str,
-    report_nonce: Option<&str>,
-    probe: &MaterializationProbe,
-) -> Result<Option<SessionStartClaim>, SessionBindError> {
-    let Some(tab) = mux.get_tab(tab_id) else {
-        return Err((StatusCode::NOT_FOUND, "Tab not found".to_string(), None));
-    };
-    // The probe keyed on these; if either moved, the probe is stale — reprobe.
-    // This is what stops a stale snapshot from overwriting a changed binding.
-    if tab.cwd.clone().unwrap_or_default() != probe.cwd || tab.agent_session_id != probe.prev_sid {
-        return Ok(None);
-    }
-
-    // A report carrying a nonce that disagrees with the tab's launch nonce is a stale or foreign reporter (relaunch, /new in another process, reused tab id). A matching nonce is proof we launched this session ourselves — it's authoritative even before the session file lands on disk. A missing report nonce is tolerated only after provider-owned session validation below.
-    let launch_nonce = tab.session_binding_nonce.clone();
-    let acknowledged_nonce = tab.reported_session_binding_nonce.clone();
-    let nonce_verified = if let Some(expected) = tab.session_binding_nonce.clone() {
-        match report_nonce {
-            Some(got) if got != expected => {
-                log::warn!(
-                    "[hook_session_start] rejecting sid {} for Tab {} provider={}: binding nonce mismatch",
-                    sid, tab_id, provider_id,
-                );
-                return Err((
-                    StatusCode::CONFLICT,
-                    "binding nonce mismatch".to_string(),
-                    None,
-                ));
-            }
-            Some(_) => true,
-            None => false,
-        }
-    } else {
-        false
-    };
-
-    if let Some(existing_provider) = tab.agent_type.as_deref() {
-        if existing_provider != provider_id {
-            return Err((
-                StatusCode::CONFLICT,
-                format!(
-                    "Tab provider '{}' does not match report provider '{}'",
-                    existing_provider, provider_id
-                ),
-                None,
-            ));
-        }
-    }
-
-    let exists = nonce_verified || probe.new_materialized;
-    if !exists {
-        log::warn!(
-            "[hook_session_start] rejecting sid {} for Tab {} provider={}: session does not belong to provider",
-            sid,
-            tab_id,
-            provider_id,
-        );
-        return Err((
-            StatusCode::CONFLICT,
-            format!(
-                "session_id '{}' is not a known session for provider '{}'",
-                sid, provider_id
-            ),
-            None,
-        ));
-    }
-
-    let conflict = mux
-        .tab_ids_with_session(sid)
-        .into_iter()
-        .find(|other| other != tab_id);
-    if let Some(other) = conflict {
-        log::warn!(
-            "[hook_session_start] rejecting sid {} for Tab {} provider={} already claimed by {}",
-            sid,
-            tab_id,
-            provider_id,
-            other,
-        );
-        return Err((
-            StatusCode::CONFLICT,
-            format!("session_id already claimed by Tab {}", other),
-            None,
-        ));
-    }
-
-    // A fresh authenticated launch may advance before its rollout lands on disk.
-    // An acknowledged nonce cannot evict a materialized parent again.
-    if probe.prev_materialized {
-        let nonce_already_acknowledged =
-            launch_nonce.is_some() && acknowledged_nonce == launch_nonce;
-        let fresh_authenticated_launch = nonce_verified && !nonce_already_acknowledged;
-        if !fresh_authenticated_launch {
-            log::warn!(
-                "[hook_session_start] rejecting fileless sid {} for Tab {} provider={}: would evict materialized session {:?}",
-                sid, tab_id, provider_id, probe.prev_sid,
-            );
-            return Err((
-                StatusCode::CONFLICT,
-                format!(
-                    "session_id '{}' cannot evict materialized session {:?}",
-                    sid, probe.prev_sid
-                ),
-                probe
-                    .prev_sid
-                    .clone()
-                    .map(|previous_session_id| DeferredBindingPremise {
-                        previous_session_id,
-                    }),
-            ));
-        }
-    }
-
-    let Some(tab) = mux.get_tab_mut(tab_id) else {
-        return Err((StatusCode::NOT_FOUND, "Tab not found".to_string(), None));
-    };
-    if tab.agent_type.is_none() {
-        tab.agent_type = Some(provider_id.to_string());
-        tab.agent_type_locked = true;
-        tab.agent_set_at = Some(std::time::Instant::now());
-    }
-
-    let prev = tab.agent_session_id.clone();
-    let changed = prev.as_deref() != Some(sid);
-    if changed {
-        if let Some(previous_session_id) = prev.as_deref() {
-            tab.archive_context_epoch(provider_id, previous_session_id);
-        }
-        tab.agent_session_id = Some(sid.to_string());
-        crate::service::tab::clear_runtime_model_evidence(tab);
-    }
-    tab.reported_session_binding_nonce =
-        nonce_verified.then(|| report_nonce.unwrap_or_default().to_string());
-    Ok(Some(SessionStartClaim {
-        prev,
-        changed,
-        nonce_verified,
-    }))
 }
 
 #[cfg(test)]

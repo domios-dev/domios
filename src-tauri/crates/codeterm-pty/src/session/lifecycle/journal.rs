@@ -230,3 +230,7 @@ pub fn next_epoch_for(load: &JournalLoad, tab_id: &str) -> LifecycleEpoch {
 pub fn checkpoints(load: &JournalLoad) -> Vec<LifecycleCheckpoint> {
     super::reduce::sealed_checkpoints(&load.records)
 }
+
+pub fn checkpoint_history(load: &JournalLoad, tab_id: &str) -> Vec<LifecycleCheckpoint> {
+    super::reduce::checkpoint_history(&load.records, tab_id)
+}

@@ -844,13 +844,27 @@ pub async fn clear_prompt(
 pub async fn set_agent_type(
     AxumState(state): AxumState<AppState>,
     Path(tab_id): Path<String>,
+    headers: HeaderMap,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let agent_type = body
         .get("agent_type")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
-    state.svc.set_tab_agent_type(&tab_id, agent_type);
+    match agent_type {
+        Some(agent_type) => {
+            state.svc.write_tab_agent_type_with_origin(
+                &tab_id,
+                agent_type,
+                false,
+                crate::session::lifecycle::AgentTypeWriteOrigin::Ui,
+                crate::api::tab_routes::caller_tab_header(&headers).as_deref(),
+            );
+        }
+        None => {
+            state.svc.set_tab_agent_type(&tab_id, None);
+        }
+    }
     state.svc.emit_state_changed();
     Ok(Json(serde_json::json!({"ok": true})))
 }

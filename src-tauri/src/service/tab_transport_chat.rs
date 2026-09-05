@@ -91,7 +91,6 @@ fn authenticate_chatbackend_tab(
     ) {
         return Err("chatBackend provider session changed".into());
     }
-    tab.agent_type = Some(plugin_id.to_string());
     tab.agent_session_id = Some(session_id.to_string());
     tab.session_binding_nonce = Some(nonce.to_string());
     tab.reported_session_binding_nonce = Some(nonce.to_string());
@@ -350,6 +349,12 @@ impl ServiceContext {
                 .ok_or_else(|| "chatBackend Tab disappeared".to_string())?;
             authenticate_chatbackend_tab(tab, plugin_id, session_id, &nonce)?;
         }
+        self.set_and_lock_tab_agent_type_from(
+            tab_id,
+            plugin_id.to_string(),
+            crate::session::lifecycle::AgentTypeWriteOrigin::Spawn,
+            None,
+        );
         self.bind_planner_session(tab_id);
         Ok(nonce)
     }

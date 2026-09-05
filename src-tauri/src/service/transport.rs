@@ -301,7 +301,13 @@ impl ServiceContext {
         }
 
         if let Some(at) = agent_type {
-            self.set_tab_agent_type(&tab_id, Some(at.to_string()));
+            self.write_tab_agent_type_with_origin(
+                &tab_id,
+                at.to_string(),
+                false,
+                crate::session::lifecycle::AgentTypeWriteOrigin::Spawn,
+                None,
+            );
         }
         let pad = self.ensure_agent_pad(&tab_id).inspect_err(|_| {
             self.rollback_provisional_tab(&ws_id, &tab_id);
