@@ -8,7 +8,7 @@ import {
 } from "react";
 import { invoke, reopenClosedTab, reopenClosedGroup, restoreOrphanedTab } from "../../lib/bridge";
 import { listen } from "../../lib/bridge";
-import { IS_WEB, webJson } from "../../lib/webApi";
+import { IS_WEB, webJson, WebApiError } from "../../lib/webApi";
 import {
   loadCachedStateSync,
   loadCachedStateAsync,
@@ -90,6 +90,12 @@ function buildInitialState(): ExtendedState {
     recently_closed: cached.recently_closed,
     generation: HYDRATED_GENERATION,
   };
+}
+
+/** The daemon refuses snapshots past its concurrency bound. Distinct from a
+ *  failure: the state is fine, the request was declined. */
+function isSnapshotRefusal(error: unknown): boolean {
+  return error instanceof WebApiError && error.status === 503;
 }
 
 export function muxStateEventAction(payload: unknown): "apply-snapshot" | "refresh" {
@@ -452,6 +458,9 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       if (s) applyBackendState(s);
       return !!s;
     } catch (e) {
+      // Back-pressure, not failure: rethrow so the coalescer records it and
+      // the next event's request retries. Never logged as an error.
+      if (isSnapshotRefusal(e)) throw e;
       if (!(e instanceof DOMException && e.name === "AbortError")) {
         console.warn("Failed to refresh state:", e);
       }
@@ -460,7 +469,9 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   }, [applyBackendState]);
   const runRefreshRef = useRef(runRefresh);
   runRefreshRef.current = runRefresh;
-  const refreshCoalescerRef = useRef(createRefreshCoalescer(() => runRefreshRef.current()));
+  const refreshCoalescerRef = useRef(
+    createRefreshCoalescer(() => runRefreshRef.current(), isSnapshotRefusal),
+  );
   const refreshFromBackend = useCallback(
     (): Promise<boolean> => refreshCoalescerRef.current.request(),
     [],

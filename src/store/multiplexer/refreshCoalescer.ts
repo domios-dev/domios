@@ -11,6 +11,12 @@
  * with state older than the caller asked about. It waits for the next fetch
  * instead. Every waiter is therefore resolved by a fetch that began at or
  * after its request, and a burst of any size costs at most two round trips.
+ *
+ * The daemon refuses snapshots past its own concurrency bound (503). That is
+ * back-pressure, not failure: it is never retried on a timer or in a loop --
+ * the next event's request runs a real fetch, so the refusal cannot become a
+ * permanent stale state, and a storm of refusals still costs one fetch at a
+ * time.
  */
 export interface RefreshCoalescer {
   /** Ask for fresh state. Resolves from a fetch that started after this call. */
@@ -19,10 +25,17 @@ export interface RefreshCoalescer {
   inFlight(): number;
   /** Requests waiting for the next fetch. */
   waiting(): number;
+  /** True when the last attempt was refused by back-pressure rather than
+   *  having failed. The next request still runs a fetch either way. */
+  lastWasRefused(): boolean;
 }
 
-export function createRefreshCoalescer(run: () => Promise<boolean>): RefreshCoalescer {
+export function createRefreshCoalescer(
+  run: () => Promise<boolean>,
+  isRefusal: (error: unknown) => boolean = () => false,
+): RefreshCoalescer {
   let running = false;
+  let refused = false;
   let waiting: Array<(value: boolean) => void> = [];
 
   async function drain(): Promise<void> {
@@ -36,8 +49,10 @@ export function createRefreshCoalescer(run: () => Promise<boolean>): RefreshCoal
         let result = false;
         try {
           result = await run();
-        } catch {
+          refused = false;
+        } catch (error) {
           result = false;
+          refused = isRefusal(error);
         }
         for (const resolve of batch) resolve(result);
       }
@@ -55,5 +70,6 @@ export function createRefreshCoalescer(run: () => Promise<boolean>): RefreshCoal
     },
     inFlight: () => (running ? 1 : 0),
     waiting: () => waiting.length,
+    lastWasRefused: () => refused,
   };
 }
