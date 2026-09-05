@@ -45,8 +45,9 @@ boot-changed overflows per switch measured.
 (1e, 1i) -- a uniform total loss across every tab is the signature of a harness
 fault, since real mirror loss has been partial and scattered every time.
 
-**Still open**: the daemon lane's atomic-publish fix, and the peer-oracle run
-that confirms it (expected `seq_gaps = 0` at concurrency 8).
+**Confirmed fixed** (1k): the daemon's atomic-publish fix produces **zero**
+silent gaps across five cross-peer runs at concurrency 8 -- the same load and
+the same client code that produced six before it.
 
 ## 1. Measured on dev 7686 (build 7e7dda609)
 
@@ -656,6 +657,50 @@ So the source daemon did not log the 502 or the refetch errors. That eliminates
 "the source daemon reported an error" and says nothing about where they came
 from - the relaying daemon, the transport, or the focus handler are all still
 open. Recorded as a negative result with its scope stated, not as a diagnosis.
+
+## 1k. #428 CONFIRMED FIXED: zero silent gaps at the load that produced six
+
+The daemon fix (atomic seq allocation and publish) landed on Mac-Air at
+`bc74f9627`. Same instrument, same load, same direction, one variable.
+
+| | source build | runs | conc | seq gaps |
+|---|---|---|---|---|
+| **before** | 4d5797d0c | 5 | 8 | **6** (1,1,1,3,0) |
+| **after** | bc74f9627 | 5 | 8 | **0** (0,0,0,0,0) |
+
+| run | rate | seq gaps | refetch err | in flight | client/daemon gen | verdict |
+|---|---|---|---|---|---|---|
+| 1 | 29.0 Hz | 0 | 1 | 1 | 3969/3970 | converged |
+| 2 | 30.8 Hz | 0 | 1 | 1 | 7530/7531 | converged |
+| 3 | 28.8 Hz | 0 | 1 | 1 | 11107/11108 | converged |
+| 4 | 22.5 Hz | 0 | 1 | 1 | **14689/14688** | generation-lag:1 |
+| 5 | 25.4 Hz | 0 | 0 | 1 | 18247/18248 | converged |
+
+No daemon death. The in-flight ceiling held at 1 throughout.
+
+What makes this meaningful is not the zero on its own -- five runs cannot prove
+absence -- but that it is **the same load which produced six gaps before**,
+measured by the same client code. The bench imports `webEvents.ts` from the
+lane checkout rather than dev's served bundle, so the detector did not change
+between the two.
+
+### Run 4 is NOT #428, and is worth a separate look
+
+It flagged `generation-lag:1` -- one batch of eight failed to reach the
+daemon's generation within the 8 s bound -- and it is also the slowest run at
+22.5 Hz, so a transient stall explains the flag. But it ended with the client
+**one generation AHEAD** of the final oracle read: 14689 against 14688.
+
+That ordering should not be possible from a monotonic counter read after the
+client's own fetch. Either a relayed `/api/mux/state` can answer from a
+slightly older point than a fetch that preceded it, or the snapshot's
+generation is sampled without the consistency the reader assumes. It is a
+read-consistency question, not silent event loss, and no seq gap accompanied
+it. Recorded, not diagnosed, and explicitly not attributed to #428.
+
+`refetch_errors` = 1 on four of the five runs, consistent with the relay
+flakiness noted in 1i. The coalescer treats them as failures and the runs
+converged anyway.
 
 ## 2. Not established AT THE TIME -- resolved in 1f/1g/1i
 
