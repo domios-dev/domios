@@ -577,7 +577,10 @@ pub(super) fn dispatch(
         "plan.groups.close" => {
             let id = plan_refs::resolve_plan(store, params)?;
             let key = get_string_param(params, "key")?;
-            let note = p.and_then(|x| x.get("note")).and_then(|v| v.as_str()).unwrap_or("");
+            let note = p
+                .and_then(|x| x.get("note"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             let from = p
                 .and_then(|x| x.get("from"))
                 .and_then(|v| serde_json::from_value(v.clone()).ok())

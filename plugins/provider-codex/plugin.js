@@ -68,7 +68,14 @@ function priorityOf(m) {
 function manifestModels() {
   try {
     const m = JSON.parse(host.manifestJson() || "null");
-    return Array.isArray(m && m.models) ? m.models : [];
+    const raw = Array.isArray(m && m.models) ? m.models : [];
+    const kept = [];
+    for (let i = 0; i < raw.length; i++) {
+      const item = raw[i];
+      if (item.visibility === "hide") continue;
+      kept.push({ id: item.id, displayName: item.displayName, description: item.description });
+    }
+    return kept;
   } catch (_) {
     return [];
   }

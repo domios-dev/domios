@@ -448,8 +448,7 @@ fn leaf_caller_pair_creation_is_attributed_to_the_leaf_tab_itself() {
 
     let reserved =
         reserve_pair_tabs(&mut mux, &workspace_id, None, &CorrectiveShape::default()).unwrap();
-    let lease =
-        pair_startup_lease(&leaf_tab_id, &reserved).expect("a minted pair Team is leased");
+    let lease = pair_startup_lease(&leaf_tab_id, &reserved).expect("a minted pair Team is leased");
     assert_eq!(
         lease.creator_tab_id, leaf_tab_id,
         "the Team must record the CALLING leaf tab as creator, never an intermediary"
