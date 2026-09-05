@@ -4,7 +4,11 @@
 //!   crash-<ts>-panic.txt  — Rust panic (always readable)
 //!   crash-<ts>-native.dmp — binary minidump from crash-handler
 //!   crash-<ts>-native.txt — readable sidecar for the minidump
+//!
+//! Read a .dmp with `scripts/symbolicate-minidump.py` (Windows, no install
+//! needed); elsewhere use `minidump_stackwalk` with `dump_syms` symbols.
 
+pub mod dump_record;
 pub mod exit;
 pub mod lifecycle;
 #[cfg(target_os = "macos")]
