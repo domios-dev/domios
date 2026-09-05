@@ -56,6 +56,16 @@ pub const PEER_WAIVER_HINT: &str = "No Planner specialist is bound. \
      Bind one with `codeterm plan update --planner <TAB_ID>` or waive with \
      `codeterm plan update --planner none --note <reason>`.";
 
+/// The plan HOLDS a Planner ref whose tab is not a live, nonce-verified agent
+/// session. Distinct from `PEER_WAIVER_HINT` because the refusal reads the same
+/// while the remedy does not: re-binding the tab that is already bound changes
+/// nothing, so naming the real state is what saves the dead-end retry.
+pub const PEER_PLANNER_DOWN_HINT: &str = "A Planner specialist is bound, but its \
+     tab has no live nonce-verified agent session, so planning cannot be \
+     delegated to it. Respawn the Planner and rebind it with `codeterm plan \
+     update --planner <TAB_ID>`, or waive with `codeterm plan update --planner \
+     none --note <reason>`. Re-binding the same dead tab does not revive it.";
+
 pub const PEER_ORCH_DEFER_STRUCTURE_LINE: &str =
     "Planning is not approved yet — state the GOAL and hand the Team Plan to {planner} to draft, \
      then review and approve it. Draft it yourself only on a formal Planner waiver or a narrow \

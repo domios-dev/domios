@@ -923,6 +923,7 @@ pub(super) fn dispatch(
                 original_task,
                 original_plan_mode,
                 lane_for_commit: task.lane.clone(),
+                canonical_project_path: canonical_cwd.clone(),
                 provenance: Some(provenance),
                 provisioned_lane: None,
                 lane_protection,
