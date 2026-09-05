@@ -732,6 +732,7 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
             plan_task,
             team,
             execution_intent,
+            authorized_gates,
             provider_reserve_pct,
             non_user_facing,
         } => {
@@ -851,6 +852,9 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
             if let Some(intent) = execution_intent {
                 body["execution_intent"] = serde_json::json!(intent);
                 body["provider_reserve_pct"] = serde_json::json!(provider_reserve_pct);
+            }
+            if !authorized_gates.is_empty() {
+                body["authorized_gates"] = serde_json::json!(authorized_gates);
             }
             if *non_user_facing {
                 body["audience"] = serde_json::json!("automation");

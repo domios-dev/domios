@@ -123,6 +123,10 @@ pub struct SpawnAgentParams {
     pub(crate) plan_skill_manifest: Option<Vec<crate::plan::PlanSkillManifestEntry>>,
     /// Named plan task to bind when spawning `--role Worker` (`--plan-task`).
     pub plan_task: Option<String>,
+    /// Gate tokens a task-less Worker may claim as executed, rendered into its
+    /// brief by the same writer the plan-task dispatch path uses.
+    #[serde(default)]
+    pub authorized_gates: Vec<String>,
     pub execution_intent: Option<crate::plan::ExecutionIntent>,
     pub provider_reserve_pct: Option<f32>,
     pub workspace_id: Option<String>,
