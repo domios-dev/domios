@@ -6732,6 +6732,44 @@
           "args": [],
           "subcommands": [
             {
+              "name": "close",
+              "about": "Explicitly close a declared group's reflection window, even before every task in it reaches `done`",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "key",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "KEY",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "note",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "NOTE",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "PLAN_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
               "name": "set",
               "about": "Set the task groups / phases (CSV)",
               "aliases": [],
@@ -13710,6 +13748,16 @@
           "about": "Create an Orchestrator + Planner Team in one action. The Plan stays unbound until the first goal",
           "aliases": [],
           "args": [
+            {
+              "name": "acknowledge-leaf",
+              "positional": false,
+              "required": false,
+              "value_name": "ACKNOWLEDGE_LEAF",
+              "possible_values": [],
+              "default": null,
+              "help": "Explicit \"I know I am a leaf and I am doing this deliberately\" declaration — required only when the calling tab holds a Manager or Worker role. Creation is then attributed to this tab, never to an intermediary shell",
+              "aliases": []
+            },
             {
               "name": "orchestrator",
               "positional": false,

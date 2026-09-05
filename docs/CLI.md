@@ -1544,6 +1544,14 @@ Show the plan's north-star goal (vector, vision, constraints, postulates)
 
 Set task groups (phases)
 
+#### `codeterm plan groups close`
+
+Explicitly close a declared group's reflection window, even before every task in it reaches `done`
+
+- `<key>`
+- `--note`
+- `<plan_id>`
+
 #### `codeterm plan groups set`
 
 Set the task groups / phases (CSV)
@@ -2954,6 +2962,7 @@ List registered Teams
 
 Create an Orchestrator + Planner Team in one action. The Plan stays unbound until the first goal
 
+- `--acknowledge-leaf` — Explicit "I know I am a leaf and I am doing this deliberately" declaration — required only when the calling tab holds a Manager or Worker role. Creation is then attributed to this tab, never to an intermediary shell
 - `--orchestrator` — Orchestrator provider, optionally with a model (`provider[:model]`)
 - `--planner` — Planner provider, optionally with a model (`provider[:model]`)
 - `--title`
