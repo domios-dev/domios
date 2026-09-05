@@ -750,6 +750,114 @@ console.log("\n--- discoverModels ---\n");
   assert(models.every((m) => m.available === undefined), "codex has no plan-lockout signal → available unset");
 }
 
+console.log("\n--- discoverModels: fallback trigger conditions ---\n");
+
+{
+  // Readable cache must win outright: the manifest fallback is never even consulted.
+  let manifestCalls = 0;
+  const cache = { models: [{ slug: "alpha-model", display_name: "Alpha", visibility: "list", priority: 1 }] };
+  const p = loadCodexWithHost(baseHost({
+    manifestJson: () => { manifestCalls++; return JSON.stringify(manifestSeed); },
+    fs: {
+      fileExists: (p: string) => p.endsWith("/.codex/models_cache.json"),
+      readFile: () => null,
+      readJson: (p: string) => p.endsWith("/.codex/models_cache.json") ? cache : null,
+      writeJson: () => true,
+      writeFile: () => true,
+    },
+  }));
+  const models = p.discoverModels() as Array<{ id: string }>;
+  eq(models.map((m) => m.id), ["alpha-model"], "readable cache wins over the manifest fallback");
+  eq(manifestCalls, 0, "manifest fallback is never consulted while the cache is readable");
+}
+
+{
+  // No cache file on disk -> fallback path is reached.
+  let manifestCalls = 0;
+  const p = loadCodexWithHost(baseHost({
+    manifestJson: () => { manifestCalls++; return JSON.stringify(manifestSeed); },
+    fs: {
+      fileExists: () => false,
+      readFile: () => null,
+      readJson: () => null,
+      writeJson: () => true,
+      writeFile: () => true,
+    },
+  }));
+  eq(p.discoverModels(), manifestSeed.models, "missing cache file falls through to the manifest fallback");
+  eq(manifestCalls, 1, "manifest is consulted exactly once when the cache file is absent");
+}
+
+{
+  // Cache file exists but is corrupt/unreadable (readJson returns null) -> fallback path is reached.
+  let manifestCalls = 0;
+  const p = loadCodexWithHost(baseHost({
+    manifestJson: () => { manifestCalls++; return JSON.stringify(manifestSeed); },
+    fs: {
+      fileExists: (p: string) => p.endsWith("/.codex/models_cache.json"),
+      readFile: () => null,
+      readJson: () => null,
+      writeJson: () => true,
+      writeFile: () => true,
+    },
+  }));
+  eq(p.discoverModels(), manifestSeed.models, "unreadable cache falls through to the manifest fallback");
+  eq(manifestCalls, 1, "manifest is consulted exactly once when the cache is present but unreadable");
+}
+
+console.log("\n--- discoverModels: hidden entries excluded from the manifest fallback too ---\n");
+{
+  const seed = {
+    models: [
+      { id: "visible-model", displayName: "Visible", description: "shown", visibility: "list" },
+      { id: "hidden-model", displayName: "Hidden", description: "internal", visibility: "hide" },
+    ],
+  };
+  const p = loadCodexWithHost(baseHost({
+    manifestJson: () => JSON.stringify(seed),
+    fs: {
+      fileExists: () => false,
+      readFile: () => null,
+      readJson: () => null,
+      writeJson: () => true,
+      writeFile: () => true,
+    },
+  }));
+  const models = p.discoverModels() as Array<{ id: string }>;
+  eq(
+    models.map((m) => m.id),
+    ["visible-model"],
+    "manifest fallback drops hide-visibility entries, matching the cache path's own filter",
+  );
+}
+
+console.log("\n--- discoverModels: cache priority order wins over array position ---\n");
+{
+  const cache = {
+    models: [
+      { slug: "model-c", display_name: "Model C", visibility: "list", priority: 30 },
+      { slug: "model-a", display_name: "Model A", visibility: "list", priority: 5 },
+      { slug: "model-d", display_name: "Model D", visibility: "list", priority: 100 },
+      { slug: "model-b", display_name: "Model B", visibility: "list", priority: 12 },
+    ],
+  };
+  const p = loadCodexWithHost(baseHost({
+    fs: {
+      fileExists: (p: string) => p.endsWith("/.codex/models_cache.json"),
+      readFile: () => null,
+      readJson: (p: string) => p.endsWith("/.codex/models_cache.json") ? cache : null,
+      writeJson: () => true,
+      writeFile: () => true,
+    },
+  }));
+  const models = p.discoverModels() as Array<{ id: string }>;
+  eq(
+    models.map((m) => m.id),
+    ["model-a", "model-b", "model-c", "model-d"],
+    "returned order follows ascending cache priority, not array position",
+  );
+}
+
 console.log("\n--- binding nonce (install + outdated detection) ---\n");
 
 // session-start report can prove tab ownership (release/1.4.6 binding-nonce).
