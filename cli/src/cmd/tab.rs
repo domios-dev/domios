@@ -14,6 +14,7 @@ mod chat_view;
 mod inspect;
 pub(crate) mod remote_target;
 mod render;
+mod repair;
 mod search;
 mod team_utility;
 use capture::handle_tab_capture;
@@ -27,6 +28,7 @@ use remote_target::{
 #[cfg(test)]
 use render::format_tab_row;
 pub use render::{render_tab_tree, render_tab_tree_with_current};
+use repair::handle_tab_repair;
 pub use search::print_tab_find_results;
 #[cfg(test)]
 use search::rank_tabs;
@@ -595,6 +597,21 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                 }
             }
         }
+        TabAction::Repair {
+            provider,
+            session,
+            from_evidence,
+            from_journal,
+            tab,
+        } => handle_tab_repair(
+            client,
+            json,
+            provider,
+            session,
+            from_evidence,
+            from_journal,
+            tab,
+        ),
         TabAction::Stop { tab } => {
             match tab.as_deref().map(classify_remote_tab_id) {
                 Some(RemoteTabTarget::Remote(peer, remote_tab)) => {
@@ -835,6 +852,7 @@ fn validate_user_tab_selectors(action: &TabAction) -> Result<(), String> {
         | TabAction::Status { tab }
         | TabAction::Respond { tab, .. }
         | TabAction::Rebind { tab, .. }
+        | TabAction::Repair { tab, .. }
         | TabAction::Stop { tab }
         | TabAction::Chat { tab, .. } => tab.as_deref().filter(|value| invalid(value)),
         TabAction::Capture { action } => match action {

@@ -394,6 +394,9 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                     Some(serde_json::json!({"session_id": session_id}).to_string()),
                 )
             }
+            crate::TabAction::Repair { .. } => unsupported(
+                "tab repair is caller-local and cannot target a mesh peer",
+            ),
             crate::TabAction::Search { .. } => {
                 // tab search runs local CLI-side; peer only supplies raw list.
                 // Local ranking keeps `Tab list` output stable.
