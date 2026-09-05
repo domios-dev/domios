@@ -6,7 +6,7 @@ import { runScenario, type RunRow } from "./scenario";
 
 const COLUMNS: Array<keyof RunRow> = [
   "origin", "tabs", "concurrency", "switches", "switch_rate_hz", "overflow_fired", "overflow_reason", "origin_switches", "overflow_per_origin_switch",
-  "elapsed_ms", "resync_fanout", "mux_refetches", "refetch_errors", "client_gen", "daemon_gen",
+  "elapsed_ms", "resync_fanout", "mux_refetches", "refetch_errors", "max_in_flight", "refetch_max_ms", "client_gen", "daemon_gen",
   "diverged", "divergence_kind",
 ];
 
@@ -42,7 +42,7 @@ void (async () => {
     console.log(
       `run ${i + 1}/${runs} origin=${row.origin} tabs=${row.tabs} conc=${row.concurrency} switches=${row.switches} ` +
       `rate=${row.switch_rate_hz}Hz overflow=${row.overflow_fired}(${row.overflow_reason}) ` +
-      `fanout=${row.resync_fanout} refetch=${row.mux_refetches} err=${row.refetch_errors} ` +
+      `fanout=${row.resync_fanout} refetch=${row.mux_refetches} err=${row.refetch_errors} inflight=${row.max_in_flight} slowest=${row.refetch_max_ms}ms ` +
       `gen=${row.client_gen}/${row.daemon_gen} ` +
       `${row.diverged ? `DIVERGED ${row.divergence_kind}` : "converged"}`,
     );

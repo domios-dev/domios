@@ -35,6 +35,11 @@ export interface MirrorCounters {
   /** A refetch that never returned a snapshot. The store cannot advance on one,
    *  and nothing in the product retries it - so it is a divergence path. */
   refetchErrors: number;
+  /** Peak concurrent snapshot refetches. Separates a client-side pile-up
+   *  from a daemon that simply outruns any single consumer. */
+  maxInFlight: number;
+  /** Slowest single refetch, ms. */
+  refetchMaxMs: number;
 }
 
 export interface Mirror {
@@ -104,6 +109,7 @@ export async function startMirror(options: MirrorOptions): Promise<Mirror> {
 
   const counters: MirrorCounters = {
     frames: 0, resyncFanout: 0, muxRefetches: 0, refetchErrors: 0,
+    maxInFlight: 0, refetchMaxMs: 0,
   };
 
   let state: ExtendedState = {
@@ -146,12 +152,16 @@ export async function startMirror(options: MirrorOptions): Promise<Mirror> {
   const refetch = async (): Promise<void> => {
     counters.muxRefetches++;
     inFlight++;
+    if (inFlight > counters.maxInFlight) counters.maxInFlight = inFlight;
+    const startedAt = Date.now();
     try {
       const snapshot = await webJson<MultiplexerState>("GET", "/api/mux/state");
       if (snapshot) apply({ type: "SET_STATE", state: snapshot });
     } catch {
       counters.refetchErrors++;
     } finally {
+      const took = Date.now() - startedAt;
+      if (took > counters.refetchMaxMs) counters.refetchMaxMs = took;
       inFlight--;
       if (inFlight === 0) {
         for (const resolveIdle of [...idleWaiters]) resolveIdle();
