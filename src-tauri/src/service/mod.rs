@@ -835,6 +835,13 @@ pub struct ReportSubmissionError {
     pub data: Option<serde_json::Value>,
 }
 
+#[cfg(test)]
+impl ReportSubmissionError {
+    pub(crate) fn contains(&self, needle: &str) -> bool {
+        self.message.contains(needle)
+    }
+}
+
 impl fmt::Display for ReportSubmissionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.message.fmt(f)
