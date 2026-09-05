@@ -136,14 +136,17 @@ impl Moved {
     }
 
     fn report(&self, task_hint: &str) -> Result<crate::service::ReportResult, String> {
-        self.fx.service.submit_report(
-            &self.caller,
-            PAYLOAD,
-            self.details(),
-            Some(&self.plan_id),
-            Some(task_hint),
-            None,
-        )
+        self.fx
+            .service
+            .submit_report(
+                &self.caller,
+                PAYLOAD,
+                self.details(),
+                Some(&self.plan_id),
+                Some(task_hint),
+                None,
+            )
+            .map_err(|error| error.to_string())
     }
 }
 

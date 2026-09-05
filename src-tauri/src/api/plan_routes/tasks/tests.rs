@@ -226,6 +226,7 @@ fn rest_respawn_persists_spawned_attempt_title_and_session() {
         task_prompt: "prompt".into(),
         report_command: "report".into(),
         plan_skill_manifest: vec![],
+        authorized_gates: None,
     };
     let created = store
         .record_task_respawn_attempt(

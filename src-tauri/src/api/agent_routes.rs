@@ -621,7 +621,7 @@ pub async fn submit_report(
             body.task_id.as_deref(),
             body.kind.as_deref(),
         )
-        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
     Ok(Json(serde_json::json!({
         "ok": true,
         "accepted": true,

@@ -8,6 +8,7 @@ use std::path::PathBuf;
 /// daemon fault so callers can branch on absence instead of parsing prose.
 pub const RPC_NOT_FOUND: i32 = -32001;
 pub const RPC_INTERNAL_ERROR: i32 = -32603;
+pub const RPC_UNAUTHORIZED_GATE_CLAIM: i32 = -32021;
 
 #[derive(Debug)]
 pub enum PlanError {
@@ -109,6 +110,10 @@ pub enum PlanError {
     },
     InvalidPlanSkillSlug,
     InvalidExternalRef(String),
+    UnauthorizedGateClaim {
+        claimed: String,
+        authorized: Vec<String>,
+    },
     Io(String),
 }
 
@@ -337,6 +342,11 @@ impl fmt::Display for PlanError {
             PlanError::InvalidPlanSkillSlug => {
                 write!(f, "plan skill slug is empty after normalization")
             }
+            PlanError::UnauthorizedGateClaim { claimed, authorized } => write!(
+                f,
+                "worker report claims undeclared gate '{claimed}'; authorized gates: {}",
+                authorized.join(", ")
+            ),
             PlanError::Io(e) => write!(f, "io error: {e}"),
         }
     }
@@ -353,6 +363,7 @@ impl PlanError {
             | PlanError::GateNotFound
             | PlanError::GroupNotFound
             | PlanError::DependencyTaskNotFound { .. } => RPC_NOT_FOUND,
+            PlanError::UnauthorizedGateClaim { .. } => RPC_UNAUTHORIZED_GATE_CLAIM,
             _ => RPC_INTERNAL_ERROR,
         }
     }
@@ -529,6 +540,11 @@ impl PlanError {
             PlanError::InvalidPlanSkillSlug => {
                 serde_json::json!({ "type": "invalid_plan_skill_slug" })
             }
+            PlanError::UnauthorizedGateClaim { claimed, authorized } => serde_json::json!({
+                "type": "unauthorized_gate_claim",
+                "claimed": claimed,
+                "authorized_gates": authorized
+            }),
             PlanError::InvalidExternalRef(message) => serde_json::json!({
                 "type": "invalid_external_ref",
                 "message": message,

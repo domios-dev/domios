@@ -91,6 +91,81 @@ fn dispatched_attempt_records_worktree_path_and_base() {
 }
 
 #[test]
+fn dispatch_without_declared_gates_records_an_explicit_empty_policy() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut plan = Plan::new(
+        "dispatch gate default".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_tab("orch"),
+    );
+    store.save(&mut plan, 1).unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "no gate".into(),
+                kind: "implement".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+
+    let attempt_id = store
+        .begin_task_dispatch_with_reserved_attempt_and_gates(
+            &plan.id,
+            &task_id,
+            "worker-tab",
+            "Worker",
+            TaskLaneMetadata::default(),
+            crate::plan::ExecutionIntent::Unspecified,
+            None,
+            None,
+            "attempt-gates",
+            Vec::new(),
+            3,
+        )
+        .unwrap();
+    let attempt = store
+        .list_task_attempts(&plan.id, &task_id)
+        .unwrap()
+        .into_iter()
+        .find(|attempt| attempt.attempt_id == attempt_id)
+        .unwrap();
+    assert_eq!(attempt.attempt.authorized_gates, Some(Vec::new()));
+}
+
+#[test]
+fn undeclared_gate_claim_is_rejected_by_stable_error_code_before_persistence() {
+    let (_dir, store, plan_id, task_id) = bound_report_store();
+    store
+        .with_plan(&plan_id, 4, |plan| {
+            let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
+            task.execution_attempts[0].authorized_gates = Some(vec!["gate:allowed".into()]);
+            Ok(())
+        })
+        .unwrap();
+
+    let error = store
+        .ingest_bound_worker_report(
+            &plan_id,
+            &task_id,
+            &AgentRef::from_tab("worker"),
+            worker_report(ReportStatus::InReview, Some("abc123")),
+            5,
+        )
+        .unwrap_err();
+    assert_eq!(error.rpc_code(), crate::service_plan::RPC_UNAUTHORIZED_GATE_CLAIM);
+    assert_eq!(error.to_json()["type"], "unauthorized_gate_claim");
+
+    let task = store.get(&plan_id).unwrap().tasks.into_iter().next().unwrap();
+    assert_eq!(task.status, TaskStatus::Pending);
+    assert!(task.milestones.is_empty());
+    assert!(task.execution_attempts[0].report.is_none());
+}
+
+#[test]
 fn bound_in_review_report_advances_atomically() {
     let (_dir, store, plan_id, task_id) = bound_report_store();
     assert!(store

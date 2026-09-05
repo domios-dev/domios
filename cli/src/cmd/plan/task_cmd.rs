@@ -728,6 +728,7 @@ pub(super) fn run_task(
             plan_id,
             task_id,
             agent,
+            authorized_gates,
             model,
             reasoning_effort,
             parent,
@@ -741,6 +742,7 @@ pub(super) fn run_task(
                 "task_id": task_ref,
                 "execution_intent": execution_intent,
                 "provider_reserve_pct": provider_reserve_pct,
+                "authorized_gates": authorized_gates,
             });
             if let Some(pid) = plan_ref {
                 params["plan_id"] = json!(pid);

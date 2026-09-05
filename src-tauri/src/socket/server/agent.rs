@@ -117,9 +117,9 @@ pub(super) fn dispatch(
                     milestone_kind.as_deref(),
                 )
                 .map_err(|e| JsonRpcError {
-                    code: -32603,
-                    message: e,
-                    data: None,
+                    code: e.code,
+                    message: e.message,
+                    data: e.data,
                 })?;
             let mut resp = serde_json::json!({
                 "ok": true,

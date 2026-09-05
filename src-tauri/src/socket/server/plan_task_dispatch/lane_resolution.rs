@@ -18,6 +18,26 @@ pub(super) fn invalid_dispatch(reason: impl Into<String>) -> JsonRpcError {
     }
 }
 
+pub(super) fn preflight_dispatch_task_status(
+    plan_id: &str,
+    task: &crate::plan::Task,
+) -> Result<(), JsonRpcError> {
+    if task.status != crate::plan::TaskStatus::Paused {
+        return Ok(());
+    }
+    let fix = format!("codeterm plan task resume {plan_id} {}", task.id);
+    Err(JsonRpcError {
+        code: -32602,
+        message: format!("task '{}' is paused\nfix: {fix}", task.id),
+        data: Some(json!({
+            "type": "invalid_task_dispatch",
+            "stage": "task_status",
+            "reason": "task is paused",
+            "fix": fix,
+        })),
+    })
+}
+
 pub(super) fn checkout_required(reason: impl Into<String>) -> JsonRpcError {
     let reason = reason.into();
     JsonRpcError {

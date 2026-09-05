@@ -116,6 +116,10 @@ pub struct TaskExecutionAttempt {
     pub base: Option<String>,
     #[serde(default)]
     pub destination: Option<String>,
+    /// `Some` means this attempt came from the gate-aware dispatch path. An
+    /// empty list is deliberate: that dispatch granted no gate permission.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authorized_gates: Option<Vec<String>>,
     #[serde(default)]
     pub report: Option<TaskExecutionReportSnapshot>,
     #[serde(default)]

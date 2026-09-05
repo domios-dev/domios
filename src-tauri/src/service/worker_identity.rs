@@ -117,6 +117,7 @@ mod tests {
             task_prompt: "prompt".into(),
             report_command: "report".into(),
             plan_skill_manifest: vec![],
+            authorized_gates: None,
         };
         let ws = mux
             .write()
