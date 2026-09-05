@@ -40,6 +40,7 @@ import { isCodeTermFrontendTestMode } from "../../components/Terminal/useChatSes
 import { MultiplexerActionsContext, MuxStateStoreContext, type MultiplexerActionsContextType, type SpawnedTab } from "./context";
 import { createMuxStateStore } from "./selectorStore";
 import { createRefreshCoalescer } from "./refreshCoalescer";
+import { createPeerRebindGate } from "./peerRebindGate";
 import type { Tab } from "../../lib/types";
 import { remoteTabsFromOrdinaryProjection } from "./remoteTabProjection";
 import {
@@ -403,12 +404,16 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     };
     const rebindPeerContext = (event: Event) => {
       const switchId = (event as CustomEvent<{ switchId: number }>).detail.switchId;
+      peerRebindGateRef.current.open(switchId);
       void refreshFromBackend().then((success) => {
-        if (peerSwitchRef.current !== switchId) return;
-        if (success) writeGateRef.current.unlock();
-        window.dispatchEvent(new CustomEvent("codeterm-peer-switch-ready", {
-          detail: { switchId, success },
-        }));
+        if (peerSwitchRef.current !== switchId || success) return;
+        // A refusal is not-yet: stay open and let a later accepted snapshot
+        // settle it. Anything else is a real failure and closes the rebind.
+        if (refreshCoalescerRef.current.lastWasRefused()) {
+          peerRebindGateRef.current.refused(switchId);
+          return;
+        }
+        peerRebindGateRef.current.failed(switchId);
       });
     };
     window.addEventListener("codeterm-peer-switch-reset", resetPeerContext);
@@ -455,7 +460,10 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   const runRefresh = useCallback(async (): Promise<boolean> => {
     try {
       const s = await invoke<MultiplexerState>("mux_get_state");
-      if (s) applyBackendState(s);
+      if (s) {
+        applyBackendState(s);
+        peerRebindGateRef.current.acceptedSnapshot(peerSwitchRef.current);
+      }
       return !!s;
     } catch (e) {
       // Back-pressure, not failure: rethrow so the coalescer records it and
@@ -471,6 +479,15 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   runRefreshRef.current = runRefresh;
   const refreshCoalescerRef = useRef(
     createRefreshCoalescer(() => runRefreshRef.current(), isSnapshotRefusal),
+  );
+  const peerRebindGateRef = useRef(
+    createPeerRebindGate({
+      unlock: () => writeGateRef.current.unlock(),
+      announce: (switchId, success) =>
+        window.dispatchEvent(new CustomEvent("codeterm-peer-switch-ready", {
+          detail: { switchId, success },
+        })),
+    }),
   );
   const refreshFromBackend = useCallback(
     (): Promise<boolean> => refreshCoalescerRef.current.request(),
