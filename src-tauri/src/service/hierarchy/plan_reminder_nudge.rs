@@ -195,11 +195,7 @@ impl ServiceContext {
                     }
                 }
                 crate::service::orchestrator_digests::deliver_orchestrator_notice_exact(
-                    self,
-                    plan_id,
-                    tab_id,
-                    "system",
-                    &text,
+                    self, plan_id, tab_id, "system", &text,
                 )
                 .map(|_| {
                     self.record_kpi_event(

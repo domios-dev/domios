@@ -362,17 +362,18 @@ fn planner_cannot_add_orchestrator_heartbeat_learning() {
         3,
     );
 
-    assert!(matches!(result, Err(OrchestratorLearningError::Authority(_))));
-    assert!(
-        fixture
-            .service
-            .plan_store
-            .get(&plan_id)
-            .unwrap()
-            .heartbeat
-            .learnings
-            .is_empty()
-    );
+    assert!(matches!(
+        result,
+        Err(OrchestratorLearningError::Authority(_))
+    ));
+    assert!(fixture
+        .service
+        .plan_store
+        .get(&plan_id)
+        .unwrap()
+        .heartbeat
+        .learnings
+        .is_empty());
 }
 
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
