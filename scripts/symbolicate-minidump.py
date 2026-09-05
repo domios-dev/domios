@@ -468,7 +468,7 @@ class Symbolizer:
         self._prototypes()
         self.handle = wintypes.HANDLE(self.FAKE_PROCESS)
         self.dbghelp.SymSetOptions(
-            SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS | SYMOPT_LOAD_LINES
+            SYMOPT_UNDNAME | SYMOPT_LOAD_LINES
             | SYMOPT_EXACT_SYMBOLS | SYMOPT_FAIL_CRITICAL_ERRORS | SYMOPT_NO_PROMPTS)
         if not self.dbghelp.SymInitialize(self.handle, symbol_path.encode(), False):
             raise DumpError(f"SymInitialize failed: {ctypes.GetLastError()}")
@@ -694,12 +694,16 @@ def resolve_symbol_file(args, crash_module: Module | None) -> tuple[dict[int, Pa
         stores.append(from_sidecar)
     if args.pdb_store:
         stores.append(args.pdb_store)
+    missed: list[str] = []
     for store in stores:
         found = find_pdb(store, wanted)
         if found is not None:
             candidates.append(found)
         else:
-            return {}, f"no symbol file in {store} matches {wanted[0]} age={wanted[1]}"
+            # A store that holds nothing matching is not the end of the search: the
+            # sidecar names where the symbols were meant to land, which is not always
+            # where they did.
+            missed.append(str(store))
 
     for candidate in candidates:
         identity = pdb_identity(candidate)
@@ -710,6 +714,8 @@ def resolve_symbol_file(args, crash_module: Module | None) -> tuple[dict[int, Pa
                         f"{wanted[0]} age={wanted[1]} - REFUSED")
         return {crash_module.base: candidate}, f"{candidate} (identity verified)"
 
+    if missed:
+        return {}, f"nothing matching {wanted[0]} age={wanted[1]} in " + ", ".join(missed)
     return {}, "none supplied"
 
 
@@ -760,6 +766,7 @@ def main() -> int:
         if dump.exception_context and len(dump.exception_context) >= CTX_SIZE
         else 0
     )
+    extra_symbol_dirs: list[str] = []
     crash_module = dump.module_for(captured_rip)
     if crash_module is None and override:
         crash_module = next(m for m in dump.modules if m.base in override)
@@ -768,6 +775,11 @@ def main() -> int:
     symbols_without_image = bool(symbol_files) and crash_module is not None         and not crash_module.verified
     if symbols_without_image:
         crash_module.verified = True
+    elif symbol_files:
+        # The image is present and verified, so it stays the module source: x64
+        # unwinding needs its .pdata. The symbol file only joins the search path.
+        extra_symbol_dirs.extend(str(p.parent) for p in symbol_files.values())
+        symbol_files = {}
 
     print(f"Dump         : {args.dump}  ({args.dump.stat().st_size} bytes)")
     print(f"Threads      : {len(dump.threads)}    Modules: {len(dump.modules)}"
@@ -794,6 +806,9 @@ def main() -> int:
         fetch_symbols(dump, args.fetch_symbols)
 
     search = [str(args.image.parent)] if args.image else []
+    search.extend(extra_symbol_dirs)
+    if crash_module is not None and not args.image:
+        search.append(str(Path(crash_module.name).parent))
     if args.fetch_symbols:
         search.append(str(args.fetch_symbols))
     symbol_path = args.symbol_path or ";".join(search) or "."
