@@ -20,7 +20,7 @@ Playwright:
 | the ~12 lines of `MultiplexerProvider` wiring between them | modelled in `mirror.ts` (that module is a React component; `looksLikeSnapshot` mirrors `muxStateEventAction`) |
 
 `webEnv.ts` supplies the browser objects those modules need, and owns a gate
-that can sever a live event stream — gating `fetch` alone only blocks the next
+that can sever a live event stream - gating `fetch` alone only blocks the next
 connect, which is how the first draft of this bench failed to reproduce
 anything.
 

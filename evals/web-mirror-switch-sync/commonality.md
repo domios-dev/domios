@@ -16,7 +16,7 @@ column list is fixed now and filled later.
 |---|---|---|
 | `origin` | `local` or `peer` | Andrey reports "especially with other machines". If failures are peer-only, the local and mesh causes are distinct and the mesh half is its own boundary. |
 | `tabs` | tabs open at once | Separates a fan-out cost that scales with tab count from one that does not. |
-| `switches` | switches issued in the window | With `elapsed_ms`, gives the observed switch rate. Not paced — measured. |
+| `switches` | switches issued in the window | With `elapsed_ms`, gives the observed switch rate. Not paced -- measured. |
 | `switch_rate_hz` | `switches / elapsed_ms * 1000` | The rate is an *observation*, never a control input. No sleep sets it. |
 | `overflow_fired` | count of `overflow` frames seen | The only loss signal on the wire. A failure with zero overflows is a different mechanism from a failure with one. |
 | `overflow_reason` | `boot-changed` / `ring-evicted` / `lagged` | Three different server paths. They must not be collapsed. |

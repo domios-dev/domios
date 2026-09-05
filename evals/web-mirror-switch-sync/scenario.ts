@@ -1,6 +1,6 @@
 /**
  * The reproduction: many tabs, a switch storm, an induced overflow, and one
- * assertion — the web store equals the daemon.
+ * assertion - the web store equals the daemon.
  *
  * Pacing rule: a switch is issued and then *waited for* on the daemon's own
  * `tab-focused` frame before the next is issued. The switch rate is therefore
@@ -10,7 +10,7 @@
 import { startMirror, assertDevOrigin, type Mirror } from "./mirror";
 
 const FRAME_DEADLINE_MS = 30_000;
-/** Catch-up is a per-batch check, not a stream wait � a short bound keeps a
+/** Catch-up is a per-batch check, not a stream wait - a short bound keeps a
  *  storm of lagging batches from turning into a stalled run. */
 const CATCHUP_DEADLINE_MS = 8_000;
 /** api/events.rs RING_MAX_COUNT. Exceeding it while parked forces `ring-evicted`. */
@@ -27,6 +27,10 @@ export interface ScenarioOptions {
   /** Switches in flight at once. A real user outruns the round trip; an
    *  ack-paced storm cannot produce overlapping snapshot refetches. */
   concurrency: number;
+  /** Skip the park/flood/overflow leg. Leaves a pure connected-throughput run
+   *  whose refetch count is directly comparable to its switch count - the
+   *  measurement behind "one full state refetch per event". */
+  skipOverflow: boolean;
   relayPeer?: { id: string; name: string } | null;
 }
 
@@ -92,7 +96,7 @@ async function catchUp(mirror: Mirror, o: ScenarioOptions): Promise<boolean> {
 }
 
 /**
- * Deterministic overflow. Park the event stream (a dropped SSE path — what a
+ * Deterministic overflow. Park the event stream (a dropped SSE path - what a
  * mesh relay hiccup or a backgrounded browser actually does), keep switching
  * so the daemon's ring advances past what it retains, then release. The
  * client reconnects on a cursor older than `oldest`, which `RingSnapshot::plan`
@@ -148,16 +152,18 @@ export async function runScenario(o: ScenarioOptions): Promise<RunRow> {
       await Promise.all(batch);
       if (!(await catchUp(mirror, o))) laggedBatches++;
     }
-    const flood = await induceOverflow(mirror, o);
+    let flood = 0;
+    if (!o.skipOverflow) {
+      flood = await induceOverflow(mirror, o);
+      // The overflow's own refetch must land before the oracle reads the store.
+      const refetches = mirror.counters.muxRefetches;
+      await mirror.awaitFrame(
+        () => mirror.counters.muxRefetches > refetches,
+        FRAME_DEADLINE_MS,
+        "post-overflow refetch",
+      );
+    }
     const elapsed = performance.now() - started;
-
-    // The overflow's own refetch must land before the oracle reads the store.
-    const refetches = mirror.counters.muxRefetches;
-    await mirror.awaitFrame(
-      () => mirror.counters.muxRefetches > refetches,
-      FRAME_DEADLINE_MS,
-      "post-overflow refetch",
-    );
     // Quiesce: the last snapshot the mirror asked for must have been applied.
     await mirror.settle(FRAME_DEADLINE_MS);
 
