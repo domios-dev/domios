@@ -20,6 +20,8 @@ use super::JsonRpcError;
 mod brief;
 mod dispatch_failure;
 mod lane_resolution;
+mod preflight;
+mod workspace_admission;
 pub(super) mod lane_safety;
 mod routing;
 
@@ -31,15 +33,19 @@ use brief::build_brief_with_manifest;
 #[cfg(test)]
 pub(super) use brief::{build_brief, build_brief_with_personality};
 use dispatch_failure::{
-    dispatch_startup_failed_event, dispatch_wait_failed, DispatchFailureDisposition,
-    DispatchWaitFailure,
+    cleanup_succeeded, dispatch_startup_failed_event, dispatch_wait_failed,
+    DispatchFailureDisposition, DispatchWaitFailure,
 };
 use lane_resolution::{checkout_required, invalid_dispatch, resolve_dispatch_lane};
 use lane_safety::{
     atomic_lane_commitment, dispatch_safety_nudges, preflight_checkout_occupancy,
     refuse_unsafe_mutating_write,
 };
+use preflight::{preflight_dispatch_task_status, preflight_review_capacity};
 use routing::{dispatch_worker_identity, resolve_dispatch_routing, unqualified_model_error};
+use workspace_admission::{
+    admit_dispatch_workspace, preflight_dispatch_workspace, DISPATCH_WORKSPACE_CLOSING_CODE,
+};
 
 fn owned_str(p: Option<&Value>, key: &str) -> Option<String> {
     p.and_then(|x| x.get(key))
@@ -67,27 +73,6 @@ fn dispatch_failed(stage: &str, message: String) -> JsonRpcError {
             "reason": message,
         })),
     }
-}
-
-fn preflight_review_capacity(plan: &crate::plan::Plan, task: &Task) -> Result<(), PlanError> {
-    crate::service::plan::review_gate::validate_dispatch_review_capacity(plan, task)
-}
-
-fn preflight_dispatch_task_status(plan_id: &str, task: &Task) -> Result<(), JsonRpcError> {
-    if task.status != crate::plan::TaskStatus::Paused {
-        return Ok(());
-    }
-    let fix = format!("codeterm plan task resume {plan_id} {}", task.id);
-    Err(JsonRpcError {
-        code: -32602,
-        message: format!("task '{}' is paused\nfix: {fix}", task.id),
-        data: Some(json!({
-            "type": "invalid_task_dispatch",
-            "stage": "task_status",
-            "reason": "task is paused",
-            "fix": fix,
-        })),
-    })
 }
 
 fn verify_dispatched_task_binding(
@@ -599,7 +584,7 @@ impl DispatchStartup {
                             DispatchFailureDisposition::Survivor { attempt_finalized }
                         } else {
                             DispatchFailureDisposition::Cleanup {
-                                ok: stage != "compensation",
+                                ok: cleanup_succeeded(&stage, &reason),
                             }
                         },
                     ),
@@ -732,10 +717,17 @@ pub(super) fn dispatch(
 
     // Parent defaults to the dispatching (caller) tab, resolved server-side.
     let parent = owned_str(p, "parent_tab_id").or_else(|| owned_str(p, "caller_tab_id"));
+    let caller_tab_id = owned_str(p, "caller_tab_id");
     let parent_tab_id = parent
         .clone()
         .or_else(|| plan.owner.tab_id.clone())
         .ok_or_else(|| invalid_dispatch("dispatch requires a parent Orchestrator tab"))?;
+    preflight_dispatch_workspace(
+        svc,
+        owned_str(p, "workspace_id"),
+        parent.as_deref(),
+        caller_tab_id.as_deref(),
+    )?;
     let routing = resolve_dispatch_routing(
         owned_str(p, "agent"),
         owned_str(p, "model"),
@@ -827,7 +819,6 @@ pub(super) fn dispatch(
     let brief = build_brief_with_manifest(&detail.task, &detail.sections, &plan_id, &manifest);
 
     let explicit_cwd = owned_str(p, "cwd");
-    let caller_tab_id = owned_str(p, "caller_tab_id");
     let canonical_cwd = if plan.canonical_project_path.trim().is_empty() {
         plan.project_path.clone()
     } else {

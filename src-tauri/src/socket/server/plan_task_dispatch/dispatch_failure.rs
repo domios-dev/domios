@@ -4,6 +4,9 @@ use crate::service::worker_ack::{ATTEMPT_STATE_FINALIZED, TAB_STATE_ALIVE_AWAITI
 
 use super::{dispatch_failed, JsonRpcError};
 
+const TAB_CLOSE_FAILURE_PREFIX: &str = "Tab close failed: ";
+const WORKSPACE_CLOSING_PREFIX: &str = "Workspace is closing:";
+
 pub(in crate::socket::server) enum DispatchWaitFailure {
     Uncertain(String),
     Definitive(String),
@@ -34,6 +37,16 @@ pub(super) fn dispatch_wait_failed(stage: &str, failure: DispatchWaitFailure) ->
 pub(super) enum DispatchFailureDisposition {
     Survivor { attempt_finalized: bool },
     Cleanup { ok: bool },
+}
+
+pub(super) fn cleanup_succeeded(stage: &str, error: &str) -> bool {
+    stage != "compensation"
+        || (!error.is_empty()
+            && error.split("; ").all(|failure| {
+                failure
+                    .strip_prefix(TAB_CLOSE_FAILURE_PREFIX)
+                    .is_some_and(|reason| reason.starts_with(WORKSPACE_CLOSING_PREFIX))
+            }))
 }
 
 pub(super) fn dispatch_startup_failed_event(

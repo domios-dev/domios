@@ -197,7 +197,7 @@ Use spec/plan sections for plan rules or mem for durable preferences:\n\
             task_id.unwrap_or("<task_id>")
         )),
         "team_already_has_active_plan" => Some(format!(
-            "✗ team '{}' already owns active plan '{}'.\nfix: use another Team, or archive/complete the existing plan first.",
+            "✗ team '{}' already owns active plan '{}'.\nfix: use another Team, or archive the existing plan first.",
             data.get("team_id").and_then(|v| v.as_str()).unwrap_or("<team-id>"),
             data.get("existing_plan_id")
                 .and_then(|v| v.as_str())
@@ -584,6 +584,24 @@ mod tests {
             "{message}"
         );
         assert!(message.contains("No worker was spawned"), "{message}");
+    }
+
+    #[test]
+    fn active_team_conflict_renderer_preserves_server_identity() {
+        let message = render_plan_error(
+            &json!({
+                "type": "team_already_has_active_plan",
+                "team_id": "team_alpha",
+                "existing_plan_id": "plan_existing",
+            }),
+            &json!({}),
+        )
+        .expect("team conflict renderer");
+
+        assert!(message.contains("team_alpha"), "{message}");
+        assert!(message.contains("plan_existing"), "{message}");
+        assert!(!message.contains("<team-id>"), "{message}");
+        assert!(!message.contains("<plan-id>"), "{message}");
     }
 
     #[test]

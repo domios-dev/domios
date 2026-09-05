@@ -218,10 +218,8 @@ impl MultiplexerState {
         self.release_tab_close_reservation(reservation);
     }
 
-    pub(super) fn ensure_workspace_membership_mutable(
-        &self,
-        workspace_id: &str,
-    ) -> Result<(), String> {
+    /// Refuse a workspace mutation while its close reservation is held.
+    pub fn ensure_workspace_membership_mutable(&self, workspace_id: &str) -> Result<(), String> {
         if self.workspace_close_reservations.contains_key(workspace_id) {
             return Err(format!("Workspace is closing: {workspace_id}"));
         }
