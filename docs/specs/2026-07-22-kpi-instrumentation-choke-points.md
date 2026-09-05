@@ -79,12 +79,10 @@ role+model back down through `SpawnTabSpec`, which the existing code doesn't do.
 ### Nudge / heartbeat scheduler
 
 `src-tauri/src/service/hierarchy/plan_reminder_nudge.rs` —
-`deliver_automated_plan_reminder`. Scheduler-owned periodic plan reminders and
-complete-wrapup reminders funnel through this function before calling `Messenger::deliver`.
-`text.len()` gives bytes; the caller already knows which `NudgeKind` fired. Heartbeat
-re-injection specifically is `crate::service::orchestrator_digests::prepend_orchestrator_heartbeat`
-on the owner-targeted scheduler path — count/size these calls separately from plain nudges
-for the "heartbeat re-injection count and bytes" KPI line.
+`deliver_plan_reminder_target`. Scheduler-owned periodic reminders branch there by target.
+Worker and complete-wrapup messages use `deliver_automated_plan_reminder`; the owner path
+uses `crate::service::orchestrator_digests::deliver_orchestrator_notice_exact` so the
+heartbeat is target-bound. Count its heartbeat size separately from the plain nudge bytes.
 
 ### Provider usage ingestion — see §3 (separate seam per provider, not a single choke point)
 
@@ -287,4 +285,4 @@ codeterm kpi events --plan pl_dwojf1 --json
 Phase 5's own gate is the automated within-10% comparison script described in
 `task_cmu92w`'s test plan — not re-specified here since it belongs to that task.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->
