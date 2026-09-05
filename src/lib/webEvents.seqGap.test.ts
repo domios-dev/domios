@@ -3,6 +3,8 @@
 // self-heal AND stay loud about it, so a daemon regression cannot hide behind
 // the recovery. Real frames are fed through the real module.
 
+export {};
+
 let failures = 0;
 async function test(name: string, fn: () => Promise<void>) {
   try {
