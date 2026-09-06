@@ -214,3 +214,28 @@ pub async fn acknowledge_provider_update_prompt(
 pub fn check_cli_installed(binary: String) -> Result<bool, String> {
     Ok(crate::service::spawn::cli_binary_on_path(&binary))
 }
+
+/// TTL-gated re-probe for a reader that just opened the model picker. An open
+/// is an explicit user action, not a poll, and the TTL bounds it to at most one
+/// probe per window — except while a verdict is still unknown, which is retried.
+#[tauri::command]
+pub async fn refresh_provider_models(
+    app: tauri::AppHandle,
+    svc: State<'_, ServiceState>,
+    provider_id: String,
+) -> Result<bool, String> {
+    let Some(provider) = svc.agent_registry.provider_arc(&provider_id) else {
+        return Ok(false);
+    };
+    let refreshed = crate::agent::model_catalog::refresh_for_reader(provider)
+        .await
+        .is_some();
+    if refreshed {
+        crate::api::events::emit_everywhere(
+            &app,
+            "models-updated",
+            serde_json::json!({ "provider": provider_id }),
+        );
+    }
+    Ok(refreshed)
+}

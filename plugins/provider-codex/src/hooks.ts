@@ -67,8 +67,51 @@ function isOwnedCodexHook(hook: NonNullable<CodexHookEntry["hooks"]>[number] | u
     && cmd.indexOf("X-CodeTerm-Agent-Provider: codex") !== -1;
 }
 
+/// Tokens a CodeTerm-owned Codex hook script must carry to be current. This is
+/// the hook's contract, not its prose: it is instance-agnostic by construction,
+/// so dev and prod satisfy it identically.
+export const CODEX_HOOK_SCRIPT_CONTRACT = [
+  CODETERM_CODEX_HOOK_MARKER,
+  CODETERM_CODEX_PROFILE_CLEANUP_MARKER,
+  "CODETERM_TAB_ID",
+  "CODETERM_API_URL",
+  "CODETERM_API_TOKEN",
+  "CODETERM_SESSION_BINDING_NONCE",
+  "/api/tabs/",
+];
+
+/**
+ * Stable hash of hook content. Codex trusts a hook by content hash, so content
+ * is what currency is decided on — never which instance wrote it. Byte-identical
+ * content therefore hashes the same for every instance on the machine.
+ */
+export function codexHookContentHash(text: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = (hash + ((hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24))) >>> 0;
+  }
+  return ("0000000" + hash.toString(16)).slice(-8);
+}
+
+export function isOwnedCodexHookScriptContent(text: string): boolean {
+  return text.indexOf(CODETERM_CODEX_HOOK_MARKER) !== -1;
+}
+
+/// Current when the content satisfies the contract and bakes in no instance.
+/// A build that merely reformats the script does not make the other build's
+/// file stale, which is what used to cost the user a re-trust on every switch.
+export function isCurrentCodexHookScriptContent(text: string): boolean {
+  if (!isOwnedCodexHookScriptContent(text)) return false;
+  if (/:\d{2,5}/.test(text)) return false;
+  for (let i = 0; i < CODEX_HOOK_SCRIPT_CONTRACT.length; i++) {
+    if (text.indexOf(CODEX_HOOK_SCRIPT_CONTRACT[i]) === -1) return false;
+  }
+  return true;
+}
+
 export function isOwnedCodexWindowsHookScript(path: string): boolean {
   const text = host.fs.readFile(path);
-  return typeof text === "string" && text === codexWindowsHookScript();
+  return typeof text === "string" && isCurrentCodexHookScriptContent(text);
 }
 

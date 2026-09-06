@@ -93,10 +93,11 @@ fn is_executable_file(p: &std::path::Path) -> bool {
 
 /// Resolve `bin` to a runnable path, memoized per process. Ladder: (1) `which`
 /// over the daemon PATH — unchanged when it hits; (2) on a miss, probe each
-/// `extra_dirs` entry in order, returning the first `<dir>/<bin>` that is an
-/// executable regular file; (3) fall back to the bare name (OS resolves at
-/// spawn). The fallback only WIDENS discovery: probe paths are `dir.join(bin)`,
-/// so the allowlisted basename is preserved by construction.
+/// `extra_dirs` entry in order for the first executable regular file named
+/// `bin`, or `bin` plus one of the platform's executable suffixes; (3) fall
+/// back to the bare name (OS resolves at spawn). The fallback only WIDENS
+/// discovery: a probe may add an executable suffix, never change the
+/// allowlisted basename.
 fn resolve_bin(bin: &str, extra_dirs: &[std::path::PathBuf]) -> std::path::PathBuf {
     if let Some(hit) = RESOLVED_BINS.lock().get(bin) {
         return hit.clone();
@@ -108,37 +109,93 @@ fn resolve_bin(bin: &str, extra_dirs: &[std::path::PathBuf]) -> std::path::PathB
     resolved
 }
 
+/// Drop every memoized resolution so the next call re-walks the ladder. A
+/// self-updated or newly installed CLI is otherwise invisible for the process
+/// lifetime, which turns one failed probe into a permanent capability answer.
+pub fn forget_resolved_bins() {
+    RESOLVED_BINS.lock().clear();
+}
+
+/// The concrete file a prior resolution landed on, when it landed on one at
+/// all. A bare-name fallback is not a path, so it yields `None` rather than a
+/// path nothing can watch.
+pub fn resolved_bin_path(bin: &str) -> Option<std::path::PathBuf> {
+    let hit = RESOLVED_BINS.lock().get(bin).cloned()?;
+    (hit.parent().is_some_and(|p| !p.as_os_str().is_empty()) && hit.is_file()).then_some(hit)
+}
+
+/// File names that answer a probe for `bin`: the bare name, plus the
+/// platform's executable suffixes so a Windows `claude.exe` answers `claude`.
+#[cfg(windows)]
+fn probe_names(bin: &str) -> Vec<String> {
+    let mut names = vec![bin.to_string()];
+    if std::path::Path::new(bin).extension().is_none() {
+        let pathext = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into());
+        for ext in pathext.split(';').map(str::trim).filter(|e| e.starts_with('.')) {
+            names.push(format!("{bin}{}", ext.to_ascii_lowercase()));
+        }
+    }
+    names
+}
+
+#[cfg(not(windows))]
+fn probe_names(bin: &str) -> Vec<String> {
+    vec![bin.to_string()]
+}
+
 fn resolve_bin_uncached(bin: &str, extra_dirs: &[std::path::PathBuf]) -> std::path::PathBuf {
     if let Ok(p) = which::which(bin) {
         return p;
     }
+    let names = probe_names(bin);
     for dir in extra_dirs {
-        let candidate = dir.join(bin);
-        if is_executable_file(&candidate) {
-            debug_assert_eq!(
-                candidate.file_name().and_then(|n| n.to_str()),
-                Some(bin),
-                "resolved basename must equal the requested allowlisted bin"
-            );
-            return candidate;
+        for name in &names {
+            let candidate = dir.join(name);
+            if is_executable_file(&candidate) {
+                debug_assert!(
+                    candidate
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .is_some_and(|found| found == bin
+                            || found
+                                .strip_prefix(bin)
+                                .is_some_and(|suffix| suffix.starts_with('.'))),
+                    "a probe may add an executable suffix, never change the allowlisted bin"
+                );
+                return candidate;
+            }
         }
     }
     std::path::PathBuf::from(bin)
 }
 
 /// Well-known dirs a GUI-launched app may miss from a login shell's PATH.
+/// Home comes from `dirs`, not `$HOME`: Windows leaves `HOME` unset, which used
+/// to drop every home-relative candidate on the platform that needs them most.
 fn well_known_bin_dirs() -> Vec<std::path::PathBuf> {
     let mut dirs = vec![
         std::path::PathBuf::from("/opt/homebrew/bin"),
         std::path::PathBuf::from("/usr/local/bin"),
     ];
-    if let Some(home) = std::env::var_os("HOME").map(std::path::PathBuf::from) {
+    if let Some(home) = home_dir() {
         dirs.push(home.join(".npm-global/bin"));
         dirs.push(home.join(".local/bin"));
         dirs.push(home.join("bin"));
         dirs.push(home.join(".volta/bin"));
+        dirs.push(home.join("AppData/Roaming/npm"));
+        dirs.push(home.join("AppData/Local/Programs"));
     }
     dirs
+}
+
+fn home_dir() -> Option<std::path::PathBuf> {
+    if let Some(home) = std::env::var_os("HOME").filter(|h| !h.is_empty()) {
+        return Some(std::path::PathBuf::from(home));
+    }
+    if let Some(profile) = std::env::var_os("USERPROFILE").filter(|h| !h.is_empty()) {
+        return Some(std::path::PathBuf::from(profile));
+    }
+    dirs::home_dir()
 }
 
 /// Run the subprocess described by `opts_json`. The binary is already
@@ -250,11 +307,8 @@ pub(super) fn run_with_host_env(opts_json: &str, host_env: &HashMap<String, Stri
         }
         Err(e) => return err(&format!("wait {}: {e}", opts.bin)),
     };
-    // After a timeout-kill, use a short SHARED drain deadline: orphaned
-    // grandchildren (not reached by taskkill /T on Windows) keep pipe write-ends
-    // open, which would block read_to_string indefinitely. One deadline across
-    // both channels — sequential per-channel timeouts would otherwise add up
-    // (2x500ms) and blow the caller's latency budget. Discard partial output.
+    // Orphaned grandchildren hold pipe write-ends open after a timeout-kill, so
+    // both channels share ONE short drain deadline rather than adding up.
     let drain = if timeout_error.is_some() {
         Duration::from_millis(400)
     } else {
@@ -603,9 +657,8 @@ mod tests {
             if v["done"].as_bool() == Some(true) {
                 return v;
             }
-            // A bounded failure deadline, not a performance budget: a genuine
-            // hang still fails, while a loaded machine spawning a process no
-            // longer does. Five seconds was the latter and failed under verify.
+            // A bounded failure deadline, not a performance budget: five seconds
+            // measured machine load and failed under verify.
             assert!(
                 started.elapsed() < Duration::from_secs(60),
                 "exec timed out"
@@ -755,10 +808,8 @@ mod tests {
             "timeoutMs": 10000,
         });
 
-        // A deadlocked pipe cannot reach the three assertions below: it blocks
-        // until timeoutMs and comes back as an error with truncated output. That
-        // is the proof. Wall-clock is not — it measured the machine's load, and
-        // failed at 6.6s on a busy one while passing in 0.4s alone.
+        // A deadlocked pipe cannot reach the assertions below, which is the proof.
+        // Wall-clock is not: it measured machine load and flaked at 6.6s.
         let out: serde_json::Value = serde_json::from_str(&run(&opts.to_string())).unwrap();
         assert!(out.get("error").is_none(), "unexpected error: {out}");
         assert_eq!(out["code"], 0);
@@ -767,9 +818,8 @@ mod tests {
 
     #[test]
     fn resolve_bin_probes_fallback_dir_when_not_on_path() {
-        // A bin absent from PATH must still resolve when its dir is passed as a
-        // fallback candidate. RED today: resolve_bin ignores extra_dirs and
-        // returns the bare name; GREEN once the fallback probe lands.
+        // A bin absent from PATH must still resolve through a fallback candidate
+        // dir, which is the only rescue a GUI-launched daemon has.
         let name = format!("bwprobe_{}", uuid::Uuid::new_v4().simple());
         let dir = std::env::temp_dir().join(format!(
             "host_exec_resolve_{}",
@@ -847,6 +897,103 @@ mod tests {
             resolved, expected,
             "which() result must win over probe dirs"
         );
+    }
+
+    /// The GUI-launched daemon that shipped `available:false` had no `HOME` at
+    /// all, so every home-relative candidate vanished and the ladder had
+    /// nothing left to try. Home must survive an unset `HOME`.
+    #[test]
+    fn well_known_bin_dirs_reach_user_local_bin_without_home() {
+        let _guard = TEST_LOCK.lock();
+        let mut process_env = codeterm_util::test_env::EnvGuard::lock();
+        let home = std::env::temp_dir().join(format!(
+            "host_exec_home_{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir_all(home.join(".local/bin")).unwrap();
+        process_env.remove("HOME");
+        process_env.set("USERPROFILE", &home);
+
+        let dirs = well_known_bin_dirs();
+        let _ = std::fs::remove_dir_all(&home);
+        assert!(
+            dirs.contains(&home.join(".local/bin")),
+            "an unset HOME must not drop the home-relative candidates: {dirs:?}"
+        );
+    }
+
+    /// The installed file was `claude.exe`; the probe only ever looked for
+    /// `claude`, so the rescue dir could not answer even when it held the CLI.
+    #[test]
+    fn resolve_bin_probe_accepts_platform_executable_suffix() {
+        let _guard = TEST_LOCK.lock();
+        RESOLVED_BINS.lock().clear();
+        let name = format!("bwext_{}", uuid::Uuid::new_v4().simple());
+        let dir =
+            std::env::temp_dir().join(format!("host_exec_ext_{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&dir).unwrap();
+        #[cfg(windows)]
+        let bin_path = dir.join(format!("{name}.exe"));
+        #[cfg(not(windows))]
+        let bin_path = dir.join(&name);
+        std::fs::write(&bin_path, b"#!/bin/sh\nexit 0\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perm = std::fs::metadata(&bin_path).unwrap().permissions();
+            perm.set_mode(0o755);
+            std::fs::set_permissions(&bin_path, perm).unwrap();
+        }
+
+        let resolved = resolve_bin(&name, std::slice::from_ref(&dir));
+        let _ = std::fs::remove_dir_all(&dir);
+        RESOLVED_BINS.lock().clear();
+        assert_eq!(
+            resolved, bin_path,
+            "a probe dir holding the platform-suffixed executable must answer the bare bin"
+        );
+    }
+
+    /// A memoized miss outlives the install that fixes it, so a refresh that
+    /// does not clear the memo rewrites the same wrong answer forever.
+    #[test]
+    fn forget_resolved_bins_reprobes_after_the_binary_appears() {
+        let _guard = TEST_LOCK.lock();
+        RESOLVED_BINS.lock().clear();
+        let name = format!("bwmemo_{}", uuid::Uuid::new_v4().simple());
+        let dir =
+            std::env::temp_dir().join(format!("host_exec_memo_{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let missed = resolve_bin(&name, std::slice::from_ref(&dir));
+        assert_eq!(missed, std::path::PathBuf::from(&name));
+        assert_eq!(resolved_bin_path(&name), None);
+
+        #[cfg(windows)]
+        let bin_path = dir.join(format!("{name}.exe"));
+        #[cfg(not(windows))]
+        let bin_path = dir.join(&name);
+        std::fs::write(&bin_path, b"#!/bin/sh\nexit 0\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perm = std::fs::metadata(&bin_path).unwrap().permissions();
+            perm.set_mode(0o755);
+            std::fs::set_permissions(&bin_path, perm).unwrap();
+        }
+
+        assert_eq!(
+            resolve_bin(&name, std::slice::from_ref(&dir)),
+            std::path::PathBuf::from(&name),
+            "the memo must still be serving the stale miss before it is cleared"
+        );
+        forget_resolved_bins();
+        let reprobed = resolve_bin(&name, std::slice::from_ref(&dir));
+        let watched = resolved_bin_path(&name);
+        let _ = std::fs::remove_dir_all(&dir);
+        RESOLVED_BINS.lock().clear();
+        assert_eq!(reprobed, bin_path);
+        assert_eq!(watched, Some(bin_path));
     }
 
     #[test]
