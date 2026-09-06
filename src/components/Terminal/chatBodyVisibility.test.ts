@@ -17,7 +17,7 @@ const TWO_ASKS = [1_500, 2_500];
 
 function railsFor(view: ChatBodyView, messages: Array<{ at: number | null }>) {
   const placed = placeChatRails({
-    view,
+    visible: chatRailsVisible(view),
     messages,
     messageTimeMs: timeOf,
     reportTimes: THREE_REPORTS,
@@ -34,6 +34,7 @@ describe("chat body authority", () => {
     const view = chatBodyView({
       hasTranscript: false,
       chatLoading: true,
+      unavailable: null,
       bootView: { kind: "none" },
     });
     expect(view.kind).toBe("starting");
@@ -43,6 +44,7 @@ describe("chat body authority", () => {
     const view = chatBodyView({
       hasTranscript: false,
       chatLoading: false,
+      unavailable: null,
       bootView: { kind: "starting", label: "Starting" },
     });
     expect(view.kind).toBe("starting");
@@ -52,6 +54,7 @@ describe("chat body authority", () => {
     const view = chatBodyView({
       hasTranscript: false,
       chatLoading: false,
+      unavailable: null,
       bootView: { kind: "none" },
     });
     expect(view.kind).toBe("none");
@@ -61,6 +64,7 @@ describe("chat body authority", () => {
     const view = chatBodyView({
       hasTranscript: true,
       chatLoading: false,
+      unavailable: null,
       bootView: { kind: "starting", label: "Starting" },
     });
     expect(view.kind).toBe("none");
@@ -78,6 +82,7 @@ describe("chat rail gating", () => {
     const view = chatBodyView({
       hasTranscript: false,
       chatLoading: false,
+      unavailable: null,
       bootView: { kind: "starting", label: "Starting" },
     });
     expect(railsFor(view, [])).toEqual({ reports: 0, asks: 0 });
@@ -94,6 +99,7 @@ describe("chat rail gating", () => {
     const view = chatBodyView({
       hasTranscript: false,
       chatLoading: false,
+      unavailable: null,
       bootView: { kind: "none" },
     });
     expect(chatRailsVisible(view)).toBe(true);
@@ -107,10 +113,11 @@ describe("chat rail gating", () => {
     const view = chatBodyView({
       hasTranscript: true,
       chatLoading: false,
+      unavailable: null,
       bootView: { kind: "none" },
     });
     const placed = placeChatRails({
-      view,
+      visible: chatRailsVisible(view),
       messages: [at(1_500), at(2_500), at(3_500)],
       messageTimeMs: timeOf,
       reportTimes: THREE_REPORTS,
@@ -118,6 +125,43 @@ describe("chat rail gating", () => {
     });
     expect(railRowCount(placed.reports)).toBe(THREE_REPORTS.length);
     expect(placed.reports.trailing).toEqual([]);
+  });
+});
+
+describe("chat loader terminal state", () => {
+  it("a bound session the host has no transcript source for is reported, not awaited", () => {
+    const view = chatBodyView({
+      hasTranscript: false,
+      chatLoading: true,
+      unavailable: "no_transcript_source",
+      bootView: { kind: "none" },
+    });
+    expect(view).toEqual({ kind: "failed", reason: "no_transcript_source" });
+  });
+
+  it("a snapshot the tab cannot adopt is reported rather than left spinning", () => {
+    const view = chatBodyView({
+      hasTranscript: false,
+      chatLoading: true,
+      unavailable: "authority_mismatch",
+      bootView: { kind: "starting", label: "Starting" },
+    });
+    expect(view.kind).toBe("failed");
+  });
+
+  it("a reported failure produces zero report rows and zero ask rows", () => {
+    const view: ChatBodyView = { kind: "failed", reason: "no_transcript_source" };
+    expect(railsFor(view, [])).toEqual({ reports: 0, asks: 0 });
+  });
+
+  it("an observed delta clears the reported failure and returns the body to content", () => {
+    const view = chatBodyView({
+      hasTranscript: true,
+      chatLoading: false,
+      unavailable: "no_transcript_source",
+      bootView: { kind: "none" },
+    });
+    expect(view.kind).toBe("none");
   });
 });
 
