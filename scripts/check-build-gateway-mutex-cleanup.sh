@@ -64,13 +64,18 @@ set -e
 cat "$TEST_ROOT/status-timeout.log"
 [ "$status_rc" -eq 75 ] || { echo "gateway-status exited $status_rc, expected 75" >&2; exit 1; }
 
+# A symlink, not a copy, on Unix: Homebrew node is dylib-linked via @rpath, and a
+# copied binary loses its ../lib. Windows node.exe is self-contained, so copy.
+place_fake_compiler() {
+  if [[ "$1" == *.exe ]]; then cp "$1" "$2.exe"; else ln -s "$1" "$2"; fi
+}
 node_path="$(command -v node)"
 cargo_bin="$TEST_ROOT/cargo"
 [[ "$node_path" != *.exe ]] || cargo_bin="$cargo_bin.exe"
-cp "$node_path" "$cargo_bin"
+place_fake_compiler "$node_path" "$TEST_ROOT/cargo"
 rustc_bin="$TEST_ROOT/rustc"
 [[ "$node_path" != *.exe ]] || rustc_bin="$rustc_bin.exe"
-cp "$node_path" "$rustc_bin"
+place_fake_compiler "$node_path" "$TEST_ROOT/rustc"
 
 set +e
 CODETERM_BUILD_GATEWAY_FIXTURE_DIR="$STATE" \
