@@ -163,11 +163,6 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
 
   // The desktop UI is shared by every test in this worker and nothing resets it:
   // tabCleanup diffs tabs and api diffs backend state, but nothing diffs the SCREEN.
-  // A test that ends with a full-screen modal open leaves it open, and its victim
-  // fails later on an unrelated selector — as a retry-to-deadline, which reads as a
-  // slow product rather than as leaked state. Name it here instead. This never
-  // dismisses what it finds: a harness that silently cleared the overlay would hide
-  // the leak rather than report it.
   ui: async ({ devInstance, uiSession }, use, testInfo) => {
     const verdict = await probeHealth(devInstance);
     if (!verdict.ok) throw new Error(healthMismatchMessage(devInstance, verdict));
@@ -206,8 +201,6 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
 
   // Diff-based teardown closes only what the test created; the blanket sweep
   // runs once per spec file as a stray-state safety net. A daemon that died
-  // mid-previous-test is revived here so one crash fails one test, not a cascade
-  // (own timeout: revival can rebuild dev, which never fits a per-test budget).
   api: [
     async ({ devInstance, resetTracker }, use, testInfo) => {
       if (!(await isHealthy(devInstance))) {

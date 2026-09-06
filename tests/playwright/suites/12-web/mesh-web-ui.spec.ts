@@ -109,7 +109,6 @@ function pairedPeerFixture(over: Json = {}): Json {
     version: "1.7.2",
     // MeshCanvas gates a peer's Web UI link on `online` AND a matching relay
     // protocol version, then builds the link from THIS host's Serve url — the
-    // peer's own https_url is not read any more.
     relay_protocol_version: RELAY_PROTOCOL_VERSION,
     ...over,
   };
@@ -403,7 +402,6 @@ test("@golden mesh-web-ui: the Web UI control and the mesh tab rail never overla
       if (!webUiBox || !tabsBox) return;
       // The control moved out of the toolbar into the map layer, so the rail can
       // legitimately share its x-range; what must never happen is the two
-      // rectangles intersecting. Test that directly instead of projecting onto x.
       const intersects =
         webUiBox.x < tabsBox.x + tabsBox.width &&
         webUiBox.x + webUiBox.width > tabsBox.x &&

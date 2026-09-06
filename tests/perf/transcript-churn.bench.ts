@@ -1,8 +1,5 @@
 // Latency oracle: transcript-recompute cost per streamed provider chunk vs.
 // transcript size N. Every `tab-chat-msg` event runs this pipeline
-// synchronously (mergeById in the reducer, then attachToolResults /
-// trimAfterSessionReset / matchedOptimisticEchoes in the allMessages useMemo).
-// Frame budget is 16.7ms. Run: `npx tsx tests/perf/transcript-churn.bench.ts`.
 import {
   mergeById,
   attachToolResults,

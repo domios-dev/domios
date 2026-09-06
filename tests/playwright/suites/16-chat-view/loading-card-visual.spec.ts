@@ -5,7 +5,6 @@
  */
 // ChatSetupState is a glyph-and-ring overlay with no copy of its own and no
 // failure card: chatSetupView maps spawn_failed to the starting view, and
-// tabBootOverlayView owns the recovery surface (`tab-boot-failed`).
 import path from "node:path";
 import { build } from "esbuild";
 import { expect, test } from "../../helpers/fixtures";

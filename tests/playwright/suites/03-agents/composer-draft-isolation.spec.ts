@@ -86,16 +86,10 @@ test.describe("@golden composer draft isolation", () => {
 
     // Open the app fresh so the just-created workspace is present exactly as a
     // user reopening CodeTerm would see it — deterministic, no dependency on a
-    // live create-event landing on an already-open page.
     await page.reload({ waitUntil: "domcontentloaded" });
 
     // The user journey, driven the way a person (or screen reader) would in the
     // workspace-card sidebar: the workspace's own contents region is revealed
-    // by selecting its card. A freshly opened workspace is already selected; if
-    // it is not, select its card. The card's select control is a toggle button
-    // (aria-pressed); the dnd-kit sortable wrapper shares its name, so the
-    // aria-pressed toggle attribute distinguishes the real control from the
-    // drag handle.
     const region = page.getByRole("region", { name: `${ws.name} workspace contents` });
     if (!(await region.isVisible().catch(() => false))) {
       await page

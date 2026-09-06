@@ -8,7 +8,6 @@ import { expect, test } from "../../helpers/fixtures";
 
 // Cold app mount is out-of-band setup, not the measured churn window; bound it
 // so a stuck mount fails fast under the default per-test timeout instead of
-// consuming a 90s escalated budget.
 const WEB_MOUNT_CAP_MS = 20_000;
 const HIDDEN_TAB_RENDER_BUDGET = 3;
 
@@ -109,7 +108,6 @@ test("@perf hidden tabs do not re-render on unrelated agent_state churn", async 
 
   // The churn owner is itself hidden here, so the hidden-tab optimization
   // rightly suppresses its re-renders too; the signal must not be LOST —
-  // surfacing the tab replays the churned state.
   if (tabA.tab_id) {
     const tabA = page.locator(`[data-testid="tab-item"][data-tab-id="${tabA.tab_id}"]`).first();
     await expect(tabA).toBeVisible({ timeout: 30_000 });

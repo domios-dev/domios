@@ -81,7 +81,6 @@ test("@golden @stub the row kebab switches the agent model in session", async ({
 
     // The asserted value is read off the descriptor that owns it — never recomposed
     // here — and must be provably absent from the buffer before the click, so a
-    // vacuous pass is impossible.
     const before = await stubTabOutput(api, tabId);
     const spawnModelId = provider.available_models![0].id;
     const target = provider.available_models!.find(

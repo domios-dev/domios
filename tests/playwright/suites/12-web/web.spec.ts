@@ -175,7 +175,6 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
 
     // Switch back to self: real workspaces return, no stub data leaks. Wait on
     // THIS host's own ordinary workspace — a fresh instance holds only the
-    // protected General, which renders in general-section and never as a card.
     await page.click('[data-testid="peer-picker-button"]');
     await page.click('[data-testid="peer-picker-self"]');
     await expect(
@@ -223,7 +222,6 @@ function storedRelayPeer(page: Page): Promise<string | null> {
 test("@golden stale relay target is dropped at boot; when it survives, back-to-self recovers", async ({ api, webBrowser }) => {
   // A target left in localStorage outlives pairing, presence and protocol. The
   // gate re-checks it against the LOCAL daemon's paired list and discards it
-  // before anything can be relayed into a dead peer (WebGate.tsx bootstrap).
   const dropped = await newWebPage(webBrowser);
   try {
     await dropped.goto(WEB_URL, { waitUntil: "domcontentloaded" });
@@ -246,7 +244,6 @@ test("@golden stale relay target is dropped at boot; when it survives, back-to-s
 
   // When the daemon cannot be asked WHICH peers are usable, the gate keeps the
   // stored target rather than guessing — so a rejected token must still offer the
-  // way back, and taking it must clear the target.
   const stranded = await newWebPage(webBrowser);
   try {
     await stranded.route(/\/api\/mesh\/peers(\?|$)/, (route) => route.abort());
@@ -284,7 +281,6 @@ test("@golden mobile viewport: no horizontal scroll, sidebar overlays, picker re
     await expect(burger).toBeVisible({ timeout: 10_000 });
     // The picker moved into the sidebar's GENERAL header (Sidebar.tsx), and phones
     // do not mount the sidebar until the hamburger asks for it (App.tsx) — so it is
-    // reachable through the drawer, never from the titlebar row.
     await expect(picker, "phone titlebar must not carry the peer picker").toHaveCount(0);
 
     const burgerBox = await burger.boundingBox();
@@ -452,7 +448,6 @@ test("@golden web chrome: titlebar hosts keep-awake, the peer picker sits in the
     await expect(titlebar).toBeVisible();
     // Keep-awake lives in the titlebar tray; the host switcher moved down into the
     // sidebar's GENERAL structural header (Sidebar.tsx renders <WebPeerPicker compact/>
-    // there), so the titlebar must no longer carry it.
     await expect(titlebar.locator('[data-testid="keepawake-tray"]')).toBeVisible();
     await expect(titlebar.locator('[data-testid="peer-picker-button"]')).toHaveCount(0);
     await expect(
@@ -478,7 +473,6 @@ test("@golden web chrome: titlebar hosts keep-awake, the peer picker sits in the
 test("@golden web mobile: hamburger reopens the dismissed sidebar overlay", async ({ api, webBrowser }) => {
   // A fresh instance holds only the protected General, which renders in
   // general-section and NEVER as a workspace-item card — so this test seeds the
-  // ordinary workspace whose card it waits on, and takes it away again.
   const workspaceName = `pw-mobile-reopen-${Date.now()}`;
   await api.createWorkspace(workspaceName);
   const workspaceId = (await api.workspaces()).find((w) => w.name === workspaceName)?.id;
@@ -542,8 +536,6 @@ test("@golden close sync: web close updates the desktop window, desktop close up
     await webActions.click();
     // The menu item carries `tab-menu-close` (TabItem.tsx). Its LABEL is
     // "Close Session" or "Close Tab" depending on whether the tab has an agent,
-    // and the same words also appear on a CommandPalette entry — so a page-wide
-    // text match could act on a different tab entirely.
     await page.getByTestId("tab-menu-close").click();
     await expect(webTab(a.tab_id)).toHaveCount(0, { timeout: 15_000 });
     // …and the DESKTOP window follows via mux-state-changed.
@@ -587,7 +579,6 @@ test("@stub web chat: an assistant reply streams in and history survives a reloa
   try {
     // until then chat-raw/start 409s.
     // chat-raw/start REQUIRES its subscriber id (ChatSubscriptionBody, camelCase);
-    // a bodyless call 400s forever and the catch turns that into a readiness lie.
     const subscriptionId = `pw-web-chat-${tabId}`;
     await pollUntil(async () => {
       try {

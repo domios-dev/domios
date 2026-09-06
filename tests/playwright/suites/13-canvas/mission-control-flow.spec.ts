@@ -60,9 +60,6 @@ test("@golden @mission-control-flow flow river + group milestone + measured curv
 
     // NOT COVERED: the workspace/all-plans scope toggle. The control was deleted —
     // MissionControlPlanSurface.test.tsx now asserts "workspace surface has no
-    // all-plans escape hatch", so there is no escape hatch left to drive. Its
-    // absence is owned by that unit test; re-asserting it here would only restate
-    // a contract this suite cannot observe changing.
   } finally {
     await canvas.close();
   }

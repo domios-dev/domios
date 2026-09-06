@@ -389,7 +389,6 @@ test.describe("new-session picker", () => {
   test.afterEach(async ({ api, ui }) => {
     // Dismiss BEFORE touching state under the modal, and before the workspace it
     // targets disappears. Runs even when the test body threw — which is the leak
-    // that matters, since a failing test never reaches its own close.
     await dismissPicker(ui.page);
     // Sweep created plans BEFORE closing the workspace (close doesn't cascade).
     await plans.sweep();
@@ -563,7 +562,6 @@ test.describe("new-session picker", () => {
 
     // Plan creation is the live orchestrator's first act (lazy, LLM-driven) —
     // covered in picker-live.spec.ts; the stub transport verifies pair plumbing.
-    // The suite's afterAll junk sweep is what guards bare "Orchestration" titles.
   });
 
   test("@golden GREETING: orchestrator's first assistant message is the PEER_ORCH_GREETING, unprompted", async ({ api, ui }) => {
@@ -579,7 +577,6 @@ test.describe("new-session picker", () => {
 
     // `subscriptionId` is REQUIRED and camelCase (ChatSubscriptionBody,
     // api/web_routes.rs:659-663). A bodyless call is rejected by the extractor
-    // before the handler runs, so no readiness wait can ever satisfy it.
     const subscriptionId = `pw-picker-greeting-${tab.id}`;
     const chatStart = () =>
       api.post<{ messages?: { type?: string; content?: string }[] }>(
@@ -588,7 +585,6 @@ test.describe("new-session picker", () => {
       );
     // Unguarded and up front: a contract error must surface HERE carrying its own
     // status text. Swallowing it into "" spent the poll's whole deadline and then
-    // blamed the greeting for a malformed request.
     expect((await chatStart()).messages, "chat-raw/start must answer with a message window").toBeDefined();
 
     await expect
@@ -818,7 +814,6 @@ test.describe("new-session picker", () => {
 
     // any empty/"…" placeholder frame the moment it appears. Prove the surface
     // exists once up front — a sampler over an absent scope observes nothing and
-    // would report "no ghost" forever.
     await expect(workspaceDetail(page, ws.id), "no sidebar body to sample for ghosts").toHaveCount(1);
     const rows = tabRows(page, ws.id);
     let ghost: string | null = null;
@@ -882,8 +877,6 @@ test.describe("ghost-tab invariant", () => {
 
     // Coverage first, or the sweep below silently inspects nothing. The sidebar
     // trails backend state by an event, so assert the SETTLED correspondence:
-    // sampling both sources once compares two different instants and is unsound
-    // while a just-closed workspace is still on screen.
     const bodies = ui.page.locator('[data-testid="workspace-detail"]');
     let bodyIds: string[] = [];
     let ordinaryIds: string[] = [];
@@ -917,7 +910,6 @@ test.describe("ghost-tab invariant", () => {
       ];
       // GENERAL is protected and always holds its General Agent, rendered either
       // as a row or as the Team card that stands in for an anchoring tab. An empty
-      // sweep there means the surface went missing, not that the session is clean.
       if (scope.label === "general-section") {
         expect(entries.length, "GENERAL renders no sidebar entry to inspect").toBeGreaterThan(0);
       }

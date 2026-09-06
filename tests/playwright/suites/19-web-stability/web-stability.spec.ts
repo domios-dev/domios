@@ -69,8 +69,6 @@ async function waitDomMarker(page: Page, marker: string, tabId?: string, timeout
     ({ marker: expected, tabId: id }) => {
       // The sidebar row (TabItem) and the terminal/chat hosts ALL carry
       // data-tab-id, and the sidebar comes first in document order — so a bare
-      // querySelector scoped every search to a node that can never hold terminal
-      // text. Search every host that owns this tab.
       const roots: ParentNode[] = id
         ? Array.from(document.querySelectorAll(`[data-tab-id="${id}"]`))
         : [document];
@@ -662,7 +660,6 @@ test.describe("@golden web stability verification", () => {
       peerId = added.instance_id;
       // Pairing rejects non-UUID identities and remaps the daemon's
       // manual-<uuid> placeholder to the peer's real id — the stub must present
-      // its own UUID, so never overwrite it with the placeholder.
       await api.post("/mesh/connect", { instance_id: peerId });
       await stub.waitForPairAccept();
       await pollUntil(async () => {
@@ -682,7 +679,6 @@ test.describe("@golden web stability verification", () => {
       await item.click();
       // Read the name off the stub; recomposing it here is how a fixture rename
       // becomes a spec bug. Budget matches the peer-switching golden — the same
-      // relay round-trip needs the same allowance.
       await expect(
         page.locator(`[data-testid="workspace-item"][data-workspace-name="${stub.workspaceName}"]`),
         "switched-peer ordinary workspace did not render as a sidebar card",

@@ -140,7 +140,6 @@ test("@smoke make-orchestrator promotes agent tab and surfaces onboarding", asyn
   const greeting = JSON.stringify(chat.messages ?? []);
   // Substitution, not wording: the onboarding is addressed to THIS tab, so the id
   // it carries is a value this test supplied. Asserting the copy instead would
-  // fail on every rewrite and pass while delivery was broken.
   expect(greeting, "onboarding must be addressed to the promoted tab").toContain(tabId);
   expect(greeting, "no unsubstituted placeholder may survive").not.toMatch(/\{\{|\$\{|<TAB_ID>/);
   await api.closeTab(tabId).catch(() => {});
