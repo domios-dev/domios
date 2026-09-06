@@ -1,6 +1,7 @@
 import type { CodexHookEntry } from "./plugin";
 import { grantCodexHookTrust } from "./appServer";
 import {
+  codexHookContentHash,
   codexWindowsHookScript,
   isCodetermCodexHook,
   removeOwnedCodexHooks,
@@ -93,6 +94,7 @@ export function checkIntegration(): unknown {
       : (!current || !stopInstalled ? CODEX_INTEGRATION_STATE_STALE_VERSION : CODEX_INTEGRATION_STATE_INSTALLED));
   return {
     hooks_file_exists: true,
+    hook_content_hash: ownedContentHash(arr, stopArr, winScriptText),
     hooks_installed: current && stopInstalled && trustOk,
     session_start_hook: current && trustOk,
     stop_hook: stopInstalled && trustOk,
@@ -107,9 +109,34 @@ export function checkIntegration(): unknown {
   };
 }
 
+/// The content Codex actually trusts: the CodeTerm-owned hook commands plus the
+/// helper script. Two instances writing byte-identical content hash the same,
+/// which is what makes the verdict independent of who wrote it.
+function ownedContentHash(
+  sessionStart: CodexHookEntry[] | undefined,
+  stop: CodexHookEntry[] | undefined,
+  scriptText: string,
+): string {
+  const parts: string[] = [];
+  for (const entries of [sessionStart, stop]) {
+    if (!Array.isArray(entries)) continue;
+    for (const entry of entries) {
+      if (!isCodetermCodexHook(entry)) continue;
+      const hooks = (entry && entry.hooks) || [];
+      for (const hook of hooks) {
+        parts.push(String(hook?.command || ""));
+        parts.push(String(hook?.commandWindows || ""));
+      }
+    }
+  }
+  parts.push(scriptText);
+  return codexHookContentHash(parts.join(String.fromCharCode(0)));
+}
+
 function emptyIntegrationStatus(path: string | null, fileExists: boolean): unknown {
   return {
     hooks_file_exists: fileExists,
+    hook_content_hash: codexHookContentHash(""),
     hooks_installed: false,
     session_start_hook: false,
     stop_hook: false,

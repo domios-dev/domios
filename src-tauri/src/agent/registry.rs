@@ -597,6 +597,7 @@ mod tests {
                     display_name: "Phantom Model".into(),
                     description: None,
                     available: None,
+                    availability: None,
                 }],
                 default: Some("phantom-model".into()),
             },
@@ -608,6 +609,7 @@ mod tests {
                 display_name: "Cache Model".into(),
                 description: None,
                 available: None,
+                availability: None,
             }],
             Some("cache-model".into()),
         );

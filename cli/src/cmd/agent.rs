@@ -280,6 +280,24 @@ fn print_report_notices(json: bool, val: &serde_json::Value) {
     }
 }
 
+/// The same three-state answer the picker renders, so a reader of either
+/// surface gets the same verdict. `unknown` means the probe could not run; only
+/// `unavailable` means the CLI answered no.
+pub const AVAILABILITY_UNAVAILABLE: &str = " (unavailable)";
+pub const AVAILABILITY_UNKNOWN: &str = " (availability unknown)";
+
+fn availability_marker(model: &serde_json::Value) -> &'static str {
+    match model.get("availability").and_then(|v| v.as_str()) {
+        Some("unavailable") => AVAILABILITY_UNAVAILABLE,
+        Some("unknown") => AVAILABILITY_UNKNOWN,
+        Some(_) => "",
+        None if model.get("available").and_then(|v| v.as_bool()) == Some(false) => {
+            AVAILABILITY_UNAVAILABLE
+        }
+        None => "",
+    }
+}
+
 fn format_agent_models(target: &serde_json::Value, provider: &str) -> String {
     let models = target.get("available_models").and_then(|v| v.as_array());
     let Some(models) = models else {
@@ -296,6 +314,7 @@ fn format_agent_models(target: &serde_json::Value, provider: &str) -> String {
             ""
         };
         let description = m.get("description").and_then(|v| v.as_str()).unwrap_or("");
+        let marker = format!("{marker}{}", availability_marker(m));
         if description.is_empty() {
             out.push_str(&format!("{:<10} {}{}\n", id, name, marker));
         } else {

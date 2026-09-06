@@ -253,6 +253,7 @@ impl ModelProvider {
                     display_name: (*id).into(),
                     description: None,
                     available: None,
+                    availability: None,
                 })
                 .collect(),
             default_model: model_ids.first().map(|id| (*id).to_string()),
@@ -473,6 +474,7 @@ fn fresh_agent_model_canonicalizes_display_name() {
             display_name: "GPT-5.5".into(),
             description: None,
             available: None,
+            availability: None,
         }],
         default_model: Some("gpt-5.5".into()),
         cli_binary: None,
@@ -551,6 +553,7 @@ fn background_model_ignores_a_model_from_another_provider() {
                 display_name: "Model A".into(),
                 description: None,
                 available: Some(true),
+                availability: None,
             }],
             default: Some("model-a".into()),
         },
@@ -583,6 +586,7 @@ fn background_model_resolves_correctly_for_every_installed_provider() {
             display_name: id.into(),
             description: None,
             available: Some(true),
+            availability: None,
         }
     }
 
@@ -638,9 +642,8 @@ fn background_model_resolves_correctly_for_every_installed_provider() {
         assert!(!fell_back);
     }
 
-    // Cross-provider: codex's model id must not resolve against cursor's
-    // catalog (and vice versa) — proves no provider-id branching papers over
-    // an actual catalog mismatch.
+    // Codex's model id must not resolve against cursor's catalog: proves no
+    // provider-id branching papers over an actual catalog mismatch.
     let (resolved, fell_back) =
         CatalogBackgroundModelPort.resolve("cursor-provider-test", "gpt-5.5");
     assert_eq!(resolved, "");

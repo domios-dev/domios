@@ -61,6 +61,7 @@ fn registry() -> (
         display_name: "Qwen".into(),
         description: None,
         available: None,
+        availability: None,
     }]));
     backends.register_and_wait(
         "shell",
@@ -122,6 +123,7 @@ fn describe_all_reads_registration_snapshot_until_provider_refresh() {
         display_name: "Llama".into(),
         description: None,
         available: None,
+        availability: None,
     }];
 
     assert_eq!(

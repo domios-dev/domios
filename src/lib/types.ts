@@ -765,6 +765,9 @@ export interface ModelInfo {
   display_name: string;
   description?: string;
   available?: boolean | null;
+  // A probe that could not run reports "unknown" here instead of collapsing
+  // into `available: false`. See `lib/modelAvailability.ts`.
+  availability?: "available" | "unavailable" | "unknown" | null;
 }
 
 export interface ReasoningEffortInfo {

@@ -397,6 +397,7 @@ fn available_models_reads_catalog_snapshot_not_static_manifest() {
             display_name: "Live".into(),
             description: Some("from catalog".into()),
             available: None,
+            availability: None,
         }],
         Some("live".into()),
     );
@@ -432,6 +433,7 @@ fn settings_model_options_follow_catalog_changes() {
             display_name: "Live".into(),
             description: None,
             available: None,
+            availability: None,
         }],
         Some("live".into()),
     );
