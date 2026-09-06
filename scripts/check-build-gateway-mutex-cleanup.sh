@@ -95,7 +95,8 @@ bash -c '
   read -r ready <&"${CARGO_CHILD[0]}"
   echo "descendants before mutex timeout:"
   if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
-    ps -eo pid=,ppid=,command= | awk -v marker="$TEST_CARGO_MARKER" "index(\$0, marker)"
+    snapshot="$(ps -eo pid=,ppid=,command=)"
+    awk "index(\$0, ENVIRON[\"TEST_CARGO_MARKER\"])" <<< "$snapshot"
   else
     powershell.exe -NoProfile -Command \
       "\$marker=\"$TEST_CARGO_MARKER\"; Get-CimInstance Win32_Process | Where-Object { \$_.ProcessId -ne \$PID -and \$_.CommandLine -like \"*\$marker*\" } | Select-Object ProcessId,ParentProcessId,Name,CommandLine | Format-List" |
