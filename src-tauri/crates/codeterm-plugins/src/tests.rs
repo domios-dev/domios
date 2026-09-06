@@ -73,7 +73,7 @@ mod store_index_tests {
     /// Guards that index against drift with the real plugin folders, as the live refresh does.
     #[test]
     fn channel_json_is_a_consistent_store_index() {
-        let plugins_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins");
+        let plugins_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../plugins");
         let text = std::fs::read_to_string(plugins_dir.join("channel.json"))
             .expect("plugins/channel.json must exist (store index)");
         let manifest: ChannelManifest =
@@ -113,7 +113,7 @@ mod store_index_tests {
     // app older than the build it ships with, so every app is served the newest plugin.
     #[test]
     fn system_plugin_min_codeterm_tracks_its_own_version() {
-        let plugins_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins");
+        let plugins_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../plugins");
         let text = std::fs::read_to_string(plugins_dir.join("channel.json"))
             .expect("plugins/channel.json must exist (store index)");
         let manifest: ChannelManifest =
@@ -765,6 +765,14 @@ exit /b 0
 
             let out = install_command(Some("fresh".to_string()), None, None, None)
                 .expect("install should refresh channel and install");
+
+            // TEMPORARY: confirms whether the git stub ran before the refresh-vs-cache
+            // decision that's actually failing. Remove once root-caused.
+            eprintln!(
+                "DIAGNOSTIC out={out} git_log_exists={} git_log_bytes={}",
+                log.exists(),
+                std::fs::metadata(&log).map(|m| m.len()).unwrap_or(0)
+            );
 
             assert_eq!(
                 manifest_version(&plugin_dir("fresh")).unwrap(),
