@@ -243,8 +243,7 @@ fn a_symlinked_canonical_path_is_still_the_canonical_project() {
     assert!(stored.branch.is_none());
     assert!(stored.base.is_none());
 
-    // The same asymmetry on the OTHER comparison, arranged so it discriminates:
-    // the task deliberately recorded this checkout as its lane, spelled through
+    // Compare the recorded lane by resolved path so a symlink cannot fall through to the canonical branch and delete the operator's record.
     let recorded = lane_metadata_for_dispatch(
         &TaskLaneMetadata {
             worktree_path: Some(via_link.display().to_string()),

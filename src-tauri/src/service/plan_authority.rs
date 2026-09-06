@@ -106,8 +106,7 @@ fn binding_failure_class(
     if session_ok && stale_lineage_nonce {
         return PlanAuthorityError::BindingStaleAfterRelaunch;
     }
-    // Presenting the tab's OWN launch nonce is proof the caller runs inside it —
-    // the daemon injects that value per PTY. A foreign caller cannot reach this
+    // The daemon-injected launch nonce proves the caller is inside the tab, so a foreign caller cannot reach this arm.
     if tab.agent_session_id.is_none() && tab.session_binding_nonce.as_deref() == Some(nonce) {
         return PlanAuthorityError::SessionUnregistered;
     }
@@ -193,8 +192,7 @@ impl ServiceContext {
             && tab.reported_session_binding_nonce.as_deref() == nonce
             && session_id.is_some()
             && nonce.is_some();
-        // A binding the TAB attested for itself, because the provider never
-        // registered a session. Only `rebind` can produce this state and only
+        // Only `rebind` can produce this state and only from nothing, so it cannot mask a live session or be forged by a caller that does not already hold this tab's launch nonce.
         let tab_attested = nonce.is_some()
             && session_id.is_none()
             && tab.agent_session_id.is_none()
@@ -216,8 +214,7 @@ impl ServiceContext {
                 .as_deref()
                 .and_then(|owner_id| mux.get_tab(owner_id))
                 .is_some_and(|owner| owner.team_id == tab.team_id);
-        // The Planner's binding to this plan is durable, not phase-scoped: it
-        // owns structure for the plan's whole life. Approval/dispatch stay
+        // Planner binding persists for the plan's life, while approval and dispatch remain Orchestrator-only.
         if planner {
             return Ok(PlanningAuthor::Planner {
                 tab_id: tab.id.clone(),
@@ -258,8 +255,7 @@ impl ServiceContext {
                 resynced: false,
             });
         }
-        // Nothing was ever registered, so there is no lineage to prove against and
-        // `provable` below can never be true — that is the closed loop where the
+        // Bootstrap repair is allowed only for an unregistered tab with its own launch nonce; live sessions and reports remain protected.
         let bootstrap = tab.agent_type.is_some()
             && tab.pty_id.is_some()
             && tab.exit_suspected_at.is_none()

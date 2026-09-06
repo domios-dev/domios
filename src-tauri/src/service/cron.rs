@@ -371,8 +371,7 @@ impl ServiceContext {
                 self.run_watcher.mark_completed_externally(pid);
             }
 
-            // The `codeterm cron complete` CLI client that drove this request is a
-            // child of the tab we're about to kill. Killing it before the caller
+            // Killing it before the caller writes the JSON-RPC response would break the pipe mid-write, which interprocess escalates to std::process::abort().
             let svc = self.clone();
             let cron = cron.clone();
             let wake = wake.clone();
@@ -391,8 +390,7 @@ impl ServiceContext {
             });
             Ok(())
         } else if let Some((job_id, run)) = store.find_run_by_id(run_id) {
-            // The watchdog (idle / hard timeout) already finalized this run and
-            // unregistered its tab before this explicit completion arrived —
+            // The terminal status already recorded stands (first terminal wins); log it so the race stays observable instead of surfacing as an opaque "not found".
             log::warn!(
                 "[cron] cron.complete for run={} (job={}) arrived after the run was already finalized as {:?} — treating as idempotent no-op",
                 run_id, job_id, run.status

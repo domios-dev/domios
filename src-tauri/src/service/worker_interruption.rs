@@ -312,8 +312,7 @@ impl super::ServiceContext {
         if !claimed {
             return true;
         }
-        // Provider exhaustion PRESERVES the live worker: pause/quiesce it in a
-        // re-dispatchable state and NEVER close its tab. Only the non-exhaustion
+        // Provider exhaustion PRESERVES the live worker: pause/quiesce it in a re-dispatchable state and NEVER close its tab.
         if request.event == WorkerInterruptionEvent::ProviderExhausted {
             return self.pause_exhausted_worker(request, tab_id);
         }

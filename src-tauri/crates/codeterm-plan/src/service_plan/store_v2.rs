@@ -160,8 +160,7 @@ mod tests {
     use crate::plan::{Goal, OrchestratorRef, PlanMode, TaskStatus};
     use crate::service_plan::{NewTask, PlanStore};
 
-    // Build a real, fully-populated Plan+Task via the production store, then
-    // hand it to store_v2 — so the round-trip exercises the actual model, not
+    // Build a real, fully-populated Plan+Task via the production store, then hand it to store_v2 — so the round-trip exercises the actual model, not a hand-rolled subset of fields.
     fn sample_plan(dir: &Path) -> Plan {
         let store = PlanStore::new_for_test(dir);
         let mut plan = Plan::new(

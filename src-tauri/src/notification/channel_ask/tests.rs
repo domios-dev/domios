@@ -343,8 +343,7 @@ fn channel_ask_authority_refuses_every_unattended_surface_change() {
         );
     }
 
-    // What a tap may change, exactly: ONE cell of the grid — the offered
-    // column on the row of the level the user was actually shown — plus, for
+    // A tap may change only the offered cell for the shown level, plus the desktop master switch that gates it.
     let before = AppConfig::default();
     let mut after = before.clone();
     let proof = tap_proof(&AnswerAdmission::Recorded(CHOSEN.into())).expect("a tap");
@@ -363,8 +362,7 @@ fn channel_ask_authority_refuses_every_unattended_surface_change() {
         after.notifications.desktop,
         "the master switch the cell is ANDed with opens too, or the grant is a silent no-op"
     );
-    // The proportionality criterion, and the reason it is only one level: a tap
-    // on one question must not route a kind of notification the user was never
+    // The proportionality criterion, and the reason it is only one level: a tap on one question must not route a kind of notification the user was never shown.
     for unshown in NotifyLevel::ALL.into_iter().filter(|it| *it != ASKED_AT) {
         assert!(
             !routed(&after, unshown, NotifyDestination::Desktop),
@@ -406,8 +404,7 @@ fn channel_ask_offer_applies_on_the_tap_and_is_inert_otherwise() {
     )
     .is_err());
 
-    // And it may only be made by a notification that HAS a level, because the
-    // level is the row the tap opens. An offer that could never apply is
+    // An offer that could never apply is refused when it is made, not accepted and left silently inert.
     assert_eq!(
         crate::api::notification_routes::offer_requires_level(&service, Some(ASKED_AT)),
         Ok(ASKED_AT),

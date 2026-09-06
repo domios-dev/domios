@@ -976,8 +976,7 @@ impl ServiceContext {
     }
 
     fn fail_provider_update(&self, mut entry: PendingProviderUpdate, message: &str) {
-        // The attempt ended and the update did NOT install, so the next
-        // observation is genuinely new news. A decline is the opposite case and
+        // The attempt ended and the update did NOT install, so the next observation is genuinely new news.
         self.notif.lock().observe_condition_absent(
             &tab_scope(&entry.view.tab_id),
             &provider_update_condition(&entry.provider_id),

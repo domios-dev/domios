@@ -16,8 +16,7 @@ pub(crate) fn allowance_remaining_pct(snapshot: &UsageSnapshotRow) -> f32 {
         .chain(snapshot.weekly_pct)
         .fold(0.0_f32, f32::max);
     let session_weekly_remaining = (100.0 - consumed).clamp(0.0, 100.0);
-    // Spend telemetry hard-blocks only on genuine dollar exhaustion. A merely low or
-    // degenerate remaining/limit pair is a soft budget signal and must never gate a
+    // A merely low or degenerate remaining/limit pair is a soft budget signal and must never gate a healthy session/weekly window; only session/weekly headroom does that.
     if spend_genuinely_exhausted(snapshot) {
         0.0
     } else {

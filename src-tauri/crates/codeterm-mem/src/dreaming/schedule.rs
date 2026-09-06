@@ -84,8 +84,7 @@ pub fn ensure_dreaming_cron(
         return Ok(false);
     }
 
-    // Deferred default: `None` here means "pick the default agent at fire
-    // time", not "no agent" — deliberately NOT resolved eagerly, unlike the
+    // Deferred default: `None` here means "pick the default agent at fire time", not "no agent" — deliberately NOT resolved eagerly, unlike the update path above.
     let agent = if mem_cfg.dreaming_agent.is_empty() {
         None
     } else {

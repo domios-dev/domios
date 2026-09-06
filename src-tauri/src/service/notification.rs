@@ -201,8 +201,7 @@ pub(crate) fn create_notification_with_delivery(
     let id = match admission {
         NotificationAdmission::Diagnostic => unreachable!(),
         NotificationAdmission::Explicit => match push.intent.level {
-            // An identical live message is the same message: it keeps its
-            // record and reaches neither the native sink nor the panel again.
+            // An identical live message is the same message: it keeps its record and reaches neither the native sink nor the panel again.
             None => match store.lock().add_deduped(
                 title.clone(),
                 body.clone(),
@@ -321,8 +320,7 @@ pub(crate) fn create_notification_with_delivery(
             payload["body"].as_str(),
         );
     }
-    // The panel is the complete log, so every record reaches it: this event is
-    // the only live path to it, and gating it would leave the panel silently
+    // The panel must receive every record; `show_bell` only controls indicator presentation and must not gate delivery.
     emit(payload);
     id
 }
@@ -517,8 +515,7 @@ impl ServiceContext {
         // The guard is dropped before the event fans out: nothing downstream of
         // an emit may re-enter the store while it is still held.
         let admission = self.notif.lock().record_answer(id, label);
-        // THE AUTHORITY RULE, at the one place a surface may widen: the proof
-        // exists only for a first-and-only recording, so an offer applies on
+        // An offer applies only to the first recording that proved it, so a later tap cannot widen the surface.
         if let Some(proof) = authority::tap_proof(&admission) {
             self.apply_surface_offer(id, label, proof);
         }
@@ -526,8 +523,7 @@ impl ServiceContext {
             // Carrying the answer back is an ordered consequence of recording
             // it: the send happens before this call returns.
             AnswerAdmission::Recorded(chosen) => Ok(self.settle_answer(id, chosen)),
-            // A second tap is not an error to the user: the standing answer is
-            // what the question holds, and it is unchanged. A retry may still
+            // A second tap is not an error to the user: the standing answer is what the question holds, and it is unchanged.
             AnswerAdmission::AlreadyAnswered(standing) => Ok(self.settle_answer(id, standing)),
             AnswerAdmission::Undeliverable => {
                 Err("The tab that asked this question is gone".to_string())
@@ -574,8 +570,7 @@ impl ServiceContext {
     /// the one it named. An untapped or declined offer never reaches here, and
     /// what changes is the one field `authority::apply` writes.
     fn apply_surface_offer(&self, id: &str, label: &str, proof: authority::TapProof) {
-        // The level is read off the record the tap answered, never passed in
-        // beside it: what the tap grants is the kind of notification the
+        // Read the level from the answered record so a tap cannot grant a notification kind the question did not show.
         let standing = {
             let store = self.notif.lock();
             store.surface_offer(id).zip(store.level(id))
