@@ -15,10 +15,13 @@ cleanup() {
 trap cleanup EXIT
 
 expect_log() {
-  grep -q "$1" "$2" && return 0
-  echo "guard assertion failed: expected '$1' in $2; log contents:" >&2
-  cat "$2" >&2
-  exit 1
+  local pattern="$1" source="${2:-}" body
+  if [ -n "$source" ]; then body="$(cat "$source")"; else body="$(cat)"; source="stdin"; fi
+  grep -q "$pattern" <<< "$body" && return 0
+  echo "guard assertion failed: expected '$pattern' in $source; contents:" >&2
+  printf '%s
+' "$body" >&2
+  return 1
 }
 
 if CODETERM_BUILD_GATEWAY_DIR="$TEST_ROOT/alternate" ./build.sh gateway-fake spoof 0 success \
