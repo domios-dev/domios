@@ -534,7 +534,6 @@ fn orchestrator_suffix_embeds_the_canonical_manual() {
     assert!(!rendered.contains("{planning_compaction_contract}"));
 }
 
-
 /// One source, every surface that cuts or judges a task graph. The fragment
 /// is an opaque token here; its wording belongs to the .md file.
 #[test]
