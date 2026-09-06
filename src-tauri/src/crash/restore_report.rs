@@ -81,10 +81,6 @@ impl RestoreReport {
         self.panes.iter().filter(|p| !p.restored)
     }
 
-    pub fn has_dropped(&self) -> bool {
-        self.dropped > 0
-    }
-
     /// True only when every bound pane came back with an agent observed live.
     /// The success summary is gated on this and nothing else.
     pub fn every_pane_has_a_live_agent(&self) -> bool {
@@ -379,7 +375,7 @@ mod tests {
             pane("w-1", Some("worker"), Some("codex")),
         ];
         let report = build_restore_report(&bound, &ids(&["orch", "w-1"]), &live(&["orch", "w-1"]));
-        assert!(!report.has_dropped());
+        assert_eq!(report.dropped, 0);
         assert_eq!(report.restored, 2);
         assert_eq!(report.dropped_panes().count(), 0);
     }
@@ -407,7 +403,7 @@ mod tests {
     fn empty_binding_set_is_a_clean_no_op_report() {
         let report = build_restore_report(&[], &ids(&[]), &live(&[]));
         assert_eq!(report, RestoreReport::default());
-        assert!(!report.has_dropped());
+        assert_eq!(report.dropped, 0);
     }
 
     #[test]
@@ -520,7 +516,7 @@ mod tests {
                 !report.every_pane_has_a_live_agent(),
                 "summary must be withheld for {degraded:?}"
             );
-            assert!(report.has_dropped());
+            assert!(report.dropped > 0);
         }
     }
 
