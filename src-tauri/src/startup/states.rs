@@ -111,6 +111,9 @@ fn snapshot_agent_panes(
     panes
 }
 
+/// Which agent/worker tab RECORDS came back. Structural only: this answers
+/// "did the record survive restore", never "is an agent running behind it".
+/// The liveness verdict is observed separately and settles later.
 fn restored_agent_pane_ids(
     mux: &crate::multiplexer::state::MultiplexerState,
 ) -> std::collections::BTreeSet<String> {
@@ -340,13 +343,11 @@ pub(crate) fn init_states() -> AppStates {
         bound_identities: bound_at_shutdown,
         restored_identities: restored_bindings,
     });
-    // Per-pane restore report: surface any agent/worker pane the snapshot held
-    // that did not come back, instead of a silently-shorter workspace (#11). Only
-    // when a session actually carried agent panes, so a fresh start does not
-    // clobber the last report with an empty one.
+    // Nothing is observable yet — no PTY has materialized — so the wave is
+    // armed here and settles on real launch transitions.
     if !agent_panes_at_shutdown.is_empty() {
         let restored_pane_ids = restored_agent_pane_ids(&mux_state_inner);
-        crate::crash::restore_report::record(&agent_panes_at_shutdown, &restored_pane_ids);
+        crate::crash::restore_report::arm(agent_panes_at_shutdown, &restored_pane_ids);
     }
     let mut duplicate_generals_closed = 0usize;
     if general_config.enabled {

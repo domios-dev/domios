@@ -199,16 +199,8 @@ fn tab_rows(value: &Value, caller_tab_id: Option<&str>) -> Vec<TabRow> {
                 .map(|key| text(tab, key))
                 .find(|value| !value.is_empty())
                 .unwrap_or(id);
-            let model = ["agent_session_model", "agent_type"]
-                .into_iter()
-                .map(|key| text(tab, key))
-                .find(|value| !value.is_empty())
-                .unwrap_or_default();
-            let role = ["role_profile", "role"]
-                .into_iter()
-                .map(|key| text(tab, key))
-                .find(|value| !value.is_empty())
-                .unwrap_or_default();
+            let model = super::tab::labels::agent_label(tab).unwrap_or_default();
+            let role = super::tab::labels::role_label(tab);
             Some(TabRow {
                 id: id.to_string(),
                 label: label.to_string(),
@@ -219,8 +211,8 @@ fn tab_rows(value: &Value, caller_tab_id: Option<&str>) -> Vec<TabRow> {
                     .and_then(Value::as_str)
                     .filter(|value| !value.is_empty())
                     .map(str::to_string),
-                model: model.to_string(),
-                role: role.to_ascii_lowercase(),
+                model,
+                role,
                 status: text(tab, "status").to_ascii_lowercase(),
                 is_self: caller_tab_id == Some(id),
             })
