@@ -220,7 +220,7 @@ one at the ownership boundary instead of adding a delay or retry loop.
 ## PTY input delivery is CORE and FRAGILE — touch with extreme care
 
 The send path (`service/pty_io/`, `service/chat_send_transaction.rs`,
-`pty/write_queue.rs`, delivery ledger) has been broken repeatedly by
+`crates/codeterm-pty/src/pty/write_queue.rs`, delivery ledger) has been broken repeatedly by
 "one more heuristic / one more retry" changes that turned delivered messages
 into false failures. Before ANY change there, read and obey
 **`docs/contributing/pty-delivery.md`**. Non-negotiable core: the payload is
