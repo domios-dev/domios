@@ -28,6 +28,9 @@ fn paired_peer_named(id: &str, name: &str, addresses: Vec<&str>) -> PairedPeer {
 fn re_pairing_under_the_same_name_and_host_supersedes_the_old_record() {
     let mut mesh = MeshManager::new("local".into(), 7685);
     mesh.disk_persist = false;
+    // `MeshManager::new` loads real disk state — start from empty so this
+    // test's exact counts are never polluted by the running machine's own peers.
+    mesh.paired_peers.clear();
     mesh.complete_explicit_pairing(paired_peer_named(
         "a4db6f3d-dead",
         "BLACKSTAR",
@@ -55,6 +58,7 @@ fn re_pairing_under_the_same_name_and_host_supersedes_the_old_record() {
 fn same_name_different_host_is_not_superseded() {
     let mut mesh = MeshManager::new("local".into(), 7685);
     mesh.disk_persist = false;
+    mesh.paired_peers.clear();
     mesh.complete_explicit_pairing(paired_peer_named(
         "peer-a",
         "BLACKSTAR",
@@ -77,6 +81,7 @@ fn same_name_different_host_is_not_superseded() {
 fn different_name_same_host_is_not_superseded() {
     let mut mesh = MeshManager::new("local".into(), 7685);
     mesh.disk_persist = false;
+    mesh.paired_peers.clear();
     mesh.complete_explicit_pairing(paired_peer_named("peer-a", "BLACKSTAR", vec!["100.65.0.30"]));
     mesh.complete_explicit_pairing(paired_peer_named("peer-b", "ROG", vec!["100.65.0.30"]));
 
