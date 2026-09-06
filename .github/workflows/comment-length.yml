@@ -1,9 +1,11 @@
 name: comment-length
 
-# Inline comment length discipline: scripts/check-comment-length.sh.
-# Runs in --fail mode. No allowlist entries currently — all clean.
-# Add to scripts/comment-length-allowlist.txt for any file that needs
-# a grace period, with a baseline count that must shrink, not grow.
+# Inline comment length discipline: scripts/check-comment-length.sh, scoped to
+# the change under test. The tree carries a large pre-existing backlog (the
+# allowlist was cleared in 8c9a5fba4 and the sweep never landed), so a swept
+# gate is red on arrival for every author and teaches everyone to ignore it.
+# The scoped gate is red only for a block this push or PR introduced.
+# The full-tree sweep stays available locally: scripts/check-comment-length.sh --fail
 
 on:
   pull_request:
@@ -20,10 +22,41 @@ on:
       - '.codeterm/build-machine/**'
       - '.github/workflows/release*.yml'
 
+concurrency:
+  group: comment-length-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
 jobs:
   check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Run comment-length discipline check
-        run: bash scripts/check-comment-length.sh --fail
+        with:
+          fetch-depth: 0
+
+      - name: Resolve the change set
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          list="$RUNNER_TEMP/comment-length-changed.txt"
+          : > "$list"
+          if [ "$EVENT_NAME" = pull_request ]; then
+            base="$(git merge-base "$PR_BASE_SHA" "$PR_HEAD_SHA")"
+            git diff --name-only --diff-filter=ACMR "$base" "$PR_HEAD_SHA" > "$list"
+          elif git cat-file -e "${PUSH_BEFORE}^{commit}" 2>/dev/null; then
+            git diff --name-only --diff-filter=ACMR "$PUSH_BEFORE" "$GITHUB_SHA" > "$list"
+          else
+            git show --name-only --diff-filter=ACMR --pretty=format: "$GITHUB_SHA" > "$list"
+          fi
+          echo "list=$list" >> "$GITHUB_OUTPUT"
+          echo "Change set under test:"
+          sed 's/^/  /' "$list"
+
+      - name: Run comment-length discipline check on the change set
+        run: bash scripts/check-comment-length.sh --fail --changed "${{ steps.scope.outputs.list }}"

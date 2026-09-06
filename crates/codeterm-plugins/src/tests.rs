@@ -154,10 +154,21 @@ mod store_index_tests {
     }
 
     #[test]
-    fn default_system_channel_points_at_develop_plugins_index() {
+    fn default_system_channel_points_at_a_released_plugins_index() {
         assert_eq!(
             DEFAULT_SYSTEM_CHANNEL_URL,
-            "https://github.com/rollacode/codeterm.git#develop:plugins"
+            "https://github.com/rollacode/codeterm.git#master:plugins"
+        );
+        let git_ref = DEFAULT_SYSTEM_CHANNEL_URL
+            .rsplit_once('#')
+            .expect("system channel url names a ref")
+            .1
+            .split_once(':')
+            .expect("system channel url names a subpath in that ref")
+            .0;
+        assert_ne!(
+            git_ref, "develop",
+            "the default system channel installs as System trust; it must not track unreleased code"
         );
     }
 

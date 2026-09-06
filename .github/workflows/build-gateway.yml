@@ -1,0 +1,71 @@
+name: build-gateway
+
+# The four build-gateway guards were in the tree and wired into nothing, so the
+# behaviour they assert was unprotected and one of them was red for a month
+# without anyone noticing. They are shell-only: they drive build.sh against a
+# fixture state dir, take no machine build slot and invoke no Cargo.
+#
+# Gateway logging has no script of this name. It is build.sh's own
+# `gateway-logging-check` (check_build_gateway_logging, driving gateway-log-probe),
+# which is likewise unwired; wiring it needs its own verified run first.
+
+on:
+  pull_request:
+    paths:
+      - 'build.sh'
+      - 'scripts/build-gateway.sh'
+      - 'scripts/build-gateway-state.mjs'
+      - 'scripts/check-build-gateway-*.sh'
+      - 'scripts/check-release-signing.sh'
+      - 'scripts/check-release-source-clean.sh'
+      - 'scripts/qa-prep.sh'
+      - 'scripts/release-signing.sh'
+      - 'scripts/fixtures/build-gateway-*'
+      - '.github/workflows/build-gateway.yml'
+  push:
+    branches: [develop, master]
+    paths:
+      - 'build.sh'
+      - 'scripts/build-gateway.sh'
+      - 'scripts/build-gateway-state.mjs'
+      - 'scripts/check-build-gateway-*.sh'
+      - 'scripts/check-release-signing.sh'
+      - 'scripts/check-release-source-clean.sh'
+      - 'scripts/qa-prep.sh'
+      - 'scripts/release-signing.sh'
+      - 'scripts/fixtures/build-gateway-*'
+      - '.github/workflows/build-gateway.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: build-gateway-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  guards:
+    name: gateway guards
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.22.0'
+
+      # Each guard runs on its own default invocation: a guard that only passes
+      # under a hand-supplied environment is a guard nobody can read.
+      - name: Gateway serialization, queueing and cancellation
+        run: bash scripts/check-build-gateway-serialization.sh
+
+      - name: Gateway policy, scope forgery and target selection
+        run: bash scripts/check-build-gateway-policy.sh
+
+      - name: Gateway state-mutex timeout and descendant cleanup
+        run: bash scripts/check-build-gateway-mutex-cleanup.sh
+
+      - name: Gateway owner reap and live-owner blocking
+        run: bash scripts/check-build-gateway-owner-reap.sh
