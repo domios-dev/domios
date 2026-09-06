@@ -138,6 +138,9 @@ fn paired_peer_fixture(
 fn peer_relay_resolves_online_record_deterministically_over_duplicate_names() {
     let mut mesh = crate::mesh::MeshManager::new("test-host".into(), 7685);
     mesh.disk_persist = false;
+    // `MeshManager::new` loads real disk state — start from empty so this
+    // test is never polluted by the running machine's own paired peers.
+    mesh.paired_peers.clear();
     mesh.paired_peers.insert(
         "a4db6f3d-dead".into(),
         paired_peer_fixture("a4db6f3d-dead", "BLACKSTAR", false, 0),
@@ -157,10 +160,17 @@ fn peer_relay_resolves_online_record_deterministically_over_duplicate_names() {
             resolve_relay_peer(&mesh, "BLACKSTAR").expect("resolves to the live record");
         assert_eq!(name, "BLACKSTAR");
     }
-    // Case-insensitive, and id lookup still wins outright.
+    // Case-insensitive name resolution still lands on the live record.
     assert!(resolve_relay_peer(&mesh, "blackstar").is_ok());
-    let (_, id_name) = resolve_relay_peer(&mesh, "a4db6f3d-dead").expect("id always resolves");
-    assert_eq!(id_name, "BLACKSTAR");
+    // Id lookup returns the EXACT record for that id, bypassing the name
+    // ambiguity — but not the protocol gate: the dead id is still protocol 0.
+    let (_, live_id_name) =
+        resolve_relay_peer(&mesh, "2556b3f9-live").expect("the live id resolves");
+    assert_eq!(live_id_name, "BLACKSTAR");
+    match resolve_relay_peer(&mesh, "a4db6f3d-dead") {
+        Ok(_) => panic!("the dead id's own record is protocol 0 — must still refuse"),
+        Err((status, _)) => assert_eq!(status, StatusCode::UPGRADE_REQUIRED),
+    }
 }
 
 /// When every record sharing a name is offline, the refusal is structured
@@ -170,6 +180,7 @@ fn peer_relay_resolves_online_record_deterministically_over_duplicate_names() {
 fn peer_relay_refusal_names_both_dead_records_and_the_id_route() {
     let mut mesh = crate::mesh::MeshManager::new("test-host".into(), 7685);
     mesh.disk_persist = false;
+    mesh.paired_peers.clear();
     mesh.paired_peers.insert(
         "a4db6f3d-dead".into(),
         paired_peer_fixture("a4db6f3d-dead", "BLACKSTAR", false, 0),
