@@ -5,7 +5,7 @@ edition = "2021"
 default-run = "codeterm"
 
 [workspace]
-members = [".", "crates/codeterm-types", "crates/codeterm-util", "crates/codeterm-mesh", "crates/codeterm-mem", "crates/codeterm-plan", "crates/codeterm-bridge", "crates/codeterm-pty", "crates/codeterm-plugin", "../crates/codeterm-plugins"]
+members = [".", "crates/codeterm-types", "crates/codeterm-util", "crates/codeterm-mesh", "crates/codeterm-mem", "crates/codeterm-plan", "crates/codeterm-bridge", "crates/codeterm-pty", "crates/codeterm-plugin"]
 exclude = ["pty-fork"]
 resolver = "2"
 
