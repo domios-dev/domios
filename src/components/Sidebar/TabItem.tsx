@@ -14,6 +14,7 @@ import type { Tab, TabStatus } from "../../lib/types";
 import { anchorsTeam, isPlanner, isGeneralAgent as isGeneralAgentTab } from "../../lib/roleKind";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import { formatModelBadge } from "../../lib/formatModelBadge";
+import { agentBracketLabel, classifyAgentLiveness } from "../../lib/agentLabel";
 import { SidebarModelBadge } from "./SidebarModelBadge";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { RoleBadge } from "./RoleBadge";
@@ -197,7 +198,21 @@ function TabItemInner({
   const providerName = provider?.displayName || "Agent";
   // back to the live chatBackend session model (fetched/cached out of band).
   const tabModel = tab.agent_session_model ?? shellSessionModel;
-  const tabModelBadge = tabModel ? formatModelBadge(tabModel) : null;
+  const agentLiveness = classifyAgentLiveness({
+    declaresAgent: tab.agent_type != null,
+    ptyLive: tab.pty_id && status != null ? status !== "Dead" : null,
+    chatSessionOpen: tab.backing?.kind === "chat_backend" ? tab.agent_session_id != null : null,
+    bootStage: tab.boot_stage ?? null,
+    bootInFlight: tab.agent_booting ?? false,
+  });
+  const tabAgentLabel = agentBracketLabel(
+    tab.agent_type,
+    tabModel ? formatModelBadge(tabModel) : null,
+    agentLiveness,
+  );
+  // A shell tab with a detected model still shows it; only agent tabs carry the
+  // provider:model bracket.
+  const tabModelBadge = tabAgentLabel ?? (tabModel ? formatModelBadge(tabModel) : null);
   const description = tab.description ?? null;
   const canonicalTitle = displayTitleForTab(tab);
   const displayTitle = hasAgent ? canonicalTitle.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "") : canonicalTitle;
@@ -620,6 +635,9 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
     pp.chat_view === np.chat_view &&
     pp.pending_prompt === np.pending_prompt &&
     pp.agent_session_model === np.agent_session_model &&
+    pp.boot_stage === np.boot_stage &&
+    pp.agent_booting === np.agent_booting &&
+    pp.pty_id === np.pty_id &&
     pp.agent_state?.status_line === np.agent_state?.status_line &&
     pp.agent_state?.state === np.agent_state?.state &&
     pp.parent_tab_id === np.parent_tab_id &&

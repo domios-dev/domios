@@ -1,13 +1,25 @@
-//! Timer-driven live 3-state recompute. `process_pty_output` recomputes a tab's
-//! agent state on every output chunk, but the working→idle edge has no output to
-//! ride on: when a turn ends the agent goes silent, so a periodic sweep is what
-//! lets the quiescence clocks cross their thresholds and flip the tab to Idle.
+//! Two things live here, both about what is actually running in a tab.
+//!
+//! [`observe_tab_liveness`] is THE observation: whether an agent process is
+//! live behind a tab. It reads only facts — a PtyManager session that exists, a
+//! plugin session binding, a boot stage emitted at a real launch transition, a
+//! shell that reported its foreground command finished — and hands them to the
+//! pure classifier in `codeterm_types::pty::agent_liveness`. Restore reporting,
+//! record reconciliation, lifecycle teardown and every state label read it.
+//!
+//! `start` is the pre-existing live 3-state sweep. `process_pty_output`
+//! recomputes a tab's agent state on every output chunk, but the working→idle
+//! edge has no output to ride on: when a turn ends the agent goes silent, so a
+//! periodic sweep is what lets the quiescence clocks cross their thresholds.
 //! Pairs with the output-driven path through the shared
 //! `ServiceContext::recompute_agent_state`.
 
+use std::collections::BTreeMap;
 use std::time::Duration;
 
-use crate::service::ServiceState;
+use codeterm_types::pty::{classify_agent_liveness, AgentBacking, AgentLiveness, LivenessEvidence};
+
+use crate::service::{ServiceContext, ServiceState};
 
 /// How often the sweep re-runs the classifier per tab. Fast enough that the
 /// "your turn" indicator appears promptly after a turn settles (DONE_MS = 800),
@@ -26,4 +38,114 @@ pub fn start(svc: ServiceState) {
             svc.run_watcher.complete_via_semantic_idle(&svc, &pty_id);
         }
     });
+}
+
+/// Gather the observable evidence for one tab. Returns `None` when the tab does
+/// not exist — a missing tab is not an agent state, it is a missing tab.
+fn evidence_for_tab(svc: &ServiceContext, tab_id: &str) -> Option<LivenessEvidence> {
+    let (declares_agent, pty_id, chat_bound, boot_stage, boot_in_flight, exit_observed) = {
+        let mux = svc.mux.read();
+        let tab = mux.get_tab(tab_id)?;
+        (
+            tab.agent_type.is_some(),
+            tab.pty_id.clone(),
+            matches!(
+                tab.backing,
+                crate::multiplexer::types::TabBacking::ChatBackend { .. }
+            ),
+            tab.boot_stage,
+            tab.agent_booting,
+            tab.exit_suspected_at.is_some(),
+        )
+    };
+    let backing = if chat_bound {
+        AgentBacking::ChatBackend {
+            session_open: svc.tab_chat_backing(tab_id).is_some(),
+        }
+    } else {
+        AgentBacking::Pty {
+            pty_live: pty_id.map(|pty_id| svc.pty.lock().get_session(&pty_id).is_some()),
+        }
+    };
+    Some(LivenessEvidence {
+        declares_agent,
+        backing,
+        boot_stage,
+        boot_in_flight,
+        provider_exit_observed: exit_observed,
+    })
+}
+
+/// THE liveness observation for one tab. `Unobserved` when the tab is gone: an
+/// absent tab supports no claim about an agent process.
+pub fn observe_tab_liveness(svc: &ServiceContext, tab_id: &str) -> AgentLiveness {
+    evidence_for_tab(svc, tab_id)
+        .map(classify_agent_liveness)
+        .unwrap_or(AgentLiveness::Unobserved)
+}
+
+/// Observe every tab in `tab_ids` in one pass, for callers (restore reporting)
+/// that need a whole wave's verdict at once.
+pub fn observe_tabs(svc: &ServiceContext, tab_ids: &[String]) -> BTreeMap<String, AgentLiveness> {
+    tab_ids
+        .iter()
+        .map(|tab_id| (tab_id.clone(), observe_tab_liveness(svc, tab_id)))
+        .collect()
+}
+
+impl ServiceContext {
+    /// Convenience wrapper so callers read liveness the same way they read any
+    /// other service fact.
+    pub(crate) fn observe_agent_liveness(&self, tab_id: &str) -> AgentLiveness {
+        observe_tab_liveness(self, tab_id)
+    }
+
+    /// Fold fresh liveness into the armed restore wave and reconcile any pane
+    /// that came back without an agent. Driven by real launch transitions
+    /// (`emit_boot_stage`, PTY death), never by a timer, and a cheap no-op once
+    /// the wave has settled.
+    pub(crate) fn settle_restore_report(&self) {
+        let tab_ids = crate::crash::restore_report::pending_tab_ids();
+        if tab_ids.is_empty() {
+            return;
+        }
+        let restored_ids: std::collections::BTreeSet<String> = {
+            let mux = self.mux.read();
+            mux.snapshot()
+                .tabs
+                .values()
+                .filter(|tab| tab.role.is_some() || tab.agent_type.is_some())
+                .map(|tab| tab.id.clone())
+                .collect()
+        };
+        let observed = observe_tabs(self, &tab_ids);
+        if !crate::crash::restore_report::settle(&restored_ids, observed.clone()) {
+            return;
+        }
+        for (tab_id, liveness) in observed {
+            if liveness == AgentLiveness::Absent {
+                self.reconcile_tab_restored_without_agent(&tab_id);
+            }
+        }
+    }
+
+    /// A tab whose record came back but whose agent did not keeps no agent
+    /// state, elapsed timer, status line, session id or model label. The
+    /// existing lifecycle teardown owns every one of those clears, and arming
+    /// the guarded-input refusal with them, so this routes to it rather than
+    /// growing a second path.
+    pub(crate) fn reconcile_tab_restored_without_agent(&self, tab_id: &str) -> bool {
+        let declares_agent = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .is_some_and(|tab| tab.agent_type.is_some());
+        if !declares_agent {
+            return false;
+        }
+        self.clear_tab_agent_identity_for_lifecycle_exit_with_cause(
+            tab_id,
+            "restored without a live agent",
+        )
+    }
 }
