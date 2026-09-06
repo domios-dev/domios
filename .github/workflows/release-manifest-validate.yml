@@ -21,6 +21,7 @@ on:
 permissions:
   contents: read
   issues: write
+  actions: read
 
 concurrency:
   group: release-manifest-${{ github.event.workflow_run.head_branch || inputs.tag }}
@@ -274,8 +275,12 @@ jobs:
         run: |
           set -euo pipefail
           jq -n --arg version "$VER" --arg sha "$SOURCE_SHA" \
+            --arg run_id "$GITHUB_RUN_ID" --arg repo "$GITHUB_REPOSITORY" \
+            --arg run_url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
             --slurpfile verification "$RUNNER_TEMP/manifest-verification.json" \
             '{version: $version, source_sha: $sha, public_mirror_verified: true,
+              validator_run_id: ($run_id | tonumber), validator_repository: $repo,
+              validator_run_url: $run_url,
               manifest_verification: $verification[0]}' \
             > "$RUNNER_TEMP/issue-closure-boundary.json"
           gh release upload "$TAG" "$RUNNER_TEMP/issue-closure-boundary.json" \
@@ -300,7 +305,8 @@ jobs:
             sha=$(git rev-parse "$trigger^{commit}")
             private_published=false
             public_published=false
-            mirror_verified=false
+            boundary_json=null
+            run_json=null
             private=$(gh release view "$tag" --repo "$SOURCE_REPO" \
               --json isDraft,publishedAt,assets 2>/dev/null || true)
             private_marker=false
@@ -315,24 +321,44 @@ jobs:
             fi
             public=$(gh release view "$tag" --repo "$MIRROR_REPO" \
               --json isDraft,publishedAt,assets 2>/dev/null || true)
+            mirror_marker=false
             if [ -n "$public" ] \
               && [ "$(printf '%s' "$public" | jq -r .isDraft)" = false ] \
               && [ "$(printf '%s' "$public" | jq -r .publishedAt)" != null ]; then
               public_published=true
-              if [ "$private_marker" = true ] \
-                && printf '%s' "$public" \
-                  | jq -e '.assets
-                    | (any(.name == "latest.json")
-                       and any(.name == "issue-closure-boundary.json"))' >/dev/null; then
-                mirror_verified=true
+              if printf '%s' "$public" \
+                | jq -e '.assets
+                  | (any(.name == "latest.json")
+                     and any(.name == "issue-closure-boundary.json"))' >/dev/null; then
+                mirror_marker=true
+              fi
+            fi
+            # The asset is the claim, not the proof: read back the validator run
+            # it names and let range-start judge the pair.
+            if [ "$private_marker" = true ] && [ "$mirror_marker" = true ]; then
+              rm -rf "$RUNNER_TEMP/boundary"
+              mkdir -p "$RUNNER_TEMP/boundary"
+              boundary_file="$RUNNER_TEMP/boundary/issue-closure-boundary.json"
+              if gh release download "$tag" --repo "$SOURCE_REPO" \
+                  --pattern issue-closure-boundary.json --dir "$RUNNER_TEMP/boundary" 2>/dev/null \
+                && jq -e 'type == "object"' "$boundary_file" >/dev/null 2>&1; then
+                boundary_json=$(cat "$boundary_file")
+                run_id=$(jq -r '.validator_run_id // empty' "$boundary_file")
+                if [ -n "$run_id" ]; then
+                  run_json=$(gh api "repos/${SOURCE_REPO}/actions/runs/$run_id" \
+                    --jq '{id: .id, path: .path, conclusion: .conclusion, head_sha: .head_sha}' \
+                    2>/dev/null || printf 'null')
+                fi
               fi
             fi
             jq --arg version "$version" --arg sha "$sha" \
               --argjson private "$private_published" \
               --argjson public "$public_published" \
-              --argjson mirror "$mirror_verified" \
+              --argjson boundary "$boundary_json" \
+              --argjson run "$run_json" \
               '. + [{version: $version, sha: $sha, private_published: $private,
-                      public_published: $public, mirror_verified: $mirror}]' \
+                      public_published: $public, closure_boundary: $boundary,
+                      validator_run: $run}]' \
               "$RUNNER_TEMP/release-history.json" > "$RUNNER_TEMP/release-history.next.json"
             mv "$RUNNER_TEMP/release-history.next.json" "$RUNNER_TEMP/release-history.json"
           done

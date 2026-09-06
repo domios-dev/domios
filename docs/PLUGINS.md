@@ -33,6 +33,26 @@ Three moving parts, two channels, one published SDK:
 | Versioning | mirrors app version (`npm run sync:versions`) | per-plugin, in its own repo |
 | Trust | system / trusted | third-party (sandboxed) |
 | Install | present + `plugin update-system` | opt-in from Marketplace |
+| Default git ref | `master` (released) | the repo's default branch |
+
+**The `codeterm-core` default tracks `master`, not `develop`.** An install from
+this channel is recorded as an official system-channel install, and the loader
+grants System trust on that provenance alone — "hash differs from embedded table
+but install record is official system channel". Pointing the default at a branch
+head therefore stamped System trust on unreleased code: `plugin update-system`
+installed whatever `develop` happened to carry. `master` only advances through a
+release merge, so every commit it serves is shipped code.
+
+To follow pre-release plugins deliberately, set the channel URL explicitly:
+
+```bash
+export CODETERM_SYSTEM_PLUGIN_CHANNEL_URL='https://github.com/rollacode/codeterm.git#develop:plugins'
+```
+
+`ensure_system_channel` re-registers `codeterm-core` whenever the resolved URL
+differs from the recorded one, so the override takes effect on the next start and
+clearing it returns the machine to the released ref. Opting in is a choice a
+person makes; it is not the default anyone gets by installing.
 
 **App + plugin ship together.** A plugin feature that needs a NEW host capability
 (e.g. `host.progress`, a new ViewNode, a mesh hook) only works on an app build that
@@ -716,4 +736,4 @@ share these consent, backup, merge, uninstall, and restore semantics.
      release the app first/together** (see "App + plugin ship together"). Test
      path: install the new app, then `codeterm plugin install <id>`.
 
-<!-- revision: 23 -->
+<!-- revision: 24 -->
