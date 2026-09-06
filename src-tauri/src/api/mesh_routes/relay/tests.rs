@@ -105,18 +105,102 @@ fn only_the_exact_workspace_close_route_gets_typed_provenance() {
     }
 }
 
+fn paired_peer_fixture(
+    id: &str,
+    name: &str,
+    online: bool,
+    protocol: u16,
+) -> crate::mesh::types::PairedPeer {
+    crate::mesh::types::PairedPeer {
+        instance_id: id.into(),
+        instance_name: name.into(),
+        addresses: vec![crate::mesh::types::PeerAddress::from_ip("100.65.0.30")],
+        api_port: 7685,
+        public_key: String::new(),
+        paired_at: "now".into(),
+        last_seen: None,
+        online,
+        is_primary: false,
+        access_level: crate::mesh::types::AccessLevel::Full,
+        version: None,
+        web_ui: None,
+        relay_protocol_version: protocol,
+        consecutive_misses: 0,
+        last_active_ms: None,
+    }
+}
+
+/// codeterm#434: two paired records share an instance_name — one online at
+/// the current relay protocol, one dead at an old one. Name-based relay
+/// resolution must return the live record on every call, never flip with
+/// hashmap iteration order.
 #[test]
-fn peer_relay_resolves_id_or_case_insensitive_name() {
-    let peers = [("peer-a", "BLACKSTAR"), ("peer-b", "ROG")];
-    assert_eq!(
-        resolve_paired_peer_id("peer-a", peers),
-        Some("peer-a".to_string())
+fn peer_relay_resolves_online_record_deterministically_over_duplicate_names() {
+    let mut mesh = crate::mesh::MeshManager::new("test-host".into(), 7685);
+    mesh.disk_persist = false;
+    mesh.paired_peers.insert(
+        "a4db6f3d-dead".into(),
+        paired_peer_fixture("a4db6f3d-dead", "BLACKSTAR", false, 0),
     );
-    assert_eq!(
-        resolve_paired_peer_id("blackstar", peers),
-        Some("peer-a".to_string())
+    mesh.paired_peers.insert(
+        "2556b3f9-live".into(),
+        paired_peer_fixture(
+            "2556b3f9-live",
+            "BLACKSTAR",
+            true,
+            crate::mesh::types::RELAY_PROTOCOL_VERSION,
+        ),
     );
-    assert_eq!(resolve_paired_peer_id("missing", peers), None);
+
+    for _ in 0..50 {
+        let (_, name) =
+            resolve_relay_peer(&mesh, "BLACKSTAR").expect("resolves to the live record");
+        assert_eq!(name, "BLACKSTAR");
+    }
+    // Case-insensitive, and id lookup still wins outright.
+    assert!(resolve_relay_peer(&mesh, "blackstar").is_ok());
+    let (_, id_name) = resolve_relay_peer(&mesh, "a4db6f3d-dead").expect("id always resolves");
+    assert_eq!(id_name, "BLACKSTAR");
+}
+
+/// When every record sharing a name is offline, the refusal is structured
+/// JSON naming both records and the id-routed form of the same call —
+/// never a prose sentence the caller must pattern-match.
+#[test]
+fn peer_relay_refusal_names_both_dead_records_and_the_id_route() {
+    let mut mesh = crate::mesh::MeshManager::new("test-host".into(), 7685);
+    mesh.disk_persist = false;
+    mesh.paired_peers.insert(
+        "a4db6f3d-dead".into(),
+        paired_peer_fixture("a4db6f3d-dead", "BLACKSTAR", false, 0),
+    );
+    mesh.paired_peers.insert(
+        "c9112abc-alsodead".into(),
+        paired_peer_fixture("c9112abc-alsodead", "BLACKSTAR", false, 1),
+    );
+
+    let (status, body) =
+        resolve_relay_peer(&mesh, "BLACKSTAR").expect_err("no online record for this name");
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    let parsed: serde_json::Value = serde_json::from_str(&body).expect("structured JSON body");
+    assert_eq!(parsed["reason"], PEER_NAME_NO_ONLINE_RECORD_REASON);
+    assert_eq!(parsed["name"], "BLACKSTAR");
+    let ids: Vec<String> = parsed["candidates"]
+        .as_array()
+        .expect("candidates array")
+        .iter()
+        .map(|c| c["instance_id"].as_str().unwrap().to_string())
+        .collect();
+    assert!(ids.contains(&"a4db6f3d-dead".to_string()), "got: {ids:?}");
+    assert!(ids.contains(&"c9112abc-alsodead".to_string()), "got: {ids:?}");
+    let route_ids: Vec<String> = parsed["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["route_by_id"]["target_peer_id"].as_str().unwrap().to_string())
+        .collect();
+    assert!(route_ids.contains(&"a4db6f3d-dead".to_string()));
+    assert!(route_ids.contains(&"c9112abc-alsodead".to_string()));
 }
 
 #[test]
@@ -778,9 +862,8 @@ async fn sender_transport_failure_reports_the_same_vocabulary_as_the_receiver() 
         delivery_id: None,
     };
 
-    // Port 1 (TCPMUX) essentially never has a listener; connecting to it on
-    // loopback reliably yields a synchronous connection refusal without
-    // depending on a bind/drop race for a free ephemeral port.
+    // Port 1 (TCPMUX) never has a listener — a synchronous refusal, no
+    // bind/drop race for a free ephemeral port.
     let refused_client = crate::mesh::transport::PeerClient::new_unauthenticated("127.0.0.1", 1);
     let refused_err = refused_client
         .send_relay(&probe_cmd)
@@ -793,9 +876,8 @@ async fn sender_transport_failure_reports_the_same_vocabulary_as_the_receiver() 
         refused_err.to_string(),
     );
 
-    // A peer that accepts the connection (the request write lands) and then
-    // holds it open FOREVER — never answering, never closing — so the only
-    // thing that can end the wait is `send_relay`'s own governing timeout.
+    // Accepts the connection then holds it open FOREVER — only
+    // `send_relay`'s own governing timeout can end the wait.
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind ephemeral port");

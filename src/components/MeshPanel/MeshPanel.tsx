@@ -12,6 +12,7 @@ import { MeshInventoryList } from "./MeshInventoryList";
 import { DEFAULT_MESH_INVENTORY_MODE, MeshInventoryModeToggle, type MeshInventoryMode } from "./MeshInventoryModeToggle";
 import { ServiceDrawer, type DrawerState } from "./ServiceDrawer";
 import { useMeshData } from "./useMeshData";
+import { pairedPeers, visibleServices } from "./meshProjection";
 import { NetworkTab } from "./NetworkTab";
 import { ActivityTab } from "./ActivityTab";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
@@ -402,6 +403,10 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
   const [serveLoading, setServeLoading] = useState(true);
 
   const triggerRefresh = useCallback(() => setRefreshKey((k) => k + 1), []);
+  // Same projection the graph nodes render from — a pending (discovered-not-
+  // paired) peer must never inflate this count (codeterm#440).
+  const headerPeerCount = useMemo(() => pairedPeers(data.peers).length, [data.peers]);
+  const headerServiceCount = useMemo(() => visibleServices(data.services).length, [data.services]);
 
   useEffect(() => {
     let unlistenHealth: (() => void) | null = null;
@@ -531,7 +536,7 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
           <span className={`${UI_TEXT.meta} opacity-70`}>
             {data.error
               ? `error: ${data.error}`
-              : `${data.peers.length} peer${data.peers.length === 1 ? "" : "s"} · ${data.services.length} service${data.services.length === 1 ? "" : "s"}`}
+              : `${headerPeerCount} peer${headerPeerCount === 1 ? "" : "s"} · ${headerServiceCount} service${headerServiceCount === 1 ? "" : "s"}`}
           </span>
           <button
             onClick={() => setRefreshKey((k) => k + 1)}
