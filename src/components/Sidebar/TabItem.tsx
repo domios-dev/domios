@@ -210,9 +210,10 @@ function TabItemInner({
     tabModel ? formatModelBadge(tabModel) : null,
     agentLiveness,
   );
-  // A shell tab with a detected model still shows it; only agent tabs carry the
-  // provider:model bracket.
-  const tabModelBadge = tabAgentLabel ?? (tabModel ? formatModelBadge(tabModel) : null);
+  // Only a chatBackend shell's own detected model stands alone; a PTY tab that
+  // lost its provider must not keep the model half of the identity.
+  const shellBadge = shellSessionModel ? formatModelBadge(shellSessionModel) : null;
+  const tabModelBadge = tabAgentLabel ?? shellBadge;
   const description = tab.description ?? null;
   const canonicalTitle = displayTitleForTab(tab);
   const displayTitle = hasAgent ? canonicalTitle.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "") : canonicalTitle;
