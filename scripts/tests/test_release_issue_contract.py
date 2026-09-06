@@ -405,6 +405,134 @@ class CommitClosureAuditTest(unittest.TestCase):
         self.assertIn("#318", result.stderr)
 
 
+class ClosureBoundaryAuthorityTest(unittest.TestCase):
+    """`issue-closure-boundary.json` was accepted on presence, so v1.10.11 carried
+    one minted on a day the validator never ran and range-start read it as proof
+    of mirror verification. The asset is a claim; the validator run Actions still
+    reports is the evidence."""
+
+    VALIDATOR_PATH = ".github/workflows/release-manifest-validate.yml"
+    PREVIOUS_SHA = "1" * 40
+    LATEST_SHA = "2" * 40
+
+    def run_contract(self, *args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [sys.executable, str(SCRIPT), *args],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+
+    def range_start(self, releases: list[dict]) -> subprocess.CompletedProcess:
+        with tempfile.NamedTemporaryFile(
+            "w", suffix=".json", delete=False, encoding="utf-8"
+        ) as handle:
+            json.dump(releases, handle)
+            path = handle.name
+        self.addCleanup(Path(path).unlink, missing_ok=True)
+        return self.run_contract("range-start", "--releases-file", path)
+
+    def release(self, version: str, sha: str, run_id: int | None, **overrides) -> dict:
+        boundary = {
+            "version": version,
+            "source_sha": sha,
+            "public_mirror_verified": True,
+        }
+        if run_id is not None:
+            boundary["validator_run_id"] = run_id
+        boundary.update(overrides.pop("boundary", {}))
+        run = None
+        if run_id is not None:
+            run = {
+                "id": run_id,
+                "path": self.VALIDATOR_PATH,
+                "conclusion": "success",
+            }
+            run.update(overrides.pop("run", {}))
+        entry = {
+            "version": version,
+            "sha": sha,
+            "private_published": True,
+            "public_published": True,
+            "closure_boundary": boundary,
+            "validator_run": run,
+        }
+        entry.update(overrides)
+        return entry
+
+    def previous(self) -> dict:
+        return self.release("1.10.10", self.PREVIOUS_SHA, 28021342987)
+
+    def test_closure_boundary_with_a_verifiable_run_id_is_accepted(self):
+        result = self.range_start(
+            [self.previous(), self.release("1.10.11", self.LATEST_SHA, 33978726809)]
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), self.LATEST_SHA)
+
+    def test_closure_boundary_without_a_run_id_falls_back_to_the_previous_release(self):
+        result = self.range_start(
+            [self.previous(), self.release("1.10.11", self.LATEST_SHA, None)]
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), self.PREVIOUS_SHA)
+
+    def test_closure_boundary_whose_run_actions_cannot_confirm_is_refused(self):
+        latest = self.release("1.10.11", self.LATEST_SHA, 33978726809)
+        latest["validator_run"] = None
+        result = self.range_start([self.previous(), latest])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), self.PREVIOUS_SHA)
+
+    def test_closure_boundary_naming_a_run_of_another_workflow_is_refused(self):
+        latest = self.release(
+            "1.10.11",
+            self.LATEST_SHA,
+            33978726809,
+            run={"path": ".github/workflows/tests.yml"},
+        )
+        result = self.range_start([self.previous(), latest])
+        self.assertEqual(result.stdout.strip(), self.PREVIOUS_SHA)
+
+    def test_closure_boundary_naming_a_failed_validator_run_is_refused(self):
+        latest = self.release(
+            "1.10.11", self.LATEST_SHA, 33978726809, run={"conclusion": "failure"}
+        )
+        result = self.range_start([self.previous(), latest])
+        self.assertEqual(result.stdout.strip(), self.PREVIOUS_SHA)
+
+    def test_closure_boundary_minted_for_another_commit_is_refused(self):
+        latest = self.release(
+            "1.10.11", self.LATEST_SHA, 33978726809, boundary={"source_sha": "3" * 40}
+        )
+        result = self.range_start([self.previous(), latest])
+        self.assertEqual(result.stdout.strip(), self.PREVIOUS_SHA)
+
+    def test_closure_boundary_answering_for_a_different_run_is_refused(self):
+        latest = self.release(
+            "1.10.11", self.LATEST_SHA, 33978726809, run={"id": 12345}
+        )
+        result = self.range_start([self.previous(), latest])
+        self.assertEqual(result.stdout.strip(), self.PREVIOUS_SHA)
+
+    def test_no_release_carries_a_verifiable_closure_boundary(self):
+        result = self.range_start([self.release("1.10.11", self.LATEST_SHA, None)])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "")
+
+    def test_a_refusal_names_why_the_boundary_is_not_evidence(self):
+        sys.path.insert(0, str(ROOT / "scripts"))
+        try:
+            from release_issue_contract import closure_boundary_refusal
+        finally:
+            sys.path.pop(0)
+        latest = self.release("1.10.11", self.LATEST_SHA, None)
+        self.assertIsNotNone(closure_boundary_refusal(latest))
+        self.assertIsNone(closure_boundary_refusal(self.previous()))
+
+
 class SuiteDiscoveryTest(unittest.TestCase):
     """The entry point once sat mid-file, so classes below it never ran."""
 

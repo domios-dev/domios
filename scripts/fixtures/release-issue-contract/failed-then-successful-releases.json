@@ -4,13 +4,25 @@
     "sha": "1111111111111111111111111111111111111111",
     "private_published": true,
     "public_published": true,
-    "mirror_verified": true
+    "closure_boundary": {
+      "version": "1.8.0",
+      "source_sha": "1111111111111111111111111111111111111111",
+      "public_mirror_verified": true,
+      "validator_run_id": 28021342987
+    },
+    "validator_run": {
+      "id": 28021342987,
+      "path": ".github/workflows/release-manifest-validate.yml",
+      "conclusion": "success",
+      "head_sha": "1111111111111111111111111111111111111111"
+    }
   },
   {
     "version": "1.8.1",
     "sha": "2222222222222222222222222222222222222222",
     "private_published": true,
     "public_published": true,
-    "mirror_verified": false
+    "closure_boundary": null,
+    "validator_run": null
   }
 ]
