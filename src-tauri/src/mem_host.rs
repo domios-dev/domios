@@ -370,8 +370,7 @@ pub fn spawn_extraction_worker(
     let model = resolved.model;
     let intent = format!("extract:{mem_item_id}");
 
-    // Open the generation against the exact row the prompt was copied from. A
-    // source that vanished before we got here has no row to bind, so there is
+    // A source that vanished before we got here has no row to bind, so there is nothing to authorize and no worker worth spawning.
     let Some(source_uid) = source_uid_of(svc, &mem_item_id) else {
         log::info!(
             "[auto-extract] source {} is gone before spawn, skipping",

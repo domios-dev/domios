@@ -463,8 +463,7 @@ fn restore_normalizes_pane_era_leaves_and_isolates_malformed_tabs() {
 
 #[test]
 fn restore_keeps_a_full_fidelity_1_7_7_leaf() {
-    // The minimal fixture above proves the rename alone. A real 1.7.7 leaf
-    // carries the whole agent identity, and a single field this build cannot
+    // A real 1.7.7 leaf carries the whole agent identity, and a single field this build cannot deserialize quarantines the tab silently — parse "succeeds", session empty.
     let (store, _dir) = fresh_store();
     let fixture = r#"{
   "version": "1.7.7",

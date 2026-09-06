@@ -401,8 +401,7 @@ mod tests {
     /// `is_connect()`/`is_timeout()` classification itself is under test.
     #[tokio::test]
     async fn connection_refused_before_write_is_nothing_sent() {
-        // Port 1 (TCPMUX) essentially never has a listener; connecting to it on
-        // loopback reliably yields a synchronous connection refusal without
+        // Probe loopback port 1 because refusal is synchronous and avoids a bind/drop race.
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(5))
             .build()

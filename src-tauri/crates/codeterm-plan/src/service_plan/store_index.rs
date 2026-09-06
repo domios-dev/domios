@@ -181,8 +181,7 @@ impl PlanStore {
         };
         paths::normalize_plan_paths(&mut plan, project_root);
         tag_model::normalize_plan(&mut plan);
-        // Load the co-located disk spec into memory BEFORE committing the plan, so
-        // the plan+spec persist writes the hand-edited disk spec, not the stale
+        // Load the disk spec before persisting so a hand-edited file is not overwritten by stale in-memory data.
         let colocated_spec = path.parent().and_then(|dir| {
             let spec_yaml = dir.join("spec.yaml");
             spec_yaml.is_file().then_some(spec_yaml)
@@ -200,8 +199,7 @@ impl PlanStore {
                 ),
             }
         }
-        // Persist the plan row BEFORE its co-located spec: specs.plan_id has a FK
-        // to plans(id), so a spec written first fails with FOREIGN KEY constraint
+        // Persist the plan before its spec because the foreign key requires the owning plan row first.
         self.commit_loaded_plan(plan)?;
         // A malformed co-located spec must not take its plan down with it.
         if let Some(spec_yaml) = colocated_spec {

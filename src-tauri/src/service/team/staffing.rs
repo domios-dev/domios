@@ -76,8 +76,7 @@ pub(crate) fn prepare_team_member_spawn(
 ) -> Result<PreparedTeamMemberSpawn, String> {
     let requested = params.role.clone();
     if let Some(caller_tab_id) = caller_tab_id {
-        // Membership door 2: growing an existing Team spends the caller's own
-        // membership. Guarded before authorization so the General Agent gets the
+        // Guarded before authorization so the General Agent gets the teaching refusal whether or not it is already (wrongly) in the Team.
         let shape = shape_for_tab(mux, caller_tab_id).with_agents(Some(&params.provider), None);
         refuse_general_agent_team_membership(
             mux,
@@ -121,8 +120,7 @@ pub(crate) fn prepare_team_member_spawn(
             ));
         }
     }
-    // A caller-less add is the bootstrap door: a Team whose members cannot spawn
-    // would otherwise have no way to receive the manager they are told to route
+    // A caller-less add is the bootstrap door: a Team whose members cannot spawn would otherwise have no way to receive the manager they are told to route through.
     if caller_tab_id.is_none() && !anchors {
         return Err(refuse(
             team_id,

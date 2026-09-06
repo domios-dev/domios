@@ -50,8 +50,7 @@ impl PlanStore {
                 existing_title,
             });
         }
-        // A bare/relative name is never resolvable here: `project_root` shells
-        // out to git with THIS path as `cwd`, and canonicalizing a relative
+        // Require absolute project paths because relative canonicalization uses the daemon cwd and can bind the wrong checkout.
         if !std::path::Path::new(&project_path).is_absolute() {
             return Err(PlanError::Io(format!(
                 "project path must be an absolute checkout path, got '{project_path}'; \

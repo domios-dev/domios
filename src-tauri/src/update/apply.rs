@@ -276,8 +276,7 @@ pub async fn check_stage_deb_update(
     let endpoint = Url::parse(&endpoint_str)
         .map_err(|e| format!("invalid manifest URL '{}': {}", endpoint_str, e))?;
 
-    // Pin the target explicitly, matching the plugin apply path: without it the
-    // updater plugin falls back to its own default OS/arch detection, which is
+    // Pin the artifact target explicitly so platform selection follows the updater's platform key rather than plugin defaults.
     let mut builder = app
         .updater_builder()
         .endpoints(vec![endpoint.clone()])
@@ -682,8 +681,7 @@ async fn diagnose_no_update(endpoint: &str, local_version: &str) {
                 has_payload,
                 m.platforms.keys().collect::<Vec<_>>(),
             );
-            // A client is only ever offered an artifact that exists for its own
-            // platform (rel#47), so this diagnostic reflects the same rule the
+            // The diagnostic must follow the same platform artifact rule as apply, not a bare version comparison.
             match manifest::offered_version(local_version, &m, plat_key) {
                 Ok(Some(v)) => log::error!(
                     "[updater] DIAGNOSTIC: manual compare says local {} < remote {} with a payload for '{}' (UPDATE AVAILABLE) but plugin returned None — likely a signature issue",
@@ -1046,8 +1044,7 @@ mod debian_tests {
         assert_ne!(InstallMethod::AppImage, InstallMethod::Deb);
     }
 
-    // The exact shape `build-updater-fragment.py` / release-linux.yml's Debian
-    // fragment step publishes: a versioned .deb asset under the public mirror's
+    // Accept the versioned Debian asset shape because it is the artifact path published by the release pipeline.
     #[test]
     fn genuine_debian_release_asset_url_is_accepted() {
         let url = Url::parse(

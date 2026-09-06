@@ -236,8 +236,7 @@ fn default_hook_event_roster_registration_matches_today() {
 
 #[test]
 fn codex_stop_report_nonce_gate_verdicts() {
-    // The completion-via-report gate: only an exact launch-nonce match is a
-    // verified report; any carried nonce that can't be verified is foreign;
+    // Only an exact launch nonce verifies a report; an unverifiable nonce is foreign, while a missing nonce keeps legacy behavior.
     assert_eq!(
         stop_report_verdict(Some("nonce-1"), Some("nonce-1")),
         StopReportVerdict::Verified
@@ -259,8 +258,7 @@ fn codex_stop_report_nonce_gate_verdicts() {
 
 #[test]
 fn codex_stop_bundled_roster_declares_session_start_and_stop_and_registration_follows() {
-    // Round-trip through the S1 mechanism: the shipped manifest's declared
-    // roster (as data — provider id and bindings both read from the file)
+    // The declared roster must resolve to the closed route set so registration cannot drift from the manifest.
     let manifest_path = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../plugins/provider-codex/plugin.json"

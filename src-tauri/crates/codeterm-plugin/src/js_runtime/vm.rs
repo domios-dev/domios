@@ -106,8 +106,7 @@ const PLUGIN_PREAMBLE: &str = r#"
   host.exec.start = function (opts) { return parseJson(host.execStart(JSON.stringify(opts))); };
   host.exec.poll = function (jobId) { return parseJson(host.execPoll(jobId)); };
   host.exec.close = function (jobId) { host.execClose(jobId); };
-  // Return `host.awaitJob(job, then)` from a plugin method instead of blocking in
-  // it: the frame unwinds, the host waits for the job with the VM released, and
+  // Awaiting a job must release the VM frame so the host can complete it and re-enter only for the continuation.
   var __awaitSeq__ = 0;
   var __awaits__ = {};
   globalThis.__ct_await_take__ = function (k) {

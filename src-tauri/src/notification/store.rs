@@ -319,8 +319,7 @@ impl NotificationStore {
             ask,
         } = request;
 
-        // A record that offers a choice is never a coalescing target: rewriting
-        // a standing question in place would retract it under the user's
+        // Questions cannot be coalesced because rewriting one under the user's finger could make a tap answer a different record.
         let reused = open.and_then(|(_, id)| {
             (!self.offers_choice(&id)
                 && self.rewrite_in_place(
@@ -424,8 +423,7 @@ impl NotificationStore {
         if let Some(id) = self.provider_updates.get(&prompt_id) {
             return DedupAdmission::Duplicate(id.clone());
         }
-        // A mapping whose target record no longer exists — evicted by the
-        // notification cap, or cleared — is not a live collapse target.
+        // Dead mappings must be dropped before coalescing, or a second notification can open while stale state remains.
         let live_ids: HashSet<&str> = self.notifications.iter().map(|n| n.id.as_str()).collect();
         self.provider_updates
             .retain(|_, id| live_ids.contains(id.as_str()));

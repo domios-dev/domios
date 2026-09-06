@@ -228,8 +228,7 @@ fn channel_registry_second_channel_routes_without_touching_the_enum_or_the_grid(
         "core's own column list names no channel at all"
     );
 
-    // The row routes to Discord through a keyed lookup on the id the roster
-    // carries. Nothing named a Discord field: the key is the service id, and it
+    // Use the service id as the roster key so opting in, not a default, enables the channel.
     let cfg = discord_opted_in();
     let row = cfg
         .notifications
@@ -252,8 +251,7 @@ fn channel_registry_second_channel_routes_without_touching_the_enum_or_the_grid(
         "discord is routable from registry data plus its own audience entry"
     );
 
-    // Routable is not the claim; carrying is. Every function of the second
-    // channel's module runs here — its audience, its readiness, its ceiling,
+    // Exercise audience, readiness, ceiling, and delivery so routability is not mistaken for delivery.
     let (envelope, rendered) = titled(NotifyLevel::Failure, "a rendered push");
     assert_eq!(
         deliver_plan(&plan.targets, &plan.refusals, &host, &envelope),

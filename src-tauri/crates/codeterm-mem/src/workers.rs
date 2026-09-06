@@ -342,8 +342,7 @@ fn load_worker_records(
         return;
     };
     for (index, record) in records.iter().enumerate() {
-        // Pre-upgrade records carry `pane_id` where `GraphWorkerInfo::tab_id`
-        // (required, non-optional) now lives; normalize the field name before
+        // Rename legacy `pane_id` to `tab_id` before deserialization so old history records are retained.
         let mut normalized_record = record.clone();
         if let Err(error) =
             codeterm_types::startup_records::normalize_pane_id_fields(&mut normalized_record)
