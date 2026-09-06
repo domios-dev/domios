@@ -363,8 +363,7 @@ fn retained_spellings_still_parse() {
     }
 }
 
-// Form 1 — notify. DECISION: DOCUMENT `notify send` as canonical; do NOT ship a
-// bare `notify "title"` alias. A default-subcommand + positional-title mix routes
+// A positional title alias is unsafe because titles matching subcommand names would route to the wrong action.
 #[test]
 fn notify_send_is_canonical_and_bare_title_is_rejected() {
     let send = Cli::try_parse_from(["codeterm", "notify", "send", "Done", "--severity", "info"])
@@ -455,8 +454,7 @@ fn config_get_key_is_optional_and_scoped_forms_are_distinct() {
     );
 }
 
-// Form 2 — paste get/rm. ACCEPT: a bare id normalizes to the stored `paste:`
-// prefix, so the accepted (bare) form routes to the SAME request URL as the
+// Bare paste ids normalize to the stored prefix so both accepted forms address the same request.
 #[test]
 fn paste_get_and_rm_normalize_bare_id_to_prefixed_url() {
     for verb in ["get", "rm"] {

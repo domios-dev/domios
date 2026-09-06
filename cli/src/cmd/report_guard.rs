@@ -153,8 +153,7 @@ pub fn enrich_ready_report(
         return Ok((branch, sha, changed_files));
     }
     let lane_worktree = task_scope.and_then(|scope| scope.worktree_path.as_deref());
-    // A readiness report that names a commit but whose repository task bound no lane
-    // worktree must never be silently validated against whatever checkout the CLI
+    // Refuse loudly so the worker rebinds its lane instead.
     if task_scope.is_some()
         && is_readiness_status(status)
         && lane_worktree.is_none()
@@ -165,8 +164,7 @@ pub fn enrich_ready_report(
     {
         return Err(unresolved_lane_refusal());
     }
-    // The live attempt base is what this tab is working from now; the dispatch
-    // environment is a snapshot of the attempt that launched the shell and does
+    // The live attempt base is what this tab is working from now; the dispatch environment is a snapshot of the attempt that launched the shell and does not move with a re-dispatch.
     let base = base.resolve(task_scope.and_then(|scope| scope.base.clone()));
     enrich_ready_report_in_scope(
         ReadinessScope {
