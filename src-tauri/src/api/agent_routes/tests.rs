@@ -194,6 +194,7 @@ fn provider_listing_hides_non_spawnable_chatbackends() {
         "non-spawnable backend must NOT be listed"
     );
 }
+
 /// A PTY agent whose declared launch binary is whatever the fixture says, so
 /// enumeration can be asked about a machine that has it and one that does not.
 struct BinaryProvider {
@@ -293,5 +294,48 @@ fn provider_listing_does_not_gate_a_provider_that_launches_no_binary() {
     assert_eq!(
         listed(&listing, "listing-embedded")["availability"],
         serde_json::json!("available")
+    );
+}
+
+/// The wire carries all three states. A reader that only ever sees two would
+/// have to invent one, which is the collapse this slice removes.
+#[test]
+fn unknown_is_a_wire_state_of_its_own_not_a_synonym_for_unavailable() {
+    let mut descriptor = super::list_agent_provider_values(&facade_with_agent(BinaryProvider {
+        id: "listing-unknown",
+        cli_binary: Some("codeterm-definitely-missing-provider-cli"),
+    }))
+    .remove(0);
+    descriptor["availability"] = serde_json::json!("unknown");
+
+    let parsed: crate::agent::provider::ProviderDescriptor =
+        serde_json::from_value(descriptor).unwrap();
+    assert_eq!(
+        parsed.availability,
+        crate::agent::provider::ProviderAvailability::Unknown
+    );
+    assert_ne!(
+        parsed.availability,
+        crate::agent::provider::ProviderAvailability::Unavailable
+    );
+}
+
+/// Enumeration must answer with the SHARED resolver. A private ladder would
+/// drift from it exactly on the machines where the two disagree.
+#[test]
+fn enumeration_agrees_with_the_shared_resolver() {
+    const BINARY: &str = "codeterm-definitely-missing-provider-cli";
+    let registry = facade_with_agent(BinaryProvider {
+        id: "listing-shared-resolver",
+        cli_binary: Some(BINARY),
+    });
+
+    let listed = registry.describe_all().remove(0).availability;
+    let shared = crate::agent::provider::ProviderAvailability::from_resolution(
+        &codeterm_plugin::js_runtime::probe_bin(BINARY).resolution,
+    );
+    assert_eq!(
+        listed, shared,
+        "the row must be the shared resolver's verdict, not a second ladder's"
     );
 }

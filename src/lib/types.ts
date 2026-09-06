@@ -856,6 +856,8 @@ export type SettingField =
     }
   | { kind: "when"; field: string; equals: unknown; then: SettingField[] };
 
+export type ProviderAvailability = "available" | "unavailable" | "unknown";
+
 export interface ProviderDescriptor {
   schema_version: number;
   id: string;
@@ -916,6 +918,10 @@ export interface ProviderDescriptor {
   /// provider-owned hook-trust grant once per integration install, scoped to
   /// these managed key(s). Informational on the wire.
   integration_trust_grant?: { managedKeys: string[] } | null;
+  /// What enumeration observed about the launch binary on this machine.
+  /// Absent (older peer) means nothing was observed — read it as `unknown`,
+  /// never as the negative. Use `providerAvailability()` rather than this field.
+  availability?: ProviderAvailability;
 }
 
 /** Input for `createOrchestrationPair` — camelCase for ergonomic call sites;

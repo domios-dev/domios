@@ -78,7 +78,9 @@ surfaces as agents:
 
 - **Discover:** `GET /api/agents/providers` (CLI `codeterm agent providers`) lists
   installed shells alongside PTY agents, tagged `kind: "shell"`. There is no
-  hardcoded shell list — core enumerates the `chatBackend` registry.
+  hardcoded shell list — core enumerates the `chatBackend` registry. Every row
+  carries `availability` (`available` / `unavailable` / `unknown`); the CLI marks
+  the latter two inline, and the UI provider picker reads the same field.
 - **Spawn:** `codeterm agent spawn <shell-id> [--system TEXT] [--preset ID] [--model M]`
   (or `POST /api/agents/spawn`) routes by capability to the shell. `--system`
   overrides the preset's system prompt for that session, `--preset` picks a preset,
@@ -146,4 +148,4 @@ Overlay files add leaf kinds only. Declaring capability, claiming an anchoring o
 Team-authority base, overriding a builtin kind, or asking to own a contract
 without the coordination core is refused with a named reason and skipped.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->
