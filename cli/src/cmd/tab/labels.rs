@@ -37,7 +37,8 @@ pub fn agent_label(tab: &Value) -> Option<String> {
     }
     agent_bracket_label(
         non_empty(text(tab, "agent_type")),
-        non_empty(text(tab, "agent_session_model")),
+        non_empty(text(tab, "agent_session_model"))
+            .or_else(|| non_empty(text(tab, "agent_provider_resolved_model"))),
         liveness_of(tab),
     )
 }
@@ -75,6 +76,14 @@ mod tests {
                        "role_profile": "planner"}),
                 Some("claude:opus"),
                 "planner",
+            ),
+            // codex, cursor and opencode never report a session model; the
+            // requested model is still the identity, liveness carries the truth.
+            (
+                json!({"agent_type": "codex", "agent_provider_resolved_model": "gpt-5.5",
+                       "agent_liveness": "absent", "role": "Worker"}),
+                Some("codex:gpt-5.5!"),
+                "worker",
             ),
             (
                 json!({"agent_type": "codex", "agent_session_model": "gpt-5",
