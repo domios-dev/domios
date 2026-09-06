@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::provider::{
-    BusySubmitStrategy, HookEventBinding, HookIngestionRoute, ModelInfo, ProviderReadinessStrategy,
+    BusySubmitStrategy, HookEventBinding, HookIngestionRoute, ModelAvailability, ModelInfo,
+    ProviderReadinessStrategy,
     ProviderStateVerdict, ReadinessStrategy, ReasoningEffortInfo, SessionIdInjection,
     SystemPromptDelivery, TaskDelivery, VerifySubmitStrategy,
 };
@@ -503,6 +504,10 @@ pub struct SerdeModelInfo {
     /// disabled (`false`) until live discovery confirms it for the account.
     #[serde(default)]
     pub available: Option<bool>,
+    /// See `ModelInfo::availability`. A probe that could not run reports
+    /// `unknown` here rather than collapsing into `available: false`.
+    #[serde(default)]
+    pub availability: Option<ModelAvailability>,
 }
 
 impl From<&SerdeModelInfo> for ModelInfo {
@@ -512,6 +517,7 @@ impl From<&SerdeModelInfo> for ModelInfo {
             display_name: s.display_name.clone(),
             description: s.description.clone(),
             available: s.available,
+            availability: s.availability,
         }
     }
 }

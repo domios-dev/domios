@@ -17,6 +17,7 @@ fn register_and_read_back() {
                 display_name: "Model One".into(),
                 description: None,
                 available: None,
+                availability: None,
             }],
             default: Some("m1".into()),
         },
@@ -60,18 +61,21 @@ fn merge_replaces_same_id_keeps_position_and_appends_new() {
             display_name: "Opus 4.7".into(),
             description: None,
             available: None,
+            availability: None,
         },
         ModelInfo {
             id: "sonnet".into(),
             display_name: "Sonnet 4.6".into(),
             description: None,
             available: None,
+            availability: None,
         },
         ModelInfo {
             id: "haiku".into(),
             display_name: "Haiku 4.5".into(),
             description: None,
             available: None,
+            availability: None,
         },
     ];
     let overrides = vec![
@@ -80,12 +84,14 @@ fn merge_replaces_same_id_keeps_position_and_appends_new() {
             display_name: "My Sonnet".into(),
             description: None,
             available: None,
+            availability: None,
         },
         ModelInfo {
             id: "my-finetune".into(),
             display_name: "Mine".into(),
             description: None,
             available: None,
+            availability: None,
         },
     ];
     let merged = merge_models(&builtin, &overrides);
@@ -104,6 +110,7 @@ fn merge_with_empty_override_is_builtin_verbatim() {
         display_name: "A".into(),
         description: None,
         available: None,
+        availability: None,
     }];
     let merged = merge_models(&builtin, &[]);
     assert_eq!(merged.len(), 1);
@@ -117,6 +124,7 @@ fn merge_with_empty_builtin_is_override_verbatim() {
         display_name: "X".into(),
         description: None,
         available: None,
+        availability: None,
     }];
     let merged = merge_models(&[], &overrides);
     assert_eq!(merged.len(), 1);
@@ -167,6 +175,7 @@ fn register_twice_replaces() {
                 display_name: "A".into(),
                 description: None,
                 available: None,
+                availability: None,
             }],
             default: Some("a".into()),
         },
@@ -179,6 +188,7 @@ fn register_twice_replaces() {
                 display_name: "B".into(),
                 description: None,
                 available: None,
+                availability: None,
             }],
             default: Some("b".into()),
         },
@@ -200,6 +210,7 @@ fn put_live_overrides_seed_for_models_and_default() {
                 display_name: "Seed".into(),
                 description: None,
                 available: None,
+                availability: None,
             }],
             default: Some("seed".into()),
         },
@@ -212,6 +223,7 @@ fn put_live_overrides_seed_for_models_and_default() {
             display_name: "Live".into(),
             description: None,
             available: None,
+            availability: None,
         }],
         Some("live".into()),
     );
@@ -234,6 +246,7 @@ fn is_stale_uses_injected_now() {
                 display_name: "Seed".into(),
                 description: None,
                 available: None,
+                availability: None,
             }],
             default: Some("seed".into()),
         },
@@ -246,6 +259,7 @@ fn is_stale_uses_injected_now() {
             display_name: "Live".into(),
             description: None,
             available: None,
+            availability: None,
         }],
         Some("live".into()),
     );
@@ -276,12 +290,14 @@ fn resolve_model_matches_exact_id() {
                     display_name: "GPT-5.5".into(),
                     description: None,
                     available: None,
+                    availability: None,
                 },
                 ModelInfo {
                     id: "gpt-5.5-mini".into(),
                     display_name: "GPT-5.5 Mini".into(),
                     description: None,
                     available: None,
+                    availability: None,
                 },
             ],
             default: Some("gpt-5.5-mini".into()),
@@ -307,6 +323,7 @@ fn resolve_model_matches_display_case_insensitively() {
                 display_name: "GPT-5.5".into(),
                 description: None,
                 available: None,
+                availability: None,
             }],
             default: Some("gpt-5.5".into()),
         },
@@ -334,12 +351,14 @@ fn resolve_model_unknown_falls_back_to_default() {
                     display_name: "GPT-5.5".into(),
                     description: None,
                     available: None,
+                    availability: None,
                 },
                 ModelInfo {
                     id: "gpt-5.5-mini".into(),
                     display_name: "GPT-5.5 Mini".into(),
                     description: None,
                     available: None,
+                    availability: None,
                 },
             ],
             default: Some("gpt-5.5-mini".into()),
@@ -368,6 +387,7 @@ fn model(id: &str, display: &str) -> ModelInfo {
         display_name: display.into(),
         description: None,
         available: None,
+        availability: None,
     }
 }
 
@@ -460,6 +480,7 @@ fn prime_does_not_clobber_a_live_snapshot() {
         default: Some("old".into()),
         models: vec![model("old", "Old")],
         seed_fingerprint: None,
+        binary: None,
     };
     std::fs::write(cache_path(id), serde_json::to_string(&payload).unwrap()).unwrap();
     put_live(id, vec![model("new", "New")], Some("new".into()));
@@ -628,6 +649,7 @@ fn matching_seed_fingerprint_primes_genuine_live_cache() {
             display_name: "Live".into(),
             description: None,
             available: Some(true),
+            availability: None,
         }],
         Some("opus".into()),
     );
@@ -715,6 +737,7 @@ fn availability_flag_is_carried_through_resolve() {
                     display_name: "Fable".into(),
                     description: None,
                     available: Some(false),
+                    availability: None,
                 },
             ],
             default: Some("opus".into()),
@@ -742,6 +765,7 @@ fn unavailable_declared_model_falls_back_to_an_available_model() {
                     display_name: "Future".into(),
                     description: None,
                     available: Some(false),
+                    availability: None,
                 },
             ],
             default: Some("stable".into()),
@@ -779,4 +803,214 @@ fn resolve_live_default_recovers_when_default_vanished() {
         resolve_live_default(&models, Some("c".into())).as_deref(),
         Some("c")
     );
+}
+
+fn unknown_model(id: &str, display: &str) -> ModelInfo {
+    ModelInfo {
+        id: id.into(),
+        display_name: display.into(),
+        description: None,
+        available: None,
+        availability: Some(ModelAvailability::Unknown),
+    }
+}
+
+fn temp_binary(tag: &str, bytes: &[u8]) -> PathBuf {
+    let path = std::env::temp_dir().join(format!(
+        "model_catalog_bin_{tag}_{}",
+        uuid::Uuid::new_v4().simple()
+    ));
+    std::fs::write(&path, bytes).unwrap();
+    path
+}
+
+/// The red line: a probe that could not run must never reach disk as a
+/// definite negative, because a negative is what disables the row.
+#[test]
+fn unknown_verdict_never_persists_as_a_negative() {
+    let id = "test-unknown-not-persisted-negative";
+    cleanup(id);
+    put_live(
+        id,
+        vec![
+            unknown_model("fable", "Fable"),
+            ModelInfo {
+                id: "sonnet".into(),
+                display_name: "Sonnet".into(),
+                description: None,
+                available: Some(false),
+                availability: None,
+            },
+        ],
+        Some("sonnet".into()),
+    );
+
+    let cached = read_cache(id).expect("cache written");
+    let unknown = cached.models.iter().find(|m| m.id == "fable").unwrap();
+    assert_eq!(
+        unknown.available, None,
+        "an unknown verdict must not be written as an availability answer"
+    );
+    assert_eq!(unknown.availability, Some(ModelAvailability::Unknown));
+    assert_ne!(
+        unknown.availability(),
+        ModelAvailability::Unavailable,
+        "could-not-run must stay distinct from ran-and-answered-no"
+    );
+
+    let answered_no = cached.models.iter().find(|m| m.id == "sonnet").unwrap();
+    assert_eq!(
+        answered_no.availability(),
+        ModelAvailability::Unavailable,
+        "a genuine negative is still a negative"
+    );
+    cleanup(id);
+}
+
+/// A cached answer describes one binary. Replace that binary and the answer is
+/// no longer authoritative, whatever its TTL says.
+#[test]
+fn cache_is_not_served_when_the_provider_binary_changed() {
+    let id = "test-cache-binary-changed";
+    cleanup(id);
+    let seed = RegisteredDefaults {
+        models: vec![model("opus", "Seed")],
+        default: Some("opus".into()),
+    };
+    register(id, seed.clone());
+    let bin = temp_binary("changed", b"v1");
+    put_live_against(
+        id,
+        vec![model("opus", "Live")],
+        Some("opus".into()),
+        fingerprint_path(&bin),
+    );
+
+    // The CLI self-updates: same path, different bytes.
+    std::fs::write(&bin, b"v2-longer-payload").unwrap();
+    assert!(provider_binary_changed(id));
+
+    registry().write().remove(id);
+    seed_registry().write().remove(id);
+    register(id, seed);
+    prime_from_cache(id);
+
+    let _ = std::fs::remove_file(&bin);
+    assert_eq!(
+        resolve_models(id)[0].display_name,
+        "Seed",
+        "a snapshot captured against a replaced binary must not prime"
+    );
+    assert!(
+        is_stale(id, DEFAULT_TTL, SystemTime::now()),
+        "a rejected snapshot must not carry its TTL forward"
+    );
+    cleanup(id);
+}
+
+/// The same snapshot against an untouched binary is still good, so the
+/// invalidation cannot be a blanket refusal to warm-start.
+#[test]
+fn cache_still_primes_when_the_provider_binary_is_untouched() {
+    let id = "test-cache-binary-untouched";
+    cleanup(id);
+    let seed = RegisteredDefaults {
+        models: vec![model("opus", "Seed")],
+        default: Some("opus".into()),
+    };
+    register(id, seed.clone());
+    let bin = temp_binary("untouched", b"v1");
+    put_live_against(
+        id,
+        vec![model("opus", "Live")],
+        Some("opus".into()),
+        fingerprint_path(&bin),
+    );
+    assert!(!provider_binary_changed(id));
+
+    registry().write().remove(id);
+    seed_registry().write().remove(id);
+    register(id, seed);
+    prime_from_cache(id);
+
+    let display = resolve_models(id)[0].display_name.clone();
+    let _ = std::fs::remove_file(&bin);
+    assert_eq!(display, "Live");
+    cleanup(id);
+}
+
+/// Unknown is retried rather than settled: a reader-driven refresh runs even
+/// inside the TTL window while a verdict is still unknown.
+#[tokio::test]
+async fn reader_refresh_retries_an_unknown_verdict_inside_the_ttl() {
+    let id = "test-reader-refresh-unknown";
+    cleanup(id);
+    register(
+        id,
+        RegisteredDefaults {
+            models: vec![model("seed", "Seed")],
+            default: Some("seed".into()),
+        },
+    );
+    put_live(id, vec![unknown_model("fable", "Fable")], None);
+    assert!(has_unknown_verdict(id));
+    assert!(
+        !is_stale(id, DEFAULT_TTL, SystemTime::now()),
+        "the snapshot is fresh by TTL, so only the unknown verdict can force a retry"
+    );
+
+    let provider: Arc<dyn AgentProvider> = Arc::new(DiscoverStub {
+        id: id.to_string(),
+        default: Some("fable".into()),
+        discovery: Some(vec![ModelInfo {
+            id: "fable".into(),
+            display_name: "Fable".into(),
+            description: None,
+            available: Some(true),
+            availability: Some(ModelAvailability::Available),
+        }]),
+    });
+    let refreshed = refresh_for_reader(provider).await;
+
+    assert!(refreshed.is_some(), "an unknown verdict must be retried");
+    assert!(!has_unknown_verdict(id));
+    assert_eq!(resolve_models(id)[0].availability(), ModelAvailability::Available);
+    cleanup(id);
+}
+
+/// A settled snapshot inside the TTL costs no probe, so opening the picker
+/// repeatedly is not a fork per open.
+#[tokio::test]
+async fn reader_refresh_is_ttl_gated_once_every_verdict_is_settled() {
+    let id = "test-reader-refresh-ttl-gate";
+    cleanup(id);
+    register(
+        id,
+        RegisteredDefaults {
+            models: vec![model("seed", "Seed")],
+            default: Some("seed".into()),
+        },
+    );
+    put_live(
+        id,
+        vec![ModelInfo {
+            id: "fable".into(),
+            display_name: "Fable".into(),
+            description: None,
+            available: Some(true),
+            availability: Some(ModelAvailability::Available),
+        }],
+        Some("fable".into()),
+    );
+
+    let provider: Arc<dyn AgentProvider> = Arc::new(DiscoverStub {
+        id: id.to_string(),
+        default: Some("fable".into()),
+        discovery: Some(vec![model("other", "Other")]),
+    });
+    assert!(
+        refresh_for_reader(provider).await.is_none(),
+        "a settled, fresh snapshot must not re-probe on every reader"
+    );
+    cleanup(id);
 }

@@ -92,6 +92,7 @@ impl crate::chatbackend::ChatBackendProvider for ListingShell {
             display_name: "Qwen".into(),
             description: None,
             available: None,
+            availability: None,
         }])
     }
 

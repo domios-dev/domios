@@ -5,6 +5,7 @@ import { isDuplicateSend } from "./chatSendGuard";
 import { invoke, listen } from "../../lib/bridge";
 import { quotePathForPaste } from "../../lib/clipboardPaste";
 import { formatModelSwitch } from "../../lib/modelSwitch";
+import { isModelSelectable, modelAvailability } from "../../lib/modelAvailability";
 import { usePersistentDraft } from "../../lib/usePersistentDraft";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
@@ -315,6 +316,12 @@ function ChatComposerImpl({
     () => providerDescriptor?.available_models ?? [],
     [providerDescriptor],
   );
+  // Opening the picker is an explicit user action, not a poll: it asks the
+  // catalog to re-probe. The backend TTL-gates the actual probe.
+  useEffect(() => {
+    if (!modelPickerOpen || !tabProvider) return;
+    void invoke("refresh_provider_models", { providerId: tabProvider }).catch(() => {});
+  }, [modelPickerOpen, tabProvider]);
   const touchMode = useTouchOptimizedUi();
   const compositionGate = useRef(createCompositionGate()).current;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -483,7 +490,7 @@ function ChatComposerImpl({
 
   const chooseModel = useCallback(
     async (model: ModelInfo) => {
-      if (model.available === false) {
+      if (!isModelSelectable(model)) {
         flagComposerError(`${model.display_name} is not available yet.`);
         return;
       }
@@ -800,7 +807,9 @@ function ChatComposerImpl({
               </p>
             ) : modelOptions.map((model, i) => {
               const selected = i === modelHighlight;
-              const unavailable = model.available === false;
+              const availability = modelAvailability(model);
+              const unavailable = availability === "unavailable";
+              const unknown = availability === "unknown";
               return (
                 <button
                   key={model.id}
@@ -811,7 +820,13 @@ function ChatComposerImpl({
                   onClick={() => void chooseModel(model)}
                   aria-pressed={selected}
                   aria-disabled={unavailable}
-                  title={unavailable ? `${model.display_name} is not available yet` : undefined}
+                  title={
+                    unavailable
+                      ? `${model.display_name} is not available yet`
+                      : unknown
+                        ? `CodeTerm could not check whether ${model.display_name} is available`
+                        : undefined
+                  }
                   className="w-full grid grid-cols-[1rem_minmax(0,1fr)] gap-2 rounded px-2 py-1.5 text-left text-xs"
                   style={{
                     background: selected && !unavailable
@@ -826,7 +841,7 @@ function ChatComposerImpl({
                   <span className="min-w-0">
                     <span className="block truncate font-medium">
                       {model.display_name}
-                      {unavailable ? " (unavailable)" : ""}
+                      {unavailable ? " (unavailable)" : unknown ? " (availability unknown)" : ""}
                     </span>
                     <span className="block truncate opacity-60 font-mono">{model.id}</span>
                   </span>

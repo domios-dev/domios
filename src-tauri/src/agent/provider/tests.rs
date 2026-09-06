@@ -38,6 +38,7 @@ fn provider_descriptor_round_trip() {
                 display_name: "Model One".into(),
                 description: Some("first model".into()),
                 available: None,
+                availability: None,
             }],
             default_model: Some("model-1".into()),
             reasoning_efforts: vec![ReasoningEffortInfo {
@@ -285,12 +286,14 @@ impl AgentProvider for StubProvider {
                 display_name: "Offered".into(),
                 description: None,
                 available: Some(true),
+                availability: None,
             },
             ModelInfo {
                 id: "unsupported".into(),
                 display_name: "Unsupported".into(),
                 description: None,
                 available: Some(false),
+                availability: None,
             },
         ]
     }

@@ -526,6 +526,7 @@ mod tests {
             display_name: display_name.into(),
             description: Some(format!("{id} description")),
             available,
+            availability: None,
         }
     }
 

@@ -8,6 +8,7 @@ pub mod kpi;
 pub mod kpi_ledger;
 pub mod ledger;
 pub mod live_state;
+pub mod model_binary_watch;
 pub use codeterm_plugin::model_catalog;
 pub mod models;
 pub mod motion_decoder;
