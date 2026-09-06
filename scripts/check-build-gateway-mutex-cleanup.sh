@@ -23,7 +23,10 @@ trap cleanup EXIT
 
 list_fixture_compilers() {
   if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
-    ps -eo pid=,ppid=,command= | awk -v marker="$MARKER" 'index($0, marker)'
+    # Snapshot first, filter second: awk's own argv carries the marker, so a piped ps
+    # would list the awk that is about to read it and the guard would match itself.
+    local snapshot; snapshot="$(ps -eo pid=,ppid=,command=)"
+    FIXTURE_MARKER="$MARKER" awk 'index($0, ENVIRON["FIXTURE_MARKER"])' <<< "$snapshot"
   else
     powershell.exe -NoProfile -Command \
       "\$marker='$MARKER'; Get-CimInstance Win32_Process | Where-Object { \$_.ProcessId -ne \$PID -and \$_.CommandLine -like \"*\$marker*\" } | Select-Object ProcessId,ParentProcessId,Name,CommandLine | Format-List" |
