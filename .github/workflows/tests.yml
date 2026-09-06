@@ -14,8 +14,14 @@ on:
       - 'evals/**'
   workflow_dispatch:
 
+# One commit, one matrix run. github.ref is refs/heads/<branch> for the push
+# event and refs/pull/N/merge for the pull_request event, so a branch with an
+# open PR built two disjoint groups and ran the matrix twice per commit — which
+# the single self-hosted Windows runner cannot absorb. The key is the commit
+# under test instead: pull_request carries it as head.sha, every other event as
+# github.sha, so both events for one commit collapse into one group.
 concurrency:
-  group: tests-${{ github.ref }}
+  group: tests-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: true
 
 jobs:

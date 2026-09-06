@@ -5,6 +5,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 TEST_ROOT="$ROOT/.research/build-perf/gateway-test-$$"
+# Every assertion here is about a job QUEUEING behind another, the --wait-build
+# contract; the caller default is fail-fast, which refuses instead of queueing.
+export CODETERM_BUILD_GATEWAY_MODE=queue
 export CODETERM_BUILD_GATEWAY_FIXTURE_DIR="$TEST_ROOT/state"
 export CODETERM_BUILD_GATEWAY_POLL_SECS=0.05
 export CODETERM_GATEWAY_FAKE_EVENTS="$TEST_ROOT/events.log"

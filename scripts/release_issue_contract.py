@@ -265,13 +265,60 @@ def plan_close(resolved: dict, states: dict, version: str) -> list[dict]:
     return actions
 
 
+VALIDATOR_WORKFLOW_PATH = ".github/workflows/release-manifest-validate.yml"
+
+
+def boundary_run_id(boundary: object) -> str | None:
+    """The validator run id an issue-closure boundary claims minted it."""
+    if not isinstance(boundary, dict):
+        return None
+    run_id = boundary.get("validator_run_id")
+    if isinstance(run_id, bool):
+        return None
+    if isinstance(run_id, int):
+        return str(run_id) if run_id > 0 else None
+    if isinstance(run_id, str) and run_id.isdigit() and int(run_id) > 0:
+        return run_id
+    return None
+
+
+def closure_boundary_refusal(release: dict) -> str | None:
+    """Why this release's closure boundary is not proof, or None when it is.
+
+    A boundary asset was accepted on presence alone, so v1.10.11 carried one
+    minted on a day the validator never ran. Presence is the claim; the run that
+    Actions still reports is the evidence.
+    """
+    boundary = release.get("closure_boundary")
+    if not isinstance(boundary, dict):
+        return "no issue-closure-boundary.json asset"
+    run_id = boundary_run_id(boundary)
+    if run_id is None:
+        return "boundary names no validator run id"
+    if not boundary.get("public_mirror_verified"):
+        return f"boundary from run {run_id} does not claim a verified public mirror"
+    sha = release.get("sha")
+    if boundary.get("source_sha") != sha:
+        return f"boundary from run {run_id} names a different source commit"
+    run = release.get("validator_run")
+    if not isinstance(run, dict):
+        return f"validator run {run_id} is not readable from Actions"
+    if str(run.get("id")) != run_id:
+        return f"Actions returned run {run.get('id')} for claimed run {run_id}"
+    if run.get("path") != VALIDATOR_WORKFLOW_PATH:
+        return f"run {run_id} is not the release manifest validator"
+    if run.get("conclusion") != "success":
+        return f"validator run {run_id} concluded {run.get('conclusion') or 'nothing'}"
+    return None
+
+
 def select_range_start(releases: list[dict]) -> str | None:
     verified = [
         release
         for release in releases
         if release.get("private_published")
         and release.get("public_published")
-        and release.get("mirror_verified")
+        and closure_boundary_refusal(release) is None
     ]
     if not verified:
         return None
