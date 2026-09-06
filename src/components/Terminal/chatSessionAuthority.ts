@@ -13,11 +13,18 @@ export type ChatAttachmentState =
   | "attached"
   | "failed";
 
+/** Why the host cannot show a transcript for a session it is bound to. Both are
+ *  reported states, not waits: an observed delta is what clears either. */
+export type ChatUnavailableReason = "no_transcript_source" | "authority_mismatch";
+
 export interface ChatStartResult extends TranscriptAuthority {
   text: string;
   offset: number;
   start_offset?: number;
   pending?: boolean;
+  /** The provider named no transcript source for this session, so nothing is
+   *  loading one; `pending` here means unavailable, not "not yet". */
+  source_missing?: boolean;
   messages?: ChatMessage[];
   cursor?: string;
   subscription_id?: string | null;

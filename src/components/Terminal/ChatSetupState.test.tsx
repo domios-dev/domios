@@ -154,6 +154,37 @@ async function main() {
     assert(!host.querySelector('[data-testid="chat-setup-state"]'), "attached chat has no launch overlay");
   });
 
+  await test("a reported transcript failure replaces the loader instead of joining it", async () => {
+    const host = await render(
+      <ChatSetupState
+        tab={tab(null)}
+        view={{ kind: "failed", reason: "no_transcript_source" }}
+        providerName="Codex"
+      />,
+    );
+    const reported = host.querySelector('[data-testid="chat-transcript-unavailable"]');
+    assert(reported, "reported failure is rendered");
+    assert(reported.getAttribute("role") === "status", "reported failure is announced as a status");
+    assert(
+      (reported.getAttribute("aria-label") ?? "").length > 0,
+      "reported failure carries an accessible name",
+    );
+    assert(!host.querySelector('[data-testid="chat-setup-state"]'), "a reported failure never keeps the loader");
+    assert(!host.querySelector('[data-testid="chat-launch-ring"]'), "a reported failure never keeps the launch ring");
+  });
+
+  await test("an unadoptable snapshot is reported through the same surface", async () => {
+    const host = await render(
+      <ChatSetupState
+        tab={tab(null)}
+        view={{ kind: "failed", reason: "authority_mismatch" }}
+        providerName="Codex"
+      />,
+    );
+    assert(host.querySelector('[data-testid="chat-transcript-unavailable"]'), "reported failure is rendered");
+    assert(!host.querySelector('[data-testid="chat-setup-state"]'), "a reported failure never keeps the loader");
+  });
+
   console.log(failures === 0 ? "ChatSetupState tests: all passed" : `ChatSetupState tests: ${failures} failed`);
   if (failures > 0) process.exit(1);
 }
