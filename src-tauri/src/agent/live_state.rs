@@ -94,12 +94,6 @@ pub fn observe_tabs(svc: &ServiceContext, tab_ids: &[String]) -> BTreeMap<String
 }
 
 impl ServiceContext {
-    /// Convenience wrapper so callers read liveness the same way they read any
-    /// other service fact.
-    pub(crate) fn observe_agent_liveness(&self, tab_id: &str) -> AgentLiveness {
-        observe_tab_liveness(self, tab_id)
-    }
-
     /// Fold fresh liveness into the armed restore wave and reconcile any pane
     /// that came back without an agent. Driven by real launch transitions
     /// (`emit_boot_stage`, PTY death), never by a timer, and a cheap no-op once
