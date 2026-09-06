@@ -20,7 +20,10 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 // plugins/provider-codex/src/plugin.ts
 var plugin_exports = {};
 __export(plugin_exports, {
-  default: () => plugin_default
+  codexProfileTabId: () => codexProfileTabId,
+  codexProfilesToSweep: () => codexProfilesToSweep,
+  default: () => plugin_default,
+  sweepCodexProfiles: () => sweepCodexProfiles
 });
 module.exports = __toCommonJS(plugin_exports);
 
@@ -1394,9 +1397,37 @@ function isOwnedCodexHook(hook) {
   const cmd = String(hook.command || "");
   return (cmd.indexOf("/hook/session_start") !== -1 || cmd.indexOf("/hook/stop") !== -1) && cmd.indexOf("X-CodeTerm-Agent-Provider: codex") !== -1;
 }
+var CODEX_HOOK_SCRIPT_CONTRACT = [
+  CODETERM_CODEX_HOOK_MARKER,
+  CODETERM_CODEX_PROFILE_CLEANUP_MARKER,
+  "CODETERM_TAB_ID",
+  "CODETERM_API_URL",
+  "CODETERM_API_TOKEN",
+  "CODETERM_SESSION_BINDING_NONCE",
+  "/api/tabs/"
+];
+function codexHookContentHash(text) {
+  let hash = 2166136261;
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = hash + ((hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24)) >>> 0;
+  }
+  return ("0000000" + hash.toString(16)).slice(-8);
+}
+function isOwnedCodexHookScriptContent(text) {
+  return text.indexOf(CODETERM_CODEX_HOOK_MARKER) !== -1;
+}
+function isCurrentCodexHookScriptContent(text) {
+  if (!isOwnedCodexHookScriptContent(text)) return false;
+  if (/:\d{2,5}/.test(text)) return false;
+  for (let i = 0; i < CODEX_HOOK_SCRIPT_CONTRACT.length; i++) {
+    if (text.indexOf(CODEX_HOOK_SCRIPT_CONTRACT[i]) === -1) return false;
+  }
+  return true;
+}
 function isOwnedCodexWindowsHookScript(path) {
   const text = host.fs.readFile(path);
-  return typeof text === "string" && text === codexWindowsHookScript();
+  return typeof text === "string" && isCurrentCodexHookScriptContent(text);
 }
 
 // plugins/provider-codex/src/integration.ts
@@ -1433,6 +1464,7 @@ function checkIntegration() {
   const integrationState = !installed ? CODEX_INTEGRATION_STATE_ABSENT : !trustOk || trustState === "missing" || trustState === "unknown" ? CODEX_INTEGRATION_STATE_UNTRUSTED_HASH : !current || !stopInstalled ? CODEX_INTEGRATION_STATE_STALE_VERSION : CODEX_INTEGRATION_STATE_INSTALLED;
   return {
     hooks_file_exists: true,
+    hook_content_hash: ownedContentHash(arr, stopArr, winScriptText),
     hooks_installed: current && stopInstalled && trustOk,
     session_start_hook: current && trustOk,
     stop_hook: stopInstalled && trustOk,
@@ -1446,9 +1478,26 @@ function checkIntegration() {
     proposed_changes: ["SessionStart hook", "Stop hook", "hook trust"]
   };
 }
+function ownedContentHash(sessionStart, stop, scriptText) {
+  const parts = [];
+  for (const entries of [sessionStart, stop]) {
+    if (!Array.isArray(entries)) continue;
+    for (const entry of entries) {
+      if (!isCodetermCodexHook(entry)) continue;
+      const hooks = entry && entry.hooks || [];
+      for (const hook of hooks) {
+        parts.push(String(hook?.command || ""));
+        parts.push(String(hook?.commandWindows || ""));
+      }
+    }
+  }
+  parts.push(scriptText);
+  return codexHookContentHash(parts.join(String.fromCharCode(0)));
+}
 function emptyIntegrationStatus(path, fileExists) {
   return {
     hooks_file_exists: fileExists,
+    hook_content_hash: codexHookContentHash(""),
     hooks_installed: false,
     session_start_hook: false,
     stop_hook: false,
@@ -1819,6 +1868,42 @@ function hasCodetermCodexWindowsCommand(entry) {
   return false;
 }
 
+// plugins/provider-codex/src/profile-sweep.ts
+var CODEX_PROFILE_NAME_RE = /^codeterm-([A-Za-z0-9_-]+)\.config\.toml$/;
+function codexProfileTabId(fileName) {
+  const m = CODEX_PROFILE_NAME_RE.exec(fileName);
+  return m ? m[1] : null;
+}
+function codexProfilesToSweep(fileNames, liveTabIds) {
+  const out = [];
+  for (const name of fileNames) {
+    const tabId = codexProfileTabId(name);
+    if (tabId === null) continue;
+    if (!liveTabIds.has(tabId)) out.push(name);
+  }
+  return out;
+}
+function sweepCodexProfiles(host2, liveTabIds) {
+  if (host2.platform() !== "windows") return { removed: [] };
+  const home = host2.homeDir();
+  if (!home) return { removed: [] };
+  const dir = home + "\\.codex";
+  let entries;
+  try {
+    entries = host2.fs.readDir(dir);
+  } catch {
+    return { removed: [] };
+  }
+  if (!Array.isArray(entries)) return { removed: [] };
+  const names = entries.filter((e) => e && e.isFile).map((e) => e.name);
+  const toRemove = codexProfilesToSweep(names, new Set(liveTabIds));
+  const removed = [];
+  for (const name of toRemove) {
+    if (host2.fs.removeFile(dir + "\\" + name)) removed.push(name);
+  }
+  return { removed };
+}
+
 // plugins/provider-codex/src/plugin.ts
 var TITLE_RE = /codex/i;
 var OUTPUT_FINGERPRINTS = [
@@ -2102,9 +2187,7 @@ var plugin = {
   installIntegration(apiPort, options) {
     return installIntegration(apiPort, options);
   },
-  // integration.trust_grant capability: core invokes this once per install
-  // with the manifest-declared managed hook key(s). Codex is the only hash
-  // authority — the grant lane never computes a trust hash CodeTerm-side.
+  // Codex is the only hash authority; the grant lane never computes a trust hash CodeTerm-side.
   grantIntegrationTrust(managedKeys) {
     return grantIntegrationTrust(managedKeys);
   },
