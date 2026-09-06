@@ -1,5 +1,4 @@
-// Regression for ct#330: the plan-list search field removed the browser's
-// default focus ring (outline-none) and put nothing back, and carried no
+// The test guards the regression where `outline-none` removed focus indication and no accessible name remained.
 
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";

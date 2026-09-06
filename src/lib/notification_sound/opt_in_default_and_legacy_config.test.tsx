@@ -1,5 +1,4 @@
-// Opt-in stays opt-in. The master default is off in every place that answers
-// for it, and a config that predates this change — absent field, or a stored
+// The default remains opt-in, and absent or false legacy config must stay silent.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";

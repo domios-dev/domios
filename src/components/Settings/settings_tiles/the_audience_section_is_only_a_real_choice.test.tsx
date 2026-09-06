@@ -1,5 +1,4 @@
-// The third section exists only where there is something to answer. That rule
-// already existed and is `audienceIsAChoice`; what is asserted here is that the
+// Render the audience section only when `audienceIsAChoice` is true, because an empty question is noise.
 
 import { PushChannelSettings } from "../PushChannelSettings";
 import { audienceIsAChoice, configuredUsers } from "../../../lib/pushChannels";

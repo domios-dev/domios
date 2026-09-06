@@ -866,8 +866,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  // The chosen label is all that travels: the tab it answers to was recorded on
-  // the notification when the question was sent. Nothing is rendered optimistically
+  // Use the stored target tab because a second tap must not change the answer already recorded.
   const answerNotification = useCallback((id: string, label: string) => {
     void invoke<{ answered?: string; delivered?: boolean }>("answer_notification", { id, label })
       .then((result) => {

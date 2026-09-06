@@ -12,8 +12,7 @@ export interface AppConfigShape {
   [k: string]: unknown;
 }
 
-// Headers depend only on the auth token, so a token keeps the same headers
-// object across calls — callers use it as a stable effect dependency instead
+// Headers depend only on the auth token, so a token keeps the same headers object across calls — callers use it as a stable effect dependency instead of re-firing on every render.
 const headersByToken = new Map<string, Record<string, string>>();
 
 export function apiBaseOf(config: AppConfigShape | null): { base: string; headers: Record<string, string> } {

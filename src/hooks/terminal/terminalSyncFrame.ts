@@ -1,5 +1,4 @@
-// DEC 2026 synchronized-output frames (`CSI ? 2026 h` … `CSI ? 2026 l`) tell the
-// terminal to present the enclosed update atomically. xterm buffers rows during a
+// Coalesce synchronized-output frames into one write so xterm sees the close marker before its safety timeout.
 
 type Bytes = Uint8Array<ArrayBufferLike>;
 
@@ -7,8 +6,7 @@ const SYNC_BEGIN = Uint8Array.of(0x1b, 0x5b, 0x3f, 0x32, 0x30, 0x32, 0x36, 0x68)
 const SYNC_END = Uint8Array.of(0x1b, 0x5b, 0x3f, 0x32, 0x30, 0x32, 0x36, 0x6c); // ESC [ ? 2 0 2 6 l
 const MARKER_LEN = SYNC_BEGIN.length;
 
-// A frame that never closes must not stall output forever; flush once it grows past
-// this. Kept below the read loop's 128 KiB pause watermark so an oversized/dead
+// Flush a never-closing frame after the bound so malformed input cannot stall output or deadlock the reader.
 const MAX_HELD_BYTES = 96 * 1024;
 
 function indexOf(hay: Bytes, needle: Bytes, from: number): number {

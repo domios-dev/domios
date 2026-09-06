@@ -407,8 +407,7 @@ function manifestModels(): ModelInfo[] {
 
 // ── workspace trust ──
 
-// cwd (resolved + slugged exactly like cursor) unless it already exists.
-// cursor-agent's Bash tool picks up ~/.claude/settings.json's PreToolUse hooks
+// The launch uses a resolved, slugged cwd and never modifies the user's settings file.
 function disableClaudeHookImportPrefix(): string {
   return host.shell.envPrefix("CLAUDE_CODE_DISABLE_HOOKS", "1", host.platform());
 }

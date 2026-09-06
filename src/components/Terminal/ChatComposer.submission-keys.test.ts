@@ -1,5 +1,4 @@
-// WHAT: Enter, Shift+Enter, and IME composition resolve to distinct composer intents,
-// and the composition gate classifies engine-ordered key events.
+// The composition gate must distinguish IME confirmation from provider submit because WebKit reports Enter after compositionend.
 import assert from "node:assert/strict";
 import test from "node:test";
 

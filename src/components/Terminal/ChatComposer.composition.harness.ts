@@ -1,5 +1,4 @@
-// Installs happy-dom globals for ChatComposer.composition.test.tsx. This module
-// MUST be imported before react-dom: react-dom freezes its DOM feature
+// Import this harness before React DOM because DOM detection is frozen at React import time.
 import { Window } from "happy-dom";
 
 const win = new Window({ url: "http://localhost/" });

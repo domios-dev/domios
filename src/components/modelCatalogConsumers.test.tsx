@@ -1,5 +1,4 @@
-// Same-descriptor oracle: New Session single/pair roles and Team add-member
-// must render exactly one injected ProviderDescriptor — ids, labels, order,
+// Consumers must render the injected descriptor so provider metadata changes do not require a hardcoded model list.
 
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";

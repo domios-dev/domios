@@ -122,8 +122,7 @@ function choiceButtons(scope: HTMLElement): HTMLElement[] {
 }
 
 async function run() {
-  // 1. Every level paints from its own existing token. The card carries the
-  //    level the record declared, and the colour formula is a color-mix over
+  // The card carries the level the record declared, and the colour formula is a color-mix over that token and the surface — never a literal that would freeze one theme.
   const levels: Array<[NonNullable<Notification["level"]>, string]> = [
     ["verbose", "--ct-muted-fg"],
     ["action_needed", "--ct-yellow"],
@@ -157,8 +156,7 @@ async function run() {
     );
   }
 
-  // 2. Answering in the chat records the answer ON THE NOTIFICATION, and the
-  //    panel showing that same record is answered too. One store state, two
+  // Answering in the chat records the answer ON THE NOTIFICATION, and the panel showing that same record is answered too.
   let state: ExtendedState = { ...emptyState(), notifications: [ask()] };
   const answerThroughStore = (id: string, label: string) => {
     state = reducer(state, { type: "ANSWER_NOTIFICATION", id, answered: label, delivered: true });

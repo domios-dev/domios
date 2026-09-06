@@ -1,5 +1,4 @@
-// The control changed; the stored shape did not. A channel is a flattened key
-// that exists while it is picked and is GONE when it is not — a closed column is
+// A closed channel is removed from the patch rather than stored as false, so both surfaces preserve the pinned shape.
 
 import { act } from "react";
 import { NotificationDestinations } from "../NotificationDestinations";

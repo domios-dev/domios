@@ -1,5 +1,4 @@
-// A model reaching this component with `available: false` (e.g. gated by
-// installed CLI version) must render disabled and unclickable — not vanish,
+// Unavailable models remain disabled rather than disappearing, so users can distinguish gating from absence.
 
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";

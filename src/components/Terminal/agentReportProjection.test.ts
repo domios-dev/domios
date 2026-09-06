@@ -168,8 +168,7 @@ async function main(): Promise<void> {
     "the orchestrator hid a report",
   );
 
-  // (v) the ingest boundary owns the timestamp unit: daemon epoch-seconds
-  // normalize to milliseconds exactly once, milliseconds pass through, and a
+  // Normalize daemon epoch-seconds exactly once while leaving milliseconds unchanged and missing stamps null.
   const stamped = readAgentReportProjection(WORKER_TAB).outbound;
   assert(
     stamped.find((card) => card.reportId === REJECTED_REPORT.report.id)?.timestamp

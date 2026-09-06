@@ -1,5 +1,4 @@
-// `severity` survives on the record as a wire and dedupe axis — the Rust
-// notification identity is built from it — but it is inert for tone: it never
+// Severity remains a wire and dedupe axis but must not paint a surface or write a level.
 import type { Notification } from "../../lib/types";
 import { notificationLevel } from "../../lib/notifyLevels";
 import {

@@ -1,5 +1,4 @@
-// A silent seq discontinuity is a contract violation. The client must
-// self-heal AND stay loud about it, so a daemon regression cannot hide behind
+// The client must self-heal AND stay loud about it, so a daemon regression cannot hide behind the recovery.
 
 // A test file with no top-level `import`/`export` is a global SCRIPT to TS,
 // so its helpers collide with every sibling script's helpers. Keep this.

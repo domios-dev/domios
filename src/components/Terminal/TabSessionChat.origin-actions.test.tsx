@@ -1,5 +1,4 @@
-// Correctness oracle for the FIX 1 origin-props cache. The per-message cache keys
-// entries on (targetTab:provider) and reuses the whole entry — including the
+// The origin cache must invalidate when `setFocusedTab` changes, or a stale closure routes Show Tab to the wrong handler.
 
 import { act } from "react";
 import { Window } from "happy-dom";

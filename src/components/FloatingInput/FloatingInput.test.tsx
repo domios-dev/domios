@@ -1,5 +1,4 @@
-// Regression for ct#330: the floating "message agent" search-style field set
-// outline-none with no substitute and carried no accessible name.
+// The field must retain a focus style and accessible name after `outline-none` removes the browser default.
 
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";

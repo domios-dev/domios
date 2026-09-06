@@ -1,5 +1,4 @@
-// Regression probe for the tab-return live-update seam: leaving a Chat tab
-// (active=false) and returning (active=true) must reattach exactly once and
+// Reactivation must reattach once and resume deltas without a Terminal/Chat remount.
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";

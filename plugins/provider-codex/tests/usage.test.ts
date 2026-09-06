@@ -49,8 +49,7 @@ type Usage = {
 
 console.log("\n--- parseUsage: real Codex 0.153.0 /status capture ---\n");
 {
-  // Captured live from an installed `codex-cli 0.153.0` via `/status`
-  // (plugins/provider-codex/tests/fixtures/codex-status-v0-153-0.txt).
+  // 2026-09-03 is before both reset dates in the capture (11 Sep / 10 Sep), so resets resolve within the same year without the rollover branch.
   const now = new Date(2026, 8, 3, 12, 0, 0, 0).getTime();
   const usage = parseCodexUsage(fixtureText("codex-status-v0-153-0.txt"), now) as Usage;
 
@@ -67,8 +66,7 @@ console.log("\n--- parseUsage: real Codex 0.153.0 /status capture ---\n");
     "v0.153.0: no unqualified 5h figure exists in this capture -> unknown, not the per-model 100%",
   );
 
-  // The regression this fixture exists to catch: the model's OWN weekly
-  // figure (55% left, nested under "GPT-5.3-Codex-Spark limit:") must never
+  // The model's weekly figure must not leak into the general weekly reading because family matching is ordering-sensitive.
   assert(usage?.weekly_pct !== 45, "v0.153.0: the per-model weekly (55% left -> 45 used) is excluded, not reported");
 }
 
@@ -76,13 +74,11 @@ console.log("\n--- parseUsage: unknown vs zero are different states, never the s
 {
   const now = new Date(2026, 5, 14, 12, 0, 0, 0).getTime();
 
-  // Nothing recognizable at all: must be the unknown sentinel (null), never
-  // an object coerced to 0. This is the exact regression this whole task
+  // Unknown usage must remain null so a format change cannot become a plausible zero.
   const garbage = parseCodexUsage("OpenAI Codex\nloading…\nsomething else entirely", now) as Usage;
   assert(garbage === null, "fully unparsable screen returns null (unknown), not an object");
 
-  // A real, legitimate 0%-used reading is a *different* representation:
-  // a non-null object carrying the literal value 0 — proving the
+  // A legitimate zero is an object containing 0, while unknown remains null, so state distinguishes them.
   const zeroUsed = parseCodexUsage("General 5h limit █ 0% used (resets 19:59)", now) as Usage;
   assert(zeroUsed !== null, "a genuine 0%-used reading still returns a snapshot object");
   eq(zeroUsed?.session_pct, 0, "genuine 0%-used reading keeps the literal 0 value");
@@ -99,8 +95,7 @@ console.log("\n--- parseUsage: unknown vs zero are different states, never the s
 
 console.log("\n--- parseUsage: structural match survives copy changes (not literal-label matching) ---\n");
 {
-  // Same nested shape as the real v0.153.0 capture (account weekly, then a
-  // "<Model> limit:" header owning its own 5h + weekly rows two lines
+  // The fixture changes vendor wording while preserving structure, so literal-copy parsing would fail.
   const altered = [
     "Account:  someone-else@example.org (Team)",
     "Session:  ffffffff-0000-1111-2222-333344445555",
@@ -120,8 +115,7 @@ console.log("\n--- parseUsage: structural match survives copy changes (not liter
 
 console.log("\n--- parseUsage never manufactures a timeout: unknown carries no failure-kind label ---\n");
 {
-  // usage.ts owns exactly one thing here: turning /status text into a
-  // snapshot or `null`. It never throws and never embeds a failure-kind
+  // Malformed usage must return plain `null`; error classification belongs to the Rust layer.
   const now = new Date(2026, 5, 14, 12, 0, 0, 0).getTime();
   let threw = false;
   let result: unknown;
@@ -137,8 +131,7 @@ console.log("\n--- parseUsage never manufactures a timeout: unknown carries no f
     "parseCodexUsage's return value never carries a TIMEOUT/PARSE_ERROR-shaped label of its own",
   );
 
-  // fetchCodexUsage (the quota-free API path) is the other half of this
-  // file; its `null` on a failed/absent fetch is the input to a SEPARATE
+  // Same JS sentinel, two structurally different downstream states — exactly the kind of collapse a literal string comparison across the two paths would hide.
   const missingAuth = fetchCodexUsage({
     credentialPublic: () => null,
     fetch: () => "",
@@ -146,8 +139,7 @@ console.log("\n--- parseUsage never manufactures a timeout: unknown carries no f
   assert(missingAuth === null, "fetchCodexUsage returns null (not a thrown timeout) when credentials are unavailable");
 }
 
-// The plugin never touches ~/.codex/auth.json: it names the credential and the
-// header shape, and the host fills the bearer in. A confined bundle therefore
+// The plugin never touches ~/.codex/auth.json: it names the credential and the header shape, and the host fills the bearer in.
 {
   let request: Record<string, unknown> | null = null;
   const raw = fetchCodexUsage({

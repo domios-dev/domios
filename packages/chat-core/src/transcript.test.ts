@@ -1,5 +1,4 @@
-// Byte-range transcript authority. Every case is a projection the production
-// bounded-snapshot seam produced or must never produce again.
+// Every case is a projection the production bounded-snapshot seam produced or must never produce again.
 import {
   createTranscriptState,
   projectTranscript,
@@ -219,8 +218,7 @@ function contents(state: TranscriptState): string[] {
   );
 }
 
-// ── 3c. Stable correlation id: the optimistic bubble reconciles with a
-// chip-enriched echo by identity, so the server row REPLACES it (one msg.id),
+// Stable correlation identity replaces optimistic rows even when the server echo has different content.
 {
   const attached = reduceTranscript(
     createTranscriptState(),

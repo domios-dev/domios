@@ -1,5 +1,4 @@
-// What an UNANSWERED level chimes. "Finished" is not a level on the shipped
-// verbose/action_needed/failure axis, so the fallback keys on the two levels
+// Progress does not, because an agent still working has not finished, and an arrival naming no level claims nothing and so claims no completion either.
 import { assert, mountSound, report, unansweredLevels } from "./harness";
 
 let checked = 0;

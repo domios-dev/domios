@@ -1,5 +1,4 @@
-// A channel that cannot carry a message must not be offered as a destination.
-// The daemon already answers this per roster entry; nothing read it. Every
+// Keep an unavailable channel in the roster so dropping the filter fails instead of passing quietly.
 
 import { NotificationDestinations } from "../NotificationDestinations";
 import { PushChannelSettings } from "../PushChannelSettings";

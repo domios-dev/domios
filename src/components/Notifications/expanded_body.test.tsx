@@ -1,5 +1,4 @@
-// An opened message must be readable: bounded and scrolling inside its own
-// region, painted at content contrast from a token, reachable by keyboard, and
+// Read rendered styles rather than class names so the test stays tied to behavior and verifies values happy-dom can represent.
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
@@ -118,8 +117,7 @@ async function run() {
   assert(body, "expanding puts the body in a region of its own");
   const style = declarations(body);
 
-  // BOUNDED AND SCROLLING: the region carries its own limit and its own
-  // scroller, so a long message stays inside the card instead of growing the
+  // BOUNDED AND SCROLLING: the region carries its own limit and its own scroller, so a long message stays inside the card instead of growing the list and pushing the rest of it away.
   assert(
     style.get("overflow-y") === "auto",
     "the body region scrolls itself rather than pushing the list",

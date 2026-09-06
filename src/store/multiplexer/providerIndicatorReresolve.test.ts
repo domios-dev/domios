@@ -1,5 +1,4 @@
-// The provider indicator (TabItem header + TabSessionChat footer) resolves via
-// useTabProvider -> resolveTabProvider(tab). This proves a backend
+// Resolve the provider from the live descriptor so a backend switch updates both indicators without remounting.
 
 import { strict as assert } from "node:assert";
 import { reducer } from "./reducer";
@@ -59,8 +58,7 @@ function snapWithProvider(generation: number, agentType: string | null): Multipl
   };
 }
 
-// Both descriptors are live in the cache (the real steady state after a switch:
-// backend detection resolves correctly, Cmd+R already proved it). The defect was
+// The defect is stale `tab.agent_type`, not a missing descriptor, so both cached descriptors must remain available.
 setAgentDescriptors([
   descriptor("codex", "Codex", "#58a6ff"),
   descriptor("claude", "Claude Code", "#d97757"),

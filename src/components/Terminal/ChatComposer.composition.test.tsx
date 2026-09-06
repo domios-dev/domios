@@ -1,5 +1,4 @@
-// WHAT: per-engine IME composition fixtures driving the real ChatComposer handlers.
-// WHY: composed text must enter the composer buffer exactly once per composition,
+// IME Enter must commit composition without submitting; event ordering and keyCode 229 differ across engines.
 import "./ChatComposer.composition.harness";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";

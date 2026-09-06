@@ -1,5 +1,3 @@
-// Provider transcript normalization: how each provider's rows collapse, expand
-// and render once normalized. Tool-card behaviour lives in the sibling suite.
 
 import React, { act } from "react";
 
