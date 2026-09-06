@@ -736,18 +736,11 @@ exit 0
                 bin.join("git.cmd"),
                 r#"@echo off
 echo %*>>"%CODETERM_TEST_GIT_LOG%"
-if "%~1"=="clone" (
-  :last_arg
-  if "%~2"=="" (
-    set "dest=%~1"
-    goto copy_channel
-  )
-  shift
-  goto last_arg
-  :copy_channel
-  mkdir "%dest%" 2>nul
-  xcopy "%CODETERM_TEST_FRESH_CHANNEL%\*" "%dest%\" /E /I /Y >nul
-)
+if not "%~1"=="clone" exit /b 0
+for %%a in (%*) do set "dest=%%~a"
+mkdir "%dest%" 2>nul
+robocopy "%CODETERM_TEST_FRESH_CHANNEL%" "%dest%" /E >nul
+if %errorlevel% geq 8 exit /b 1
 exit /b 0
 "#,
             )
