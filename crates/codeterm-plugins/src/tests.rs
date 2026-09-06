@@ -29,7 +29,7 @@ mod store_index_tests {
     fn make_executable(_path: &Path) {}
 
     fn with_data_root<T>(f: impl FnOnce(PathBuf) -> T) -> T {
-        let _guard = env_lock().lock().unwrap();
+        let _guard = env_lock().lock().unwrap_or_else(|e| e.into_inner());
         let prev = std::env::var("CODETERM_DATA_DIR").ok();
         let root =
             std::env::temp_dir().join(format!("codeterm-plugin-test-{}", uuid::Uuid::new_v4()));
@@ -376,7 +376,7 @@ mod store_index_tests {
 
     #[test]
     fn plugin_storage_roots_follow_code_term_data_dir_override() {
-        let _guard = env_lock().lock().unwrap();
+        let _guard = env_lock().lock().unwrap_or_else(|e| e.into_inner());
         let prev = std::env::var("CODETERM_DATA_DIR").ok();
         let root =
             std::env::temp_dir().join(format!("codeterm-plugin-root-{}", uuid::Uuid::new_v4()));
@@ -736,18 +736,11 @@ exit 0
                 bin.join("git.cmd"),
                 r#"@echo off
 echo %*>>"%CODETERM_TEST_GIT_LOG%"
-if "%~1"=="clone" (
-  :last_arg
-  if "%~2"=="" (
-    set "dest=%~1"
-    goto copy_channel
-  )
-  shift
-  goto last_arg
-  :copy_channel
-  mkdir "%dest%" 2>nul
-  xcopy "%CODETERM_TEST_FRESH_CHANNEL%\*" "%dest%\" /E /I /Y >nul
-)
+if not "%~1"=="clone" exit /b 0
+for %%a in (%*) do set "dest=%%~a"
+mkdir "%dest%" 2>nul
+robocopy "%CODETERM_TEST_FRESH_CHANNEL%" "%dest%" /E >nul
+if %errorlevel% geq 8 exit /b 1
 exit /b 0
 "#,
             )
@@ -931,7 +924,7 @@ exit /b 0
 
     #[test]
     fn compat_check_blocks_only_when_app_older_than_min() {
-        let _guard = env_lock().lock().unwrap();
+        let _guard = env_lock().lock().unwrap_or_else(|e| e.into_inner());
         let prev = std::env::var("CODETERM_VERSION").ok();
 
         std::env::set_var("CODETERM_VERSION", "1.3.2");
