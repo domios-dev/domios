@@ -30,9 +30,8 @@ pub async fn mesh_sync(
         .unwrap_or_default()
         .as_secs();
     if let Some(voucher) = sender_id.as_deref() {
-        // Log the peers this snapshot actually taught us. Announcing every peer
-        // in every gossip exchange claimed a discovery that had already happened
-        // — one machine carried 550k such lines, two thirds of its whole log.
+        // Log only newly-learned peers — announcing every peer on every gossip
+        // exchange once put 550k redundant lines in a single machine's log.
         let known_before = mesh.known_public_keys();
         mesh.apply_gossip_snapshot(voucher, payload.generation, &payload.peers, now);
         for peer_info in &payload.peers {
@@ -298,28 +297,17 @@ fn default_relay_method() -> String {
     "GET".to_string()
 }
 
-fn resolve_paired_peer_id<'a>(
-    target: &str,
-    peers: impl IntoIterator<Item = (&'a str, &'a str)>,
-) -> Option<String> {
-    let mut name_match = None;
-    for (id, name) in peers {
-        if id == target {
-            return Some(id.to_string());
-        }
-        if name_match.is_none() && name.eq_ignore_ascii_case(target) {
-            name_match = Some(id.to_string());
-        }
-    }
-    name_match
-}
-
 /// No paired record at all for this id/name — distinct from [`PEER_UNROUTABLE_REASON`],
 /// which means the record exists but `client_for` couldn't build a route to it.
 pub const PEER_NOT_PAIRED_REASON: &str = "peer_not_paired";
 /// The paired record exists, but `MeshManager::client_for` found no route.
 /// Keep this distinct from a missing record (codeterm#368).
 pub const PEER_UNROUTABLE_REASON: &str = "peer_unroutable";
+/// A name matched one or more paired records, but none is online — refusing
+/// to guess between them (codeterm#434). Distinct from [`PEER_NOT_PAIRED_REASON`]
+/// (no record at all) and from the per-peer protocol mismatch below (exactly
+/// one online-but-outdated record).
+pub const PEER_NAME_NO_ONLINE_RECORD_REASON: &str = "peer_name_no_online_record";
 
 fn peer_not_paired_error(target: &str) -> (StatusCode, String) {
     (
@@ -337,20 +325,51 @@ fn peer_unroutable_error(peer_name: &str) -> (StatusCode, String) {
     )
 }
 
+/// Refusal for a name that matched only offline/dead records. Names EVERY
+/// candidate considered (both a live-turned-offline duplicate and any stale
+/// leftover) plus the id form of the same relay call, as structured JSON —
+/// never bake this into prose a caller would have to pattern-match.
+fn peer_name_no_online_record_error(
+    name: &str,
+    candidates: &[crate::mesh::paired_resolve::PairedNameCandidate],
+) -> (StatusCode, String) {
+    let mut candidates: Vec<_> = candidates.to_vec();
+    candidates.sort_by(|a, b| a.instance_id.cmp(&b.instance_id));
+    let body = serde_json::json!({
+        "reason": PEER_NAME_NO_ONLINE_RECORD_REASON,
+        "name": name,
+        "candidates": candidates.iter().map(|c| serde_json::json!({
+            "instance_id": c.instance_id,
+            "online": c.online,
+            "relay_protocol_version": c.relay_protocol_version,
+            "route_by_id": { "target_peer_id": c.instance_id },
+        })).collect::<Vec<_>>(),
+    });
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        serde_json::to_string(&body).unwrap_or_else(|_| PEER_NAME_NO_ONLINE_RECORD_REASON.into()),
+    )
+}
+
 /// Resolve a paired target while preserving missing, incompatible, and
-/// currently-unroutable refusal states.
+/// currently-unroutable refusal states. Name resolution over duplicate
+/// records sharing an `instance_name` prefers the online, highest-protocol
+/// record deterministically (codeterm#434) — see
+/// [`crate::mesh::paired_resolve::resolve_paired_by_name`].
 fn resolve_relay_peer(
     mesh: &crate::mesh::MeshManager,
     target: &str,
 ) -> Result<(crate::mesh::transport::PeerClient, String), (StatusCode, String)> {
-    let peer_id = resolve_paired_peer_id(
-        target,
-        mesh.paired_peers
-            .iter()
-            .map(|(id, peer)| (id.as_str(), peer.instance_name.as_str())),
-    )
-    .ok_or_else(|| peer_not_paired_error(target))?;
-    let peer = &mesh.paired_peers[&peer_id];
+    let peer = crate::mesh::paired_resolve::resolve_paired_by_name(&mesh.paired_peers, target)
+        .map_err(|error| match error {
+            crate::mesh::paired_resolve::ResolvePairedError::NotFound => {
+                peer_not_paired_error(target)
+            }
+            crate::mesh::paired_resolve::ResolvePairedError::NoOnlineCandidate {
+                name,
+                candidates,
+            } => peer_name_no_online_record_error(&name, &candidates),
+        })?;
     if peer.relay_protocol_version != crate::mesh::types::RELAY_PROTOCOL_VERSION {
         return Err((
             StatusCode::UPGRADE_REQUIRED,
@@ -362,7 +381,7 @@ fn resolve_relay_peer(
     }
     let name = peer.instance_name.clone();
     let client = mesh
-        .client_for(&peer_id)
+        .client_for(&peer.instance_id)
         .ok_or_else(|| peer_unroutable_error(&name))?;
     Ok((client, name))
 }
@@ -430,10 +449,8 @@ pub async fn mesh_relay_to_peer(
         body: relay_body,
         delivery_id,
     };
-    // The sender hop's own transport failure (connection refused, timeout,
-    // ...) is classified into the same relay_failure() vocabulary the
-    // receiving hop already uses, instead of collapsing to a bare 502 with no
-    // code — see relay_error_summary below for the receiving side's contract.
+    // The sender hop's own transport failure classifies into the same
+    // relay_failure() vocabulary the receiving hop uses (see relay_error_summary).
     let resp = match client.send_relay(&cmd).await {
         Ok(resp) => resp,
         Err(err) => {
@@ -642,9 +659,8 @@ async fn perform_relay(
     sender_id: &str,
     cmd: &crate::mesh::types::RelayCommand,
 ) -> Result<crate::mesh::types::RelayResponse, (StatusCode, String)> {
-    // One line per relayed request is an access log, not an event. Polling peers
-    // put 285k `GET /api/mux/state` lines in a single rotated generation — the
-    // largest single contributor to a 250 MB log directory.
+    // debug, not info — polling peers once put 285k of these in a single
+    // rotated log generation, the largest contributor to a 250 MB log dir.
     log::debug!(
         "[mesh/relay] {} {} from {}",
         cmd.method,
