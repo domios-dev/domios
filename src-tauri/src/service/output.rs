@@ -128,9 +128,8 @@ impl ServiceContext {
 
         self.process_shell_markers(pty_id, tab_id.as_deref(), shell_nonce, data);
 
-        // The volatile band the semantic clock ignores. A shell tab has no
-        // provider chrome; an unresolvable provider has UNKNOWN chrome, and we
-        // refuse to hash rather than measure against a fictional zero.
+        // An unresolvable provider has UNKNOWN chrome, so refuse to hash
+        // rather than measure the volatile band against a fictional zero.
         let status_bar_rows = match agent_type.as_deref() {
             None => Ok(StatusBarRows::NO_STATUS_BAR),
             Some(at) => StatusBarRows::resolve(&*self.agent_registry, at),
@@ -483,6 +482,9 @@ impl ServiceContext {
             } = event
             {
                 self.observe_agent_startup_launch_command_finished(tab_id, pty_id, *exit_code);
+                // The shell finished its foreground command: if that command was
+                // a proven-up agent, the agent process is gone.
+                self.note_provider_exit_in_surviving_shell(tab_id);
             }
             crate::api::events::emit_everywhere(
                 &self.app_handle,
