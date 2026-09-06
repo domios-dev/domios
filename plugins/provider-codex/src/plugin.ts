@@ -175,14 +175,13 @@ const plugin: PluginModule = {
       if (!taskPath) throw new Error("failed to write Codex task instructions");
       const quotedPath = host.shell.quoteFor(taskPath, host.platform());
       if (host.platform() === "windows") {
-        prefix = "Add-Type -AssemblyName System.Web.Extensions; "
-          + `$ctTaskInstructions = Get-Content -Raw -Encoding UTF8 ${quotedPath}; `
-          + "$ctTaskJson = (New-Object System.Web.Script.Serialization.JavaScriptSerializer).Serialize($ctTaskInstructions); "
+        prefix = `$ctTaskInstructions = Get-Content -Raw -Encoding UTF8 ${quotedPath}; `
+          + "$ctTaskJson = ($ctTaskInstructions | ConvertTo-Json -Compress); "
           + "$ctProfileSuffix = if ($env:CODETERM_TAB_ID) { $env:CODETERM_TAB_ID -replace '[^A-Za-z0-9_-]', '-' } else { [guid]::NewGuid().ToString('N') }; "
           + "$ctProfileName = 'codeterm-' + $ctProfileSuffix; "
           + "$ctProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '.config.toml'); "
           + "Set-Content -LiteralPath $ctProfilePath -Encoding UTF8 -Value ('developer_instructions = ' + $ctTaskJson); "
-          + `Remove-Item -LiteralPath ${quotedPath} -Force -ErrorAction SilentlyContinue; try { `;
+          + "try { ";
         parts.push("--profile");
         parts.push("$ctProfileName");
       } else {
