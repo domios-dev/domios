@@ -277,9 +277,11 @@ pub enum PathOpenKind {
     RevealInExplorer,
 }
 
+mod availability;
 mod capabilities;
 mod model_info;
 mod settings;
+pub use availability::*;
 pub use capabilities::*;
 pub use model_info::*;
 pub use settings::*;
@@ -402,10 +404,15 @@ pub struct ProviderDescriptor {
     /// as it did before the field existed.
     #[serde(default, skip_serializing_if = "ContextOwner::is_plugin")]
     pub context_owner: ContextOwner,
+    /// What enumeration observed about `launch_binary()` on this machine.
+    /// Defaults to `unknown` so a descriptor nobody probed cannot claim more
+    /// than it knows; enumeration overwrites it with the real observation.
+    #[serde(default)]
+    pub availability: ProviderAvailability,
 }
 
 /// Current `ProviderDescriptor` schema version. Bump on breaking change.
-pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 14;
+pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 15;
 
 /// Trait for agent backend providers (Claude, Codex, Aider, etc.)
 #[async_trait]
@@ -422,6 +429,20 @@ pub trait AgentProvider: Send + Sync {
     /// providers don't have to override.
     fn binary_name(&self) -> &str {
         self.id()
+    }
+
+    /// The executable this provider's launch command actually runs, when it
+    /// runs one. `binary_name()` is a parser hint that defaults to `id()` for
+    /// every provider, so gating on it would refuse providers that launch no
+    /// external CLI; the declared `cli_binary()` is the launch claim.
+    fn launch_binary(&self) -> Option<&str> {
+        self.cli_binary()
+    }
+
+    /// What THIS machine says about the launch binary, through the shared
+    /// resolver. Core reads this instead of asking a provider to self-report.
+    fn observe_launch_binary(&self) -> LaunchBinaryObservation {
+        availability::observe_launch_binary(self.launch_binary())
     }
 
     /// Build the shell command to launch this agent.
@@ -1065,6 +1086,7 @@ pub trait AgentProvider: Send + Sync {
             presets: Vec::new(),
             system_prompt_delivery: self.system_prompt_delivery(),
             context_owner: ContextOwner::Plugin,
+            availability: ProviderAvailability::default(),
         }
     }
 

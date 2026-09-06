@@ -3,28 +3,26 @@ import { Button } from "../shared/Button";
 import { Card } from "../shared/Card";
 import { Chip } from "../shared/Chip";
 import type { ProviderDescriptor } from "../../lib/types";
-import { isProviderInstalled } from "./preselectProvider";
+import {
+  providerAvailability,
+  providerAvailabilityLabel,
+} from "../../lib/providerAvailability";
+import { PREFERRED_GENERAL_PROVIDER_ID } from "./constants";
 
 interface ProviderCardProps {
   provider: ProviderDescriptor;
   selected: boolean;
-  installed: boolean;
   disabled?: boolean;
   onSelect: () => void;
 }
 
-export function ProviderCard({
-  provider,
-  selected,
-  installed,
-  disabled,
-  onSelect,
-}: ProviderCardProps) {
+export function ProviderCard({ provider, selected, disabled, onSelect }: ProviderCardProps) {
+  const availability = providerAvailability(provider);
   return (
     <button
       type="button"
       data-testid={`agent-picker-card-${provider.id}`}
-      data-installed={installed ? "yes" : "no"}
+      data-availability={availability}
       data-selected={selected ? "yes" : "no"}
       aria-pressed={selected}
       disabled={disabled}
@@ -42,8 +40,8 @@ export function ProviderCard({
       </span>
       <AgentIcon providerId={provider.id} className="text-2xl" />
       <span className="text-xs font-medium">{provider.display_name}</span>
-      <Chip variant={installed ? "success" : "muted"}>
-        {installed ? "installed" : "not installed"}
+      <Chip variant={availability === "available" ? "success" : "muted"}>
+        {providerAvailabilityLabel(provider)}
       </Chip>
     </button>
   );
@@ -107,7 +105,5 @@ export function ProviderInstallPanel({
 }
 
 export function providerInstallSortKey(provider: ProviderDescriptor): number {
-  return provider.id === "claude" ? 0 : 1;
+  return provider.id === PREFERRED_GENERAL_PROVIDER_ID ? 0 : 1;
 }
-
-export { isProviderInstalled };

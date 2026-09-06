@@ -206,13 +206,14 @@ pub async fn acknowledge_provider_update_prompt(
         .map_err(|error| format!("provider update worker failed: {error}"))?
 }
 
-/// Probe for a CLI binary. Used by the per-provider Installation card in
-/// Settings → Agents to render the install/missing badge. Checks the process
-/// PATH plus platform fallback dirs because GUI apps often inherit a minimal
-/// PATH. Returns `Ok(true)` when the binary is found, `Ok(false)` when missing.
+/// Re-probe one CLI binary through the shared resolver, dropping its memo first
+/// so an explicit user re-check sees an install that landed after startup. Walks
+/// the filesystem, so it runs off the async runtime.
 #[tauri::command]
-pub fn check_cli_installed(binary: String) -> Result<bool, String> {
-    Ok(crate::service::spawn::cli_binary_on_path(&binary))
+pub async fn check_cli_installed(binary: String) -> Result<bool, String> {
+    tokio::task::spawn_blocking(move || crate::service::spawn::cli_binary_on_path(&binary))
+        .await
+        .map_err(|error| format!("cli probe worker failed: {error}"))
 }
 
 /// TTL-gated re-probe for a reader that just opened the model picker. An open

@@ -3,8 +3,8 @@ import { invoke } from "../../lib/bridge";
 import type { ProviderDescriptor } from "../../lib/types";
 import { ProviderCard, ProviderInstallPanel, providerInstallSortKey } from "./ProviderCard";
 import {
-  hasAnyInstalledProvider,
-  isProviderInstalled,
+  hasAnySelectableProvider,
+  isProviderSelectable,
   preselectProviderId,
 } from "./preselectProvider";
 import { useProviderAvailability } from "./useProviderAvailability";
@@ -28,23 +28,20 @@ export function AgentProviderPicker({
   onConfirm,
 }: AgentProviderPickerProps) {
   const headlineId = useId();
-  const { installedByBinary, state, refresh } = useProviderAvailability(providers);
+  const { observed, state, refresh } = useProviderAvailability(providers);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [installBusy, setInstallBusy] = useState(false);
 
-  const anyInstalled = useMemo(
-    () => hasAnyInstalledProvider(providers, installedByBinary),
-    [providers, installedByBinary],
-  );
+  const anySelectable = useMemo(() => hasAnySelectableProvider(observed), [observed]);
 
   useEffect(() => {
     if (state !== "ready") return;
-    setSelectedId((cur) => cur ?? preselectProviderId(providers, installedByBinary));
-  }, [state, providers, installedByBinary]);
+    setSelectedId((cur) => cur ?? preselectProviderId(observed));
+  }, [state, observed]);
 
   const sortedForInstall = useMemo(
-    () => [...providers].sort((a, b) => providerInstallSortKey(a) - providerInstallSortKey(b)),
-    [providers],
+    () => [...observed].sort((a, b) => providerInstallSortKey(a) - providerInstallSortKey(b)),
+    [observed],
   );
 
   const onInstall = async (providerId: string) => {
@@ -58,10 +55,8 @@ export function AgentProviderPicker({
 
   const canConfirm =
     Boolean(selectedId) &&
-    anyInstalled &&
-    providers.some(
-      (p) => p.id === selectedId && isProviderInstalled(p, installedByBinary),
-    );
+    anySelectable &&
+    observed.some((p) => p.id === selectedId && isProviderSelectable(p));
 
   return (
     <div
@@ -79,20 +74,19 @@ export function AgentProviderPicker({
           </p>
         </div>
 
-        {anyInstalled ? (
+        {anySelectable ? (
           <div
             role="group"
             aria-label="Agent providers"
             className="flex flex-wrap justify-center gap-3"
             data-testid="agent-picker-cards"
           >
-            {providers.map((provider) => (
+            {observed.map((provider) => (
               <ProviderCard
                 key={provider.id}
                 provider={provider}
                 selected={selectedId === provider.id}
-                installed={isProviderInstalled(provider, installedByBinary)}
-                disabled={!isProviderInstalled(provider, installedByBinary)}
+                disabled={!isProviderSelectable(provider)}
                 onSelect={() => setSelectedId(provider.id)}
               />
             ))}
@@ -100,7 +94,7 @@ export function AgentProviderPicker({
         ) : (
           <div className="space-y-3" data-testid="agent-picker-install-fallback">
             <p className="text-xs text-center text-[var(--ct-muted-fg)]">
-              No agent CLIs detected. Install one below, then re-check.
+              No agent CLI could be found on this machine. Install one below, then re-check.
             </p>
             {sortedForInstall.map((provider) => (
               <ProviderInstallPanel
@@ -115,9 +109,9 @@ export function AgentProviderPicker({
           </div>
         )}
 
-        {anyInstalled && children}
+        {anySelectable && children}
 
-        {anyInstalled && (
+        {anySelectable && (
           <div className="flex justify-center">
             <Button
               variant="primary"

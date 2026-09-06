@@ -6,7 +6,9 @@ use super::orchestrator::{build_agent_command, launch_agent_in_background_with_e
 use super::ServiceContext;
 use crate::agent::registry::AgentRegistry;
 
-pub(crate) use super::spawn_cli::{cli_binary_on_path, provider_cli_install_warning};
+pub(crate) use super::spawn_cli::{
+    cli_binary_on_path, create_cleared_agent_tab, provider_launch_preflight,
+};
 #[cfg(test)]
 pub(crate) use super::spawn_params::validate_watcher_spawn_target;
 pub(crate) use super::spawn_params::{
@@ -297,7 +299,9 @@ impl ServiceContext {
         let permission_bypass = permission_bypass_authorization.is_some();
 
         self.require_agent_provider_ready(&agent_cmd)?;
-        let cli_warning = provider_cli_install_warning(&self.agent_registry, &agent_cmd)?;
+        let clearance =
+            provider_launch_preflight(&self.agent_registry, &agent_cmd).map_err(|e| e.to_string())?;
+        let cli_warning = clearance.warning.clone();
         if let Some(ref warning) = cli_warning {
             log::warn!("[spawn] {}", warning);
         }
@@ -354,7 +358,7 @@ impl ServiceContext {
 
         let tab_id = {
             let mut mux = self.mux.write();
-            let result = mux.create_tab(&ws_id)?;
+            let result = create_cleared_agent_tab(&mut mux, &ws_id, &clearance)?;
             if let Some(ref t) = spec.title {
                 if !t.trim().is_empty() {
                     let _ = mux.rename_tab_at_level(
@@ -699,7 +703,9 @@ impl ServiceContext {
                 &agent.provider,
             )?;
         let permission_bypass = permission_bypass_authorization.is_some();
-        let cli_warning = provider_cli_install_warning(&self.agent_registry, &agent.provider)?;
+        let clearance = provider_launch_preflight(&self.agent_registry, &agent.provider)
+            .map_err(|e| e.to_string())?;
+        let cli_warning = clearance.warning.clone();
         if let Some(ref warning) = cli_warning {
             log::warn!("[spawn.hidden] {}", warning);
         }
@@ -736,7 +742,7 @@ impl ServiceContext {
 
         let tab_id = {
             let mut mux = self.mux.write();
-            let result = mux.create_tab(&ws_id)?;
+            let result = create_cleared_agent_tab(&mut mux, &ws_id, &clearance)?;
             if let Some(tab) = mux.get_tab_mut(&result) {
                 tab.hidden = true;
                 tab.show_in_tabbar = false;

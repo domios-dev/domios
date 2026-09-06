@@ -21,9 +21,14 @@ function provider(overrides: Partial<ProviderDescriptor> = {}): ProviderDescript
   };
 }
 
-/** Providers that need a CLI read as not-installed until a probe says otherwise. */
-function needsCli(id: string, displayName: string): ProviderDescriptor {
-  return provider({ id, display_name: displayName, cli_binary: `${id}-cli` });
+/** A provider enumeration observed as absent: the picker offers install cards. */
+function missingCli(id: string, displayName: string): ProviderDescriptor {
+  return provider({
+    id,
+    display_name: displayName,
+    cli_binary: `${id}-cli`,
+    availability: "unavailable",
+  });
 }
 
 function render(headline: string, providers: ProviderDescriptor[]): string {
@@ -52,8 +57,8 @@ describe("agent picker accessibility surface", () => {
 
   it("names each install card from the provider display name it was given", () => {
     const html = render("Pick your General Agent", [
-      needsCli("claude", "Claude Code"),
-      needsCli("codex", "Codex CLI"),
+      missingCli("claude", "Claude Code"),
+      missingCli("codex", "Codex CLI"),
     ]);
     const names = groupNames(html);
     expect(names).toContain("Install Claude Code");
@@ -62,12 +67,20 @@ describe("agent picker accessibility surface", () => {
 
   it("keeps install cards in the order they are shown, so focus follows the page", () => {
     const html = render("Pick your General Agent", [
-      needsCli("codex", "Codex CLI"),
-      needsCli("claude", "Claude Code"),
+      missingCli("codex", "Codex CLI"),
+      missingCli("claude", "Claude Code"),
     ]);
     const claude = html.indexOf('aria-label="Install Claude Code"');
     const codex = html.indexOf('aria-label="Install Codex CLI"');
     expect(claude >= 0 && codex > claude).toBe(true);
+  });
+
+  it("offers a provider whose availability could not be established", () => {
+    const html = render("Pick your General Agent", [
+      provider({ id: "unknown-provider", display_name: "Unknown", cli_binary: "unknown-cli" }),
+    ]);
+    expect(html).toContain('data-availability="unknown"');
+    expect(html).toContain('data-testid="agent-picker-cards"');
   });
 
   it("groups the selectable provider cards under a name of their own", () => {

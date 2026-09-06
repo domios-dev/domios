@@ -129,6 +129,7 @@ fn provider_descriptor_round_trip() {
             }],
             system_prompt_delivery: SystemPromptDelivery::CliFlag("--system".into()),
             context_owner: ContextOwner::Host,
+            availability: ProviderAvailability::Unknown,
         };
 
     let json = serde_json::to_string(&original).expect("serialize");
@@ -297,6 +298,29 @@ impl AgentProvider for StubProvider {
             },
         ]
     }
+}
+
+/// `describe()` is contractually I/O-free and runs under the registry read
+/// lock, so it must not claim an observation nobody made.
+#[test]
+fn describe_leaves_availability_unknown_for_enumeration_to_observe() {
+    assert_eq!(
+        StubProvider.describe().availability,
+        ProviderAvailability::Unknown
+    );
+}
+
+/// The launch claim is the declared CLI, not the parser hint: `binary_name()`
+/// falls back to `id()` for every provider, so gating on it would refuse
+/// providers that launch no external binary at all.
+#[test]
+fn launch_binary_defaults_to_the_declared_cli_not_the_parser_hint() {
+    assert_eq!(StubProvider.binary_name(), "stub");
+    assert_eq!(StubProvider.launch_binary(), None);
+    assert_eq!(
+        StubProvider.observe_launch_binary().availability,
+        ProviderAvailability::Available
+    );
 }
 
 #[test]
