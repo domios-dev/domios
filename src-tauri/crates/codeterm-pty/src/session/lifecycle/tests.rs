@@ -438,7 +438,6 @@ fn a_plain_shell_restores_as_a_plain_shell() {
     assert_eq!(tab.depth, 0);
 }
 
-
 #[test]
 fn agent_type_write_provenance_does_not_change_committed_authority() {
     let (journal, _dir) = new_journal();
