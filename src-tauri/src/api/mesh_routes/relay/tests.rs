@@ -179,8 +179,10 @@ fn peer_relay_refusal_names_both_dead_records_and_the_id_route() {
         paired_peer_fixture("c9112abc-alsodead", "BLACKSTAR", false, 1),
     );
 
-    let (status, body) =
-        resolve_relay_peer(&mesh, "BLACKSTAR").expect_err("no online record for this name");
+    let (status, body) = match resolve_relay_peer(&mesh, "BLACKSTAR") {
+        Ok(_) => panic!("no online record exists for this name — must not resolve"),
+        Err(error) => error,
+    };
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
     let parsed: serde_json::Value = serde_json::from_str(&body).expect("structured JSON body");
     assert_eq!(parsed["reason"], PEER_NAME_NO_ONLINE_RECORD_REASON);

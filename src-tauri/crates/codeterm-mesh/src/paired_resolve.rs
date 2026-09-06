@@ -174,10 +174,10 @@ mod tests {
     #[test]
     fn unknown_name_is_not_found() {
         let peers = duplicate_store();
-        assert_eq!(
+        assert!(matches!(
             resolve_paired_by_name(&peers, "NOPE"),
             Err(ResolvePairedError::NotFound)
-        );
+        ));
     }
 
     #[test]
