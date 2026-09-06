@@ -1,14 +1,5 @@
 // Offline streaming-preview UX simulation.
-//
 // Inputs: a motion timeline (render_timeline output with per-frame turn_frozen/
-// turn_live), the chat arrival sidecar (record-chat-timeline.py NDJSON), and
-// the capture epoch. Replays exactly what the Chat UI streaming block would
-// display each frame — preview minus canonical coverage via the REAL matcher —
-// and scores the UX: preview lead time, leftovers after canon, jank frames.
-//
-// Run: npx tsx testbench/streaming/simulate.ts \
-//        --timeline timeline-motion.json --chat chat-timeline.ndjson \
-//        --epoch-ms <captured_at_ms> --out streaming-report.json
 
 import { readFileSync, writeFileSync } from "node:fs";
 
@@ -191,12 +182,10 @@ function main(): void {
   }
   // Post-hoc split against the FULL conversation canon: a boundary row later
   // covered was an in-flight message (handover, correct); one never covered
-  // anywhere is true stale junk (leftover).
   const fullBlob = canonicalBlob(landed);
   for (const turn of turns) {
     // A question dialog at the boundary is a dialog CLOSE (answer submitted,
     // next turn replaces the block) — option labels never land in canon by
-    // design, so they are handover, not stale junk.
     const stale = hasQuestionDialog(turn.boundary_rows)
       ? []
       : turn.boundary_rows.filter((row) => {

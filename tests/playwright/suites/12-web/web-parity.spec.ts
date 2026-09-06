@@ -414,7 +414,6 @@ async function expectTitlebarLayout(
   ).toBeVisible();
   // The host switcher left the titlebar for the sidebar GENERAL header
   // (Sidebar.tsx renders <WebPeerPicker compact/> there). web.spec's chrome
-  // golden owns its new home; this helper holds the titlebar to what it kept.
   await expect(titlebar.locator('[data-testid="peer-picker"]')).toHaveCount(0);
 
   const metrics = await page.evaluate(() => {
@@ -566,7 +565,6 @@ test.describe("@golden web-native parity", () => {
 
       // The two strip controls that own real behaviour: a settings deep link
       // that lands on the right section and closes cleanly, and keep-awake
-      // driven from the web titlebar with the daemon confirming both edges.
       await expectSettingsDeepLink(page, "general");
       await expectKeepAwakeRoundTrip(page, api);
     } finally {
@@ -582,8 +580,6 @@ test.describe("@golden web-native parity", () => {
   }) => {
     // `workspace-item` is rendered only for ORDINARY workspaces; a fresh instance
     // holds just the protected General, which lives in general-section. Waiting on
-    // whatever the shared instance happens to contain makes this test's result a
-    // function of another lane's timing, so it seeds the card it asserts.
     const workspaceName = `pw-parity-mobile-${Date.now()}`;
     await api.createWorkspace(workspaceName);
     const workspaceId = (await api.workspaces()).find((w) => w.name === workspaceName)?.id;

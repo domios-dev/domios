@@ -1,14 +1,5 @@
 // Multi-tab live UX verifier for the Chat streaming preview (ux-verifier role).
-//
 // Watches EVERY tab that emits chat-stream-preview events on the dev daemon,
-// reproduces the exact UI pipeline (displayablePreview + uncoveredPreviewTail +
-// slice(-8) + both useStreamPreview death rules), and scores per tab per turn:
-// jank frames (honest classifier: full-window replacement counts), dupe rows,
-// leftover rows at swap-death, height thrash (row-count changes), lead per
-// turn. Also appends every raw preview event to a corpus ndjson for offline
-// replay by matcher-analyst.
-//
-// Run: npx tsx ux-live-verify2.ts --token <TOKEN> --outdir <dir>
 
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";

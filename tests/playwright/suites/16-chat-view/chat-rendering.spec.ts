@@ -259,9 +259,6 @@ test("@golden ChatView transcript remains correct across tool results, focus, an
 
   // A tool_call card renders the command it ran, not the message's `content`
   // string, so the failed calls are identified by the commands this fixture
-  // supplied and asserted through the card's own status attribute. The old
-  // `toContain("latest failure")` could never match; it survived only because
-  // the assertion above it failed first.
   for (const command of ["exit 1", "exit 2"]) {
     await expect(
       chat.locator('[data-testid="chat-tool-call"][data-tool-status="error"]')
@@ -272,7 +269,6 @@ test("@golden ChatView transcript remains correct across tool results, focus, an
 
   // A completed shell command card lands collapsed and keeps its output out of
   // the DOM (packages/chat-ui MessageBubble.expansion.test.tsx), so the merged
-  // tool result is only readable once its own disclosure is opened.
   const resultCard = chat
     .locator('[data-testid="chat-tool-call"]')
     .filter({ hasText: "echo ok" })

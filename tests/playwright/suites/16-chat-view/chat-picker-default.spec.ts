@@ -5,10 +5,6 @@
  */
 // The prompt-and-persist flow this spec was written against is gone: no
 // `chat-default-suggestion`/`chat-default-accept` handles, and neither
-// `ui.default_new_agent_tab_chat` nor `ui.chat_ui_default_prompted` exists in
-// src or src-tauri. resolveInitialTabUiMode (lib/clientTabUiMode.ts) is the
-// surviving rule -- explicit persisted choice first, chat capability otherwise --
-// so that is what is asserted here.
 import { expect, test } from "../../helpers/fixtures";
 
 type ModeLabel = { label: string; selected: boolean };

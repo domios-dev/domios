@@ -1088,7 +1088,6 @@ for (const vp of VIEWPORTS) {
       await meshTab.waitFor({ state: "visible", timeout: 10_000 });
       // The mesh section no longer owns a horizontal scroller: `.ct-section-toolbar`
       // WRAPS below 640px and gives the tab rail the full width (globals.css), so
-      // the rail must already be whole inside the viewport with nothing to reveal.
       const meshToolbar = page.locator(".ct-section-toolbar").filter({ has: meshTab });
       await expect(meshToolbar, `${vp.name} mesh exact toolbar owner`).toHaveCount(1);
       await expect(

@@ -72,10 +72,6 @@ test(
       await expect(page.locator(MISSION_CONTROL_LIVE_SEL)).toBeVisible();
       // NOT COVERED: "canvas mode does not mount the legacy WebGL canvas view".
       // `canvas-view` lives only in CanvasViewInner, which no longer has a mount
-      // point in the app (PlanViewShell's canvas surface IS
-      // MissionControlPlanSurface), so the old toHaveCount(0) could never fail.
-      // A vacuous assertion is worse than an absent one; the contract now holds
-      // structurally and is not observable from this suite.
       await expect(page.locator('[data-testid="plan-board-view"]')).toBeHidden();
       await expect(page.locator('[data-testid="plan-list-view"]')).toBeHidden();
 

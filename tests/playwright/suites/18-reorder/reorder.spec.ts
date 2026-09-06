@@ -98,8 +98,6 @@ async function keyboardDrag(page: Page, rowSelector: string, key: ArrowKey, over
   await row.waitFor({ state: "visible", timeout: 15_000 });
   // dnd-kit activates from a synthetic onKeyDown on this node, so the row must
   // still hold focus when the key lands. Assert that separately: a lift that
-  // fails because focus moved is a different defect from one that fails
-  // because activation did not fire, and they are indistinguishable downstream.
   await row.focus();
   await expect
     .poll(() => focusState(row), {
@@ -234,19 +232,6 @@ test("@golden C1 a top-level tab reorders within its workspace", async ({ api, u
 
 // NOT COVERED: "a child reorders within its parent group and cannot leave it".
 // There is no way to build the state in the golden project. The UI handle is
-// gone -- only `tab:<workspaceId>` and `workspace:workspaces` are ever rendered
-// (SidebarWorkspaceTabs.tsx:238,259,304 + WorkspaceCardGrid.tsx:123), so the
-// `child:` group in SortableGroupData is a dead type-only handle. Creating a
-// child needs parent_tab_id, and the only two routes that set it are
-// POST /tabs/{id}/role, which requires a reported live session binding and
-// answers 400 agent_unavailable for a tab that never had an agent, and
-// POST /agents/spawn, which spawns a real provider agent -- and golden
-// grepInverts @stub. Covered instead, by name, in
-// crates/codeterm-pty/src/multiplexer/state/reorder.rs:
-//   reorder_children_orders_only_same_parent_siblings
-//   reorder_children_rejects_foreign_parent
-//   reorder_tabs_rejects_a_child_tab
-// Ledger row: tests/playwright/WEAK_ORACLES.md, "Not covered at the Playwright layer".
 
 test("@golden C3 workspaces reorder among themselves", async ({ api, ui }) => {
   const { page } = ui;

@@ -19,8 +19,6 @@ const PHONE = { width: 390, height: 844 };
 const DESKTOP = { width: 1280, height: 800 };
 // Deadline, not an oracle: the seed alone creates a workspace, opens a web
 // context, loads the app and reloads twice, and the helpers inside already carry
-// bounded 30s waits — a 30s outer budget only replaced their messages with an
-// opaque "Test timeout exceeded". Matches the rest of the suite.
 const TEST_TIMEOUT = 120_000;
 
 function visibleHeader(page: Page): Locator {
@@ -47,9 +45,6 @@ async function applyViewportAndReload(
   if (vp.width < 640 && !(await page.locator('[data-testid="web-sidebar-open"]').isVisible().catch(() => false))) {
     // App.tsx decides `sidebarOpen` ONCE, from window.innerWidth at mount, and the
     // page is opened at 1280px — so resizing to a phone leaves the overlay open.
-    // Close it through the backdrop that owns "tap to close". The coordinate guess
-    // that used to stand here aimed at nothing and landed on whatever surface was
-    // underneath; that was only ever safe while the canvas rendered an empty <p>.
     await page.locator(".ct-sidebar-backdrop").click();
     await page.locator('[data-testid="web-sidebar-open"]').waitFor({ state: "visible", timeout: 5_000 });
   }
@@ -292,7 +287,6 @@ test(
 
       // Every rendered interactive sidebar row must be a >=44px coarse target.
       // `workspace-plan-entry` was deleted from product source (a plan's sidebar
-      // home is now its Team card), so it is not in this sweep.
       const ROW_TESTIDS = [
         "tab-item",
         "workspace-item",
@@ -305,7 +299,6 @@ test(
       ];
       // One atomic DOM read per id: a per-locator boundingBox() waits for
       // actionability with no timeout, so a row detaching mid-sweep hangs the
-      // whole test instead of failing.
       let asserted = 0;
       for (const id of ROW_TESTIDS) {
         const heights = await page
@@ -337,15 +330,6 @@ test(
 
       // NOT COVERED: the bubble-vs-header and bubble-vs-composer overlap geometry.
       // PlanCompanionBubble mounts only when the ACTIVE PLAN'S OWNER tab is a live
-      // agent Tab (companionResolver.resolveCompanionTab + tabHasLiveAgent). Every
-      // fixture world owns its plan with a synthetic id (`perf_orch` /
-      // `fixture_orch`) that no fixture tab builder mints, and the Tabs
-      // buildPerfFixtureTabs does mint carry no `agent_type` — so the bubble can
-      // never mount under any seeded world. Making it mount means changing
-      // buildPerfFixtureTabs, which is product source outside this lane's
-      // boundary. Absence is the only honest oracle available here, and it fails
-      // loudly the day a fixture starts producing a live companion — at which
-      // point the geometry assertions above it should be restored.
       await expect(page.locator('[data-testid="plan-companion-bubble"]')).toHaveCount(0);
       await shot(page, "plan-header-mobile-companion");
     } finally {

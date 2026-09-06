@@ -580,7 +580,6 @@ async function completeFirstRunPickerIfPresent(page: Page): Promise<void> {
 async function activateFirstRunTab(page: Page): Promise<void> {
   // The canvas overlays the tab list. `canvas-toolbar-button` was renamed away and
   // this step has been a silent no-op ever since; CanvasView renders the live close
-  // control as `canvas-focus-close`.
   const closeCanvas = page.locator('[data-testid="canvas-focus-close"]');
   if (await closeCanvas.isVisible().catch(() => false)) {
     await closeCanvas.click({ timeout: 30_000 });

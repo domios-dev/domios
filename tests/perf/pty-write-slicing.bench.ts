@@ -1,9 +1,5 @@
 // Latency oracle: PTY replay/throughput floor of writeTerminalBytesInFrames.
 // Deterministic — a mocked performance.now advances by a synthetic per-slice
-// xterm parse cost, so the frame-time budget logic is exercised repeatably.
-// "before" = the old fixed one-slice-per-rAF cadence (analytical: ceil(bytes/
-// slice) frames). "after" = the current budgeted drainer, measured.
-// Run: `npx tsx tests/perf/pty-write-slicing.bench.ts`.
 import {
   writeTerminalBytesInFrames,
   TERMINAL_WRITE_SLICE_BYTES,

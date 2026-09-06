@@ -5,7 +5,6 @@
  */
 // Sidebar.tsx partitions the protected workspace out of the reorderable group
 // (partitionSidebarWorkspaces) and renders it in its own `general-section`
-// outside SidebarDnd, so "General cannot be dragged" is now structural.
 import { expect, test, type Page } from "../../helpers/fixtures";
 
 type Row = ReturnType<Page["locator"]>;
