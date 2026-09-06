@@ -153,6 +153,7 @@ fn compute_sandbox(
     let base = if dev || matches!(trust, ProviderTrust::System) || !is_user_dropin {
         PluginSandbox::unrestricted()
     } else {
+        let _ = std::fs::create_dir_all(plugin_temp_dir(&manifest.id));
         let (read_roots, write_roots) = confined_roots(
             manifest,
             bundle_dir,
@@ -173,30 +174,37 @@ fn compute_sandbox(
         .with_settings(settings_json)
 }
 
+/// The per-plugin scratch directory under the system temp root. Confined
+/// plugins are granted this instead of the bare `std::env::temp_dir()`, which
+/// on Unix is world-writable — a blanket grant there let a confined plugin
+/// read/write every other process's (and every other plugin's) scratch files.
+/// Pure path arithmetic; the caller creates the directory.
+pub(crate) fn plugin_temp_dir(plugin_id: &str) -> PathBuf {
+    std::env::temp_dir().join("codeterm-plugins").join(plugin_id)
+}
+
 /// The filesystem a confined plugin gets: its own bundle, its own data dir,
-/// temp — and the provider home it DECLARES. A provider that declares nothing
-/// cannot reach its own files, which is not a safe default but a silent one.
-/// Pure so the declared-root grant is provable without a real install layout.
+/// its own scoped temp subdir — and the provider home it DECLARES. A provider
+/// that declares nothing cannot reach its own files, which is not a safe
+/// default but a silent one. Pure so the declared-root grant is provable
+/// without a real install layout.
 pub(crate) fn confined_roots(
     manifest: &PluginManifest,
     bundle_dir: &Path,
     data_dir: &Path,
 ) -> (Vec<PathBuf>, Vec<PathBuf>) {
+    let scoped_temp = plugin_temp_dir(&manifest.id);
     let mut read_roots = vec![
         bundle_dir.to_path_buf(),
         data_dir.to_path_buf(),
-        std::env::temp_dir(),
+        scoped_temp.clone(),
     ];
     if let Some(sessions) = manifest.sessions.as_ref() {
         if let Some(root) = PluginManifest::expand_home(&sessions.root_dir) {
             read_roots.push(root);
         }
     }
-    let write_roots = vec![
-        bundle_dir.to_path_buf(),
-        data_dir.to_path_buf(),
-        std::env::temp_dir(),
-    ];
+    let write_roots = vec![bundle_dir.to_path_buf(), data_dir.to_path_buf(), scoped_temp];
     (read_roots, write_roots)
 }
 
@@ -365,38 +373,51 @@ mod tests {
 
     /// Where the grant comes from, proved on the SHIPPED manifest without
     /// touching a filesystem: the confined read set is exactly bundle + data +
-    /// temp + the ONE home codex declares. Set equality is what makes "declared
-    /// root, never a blanket widening" a real claim — an extra entry appearing
-    /// here is a widening, and the codex home disappearing is the original bug.
+    /// the plugin's OWN scoped temp subdir + the ONE home codex declares —
+    /// never the bare `std::env::temp_dir()`, which every process and every
+    /// other plugin can also reach. Set equality is what makes "declared root,
+    /// never a blanket widening" a real claim — an extra entry appearing here
+    /// is a widening, and the codex home disappearing is the original bug.
     #[test]
     fn the_confined_read_set_is_exactly_the_base_roots_plus_the_one_declared_home() {
         let bundle = PathBuf::from("/bundle");
         let data = PathBuf::from("/data");
         let codex_home = dirs::home_dir().expect("home dir").join(".codex");
+        let codex_manifest = shipped_codex_manifest();
+        let scoped_temp = plugin_temp_dir(&codex_manifest.id);
 
-        let (with_root, write_roots) = confined_roots(&shipped_codex_manifest(), &bundle, &data);
+        let (with_root, write_roots) = confined_roots(&codex_manifest, &bundle, &data);
         assert_eq!(
             with_root,
             vec![
                 bundle.clone(),
                 data.clone(),
-                std::env::temp_dir(),
+                scoped_temp.clone(),
                 codex_home.clone()
             ],
             "codex gets its declared home and nothing else"
         );
         assert_eq!(
             write_roots,
-            vec![bundle.clone(), data.clone(), std::env::temp_dir()],
+            vec![bundle.clone(), data.clone(), scoped_temp.clone()],
             "a declared session root is read-only — it is never a write root"
+        );
+        assert!(
+            !with_root.contains(&std::env::temp_dir()),
+            "the bare system temp dir must never be a member of the confined set"
+        );
+        assert!(
+            !write_roots.contains(&std::env::temp_dir()),
+            "the bare system temp dir must never be a member of the confined set"
         );
 
         let rootless: PluginManifest =
             serde_json::from_str(&min_manifest("rootless")).expect("manifest parses");
+        let rootless_scoped_temp = plugin_temp_dir(&rootless.id);
         let (without_root, _) = confined_roots(&rootless, &bundle, &data);
         assert_eq!(
             without_root,
-            vec![bundle, data, std::env::temp_dir()],
+            vec![bundle, data, rootless_scoped_temp],
             "no declaration, no extra root — the state that produced the bug"
         );
         assert_eq!(
@@ -407,11 +428,49 @@ mod tests {
         assert!(!without_root.contains(&codex_home));
     }
 
+    /// RED-BEFORE-GREEN companion to the test above: this is the exact bug the
+    /// gate exists to catch. On the pre-fix code, `confined_roots` granted the
+    /// bare `std::env::temp_dir()` for every plugin with no declaration
+    /// required — this assertion is what turns red on that code and green on
+    /// the scoped fix. Set equality, not membership: an extra root (the bare
+    /// temp dir surviving alongside the scoped one) must fail this too.
+    #[test]
+    fn confined_roots_never_contain_the_bare_system_temp_dir() {
+        use std::collections::HashSet;
+
+        let bundle = PathBuf::from("/bundle");
+        let data = PathBuf::from("/data");
+        let rootless: PluginManifest =
+            serde_json::from_str(&min_manifest("no-declared-root")).expect("manifest parses");
+        let (read_roots, write_roots) = confined_roots(&rootless, &bundle, &data);
+
+        let expected: HashSet<PathBuf> = [
+            bundle.clone(),
+            data.clone(),
+            plugin_temp_dir(&rootless.id),
+        ]
+        .into_iter()
+        .collect();
+        let read_set: HashSet<PathBuf> = read_roots.into_iter().collect();
+        let write_set: HashSet<PathBuf> = write_roots.into_iter().collect();
+
+        assert_eq!(
+            read_set, expected,
+            "the confined read set must equal exactly bundle + data + scoped temp"
+        );
+        assert_eq!(
+            write_set, expected,
+            "the confined write set must equal exactly bundle + data + scoped temp"
+        );
+        assert!(!read_set.contains(&std::env::temp_dir()));
+        assert!(!write_set.contains(&std::env::temp_dir()));
+    }
+
     /// Enforcement, with the base roots deliberately left out.
     ///
-    /// `confined_roots` always grants `std::env::temp_dir()`, and every
-    /// `tempfile::tempdir()` lives INSIDE it — so a fixture that builds its
-    /// "outside" path from a tempdir while granting temp proves nothing in
+    /// Every `tempfile::tempdir()` lives INSIDE `std::env::temp_dir()` — so a
+    /// fixture that builds its "outside" path from a tempdir while the
+    /// sandbox is also granted the bare system temp dir proves nothing in
     /// either direction. The sandbox here is granted the declared home ALONE,
     /// which is what makes both the allow and the deny meaningful.
     #[test]
@@ -463,10 +522,81 @@ mod tests {
         );
     }
 
-    /// The carve-out has to beat EVERY root, not just the declared one. With the
-    /// real `confined_roots` set the credential sits under two grants at once —
-    /// the declared home and temp — and must still be refused, or a credential
-    /// would be readable through a root that has nothing to do with it.
+    /// The non-vacuous negative control this whole change exists to make
+    /// real: a path inside the SYSTEM temp dir but OUTSIDE the plugin's own
+    /// scoped subdir must be refused for both read and write, using the REAL
+    /// `confined_roots` output (not a hand-picked root set). The "outside"
+    /// fixture is built directly under `std::env::temp_dir()` — deliberately
+    /// NOT via `tempfile::tempdir()`, because a tempdir fixture itself lives
+    /// inside `std::env::temp_dir()` and, back when the bare system temp dir
+    /// was a granted root, an "outside" path built that way was silently
+    /// INSIDE the grant — which is exactly why the original assertion here
+    /// was vacuous (always allowed, whether the code was right or not). This
+    /// fixture is a sibling of the plugin's scoped subdir, directly under the
+    /// real system temp root, so it is genuinely outside every granted root.
+    #[test]
+    fn a_path_inside_system_temp_but_outside_the_scoped_subdir_is_refused() {
+        use crate::js_runtime::host_api::PluginSandbox;
+
+        let plugin_id = format!(
+            "confinement-negctl-{}",
+            uuid::Uuid::new_v4().simple()
+        );
+        let manifest: PluginManifest =
+            serde_json::from_str(&min_manifest(&plugin_id)).expect("manifest parses");
+
+        let bundle = PathBuf::from("/bundle");
+        let data = PathBuf::from("/data");
+        let (read_roots, write_roots) = confined_roots(&manifest, &bundle, &data);
+
+        let scoped_temp = plugin_temp_dir(&plugin_id);
+        std::fs::create_dir_all(&scoped_temp).unwrap();
+        let inside = scoped_temp.join("scratch.txt");
+        std::fs::write(&inside, "mine").unwrap();
+
+        // Sibling of the scoped subdir, still directly under the real system
+        // temp root — the exact shape the old bare-temp_dir grant exposed.
+        let outside_dir = std::env::temp_dir().join(format!(
+            "codeterm-confinement-negctl-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir_all(&outside_dir).unwrap();
+        let outside = outside_dir.join("someone-elses-scratch.txt");
+        std::fs::write(&outside, "not mine").unwrap();
+
+        let sandbox = PluginSandbox::restricted(read_roots, write_roots);
+
+        assert!(
+            sandbox.can_read(inside.to_str().unwrap()),
+            "the plugin's own scoped temp file is readable"
+        );
+        assert!(
+            sandbox.can_write(inside.to_str().unwrap()),
+            "the plugin's own scoped temp file is writable"
+        );
+        assert!(
+            !sandbox.can_read(outside.to_str().unwrap()),
+            "a sibling scratch file elsewhere in system temp must be refused for reads"
+        );
+        assert!(
+            !sandbox.can_write(outside.to_str().unwrap()),
+            "a sibling scratch file elsewhere in system temp must be refused for writes"
+        );
+
+        let _ = std::fs::remove_dir_all(&scoped_temp);
+        let _ = std::fs::remove_dir_all(&outside_dir);
+    }
+
+    /// The carve-out has to beat EVERY root, not just the declared one. Here
+    /// the credential sits under two INDEPENDENTLY declared grants at once —
+    /// `bundle_dir` (the home's own parent) and the declared session root
+    /// itself — and must still be refused, or a credential would be readable
+    /// through a root that has nothing to do with it. `bundle_dir` is used as
+    /// the second root rather than the ambient system temp dir specifically
+    /// so this double-coverage is not an artifact of `tempfile::tempdir()`
+    /// landing inside `std::env::temp_dir()` (the scoped-temp fix means the
+    /// plugin's temp grant no longer covers an arbitrary tempdir fixture at
+    /// all, so that trap can't even be walked into here by accident).
     #[test]
     fn the_credential_carve_out_survives_a_second_root_that_also_covers_it() {
         use crate::js_runtime::host_api::PluginSandbox;
@@ -483,14 +613,13 @@ mod tests {
             credential.file = auth.to_string_lossy().into_owned();
         }
 
-        let (read_roots, write_roots) = confined_roots(
-            &manifest,
-            &tmp.path().join("bundle"),
-            &tmp.path().join("data"),
-        );
+        let (read_roots, write_roots) =
+            confined_roots(&manifest, tmp.path(), &tmp.path().join("data"));
+        let covering_roots = read_roots.iter().filter(|r| auth.starts_with(r)).count();
         assert!(
-            read_roots.iter().any(|r| auth.starts_with(r)),
-            "fixture precondition: the credential really is under a granted root"
+            covering_roots >= 2,
+            "fixture precondition: the credential must be covered by at least \
+             two independent roots, got {covering_roots}"
         );
 
         let sandbox = PluginSandbox::restricted(read_roots, write_roots)

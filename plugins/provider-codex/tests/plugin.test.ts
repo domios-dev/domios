@@ -161,6 +161,22 @@ console.log("\n--- task instructions launch ---\n");
   const handshake = p.buildLaunchCommand({ task: hostileTask, starterPrompt: "startup_handshake", starterPromptText: handshakeText });
   assert(handshake.includes(handshakeText), "startup launch uses the host-owned starter text");
   eq(p.starterPromptText?.("team_bootstrap"), undefined, "team starter text is not duplicated in the plugin");
+
+  // The profile path is computed only from $env:CODETERM_TAB_ID, never a
+  // per-call random value, so a relaunch overwrites instead of accumulating.
+  const profileComputation = (cmd: string): string => {
+    const start = cmd.indexOf("$ctProfileSuffix = if");
+    const end = cmd.indexOf("Set-Content -LiteralPath $ctProfilePath");
+    assert(start !== -1 && end !== -1 && end > start, "profile-path computation fragment is present");
+    return cmd.slice(start, end);
+  };
+  const firstLaunch = p.buildLaunchCommand({ task: hostileTask, args: ["--model", "gpt-5.5"] });
+  const secondLaunch = p.buildLaunchCommand({ task: "a completely different task body", starterPrompt: "team_bootstrap", starterPromptText: "unrelated" });
+  eq(
+    profileComputation(firstLaunch),
+    profileComputation(secondLaunch),
+    "the profile path computation depends only on the tab id, so a relaunch targets the same file and overwrites rather than accumulating",
+  );
 }
 
 console.log("\n--- meta ---\n");
