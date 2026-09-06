@@ -54,49 +54,75 @@ pub struct AnnouncedIntegrationState {
     pub content_hash: Option<String>,
 }
 
-fn announced_path() -> std::path::PathBuf {
+type AnnouncedMap = std::collections::HashMap<String, AnnouncedIntegrationState>;
+
+pub fn announced_path() -> std::path::PathBuf {
     crate::paths::data_dir().join("integration-announced.json")
 }
 
-fn announced_all() -> std::collections::HashMap<String, AnnouncedIntegrationState> {
-    std::fs::read_to_string(announced_path())
-        .ok()
-        .and_then(|raw| serde_json::from_str(&raw).ok())
-        .unwrap_or_default()
+/// Authoritative in memory, durable on disk. Read-modify-write straight across
+/// the shared file is a lost update: two launches racing here truncated each
+/// other and left JSON that then read as "nothing was ever announced".
+fn announced() -> &'static parking_lot::Mutex<AnnouncedMap> {
+    static ANNOUNCED: std::sync::OnceLock<parking_lot::Mutex<AnnouncedMap>> =
+        std::sync::OnceLock::new();
+    ANNOUNCED.get_or_init(|| parking_lot::Mutex::new(load_announced()))
 }
 
-fn write_announced(all: &std::collections::HashMap<String, AnnouncedIntegrationState>) {
+fn load_announced() -> AnnouncedMap {
     let path = announced_path();
-    match serde_json::to_string_pretty(all) {
-        Ok(json) => {
-            if let Err(error) = std::fs::write(&path, json) {
-                log::warn!(
-                    "[integration-silence] could not record announcement state at {}: {error}",
-                    path.display()
-                );
-            }
+    let Ok(raw) = std::fs::read_to_string(&path) else {
+        return AnnouncedMap::new();
+    };
+    match serde_json::from_str(&raw) {
+        Ok(map) => map,
+        // Unreadable is not "nothing was announced". Announcing a standing gap
+        // twice is recoverable; silently dropping it is the bug being fixed.
+        Err(error) => {
+            log::warn!(
+                "[integration-silence] {} is unreadable ({error}) - every standing gap announces once more",
+                path.display()
+            );
+            AnnouncedMap::new()
         }
-        Err(error) => log::warn!("[integration-silence] could not serialize state: {error}"),
+    }
+}
+
+/// Renamed into place under the lock that owns the map, so neither a reader nor
+/// a crash can observe the half-written file this used to leave behind.
+fn persist_announced(all: &AnnouncedMap) {
+    let path = announced_path();
+    let Ok(json) = serde_json::to_string_pretty(all) else {
+        return;
+    };
+    let staged = path.with_extension("json.tmp");
+    if let Err(error) = std::fs::write(&staged, json).and_then(|()| std::fs::rename(&staged, &path))
+    {
+        log::warn!(
+            "[integration-silence] could not record announcement state at {}: {error}",
+            path.display()
+        );
+        let _ = std::fs::remove_file(&staged);
     }
 }
 
 /// News only when the observed state differs from the one already announced.
 /// A restart that observes the same gap is the same news, not new news.
 pub fn is_news(provider_id: &str, observed: &AnnouncedIntegrationState) -> bool {
-    announced_all().get(provider_id) != Some(observed)
+    announced().lock().get(provider_id) != Some(observed)
 }
 
 pub fn record_announced(provider_id: &str, observed: &AnnouncedIntegrationState) {
-    let mut all = announced_all();
+    let mut all = announced().lock();
     all.insert(provider_id.to_string(), observed.clone());
-    write_announced(&all);
+    persist_announced(&all);
 }
 
 /// The gap closed, so the next one is news again.
 pub fn clear_announced(provider_id: &str) {
-    let mut all = announced_all();
+    let mut all = announced().lock();
     if all.remove(provider_id).is_some() {
-        write_announced(&all);
+        persist_announced(&all);
     }
 }
 
