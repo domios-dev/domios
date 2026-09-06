@@ -85,6 +85,9 @@ pub(crate) fn clear_unproven_provider_identity(tab: &mut Tab) -> Option<String> 
     tab.agent_type_locked = false;
     tab.agent_set_at = None;
     tab.exit_suspected_at = None;
+    // Provider and model are one identity: a surviving model would label an
+    // agent that is not there.
+    crate::service::tab::clear_runtime_model_evidence(tab);
     previous
 }
 
@@ -269,5 +272,38 @@ mod tests {
         assert!(tab.agent_type.is_none());
         assert_eq!(tab.agent_session_id.as_deref(), Some("owned-session"));
         assert!(!tab.agent_type_locked);
+    }
+}
+
+#[cfg(test)]
+mod unproven_identity_tests {
+    use super::*;
+    use crate::multiplexer::state::MultiplexerState;
+
+    /// Restore reaches this path for a claimed session with no unique provider
+    /// record (TAB-LIFECYCLE.md restore contract, item 3). Both halves of the
+    /// identity go, or the tab keeps a model label with no agent behind it.
+    #[test]
+    fn clearing_an_unproven_provider_takes_the_model_with_it() {
+        let (mut mux, tab_id) = MultiplexerState::new();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_type = Some("claude".into());
+        tab.agent_type_locked = true;
+        tab.agent_session_model = Some("opus".into());
+        tab.agent_set_at = Some(std::time::Instant::now());
+
+        assert_eq!(
+            clear_unproven_provider_identity(tab),
+            Some("claude".to_string())
+        );
+
+        assert!(tab.agent_type.is_none());
+        assert!(
+            tab.agent_session_model.is_none(),
+            "a model must never outlive the provider it belongs to"
+        );
+        assert!(tab.model_identity_mismatch.is_none());
+        assert!(!tab.agent_type_locked);
+        assert!(tab.agent_set_at.is_none());
     }
 }

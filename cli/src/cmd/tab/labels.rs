@@ -1,9 +1,11 @@
 //! One label rule for every CLI tab surface.
 //!
-//! The bracket is the tab's agent IDENTITY — `provider:model`, suffixed by what
-//! was observed about the process — and never its role. Role and mesh peer are
-//! separate axes with their own suffixes, sourced the same way everywhere so
-//! `tab list` and `workspace map` cannot disagree about the same tab.
+//! The agent IDENTITY is `provider:model`, suffixed by what was observed about
+//! the process, and never carries the role. Role and mesh peer are separate
+//! components, sourced the same way everywhere so `tab list` and `workspace map`
+//! cannot disagree about the same tab. `tab list` brackets the identity alone;
+//! `workspace map` brackets a detail list whose first component is the identity.
+//! One rule for the identity, two layouts around it.
 
 use codeterm_types::pty::{agent_bracket_label, AgentLiveness};
 use serde_json::Value;
