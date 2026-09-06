@@ -205,7 +205,9 @@ function TabItemInner({
     bootStage: tab.boot_stage ?? null,
     bootInFlight: tab.agent_booting ?? false,
   });
-  const tabAgentLabel = agentBracketLabel(
+  // The daemon composes the label with the resolved-model fallback; recompute
+  // only for a projection that predates the field, through the same rule.
+  const tabAgentLabel = tab.agent_label ?? agentBracketLabel(
     tab.agent_type,
     tabModel ? formatModelBadge(tabModel) : null,
     agentLiveness,

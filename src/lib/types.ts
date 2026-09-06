@@ -171,6 +171,7 @@ export interface Tab {
   session_binding_nonce?: string | null;
   agent_session_name?: string | null;
   agent_session_model?: string | null;
+  agent_label?: string | null;
   reasoning_effort_identity?: {
     planned?: string | null;
     requested?: string | null;
