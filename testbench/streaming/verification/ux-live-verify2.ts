@@ -1,5 +1,3 @@
-// Multi-tab live UX verifier for the Chat streaming preview (ux-verifier role).
-// Watches EVERY tab that emits chat-stream-preview events on the dev daemon,
 
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";

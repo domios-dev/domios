@@ -4,8 +4,7 @@
  * ORACLE: Seeded fixtures, fixed viewport, web-mode Chromium, and tight screenshot diffs catch layout drift.
  */
 
-// NOT COVERED on Windows: every baseline in visual-regression.spec.ts-snapshots is
-// `<name>-golden-darwin.png`, and Playwright resolves `<name>-<project>-<platform>.png`.
+// A win32 baseline can only come from running the browser and reviewing the images by eye (`pnpm test:pw:visual:regen`); it must never be authored blind.
 import type { Locator } from "@playwright/test";
 import { expect, test, type Page } from "../../helpers/fixtures";
 import type { ApiClient } from "../../helpers/api-client";

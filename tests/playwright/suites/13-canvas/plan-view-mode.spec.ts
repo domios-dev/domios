@@ -70,8 +70,6 @@ test(
       await expect(shell).toHaveAttribute("data-plan-view-mode", "canvas");
       await expect(page.locator(MISSION_CONTROL_PLAN_SURFACE_SEL)).toBeVisible();
       await expect(page.locator(MISSION_CONTROL_LIVE_SEL)).toBeVisible();
-      // NOT COVERED: "canvas mode does not mount the legacy WebGL canvas view".
-      // `canvas-view` lives only in CanvasViewInner, which no longer has a mount
       await expect(page.locator('[data-testid="plan-board-view"]')).toBeHidden();
       await expect(page.locator('[data-testid="plan-list-view"]')).toBeHidden();
 

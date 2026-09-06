@@ -3,8 +3,7 @@
  * WHY: New tabs must not surprise the user by silently switching chat UI defaults.
  * ORACLE: The mode switch selection and the per-tab persisted keys match resolveInitialTabUiMode's branches.
  */
-// The prompt-and-persist flow this spec was written against is gone: no
-// `chat-default-suggestion`/`chat-default-accept` handles, and neither
+// Assert `resolveInitialTabUiMode` because explicit persisted choice and chat capability are the surviving selection rules.
 import { expect, test } from "../../helpers/fixtures";
 
 type ModeLabel = { label: string; selected: boolean };

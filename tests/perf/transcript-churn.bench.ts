@@ -1,5 +1,3 @@
-// Latency oracle: transcript-recompute cost per streamed provider chunk vs.
-// transcript size N. Every `tab-chat-msg` event runs this pipeline
 import {
   mergeById,
   attachToolResults,

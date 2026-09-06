@@ -84,12 +84,9 @@ test.describe("@golden composer draft isolation", () => {
       (await api.workspaces()).find((w) => w.id === ws.id)?.tab_ids ?? [],
     );
 
-    // Open the app fresh so the just-created workspace is present exactly as a
-    // user reopening CodeTerm would see it — deterministic, no dependency on a
     await page.reload({ waitUntil: "domcontentloaded" });
 
-    // The user journey, driven the way a person (or screen reader) would in the
-    // workspace-card sidebar: the workspace's own contents region is revealed
+    // Select the workspace card so its contents region is the user-visible target; the drag wrapper shares its name with the toggle.
     const region = page.getByRole("region", { name: `${ws.name} workspace contents` });
     if (!(await region.isVisible().catch(() => false))) {
       await page

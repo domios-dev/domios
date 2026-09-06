@@ -1,5 +1,3 @@
-// Offline streaming-preview UX simulation.
-// Inputs: a motion timeline (render_timeline output with per-frame turn_frozen/
 
 import { readFileSync, writeFileSync } from "node:fs";
 
@@ -180,12 +178,10 @@ function main(): void {
     current.boundary_rows = prevDisplayed;
     turns.push(current);
   }
-  // Post-hoc split against the FULL conversation canon: a boundary row later
-  // covered was an in-flight message (handover, correct); one never covered
+  // Post-hoc split against the FULL conversation canon: a boundary row later covered was an in-flight message (handover, correct); one never covered anywhere is true stale junk (leftover).
   const fullBlob = canonicalBlob(landed);
   for (const turn of turns) {
-    // A question dialog at the boundary is a dialog CLOSE (answer submitted,
-    // next turn replaces the block) — option labels never land in canon by
+    // A question dialog at the boundary is a dialog CLOSE (answer submitted, next turn replaces the block) — option labels never land in canon by design, so they are handover, not stale junk.
     const stale = hasQuestionDialog(turn.boundary_rows)
       ? []
       : turn.boundary_rows.filter((row) => {
