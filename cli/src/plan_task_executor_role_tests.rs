@@ -24,8 +24,6 @@ fn executor_role_required_add_refuses_a_task_without_a_role() {
 
 // Presence, not vocabulary. This test exists so a future validator, allowlist,
 // minimum length or banned-word list cannot be added quietly: any lexical floor
-// is satisfiable by a longer shrug, and the meaningful floor -- whether the role
-// would change how the Orchestrator launches the task -- is not machine-checkable.
 #[test]
 fn executor_role_required_presence_only_accepts_a_short_unimaginative_role() {
     let parsed = Cli::try_parse_from([

@@ -139,7 +139,6 @@ fn structure_ready_plan_with_only_planning_task_passes_approval_gate() {
 fn from_spec_owned_plan_not_flagged_missing_spec_source() {
     // Issue #231 finding 2: a plan created --from-spec owns its spec via
     // primary_spec_id/spec_refs even when the spec has no sections (no
-    // coverage edges yet). Ownership must satisfy the spec-source check.
     let plan = json!({
         "id": "pl_b5g9vg",
         "title": "SCRATCH-owner-plan",
@@ -873,7 +872,6 @@ fn quality_errors_for_missing_body_without_sidecar() {
 
 // Add-time (`plan task add`) and doctor (`plan doctor --kind quality`) must fire
 // the identical field-missing verdict for the identical task state — both route
-// through `crate::cmd::hints::missing_task_quality_fields`.
 #[test]
 fn add_time_missing_body_hint_matches_doctor_verdict() {
     let dir = tempfile::tempdir().unwrap();

@@ -45,9 +45,6 @@ fn task_readiness_scope_from_task(task: &Value, tab_id: &str) -> TaskReadinessSc
     let lane = task.get("lane");
     // The live attempt's lane binding wins, but only when it actually carries a
     // worktree. A partial attempt without one falls back to the task lane so the
-    // worker's own worktree is still resolved instead of forcing a canonical-HEAD
-    // comparison. worktree and base always come from the SAME record, so a live
-    // attempt never borrows a stale base from the lane.
     let record = match attempt {
         Some(attempt) if nonempty(attempt.get("worktree_path")).is_some() => Some(attempt),
         _ => lane.or(attempt),
