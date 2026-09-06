@@ -1,5 +1,89 @@
 use super::*;
-use crate::types::{PairingRequest, PairingStatus};
+use crate::types::{AccessLevel, PairedPeer, PairingRequest, PairingStatus, PeerAddress};
+
+fn paired_peer_named(id: &str, name: &str, addresses: Vec<&str>) -> PairedPeer {
+    PairedPeer {
+        instance_id: id.into(),
+        instance_name: name.into(),
+        addresses: addresses.into_iter().map(PeerAddress::from_ip).collect(),
+        api_port: 7685,
+        public_key: "pub".into(),
+        paired_at: "now".into(),
+        last_seen: None,
+        online: true,
+        is_primary: false,
+        access_level: AccessLevel::Full,
+        version: None,
+        web_ui: None,
+        relay_protocol_version: 1,
+        consecutive_misses: 0,
+        last_active_ms: None,
+    }
+}
+
+/// codeterm#434: a peer that re-minted its instance_id and re-pairs under the
+/// same name + host must not leave the old id behind as a dead resolution
+/// candidate — `complete_explicit_pairing` supersedes (removes) it.
+#[test]
+fn re_pairing_under_the_same_name_and_host_supersedes_the_old_record() {
+    let mut mesh = MeshManager::new("local".into(), 7685);
+    mesh.disk_persist = false;
+    mesh.complete_explicit_pairing(paired_peer_named(
+        "a4db6f3d-dead",
+        "BLACKSTAR",
+        vec!["100.65.0.30"],
+    ));
+    assert!(mesh.paired_peers.contains_key("a4db6f3d-dead"));
+
+    mesh.complete_explicit_pairing(paired_peer_named(
+        "2556b3f9-live",
+        "BLACKSTAR",
+        vec!["100.65.0.30"],
+    ));
+
+    assert!(
+        !mesh.paired_peers.contains_key("a4db6f3d-dead"),
+        "the old identity must stop being a resolution candidate"
+    );
+    assert!(mesh.paired_peers.contains_key("2556b3f9-live"));
+    assert_eq!(mesh.paired_peers.len(), 1);
+}
+
+/// A same-named peer at a DIFFERENT host is a distinct machine, not a
+/// re-mint — must never be silently deleted.
+#[test]
+fn same_name_different_host_is_not_superseded() {
+    let mut mesh = MeshManager::new("local".into(), 7685);
+    mesh.disk_persist = false;
+    mesh.complete_explicit_pairing(paired_peer_named(
+        "peer-a",
+        "BLACKSTAR",
+        vec!["100.65.0.30"],
+    ));
+    mesh.complete_explicit_pairing(paired_peer_named(
+        "peer-b",
+        "BLACKSTAR",
+        vec!["100.65.0.99"],
+    ));
+
+    assert!(mesh.paired_peers.contains_key("peer-a"));
+    assert!(mesh.paired_peers.contains_key("peer-b"));
+    assert_eq!(mesh.paired_peers.len(), 2);
+}
+
+/// A different-named peer at the same host (e.g. two VMs behind one NAT IP)
+/// must never be superseded by name+host matching alone.
+#[test]
+fn different_name_same_host_is_not_superseded() {
+    let mut mesh = MeshManager::new("local".into(), 7685);
+    mesh.disk_persist = false;
+    mesh.complete_explicit_pairing(paired_peer_named("peer-a", "BLACKSTAR", vec!["100.65.0.30"]));
+    mesh.complete_explicit_pairing(paired_peer_named("peer-b", "ROG", vec!["100.65.0.30"]));
+
+    assert!(mesh.paired_peers.contains_key("peer-a"));
+    assert!(mesh.paired_peers.contains_key("peer-b"));
+    assert_eq!(mesh.paired_peers.len(), 2);
+}
 
 #[test]
 fn check_and_record_nonce_rejects_replay() {

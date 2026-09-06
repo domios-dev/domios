@@ -7,6 +7,7 @@ pub mod discovery;
 pub mod health;
 pub mod identity;
 pub mod manager;
+pub mod paired_resolve;
 pub mod pairing;
 pub mod peer_services;
 pub mod peers;

@@ -495,12 +495,8 @@ impl ServiceContext {
             _ => None,
         };
 
-        // A refused binding is not authority over the destination either. The plan a
-        // stale hint names may be owned by a tab that no longer manages this
-        // reporter, so the owner override is withheld and the recipient falls
-        // through to `resolve_report_target`'s live parent -> report_target ->
-        // spawned_by chain — the same resolution an unhinted report already uses,
-        // and the reason a moved agent stops reporting to its old Orchestrator.
+        // A refused binding withholds the plan-owner override too — a stale hint's
+        // plan may be owned by a tab that no longer manages this reporter.
         let plan_owner_target = eff_plan_id
             .as_deref()
             .filter(|_| !binding_refused)
@@ -686,11 +682,8 @@ impl ServiceContext {
                 let envelope =
                     crate::service::messenger::MessageEnvelope::report(&from_title, tab_id)
                         .model(model.clone());
-                // The target is a TUI that owns its screen: it reflows, collapses
-                // long input to a paste placeholder, and queues while busy. Echo
-                // scraping cannot decide delivery there, and its false negatives
-                // failed reports that had already landed. The report is stored and
-                // broadcast above; the write is the guarantee.
+                // Echo scraping can't decide delivery on a screen-owning TUI (it
+                // reflows/collapses input) — the store+broadcast above is the guarantee.
                 match self.gateway_deliver(
                     &target_id,
                     envelope,
@@ -1122,20 +1115,17 @@ pub fn resolve_report_target(
 
 /// Resolve a paired peer by instance name (case-insensitive) or instance id and
 /// build a signed transport client for it. Name first so the human-facing
-/// `--mesh Mac-Air` works; falls back to a raw instance id.
+/// `--mesh Mac-Air` works; falls back to a raw instance id. When several
+/// paired records share a name (a peer that re-minted its instance_id left a
+/// dead duplicate behind, codeterm#434), prefers the online record with the
+/// highest relay protocol version deterministically instead of whichever the
+/// hashmap iterates first.
 fn resolve_peer_client_by_name(
     mesh: &crate::mesh::manager::MeshManager,
     name: &str,
 ) -> Option<crate::mesh::transport::PeerClient> {
-    if mesh.paired_peers.contains_key(name) {
-        return mesh.client_for(name);
-    }
-    let id = mesh
-        .paired_peers
-        .iter()
-        .find(|(_, p)| p.instance_name.eq_ignore_ascii_case(name))
-        .map(|(id, _)| id.clone())?;
-    mesh.client_for(&id)
+    let peer = crate::mesh::paired_resolve::resolve_paired_by_name(&mesh.paired_peers, name).ok()?;
+    mesh.client_for(&peer.instance_id)
 }
 
 /// Whether a dying leaf tab needs a synthetic death report, and to whom.

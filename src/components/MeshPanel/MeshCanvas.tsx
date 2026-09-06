@@ -7,6 +7,7 @@ import type { PeerStatus } from "./useMeshData";
 import { useCanvasViewport, formatLayerTransform } from "../Canvas/useCanvasViewport";
 import { webLinkWithTokenAndRelay } from "../../lib/webAccess";
 import { RELAY_PROTOCOL_VERSION } from "../../lib/types";
+import { groupServicesByPeer } from "./meshProjection";
 
 export interface RecentPush {
   source_id: string;
@@ -22,6 +23,7 @@ interface PeerLayout {
   y: number;
   isThisMachine?: boolean;
   isPaired?: boolean;
+  pending?: boolean;
   accessLevel?: string;
   isGhost?: boolean;
   servicesStale?: boolean;
@@ -110,7 +112,9 @@ export function MeshCanvas({
         ip: p.ip,
         x: cx + Math.cos(angle) * radius,
         y: cy + Math.sin(angle) * radius,
-        isPaired: true,
+        // A discovered-but-not-paired (vouched) peer must never render as paired (codeterm#440).
+        isPaired: !p.pending,
+        pending: p.pending,
         accessLevel: p.access_level,
         servicesStale: p.services_stale,
         servicesError: p.services_error,
@@ -155,17 +159,7 @@ export function MeshCanvas({
 
   const local = layout[0];
   const remoteLayout = useMemo(() => layout.slice(1), [layout]);
-  const serviceByPeer = useMemo(() => {
-    const grouped = new Map<string, Service[]>();
-    grouped.set("__self__", []);
-    for (const s of services) {
-      const key = s.source_peer_id || s.source_peer || "__self__";
-      const list = grouped.get(key);
-      if (list) list.push(s);
-      else grouped.set(key, [s]);
-    }
-    return grouped;
-  }, [services]);
+  const serviceByPeer = useMemo(() => groupServicesByPeer(services), [services]);
   const pushStatsByPeer = useMemo(() => {
     const now = Date.now();
     const stats = new Map<string, PushStats>();
@@ -352,6 +346,7 @@ export function MeshCanvas({
                 ip={p.ip}
                 isThisMachine={p.isThisMachine}
                 isPaired={p.isPaired}
+                pending={p.pending}
                 accessLevel={p.accessLevel as "full" | "read_only" | "agent_isolated" | undefined}
                 services={serviceByPeer.get(p.id) ?? []}
                 onClick={() => onPeerClick(p.name)}

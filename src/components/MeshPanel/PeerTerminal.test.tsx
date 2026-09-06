@@ -99,6 +99,18 @@ test("card hides cron entries and stale service banners", async () => {
   await act(async () => root.unmount());
 });
 
+test("a discovered-not-paired peer never renders as paired (codeterm#440)", async () => {
+  const { host, root } = await render({
+    ...base,
+    isPaired: false,
+    pending: true,
+    accessLevel: "full",
+  });
+  assert(!host.textContent?.includes("paired ·"), "must not render the paired status line");
+  assert(host.textContent?.includes("pending · auto-pairs when online") === true, "shows the pending affordance instead");
+  await act(async () => root.unmount());
+});
+
 test("clicking peer action opens the verified url and does not select the card", async () => {
   let opened: string | null = null;
   let cardClicked = false;

@@ -9,6 +9,8 @@ interface Props {
   ip: string;
   isThisMachine?: boolean;
   isPaired?: boolean;
+  /** Vouched-by-a-paired-peer but not yet paired itself — must never render as "paired". */
+  pending?: boolean;
   accessLevel?: AccessLevel;
   pairedDuration?: string;
   services: Service[];
@@ -38,6 +40,7 @@ function PeerTerminalComponent({
   ip,
   isThisMachine,
   isPaired,
+  pending,
   accessLevel,
   pairedDuration,
   services,
@@ -126,6 +129,11 @@ function PeerTerminalComponent({
           <div className="mt-2 text-[10px] text-[var(--ct-muted)]">
             paired · access: {accessLevel}
             {pairedDuration ? ` · ${pairedDuration}` : ""}
+          </div>
+        )}
+        {!isPaired && pending && (
+          <div className="mt-2 text-[10px] text-[var(--ct-muted)]">
+            pending · auto-pairs when online
           </div>
         )}
       </div>
