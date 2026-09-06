@@ -326,6 +326,30 @@ test("bound-session pending snapshot renders the provider loader instead of fals
   await act(async () => root.unmount());
 });
 
+test("a host that names no transcript source is reported, and a reported chat is not busy", async () => {
+  const tabId = "sourceless-tab";
+  const state = muxStateFor({
+    [tabId]: tabBase(tabId, { agent_session_id: "bound-session" }),
+  });
+  const { host, root } = await renderTabSessionChat(
+    tabId,
+    state,
+    () => ({ text: "", offset: 0, pending: true, source_missing: true }),
+  );
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  const chat = host.querySelector('[role="region"][aria-label="Tab chat: sourceless-tab"]');
+  assert(host.querySelector('[data-testid="chat-transcript-unavailable"]'), "a sourceless bound session is reported");
+  assert(!host.querySelector('[data-testid="chat-setup-state"]'), "a reported chat never keeps the loader");
+  // aria-busy silences the live region until it flips back; a wait that has
+  // already ended in failure would silence it forever.
+  assert(chat?.getAttribute("aria-busy") === "false", "a reported chat is not announced as busy");
+  assert(host.querySelector('[data-testid="chat-composer"]'), "a reported chat remains interactive");
+  await act(async () => root.unmount());
+});
+
 test("fresh unbound PTY launch failure remains neutral loading", async () => {
   const tabId = "fresh-unbound-chat";
   const state = muxStateFor({
