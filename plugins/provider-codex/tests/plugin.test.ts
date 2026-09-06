@@ -137,11 +137,20 @@ console.log("\n--- task instructions launch ---\n");
   }));
   const hostileTask = "line one\n<location>D:\\repo</location>\n'quotes' \"double\" $HOME `whoami` --flag\nюникод";
   const cmd = p.buildLaunchCommand({ task: hostileTask, args: ["--model", "gpt-5.5"] });
-  assert(cmd.includes("System.Web.Script.Serialization.JavaScriptSerializer"), "Windows serializes instructions without native argv interpolation");
+  assert(!cmd.includes("System.Web"), "Windows launch never references System.Web (PowerShell 7 has no .NET Framework assembly to load)");
+  assert(!cmd.includes("JavaScriptSerializer"), "Windows launch never references JavaScriptSerializer (Framework-only type)");
+  assert(cmd.includes("ConvertTo-Json -Compress"), "Windows serializes instructions with the built-in cmdlet available on both PowerShell editions");
   assert(cmd.includes("$ctTaskInstructions = Get-Content -Raw -Encoding UTF8 'C:\\Temp\\codeterm task.md'"), "Windows loads developer instructions from the task file");
   assert(cmd.includes("$env:CODETERM_TAB_ID -replace '[^A-Za-z0-9_-]', '-'"), "Windows scopes the temporary profile to the tab lifecycle");
   assert(cmd.includes("Set-Content -LiteralPath $ctProfilePath"), "Windows writes a temporary Codex profile");
-  assert(cmd.includes("Remove-Item -LiteralPath 'C:\\Temp\\codeterm task.md'"), "Windows removes the copied task file before Codex starts");
+  const profileValueAssignment = /-Value \('developer_instructions = ' \+ (\$\w+)\)/.exec(cmd);
+  assert(!!profileValueAssignment, "the profile content assigns developer_instructions from a variable expression, not a bare literal");
+  const jsonVarName = profileValueAssignment?.[1] ?? "";
+  assert(
+    !!jsonVarName && cmd.includes(`${jsonVarName} = ($ctTaskInstructions | ConvertTo-Json`),
+    "the developer_instructions variable is always produced by ConvertTo-Json, so the profile line can never render as a bare 'developer_instructions = '",
+  );
+  assert(!cmd.includes("Remove-Item -LiteralPath 'C:\\Temp\\codeterm task.md'"), "Windows launch line never deletes the task file, so a relaunch can still read it");
   assert(cmd.includes("--profile $ctProfileName --"), "Windows passes only the short profile name through native argv");
   assert(cmd.includes("finally { Remove-Item -LiteralPath $ctProfilePath"), "Windows removes the temporary profile on exit");
   assert(!cmd.includes('-c ("developer_instructions=" +'), "Windows never expands multiline task text inline in the native call");
@@ -177,6 +186,31 @@ console.log("\n--- task instructions launch ---\n");
     profileComputation(secondLaunch),
     "the profile path computation depends only on the tab id, so a relaunch targets the same file and overwrites rather than accumulating",
   );
+
+  assert(!firstLaunch.includes("Remove-Item -LiteralPath 'C:\\Temp\\codeterm task.md'"), "the first launch attempt never deletes the task file");
+  assert(!secondLaunch.includes("Remove-Item -LiteralPath 'C:\\Temp\\codeterm task.md'"), "a rebuilt relaunch command never deletes the task file either");
+  assert(
+    secondLaunch.includes("Get-Content -Raw -Encoding UTF8 'C:\\Temp\\codeterm task.md'"),
+    "a relaunch still reads the task file from the exact path the prior attempt left in place",
+  );
+}
+
+console.log("\n--- non-Windows launch branch is unaffected by the Windows fix ---\n");
+
+{
+  const p = loadCodexWithHost(baseHost({
+    platform: () => "linux",
+    fs: { ...baseHost({}).fs, writeTempFile: () => "/tmp/codeterm-task.md" },
+  }));
+  const cmd = p.buildLaunchCommand({ task: "some task body", args: ["--model", "gpt-5.5"], starterPrompt: "no_starter" });
+  eq(
+    cmd,
+    'codex --model gpt-5.5 -c "developer_instructions=$(cat /tmp/codeterm-task.md)"',
+    "the macOS/Linux launch line keeps its exact prior shape",
+  );
+  assert(!cmd.includes("System.Web") && !cmd.includes("JavaScriptSerializer"), "non-Windows launch never carries the Windows-only serializer reference");
+  assert(!cmd.includes("ConvertTo-Json") && !cmd.includes("Set-Content") && !cmd.includes("$ctProfile"), "non-Windows launch has no PowerShell profile machinery");
+  assert(!cmd.includes("Remove-Item"), "non-Windows launch never deleted the task file, before or after this fix");
 }
 
 console.log("\n--- meta ---\n");
