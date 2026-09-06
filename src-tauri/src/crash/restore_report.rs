@@ -1,10 +1,12 @@
-//! Per-pane session-restore report. Session restore used to drop worker panes
-//! silently; this records, for every agent/worker pane the snapshot held,
-//! whether it came back — so a dropped pane is surfaced, never lost.
+//! Per-pane session-restore report. A pane counts as restored only when an
+//! agent process was observed live behind it — the tab record coming back is
+//! the question, never the answer. A pane whose record returned as a bare shell
+//! is reported as NOT restored, and the all-N-restored summary is withheld.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
+use codeterm_types::pty::AgentLiveness;
 use serde::{Deserialize, Serialize};
 
 /// One agent/worker pane the dead session snapshot carried into restore.
@@ -25,6 +27,12 @@ pub enum DropReason {
     /// Present in the snapshot, absent from the restored multiplexer state
     /// (ghost-purged or failed to rebuild).
     NotRestored,
+    /// The tab record came back, but no agent process is live behind it — the
+    /// pane is a bare shell wearing its old identity.
+    AgentNotLive,
+    /// The tab record came back and liveness has not been observed yet. An
+    /// honest third state: this pane is neither claimed restored nor lost.
+    AgentLivenessUnobserved,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -32,16 +40,40 @@ pub struct PaneOutcome {
     #[serde(flatten)]
     pub pane: RestorePane,
     pub restored: bool,
+    pub liveness: AgentLiveness,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub drop_reason: Option<DropReason>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RestoreReport {
     pub bound: u32,
     pub restored: u32,
     pub dropped: u32,
+    /// Records that came back without a live agent behind them.
+    pub shell_only: u32,
+    /// Records that came back with liveness not yet observable.
+    pub unobserved: u32,
+    /// How the previous epoch ended, when the recovery record knows: a clean
+    /// shutdown reason, a crash classification, or nothing. Restore attributing
+    /// its own losses is what turns the next incident into evidence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_epoch_end: Option<String>,
     pub panes: Vec<PaneOutcome>,
+}
+
+impl Default for RestoreReport {
+    fn default() -> Self {
+        Self {
+            bound: 0,
+            restored: 0,
+            dropped: 0,
+            shell_only: 0,
+            unobserved: 0,
+            previous_epoch_end: None,
+            panes: Vec::new(),
+        }
+    }
 }
 
 impl RestoreReport {
@@ -52,58 +84,113 @@ impl RestoreReport {
     pub fn has_dropped(&self) -> bool {
         self.dropped > 0
     }
+
+    /// True only when every bound pane came back with an agent observed live.
+    /// The success summary is gated on this and nothing else.
+    pub fn every_pane_has_a_live_agent(&self) -> bool {
+        self.bound > 0 && self.restored == self.bound
+    }
+
+    pub fn with_previous_epoch_end(mut self, end: Option<String>) -> Self {
+        self.previous_epoch_end = end;
+        self
+    }
 }
 
-/// Deterministic: outcome depends only on which bound tab ids came back, and
-/// panes are ordered by tab id so the report is stable across runs.
+fn outcome_for(pane: &RestorePane, present: bool, liveness: AgentLiveness) -> PaneOutcome {
+    // Structural absence dominates: a record that never came back cannot have a
+    // liveness verdict at all.
+    let (restored, drop_reason) = match (present, liveness) {
+        (false, _) => (false, Some(DropReason::NotRestored)),
+        (true, AgentLiveness::Live) => (true, None),
+        (true, AgentLiveness::Absent) => (false, Some(DropReason::AgentNotLive)),
+        (true, AgentLiveness::Unobserved) => (false, Some(DropReason::AgentLivenessUnobserved)),
+    };
+    PaneOutcome {
+        pane: pane.clone(),
+        restored,
+        liveness: if present {
+            liveness
+        } else {
+            AgentLiveness::Absent
+        },
+        drop_reason,
+    }
+}
+
+/// Deterministic: outcome depends only on which bound tab ids came back and
+/// what was observed behind them; panes are ordered by tab id so the report is
+/// stable across runs. A tab id present in `restored_ids` but missing from
+/// `liveness` is `Unobserved`, never assumed live.
 pub fn build_restore_report(
     bound: &[RestorePane],
     restored_ids: &BTreeSet<String>,
+    liveness: &BTreeMap<String, AgentLiveness>,
 ) -> RestoreReport {
     let mut panes: Vec<PaneOutcome> = bound
         .iter()
         .map(|pane| {
-            let restored = restored_ids.contains(&pane.tab_id);
-            PaneOutcome {
-                pane: pane.clone(),
-                restored,
-                drop_reason: (!restored).then_some(DropReason::NotRestored),
-            }
+            let present = restored_ids.contains(&pane.tab_id);
+            let observed = liveness
+                .get(&pane.tab_id)
+                .copied()
+                .unwrap_or(AgentLiveness::Unobserved);
+            outcome_for(pane, present, observed)
         })
         .collect();
     panes.sort_by(|a, b| a.pane.tab_id.cmp(&b.pane.tab_id));
     let restored = panes.iter().filter(|p| p.restored).count() as u32;
+    let shell_only = panes
+        .iter()
+        .filter(|p| p.drop_reason == Some(DropReason::AgentNotLive))
+        .count() as u32;
+    let unobserved = panes
+        .iter()
+        .filter(|p| p.drop_reason == Some(DropReason::AgentLivenessUnobserved))
+        .count() as u32;
     RestoreReport {
         bound: panes.len() as u32,
         restored,
         dropped: panes.len() as u32 - restored,
+        shell_only,
+        unobserved,
+        previous_epoch_end: None,
         panes,
     }
 }
 
-/// Surface the report: WARN per dropped pane (named), INFO summary. A dropped
-/// pane leaves an explicit log line instead of a silently-shorter workspace.
+/// Surface the report: WARN per pane that did not come back with a live agent
+/// (named, with its role and why), INFO summary ONLY when every pane did.
 pub fn log_report(report: &RestoreReport) {
     if report.bound == 0 {
         return;
     }
-    if report.has_dropped() {
-        log::warn!(
-            "[restore] {} of {} agent pane(s) not restored — dropped panes follow",
-            report.dropped,
+    if report.every_pane_has_a_live_agent() {
+        log::info!(
+            "[restore] all {} agent pane(s) restored with a live agent",
             report.bound
         );
-        for outcome in report.dropped_panes() {
-            log::warn!(
-                "[restore] dropped pane tab={} role={:?} agent_type={:?} session={:?}",
-                outcome.pane.tab_id,
-                outcome.pane.role,
-                outcome.pane.agent_type,
-                outcome.pane.agent_session_id
-            );
-        }
-    } else {
-        log::info!("[restore] all {} agent pane(s) restored", report.bound);
+        return;
+    }
+    log::warn!(
+        "[restore] {} of {} agent pane(s) did not come back with a live agent \
+         (record-only={} liveness-unobserved={} previous_epoch_end={}) — panes follow",
+        report.dropped,
+        report.bound,
+        report.shell_only,
+        report.unobserved,
+        report.previous_epoch_end.as_deref().unwrap_or("unknown")
+    );
+    for outcome in report.dropped_panes() {
+        log::warn!(
+            "[restore] pane tab={} role={:?} agent_type={:?} session={:?} liveness={} reason={:?}",
+            outcome.pane.tab_id,
+            outcome.pane.role,
+            outcome.pane.agent_type,
+            outcome.pane.agent_session_id,
+            outcome.liveness.as_str(),
+            outcome.drop_reason
+        );
     }
 }
 
@@ -136,11 +223,96 @@ pub fn persist(report: &RestoreReport) {
 
 /// Compute, surface, and persist in one call. Returns the report for callers
 /// that also feed binding evidence to the recovery record.
-pub fn record(bound: &[RestorePane], restored_ids: &BTreeSet<String>) -> RestoreReport {
-    let report = build_restore_report(bound, restored_ids);
+pub fn record(
+    bound: &[RestorePane],
+    restored_ids: &BTreeSet<String>,
+    liveness: &BTreeMap<String, AgentLiveness>,
+    previous_epoch_end: Option<String>,
+) -> RestoreReport {
+    let report = build_restore_report(bound, restored_ids, liveness)
+        .with_previous_epoch_end(previous_epoch_end);
     log_report(&report);
     persist(&report);
     report
+}
+
+/// How the epoch that owned these panes ended, as one label. Restore losses
+/// that are explained by a planned exit must not read as an unexplained crash,
+/// and an unexplained one must not hide behind a plausible story.
+pub fn previous_epoch_end_label() -> Option<String> {
+    let state = crate::crash::lifecycle::recovery_state();
+    if let Some(crash) = state.last_crash.as_ref() {
+        return Some(format!("crash:{:?}", crash.classification));
+    }
+    state
+        .last_clean_shutdown
+        .as_ref()
+        .map(|clean| format!("clean_shutdown:{:?}", clean.reason))
+}
+
+/// The restore wave the current process is still settling. Armed at startup,
+/// when no pane's liveness is observable yet, and disarmed once every pane has
+/// a terminal verdict. Nothing in here is time-driven: the report is recomputed
+/// when an observation changes and never otherwise.
+struct PendingRestore {
+    bound: Vec<RestorePane>,
+    previous_epoch_end: Option<String>,
+    observed: BTreeMap<String, AgentLiveness>,
+}
+
+static PENDING: parking_lot::Mutex<Option<PendingRestore>> = parking_lot::Mutex::new(None);
+
+/// Tab ids the current restore wave is still waiting on. Empty when nothing is
+/// armed, which is the cheap early-out for the settle hook.
+pub fn pending_tab_ids() -> Vec<String> {
+    PENDING
+        .lock()
+        .as_ref()
+        .map(|pending| {
+            pending
+                .bound
+                .iter()
+                .map(|pane| pane.tab_id.clone())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Arm the wave and write the honest opening report: at this point the tab
+/// records are back and not one agent has been observed.
+pub fn arm(bound: Vec<RestorePane>, restored_ids: &BTreeSet<String>) -> RestoreReport {
+    let previous_epoch_end = previous_epoch_end_label();
+    let observed: BTreeMap<String, AgentLiveness> = BTreeMap::new();
+    let report = record(&bound, restored_ids, &observed, previous_epoch_end.clone());
+    *PENDING.lock() = Some(PendingRestore {
+        bound,
+        previous_epoch_end,
+        observed,
+    });
+    report
+}
+
+/// Fold a fresh set of observations into the armed wave. Re-records only when a
+/// verdict actually changed, and disarms once no pane is `Unobserved`.
+pub fn settle(restored_ids: &BTreeSet<String>, observed: BTreeMap<String, AgentLiveness>) -> bool {
+    let Some((bound, previous_epoch_end)) = ({
+        let mut guard = PENDING.lock();
+        let Some(pending) = guard.as_mut() else {
+            return false;
+        };
+        if pending.observed == observed {
+            return false;
+        }
+        pending.observed = observed.clone();
+        Some((pending.bound.clone(), pending.previous_epoch_end.clone()))
+    }) else {
+        return false;
+    };
+    let report = record(&bound, restored_ids, &observed, previous_epoch_end);
+    if report.unobserved == 0 {
+        *PENDING.lock() = None;
+    }
+    true
 }
 
 #[cfg(test)]
@@ -160,6 +332,20 @@ mod tests {
         items.iter().map(|s| s.to_string()).collect()
     }
 
+    fn live(items: &[&str]) -> BTreeMap<String, AgentLiveness> {
+        items
+            .iter()
+            .map(|s| (s.to_string(), AgentLiveness::Live))
+            .collect()
+    }
+
+    fn observed(items: &[(&str, AgentLiveness)]) -> BTreeMap<String, AgentLiveness> {
+        items
+            .iter()
+            .map(|(id, liveness)| (id.to_string(), *liveness))
+            .collect()
+    }
+
     #[test]
     fn dropped_worker_pane_is_surfaced_not_lost() {
         // Orchestrator + newest worker restored; three older workers dropped —
@@ -171,7 +357,8 @@ mod tests {
             pane("w-2", Some("worker"), Some("codex")),
             pane("w-3", Some("worker"), Some("codex")),
         ];
-        let report = build_restore_report(&bound, &ids(&["orch", "w-new"]));
+        let report =
+            build_restore_report(&bound, &ids(&["orch", "w-new"]), &live(&["orch", "w-new"]));
         assert_eq!(report.bound, 5);
         assert_eq!(report.restored, 2);
         assert_eq!(report.dropped, 3);
@@ -191,7 +378,7 @@ mod tests {
             pane("orch", Some("orchestrator"), Some("claude")),
             pane("w-1", Some("worker"), Some("codex")),
         ];
-        let report = build_restore_report(&bound, &ids(&["orch", "w-1"]));
+        let report = build_restore_report(&bound, &ids(&["orch", "w-1"]), &live(&["orch", "w-1"]));
         assert!(!report.has_dropped());
         assert_eq!(report.restored, 2);
         assert_eq!(report.dropped_panes().count(), 0);
@@ -208,16 +395,17 @@ mod tests {
             pane("w-2", None, Some("codex")),
         ];
         let restored = ids(&["w-1"]);
+        let liveness = live(&["w-1"]);
         assert_eq!(
-            build_restore_report(&a, &restored),
-            build_restore_report(&b, &restored),
+            build_restore_report(&a, &restored, &liveness),
+            build_restore_report(&b, &restored, &liveness),
             "pane ordering must not change the report"
         );
     }
 
     #[test]
     fn empty_binding_set_is_a_clean_no_op_report() {
-        let report = build_restore_report(&[], &ids(&[]));
+        let report = build_restore_report(&[], &ids(&[]), &live(&[]));
         assert_eq!(report, RestoreReport::default());
         assert!(!report.has_dropped());
     }
@@ -225,9 +413,132 @@ mod tests {
     #[test]
     fn report_round_trips_through_json() {
         let bound = vec![pane("w-1", Some("worker"), Some("codex"))];
-        let report = build_restore_report(&bound, &ids(&[]));
+        let report = build_restore_report(&bound, &ids(&[]), &live(&[]));
         let json = serde_json::to_string(&report).unwrap();
         let back: RestoreReport = serde_json::from_str(&json).unwrap();
         assert_eq!(report, back);
+    }
+
+    /// THE acceptance target, from the live reproduction: the pane's tab id IS
+    /// in the restored set, its role is intact, and there is no agent process.
+    #[test]
+    fn a_record_that_came_back_without_a_live_agent_is_not_restored() {
+        let bound = vec![
+            pane("orch", Some("orchestrator"), Some("claude")),
+            pane("planner", Some("manager"), Some("claude")),
+        ];
+        let report = build_restore_report(
+            &bound,
+            &ids(&["orch", "planner"]),
+            &observed(&[
+                ("orch", AgentLiveness::Live),
+                ("planner", AgentLiveness::Absent),
+            ]),
+        );
+
+        assert_eq!(report.bound, 2);
+        assert_eq!(report.restored, 1, "only the pane with a live agent counts");
+        assert_eq!(report.dropped, 1);
+        assert_eq!(report.shell_only, 1);
+
+        let dropped: Vec<&PaneOutcome> = report.dropped_panes().collect();
+        assert_eq!(dropped.len(), 1);
+        assert_eq!(dropped[0].pane.tab_id, "planner");
+        assert_eq!(dropped[0].pane.role.as_deref(), Some("manager"));
+        assert_eq!(
+            dropped[0].drop_reason,
+            Some(DropReason::AgentNotLive),
+            "a bare-shell pane must be distinguishable from one that never came back"
+        );
+        assert_ne!(dropped[0].drop_reason, Some(DropReason::NotRestored));
+    }
+
+    #[test]
+    fn unobserved_liveness_is_neither_restored_nor_a_lost_record() {
+        let bound = vec![pane("w-1", Some("worker"), Some("codex"))];
+        let report = build_restore_report(
+            &bound,
+            &ids(&["w-1"]),
+            &observed(&[("w-1", AgentLiveness::Unobserved)]),
+        );
+        assert_eq!(report.restored, 0);
+        assert_eq!(report.unobserved, 1);
+        assert_eq!(report.shell_only, 0);
+        assert_eq!(
+            report.panes[0].drop_reason,
+            Some(DropReason::AgentLivenessUnobserved)
+        );
+    }
+
+    #[test]
+    fn a_missing_liveness_entry_is_unobserved_never_assumed_live() {
+        let bound = vec![pane("w-1", Some("worker"), Some("codex"))];
+        let report = build_restore_report(&bound, &ids(&["w-1"]), &BTreeMap::new());
+        assert_eq!(report.restored, 0);
+        assert_eq!(report.panes[0].liveness, AgentLiveness::Unobserved);
+    }
+
+    #[test]
+    fn a_record_that_never_came_back_keeps_its_own_drop_reason() {
+        let bound = vec![pane("gone", Some("worker"), Some("codex"))];
+        let report = build_restore_report(
+            &bound,
+            &ids(&[]),
+            &observed(&[("gone", AgentLiveness::Live)]),
+        );
+        assert_eq!(
+            report.panes[0].drop_reason,
+            Some(DropReason::NotRestored),
+            "structural absence dominates a stale liveness entry"
+        );
+    }
+
+    /// The success line is a claim about processes, so it is emitted only when
+    /// every pane has one. Asserted on the gate the logger reads, never on the
+    /// wording of the line.
+    #[test]
+    fn the_all_restored_summary_is_withheld_when_any_pane_has_no_live_agent() {
+        let bound = vec![
+            pane("orch", Some("orchestrator"), Some("claude")),
+            pane("planner", Some("manager"), Some("claude")),
+        ];
+
+        let all_live = build_restore_report(
+            &bound,
+            &ids(&["orch", "planner"]),
+            &live(&["orch", "planner"]),
+        );
+        assert!(all_live.every_pane_has_a_live_agent());
+
+        for degraded in [AgentLiveness::Absent, AgentLiveness::Unobserved] {
+            let report = build_restore_report(
+                &bound,
+                &ids(&["orch", "planner"]),
+                &observed(&[("orch", AgentLiveness::Live), ("planner", degraded)]),
+            );
+            assert!(
+                !report.every_pane_has_a_live_agent(),
+                "summary must be withheld for {degraded:?}"
+            );
+            assert!(report.has_dropped());
+        }
+    }
+
+    #[test]
+    fn the_report_carries_how_the_previous_epoch_ended() {
+        let bound = vec![pane("orch", Some("orchestrator"), Some("claude"))];
+        let report = build_restore_report(
+            &bound,
+            &ids(&["orch"]),
+            &observed(&[("orch", AgentLiveness::Absent)]),
+        )
+        .with_previous_epoch_end(Some("clean_shutdown:update".to_string()));
+        assert_eq!(
+            report.previous_epoch_end.as_deref(),
+            Some("clean_shutdown:update")
+        );
+        let back: RestoreReport =
+            serde_json::from_str(&serde_json::to_string(&report).unwrap()).unwrap();
+        assert_eq!(back.previous_epoch_end, report.previous_epoch_end);
     }
 }

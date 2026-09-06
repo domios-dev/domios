@@ -17,8 +17,10 @@ pub(crate) use super::spawn_params::{
 mod spawn_model;
 pub use spawn_model::ModelFallbackNotice;
 pub(crate) use spawn_model::{
-    attach_planned_model, model_fallback_notice_title, persist_model_launch_identity,
-    resolve_fresh_agent_model, resolve_fresh_agent_model_with_notice, CatalogBackgroundModelPort,
+    attach_planned_model, model_fallback_notice_title, normalize_session_model,
+    persist_model_launch_identity, resolve_fresh_agent_model,
+    resolve_fresh_agent_model_with_notice, unrequested_substitution_severity,
+    CatalogBackgroundModelPort,
 };
 
 #[path = "spawn_hidden_delivery.rs"]
@@ -452,9 +454,8 @@ impl ServiceContext {
                 }
             }
         } else {
-            // Roleless spawn: link it into the hierarchy so it is never an
-            // untracked, unattributable pane. Bind the spawner as parent, flag
-            // it as a tracked roleless agent, and write a durable audit row.
+            // Roleless spawn: bind the spawner as parent and audit it, so the
+            // pane is never untracked and unattributable.
             let spawner = roleless_spawner(&agent, &spec);
             if let Some(ref parent) = spawner {
                 let mut mux = self.mux.write();
@@ -482,9 +483,8 @@ impl ServiceContext {
                 );
             }
         }
-        // After role placement, which owns `parent_tab_id`/`team_id` for a
-        // role-bearing tab. Written before launch so the PTY inherits
-        // CODETERM_TEAM_ID.
+        // After role placement, which owns parent/team for a roled tab, and
+        // before launch so the PTY inherits CODETERM_TEAM_ID.
         if let Some(attachment) = &team_attachment {
             let applied = {
                 let mut mux = self.mux.write();

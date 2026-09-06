@@ -67,6 +67,9 @@ pub(crate) fn clear_agent_identity_for_lifecycle_exit(
     tab.agent_state = None;
     tab.pending_prompt = None;
     tab.exit_suspected_at = None;
+    // Provider and model are one identity: a tab must never keep a model label
+    // for a provider it no longer has.
+    clear_runtime_model_evidence(tab);
     crate::service::boot_stage::apply_boot_stage(
         tab,
         codeterm_types::pty::BootStage::ShellReady,
@@ -340,6 +343,19 @@ impl ServiceContext {
     }
 
     pub(crate) fn clear_tab_agent_identity_for_lifecycle_exit(&self, tab_id: &str) -> bool {
+        self.clear_tab_agent_identity_for_lifecycle_exit_with_cause(
+            tab_id,
+            "agent identity cleared on lifecycle exit",
+        )
+    }
+
+    /// Same teardown, with the observed cause of death written to the lifecycle
+    /// journal instead of a generic label.
+    pub(crate) fn clear_tab_agent_identity_for_lifecycle_exit_with_cause(
+        &self,
+        tab_id: &str,
+        cause: &str,
+    ) -> bool {
         let cleared = {
             let mut mux = self.mux.write();
             mux.get_tab_mut(tab_id)
@@ -351,14 +367,11 @@ impl ServiceContext {
         self.record_lifecycle_end(
             tab_id,
             crate::session::lifecycle::LifecycleTransition::RolledBack {
-                reason: "agent identity cleared on lifecycle exit".to_string(),
+                reason: cause.to_string(),
             },
         );
         self.invalidate_guarded_agent_input(tab_id);
-        log::info!(
-            "[agent-lifecycle] cleared Tab identity after explicit exit: {}",
-            tab_id
-        );
+        log::info!("[agent-lifecycle] cleared Tab identity: tab={tab_id} cause={cause}");
         self.signal_worker_interruption(
             tab_id,
             crate::service::worker_interruption::WorkerInterruptionEvent::ProcessExited,
@@ -566,6 +579,7 @@ impl ServiceContext {
             .agent_registry
             .with_provider(agent_id, |p| p.detect_session_model(&cwd, &sid))
             .flatten()
+            .map(|model| crate::service::spawn::normalize_session_model(&model))
         else {
             return;
         };
@@ -585,6 +599,9 @@ impl ServiceContext {
         let should_notify = identity_update.mismatch.is_some() && current_mismatch.is_none();
         if should_notify {
             if let Some(mismatch) = identity_update.mismatch.as_ref() {
+                let severity = crate::service::spawn::unrequested_substitution_severity(
+                    mismatch.planned_model.as_deref(),
+                );
                 let title = format!(
                     "model fallback: requested {}, actual {}",
                     mismatch.requested_model, mismatch.actual_model
@@ -595,13 +612,14 @@ impl ServiceContext {
                         "Provider runtime session metadata reported a different model than the launch request."
                             .to_string(),
                     ),
-                    Some("warning"),
+                    Some(severity),
                 );
                 log::warn!(
-                    "[session-model] tab={} requested_model={} actual_model={} fallback_reason=runtime_session_model_mismatch",
+                    "[session-model] tab={} requested_model={} actual_model={} severity={} fallback_reason=runtime_session_model_mismatch",
                     tab_id,
                     mismatch.requested_model,
-                    mismatch.actual_model
+                    mismatch.actual_model,
+                    severity
                 );
             }
         }
