@@ -616,7 +616,7 @@ export function TabSessionChat({
       data-tab-id={tabId}
       role="region"
       aria-label={`Tab chat: ${tab?.title ?? tabId}`}
-      aria-busy={setupView.kind === "starting"}
+      aria-busy={chatChannelLoading && setupView.kind !== "failed"}
       style={{
         background: "var(--ct-bg, #0d1117)",
         color: "var(--ct-fg, #c9d1d9)",
