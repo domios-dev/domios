@@ -637,7 +637,7 @@ pub fn session_chat_snapshot(
             .flatten()
             .ok_or("provider has no JSONL and no structured chat")?;
         let snap = session_window::snapshot(&svc.agent_registry, provider_id, &path);
-        session_window::log_bounded_snapshot(session_id, provider_id, &snap);
+        session_window::log_bounded_snapshot(&format!("session:{session_id}"), provider_id, &snap);
         snap.messages
     };
 

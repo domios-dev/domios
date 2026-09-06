@@ -21,6 +21,7 @@ import {
   type ChatBackfillResult,
   type ChatMsgEvent,
   type ChatStartResult,
+  type ChatUnavailableReason,
 } from "./chatSessionAuthority";
 import { useChatAttachment } from "./chatAttachment";
 import { listenForTestChatReplies } from "./chatTestBridge";
@@ -102,6 +103,8 @@ export function useChatSession({
   const [error, setError] = useState<string | null>(null);
   const [listenerReady, setListenerReady] = useState(false);
   const [attachmentState, setAttachmentState] = useState<ChatAttachmentState>("idle");
+  const [transcriptUnavailable, setTranscriptUnavailable] =
+    useState<ChatUnavailableReason | null>(null);
   const onErrorRef = useRef(onError);
   const diagnosticSinkRef = useRef(diagnosticSink);
   const activeRef = useRef(active);
@@ -182,6 +185,7 @@ export function useChatSession({
       clearPersistedChatScrollState(windowKeyRef.current);
     }
     setError(null);
+    setTranscriptUnavailable(null);
     attachmentStateRef.current = "attaching";
     setAttachmentState("attaching");
     beginAttach();
@@ -201,6 +205,7 @@ export function useChatSession({
   const markAttached = useCallback(() => {
     attachmentStateRef.current = "attached";
     setAttachmentState("attached");
+    setTranscriptUnavailable(null);
     setLoading(false);
   }, []);
 
@@ -303,6 +308,7 @@ export function useChatSession({
       clearPersistedChatScrollState(windowKeyRef.current);
       setListenerReady(false);
       setLoading(false);
+      setTranscriptUnavailable(null);
       attachmentStateRef.current = "idle";
       setAttachmentState("idle");
       return;
@@ -453,6 +459,13 @@ export function useChatSession({
             setAttachmentState("awaiting_session");
             setLoading(false);
             setError(null);
+            return;
+          }
+          // The tab never moved, so nothing will re-ask on its behalf; report
+          // the mismatch instead of waiting on an attach that cannot complete.
+          if (tabAuthorityUnchanged) {
+            setTranscriptUnavailable("authority_mismatch");
+            setLoading(false);
           }
           return;
         }
@@ -483,6 +496,7 @@ export function useChatSession({
           // attach. Nothing here waits on elapsed time.
           attachmentStateRef.current = "awaiting_store";
           setAttachmentState("awaiting_store");
+          if (res.source_missing === true) setTranscriptUnavailable("no_transcript_source");
           replaceOnNextLiveEventRef.current = true;
           const pending = pendingLiveEventsRef.current.splice(0);
           if (pending.length > 0) {
@@ -607,6 +621,9 @@ export function useChatSession({
       && (attachmentState === "awaiting_store" || attachmentState === "awaiting_session"),
     error,
     attachmentState,
+    /** Set = the wait is over and it failed; the view reports it rather than
+     *  spinning. Cleared by a fresh attach or an observed delta, never by time. */
+    transcriptUnavailable,
     retry,
     setError,
     allMessages: view.allMessages,
