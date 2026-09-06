@@ -395,6 +395,39 @@ gh release edit "v$VER" --repo rollacode/codeterm --draft=false --latest
 
 ## Issue closure contracts
 
+### Open the living PR body when the train starts, not when it ends
+
+The first act of a release train is `docs/release/<version>-pr.md`, created before the first lane is
+dispatched. It carries the plan id and goal, the slice-to-issue map, and empty "Fixed",
+"Investigated, not fixed", and "Deferred, with reasons" sections. Each slice appends its own block
+there **as its lane merges into `develop`**, with one `Repository-Issue:` metadata line per issue it
+actually fixed.
+
+This exists because the alternative has failed in practice: reconstructing the closing set from
+`git log` at release time is when issues get missed, and a fix that closed an issue nobody recorded
+leaves that issue open for the next train to rediscover. Writing the entry at merge time costs one
+paragraph while the work is still in the author's head.
+
+Rules the renderer enforces, so they are not optional:
+
+- Only a `Repository-Issue:` line counts. A bare `#123` anywhere in the body fails validation — put
+  issue numbers in backticks in prose, tables, and deferral notes.
+- An issue you investigated but did not fix gets `Refs` and a backticked number, never a closing
+  keyword. Declaring a fix you did not ship is worse than declaring nothing.
+- A deferred issue is named in the body with its reason. "Not in this release" is a decision and
+  belongs in the record; silently dropping it is not.
+
+Before opening the final `develop` → `master` PR, render the closing block rather than hand-writing
+it:
+
+```bash
+python3 scripts/release_issue_contract.py repository-closes --body-file docs/release/<version>-pr.md
+```
+
+Run it early and often — it is also the validator, and it fails the same way CI will.
+
+### The two-stage contract
+
 Source-repository issues use a separate two-stage contract. Integration PRs targeting
 non-default branches declare one exact line per fixed issue:
 
@@ -576,4 +609,4 @@ node scripts/sync-release-notes.mjs --backfill 10
 The command refuses missing mirror releases, empty generated notes, and bodies too short to be
 meaningful. It then writes the exact same Markdown to both repositories.
 
-<!-- revision: 39 -->
+<!-- revision: 40 -->
