@@ -195,9 +195,6 @@ export async function runScenario(o: ScenarioOptions): Promise<RunRow> {
   try {
     // Attach before the storm, as a browser with these tabs mounted would be.
     // A peer tab's output only arrives through the REMOTE output path, which
-    // subscribeTabOutput selects on a composite `mesh:<peer>/<tab>` id. Bare
-    // peer ids look local, subscribe to the local stream, and report total
-    // loss that is the harness's fault rather than the mirror's.
     const oracleMarkers = o.outputMarkers && o.relayPeer
       ? new Map([...o.outputMarkers].map(([id, m]) =>
           [`mesh:${o.relayPeer?.id}/${id}`, m] as [string, string]))

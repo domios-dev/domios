@@ -1,11 +1,5 @@
-// Run: npx tsx src/components/Notifications/action_provenance/legacy_row.test.ts
-//
 // The legacy-row decision. A stored or relayed row written before actions
 // carried daemon provenance loads with its invoke STRIPPED, never silently
-// accepted. Stripping rather than rejecting the whole row is deliberate: the
-// title and body are the user's message and a real one, while the button is the
-// only part that ever carried capability. Rejecting the row would delete a
-// message to close a hole that dropping one button already closes.
 
 import { adoptStoredActions } from "../../../lib/notificationActions";
 

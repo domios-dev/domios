@@ -1,9 +1,5 @@
-// Run: npx tsx src/components/Settings/destination_picker/one_control_for_the_push_side.test.tsx
-//
 // THE DEFECT TEST. A level's push destination is ONE control that names
 // channels, not a control per channel. Pre-change the grid drew a toggle per
-// channel per level, so with two channels in the roster this file counted three
-// push controls per level instead of one and failed on the first assertion.
 
 import { NotificationDestinations } from "../NotificationDestinations";
 import {

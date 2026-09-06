@@ -1,8 +1,5 @@
-// Run: npx tsx src/store/multiplexer/providerIndicatorReresolve.test.ts
 // The provider indicator (TabItem header + TabSessionChat footer) resolves via
 // useTabProvider -> resolveTabProvider(tab). This proves a backend
-// provider-switch state-changed snapshot flows through the reducer and the
-// indicator RE-RESOLVES to the new provider descriptor live — no remount.
 
 import { strict as assert } from "node:assert";
 import { reducer } from "./reducer";
@@ -64,7 +61,6 @@ function snapWithProvider(generation: number, agentType: string | null): Multipl
 
 // Both descriptors are live in the cache (the real steady state after a switch:
 // backend detection resolves correctly, Cmd+R already proved it). The defect was
-// never a missing descriptor — it was the stale tab.agent_type feeding resolution.
 setAgentDescriptors([
   descriptor("codex", "Codex", "#58a6ff"),
   descriptor("claude", "Claude Code", "#d97757"),

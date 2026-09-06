@@ -1,9 +1,5 @@
-// Run: npm run test:unit -- settings_tiles
-//
 // The tile shape makes two accessibility mistakes easy: naming the control from
 // the decorative switch inside it, and rendering a second focusable switch in
-// the same tile so a keyboard stops twice for one answer. Both are asserted
-// against here, on every tile the notifications panel draws.
 
 import { NotificationsOverview } from "../NotificationsTab";
 import {

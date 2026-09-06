@@ -120,7 +120,6 @@ function handleFrame(dataLine: string): void {
       runFullResync({ reason: "ring-evicted", boot: msg.boot, next_seq: msg.seq });
       // runFullResync rebaselines to next_seq - 1 for a real overflow, where the
       // next live frame is next_seq. Here this frame IS next_seq and is already
-      // consumed, so rebaseline past it or the following frame reads as a gap too.
       seqGaps.adopt(msg.boot, msg.seq);
     }
     saveCursor(`${msg.boot}:${msg.seq}`);

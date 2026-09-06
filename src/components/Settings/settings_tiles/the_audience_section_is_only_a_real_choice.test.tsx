@@ -1,10 +1,5 @@
-// Run: npm run test:unit -- settings_tiles
-//
 // The third section exists only where there is something to answer. That rule
 // already existed and is `audienceIsAChoice`; what is asserted here is that the
-// SECTION obeys it — a header and a hairline announcing a question nobody has
-// is worse than no section. What the section stores once it is drawn is
-// channel_audience's claim and is deliberately not restated.
 
 import { PushChannelSettings } from "../PushChannelSettings";
 import { audienceIsAChoice, configuredUsers } from "../../../lib/pushChannels";

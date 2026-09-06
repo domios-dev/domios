@@ -1,9 +1,5 @@
-// Run: npm run test:unit -- notification_sound
-//
 // Opt-in stays opt-in. The master default is off in every place that answers
 // for it, and a config that predates this change — absent field, or a stored
-// `false` — reproduces today's behaviour exactly: a user who never opens the
-// panel hears nothing new, however the per-level rows answer.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";

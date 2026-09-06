@@ -4,7 +4,6 @@ import type { Specimen } from "./types";
 
 // Scales any specimen down to fit its box — wide components (status rows)
 // shrink; small ones (dots) render 1:1. Scale is transform-only, so frozen
-// animation phases stay exact.
 export function FitBox({ children, pad = 16 }: { children: ReactNode; pad?: number }) {
   const outer = useRef<HTMLDivElement>(null);
   const inner = useRef<HTMLDivElement>(null);

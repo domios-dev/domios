@@ -29,7 +29,6 @@ interface ThreadItemRow {
 
 // Host-set, non-secret path variables. They are on the host's `HOST_PROVIDED_ENV`
 // allowlist because the confinement heuristic refuses any name containing
-// "SESSION" and cannot tell a directory path from a credential.
 const sessionStoreOverrides = {
   root: "CODETERM_CODEX_SESSIONS_ROOT",
   index: "CODETERM_CODEX_SESSION_INDEX_PATH",

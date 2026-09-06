@@ -1,14 +1,5 @@
-// Run: npm run test:unit -- notification_sound
-//
 // THE DEFECT TEST. The enabling click used to be the ONLY thing that
 // established the chime's audio context, so a sound already on in stored config
-// — every restart, and anyone who set it once — had no gesture to be
-// established by. The context then opened inside a daemon-event callback, which
-// is not a gesture, so it started suspended and stayed silent.
-//
-// Nothing here touches the settings surface: the opt-in arrives as stored
-// config, exactly as it does at startup. Pre-change the first case failed with
-// zero notes, because the arrival was the first thing to open a context.
 
 import {
   assert,
@@ -39,13 +30,6 @@ async function main() {
 
   // 2. The fixture is faithful, so the defect is observable: with NO gesture the
   //    same arrival is silent, because only a gesture can start a context that
-  //    makes a sound. This is the browser's rule, and it is why case 1 is a real
-  //    claim rather than a stub agreeing with a stub.
-  //
-  //    That it is silence from the missing gesture, and not the arrival being
-  //    filtered out on its way to the player, is shown by giving that same
-  //    arrival a gesture: it is heard. (Opening a context here instead was the
-  //    OTHER defect — see level_sound/an_early_arrival_does_not_poison_the_chime.)
   const ungestured = await mountStoredSound(ENABLED);
   await ungestured.arrive(STOPPED);
   check(

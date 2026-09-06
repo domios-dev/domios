@@ -1,13 +1,5 @@
-// Run: npm run test:unit -- settings_tiles
-//
 // THE DEFECT. A switch parked at the far edge of a wide row reads as belonging
 // to nothing: the words that name it are outside the control entirely, and the
-// control is physically larger than they are.
-//
-// The claim asserted here is structural rather than cosmetic — the switch and
-// its label are ONE control, and the switch comes first inside it — so it is
-// stated against the rendered tree rather than against a class name, and it is
-// self-contained so it can be run against the tree before the fix.
 
 import { act } from "react";
 import { createRoot } from "react-dom/client";

@@ -1,7 +1,5 @@
-// Run: npx tsx src/components/Canvas/planView/PlanListFilterBar.test.tsx
 // Regression for ct#330: the plan-list search field removed the browser's
 // default focus ring (outline-none) and put nothing back, and carried no
-// accessible name beyond a placeholder.
 
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";

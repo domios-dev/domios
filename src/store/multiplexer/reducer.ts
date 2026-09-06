@@ -199,7 +199,6 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         const existing = state.tabs[id];
         // Backend agent_type is authoritative — it reflects a provider switch
         // (codex→claude). Keep the last known value only while a restart
-        // transiently reports null, so the indicator never flashes blank.
         const agentType = backendTab.agent_type ?? existing?.agent_type;
         const backendLevel = backendTab.title_level || TitleLevel.Default;
         const frontendLevel = existing?.title_level || TitleLevel.Default;

@@ -13,8 +13,6 @@ function assert(condition: unknown, message: string): void {
 
 // Mirrors SecretBackendDetail's private STATUS_REFRESH_DELAY_MS. Kept as a
 // local literal (not imported) so this test still loads and runs its
-// render-count assertions even against a source revert that predates the
-// constant's introduction.
 const STATUS_REFRESH_DELAY_MS = 5000;
 
 function setupDom() {
@@ -30,8 +28,6 @@ function setupDom() {
 
 // A minimal fake for the SINGLE `setTimeout(tick, STATUS_REFRESH_DELAY_MS)`
 // call the polling effect makes — anything else (React's own scheduler,
-// microtask polyfills) passes straight through to the real timer, so we
-// never race React internals.
 function installDelayTimerFake(delayMs: number) {
   const realSetTimeout = globalThis.setTimeout;
   const realClearTimeout = globalThis.clearTimeout;
@@ -98,7 +94,6 @@ async function main() {
 
   // An object, not three `let`s: assert() is an `asserts` predicate, so it
   // narrows a bare binding to the literal it just checked and the next count
-  // check becomes a type error instead of a test.
   const calls = { status: 0, orgs: 0, colls: 0 };
   let statusGate = deferred<void>();
 
@@ -126,7 +121,6 @@ async function main() {
 
   // integrations.secrets.backend ("local") never matches entry.id
   // ("bitwarden") in this fixture, so `isActive` stays false and PluginView
-  // never mounts — this test exercises the polling/effect mechanism only.
   const config: AppConfigShape = {
     api: { host: "127.0.0.1", port: 7686, token: "tok-a" },
     integrations: { secrets: { backend: "local" } },
@@ -152,9 +146,6 @@ async function main() {
 
   // THE REGRESSION: force several parent re-renders with unchanged props
   // while the first fetch is still unresolved. On unmodified source,
-  // apiBaseOf() hands back a brand-new `headers` object on every call, so
-  // `refresh`'s identity changes every render, tearing down and recreating
-  // the polling effect (which fires an immediate `void refresh()`) each time.
   await renderOnce();
   await renderOnce();
   await renderOnce();
@@ -165,8 +156,6 @@ async function main() {
 
   // Resolve the in-flight status as "unlocked". This should fire the
   // organizations/collections effects exactly once and schedule exactly one
-  // next-refresh timer keyed off THIS completion — never a fixed interval
-  // that could already be queued up regardless of how long the fetch took.
   const resolveFirstStatus = statusGate.resolve;
   statusGate = deferred<void>();
   resolveFirstStatus();
@@ -186,8 +175,6 @@ async function main() {
 
   // Fire the scheduled timer: this starts the second refresh. A backend
   // slower than STATUS_REFRESH_DELAY_MS must not be issued a third call
-  // before the second one completes — assert no timer is queued while it's
-  // in flight (the self-throttle under test).
   assert(timer.flushOne(), "the scheduled timer callback must exist and be runnable");
   await flush();
 

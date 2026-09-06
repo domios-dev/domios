@@ -1,4 +1,3 @@
-// Run: npx tsx packages/chat-ui/src/MessageBubble.toolcards.test.tsx
 // Tool cards: exec, file, image, structured inbound and the collapse rules that
 // govern them. Provider transcript normalization lives in the sibling suite.
 

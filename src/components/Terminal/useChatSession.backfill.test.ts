@@ -121,7 +121,6 @@ async function main(): Promise<void> {
   state.endOffset = 8000;
   // Page 1: older window immediately below the snapshot; boundary timestamp COLLIDES
   // with the snapshot's first message (codex floors to seconds) and seq is
-  // window-relative 0..N exactly like the server parser produces.
   state.pages.set(5000, {
     start_offset: 3000,
     end_offset: 5000,

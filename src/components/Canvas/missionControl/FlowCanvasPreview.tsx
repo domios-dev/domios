@@ -5,7 +5,6 @@ import type { MissionAgent } from "./types";
 
 // Deterministic design-reference render of the flow canvas (matches
 // mission-control-v2-mockup.html). Data is fixture-only — the live surface
-// derives the same shape from buildMissionControl + task groups.
 
 const PUCCINI: MissionAgent = { id: "tab-p", name: "Puccini", provider: "codex", state: "working" };
 const VERDI: MissionAgent = { id: "tab-v", name: "Verdi", provider: "claude", state: "working" };

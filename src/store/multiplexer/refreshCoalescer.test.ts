@@ -1,4 +1,3 @@
-// Run: npx tsx src/store/multiplexer/refreshCoalescer.test.ts
 // The in-flight ceiling, asserted on fetch counts rather than on rendered
 // output: a burst of frames must not become a burst of full-state fetches.
 
@@ -154,7 +153,6 @@ void (async () => {
 
   // The daemon refuses snapshots past its own concurrency bound (503). Those
   // three cases are the contract with the daemon lane: back-pressure, not
-  // failure.
 
   class Refusal extends Error {
     constructor() {

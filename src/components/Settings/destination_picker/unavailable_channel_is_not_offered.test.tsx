@@ -1,9 +1,5 @@
-// Run: npx tsx src/components/Settings/destination_picker/unavailable_channel_is_not_offered.test.tsx
-//
 // A channel that cannot carry a message must not be offered as a destination.
 // The daemon already answers this per roster entry; nothing read it. Every
-// assertion here is stated with the unavailable channel PRESENT in the roster,
-// so dropping the filter fails this file rather than passing quietly.
 
 import { NotificationDestinations } from "../NotificationDestinations";
 import { PushChannelSettings } from "../PushChannelSettings";

@@ -1,16 +1,5 @@
-// Run: npm run test:unit -- expanded_body
-//
 // An opened message must be readable: bounded and scrolling inside its own
 // region, painted at content contrast from a token, reachable by keyboard, and
-// given more room by the panel it lives in. Every assertion reads the style the
-// element actually renders, never a class name, so a rename cannot silently
-// retire the guarantee.
-//
-// The width is read as a plain length. happy-dom's value parser drops a
-// declaration it cannot represent rather than storing it verbatim, so a nested
-// `calc()` inside `min()` would leave `width` unreadable here and the assertion
-// unfalsifiable. `readableWidth` asserts the environment can see the value
-// before anything compares two of them.
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
@@ -131,7 +120,6 @@ async function run() {
 
   // BOUNDED AND SCROLLING: the region carries its own limit and its own
   // scroller, so a long message stays inside the card instead of growing the
-  // list and pushing the rest of it away.
   assert(
     style.get("overflow-y") === "auto",
     "the body region scrolls itself rather than pushing the list",

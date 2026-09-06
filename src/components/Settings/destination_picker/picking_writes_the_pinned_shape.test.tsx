@@ -1,10 +1,5 @@
-// Run: npx tsx src/components/Settings/destination_picker/picking_writes_the_pinned_shape.test.tsx
-//
 // The control changed; the stored shape did not. A channel is a flattened key
 // that exists while it is picked and is GONE when it is not — a closed column is
-// an absent key, never a stored false — and the two local surfaces keep writing
-// their own named fields in both directions. Every assertion reads the emitted
-// patch rather than the widget that produced it.
 
 import { act } from "react";
 import { NotificationDestinations } from "../NotificationDestinations";

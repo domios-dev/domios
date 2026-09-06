@@ -26,8 +26,6 @@ export interface RemoteChannelRecovery<C> {
 
 // PTY-agnostic recovery state machine shared by output-SSE and chat-SSE consumers.
 // Owns a monotonic per-subscription generation, an opaque resume cursor, duplicate
-// suppression, generation-safe gating, and the D1 reconnect policy. No timers, no
-// sleeps, no busy-loop: reconnects are event-driven and caller-initiated.
 export function createRemoteChannelRecovery<C>(
   options: RemoteChannelRecoveryOptions<C>,
 ): RemoteChannelRecovery<C> {
@@ -94,7 +92,6 @@ export function createRemoteChannelRecovery<C>(
 
 // Two peer keep-alive intervals (15s) plus slack: a remote SSE stream silent this
 // long has almost certainly lost its path. Shared by the remote silence deadline
-// and the local output-stream watchdog so the two never drift apart.
 export const REMOTE_SILENCE_TIMEOUT_MS = 30_000;
 
 export function parkStalledConnection<C>(
@@ -105,7 +102,6 @@ export function parkStalledConnection<C>(
   if (!recovery.isCurrent(generation)) return false;
   // Explicit park: the chat finalizer short-circuits on abort BEFORE handleStreamEnd,
   // so relying on abort alone would strand the chat channel. Idempotent for output,
-  // whose finalizer also parks.
   recovery.handleStreamEnd(generation, "error");
   controller.abort();
   return true;
@@ -134,13 +130,6 @@ const systemSilenceDeadlineScheduler: SilenceDeadlineScheduler = {
 
 // A remote SSE connection can go silent after a 200+headers — before its first
 // byte, or after a keep-alive or two on an empty-ring tab (a dropped path
-// mid-replay): reader.read() never resolves, the stream never ends, the channel
-// never parks, and resume then skips a cursor-less connection forever. This is the
-// only liveness mechanism for that window. Re-armed on open and on EVERY byte, so
-// expiry means "no bytes for the whole window" — a keep-alive re-arms an idle-but-
-// healthy tab, only true silence trips it. Elapsed time is a failure deadline here,
-// never readiness. clear() on teardown so a re-arming chain cannot outlive its
-// connection.
 export function createSilenceDeadline<C>(
   recovery: RemoteChannelRecovery<C>,
   generation: number,

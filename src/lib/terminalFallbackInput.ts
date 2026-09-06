@@ -52,7 +52,6 @@ export function terminalFallbackData(e: FallbackKeyEvent): string {
 
   // Keep Linux IME/composition text on xterm's helper textarea path. Sending
   // non-ASCII keydown text here can leak every intermediate composition update
-  // into the PTY, which looks like duplicated/progressively repeated input.
   if (e.key.length === 1 && e.key.charCodeAt(0) >= 0x20 && e.key.charCodeAt(0) <= 0x7e) return e.key;
 
   return "";

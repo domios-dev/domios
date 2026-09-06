@@ -1,10 +1,5 @@
-// Run: npm run test:unit -- settings_tiles
-//
 // The panel was answering three unrelated questions in one flat list. It is
 // three sections now, and — the part that matters — a level's own controls are
-// INSIDE that level's card rather than laid out beside it. That containment is
-// what "the switch is attached to what it governs" reduces to, so it is what
-// this file asserts.
 
 import { NotificationsOverview } from "../NotificationsTab";
 import { levelLabel } from "../../../lib/notifyLevels";
