@@ -219,7 +219,6 @@ fn storage_warns_about_stray_linked_worktree_sidecar_copy() {
     let findings = report["findings"].as_array().unwrap();
     // Compare through the same canonicalization production uses — raw tempdir
     // paths differ from emitted ones (8.3 short names in service TEMP, /var
-    // symlinks) and can never mismatch when both sides share the helper.
     let main_c = super::inspect::canonicalize_path(&main)
         .display()
         .to_string();

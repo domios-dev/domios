@@ -322,9 +322,6 @@ pub(super) fn run_task(
                     ) {
                         // These three name a plan the caller explicitly asked
                         // for and cannot be listed as requested — a refusal,
-                        // not an empty result. Rendering it as an empty list
-                        // at exit 0 is exactly how a mis-rooted plan (#384)
-                        // looked healthy through an entire drafting pass.
                         let detail = render_empty_reason(&reason)
                             .unwrap_or_else(|| "task list refused".to_string());
                         return Err(format!("{kind}: {detail}"));

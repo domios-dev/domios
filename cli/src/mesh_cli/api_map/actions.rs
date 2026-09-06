@@ -39,7 +39,6 @@ pub(super) fn team_pair_to_api(
     }
     // Inert today: `spawned_by_tab_id` stays local, so no remote leaf-gate
     // check can ever consult it — carried anyway to keep the body shape in
-    // lockstep with the local `pair_params` contract.
     if acknowledge_leaf {
         body["leaf_creation_acknowledged"] = json!(true);
     }
