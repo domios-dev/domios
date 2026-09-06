@@ -65,7 +65,6 @@ async function main() {
 
   // 4. The claim case 1 replaced: silence before a gesture is the browser's
   //    rule and not the arrival being filtered out. Same level, same rows, same
-  //    hook — the only difference is the gesture, and it is the whole difference.
   const gestured = await mountStoredSound(MASTER_ON);
   await gestured.gesture();
   await gestured.arrive(CHIMES);

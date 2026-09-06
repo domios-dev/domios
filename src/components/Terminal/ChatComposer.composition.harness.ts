@@ -1,8 +1,5 @@
 // Installs happy-dom globals for ChatComposer.composition.test.tsx. This module
 // MUST be imported before react-dom: react-dom freezes its DOM feature
-// detection at import time (canUseDOM), and importing it without a document
-// leaves the change plugin in a polyfill mode where 'input' events never reach
-// onChange and every keydown dispatch throws inside React.
 import { Window } from "happy-dom";
 
 const win = new Window({ url: "http://localhost/" });

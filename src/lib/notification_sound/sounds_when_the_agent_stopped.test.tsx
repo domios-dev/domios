@@ -1,16 +1,5 @@
-// Run: npm run test:unit -- notification_sound
-//
 // What an UNANSWERED level chimes. "Finished" is not a level on the shipped
 // verbose/action_needed/failure axis, so the fallback keys on the two levels
-// that already mean the agent is no longer working: `action_needed` (it is
-// waiting on the user) and `failure` (it broke and stopped). Progress does not,
-// because an agent still working has not finished, and an arrival naming no
-// level claims nothing and so claims no completion either.
-//
-// This is now a DEFAULT and no longer a rule: a row that answers for itself
-// never reaches it, which is level_sound/the_choice_beats_the_shipped_rule's
-// claim. This file owns the fallback — flip `action_needed` in SHIPPED_SOUND and
-// the first assertion below is what breaks.
 import { assert, mountSound, report, unansweredLevels } from "./harness";
 
 let checked = 0;

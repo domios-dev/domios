@@ -1,9 +1,5 @@
-// Run: npx tsx src/components/Settings/channel_audience/no_typing_when_one_user_is_configured.test.tsx
-//
 // The defect: the panel asked for what the user had already configured. With a
 // single admitted id there is nothing to ask — no surface at all — and picking
-// the channel for a level answers who as well. Both halves are asserted
-// together, because the absence of a widget is worthless without the stored id.
 
 import { act } from "react";
 import { NotificationDestinations } from "../NotificationDestinations";
@@ -56,7 +52,6 @@ async function oneAdmittedIdIsNeverAskedAboutAndIsStillStored() {
 
   // Half one: nothing asks. The channel IS offerable — control_available is
   // true and the roster carries it — so an empty render here is the rule, not
-  // an unrelated absence.
   const surface = await mount(
     <PushChannelSettings channels={[CHANNEL]} config={start} onUpdate={() => {}} />,
   );

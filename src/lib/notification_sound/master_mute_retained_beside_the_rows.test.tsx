@@ -47,7 +47,6 @@ check(defaultConfig().notifications.sound === false, "and it is still off by def
 
 // 2. Not migrated into the DESTINATIONS: the chime is a named field of a row,
 //    but it is not a place a message goes, so no roster size grows a column for
-//    it and no local surface is it.
 const registered = [
   { id: "telegram", label: "Telegram", control_available: true },
   { id: "discord", label: "Discord", control_available: false },
@@ -65,7 +64,6 @@ check(
 
 // 3. The mute dimension, exercised. Off is silence at every level however that
 //    level answered, and the field is load-bearing rather than dead: on, at
-//    least one answer changes. Which ones is level_sound's claim.
 const everyLevelChiming = unansweredLevels().map((row) => ({ ...row, sound: true }));
 check(
   LEVELS.every((level) => !shouldSoundArrival(false, everyLevelChiming, level)),
@@ -78,8 +76,6 @@ check(
 
 // 4. One control, wherever Settings currently keeps it, and it is the shared
 //    toggle. Found by search rather than by filename: the notification settings
-//    have already moved once, and a hardcoded path would have passed that move
-//    while pointing at a file that no longer holds the control.
 const settingsDir = resolve(here, "../../components/Settings");
 const holders = readdirSync(settingsDir)
   .filter((name) => /\.tsx$/.test(name) && !/\.test\.tsx$/.test(name))

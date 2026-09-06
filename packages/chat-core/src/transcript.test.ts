@@ -1,4 +1,3 @@
-// Run: npx tsx packages/chat-core/src/transcript.test.ts
 // Byte-range transcript authority. Every case is a projection the production
 // bounded-snapshot seam produced or must never produce again.
 import {
@@ -222,7 +221,6 @@ function contents(state: TranscriptState): string[] {
 
 // ── 3c. Stable correlation id: the optimistic bubble reconciles with a
 // chip-enriched echo by identity, so the server row REPLACES it (one msg.id),
-// even though the echo's content diverges from the raw typed text.
 {
   const attached = reduceTranscript(
     createTranscriptState(),

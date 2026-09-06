@@ -319,7 +319,6 @@ const T0 = 1_700_000_000_000;
 
 // Stable correlation id reconciles an optimistic bubble with its server echo by
 // identity, even when the echo's content is enriched with chips and diverges
-// from the raw typed text — content heuristics cannot bridge that gap.
 {
   const userTok = (id: string, content: string, tsMs: number, token: string): NormalizedChatMessage => ({
     id, type: "user", content, timestamp: new Date(tsMs).toISOString(), correlationId: token,

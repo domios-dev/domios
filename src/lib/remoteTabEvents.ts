@@ -143,7 +143,6 @@ export function resumeRemoteTabEvents(): void {
   for (const record of subscriptions.values()) {
     // Never supersede a connection still awaiting its first frame (the generation-
     // churn race that blanked remote panes). Reopen once it has a cursor to resume
-    // from, or when it is parked awaiting a signal.
     if (record.recovery.currentCursor() == null && !record.recovery.isAwaitingSignal()) continue;
     record.recovery.signal();
     connect(record);

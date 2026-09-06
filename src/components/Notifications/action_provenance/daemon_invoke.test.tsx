@@ -1,5 +1,3 @@
-// Run: npx tsx src/components/Notifications/action_provenance/daemon_invoke.test.tsx
-//
 // The live daemon-constructed invoke - the provider-update prompt - still runs
 // end to end from the surface the user actually clicks.
 

@@ -1,13 +1,5 @@
-// Run: npx tsx src/components/Terminal/TabSessionChat.origin-stability.test.tsx
-//
 // Render-count oracle for FIX 1 (stabilize per-message origin props). A chat with
 // many cross-tab origin messages (worker reports) streams tail deltas. Before the
-// fix, the map body built a fresh `onOriginClick` closure AND a fresh
-// `<OriginProviderAvatar/>` element for every origin message on every render, so
-// each streamed chunk handed MessageBubble (React.memo, default shallow compare)
-// new refs and re-rendered — and re-parsed markdown for — every origin bubble.
-// After the fix those props are memoized per message id and stay referentially
-// stable, so only the actively-changing tail re-renders per chunk.
 
 import { act } from "react";
 import { Window } from "happy-dom";

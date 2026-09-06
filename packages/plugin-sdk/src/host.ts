@@ -51,7 +51,6 @@ export interface FetchOpts {
   timeoutMs?: number;
   // Ask the host to stamp a manifest-declared credential into request headers.
   // Templates are filled from that credential's fields (`{accessToken}`); the
-  // values themselves never enter the VM.
   credential?: CredentialRequest;
 }
 
@@ -238,7 +237,6 @@ export interface Host {
   execClose(jobId: string): void;
   // Yield the VM until `jobId` finishes, then continue with `then`. The host
   // refuses the call when the completion event misses its bound. Only valid as
-  // a plugin method's return value; blocking serializes every other call.
   awaitJob<T>(jobId: string, then: (result: ExecPollResult) => T): T;
   fetch: HostFetch;
   fetchStream(optsJson: string): string;

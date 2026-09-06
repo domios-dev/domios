@@ -105,7 +105,6 @@ async function main() {
 
   // 6. The fallback is a default, never an override: an unanswered set
   //    reproduces the shipped table exactly, which is what makes cases 1 and 2
-  //    disagreements rather than restatements.
   const shipped = await mountSound(MASTER_ON, unansweredLevels());
   let heard = 0;
   for (const level of LEVELS) {

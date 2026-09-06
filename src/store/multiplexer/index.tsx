@@ -868,8 +868,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
 
   // The chosen label is all that travels: the tab it answers to was recorded on
   // the notification when the question was sent. Nothing is rendered optimistically
-  // — the answer shown is the one the store recorded, which on a second tap is
-  // still the first one.
   const answerNotification = useCallback((id: string, label: string) => {
     void invoke<{ answered?: string; delivered?: boolean }>("answer_notification", { id, label })
       .then((result) => {

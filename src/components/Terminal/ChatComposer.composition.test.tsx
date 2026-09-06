@@ -1,12 +1,5 @@
 // WHAT: per-engine IME composition fixtures driving the real ChatComposer handlers.
 // WHY: composed text must enter the composer buffer exactly once per composition,
-// and Enter during an active composition must commit, never send — engines order
-// compositionstart/update/end differently (WebKit delivers the committing Enter
-// AFTER compositionend with isComposing=false, keyCode 229).
-// ORACLE: the textarea DOM value across every event step and forced re-renders,
-// plus the chat_send_text payload captured at the bridge seam — never UI prose.
-// Event-sequence driven only: no timer-scheduled coordination anywhere here.
-// The harness import must stay first: react-dom freezes DOM detection at import.
 import "./ChatComposer.composition.harness";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";

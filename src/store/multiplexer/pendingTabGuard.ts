@@ -8,8 +8,6 @@ export type TabGuards = Record<string, TabGuard>;
 
 // Masks a backend snapshot's active_tab_id back to a user's in-flight tab
 // selection until the backend confirms it or the guard's deadline passes.
-// Mutates `guards`: drops confirmed/expired entries. Returns `s` unchanged
-// (identity) when nothing is masked.
 export function applyPendingTabGuard(
   s: MultiplexerState,
   guards: TabGuards,

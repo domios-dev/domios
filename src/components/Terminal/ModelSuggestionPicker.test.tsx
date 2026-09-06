@@ -1,7 +1,5 @@
 // A model reaching this component with `available: false` (e.g. gated by
 // installed CLI version) must render disabled and unclickable — not vanish,
-// and not be indistinguishable from a fully-selectable one.
-// Run: npx tsx src/components/Terminal/ModelSuggestionPicker.test.tsx
 
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";

@@ -1,4 +1,3 @@
-// Run: npx tsx src/components/FloatingInput/FloatingInput.test.tsx
 // Regression for ct#330: the floating "message agent" search-style field set
 // outline-none with no substitute and carried no accessible name.
 

@@ -94,8 +94,6 @@ export function usePlanRefResolver(
 
   // Stale-while-revalidate: an invalidation refetches every visible ref in the
   // background while the cache keeps serving, and only entries whose resolved
-  // content actually changed replace rendered state — a resolved chip never
-  // passes back through "loading" for an unchanged value.
   useEffect(() => {
     let active = true;
     if (!api.enabled) return;

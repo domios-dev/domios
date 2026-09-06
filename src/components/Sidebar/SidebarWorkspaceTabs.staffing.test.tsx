@@ -1,4 +1,3 @@
-// Run: npx tsx src/components/Sidebar/SidebarWorkspaceTabs.staffing.test.tsx
 // Staffing: which managers are eligible, what the picker offers, and how a
 // failed or double-clicked provider action behaves.
 

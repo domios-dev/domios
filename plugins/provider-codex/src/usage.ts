@@ -149,7 +149,6 @@ function windowDuration(window: CodexRateWindow): number | null {
 
 // The /status screen renders inside a box-drawing border (│ ╭ ╮ ╰ ╯ ─); strip
 // it like whitespace so end-anchored structural checks (e.g. "line ends with
-// limit:") see the panel's actual content instead of a trailing border glyph.
 const CODEX_BORDER_RE = /^[\s─-╿]+|[\s─-╿]+$/g;
 
 function stripCodexBorder(raw: string): string {
@@ -158,9 +157,6 @@ function stripCodexBorder(raw: string): string {
 
 // A section header carries a model/family name across the several gauge rows
 // nested under it (e.g. "GPT-5.3-Codex-Spark limit:" followed by its own
-// separate "5h limit:" and "Weekly limit:" rows) — Codex 0.153.0 moved the
-// model name off the gauge row and onto a header row one or more lines above
-// it, so a single-line lookback alone can no longer see it.
 const CODEX_HEADER_RE = /\blimit\s*:?\s*$/i;
 
 function isCodexSectionHeader(line: string): boolean {

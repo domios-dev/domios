@@ -1,4 +1,3 @@
-// Run: npx tsx packages/chat-ui/src/MessageBubble.providers.test.tsx
 // Provider transcript normalization: how each provider's rows collapse, expand
 // and render once normalized. Tool-card behaviour lives in the sibling suite.
 

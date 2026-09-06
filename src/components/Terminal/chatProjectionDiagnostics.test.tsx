@@ -19,8 +19,6 @@ function assert(condition: unknown, label: string): asserts condition {
 
 // A callback-driven counter read through a function boundary. Asserting a live
 // `let` counter with `=== 0` then later `=== 1` makes control-flow narrow it to
-// the literal `0`, so the second comparison is a spurious TS2367; a getter is not
-// narrowed by the assert.
 function hitCounter() {
   let n = 0;
   return { hit: (): void => { n += 1; }, count: (): number => n };
@@ -211,8 +209,6 @@ function testFrozenTailStableIdStreaming(): void {
 
   // Streaming grows the SAME message id "a1"; paint is starved during urgent load.
   // With an id-only tail this would be a false negative — arrival/commit/paint all
-  // read tail id "a1" and the stall detector would see them agree. The content
-  // signature is what keeps the committed-but-unpainted growth visible.
   const streamCount = 48;
   let content = "start";
   for (let i = 0; i < streamCount; i += 1) {
@@ -256,9 +252,6 @@ function testSnapshotSignatureRecorded(): void {
 
 // ── Unit: away→back / Terminal→Chat activation reconcile oracle ───────────────
 // Terminal↔Chat toggling unmounts/remounts TabSessionChat, so forget() runs on
-// the way out and a fresh snapshot on the way back. The oracle proves the prior
-// committed tail survives teardown and the reactivated snapshot is attributed by
-// its cursor/signature — a clean recovery, a same-id regression, or a divergence.
 function testActivationReconcileOracle(): void {
   // Clean recovery: the re-attach snapshot returns the full prior transcript.
   {
@@ -294,7 +287,6 @@ function testActivationReconcileOracle(): void {
 
   // Divergence: the re-attach drops the streamed tail message entirely (lands on a
   // different id) — unorderable by signature alone; the archived cursor/offset stay
-  // available for deeper attribution.
   {
     const monitor = new ChatProjectionMonitor();
     bringToSteadyState(monitor, TAB_ID, [{ id: "m0", content: "hi" }, { id: "a1", content: "streamed" }]); // "a1#8"
@@ -307,9 +299,6 @@ function testActivationReconcileOracle(): void {
 
 // ── Unit: adversarial reactivation — empty snapshot + cursor/offset desync ────
 // The signature alone cannot see these: an OBSERVED-empty re-attach, a backend
-// offset that rewound under a caught-up tail, and a cursor that replays a
-// different transcript under the same position marker. None may read as pending
-// or recovered.
 function testActivationAdversarial(): void {
   // (a) not-observed vs observed-empty are distinct verdicts.
   {
@@ -363,7 +352,6 @@ function testActivationAdversarial(): void {
 
 // Re-derive the pure signature verdict for a precondition assertion, mirroring the
 // monitor's internal classify so the test proves the coordinate gate — not the
-// signature — is what flips (b) to regressed.
 function classifyRecoveryProbe(recovered: string, target: string): string {
   if (recovered === target) return "recovered";
   const rh = recovered.lastIndexOf("#");
@@ -521,10 +509,6 @@ async function testFrozenTailSignatureIntegration(): Promise<void> {
 
 // ── Integration: real away→back through useChatSession's snapshot edge ─────────
 // Drives the full Terminal→Chat lifecycle: mount → stream → unmount (forget
-// archives the prior committed tail) → remount (chat_start re-snapshots). Proves
-// the archived tail survives real teardown and the reactivated snapshot is
-// attributed as a clean, cursor/signature-gated recovery — end to end, not just
-// through the monitor's own API.
 async function testActivationRemountIntegration(): Promise<void> {
   setupHookDom();
   const bridge = await import("../../lib/bridge");

@@ -1,8 +1,5 @@
-// Run: npx tsx src/components/Terminal/composerAutosize.test.ts
-//
 // Regression for per-keystroke chat scroll jitter. The composer autosize must
 // measure the textarea without letting the sibling chat viewport grow, or the
-// browser clamps a bottom-pinned transcript off the bottom on every keystroke.
 
 import { applyComposerAutosize, COMPOSER_MIN_HEIGHT } from "./composerAutosize";
 
