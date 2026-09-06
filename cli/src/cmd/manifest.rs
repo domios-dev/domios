@@ -913,8 +913,7 @@ mod tests {
             .unwrap_or_else(|| panic!("`{}` has no arg `{name}`", cmd.name))
     }
 
-    // The bool *type* is shared by no-value switches and genuine bool-valued
-    // options; only the action separates them, so a domain filter keyed on
+    // The bool *type* is shared by no-value switches and genuine bool-valued options; only the action separates them, so a domain filter keyed on anything else fails one half of this pair.
     #[test]
     fn possible_values_follow_the_action_not_the_value_type() {
         let root = build();

@@ -306,8 +306,7 @@ fn classify_relay_response(
         );
     }
 
-    // The relay hop's `ok` attests that the peer ACCEPTED the send, not that the
-    // peer delivered it. On a send the peer's own body is the only delivery
+    // On a send the peer's own body is the only delivery evidence, so its `ok: false` outranks an accepting envelope.
     let peer_refused = data.get("ok").and_then(|v| v.as_bool()) == Some(false);
     if is_send_relay(relayed.0, relayed.1) && peer_refused {
         let reason = match (&code, &message) {

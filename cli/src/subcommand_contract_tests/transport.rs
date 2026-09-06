@@ -455,8 +455,7 @@ fn api_map_still_builds_identical_rest_bodies() {
     assert!(body.get("planner_model").is_none());
 }
 
-// Round-trip: a level set through the CLI flag must arrive at the sink as the
-// same level. The value is supplied by the test, so this asserts the mechanism
+// The value is supplied by the test, so this asserts the mechanism rather than a constant baked into the assertion.
 #[test]
 fn notify_level_round_trips_from_the_cli_flag_to_the_request_body() {
     for supplied in codeterm_types::notification::NotifyLevel::ALL {

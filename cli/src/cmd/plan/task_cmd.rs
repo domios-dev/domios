@@ -320,8 +320,7 @@ pub(super) fn run_task(
                             | EMPTY_REASON_PLAN_ARCHIVED
                             | EMPTY_REASON_PLAN_OUTSIDE_PROJECT
                     ) {
-                        // These three name a plan the caller explicitly asked
-                        // for and cannot be listed as requested — a refusal,
+                        // Explicitly requested plan names are refusals when unavailable, not empty results, so a mis-rooted plan cannot look healthy.
                         let detail = render_empty_reason(&reason)
                             .unwrap_or_else(|| "task list refused".to_string());
                         return Err(format!("{kind}: {detail}"));
