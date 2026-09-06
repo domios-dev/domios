@@ -1,5 +1,4 @@
-// A subscription that outlives its session binding is released and replaced on
-// the first observed edge — never on a deadline — for a ranged and an unranged
+// A subscription that outlives its session binding is released and replaced on the first observed edge — never on a deadline — for a ranged and an unranged source through the same code path.
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";

@@ -1,5 +1,4 @@
-// Why: Codex gates hooks on a `trusted_hash` it computes from a private
-// canonical identity; replicating that algorithm drifts across Codex releases.
+// Codex remains the trust-hash authority because its private hash algorithm can change across releases.
 
 export interface CodexTrustGrantOutcome {
   granted: boolean;

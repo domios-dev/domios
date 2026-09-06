@@ -1,5 +1,4 @@
-// THE DEFECT TEST. A level's push destination is ONE control that names
-// channels, not a control per channel. Pre-change the grid drew a toggle per
+// The destination is one channel-list control per level, not one toggle per channel, so the grid cannot multiply controls.
 
 import { NotificationDestinations } from "../NotificationDestinations";
 import {

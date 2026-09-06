@@ -6,8 +6,7 @@ export interface TabGuard {
 
 export type TabGuards = Record<string, TabGuard>;
 
-// Masks a backend snapshot's active_tab_id back to a user's in-flight tab
-// selection until the backend confirms it or the guard's deadline passes.
+// Mask the backend snapshot until it confirms or expires so an in-flight tab selection does not flash back.
 export function applyPendingTabGuard(
   s: MultiplexerState,
   guards: TabGuards,

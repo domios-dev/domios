@@ -1,5 +1,4 @@
-// `level` is optional, so a record carrying none is a legal state, not a lost
-// one. It paints the neutral tone by name — the choice is `UNLEVELLED_TONE`,
+// `level` is optional, so a record carrying none is a legal state, not a lost one.
 import type { Notification } from "../../lib/types";
 import { UNLEVELLED_TONE } from "../../lib/notifyLevels";
 import {

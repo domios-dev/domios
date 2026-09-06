@@ -1,5 +1,3 @@
-// Staffing: which managers are eligible, what the picker offers, and how a
-// failed or double-clicked provider action behaves.
 
 import type { ProviderDescriptor } from "../../lib/types";
 import type { TeamMemberRole } from "../../lib/teamActions";

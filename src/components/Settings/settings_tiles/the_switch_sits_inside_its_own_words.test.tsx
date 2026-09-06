@@ -1,5 +1,4 @@
-// THE DEFECT. A switch parked at the far edge of a wide row reads as belonging
-// to nothing: the words that name it are outside the control entirely, and the
+// Keep the switch and its label in one control so focus and accessible naming describe the same action.
 
 import { act } from "react";
 import { createRoot } from "react-dom/client";

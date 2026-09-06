@@ -7,8 +7,7 @@ type SegmentedProps = {
   ariaLabel: string;
 };
 
-// Segmented control. Travel is ONE liquid keyframe gesture (stretch in flight,
-// splat on the wall, relax) driven by --sx-from/--sx-to; the key remount
+// Steady state comes from --seg-index and matches the keyframe end, so there is never a snap.
 export function LiquidSegmented({ options, value, onChange, ariaLabel }: SegmentedProps) {
   const [travelKey, setTravelKey] = useState(0);
   const from = useRef<number | null>(null);

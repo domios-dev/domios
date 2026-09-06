@@ -24,8 +24,7 @@ export interface RemoteChannelRecovery<C> {
   dispose(): void;
 }
 
-// PTY-agnostic recovery state machine shared by output-SSE and chat-SSE consumers.
-// Owns a monotonic per-subscription generation, an opaque resume cursor, duplicate
+// Recovery is event-driven and caller-initiated, with per-subscription generation and cursor state; it uses no timers or sleeps.
 export function createRemoteChannelRecovery<C>(
   options: RemoteChannelRecoveryOptions<C>,
 ): RemoteChannelRecovery<C> {
@@ -90,8 +89,7 @@ export function createRemoteChannelRecovery<C>(
   };
 }
 
-// Two peer keep-alive intervals (15s) plus slack: a remote SSE stream silent this
-// long has almost certainly lost its path. Shared by the remote silence deadline
+// Use one deadline for remote silence and the local output watchdog so they cannot drift apart.
 export const REMOTE_SILENCE_TIMEOUT_MS = 30_000;
 
 export function parkStalledConnection<C>(
@@ -100,8 +98,7 @@ export function parkStalledConnection<C>(
   controller: AbortController,
 ): boolean {
   if (!recovery.isCurrent(generation)) return false;
-  // Explicit park: the chat finalizer short-circuits on abort BEFORE handleStreamEnd,
-  // so relying on abort alone would strand the chat channel. Idempotent for output,
+  // Abort handling must explicitly park the chat channel because its finalizer bypasses `handleStreamEnd`.
   recovery.handleStreamEnd(generation, "error");
   controller.abort();
   return true;
@@ -128,8 +125,7 @@ const systemSilenceDeadlineScheduler: SilenceDeadlineScheduler = {
   },
 };
 
-// A remote SSE connection can go silent after a 200+headers — before its first
-// byte, or after a keep-alive or two on an empty-ring tab (a dropped path
+// Re-arm the deadline on open and each byte so only sustained silence parks the channel, and clear it on teardown.
 export function createSilenceDeadline<C>(
   recovery: RemoteChannelRecovery<C>,
   generation: number,

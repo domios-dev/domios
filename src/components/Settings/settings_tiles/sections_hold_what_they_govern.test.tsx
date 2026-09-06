@@ -1,5 +1,4 @@
-// The panel was answering three unrelated questions in one flat list. It is
-// three sections now, and — the part that matters — a level's own controls are
+// It is three sections now, and — the part that matters — a level's own controls are INSIDE that level's card rather than laid out beside it.
 
 import { NotificationsOverview } from "../NotificationsTab";
 import { levelLabel } from "../../../lib/notifyLevels";

@@ -84,8 +84,7 @@ function msg(id: string, opts: Partial<M> = {}): M {
   eq(merged.map((m) => m.id), ["a", "b", "c"], "no signals → stable arrival order");
 }
 
-// ── seq is a per-batch ordinal, never an identity. Two independently parsed
-// bounded windows reuse the same seq for unrelated rows, so a seq match must
+// Two independently parsed bounded windows reuse the same seq for unrelated rows, so a seq match must not collapse (or worse, overwrite) a committed row.
 {
   const merged = mergeById(
     [msg("window-a-0", { type: "assistant", content: "prior answer", seq: 0, sourceSessionId: "sid" })],

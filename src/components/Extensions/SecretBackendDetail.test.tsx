@@ -11,8 +11,7 @@ function assert(condition: unknown, message: string): void {
   if (!condition) throw new Error(message);
 }
 
-// Mirrors SecretBackendDetail's private STATUS_REFRESH_DELAY_MS. Kept as a
-// local literal (not imported) so this test still loads and runs its
+// Kept as a local literal (not imported) so this test still loads and runs its render-count assertions even against a source revert that predates the constant's introduction.
 const STATUS_REFRESH_DELAY_MS = 5000;
 
 function setupDom() {
@@ -26,8 +25,7 @@ function setupDom() {
   Object.defineProperty(globalThis, "localStorage", { value: window.localStorage, configurable: true });
 }
 
-// A minimal fake for the SINGLE `setTimeout(tick, STATUS_REFRESH_DELAY_MS)`
-// call the polling effect makes — anything else (React's own scheduler,
+// Mock only the polling timer so React's own scheduler continues to use real timing.
 function installDelayTimerFake(delayMs: number) {
   const realSetTimeout = globalThis.setTimeout;
   const realClearTimeout = globalThis.clearTimeout;
@@ -92,8 +90,7 @@ async function main() {
   setupDom();
   const timer = installDelayTimerFake(STATUS_REFRESH_DELAY_MS);
 
-  // An object, not three `let`s: assert() is an `asserts` predicate, so it
-  // narrows a bare binding to the literal it just checked and the next count
+  // An object, not three `let`s: assert() is an `asserts` predicate, so it narrows a bare binding to the literal it just checked and the next count check becomes a type error instead of a test.
   const calls = { status: 0, orgs: 0, colls: 0 };
   let statusGate = deferred<void>();
 
@@ -119,8 +116,6 @@ async function main() {
   document.body.appendChild(host);
   const root = createRoot(host);
 
-  // integrations.secrets.backend ("local") never matches entry.id
-  // ("bitwarden") in this fixture, so `isActive` stays false and PluginView
   const config: AppConfigShape = {
     api: { host: "127.0.0.1", port: 7686, token: "tok-a" },
     integrations: { secrets: { backend: "local" } },
@@ -144,8 +139,7 @@ async function main() {
   assert(calls.status === 1, `mount must issue exactly one status fetch, got ${calls.status}`);
   assert(timer.pendingCount() === 0, "no refresh may be scheduled while the first status fetch is still in flight");
 
-  // THE REGRESSION: force several parent re-renders with unchanged props
-  // while the first fetch is still unresolved. On unmodified source,
+  // Stable callback inputs prevent unresolved status polling from tearing down and restarting on every parent render.
   await renderOnce();
   await renderOnce();
   await renderOnce();
@@ -154,8 +148,7 @@ async function main() {
   assert(calls.status === 1, `re-rendering with unchanged config must not issue additional status fetches, got ${calls.status}`);
   assert(timer.pendingCount() === 0, "re-rendering must not start a second refresh while one is in flight");
 
-  // Resolve the in-flight status as "unlocked". This should fire the
-  // organizations/collections effects exactly once and schedule exactly one
+  // Schedule the next refresh from the completed request so only one follow-up timer exists.
   const resolveFirstStatus = statusGate.resolve;
   statusGate = deferred<void>();
   resolveFirstStatus();
@@ -173,8 +166,7 @@ async function main() {
   assert(calls.orgs === 1, `organizations effect must not re-fire on unchanged config across re-renders, got ${calls.orgs}`);
   assert(calls.colls === 1, `collections effect must not re-fire on unchanged config across re-renders, got ${calls.colls}`);
 
-  // Fire the scheduled timer: this starts the second refresh. A backend
-  // slower than STATUS_REFRESH_DELAY_MS must not be issued a third call
+  // A backend slower than STATUS_REFRESH_DELAY_MS must not be issued a third call before the second one completes — assert no timer is queued while it's in flight (the self-throttle under test).
   assert(timer.flushOne(), "the scheduled timer callback must exist and be runnable");
   await flush();
 

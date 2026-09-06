@@ -1,5 +1,4 @@
-// The master toggle is gone and its gating work moved to the grid column. Both
-// directions are stated outright in these fixtures, so nothing here is inferred
+// Assert both directions explicitly so behavior does not depend on an unnamed column default.
 
 import { act } from "react";
 import { NotificationDestinations } from "../NotificationDestinations";

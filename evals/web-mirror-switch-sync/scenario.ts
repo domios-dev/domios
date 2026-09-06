@@ -193,8 +193,7 @@ export async function runScenario(o: ScenarioOptions): Promise<RunRow> {
   const mirror = await startMirror({ origin: o.origin, token: o.token, relayPeer: o.relayPeer ?? null });
   const oracle = o.outputMarkers ? await createOutputOracle() : null;
   try {
-    // Attach before the storm, as a browser with these tabs mounted would be.
-    // A peer tab's output only arrives through the REMOTE output path, which
+    // The subscription must exist before the storm so remote output is observed through the composite mesh id.
     const oracleMarkers = o.outputMarkers && o.relayPeer
       ? new Map([...o.outputMarkers].map(([id, m]) =>
           [`mesh:${o.relayPeer?.id}/${id}`, m] as [string, string]))

@@ -1,5 +1,4 @@
-// The tile shape makes two accessibility mistakes easy: naming the control from
-// the decorative switch inside it, and rendering a second focusable switch in
+// The tile must expose one labeled focus target; a decorative switch must not create a second stop.
 
 import { NotificationsOverview } from "../NotificationsTab";
 import {

@@ -1,5 +1,4 @@
-// The sound cannot disagree with routing, and the reason has changed twice. It
-// used to be that the arrival event was minted inside the bell gate's admitted
+// Sound reads the level row alone so routing and notification tone cannot diverge.
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
@@ -32,8 +31,7 @@ function productionFiles(directory: string, found: string[] = []): string[] {
 }
 
 async function main() {
-  // 1. The daemon side: one emit, and nothing stands in front of it. A gate here
-  //    would be a gate on the panel's only live path, which is the defect that
+  // A gate here would be a gate on the panel's only live path, which is the defect that retired it — so this pins that no successor gate grew back.
   const gate = read("../../../src-tauri/src/service/notification.rs");
   check(
     (gate.match(/\bemit\(payload\)/g) ?? []).length === 1,
@@ -86,8 +84,7 @@ async function main() {
     "and the caller is the arrival subscription",
   );
 
-  // 4. The decision module reads the level rows and NOTHING about where a level
-  //    is routed, so the two cannot drift into disagreement. It is one input, and
+  // The decision module reads the level rows and NOTHING about where a level is routed, so the two cannot drift into disagreement.
   const decision = read("../notificationSound.ts");
   check(!decision.includes("notifyDestinations"), "the sound never reads the destination set");
   check(!decision.includes("isRouted"), "and never asks whether a level is routed anywhere");

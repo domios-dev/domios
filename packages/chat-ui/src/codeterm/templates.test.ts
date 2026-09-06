@@ -71,8 +71,7 @@ const TASK = "task_" + "b".repeat(32);
 
 // --- plan templates + link extraction ---
 {
-  // Every fixture below is the real clap shape: `plan task add <plan_id> --name`,
-  // `plan record <plan_id> --step`. A fixture using --plan/--title/--kind renders
+  // A fixture using --plan/--title/--kind renders a card no user can ever produce, so it proves nothing about the renderer.
   const addCard = renderTemplate(inv(`codeterm plan task add ${PLAN} --name "Fix login"`));
   assert(addCard.title === "Task created: Fix login", "plan task add reads --name, the flag clap requires");
   assert(addCard.link?.planId === PLAN, "plan task add carries the positional plan id");

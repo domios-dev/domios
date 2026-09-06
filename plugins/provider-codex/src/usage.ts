@@ -147,16 +147,14 @@ function windowDuration(window: CodexRateWindow): number | null {
   return numberAt(window, "limit_window_seconds");
 }
 
-// The /status screen renders inside a box-drawing border (│ ╭ ╮ ╰ ╯ ─); strip
-// it like whitespace so end-anchored structural checks (e.g. "line ends with
+// Strip the box border so end-anchored checks see panel content rather than a trailing glyph.
 const CODEX_BORDER_RE = /^[\s─-╿]+|[\s─-╿]+$/g;
 
 function stripCodexBorder(raw: string): string {
   return String(raw || "").replace(CODEX_BORDER_RE, "");
 }
 
-// A section header carries a model/family name across the several gauge rows
-// nested under it (e.g. "GPT-5.3-Codex-Spark limit:" followed by its own
+// Model names may appear on a header above their gauge rows, so parsing must look back beyond one line.
 const CODEX_HEADER_RE = /\blimit\s*:?\s*$/i;
 
 function isCodexSectionHeader(line: string): boolean {

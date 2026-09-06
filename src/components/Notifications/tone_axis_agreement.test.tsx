@@ -1,5 +1,4 @@
-// The defect this suite exists for: one record, two tone vocabularies. The bell
-// panel painted from `severity`, the chat card from `level`, so a single record
+// The bell panel painted from `severity`, the chat card from `level`, so a single record could read calm on one surface and urgent on the other.
 import type { Notification } from "../../lib/types";
 import { cardTone, panelTone, record, toastTone } from "./toneAxisSurfaces";
 

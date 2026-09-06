@@ -717,8 +717,7 @@ console.log("\n--- versionless Claude alias catalog ---\n");
   );
   for (const m of manifest.models) {
     if (m.id === "fable") {
-      // Cold manifest must not CLAIM Fable available before installed-CLI
-      // discovery proves it (models.ts's MINIMUM_CLI_BY_MODEL gate) — but it
+      // Do not advertise model availability until installed-CLI discovery proves it.
       assert(m.available !== true, "fable's static seed never claims availability ahead of CLI-version discovery");
     } else {
       assert(!("available" in m), `static seed availability is unknown for ${m.id}`);

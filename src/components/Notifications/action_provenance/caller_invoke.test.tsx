@@ -1,5 +1,4 @@
-// THE DEFECT TEST. A caller-supplied action must not be able to reach the Tauri
-// bridge from either surface that renders stored notification rows.
+// A caller-supplied action must not be able to reach the Tauri bridge from either surface that renders stored notification rows.
 
 import {
   CALLER_SUPPLIED_INVOKE,
@@ -41,8 +40,7 @@ async function run() {
     );
   }
 
-  // The same claim over the whole caller-facing kind set rather than one
-  // payload. Imported dynamically so the surface assertions above are what
+  // The dynamic import keeps these assertions independent of the module split, so they fail on trees that still expose the unsafe path.
   const { CALLER_ACTION_KINDS } = await import("../../../lib/notificationActions");
   check(
     !CALLER_ACTION_KINDS.includes("invoke" as never),

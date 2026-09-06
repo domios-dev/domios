@@ -1,5 +1,4 @@
-// THE DEFECT TEST. The enabling click used to be the ONLY thing that
-// established the chime's audio context, so a sound already on in stored config
+// The context then opened inside a daemon-event callback, which is not a gesture, so it started suspended and stayed silent.
 
 import {
   assert,
@@ -28,8 +27,7 @@ async function main() {
   );
   await stored.done();
 
-  // 2. The fixture is faithful, so the defect is observable: with NO gesture the
-  //    same arrival is silent, because only a gesture can start a context that
+  // The fixture is faithful, so the defect is observable: with NO gesture the same arrival is silent, because only a gesture can start a context that makes a sound.
   const ungestured = await mountStoredSound(ENABLED);
   await ungestured.arrive(STOPPED);
   check(

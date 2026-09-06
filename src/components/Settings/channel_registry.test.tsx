@@ -1,5 +1,4 @@
-// The surface side of the push-channel registry: what the picker offers comes
-// from the daemon's roster, so a channel it gains widens one control instead of
+// The picker must follow the daemon roster so available channels widen one control while unroutable channels remain absent.
 
 import { act, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";

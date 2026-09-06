@@ -1,5 +1,4 @@
-// Shared by the tone_axis tests. One record goes through the real bell panel,
-// the real chat card and the real toast; each surface is reduced to the theme
+// The readers avoid importing the tone helper so they can detect divergence in any implementation.
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Notification } from "../../lib/types";
 import { ChatAskCard } from "./ChatAskCard";

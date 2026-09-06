@@ -77,8 +77,6 @@ export function deriveTeamTaskBuckets(
   }));
 }
 
-// D12: the card aggregate folds paused into todo (1 pending + 2 paused reads
-// 3 todo), while the detailed breakdown still reports paused on its own —
 export function deriveCardStatusCounts(buckets: TeamTaskBucket[]): PlanStatusCounts {
   const count = (key: TeamTaskBucket["key"]) => buckets.find((bucket) => bucket.key === key)?.count ?? 0;
   const paused = count("paused");

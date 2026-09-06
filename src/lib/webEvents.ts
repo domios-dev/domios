@@ -118,8 +118,7 @@ function handleFrame(dataLine: string): void {
         `[event-seq-gap] expected ${seen.expected} got ${msg.seq} (boot ${msg.boot})`,
       );
       runFullResync({ reason: "ring-evicted", boot: msg.boot, next_seq: msg.seq });
-      // runFullResync rebaselines to next_seq - 1 for a real overflow, where the
-      // next live frame is next_seq. Here this frame IS next_seq and is already
+      // Because this frame is already `next_seq`, rebaseline past it or the following frame appears to be a gap.
       seqGaps.adopt(msg.boot, msg.seq);
     }
     saveCursor(`${msg.boot}:${msg.seq}`);

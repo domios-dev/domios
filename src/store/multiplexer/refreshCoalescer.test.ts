@@ -1,5 +1,4 @@
-// The in-flight ceiling, asserted on fetch counts rather than on rendered
-// output: a burst of frames must not become a burst of full-state fetches.
+// Assert the in-flight ceiling with fetch counts because rendered output can hide a burst of full-state fetches.
 
 import { createRefreshCoalescer } from "./refreshCoalescer";
 
@@ -151,8 +150,7 @@ void (async () => {
     assert((calls as number) === 3, `expected 3 sequential fetches, got ${calls}`);
   });
 
-  // The daemon refuses snapshots past its own concurrency bound (503). Those
-  // three cases are the contract with the daemon lane: back-pressure, not
+  // Those three cases are the contract with the daemon lane: back-pressure, not failure.
 
   class Refusal extends Error {
     constructor() {
