@@ -1574,8 +1574,8 @@ EOF
       mem) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-mem/Cargo.toml -p codeterm-mem --lib "$test_filter" ;;
       mesh) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-mesh/Cargo.toml -p codeterm-mesh --lib "$test_filter" ;;
       plugin) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-plugin/Cargo.toml -p codeterm-plugin --lib "$test_filter" ;;
-      # Plural crate at repo-root/crates, distinct from the singular confinement crate above.
-      plugins) scripts/test-capped.sh --manifest-path crates/codeterm-plugins/Cargo.toml -p codeterm-plugins "$test_filter" ;;
+      # Plural crate (channel/install/update), distinct from the singular confinement crate above.
+      plugins) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-plugins/Cargo.toml -p codeterm-plugins --lib "$test_filter" ;;
       cli) scripts/test-capped.sh --manifest-path cli/Cargo.toml "$test_filter" ;;
       *) echo "Unknown test scope: $test_scope (expected app, plan, pty, pty-fork, types, mem, mesh, plugin, plugins, or cli)" >&2; exit 2 ;;
     esac
