@@ -1131,6 +1131,7 @@ fn parse_spawn_command(args: &[&str]) -> Commands {
 /// hand the remote agent no reporting contract at all.
 #[test]
 fn a_task_less_mesh_worker_relays_its_role_to_the_peer() {
+    let _guard = crate::test_env_lock().lock().unwrap();
     let (method, path, body) = cli_command_to_api(&parse_spawn_command(&[
         "claude",
         "--role",

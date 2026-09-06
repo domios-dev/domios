@@ -484,6 +484,7 @@ mod tests {
 
     #[test]
     fn ack_parses_without_verbose_payload() {
+        let _guard = crate::test_env_lock().lock().unwrap();
         let cli = Cli::try_parse_from(["codeterm", "agent", "ack"]).expect("ack should parse");
         match cli.command {
             crate::Commands::Agent {
@@ -656,6 +657,7 @@ mod tests {
     /// `--execution-intent`, so the documented verifier could not be spawned.
     #[test]
     fn execution_intent_no_longer_requires_a_plan_task_at_parse_time() {
+        let _guard = crate::test_env_lock().lock().unwrap();
         let action = parse_spawn(&[
             "codex",
             "--role",
