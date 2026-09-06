@@ -404,8 +404,6 @@ mod tests {
 
         // A genuine refusal on the plan-skill read verbs must carry the same
         // machine-readable exit signal every other plan RPC carries — never
-        // downgraded to a bare, uncoded failure — codeterm#397's exit-code
-        // requirement extended to these read verbs.
         let unknown = rpc(
             &store,
             "plan.skills.list",

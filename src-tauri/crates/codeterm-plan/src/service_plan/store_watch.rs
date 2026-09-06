@@ -56,7 +56,6 @@ impl PlanStore {
                     || self.index.read().contains_key(plan_id);
                 // Own-write suppression must consider every per-entity file: a
                 // hand-edit of tasks/<h>.yaml or spec.yaml arrives while
-                // plan.yaml itself is still our own untouched write.
                 if known && !self.plan_dir_externally_dirty(&path) {
                     return Ok(WatchOutcome::Unchanged);
                 }

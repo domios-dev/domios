@@ -28,9 +28,6 @@ pub const PEER_RELAY_PROTOCOL_MISMATCH: &str = "peer_relay_protocol_mismatch";
 
 // ── Sender hop (outbound `PeerClient::send_relay`) ──────────────────────────
 // The codes above classify what the RECEIVING peer did with a relayed command.
-// These classify the SENDER's own transport leg — did the request ever leave
-// this instance before the failure — so a caller can tell nothing-landed from
-// landed-unknown before deciding whether a retry is safe.
 
 /// The connection itself failed: refused, DNS failure, TLS handshake failure.
 /// The only case where the request is provably never written. Nothing was sent.

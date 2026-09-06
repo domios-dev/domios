@@ -23,7 +23,6 @@ pub struct HeartbeatShowResult {
     pub reinjection: String,
     // Same derivation `plan next` and orchestrator status use — see
     // `service_plan::state::outstanding_blocked_count`. A structured count,
-    // not text, so callers never have to parse `reinjection` to know it.
     pub blocked_or_gated_count: usize,
 }
 
@@ -173,8 +172,6 @@ fn reflect_every_gates() -> u32 {
 
 // Same derivation `plan next` and orchestrator status use — see
 // `service_plan::state::outstanding_blocked_count`. Rendered so a plan whose
-// only notable state is gated/blocked work doesn't silently drop that
-// heartbeat entirely — codeterm#397.
 fn render_outstanding_gated(plan: &Plan, out: &mut String) {
     let count = super::state::outstanding_blocked_count(plan);
     if count == 0 {

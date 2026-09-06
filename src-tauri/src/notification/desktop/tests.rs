@@ -314,7 +314,6 @@ mod no_inference {
             }
             // A test naming the creator is not a production path to it. Without
             // this the gate grows an allowlist entry every time a slice covers
-            // its own seam, and the list stops meaning what it says.
             let is_test_file = path
                 .file_name()
                 .and_then(|name| name.to_str())

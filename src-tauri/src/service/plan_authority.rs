@@ -108,7 +108,6 @@ fn binding_failure_class(
     }
     // Presenting the tab's OWN launch nonce is proof the caller runs inside it —
     // the daemon injects that value per PTY. A foreign caller cannot reach this
-    // arm, so naming the real gap leaks nothing and saves the dead-end hunt.
     if tab.agent_session_id.is_none() && tab.session_binding_nonce.as_deref() == Some(nonce) {
         return PlanAuthorityError::SessionUnregistered;
     }
@@ -196,8 +195,6 @@ impl ServiceContext {
             && nonce.is_some();
         // A binding the TAB attested for itself, because the provider never
         // registered a session. Only `rebind` can produce this state and only
-        // from nothing, so it cannot mask a live session or be forged by a
-        // caller that does not already hold this tab's launch nonce.
         let tab_attested = nonce.is_some()
             && session_id.is_none()
             && tab.agent_session_id.is_none()
@@ -221,8 +218,6 @@ impl ServiceContext {
                 .is_some_and(|owner| owner.team_id == tab.team_id);
         // The Planner's binding to this plan is durable, not phase-scoped: it
         // owns structure for the plan's whole life. Approval/dispatch stay
-        // Orchestrator-exclusive through `authorize_plan_orchestrator`, which
-        // rejects `PlanningAuthor::Planner` outright regardless of this gate.
         if planner {
             return Ok(PlanningAuthor::Planner {
                 tab_id: tab.id.clone(),
@@ -265,11 +260,6 @@ impl ServiceContext {
         }
         // Nothing was ever registered, so there is no lineage to prove against and
         // `provable` below can never be true — that is the closed loop where the
-        // repair needed what it repairs (#316). Presenting this tab's own launch
-        // nonce proves the caller runs inside it, the same trust boundary every
-        // tab-scoped command sits on. Bootstrap only: never over a live session,
-        // never over an existing report, never for a caller claiming a session
-        // id the tab does not have.
         let bootstrap = tab.agent_type.is_some()
             && tab.pty_id.is_some()
             && tab.exit_suspected_at.is_none()

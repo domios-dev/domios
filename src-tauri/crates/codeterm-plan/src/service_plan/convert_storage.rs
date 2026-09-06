@@ -529,7 +529,6 @@ mod tests {
             .unwrap();
         // The store now persists yaml; this fixture must be pure LEGACY
         // (plan.json + md sidecars) for the converter to convert. Rewrite it
-        // in legacy form and strip the yaml the store wrote.
         let final_plan = store.get(&plan.id).unwrap();
         let plan_dir = dir.join(format!(".codeterm/plans/active/{}", final_plan.id));
         let _ = std::fs::remove_file(plan_dir.join("plan.yaml"));

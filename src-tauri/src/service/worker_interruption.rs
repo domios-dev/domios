@@ -314,7 +314,6 @@ impl super::ServiceContext {
         }
         // Provider exhaustion PRESERVES the live worker: pause/quiesce it in a
         // re-dispatchable state and NEVER close its tab. Only the non-exhaustion
-        // events (process exit / forced reset) take the destructive handoff fence.
         if request.event == WorkerInterruptionEvent::ProviderExhausted {
             return self.pause_exhausted_worker(request, tab_id);
         }

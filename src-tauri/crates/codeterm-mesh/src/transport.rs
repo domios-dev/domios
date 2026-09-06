@@ -403,7 +403,6 @@ mod tests {
     async fn connection_refused_before_write_is_nothing_sent() {
         // Port 1 (TCPMUX) essentially never has a listener; connecting to it on
         // loopback reliably yields a synchronous connection refusal without
-        // depending on a bind/drop race for a free ephemeral port.
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(5))
             .build()

@@ -245,9 +245,6 @@ fn a_symlinked_canonical_path_is_still_the_canonical_project() {
 
     // The same asymmetry on the OTHER comparison, arranged so it discriminates:
     // the task deliberately recorded this checkout as its lane, spelled through
-    // the link. `recorded_worktree` must recognise it as the lane it already
-    // holds and keep it — a textual compare misses the match, falls through to
-    // the canonical branch, and silently deletes the operator's own record.
     let recorded = lane_metadata_for_dispatch(
         &TaskLaneMetadata {
             worktree_path: Some(via_link.display().to_string()),

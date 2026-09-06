@@ -101,7 +101,6 @@ impl MemManager {
 
         // Replace destroys the row the in-flight generation copied its text from,
         // so that generation is superseded exactly like a delete. Revoked outside
-        // the connection lock — the cancel sink closes tabs.
         if replace {
             self.revoke_extraction(&id);
         }

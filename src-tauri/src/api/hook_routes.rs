@@ -352,7 +352,6 @@ pub async fn hook_stop(
 
     // Hidden worker/cron runs finish on Stop if they didn't explicitly report.
     // A nonce-verified report is the completion-via-report path; a nonce-less
-    // legacy post keeps today's tab-keyed behavior. No-op for visible tabs.
     match (verdict, report_nonce.as_deref()) {
         (StopReportVerdict::Verified, Some(nonce)) => state
             .svc

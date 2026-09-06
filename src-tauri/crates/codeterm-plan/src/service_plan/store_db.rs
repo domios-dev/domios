@@ -394,7 +394,6 @@ fn parse_plan_document(document: &str) -> Result<(Plan, usize), String> {
     let normalized_fields = codeterm_types::startup_records::normalize_pane_id_fields(&mut value)?;
     // Key-rename and tag-value migration are separate concerns: the normalizer
     // above rewrites `pane_id` -> `tab_id` keys and structurally cannot touch
-    // the `planner.kind` tag VALUE, which this migrates independently.
     codeterm_types::plan::types::migrate_legacy_planner_tag(&mut value);
     serde_json::from_value(value)
         .map(|plan| (plan, normalized_fields))
@@ -800,9 +799,6 @@ mod tests {
     fn normalize_pane_id_fields_alone_does_not_fix_legacy_planner_tag_value() {
         // Pins the distinction this task exists to protect: the key
         // normalizer only rewrites `pane_id` -> `tab_id` field NAMES and is
-        // structurally unable to rewrite the `kind` tag VALUE. If this test
-        // ever passes, the value migration has been collapsed back into the
-        // key normalizer and rel#41 has regressed.
         let mut value = serde_json::json!({
             "id": "pl_legacy_tag",
             "title": "Legacy tag",

@@ -273,7 +273,6 @@ fn snapshot_includes_teams() {
 fn legacy_snapshot_no_team_fields_restores() {
     // A pre-team last.json lacks both the top-level `teams` array and each
     // leaf's `team_id`. Emulate one by stripping those keys from a current
-    // snapshot, then prove it still restores cleanly and teamless.
     let (mut state, _root) = MultiplexerState::new();
     let wsid = state.list_workspaces()[0].id.clone();
     let tab_id = state.create_tab(&wsid).unwrap();

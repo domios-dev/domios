@@ -203,8 +203,6 @@ pub(crate) fn create_notification_with_delivery(
         NotificationAdmission::Explicit => match push.intent.level {
             // An identical live message is the same message: it keeps its
             // record and reaches neither the native sink nor the panel again.
-            // Push routing may clear its own intent (nothing routed anywhere);
-            // the caller's declared level still stands and is what gets stored.
             None => match store.lock().add_deduped(
                 title.clone(),
                 body.clone(),
@@ -325,8 +323,6 @@ pub(crate) fn create_notification_with_delivery(
     }
     // The panel is the complete log, so every record reaches it: this event is
     // the only live path to it, and gating it would leave the panel silently
-    // lagging behind a store that already holds the record. `show_bell` is a
-    // presentation choice about the indicator and never reaches this gate.
     emit(payload);
     id
 }
@@ -523,7 +519,6 @@ impl ServiceContext {
         let admission = self.notif.lock().record_answer(id, label);
         // THE AUTHORITY RULE, at the one place a surface may widen: the proof
         // exists only for a first-and-only recording, so an offer applies on
-        // the tap that answered it and on nothing else.
         if let Some(proof) = authority::tap_proof(&admission) {
             self.apply_surface_offer(id, label, proof);
         }
@@ -533,7 +528,6 @@ impl ServiceContext {
             AnswerAdmission::Recorded(chosen) => Ok(self.settle_answer(id, chosen)),
             // A second tap is not an error to the user: the standing answer is
             // what the question holds, and it is unchanged. A retry may still
-            // finish a delivery the first attempt could not.
             AnswerAdmission::AlreadyAnswered(standing) => Ok(self.settle_answer(id, standing)),
             AnswerAdmission::Undeliverable => {
                 Err("The tab that asked this question is gone".to_string())
@@ -582,7 +576,6 @@ impl ServiceContext {
     fn apply_surface_offer(&self, id: &str, label: &str, proof: authority::TapProof) {
         // The level is read off the record the tap answered, never passed in
         // beside it: what the tap grants is the kind of notification the
-        // question itself demonstrated, and only the record knows which that was.
         let standing = {
             let store = self.notif.lock();
             store.surface_offer(id).zip(store.level(id))

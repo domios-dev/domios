@@ -21,7 +21,6 @@ fn build_launch_command_shape() {
     let plain = j.build_launch_command(&AgentLaunchParams::default());
     // sec_hook_ampersand: every launch disables cursor-agent's import of the
     // user's ~/.claude/settings.json PreToolUse hooks (a Claude-dialect hook
-    // body crashes Cursor's bash tool). Must lead, and never touch the file.
     let hook_disable_pos = plain
         .find("CLAUDE_CODE_DISABLE_HOOKS")
         .expect("hook-import disable prefix must be present");

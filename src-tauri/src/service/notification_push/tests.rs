@@ -230,7 +230,6 @@ fn channel_registry_second_channel_routes_without_touching_the_enum_or_the_grid(
 
     // The row routes to Discord through a keyed lookup on the id the roster
     // carries. Nothing named a Discord field: the key is the service id, and it
-    // is on because someone opted in, never because it defaulted open.
     let cfg = discord_opted_in();
     let row = cfg
         .notifications
@@ -255,8 +254,6 @@ fn channel_registry_second_channel_routes_without_touching_the_enum_or_the_grid(
 
     // Routable is not the claim; carrying is. Every function of the second
     // channel's module runs here — its audience, its readiness, its ceiling,
-    // its delivery — so the module that is this design's evidence is exercised
-    // rather than merely compiled.
     let (envelope, rendered) = titled(NotifyLevel::Failure, "a rendered push");
     assert_eq!(
         deliver_plan(&plan.targets, &plan.refusals, &host, &envelope),

@@ -404,7 +404,6 @@ impl PlanStore {
             }
             // Binding an executor tab IS the in_progress precondition — taking or
             // dispatching a task starts it, so a live worker never leaves the board
-            // stuck at pending while it codes. Only pending advances; other states stay.
             if tab_id.is_some() && task.status == TaskStatus::Pending {
                 task.status = TaskStatus::InProgress;
                 task.status_changed_at = now_ms;

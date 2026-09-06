@@ -954,7 +954,6 @@ fn agent_ready_explicit_error_is_definitive_channel_close_and_timeout_are_uncert
 
     // A superseded launch generation drops the sender without a signal (see
     // LaunchGeneration::emit) — the worker may still be alive under the
-    // newer generation, so a closed channel is absent evidence, not proof.
     let (closed_tx, closed_rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
     drop(closed_tx);
     let closed = await_agent_ready(closed_rx, Instant::now() + Duration::from_secs(1)).unwrap_err();

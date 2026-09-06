@@ -75,7 +75,6 @@ fn every_launch_composition() -> Vec<(&'static str, String)> {
         ),
         // Capability classes, by declaration rather than provider id: a provider
         // that takes a system prompt, and one that must receive the same
-        // composition through confirmed fallback.
         (
             "solo on a system-prompt-capable provider",
             super::role_launch_task(Some("do it"), None, None, true).expect("solo system prompt"),

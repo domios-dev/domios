@@ -114,7 +114,6 @@ fn override_satisfied(plan: &Plan, key: &str, completed_at: u64) -> bool {
 
 // Complete groups whose full-gate regression is missing or stale. `respect_override`
 // drops gates cleared by an authorized waiver, yielding the set that actually blocks
-// dispatch; without it the full advisory set (what still needs a real QA run) shows.
 fn compute_gates(plan: &Plan, respect_override: bool) -> Vec<RegressionGate> {
     let mut seen = std::collections::HashSet::new();
     let mut out = Vec::new();

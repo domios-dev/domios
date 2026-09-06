@@ -72,8 +72,6 @@ pub(super) fn dispatch(
             })?;
             // The offer rides the same seam as the choices, because the offer
             // IS one of them: the surface applies on the label that was tapped,
-            // for the level this notification carries. Vetted after the intent
-            // because a level-less offer could only ever open nothing.
             let offer = crate::api::notification_routes::vet_offer(
                 svc,
                 string_param("offer"),
