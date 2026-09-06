@@ -412,8 +412,6 @@ async function expectTitlebarLayout(
   await expect(
     titlebar.locator('[data-testid="titlebar-settings"]'),
   ).toBeVisible();
-  // The host switcher left the titlebar for the sidebar GENERAL header
-  // (Sidebar.tsx renders <WebPeerPicker compact/> there). web.spec's chrome
   await expect(titlebar.locator('[data-testid="peer-picker"]')).toHaveCount(0);
 
   const metrics = await page.evaluate(() => {
@@ -563,8 +561,6 @@ test.describe("@golden web-native parity", () => {
       await openWeb(page);
       await expectTitlebarLayout(page, { width: 1280, height: 800 });
 
-      // The two strip controls that own real behaviour: a settings deep link
-      // that lands on the right section and closes cleanly, and keep-awake
       await expectSettingsDeepLink(page, "general");
       await expectKeepAwakeRoundTrip(page, api);
     } finally {
@@ -578,8 +574,7 @@ test.describe("@golden web-native parity", () => {
     api,
     webBrowser,
   }) => {
-    // `workspace-item` is rendered only for ORDINARY workspaces; a fresh instance
-    // holds just the protected General, which lives in general-section. Waiting on
+    // `workspace-item` is rendered only for ORDINARY workspaces; a fresh instance holds just the protected General, which lives in general-section.
     const workspaceName = `pw-parity-mobile-${Date.now()}`;
     await api.createWorkspace(workspaceName);
     const workspaceId = (await api.workspaces()).find((w) => w.name === workspaceName)?.id;

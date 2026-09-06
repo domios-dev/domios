@@ -1086,8 +1086,7 @@ for (const vp of VIEWPORTS) {
       await page.locator('[data-testid="nav-mesh"]').click();
       const meshTab = page.locator('[data-testid="mesh-tab-network"]');
       await meshTab.waitFor({ state: "visible", timeout: 10_000 });
-      // The mesh section no longer owns a horizontal scroller: `.ct-section-toolbar`
-      // WRAPS below 640px and gives the tab rail the full width (globals.css), so
+      // At narrow widths the toolbar wraps below 640px, so the tab rail must fit the viewport without a horizontal scroller.
       const meshToolbar = page.locator(".ct-section-toolbar").filter({ has: meshTab });
       await expect(meshToolbar, `${vp.name} mesh exact toolbar owner`).toHaveCount(1);
       await expect(

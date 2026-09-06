@@ -1,5 +1,3 @@
-// Prose-retention check: how much of the canonical ASSISTANT text ever appears
-// in the preview under a given matcher? Guards the tool-row filter against
 
 import { readFileSync } from "node:fs";
 

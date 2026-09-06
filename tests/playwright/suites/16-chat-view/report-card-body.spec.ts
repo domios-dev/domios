@@ -34,8 +34,7 @@ test.afterEach(async () => {
   for (const page of pages) {
     if (page.isClosed()) continue;
     await page.evaluate(() => window.__inboundReportTest?.root?.unmount());
-    // Mounting replaced document.body, so unmounting frees React but leaves the
-    // page with no app. The ui session is worker-scoped: restore the app root or
+    // Restore the app root after replacing `document.body` because the worker-scoped UI session otherwise stays blank.
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
   }

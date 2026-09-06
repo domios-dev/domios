@@ -1,5 +1,4 @@
-// Latency oracle: PTY replay/throughput floor of writeTerminalBytesInFrames.
-// Deterministic — a mocked performance.now advances by a synthetic per-slice
+// Advance a mocked clock so the frame-time budget is exercised deterministically.
 import {
   writeTerminalBytesInFrames,
   TERMINAL_WRITE_SLICE_BYTES,

@@ -1,5 +1,4 @@
-// Real-launch contract: add every command/template type to this matrix and a
-// @live smoke that calls `assertRealTemplateSpawn` against a real provider.
+// @live tab UI assertions must activate the owning workspace+tab first; tab focus alone is intra-tab state and does not mount a hidden tab's tab.
 import { expect, type Locator, type Page } from "@playwright/test";
 import type { ApiClient } from "./api-client";
 

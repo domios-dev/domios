@@ -1,5 +1,3 @@
-// Offline scorer for a recorded capture: replays preview-events.ndjson through
-// a given matcher module (old/new) with the sidecar's canonical messages.
 
 import { readFileSync } from "node:fs";
 

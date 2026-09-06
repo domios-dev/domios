@@ -58,8 +58,7 @@ test("@golden @mission-control-flow flow river + group milestone + measured curv
 
     await page.screenshot({ path: path.join(CANVAS_ART_DIR, "mission-control-flow.png"), fullPage: false });
 
-    // NOT COVERED: the workspace/all-plans scope toggle. The control was deleted —
-    // MissionControlPlanSurface.test.tsx now asserts "workspace surface has no
+    // Its absence is owned by that unit test, so this suite does not restate an unobservable contract.
   } finally {
     await canvas.close();
   }

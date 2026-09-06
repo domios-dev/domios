@@ -96,8 +96,7 @@ async function focusState(row: Row): Promise<string> {
 async function keyboardDrag(page: Page, rowSelector: string, key: ArrowKey, overIds: string[]) {
   const row = sortableRow(page, rowSelector);
   await row.waitFor({ state: "visible", timeout: 15_000 });
-  // dnd-kit activates from a synthetic onKeyDown on this node, so the row must
-  // still hold focus when the key lands. Assert that separately: a lift that
+  // Keep focus on the row because dnd-kit activates from a synthetic keydown.
   await row.focus();
   await expect
     .poll(() => focusState(row), {
@@ -230,8 +229,6 @@ test("@golden C1 a top-level tab reorders within its workspace", async ({ api, u
     .toBe([t2.tab_id, t3.tab_id, t1.tab_id].join(","));
 });
 
-// NOT COVERED: "a child reorders within its parent group and cannot leave it".
-// There is no way to build the state in the golden project. The UI handle is
 
 test("@golden C3 workspaces reorder among themselves", async ({ api, ui }) => {
   const { page } = ui;

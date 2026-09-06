@@ -114,8 +114,7 @@ test(
 
       await screenshot(page, "plan-view-list-done-heavy");
 
-      // The list groups by status, and the all-done "Done" group starts collapsed
-      // (defaultSectionExpanded → !allTasksDone), so exactly one rollup row shows
+      // The list groups by status, and the all-done "Done" group starts collapsed (defaultSectionExpanded → !allTasksDone), so exactly one rollup row shows the fixture's done count.
       const rollups = listView.locator('[data-testid="plan-list-done-rollup"]');
       await expect(rollups).toHaveCount(1);
       await expect(rollups.first()).toHaveText(`${DONE_TASK_COUNT} done`);
