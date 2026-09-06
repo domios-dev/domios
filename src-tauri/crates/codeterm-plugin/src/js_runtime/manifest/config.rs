@@ -2,9 +2,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::provider::{
     BusySubmitStrategy, HookEventBinding, HookIngestionRoute, ModelAvailability, ModelInfo,
-    ProviderReadinessStrategy,
-    ProviderStateVerdict, ReadinessStrategy, ReasoningEffortInfo, SessionIdInjection,
-    SystemPromptDelivery, TaskDelivery, VerifySubmitStrategy,
+    ProviderReadinessStrategy, ProviderStateVerdict, ReadinessStrategy, ReasoningEffortInfo,
+    SessionIdInjection, SystemPromptDelivery, TaskDelivery, VerifySubmitStrategy,
 };
 
 /// Hosts/origins a plugin may reach via `host.fetch`.

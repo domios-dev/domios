@@ -218,11 +218,8 @@ pub(super) fn ensure_system_channel() -> Result<(), String> {
 /// invoke it best-effort so an offline launch is a silent no-op (retried next
 /// time the marketplace is queried).
 pub(super) fn ensure_default_plugin_channel() -> Result<(), String> {
-    // build_snapshot() calls this on every snapshot, so under rapid UI polling many
-    // threads reach here at once. Without a guard they all observe the channel missing
-    // and clone it concurrently. One in-flight ensure is enough: if another thread holds
-    // the lock, skip — it will register the channel and the next snapshot sees it.
-    // Non-blocking (try_lock) so a slow clone never stalls unrelated snapshot builds.
+    // Every snapshot calls this; under rapid polling many threads would clone the same
+    // missing channel at once. try_lock: one ensure in flight, a slow clone stalls nobody.
     static ENSURE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let Ok(_guard) = ENSURE_LOCK.try_lock() else {
         return Ok(());

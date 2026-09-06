@@ -82,7 +82,11 @@ fn different_name_same_host_is_not_superseded() {
     let mut mesh = MeshManager::new("local".into(), 7685);
     mesh.disk_persist = false;
     mesh.paired_peers.clear();
-    mesh.complete_explicit_pairing(paired_peer_named("peer-a", "BLACKSTAR", vec!["100.65.0.30"]));
+    mesh.complete_explicit_pairing(paired_peer_named(
+        "peer-a",
+        "BLACKSTAR",
+        vec!["100.65.0.30"],
+    ));
     mesh.complete_explicit_pairing(paired_peer_named("peer-b", "ROG", vec!["100.65.0.30"]));
 
     assert!(mesh.paired_peers.contains_key("peer-a"));

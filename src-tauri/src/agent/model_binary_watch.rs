@@ -38,21 +38,20 @@ impl ProviderBinaryWatchers {
         let dir = resolved.parent()?.to_path_buf();
         let provider_id = provider.id().to_string();
         let target = resolved.clone();
-        let mut watcher =
-            notify::recommended_watcher(move |event: notify::Result<Event>| {
-                let Ok(event) = event else { return };
-                if !matches!(
-                    event.kind,
-                    EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
-                ) {
-                    return;
-                }
-                if !touches(&event, &target) {
-                    return;
-                }
-                on_change(provider.clone());
-            })
-            .ok()?;
+        let mut watcher = notify::recommended_watcher(move |event: notify::Result<Event>| {
+            let Ok(event) = event else { return };
+            if !matches!(
+                event.kind,
+                EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
+            ) {
+                return;
+            }
+            if !touches(&event, &target) {
+                return;
+            }
+            on_change(provider.clone());
+        })
+        .ok()?;
         watcher.watch(&dir, RecursiveMode::NonRecursive).ok()?;
         self.watchers.lock().insert(provider_id, watcher);
         Some(resolved)

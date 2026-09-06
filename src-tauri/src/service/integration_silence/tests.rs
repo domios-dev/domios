@@ -518,7 +518,10 @@ fn an_unchanged_state_does_not_re_announce_on_a_later_daemon_start() {
     let facts = facts_with_hash(IntegrationState::StaleVersion, Some("7f3a2b10"));
     let observed = AnnouncedIntegrationState::observed(IntegrationState::StaleVersion, &facts);
 
-    assert!(is_news(provider, &observed), "the first observation is news");
+    assert!(
+        is_news(provider, &observed),
+        "the first observation is news"
+    );
     record_announced(provider, &observed);
     assert!(
         !is_news(provider, &observed),
@@ -566,7 +569,10 @@ fn content_hash_is_read_from_the_providers_own_report() {
         read_content_hash(&json!({ "hook_content_hash": "7f3a2b10" })).as_deref(),
         Some("7f3a2b10")
     );
-    assert_eq!(read_content_hash(&json!({ "hook_content_hash": "  " })), None);
+    assert_eq!(
+        read_content_hash(&json!({ "hook_content_hash": "  " })),
+        None
+    );
     assert_eq!(read_content_hash(&json!({})), None);
 }
 

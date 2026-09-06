@@ -131,10 +131,8 @@ pub(super) fn channel_diff(name: Option<&str>) -> Result<serde_json::Value, Stri
         match diff_channel_rows(&ch) {
             Ok(mut channel_rows) => rows.append(&mut channel_rows),
             Err(err) => {
-                // A single unavailable channel (e.g. a remote git channel that is
-                // temporarily slow or unreachable) must not hide the plugins of every
-                // OTHER channel in the aggregate diff that feeds the plugins snapshot.
-                // Only propagate when the caller asked for one specific channel.
+                // One unreachable channel must not blank every other channel's plugins from
+                // the aggregate diff; propagate only for an explicitly named channel.
                 if name.is_some() {
                     return Err(err);
                 }
@@ -220,13 +218,8 @@ pub(super) fn materialize_channel_for_diff(
 ) -> Result<PathBuf, String> {
     match ch.kind {
         ChannelKind::Local => {
-            // Diff the cached copy populated by add/refresh (ch.path): it is stable and
-            // always present. Re-resolving the original file:// source_dir() makes the
-            // diff fail whenever that source is transiently unavailable — e.g. a local
-            // fixture under a tmp dir that a test has torn down, or any source on a
-            // volume that isn't mounted right now — which would drop the entire channel
-            // from the marketplace snapshot. Fall back to the live source only when the
-            // cache is missing (channel registered but never materialized).
+            // Diff the stable cached copy (ch.path), not source_dir(): a transiently absent
+            // file:// source would otherwise drop the whole channel. Live source only if no cache.
             let cache = PathBuf::from(&ch.path);
             if cache.exists() {
                 Ok(cache)
@@ -335,12 +328,8 @@ pub(super) fn refresh_channel_record(ch: &ChannelRecord) -> Result<(), String> {
         }
         return Err(err);
     }
-    // Publish the freshly materialized cache with a near-atomic swap. The old code did
-    // remove_dir_all(path) THEN rename(tmp, path): the recursive delete leaves a wide
-    // window where `path` does not exist, so a concurrent diff (which reads a local
-    // channel from ch.path) sees a missing dir and drops the channel. Instead stash the
-    // old copy aside with a single rename, publish the new one with a single rename
-    // (both atomic on one filesystem), then delete the stale copy off the hot path.
+    // Two renames, not remove_dir_all then rename: the recursive delete left a window
+    // with no `path`, and a concurrent diff reading ch.path dropped the channel.
     if path.exists() {
         let backup = path.with_file_name(format!(
             ".{}-old-{}",

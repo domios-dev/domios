@@ -131,7 +131,11 @@ fn probe_names(bin: &str) -> Vec<String> {
     let mut names = vec![bin.to_string()];
     if std::path::Path::new(bin).extension().is_none() {
         let pathext = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into());
-        for ext in pathext.split(';').map(str::trim).filter(|e| e.starts_with('.')) {
+        for ext in pathext
+            .split(';')
+            .map(str::trim)
+            .filter(|e| e.starts_with('.'))
+        {
             names.push(format!("{bin}{}", ext.to_ascii_lowercase()));
         }
     }
@@ -906,10 +910,8 @@ mod tests {
     fn well_known_bin_dirs_reach_user_local_bin_without_home() {
         let _guard = TEST_LOCK.lock();
         let mut process_env = codeterm_util::test_env::EnvGuard::lock();
-        let home = std::env::temp_dir().join(format!(
-            "host_exec_home_{}",
-            uuid::Uuid::new_v4().simple()
-        ));
+        let home =
+            std::env::temp_dir().join(format!("host_exec_home_{}", uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(home.join(".local/bin")).unwrap();
         process_env.remove("HOME");
         process_env.set("USERPROFILE", &home);

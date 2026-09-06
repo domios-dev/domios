@@ -66,19 +66,15 @@ pub(super) fn local_path_from_url(value: &str) -> Option<PathBuf> {
 }
 
 pub(super) fn clone_git_channel(source: &ChannelSource, cache_path: &Path) -> Result<(), String> {
-    // Unique scratch dir per clone. A fixed path (e.g. "<cache>.git-clone") lets
-    // concurrent clones of the SAME channel — which happen when several snapshot
-    // builds race to ensure/refresh a channel under rapid UI polling — write into the
-    // same working tree and corrupt each other's git metadata ("could not lock",
-    // "BUG: refs/files-backend", "shallow file has data we cannot read").
+    // Unique scratch dir per clone: a fixed "<cache>.git-clone" let racing clones of one
+    // channel share a working tree and corrupt each other's git metadata.
     let tmp = cache_path.with_extension(format!("git-clone-{}", uuid::Uuid::new_v4()));
     if tmp.exists() {
         fs::remove_dir_all(&tmp).map_err(|e| format!("clear {}: {e}", tmp.display()))?;
     }
     let result = clone_git_channel_into(source, cache_path, &tmp);
-    // Always drop the scratch clone. On the success/no-subdir path it was renamed into
-    // place (so this is a no-op); on the subdir or any error path it must be removed so
-    // failed clones never accumulate under the channels dir.
+    // Always drop the scratch clone (a no-op after rename-into-place) so failed clones
+    // never accumulate under the channels dir.
     if tmp.exists() {
         let _ = fs::remove_dir_all(&tmp);
     }

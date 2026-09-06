@@ -205,12 +205,20 @@ fn peer_relay_refusal_names_both_dead_records_and_the_id_route() {
         .map(|c| c["instance_id"].as_str().unwrap().to_string())
         .collect();
     assert!(ids.contains(&"a4db6f3d-dead".to_string()), "got: {ids:?}");
-    assert!(ids.contains(&"c9112abc-alsodead".to_string()), "got: {ids:?}");
+    assert!(
+        ids.contains(&"c9112abc-alsodead".to_string()),
+        "got: {ids:?}"
+    );
     let route_ids: Vec<String> = parsed["candidates"]
         .as_array()
         .unwrap()
         .iter()
-        .map(|c| c["route_by_id"]["target_peer_id"].as_str().unwrap().to_string())
+        .map(|c| {
+            c["route_by_id"]["target_peer_id"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        })
         .collect();
     assert!(route_ids.contains(&"a4db6f3d-dead".to_string()));
     assert!(route_ids.contains(&"c9112abc-alsodead".to_string()));
