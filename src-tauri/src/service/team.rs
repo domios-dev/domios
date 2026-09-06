@@ -193,7 +193,6 @@ impl ServiceContext {
             .unwrap_or_else(|| "no bound plan yet".into());
         // A Planner is introduced to the Orchestrator that added it. A caller-less add
         // is the bootstrap door and can only place an anchoring role, so there is no
-        // counterpart to name and nothing to introduce.
         let coordination = caller_tab_id
             .filter(|_| role_kind == PLANNER)
             .map(|caller_tab_id| {

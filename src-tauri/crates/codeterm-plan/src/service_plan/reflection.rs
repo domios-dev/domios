@@ -113,7 +113,6 @@ fn explicit_group_close_ts(plan: &Plan, key: &str) -> Option<u64> {
 
 // A group closes for reflection purposes either derived (every member task
 // terminal, at least one done) or explicit (`plan groups close`) — whichever
-// is later, so re-deriving after an explicit close still re-arms correctly.
 fn group_close_ts(plan: &Plan, key: &str) -> Option<u64> {
     let derived = milestone_gates::group_completion(plan, key);
     let explicit = explicit_group_close_ts(plan, key);

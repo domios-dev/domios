@@ -143,7 +143,6 @@ pub fn compute_next_actions(s: &PlanStateSnapshot) -> Vec<NextAction> {
 
     // Dependency-gated pending lanes never reach ordinary dispatch below, so
     // without this the whole gated tail of a plan reports as "nothing to do"
-    // once its unblocking task goes in_progress — codeterm#397.
     for lane in s
         .open_lanes
         .iter()

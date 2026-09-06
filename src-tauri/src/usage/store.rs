@@ -933,7 +933,6 @@ mod tests {
     fn trim_to_cap_keeps_only_last_n() {
         // Small cap so pruning is exercised in <1s: inserting 10k+ rows one tx
         // each (the real cap) took ~70s and dominated the whole suite. The trim
-        // logic is cap-agnostic, so a 50-row cap proves the same behavior.
         const CAP: i64 = 50;
         let store = UsageStore::open_in_memory_with_cap(CAP).unwrap();
         for i in 0..(CAP + 25) {

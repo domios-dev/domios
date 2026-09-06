@@ -321,7 +321,6 @@ impl NotificationStore {
 
         // A record that offers a choice is never a coalescing target: rewriting
         // a standing question in place would retract it under the user's
-        // finger, and the tap that arrived would answer something else.
         let reused = open.and_then(|(_, id)| {
             (!self.offers_choice(&id)
                 && self.rewrite_in_place(
@@ -427,10 +426,6 @@ impl NotificationStore {
         }
         // A mapping whose target record no longer exists — evicted by the
         // notification cap, or cleared — is not a live collapse target.
-        // Left in place, it silently falls through below and opens a SECOND
-        // notification while the dead mapping lingers: the collapse this
-        // registry exists for stops working. Drop dead mappings before
-        // deciding whether one is still live to coalesce onto.
         let live_ids: HashSet<&str> = self.notifications.iter().map(|n| n.id.as_str()).collect();
         self.provider_updates
             .retain(|_, id| live_ids.contains(id.as_str()));

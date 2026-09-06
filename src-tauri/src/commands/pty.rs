@@ -268,7 +268,6 @@ pub async fn spawn_pty_core(
                 let skip_perms = permission_bypass_authorization.is_some();
                 // Same seam as a fresh restored launch: the composed identity, the
                 // tab's model and the effort args all travel through
-                // build_agent_command instead of being re-added by hand here.
                 let resume_cmd = restored_fresh_launch_input(
                     &svc.agent_registry,
                     crate::service::SpawnAgentParams {

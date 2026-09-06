@@ -278,9 +278,6 @@ pub async fn check_stage_deb_update(
 
     // Pin the target explicitly, matching the plugin apply path: without it the
     // updater plugin falls back to its own default OS/arch detection, which is
-    // never wrong for a plain Linux x86_64 host today but leaves "which artifact
-    // this client can install" implicit rather than driven by the one platform
-    // key the rest of the updater uses.
     let mut builder = app
         .updater_builder()
         .endpoints(vec![endpoint.clone()])
@@ -687,7 +684,6 @@ async fn diagnose_no_update(endpoint: &str, local_version: &str) {
             );
             // A client is only ever offered an artifact that exists for its own
             // platform (rel#47), so this diagnostic reflects the same rule the
-            // real apply path relies on, not a bare version compare.
             match manifest::offered_version(local_version, &m, plat_key) {
                 Ok(Some(v)) => log::error!(
                     "[updater] DIAGNOSTIC: manual compare says local {} < remote {} with a payload for '{}' (UPDATE AVAILABLE) but plugin returned None — likely a signature issue",
@@ -1052,7 +1048,6 @@ mod debian_tests {
 
     // The exact shape `build-updater-fragment.py` / release-linux.yml's Debian
     // fragment step publishes: a versioned .deb asset under the public mirror's
-    // release-download path. This must be accepted, not refused.
     #[test]
     fn genuine_debian_release_asset_url_is_accepted() {
         let url = Url::parse(

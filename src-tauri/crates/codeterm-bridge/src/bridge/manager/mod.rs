@@ -145,8 +145,6 @@ impl BridgeManager {
                 Some(msg) = rx.recv() => {
                     // A tapped button may be answering a question the daemon
                     // asked. It is offered whole and unmerged: an answer is one
-                    // event, and debouncing it into neighbouring text would
-                    // paste the token into a tab instead of answering with it.
                     if msg.callback_data.as_deref().is_some_and(|data| tab.claim_channel_answer(data)) {
                         log::info!("[bridge] inbound tap answered a notification");
                         continue;
@@ -215,7 +213,6 @@ impl BridgeManager {
                         OutboundContent::Text { ref text } => {
                             // A rewrite addresses one already-sent message, so
                             // it never touches the last-message state the
-                            // append path keeps.
                             if let Some(edit) = out_msg.edit.as_ref() {
                                 log::info!("[bridge-outbound] rewriting message {} in {}", edit.message_id, chat_id);
                                 rewrite_message(

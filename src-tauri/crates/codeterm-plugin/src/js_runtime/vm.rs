@@ -108,7 +108,6 @@ const PLUGIN_PREAMBLE: &str = r#"
   host.exec.close = function (jobId) { host.execClose(jobId); };
   // Return `host.awaitJob(job, then)` from a plugin method instead of blocking in
   // it: the frame unwinds, the host waits for the job with the VM released, and
-  // re-enters this context to run `then`. Nothing enters mid-frame.
   var __awaitSeq__ = 0;
   var __awaits__ = {};
   globalThis.__ct_await_take__ = function (k) {

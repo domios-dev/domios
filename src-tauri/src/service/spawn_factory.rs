@@ -122,8 +122,6 @@ mod tests {
 
     // Byron regression: a formed pairing must yield BOTH directions, and each
     // body must name the counterpart's tab id AND the reach command. The
-    // pre-factory shape delivered only a one-directional display greeting that
-    // named the counterpart by label with no tab id — the duplicate-spawn bug.
     #[test]
     fn pair_introductions_name_both_counterpart_tab_ids_and_reach_commands() {
         let (o, p) = (orch(), planner());

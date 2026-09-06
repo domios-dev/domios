@@ -86,8 +86,6 @@ pub fn ensure_dreaming_cron(
 
     // Deferred default: `None` here means "pick the default agent at fire
     // time", not "no agent" — deliberately NOT resolved eagerly, unlike the
-    // update path above. Only used as a hint below for the model-compat
-    // check, which does need to know which provider's catalog to consult.
     let agent = if mem_cfg.dreaming_agent.is_empty() {
         None
     } else {

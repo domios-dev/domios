@@ -50,7 +50,6 @@ impl CapabilityRegistries {
         let caps = &manifest.capabilities;
         // Keep the models only when this manifest still declares the capability:
         // they are about to be replaced. A manifest that drops chatBackend is a
-        // removal, and its models must go with it.
         if caps.chat_backend.enabled() {
             self.deregister_plugin_keeping_models(id);
         } else {

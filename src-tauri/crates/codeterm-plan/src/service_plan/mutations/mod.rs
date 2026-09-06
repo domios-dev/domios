@@ -418,7 +418,6 @@ fn validate_task_status_transition_for(
             }
             // Only fresh dispatch (claiming new capacity) is throttled; a task
             // returning to in_progress after a review bounce already holds its
-            // slot and must not get stuck re-queued behind its own review.
             if matches!(current, TaskStatus::Pending) {
                 if let Some(task) = task {
                     super::review_gate::validate_dispatch_review_capacity(plan, task)?;

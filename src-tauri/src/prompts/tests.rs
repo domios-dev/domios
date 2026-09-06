@@ -536,9 +536,6 @@ fn orchestrator_suffix_embeds_the_canonical_manual() {
 
 // Rich-rendering delivery is a composition fact, so it is asserted where the
 // composition lives — service::orchestrator::launch::tests. The two tests that
-// used to sit here were named after the primer and the worker context but only
-// asserted phrases inside RICH_RENDERING_GUIDANCE, so they passed regardless of
-// whether either recipient received it.
 
 /// One source, every surface that cuts or judges a task graph. The fragment
 /// is an opaque token here; its wording belongs to the .md file.
@@ -945,7 +942,6 @@ fn verbose_completion_stays_out_of_surfaces_that_never_notify() {
 fn every_prompt_md_has_a_loader() {
     // All top-level .md files in prompts/ that have an include_str!() loader.
     // Any file in the directory that is NOT in this set is an orphan — it is
-    // compiled into the binary by nobody and misleads future editors.
     let loaded: std::collections::HashSet<&str> = [
         "worker_suffix.md",
         "testing_discipline.md",

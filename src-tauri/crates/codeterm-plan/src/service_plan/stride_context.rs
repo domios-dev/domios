@@ -4,7 +4,6 @@ pub const WORKER_STRIDE_LIMIT: usize = 6;
 
 // Pinned decisions lead; named signal kinds (bounce findings, planner notes,
 // gate/qa outcomes) next; other kinds fill remaining budget. Pure bookkeeping
-// (status_update) is noise — never surfaced to the worker.
 const PINNED_KINDS: &[&str] = &["decision"];
 const SIGNAL_KINDS: &[&str] = &["bounce", "note", "qa", "regression", "retrospective"];
 const NOISE_KINDS: &[&str] = &["status_update"];

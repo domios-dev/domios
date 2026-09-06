@@ -456,9 +456,6 @@ mod tests {
     fn concurrent_load_on_tokenless_config_yields_one_stable_token() {
         // Repro for the intermittent multi-agent-boot 401: a tokenless config
         // hit by N concurrent load_config() callers must auto-generate EXACTLY
-        // one token that every caller (and the persisted file) agrees on. The
-        // racy version generated a different token per caller, so a tab spawned
-        // with a sibling-generated token 401'd against the auth-held token.
         const N: usize = 16;
         let tmp = tempfile::tempdir().unwrap();
         let path = std::sync::Arc::new(tmp.path().join("config.toml"));

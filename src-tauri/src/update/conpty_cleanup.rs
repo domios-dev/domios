@@ -527,7 +527,6 @@ mod tests {
 
         // Parent 0 is the one pid nothing can ever open. It is enumerated, so
         // it is alive, and its host is spared. A liveness test built on
-        // `OpenProcess` would call it dead and kill a live terminal.
         let unopenable_parent = ProcessCandidate {
             pid: 10,
             parent_pid: 0,
