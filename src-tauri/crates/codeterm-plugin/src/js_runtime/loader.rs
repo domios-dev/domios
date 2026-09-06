@@ -180,7 +180,9 @@ fn compute_sandbox(
 /// read/write every other process's (and every other plugin's) scratch files.
 /// Pure path arithmetic; the caller creates the directory.
 pub(crate) fn plugin_temp_dir(plugin_id: &str) -> PathBuf {
-    std::env::temp_dir().join("codeterm-plugins").join(plugin_id)
+    std::env::temp_dir()
+        .join("codeterm-plugins")
+        .join(plugin_id)
 }
 
 /// The filesystem a confined plugin gets: its own bundle, its own data dir,
@@ -204,7 +206,11 @@ pub(crate) fn confined_roots(
             read_roots.push(root);
         }
     }
-    let write_roots = vec![bundle_dir.to_path_buf(), data_dir.to_path_buf(), scoped_temp];
+    let write_roots = vec![
+        bundle_dir.to_path_buf(),
+        data_dir.to_path_buf(),
+        scoped_temp,
+    ];
     (read_roots, write_roots)
 }
 
@@ -444,13 +450,10 @@ mod tests {
             serde_json::from_str(&min_manifest("no-declared-root")).expect("manifest parses");
         let (read_roots, write_roots) = confined_roots(&rootless, &bundle, &data);
 
-        let expected: HashSet<PathBuf> = [
-            bundle.clone(),
-            data.clone(),
-            plugin_temp_dir(&rootless.id),
-        ]
-        .into_iter()
-        .collect();
+        let expected: HashSet<PathBuf> =
+            [bundle.clone(), data.clone(), plugin_temp_dir(&rootless.id)]
+                .into_iter()
+                .collect();
         let read_set: HashSet<PathBuf> = read_roots.into_iter().collect();
         let write_set: HashSet<PathBuf> = write_roots.into_iter().collect();
 
@@ -538,10 +541,7 @@ mod tests {
     fn a_path_inside_system_temp_but_outside_the_scoped_subdir_is_refused() {
         use crate::js_runtime::host_api::PluginSandbox;
 
-        let plugin_id = format!(
-            "confinement-negctl-{}",
-            uuid::Uuid::new_v4().simple()
-        );
+        let plugin_id = format!("confinement-negctl-{}", uuid::Uuid::new_v4().simple());
         let manifest: PluginManifest =
             serde_json::from_str(&min_manifest(&plugin_id)).expect("manifest parses");
 

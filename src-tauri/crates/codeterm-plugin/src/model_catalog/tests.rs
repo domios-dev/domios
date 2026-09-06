@@ -974,7 +974,10 @@ async fn reader_refresh_retries_an_unknown_verdict_inside_the_ttl() {
 
     assert!(refreshed.is_some(), "an unknown verdict must be retried");
     assert!(!has_unknown_verdict(id));
-    assert_eq!(resolve_models(id)[0].availability(), ModelAvailability::Available);
+    assert_eq!(
+        resolve_models(id)[0].availability(),
+        ModelAvailability::Available
+    );
     cleanup(id);
 }
 

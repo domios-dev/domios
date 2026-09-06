@@ -533,7 +533,7 @@ pub(super) fn install(
     let sb = sandbox.clone();
     bind!("writeTempFile", move |contents: String,
                                  suffix: Option<String>|
-     -> Option<String> {
+          -> Option<String> {
         write_temp_file(&sb.temp_dir(), &contents, suffix.as_deref())
     });
     bind!("toolcallParse", |raw_text: String,
