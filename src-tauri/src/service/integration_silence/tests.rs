@@ -569,3 +569,50 @@ fn content_hash_is_read_from_the_providers_own_report() {
     assert_eq!(read_content_hash(&json!({ "hook_content_hash": "  " })), None);
     assert_eq!(read_content_hash(&json!({})), None);
 }
+
+fn concurrent_observed(id: &str) -> AnnouncedIntegrationState {
+    AnnouncedIntegrationState {
+        state: INTEGRATION_STATE_STALE_VERSION.to_string(),
+        content_hash: Some(format!("hash-{id}")),
+    }
+}
+
+/// The defect this replaced: an unguarded read-modify-write across one shared
+/// file. Two writers truncated each other and left JSON that parsed as
+/// "nothing was ever announced", so a standing gap re-announced every restart.
+#[test]
+fn concurrent_records_neither_lose_a_key_nor_tear_the_file() {
+    let ids: Vec<String> = (0..8)
+        .map(|i| format!("fixture-announce-concurrent-{i}"))
+        .collect();
+    for id in &ids {
+        clear_announced(id);
+    }
+
+    std::thread::scope(|scope| {
+        for id in &ids {
+            scope.spawn(move || record_announced(id, &concurrent_observed(id)));
+        }
+    });
+
+    for id in &ids {
+        assert!(
+            !is_news(id, &concurrent_observed(id)),
+            "{id} lost its record to a concurrent writer"
+        );
+    }
+
+    // The durable copy has to survive the same race, or the latch is rebuilt
+    // empty on the next start and every gap announces again.
+    let raw = std::fs::read_to_string(announced_path()).expect("state file written");
+    let parsed: std::collections::HashMap<String, AnnouncedIntegrationState> =
+        serde_json::from_str(&raw).expect("a concurrent write must never leave unparsable JSON");
+    for id in &ids {
+        assert_eq!(
+            parsed.get(id),
+            Some(&concurrent_observed(id)),
+            "{id} is missing from the persisted map"
+        );
+        clear_announced(id);
+    }
+}
