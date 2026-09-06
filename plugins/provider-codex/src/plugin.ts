@@ -28,6 +28,8 @@ import {
   uninstallIntegration as uninstallCodexIntegration,
   type CodexIntegrationInstallOptions,
 } from "./integration";
+// Not yet called from ensureIntegrationOnStartup — apiPort alone carries no safe live-tab-id source.
+export { sweepCodexProfiles, codexProfileTabId, codexProfilesToSweep, type SweepHost } from "./profile-sweep";
 
 const TITLE_RE = /codex/i;
 const OUTPUT_FINGERPRINTS = [
@@ -356,9 +358,7 @@ const plugin: PluginModule = {
     return installCodexIntegration(apiPort, options);
   },
 
-  // integration.trust_grant capability: core invokes this once per install
-  // with the manifest-declared managed hook key(s). Codex is the only hash
-  // authority — the grant lane never computes a trust hash CodeTerm-side.
+  // Codex is the only hash authority; the grant lane never computes a trust hash CodeTerm-side.
   grantIntegrationTrust(managedKeys: string[]): unknown {
     return grantCodexIntegrationTrust(managedKeys);
   },
