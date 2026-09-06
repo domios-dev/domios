@@ -316,6 +316,36 @@ fn available_models(&self) -> Vec<ModelInfo> {
 `try_override` returns `Some(...)` only when an override file exists; no override
 → `None`, and the plugin keeps its dynamic path.
 
+## Availability is three-state
+
+A model carries `availability`: `available`, `unavailable`, or `unknown`.
+
+- `unavailable` means the provider **asked and was told no** — a CLI below a
+  version gate, or an account list that does not include the model. The picker
+  greys the row out and `codeterm agent models <provider>` prints
+  `(unavailable)`.
+- `unknown` means the probe **could not run at all** — the CLI did not resolve,
+  exited non-zero, or produced no parsable version. The row stays selectable,
+  both surfaces print `(availability unknown)`, and the verdict is retried.
+- The legacy `available` boolean is still published for definite verdicts only.
+  An unknown verdict publishes no boolean and is never written to
+  `<provider>.cache.json` as a negative.
+
+## Cache invalidation
+
+`<provider>.cache.json` records the CLI it was captured against (path, size,
+mtime). Two things void it without any timer:
+
+- **Provider-binary change.** A watcher on the *resolved* CLI path forces a
+  re-probe when the file is rewritten, and a snapshot whose recorded binary no
+  longer matches is not primed at startup.
+- **Opening the model picker.** An explicit user action, TTL-gated to at most
+  one probe per freshness window — except while a verdict is still `unknown`,
+  which is always retried.
+
+Every refresh clears the `host.exec` binary-resolution memo first: a refresh
+that re-reads a memoized failed resolution just rewrites the same wrong answer.
+
 ## CLI helpers
 
 There aren't dedicated CLI subcommands for the catalog yet — just edit the
@@ -330,4 +360,4 @@ codeterm agent providers --json | jq '.providers[] | {id, default_model, models:
 - `~/.codeterm/models/README.md` — short user-facing pointer (auto-installed)
 - `src-tauri/crates/codeterm-plugin/src/model_catalog.rs` — override/catalog implementation
 - `docs/contributing/architecture.md` — plugin architecture overview
-<!-- revision: 4 -->
+<!-- revision: 5 -->

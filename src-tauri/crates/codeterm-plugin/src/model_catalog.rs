@@ -30,7 +30,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 
-use crate::provider::{AgentProvider, ModelInfo, ReasoningEffortInfo};
+use crate::provider::{AgentProvider, ModelAvailability, ModelInfo, ReasoningEffortInfo};
 
 /// One model entry as read from the TOML file. Matches `ModelInfo` plus an
 /// optional alias field, kept ergonomic so the user file feels light.
@@ -101,6 +101,37 @@ enum Source {
     Live,
 }
 
+/// Identity of the provider CLI a snapshot was captured against. A self-update
+/// rewrites the file, so size and mtime are the change signal the catalog needs
+/// — no timer, just the write that actually happened.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BinaryFingerprint {
+    pub path: String,
+    pub len: u64,
+    pub modified_unix: u64,
+}
+
+/// `None` when the path does not resolve to a readable file, which is itself a
+/// change worth noticing: the CLI a snapshot describes is gone.
+pub fn fingerprint_path(path: &std::path::Path) -> Option<BinaryFingerprint> {
+    let meta = std::fs::metadata(path).ok()?;
+    let modified = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or_default();
+    Some(BinaryFingerprint {
+        path: path.to_string_lossy().to_string(),
+        len: meta.len(),
+        modified_unix: modified,
+    })
+}
+
+fn fingerprint_bin(bin: &str) -> Option<BinaryFingerprint> {
+    fingerprint_path(&crate::js_runtime::resolved_bin_path(bin)?)
+}
+
 #[derive(Debug, Clone)]
 struct ProviderModels {
     models: Vec<ModelInfo>,
@@ -108,6 +139,7 @@ struct ProviderModels {
     source: Source,
     /// Wall-clock fetch time (not `Instant`) so the TTL survives a restart via the on-disk cache.
     fetched_at: Option<SystemTime>,
+    binary: Option<BinaryFingerprint>,
 }
 
 impl ProviderModels {
@@ -117,6 +149,7 @@ impl ProviderModels {
             default: defaults.default,
             source: Source::Seed,
             fetched_at: None,
+            binary: None,
         }
     }
 
@@ -126,7 +159,13 @@ impl ProviderModels {
             default,
             source: Source::Live,
             fetched_at: Some(fetched_at),
+            binary: None,
         }
+    }
+
+    fn against_binary(mut self, binary: Option<BinaryFingerprint>) -> Self {
+        self.binary = binary;
+        self
     }
 
     fn as_defaults(&self) -> RegisteredDefaults {
@@ -261,18 +300,49 @@ pub const DISCOVER_TIMEOUT: Duration = Duration::from_secs(8);
 /// Publish a live discovery snapshot for `provider_id` and persist it to the
 /// on-disk cache so it survives a restart.
 pub fn put_live(provider_id: &str, models: Vec<ModelInfo>, default: Option<String>) {
-    put_live_at(provider_id, models, default, SystemTime::now());
+    put_live_at(provider_id, models, default, None, SystemTime::now());
+}
+
+/// Publish a snapshot together with the identity of the CLI it was captured
+/// against, so a later self-update can invalidate it.
+pub fn put_live_against(
+    provider_id: &str,
+    models: Vec<ModelInfo>,
+    default: Option<String>,
+    binary: Option<BinaryFingerprint>,
+) {
+    put_live_at(provider_id, models, default, binary, SystemTime::now());
 }
 
 fn put_live_at(
     provider_id: &str,
     models: Vec<ModelInfo>,
     default: Option<String>,
+    binary: Option<BinaryFingerprint>,
     fetched_at: SystemTime,
 ) {
-    let snapshot = ProviderModels::live(models, default, fetched_at);
+    let snapshot =
+        ProviderModels::live(honest_verdicts(&models), default, fetched_at).against_binary(binary);
     persist_cache(provider_id, &snapshot);
     registry().write().insert(provider_id.to_string(), snapshot);
+}
+
+/// A probe that could not run is not a capability answer. An unknown verdict
+/// keeps its own name and never travels as a definite negative.
+fn honest_verdicts(models: &[ModelInfo]) -> Vec<ModelInfo> {
+    models
+        .iter()
+        .map(|model| {
+            if !model.is_unknown() {
+                return model.clone();
+            }
+            ModelInfo {
+                available: None,
+                availability: Some(ModelAvailability::Unknown),
+                ..model.clone()
+            }
+        })
+        .collect()
 }
 
 /// Load a persisted live snapshot into the registry at startup so the picker shows
@@ -292,6 +362,12 @@ pub fn prime_from_cache(provider_id: &str) {
         );
         return;
     }
+    if binary_moved(cached.binary.as_ref()) {
+        log::info!(
+            "[model_catalog] {provider_id} cache describes a provider binary that changed underneath it — keeping the registered seed until a fresh probe"
+        );
+        return;
+    }
     {
         let reg = registry().read();
         if reg.get(provider_id).map(|s| s.source) == Some(Source::Live) {
@@ -300,8 +376,28 @@ pub fn prime_from_cache(provider_id: &str) {
     }
     registry().write().insert(
         provider_id.to_string(),
-        ProviderModels::live(cached.models, cached.default, fetched_at),
+        ProviderModels::live(cached.models, cached.default, fetched_at)
+            .against_binary(cached.binary),
     );
+}
+
+/// True when the recorded CLI is no longer the file the snapshot described. A
+/// snapshot that named no binary describes nothing that can change.
+fn binary_moved(recorded: Option<&BinaryFingerprint>) -> bool {
+    let Some(recorded) = recorded else {
+        return false;
+    };
+    fingerprint_path(std::path::Path::new(&recorded.path)).as_ref() != Some(recorded)
+}
+
+/// Whether the live snapshot in memory still describes the CLI on disk. An
+/// answer about a binary stops being an answer when that binary is replaced.
+pub fn provider_binary_changed(provider_id: &str) -> bool {
+    let recorded = registry()
+        .read()
+        .get(provider_id)
+        .and_then(|snapshot| snapshot.binary.clone());
+    binary_moved(recorded.as_ref())
 }
 
 /// Returns true when the provider has no live snapshot or the snapshot is older
@@ -334,6 +430,40 @@ pub async fn refresh_models(
     refresh_live(provider, DISCOVER_TIMEOUT).await
 }
 
+/// The event-driven refresh: a resolved provider binary was rewritten, so the
+/// answer captured against the old one is void. Forced, because the TTL knows
+/// nothing about a file write.
+pub async fn refresh_after_binary_change(
+    provider: Arc<dyn AgentProvider>,
+) -> Option<Vec<ModelInfo>> {
+    log::info!(
+        "[model_catalog] {} provider binary changed - re-probing",
+        provider.id()
+    );
+    refresh_models(provider, true).await
+}
+
+/// The user opened the picker, which is an explicit action rather than a poll.
+/// TTL-gated so an open costs at most one probe per window, except when the
+/// binary itself changed or the last probe could not run at all.
+pub async fn refresh_for_reader(provider: Arc<dyn AgentProvider>) -> Option<Vec<ModelInfo>> {
+    let provider_id = provider.id().to_string();
+    let must_retry = provider_binary_changed(&provider_id) || has_unknown_verdict(&provider_id);
+    if !must_retry && !is_stale(&provider_id, DEFAULT_TTL, SystemTime::now()) {
+        return None;
+    }
+    refresh_models(provider, true).await
+}
+
+/// True when the active snapshot still carries a verdict a probe could not
+/// reach. An unknown answer is retried, never settled by waiting.
+pub fn has_unknown_verdict(provider_id: &str) -> bool {
+    registry()
+        .read()
+        .get(provider_id)
+        .is_some_and(|snapshot| snapshot.models.iter().any(ModelInfo::is_unknown))
+}
+
 /// Refresh live models off the async runtime. On timeout / opt-out / failure — or an
 /// empty post-sanitize result — the previous snapshot stays active (the list never goes empty).
 pub async fn refresh_live(
@@ -344,6 +474,9 @@ pub async fn refresh_live(
     let default = provider.default_model();
     // blocking pool. Use an independent executor, not `Handle::block_on` (deadlocks nested in spawn_blocking).
     let task = tokio::task::spawn_blocking(move || {
+        // A refresh that re-reads a memoized failed resolution rewrites the same
+        // wrong answer, so the memo is dropped before every probe, not after.
+        crate::js_runtime::forget_resolved_bins();
         let models = futures_executor::block_on(provider.discover_models())?;
         let models = sanitize_live(models);
         if models.is_empty() {
@@ -353,7 +486,8 @@ pub async fn refresh_live(
             return None;
         }
         let default = resolve_live_default(&models, default);
-        put_live(&provider_id, models.clone(), default);
+        let binary = provider.cli_binary().and_then(fingerprint_bin);
+        put_live_against(&provider_id, models.clone(), default, binary);
         Some(models)
     });
     match tokio::time::timeout(timeout_duration, task).await {
@@ -377,7 +511,7 @@ fn sanitize_live(models: Vec<ModelInfo>) -> Vec<ModelInfo> {
             out.push(m);
         }
     }
-    out
+    honest_verdicts(&out)
 }
 
 /// Heuristic: ids that name an embedding / non-chat model. Conservative — only
@@ -570,6 +704,10 @@ struct CachedSnapshot {
     /// Absent (legacy cache) or mismatched → the snapshot never primes.
     #[serde(default)]
     seed_fingerprint: Option<String>,
+    /// The provider CLI this snapshot describes. Changed underneath → the
+    /// snapshot never primes, because it answers about a file that is gone.
+    #[serde(default)]
+    binary: Option<BinaryFingerprint>,
 }
 
 impl CachedSnapshot {
@@ -590,8 +728,9 @@ fn persist_cache(provider_id: &str, snapshot: &ProviderModels) {
     let payload = CachedSnapshot {
         fetched_at_unix: secs.as_secs(),
         default: snapshot.default.clone(),
-        models: snapshot.models.clone(),
+        models: honest_verdicts(&snapshot.models),
         seed_fingerprint: Some(seed_fingerprint(provider_id)),
+        binary: snapshot.binary.clone(),
     };
     let path = cache_path(provider_id);
     match serde_json::to_string_pretty(&payload) {
@@ -706,6 +845,7 @@ fn load_override(provider_id: &str) -> Option<ProviderOverride> {
                             display_name: m.display_name,
                             description: m.description,
                             available: m.available,
+                            availability: None,
                         })
                         .collect(),
                     default_effort: p.default_effort,

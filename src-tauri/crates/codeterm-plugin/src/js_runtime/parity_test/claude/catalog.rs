@@ -81,6 +81,7 @@ fn claude_manifest_catalog_is_identical_for_native_and_js_without_credentials() 
         .iter()
         .map(|m| ModelInfo {
             available: Some(true),
+            availability: None,
             ..m.clone()
         })
         .collect();

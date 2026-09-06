@@ -26,6 +26,7 @@ pub use bubble::JsBubbleProvider;
 pub use chatbackend::JsChatBackend;
 pub use chatpreprocessor::JsChatPreprocessor;
 pub use glance::JsGlanceProvider;
+pub use host_exec::{forget_resolved_bins, resolved_bin_path};
 pub use transcriber::JsTranscriber;
 pub use view::JsViewProvider;
 

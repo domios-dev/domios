@@ -230,32 +230,6 @@ pub struct SessionMessage {
 // `ProviderDescriptor` is every plugin's describe() wire payload used by the
 // frontend for Settings, Sidebar, and command-palette rows.
 
-/// Single model offered by an agent provider.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct ModelInfo {
-    pub id: String,
-    pub display_name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    /// Account-can-select-this-now. `None` (common) ⇒ no info, treat as available;
-    /// `Some(false)` greys it out in the picker. Set by live discovery; usually `None` in static seeds.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub available: Option<bool>,
-}
-
-/// Single reasoning-effort level a provider supports (e.g. codex low/medium/high).
-/// Mirrors `ModelInfo`: capability-declared, surfaced in discovery/API/UI. An
-/// empty `reasoning_efforts` list means the provider exposes no effort selector.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct ReasoningEffortInfo {
-    pub id: String,
-    pub display_name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-}
-
 /// Severity flavor for `SettingField::Info` notes.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -304,8 +278,10 @@ pub enum PathOpenKind {
 }
 
 mod capabilities;
+mod model_info;
 mod settings;
 pub use capabilities::*;
+pub use model_info::*;
 pub use settings::*;
 
 /// Wire format describing one agent provider to the frontend.
@@ -1060,9 +1036,8 @@ pub trait AgentProvider: Send + Sync {
             icon_hint: self.icon_hint().map(|s| s.to_string()),
             icon_svg: self.icon_svg().map(|s| s.to_string()),
             icon_color: self.icon_color().map(|s| s.to_string()),
-            // Keep unavailable entries in the descriptor — `ModelInfo::available`
-            // greys a model out in the picker, it must not vanish it (matches
-            // chatbackend_provider's describe(), which never filtered here).
+            // Keep unavailable entries: `available` greys a model out in the
+            // picker, it must not vanish it. Matches chatbackend describe().
             available_models: self.available_models(),
             default_model: self.default_model(),
             reasoning_efforts: self.reasoning_efforts(),

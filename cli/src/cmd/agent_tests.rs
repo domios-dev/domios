@@ -350,3 +350,43 @@ fn agent_restart_failure_stays_an_error() {
         "a daemon-reported failure must stay an Err"
     );
 }
+
+/// The CLI and the picker read one answer. A probe that could not run must
+/// reach both as unknown, and never as the negative that disables the row.
+#[test]
+fn agent_models_reports_unknown_apart_from_unavailable() {
+    let provider = serde_json::json!({
+        "id": "claude",
+        "default_model": "sonnet",
+        "available_models": [
+            { "id": "sonnet", "display_name": "Sonnet" },
+            { "id": "fable", "display_name": "Fable", "availability": "unknown" },
+            { "id": "legacy", "display_name": "Legacy", "available": false },
+        ]
+    });
+
+    let out = format_agent_models(&provider, "claude");
+    let line = |id: &str| {
+        out.lines()
+            .find(|line| line.starts_with(id))
+            .unwrap_or_default()
+            .to_string()
+    };
+
+    assert!(line("fable").ends_with(AVAILABILITY_UNKNOWN));
+    assert!(!line("fable").contains(AVAILABILITY_UNAVAILABLE));
+    assert!(line("legacy").ends_with(AVAILABILITY_UNAVAILABLE));
+    assert!(!line("sonnet").contains("availability"));
+}
+
+/// An explicit verdict from the provider wins over the legacy boolean, so the
+/// two fields cannot disagree on a surface.
+#[test]
+fn agent_models_prefers_the_explicit_availability_verdict() {
+    let provider = serde_json::json!({
+        "available_models": [
+            { "id": "m", "display_name": "M", "available": true, "availability": "unknown" },
+        ]
+    });
+    assert!(format_agent_models(&provider, "claude").contains(AVAILABILITY_UNKNOWN));
+}
