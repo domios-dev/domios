@@ -739,7 +739,7 @@ echo %*>>"%CODETERM_TEST_GIT_LOG%"
 if not "%~1"=="clone" exit /b 0
 for %%a in (%*) do set "dest=%%~a"
 mkdir "%dest%" 2>nul
-robocopy "%CODETERM_TEST_FRESH_CHANNEL%" "%dest%" /E >nul
+"%SystemRoot%\System32\robocopy.exe" "%CODETERM_TEST_FRESH_CHANNEL%" "%dest%" /E >nul
 if %errorlevel% geq 8 exit /b 1
 exit /b 0
 "#,
@@ -765,14 +765,6 @@ exit /b 0
 
             let out = install_command(Some("fresh".to_string()), None, None, None)
                 .expect("install should refresh channel and install");
-
-            // TEMPORARY: confirms whether the git stub ran before the refresh-vs-cache
-            // decision that's actually failing. Remove once root-caused.
-            eprintln!(
-                "DIAGNOSTIC out={out} git_log_exists={} git_log_bytes={}",
-                log.exists(),
-                std::fs::metadata(&log).map(|m| m.len()).unwrap_or(0)
-            );
 
             assert_eq!(
                 manifest_version(&plugin_dir("fresh")).unwrap(),
