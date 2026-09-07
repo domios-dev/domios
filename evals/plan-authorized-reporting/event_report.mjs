@@ -20,7 +20,7 @@ const command = `
 source "$REPORT_EVAL_LIB"
 unset CODETERM_PLAN_ID CODETERM_TASK_ID
 CODETERM_SESSION_ID="$REPORT_SESSION_ID" CODETERM_SESSION_BINDING_NONCE="$REPORT_BINDING_NONCE" \
-  dc --as-tab "$REPORT_TAB_ID" agent report "$REPORT_MARKER" --plan "$REPORT_PLAN_ID" --json
+  dc --as-tab "$REPORT_TAB_ID" agent report "$REPORT_MARKER" --plan "$REPORT_PLAN_ID" --task "" --json
 `;
 const child = spawn("bash", ["-lc", command], {
   env: {

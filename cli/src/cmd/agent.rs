@@ -251,12 +251,15 @@ pub(crate) fn normalize_tab_description(value: &str) -> Result<Option<String>, S
 }
 
 fn env_default(current: Option<String>, var: &str) -> Option<String> {
-    current.or_else(|| {
-        std::env::var(var)
-            .ok()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-    })
+    current
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            std::env::var(var)
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        })
 }
 
 fn missing_report_binding_incident(tab_id: &str) -> String {
