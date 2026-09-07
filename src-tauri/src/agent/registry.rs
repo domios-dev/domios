@@ -332,10 +332,9 @@ impl AgentRegistry {
         described
             .into_iter()
             .map(|(mut descriptor, launch_binary)| {
-                descriptor.availability = crate::agent::provider::observe_launch_binary(Some(
-                    &launch_binary,
-                ))
-                .availability;
+                descriptor.availability =
+                    crate::agent::provider::observe_launch_binary(Some(&launch_binary))
+                        .availability;
                 descriptor
             })
             .collect()

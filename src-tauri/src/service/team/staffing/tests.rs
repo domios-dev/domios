@@ -172,13 +172,8 @@ fn a_foreign_team_agent_cannot_replace_the_missing_orchestrator() {
     give_agent_identity(&mut mux, &foreign);
     mux.resolve_or_mint_team_for_parent(&foreign).unwrap();
 
-    let error = prepare_team_member_spawn(
-        &mux,
-        &team_id,
-        Some(&foreign),
-        orchestrator_params(),
-    )
-    .unwrap_err();
+    let error = prepare_team_member_spawn(&mux, &team_id, Some(&foreign), orchestrator_params())
+        .unwrap_err();
 
     assert!(error.starts_with(codes::TEAM_CALLER_UNAUTHORIZED));
     assert!(live_team_orchestrators(&mux, &team_id).is_empty());

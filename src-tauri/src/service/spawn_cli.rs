@@ -1,4 +1,6 @@
-use crate::agent::provider::{observe_launch_binary, LaunchBinaryObservation, ProviderAvailability};
+use crate::agent::provider::{
+    observe_launch_binary, LaunchBinaryObservation, ProviderAvailability,
+};
 use crate::agent::registry::AgentRegistry;
 use crate::multiplexer::state::MultiplexerState;
 

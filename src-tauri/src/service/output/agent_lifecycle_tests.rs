@@ -1,5 +1,5 @@
-use crate::agent::offline_state_classifier::{TabVerdict, TimelineState};
 use crate::agent::live_state::observe_tab_liveness;
+use crate::agent::offline_state_classifier::{TabVerdict, TimelineState};
 use crate::multiplexer::state::MultiplexerState;
 use crate::plan::peer::{resolve_planner_ref, PeerResolution};
 use crate::plan::reconcile::TabProbe;
@@ -254,10 +254,9 @@ fn command_finished_marker_makes_a_ready_agent_observably_absent() {
         .unwrap()
         .agent_type
         .is_some());
-    harness.service.process_pty_output(
-        "pty-planner",
-        b"\x1b]633;E;;nonce-wrong\x07\x1b]633;D\x07",
-    );
+    harness
+        .service
+        .process_pty_output("pty-planner", b"\x1b]633;E;;nonce-wrong\x07\x1b]633;D\x07");
     assert_eq!(
         observe_tab_liveness(&harness.service, &tab_id),
         AgentLiveness::Live

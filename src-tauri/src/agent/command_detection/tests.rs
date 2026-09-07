@@ -168,7 +168,10 @@ fn configured_nonce_requires_single_use_authenticated_cycle() {
         ],
     );
     assert_eq!(authenticated.len(), 1);
-    assert!(matches!(authenticated[0], CommandLifecycle::Finished { .. }));
+    assert!(matches!(
+        authenticated[0],
+        CommandLifecycle::Finished { .. }
+    ));
     assert!(ev_pairs(
         &mut det,
         vec![SemanticEvent::CommandEnd { exit_code: Some(0) }],

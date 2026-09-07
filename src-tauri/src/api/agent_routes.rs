@@ -1090,12 +1090,13 @@ fn install_provider_request(
     provider_id: String,
     query: InstallProviderQuery,
 ) -> Result<crate::commands::InstallTabResult, String> {
-    match query.fixture_dispatch_failure.filter(|value| !value.is_empty()) {
-        Some(failure) => crate::commands::install_provider_in_tab_with_fixture_failure(
-            svc,
-            provider_id,
-            failure,
-        ),
+    match query
+        .fixture_dispatch_failure
+        .filter(|value| !value.is_empty())
+    {
+        Some(failure) => {
+            crate::commands::install_provider_in_tab_with_fixture_failure(svc, provider_id, failure)
+        }
         None => crate::commands::install_provider_in_tab_core(svc, provider_id),
     }
 }
