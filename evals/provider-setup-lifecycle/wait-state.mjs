@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 
-const [mode, expected, providerId] = process.argv.slice(2);
-const api = (process.env.CODETERM_API_URL || `http://127.0.0.1:${process.env.CODETERM_API_PORT}`).replace(/\/$/, "");
-const headers = { Authorization: `Bearer ${process.env.CODETERM_API_TOKEN}` };
+const [apiUrl, apiToken, mode, expected, providerId] = process.argv.slice(2);
+if (!apiUrl || !apiToken || !mode || !expected) {
+  throw new Error("dev API URL, dev API token, mode, and expected value are required");
+}
+const api = new URL(apiUrl).toString().replace(/\/$/, "");
+const headers = { Authorization: `Bearer ${apiToken}` };
 const controller = new AbortController();
 const deadline = AbortSignal.timeout(45_000);
 deadline.addEventListener("abort", () => controller.abort(deadline.reason), { once: true });
