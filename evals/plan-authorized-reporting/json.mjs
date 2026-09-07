@@ -37,10 +37,10 @@ switch (operation) {
     write(data?.plan?.id ?? data?.id);
     break;
   case "team-id":
-    write(data?.team_id);
+    write(data?.team_id ?? data?.data?.team_id);
     break;
   case "team-minted":
-    failUnless(data?.team_minted === true);
+    failUnless((data?.team_minted ?? data?.data?.team_minted) === true);
     break;
   case "tab-nonce": {
     const tab = Array.isArray(data) ? data[0] : (data?.tabs?.[0] ?? data);

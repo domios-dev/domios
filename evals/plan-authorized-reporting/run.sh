@@ -43,7 +43,7 @@ EVENT_FD=""
 
 cleanup() {
   CLEANUP_ENTRY_STATUS=$?
-  local status="$CLEANUP_ENTRY_STATUS" cleanup_failed=0 workspace_id
+  local status="$CLEANUP_ENTRY_STATUS" cleanup_failed=0 tab_id workspace_id
   trap - EXIT
   if [ -n "$EVENT_PID" ]; then
     kill "$EVENT_PID" >/dev/null 2>&1 || true
@@ -63,6 +63,15 @@ cleanup() {
       cleanup_failed=1
     fi
   fi
+  for tab_id in "${CREATED_TABS[@]}"; do
+    if [ "$TEAM_OWNED" -eq 1 ] && [ "$tab_id" = "$OWNER_TAB" ]; then
+      continue
+    fi
+    if ! dc tab close --tab "$tab_id" >/dev/null 2>&1; then
+      echo "FAIL cleanup: owned tab $tab_id was not closed" >&2
+      cleanup_failed=1
+    fi
+  done
   for workspace_id in "${OWNED_WORKSPACES[@]}"; do
     if ! dc workspace close "$workspace_id" --force >/dev/null 2>&1; then
       echo "FAIL cleanup: owned workspace $workspace_id was not closed" >&2
