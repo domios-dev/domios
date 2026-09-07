@@ -39,6 +39,10 @@ import {
   declaredAttentionLabel,
   type DeclaredAttentionLevel,
 } from "./declaredAttention";
+import {
+  orchestratorRecoveryMenuView,
+  replaceOrchestrator,
+} from "./orchestratorRecoveryMenu";
 
 interface TabItemProps {
   tab: Tab;
@@ -321,6 +325,29 @@ function TabItemInner({
                 .catch((error) => console.warn("Provider switch failed:", error));
             },
             "data-testid": `tab-menu-provider-${provider.id}`,
+          })),
+        },
+      });
+    }
+    const recoveryMenu = tab
+      ? orchestratorRecoveryMenuView(tab, listAgentDescriptors())
+      : null;
+    if (recoveryMenu) {
+      items.push({
+        label: "Replace Orchestrator",
+        icon: <UserCog size={11} strokeWidth={2} />,
+        "data-testid": "tab-menu-replace-orchestrator",
+        submenu: {
+          label: "Replace Orchestrator",
+          description: "Starts a new Team owner without resuming this session.",
+          items: recoveryMenu.providers.map((candidate) => ({
+            label: candidate.display_name,
+            icon: <Bot size={11} strokeWidth={2} />,
+            onClick: () => {
+              void replaceOrchestrator(recoveryMenu, candidate.id)
+                .catch((error) => console.warn("Orchestrator replacement failed:", error));
+            },
+            "data-testid": `tab-menu-replace-orchestrator-${candidate.id}`,
           })),
         },
       });
