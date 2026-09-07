@@ -15,6 +15,7 @@ OWNER_TAB=""
 OWNER_SESSION="owner-session-91f0c4"
 OWNER_NONCE=""
 EVENT_PID=""
+EVENT_FD=""
 TMP_DIR="$(mktemp -d)"
 JSON="$ROOT/evals/plan-authorized-reporting/json.mjs"
 
@@ -79,13 +80,15 @@ token_absent_everywhere() {
 }
 
 start_report_subscription() {
-  local marker="$1" ready="$TMP_DIR/ready.fifo" output="$TMP_DIR/event.json"
-  rm -f "$ready" "$output"
-  mkfifo "$ready"
-  python3 "$ROOT/evals/plan-authorized-reporting/event_wait.py" \
-    "$(dev_api_url)" "$(dev_token)" agent-report "$marker" "$ready" "$output" 20 &
-  EVENT_PID=$!
-  if ! read -r -t 10 _ <"$ready"; then
+  local marker="$1" output="$TMP_DIR/event.json" ready
+  rm -f "$output"
+  coproc REPORT_EVENT {
+    python3 "$ROOT/evals/plan-authorized-reporting/event_wait.py" \
+      "$(dev_api_url)" "$(dev_token)" agent-report "$marker" "$output" 20
+  }
+  EVENT_PID="$REPORT_EVENT_PID"
+  EVENT_FD="${REPORT_EVENT[0]}"
+  if ! read -r -t 10 ready <&"$EVENT_FD" || [ "$ready" != "READY" ]; then
     echo "FAIL subscription_ready: agent-report" >&2
     exit 1
   fi
@@ -94,6 +97,7 @@ start_report_subscription() {
 finish_report_subscription() {
   wait "$EVENT_PID"
   EVENT_PID=""
+  EVENT_FD=""
   node "$JSON" event-type <"$TMP_DIR/event.json"
 }
 
