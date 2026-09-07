@@ -1,6 +1,35 @@
 use super::*;
 use crate::args::plan::{PlanAction, PlanHandoffAction};
 
+#[test]
+fn plan_review_authorize_reporter_parses_capability_class_and_target() {
+    let parsed = Cli::try_parse_from([
+        "codeterm",
+        "plan",
+        "review",
+        "authorize-reporter",
+        "pl_opaque",
+        "tab_opaque",
+        "--class",
+        "canonical_qa",
+    ])
+    .expect("plan evidence reporter authorization parses");
+    assert!(matches!(
+        parsed.command,
+        Commands::Plan {
+            action: PlanAction::Review {
+                action: crate::args::plan::PlanReviewAction::AuthorizeReporter {
+                    plan_id: Some(ref plan_id),
+                    ref reporter_tab_id,
+                    ref class,
+                }
+            }
+        } if plan_id == "pl_opaque"
+            && reporter_tab_id == "tab_opaque"
+            && class == "canonical_qa"
+    ));
+}
+
 #[derive(clap::Parser)]
 struct PlanOnly {
     #[arg(long, global = true)]

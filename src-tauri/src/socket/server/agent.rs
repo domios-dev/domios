@@ -135,6 +135,15 @@ pub(super) fn dispatch(
                     "task_id": task_id,
                 });
             }
+            if let Some((plan_id, stride_id)) = result.persisted_plan_evidence {
+                resp["plan_report"] = serde_json::json!({
+                    "persisted": true,
+                    "plan_id": plan_id,
+                    "stride_id": stride_id,
+                    "task_id": serde_json::Value::Null,
+                    "task_transition": false,
+                });
+            }
             if let Some(rejection) = result.rejected_task_transition {
                 resp["task_report"] = serde_json::json!({
                     "persisted": false,

@@ -1062,5 +1062,6 @@ fn stale_review_escalation_is_idempotent() {
 }
 
 mod bounce_ref_resolution;
+mod plan_evidence_persistence;
 mod qa_waves;
 mod strategy_warning_payload;
