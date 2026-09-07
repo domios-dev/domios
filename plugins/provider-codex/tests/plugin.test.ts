@@ -785,6 +785,7 @@ console.log("\n--- binding nonce (install + outdated detection) ---\n");
 
 {
   const hooksPath = "/tmp/home/.codex/hooks.json";
+  const configPath = "/tmp/home/.codex/config.toml";
   const original = '{"foreign":{"keep":true},"hooks":{"SessionStart":[{"hooks":[{"command":"user-hook"}]}]}}';
   const files = new Map<string, string>([[hooksPath, original]]);
   const p = loadCodexWithHost(baseHost({
@@ -1094,16 +1095,21 @@ for (const [name, fixture] of [
 
 {
   const hooksPath = "/tmp/home/.codex/hooks.json";
+  const configPath = "/tmp/home/.codex/config.toml";
   const stale = JSON.stringify({
     hooks: {
       SessionStart: [{ hooks: [{
         _source: "codeterm-codex-session-binding-v1",
-        command: "curl -s -X POST http://localhost:7686/api/tabs/$CODETERM_TAB_ID/hook/session_start",
+        command:
+          "curl -s -X POST \"$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start\" " +
+          '-H "Authorization: Bearer ${CODETERM_API_TOKEN}" ' +
+          '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}"',
       }] }],
       Stop: [],
     },
   });
-  const files = new Map([[hooksPath, stale]]);
+  const trustedConfig = `[hooks.state."${hooksPath}:session_start:0:0"]\ntrusted_hash = "opaque"\n`;
+  const files = new Map([[hooksPath, stale], [configPath, trustedConfig]]);
   let rewrites = 0;
   const p = loadCodexWithHost(baseHost({
     fs: {
@@ -1119,16 +1125,14 @@ for (const [name, fixture] of [
       removeFile: (file: string) => files.delete(file),
     },
   }));
+  const status = p.checkIntegration();
+  assert(status.hook_contract_current === false, "owned SessionStart without Stop is an incomplete contract");
+  assert(status.integration_state === "stale_version", "trusted missing-Stop contract is classified stale");
+  assert(status.repair_requires_consent === true, "checkIntegration exposes the user-facing consent requirement");
   const result = p.ensureIntegrationOnStartup(7686);
-  const rewritten = files.get(hooksPath) || "";
-  assert(result.ok === true && result.changed === true, "refresh reports a stale owned hook as rewritten");
-  assert(rewrites === 1, "refresh reaches the hook rewrite seam");
-  assert(rewritten !== stale, "refresh changes the stale hook bytes");
-  assert(rewritten.indexOf("$CODETERM_API_URL") !== -1, "refreshed hook routes through the instance URL variable");
-  assert(rewritten.indexOf("${CODETERM_API_TOKEN}") !== -1, "refreshed hook routes through the instance token variable");
-  assert(rewritten.indexOf("$CODETERM_TAB_ID") !== -1, "refreshed hook routes through the instance tab variable");
-  assert(rewritten.indexOf("${CODETERM_API_URL:-}") !== -1, "refreshed hook fails closed when instance variables are absent");
-  assert(!/:\d{2,5}/.test(rewritten), "refreshed hook contains no literal port");
+  assert(result.ok === false && result.actionable === true, "missing Stop requires an actionable consented repair");
+  assert(rewrites === 0, "startup never invents consent for an owned stale contract");
+  assert(files.get(hooksPath) === stale, "unconsented owned hook content remains byte-identical");
 }
 
 {

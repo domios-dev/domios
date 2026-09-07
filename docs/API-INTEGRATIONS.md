@@ -117,7 +117,7 @@ Returns `{"ok": true}` on success. Returns `503 Service Unavailable` if bridge i
 |--------|------|------|-------------|
 | GET | `/api/setup/rules` | — | Check if project rules are installed |
 | POST | `/api/setup/rules/install` | — | Install project rules |
-| GET | `/api/setup/hooks` | `?provider=<id>` | Read provider integration target/status |
+| GET | `/api/setup/hooks` | `?provider=<id>` | Read provider integration target/status. Codex reports `repair_requires_consent: true` when its owned SessionStart/Stop contract is incomplete; Settings consumes this status and presents the explicit local repair action. |
 | POST | `/api/setup/hooks/install` | `?provider=<id>` | Returns `403`; global installation requires the review-and-consent action in local Settings |
 | POST | `/api/setup/hooks/uninstall` | `?provider=<id>` | Remove provider-owned integration entries while preserving foreign configuration |
 
@@ -180,4 +180,4 @@ Service registration, health, usage, logs, and activity: `codeterm docs API-SERV
 | POST | `/api/git/revert-file` | `{path}` | Revert one file through the API guardrails |
 | GET | `/api/git/repos` | — | Known repositories |
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->

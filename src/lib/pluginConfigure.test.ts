@@ -33,8 +33,6 @@ assert("plugin attr round-trips", parsed?.attrs.plugin === "lmstudio");
 assert("name attr round-trips", parsed?.attrs.name === "LM Studio");
 assert("payload carries the wrapped help", parsed?.payload.includes("set the model") ?? false);
 
-// configureWithAI must bring the spawned Configure tab forward (Bug G fix):
-// it dispatches `codeterm:focus-tab` with the spawned tab id (App focuses it).
 async function asyncTests() {
   console.log("\nconfigureWithAI:");
   const focusEvents: Array<{ type: string; detail?: { tabId?: string } }> = [];
@@ -50,10 +48,32 @@ async function asyncTests() {
       this.detail = init?.detail as T;
     }
   };
-  g.fetch = async () => ({ json: async () => ({ id: "tab-xyz" }) });
-  await configureWithAI("lmstudio", "LM Studio", "help", { host: "127.0.0.1", port: 7686 });
+  const opaqueToken = process.env.PROVIDER_SETUP_TASK_TOKEN ?? "configure-token-7f91b";
+  let requestBody: Record<string, unknown> = {};
+  g.fetch = async (_url: string, init: { body?: string }) => {
+    requestBody = JSON.parse(init.body ?? "{}");
+    return { ok: true, status: 200, json: async () => ({ id: "tab-xyz", delivery_state: "confirmed" }) };
+  };
+  await configureWithAI("lmstudio", "LM Studio", opaqueToken, { host: "127.0.0.1", port: 7686 });
   const focus = focusEvents.find((e) => e.type === "codeterm:focus-tab");
+  assert("leaves provider resolution to the configured General-Agent contract", !("agent" in requestBody));
+  assert("requests observable delivery acknowledgement", requestBody.require_delivery_ack === true);
+  assert("delivers the supplied opaque token in the spawn task", String(requestBody.task).includes(opaqueToken));
   assert("dispatches codeterm:focus-tab with the spawned Tab id", focus?.detail?.tabId === "tab-xyz");
+
+  const exactFailure = "fixture launch refused 2c418";
+  g.fetch = async () => ({
+    ok: false,
+    status: 503,
+    json: async () => ({ error: { message: exactFailure } }),
+  });
+  let surfaced = "";
+  try {
+    await configureWithAI("lmstudio", "LM Studio", opaqueToken, { host: "127.0.0.1", port: 7686 });
+  } catch (error) {
+    surfaced = error instanceof Error ? error.message : String(error);
+  }
+  assert("surfaces the exact launch or delivery failure", surfaced === exactFailure);
 }
 
 asyncTests()

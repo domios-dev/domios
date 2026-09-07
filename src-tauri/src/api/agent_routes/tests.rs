@@ -10,6 +10,44 @@ fn spawn_body_minimal() {
 fn spawn_body_empty_object() {
     let body: SpawnAgentBody = serde_json::from_str("{}").unwrap();
     assert_eq!(body.agent, None);
+    assert!(!body.require_delivery_ack);
+}
+
+#[test]
+fn configure_spawn_can_require_delivery_ack_without_naming_a_provider() {
+    let body: SpawnAgentBody = serde_json::from_str(
+        r#"{"task":"opaque-configure-token","require_delivery_ack":true}"#,
+    )
+    .unwrap();
+    assert!(body.require_delivery_ack);
+    assert_eq!(body.agent, None);
+    assert_eq!(body.task.as_deref(), Some("opaque-configure-token"));
+}
+
+#[test]
+fn configure_spawn_delivery_ack_round_trips_exact_failure() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .unwrap();
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    tx.send(Err("opaque delivery failure 91c2".into())).unwrap();
+    assert_eq!(
+        runtime.block_on(await_spawn_delivery(rx)),
+        Err("opaque delivery failure 91c2".into())
+    );
+}
+
+#[test]
+fn configure_spawn_refuses_a_pending_delivery_after_launch_ack() {
+    assert_eq!(require_no_pending_delivery(None), Ok(()));
+    assert_eq!(
+        require_no_pending_delivery(Some("Unconfirmed".into())),
+        Err(
+            "agent launch ended without confirmed task delivery; pending state: Unconfirmed"
+                .into()
+        )
+    );
 }
 
 #[test]
