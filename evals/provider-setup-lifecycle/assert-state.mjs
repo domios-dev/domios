@@ -28,9 +28,28 @@ if (mode === "health-sha") {
 } else if (mode === "no-title") {
   const tabs = Array.isArray(json) ? json : json?.tabs || [];
   if (tabs.some((tab) => tab.title === values[0])) fail("rolled-back provisional tab remains visible");
+} else if (mode === "no-tab") {
+  const tabs = Array.isArray(json) ? json : json?.tabs || [];
+  if (tabs.some((tab) => tab.id === values[0])) fail("owned fixture tab remains visible");
+} else if (mode === "no-provider") {
+  const providers = Array.isArray(json) ? json : json?.providers || [];
+  if (providers.some((provider) => provider.id === values[0])) fail("owned fixture provider remains installed");
+} else if (mode === "no-workspace") {
+  const workspaces = Array.isArray(json) ? json : json?.workspaces || [];
+  if (workspaces.some((workspace) => workspace.id === values[0] || workspace.workspace_id === values[0])) {
+    fail("owned fixture workspace remains visible");
+  }
+} else if (mode === "no-workspace-name") {
+  const workspaces = Array.isArray(json) ? json : json?.workspaces || [];
+  if (workspaces.some((workspace) => workspace.name === values[0] || workspace.title === values[0])) {
+    fail("run-scoped fixture workspace remains visible");
+  }
 } else if (mode === "config") {
   const value = json?.value ?? json;
   process.stdout.write(typeof value === "string" ? value : JSON.stringify(value));
+} else if (mode === "config-equals") {
+  const value = json?.value ?? json;
+  if (value !== values[0]) fail("General Agent provider was not restored");
 } else if (mode === "receipt64") {
   const decoded = JSON.parse(Buffer.from(input.trim(), "base64url").toString("utf8"));
   if (decoded?.token !== values[0] && decoded?.task !== values[0]) fail("receiver did not observe the supplied opaque token");
