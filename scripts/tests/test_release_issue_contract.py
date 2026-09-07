@@ -266,6 +266,9 @@ class ReleaseIssueContractTest(unittest.TestCase):
         self.assertIn("gh api --paginate --slurp", resolve)
         self.assertIn("pulls?state=closed", resolve)
         self.assertIn("$included[.merge_commit_sha]", resolve)
+        self.assertIn('--arg source_sha "$SOURCE_SHA"', resolve)
+        self.assertIn('test("(?im)^(?:Public-Issue:|Repository-Issue:)"', resolve)
+        self.assertIn(".merge_commit_sha == $source_sha", resolve)
         self.assertNotIn('commits/$sha/pulls', resolve)
 
     def test_pr_validation_includes_commit_metadata(self):
