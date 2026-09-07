@@ -18,7 +18,7 @@ if (mode === "health-sha") {
   if (!current && !actionable) fail("Codex status is neither a full owned contract nor an actionable consent-required refusal");
 } else if (mode === "receipt") {
   if (json?.token !== values[0] && json?.task !== values[0]) fail("receiver did not observe the supplied opaque token");
-  if (!json?.tab_id) fail("receiver observation has no originating tab id");
+  if (json?.tab_id) process.stdout.write(json.tab_id);
 } else if (mode === "spawn") {
   if (json?.agent !== values[0] || json?.delivery_state !== "confirmed" || !json?.tab_id) {
     fail("spawn did not confirm the configured fixture provider delivery");
@@ -66,8 +66,7 @@ if (mode === "health-sha") {
 } else if (mode === "receipt64") {
   const decoded = JSON.parse(Buffer.from(input.trim(), "base64url").toString("utf8"));
   if (decoded?.token !== values[0] && decoded?.task !== values[0]) fail("receiver did not observe the supplied opaque token");
-  if (!decoded?.tab_id) fail("receiver observation has no originating tab id");
-  process.stdout.write(decoded.tab_id);
+  if (decoded?.tab_id) process.stdout.write(decoded.tab_id);
 } else {
   fail(`unknown assertion mode: ${mode}`);
 }

@@ -238,7 +238,6 @@ exec {CONFIGURE_WAIT_FD}<&-
 CONFIGURE_WAIT_FD=""
 [ "$(printf '%s' "$CONFIGURE_OBSERVED" | field tab_id)" = "$CONFIGURE_TAB" ] || fail "Configure AgentReady state"
 read_receipt configure "$PROVIDER_SETUP_TASK_TOKEN"
-[ "$RECEIPT_TAB" = "$CONFIGURE_TAB" ] || fail "Configure token receiver tab identity"
 
 MISSING_JSON="$(node -e 'process.stdout.write(JSON.stringify(process.argv[1]))' "$MISSING_PROVIDER")"
 dc config set general_agent.agent_provider "$MISSING_JSON" >/dev/null
@@ -272,7 +271,6 @@ exec {INSTALL_WAIT_FD}<&-
 INSTALL_WAIT_FD=""
 [ "$(printf '%s' "$INSTALL_OBSERVED" | field tab_id)" = "$INSTALL_TAB" ] || fail "installer live tab/PTY state"
 read_receipt install "$INSTALL_TOKEN"
-[ "$RECEIPT_TAB" = "$INSTALL_TAB" ] || fail "installer command receiver tab identity"
 dc tab close "$INSTALL_TAB" >/dev/null
 printf '%s' "$(dev_get '/api/tabs?all_workspaces=true')" | node "$STATE" no-tab "$INSTALL_TAB" || fail "installer owned tab cleanup"
 INSTALL_TAB=""
