@@ -175,12 +175,11 @@ token_absent_everywhere() {
 start_report_subscription() {
   local marker="$1" output="$TMP_DIR/event.json" ready
   rm -f "$output"
-  coproc REPORT_EVENT {
+  exec {EVENT_FD}< <(
     python3 "$ROOT/evals/plan-authorized-reporting/event_wait.py" \
       "$(dev_api_url)" "$(dev_token)" agent-report "$marker" "$output" 20
-  }
-  EVENT_PID="$REPORT_EVENT_PID"
-  EVENT_FD="${REPORT_EVENT[0]}"
+  )
+  EVENT_PID=$!
   if ! read -r -t 10 ready <&"$EVENT_FD" || [ "$ready" != "READY" ]; then
     fail "subscription: agent-report readiness was not observed"
   fi
