@@ -128,7 +128,7 @@ tab_nonce() {
 }
 
 bind_tab() {
-  local result_var="$1" tab_id="$2" session_id="$3" nonce body response
+  local result_var="$1" tab_id="$2" session_id="$3" nonce body response bound_tab
   tab_nonce nonce "$tab_id"
   if ! capture body node "$JSON" session-body "$session_id" "$nonce" </dev/null; then
     fail "fixture_binding: request encoding failed for $tab_id"
@@ -138,6 +138,10 @@ bind_tab() {
   fi
   if ! node "$JSON" bind-ok "$session_id" <<<"$response"; then
     fail "fixture_binding: session_start was not acknowledged for $tab_id"
+  fi
+  if ! capture bound_tab dc tab inspect --tab "$tab_id" --json ||
+    ! node "$JSON" tab-session "$session_id" <<<"$bound_tab"; then
+    fail "fixture_binding: session $session_id was not bound to $tab_id"
   fi
   CREATED_SESSIONS+=("$session_id")
   printf -v "$result_var" '%s' "$nonce"

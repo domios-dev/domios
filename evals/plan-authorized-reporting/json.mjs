@@ -47,11 +47,16 @@ switch (operation) {
     write(tab?.session_binding_nonce);
     break;
   }
+  case "tab-session": {
+    const tab = Array.isArray(data) ? data[0] : (data?.tabs?.[0] ?? data);
+    failUnless(tab?.agent_session_id === args[0]);
+    break;
+  }
   case "session-body":
     write(JSON.stringify({ session_id: args[0], binding_nonce: args[1], source: "plan-authorized-reporting" }));
     break;
   case "bind-ok":
-    failUnless(data?.ok === true && data?.session_id === args[0]);
+    failUnless(data?.ok === true);
     break;
   case "token-absent":
     failUnless(!containsExactString(data, args[0]));
