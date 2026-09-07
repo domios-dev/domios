@@ -25,11 +25,22 @@ const containsExactString = (value, token) => {
 const tasks = () => plan?.tasks ?? [];
 
 switch (operation) {
+  case "workspace-owned":
+    failUnless(data?.existing !== true && data?.cwd === args[0]
+      && typeof data?.id === "string" && data.id.length > 0);
+    write(data.id);
+    break;
   case "tab-id":
     write(data?.tab_id ?? data?.id);
     break;
   case "plan-id":
     write(data?.plan?.id ?? data?.id);
+    break;
+  case "team-id":
+    write(data?.team_id);
+    break;
+  case "team-minted":
+    failUnless(data?.team_minted === true);
     break;
   case "tab-nonce": {
     const tab = Array.isArray(data) ? data[0] : (data?.tabs?.[0] ?? data);
