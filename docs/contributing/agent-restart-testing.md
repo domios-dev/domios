@@ -11,7 +11,7 @@ Cross-references:
 
 ## What the flow does
 
-Agent restart uses the provider's graceful exit command and then auto-resumes
+Agent restart requires an observed live provider, uses its graceful exit command, and then auto-resumes
 the same Tab. Update shutdown is deliberately different: it tears down owned
 PTY process trees without sending `/exit`, preserves each Tab's session binding
 and lifecycle lineage, persists the snapshot, and resumes after relaunch. Steps:
@@ -111,4 +111,4 @@ Reports the Worker had already sent are preserved (the in-memory
 `ReportStore` is not tab-scoped to PTY id; it's keyed on the parent +
 child Tab ids which don't change across restart).
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

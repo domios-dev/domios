@@ -4,7 +4,7 @@ REST endpoints for agent lifecycle, plans, teams, updates, batches, and orchestr
 
 #### Agent Restart (POST /api/tabs/{id}/agent/restart)
 
-Restart the agent in a tab. The body is optional; no body uses the defaults below. Default behaviour is graceful: send the provider-specific exit command and wait up to `grace_secs` for the shell-ready event. CodeTerm then tears down the old PTY, creates a replacement PTY, and relaunches. If the recorded provider session still exists on disk, the provider resume command is used; otherwise CodeTerm launches a fresh session.
+Restart an agent whose process is currently observed live in a tab. The body is optional; no body uses the defaults below. Default behaviour is graceful: send the provider-specific exit command and wait up to `grace_secs` for the shell-ready event. CodeTerm then tears down the old PTY, creates a replacement PTY, and relaunches. If the recorded provider session still exists on disk, the provider resume command is used; otherwise CodeTerm launches a fresh session. A provider already observed to have exited into its surviving shell is absent, not restartable metadata, and is refused before acceptance.
 
 ```json
 {"force": false, "grace_secs": 10}
@@ -39,7 +39,7 @@ The three transition fields are independent observations. `restart_accepted` mea
 
 **Errors:**
 - `404` — tab id not found
-- `400` — tab has no agent to restart, or unsupported provider
+- `400` — the agent process is absent or unobserved, the tab has no agent, or the provider is unsupported
 - `429` — rate-limited (returns `Retry-After` header + `{"retry_after_secs": N}` body); restart is throttled per-tab to avoid restart loops
 - `500` — teardown or relaunch failed
 - `504` — the replacement PTY did not reach `AgentReady` inside the bounded readiness deadline
@@ -66,7 +66,7 @@ Every active plan must reference exactly one live Team, and a live Team may have
 
 `{provider, role, title?, task?, model?}` adds one member to an existing Team; `role` is `worker`, `planner`, or `orchestrator`. This endpoint, the UI add-member action, the socket `team.add_member` verb, and `codeterm agent spawn <provider> --team <id> --role Orchestrator` are one service path.
 
-A Team holds **at most one live Orchestrator**, enforced as a headcount of live anchoring tabs rather than a ban on the role: a removed tab is gone from the multiplexer and a dead agent's identity is cleared on lifecycle exit, so neither counts. A Team whose Orchestrator is gone therefore accepts a new one, and the new anchor takes the Team's active plan over through the same tab-gone owner rebind used for a dead owner — owner and owner history move, the plan reactivates, and the Team's own Planner keeps its binding. The response carries `plan_takeover: {plan_id, owner_tab_id, error?}` when ownership moved. Because `plan.owner` moves, the plan heartbeat targets the new tab from the next scan on.
+A Team holds **at most one live Orchestrator**, enforced as a headcount of live anchoring tabs rather than a ban on the role: a removed tab is gone from the multiplexer and a dead agent's identity is cleared on lifecycle exit, so neither counts. Unlinking the final Orchestrator atomically retires its owner reference while retaining the discoverable Team, active Plan id/history, and Planner binding. The Team therefore accepts the documented replacement command, and the new anchor takes that same Plan over through the tab-gone owner rebind. The response carries `plan_takeover: {plan_id, owner_tab_id, error?}` when ownership moved. Because `plan.owner` moves, the plan heartbeat targets the new tab from the next scan on.
 
 `X-CodeTerm-Tab-Id` is optional on this endpoint alone: a Team whose Orchestrator is gone has no membership left to spend. A caller-less add can place only an anchoring role; `worker` and `planner` still need a spawn-capable member. Every structural refusal leads with an error-code constant from `codeterm-types::team::staffing` and is logged with the Team, the requested role, and the cause — `team_orchestrator_already_live`, `team_member_role_unknown`, `team_role_requires_spawner`, `team_caller_unauthorized`, `team_caller_cannot_spawn`, `team_workspace_unresolved`. A structural refusal is never surfaced as a retry prompt.
 
@@ -234,4 +234,4 @@ On error, individual commands return `{"error": "message", "method": "..."}` but
 
 Planner authority over task structure, partial `plan goal set`, lane persistence on dispatch, and recording an external executor: see `codeterm docs API-PLAN`.
 
-<!-- revision: 12 -->
+<!-- revision: 13 -->

@@ -409,7 +409,7 @@
         },
         {
           "name": "restart",
-          "about": "Restart agent (graceful exit; resumes only when the tab has a valid provider session)",
+          "about": "Restart an observed live agent; an exited provider requires a fresh spawn",
           "aliases": [],
           "args": [
             {
@@ -807,7 +807,7 @@
         },
         {
           "name": "unlink",
-          "about": "Remove a tab's role (also orphans children)",
+          "about": "Remove a tab's role. A final Orchestrator leaves its Team and Plan recoverable",
           "aliases": [],
           "args": [
             {
