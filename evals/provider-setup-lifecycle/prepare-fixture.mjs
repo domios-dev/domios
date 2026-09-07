@@ -57,7 +57,7 @@ const response = await fetch(\${JSON.stringify(collectorUrl + "/configure")}, {
   signal: AbortSignal.timeout(30000),
 });
 if (!response.ok) throw new Error("configure receiver refused observation");
-process.stdout.write("PROVIDER_SETUP_FIXTURE_READY\\n");
+process.stdout.write("PROVIDER_SETUP_FIXTURE_READY\\\\n");
 process.stdin.resume();
 \`;
     const script = host.fs.writeTempFile(source, ".mjs");
