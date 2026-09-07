@@ -16,6 +16,9 @@
 
 use portable_pty::CommandBuilder;
 use std::path::PathBuf;
+use std::sync::Mutex;
+
+static SCRIPTS_WRITE_LOCK: Mutex<()> = Mutex::new(());
 
 /// Data dir where shell integration scripts live.
 fn integration_dir() -> PathBuf {
@@ -28,6 +31,9 @@ const FISH_CONF: &str = include_fish_conf();
 
 /// Ensure shell integration scripts exist on disk. Called once at app startup.
 pub fn ensure_scripts() {
+    let _guard = SCRIPTS_WRITE_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let dir = integration_dir();
     if let Err(e) = std::fs::create_dir_all(&dir) {
         log::warn!("Failed to create shell integration dir: {}", e);
