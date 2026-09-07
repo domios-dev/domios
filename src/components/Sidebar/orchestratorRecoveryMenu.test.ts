@@ -42,7 +42,8 @@ function provider(id: string, transport: "pty" | "chat_backend"): ProviderDescri
 
 const ptyProvider = provider("provider-neutral", "pty");
 const chatProvider = provider("chat-neutral", "chat_backend");
-const eligible = orchestratorRecoveryMenuView(tab(), [chatProvider, ptyProvider]);
+const hubble = tab();
+const eligible = orchestratorRecoveryMenuView(hubble, [chatProvider, ptyProvider], [hubble]);
 assert(eligible);
 assert.equal(eligible.teamId, "team-hubble");
 assert.deepEqual(eligible.providers.map((candidate) => candidate.id), ["provider-neutral"]);
@@ -58,9 +59,21 @@ for (const ineligible of [
   tab({ team_id: null }),
   tab({ boot_stage: "spawn_failed" }),
 ]) {
-  assert.equal(orchestratorRecoveryMenuView(ineligible, [ptyProvider]), null);
+  assert.equal(orchestratorRecoveryMenuView(ineligible, [ptyProvider], [ineligible]), null);
 }
-assert.equal(orchestratorRecoveryMenuView(tab(), [chatProvider]), null);
+assert.equal(orchestratorRecoveryMenuView(hubble, [chatProvider], [hubble]), null);
+assert.equal(orchestratorRecoveryMenuView(hubble, [ptyProvider], undefined), null);
+
+for (const competitor of [
+  tab({ id: "live-owner", agent_type: "provider-neutral", boot_stage: "agent_ready" }),
+  tab({ id: "unobserved-owner", agent_type: "provider-neutral", boot_stage: "pty_reattached" }),
+]) {
+  assert.equal(
+    orchestratorRecoveryMenuView(hubble, [ptyProvider], [hubble, competitor]),
+    null,
+  );
+}
+assert(orchestratorRecoveryMenuView(hubble, [ptyProvider], [hubble]));
 
 const calls: Array<{ teamId: string; providerId: string }> = [];
 const api: OrchestratorRecoveryApi = {

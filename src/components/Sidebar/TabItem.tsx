@@ -179,7 +179,7 @@ function TabItemInner({
   declaredAttention,
   onRename: _onRename,
   tab,
-  orchestrators: _orchestrators,
+  orchestrators,
   isAppearing,
   isClosing,
   touchMode = false,
@@ -330,7 +330,7 @@ function TabItemInner({
       });
     }
     const recoveryMenu = tab
-      ? orchestratorRecoveryMenuView(tab, listAgentDescriptors())
+      ? orchestratorRecoveryMenuView(tab, listAgentDescriptors(), orchestrators)
       : null;
     if (recoveryMenu) {
       items.push({
@@ -378,7 +378,7 @@ function TabItemInner({
       });
     }
     return items;
-  }, [activity, canonicalTitle, tab, canClose, descriptor, hasAgent, onClose, providerName, status]);
+  }, [activity, canonicalTitle, tab, canClose, descriptor, hasAgent, onClose, orchestrators, providerName, status]);
 
   const sessionActions = tab ? tabSessionActionView(tab) : null;
   const sessionId = sessionActions?.sessionId ?? null;

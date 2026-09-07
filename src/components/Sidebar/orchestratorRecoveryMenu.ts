@@ -24,14 +24,26 @@ const defaultApi: OrchestratorRecoveryApi = {
 export function orchestratorRecoveryMenuView(
   tab: Tab,
   descriptors: ProviderDescriptor[],
+  orchestrators: Tab[] | undefined,
 ): OrchestratorRecoveryMenuView | null {
+  if (!orchestrators) return null;
   const teamId = tab.team_id?.trim();
   const absentShell = tab.agent_type == null
     && tab.pty_id != null
     && tab.backing?.kind !== "chat_backend"
     && tab.boot_stage === "shell_ready"
     && tab.agent_booting !== true;
-  if (!absentShell || roleKind(tab) !== ORCHESTRATOR_KIND || !teamId) return null;
+  const hasCompetingAnchor = orchestrators.some((candidate) => (
+    candidate.id !== tab.id
+    && candidate.team_id === teamId
+    && roleKind(candidate) === ORCHESTRATOR_KIND
+  ));
+  if (
+    !absentShell
+    || roleKind(tab) !== ORCHESTRATOR_KIND
+    || !teamId
+    || hasCompetingAnchor
+  ) return null;
   const providers = descriptors.filter((descriptor) => descriptor.transport === "pty");
   return providers.length > 0 ? { teamId, providers } : null;
 }

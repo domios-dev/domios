@@ -75,6 +75,8 @@ fi
 if (-not $global:__CodeTermShellIntegrationLoaded) {
   $global:__CodeTermShellIntegrationLoaded = $true
   $global:__CodeTermPromptSeen = $false
+  $global:__CodeTermShellNonce = $env:CODETERM_SHELL_NONCE
+  Remove-Item Env:CODETERM_SHELL_NONCE -ErrorAction SilentlyContinue
   $global:__CodeTermOriginalPrompt = $function:prompt
   if ($null -eq $global:__CodeTermOriginalPrompt) {
     $global:__CodeTermOriginalPrompt = { "PS $($executionContext.SessionState.Path.CurrentLocation)> " }
@@ -83,7 +85,8 @@ if (-not $global:__CodeTermShellIntegrationLoaded) {
   function global:prompt {
     $commandFinished = $global:__CodeTermPromptSeen
     $global:__CodeTermPromptSeen = $true
-    if ($commandFinished) {
+    if ($commandFinished -and -not [string]::IsNullOrEmpty($global:__CodeTermShellNonce)) {
+      [Console]::Write(([char]27 + ']633;E;;' + $global:__CodeTermShellNonce + [char]7))
       [Console]::Write(([char]27 + ']633;D' + [char]7))
     }
     [Console]::Write(([char]27 + ']633;A' + [char]7))
@@ -461,7 +464,12 @@ mod tests {
         ensure_scripts();
         let script = integration_dir().join("powershell.ps1");
         let content = std::fs::read_to_string(&script).unwrap();
-        assert!(content.contains("']633;D'"));
+        let authenticated_command = content.find("']633;E;;'").unwrap();
+        let command_finished = content.find("']633;D'").unwrap();
+        assert!(content.contains("$env:CODETERM_SHELL_NONCE"));
+        assert!(content.contains("Remove-Item Env:CODETERM_SHELL_NONCE"));
+        assert!(content.contains("IsNullOrEmpty($global:__CodeTermShellNonce)"));
+        assert!(authenticated_command < command_finished);
 
         let mut cmd = CommandBuilder::new("powershell.exe");
         apply_env(&mut cmd, "powershell.exe");
