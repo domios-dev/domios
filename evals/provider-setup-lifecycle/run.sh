@@ -143,7 +143,7 @@ cleanup() {
     status=1
   fi
   if [ "$status" -eq 0 ]; then
-    for row in "${PASS_ROWS[@]}"; do
+    for row in ${PASS_ROWS[@]+"${PASS_ROWS[@]}"}; do
       printf 'PASS %s\n' "$row"
     done
   fi

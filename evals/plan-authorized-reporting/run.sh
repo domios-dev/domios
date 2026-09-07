@@ -56,7 +56,7 @@ cleanup() {
       cleanup_failed=1
     fi
   fi
-  for tab_id in "${CREATED_TABS[@]}"; do
+  for tab_id in ${CREATED_TABS[@]+"${CREATED_TABS[@]}"}; do
     if [ "$TEAM_OWNED" -eq 1 ] && [ "$tab_id" = "$OWNER_TAB" ]; then
       continue
     fi
@@ -65,7 +65,7 @@ cleanup() {
       cleanup_failed=1
     fi
   done
-  for workspace_id in "${OWNED_WORKSPACES[@]}"; do
+  for workspace_id in ${OWNED_WORKSPACES[@]+"${OWNED_WORKSPACES[@]}"}; do
     if ! dc workspace close "$workspace_id" --force >/dev/null 2>&1; then
       echo "FAIL cleanup: owned workspace $workspace_id was not closed" >&2
       cleanup_failed=1
