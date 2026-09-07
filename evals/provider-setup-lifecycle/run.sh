@@ -19,6 +19,8 @@ INSTALL_TOKEN="${PROVIDER_SETUP_TASK_TOKEN}-install-$RUN_ID"
 FAILURE_TOKEN="${PROVIDER_SETUP_TASK_TOKEN}-dispatch-refusal-$RUN_ID"
 FIXTURE_DIR="$ROOT/target-check/evals/provider-setup-lifecycle/$RUN_ID/plugin"
 WORKSPACE_NAME="provider-setup-$RUN_ID"
+WORKSPACE_CWD="${FIXTURE_DIR%/plugin}"
+if is_windows; then WORKSPACE_CWD="$(cygpath -w "$WORKSPACE_CWD")"; fi
 CONFIGURE_TITLE="Configure-fixture-$RUN_ID"
 FAIL_TITLE="Configure-failure-$RUN_ID"
 INSTALL_TITLE="Install $PROVIDER_ID"
@@ -115,7 +117,7 @@ cleanup() {
   fi
   if [ -n "$RECEIVER_PROCESS" ]; then
     kill "$RECEIVER_PROCESS" >/dev/null 2>&1 || { echo "FAIL cleanup: receiver was not alive" >&2; cleanup_failed=1; }
-    wait "$RECEIVER_PROCESS" >/dev/null 2>&1 || { echo "FAIL cleanup: receiver shutdown" >&2; cleanup_failed=1; }
+    wait "$RECEIVER_PROCESS" >/dev/null 2>&1
   fi
   [ -z "$RECEIVER_FD" ] || exec {RECEIVER_FD}<&-
   if [ "$FIXTURE_OWNED" -eq 1 ]; then
@@ -195,11 +197,11 @@ CONFIG_CHANGED=1
 dc config set general_agent.agent_provider "$PROVIDER_JSON" >/dev/null
 
 WORKSPACE_CREATE_ATTEMPTED=1
-WORKSPACE_JSON="$(dc --json workspace create "$WORKSPACE_NAME" --cwd "${FIXTURE_DIR%/plugin}")"
-[ "$(printf '%s' "$WORKSPACE_JSON" | field existing)" = "false" ] || fail "fixture workspace was not newly owned"
-WORKSPACE="$(printf '%s' "$WORKSPACE_JSON" | field id)"
-[ -n "$WORKSPACE" ] || WORKSPACE="$(printf '%s' "$WORKSPACE_JSON" | field workspace_id)"
-[ -n "$WORKSPACE" ] || fail "fixture workspace creation"
+WORKSPACES_BEFORE="$(dev_get '/api/workspaces')"
+printf '%s' "$WORKSPACES_BEFORE" | node "$STATE" no-workspace-name "$WORKSPACE_NAME" || fail "fixture workspace name already exists"
+printf '%s' "$WORKSPACES_BEFORE" | node "$STATE" no-workspace-cwd "$WORKSPACE_CWD" || fail "fixture workspace cwd already exists"
+WORKSPACE_JSON="$(dc --json workspace create "$WORKSPACE_NAME" --cwd "$WORKSPACE_CWD")"
+WORKSPACE="$(printf '%s' "$WORKSPACE_JSON" | node "$STATE" workspace-created "$WORKSPACE_NAME" "$WORKSPACE_CWD")" || fail "fixture workspace creation"
 WORKSPACE_OWNED=1
 
 exec {CONFIGURE_WAIT_FD}< <(node "$WAIT" "$DEV_API_URL" "$DEV_API_TOKEN" agent-ready "$CONFIGURE_TITLE" "$PROVIDER_ID")
