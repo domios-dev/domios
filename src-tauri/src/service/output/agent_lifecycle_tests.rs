@@ -220,6 +220,24 @@ fn command_finished_marker_makes_a_ready_agent_observably_absent() {
     let (mut mux, tab_id, _, _) = seed_live_planner();
     mux.get_tab_mut(&tab_id).unwrap().shell_integration_nonce = Some("nonce-current".into());
     let harness = ServiceFixture::new(mux);
+    harness
+        .service
+        .pty
+        .lock()
+        .spawn_with_id(
+            Some("pty-planner".into()),
+            None,
+            None,
+            80,
+            24,
+            Default::default(),
+        )
+        .expect("spawn live backing PTY");
+
+    assert_eq!(
+        observe_tab_liveness(&harness.service, &tab_id),
+        AgentLiveness::Live
+    );
 
     harness
         .service
