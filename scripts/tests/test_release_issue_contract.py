@@ -260,6 +260,14 @@ class ReleaseIssueContractTest(unittest.TestCase):
         self.assertIn('--repo "$MIRROR_REPO"', close_step)
         self.assertNotIn('--repo "$GITHUB_REPOSITORY"', close_step)
 
+    def test_release_pr_collection_is_paginated_not_per_commit(self):
+        workflow = (ROOT / ".github" / "workflows" / "release-manifest-validate.yml").read_text(encoding="utf-8")
+        resolve = workflow[workflow.index("- name: Resolve included private source public issues") :]
+        self.assertIn("gh api --paginate --slurp", resolve)
+        self.assertIn("pulls?state=closed", resolve)
+        self.assertIn("$included[.merge_commit_sha]", resolve)
+        self.assertNotIn('commits/$sha/pulls', resolve)
+
     def test_pr_validation_includes_commit_metadata(self):
         workflow = (ROOT / ".github" / "workflows" / "ready-for-release.yml").read_text(encoding="utf-8")
         self.assertIn("git rev-list", workflow)
