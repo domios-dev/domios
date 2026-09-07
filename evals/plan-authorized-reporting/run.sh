@@ -42,7 +42,8 @@ EVENT_PID=""
 EVENT_FD=""
 
 cleanup() {
-  local status=$? cleanup_failed=0 workspace_id
+  CLEANUP_ENTRY_STATUS=$?
+  local status="$CLEANUP_ENTRY_STATUS" cleanup_failed=0 workspace_id
   trap - EXIT
   if [ -n "$EVENT_PID" ]; then
     kill "$EVENT_PID" >/dev/null 2>&1 || true
@@ -116,14 +117,14 @@ new_tab() {
 }
 
 tab_nonce() {
-  local result_var="$1" tab_id="$2" response nonce
+  local result_var="$1" tab_id="$2" response resolved_nonce
   if ! capture response dc tab inspect --tab "$tab_id" --json; then
     fail "fixture_binding: inspect failed for $tab_id"
   fi
-  if ! capture nonce node "$JSON" tab-nonce <<<"$response" || [ -z "$nonce" ]; then
+  if ! capture resolved_nonce node "$JSON" tab-nonce <<<"$response" || [ -z "$resolved_nonce" ]; then
     fail "fixture_binding: missing nonce for $tab_id"
   fi
-  printf -v "$result_var" '%s' "$nonce"
+  printf -v "$result_var" '%s' "$resolved_nonce"
 }
 
 bind_tab() {
