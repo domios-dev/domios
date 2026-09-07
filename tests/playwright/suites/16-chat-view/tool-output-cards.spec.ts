@@ -41,9 +41,7 @@ async function mountCards(page: Page): Promise<void> {
 async function cleanupMountedCards(page: Page): Promise<void> {
   if (page.isClosed()) return;
   await page.evaluate(() => window.__toolOutputCardTest?.root?.unmount());
-  // Mounting replaced document.body, so unmounting frees React but leaves the
-  // page with no app. The ui session is worker-scoped: restore the app root or
-  // every later test in this worker inherits a blank surface.
+  // Restore the app root after replacing `document.body` because the worker-scoped UI session otherwise stays blank.
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
 }

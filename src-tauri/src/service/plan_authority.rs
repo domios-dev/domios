@@ -1,5 +1,5 @@
 use crate::multiplexer::types::{AgentRole, Tab};
-use crate::plan::{PlanMode, PlanningAuthor, PlanningState};
+use crate::plan::{AgentRef, PlanEvidenceClass, PlanMode, PlanningAuthor, PlanningState};
 use crate::service::plan::PlanError;
 use crate::service::plan_reconcile::tab_has_live_agent;
 use crate::service::ServiceContext;
@@ -106,9 +106,7 @@ fn binding_failure_class(
     if session_ok && stale_lineage_nonce {
         return PlanAuthorityError::BindingStaleAfterRelaunch;
     }
-    // Presenting the tab's OWN launch nonce is proof the caller runs inside it —
-    // the daemon injects that value per PTY. A foreign caller cannot reach this
-    // arm, so naming the real gap leaks nothing and saves the dead-end hunt.
+    // The daemon-injected launch nonce proves the caller is inside the tab, so a foreign caller cannot reach this arm.
     if tab.agent_session_id.is_none() && tab.session_binding_nonce.as_deref() == Some(nonce) {
         return PlanAuthorityError::SessionUnregistered;
     }
@@ -127,6 +125,82 @@ impl ServiceContext {
                 Err("only the live Plan Orchestrator has execution authority".into())
             }
         }
+    }
+
+    pub(crate) fn grant_plan_evidence_reporter(
+        &self,
+        plan_id: &str,
+        reporter_tab_id: &str,
+        class: PlanEvidenceClass,
+        caller: &AuthenticatedPlanCaller,
+        now_ms: u64,
+    ) -> Result<crate::service::plan::review_gate::PlanEvidenceReporterGrantResult, String> {
+        self.authorize_plan_orchestrator(plan_id, caller)?;
+        let from = {
+            let mux = self.mux.read();
+            let owner_tab_id = caller
+                .tab_id
+                .as_deref()
+                .ok_or("plan evidence authorization requires the owner tab id")?;
+            let owner = mux
+                .get_tab(owner_tab_id)
+                .ok_or("the Plan owner tab is not live")?;
+            let session_id = owner
+                .agent_session_id
+                .clone()
+                .ok_or("the Plan owner has no live agent session")?;
+            let binding_nonce = owner
+                .session_binding_nonce
+                .as_deref()
+                .ok_or("the Plan owner has no session binding nonce")?;
+            if owner.reported_session_binding_nonce.as_deref() != Some(binding_nonce) {
+                return Err("the Plan owner session binding is stale or unverified".into());
+            }
+            AgentRef {
+                tab_id: Some(owner.id.clone()),
+                session_id: Some(session_id),
+                title: Some(owner.title.clone()),
+            }
+        };
+        if !self
+            .plan_store
+            .task_bindings_with_name_for_tab(reporter_tab_id)
+            .is_empty()
+        {
+            return Err(format!(
+                "tab '{reporter_tab_id}' holds a task; plan evidence authorization is task-less and cannot grant task-transition authority"
+            ));
+        }
+        let (session_id, binding_nonce) = {
+            let mux = self.mux.read();
+            let tab = mux
+                .get_tab(reporter_tab_id)
+                .ok_or_else(|| format!("reporter tab '{reporter_tab_id}' is not live"))?;
+            let session_id = tab
+                .agent_session_id
+                .clone()
+                .ok_or_else(|| format!("reporter tab '{reporter_tab_id}' has no live session"))?;
+            let binding_nonce = tab.session_binding_nonce.clone().ok_or_else(|| {
+                format!("reporter tab '{reporter_tab_id}' has no session binding nonce")
+            })?;
+            if tab.reported_session_binding_nonce.as_deref() != Some(binding_nonce.as_str()) {
+                return Err(format!(
+                    "reporter tab '{reporter_tab_id}' has a stale or unverified session binding"
+                ));
+            }
+            (session_id, binding_nonce)
+        };
+        self.plan_store
+            .grant_plan_evidence_reporter(
+                plan_id,
+                reporter_tab_id,
+                &session_id,
+                &binding_nonce,
+                class,
+                from,
+                now_ms,
+            )
+            .map_err(|error| error.to_string())
     }
 
     pub(crate) fn add_orchestrator_heartbeat_learning(
@@ -194,10 +268,7 @@ impl ServiceContext {
             && tab.reported_session_binding_nonce.as_deref() == nonce
             && session_id.is_some()
             && nonce.is_some();
-        // A binding the TAB attested for itself, because the provider never
-        // registered a session. Only `rebind` can produce this state and only
-        // from nothing, so it cannot mask a live session or be forged by a
-        // caller that does not already hold this tab's launch nonce.
+        // Only `rebind` can produce this state and only from nothing, so it cannot mask a live session or be forged by a caller that does not already hold this tab's launch nonce.
         let tab_attested = nonce.is_some()
             && session_id.is_none()
             && tab.agent_session_id.is_none()
@@ -219,10 +290,7 @@ impl ServiceContext {
                 .as_deref()
                 .and_then(|owner_id| mux.get_tab(owner_id))
                 .is_some_and(|owner| owner.team_id == tab.team_id);
-        // The Planner's binding to this plan is durable, not phase-scoped: it
-        // owns structure for the plan's whole life. Approval/dispatch stay
-        // Orchestrator-exclusive through `authorize_plan_orchestrator`, which
-        // rejects `PlanningAuthor::Planner` outright regardless of this gate.
+        // Planner binding persists for the plan's life, while approval and dispatch remain Orchestrator-only.
         if planner {
             return Ok(PlanningAuthor::Planner {
                 tab_id: tab.id.clone(),
@@ -263,13 +331,7 @@ impl ServiceContext {
                 resynced: false,
             });
         }
-        // Nothing was ever registered, so there is no lineage to prove against and
-        // `provable` below can never be true — that is the closed loop where the
-        // repair needed what it repairs (#316). Presenting this tab's own launch
-        // nonce proves the caller runs inside it, the same trust boundary every
-        // tab-scoped command sits on. Bootstrap only: never over a live session,
-        // never over an existing report, never for a caller claiming a session
-        // id the tab does not have.
+        // Bootstrap repair is allowed only for an unregistered tab with its own launch nonce; live sessions and reports remain protected.
         let bootstrap = tab.agent_type.is_some()
             && tab.pty_id.is_some()
             && tab.exit_suspected_at.is_none()

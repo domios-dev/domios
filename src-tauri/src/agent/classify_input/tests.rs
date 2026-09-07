@@ -105,11 +105,7 @@ fn classify_input_band_gates_the_semantic_clock_offline_used_to_ignore() {
 
 #[test]
 fn classify_input_status_bar_rows_is_required_with_no_default() {
-    // The compile-time half: `ClassifyInput.status_bar_rows` is a required
-    // field of a type with no `Default`, pinned by the `compile_fail` doctest
-    // on `ClassifyInputBuilder::build`.
-    // The runtime half: resolution of an unknown provider is a typed error and
-    // never yields a value at all, least of all a zero.
+    // The test pins required status-bar fields and typed unknown-provider failures, so neither can silently default to zero.
     let registry = registry_with(3);
     let err = StatusBarRows::resolve(&registry, "ghost").unwrap_err();
     assert_eq!(

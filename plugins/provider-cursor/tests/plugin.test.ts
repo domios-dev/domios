@@ -217,11 +217,7 @@ console.log("\n--- buildResumeCommand (trust pre-write GATED behind skipPermissi
 
 console.log("\n--- Claude PreToolUse hook import is disabled for every Cursor launch (sec_hook_ampersand) ---\n");
 {
-  // Regression: cursor-agent's Bash tool picks up ~/.claude/settings.json's
-  // PreToolUse hooks. A hook authored for Claude's shell dialect (e.g.
-  // PowerShell body) crashes Cursor's POSIX bash runner with a bare `&`
-  // parse error. CLAUDE_CODE_DISABLE_HOOKS=1 must be set on every launch,
-  // on both platforms, without ever touching the user's settings file.
+  // CLAUDE_CODE_DISABLE_HOOKS=1 must be set on every launch, on both platforms, without ever touching the user's settings file.
   const posix = loadCursorWithHost(baseHost({ platform: () => "linux" }));
   for (const cmd of [
     posix.buildLaunchCommand({}),

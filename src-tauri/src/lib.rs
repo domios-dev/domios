@@ -283,6 +283,7 @@ pub fn run() {
             commands::delayed_send_delete,
             commands::delayed_send_send_now,
             commands::check_cli_installed,
+            commands::refresh_provider_models,
             commands::install_provider_in_tab,
             commands::plugin_manager_snapshot,
             commands::plugin_manager_action,
@@ -660,7 +661,7 @@ pub fn run() {
                 tauri::async_runtime::spawn(async move {
                     for provider in providers {
                         let id = provider.id().to_string();
-                        if agent::model_catalog::refresh_models(provider, false)
+                        if agent::model_catalog::refresh_models(provider.clone(), false)
                             .await
                             .is_some()
                         {
@@ -670,6 +671,9 @@ pub fn run() {
                                 serde_json::json!({ "provider": id }),
                             );
                         }
+                        // Watched only after the first probe, because the path
+                        // to watch is the one the resolver actually resolved.
+                        agent::model_binary_watch::install(provider, app_for_models.clone());
                     }
                 });
             }

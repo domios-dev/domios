@@ -376,10 +376,44 @@ impl MeshManager {
 
     pub fn complete_explicit_pairing(&mut self, peer: PairedPeer) {
         let instance_id = peer.instance_id.clone();
+        self.supersede_stale_paired_records(&peer);
         self.revocation_list.revoked.retain(|id| id != &instance_id);
         self.revocation_list.blocked.retain(|id| id != &instance_id);
         self.revocation_list.tombstones.remove(&instance_id);
         self.paired_peers.insert(instance_id, peer);
+    }
+
+    /// A peer that re-minted its instance_id (fresh identity, same physical
+    /// machine) re-pairs under a NEW id but the SAME instance_name and host
+    /// address. Drop the old record here, at the moment we know for certain
+    /// the name+host now belongs to the incoming one — otherwise it sits in
+    /// `paired_peers` forever as a dead name-resolution candidate (#434).
+    fn supersede_stale_paired_records(&mut self, incoming: &PairedPeer) {
+        let stale_ids: Vec<String> = self
+            .paired_peers
+            .values()
+            .filter(|existing| {
+                existing.instance_id != incoming.instance_id
+                    && existing
+                        .instance_name
+                        .eq_ignore_ascii_case(&incoming.instance_name)
+                    && existing
+                        .addresses
+                        .iter()
+                        .any(|a| incoming.addresses.iter().any(|b| b.ip == a.ip))
+            })
+            .map(|p| p.instance_id.clone())
+            .collect();
+        for id in stale_ids {
+            self.paired_peers.remove(&id);
+            self.peer_services.prune(&id);
+            log::info!(
+                "[mesh] superseded stale paired record {} for re-paired peer {} ({})",
+                id,
+                incoming.instance_name,
+                incoming.instance_id
+            );
+        }
     }
 
     pub fn pending_request_count(&self) -> usize {

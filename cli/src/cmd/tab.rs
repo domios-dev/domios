@@ -12,6 +12,7 @@ pub(crate) const INVALID_REMOTE_TAB_ID: &str = "invalid remote tab id";
 mod capture;
 mod chat_view;
 mod inspect;
+pub(crate) mod labels;
 pub(crate) mod remote_target;
 mod render;
 mod repair;
@@ -190,11 +191,8 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             team_utility::handle_create_result(json, team.as_deref(), final_result);
         }
         TabAction::Current { last } => {
-            // The tab this command RUNS IN is the env var — the focused tab
-            // is whatever tab the human is looking at (an orchestrator once
-            // adopted a foreign focused tab as its own id and mis-parented
-            // eleven workers). Fall back to focus only outside tab context,
-            // loudly.
+            // The env var is the tab this RUNS IN; focus is whatever the human
+            // looks at. Adopting focus inside a tab mis-parents the caller.
             if !last {
                 if let Ok(own) = std::env::var("CODETERM_TAB_ID") {
                     if !own.trim().is_empty() {

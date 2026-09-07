@@ -29,9 +29,7 @@ mod tests {
 
     #[test]
     fn partial_line_output_erased_at_mismatched_width() {
-        // Documents why call sites must pass the pty's real width: 200-col
-        // emulation of a 120-col stream never wraps zsh's %-padding, so the
-        // redraw erases the output line.
+        // Documents why call sites must pass the pty's real width: 200-col emulation of a 120-col stream never wraps zsh's %-padding, so the redraw erases the output line.
         let out = clean_terminal_output(ZSH_120COL);
         assert!(
             !out.contains("MARKER_RED_TEST"),

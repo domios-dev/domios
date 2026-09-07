@@ -1,6 +1,7 @@
 import type { CodexHookEntry } from "./plugin";
 import { grantCodexHookTrust } from "./appServer";
 import {
+  codexHookContentHash,
   codexWindowsHookScript,
   isCodetermCodexHook,
   removeOwnedCodexHooks,
@@ -93,12 +94,14 @@ export function checkIntegration(): unknown {
       : (!current || !stopInstalled ? CODEX_INTEGRATION_STATE_STALE_VERSION : CODEX_INTEGRATION_STATE_INSTALLED));
   return {
     hooks_file_exists: true,
+    hook_content_hash: ownedContentHash(arr, stopArr, winScriptText),
     hooks_installed: current && stopInstalled && trustOk,
     session_start_hook: current && trustOk,
     stop_hook: stopInstalled && trustOk,
     hook_trust_state: trustState,
     hook_trust_enabled: trustState === "enabled" ? true : (trustState === "disabled" ? false : null),
     integration_state: integrationState,
+    repair_requires_consent: integrationState !== CODEX_INTEGRATION_STATE_INSTALLED,
     hooks_owned: installed,
     hook_contract_current: current && stopInstalled,
     target: path,
@@ -107,15 +110,41 @@ export function checkIntegration(): unknown {
   };
 }
 
+/// The content Codex actually trusts: the CodeTerm-owned hook commands plus the
+/// helper script. Two instances writing byte-identical content hash the same,
+/// which is what makes the verdict independent of who wrote it.
+function ownedContentHash(
+  sessionStart: CodexHookEntry[] | undefined,
+  stop: CodexHookEntry[] | undefined,
+  scriptText: string,
+): string {
+  const parts: string[] = [];
+  for (const entries of [sessionStart, stop]) {
+    if (!Array.isArray(entries)) continue;
+    for (const entry of entries) {
+      if (!isCodetermCodexHook(entry)) continue;
+      const hooks = (entry && entry.hooks) || [];
+      for (const hook of hooks) {
+        parts.push(String(hook?.command || ""));
+        parts.push(String(hook?.commandWindows || ""));
+      }
+    }
+  }
+  parts.push(scriptText);
+  return codexHookContentHash(parts.join(String.fromCharCode(0)));
+}
+
 function emptyIntegrationStatus(path: string | null, fileExists: boolean): unknown {
   return {
     hooks_file_exists: fileExists,
+    hook_content_hash: codexHookContentHash(""),
     hooks_installed: false,
     session_start_hook: false,
     stop_hook: false,
     hook_trust_state: "missing",
     hook_trust_enabled: null,
     integration_state: CODEX_INTEGRATION_STATE_ABSENT,
+    repair_requires_consent: true,
     hooks_owned: false,
     hook_contract_current: false,
     target: path || "~/.codex/hooks.json",
@@ -358,6 +387,8 @@ export function ensureIntegrationOnStartup(
   apiPort: number,
   install: (apiPort: number, options?: CodexIntegrationInstallOptions) => unknown,
 ): unknown {
+  void apiPort;
+  void install;
   const path = codexHooksPath();
   if (!path || !host.fs.fileExists(path)) return { ok: true, changed: false };
   const json = host.fs.readJson<CodexHooks>(path);
@@ -385,12 +416,15 @@ export function ensureIntegrationOnStartup(
       },
     );
   });
-  if (!scriptStale && !commandStale) return { ok: true, changed: false };
+  const stopOwned = (json.hooks.Stop || []).some(isCodetermCodexHook);
+  if (!scriptStale && !commandStale && stopOwned) return { ok: true, changed: false };
 
-  const result = install(apiPort, { consent: true }) as { ok?: boolean; error?: string };
-  return result && result.ok
-    ? { ok: true, changed: true, reason: "refreshed a stale CodeTerm-owned hook" }
-    : { ok: false, changed: false, error: (result && result.error) || "refresh failed" };
+  return {
+    ok: false,
+    changed: false,
+    actionable: true,
+    error: "Codex hook repair requires recorded integration consent; open provider integration settings and approve Repair",
+  };
 }
 
 function codexHooksPath(): string | null {

@@ -214,9 +214,7 @@ export async function startMirror(options: MirrorOptions): Promise<Mirror> {
   return {
     counters,
     gate: env.gate,
-    // runFullResync dispatches `codeterm-refresh-mux-state` exactly once per
-    // overflow, and this harness never mounts the lifecycle (the only other
-    // source), so this is an exact count rather than a derived one.
+    // The harness mounts no lifecycle, so overflow dispatches exactly once and the count is not derived.
     overflows: env.muxRefreshes,
     bootChanges: env.bootChanges,
     muxRefreshes: env.muxRefreshes,

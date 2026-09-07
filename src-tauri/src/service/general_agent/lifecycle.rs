@@ -714,9 +714,7 @@ fn validate_general_agent_tab_retry_inner(
         );
         return Ok(false);
     }
-    // A launch stage alone only blocks while a launch actually owns the agent.
-    // Without an owner it is stale state, and refusing recovery on it is what
-    // left a `shell_ready` tab unrecoverable.
+    // Refusing recovery on a launch stage without an owner left `shell_ready` tabs unrecoverable.
     if tab.boot_stage.is_some_and(is_launch_stage) {
         if launch_lock::launch_in_progress() {
             log::info!(

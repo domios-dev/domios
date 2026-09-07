@@ -355,9 +355,7 @@ function openRemoteOutputConnection(ordinaryTabId: string, record: RemoteOutputR
   }
   const abort = new AbortController();
   record.controller = abort;
-  // Silence deadline: a socket that opens 200 then goes quiet (path drop mid-replay
-  // or after a keep-alive on an empty-ring tab) never parks on its own, and resume's
-  // guard would then skip a cursor-less connection forever. Re-armed on every byte.
+  // Re-arm the silence deadline on every byte so a cursor-less connection cannot remain parked forever after a path drop.
   const deadline = createSilenceDeadline(record.recovery, generation, abort);
   deadline.arm();
   const params = new URLSearchParams({
@@ -461,9 +459,7 @@ onRemoteTransportCredentials(() => resumeRemoteOutputStreams());
 export function resumeRemoteOutputStreams(): void {
   for (const [ordinaryTabId, record] of remoteRecords) {
     if (!remoteSinks.has(ordinaryTabId)) continue;
-    // Never supersede a connection still awaiting its first frame — that dropped
-    // the initial replay and blanked the remote terminal. Reopen once it has a
-    // cursor to resume from, or when it is parked awaiting a signal.
+    // Never supersede a connection still awaiting its first frame — that dropped the initial replay and blanked the remote terminal.
     if (record.recovery.currentCursor() == null && !record.recovery.isAwaitingSignal()) continue;
     if (record.recovery.signal() === "stale") continue;
     record.controller?.abort();

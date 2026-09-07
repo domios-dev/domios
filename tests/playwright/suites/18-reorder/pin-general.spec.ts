@@ -3,9 +3,7 @@
  * WHY: This spec protects the live CodeTerm workflow from regressions in 18-reorder.
  * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
-// Sidebar.tsx partitions the protected workspace out of the reorderable group
-// (partitionSidebarWorkspaces) and renders it in its own `general-section`
-// outside SidebarDnd, so "General cannot be dragged" is now structural.
+// General is outside `SidebarDnd`, so its non-draggable status is structural.
 import { expect, test, type Page } from "../../helpers/fixtures";
 
 type Row = ReturnType<Page["locator"]>;

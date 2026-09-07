@@ -1,8 +1,4 @@
-// Run: npx tsx src/components/Settings/channel_audience/admission_list_is_never_written.test.tsx
-//
-// Two lists that look alike and must never merge. The admission list says who
-// may talk to us; the audience says who we push to. This panel reads the first
-// to offer options and writes only the second.
+// Admission lists and push audiences must stay separate because the panel reads one and writes only the other.
 
 import { act } from "react";
 import { NotificationDestinations } from "../NotificationDestinations";

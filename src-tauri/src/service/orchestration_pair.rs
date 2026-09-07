@@ -408,10 +408,7 @@ impl ServiceContext {
                 .map(|_| tab_id.clone())
         });
 
-        // Leaf roles need an explicit declaration to create orchestration
-        // pairs — codeterm#400. The General Agent is a machine coordinator
-        // represented by Manager storage, not a Team leaf, so it is exempt
-        // regardless of the flag.
+        // The General Agent is a machine coordinator represented by Manager storage, not a Team leaf, so it is exempt regardless of the flag.
         if let Some(ref spawner_id) = params.spawned_by_tab_id {
             if !spawner_id.is_empty() {
                 let is_leaf = {

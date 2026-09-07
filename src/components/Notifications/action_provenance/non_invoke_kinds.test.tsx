@@ -1,8 +1,4 @@
-// Run: npx tsx src/components/Notifications/action_provenance/non_invoke_kinds.test.tsx
-//
-// Negative control. The kinds that never carried capability behave exactly as
-// they did: a url opens, a dismiss does nothing, and a choice still delivers
-// its label and only its label.
+// The kinds that never carried capability behave exactly as they did: a url opens, a dismiss does nothing, and a choice still delivers its label and only its label.
 
 import { adoptStoredActions } from "../../../lib/notificationActions";
 import { assert, clickThrough, report, row } from "./fixture";

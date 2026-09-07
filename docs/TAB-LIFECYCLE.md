@@ -26,6 +26,31 @@ change that decision.
    or the journal.
 4. Pre-journal snapshots restore like everything else. Lineage fields are
    optional telemetry, not an admission ticket.
+5. A rebuilt record is not a restored agent. `crash/restore_report.rs` counts a
+   pane as restored only once an agent process is observed live behind it, and
+   the "all N restored" summary is emitted only when every pane is. A pane that
+   came back as a bare shell is named with its role and reason
+   (`agent_not_live`), and one whose liveness is not yet observable is reported
+   as `agent_liveness_unobserved` rather than assumed either way.
+
+## Restore reporting and observed liveness
+
+`state/recovery/last_restore_report.json` is written twice or more per boot: once
+when the wave is armed (records back, nothing observed yet) and again whenever an
+observation changes, until no pane is unobserved. It also records
+`previous_epoch_end` — `clean_shutdown:<reason>` or `crash:<classification>` —
+so a restore that lost every agent to a planned update reads as that, and an
+unexplained one cannot hide behind a plausible story.
+
+Liveness itself is one observation, `codeterm_types::pty::agent_liveness`. Its
+inputs are facts: a live PtyManager session, a boot stage emitted at a real
+launch transition, a shell reporting its foreground command with a matching
+nonce and then finished (OSC 633 `E` → `D`), an open plugin session. Elapsed
+time is never an input.
+
+A pane observed `absent` is reconciled through the ordinary lifecycle teardown,
+so it keeps no `agent_state`, elapsed timer, status line, `agent_session_id`, or
+model label, and the existing guarded-input refusal arms with it.
 
 Role strings still pass through the literal legacy migration
 (`Orchestrator`/`Conductor` → Manager with the orchestrator kind); that is a
@@ -201,4 +226,4 @@ transaction, so the intermediate state is never observable.
 - **Rollback to a named checkpoint** is not implemented. The journal records
   history; it does not replay it.
 
-<!-- revision: 13 -->
+<!-- revision: 15 -->

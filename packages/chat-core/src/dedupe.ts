@@ -151,10 +151,7 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
   const exactMatched = new Set<string>();
   const coveredMatched = new Set<string>();
   const pendingIds: string[] = [];
-  // Stable correlation id is the primary reconciliation: an echo whose token the
-  // server stamped onto a committed turn is retired by identity, immune to chip
-  // enrichment diverging the rendered text. Consume-once, and no ordering guard
-  // — a token is globally unique to its send, so its echo is unambiguous.
+  // Consume-once, and no ordering guard — a token is globally unique to its send, so its echo is unambiguous.
   for (const echo of optimistic) {
     if (!echo.correlationId) continue;
     for (let i = 0; i < parsedUsers.length; i++) {

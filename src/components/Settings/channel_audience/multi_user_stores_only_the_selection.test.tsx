@@ -1,7 +1,4 @@
-// Run: npx tsx src/components/Settings/channel_audience/multi_user_stores_only_the_selection.test.tsx
-//
-// Several configured ids is the real case. Opening the column preselects
-// nothing, and what is stored afterwards is exactly what was picked.
+// Opening the column preselects nothing, and what is stored afterwards is exactly what was picked.
 
 import { act } from "react";
 import { NotificationDestinations } from "../NotificationDestinations";

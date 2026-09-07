@@ -409,6 +409,34 @@ pub(crate) fn build_tab_list_json(
 }
 
 /// Build compact tab summaries using the same scope rules as REST and socket callers.
+/// The one liveness observation, over the facts a multiplexer snapshot carries.
+/// A tab with no PTY, or a PTY the status tracker does not track, has not been
+/// observed — that is `Unobserved`, never a guess in either direction.
+fn snapshot_agent_liveness(
+    tab: &crate::multiplexer::types::Tab,
+    tracked: Option<&codeterm_types::pty::TabStatus>,
+) -> codeterm_types::pty::AgentLiveness {
+    use codeterm_types::pty::{AgentBacking, LivenessEvidence, TabStatus};
+    let backing = match &tab.backing {
+        crate::multiplexer::types::TabBacking::ChatBackend { .. } => AgentBacking::ChatBackend {
+            session_open: tab.agent_session_id.is_some(),
+        },
+        crate::multiplexer::types::TabBacking::Pty => AgentBacking::Pty {
+            pty_live: tab
+                .pty_id
+                .as_ref()
+                .and_then(|_| tracked.map(|status| *status != TabStatus::Dead)),
+        },
+    };
+    codeterm_types::pty::classify_agent_liveness(LivenessEvidence {
+        declares_agent: tab.agent_type.is_some(),
+        backing,
+        boot_stage: tab.boot_stage,
+        boot_in_flight: tab.agent_booting,
+        provider_exit_observed: tab.exit_suspected_at.is_some(),
+    })
+}
+
 pub fn build_tab_summary_json(
     snapshot: &crate::multiplexer::state::MultiplexerSnapshot,
     workspace_id: Option<&str>,
@@ -458,6 +486,7 @@ pub fn build_tab_summary_json(
                 crate::multiplexer::types::TabBacking::Pty => "pty",
                 crate::multiplexer::types::TabBacking::ChatBackend { .. } => "chat_backend",
             };
+            let liveness = snapshot_agent_liveness(tab, snapshot.tab_statuses.get(tab.id.as_str()));
             Some(serde_json::json!({
                 "id": tab.id,
                 "tab_id": tab_id,
@@ -493,6 +522,16 @@ pub fn build_tab_summary_json(
                 "backing": tab.backing,
                 "backing_kind": backing_kind,
                 "pending_delivery": tab.pending_delivery,
+                "agent_liveness": liveness,
+                // A session model is observed at runtime and only some providers
+                // report one; the requested model is still the tab's identity.
+                "agent_label": codeterm_types::pty::agent_bracket_label(
+                    tab.agent_type.as_deref(),
+                    tab.agent_session_model
+                        .as_deref()
+                        .or(tab.agent_provider_resolved_model.as_deref()),
+                    liveness,
+                ),
                 "focused": focused_id == Some(tab.id.as_str()),
             }))
         })

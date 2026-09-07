@@ -1,6 +1,4 @@
-// Run: npx tsx src/components/Terminal/chatHistoryWindow.test.tsx
-// The transcript reducer driving the real scroll/window projection: bounded
-// retention, top-only eviction, byte-cursor paging, and cache remount.
+// The reducer owns bounded retention, top-only eviction, byte-cursor paging, and cache remount behavior.
 import {
   reduceToolEvents,
   TRANSCRIPT_RETENTION_LIMIT,

@@ -1,9 +1,4 @@
-// WHAT: Enter, Shift+Enter, and IME composition resolve to distinct composer intents,
-// and the composition gate classifies engine-ordered key events.
-// WHY: an IME confirmation Enter must never become a provider submit — WebKit
-// delivers it AFTER compositionend with isComposing=false but keyCode 229, and
-// mid-composition layout writes disturb the WebKitGTK preedit.
-// ORACLE: the pure intent/gate functions' return values for each event shape.
+// The composition gate must distinguish IME confirmation from provider submit because WebKit reports Enter after compositionend.
 import assert from "node:assert/strict";
 import test from "node:test";
 

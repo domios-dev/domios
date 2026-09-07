@@ -238,9 +238,7 @@ pub fn run_install_from_file(
         _ => String::new(),
     };
 
-    // .dmg → mount at a space-free temp mountpoint, copy the .app out, detach;
-    // .app → copy directly. The old app is rm -rf'd in the body before this,
-    // so ditto never overwrites a busy Mach-O (ETXTBSY on a running binary).
+    // The old app is rm -rf'd in the body before this, so ditto never overwrites a busy Mach-O (ETXTBSY on a running binary).
     let install_block = if installer_path.to_lowercase().ends_with(".dmg") {
         format!(
             "echo '[self-install] mounting dmg'\n\

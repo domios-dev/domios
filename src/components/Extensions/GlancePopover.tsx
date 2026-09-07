@@ -96,13 +96,16 @@ export function GlancePopover({
       if (action === "configure-with-ai") {
         if (!configHelp) return;
         void (async () => {
-          // (M2); read it from the daemon config at click time.
-          const cfg = await invoke<{ api?: DaemonApiConfig }>("get_config").catch(
-            () => ({}) as { api?: DaemonApiConfig },
-          );
-          await configureWithAI(pluginId, displayName, configHelp, cfg.api ?? {});
+          try {
+            const cfg = await invoke<{ api?: DaemonApiConfig }>("get_config").catch(
+              () => ({}) as { api?: DaemonApiConfig },
+            );
+            await configureWithAI(pluginId, displayName, configHelp, cfg.api ?? {});
+            onClose();
+          } catch (failure) {
+            setError(failure instanceof Error ? failure.message : String(failure));
+          }
         })();
-        onClose();
         return;
       }
       void load(action);

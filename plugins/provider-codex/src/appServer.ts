@@ -1,10 +1,4 @@
-// Why: Codex gates hooks on a `trusted_hash` it computes from a private
-// canonical identity; replicating that algorithm drifts across Codex releases.
-// `codex app-server` exposes the same sanctioned RPCs the Codex TUI "Trust
-// all" flow uses — hooks/list reports Codex's own currentHash per hook and
-// config/batchWrite upserts hooks.state through Codex's writer — so this
-// module grants trust with Codex as the ONLY hash authority. CodeTerm never
-// computes a trust hash; the stored value is always Codex's reported hash.
+// Codex remains the trust-hash authority because its private hash algorithm can change across releases.
 
 export interface CodexTrustGrantOutcome {
   granted: boolean;

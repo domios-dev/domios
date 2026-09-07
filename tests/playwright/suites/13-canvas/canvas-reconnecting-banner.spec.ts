@@ -37,9 +37,7 @@ async function kickRefetch(page: Page): Promise<void> {
   await page.evaluate(() => window.dispatchEvent(new Event("codeterm-web-boot-changed")));
 }
 
-// The plan owner must be a live Orchestrator tab: POST /api/plans routes through
-// create_team_plan_for_orchestrator, which rejects an unknown id with
-// 400 "Tab <id> not found" and a known non-anchor with "is not an Orchestrator".
+// Plan creation requires a live Orchestrator owner because the route rejects unknown or non-anchor tabs.
 async function seedRealPlanAndOpenBoard(
   api: ApiClient,
   tabCleanup: TabCleanup,

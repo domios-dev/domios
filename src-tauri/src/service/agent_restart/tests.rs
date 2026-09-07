@@ -55,6 +55,46 @@ fn rate_limit_resets_after_window() {
     assert!(check(&tracker, "tab-1").is_ok());
 }
 
+#[test]
+fn restart_requires_observed_live_process_evidence() {
+    assert!(require_observed_live_agent(AgentLiveness::Live).is_ok());
+    assert!(matches!(
+        require_observed_live_agent(AgentLiveness::Absent),
+        Err(AgentRestartError::BadRequest(_))
+    ));
+    assert!(matches!(
+        require_observed_live_agent(AgentLiveness::Unobserved),
+        Err(AgentRestartError::BadRequest(_))
+    ));
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn surviving_shell_stale_metadata_is_cleared_before_restart_acceptance() {
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    {
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_type = Some("claude".into());
+        tab.pty_id = Some("missing-pty".into());
+        tab.boot_stage = Some(codeterm_types::pty::BootStage::ShellReady);
+    }
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+
+    let result = fixture.service.snapshot_tab_for_restart(&tab_id);
+
+    assert!(matches!(result, Err(AgentRestartError::BadRequest(_))));
+    let tab = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .cloned()
+        .unwrap();
+    assert_eq!(tab.agent_type, None);
+    assert_eq!(tab.agent_session_id, None);
+    assert_eq!(tab.agent_session_model, None);
+}
+
 fn guard_snapshot(session_id: Option<&str>) -> TabRestartSnapshot {
     TabRestartSnapshot {
         tab_id: "tab-guard".into(),

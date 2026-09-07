@@ -1,6 +1,3 @@
-// Replay captured chat-stream-preview SSE events through the EXACT UI pipeline
-// (displayablePreview + uncoveredPreviewTail + slice(-8)) and diff consecutive
-// displayed states to attribute the live jitter.
 import { readFileSync } from "node:fs";
 
 import {

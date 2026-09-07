@@ -370,8 +370,13 @@ var FAMILIES = ["opus", "sonnet", "haiku", "fable"];
 var MINIMUM_CLI_BY_MODEL = {
   fable: [2, 1, 258]
 };
+function decideAvailability(probe, minimum, declared) {
+  if (declared === false) return "unavailable";
+  if (probe.kind !== "version") return "unknown";
+  return atLeast(probe.version, minimum) ? "available" : "unavailable";
+}
 function discoverAnthropicModels() {
-  const installed = installedCliVersion();
+  const installed = probeInstalledCli();
   const key = host.envGet("ANTHROPIC_API_KEY") || host.envGet("CLAUDE_API_KEY");
   if (!key) return applyInstalledCapabilities(manifestModels(), installed);
   const live = fetchLiveModels(key);
@@ -415,25 +420,33 @@ function fetchLiveModels(key) {
   }
   return out.length ? out : null;
 }
-function installedCliVersion() {
-  const result = safeJson2(host.exec(JSON.stringify({
-    bin: "claude",
-    args: ["--version"],
-    timeoutMs: 3e3
-  })));
-  if (!result || result.code !== 0) return null;
+function probeInstalledCli() {
+  let raw;
+  try {
+    raw = host.exec(JSON.stringify({ bin: "claude", args: ["--version"], timeoutMs: 3e3 }));
+  } catch (_) {
+    return { kind: "unreachable" };
+  }
+  const result = safeJson2(raw);
+  if (!result || result.code !== 0) return { kind: "unreachable" };
   const match = /(\d+)\.(\d+)\.(\d+)/.exec(String(result.stdout || ""));
-  return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
+  if (!match) return { kind: "unreachable" };
+  return { kind: "version", version: [Number(match[1]), Number(match[2]), Number(match[3])] };
 }
-function applyInstalledCapabilities(models, version) {
+function applyInstalledCapabilities(models, probe) {
   return models.map((model) => {
     const minimum = MINIMUM_CLI_BY_MODEL[model.id];
     if (!minimum) return { ...model };
-    return { ...model, available: model.available !== false && atLeast(version, minimum) };
+    const verdict = decideAvailability(probe, minimum, model.available);
+    if (verdict === "unknown") {
+      const unknown = { ...model, availability: "unknown" };
+      delete unknown.available;
+      return unknown;
+    }
+    return { ...model, available: verdict === "available", availability: verdict };
   });
 }
 function atLeast(version, minimum) {
-  if (!version) return false;
   for (let i = 0; i < minimum.length; i++) {
     const actual = version[i] || 0;
     if (actual !== minimum[i]) return actual > minimum[i];

@@ -1,11 +1,4 @@
-// Run: npx tsx src/components/Notifications/action_provenance/caller_invoke.test.tsx
-//
-// THE DEFECT TEST. A caller-supplied action must not be able to reach the Tauri
-// bridge from either surface that renders stored notification rows.
-//
-// It imports nothing the separation added, so it also runs against a tree that
-// predates the split - where it fails, because both surfaces called
-// `invoke(action.value, action.args)` on whatever the stored row named.
+// A caller-supplied action must not be able to reach the Tauri bridge from either surface that renders stored notification rows.
 
 import {
   CALLER_SUPPLIED_INVOKE,
@@ -47,9 +40,7 @@ async function run() {
     );
   }
 
-  // The same claim over the whole caller-facing kind set rather than one
-  // payload. Imported dynamically so the surface assertions above are what
-  // decide this file on a tree that has no such module yet.
+  // The dynamic import keeps these assertions independent of the module split, so they fail on trees that still expose the unsafe path.
   const { CALLER_ACTION_KINDS } = await import("../../../lib/notificationActions");
   check(
     !CALLER_ACTION_KINDS.includes("invoke" as never),

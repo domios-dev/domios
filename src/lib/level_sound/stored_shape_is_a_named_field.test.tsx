@@ -62,9 +62,7 @@ check(
 const answered: AgentLevelChoice = { ...unanswered, sound: false };
 check(levelSounds(answered, answered.level) === false, "a stored false is an answer, not an absence");
 
-// 3. Nothing on the destination path can write the key. `sound` is not a
-//    column at any roster size, so the writer that removes a channel key by
-//    deleting it can never be handed the chime.
+// `sound` is not a column at any roster size, so the writer that removes a channel key by deleting it can never be handed the chime.
 const roster = [
   { id: "telegram", label: "Telegram", control_available: true },
   { id: "discord", label: "Discord", control_available: true },

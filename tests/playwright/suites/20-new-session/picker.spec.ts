@@ -387,9 +387,7 @@ test.describe("new-session picker", () => {
   });
 
   test.afterEach(async ({ api, ui }) => {
-    // Dismiss BEFORE touching state under the modal, and before the workspace it
-    // targets disappears. Runs even when the test body threw — which is the leak
-    // that matters, since a failing test never reaches its own close.
+    // Run cleanup even when the test body throws because leaked modal state otherwise survives to the next test.
     await dismissPicker(ui.page);
     // Sweep created plans BEFORE closing the workspace (close doesn't cascade).
     await plans.sweep();
@@ -561,9 +559,6 @@ test.describe("new-session picker", () => {
     const after = await muxState(api);
     expect(Object.values(after.tabs).some((p) => p.title === "New session")).toBe(false);
 
-    // Plan creation is the live orchestrator's first act (lazy, LLM-driven) —
-    // covered in picker-live.spec.ts; the stub transport verifies pair plumbing.
-    // The suite's afterAll junk sweep is what guards bare "Orchestration" titles.
   });
 
   test("@golden GREETING: orchestrator's first assistant message is the PEER_ORCH_GREETING, unprompted", async ({ api, ui }) => {
@@ -577,18 +572,14 @@ test.describe("new-session picker", () => {
     const segments = peerOrchGreetingSegments();
     expect(segments.length, "PEER_ORCH_GREETING yielded no constant segment to assert").toBeGreaterThan(0);
 
-    // `subscriptionId` is REQUIRED and camelCase (ChatSubscriptionBody,
-    // api/web_routes.rs:659-663). A bodyless call is rejected by the extractor
-    // before the handler runs, so no readiness wait can ever satisfy it.
+    // A bodyless call is rejected by the extractor before the handler runs, so no readiness wait can ever satisfy it.
     const subscriptionId = `pw-picker-greeting-${tab.id}`;
     const chatStart = () =>
       api.post<{ messages?: { type?: string; content?: string }[] }>(
         `/tabs/${tab.id}/chat-raw/start`,
         { subscriptionId },
       );
-    // Unguarded and up front: a contract error must surface HERE carrying its own
-    // status text. Swallowing it into "" spent the poll's whole deadline and then
-    // blamed the greeting for a malformed request.
+    // Surface contract errors before polling so their status is not misread as a readiness failure.
     expect((await chatStart()).messages, "chat-raw/start must answer with a message window").toBeDefined();
 
     await expect
@@ -816,9 +807,7 @@ test.describe("new-session picker", () => {
     const page = ui.page;
     await page.locator('[data-testid="picker-mode-orchestration"]').click();
 
-    // any empty/"…" placeholder frame the moment it appears. Prove the surface
-    // exists once up front — a sampler over an absent scope observes nothing and
-    // would report "no ghost" forever.
+    // Prove the surface exists once up front — a sampler over an absent scope observes nothing and would report "no ghost" forever.
     await expect(workspaceDetail(page, ws.id), "no sidebar body to sample for ghosts").toHaveCount(1);
     const rows = tabRows(page, ws.id);
     let ghost: string | null = null;
@@ -880,10 +869,7 @@ test.describe("ghost-tab invariant", () => {
     await expandSection(ui.page, "workspaces-section-toggle");
     await expandSection(ui.page, "general-section-toggle");
 
-    // Coverage first, or the sweep below silently inspects nothing. The sidebar
-    // trails backend state by an event, so assert the SETTLED correspondence:
-    // sampling both sources once compares two different instants and is unsound
-    // while a just-closed workspace is still on screen.
+    // Compare sidebar and backend only after settled correspondence because the sidebar trails backend state by one event.
     const bodies = ui.page.locator('[data-testid="workspace-detail"]');
     let bodyIds: string[] = [];
     let ordinaryIds: string[] = [];
@@ -915,9 +901,7 @@ test.describe("ghost-tab invariant", () => {
         ...(await readTabTitles(scope.rows)),
         ...(await scope.teams.allTextContents()).map((t) => t.trim()),
       ];
-      // GENERAL is protected and always holds its General Agent, rendered either
-      // as a row or as the Team card that stands in for an anchoring tab. An empty
-      // sweep there means the surface went missing, not that the session is clean.
+      // An empty sweep there means the surface went missing, not that the session is clean.
       if (scope.label === "general-section") {
         expect(entries.length, "GENERAL renders no sidebar entry to inspect").toBeGreaterThan(0);
       }

@@ -248,6 +248,83 @@ fn fixture() -> (
 
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 #[test]
+fn only_live_plan_owner_can_grant_taskless_evidence_capability() {
+    let (fixture, plan_id, planner, owner) = fixture();
+    let workspace = fixture.service.mux.read().list_workspaces()[0].id.clone();
+    let reporter = fixture.service.mux.write().create_tab(&workspace).unwrap();
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&reporter).unwrap();
+        tab.agent_session_id = Some("evidence-session".into());
+        tab.session_binding_nonce = Some("evidence-nonce".into());
+        tab.reported_session_binding_nonce = Some("evidence-nonce".into());
+    }
+
+    let refused = fixture.service.grant_plan_evidence_reporter(
+        &plan_id,
+        &reporter,
+        crate::plan::PlanEvidenceClass::Review,
+        &planner,
+        2,
+    );
+    assert!(refused.is_err());
+    assert!(fixture
+        .service
+        .plan_store
+        .get(&plan_id)
+        .unwrap()
+        .evidence_reporters
+        .is_empty());
+
+    let granted = fixture
+        .service
+        .grant_plan_evidence_reporter(
+            &plan_id,
+            &reporter,
+            crate::plan::PlanEvidenceClass::CanonicalQa,
+            &owner,
+            3,
+        )
+        .unwrap();
+    assert!(granted.created);
+    assert_eq!(granted.grant.tab_id, reporter);
+    assert_eq!(granted.grant.session_id, "evidence-session");
+    assert_eq!(
+        granted.grant.session_binding_digest,
+        crate::service::plan::review_gate::plan_evidence_binding_digest("evidence-nonce")
+    );
+
+    let task_id = fixture
+        .service
+        .plan_store
+        .add_task(
+            &plan_id,
+            NewTask {
+                name: "bound reporter".into(),
+                ..Default::default()
+            },
+            4,
+        )
+        .unwrap();
+    fixture
+        .service
+        .plan_store
+        .assign_task(&plan_id, &task_id, &reporter, None, 5)
+        .unwrap();
+    assert!(fixture
+        .service
+        .grant_plan_evidence_reporter(
+            &plan_id,
+            &reporter,
+            crate::plan::PlanEvidenceClass::CanonicalQa,
+            &owner,
+            6,
+        )
+        .is_err());
+}
+
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+#[test]
 fn draft_before_approval_is_planner_writable_but_not_dispatchable() {
     let (fixture, plan_id, planner, _) = fixture();
     assert!(matches!(

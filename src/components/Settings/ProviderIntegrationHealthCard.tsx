@@ -145,6 +145,7 @@ export function ProviderIntegrationHealthCard({
           <div
             role="alert"
             data-provider-integration-stale-hooks={staleHooks.join(",")}
+            data-provider-integration-action-required={health?.repair_requires_consent === true ? "explicit-consent" : undefined}
             className="rounded border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-[var(--ct-fg)]"
           >
             {phase === "absent"
@@ -208,6 +209,7 @@ export function ProviderIntegrationHealthCard({
               disabled={busy}
               aria-label={`Repair ${provider.display_name} integration`}
               data-provider-integration-action="repair"
+              data-provider-integration-consent="explicit"
               className="text-[10px]"
             >
               {phase === "absent" ? "Install" : phase === "stale-version" ? "Refresh" : phase === "untrusted-hash" ? "Grant trust" : "Repair"}

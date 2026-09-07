@@ -7,9 +7,24 @@ resolved worktree is the canonical checkout, or is the lane another task owns.
 Both would destroy work in progress, so both are hard stops carrying a stable
 violation id (`lane.mutating_write_in_canonical_checkout`,
 `lane.mutating_write_in_foreign_lane`) and the exact `plan task update` command
-that supplies an isolated lane. A dispatch with no recorded lane is *not*
-refused — the dispatcher provisions an isolated lane for it, committing Team
-workspace identity and lane isolation as one value.
+that supplies an isolated lane.
+
+**A dispatch with no recorded lane is refused too, and the Orchestrator must
+provision the lane itself.** The dispatcher does not auto-provision: with no
+lane on the task, the resolved worktree is the caller's `--cwd`, which for an
+Orchestrator is canonical, so the first hard stop fires. `provision_isolated_lane`
+exists but is reached only from the competition path, never from
+`plan task dispatch`. The working sequence is:
+
+```bash
+git worktree add -b lane/<plan>-<task>-<slug> ../<repo>-worktrees/<slug> <base>
+codeterm plan task update <plan> <task>   --worktree <abs-path> --branch lane/<plan>-<task>-<slug>   --base <base> --destination <integration-branch>
+codeterm plan task dispatch <plan> <task> --agent <provider> --execution-intent mutating
+```
+
+Record `--destination` in that same call; omitting it dispatches successfully but
+raises the `lane.merge_destination_unrecorded` nudge, and integration then has to
+guess where the work lands.
 
 Every other lane finding is a **non-blocking nudge**: the operation succeeds and
 the response carries `safety_nudges`, each with a stable id, why it matters, and
@@ -22,7 +37,7 @@ so competitors never share a checkout or fall back to canonical. Partial
 provisioning/spawn failures remove lanes created by that call. Read-only
 competition is unchanged.
 
-<!-- revision: 8 -->
+<!-- revision: 9 -->
 
 This is the portable contract for orchestrated branch work in any project. It is
 about lifecycle and evidence, not CodeTerm's own repository layout.

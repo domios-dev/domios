@@ -1,13 +1,3 @@
-// Offline scorer for a recorded capture: replays preview-events.ndjson through
-// a given matcher module (old/new) with the sidecar's canonical messages.
-// Preview events carry no wall clock, so lead is out of scope here (owned by
-// simulate.ts + cast timeline); this scores jank, dupes, leftovers, height
-// thrash, peaks — the display-quality dimensions — under two canon modes:
-//   empty-blob  (no coverage: worst case for jank/junk filtering)
-//   final-blob  (all canon landed: worst case for dupes/leftovers)
-//
-// Run: npx tsx score-capture.ts --events <ndjson> --chat <ndjson> --tab <id> \
-//        --matcher <path-to-streamPreviewMatch.ts>
 
 import { readFileSync } from "node:fs";
 

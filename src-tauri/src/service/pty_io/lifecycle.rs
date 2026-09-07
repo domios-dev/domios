@@ -425,6 +425,39 @@ impl ServiceContext {
         Ok(())
     }
 
+    /// The shell reported its foreground command finished (OSC 633 `D`) while
+    /// this tab still claimed a proven-up agent: the provider process exited and
+    /// the shell survived it. That is a process exit, not a heuristic and not an
+    /// elapsed-time guess, so it takes the same teardown a PTY death takes —
+    /// which is also what arms the existing guarded-input refusal.
+    pub(crate) fn note_provider_exit_in_surviving_shell(&self, tab_id: &str) -> bool {
+        let observed = {
+            let mut mux = self.mux.write();
+            let Some(tab) = mux.get_tab_mut(tab_id) else {
+                return false;
+            };
+            let proven_up = matches!(
+                tab.boot_stage,
+                Some(BootStage::ProviderReady) | Some(BootStage::AgentReady)
+            );
+            if !proven_up || tab.agent_booting || tab.agent_type.is_none() {
+                return false;
+            }
+            // Marks the observation on the record so every reader of
+            // `exit_suspected_at` sees the same fact the teardown acts on.
+            tab.exit_suspected_at = Some(std::time::Instant::now());
+            true
+        };
+        if !observed {
+            return false;
+        }
+        log::info!("[agent-lifecycle] provider exited to a surviving shell: tab={tab_id}");
+        self.clear_tab_agent_identity_for_lifecycle_exit_with_cause(
+            tab_id,
+            "provider process exited to a surviving shell",
+        )
+    }
+
     /// Kill the PTY process for a tab without removing the tab from the mux.
     /// Different from `close_tab`, which both kills the PTY and removes the tab.
     pub fn kill_tab_pty(&self, tab_id: &str) -> Result<(), String> {

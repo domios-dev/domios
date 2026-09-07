@@ -14,6 +14,7 @@ import type { Tab, TabStatus } from "../../lib/types";
 import { anchorsTeam, isPlanner, isGeneralAgent as isGeneralAgentTab } from "../../lib/roleKind";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import { formatModelBadge } from "../../lib/formatModelBadge";
+import { agentBracketLabel, classifyAgentLiveness } from "../../lib/agentLabel";
 import { SidebarModelBadge } from "./SidebarModelBadge";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { RoleBadge } from "./RoleBadge";
@@ -38,6 +39,10 @@ import {
   declaredAttentionLabel,
   type DeclaredAttentionLevel,
 } from "./declaredAttention";
+import {
+  orchestratorRecoveryMenuView,
+  replaceOrchestrator,
+} from "./orchestratorRecoveryMenu";
 
 interface TabItemProps {
   tab: Tab;
@@ -174,7 +179,7 @@ function TabItemInner({
   declaredAttention,
   onRename: _onRename,
   tab,
-  orchestrators: _orchestrators,
+  orchestrators,
   isAppearing,
   isClosing,
   touchMode = false,
@@ -197,7 +202,24 @@ function TabItemInner({
   const providerName = provider?.displayName || "Agent";
   // back to the live chatBackend session model (fetched/cached out of band).
   const tabModel = tab.agent_session_model ?? shellSessionModel;
-  const tabModelBadge = tabModel ? formatModelBadge(tabModel) : null;
+  const agentLiveness = classifyAgentLiveness({
+    declaresAgent: tab.agent_type != null,
+    ptyLive: tab.pty_id && status != null ? status !== "Dead" : null,
+    chatSessionOpen: tab.backing?.kind === "chat_backend" ? tab.agent_session_id != null : null,
+    bootStage: tab.boot_stage ?? null,
+    bootInFlight: tab.agent_booting ?? false,
+  });
+  // The daemon composes the label with the resolved-model fallback; recompute
+  // only for a projection that predates the field, through the same rule.
+  const tabAgentLabel = tab.agent_label ?? agentBracketLabel(
+    tab.agent_type,
+    tabModel ? formatModelBadge(tabModel) : null,
+    agentLiveness,
+  );
+  // Only a chatBackend shell's own detected model stands alone; a PTY tab that
+  // lost its provider must not keep the model half of the identity.
+  const shellBadge = shellSessionModel ? formatModelBadge(shellSessionModel) : null;
+  const tabModelBadge = tabAgentLabel ?? shellBadge;
   const description = tab.description ?? null;
   const canonicalTitle = displayTitleForTab(tab);
   const displayTitle = hasAgent ? canonicalTitle.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "") : canonicalTitle;
@@ -307,6 +329,29 @@ function TabItemInner({
         },
       });
     }
+    const recoveryMenu = tab
+      ? orchestratorRecoveryMenuView(tab, listAgentDescriptors(), orchestrators)
+      : null;
+    if (recoveryMenu) {
+      items.push({
+        label: "Replace Orchestrator",
+        icon: <UserCog size={11} strokeWidth={2} />,
+        "data-testid": "tab-menu-replace-orchestrator",
+        submenu: {
+          label: "Replace Orchestrator",
+          description: "Starts a new Team owner without resuming this session.",
+          items: recoveryMenu.providers.map((candidate) => ({
+            label: candidate.display_name,
+            icon: <Bot size={11} strokeWidth={2} />,
+            onClick: () => {
+              void replaceOrchestrator(recoveryMenu, candidate.id)
+                .catch((error) => console.warn("Orchestrator replacement failed:", error));
+            },
+            "data-testid": `tab-menu-replace-orchestrator-${candidate.id}`,
+          })),
+        },
+      });
+    }
     const sessionActions = tab ? tabSessionActionView(tab) : null;
     if (tab && sessionActions?.canReconnect) {
       items.push({
@@ -333,7 +378,7 @@ function TabItemInner({
       });
     }
     return items;
-  }, [activity, canonicalTitle, tab, canClose, descriptor, hasAgent, onClose, providerName, status]);
+  }, [activity, canonicalTitle, tab, canClose, descriptor, hasAgent, onClose, orchestrators, providerName, status]);
 
   const sessionActions = tab ? tabSessionActionView(tab) : null;
   const sessionId = sessionActions?.sessionId ?? null;
@@ -620,6 +665,9 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
     pp.chat_view === np.chat_view &&
     pp.pending_prompt === np.pending_prompt &&
     pp.agent_session_model === np.agent_session_model &&
+    pp.boot_stage === np.boot_stage &&
+    pp.agent_booting === np.agent_booting &&
+    pp.pty_id === np.pty_id &&
     pp.agent_state?.status_line === np.agent_state?.status_line &&
     pp.agent_state?.state === np.agent_state?.state &&
     pp.parent_tab_id === np.parent_tab_id &&

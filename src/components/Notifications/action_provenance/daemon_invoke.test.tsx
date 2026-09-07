@@ -1,7 +1,4 @@
-// Run: npx tsx src/components/Notifications/action_provenance/daemon_invoke.test.tsx
-//
-// The live daemon-constructed invoke - the provider-update prompt - still runs
-// end to end from the surface the user actually clicks.
+// The provider-update prompt must retain a live daemon-constructed invoke path through the clicked surface.
 
 import { DAEMON_COMMANDS } from "../../../lib/notificationActions";
 import { DAEMON_INVOKE, assert, clickThrough, report, row } from "./fixture";

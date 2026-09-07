@@ -45,9 +45,7 @@ check(
 );
 check(defaultConfig().notifications.sound === false, "and it is still off by default");
 
-// 2. Not migrated into the DESTINATIONS: the chime is a named field of a row,
-//    but it is not a place a message goes, so no roster size grows a column for
-//    it and no local surface is it.
+// Keep the chime beside notification rows because it is not a destination and must not add a roster column.
 const registered = [
   { id: "telegram", label: "Telegram", control_available: true },
   { id: "discord", label: "Discord", control_available: false },
@@ -63,9 +61,7 @@ check(
   "and it is not one of the surfaces the app draws either",
 );
 
-// 3. The mute dimension, exercised. Off is silence at every level however that
-//    level answered, and the field is load-bearing rather than dead: on, at
-//    least one answer changes. Which ones is level_sound's claim.
+// Off is silence at every level however that level answered, and the field is load-bearing rather than dead: on, at least one answer changes.
 const everyLevelChiming = unansweredLevels().map((row) => ({ ...row, sound: true }));
 check(
   LEVELS.every((level) => !shouldSoundArrival(false, everyLevelChiming, level)),
@@ -76,10 +72,7 @@ check(
   "unmuted, the field decides something — it is not the dead switch it used to be",
 );
 
-// 4. One control, wherever Settings currently keeps it, and it is the shared
-//    toggle. Found by search rather than by filename: the notification settings
-//    have already moved once, and a hardcoded path would have passed that move
-//    while pointing at a file that no longer holds the control.
+// Find the shared toggle by its behavior rather than a path so settings moves cannot silently invalidate the test.
 const settingsDir = resolve(here, "../../components/Settings");
 const holders = readdirSync(settingsDir)
   .filter((name) => /\.tsx$/.test(name) && !/\.test\.tsx$/.test(name))

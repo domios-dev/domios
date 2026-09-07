@@ -1,6 +1,8 @@
 use super::execution::TaskExecutionIntent;
 use super::external_refs::ExternalRef;
-use super::review::{ReviewAuditEntry, ReviewEvidence, ReviewOverride, ReviewPolicy};
+use super::review::{
+    PlanEvidenceReporterGrant, ReviewAuditEntry, ReviewEvidence, ReviewOverride, ReviewPolicy,
+};
 use super::{
     TaskCompetitionMetadata, TaskExecutionAttempt, TaskInterruptionState, TaskLaneMetadata,
 };
@@ -674,6 +676,8 @@ pub struct Plan {
     #[serde(default)]
     pub review_policy: ReviewPolicy,
     #[serde(default)]
+    pub evidence_reporters: Vec<PlanEvidenceReporterGrant>,
+    #[serde(default)]
     pub canvas: PlanCanvas,
     #[serde(default)]
     pub owner_history: Vec<TransferRecord>,
@@ -727,6 +731,7 @@ impl Plan {
             goal: None,
             heartbeat: OrchestratorHeartbeat::default(),
             review_policy: ReviewPolicy::default(),
+            evidence_reporters: vec![],
             canvas: PlanCanvas::default(),
             owner_history: vec![],
             planner: None,

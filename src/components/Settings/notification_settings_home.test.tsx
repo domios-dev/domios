@@ -1,7 +1,3 @@
-// Run: npx tsx src/components/Settings/notification_settings_home.test.tsx
-//
-// The levels grid — where each level goes and whether it chimes — the master
-// bell switch, and the one home they now live in.
 
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -277,9 +273,7 @@ async function masterSwitchHidesTheSurfaceAndStaysDistinguishable() {
     "the switch the settings panel writes is the switch the titlebar reads",
   );
 
-  // The two states are different config, not the same config twice. Hiding the
-  // indicator is presentation; closing a column is routing, and the panel keeps
-  // every record under either.
+  // The two states are different config, not the same config twice.
   const hidden = { show_bell: false, agent_levels: DAEMON_ROWS.map((row) => ({ ...row })) };
   const columnsClosed = {
     show_bell: true,

@@ -4,6 +4,7 @@ use super::*;
 pub struct AgentLifecyclePlanChange {
     pub tab_id: String,
     pub preserve_owned_plans: bool,
+    pub retain_owned_plan_for_team_recovery: Option<String>,
     pub preserve_task_bindings_for_owner: Option<String>,
     pub planner_binding: Option<(String, Option<PlannerRef>)>,
     pub plan_rebind: Option<AgentLifecyclePlanRebind>,
@@ -137,10 +138,25 @@ fn apply_change(plan: &mut Plan, change: &AgentLifecyclePlanChange, now_ms: u64)
         .is_some_and(|rebind| rebind.plan_id == plan.id);
     if !change.preserve_owned_plans && !rebound_here && plan.owner.tab_id.as_deref() == Some(tab_id)
     {
-        plan.owner = OrchestratorRef::default();
-        plan.team_id = None;
-        plan.planner = None;
-        plan.status = PlanStatus::Archived;
+        let retain_for_recovery = change
+            .retain_owned_plan_for_team_recovery
+            .as_deref()
+            .is_some_and(|team_id| plan.team_id.as_deref() == Some(team_id));
+        if retain_for_recovery {
+            let retired_owner = OrchestratorRef::default();
+            plan.owner_history.push(TransferRecord {
+                from: plan.owner.clone(),
+                to: retired_owner.clone(),
+                ts: now_ms,
+                reason: "Orchestrator removed; Team retained for recovery".into(),
+            });
+            plan.owner = retired_owner;
+        } else {
+            plan.owner = OrchestratorRef::default();
+            plan.team_id = None;
+            plan.planner = None;
+            plan.status = PlanStatus::Archived;
+        }
     }
 
     let planner_is_tab = matches!(

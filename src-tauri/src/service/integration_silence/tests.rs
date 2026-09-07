@@ -477,3 +477,148 @@ fn integration_silence_keys_on_declared_capability_not_a_provider_id() {
         "an unknown provider yields no facts rather than a guess"
     );
 }
+
+fn facts_with_hash(state: IntegrationState, hash: Option<&str>) -> IntegrationFacts {
+    IntegrationFacts {
+        registers_sessions_via_hooks: true,
+        installed: Some(false),
+        consent_recorded: true,
+        target: Some(FIXTURE_TARGET.to_string()),
+        state: Some(state),
+        content_hash: hash.map(str::to_string),
+    }
+}
+
+/// The provider's own content hash is what identifies the state, so two
+/// instances that wrote byte-identical hooks report one state, not two.
+#[test]
+fn identical_content_hashes_are_one_observed_state() {
+    let from_dev = facts_with_hash(IntegrationState::StaleVersion, Some("7f3a2b10"));
+    let from_prod = facts_with_hash(IntegrationState::StaleVersion, Some("7f3a2b10"));
+    let after_a_real_change = facts_with_hash(IntegrationState::StaleVersion, Some("00c0ffee"));
+
+    assert_eq!(
+        AnnouncedIntegrationState::observed(IntegrationState::StaleVersion, &from_dev),
+        AnnouncedIntegrationState::observed(IntegrationState::StaleVersion, &from_prod),
+        "byte-identical content is one state whichever instance observed it"
+    );
+    assert_ne!(
+        AnnouncedIntegrationState::observed(IntegrationState::StaleVersion, &from_dev),
+        AnnouncedIntegrationState::observed(IntegrationState::StaleVersion, &after_a_real_change),
+        "only content that actually changed is a different state"
+    );
+}
+
+/// The in-memory condition ledger is rebuilt empty on every daemon start, so
+/// the record that keeps an unchanged gap quiet has to outlive the process.
+#[test]
+fn an_unchanged_state_does_not_re_announce_on_a_later_daemon_start() {
+    let provider = "fixture-announce-latch-provider";
+    clear_announced(provider);
+    let facts = facts_with_hash(IntegrationState::StaleVersion, Some("7f3a2b10"));
+    let observed = AnnouncedIntegrationState::observed(IntegrationState::StaleVersion, &facts);
+
+    assert!(
+        is_news(provider, &observed),
+        "the first observation is news"
+    );
+    record_announced(provider, &observed);
+    assert!(
+        !is_news(provider, &observed),
+        "a later daemon start observing the same state must not re-announce"
+    );
+
+    let changed = AnnouncedIntegrationState::observed(
+        IntegrationState::StaleVersion,
+        &facts_with_hash(IntegrationState::StaleVersion, Some("00c0ffee")),
+    );
+    assert!(is_news(provider, &changed), "changed content is news again");
+
+    let other_state = AnnouncedIntegrationState::observed(IntegrationState::UntrustedHash, &facts);
+    assert!(
+        is_news(provider, &other_state),
+        "a different integration state is news even at the same content"
+    );
+
+    clear_announced(provider);
+    assert!(
+        is_news(provider, &observed),
+        "the gap closing re-arms the next announcement"
+    );
+}
+
+/// A provider that publishes no hash still gets a state-only latch, so the
+/// mechanism never invents an identity it did not observe.
+#[test]
+fn a_provider_without_a_content_hash_latches_on_state_alone() {
+    let provider = "fixture-announce-latch-no-hash";
+    clear_announced(provider);
+    let facts = facts_with_hash(IntegrationState::Absent, None);
+    let observed = AnnouncedIntegrationState::observed(IntegrationState::Absent, &facts);
+
+    assert_eq!(observed.content_hash, None);
+    assert!(is_news(provider, &observed));
+    record_announced(provider, &observed);
+    assert!(!is_news(provider, &observed));
+    clear_announced(provider);
+}
+
+#[test]
+fn content_hash_is_read_from_the_providers_own_report() {
+    assert_eq!(
+        read_content_hash(&json!({ "hook_content_hash": "7f3a2b10" })).as_deref(),
+        Some("7f3a2b10")
+    );
+    assert_eq!(
+        read_content_hash(&json!({ "hook_content_hash": "  " })),
+        None
+    );
+    assert_eq!(read_content_hash(&json!({})), None);
+}
+
+fn concurrent_observed(id: &str) -> AnnouncedIntegrationState {
+    AnnouncedIntegrationState {
+        state: INTEGRATION_STATE_STALE_VERSION.to_string(),
+        content_hash: Some(format!("hash-{id}")),
+    }
+}
+
+/// The defect this replaced: an unguarded read-modify-write across one shared
+/// file. Two writers truncated each other and left JSON that parsed as
+/// "nothing was ever announced", so a standing gap re-announced every restart.
+#[test]
+fn concurrent_records_neither_lose_a_key_nor_tear_the_file() {
+    let ids: Vec<String> = (0..8)
+        .map(|i| format!("fixture-announce-concurrent-{i}"))
+        .collect();
+    for id in &ids {
+        clear_announced(id);
+    }
+
+    std::thread::scope(|scope| {
+        for id in &ids {
+            scope.spawn(move || record_announced(id, &concurrent_observed(id)));
+        }
+    });
+
+    for id in &ids {
+        assert!(
+            !is_news(id, &concurrent_observed(id)),
+            "{id} lost its record to a concurrent writer"
+        );
+    }
+
+    // The durable copy has to survive the same race, or the latch is rebuilt
+    // empty on the next start and every gap announces again.
+    let raw = std::fs::read_to_string(announced_path()).expect("state file written");
+    let parsed: std::collections::HashMap<String, AnnouncedIntegrationState> =
+        serde_json::from_str(&raw).expect("a concurrent write must never leave unparsable JSON");
+    for id in &ids {
+        assert_eq!(
+            parsed.get(id),
+            Some(&concurrent_observed(id)),
+            "{id} is missing from the persisted map"
+        );
+        clear_announced(id);
+    }
+}

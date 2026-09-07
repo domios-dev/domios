@@ -47,6 +47,9 @@ configure_embed_cache() {
 # the installed conpty bundle. Always clear it and mark test isolation — never
 # rely on it happening to be absent. See pty-fork/src/win/psuedocon.rs.
 isolate_conpty_test_dir() {
+    # A task-assigned tab exports the plan and task binding, and Clap reads them
+    # as defaults, so a parse-with-no-flags test would inherit a binding.
+    unset CODETERM_PLAN_ID CODETERM_TASK_ID
     unset CODETERM_CONPTY_DIR
     CODETERM_CONPTY_TEST_ISOLATION=1
     export CODETERM_CONPTY_TEST_ISOLATION

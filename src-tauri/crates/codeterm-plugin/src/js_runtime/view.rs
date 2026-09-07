@@ -29,9 +29,7 @@ impl ViewProvider for JsViewProvider {
     }
 
     async fn call(&self, method: &str, args: Value) -> Result<Value, ViewError> {
-        // args come from the plugin's own iframe (host stamps cwd only when absent),
-        // so a cwd here must NEVER mint a read grant — bubble/glance ctx does that.
-        // VM lock + JS execution are synchronous — keep them off the async runtime.
+        // A plugin-supplied cwd must not mint a read grant; only host context can do so.
         let vm = self.vm.clone();
         let method = method.to_string();
         tokio::task::spawn_blocking(move || {

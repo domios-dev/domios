@@ -133,7 +133,7 @@ pub enum AgentAction {
         #[arg(long = "tab", value_name = "TAB")]
         tab: Option<String>,
     },
-    /// Remove a tab's role (also orphans children)
+    /// Remove a tab's role. A final Orchestrator leaves its Team and Plan recoverable
     Unlink {
         /// Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
         #[arg(long = "tab", value_name = "TAB")]
@@ -186,7 +186,7 @@ pub enum AgentAction {
         #[arg(long = "tab", value_name = "TAB")]
         tab: Option<String>,
     },
-    /// Restart agent (graceful exit; resumes only when the tab has a valid provider session)
+    /// Restart an observed live agent; an exited provider requires a fresh spawn
     Restart {
         /// Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
         #[arg(long = "tab", value_name = "TAB")]
@@ -484,6 +484,7 @@ mod tests {
 
     #[test]
     fn ack_parses_without_verbose_payload() {
+        let _guard = crate::test_env_lock().lock().unwrap();
         let cli = Cli::try_parse_from(["codeterm", "agent", "ack"]).expect("ack should parse");
         match cli.command {
             crate::Commands::Agent {
@@ -656,6 +657,7 @@ mod tests {
     /// `--execution-intent`, so the documented verifier could not be spawned.
     #[test]
     fn execution_intent_no_longer_requires_a_plan_task_at_parse_time() {
+        let _guard = crate::test_env_lock().lock().unwrap();
         let action = parse_spawn(&[
             "codex",
             "--role",

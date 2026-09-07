@@ -331,6 +331,9 @@ export interface ModelInfo {
   description?: string;
   // Account-can-select-this-now. Omitted ⇒ "no info, treat as available"; `false` greys it out. Set by live discovery.
   available?: boolean;
+  // A probe that could not run reports "unknown" here and publishes no
+  // `available` boolean: unavailable must mean the CLI answered no.
+  availability?: "available" | "unavailable" | "unknown";
 }
 
 export interface Model extends ModelInfo {

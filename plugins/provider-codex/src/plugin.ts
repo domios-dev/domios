@@ -28,6 +28,8 @@ import {
   uninstallIntegration as uninstallCodexIntegration,
   type CodexIntegrationInstallOptions,
 } from "./integration";
+// Not yet called from ensureIntegrationOnStartup — apiPort alone carries no safe live-tab-id source.
+export { sweepCodexProfiles, codexProfileTabId, codexProfilesToSweep, type SweepHost } from "./profile-sweep";
 
 const TITLE_RE = /codex/i;
 const OUTPUT_FINGERPRINTS = [
@@ -173,14 +175,13 @@ const plugin: PluginModule = {
       if (!taskPath) throw new Error("failed to write Codex task instructions");
       const quotedPath = host.shell.quoteFor(taskPath, host.platform());
       if (host.platform() === "windows") {
-        prefix = "Add-Type -AssemblyName System.Web.Extensions; "
-          + `$ctTaskInstructions = Get-Content -Raw -Encoding UTF8 ${quotedPath}; `
-          + "$ctTaskJson = (New-Object System.Web.Script.Serialization.JavaScriptSerializer).Serialize($ctTaskInstructions); "
+        prefix = `$ctTaskInstructions = Get-Content -Raw -Encoding UTF8 ${quotedPath}; `
+          + "$ctTaskJson = ($ctTaskInstructions | ConvertTo-Json -Compress); "
           + "$ctProfileSuffix = if ($env:CODETERM_TAB_ID) { $env:CODETERM_TAB_ID -replace '[^A-Za-z0-9_-]', '-' } else { [guid]::NewGuid().ToString('N') }; "
           + "$ctProfileName = 'codeterm-' + $ctProfileSuffix; "
           + "$ctProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '.config.toml'); "
           + "Set-Content -LiteralPath $ctProfilePath -Encoding UTF8 -Value ('developer_instructions = ' + $ctTaskJson); "
-          + `Remove-Item -LiteralPath ${quotedPath} -Force -ErrorAction SilentlyContinue; try { `;
+          + "try { ";
         parts.push("--profile");
         parts.push("$ctProfileName");
       } else {
@@ -356,9 +357,7 @@ const plugin: PluginModule = {
     return installCodexIntegration(apiPort, options);
   },
 
-  // integration.trust_grant capability: core invokes this once per install
-  // with the manifest-declared managed hook key(s). Codex is the only hash
-  // authority — the grant lane never computes a trust hash CodeTerm-side.
+  // Codex is the only hash authority; the grant lane never computes a trust hash CodeTerm-side.
   grantIntegrationTrust(managedKeys: string[]): unknown {
     return grantCodexIntegrationTrust(managedKeys);
   },

@@ -712,6 +712,46 @@ fn host_write_temp_file_returns_real_path() {
     let _ = std::fs::remove_file(&path);
 }
 
+/// A CONFINED plugin's `host.writeTempFile` must still succeed, and the
+/// result must land under that plugin's own scoped temp subdir — never the
+/// bare system temp dir another plugin (or process) can also reach.
+#[test]
+fn host_write_temp_file_confined_lands_under_the_plugin_scoped_dir() {
+    use crate::js_runtime::manifest::PermissionsConfig;
+    use crate::js_runtime::vm::PluginVm;
+
+    let plugin_id = format!("confined-temp-writer-{}", uuid::Uuid::new_v4().simple());
+    let sandbox = Arc::new(
+        PluginSandbox::restricted(vec![], vec![])
+            .with_identity_and_perms(&plugin_id, &PermissionsConfig::default()),
+    );
+    let vm = PluginVm::from_source_sandboxed(
+        &plugin_id,
+        r#"
+            module.exports.default = {
+                mk(c) { return host.writeTempFile(c, ".task.txt"); }
+            };
+        "#
+        .to_string(),
+        None,
+        sandbox,
+    )
+    .expect("vm");
+
+    let path: Option<String> =
+        crate::js_runtime::vm::call_json(&vm, "mk", &[json!("payload payload")]).unwrap();
+    let path = path.expect("writeTempFile must still succeed when confined");
+
+    let scoped_dir = crate::js_runtime::loader::plugin_temp_dir(&plugin_id);
+    assert!(
+        std::path::Path::new(&path).starts_with(&scoped_dir),
+        "{path} must be under the plugin's own scoped temp dir {}",
+        scoped_dir.display()
+    );
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "payload payload");
+    let _ = std::fs::remove_dir_all(&scoped_dir);
+}
+
 #[test]
 fn host_unix_now_monotonic_ish() {
     let vm = vm_with(

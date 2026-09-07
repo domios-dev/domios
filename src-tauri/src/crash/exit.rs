@@ -53,9 +53,7 @@ pub(crate) fn save_and_sync_sidecars(
     output_buf: Option<&OutputBufferState>,
 ) {
     let snapshot = mux.write().to_session_snapshot();
-    // The guard must drop before this match runs: a match scrutinee's
-    // temporaries live for the whole match, and the Ok arm re-locks the
-    // same non-reentrant parking_lot mutex via the sidecar sync.
+    // The guard must drop before this match runs: a match scrutinee's temporaries live for the whole match, and the Ok arm re-locks the same non-reentrant parking_lot mutex via the sidecar sync.
     let save_result = session.lock().save(&snapshot);
     match save_result {
         Ok(outcome) => {

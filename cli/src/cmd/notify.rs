@@ -76,17 +76,11 @@ fn params_from_body(
     if let Some(actions) = choice_actions(choices)? {
         params["actions"] = serde_json::to_value(actions)
             .map_err(|e| format!("choices are not serializable: {e}"))?;
-        // The answer goes back to the tab that asked, and the daemon records that
-        // tab when the notification is created — so a question sent without it
-        // renders its buttons and has nowhere to deliver the tap. Every other
-        // tab-scoped CLI command already attaches this; notify did not.
+        // Questions need the originating tab so the tap can be delivered to the right recipient.
         if let Some(tab_id) = caller_tab_id {
             params["caller_tab_id"] = serde_json::Value::String(tab_id.to_string());
         }
     }
-    // The daemon resolves the surface against its own registry and ties the
-    // accepting label to this notification's choices, so the names travel as
-    // written and nothing here decides whether either is real.
     if let Some(surface) = offer.surface {
         params["offer"] = serde_json::Value::String(surface.to_string());
     }

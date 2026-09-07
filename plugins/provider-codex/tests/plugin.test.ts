@@ -137,11 +137,20 @@ console.log("\n--- task instructions launch ---\n");
   }));
   const hostileTask = "line one\n<location>D:\\repo</location>\n'quotes' \"double\" $HOME `whoami` --flag\nюникод";
   const cmd = p.buildLaunchCommand({ task: hostileTask, args: ["--model", "gpt-5.5"] });
-  assert(cmd.includes("System.Web.Script.Serialization.JavaScriptSerializer"), "Windows serializes instructions without native argv interpolation");
+  assert(!cmd.includes("System.Web"), "Windows launch never references System.Web (PowerShell 7 has no .NET Framework assembly to load)");
+  assert(!cmd.includes("JavaScriptSerializer"), "Windows launch never references JavaScriptSerializer (Framework-only type)");
+  assert(cmd.includes("ConvertTo-Json -Compress"), "Windows serializes instructions with the built-in cmdlet available on both PowerShell editions");
   assert(cmd.includes("$ctTaskInstructions = Get-Content -Raw -Encoding UTF8 'C:\\Temp\\codeterm task.md'"), "Windows loads developer instructions from the task file");
   assert(cmd.includes("$env:CODETERM_TAB_ID -replace '[^A-Za-z0-9_-]', '-'"), "Windows scopes the temporary profile to the tab lifecycle");
   assert(cmd.includes("Set-Content -LiteralPath $ctProfilePath"), "Windows writes a temporary Codex profile");
-  assert(cmd.includes("Remove-Item -LiteralPath 'C:\\Temp\\codeterm task.md'"), "Windows removes the copied task file before Codex starts");
+  const profileValueAssignment = /-Value \('developer_instructions = ' \+ (\$\w+)\)/.exec(cmd);
+  assert(!!profileValueAssignment, "the profile content assigns developer_instructions from a variable expression, not a bare literal");
+  const jsonVarName = profileValueAssignment?.[1] ?? "";
+  assert(
+    !!jsonVarName && cmd.includes(`${jsonVarName} = ($ctTaskInstructions | ConvertTo-Json`),
+    "the developer_instructions variable is always produced by ConvertTo-Json, so the profile line can never render as a bare 'developer_instructions = '",
+  );
+  assert(!cmd.includes("Remove-Item -LiteralPath 'C:\\Temp\\codeterm task.md'"), "Windows launch line never deletes the task file, so a relaunch can still read it");
   assert(cmd.includes("--profile $ctProfileName --"), "Windows passes only the short profile name through native argv");
   assert(cmd.includes("finally { Remove-Item -LiteralPath $ctProfilePath"), "Windows removes the temporary profile on exit");
   assert(!cmd.includes('-c ("developer_instructions=" +'), "Windows never expands multiline task text inline in the native call");
@@ -161,6 +170,47 @@ console.log("\n--- task instructions launch ---\n");
   const handshake = p.buildLaunchCommand({ task: hostileTask, starterPrompt: "startup_handshake", starterPromptText: handshakeText });
   assert(handshake.includes(handshakeText), "startup launch uses the host-owned starter text");
   eq(p.starterPromptText?.("team_bootstrap"), undefined, "team starter text is not duplicated in the plugin");
+
+  // The profile path is computed only from $env:CODETERM_TAB_ID, never a
+  // per-call random value, so a relaunch overwrites instead of accumulating.
+  const profileComputation = (cmd: string): string => {
+    const start = cmd.indexOf("$ctProfileSuffix = if");
+    const end = cmd.indexOf("Set-Content -LiteralPath $ctProfilePath");
+    assert(start !== -1 && end !== -1 && end > start, "profile-path computation fragment is present");
+    return cmd.slice(start, end);
+  };
+  const firstLaunch = p.buildLaunchCommand({ task: hostileTask, args: ["--model", "gpt-5.5"] });
+  const secondLaunch = p.buildLaunchCommand({ task: "a completely different task body", starterPrompt: "team_bootstrap", starterPromptText: "unrelated" });
+  eq(
+    profileComputation(firstLaunch),
+    profileComputation(secondLaunch),
+    "the profile path computation depends only on the tab id, so a relaunch targets the same file and overwrites rather than accumulating",
+  );
+
+  assert(!firstLaunch.includes("Remove-Item -LiteralPath 'C:\\Temp\\codeterm task.md'"), "the first launch attempt never deletes the task file");
+  assert(!secondLaunch.includes("Remove-Item -LiteralPath 'C:\\Temp\\codeterm task.md'"), "a rebuilt relaunch command never deletes the task file either");
+  assert(
+    secondLaunch.includes("Get-Content -Raw -Encoding UTF8 'C:\\Temp\\codeterm task.md'"),
+    "a relaunch still reads the task file from the exact path the prior attempt left in place",
+  );
+}
+
+console.log("\n--- non-Windows launch branch is unaffected by the Windows fix ---\n");
+
+{
+  const p = loadCodexWithHost(baseHost({
+    platform: () => "linux",
+    fs: { ...baseHost({}).fs, writeTempFile: () => "/tmp/codeterm-task.md" },
+  }));
+  const cmd = p.buildLaunchCommand({ task: "some task body", args: ["--model", "gpt-5.5"], starterPrompt: "no_starter" });
+  eq(
+    cmd,
+    'codex --model gpt-5.5 -c "developer_instructions=$(cat /tmp/codeterm-task.md)"',
+    "the macOS/Linux launch line keeps its exact prior shape",
+  );
+  assert(!cmd.includes("System.Web") && !cmd.includes("JavaScriptSerializer"), "non-Windows launch never carries the Windows-only serializer reference");
+  assert(!cmd.includes("ConvertTo-Json") && !cmd.includes("Set-Content") && !cmd.includes("$ctProfile"), "non-Windows launch has no PowerShell profile machinery");
+  assert(!cmd.includes("Remove-Item"), "non-Windows launch never deleted the task file, before or after this fix");
 }
 
 console.log("\n--- meta ---\n");
@@ -735,6 +785,7 @@ console.log("\n--- binding nonce (install + outdated detection) ---\n");
 
 {
   const hooksPath = "/tmp/home/.codex/hooks.json";
+  const configPath = "/tmp/home/.codex/config.toml";
   const original = '{"foreign":{"keep":true},"hooks":{"SessionStart":[{"hooks":[{"command":"user-hook"}]}]}}';
   const files = new Map<string, string>([[hooksPath, original]]);
   const p = loadCodexWithHost(baseHost({
@@ -1044,16 +1095,21 @@ for (const [name, fixture] of [
 
 {
   const hooksPath = "/tmp/home/.codex/hooks.json";
+  const configPath = "/tmp/home/.codex/config.toml";
   const stale = JSON.stringify({
     hooks: {
       SessionStart: [{ hooks: [{
         _source: "codeterm-codex-session-binding-v1",
-        command: "curl -s -X POST http://localhost:7686/api/tabs/$CODETERM_TAB_ID/hook/session_start",
+        command:
+          "curl -s -X POST \"$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start\" " +
+          '-H "Authorization: Bearer ${CODETERM_API_TOKEN}" ' +
+          '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}"',
       }] }],
       Stop: [],
     },
   });
-  const files = new Map([[hooksPath, stale]]);
+  const trustedConfig = `[hooks.state."${hooksPath}:session_start:0:0"]\ntrusted_hash = "opaque"\n`;
+  const files = new Map([[hooksPath, stale], [configPath, trustedConfig]]);
   let rewrites = 0;
   const p = loadCodexWithHost(baseHost({
     fs: {
@@ -1069,16 +1125,14 @@ for (const [name, fixture] of [
       removeFile: (file: string) => files.delete(file),
     },
   }));
+  const status = p.checkIntegration();
+  assert(status.hook_contract_current === false, "owned SessionStart without Stop is an incomplete contract");
+  assert(status.integration_state === "stale_version", "trusted missing-Stop contract is classified stale");
+  assert(status.repair_requires_consent === true, "checkIntegration exposes the user-facing consent requirement");
   const result = p.ensureIntegrationOnStartup(7686);
-  const rewritten = files.get(hooksPath) || "";
-  assert(result.ok === true && result.changed === true, "refresh reports a stale owned hook as rewritten");
-  assert(rewrites === 1, "refresh reaches the hook rewrite seam");
-  assert(rewritten !== stale, "refresh changes the stale hook bytes");
-  assert(rewritten.indexOf("$CODETERM_API_URL") !== -1, "refreshed hook routes through the instance URL variable");
-  assert(rewritten.indexOf("${CODETERM_API_TOKEN}") !== -1, "refreshed hook routes through the instance token variable");
-  assert(rewritten.indexOf("$CODETERM_TAB_ID") !== -1, "refreshed hook routes through the instance tab variable");
-  assert(rewritten.indexOf("${CODETERM_API_URL:-}") !== -1, "refreshed hook fails closed when instance variables are absent");
-  assert(!/:\d{2,5}/.test(rewritten), "refreshed hook contains no literal port");
+  assert(result.ok === false && result.actionable === true, "missing Stop requires an actionable consented repair");
+  assert(rewrites === 0, "startup never invents consent for an owned stale contract");
+  assert(files.get(hooksPath) === stale, "unconsented owned hook content remains byte-identical");
 }
 
 {

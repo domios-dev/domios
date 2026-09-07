@@ -1,6 +1,6 @@
 [package]
 name = "codeterm-cli"
-version = "1.10.13"
+version = "1.10.14"
 edition = "2021"
 
 [[bin]]
@@ -31,7 +31,7 @@ sha2 = "0.10"
 # without minding the input language.
 deunicode = "1"
 codeterm-mem-store = { path = "../crates/mem-store" }
-codeterm-plugins = { path = "../crates/codeterm-plugins" }
+codeterm-plugins = { path = "../src-tauri/crates/codeterm-plugins" }
 # In-process reuse of the daemon's strict PluginManifest + QuickJS loader for
 # `plugin validate` — the CLI never grows its own manifest interpretation.
 codeterm-plugin = { path = "../src-tauri/crates/codeterm-plugin" }

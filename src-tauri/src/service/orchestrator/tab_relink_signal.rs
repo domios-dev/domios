@@ -1,9 +1,4 @@
-// Event boundary for "a Tab's pty_id was (re)linked". Replaces the 100ms poll in
-// `await_replacement_pty`: linkers bump a generation and wake waiters; a waiter
-// blocks on the condvar until its own predicate holds or a deadline passes — no
-// timer-based sequencing. The predicate is evaluated OUTSIDE this lock so the
-// wait never holds it across the mux/pty locks (opposite acquire order at the
-// notify sites, which take mux first).
+// Evaluate the wait predicate outside the lock so the condvar path never holds it across mux/pty acquisition.
 
 use parking_lot::{Condvar, Mutex};
 use std::sync::OnceLock;

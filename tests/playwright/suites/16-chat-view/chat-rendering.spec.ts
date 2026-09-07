@@ -257,11 +257,7 @@ test("@golden ChatView transcript remains correct across tool results, focus, an
   const texts = await chatMessages.evaluateAll((els) => els.map((el) => (el as HTMLElement).innerText));
   expect(texts.join("\n")).toContain("run a command");
 
-  // A tool_call card renders the command it ran, not the message's `content`
-  // string, so the failed calls are identified by the commands this fixture
-  // supplied and asserted through the card's own status attribute. The old
-  // `toContain("latest failure")` could never match; it survived only because
-  // the assertion above it failed first.
+  // Assert the command card's status rather than message content because tool results render command output.
   for (const command of ["exit 1", "exit 2"]) {
     await expect(
       chat.locator('[data-testid="chat-tool-call"][data-tool-status="error"]')
@@ -270,9 +266,7 @@ test("@golden ChatView transcript remains correct across tool results, focus, an
     ).toHaveCount(1);
   }
 
-  // A completed shell command card lands collapsed and keeps its output out of
-  // the DOM (packages/chat-ui MessageBubble.expansion.test.tsx), so the merged
-  // tool result is only readable once its own disclosure is opened.
+  // Open the disclosure before reading a completed command's output because collapsed cards keep merged results out of the DOM.
   const resultCard = chat
     .locator('[data-testid="chat-tool-call"]')
     .filter({ hasText: "echo ok" })

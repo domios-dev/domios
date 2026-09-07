@@ -1,14 +1,4 @@
-// Run: npx tsx src/components/Terminal/TabSessionChat.origin-actions.test.tsx
-//
-// Correctness oracle for the FIX 1 origin-props cache. The per-message cache keys
-// entries on (targetTab:provider) and reuses the whole entry — including the
-// onOriginClick closure — while that key is unchanged. onOriginClick closes over
-// setFocusedTab, so if setFocusedTab's identity changes (new render of the mux
-// actions) while the tab/provider is the same, a naive cache hands back a closure
-// bound to the STALE setFocusedTab and the "Show Tab" action fires the wrong
-// handler. This test re-renders with a fresh setFocusedTab and asserts the click
-// routes to the CURRENT one. It is RED against the initial cache (07f0d793) and
-// GREEN once the cache is invalidated on setFocusedTab identity change.
+// The origin cache must invalidate when `setFocusedTab` changes, or a stale closure routes Show Tab to the wrong handler.
 
 import { act } from "react";
 import { Window } from "happy-dom";

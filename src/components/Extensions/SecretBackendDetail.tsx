@@ -59,9 +59,7 @@ export function SecretBackendDetail({
     }
   }, [base, headers]);
 
-  // Chains the next refresh off THIS one's completion instead of a fixed
-  // interval, so a backend slower than the delay self-throttles rather than
-  // queueing overlapping requests.
+  // Chains the next refresh off THIS one's completion instead of a fixed interval, so a backend slower than the delay self-throttles rather than queueing overlapping requests.
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;

@@ -27,9 +27,7 @@ fn is_open(status: &TaskStatus) -> bool {
     )
 }
 
-// A lane is "uncleaned" once its task is terminal but the worktree/branch was
-// never reclaimed. cleanup_status None on a terminal lane with a recorded
-// worktree/branch counts as debt.
+// Terminal lanes with unreclaimed worktrees count as cleanup debt.
 fn lane_uncleaned(task: &Task) -> bool {
     let has_artifacts = task.lane.worktree_path.is_some() || task.lane.branch.is_some();
     match task.lane.cleanup_status.as_deref() {

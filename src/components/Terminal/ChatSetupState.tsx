@@ -3,7 +3,8 @@ import { ProviderGlyph } from "../ProviderGlyph";
 import { DeferredLoader } from "../shared/DeferredLoader";
 import type { BootStage, Tab } from "../../lib/types";
 import { roleKindLabel } from "../../lib/roleKind";
-import type { TabBootOverlayView } from "./bootOverlay";
+import type { ChatBodyView } from "./chatBodyVisibility";
+import type { ChatUnavailableReason } from "./chatSessionAuthority";
 
 const STAGE_PROGRESS: Record<BootStage, number> = {
   pty_starting: 8,
@@ -62,7 +63,7 @@ function unreachableBootStage(stage: never): never {
 export function chatSetupView(
   tab: Tab | null | undefined,
   chatSessionAttached = false,
-): TabBootOverlayView {
+): ChatBodyView {
   if (chatSessionAttached) return { kind: "none" };
   const stage = tab?.boot_stage;
   if (stage === "spawn_failed") {
@@ -85,9 +86,14 @@ export function chatSetupView(
   return unreachableBootStage(stage);
 }
 
+const UNAVAILABLE_COPY: Record<ChatUnavailableReason, string> = {
+  no_transcript_source: "This agent has no readable chat transcript for the current session.",
+  authority_mismatch: "The chat transcript does not belong to this tab's current session.",
+};
+
 interface ChatSetupStateProps {
   tab: Tab | null | undefined;
-  view: TabBootOverlayView;
+  view: ChatBodyView;
   providerName: string;
   providerIconSvg?: string | null;
   providerIconColor?: string | null;
@@ -137,6 +143,23 @@ export function ChatSetupState({
     onEscape?.();
   }, [onEscape]);
 
+  if (view.kind === "failed") {
+    return (
+      <div
+        className="mx-auto w-full max-w-sm p-4 text-center"
+        data-testid="chat-transcript-unavailable"
+        role="status"
+        aria-label="Chat transcript unavailable"
+      >
+        <div className="text-sm font-semibold" style={{ color: "var(--ct-fg, #c9d1d9)" }}>
+          Chat transcript unavailable
+        </div>
+        <div className="mt-1 text-xs" style={{ color: "var(--ct-muted-fg, #8b949e)" }}>
+          {UNAVAILABLE_COPY[view.reason]}
+        </div>
+      </div>
+    );
+  }
   if (view.kind !== "starting") return null;
 
   const progress = tab?.boot_stage ? STAGE_PROGRESS[tab.boot_stage] : STAGE_PROGRESS.pty_starting;

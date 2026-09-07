@@ -65,9 +65,7 @@ pub(super) fn dispatch(
                 data: None,
             })?;
             let caller_tab = body.get("caller_tab_id").and_then(|v| v.as_str());
-            // Absent key means "not mentioned" and is kept; a present key sets the
-            // field, including to empty. A caller passing only --vector used to
-            // wipe the vision, constraints and postulates it never named.
+            // A caller passing only --vector used to wipe the vision, constraints and postulates it never named.
             let patch = GoalPatch {
                 vector: body
                     .get("vector")
@@ -88,9 +86,7 @@ pub(super) fn dispatch(
                         .map(|tab| svc.tab_has_pending_paired_planner(tab))
                         .unwrap_or(false) =>
                 {
-                    // A plan minted here has no goal to keep fields from, so the
-                    // vector is mandatory — refused BEFORE the plan is created,
-                    // never after, or the refusal leaves a plan behind.
+                    // A plan minted here has no goal to keep fields from, so the vector is mandatory — refused BEFORE the plan is created, never after, or the refusal leaves a plan behind.
                     if patch.vector.is_none() {
                         return Err(plan_rpc_err(PlanError::GoalVectorRequired));
                     }

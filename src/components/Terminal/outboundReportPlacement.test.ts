@@ -44,6 +44,14 @@ describe("outbound report placement", () => {
     expect(afterIndex.get(0)).toEqual([0, 1]);
   });
 
+  // The structural cause of issue 443: with nothing to place against, every
+  // stamped report trails, so the whole rail lands above the loading view.
+  it("against a zero-length message list every stamped report falls into trailing", () => {
+    const { afterIndex, trailing } = placeOutboundReports<{ at: number | null }>([], timeOf, [100, 200, 300]);
+    expect(afterIndex.size).toBe(0);
+    expect(trailing).toEqual([0, 1, 2]);
+  });
+
   it("ISO timestamps convert and unparseable ones read as no position", () => {
     expect(messageTimeMs("1970-01-01T00:00:01.000Z")).toBe(1000);
     expect(messageTimeMs(undefined)).toBe(null);

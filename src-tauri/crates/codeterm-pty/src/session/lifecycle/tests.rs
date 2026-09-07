@@ -273,10 +273,7 @@ fn assert_full_authority(tab: &Tab, session_id: &str) {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Unconditional restore: snapshot authority survives verbatim regardless of
-// journal state. The journal is telemetry; restore never consults it.
-// ---------------------------------------------------------------------------
+// The journal is telemetry; restore never consults it.
 
 #[test]
 fn restore_keeps_every_authority_field_with_no_journal_at_all() {
@@ -440,10 +437,6 @@ fn a_plain_shell_restores_as_a_plain_shell() {
     assert!(!tab.can_spawn);
     assert_eq!(tab.depth, 0);
 }
-
-// ---------------------------------------------------------------------------
-// Journal mechanics: the telemetry record itself stays trustworthy.
-// ---------------------------------------------------------------------------
 
 #[test]
 fn agent_type_write_provenance_does_not_change_committed_authority() {

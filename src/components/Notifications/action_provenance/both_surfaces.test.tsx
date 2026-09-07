@@ -1,8 +1,4 @@
-// Run: npx tsx src/components/Notifications/action_provenance/both_surfaces.test.tsx
-//
-// The bell panel and the toast read the same stored rows, so a fix in one of
-// them is a fix in neither. Both are driven from the one fixture here and their
-// transcripts are compared to each other, which is what stops them drifting.
+// The bell panel and the toast read the same stored rows, so a fix in one of them is a fix in neither.
 
 import {
   CALLER_SUPPLIED_INVOKE,

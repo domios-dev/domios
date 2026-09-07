@@ -215,9 +215,45 @@ fn render_tree_places_team_terminals_after_workers_with_creator_provenance() {
         "Team terminal must follow workers:\n{out}"
     );
     assert!(
-        out.contains("[terminal by Ada]"),
+        out.contains("\u{b7}terminal by Ada"),
         "creator provenance missing:\n{out}"
     );
+}
+
+/// One bracket rule across every row the tree renders: the bracket is the
+/// agent identity, role rides its own suffix, and liveness never reads as live
+/// unless it was observed.
+#[test]
+fn render_tree_brackets_the_agent_identity_and_never_the_role() {
+    let tabs = vec![
+        json!({"id":"orch","tab_title":"Ada","role":"Manager","role_profile":"orchestrator",
+               "agent_type":"claude","agent_session_model":"opus","agent_liveness":"live",
+               "workspace_name":"W","workspace_id":"w"}),
+        json!({"id":"gen","tab_title":"Main","role":"Manager","role_profile":"general_agent",
+               "agent_type":"claude","agent_session_model":"opus","agent_liveness":"live",
+               "workspace_name":"W","workspace_id":"w"}),
+        json!({"id":"gone","tab_title":"Ghost","role":"Worker",
+               "agent_type":"codex","agent_session_model":"gpt-5","agent_liveness":"absent",
+               "workspace_name":"W","workspace_id":"w"}),
+    ];
+    let out = render_tab_tree(&tabs);
+
+    assert!(
+        out.contains("[claude:opus]"),
+        "orchestrator bracket:\n{out}"
+    );
+    assert!(
+        out.contains("[codex:gpt-5!]"),
+        "a tab with no live agent is marked, not shown as running:\n{out}"
+    );
+    assert!(
+        !out.contains("[manager]") && !out.contains("[general_agent]") && !out.contains("[worker]"),
+        "role must not reach the bracket:\n{out}"
+    );
+    // The General Agent and the orchestrator render the same bracket; only the
+    // role suffix separates them.
+    assert!(out.contains("\u{b7}general_agent"), "role suffix:\n{out}");
+    assert!(out.contains("\u{b7}orchestrator"), "role suffix:\n{out}");
 }
 
 #[test]

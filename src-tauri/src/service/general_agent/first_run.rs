@@ -37,10 +37,7 @@ pub fn ensure_first_run_tab(mux: &mut crate::multiplexer::state::MultiplexerStat
         return;
     }
 
-    // A brand-new instance has no workspaces: the picker is the ONLY content, so
-    // the workspace hosting it must be protected — otherwise closing that sole
-    // tab/workspace leaves an empty CodeTerm (P1). When other workspaces already
-    // exist, closing the picker still leaves them, so no protection is needed.
+    // Protect the picker workspace only when it is the instance's sole content, because closing it otherwise leaves CodeTerm empty.
     let ws_id = if mux.list_workspaces().is_empty() {
         let id = mux.create_workspace("Welcome".to_string(), None).id;
         mux.set_workspace_protected(&id, true);
