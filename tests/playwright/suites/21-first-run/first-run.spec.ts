@@ -195,9 +195,7 @@ test.describe("first run", () => {
     });
     await expect(picker.locator('[data-testid="agent-provider-picker"]')).toBeVisible();
 
-    // No agent CLI on the machine swaps the card branch for the install fallback.
-    // That is a different surface with different assertions, so name it rather than
-    // letting an empty card sweep read as agreement.
+    // That is a different surface with different assertions, so name it rather than letting an empty card sweep read as agreement.
     await expect(
       picker.locator('[data-testid="agent-picker-install-fallback"]'),
       "this machine reports no installed agent CLI, so the first-run picker's card branch cannot be exercised here",
@@ -229,10 +227,6 @@ test.describe("first run", () => {
       "a resolved picker with an installed selection must be confirmable",
     ).toBeEnabled();
 
-    // NOT COVERED here, deliberately: clicking confirm calls
-    // complete_general_agent_first_run, which rewrites general_agent.agent_provider,
-    // general_agent.first_run_complete and agent.full_access in the SHARED instance's
-    // config and relaunches the General Agent. See tests/playwright/WEAK_ORACLES.md.
   });
 
   test("@golden FIRST RUN GATES NEW SESSION: backend first-run state disables New session until the tab is retired", async ({
@@ -266,10 +260,7 @@ test.describe("first run", () => {
       timeout: 15_000,
     });
 
-    // The product does not silently swallow the click — it DISABLES the control, so
-    // the refusal is one a user and a screen reader can both perceive. Its wording is
-    // owned by SidebarWorkspaceTabs.test.tsx; what only this layer can prove is the
-    // wiring — that a first-run tab in BACKEND state is what disables it.
+    // Disable the control when backend state is first-run so the refusal is perceivable without asserting wording.
     await expect(
       newSession,
       "New session must be refused while a first-run tab is outstanding",
@@ -331,9 +322,7 @@ test.describe("first run", () => {
   test("@golden GENERAL AGENT RESTART: a restart replaces the PTY and rebinds a live session on the same tab", async ({
     api,
   }) => {
-    // The General Agent runs the configured provider for real. Gated at runtime so
-    // golden keeps the test, and so a restart never burns provider credit: with
-    // CODETERM_STUB_AGENT_CMD absent these assertions are UNPROVEN, not passing.
+    // Gate these assertions at runtime so a restart does not burn provider credit when the stub command is absent.
     test.skip(!(await isStubTransportActive(api)), "dev daemon is not running with CODETERM_STUB_AGENT_CMD");
     test.setTimeout(180_000);
 

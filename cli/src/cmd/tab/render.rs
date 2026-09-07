@@ -18,16 +18,7 @@ pub fn format_tab_row(p: &serde_json::Value) -> String {
             title
         }
     };
-    let agent = p.get("agent_type").and_then(|v| v.as_str()).unwrap_or("-");
-    let model = p
-        .get("agent_session_model")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    let model_part = if model.is_empty() {
-        String::new()
-    } else {
-        format!("/{}", model)
-    };
+    let agent_label = super::labels::agent_label(p).unwrap_or_else(|| "-".to_string());
     let description = p.get("description").and_then(|v| v.as_str()).unwrap_or("");
     let description_part = format_description_suffix(description);
     let ws = p
@@ -40,8 +31,8 @@ pub fn format_tab_row(p: &serde_json::Value) -> String {
         format!("  ws={}", ws)
     };
     format!(
-        "{}  {}{} [{}{}]{}",
-        id, label, description_part, agent, model_part, ws_part
+        "{}  {}{} [{}]{}",
+        id, label, description_part, agent_label, ws_part
     )
 }
 
@@ -83,15 +74,9 @@ pub fn render_tab_tree_with_current(
             sfield(p, "title")
         }
         .to_string();
-        let model_raw = sfield(p, "agent_session_model");
-        let model = if !model_raw.is_empty() {
-            model_raw
-        } else {
-            sfield(p, "agent_type")
-        }
-        .to_string();
+        let model = super::labels::agent_label(p).unwrap_or_default();
         let description = sfield(p, "description").to_string();
-        let role = sfield(p, "role").to_ascii_lowercase();
+        let role = super::labels::role_label(p);
         let peer = sfield(p, "remote_peer").to_string();
         let team_id = sfield(p, "team_id").to_string();
         let creator_tab_id = sfield(p, "spawned_by_tab_id").to_string();
@@ -195,16 +180,23 @@ pub fn render_tab_tree_with_current(
             } else {
                 None
             };
+            // Role and peer are their own axes; the bracket is the agent
+            // identity and carries neither.
             let role_suffix = match (
                 utility_suffix.as_deref().unwrap_or(r.role.as_str()),
                 r.peer.as_str(),
             ) {
                 ("", "") => String::new(),
-                (role, "") => format!(" [{}]", role),
-                ("", peer) => format!(" [@{}]", peer),
-                (role, peer) => format!(" [{} @{}]", role, peer),
+                (role, "") => format!(" \u{b7}{}", role),
+                ("", peer) => format!(" @{}", peer),
+                (role, peer) => format!(" \u{b7}{} @{}", role, peer),
             };
-            if r.model.is_empty() {
+            let bracket = if r.model.is_empty() {
+                String::new()
+            } else {
+                format!("[{}]", r.model)
+            };
+            if bracket.is_empty() {
                 out.push_str(&format!(
                     "{}{} {}{}{}{}\n",
                     indent,
@@ -220,7 +212,7 @@ pub fn render_tab_tree_with_current(
                     indent,
                     r.id,
                     r.label,
-                    r.model,
+                    bracket,
                     format_description_suffix(&r.description),
                     role_suffix,
                     current_suffix,

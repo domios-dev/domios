@@ -19,9 +19,7 @@ type Props = {
   children: ReactNode;
 } & ButtonHTMLAttributes<HTMLButtonElement>;
 
-// The squash-jump lives on release: pointerdown gives the CSS :active squash,
-// pointerup arms the one-shot jump keyframe, cleared on animationend so it can
-// re-fire on the next press.
+// The squash-jump lives on release: pointerdown gives the CSS :active squash, pointerup arms the one-shot jump keyframe, cleared on animationend so it can re-fire on the next press.
 export function GlassButton({ variant = "primary", size = "md", children, className = "", ...rest }: Props) {
   const [releasing, setReleasing] = useState(false);
   const arm = useCallback(() => setReleasing(true), []);

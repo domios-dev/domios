@@ -267,6 +267,20 @@ gh workflow enable release-manifest-validate.yml
 gh workflow list --all --json name,path,state   # audit every workflow's enabled state
 ```
 
+That audit also surfaces registrations whose file is gone. GitHub keeps a workflow registration
+for as long as it has run history, so a deleted file leaves a row behind and there is no API that
+removes it — `disable` is the terminal state. Two such rows exist and neither has a file on
+`master`:
+
+```bash
+gh workflow disable provider-claude-tests.yml   # already disabled_manually
+gh workflow disable diag-libcxx-env.yml         # still active, no file, cannot run
+```
+
+`release-macos` is `disabled_manually` on purpose and stays that way: it is the hosted
+`workflow_dispatch` fallback lane, and enabling it would burn billing minutes on every release.
+Do not "fix" it during a state audit.
+
 The `workflow_dispatch` fallback above remains for re-checks and for validating a release that
 published before this gate existed. It is a fallback, not a step of the runbook: needing it means
 the gate above should have gone red.
@@ -395,6 +409,39 @@ gh release edit "v$VER" --repo rollacode/codeterm --draft=false --latest
 
 ## Issue closure contracts
 
+### Open the living PR body when the train starts, not when it ends
+
+The first act of a release train is `docs/release/<version>-pr.md`, created before the first lane is
+dispatched. It carries the plan id and goal, the slice-to-issue map, and empty "Fixed",
+"Investigated, not fixed", and "Deferred, with reasons" sections. Each slice appends its own block
+there **as its lane merges into `develop`**, with one `Repository-Issue:` metadata line per issue it
+actually fixed.
+
+This exists because the alternative has failed in practice: reconstructing the closing set from
+`git log` at release time is when issues get missed, and a fix that closed an issue nobody recorded
+leaves that issue open for the next train to rediscover. Writing the entry at merge time costs one
+paragraph while the work is still in the author's head.
+
+Rules the renderer enforces, so they are not optional:
+
+- Only a `Repository-Issue:` line counts. A bare `#123` anywhere in the body fails validation — put
+  issue numbers in backticks in prose, tables, and deferral notes.
+- An issue you investigated but did not fix gets `Refs` and a backticked number, never a closing
+  keyword. Declaring a fix you did not ship is worse than declaring nothing.
+- A deferred issue is named in the body with its reason. "Not in this release" is a decision and
+  belongs in the record; silently dropping it is not.
+
+Before opening the final `develop` → `master` PR, render the closing block rather than hand-writing
+it:
+
+```bash
+python3 scripts/release_issue_contract.py repository-closes --body-file docs/release/<version>-pr.md
+```
+
+Run it early and often — it is also the validator, and it fails the same way CI will.
+
+### The two-stage contract
+
 Source-repository issues use a separate two-stage contract. Integration PRs targeting
 non-default branches declare one exact line per fixed issue:
 
@@ -429,6 +476,26 @@ Already-closed issues are skipped, making reruns idempotent.
 
 The close step is downstream of build, private/public publication, and mirror verification.
 Queued, cancelled, skipped, failed, or mirror-unverified runs therefore execute no issue mutation.
+
+### The closure boundary names the run that minted it
+
+`issue-closure-boundary.json` marks the last release whose public mirror was verified, and
+`release_issue_contract.py range-start` reads it to decide where the next release's commit range
+begins. It used to be accepted on presence: v1.10.11 carries a boundary dated a day the validator
+did not run, so a range start was taken from a release nothing had verified.
+
+The minted asset therefore carries `validator_run_id`, `validator_repository` and
+`validator_run_url` — the validator run that produced it. Reading it back, the validator downloads
+each historical boundary, asks Actions for the run it names, and accepts the release only when
+that run is the release manifest validator, concluded `success`, and the boundary's `source_sha`
+is the release's own commit. A boundary with no run id, or one whose run Actions cannot confirm,
+is refused and `range-start` falls back to the previous release that can be confirmed. Refusing
+widens the commit range, which over-reports candidate issues; accepting an unverified boundary
+narrows it, which silently drops shipped work. Reading a run back from the Actions API needs
+`actions: read` on the job token.
+
+Boundaries minted before this gate carry no run id and are refused by design. Re-mint one by
+re-running the validator for that tag with the `workflow_dispatch` fallback above.
 
 Closure authority is evidence-bound, never role-bound. Owning the release is not grounds; the
 grounds are a passing published-manifest verification for **this** release, and the close cites
@@ -576,4 +643,4 @@ node scripts/sync-release-notes.mjs --backfill 10
 The command refuses missing mirror releases, empty generated notes, and bodies too short to be
 meaningful. It then writes the exact same Markdown to both repositories.
 
-<!-- revision: 39 -->
+<!-- revision: 40 -->

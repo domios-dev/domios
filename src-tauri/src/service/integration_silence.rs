@@ -7,6 +7,7 @@
 //! install and consent records the daemon already holds. It never infers the
 //! gap from an absence of sessions, which would need a window to decide in.
 
+use serde::{Deserialize, Serialize};
 use serde_json::Value as Json;
 
 use codeterm_types::notification::NotifyLevel;
@@ -37,6 +38,101 @@ pub struct IntegrationFacts {
     /// Where the provider says its integration lives.
     pub target: Option<String>,
     pub state: Option<IntegrationState>,
+    /// The provider's own hash of the integration content it is judging. Two
+    /// instances writing byte-identical content report the same value, so the
+    /// verdict cannot key on which of them wrote it.
+    pub content_hash: Option<String>,
+}
+
+/// The observed state one announcement covered, remembered across restarts.
+/// The in-memory condition latch cannot do this: it is rebuilt empty on every
+/// daemon start, so an unchanged hook re-announced on each one.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AnnouncedIntegrationState {
+    pub state: String,
+    #[serde(default)]
+    pub content_hash: Option<String>,
+}
+
+type AnnouncedMap = std::collections::HashMap<String, AnnouncedIntegrationState>;
+
+pub fn announced_path() -> std::path::PathBuf {
+    crate::paths::data_dir().join("integration-announced.json")
+}
+
+/// Authoritative in memory, durable on disk. Read-modify-write straight across
+/// the shared file is a lost update: two launches racing here truncated each
+/// other and left JSON that then read as "nothing was ever announced".
+fn announced() -> &'static parking_lot::Mutex<AnnouncedMap> {
+    static ANNOUNCED: std::sync::OnceLock<parking_lot::Mutex<AnnouncedMap>> =
+        std::sync::OnceLock::new();
+    ANNOUNCED.get_or_init(|| parking_lot::Mutex::new(load_announced()))
+}
+
+fn load_announced() -> AnnouncedMap {
+    let path = announced_path();
+    let Ok(raw) = std::fs::read_to_string(&path) else {
+        return AnnouncedMap::new();
+    };
+    match serde_json::from_str(&raw) {
+        Ok(map) => map,
+        // Unreadable is not "nothing was announced". Announcing a standing gap
+        // twice is recoverable; silently dropping it is the bug being fixed.
+        Err(error) => {
+            log::warn!(
+                "[integration-silence] {} is unreadable ({error}) - every standing gap announces once more",
+                path.display()
+            );
+            AnnouncedMap::new()
+        }
+    }
+}
+
+/// Renamed into place under the lock that owns the map, so neither a reader nor
+/// a crash can observe the half-written file this used to leave behind.
+fn persist_announced(all: &AnnouncedMap) {
+    let path = announced_path();
+    let Ok(json) = serde_json::to_string_pretty(all) else {
+        return;
+    };
+    let staged = path.with_extension("json.tmp");
+    if let Err(error) = std::fs::write(&staged, json).and_then(|()| std::fs::rename(&staged, &path))
+    {
+        log::warn!(
+            "[integration-silence] could not record announcement state at {}: {error}",
+            path.display()
+        );
+        let _ = std::fs::remove_file(&staged);
+    }
+}
+
+/// News only when the observed state differs from the one already announced.
+/// A restart that observes the same gap is the same news, not new news.
+pub fn is_news(provider_id: &str, observed: &AnnouncedIntegrationState) -> bool {
+    announced().lock().get(provider_id) != Some(observed)
+}
+
+pub fn record_announced(provider_id: &str, observed: &AnnouncedIntegrationState) {
+    let mut all = announced().lock();
+    all.insert(provider_id.to_string(), observed.clone());
+    persist_announced(&all);
+}
+
+/// The gap closed, so the next one is news again.
+pub fn clear_announced(provider_id: &str) {
+    let mut all = announced().lock();
+    if all.remove(provider_id).is_some() {
+        persist_announced(&all);
+    }
+}
+
+impl AnnouncedIntegrationState {
+    pub fn observed(state: IntegrationState, facts: &IntegrationFacts) -> Self {
+        Self {
+            state: state.as_str().to_string(),
+            content_hash: facts.content_hash.clone(),
+        }
+    }
 }
 
 pub const INTEGRATION_STATE_ABSENT: &str = "absent";
@@ -212,6 +308,17 @@ pub fn read_state(status: &Json, installed: Option<bool>) -> Option<IntegrationS
     }
 }
 
+/// The provider's own content hash, when it publishes one. Absent is honest:
+/// a provider that hashes nothing gets a state-only latch, never a guess.
+pub fn read_content_hash(status: &Json) -> Option<String> {
+    status
+        .get("hook_content_hash")
+        .and_then(Json::as_str)
+        .map(str::trim)
+        .filter(|hash| !hash.is_empty())
+        .map(str::to_string)
+}
+
 pub fn read_target(status: &Json) -> Option<String> {
     status
         .get("target")
@@ -244,6 +351,7 @@ pub fn read_provider_facts(
             installed,
             consent_recorded,
             target: read_target(&status),
+            content_hash: read_content_hash(&status),
         },
         display_name,
     ))
@@ -310,6 +418,7 @@ impl ServiceContext {
                 self.notif
                     .lock()
                     .observe_condition_absent(MACHINE_SCOPE, &condition);
+                clear_announced(provider_id);
             }
             LaunchVerdict::Unreadable => {
                 log::warn!(
@@ -317,6 +426,10 @@ impl ServiceContext {
                 );
             }
             LaunchVerdict::Silent(silence) => {
+                let observed = AnnouncedIntegrationState::observed(silence.state, &facts);
+                if !is_news(provider_id, &observed) {
+                    return;
+                }
                 // The guard is dropped before the notification path, which
                 // takes the same lock.
                 let transition = self
@@ -326,6 +439,7 @@ impl ServiceContext {
                 if transition != ConditionTransition::Announce {
                     return;
                 }
+                record_announced(provider_id, &observed);
                 self.create_notification_ext(
                     silence.title(&display_name),
                     Some(silence.body()),

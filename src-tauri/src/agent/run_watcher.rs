@@ -887,10 +887,7 @@ mod tests {
 
     #[test]
     fn codex_stop_hook_channel_loss_leaves_classifier_fallback_completion_intact() {
-        // DNC-12: the report path upgrades the signal, it never removes the
-        // safety net. A dead hook channel (no report) or a rejected foreign
-        // report leaves the run unclaimed, so the classifier-driven paths
-        // (semantic idle, idle backstop, scanner) still own completion.
+        // DNC-12: the report path upgrades the signal, it never removes the safety net.
         let (mux, tab_id) = mux_with_nonce(Some("nonce-a"));
         let registry = RunWatcherRegistry::new();
         let run = registry.insert_run_for_test("pty-a", &tab_id);

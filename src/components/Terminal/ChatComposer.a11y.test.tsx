@@ -1,9 +1,4 @@
-// Regression for ct#330: the composer must expose a visible keyboard-focus
-// style and an accessible name, and a field whose content is rejected must
-// announce that via aria-invalid.
-// ORACLE: DOM attributes and the shell's own className — never rendered CSS
-// (Tailwind is compiled at build time and is not present in this harness).
-// The harness import must stay first: react-dom freezes DOM detection at import.
+// Read DOM attributes and class names because this harness does not compile Tailwind CSS.
 import "./ChatComposer.composition.harness";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";

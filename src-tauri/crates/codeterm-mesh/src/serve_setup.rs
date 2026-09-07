@@ -379,9 +379,7 @@ fn check_https_health(url: Option<&str>, expected_build: Option<String>) -> Serv
         };
     };
     let health_url = format!("{}/api/health", base.trim_end_matches('/'));
-    // reqwest::blocking panics if driven from within a tokio runtime, and this
-    // path runs inside the async mesh loop (refresh_local_addresses); isolate it
-    // on a dedicated thread that owns no ambient runtime context.
+    // Run blocking reqwest work on a dedicated thread because the refresh path already runs inside Tokio.
     let fetch_url = health_url.clone();
     let fetched = std::thread::spawn(move || health_get_blocking(&fetch_url))
         .join()

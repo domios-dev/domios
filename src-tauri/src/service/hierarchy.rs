@@ -15,12 +15,17 @@ mod worker_handoff;
 pub(crate) use worker_handoff::WorkerTurnSignal;
 
 pub(crate) use planner_binding::clear_planner_bindings_for_lifecycle_exit;
-pub(crate) use report_plan_ctx::{resolve_plan_ctx, verify_planner_report_authority};
+pub(crate) use report_plan_ctx::{
+    classify_plan_only_report_authority, resolve_plan_ctx, PlanOnlyReportAuthority,
+};
 pub use status::TabStatusInfo;
 pub(crate) use team_plan_creation::{TeamPlanCaller, TeamPlanCreationError};
 
 use planner_delivery::{epoch_ms, planner_rehydrate_payload, planner_request_payload};
-use report_persistence::{persist_authorized_local_task_report, rejected_report_delivery_message};
+use report_persistence::{
+    persist_authorized_local_task_report, persist_plan_only_evidence,
+    rejected_report_delivery_message,
+};
 
 use super::{
     RejectedTaskTransition, ReportResult, ReportSubmissionError, ServiceContext, ServiceState,
@@ -415,19 +420,29 @@ impl ServiceContext {
             };
         let mut report_requirement = worker_handoff::claim_explicit_report(&self.gateway, tab_id);
 
-        // A plan-only claim (no task_id) is a Planner claim: hard-refused
-        // before any resolution, delivery, or persistence — codeterm#371.
-        if let (Some(claimed_plan), None) = (
+        let plan_only_authority = if let (Some(claimed_plan), None) = (
             plan_id.map(str::trim).filter(|id| !id.is_empty()),
             task_id.map(str::trim).filter(|id| !id.is_empty()),
         ) {
-            verify_planner_report_authority(
+            let authority = classify_plan_only_report_authority(
                 &self.plan_store,
                 &self.mux.read(),
                 claimed_plan,
                 tab_id,
+                &details,
             )?;
-        }
+            if matches!(authority, PlanOnlyReportAuthority::EvidenceReporter(_)) {
+                if details.status.is_some() {
+                    return Err("PLAN EVIDENCE AUTHORITY REFUSED: a task-less plan evidence report cannot carry --status or transition any task".to_string().into());
+                }
+                if !details.attachments.is_empty() {
+                    return Err("PLAN EVIDENCE AUTHORITY REFUSED: plan-level evidence attachments are not supported; include the durable evidence reference in the report body".to_string().into());
+                }
+            }
+            Some(authority)
+        } else {
+            None
+        };
 
         let mut notices: Vec<String> = Vec::new();
         let mut binding_refused = false;
@@ -495,12 +510,8 @@ impl ServiceContext {
             _ => None,
         };
 
-        // A refused binding is not authority over the destination either. The plan a
-        // stale hint names may be owned by a tab that no longer manages this
-        // reporter, so the owner override is withheld and the recipient falls
-        // through to `resolve_report_target`'s live parent -> report_target ->
-        // spawned_by chain — the same resolution an unhinted report already uses,
-        // and the reason a moved agent stops reporting to its old Orchestrator.
+        // A refused binding withholds the plan-owner override too — a stale hint's
+        // plan may be owned by a tab that no longer manages this reporter.
         let plan_owner_target = eff_plan_id
             .as_deref()
             .filter(|_| !binding_refused)
@@ -577,8 +588,22 @@ impl ServiceContext {
             }
         }
 
+        let persisted_plan_evidence = persist_plan_only_evidence(
+            self,
+            plan_only_authority,
+            tab_id,
+            eff_plan_id.as_deref(),
+            &from_ref,
+            message,
+            epoch_ms(),
+        )?;
+
         if let Some(ref plan_id) = eff_plan_id {
-            if !homed_to_remote && !foreign && rejected_task_transition.is_none() {
+            if !homed_to_remote
+                && !foreign
+                && rejected_task_transition.is_none()
+                && persisted_plan_evidence.is_none()
+            {
                 let persistence = eff_task_id
                     .as_deref()
                     .ok_or_else(|| {
@@ -686,11 +711,8 @@ impl ServiceContext {
                 let envelope =
                     crate::service::messenger::MessageEnvelope::report(&from_title, tab_id)
                         .model(model.clone());
-                // The target is a TUI that owns its screen: it reflows, collapses
-                // long input to a paste placeholder, and queues while busy. Echo
-                // scraping cannot decide delivery there, and its false negatives
-                // failed reports that had already landed. The report is stored and
-                // broadcast above; the write is the guarantee.
+                // Echo scraping can't decide delivery on a screen-owning TUI (it
+                // reflows/collapses input) — the store+broadcast above is the guarantee.
                 match self.gateway_deliver(
                     &target_id,
                     envelope,
@@ -723,6 +745,7 @@ impl ServiceContext {
             orchestrator_tab_id: storage_key,
             notices,
             persisted_task,
+            persisted_plan_evidence,
             rejected_task_transition,
         })
     }
@@ -1122,20 +1145,18 @@ pub fn resolve_report_target(
 
 /// Resolve a paired peer by instance name (case-insensitive) or instance id and
 /// build a signed transport client for it. Name first so the human-facing
-/// `--mesh Mac-Air` works; falls back to a raw instance id.
+/// `--mesh Mac-Air` works; falls back to a raw instance id. When several
+/// paired records share a name (a peer that re-minted its instance_id left a
+/// dead duplicate behind, codeterm#434), prefers the online record with the
+/// highest relay protocol version deterministically instead of whichever the
+/// hashmap iterates first.
 fn resolve_peer_client_by_name(
     mesh: &crate::mesh::manager::MeshManager,
     name: &str,
 ) -> Option<crate::mesh::transport::PeerClient> {
-    if mesh.paired_peers.contains_key(name) {
-        return mesh.client_for(name);
-    }
-    let id = mesh
-        .paired_peers
-        .iter()
-        .find(|(_, p)| p.instance_name.eq_ignore_ascii_case(name))
-        .map(|(id, _)| id.clone())?;
-    mesh.client_for(&id)
+    let peer =
+        crate::mesh::paired_resolve::resolve_paired_by_name(&mesh.paired_peers, name).ok()?;
+    mesh.client_for(&peer.instance_id)
 }
 
 /// Whether a dying leaf tab needs a synthetic death report, and to whom.

@@ -19,9 +19,7 @@ const closedStream = (...frames: Uint8Array[]): Response =>
 
 describe("remote output generation replacement", () => {
   it("resume does not supersede a connection awaiting its first frame", async () => {
-    // In-flight fetch, no frame delivered yet: no cursor, not parked. Mount /
-    // mesh-state-changed / credential churn must NOT restart it mid initial replay,
-    // which dropped the replay and blanked the terminal.
+    // Credential and mesh-state changes must not restart an initial replay before its first frame.
     vi.stubGlobal("fetch", vi.fn().mockReturnValue(new Promise(() => {})));
     const id = "mesh:peer/tab";
     const unsubscribe = subscribeTabOutput(id, { onOutput() {}, onTruncated() {}, onEnded() {} });

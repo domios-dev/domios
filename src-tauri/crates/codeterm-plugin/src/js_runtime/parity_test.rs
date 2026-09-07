@@ -98,12 +98,23 @@ fn discover_models_fixture() -> Vec<ModelInfo> {
             display_name: "Live A".into(),
             description: None,
             available: None,
+            availability: None,
         },
         ModelInfo {
             id: "live-b".into(),
             display_name: "Live B".into(),
             description: Some("second".into()),
             available: None,
+            availability: None,
+        },
+        // A probe that could not run is a capability answer of its own, so the
+        // native and JS paths must agree it is unknown, not unavailable.
+        ModelInfo {
+            id: "live-c".into(),
+            display_name: "Live C".into(),
+            description: None,
+            available: None,
+            availability: Some(crate::provider::ModelAvailability::Unknown),
         },
     ]
 }
@@ -285,12 +296,14 @@ fn model_capability_fixture() -> Vec<ModelInfo> {
             display_name: "Sentinel A".into(),
             description: Some("ready".into()),
             available: Some(true),
+            availability: None,
         },
         ModelInfo {
             id: "sentinel-b".into(),
             display_name: "Sentinel B".into(),
             description: Some("offline".into()),
             available: Some(false),
+            availability: None,
         },
     ]
 }
@@ -412,7 +425,8 @@ async fn discover_models_native_js_parity() {
                 discoverModels() {
                     return [
                         { id: 'live-a', displayName: 'Live A' },
-                        { id: 'live-b', displayName: 'Live B', description: 'second' }
+                        { id: 'live-b', displayName: 'Live B', description: 'second' },
+                        { id: 'live-c', displayName: 'Live C', availability: 'unknown' }
                     ];
                 }
             };
@@ -424,6 +438,18 @@ async fn discover_models_native_js_parity() {
         Some(discover_models_fixture())
     );
     assert_eq!(js.discover_models().await, native.discover_models().await);
+
+    let unknown = js
+        .discover_models()
+        .await
+        .and_then(|models| models.into_iter().find(|m| m.id == "live-c"))
+        .expect("unknown-verdict model crosses the JS boundary");
+    assert_eq!(unknown.available, None);
+    assert_eq!(
+        unknown.availability(),
+        crate::provider::ModelAvailability::Unknown,
+        "a could-not-run verdict must not arrive as unavailable"
+    );
 }
 
 #[test]
@@ -1128,6 +1154,7 @@ mod hook_event_roster;
 /// now matches the native control instead of overflowing the stack.
 mod no_native_fallback_recursion;
 
+mod availability;
 mod codex;
 mod context_owner;
 mod cursor;

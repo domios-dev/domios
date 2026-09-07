@@ -22,9 +22,6 @@ assert.equal(buckets.find((bucket) => bucket.key === "todo")?.count, 1);
 assert.equal(buckets.find((bucket) => bucket.key === "paused")?.count, 1);
 assert.equal(buckets.find((bucket) => bucket.key === "done")?.count, 1);
 
-// D12: the card aggregate (PlanStatusBreakdown's counts) folds paused into
-// todo — 1 pending + 2 paused reads 3 todo — while the detailed breakdown
-// on the same object still reports paused separately.
 const d12Plan: Plan = {
   ...FIXTURE_PLAN,
   tasks: [

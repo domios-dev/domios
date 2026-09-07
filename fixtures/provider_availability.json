@@ -1,0 +1,6 @@
+[
+  { "id": "fixture-available", "availability": "available" },
+  { "id": "fixture-unavailable", "availability": "unavailable" },
+  { "id": "fixture-unknown", "availability": "unknown" },
+  { "id": "fixture-legacy" }
+]

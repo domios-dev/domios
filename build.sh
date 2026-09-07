@@ -199,7 +199,7 @@ wait_for_dev_exit() {
 CMD="${1:-dev}"
 run_workspace_lib_tests() {
   local package
-  for package in codeterm codeterm-types codeterm-util codeterm-mesh codeterm-mem codeterm-plan codeterm-bridge codeterm-pty codeterm-plugin; do
+  for package in codeterm codeterm-types codeterm-util codeterm-mesh codeterm-mem codeterm-plan codeterm-bridge codeterm-pty codeterm-plugin codeterm-plugins; do
     scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p "$package" --lib
   done
 }
@@ -1550,7 +1550,7 @@ EOF
     run_workspace_lib_tests
     ;;
   test-one)
-    test_scope="${2:?test-one requires app, plan, pty, pty-fork, types, mem, mesh, plugin, or cli}"
+    test_scope="${2:?test-one requires app, plan, pty, pty-fork, types, mem, mesh, plugin, plugins, or cli}"
     test_filter="${3:?test-one requires a test name or filter}"
     case "$test_scope" in
       app)
@@ -1574,8 +1574,10 @@ EOF
       mem) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-mem/Cargo.toml -p codeterm-mem --lib "$test_filter" ;;
       mesh) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-mesh/Cargo.toml -p codeterm-mesh --lib "$test_filter" ;;
       plugin) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-plugin/Cargo.toml -p codeterm-plugin --lib "$test_filter" ;;
+      # Plural crate (channel/install/update), distinct from the singular confinement crate above.
+      plugins) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-plugins/Cargo.toml -p codeterm-plugins --lib "$test_filter" ;;
       cli) scripts/test-capped.sh --manifest-path cli/Cargo.toml "$test_filter" ;;
-      *) echo "Unknown test scope: $test_scope (expected app, plan, pty, pty-fork, types, mem, mesh, plugin, or cli)" >&2; exit 2 ;;
+      *) echo "Unknown test scope: $test_scope (expected app, plan, pty, pty-fork, types, mem, mesh, plugin, plugins, or cli)" >&2; exit 2 ;;
     esac
     ;;
   verify)

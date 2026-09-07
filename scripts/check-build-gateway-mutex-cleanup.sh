@@ -23,7 +23,10 @@ trap cleanup EXIT
 
 list_fixture_compilers() {
   if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
-    ps -eo pid=,ppid=,command= | awk -v marker="$MARKER" 'index($0, marker)'
+    # Snapshot first, filter second: awk's own argv carries the marker, so a piped ps
+    # would list the awk that is about to read it and the guard would match itself.
+    local snapshot; snapshot="$(ps -eo pid=,ppid=,command=)"
+    FIXTURE_MARKER="$MARKER" awk 'index($0, ENVIRON["FIXTURE_MARKER"])' <<< "$snapshot"
   else
     powershell.exe -NoProfile -Command \
       "\$marker='$MARKER'; Get-CimInstance Win32_Process | Where-Object { \$_.ProcessId -ne \$PID -and \$_.CommandLine -like \"*\$marker*\" } | Select-Object ProcessId,ParentProcessId,Name,CommandLine | Format-List" |
@@ -64,13 +67,18 @@ set -e
 cat "$TEST_ROOT/status-timeout.log"
 [ "$status_rc" -eq 75 ] || { echo "gateway-status exited $status_rc, expected 75" >&2; exit 1; }
 
+# A symlink, not a copy, on Unix: Homebrew node is dylib-linked via @rpath, and a
+# copied binary loses its ../lib. Windows node.exe is self-contained, so copy.
+place_fake_compiler() {
+  if [[ "$1" == *.exe ]]; then cp "$1" "$2.exe"; else ln -s "$1" "$2"; fi
+}
 node_path="$(command -v node)"
 cargo_bin="$TEST_ROOT/cargo"
 [[ "$node_path" != *.exe ]] || cargo_bin="$cargo_bin.exe"
-cp "$node_path" "$cargo_bin"
+place_fake_compiler "$node_path" "$TEST_ROOT/cargo"
 rustc_bin="$TEST_ROOT/rustc"
 [[ "$node_path" != *.exe ]] || rustc_bin="$rustc_bin.exe"
-cp "$node_path" "$rustc_bin"
+place_fake_compiler "$node_path" "$TEST_ROOT/rustc"
 
 set +e
 CODETERM_BUILD_GATEWAY_FIXTURE_DIR="$STATE" \
@@ -87,7 +95,8 @@ bash -c '
   read -r ready <&"${CARGO_CHILD[0]}"
   echo "descendants before mutex timeout:"
   if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
-    ps -eo pid=,ppid=,command= | awk -v marker="$TEST_CARGO_MARKER" "index(\$0, marker)"
+    snapshot="$(ps -eo pid=,ppid=,command=)"
+    awk "index(\$0, ENVIRON[\"TEST_CARGO_MARKER\"])" <<< "$snapshot"
   else
     powershell.exe -NoProfile -Command \
       "\$marker=\"$TEST_CARGO_MARKER\"; Get-CimInstance Win32_Process | Where-Object { \$_.ProcessId -ne \$PID -and \$_.CommandLine -like \"*\$marker*\" } | Select-Object ProcessId,ParentProcessId,Name,CommandLine | Format-List" |

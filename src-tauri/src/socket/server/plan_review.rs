@@ -5,7 +5,7 @@ use tauri::AppHandle;
 
 #[cfg(test)]
 use crate::plan::Plan;
-use crate::plan::{AgentRef, ReviewCapacityClass};
+use crate::plan::{AgentRef, PlanEvidenceClass, ReviewCapacityClass};
 use crate::service::plan::PlanError;
 use crate::service::{ServiceContext, ServiceState};
 
@@ -166,6 +166,30 @@ pub(super) fn dispatch(
             let result = store
                 .grant_review_capacity(&plan_id, &task_id, class, from, now)
                 .map_err(plan_rpc_err)?;
+            emit_plan_changed(app, &plan_id);
+            serde_json::to_value(result).map_err(|error| JsonRpcError {
+                code: -32603,
+                message: error.to_string(),
+                data: None,
+            })
+        }
+        "plan.review.authorize-reporter" => {
+            let plan_id = super::plan_refs::resolve_plan(store, params)?;
+            let class = serde_json::from_value::<PlanEvidenceClass>(json!(str_field(p, "class")))
+                .map_err(|_| JsonRpcError {
+                code: -32602,
+                message: "class must be review or canonical_qa".into(),
+                data: None,
+            })?;
+            let result = svc
+                .grant_plan_evidence_reporter(
+                    &plan_id,
+                    str_field(p, "reporter_tab_id"),
+                    class,
+                    &structural_caller(p),
+                    now,
+                )
+                .map_err(|message| unauthorized(&message))?;
             emit_plan_changed(app, &plan_id);
             serde_json::to_value(result).map_err(|error| JsonRpcError {
                 code: -32603,

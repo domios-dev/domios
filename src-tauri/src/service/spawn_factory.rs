@@ -120,10 +120,7 @@ mod tests {
         Counterpart::new("Planner", "Euler", "planner-tab-2222")
     }
 
-    // Byron regression: a formed pairing must yield BOTH directions, and each
-    // body must name the counterpart's tab id AND the reach command. The
-    // pre-factory shape delivered only a one-directional display greeting that
-    // named the counterpart by label with no tab id — the duplicate-spawn bug.
+    // A formed pairing must produce both directions with counterpart tab ids and reach commands, or the duplicate-spawn bug returns.
     #[test]
     fn pair_introductions_name_both_counterpart_tab_ids_and_reach_commands() {
         let (o, p) = (orch(), planner());

@@ -1,55 +1,45 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import type { ProviderDescriptor } from "../../lib/types";
-import { providerRequiresCli } from "./preselectProvider";
 
 export type ProviderAvailabilityState = "idle" | "checking" | "ready" | "error";
 
-export async function probeProviderAvailability(
+/**
+ * Re-check drops each declared binary's memoized resolution, then re-reads the
+ * descriptors so the picker shows the same field the API serves and the CLI
+ * renders. The picker never probes binaries itself.
+ */
+export async function recheckProviderDescriptors(
   providers: ProviderDescriptor[],
-): Promise<Record<string, boolean>> {
+): Promise<ProviderDescriptor[]> {
   const binaries = [
-    ...new Set(
-      providers
-        .map((p) => p.cli_binary)
-        .filter((b): b is string => Boolean(b)),
-    ),
+    ...new Set(providers.map((p) => p.cli_binary).filter((b): b is string => Boolean(b))),
   ];
-  const entries = await Promise.all(
-    binaries.map(async (binary) => {
-      try {
-        const installed = await invoke<boolean>("check_cli_installed", { binary });
-        return [binary, installed] as const;
-      } catch {
-        return [binary, false] as const;
-      }
-    }),
+  await Promise.all(
+    binaries.map((binary) =>
+      invoke<boolean>("check_cli_installed", { binary }).catch(() => false),
+    ),
   );
-  return Object.fromEntries(entries);
+  const refreshed = await invoke<unknown>("list_agent_providers");
+  return Array.isArray(refreshed) ? (refreshed as ProviderDescriptor[]) : providers;
 }
 
 export function useProviderAvailability(providers: ProviderDescriptor[]) {
-  const [installedByBinary, setInstalledByBinary] = useState<Record<string, boolean>>({});
-  const [state, setState] = useState<ProviderAvailabilityState>("idle");
+  const [observed, setObserved] = useState<ProviderDescriptor[]>(providers);
+  const [state, setState] = useState<ProviderAvailabilityState>("ready");
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    setObserved(providers);
+  }, [providers]);
+
   const refresh = useCallback(async () => {
-    if (providers.length === 0) {
-      setInstalledByBinary({});
-      setState("ready");
-      return;
-    }
-    const needsProbe = providers.some(providerRequiresCli);
-    if (!needsProbe) {
-      setInstalledByBinary({});
-      setState("ready");
-      return;
-    }
     setState("checking");
     setError(null);
     try {
-      const next = await probeProviderAvailability(providers);
-      setInstalledByBinary(next);
+      const ids = new Set(providers.map((p) => p.id));
+      const refreshed = await recheckProviderDescriptors(providers);
+      setObserved(refreshed.filter((p) => ids.has(p.id)));
       setState("ready");
     } catch (e) {
       setState("error");
@@ -57,9 +47,5 @@ export function useProviderAvailability(providers: ProviderDescriptor[]) {
     }
   }, [providers]);
 
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
-
-  return { installedByBinary, state, error, refresh };
+  return { observed, state, error, refresh };
 }

@@ -10,6 +10,42 @@ fn spawn_body_minimal() {
 fn spawn_body_empty_object() {
     let body: SpawnAgentBody = serde_json::from_str("{}").unwrap();
     assert_eq!(body.agent, None);
+    assert!(!body.require_delivery_ack);
+}
+
+#[test]
+fn configure_spawn_can_require_delivery_ack_without_naming_a_provider() {
+    let body: SpawnAgentBody =
+        serde_json::from_str(r#"{"task":"opaque-configure-token","require_delivery_ack":true}"#)
+            .unwrap();
+    assert!(body.require_delivery_ack);
+    assert_eq!(body.agent, None);
+    assert_eq!(body.task.as_deref(), Some("opaque-configure-token"));
+}
+
+#[test]
+fn configure_spawn_delivery_ack_round_trips_exact_failure() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .unwrap();
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    tx.send(Err("opaque delivery failure 91c2".into())).unwrap();
+    assert_eq!(
+        runtime.block_on(await_spawn_delivery(rx)),
+        Err("opaque delivery failure 91c2".into())
+    );
+}
+
+#[test]
+fn configure_spawn_refuses_a_pending_delivery_after_launch_ack() {
+    assert_eq!(require_no_pending_delivery(None), Ok(()));
+    assert_eq!(
+        require_no_pending_delivery(Some("Unconfirmed".into())),
+        Err(
+            "agent launch ended without confirmed task delivery; pending state: Unconfirmed".into()
+        )
+    );
 }
 
 #[test]
@@ -92,6 +128,7 @@ impl crate::chatbackend::ChatBackendProvider for ListingShell {
             display_name: "Qwen".into(),
             description: None,
             available: None,
+            availability: None,
         }])
     }
 
@@ -191,5 +228,163 @@ fn provider_listing_hides_non_spawnable_chatbackends() {
             .iter()
             .any(|p| p.get("id").and_then(|v| v.as_str()) == Some("npc")),
         "non-spawnable backend must NOT be listed"
+    );
+}
+
+/// A PTY agent whose declared launch binary is whatever the fixture says, so
+/// enumeration can be asked about a machine that has it and one that does not.
+struct BinaryProvider {
+    id: &'static str,
+    binary_name: &'static str,
+    cli_binary: Option<&'static str>,
+}
+
+impl crate::agent::provider::AgentProvider for BinaryProvider {
+    fn id(&self) -> &str {
+        self.id
+    }
+
+    fn display_name(&self) -> &str {
+        self.id
+    }
+
+    fn binary_name(&self) -> &str {
+        self.binary_name
+    }
+
+    fn build_launch_command(&self, _: &crate::agent::provider::AgentLaunchParams) -> String {
+        self.id.into()
+    }
+
+    fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
+        None
+    }
+
+    fn readiness_strategy(&self) -> crate::agent::provider::ReadinessStrategy {
+        crate::agent::provider::ReadinessStrategy::FixedDelay {
+            duration: std::time::Duration::ZERO,
+        }
+    }
+
+    fn task_delivery(&self) -> crate::agent::provider::TaskDelivery {
+        crate::agent::provider::TaskDelivery::PtyInput
+    }
+
+    fn detect_from_title(&self, _: &str) -> bool {
+        false
+    }
+
+    fn detect_from_output(&self, _: &str) -> bool {
+        false
+    }
+
+    fn session_file_path(&self, _: &str, _: &str) -> Option<std::path::PathBuf> {
+        None
+    }
+
+    fn detect_session_id(
+        &self,
+        _: &str,
+        _: &[String],
+        _: Option<std::time::Duration>,
+    ) -> Option<String> {
+        None
+    }
+
+    fn cli_binary(&self) -> Option<&str> {
+        self.cli_binary
+    }
+}
+
+fn facade_with_agent(provider: BinaryProvider) -> crate::provider::ProviderRegistry {
+    let agents = std::sync::Arc::new(crate::agent::registry::AgentRegistry::new());
+    agents.register_provider(Box::new(provider));
+    let backends = std::sync::Arc::new(crate::chatbackend::ChatBackendRegistry::new());
+    crate::provider::ProviderRegistry::new(agents, backends)
+}
+
+fn listed(listing: &[serde_json::Value], id: &str) -> serde_json::Value {
+    listing
+        .iter()
+        .find(|p| p.get("id").and_then(|v| v.as_str()) == Some(id))
+        .unwrap_or_else(|| panic!("provider {id} is listed"))
+        .clone()
+}
+
+/// Registration says a provider exists; only a probe says it can run here. The
+/// row must carry what was observed, not what was registered.
+#[test]
+fn provider_listing_states_what_it_observed_about_the_launch_binary() {
+    let registry = facade_with_agent(BinaryProvider {
+        id: "listing-missing-cli",
+        binary_name: "codeterm-definitely-missing-provider-cli",
+        cli_binary: Some("codeterm-definitely-missing-provider-cli"),
+    });
+    let listing = super::list_agent_provider_values(&registry);
+
+    assert_eq!(
+        listed(&listing, "listing-missing-cli")["availability"],
+        serde_json::json!("unavailable")
+    );
+}
+
+/// Enumeration observes the launch hook even when install metadata is absent.
+#[test]
+fn provider_listing_uses_binary_name_not_optional_install_metadata() {
+    let registry = facade_with_agent(BinaryProvider {
+        id: "listing-without-install-metadata",
+        binary_name: "codeterm-definitely-missing-provider-hook",
+        cli_binary: None,
+    });
+    let listing = super::list_agent_provider_values(&registry);
+
+    assert_eq!(
+        listed(&listing, "listing-without-install-metadata")["availability"],
+        serde_json::json!("unavailable")
+    );
+}
+
+/// The wire carries all three states. A reader that only ever sees two would
+/// have to invent one, which is the collapse this slice removes.
+#[test]
+fn unknown_is_a_wire_state_of_its_own_not_a_synonym_for_unavailable() {
+    let mut descriptor = super::list_agent_provider_values(&facade_with_agent(BinaryProvider {
+        id: "listing-unknown",
+        binary_name: "codeterm-definitely-missing-provider-cli",
+        cli_binary: Some("codeterm-definitely-missing-provider-cli"),
+    }))
+    .remove(0);
+    descriptor["availability"] = serde_json::json!("unknown");
+
+    let parsed: crate::agent::provider::ProviderDescriptor =
+        serde_json::from_value(descriptor).unwrap();
+    assert_eq!(
+        parsed.availability,
+        crate::agent::provider::ProviderAvailability::Unknown
+    );
+    assert_ne!(
+        parsed.availability,
+        crate::agent::provider::ProviderAvailability::Unavailable
+    );
+}
+
+/// Enumeration must answer with the SHARED resolver. A private ladder would
+/// drift from it exactly on the machines where the two disagree.
+#[test]
+fn enumeration_agrees_with_the_shared_resolver() {
+    const BINARY: &str = "codeterm-definitely-missing-provider-cli";
+    let registry = facade_with_agent(BinaryProvider {
+        id: "listing-shared-resolver",
+        binary_name: BINARY,
+        cli_binary: Some(BINARY),
+    });
+
+    let listed = registry.describe_all().remove(0).availability;
+    let shared = crate::agent::provider::ProviderAvailability::from_resolution(
+        &codeterm_plugin::js_runtime::probe_bin(BINARY).resolution,
+    );
+    assert_eq!(
+        listed, shared,
+        "the row must be the shared resolver's verdict, not a second ladder's"
     );
 }

@@ -1,4 +1,5 @@
 use super::*;
+use crate::service::spawn_cli::{clearance_for, LaunchClearance, ProviderPreflightError};
 use crate::service::{ServiceContext, SpawnAgentParams};
 use std::path::PathBuf;
 use std::time::Duration;
@@ -253,6 +254,7 @@ impl ModelProvider {
                     display_name: (*id).into(),
                     description: None,
                     available: None,
+                    availability: None,
                 })
                 .collect(),
             default_model: model_ids.first().map(|id| (*id).to_string()),
@@ -275,6 +277,10 @@ impl crate::agent::provider::AgentProvider for ModelProvider {
 
     fn display_name(&self) -> &str {
         self.id
+    }
+
+    fn binary_name(&self) -> &str {
+        self.cli_binary.unwrap_or(self.id)
     }
 
     fn build_launch_command(&self, _: &crate::agent::provider::AgentLaunchParams) -> String {
@@ -399,37 +405,85 @@ fn validate_agent_model_passes_through_non_enumerable_provider() {
 }
 
 #[test]
-fn provider_cli_availability_passes_without_cli_dependency() {
-    let registry = registry_with(ModelProvider::new("embedded-provider", &[]));
+fn provider_cli_availability_rejects_invalid_binary_name() {
+    let registry =
+        registry_with(ModelProvider::new("bad-cli", &[]).with_cli("bad cli", "install bad-cli"));
 
-    assert_eq!(
-        provider_cli_install_warning(&registry, "embedded-provider").unwrap(),
-        None
-    );
+    let err = provider_launch_preflight(&registry, "bad-cli").unwrap_err();
+    assert_eq!(err.code(), "invalid_provider_binary");
 }
 
+/// The defect this replaces: an unresolvable provider produced a live tab whose
+/// only output was a shell not-recognized line. Assert BOTH halves — the typed
+/// error, and that driving the real prologue left no tab behind.
 #[test]
-fn provider_cli_availability_warns_on_missing_binary_with_install_hint() {
+fn unresolvable_launch_binary_is_refused_before_a_tab_exists() {
+    let (mut mux, _root) = crate::multiplexer::state::MultiplexerState::new();
+    let workspace_id = mux.list_workspaces()[0].id.clone();
+    let before = mux.snapshot().tabs.len();
     let registry = registry_with(ModelProvider::new("missing-cli", &[]).with_cli(
         "codeterm-definitely-missing-provider-cli",
         "install missing-cli",
     ));
 
-    let warning = provider_cli_install_warning(&registry, "missing-cli")
-        .unwrap()
-        .unwrap();
-    assert!(warning.contains("Provider not installed"));
-    assert!(warning.contains("codeterm-definitely-missing-provider-cli"));
-    assert!(warning.contains("install missing-cli"));
+    let refused = provider_launch_preflight(&registry, "missing-cli")
+        .map(|clearance| create_cleared_agent_tab(&mut mux, &workspace_id, &clearance));
+
+    let err = refused.expect_err("an unresolvable binary must not launch");
+    assert_eq!(err.code(), "provider_binary_unavailable");
+    let rendered = err.to_string();
+    assert!(
+        rendered.contains("codeterm-definitely-missing-provider-cli"),
+        "the error must name the binary: {rendered}"
+    );
+    assert!(
+        rendered.contains("Searched: [") && rendered.contains("install missing-cli"),
+        "the error must name the search and the install hint: {rendered}"
+    );
+    assert_eq!(
+        mux.snapshot().tabs.len(),
+        before,
+        "a refusal that still leaves a tab has moved the defect, not removed it"
+    );
 }
 
+/// An unanswered probe is not a veto. The choice is pinned here so it cannot
+/// drift into either silent-available or refuse-on-unknown by accident.
 #[test]
-fn provider_cli_availability_rejects_invalid_binary_name() {
-    let registry =
-        registry_with(ModelProvider::new("bad-cli", &[]).with_cli("bad cli", "install bad-cli"));
+fn unknown_availability_launches_with_a_warning_that_says_so() {
+    let observed = clearance_for_test(crate::agent::provider::ProviderAvailability::Unknown);
+    let clearance = observed.expect("unknown must not refuse the launch");
+    let warning = clearance
+        .warning
+        .expect("an unknown verdict must be reported, never silently treated as available");
+    assert!(warning.contains("unknown"), "{warning}");
 
-    let err = provider_cli_install_warning(&registry, "bad-cli").unwrap_err();
-    assert!(err.contains("invalid CLI binary"));
+    let available = clearance_for_test(crate::agent::provider::ProviderAvailability::Available)
+        .expect("available launches");
+    assert_eq!(available.warning, None);
+
+    assert!(
+        clearance_for_test(crate::agent::provider::ProviderAvailability::Unavailable).is_err(),
+        "only the observed negative refuses"
+    );
+}
+
+/// Drives the same decision the preflight uses, with the observation injected
+/// so the three-valued contract is testable without a missing binary.
+fn clearance_for_test(
+    availability: crate::agent::provider::ProviderAvailability,
+) -> Result<LaunchClearance, ProviderPreflightError> {
+    clearance_for(
+        "fixture",
+        "Fixture Provider",
+        "fixture-cli",
+        crate::agent::provider::LaunchBinaryObservation {
+            availability,
+            binary: Some("fixture-cli".into()),
+            searched: vec![std::path::PathBuf::from("/fixture/bin")],
+        },
+        Some("install fixture".into()),
+    )
 }
 
 #[test]
@@ -473,6 +527,7 @@ fn fresh_agent_model_canonicalizes_display_name() {
             display_name: "GPT-5.5".into(),
             description: None,
             available: None,
+            availability: None,
         }],
         default_model: Some("gpt-5.5".into()),
         cli_binary: None,
@@ -551,6 +606,7 @@ fn background_model_ignores_a_model_from_another_provider() {
                 display_name: "Model A".into(),
                 description: None,
                 available: Some(true),
+                availability: None,
             }],
             default: Some("model-a".into()),
         },
@@ -583,6 +639,7 @@ fn background_model_resolves_correctly_for_every_installed_provider() {
             display_name: id.into(),
             description: None,
             available: Some(true),
+            availability: None,
         }
     }
 
@@ -638,9 +695,8 @@ fn background_model_resolves_correctly_for_every_installed_provider() {
         assert!(!fell_back);
     }
 
-    // Cross-provider: codex's model id must not resolve against cursor's
-    // catalog (and vice versa) — proves no provider-id branching papers over
-    // an actual catalog mismatch.
+    // Codex's model id must not resolve against cursor's catalog: proves no
+    // provider-id branching papers over an actual catalog mismatch.
     let (resolved, fell_back) =
         CatalogBackgroundModelPort.resolve("cursor-provider-test", "gpt-5.5");
     assert_eq!(resolved, "");

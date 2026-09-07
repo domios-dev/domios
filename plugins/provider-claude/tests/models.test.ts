@@ -76,10 +76,8 @@ const baseHost = (over: Record<string, unknown>) => ({
 console.log("\n--- discoverModels: shipped manifest has no static veto over the gate ---\n");
 
 {
-  // The manifest bundled with this build must not hardcode any model as
-  // unavailable — that's exactly the regression class this file guards
-  // against. A future model may legitimately gate on CLI version (via
-  // MINIMUM_CLI_BY_MODEL), but that gate must be the only mechanism.
+  // A hardcoded manifest `available` is a static veto over a dynamic gate,
+  // which is the regression this file guards: MINIMUM_CLI_BY_MODEL decides.
   assert(
     !manifestSeed.models.some((m) => m.available === false),
     "shipped plugin.json does not hardcode any model unavailable",
@@ -110,7 +108,7 @@ console.log("\n--- discoverModels: genuine discovery only ---\n");
       { id: "opus", displayName: "Claude Opus 5", description: "Best for everyday, complex tasks.", available: true },
       { id: "sonnet", displayName: "Claude Sonnet 5", description: "Efficient for routine tasks.", available: true },
       { id: "haiku", displayName: "Claude Haiku 4.5", description: "Fastest for quick answers.", available: true },
-      { id: "fable", displayName: "Claude Fable 5.1", description: "Most capable for your hardest and longest-running tasks.", available: true },
+      { id: "fable", displayName: "Claude Fable 5.1", description: "Most capable for your hardest and longest-running tasks.", available: true, availability: "available" },
     ],
     "genuine /v1/models discovery maps concrete ids onto the same stable aliases with live availability",
   );
@@ -153,6 +151,8 @@ console.log("\n--- discoverModels: genuine discovery only ---\n");
   eq(models.find((model) => model.id === "fable")?.available, true, "installed CLI with fable support advertises it without requiring an API-key probe");
 }
 
+// A dead network says nothing about the installed CLI, and this fixture's probe
+// cannot run either, so the honest answer is unknown, never the greying-out no.
 for (const [label, fetchImpl] of [
   ["fetch failure", () => { throw new Error("offline"); }],
   ["non-200 response", () => JSON.stringify({ status: 503, body: "overloaded" })],
@@ -163,16 +163,49 @@ for (const [label, fetchImpl] of [
     envGet: (name: string) => name === "CLAUDE_API_KEY" ? "test-key" : null,
     fetch: fetchImpl,
   }));
-  const models = p.discoverModels() as Array<{ id: string; available?: boolean }>;
-  eq(models.find((model) => model.id === "fable")?.available, false, `discoverModels fails closed on ${label}`);
+  const models = p.discoverModels() as Array<{ id: string; available?: boolean; availability?: string }>;
+  const fable = models.find((model) => model.id === "fable");
+  eq(fable?.availability, "unknown", `an unreachable CLI probe reports unknown on ${label}`);
+  eq(fable?.available, undefined, `an unreachable CLI probe publishes no boolean on ${label}`);
+  eq("available" in (fable as object), false, `the unknown verdict carries no available key on ${label}`);
+}
+
+console.log("\n--- discoverModels: could-not-run is not answered-no ---\n");
+
+for (const [label, execImpl] of [
+  ["exec throws", () => { throw new Error("spawn claude: not found"); }],
+  ["exec reports a non-zero exit", () => JSON.stringify({ code: 1, stdout: "" })],
+  ["exec output carries no version", () => JSON.stringify({ code: 0, stdout: "claude" })],
+  ["exec returns junk", () => "not json"],
+] as Array<[string, () => string]>) {
+  const p = loadClaudeWithHost(baseHost({
+    exec: execImpl,
+    fetch: () => { throw new Error("network must not be touched without credentials"); },
+  }));
+  const models = p.discoverModels() as Array<{ id: string; available?: boolean; availability?: string }>;
+  const fable = models.find((model) => model.id === "fable");
+  eq(fable?.availability, "unknown", `${label} yields unknown, not unavailable`);
+  eq(fable?.available, undefined, `${label} publishes no availability boolean`);
+}
+
+{
+  // The other half of the same rule: a CLI that genuinely answered no is still
+  // a definite negative, so unknown does not swallow real unavailability.
+  const p = loadClaudeWithHost(baseHost({
+    exec: () => JSON.stringify({ code: 0, stdout: "2.1.71 (Claude Code)" }),
+    fetch: () => { throw new Error("network must not be touched without credentials"); },
+  }));
+  const models = p.discoverModels() as Array<{ id: string; available?: boolean; availability?: string }>;
+  const fable = models.find((model) => model.id === "fable");
+  eq(fable?.availability, "unavailable", "a CLI below the gate answered no");
+  eq(fable?.available, false, "a genuine negative still publishes the boolean");
 }
 
 console.log("\n--- discoverModels: manifest flag and version gate are independent ---\n");
 
 {
-  // A stale/regressed `"available": false` in the manifest must not be able to
-  // mask a satisfied version gate. This is the exact bug: plugin.json hardcoded
-  // fable unavailable while the CLI gate itself was already satisfied.
+  // plugin.json once hardcoded fable unavailable while the CLI gate was already
+  // satisfied, so a manifest veto must not mask a satisfied version gate.
   const staleManifest = {
     models: [
       { id: "fable", displayName: "Claude Fable", description: "desc", available: false },

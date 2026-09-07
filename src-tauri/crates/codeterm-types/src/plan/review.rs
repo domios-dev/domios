@@ -52,6 +52,23 @@ pub enum ReviewCapacityClass {
     CanonicalGate,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PlanEvidenceClass {
+    Review,
+    CanonicalQa,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PlanEvidenceReporterGrant {
+    pub tab_id: String,
+    pub session_id: String,
+    pub session_binding_digest: String,
+    pub class: PlanEvidenceClass,
+    pub granted_by: AgentRef,
+    pub granted_at: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ReviewCapacityGrant {
     pub task_id: String,

@@ -3,8 +3,10 @@ use std::collections::BTreeMap;
 
 pub(super) const SYSTEM_CHANNEL_NAME: &str = "codeterm-core";
 pub(super) const DEFAULT_PLUGIN_CHANNEL_NAME: &str = "codeterm-plugins";
+// master carries only released code; develop is unreleased, and installing from
+// it stamped System trust on it. Opt in via CODETERM_SYSTEM_PLUGIN_CHANNEL_URL.
 pub(super) const DEFAULT_SYSTEM_CHANNEL_URL: &str =
-    "https://github.com/rollacode/codeterm.git#develop:plugins";
+    "https://github.com/rollacode/codeterm.git#master:plugins";
 pub(super) const DEFAULT_PLUGIN_CHANNEL_URL: &str =
     "https://github.com/rollacode/codeterm-plugins.git";
 pub(super) const SYSTEM_PLUGIN_IDS: [&str; 3] = ["claude", "codex", "opencode"];

@@ -302,6 +302,7 @@ impl ChatBackendProvider for JsChatBackend {
                 id: m.id,
                 description: m.description,
                 available: m.available,
+                availability: None,
             })
             .collect())
     }

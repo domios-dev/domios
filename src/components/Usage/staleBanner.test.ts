@@ -12,9 +12,7 @@ import type { UsageSnapshot } from "../../types/usage";
 const row = (failure_reason: string | null): UsageSnapshot =>
   ({ failure_reason, parsed_ok: true, provider: "codex" } as unknown as UsageSnapshot);
 
-// A provider that loses a capability used to show a frozen gauge and a banner
-// that said nothing but "may be outdated". The cause code is what makes that
-// state observable; it is asserted by constant so wording stays free to change.
+// The cause code is what makes that state observable; it is asserted by constant so wording stays free to change.
 test("a capability-denied probe gives the stale banner its own cause code", () => {
   const copy = staleBannerCopy(row(`${CAPABILITY_DENIED_KIND}: plugin denied readFile`));
   assert.equal(copy.cause, STALE_CAUSE_CAPABILITY_DENIED);

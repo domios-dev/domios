@@ -73,9 +73,7 @@ fn every_launch_composition() -> Vec<(&'static str, String)> {
             super::role_onboarding_task(Some("watch it"), Some("Manager"), Some("watcher"))
                 .expect("watcher system prompt"),
         ),
-        // Capability classes, by declaration rather than provider id: a provider
-        // that takes a system prompt, and one that must receive the same
-        // composition through confirmed fallback.
+        // Capability declarations determine composition, so provider identity need not select the prompt path.
         (
             "solo on a system-prompt-capable provider",
             super::role_launch_task(Some("do it"), None, None, true).expect("solo system prompt"),

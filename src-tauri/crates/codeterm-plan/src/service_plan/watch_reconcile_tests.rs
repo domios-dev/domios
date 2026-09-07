@@ -133,9 +133,7 @@ fn in_flight_memory_wins_over_stale_disk_read() {
 
 #[test]
 fn v2_plan_survives_when_legacy_json_absent() {
-    // Regression: a v2 plan persists only plan.yaml (no plan.json). A watcher
-    // burst — e.g. the one-off conversion deleting the legacy json — must NOT
-    // evict it. The old json-only discovery returned None here and forgot it.
+    // A conversion that removes legacy `plan.json` must not evict a v2 plan that persists only `plan.yaml`.
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());
     let project = paths::project_root(dir.path());
@@ -197,10 +195,7 @@ fn hand_edited_task_yaml_reconciles_while_plan_yaml_is_own_write() {
 
 #[test]
 fn colocated_spec_does_not_fk_fail_the_plan_on_fresh_scan() {
-    // Regression (#4): a plan with a co-located spec.yaml was skipped on every
-    // startup because the spec (specs.plan_id FK -> plans.id) got persisted
-    // before its owning plan row existed -> FOREIGN KEY constraint failed ->
-    // the whole plan was discarded. The plan must survive a fresh import.
+    // Persisting the spec before its plan used to discard the plan on import; the watcher must retain it.
     let dir = tempfile::tempdir().unwrap();
     let project = paths::project_root(dir.path());
     let (plan_id, spec_id) = {

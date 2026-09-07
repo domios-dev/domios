@@ -277,9 +277,7 @@ test("end-to-end: hook-driven pending_prompt survives reload as attention (not W
   assert(Boolean(next.tabs["p-1"].pending_prompt), "pending_prompt itself survives the snapshot merge");
 });
 
-// pending_prompt is a screen-scraped guess. Minting an action_needed toast per
-// false->true edge stacked unbounded alerts the bell never showed, because they
-// were only ever pushed into toasts and never into notifications.
+// Minting an action_needed toast per false->true edge stacked unbounded alerts the bell never showed, because they were only ever pushed into toasts and never into notifications.
 test("a tab gaining pending_prompt mints no attention toast", () => {
   const promptedTab = {
     id: "p-1",

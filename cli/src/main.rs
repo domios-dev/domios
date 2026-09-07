@@ -568,10 +568,11 @@ fn hydrate_tab_task_binding_env(args: &[String]) {
     let Ok(tab_id) = std::env::var("CODETERM_TAB_ID") else {
         return;
     };
-    if tab_id.trim().is_empty()
-        || (nonempty_env("CODETERM_PLAN_ID").is_some()
-            && nonempty_env("CODETERM_TASK_ID").is_some())
-    {
+    let explicit_plan = option_is_present(args, "--plan");
+    let explicit_task = option_is_present(args, "--task");
+    let has_plan = explicit_plan || nonempty_env("CODETERM_PLAN_ID").is_some();
+    let has_task = explicit_task || nonempty_env("CODETERM_TASK_ID").is_some();
+    if tab_id.trim().is_empty() || (has_plan && has_task) {
         return;
     }
     let Ok(socket_path) = discover_socket() else {
@@ -589,14 +590,25 @@ fn hydrate_tab_task_binding_env(args: &[String]) {
     let Some(binding) = response.get("binding").and_then(|value| value.as_object()) else {
         return;
     };
-    if let Some(plan_id) = binding.get("plan_id").and_then(|value| value.as_str()) {
-        std::env::set_var("CODETERM_PLAN_ID", plan_id);
+    if !has_plan {
+        if let Some(plan_id) = binding.get("plan_id").and_then(|value| value.as_str()) {
+            std::env::set_var("CODETERM_PLAN_ID", plan_id);
+        }
     }
-    if nonempty_env("CODETERM_TASK_ID").is_none() {
+    if !has_task {
         if let Some(task_id) = binding.get("task_id").and_then(|value| value.as_str()) {
             std::env::set_var("CODETERM_TASK_ID", task_id);
         }
     }
+}
+
+fn option_is_present(args: &[String], name: &str) -> bool {
+    args.iter().any(|arg| {
+        arg == name
+            || arg
+                .strip_prefix(name)
+                .is_some_and(|rest| rest.starts_with('='))
+    })
 }
 
 pub(crate) fn nonempty_env(name: &str) -> Option<String> {
@@ -684,6 +696,15 @@ fn test_env_lock() -> &'static std::sync::Mutex<()> {
 #[cfg(test)]
 mod plan_cli_error_tests {
     use super::*;
+
+    #[test]
+    fn explicit_empty_task_option_suppresses_binding_hydration() {
+        let separated = vec!["codeterm".into(), "--task".into(), "".into()];
+        let joined = vec!["codeterm".into(), "--task=".into()];
+        assert!(option_is_present(&separated, "--task"));
+        assert!(option_is_present(&joined, "--task"));
+        assert!(!option_is_present(&separated, "--plan"));
+    }
 
     #[test]
     fn detects_dash_leading_plan_text_parse_error() {

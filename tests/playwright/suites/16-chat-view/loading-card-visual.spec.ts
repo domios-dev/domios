@@ -3,9 +3,7 @@
  * WHY: Startup state must identify the affected role without obscuring recovery actions.
  * ORACLE: Accessible card content and visual snapshots match each state and theme.
  */
-// ChatSetupState is a glyph-and-ring overlay with no copy of its own and no
-// failure card: chatSetupView maps spawn_failed to the starting view, and
-// tabBootOverlayView owns the recovery surface (`tab-boot-failed`).
+// Spawn failure maps to the starting view while `tab-boot-failed` owns recovery, so no failure card is rendered here.
 import path from "node:path";
 import { build } from "esbuild";
 import { expect, test } from "../../helpers/fixtures";

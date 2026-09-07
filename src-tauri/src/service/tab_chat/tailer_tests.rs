@@ -389,9 +389,6 @@ fn pending_store_watch_survives_flapping_availability_before_promotion() {
     );
     assert!(watch.register(&chat_registry, "desktop".into()));
 
-    // The store file never exists during this loop, so `available` flipping
-    // can never satisfy promotion — only exercises the watch's own
-    // never-give-up polling across a span well past 10 poll intervals.
     for _ in 0..5 {
         available.store(true, Ordering::Release);
         std::thread::sleep(Duration::from_millis(15));

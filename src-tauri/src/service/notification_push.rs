@@ -102,9 +102,7 @@ pub(crate) fn plan_push(
         }
     }
 
-    // A stored column naming a channel this build cannot resolve. The user
-    // turned that column on deliberately, so it is reported rather than
-    // quietly skipped into nothing.
+    // The user turned that column on deliberately, so it is reported rather than quietly skipped into nothing.
     for (service, _) in row.channels.iter().filter(|(_, routed)| **routed) {
         if let Err(reason) = channels::resolve_in(roster, service) {
             refusals.push(PushRefusal {

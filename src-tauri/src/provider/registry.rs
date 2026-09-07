@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use crate::agent::provider::{ProviderDescriptor, ProviderTransport};
+use crate::agent::provider::{observe_launch_binary, ProviderDescriptor, ProviderTransport};
 use crate::agent::registry::{AgentRegistry, ProviderStartupStatus};
 use crate::chatbackend::ChatBackendRegistryHandle;
 
@@ -36,7 +36,9 @@ impl ProviderRegistry {
             if !backend.spawnable() {
                 continue;
             }
-            if let Some(descriptor) = self.chat_backends.descriptor(&id) {
+            if let Some(mut descriptor) = self.chat_backends.descriptor(&id) {
+                descriptor.availability =
+                    observe_launch_binary(descriptor.cli_binary.as_deref()).availability;
                 out.push(descriptor);
             }
         }

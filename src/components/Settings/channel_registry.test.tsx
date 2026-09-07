@@ -1,9 +1,4 @@
-// Run: npx tsx src/components/Settings/channel_registry.test.tsx
-//
-// The surface side of the push-channel registry: what the picker offers comes
-// from the daemon's roster, so a channel it gains widens one control instead of
-// adding a row to every level — and a channel it lists but cannot carry is not
-// offered at all.
+// The picker must follow the daemon roster so available channels widen one control while unroutable channels remain absent.
 
 import { act, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";

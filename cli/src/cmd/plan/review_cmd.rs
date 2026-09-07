@@ -79,6 +79,19 @@ pub(super) fn handle(
             inject_trusted_session(&mut params);
             call_plan_rpc(client, "plan.review.authorize-capacity", params).map(Some)
         }
+        PlanReviewAction::AuthorizeReporter {
+            plan_id,
+            reporter_tab_id,
+            class,
+        } => {
+            let mut params = json!({
+                "plan_id": plan_id,
+                "reporter_tab_id": reporter_tab_id,
+                "class": class,
+            });
+            inject_trusted_session(&mut params);
+            call_plan_rpc(client, "plan.review.authorize-reporter", params).map(Some)
+        }
         PlanReviewAction::Accept {
             plan_id,
             task_id,

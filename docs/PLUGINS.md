@@ -33,6 +33,26 @@ Three moving parts, two channels, one published SDK:
 | Versioning | mirrors app version (`npm run sync:versions`) | per-plugin, in its own repo |
 | Trust | system / trusted | third-party (sandboxed) |
 | Install | present + `plugin update-system` | opt-in from Marketplace |
+| Default git ref | `master` (released) | the repo's default branch |
+
+**The `codeterm-core` default tracks `master`, not `develop`.** An install from
+this channel is recorded as an official system-channel install, and the loader
+grants System trust on that provenance alone — "hash differs from embedded table
+but install record is official system channel". Pointing the default at a branch
+head therefore stamped System trust on unreleased code: `plugin update-system`
+installed whatever `develop` happened to carry. `master` only advances through a
+release merge, so every commit it serves is shipped code.
+
+To follow pre-release plugins deliberately, set the channel URL explicitly:
+
+```bash
+export CODETERM_SYSTEM_PLUGIN_CHANNEL_URL='https://github.com/rollacode/codeterm.git#develop:plugins'
+```
+
+`ensure_system_channel` re-registers `codeterm-core` whenever the resolved URL
+differs from the recorded one, so the override takes effect on the next start and
+clearing it returns the machine to the released ref. Opting in is a choice a
+person makes; it is not the default anyone gets by installing.
 
 **App + plugin ship together.** A plugin feature that needs a NEW host capability
 (e.g. `host.progress`, a new ViewNode, a mesh hook) only works on an app build that
@@ -470,9 +490,13 @@ config knobs. Core falls back to `description` + a rendering of `settingsSchema`
 A reserved glance/settings action, **`configure-with-ai`**, is appended by core to
 **every** plugin — you get it for free, no wiring needed (you may also place it
 explicitly in `renderGlance` if you want it in a specific spot). Clicking it opens
-a focused General-agent Tab preloaded with the plugin's `configHelp`, then asks
+a focused Tab using the configured General-Agent provider, preloaded with the plugin's `configHelp`, then asks
 the user what they want. For a configurable plugin it is "configure for me"; for a
 knob-less plugin it is "help me use this".
+
+The button asks the spawn lifecycle for a delivery acknowledgement. It focuses
+the Tab only after the wrapped task is confirmed; launch or delivery failure is
+returned to the caller instead of presenting focus as proof.
 
 **It never auto-executes.** The button *spawns a Tab with a task* — it does not
 run any command. The agent must ask the user, confirm, and then use the existing
@@ -672,6 +696,11 @@ standard hook install. Hook commands must require the tab-scoped
 exit without side effects outside a CodeTerm tab. JS and native provider paths
 share these consent, backup, merge, uninstall, and restore semantics.
 
+Startup checks do not themselves constitute a user-visible refusal: the JS
+provider return is intentionally not a UI channel. The Settings integration card
+reads `checkIntegration` through the registered command and renders the provider's
+consent-required status; only its explicit repair action enters the write path.
+
 ### Lessons paid for in this migration (don't relearn them)
 
 - A sandboxed iframe that touches `localStorage` crashes on mount — guard browser APIs.
@@ -716,4 +745,4 @@ share these consent, backup, merge, uninstall, and restore semantics.
      release the app first/together** (see "App + plugin ship together"). Test
      path: install the new app, then `codeterm plugin install <id>`.
 
-<!-- revision: 23 -->
+<!-- revision: 26 -->

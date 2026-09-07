@@ -416,10 +416,7 @@ fn a_failed_update_tab_stays_visible_and_is_never_reported_as_success() {
 #[test]
 #[cfg_attr(not(windows), ignore = "mock Tauri desktop fixture")]
 fn closing_the_update_terminal_after_dispatch_completes_and_frees_the_source_tab() {
-    // Every observation here is a direct state read. The mechanism under test is
-    // derived from the multiplexer, not announced as an event, so waiting on the
-    // effect channel would only reintroduce a deadline — and a deadline cannot
-    // tell "never fired" apart from "fired and did the wrong thing".
+    // Read derived state directly because an effect channel cannot distinguish a missed event from an incorrect event.
     let (fixture, tab_id, _general_workspace, _probe) = general_fixture(TabAudience::User);
     handle_prompt(&fixture.service, &tab_id, true);
     let prompt = sole_prompt(&fixture.service);

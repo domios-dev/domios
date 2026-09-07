@@ -1,9 +1,4 @@
-// Run: npx tsx src/components/Settings/channel_audience/empty_audience_reaches_nobody.test.tsx
-//
-// The trap. Clearing the selection must mean nobody, not everyone the bridge
-// admits. Every assertion here is stated against a POPULATED admission list, so
-// a fallback from an empty audience to that list would fail this file rather
-// than slip through as "an empty list was stored".
+// An empty selection must mean nobody even when the admission list is populated.
 
 import { act } from "react";
 import { PushChannelSettings } from "../PushChannelSettings";
@@ -58,9 +53,7 @@ async function clearingTheSelectionStoresNobody() {
     `the audience is empty, got ${JSON.stringify(channelRecipients(after, CHANNEL.id))}`,
   );
 
-  // The absence of the fallback, not the emptiness of a list: every admitted id
-  // is checked individually, so substituting the admission list for an empty
-  // audience anywhere in this path fails here instead of passing quietly.
+  // Check each admitted id so falling back to the admission list cannot pass as an empty audience.
   for (const admitted of configuredUsers(after, CHANNEL.id)) {
     assert(
       !channelRecipients(after, CHANNEL.id).includes(admitted),

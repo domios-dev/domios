@@ -13,9 +13,7 @@ export async function waitForSessionBinding(
   tabId: string,
   timeout = 120_000,
 ): Promise<void> {
-  // Mux state rather than `api.tabs()`: the tab list is scoped to the ACTIVE
-  // workspace, so an agent spawned into a fixture workspace is simply absent
-  // from it until that workspace is focused.
+  // Use mux state rather than `api.tabs()` because the latter is scoped to the active workspace.
   let last = "never observed";
   await pollUntil(
     async () => {

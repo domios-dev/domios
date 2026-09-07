@@ -1,8 +1,4 @@
-// Run: npx tsx src/components/Settings/channel_audience/the_column_is_the_only_whether.test.tsx
-//
-// The master toggle is gone and its gating work moved to the grid column. Both
-// directions are stated outright in these fixtures, so nothing here is inferred
-// from what an unnamed column happens to default to.
+// Assert both directions explicitly so behavior does not depend on an unnamed column default.
 
 import { act } from "react";
 import { NotificationDestinations } from "../NotificationDestinations";

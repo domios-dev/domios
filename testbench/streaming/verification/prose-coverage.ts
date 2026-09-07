@@ -1,13 +1,3 @@
-// Prose-retention check: how much of the canonical ASSISTANT text ever appears
-// in the preview under a given matcher? Guards the tool-row filter against
-// over-filtering (dropping real message prose).
-//
-// For every canonical assistant message (sidecar), split into normalized
-// sentences/segments >= 20 chars; a segment is COVERED if any replayed
-// displayed frame contained a row whose normalized text overlaps it.
-//
-// Run: npx tsx prose-coverage.ts --events <ndjson> --chat <ndjson> --tab <id> \
-//        --matcher <path>
 
 import { readFileSync } from "node:fs";
 

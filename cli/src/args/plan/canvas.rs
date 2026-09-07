@@ -121,6 +121,13 @@ pub enum PlanReviewAction {
         #[arg(long, value_parser = ["review", "canonical_gate"])]
         class: String,
     },
+    /// Authorize one task-less tab to append plan-level review or canonical-QA evidence
+    AuthorizeReporter {
+        plan_id: String,
+        reporter_tab_id: String,
+        #[arg(long, value_parser = ["review", "canonical_qa"])]
+        class: String,
+    },
     /// ACCEPT: attaches the verdict and closes the task (in_review -> done)
     Accept {
         plan_id: Option<String>,

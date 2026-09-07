@@ -66,7 +66,7 @@ fn finished_lifecycle_emitted_at_command_end() {
 }
 
 #[test]
-fn nonce_mismatch_rejects_command_line() {
+fn nonce_mismatch_rejects_command_cycle() {
     let mut det = CommandDetection::new();
     det.ensure_nonce(Some("sekret".into()));
     ev_pairs(
@@ -80,9 +80,7 @@ fn nonce_mismatch_rejects_command_line() {
             SemanticEvent::CommandEnd { exit_code: Some(0) },
         ],
     );
-    // Command still boundary-tracked, but the untrusted text is dropped.
-    assert_eq!(det.commands().len(), 1);
-    assert_eq!(det.commands()[0].command_line, None);
+    assert!(det.commands().is_empty());
 }
 
 #[test]
@@ -118,7 +116,7 @@ fn missing_nonce_rejected_when_session_nonce_set() {
             SemanticEvent::CommandEnd { exit_code: Some(0) },
         ],
     );
-    assert_eq!(det.commands()[0].command_line, None);
+    assert!(det.commands().is_empty());
 }
 
 #[test]
@@ -136,6 +134,50 @@ fn no_session_nonce_accepts_command_line() {
         ],
     );
     assert_eq!(det.commands()[0].command_line.as_deref(), Some("pwd"));
+}
+
+#[test]
+fn configured_nonce_requires_single_use_authenticated_cycle() {
+    let mut det = CommandDetection::new();
+    det.ensure_nonce(Some("sekret".into()));
+
+    assert!(ev_pairs(
+        &mut det,
+        vec![SemanticEvent::CommandEnd { exit_code: Some(0) }],
+    )
+    .is_empty());
+    assert!(ev_pairs(
+        &mut det,
+        vec![
+            SemanticEvent::CommandLine {
+                text: String::new(),
+                nonce: Some("wrong".into()),
+            },
+            SemanticEvent::CommandEnd { exit_code: Some(0) },
+        ],
+    )
+    .is_empty());
+    let authenticated = ev_pairs(
+        &mut det,
+        vec![
+            SemanticEvent::CommandLine {
+                text: String::new(),
+                nonce: Some("sekret".into()),
+            },
+            SemanticEvent::CommandEnd { exit_code: Some(0) },
+        ],
+    );
+    assert_eq!(authenticated.len(), 1);
+    assert!(matches!(
+        authenticated[0],
+        CommandLifecycle::Finished { .. }
+    ));
+    assert!(ev_pairs(
+        &mut det,
+        vec![SemanticEvent::CommandEnd { exit_code: Some(0) }],
+    )
+    .is_empty());
+    assert_eq!(det.commands().len(), 1);
 }
 
 #[test]
@@ -299,7 +341,7 @@ fn tracker_isolates_tabs_and_supplies_nonce() {
         Some("nonce-a".into()),
         b"\x1b]633;E;cmd-a;nonce-a\x07\x1b]633;D;0\x07",
     );
-    // Wrong nonce for pty-b -> text dropped.
+    // Wrong nonce for pty-b -> the entire command cycle is rejected.
     t.feed("pty-b", Some("nonce-b".into()), b"\x1b]633;A\x07");
     t.feed(
         "pty-b",
@@ -312,8 +354,7 @@ fn tracker_isolates_tabs_and_supplies_nonce() {
     assert_eq!(a.commands[0].command_line.as_deref(), Some("cmd-a"));
 
     let b = t.snapshot("pty-b").unwrap();
-    assert_eq!(b.commands.len(), 1);
-    assert_eq!(b.commands[0].command_line, None);
+    assert!(b.commands.is_empty());
 
     t.remove("pty-a");
     assert!(t.snapshot("pty-a").is_none());

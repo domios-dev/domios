@@ -499,15 +499,16 @@ pub struct Tab {
     /// Timestamp when agent_type was set — grace period for idle-poll exit detection.
     #[serde(skip, default)]
     pub agent_set_at: Option<std::time::Instant>,
-    /// When the output-based exit heuristic first suspected the agent left (no
-    /// markers + shell prompt). Debounces a one-frame transient (e.g. a WebView
-    /// reload/resize redraw) from clearing a still-running agent.
+    /// Set when the shell reported its foreground command finished while this
+    /// tab still claimed a proven-up agent — the provider exited and the shell
+    /// survived. Read as a presence marker, never as a clock.
     #[serde(skip, default)]
     pub exit_suspected_at: Option<std::time::Instant>,
     /// True while launch_agent boots the agent TUI in this tab. A booting
     /// TUI silently swallows bracket-paste input, so sends wait this out.
-    /// Runtime-only: never persisted (a restart clears any stale true).
-    #[serde(skip, default)]
+    /// Published so the UI classifies liveness from the same evidence the
+    /// daemon does; never read back, so a restart clears any stale true.
+    #[serde(skip_deserializing, default)]
     pub agent_booting: bool,
     /// Agent session ID for resume (e.g. Claude Code session).
     #[serde(

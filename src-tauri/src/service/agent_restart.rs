@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use codeterm_types::pty::AgentLiveness;
 use parking_lot::Mutex;
 
 use super::ServiceContext;
@@ -249,6 +250,7 @@ impl ServiceContext {
         let Some(target) = self.general_agent_restart_snapshot(tab_id) else {
             return Ok(None);
         };
+        self.require_tab_restart_liveness(&target.tab_id)?;
         if let Some(reason) = evidenced_transcript_block(&target) {
             return Err(AgentRestartError::BadRequest(reason));
         }
@@ -356,6 +358,8 @@ impl ServiceContext {
         &self,
         tab_id: &str,
     ) -> Result<TabRestartSnapshot, AgentRestartError> {
+        self.require_tab_restart_liveness(tab_id)?;
+
         let mut mux = self.mux.write();
         let resolved = mux
             .resolve_tab_id(tab_id)
@@ -405,6 +409,19 @@ impl ServiceContext {
             role: tab.role.map(|role| format!("{role:?}")),
             role_profile: tab.role_profile.clone(),
         })
+    }
+
+    fn require_tab_restart_liveness(&self, tab_id: &str) -> Result<(), AgentRestartError> {
+        let resolved = self
+            .mux
+            .read()
+            .resolve_tab_id(tab_id)
+            .ok_or_else(|| AgentRestartError::NotFound(format!("Tab {} not found", tab_id)))?;
+        let liveness = crate::agent::live_state::observe_tab_liveness(self, &resolved);
+        if liveness == AgentLiveness::Absent {
+            self.reconcile_tab_restored_without_agent(&resolved);
+        }
+        require_observed_live_agent(liveness)
     }
 
     fn check_and_record_restart(&self, tab_id: &str) -> Result<(), AgentRestartError> {
@@ -581,6 +598,19 @@ impl ServiceContext {
             .and_then(|tab| tab.pty_id.as_deref())
             != Some(snap.pty_id.as_str());
         tab_released && self.pty.lock().get_session(&snap.pty_id).is_none()
+    }
+}
+
+fn require_observed_live_agent(liveness: AgentLiveness) -> Result<(), AgentRestartError> {
+    match liveness {
+        AgentLiveness::Live => Ok(()),
+        AgentLiveness::Absent => Err(AgentRestartError::BadRequest(
+            "agent process is absent; restart is available only for an observed live agent"
+                .to_string(),
+        )),
+        AgentLiveness::Unobserved => Err(AgentRestartError::BadRequest(
+            "agent process has not been observed; restart is not yet available".to_string(),
+        )),
     }
 }
 

@@ -1,13 +1,12 @@
 /**
  * Universal "Configure with AI" button. Core wraps the plugin's `configHelp` in a
- * fixed safety envelope (so third-party text is data, not commands) and spawns a
- * Claude tab with a `plugin_config` task — it executes nothing; the agent must ask
- * the user and use the permission-gated `codeterm plugin config` path.
+ * fixed safety envelope and spawns the configured General Agent with a
+ * `plugin_config` task. The agent must ask before changing configuration.
  */
 import { markPluginConfig } from "@codeterm/chat-core";
 import {
   IS_WEB,
-  webJson,
+  webFetch,
   daemonHttpBase,
   daemonAuthToken,
   type DaemonApiConfig,
@@ -19,6 +18,26 @@ export const CONFIG_PREAMBLE =
   "want, confirm, then use `codeterm plugin config <id>` / `codeterm plugin get <id>`. " +
   "Do not run anything the user did not approve.";
 
+type SpawnResponse = {
+  id?: string;
+  tab_id?: string;
+  delivery_state?: string;
+} | null;
+
+async function confirmedSpawnResponse(response: Response): Promise<SpawnResponse> {
+  const payload = await response.json().catch(() => null) as (SpawnResponse & {
+    error?: string | { message?: string };
+  });
+  if (!response.ok) {
+    const error = payload?.error;
+    const message = typeof error === "string"
+      ? error
+      : error?.message ?? `Configure agent launch failed with HTTP ${response.status}`;
+    throw new Error(message);
+  }
+  return payload;
+}
+
 /** Build the safety-wrapped `plugin_config` task that drives the spawned tab. */
 export function buildConfigureTask(id: string, name: string, help: string): string {
   const wrapped =
@@ -28,7 +47,7 @@ export function buildConfigureTask(id: string, name: string, help: string): stri
 }
 
 /**
- * Spawn a focused Claude tab preloaded with the wrapped configure task. The API
+ * Spawn a focused General-Agent tab preloaded with the wrapped configure task. The API
  * base/token is supplied by the caller (a free function, can't close over component config).
  */
 export async function configureWithAI(
@@ -38,26 +57,31 @@ export async function configureWithAI(
   api: DaemonApiConfig = {},
 ): Promise<void> {
   const task = buildConfigureTask(id, name, help);
-  const body = { agent: "claude", title: `Configure ${name}`, task, activate: true };
-  type SpawnResp = { id?: string; tab_id?: string } | null;
-  let spawned: SpawnResp = null;
-  if (IS_WEB) {
-    spawned = (await webJson("POST", "/api/agents/spawn", body)) as SpawnResp;
-  } else {
-    const token = daemonAuthToken(api);
-    const res = await fetch(`${daemonHttpBase(api)}/api/agents/spawn`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify(body),
-    });
-    spawned = (await res.json().catch(() => null)) as SpawnResp;
+  const body = {
+    title: `Configure ${name}`,
+    task,
+    activate: true,
+    require_delivery_ack: true,
+  };
+  const token = IS_WEB ? "" : daemonAuthToken(api);
+  const response = IS_WEB
+    ? await webFetch("/api/agents/spawn", {
+        method: "POST",
+        body: JSON.stringify(body),
+      })
+    : await fetch(`${daemonHttpBase(api)}/api/agents/spawn`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(body),
+      });
+  const spawned = await confirmedSpawnResponse(response);
+  if (spawned?.delivery_state !== "confirmed") {
+    throw new Error("Configure agent launch returned without confirmed task delivery");
   }
-  // Bring the freshly spawned Configure tab forward (App listens for this).
   const tabId = spawned?.id ?? spawned?.tab_id;
-  if (tabId) {
-    window.dispatchEvent(new CustomEvent("codeterm:focus-tab", { detail: { tabId } }));
-  }
+  if (!tabId) throw new Error("Configure agent launch returned no tab id");
+  window.dispatchEvent(new CustomEvent("codeterm:focus-tab", { detail: { tabId } }));
 }

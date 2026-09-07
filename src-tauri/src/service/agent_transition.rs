@@ -267,6 +267,7 @@ impl ServiceContext {
         let change = AgentLifecyclePlanChange {
             tab_id: old_tab_id.unwrap_or_default(),
             preserve_owned_plans: true,
+            retain_owned_plan_for_team_recovery: None,
             preserve_task_bindings_for_owner: None,
             planner_binding: Some((plan_id.to_string(), planner)),
             plan_rebind: None,
@@ -417,6 +418,10 @@ fn prepare_transition(
         && source.anchors_team()
         && source.role_kind_id() == request.destination.role_profile()
         && source.parent_tab_id.is_none();
+    let retain_owned_plan_for_team_recovery = (source.anchors_team()
+        && request.destination == AgentPlacement::Roleless)
+        .then(|| source.team_id.clone())
+        .flatten();
     let preserve_task_bindings_for_owner = match &request.destination {
         AgentPlacement::Worker { parent_tab_id, .. }
             if source.role == Some(AgentRole::Worker)
@@ -436,13 +441,19 @@ fn prepare_transition(
     );
     if let Some(incumbent_id) = incumbent.as_deref() {
         if staged.get_tab(incumbent_id).is_some() {
-            for affected_id in clear_lifecycle(staged, incumbent_id)? {
+            for affected_id in clear_lifecycle(staged, incumbent_id, None)? {
                 plan_changes.push(revocation_change(affected_id));
             }
         }
     }
 
-    let affected = apply_destination(staged, request, preserve_owned_plans, plan_rebind.as_ref())?;
+    let affected = apply_destination(
+        staged,
+        request,
+        preserve_owned_plans,
+        retain_owned_plan_for_team_recovery.as_deref(),
+        plan_rebind.as_ref(),
+    )?;
     for affected_id in affected
         .into_iter()
         .filter(|tab_id| tab_id != &request.tab_id)
@@ -454,6 +465,7 @@ fn prepare_transition(
     plan_changes.push(AgentLifecyclePlanChange {
         tab_id: request.tab_id.clone(),
         preserve_owned_plans,
+        retain_owned_plan_for_team_recovery,
         preserve_task_bindings_for_owner,
         planner_binding: request.planner_replacement.clone().or(planner_binding),
         plan_rebind: plan_rebind.clone(),
@@ -471,6 +483,7 @@ fn apply_destination(
     mux: &mut MultiplexerState,
     request: &AgentTransitionRequest,
     preserve_owned_plans: bool,
+    retain_empty_team: Option<&str>,
     plan_rebind: Option<&AgentLifecyclePlanRebind>,
 ) -> Result<Vec<String>, String> {
     if preserve_owned_plans {
@@ -482,7 +495,7 @@ fn apply_destination(
         return Ok(Vec::new());
     }
 
-    let affected = clear_lifecycle(mux, &request.tab_id)?;
+    let affected = clear_lifecycle(mux, &request.tab_id, retain_empty_team)?;
     match &request.destination {
         AgentPlacement::Roleless => {}
         AgentPlacement::Worker {
@@ -543,7 +556,11 @@ fn resolved_manager_parent(
     rebind_owner_tab(plan_rebind, plan_id).map(Some)
 }
 
-fn clear_lifecycle(mux: &mut MultiplexerState, tab_id: &str) -> Result<Vec<String>, String> {
+fn clear_lifecycle(
+    mux: &mut MultiplexerState,
+    tab_id: &str,
+    retain_empty_team: Option<&str>,
+) -> Result<Vec<String>, String> {
     let mut affected = vec![tab_id.to_string()];
     let mut cursor = 0;
     while cursor < affected.len() {
@@ -575,7 +592,7 @@ fn clear_lifecycle(mux: &mut MultiplexerState, tab_id: &str) -> Result<Vec<Strin
             .tabs
             .values()
             .any(|tab| tab.team_id.as_deref() == Some(team_id.as_str()));
-        if !remains_in_use {
+        if !remains_in_use && retain_empty_team != Some(team_id.as_str()) {
             mux.remove_team(&team_id);
         }
     }
@@ -586,6 +603,7 @@ fn revocation_change(tab_id: String) -> AgentLifecyclePlanChange {
     AgentLifecyclePlanChange {
         tab_id,
         preserve_owned_plans: false,
+        retain_owned_plan_for_team_recovery: None,
         preserve_task_bindings_for_owner: None,
         planner_binding: None,
         plan_rebind: None,

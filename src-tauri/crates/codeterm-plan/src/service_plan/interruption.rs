@@ -29,9 +29,7 @@ pub(crate) fn authorize_task_mutation(
     if orchestrator || worker {
         return Ok(());
     }
-    // Name what was compared. A refusal that says only "stale" leaves the reader
-    // guessing which half moved, and the stored ids are exposed by no command,
-    // so the field evidence for this refusal has to come from the refusal.
+    // A refusal names both compared values because the stored ids are not exposed by another command.
     let same_tab = task.interruption.owner_tab_id.as_deref() == Some(&authority.tab_id);
     Err(PlanError::Io(format!(
         "stale task mutation authority: caller tab {} session {}; task owner tab {} session {}{}",

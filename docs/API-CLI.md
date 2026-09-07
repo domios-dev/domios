@@ -78,7 +78,9 @@ surfaces as agents:
 
 - **Discover:** `GET /api/agents/providers` (CLI `codeterm agent providers`) lists
   installed shells alongside PTY agents, tagged `kind: "shell"`. There is no
-  hardcoded shell list — core enumerates the `chatBackend` registry.
+  hardcoded shell list — core enumerates the `chatBackend` registry. Every row
+  carries `availability` (`available` / `unavailable` / `unknown`); the CLI marks
+  the latter two inline, and the UI provider picker reads the same field.
 - **Spawn:** `codeterm agent spawn <shell-id> [--system TEXT] [--preset ID] [--model M]`
   (or `POST /api/agents/spawn`) routes by capability to the shell. `--system`
   overrides the preset's system prompt for that session, `--preset` picks a preset,
@@ -120,6 +122,7 @@ Dev builds (`tauri.dev.conf.json`) use identifier `com.codeterm.dev` and are ful
 
 Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and loaded at compile time via `include_str!()`. Role-specific suffixes are appended to tasks at spawn time:
 - **Worker** (`worker_suffix.md`): Instructions to report back via `codeterm agent report`.
+- **CodeTerm control** (`codeterm_cli.md`): Capability-grant workflow for task-less review/canonical-QA reporters; the grant never changes their role or task binding.
 - **Orchestrator** (`orchestrator_suffix.md`): "Do NOT sleep or poll for reports" rule.
 - **Cron tasks** (`cron_complete_suffix.md`): Completion instruction with `cron complete --run-id` command.
 - **General Agent** (`general_agent.md`): System prompt for the always-on General Agent.
@@ -146,4 +149,4 @@ Overlay files add leaf kinds only. Declaring capability, claiming an anchoring o
 Team-authority base, overriding a builtin kind, or asking to own a contract
 without the coordination core is refused with a named reason and skipped.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->

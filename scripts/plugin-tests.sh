@@ -10,17 +10,21 @@ case "${1:-all}" in
   all)
     tests=(
       plugins/git/tests/plugin.test.ts
+      plugins/provider-claude/tests/availability.test.ts
       plugins/provider-claude/tests/detect.test.ts
+      plugins/provider-claude/tests/models.test.ts
       plugins/provider-claude/tests/status.test.ts
       plugins/provider-claude/tests/plugin.test.ts
       plugins/provider-claude/tests/classify-tab-state.test.ts
       plugins/provider-codex/tests/plugin.test.ts
       plugins/provider-codex/tests/hook-events.test.ts
+      plugins/provider-codex/tests/hook-content-verdict.test.ts
       plugins/provider-codex/tests/session-paths.test.ts
       plugins/provider-codex/tests/trust-grant.test.ts
       plugins/provider-codex/tests/provider-helper-parity.test.ts
       plugins/provider-codex/tests/classify-tab-state.test.ts
       plugins/provider-codex/tests/usage.test.ts
+      plugins/provider-codex/tests/profile-sweep.test.ts
       plugins/provider-opencode/tests/plugin.test.ts
       plugins/provider-cursor/tests/plugin.test.ts
       plugins/chat-preprocessor/tests/plugin.test.ts
@@ -38,7 +42,9 @@ case "${1:-all}" in
     ;;
   provider-claude)
     tests=(
+      plugins/provider-claude/tests/availability.test.ts
       plugins/provider-claude/tests/detect.test.ts
+      plugins/provider-claude/tests/models.test.ts
       plugins/provider-claude/tests/status.test.ts
       plugins/provider-claude/tests/plugin.test.ts
       plugins/provider-claude/tests/classify-tab-state.test.ts
@@ -48,11 +54,13 @@ case "${1:-all}" in
     tests=(
       plugins/provider-codex/tests/plugin.test.ts
       plugins/provider-codex/tests/hook-events.test.ts
+      plugins/provider-codex/tests/hook-content-verdict.test.ts
       plugins/provider-codex/tests/session-paths.test.ts
       plugins/provider-codex/tests/trust-grant.test.ts
       plugins/provider-codex/tests/provider-helper-parity.test.ts
       plugins/provider-codex/tests/classify-tab-state.test.ts
       plugins/provider-codex/tests/usage.test.ts
+      plugins/provider-codex/tests/profile-sweep.test.ts
     )
     ;;
   chat-preprocessor)

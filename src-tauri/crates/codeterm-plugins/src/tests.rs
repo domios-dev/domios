@@ -29,7 +29,7 @@ mod store_index_tests {
     fn make_executable(_path: &Path) {}
 
     fn with_data_root<T>(f: impl FnOnce(PathBuf) -> T) -> T {
-        let _guard = env_lock().lock().unwrap();
+        let _guard = env_lock().lock().unwrap_or_else(|e| e.into_inner());
         let prev = std::env::var("CODETERM_DATA_DIR").ok();
         let root =
             std::env::temp_dir().join(format!("codeterm-plugin-test-{}", uuid::Uuid::new_v4()));
@@ -69,13 +69,11 @@ mod store_index_tests {
         }
     }
 
-    /// The repo's `plugins/` dir IS the `codeterm-core` channel (served at
-    /// github.com/rollacode/codeterm.git#master:plugins). `channel.json` is its
-    /// store index. This guards the index against drift with the actual plugin
-    /// folders — the exact check the live channel-refresh does at runtime.
+    /// The repo's `plugins/` dir IS the `codeterm-core` channel; `channel.json` is its store index.
+    /// Guards that index against drift with the real plugin folders, as the live refresh does.
     #[test]
     fn channel_json_is_a_consistent_store_index() {
-        let plugins_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins");
+        let plugins_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../plugins");
         let text = std::fs::read_to_string(plugins_dir.join("channel.json"))
             .expect("plugins/channel.json must exist (store index)");
         let manifest: ChannelManifest =
@@ -111,15 +109,11 @@ mod store_index_tests {
         }
     }
 
-    // rel#62: `sync-plugin-versions.mjs` bumps `version` on every release but
-    // historically left `minCodeterm` frozen at whatever it was first set to.
-    // A minCodeterm that never tracks its own plugin's version is a no-op gate:
-    // it can never block an app older than the build it ships with, so the
-    // channel always serves the absolute newest plugin build to every app
-    // regardless of version — the exact shape of rel#62's report.
+    // rel#62: `minCodeterm` frozen while `version` bumps is a no-op gate — it can never block an
+    // app older than the build it ships with, so every app is served the newest plugin.
     #[test]
     fn system_plugin_min_codeterm_tracks_its_own_version() {
-        let plugins_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins");
+        let plugins_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../plugins");
         let text = std::fs::read_to_string(plugins_dir.join("channel.json"))
             .expect("plugins/channel.json must exist (store index)");
         let manifest: ChannelManifest =
@@ -154,10 +148,21 @@ mod store_index_tests {
     }
 
     #[test]
-    fn default_system_channel_points_at_develop_plugins_index() {
+    fn default_system_channel_points_at_a_released_plugins_index() {
         assert_eq!(
             DEFAULT_SYSTEM_CHANNEL_URL,
-            "https://github.com/rollacode/codeterm.git#develop:plugins"
+            "https://github.com/rollacode/codeterm.git#master:plugins"
+        );
+        let git_ref = DEFAULT_SYSTEM_CHANNEL_URL
+            .rsplit_once('#')
+            .expect("system channel url names a ref")
+            .1
+            .split_once(':')
+            .expect("system channel url names a subpath in that ref")
+            .0;
+        assert_ne!(
+            git_ref, "develop",
+            "the default system channel installs as System trust; it must not track unreleased code"
         );
     }
 
@@ -371,7 +376,7 @@ mod store_index_tests {
 
     #[test]
     fn plugin_storage_roots_follow_code_term_data_dir_override() {
-        let _guard = env_lock().lock().unwrap();
+        let _guard = env_lock().lock().unwrap_or_else(|e| e.into_inner());
         let prev = std::env::var("CODETERM_DATA_DIR").ok();
         let root =
             std::env::temp_dir().join(format!("codeterm-plugin-root-{}", uuid::Uuid::new_v4()));
@@ -414,9 +419,8 @@ mod store_index_tests {
         });
     }
 
-    // Register a healthy local channel (cache present) alongside a broken one (cache and
-    // source both absent) and assert the aggregate diff keeps the healthy channel while
-    // skipping the broken one — a single bad channel must not blank the whole marketplace.
+    // One unreadable channel must not blank the whole marketplace: the aggregate diff keeps the
+    // healthy channel and skips the broken one.
     #[test]
     fn aggregate_diff_skips_failed_channel_but_keeps_healthy_local() {
         with_data_root(|_root| {
@@ -470,9 +474,8 @@ mod store_index_tests {
         });
     }
 
-    // A diff for one explicitly named channel must stay strict: if that channel can't be
-    // materialized/read, the caller asked for it specifically, so propagate the error
-    // rather than silently returning an empty diff.
+    // A named single-channel diff stays strict: the caller asked for that channel specifically,
+    // so an unreadable one propagates the error instead of returning an empty diff.
     #[test]
     fn named_single_channel_diff_stays_strict() {
         with_data_root(|_root| {
@@ -495,9 +498,8 @@ mod store_index_tests {
         });
     }
 
-    // The diff of a LOCAL channel must read the stable cached copy (ch.path), so it keeps
-    // working when the original file:// source is transiently gone (e.g. a fixture on a
-    // tmp dir torn down between test cases). Old behaviour re-read source_dir() and failed.
+    // A local channel's diff reads the stable cached copy, not `source_dir()`, so it survives a
+    // transiently absent file:// source.
     #[test]
     fn local_channel_diff_reads_cache_when_source_is_gone() {
         with_data_root(|root| {
@@ -539,9 +541,8 @@ mod store_index_tests {
         });
     }
 
-    // The refresh swap must keep the local cache continuously readable: publishing the
-    // new copy must never leave ch.path absent (old code did remove_dir_all + rename).
-    // After a successful refresh from an updated source the cache reflects the new content.
+    // The refresh swap must keep the cache continuously readable; the old remove_dir_all + rename
+    // left `ch.path` absent mid-publish.
     #[test]
     fn refresh_swap_keeps_local_cache_readable_and_updates_it() {
         with_data_root(|_root| {
@@ -586,9 +587,8 @@ mod store_index_tests {
         });
     }
 
-    // clone_git_channel must use a unique scratch dir per invocation: several clones of the
-    // SAME channel running at once (the ensure/refresh stampede under rapid snapshot polls)
-    // must not corrupt each other's git metadata. A fixed "<cache>.git-clone" path did.
+    // `clone_git_channel` needs a unique scratch dir per invocation: a fixed `<cache>.git-clone`
+    // let concurrent clones of the same channel corrupt each other's git metadata.
     #[test]
     fn concurrent_git_channel_clones_do_not_corrupt_shared_temp() {
         with_data_root(|root| {
@@ -649,9 +649,8 @@ mod store_index_tests {
             });
 
             for e in &errors {
-                // Concurrent-clone corruption manifests as these git errors; the fix (unique
-                // temp) must eliminate them. Same-target publish races ("rename channel
-                // cache") are acceptable — production dedups those via ensure_default's lock.
+                // Concurrent-clone corruption shows up as these git errors. Same-target publish races are
+                // acceptable; production dedups those via ensure_default's lock.
                 assert!(
                     !e.contains("could not lock")
                         && !e.contains("refs/files-backend")
@@ -737,18 +736,11 @@ exit 0
                 bin.join("git.cmd"),
                 r#"@echo off
 echo %*>>"%CODETERM_TEST_GIT_LOG%"
-if "%~1"=="clone" (
-  :last_arg
-  if "%~2"=="" (
-    set "dest=%~1"
-    goto copy_channel
-  )
-  shift
-  goto last_arg
-  :copy_channel
-  mkdir "%dest%" 2>nul
-  xcopy "%CODETERM_TEST_FRESH_CHANNEL%\*" "%dest%\" /E /I /Y >nul
-)
+if not "%~1"=="clone" exit /b 0
+for %%a in (%*) do set "dest=%%~a"
+mkdir "%dest%" 2>nul
+"%SystemRoot%\System32\robocopy.exe" "%CODETERM_TEST_FRESH_CHANNEL%" "%dest%" /E >nul
+if %errorlevel% geq 8 exit /b 1
 exit /b 0
 "#,
             )
@@ -932,7 +924,7 @@ exit /b 0
 
     #[test]
     fn compat_check_blocks_only_when_app_older_than_min() {
-        let _guard = env_lock().lock().unwrap();
+        let _guard = env_lock().lock().unwrap_or_else(|e| e.into_inner());
         let prev = std::env::var("CODETERM_VERSION").ok();
 
         std::env::set_var("CODETERM_VERSION", "1.3.2");
@@ -1052,11 +1044,8 @@ exit /b 0
         }
     }
 
-    // rel#62: the channel serves an older app the newest manifest that app can
-    // actually run, not the newest that exists — and an app blocked from a newer
-    // system-plugin build keeps the providers it already had rather than losing
-    // them. Assertions go by plugin id and on-disk install state, never by any
-    // wording in the manifest.
+    // rel#62: an older app is served the newest manifest it can actually run, and one blocked from
+    // a newer build keeps the providers it had. Assert by plugin id, never by manifest wording.
     #[test]
     fn old_app_keeps_codex_and_opencode_when_the_channel_outruns_it() {
         with_data_root(|root| {
@@ -1087,10 +1076,8 @@ exit /b 0
                 );
             }
 
-            // The channel moves on to 1.10.3 and correctly declares that codex
-            // and opencode now require an app at least that new (the rel#62
-            // fix: minCodeterm tracks the plugin's own version instead of
-            // sitting frozen at 1.0.0). claude stays compatible.
+            // The channel moves to 1.10.3 and declares codex and opencode need an app at least that new
+            // (rel#62: minCodeterm tracks its own version). claude stays compatible.
             write_system_channel(
                 &source,
                 &[
@@ -1133,9 +1120,8 @@ exit /b 0
                 "opencode must keep the version this app can actually run"
             );
 
-            // Never take this on manifest wording: assert by plugin id that the
-            // real, on-disk (not the always-present virtual bundled row) entries
-            // for codex and opencode are still in the served provider set.
+            // Assert by plugin id, not manifest wording, that the real on-disk codex and opencode entries
+            // are still in the served provider set.
             let listed = list_installed().unwrap();
             let rows = listed["plugins"].as_array().unwrap();
             for id in ["codex", "opencode"] {

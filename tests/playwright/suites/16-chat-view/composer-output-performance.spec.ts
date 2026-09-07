@@ -11,9 +11,7 @@ import { API_BASE, expect, readDevToken, test, type Browser, type TabCleanup, ty
 import { type ApiClient } from "../../helpers/api-client";
 
 const TAB_COUNT = 25;
-// Cold web mount is out-of-band setup, not the measured composer window; bound
-// it so a stuck mount fails fast under the default per-test timeout instead of
-// consuming a 90s escalated budget.
+// Cold web mount is out-of-band setup, not the measured composer window; bound it so a stuck mount fails fast under the default per-test timeout instead of consuming a 90s escalated budget.
 const WEB_MOUNT_CAP_MS = 20_000;
 const INITIAL_MESSAGES = 260;
 const LIVE_BATCH_SIZE = 24;

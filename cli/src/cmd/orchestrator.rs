@@ -167,9 +167,7 @@ fn status_snapshot(
             "agents": state.get("live_agents").cloned().unwrap_or_else(|| json!([])),
             "heartbeat": state.get("heartbeat").cloned().unwrap_or_else(|| json!({})),
         },
-        // Blocked-status lanes plus dependency-gated pending lanes — the same
-        // derivation `plan next` and the heartbeat use. See
-        // `codeterm_plan::service_plan::state::outstanding_blocked_count`.
+        // The count includes dependency-gated pending lanes so `plan next` and the heartbeat use the same state.
         "blocked_or_gated_count": state.get("blocked_or_gated_count").cloned().unwrap_or(json!(0)),
         "drift": state.get("drift").cloned().unwrap_or_else(|| json!({})),
         "next_actions": state.get("next_actions").cloned().unwrap_or_else(|| json!([])),
@@ -205,10 +203,7 @@ fn compact_status(value: &Value) -> Value {
             })
         })
         .collect();
-    // `blocked_or_gated_count` is the shared derivation (see
-    // codeterm_plan::service_plan::state::outstanding_blocked_count); it
-    // includes dependency-gated pending lanes, not just literal Blocked
-    // status, so it can exceed the `live_lanes.blocked` array length.
+    // Dependency-gated pending lanes are included even though `live_lanes.blocked` contains only literal Blocked statuses.
     let blocked_or_gated = value
         .get("blocked_or_gated_count")
         .and_then(Value::as_u64)
@@ -553,9 +548,7 @@ mod tests {
         assert!(rendered.contains("codeterm plan reconcile pl_1"));
     }
 
-    // codeterm#397: six lanes gated behind an in_progress task must not
-    // render as `blocked=0` just because `live_lanes.blocked` (literal
-    // TaskStatus::Blocked only) stays empty.
+    // Dependency-gated lanes must count as blocked even when the literal blocked array is empty.
     #[test]
     fn status_renderer_counts_dependency_gated_lanes_as_blocked() {
         let rendered = render_status(&compact_status(&json!({

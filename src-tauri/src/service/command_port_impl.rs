@@ -9,7 +9,11 @@ impl CommandPort for ServiceContext {
     }
 
     fn mux_snapshot(&self) -> MultiplexerSnapshot {
-        self.mux.read().snapshot()
+        // Carries per-pty tracked status so summary consumers observe agent
+        // liveness instead of inferring it. mux before agent_tracker.
+        let mux = self.mux.read();
+        let tracker = self.agent_tracker.lock();
+        mux.snapshot_with_status(&tracker)
     }
 
     fn send_text(&self, tab_id: &str, text: &str) -> Result<(), String> {

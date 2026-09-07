@@ -13,6 +13,8 @@ use crate::api::{
 use crate::multiplexer::types::AgentRole;
 use codeterm_types::agent::role_kind::builtins::PLANNER;
 
+const CONFIGURE_DELIVERY_DEADLINE: std::time::Duration = std::time::Duration::from_secs(90);
+
 /// JSON error surface for `/api/agents/spawn`, so the mesh relay can parse it
 /// instead of collapsing a bare `(StatusCode, String)` body to "HTTP 500".
 pub(crate) struct SpawnRejection {
@@ -54,7 +56,7 @@ pub(crate) fn list_agent_provider_values(
 
 #[derive(Deserialize)]
 pub(crate) struct SpawnAgentBody {
-    /// Agent command to run (e.g. "claude", "aider", "goose"). Default: "claude"
+    /// Agent provider to run. Omitted resolves the configured General Agent.
     agent: Option<String>,
     /// Claude agent name from .claude/agents/ (e.g. "architect" → --agent architect)
     agent_name: Option<String>,
@@ -113,6 +115,8 @@ pub(crate) struct SpawnAgentBody {
     nudge_cooldown_secs: Option<u64>,
     max_actions_per_tick: Option<u32>,
     activate: Option<bool>,
+    #[serde(default)]
+    require_delivery_ack: bool,
     /// Audience for input-request notifications. `automation` declares a tab
     /// (bench/probe) whose prompts have no human owner and must never bell.
     #[serde(default)]
@@ -242,6 +246,7 @@ pub async fn spawn_agent(
         status: s,
         body: serde_json::json!({"ok": false, "error": {"code": "unauthorized", "message": m.to_string()}}),
     })?;
+    let require_delivery_ack = body.require_delivery_ack;
     let role_probe = validate_spawn_role(body.role.clone(), body.role_profile.clone()).map_err(
         |(s, m)| SpawnRejection {
             status: s,
@@ -302,11 +307,46 @@ pub async fn spawn_agent(
         structured_prompt_server: None,
     };
     let plan_task = params.plan_task.clone();
+    let (ready_tx, ready_rx) = if require_delivery_ack {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        (Some(tx), Some(rx))
+    } else {
+        (None, None)
+    };
     let result = state
         .svc
-        .spawn_agent(params, None)
+        .spawn_agent(params, ready_tx)
         .await
         .map_err(SpawnRejection::from)?;
+    if let Some(ready_rx) = ready_rx {
+        let delivery = await_spawn_delivery(ready_rx).await.and_then(|()| {
+            let mux = state.svc.mux.read();
+            let tab = mux
+                .get_tab(&result.tab_id)
+                .ok_or_else(|| "agent launch acknowledged after its Tab disappeared".to_string())?;
+            require_no_pending_delivery(
+                tab.pending_delivery
+                    .as_ref()
+                    .map(|pending| format!("{:?}", pending.state())),
+            )
+        });
+        if let Err(message) = delivery {
+            let _ = state.svc.close_tab_with_reason(
+                &result.tab_id,
+                crate::multiplexer::types::TabCloseReason::SpawnRollback,
+            );
+            return Err(SpawnRejection {
+                status: StatusCode::SERVICE_UNAVAILABLE,
+                body: serde_json::json!({
+                    "ok": false,
+                    "error": {
+                        "code": "delivery_failed",
+                        "message": message,
+                    },
+                }),
+            });
+        }
+    }
     let ack_warning = if let Some(task_ref) = plan_task.as_deref() {
         match state.svc.arm_bound_worker_ack_deadline_for_tab(
             &result.tab_id,
@@ -343,6 +383,9 @@ pub async fn spawn_agent(
         "role": result.role,
         "role_profile": result.role_profile,
     });
+    if require_delivery_ack {
+        resp["delivery_state"] = serde_json::json!("confirmed");
+    }
     if let Some(ref warning) = result.warning {
         resp["warning"] = serde_json::json!(warning);
     }
@@ -360,6 +403,28 @@ pub async fn spawn_agent(
         resp["budget_notice"] = serde_json::to_value(notice).unwrap_or_default();
     }
     Ok(Json(resp))
+}
+
+fn require_no_pending_delivery(state: Option<String>) -> Result<(), String> {
+    match state {
+        None => Ok(()),
+        Some(state) => Err(format!(
+            "agent launch ended without confirmed task delivery; pending state: {state}"
+        )),
+    }
+}
+
+async fn await_spawn_delivery(
+    ready_rx: tokio::sync::oneshot::Receiver<Result<(), String>>,
+) -> Result<(), String> {
+    match tokio::time::timeout(CONFIGURE_DELIVERY_DEADLINE, ready_rx).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(_)) => Err("agent launch ended without a delivery acknowledgement".into()),
+        Err(_) => Err(format!(
+            "agent launch did not acknowledge task delivery within {:?}",
+            CONFIGURE_DELIVERY_DEADLINE
+        )),
+    }
 }
 
 fn validate_spawn_role(
@@ -626,13 +691,23 @@ pub async fn submit_report(
             body.kind.as_deref(),
         )
         .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
-    Ok(Json(serde_json::json!({
+    let mut response = serde_json::json!({
         "ok": true,
         "accepted": true,
         "state": "recorded",
         "report_id": result.report_id,
         "target_tab_id": result.orchestrator_tab_id,
-    })))
+    });
+    if let Some((plan_id, stride_id)) = result.persisted_plan_evidence {
+        response["plan_report"] = serde_json::json!({
+            "persisted": true,
+            "plan_id": plan_id,
+            "stride_id": stride_id,
+            "task_id": serde_json::Value::Null,
+            "task_transition": false,
+        });
+    }
+    Ok(Json(response))
 }
 
 #[derive(Deserialize)]
@@ -983,15 +1058,56 @@ pub async fn complete_general_agent_first_run(
 }
 
 /// Web-mirror twin of `install_provider_in_tab`.
+#[derive(Default, serde::Deserialize)]
+pub struct InstallProviderQuery {
+    #[cfg(debug_assertions)]
+    fixture_dispatch_failure: Option<String>,
+}
+
 pub async fn install_provider_in_tab(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(provider_id): Path<String>,
+    Query(query): Query<InstallProviderQuery>,
 ) -> Result<Json<crate::commands::InstallTabResult>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    crate::commands::install_provider_in_tab_core(&state.svc, provider_id)
+    let svc = state.svc.clone();
+    tokio::task::spawn_blocking(move || install_provider_request(&svc, provider_id, query))
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("installer launch worker failed: {error}"),
+            )
+        })?
         .map(Json)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))
+}
+
+#[cfg(debug_assertions)]
+fn install_provider_request(
+    svc: &crate::service::ServiceState,
+    provider_id: String,
+    query: InstallProviderQuery,
+) -> Result<crate::commands::InstallTabResult, String> {
+    match query
+        .fixture_dispatch_failure
+        .filter(|value| !value.is_empty())
+    {
+        Some(failure) => {
+            crate::commands::install_provider_in_tab_with_fixture_failure(svc, provider_id, failure)
+        }
+        None => crate::commands::install_provider_in_tab_core(svc, provider_id),
+    }
+}
+
+#[cfg(not(debug_assertions))]
+fn install_provider_request(
+    svc: &crate::service::ServiceState,
+    provider_id: String,
+    _query: InstallProviderQuery,
+) -> Result<crate::commands::InstallTabResult, String> {
+    crate::commands::install_provider_in_tab_core(svc, provider_id)
 }
 
 #[cfg(test)]

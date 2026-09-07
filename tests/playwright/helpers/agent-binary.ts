@@ -17,9 +17,7 @@ export interface DiscoverOptions {
   exists?: (candidate: string) => boolean;
 }
 
-// PATHEXT is conventionally uppercase; installers write lowercase filenames. NTFS
-// reconciles the two, but per-directory case sensitivity (1803+), WSL and network
-// mounts do not — and this helper exists to stop discovery failing silently.
+// NTFS reconciles the two, but per-directory case sensitivity (1803+), WSL and network mounts do not — and this helper exists to stop discovery failing silently.
 function suffixCases(suffix: string): string[] {
   return [...new Set([suffix, suffix.toLowerCase(), suffix.toUpperCase()])];
 }

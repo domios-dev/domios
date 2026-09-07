@@ -1,10 +1,6 @@
 export const COMPOSER_DRAFT_PREFIX = "codeterm:composer-draft:";
 
-// Composer drafts persist under `${COMPOSER_DRAFT_PREFIX}${channel}:${tabId}`.
-// Every channel keys on the tab id, so a draft is orphaned the moment its tab
-// leaves the live mux. Drafts are only ever cleared on a successful send, never
-// on tab close — without this reclaim a reused/colliding tab id would inherit
-// a dead tab's unsent text.
+// Drafts are only ever cleared on a successful send, never on tab close — without this reclaim a reused/colliding tab id would inherit a dead tab's unsent text.
 const TAB_SCOPED_CHANNELS = ["tab-session-chat", "chat-view"] as const;
 
 type StorageLike = Pick<Storage, "length" | "key" | "getItem" | "removeItem">;

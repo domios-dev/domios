@@ -245,6 +245,9 @@ pub struct ChatStartResult {
     pub session_binding_nonce: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subscription_id: Option<String>,
+    /// The provider named no transcript source for this bound session, so
+    /// nothing is loading one: the chat view reports unavailable, never waits.
+    pub source_missing: bool,
 }
 
 fn tab_chat_authority(svc: &ServiceState, tab_id: &str) -> (Option<String>, Option<String>) {
@@ -319,6 +322,7 @@ pub fn chat_start_core(
             start_offset: 0,
             offset: 0,
             pending: false,
+            source_missing: false,
             messages: Some(prepend_pending_greeting(svc, &tab_id, messages)),
             cursor: None,
             source_session_id: initial_authority.0,
@@ -337,6 +341,7 @@ pub fn chat_start_core(
                     start_offset: 0,
                     offset: 0,
                     pending: true,
+                    source_missing: false,
                     messages: None,
                     cursor: None,
                     source_session_id: None,
@@ -354,6 +359,7 @@ pub fn chat_start_core(
                     start_offset: 0,
                     offset: 0,
                     pending: false,
+                    source_missing: false,
                     messages: Some(vec![crate::agent::chat_types::ChatMsg {
                         id: format!("greeting-{tab_id}"),
                         kind: "assistant".into(),
@@ -372,6 +378,7 @@ pub fn chat_start_core(
                 start_offset: 0,
                 offset: 0,
                 pending: true,
+                source_missing: false,
                 messages: None,
                 cursor: None,
                 source_session_id: None,
@@ -447,6 +454,7 @@ pub fn chat_start_core(
             start_offset: 0,
             offset: 0,
             pending: false,
+            source_missing: false,
             messages: Some(prepend_pending_greeting(svc, &tab_id, messages)),
             cursor,
             source_session_id: Some(session_id.clone()),
@@ -499,6 +507,7 @@ pub fn chat_start_core(
             start_offset: 0,
             offset: 0,
             pending: !archive_available,
+            source_missing: true,
             messages: archive_available.then_some(archived_messages),
             cursor: None,
             source_session_id: Some(session_id.clone()),
@@ -514,7 +523,13 @@ pub fn chat_start_core(
         &provider_id,
         &path,
     );
-    crate::service::tab_chat::session_window::log_bounded_snapshot(&tab_id, &provider_id, &snap);
+    // Scope carries the attach that asked, so a second bounded line in the log
+    // is decidable: a new subscription is a re-attach, a repeat is a double read.
+    crate::service::tab_chat::session_window::log_bounded_snapshot(
+        &format!("tab:{tab_id}/{subscription_id}"),
+        &provider_id,
+        &snap,
+    );
     let read_ms = read_started.elapsed().as_millis();
     // Resume at the parsed end, not the file size: a held-back partial record
     // must be consumed once by the tailer rather than skipped.
@@ -583,6 +598,7 @@ pub fn chat_start_core(
         text: String::new(),
         offset: tailer_start_offset,
         pending: false,
+        source_missing: false,
         messages: Some(prepend_pending_greeting(svc, &tab_id, messages)),
         cursor: None,
         source_session_id: Some(session_id),
@@ -619,6 +635,7 @@ pub fn session_transcript_core(
         start_offset: 0,
         offset: 0,
         pending: false,
+        source_missing: false,
         messages: Some(messages),
         cursor: None,
         source_session_id: Some(session_id),

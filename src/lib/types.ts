@@ -171,6 +171,7 @@ export interface Tab {
   session_binding_nonce?: string | null;
   agent_session_name?: string | null;
   agent_session_model?: string | null;
+  agent_label?: string | null;
   reasoning_effort_identity?: {
     planned?: string | null;
     requested?: string | null;
@@ -765,6 +766,9 @@ export interface ModelInfo {
   display_name: string;
   description?: string;
   available?: boolean | null;
+  // A probe that could not run reports "unknown" here instead of collapsing
+  // into `available: false`. See `lib/modelAvailability.ts`.
+  availability?: "available" | "unavailable" | "unknown" | null;
 }
 
 export interface ReasoningEffortInfo {
@@ -852,6 +856,8 @@ export type SettingField =
     }
   | { kind: "when"; field: string; equals: unknown; then: SettingField[] };
 
+export type ProviderAvailability = "available" | "unavailable" | "unknown";
+
 export interface ProviderDescriptor {
   schema_version: number;
   id: string;
@@ -912,6 +918,10 @@ export interface ProviderDescriptor {
   /// provider-owned hook-trust grant once per integration install, scoped to
   /// these managed key(s). Informational on the wire.
   integration_trust_grant?: { managedKeys: string[] } | null;
+  /// What enumeration observed about the launch binary on this machine.
+  /// Absent (older peer) means nothing was observed — read it as `unknown`,
+  /// never as the negative. Use `providerAvailability()` rather than this field.
+  availability?: ProviderAvailability;
 }
 
 /** Input for `createOrchestrationPair` — camelCase for ergonomic call sites;

@@ -70,9 +70,7 @@ impl PushChannel for DiscordChannel {
         if audience.is_empty() {
             return Err(format!("{SERVICE}: no explicit recipients configured"));
         }
-        // The one hop this build does not have. Handing the message to the
-        // service roster's queue is what a transport would make succeed; until
-        // then the refusal is the honest answer, not a swallowed send.
+        // Handing the message to the service roster's queue is what a transport would make succeed; until then the refusal is the honest answer, not a swallowed send.
         host.enqueue(
             SERVICE,
             OutboundMessage {

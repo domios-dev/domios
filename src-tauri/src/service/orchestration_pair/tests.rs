@@ -423,9 +423,7 @@ fn declared_leaf_and_every_non_leaf_are_never_refused() {
 
 #[test]
 fn leaf_caller_pair_creation_is_attributed_to_the_leaf_tab_itself() {
-    // A Manager/Worker tab that declares its intent must be the recorded
-    // creator — never an intermediary throwaway shell (the workaround #400
-    // reports today).
+    // The declared Manager or Worker must be the recorded creator, never an intermediary shell.
     let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let workspace_id = mux.list_workspaces()[0].id.clone();
     let leaf_tab_id = mux.create_tab(&workspace_id).unwrap();
@@ -504,9 +502,7 @@ fn general_agent_team_guard_refusal_carries_the_requested_pair_shape() {
 
 #[test]
 fn general_agent_team_guard_transports_forward_the_claimed_tab_to_the_guarded_service() {
-    // REST, socket and the Tauri command all deserialize this one struct
-    // before calling `create_orchestration_pair`, so none of them can drop
-    // the claimed tab and slip past the guard.
+    // REST, socket and the Tauri command all deserialize this one struct before calling `create_orchestration_pair`, so none of them can drop the claimed tab and slip past the guard.
     let body = serde_json::json!({
         "orchestrator_agent": "provider-alpha",
         "planner_agent": "provider-beta",
@@ -522,9 +518,7 @@ fn general_agent_team_guard_transports_forward_the_claimed_tab_to_the_guarded_se
 
 #[test]
 fn leaf_creation_acknowledged_defaults_false_for_every_existing_transport() {
-    // REST, socket and the Tauri command all deserialize this one struct, and
-    // none of them send the new field yet — a body without it must still gate
-    // a leaf caller, never silently opt it in.
+    // REST, socket and the Tauri command all deserialize this one struct, and none of them send the new field yet — a body without it must still gate a leaf caller, never silently opt it in.
     let body = serde_json::json!({
         "orchestrator_agent": "provider-alpha",
         "planner_agent": "provider-beta",

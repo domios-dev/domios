@@ -28,10 +28,7 @@ test("@smoke Team Rename persists with an unrelated focused tab", async ({ api, 
   if (!workspace) throw new Error("Team Rename fixture workspace was not created");
   const unrelated = await tabCleanup.createTab<{ id: string }>({ workspace_id: workspace.id, cwd: projectPath, title: "pw Team Rename unrelated" });
 
-  // A Team is minted by the TRANSITION into an anchoring role, not by spawning
-  // one: a spawn that already carries the role has nothing to transition. The
-  // Team stays plan-less on purpose, because once it owns a Plan the menu offers
-  // Open Plan instead of Rename - the Plan is what names it then.
+  // The Team stays plan-less on purpose, because once it owns a Plan the menu offers Open Plan instead of Rename - the Plan is what names it then.
   const managerId = await spawnBoundAgent(api, {
     workspace_id: workspace.id,
     cwd: projectPath,

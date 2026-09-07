@@ -219,9 +219,6 @@ fn stale_provider_update_mappings_are_pruned_when_their_record_is_evicted() {
         other => panic!("unexpected first admission: {other:?}"),
     };
 
-    // Unrelated notification traffic pushes the store past its cap, evicting
-    // the oldest record — the provider-update record itself — while its
-    // prompt-a -> id_a mapping is left dangling.
     store.add(
         "filler 1".into(),
         None,

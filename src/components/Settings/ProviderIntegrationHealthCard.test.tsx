@@ -129,7 +129,13 @@ async function testHealthyHookHasNoRepairAction() {
 
 async function testMissingStopHookIsDegraded() {
   await withInvoke(async () => (
-    { hooks_installed: false, precompact_hook: true, stop_hook: false, session_start_hook: true }
+    {
+      hooks_installed: false,
+      precompact_hook: true,
+      stop_hook: false,
+      session_start_hook: true,
+      repair_requires_consent: true,
+    }
   ), async () => {
     const { host, root } = await renderCard();
     await flush();
@@ -142,8 +148,16 @@ async function testMissingStopHookIsDegraded() {
       alert?.getAttribute("data-provider-integration-stale-hooks") === "stop",
       "the degraded surface must name the stop hook as the stale field",
     );
+    assert(
+      alert?.getAttribute("data-provider-integration-action-required") === "explicit-consent",
+      "checkIntegration's missing-stop state must reach the user-facing consent action",
+    );
     const repair = host.querySelector('[data-provider-integration-action="repair"]') as HTMLButtonElement | null;
     assert(repair && !repair.disabled, "a missing stop hook must expose an enabled repair control");
+    assert(
+      repair.getAttribute("data-provider-integration-consent") === "explicit",
+      "the only write path must remain the user's explicit repair action",
+    );
     await cleanup(root);
   });
 }

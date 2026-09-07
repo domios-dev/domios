@@ -9,9 +9,7 @@ const { headers: headersA1 } = apiBaseOf(configA);
 const { headers: headersA2 } = apiBaseOf(configA);
 assert(headersA1 === headersA2, "apiBaseOf must return the same headers reference for repeat calls with the same config object");
 
-// The real-world case: a parent re-render rebuilds `config` as a new object
-// every time, but the values (and therefore the resulting headers) are
-// unchanged — the identity must still hold so effect deps stop re-firing.
+// Stable config values must preserve header identity across parent renders so effect dependencies do not re-fire.
 const configA2: AppConfigShape = { api: { host: "127.0.0.1", port: 7686, token: "tok-a" } };
 const { headers: headersA3 } = apiBaseOf(configA2);
 assert(headersA1 === headersA3, "apiBaseOf must return the same headers reference for a structurally-equal but distinct config object");

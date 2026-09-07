@@ -251,12 +251,15 @@ pub(crate) fn normalize_tab_description(value: &str) -> Result<Option<String>, S
 }
 
 fn env_default(current: Option<String>, var: &str) -> Option<String> {
-    current.or_else(|| {
-        std::env::var(var)
-            .ok()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-    })
+    current
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            std::env::var(var)
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        })
 }
 
 fn missing_report_binding_incident(tab_id: &str) -> String {
@@ -280,6 +283,34 @@ fn print_report_notices(json: bool, val: &serde_json::Value) {
     }
 }
 
+/// The same three-state answer the picker renders, so a reader of either
+/// surface gets the same verdict. `unknown` means the probe could not run; only
+/// `unavailable` means the CLI answered no.
+pub const AVAILABILITY_UNAVAILABLE: &str = " (unavailable)";
+pub const AVAILABILITY_UNKNOWN: &str = " (availability unknown)";
+
+/// The provider row's own three-state marker, read off the SAME descriptor
+/// field the API serves and the UI picker consumes.
+fn provider_availability_marker(provider: &serde_json::Value) -> &'static str {
+    match provider.get("availability").and_then(|v| v.as_str()) {
+        Some("available") => "",
+        Some("unavailable") => AVAILABILITY_UNAVAILABLE,
+        _ => AVAILABILITY_UNKNOWN,
+    }
+}
+
+fn availability_marker(model: &serde_json::Value) -> &'static str {
+    match model.get("availability").and_then(|v| v.as_str()) {
+        Some("unavailable") => AVAILABILITY_UNAVAILABLE,
+        Some("unknown") => AVAILABILITY_UNKNOWN,
+        Some(_) => "",
+        None if model.get("available").and_then(|v| v.as_bool()) == Some(false) => {
+            AVAILABILITY_UNAVAILABLE
+        }
+        None => "",
+    }
+}
+
 fn format_agent_models(target: &serde_json::Value, provider: &str) -> String {
     let models = target.get("available_models").and_then(|v| v.as_array());
     let Some(models) = models else {
@@ -296,6 +327,7 @@ fn format_agent_models(target: &serde_json::Value, provider: &str) -> String {
             ""
         };
         let description = m.get("description").and_then(|v| v.as_str()).unwrap_or("");
+        let marker = format!("{marker}{}", availability_marker(m));
         if description.is_empty() {
             out.push_str(&format!("{:<10} {}{}\n", id, name, marker));
         } else {
@@ -383,8 +415,13 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                         .map(|a| a.len())
                         .unwrap_or(0);
                     println!(
-                        "{:<12} {:<6} {:<20} default={}  models={}",
-                        id, kind, name, default_model, models_count
+                        "{:<12} {:<6} {:<20} default={}  models={}{}",
+                        id,
+                        kind,
+                        name,
+                        default_model,
+                        models_count,
+                        provider_availability_marker(p)
                     );
                 }
             }

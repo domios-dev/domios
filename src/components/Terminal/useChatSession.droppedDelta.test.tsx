@@ -1,7 +1,4 @@
-// Run: npx tsx src/components/Terminal/useChatSession.droppedDelta.test.tsx
-// A dropped delta converges on the newest server tail with no user action and
-// no elapsed time, over a ranged (PTY/JSONL) and an unranged (chatBackend)
-// source through the same code path.
+// A dropped delta converges on the newest server tail with no user action and no elapsed time, over a ranged (PTY/JSONL) and an unranged (chatBackend) source through the same code path.
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";

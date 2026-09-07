@@ -48,6 +48,15 @@ fn env_default_uses_explicit_value_before_worker_env() {
 }
 
 #[test]
+fn env_default_treats_explicit_empty_identity_as_absent() {
+    std::env::remove_var("CODETERM_TEST_EMPTY_REPORT_DEFAULT");
+    assert_eq!(
+        env_default(Some("   ".into()), "CODETERM_TEST_EMPTY_REPORT_DEFAULT"),
+        None
+    );
+}
+
+#[test]
 fn print_report_notices_is_noop_in_json_mode() {
     // json=true should not print anything (we rely on the JSON output channel)
     let val = serde_json::json!({ "ok": true, "notices": ["stale plan"] });
@@ -349,4 +358,65 @@ fn agent_restart_failure_stays_an_error() {
         outcome.is_err(),
         "a daemon-reported failure must stay an Err"
     );
+}
+
+/// The CLI and the picker read one answer. A probe that could not run must
+/// reach both as unknown, and never as the negative that disables the row.
+#[test]
+fn agent_models_reports_unknown_apart_from_unavailable() {
+    let provider = serde_json::json!({
+        "id": "claude",
+        "default_model": "sonnet",
+        "available_models": [
+            { "id": "sonnet", "display_name": "Sonnet" },
+            { "id": "fable", "display_name": "Fable", "availability": "unknown" },
+            { "id": "legacy", "display_name": "Legacy", "available": false },
+        ]
+    });
+
+    let out = format_agent_models(&provider, "claude");
+    let line = |id: &str| {
+        out.lines()
+            .find(|line| line.starts_with(id))
+            .unwrap_or_default()
+            .to_string()
+    };
+
+    assert!(line("fable").ends_with(AVAILABILITY_UNKNOWN));
+    assert!(!line("fable").contains(AVAILABILITY_UNAVAILABLE));
+    assert!(line("legacy").ends_with(AVAILABILITY_UNAVAILABLE));
+    assert!(!line("sonnet").contains("availability"));
+}
+
+/// An explicit verdict from the provider wins over the legacy boolean, so the
+/// two fields cannot disagree on a surface.
+#[test]
+fn agent_models_prefers_the_explicit_availability_verdict() {
+    let provider = serde_json::json!({
+        "available_models": [
+            { "id": "m", "display_name": "M", "available": true, "availability": "unknown" },
+        ]
+    });
+    assert!(format_agent_models(&provider, "claude").contains(AVAILABILITY_UNKNOWN));
+}
+
+/// `agent providers` renders the descriptor field itself. Unknown gets its own
+/// marker; a row from a peer that never carried the field is unknown too,
+/// never the negative that would read as "this machine said no".
+#[test]
+fn agent_providers_renders_the_three_valued_descriptor_field() {
+    let rows: Vec<serde_json::Value> =
+        serde_json::from_str(include_str!("../../../fixtures/provider_availability.json")).unwrap();
+    let marker = |id: &str| {
+        provider_availability_marker(
+            rows.iter()
+                .find(|r| r["id"] == id)
+                .expect("fixture row present"),
+        )
+    };
+
+    assert_eq!(marker("fixture-available"), "");
+    assert_eq!(marker("fixture-unavailable"), AVAILABILITY_UNAVAILABLE);
+    assert_eq!(marker("fixture-unknown"), AVAILABILITY_UNKNOWN);
+    assert_eq!(marker("fixture-legacy"), AVAILABILITY_UNKNOWN);
 }

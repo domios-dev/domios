@@ -50,13 +50,7 @@ impl PlanStore {
                 existing_title,
             });
         }
-        // A bare/relative name is never resolvable here: `project_root` shells
-        // out to git with THIS path as `cwd`, and canonicalizing a relative
-        // path resolves it against the DAEMON's own process cwd, not the
-        // caller's checkout (codeterm#384). A name that happens to also exist
-        // as a directory under the CodeTerm data dir would then silently bind
-        // the plan to the wrong root instead of refusing. Only an absolute
-        // path names a real checkout unambiguously.
+        // Require absolute project paths because relative canonicalization uses the daemon cwd and can bind the wrong checkout.
         if !std::path::Path::new(&project_path).is_absolute() {
             return Err(PlanError::Io(format!(
                 "project path must be an absolute checkout path, got '{project_path}'; \

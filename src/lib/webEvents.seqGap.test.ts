@@ -1,7 +1,4 @@
-// Run: npx tsx src/lib/webEvents.seqGap.test.ts
-// A silent seq discontinuity is a contract violation. The client must
-// self-heal AND stay loud about it, so a daemon regression cannot hide behind
-// the recovery. Real frames are fed through the real module.
+// The client must self-heal AND stay loud about it, so a daemon regression cannot hide behind the recovery.
 
 // A test file with no top-level `import`/`export` is a global SCRIPT to TS,
 // so its helpers collide with every sibling script's helpers. Keep this.

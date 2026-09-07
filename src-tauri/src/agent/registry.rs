@@ -315,18 +315,29 @@ impl AgentRegistry {
         self.providers.read().keys().cloned().collect()
     }
 
-    /// Snapshot every registered provider as a `ProviderDescriptor` —
-    /// the wire format the frontend reads via `dispatch::Command::ListAgentProviders`.
+    /// Snapshot every registered provider as a `ProviderDescriptor` — the wire
+    /// format the frontend reads via `dispatch::Command::ListAgentProviders`.
     ///
-    /// Iterates the existing provider map; no separate descriptor cache.
-    /// Each `provider.describe()` is documented as pure/cheap, so the
-    /// read lock is held only for the iteration and dropped before any
-    /// caller serializes the result.
+    /// Registration says a provider exists; only the launch-binary probe says
+    /// it can run here, so enumeration observes it. `describe()` is pure/cheap
+    /// by contract, so the read lock covers only the iteration and the probe
+    /// runs after it is dropped.
     pub fn list_descriptors(&self) -> Vec<crate::agent::provider::ProviderDescriptor> {
         let guard = self.providers.read();
-        let out: Vec<_> = guard.values().map(|p| p.describe()).collect();
+        let described: Vec<_> = guard
+            .values()
+            .map(|p| (p.describe(), p.binary_name().to_string()))
+            .collect();
         drop(guard);
-        out
+        described
+            .into_iter()
+            .map(|(mut descriptor, launch_binary)| {
+                descriptor.availability =
+                    crate::agent::provider::observe_launch_binary(Some(&launch_binary))
+                        .availability;
+                descriptor
+            })
+            .collect()
     }
 
     /// Locate a session by id across all registered providers. Returns the
@@ -597,6 +608,7 @@ mod tests {
                     display_name: "Phantom Model".into(),
                     description: None,
                     available: None,
+                    availability: None,
                 }],
                 default: Some("phantom-model".into()),
             },
@@ -608,6 +620,7 @@ mod tests {
                 display_name: "Cache Model".into(),
                 description: None,
                 available: None,
+                availability: None,
             }],
             Some("cache-model".into()),
         );

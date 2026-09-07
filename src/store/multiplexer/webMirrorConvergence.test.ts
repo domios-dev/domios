@@ -1,7 +1,4 @@
-// Run: npx tsx src/store/multiplexer/webMirrorConvergence.test.ts
-// Convergence oracle for the web mirror: given a RECORDED sequence of tab
-// switches and event deltas including an overflow, the store must end equal to
-// the daemon snapshot. The sequence is data, so nothing here depends on timing.
+// The recorded sequence makes convergence deterministic and independent of timing.
 
 import { reducer, type Action } from "./reducer";
 import type { ExtendedState } from "./tree";
@@ -148,9 +145,7 @@ for (const [name, deliver] of [
 }
 
 test("peer-sourced events converge after a peer switch", () => {
-  // A peer's generation counter is its own and may start far below the origin
-  // the store was last showing. RESET_PEER_CONTEXT is what makes the peer's
-  // first snapshot adoptable; convergence must then hold as it does locally.
+  // RESET_PEER_CONTEXT is what makes the peer's first snapshot adoptable; convergence must then hold as it does locally.
   let store = base();
   store = reducer(store, { type: "SET_STATE", state: daemonSnapshot(9_000, 8, 2) });
   assert(store.generation === 9_000, "precondition: local origin snapshot adopted");

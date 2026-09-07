@@ -41,7 +41,8 @@ import { useChatScroll } from "./useChatScroll";
 import { resolveTabNavigationTarget } from "./tabNavigation";
 import { useMeshPeerNameResolver } from "./useMeshPeerNameResolver";
 import { useAgentReportProjection } from "./agentReportProjection";
-import { messageTimeMs, normalizeEpochMs, placeOutboundReports } from "./outboundReportPlacement";
+import { chatBodyView, chatRailsVisible, placeChatRails } from "./chatBodyVisibility";
+import { messageTimeMs, normalizeEpochMs } from "./outboundReportPlacement";
 import { ChatAskCard } from "../Notifications/ChatAskCard";
 import { useSessionBindingSurface } from "./useSessionBindingSurface";
 import { SessionBindingRecoveryForm } from "./SessionBindingRecoveryForm";
@@ -165,6 +166,7 @@ export function TabSessionChat({
     recovering,
     error,
     attachmentState,
+    transcriptUnavailable,
     enrichedMessages,
     hiddenMessageCount,
     canBackfillOlder,
@@ -192,11 +194,12 @@ export function TabSessionChat({
   const remoteChatReconnecting = tab?.remote_channels?.chat === "reconnecting";
   const chatChannelLoading = loading || recovering || (!hasTranscript && remoteChatReconnecting);
   const chatLoading = chatChannelLoading || error != null;
-  const setupView = hasTranscript
-    ? { kind: "none" } as const
-    : chatLoading
-      ? { kind: "starting", label: "Starting" } as const
-      : bootSetupView;
+  const setupView = chatBodyView({
+    hasTranscript,
+    chatLoading,
+    unavailable: transcriptUnavailable,
+    bootView: bootSetupView,
+  });
 
   const {
     scrollRef,
@@ -407,21 +410,18 @@ export function TabSessionChat({
     );
   };
   const renderedEnrichedMessages = enrichedMessages;
-  const reportPlacement = useMemo(
-    () => placeOutboundReports(
-      renderedEnrichedMessages,
-      ({ msg }) => messageTimeMs(msg.timestamp),
-      outboundReports.map((report) => report.at),
-    ),
-    [renderedEnrichedMessages, outboundReports],
-  );
-  const askPlacement = useMemo(
-    () => placeOutboundReports(
-      renderedEnrichedMessages,
-      ({ msg }) => messageTimeMs(msg.timestamp),
-      asks.map((ask) => normalizeEpochMs(ask.timestamp)),
-    ),
-    [renderedEnrichedMessages, asks],
+  // The rails are content, so they answer to the same authority the setup view
+  // does: a body that still owns a loading or failed state emits no rail rows.
+  const railsVisible = chatRailsVisible(setupView);
+  const { reports: reportPlacement, asks: askPlacement } = useMemo(
+    () => placeChatRails({
+      visible: railsVisible,
+      messages: renderedEnrichedMessages,
+      messageTimeMs: ({ msg }) => messageTimeMs(msg.timestamp),
+      reportTimes: outboundReports.map((report) => report.at),
+      askTimes: asks.map((ask) => normalizeEpochMs(ask.timestamp)),
+    }),
+    [asks, outboundReports, railsVisible, renderedEnrichedMessages],
   );
   const deferredPlanRefMessages = useDeferredValue(enrichedMessages);
   // Record the visible tail after paint so diagnostics do not overstate progress
@@ -585,6 +585,7 @@ export function TabSessionChat({
   }, [chatBacking, effectiveChatBackend]);
 
   const statusRowState: AgentState = useMemo(() => {
+    if (transcriptUnavailable) return { state: "idle", status_line: "Chat transcript unavailable" };
     if (error) return { state: "idle", status_line: "Chat unavailable" };
     if (chatChannelLoading) return { state: "working", status_line: "Loading chat…" };
     if (!hasTranscript && bootSetupView.kind === "starting") {
@@ -600,7 +601,7 @@ export function TabSessionChat({
       return sessionBindingSurface.agentState;
     }
     return liveAgentState;
-  }, [bootSetupView.kind, chatChannelLoading, error, hasTranscript, liveAgentState, provider?.displayName, sessionBindingSurface.agentState, tab]);
+  }, [bootSetupView.kind, chatChannelLoading, error, hasTranscript, liveAgentState, provider?.displayName, sessionBindingSurface.agentState, tab, transcriptUnavailable]);
   const showEmptyState = setupView.kind === "none"
     && !chatLoading
     && renderedEnrichedMessages.length === 0
@@ -615,7 +616,7 @@ export function TabSessionChat({
       data-tab-id={tabId}
       role="region"
       aria-label={`Tab chat: ${tab?.title ?? tabId}`}
-      aria-busy={chatChannelLoading}
+      aria-busy={chatChannelLoading && setupView.kind !== "failed"}
       style={{
         background: "var(--ct-bg, #0d1117)",
         color: "var(--ct-fg, #c9d1d9)",

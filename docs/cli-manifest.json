@@ -409,7 +409,7 @@
         },
         {
           "name": "restart",
-          "about": "Restart agent (graceful exit; resumes only when the tab has a valid provider session)",
+          "about": "Restart an observed live agent; an exited provider requires a fresh spawn",
           "aliases": [],
           "args": [
             {
@@ -807,7 +807,7 @@
         },
         {
           "name": "unlink",
-          "about": "Remove a tab's role (also orphans children)",
+          "about": "Remove a tab's role. A final Orchestrator leaves its Team and Plan recoverable",
           "aliases": [],
           "args": [
             {
@@ -8647,6 +8647,47 @@
                   "positional": true,
                   "required": true,
                   "value_name": "TASK_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "authorize-reporter",
+              "about": "Authorize one task-less tab to append plan-level review or canonical-QA evidence",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "class",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "CLASS",
+                  "possible_values": [
+                    "review",
+                    "canonical_qa"
+                  ],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "PLAN_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "reporter_tab_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "REPORTER_TAB_ID",
                   "possible_values": [],
                   "default": null,
                   "help": null,

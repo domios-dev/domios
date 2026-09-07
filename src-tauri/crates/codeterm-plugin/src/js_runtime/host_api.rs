@@ -167,6 +167,18 @@ impl PluginSandbox {
         &self.plugin_id
     }
 
+    /// Where `host.writeTempFile` scratches to: the bare system temp dir for
+    /// an unrestricted plugin, the plugin's own scoped subdir when confined —
+    /// matching the same grant `confined_roots` hands out, so a confined
+    /// plugin's writes always land inside its own write root.
+    pub(super) fn temp_dir(&self) -> PathBuf {
+        if self.unrestricted || self.plugin_id.is_empty() {
+            std::env::temp_dir()
+        } else {
+            super::loader::plugin_temp_dir(&self.plugin_id)
+        }
+    }
+
     /// How many sandbox capabilities this plugin has been denied so far. Read
     /// before and after a plugin call: a rise means the call failed because the
     /// plugin is confined, not because its data source is down.
@@ -518,10 +530,11 @@ pub(super) fn install(
      -> String {
         shell_env_prefix(&name, &value, &platform)
     });
-    bind!("writeTempFile", |contents: String,
-                            suffix: Option<String>|
-     -> Option<String> {
-        write_temp_file(&contents, suffix.as_deref())
+    let sb = sandbox.clone();
+    bind!("writeTempFile", move |contents: String,
+                                 suffix: Option<String>|
+          -> Option<String> {
+        write_temp_file(&sb.temp_dir(), &contents, suffix.as_deref())
     });
     bind!("toolcallParse", |raw_text: String,
                             schema_json: String|
@@ -884,9 +897,9 @@ fn powershell_quote(s: &str) -> String {
     out
 }
 
-fn write_temp_file(contents: &str, suffix: Option<&str>) -> Option<String> {
+fn write_temp_file(dir: &Path, contents: &str, suffix: Option<&str>) -> Option<String> {
     use std::io::Write;
-    let dir = std::env::temp_dir();
+    std::fs::create_dir_all(dir).ok()?;
     let suffix = suffix.unwrap_or("");
     let name = format!(
         "codeterm-plugin-{}{}",

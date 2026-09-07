@@ -710,4 +710,26 @@ mod review_ref_forwarding {
             }
         }
     }
+
+    #[test]
+    fn authorize_reporter_forwards_the_capability_target_and_class() {
+        let mut client = Recorder::default();
+        crate::cmd::plan::review_cmd::handle(
+            &mut client,
+            true,
+            PlanReviewAction::AuthorizeReporter {
+                plan_id: "pl_opaque".into(),
+                reporter_tab_id: "tab_opaque".into(),
+                class: "canonical_qa".into(),
+            },
+        )
+        .unwrap();
+
+        let (method, params) = &client.calls[0];
+        let params = params.as_ref().unwrap();
+        assert_eq!(method, "plan.review.authorize-reporter");
+        assert_eq!(params["plan_id"], "pl_opaque");
+        assert_eq!(params["reporter_tab_id"], "tab_opaque");
+        assert_eq!(params["class"], "canonical_qa");
+    }
 }

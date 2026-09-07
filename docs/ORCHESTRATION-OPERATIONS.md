@@ -65,6 +65,27 @@ During lane iteration, use source inspection and non-executable static review.
 After real merge, run focused checks in canonical, then run the actual user-layer
 oracle once at final integration or release verification.
 
+The two tiers are not interchangeable, and the cheap one is mandatory:
+
+- A **focused check** proves one change. Every accepted lane and every repair
+  gets one, scoped to what it actually touched — one test module, one type
+  check, one file's lint. It is the first executable thing that runs after a
+  merge, and it is never skipped on the grounds that a broader gate is coming.
+- A **broad or canonical gate** proves a release. It runs on the release SHA,
+  once, immediately before cutting. It is not a per-merge step, and it is never
+  a repair's first executable check: re-running a fifteen-minute matrix to prove
+  a duplicate import or a one-line type fix costs a full slot to learn what the
+  focused check answers in seconds.
+
+A peer protocol may serialize a shared machine resource — one Docker lease, one
+database, one build slot. It may not forbid the focused checks that keep the
+broad gate down to a single run; a protocol that makes the full gate the first
+executable check on a merge has inverted the two tiers and turns every trivial
+defect into a full run.
+
+Reaching a second broad-gate run with no release between them is the signal that
+this has happened. Stop and record why before starting a third.
+
 The final verification covers the layer where the user experienced the defect:
 
 - inspect the actual diff;
@@ -154,4 +175,4 @@ An effort is complete only when:
 - the final handoff or retrospective is recorded;
 - the plan is archived.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->

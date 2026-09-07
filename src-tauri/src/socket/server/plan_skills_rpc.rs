@@ -402,10 +402,7 @@ mod tests {
         .unwrap();
         assert_eq!(shown["skill"]["ledger"].as_array().unwrap().len(), 1);
 
-        // A genuine refusal on the plan-skill read verbs must carry the same
-        // machine-readable exit signal every other plan RPC carries — never
-        // downgraded to a bare, uncoded failure — codeterm#397's exit-code
-        // requirement extended to these read verbs.
+        // Plan-skill refusals must retain the machine-readable exit signal used by other plan RPCs.
         let unknown = rpc(
             &store,
             "plan.skills.list",

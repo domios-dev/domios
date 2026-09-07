@@ -1,8 +1,4 @@
-// Run: npm run test:unit -- tone_axis
-//
-// Each level paints from its own existing product token, asserted through the
-// token reference rather than a literal colour, so a theme change moves the
-// notification surfaces with everything else.
+// Use the existing product token rather than a literal color so theme changes propagate.
 import type { Notification } from "../../lib/types";
 import { levelTone } from "../../lib/notifyLevels";
 import {

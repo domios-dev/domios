@@ -121,10 +121,7 @@ pub(super) fn await_agent_ready(
     ) {
         Ok(Ok(Ok(()))) => Ok(()),
         Ok(Ok(Err(error))) => Err(DispatchWaitFailure::Definitive(error)),
-        // The sender drops without a signal when a newer launch generation
-        // supersedes this one (see LaunchGeneration::emit); the worker may
-        // still be coming up under that generation, so this is absent
-        // evidence, not proof of failure.
+        // A dropped sender only means a newer generation superseded it; the worker may still be starting, so it is not failure evidence.
         Ok(Err(_)) => Err(DispatchWaitFailure::Uncertain(
             "agent readiness channel closed".into(),
         )),

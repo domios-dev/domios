@@ -491,9 +491,7 @@ pub fn create_plan_skill(
     })
 }
 
-// Human/audit surface: every skill ever committed to the ledger stays
-// listed, carrying its real current verdict — a discard/supersede is a
-// recorded state change, not an erasure of the skill from the roster.
+// The ledger keeps every committed skill with its current verdict so superseding one does not erase its history.
 pub fn list_plan_skills(
     store: &PlanStore,
     plan_id: &str,
@@ -913,10 +911,7 @@ mod tests {
         .unwrap();
         drop(ledger);
 
-        // `list_plan_skills` is the audit surface: a written skill stays on
-        // the roster with its true verdict, never erased by a later verdict
-        // change. The AI-context manifest (heartbeat/prompt injection) is a
-        // different, deliberately keep-only view and stays empty here.
+        // The AI-context manifest (heartbeat/prompt injection) is a different, deliberately keep-only view and stays empty here.
         let listed = list_plan_skills(&store, &plan.id).unwrap();
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].slug, "external-state");

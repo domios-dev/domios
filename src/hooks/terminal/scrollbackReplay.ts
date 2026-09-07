@@ -6,9 +6,7 @@ export interface ScrollbackReplayGate {
   isDisposed: () => boolean;
 }
 
-// Sidecar replay owns exactly the restart gap: a restored local tab with no
-// live PTY yet. Live-buffer replay (ptyId set) and web/remote transports keep
-// their existing ownership.
+// Sidecar replay owns exactly the restart gap: a restored local tab with no live PTY yet.
 export function shouldReplayScrollbackSidecar(
   ptyId: string | null | undefined,
   isWeb: boolean,

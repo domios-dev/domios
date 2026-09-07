@@ -50,9 +50,7 @@ export function terminalFallbackData(e: FallbackKeyEvent): string {
   if (e.key === "End") return "\x1b[F";
   if (e.key === "Delete") return "\x1b[3~";
 
-  // Keep Linux IME/composition text on xterm's helper textarea path. Sending
-  // non-ASCII keydown text here can leak every intermediate composition update
-  // into the PTY, which looks like duplicated/progressively repeated input.
+  // Keep composition text on xterm's helper textarea because forwarding intermediate non-ASCII keydowns duplicates input in the PTY.
   if (e.key.length === 1 && e.key.charCodeAt(0) >= 0x20 && e.key.charCodeAt(0) <= 0x7e) return e.key;
 
   return "";

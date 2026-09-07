@@ -38,6 +38,7 @@ fn provider_descriptor_round_trip() {
                 display_name: "Model One".into(),
                 description: Some("first model".into()),
                 available: None,
+                availability: None,
             }],
             default_model: Some("model-1".into()),
             reasoning_efforts: vec![ReasoningEffortInfo {
@@ -128,6 +129,7 @@ fn provider_descriptor_round_trip() {
             }],
             system_prompt_delivery: SystemPromptDelivery::CliFlag("--system".into()),
             context_owner: ContextOwner::Host,
+            availability: ProviderAvailability::Unknown,
         };
 
     let json = serde_json::to_string(&original).expect("serialize");
@@ -285,15 +287,37 @@ impl AgentProvider for StubProvider {
                 display_name: "Offered".into(),
                 description: None,
                 available: Some(true),
+                availability: None,
             },
             ModelInfo {
                 id: "unsupported".into(),
                 display_name: "Unsupported".into(),
                 description: None,
                 available: Some(false),
+                availability: None,
             },
         ]
     }
+}
+
+/// `describe()` is contractually I/O-free and runs under the registry read
+/// lock, so it must not claim an observation nobody made.
+#[test]
+fn describe_leaves_availability_unknown_for_enumeration_to_observe() {
+    assert_eq!(
+        StubProvider.describe().availability,
+        ProviderAvailability::Unknown
+    );
+}
+
+/// The existing parser hook is also the launch capability boundary.
+#[test]
+fn launch_binary_observation_uses_the_binary_name_hook() {
+    assert_eq!(StubProvider.binary_name(), "stub");
+    assert_ne!(
+        StubProvider.observe_launch_binary().availability,
+        ProviderAvailability::Available
+    );
 }
 
 #[test]

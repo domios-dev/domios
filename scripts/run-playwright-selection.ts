@@ -287,8 +287,6 @@ export async function main(args: string[]): Promise<void> {
     runFailure = error;
   }
 
-  // The count oracle runs even when the suite went red: a short count and a
-  // failing test are different defects, and collapsing them hides the first.
   // A missing report must never mask the run's own error, which explains it.
   const runReport = readIfPresent(runPath);
   if (runReport === null && runFailure) throw runFailure;

@@ -1,4 +1,5 @@
 import type { ProviderDescriptor } from "../../lib/types";
+import { isProviderSelectable, providerAvailability } from "../../lib/providerAvailability";
 import { PREFERRED_GENERAL_PROVIDER_ID } from "./constants";
 
 export function generalAgentProviders(
@@ -11,32 +12,15 @@ export function providerRequiresCli(provider: ProviderDescriptor): boolean {
   return Boolean(provider.cli_binary);
 }
 
-export function isProviderInstalled(
-  provider: ProviderDescriptor,
-  installedByBinary: Record<string, boolean>,
-): boolean {
-  if (!providerRequiresCli(provider)) return true;
-  const binary = provider.cli_binary;
-  if (!binary) return true;
-  return installedByBinary[binary] === true;
+export { isProviderSelectable, providerAvailability };
+
+export function hasAnySelectableProvider(providers: ProviderDescriptor[]): boolean {
+  return providers.some(isProviderSelectable);
 }
 
-export function hasAnyInstalledProvider(
-  providers: ProviderDescriptor[],
-  installedByBinary: Record<string, boolean>,
-): boolean {
-  return providers.some((p) => isProviderInstalled(p, installedByBinary));
-}
-
-/** Claude when installed, else first installed in descriptor order, else null. */
-export function preselectProviderId(
-  providers: ProviderDescriptor[],
-  installedByBinary: Record<string, boolean>,
-): string | null {
+/** Claude when it can launch, else the first that can, else null. */
+export function preselectProviderId(providers: ProviderDescriptor[]): string | null {
   const preferred = providers.find((p) => p.id === PREFERRED_GENERAL_PROVIDER_ID);
-  if (preferred && isProviderInstalled(preferred, installedByBinary)) {
-    return preferred.id;
-  }
-  const firstInstalled = providers.find((p) => isProviderInstalled(p, installedByBinary));
-  return firstInstalled?.id ?? null;
+  if (preferred && isProviderSelectable(preferred)) return preferred.id;
+  return providers.find(isProviderSelectable)?.id ?? null;
 }
