@@ -53,7 +53,10 @@ async function observe(event) {
       return { tab_id: selectedTab, pty_id: selectedPty, absent: true };
     }
   }
-  if (mode === "install-rollback" && event.event_type === "provider-install-fixture-dispatch-refused" && data.tab_id === selectedTab) selectedPty = data.pty_id;
+  if (mode === "install-rollback" && event.event_type === "provider-install-fixture-dispatch-refused" && data.tab_id === selectedTab) {
+    selectedPty = data.pty_id;
+    return { tab_id: selectedTab, pty_id: selectedPty };
+  }
   return null;
 }
 
