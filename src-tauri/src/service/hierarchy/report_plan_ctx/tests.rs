@@ -1092,7 +1092,7 @@ fn evidence_grant_is_plan_scoped_and_cannot_write_a_foreign_plan() {
         h.fx.temp.path().display().to_string(),
         OrchestratorRef::from_tab(&h.root),
     );
-    foreign.team_id = Some("team-evidence".into());
+    foreign.team_id = Some("team-foreign-evidence".into());
     h.fx.service.plan_store.save(&mut foreign, 20).unwrap();
     let token = "foreign-plan-refused-2f5ec639";
     let original_before = h.plan().strides;
