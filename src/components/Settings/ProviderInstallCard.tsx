@@ -4,10 +4,7 @@ import type { ProviderDescriptor } from "../../lib/types";
 import { Button } from "../shared/Button";
 import { Card } from "../shared/Card";
 import { Chip } from "../shared/Chip";
-
-interface InstallTabResult {
-  tab_id: string;
-}
+import { launchProviderInstaller } from "../../lib/providerInstall";
 
 type Status = "checking" | "installed" | "missing";
 
@@ -41,9 +38,9 @@ export function ProviderInstallCard({ provider }: { provider: ProviderDescriptor
     setBusy(true);
     setError(null);
     try {
-      await invoke<InstallTabResult>("install_provider_in_tab", { providerId: provider.id });
+      await launchProviderInstaller(provider.id);
     } catch (e) {
-      setError(typeof e === "string" ? e : "Install failed");
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }

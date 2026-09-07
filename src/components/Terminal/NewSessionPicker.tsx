@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { invoke } from "../../lib/bridge";
 import { IS_WEB } from "../../lib/webApi";
+import { launchProviderInstaller } from "../../lib/providerInstall";
 import type { AppConfig } from "../../lib/types";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { useMultiplexer, useMuxState } from "../../store/multiplexer";
@@ -119,10 +119,7 @@ export function NewSessionPicker({
   const handleInstallProvider = useCallback((providerId: string) => {
     void (async () => {
       try {
-        const res = await invoke<{ tab_id: string }>(
-          "install_provider_in_tab",
-          { providerId },
-        );
+        const res = await launchProviderInstaller(providerId);
         const wsId = state.active_workspace_id;
         if (wsId && res?.tab_id) await selectTabByTab(wsId, res.tab_id).catch(() => {});
         addNotification({
