@@ -16,8 +16,10 @@ OWNER_SESSION="owner-session-91f0c4"
 OWNER_NONCE=""
 EVENT_PID=""
 TMP_DIR="$(mktemp -d)"
+JSON="$ROOT/evals/plan-authorized-reporting/json.mjs"
 
 cleanup() {
+  local status=$?
   [ -z "$EVENT_PID" ] || kill "$EVENT_PID" >/dev/null 2>&1 || true
   if [ -n "$PLAN_ID" ] && [ -n "$OWNER_TAB" ] && [ -n "$OWNER_NONCE" ]; then
     CODETERM_SESSION_ID="$OWNER_SESSION" CODETERM_SESSION_BINDING_NONCE="$OWNER_NONCE" \
@@ -25,6 +27,8 @@ cleanup() {
   fi
   [ -z "$WORKSPACE_ID" ] || dc workspace close "$WORKSPACE_ID" >/dev/null 2>&1 || true
   rm -rf "$TMP_DIR"
+  trap - EXIT
+  exit "$status"
 }
 trap cleanup EXIT
 
@@ -35,26 +39,24 @@ capture_json() {
 }
 
 tab_id_from_create() {
-  jq -r '.tab_id // .id // empty'
+  node "$JSON" tab-id
 }
 
 plan_id_from_create() {
-  jq -r '.plan.id // .id // empty'
+  node "$JSON" plan-id
 }
 
 tab_nonce() {
-  jq -r 'if type == "array" then .[0] else (.tabs[0]? // .) end | .session_binding_nonce // empty'
+  node "$JSON" tab-nonce
 }
 
 bind_tab() {
   local tab_id="$1" session_id="$2" nonce body response
   nonce="$(capture_json dc tab inspect --tab "$tab_id" --json | tab_nonce)"
   [ -n "$nonce" ] || { echo "FAIL fixture_binding: missing nonce for $tab_id"; exit 1; }
-  body="$(jq -nc --arg session "$session_id" --arg nonce "$nonce" \
-    '{session_id:$session,binding_nonce:$nonce,source:"plan-authorized-reporting"}')"
+  body="$(node "$JSON" session-body "$session_id" "$nonce" </dev/null)"
   response="$(dev_post "/api/tabs/$tab_id/hook/session_start" "$body")"
-  jq -e --arg session "$session_id" '.ok == true and .session_id == $session' \
-    >/dev/null <<<"$response"
+  node "$JSON" bind-ok "$session_id" <<<"$response"
   printf '%s\n' "$nonce"
 }
 
@@ -72,9 +74,8 @@ plan_json() {
 
 token_absent_everywhere() {
   local token="$1"
-  ! plan_json | jq -e --arg token "$token" '.. | strings | select(. == $token)' >/dev/null
-  ! dev_get "/api/tabs/$OWNER_TAB/reports" | jq -e --arg token "$token" \
-    '.[] | select(.message == $token)' >/dev/null
+  plan_json | node "$JSON" token-absent "$token"
+  dev_get "/api/tabs/$OWNER_TAB/reports" | node "$JSON" report-token-absent "$token"
 }
 
 start_report_subscription() {
@@ -93,12 +94,12 @@ start_report_subscription() {
 finish_report_subscription() {
   wait "$EVENT_PID"
   EVENT_PID=""
-  jq -e '.event_type == "agent-report"' "$TMP_DIR/event.json" >/dev/null
+  node "$JSON" event-type <"$TMP_DIR/event.json"
 }
 
 assert_refused() {
   local label="$1" tab="$2" session="$3" nonce="$4" token="$5" before after output rc
-  before="$(plan_json | jq -c '{strides:(.plan.strides // .strides // []),tasks:[(.plan.tasks // .tasks // [])[] | {id,status,assigned_tab_id,milestones}]}')"
+  before="$(plan_json | node "$JSON" plan-snapshot)"
   set +e
   output="$(
     unset CODETERM_PLAN_ID CODETERM_TASK_ID
@@ -109,14 +110,14 @@ assert_refused() {
   set -e
   [ "$rc" -ne 0 ] || { echo "FAIL $label: report accepted"; exit 1; }
   [ -n "$output" ] || { echo "FAIL $label: refusal had no actionable output"; exit 1; }
-  after="$(plan_json | jq -c '{strides:(.plan.strides // .strides // []),tasks:[(.plan.tasks // .tasks // [])[] | {id,status,assigned_tab_id,milestones}]}')"
+  after="$(plan_json | node "$JSON" plan-snapshot)"
   [ "$before" = "$after" ] || { echo "FAIL $label: plan evidence or task state changed"; exit 1; }
   token_absent_everywhere "$token" || { echo "FAIL $label: token persisted or delivered"; exit 1; }
   echo "PASS $label"
 }
 
 dev_get /api/health >/dev/null
-WORKSPACE_ID="$(capture_json dc workspace create "plan-authorized-reporting" --cwd "$ROOT" --json | jq -r '.id')"
+WORKSPACE_ID="$(capture_json dc workspace create "plan-authorized-reporting" --cwd "$ROOT" --json | node "$JSON" tab-id)"
 [ -n "$WORKSPACE_ID" ] || { echo "FAIL fixture_workspace"; exit 1; }
 
 OWNER_TAB="$(new_tab "reporting-owner")"
@@ -155,10 +156,10 @@ TASK_ID="$(
       --name "task-bound misuse sentinel" --executor-role "oracle-worker" \
       --role-guidance "opaque-fixture-7ea61b" --criterion "opaque-criterion-c1fb35" \
       --test-plan "opaque-test-5e4d29" --assign-tab "$BOUND_TAB" --json |
-    jq -r '.task.id // .id // empty'
+    node "$JSON" task-id
 )"
 [ -n "$TASK_ID" ] || { echo "FAIL fixture_task"; exit 1; }
-TASK_BEFORE="$(plan_json | jq -c --arg task "$TASK_ID" '(.plan.tasks // .tasks // [])[] | select(.id == $task) | {status,assigned_tab_id,milestones}')"
+TASK_BEFORE="$(plan_json | node "$JSON" task-snapshot "$TASK_ID")"
 
 ACCEPTED_TOKEN="qa-evidence-4c95a037"
 start_report_subscription "$ACCEPTED_TOKEN"
@@ -168,15 +169,10 @@ ACCEPTED="$(
     dc --as-tab "$QA_TAB" agent report "$ACCEPTED_TOKEN" --plan "$PLAN_ID" --json
 )"
 finish_report_subscription
-jq -e --arg plan "$PLAN_ID" \
-  '.accepted == true and .plan_report.persisted == true and .plan_report.plan_id == $plan and .plan_report.task_id == null and .plan_report.task_transition == false' \
-  >/dev/null <<<"$ACCEPTED"
-plan_json | jq -e --arg token "$ACCEPTED_TOKEN" \
-  '(.plan.strides // .strides) | any(.kind == "plan_evidence_report" and .text == $token and .from.tab_id != null)' \
-  >/dev/null
-dev_get "/api/tabs/$OWNER_TAB/reports" | jq -e --arg token "$ACCEPTED_TOKEN" \
-  'any(.message == $token and .task_id == null and .status == null)' >/dev/null
-TASK_AFTER="$(plan_json | jq -c --arg task "$TASK_ID" '(.plan.tasks // .tasks // [])[] | select(.id == $task) | {status,assigned_tab_id,milestones}')"
+node "$JSON" accepted-response "$PLAN_ID" <<<"$ACCEPTED"
+plan_json | node "$JSON" plan-evidence "$ACCEPTED_TOKEN"
+dev_get "/api/tabs/$OWNER_TAB/reports" | node "$JSON" owner-report "$ACCEPTED_TOKEN"
+TASK_AFTER="$(plan_json | node "$JSON" task-snapshot "$TASK_ID")"
 [ "$TASK_BEFORE" = "$TASK_AFTER" ] || { echo "FAIL authorized_qa_task_non_mutation"; exit 1; }
 echo "PASS authorized_qa_persistence_and_delivery"
 
