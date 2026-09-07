@@ -184,11 +184,11 @@ assert_refused() {
   output="$({
     unset CODETERM_PLAN_ID CODETERM_TASK_ID
     CODETERM_SESSION_ID="$session" CODETERM_SESSION_BINDING_NONCE="$nonce" \
-      dc --as-tab "$tab" agent report "$token" --plan "$PLAN_ID" --json
+      dc --as-tab "$tab" agent report "$token" --plan "$PLAN_ID" --task "" --json
   } 2>&1)"
   rc=$?
   set -e
-  [ "$rc" -ne 0 ] || fail "$label: report accepted"
+  [ "$rc" -ne 0 ] || fail "$label: report accepted: $output"
   [ -n "$output" ] || fail "$label: refusal had no actionable output"
   plan_json current_plan
   capture after node "$JSON" plan-snapshot <<<"$current_plan" || \
@@ -296,7 +296,7 @@ node "$JSON" plan-evidence "$ACCEPTED_TOKEN" <<<"$CURRENT_PLAN" || \
 capture OWNER_REPORTS dev_get "/api/tabs/$OWNER_TAB/reports" || \
   fail "assertion: owner report channel could not be read"
 node "$JSON" owner-report "$ACCEPTED_TOKEN" <<<"$OWNER_REPORTS" || \
-  fail "assertion: authorized token did not reach the owner"
+  fail "assertion: authorized token did not reach the owner: accepted=$ACCEPTED reports=$OWNER_REPORTS"
 capture TASK_AFTER node "$JSON" task-snapshot "$TASK_ID" <<<"$CURRENT_PLAN" || \
   fail "assertion: final task snapshot failed"
 [ "$TASK_BEFORE" = "$TASK_AFTER" ] || fail "authorized_qa_task_non_mutation"

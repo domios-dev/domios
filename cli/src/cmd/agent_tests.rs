@@ -48,6 +48,15 @@ fn env_default_uses_explicit_value_before_worker_env() {
 }
 
 #[test]
+fn env_default_treats_explicit_empty_identity_as_absent() {
+    std::env::remove_var("CODETERM_TEST_EMPTY_REPORT_DEFAULT");
+    assert_eq!(
+        env_default(Some("   ".into()), "CODETERM_TEST_EMPTY_REPORT_DEFAULT"),
+        None
+    );
+}
+
+#[test]
 fn print_report_notices_is_noop_in_json_mode() {
     // json=true should not print anything (we rely on the JSON output channel)
     let val = serde_json::json!({ "ok": true, "notices": ["stale plan"] });
