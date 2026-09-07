@@ -1471,6 +1471,7 @@ function checkIntegration() {
     hook_trust_state: trustState,
     hook_trust_enabled: trustState === "enabled" ? true : trustState === "disabled" ? false : null,
     integration_state: integrationState,
+    repair_requires_consent: integrationState !== CODEX_INTEGRATION_STATE_INSTALLED,
     hooks_owned: installed,
     hook_contract_current: current && stopInstalled,
     target: path,
@@ -1504,6 +1505,7 @@ function emptyIntegrationStatus(path, fileExists) {
     hook_trust_state: "missing",
     hook_trust_enabled: null,
     integration_state: CODEX_INTEGRATION_STATE_ABSENT,
+    repair_requires_consent: true,
     hooks_owned: false,
     hook_contract_current: false,
     target: path || "~/.codex/hooks.json",
@@ -1719,6 +1721,8 @@ function restoreIntegration() {
   return { ok: true };
 }
 function ensureIntegrationOnStartup(apiPort, install) {
+  void apiPort;
+  void install;
   const path = codexHooksPath();
   if (!path || !host.fs.fileExists(path)) return { ok: true, changed: false };
   const json = host.fs.readJson(path);
@@ -1739,9 +1743,14 @@ function ensureIntegrationOnStartup(apiPort, install) {
       }
     );
   });
-  if (!scriptStale && !commandStale) return { ok: true, changed: false };
-  const result = install(apiPort, { consent: true });
-  return result && result.ok ? { ok: true, changed: true, reason: "refreshed a stale CodeTerm-owned hook" } : { ok: false, changed: false, error: result && result.error || "refresh failed" };
+  const stopOwned = (json.hooks.Stop || []).some(isCodetermCodexHook);
+  if (!scriptStale && !commandStale && stopOwned) return { ok: true, changed: false };
+  return {
+    ok: false,
+    changed: false,
+    actionable: true,
+    error: "Codex hook repair requires recorded integration consent; open provider integration settings and approve Repair"
+  };
 }
 function codexHooksPath() {
   const home = host.homeDir();
