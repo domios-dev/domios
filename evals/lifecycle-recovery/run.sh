@@ -3,10 +3,11 @@ set -euo pipefail
 
 ROOT="$(git rev-parse --show-toplevel)"
 source "$ROOT/evals/_lib/lib.sh"
+JSON_STATE="$ROOT/evals/lifecycle-recovery/json-state.mjs"
 
 fail() { echo "FAIL $1" >&2; exit 1; }
 pass() { echo "PASS $1"; }
-json_field() { jq -r "$2" <<<"$1"; }
+json_field() { node "$JSON_STATE" field "$2" <<<"$1"; }
 
 HEALTH="$(dev_get /api/health)"
 EXPECTED_SHA="$(git -C "$ROOT" rev-parse HEAD)"
@@ -47,7 +48,7 @@ wait "$EXIT_WAIT_PROCESS"
 EXIT_TEAM_ID="$(json_field "$EXIT_OBSERVED" '.team_id')"
 [ -n "$EXIT_TEAM_ID" ] && [ "$EXIT_TEAM_ID" != null ] || fail "exited Orchestrator retained Team identity"
 EXIT_VISIBLE="$(dc --json tab inspect --tab "$EXIT_TAB")"
-jq -e --arg tab "$EXIT_TAB" --arg team "$EXIT_TEAM_ID" '.. | objects | select(.id? == $tab and .agent_liveness? == "absent" and .agent_type? == null and .boot_stage? == "shell_ready" and .role_profile? == "orchestrator" and .team_id? == $team)' <<<"$EXIT_VISIBLE" >/dev/null \
+node "$JSON_STATE" absent-orchestrator "$EXIT_TAB" "$EXIT_TEAM_ID" <<<"$EXIT_VISIBLE" \
   || fail "process-exited tab is CLI-visible as absent"
 set +e
 RESTART_OUTPUT="$(dc --json agent restart --tab "$EXIT_TAB" 2>&1)"
@@ -65,8 +66,8 @@ wait "$EXIT_RECOVERY_WAIT_PROCESS"
 [ "$(json_field "$EXIT_RECOVERED" '.owner_tab_id')" = "$EXIT_REPLACEMENT" ] || fail "exited-shell replacement observation"
 EXIT_TEAMS="$(dc --json team list)"
 EXIT_REPLACEMENT_VISIBLE="$(dc --json tab inspect --tab "$EXIT_REPLACEMENT")"
-jq -e --arg team "$EXIT_TEAM_ID" '[.teams[] | select(.id == $team)] | length == 1' <<<"$EXIT_TEAMS" >/dev/null || fail "exited-shell Team cardinality"
-jq -e --arg owner "$EXIT_REPLACEMENT" '.. | objects | select(.id? == $owner and .agent_liveness? == "live")' <<<"$EXIT_REPLACEMENT_VISIBLE" >/dev/null || fail "exited-shell replacement liveness"
+node "$JSON_STATE" team-count "$EXIT_TEAM_ID" 1 <<<"$EXIT_TEAMS" || fail "exited-shell Team cardinality"
+node "$JSON_STATE" live-tab "$EXIT_REPLACEMENT" <<<"$EXIT_REPLACEMENT_VISIBLE" || fail "exited-shell replacement liveness"
 pass "process-exited Orchestrator is truthfully absent and replaced by one live Team owner"
 dc --as-tab "$EXIT_REPLACEMENT" team close "$EXIT_TEAM_ID" --json >/dev/null
 EXIT_TAB=""
@@ -92,10 +93,10 @@ TEAM_ID="$(json_field "$PLAN_CREATE" '.team_id // .plan.team_id')"
 
 dc --as-tab "$OLD_ORCHESTRATOR" agent unlink --tab "$OLD_ORCHESTRATOR" >/dev/null
 TEAMS_AFTER_UNLINK="$(dc --json team list)"
-jq -e --arg team "$TEAM_ID" '[.teams[] | select(.id == $team)] | length == 1' <<<"$TEAMS_AFTER_UNLINK" >/dev/null \
+node "$JSON_STATE" team-count "$TEAM_ID" 1 <<<"$TEAMS_AFTER_UNLINK" \
   || fail "final Orchestrator unlink erased Team"
 PLAN_AFTER_UNLINK="$(dc --json plan get "$PLAN_ID")"
-jq -e --arg plan "$PLAN_ID" --arg team "$TEAM_ID" '(.plan // .) | .id == $plan and .team_id == $team and .status == "active" and .owner.tab_id == null' <<<"$PLAN_AFTER_UNLINK" >/dev/null \
+node "$JSON_STATE" plan-state "$PLAN_ID" "$TEAM_ID" null <<<"$PLAN_AFTER_UNLINK" \
   || fail "final Orchestrator unlink broke Plan continuity"
 
 coproc RECOVERY_WAIT { dev_run node "$ROOT/evals/lifecycle-recovery/wait-state.mjs" recovered "$TEAM_ID" "$PLAN_ID"; }
@@ -111,7 +112,7 @@ wait "$RECOVERY_WAIT_PROCESS"
 TEAMS_FINAL="$(dc --json team list)"
 PLAN_FINAL="$(dc --json plan get "$PLAN_ID")"
 REPLACEMENT_VISIBLE="$(dc --json tab inspect --tab "$REPLACEMENT")"
-jq -e --arg team "$TEAM_ID" '[.teams[] | select(.id == $team)] | length == 1' <<<"$TEAMS_FINAL" >/dev/null || fail "Team cardinality"
-jq -e --arg plan "$PLAN_ID" --arg team "$TEAM_ID" --arg owner "$REPLACEMENT" '(.plan // .) | .id == $plan and .team_id == $team and .status == "active" and .owner.tab_id == $owner and (.owner_history | length >= 2)' <<<"$PLAN_FINAL" >/dev/null || fail "Plan identity and owner history"
-jq -e --arg owner "$REPLACEMENT" '.. | objects | select(.id? == $owner and .agent_liveness? == "live")' <<<"$REPLACEMENT_VISIBLE" >/dev/null || fail "replacement liveness"
+node "$JSON_STATE" team-count "$TEAM_ID" 1 <<<"$TEAMS_FINAL" || fail "Team cardinality"
+node "$JSON_STATE" plan-state "$PLAN_ID" "$TEAM_ID" "$REPLACEMENT" 2 <<<"$PLAN_FINAL" || fail "Plan identity and owner history"
+node "$JSON_STATE" live-tab "$REPLACEMENT" <<<"$REPLACEMENT_VISIBLE" || fail "replacement liveness"
 pass "final Orchestrator replacement keeps one Team and the original Plan history"
