@@ -44,6 +44,19 @@ if (mode === "health-sha") {
   if (workspaces.some((workspace) => workspace.name === values[0] || workspace.title === values[0])) {
     fail("run-scoped fixture workspace remains visible");
   }
+} else if (mode === "no-workspace-cwd") {
+  const workspaces = Array.isArray(json) ? json : json?.workspaces || [];
+  const expected = values[0].replaceAll("\\", "/").toLowerCase();
+  if (workspaces.some((workspace) => String(workspace.cwd || "").replaceAll("\\", "/").toLowerCase() === expected)) {
+    fail("run-scoped fixture workspace cwd remains visible");
+  }
+} else if (mode === "workspace-created") {
+  const actualCwd = String(json?.cwd || "").replaceAll("\\", "/").toLowerCase();
+  const expectedCwd = values[1].replaceAll("\\", "/").toLowerCase();
+  if (!json?.id || json?.name !== values[0] || actualCwd !== expectedCwd) {
+    fail("workspace response does not prove the requested unique name and cwd");
+  }
+  process.stdout.write(json.id);
 } else if (mode === "config") {
   const value = json?.value ?? json;
   process.stdout.write(typeof value === "string" ? value : JSON.stringify(value));
