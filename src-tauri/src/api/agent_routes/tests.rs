@@ -199,6 +199,7 @@ fn provider_listing_hides_non_spawnable_chatbackends() {
 /// enumeration can be asked about a machine that has it and one that does not.
 struct BinaryProvider {
     id: &'static str,
+    binary_name: &'static str,
     cli_binary: Option<&'static str>,
 }
 
@@ -209,6 +210,10 @@ impl crate::agent::provider::AgentProvider for BinaryProvider {
 
     fn display_name(&self) -> &str {
         self.id
+    }
+
+    fn binary_name(&self) -> &str {
+        self.binary_name
     }
 
     fn build_launch_command(&self, _: &crate::agent::provider::AgentLaunchParams) -> String {
@@ -272,6 +277,7 @@ fn listed(listing: &[serde_json::Value], id: &str) -> serde_json::Value {
 fn provider_listing_states_what_it_observed_about_the_launch_binary() {
     let registry = facade_with_agent(BinaryProvider {
         id: "listing-missing-cli",
+        binary_name: "codeterm-definitely-missing-provider-cli",
         cli_binary: Some("codeterm-definitely-missing-provider-cli"),
     });
     let listing = super::list_agent_provider_values(&registry);
@@ -282,18 +288,19 @@ fn provider_listing_states_what_it_observed_about_the_launch_binary() {
     );
 }
 
-/// A provider that launches no external CLI has nothing to be missing.
+/// Enumeration observes the launch hook even when install metadata is absent.
 #[test]
-fn provider_listing_does_not_gate_a_provider_that_launches_no_binary() {
+fn provider_listing_uses_binary_name_not_optional_install_metadata() {
     let registry = facade_with_agent(BinaryProvider {
-        id: "listing-embedded",
+        id: "listing-without-install-metadata",
+        binary_name: "codeterm-definitely-missing-provider-hook",
         cli_binary: None,
     });
     let listing = super::list_agent_provider_values(&registry);
 
     assert_eq!(
-        listed(&listing, "listing-embedded")["availability"],
-        serde_json::json!("available")
+        listed(&listing, "listing-without-install-metadata")["availability"],
+        serde_json::json!("unavailable")
     );
 }
 
@@ -303,6 +310,7 @@ fn provider_listing_does_not_gate_a_provider_that_launches_no_binary() {
 fn unknown_is_a_wire_state_of_its_own_not_a_synonym_for_unavailable() {
     let mut descriptor = super::list_agent_provider_values(&facade_with_agent(BinaryProvider {
         id: "listing-unknown",
+        binary_name: "codeterm-definitely-missing-provider-cli",
         cli_binary: Some("codeterm-definitely-missing-provider-cli"),
     }))
     .remove(0);
@@ -327,6 +335,7 @@ fn enumeration_agrees_with_the_shared_resolver() {
     const BINARY: &str = "codeterm-definitely-missing-provider-cli";
     let registry = facade_with_agent(BinaryProvider {
         id: "listing-shared-resolver",
+        binary_name: BINARY,
         cli_binary: Some(BINARY),
     });
 

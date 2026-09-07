@@ -10,7 +10,7 @@ use crate::provider::ProviderAvailability;
 const MISSING_BINARY: &str = "codeterm-parity-binary-that-cannot-exist";
 
 struct NativeAvailabilityStub {
-    cli_binary: Option<&'static str>,
+    binary_name: &'static str,
 }
 
 #[async_trait::async_trait]
@@ -21,6 +21,10 @@ impl AgentProvider for NativeAvailabilityStub {
 
     fn display_name(&self) -> &str {
         "Availability Fixture"
+    }
+
+    fn binary_name(&self) -> &str {
+        self.binary_name
     }
 
     fn build_launch_command(&self, _: &AgentLaunchParams) -> String {
@@ -57,20 +61,16 @@ impl AgentProvider for NativeAvailabilityStub {
     ) -> Option<String> {
         None
     }
-
-    fn cli_binary(&self) -> Option<&str> {
-        self.cli_binary
-    }
 }
 
-fn js_with_cli_binary(id: &str, cli_binary: Option<&str>) -> JsProvider {
+fn js_with_binary_name(id: &str, binary_name: Option<&str>) -> JsProvider {
     use std::sync::Arc;
 
-    let cli = cli_binary
-        .map(|b| format!(r#""cliBinary":"{b}","#))
+    let binary = binary_name
+        .map(|name| format!(r#""binaryName":"{name}","#))
         .unwrap_or_default();
     let manifest_json = format!(
-        r#"{{"id":"{id}","version":"0.1.0","displayName":"Availability Fixture",{cli}
+        r#"{{"id":"{id}","version":"0.1.0","displayName":"Availability Fixture",{binary}
             "spawn":{{"readinessStrategy":{{"kind":"fixed_delay","durationMs":0}},
                      "taskDelivery":"pty_input","verifySubmit":{{"kind":"none"}}}}}}"#
     );
@@ -87,11 +87,11 @@ fn js_with_cli_binary(id: &str, cli_binary: Option<&str>) -> JsProvider {
 #[test]
 fn declared_launch_binary_agrees_across_the_provider_boundary() {
     let native = NativeAvailabilityStub {
-        cli_binary: Some(MISSING_BINARY),
+        binary_name: MISSING_BINARY,
     };
-    let js = js_with_cli_binary("availability-missing", Some(MISSING_BINARY));
+    let js = js_with_binary_name("availability-missing", Some(MISSING_BINARY));
 
-    assert_eq!(js.launch_binary(), native.launch_binary());
+    assert_eq!(js.binary_name(), native.binary_name());
     assert_eq!(
         js.observe_launch_binary().availability,
         native.observe_launch_binary().availability
@@ -103,19 +103,15 @@ fn declared_launch_binary_agrees_across_the_provider_boundary() {
     );
 }
 
-/// A provider that launches no external CLI has nothing to be missing, on
-/// either side of the boundary.
+/// Omitted JS metadata takes the trait default on both sides of the boundary.
 #[test]
-fn absent_launch_binary_agrees_across_the_provider_boundary() {
-    let native = NativeAvailabilityStub { cli_binary: None };
-    let js = js_with_cli_binary("availability-embedded", None);
+fn default_launch_binary_agrees_across_the_provider_boundary() {
+    let native = NativeAvailabilityStub {
+        binary_name: "availability-default",
+    };
+    let js = js_with_binary_name("availability-default", None);
 
-    assert_eq!(js.launch_binary(), None);
-    assert_eq!(js.launch_binary(), native.launch_binary());
-    assert_eq!(
-        js.observe_launch_binary().availability,
-        ProviderAvailability::Available
-    );
+    assert_eq!(js.binary_name(), native.binary_name());
     assert_eq!(
         js.observe_launch_binary().availability,
         native.observe_launch_binary().availability
@@ -127,9 +123,9 @@ fn absent_launch_binary_agrees_across_the_provider_boundary() {
 #[test]
 fn describe_claims_no_observation_on_either_path() {
     let native = NativeAvailabilityStub {
-        cli_binary: Some(MISSING_BINARY),
+        binary_name: MISSING_BINARY,
     };
-    let js = js_with_cli_binary("availability-describe", Some(MISSING_BINARY));
+    let js = js_with_binary_name("availability-describe", Some(MISSING_BINARY));
 
     assert_eq!(
         js.describe().availability,

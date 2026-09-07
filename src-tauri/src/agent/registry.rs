@@ -326,15 +326,16 @@ impl AgentRegistry {
         let guard = self.providers.read();
         let described: Vec<_> = guard
             .values()
-            .map(|p| (p.describe(), p.launch_binary().map(str::to_string)))
+            .map(|p| (p.describe(), p.binary_name().to_string()))
             .collect();
         drop(guard);
         described
             .into_iter()
             .map(|(mut descriptor, launch_binary)| {
-                descriptor.availability =
-                    crate::agent::provider::observe_launch_binary(launch_binary.as_deref())
-                        .availability;
+                descriptor.availability = crate::agent::provider::observe_launch_binary(Some(
+                    &launch_binary,
+                ))
+                .availability;
                 descriptor
             })
             .collect()

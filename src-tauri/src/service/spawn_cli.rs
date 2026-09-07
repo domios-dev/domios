@@ -114,7 +114,7 @@ pub(crate) fn provider_launch_preflight(
         registry.with_provider(provider_id, |p| {
             (
                 p.display_name().to_string(),
-                p.launch_binary().map(str::to_string),
+                p.binary_name().to_string(),
                 p.install_command(crate::agent::provider::current_platform_tag()),
             )
         })
@@ -124,9 +124,7 @@ pub(crate) fn provider_launch_preflight(
             available: registry.provider_ids(),
         });
     };
-    let Some(binary) = launch_binary else {
-        return Ok(LaunchClearance { warning: None });
-    };
+    let binary = launch_binary;
     if !valid_cli_binary(&binary) {
         return Err(ProviderPreflightError::InvalidBinary {
             provider_id: provider_id.to_string(),

@@ -310,14 +310,11 @@ fn describe_leaves_availability_unknown_for_enumeration_to_observe() {
     );
 }
 
-/// The launch claim is the declared CLI, not the parser hint: `binary_name()`
-/// falls back to `id()` for every provider, so gating on it would refuse
-/// providers that launch no external binary at all.
+/// The existing parser hook is also the launch capability boundary.
 #[test]
-fn launch_binary_defaults_to_the_declared_cli_not_the_parser_hint() {
+fn launch_binary_observation_uses_the_binary_name_hook() {
     assert_eq!(StubProvider.binary_name(), "stub");
-    assert_eq!(StubProvider.launch_binary(), None);
-    assert_eq!(
+    assert_ne!(
         StubProvider.observe_launch_binary().availability,
         ProviderAvailability::Available
     );

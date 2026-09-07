@@ -279,6 +279,10 @@ impl crate::agent::provider::AgentProvider for ModelProvider {
         self.id
     }
 
+    fn binary_name(&self) -> &str {
+        self.cli_binary.unwrap_or(self.id)
+    }
+
     fn build_launch_command(&self, _: &crate::agent::provider::AgentLaunchParams) -> String {
         self.id.into()
     }
@@ -398,14 +402,6 @@ fn validate_agent_model_passes_through_non_enumerable_provider() {
     let registry = registry_with(ModelProvider::new("dynamic", &[]));
 
     assert!(validate_agent_model(&registry, "dynamic", Some("anything-goes")).is_ok());
-}
-
-#[test]
-fn provider_cli_availability_passes_without_cli_dependency() {
-    let registry = registry_with(ModelProvider::new("embedded-provider", &[]));
-
-    let clearance = provider_launch_preflight(&registry, "embedded-provider").unwrap();
-    assert_eq!(clearance.warning, None);
 }
 
 #[test]
