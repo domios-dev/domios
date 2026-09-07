@@ -718,7 +718,7 @@ mod review_ref_forwarding {
             &mut client,
             true,
             PlanReviewAction::AuthorizeReporter {
-                plan_id: Some("pl_opaque".into()),
+                plan_id: "pl_opaque".into(),
                 reporter_tab_id: "tab_opaque".into(),
                 class: "canonical_qa".into(),
             },

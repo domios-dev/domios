@@ -123,7 +123,7 @@ pub enum PlanReviewAction {
     },
     /// Authorize one task-less tab to append plan-level review or canonical-QA evidence
     AuthorizeReporter {
-        plan_id: Option<String>,
+        plan_id: String,
         reporter_tab_id: String,
         #[arg(long, value_parser = ["review", "canonical_qa"])]
         class: String,
