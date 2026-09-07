@@ -15,9 +15,16 @@ the spawned Tab. The installer row calls the real REST route, observes its Tab
 and PTY plus command execution, then uses the authenticated debug-only refusal
 seam to prove the same transaction removes both provisional resources.
 
+Each event observer receives the resolved dev URL and token as explicit opaque
+arguments and owns an independent process pipe, so the persistent receiver and
+subscriptions coexist without inherited production connection state. A random
+run id scopes every generated name, directory, and secondary token.
+
 The Codex row calls the existing integration-status API and accepts only a full
 owned SessionStart/Stop contract or the status field that drives the Settings
 consent action. It also verifies that the entire hooks file remains byte-identical
 across the read and refused remote-install request. Cleanup restores the prior
-General-Agent provider, closes fixture Tabs/workspace, removes the dev plugin,
-stops the receiver, and removes its generated dev-local files.
+General-Agent provider, closes only Tabs and the `existing=false` workspace whose
+creation was proved, removes only the installed unique provider and generated
+directory, then stops the receiver. Every cleanup step verifies absence; the EXIT
+trap preserves the triggering status and turns cleanup residue into a nonzero result.
