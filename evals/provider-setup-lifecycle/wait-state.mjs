@@ -26,6 +26,11 @@ async function observe(event) {
     const providers = Array.isArray(envelope) ? envelope : envelope.providers || [];
     if (providers.some((provider) => provider.id === expected)) return { provider: expected };
   }
+  if (mode === "provider-absent" && event.event_type === "contributions-changed") {
+    const envelope = await json("/api/agents/providers");
+    const providers = Array.isArray(envelope) ? envelope : envelope.providers || [];
+    if (!providers.some((provider) => provider.id === expected)) return { provider: expected, absent: true };
+  }
   if (event.event_type === "tab-title-pinned" && data.title === expected) selectedTab = data.tab_id;
   if (mode === "agent-ready" && selectedTab && event.event_type === "tab-boot-stage" && data.tab_id === selectedTab && data.stage === "agent_ready") {
     const envelope = await json("/api/tabs?all_workspaces=true");
