@@ -133,7 +133,7 @@ pub enum AgentAction {
         #[arg(long = "tab", value_name = "TAB")]
         tab: Option<String>,
     },
-    /// Remove a tab's role (also orphans children)
+    /// Remove a tab's role. A final Orchestrator leaves its Team and Plan recoverable
     Unlink {
         /// Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
         #[arg(long = "tab", value_name = "TAB")]
@@ -186,7 +186,7 @@ pub enum AgentAction {
         #[arg(long = "tab", value_name = "TAB")]
         tab: Option<String>,
     },
-    /// Restart agent (graceful exit; resumes only when the tab has a valid provider session)
+    /// Restart an observed live agent; an exited provider requires a fresh spawn
     Restart {
         /// Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
         #[arg(long = "tab", value_name = "TAB")]

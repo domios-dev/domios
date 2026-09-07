@@ -44,8 +44,9 @@ unexplained one cannot hide behind a plausible story.
 
 Liveness itself is one observation, `codeterm_types::pty::agent_liveness`. Its
 inputs are facts: a live PtyManager session, a boot stage emitted at a real
-launch transition, a shell reporting its foreground command finished (OSC 633
-`D`), an open plugin session. Elapsed time is never an input.
+launch transition, a shell reporting its foreground command with a matching
+nonce and then finished (OSC 633 `E` → `D`), an open plugin session. Elapsed
+time is never an input.
 
 A pane observed `absent` is reconciled through the ordinary lifecycle teardown,
 so it keeps no `agent_state`, elapsed timer, status line, `agent_session_id`, or
@@ -225,4 +226,4 @@ transaction, so the intermediate state is never observable.
 - **Rollback to a named checkpoint** is not implemented. The journal records
   history; it does not replay it.
 
-<!-- revision: 14 -->
+<!-- revision: 15 -->

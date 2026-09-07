@@ -1012,6 +1012,66 @@ fn add_team_member_sets_exact_planner_role_and_emits_one_state_change() {
 }
 
 #[test]
+fn failed_plan_takeover_rolls_back_the_replacement_anchor() {
+    let (_dir, store) = isolated_plan_store();
+    let (mut mux, team_id, orchestrator, _planner, _worker) = team_members();
+    let workspace_id = mux.find_workspace_for_tab(&orchestrator).unwrap();
+    let mut plan = crate::plan::Plan::new(
+        "Atomic replacement".into(),
+        workspace_id.clone(),
+        crate::plan::OrchestratorRef::from_tab(&orchestrator),
+    );
+    plan.team_id = Some(team_id.clone());
+    store.save(&mut plan, 1).unwrap();
+    let before = store.get(&plan.id).unwrap();
+    mux.close_tab(&orchestrator).unwrap();
+    let prepared = prepare_team_member_spawn(
+        &mux,
+        &team_id,
+        None,
+        AddTeamMemberParams {
+            provider: "provider-neutral".into(),
+            role: "orchestrator".into(),
+            title: None,
+            task: None,
+            model: None,
+        },
+    )
+    .unwrap();
+    let replacement = mux.create_tab(&workspace_id).unwrap();
+    mux.set_orchestrator_role(&replacement).unwrap();
+
+    let error = commit_team_member_with_plan_takeover(
+        &mut mux,
+        &EventBroadcaster::new(),
+        &team_id,
+        None,
+        &replacement,
+        &prepared.expected_role,
+        &prepared.expected_profile,
+        true,
+        |_| {
+            Some(staffing::PlanTakeover {
+                plan_id: plan.id.clone(),
+                owner_tab_id: replacement.clone(),
+                error: Some("forced takeover failure".into()),
+            })
+        },
+    )
+    .unwrap_err();
+
+    assert!(error.contains("forced takeover failure"));
+    assert!(mux.get_tab(&replacement).is_none());
+    assert!(mux.get_team(&team_id).is_some());
+    assert!(staffing::live_team_orchestrators(&mux, &team_id).is_empty());
+    let after = store.get(&plan.id).unwrap();
+    assert_eq!(after.owner, before.owner);
+    assert_eq!(after.owner_history, before.owner_history);
+    assert_eq!(after.team_id, before.team_id);
+    assert_eq!(after.status, before.status);
+}
+
+#[test]
 fn add_team_member_rejects_worker_foreign_and_unspawnable_without_mutation() {
     let (mut mux, team_id, manager, _, worker) = team_members();
     let workspace_id = mux.find_workspace_for_tab(&manager).unwrap();
