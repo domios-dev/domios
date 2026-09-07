@@ -38,17 +38,11 @@ TEAM_OWNED=0
 OWNER_TAB=""
 OWNER_SESSION="owner-session-$RUN_ID"
 OWNER_NONCE=""
-EVENT_PID=""
-EVENT_FD=""
 
 cleanup() {
   CLEANUP_ENTRY_STATUS=$?
   local status="$CLEANUP_ENTRY_STATUS" cleanup_failed=0 tab_id workspace_id
   trap - EXIT
-  if [ -n "$EVENT_PID" ]; then
-    kill "$EVENT_PID" >/dev/null 2>&1 || true
-    wait "$EVENT_PID" >/dev/null 2>&1 || true
-  fi
   if [ "$PLAN_OWNED" -eq 1 ]; then
     if ! CODETERM_SESSION_ID="$OWNER_SESSION" CODETERM_SESSION_BINDING_NONCE="$OWNER_NONCE" \
       dc --as-tab "$OWNER_TAB" plan delete "$PLAN_ID" --yes >/dev/null 2>&1; then
@@ -172,27 +166,25 @@ token_absent_everywhere() {
   node "$JSON" report-token-absent "$token" <<<"$reports"
 }
 
-start_report_subscription() {
-  local marker="$1" output="$TMP_DIR/event.json" ready
-  rm -f "$output"
-  exec {EVENT_FD}< <(
-    python3 "$ROOT/evals/plan-authorized-reporting/event_wait.py" \
-      "$(dev_api_url)" "$(dev_token)" agent-report "$marker" "$output" 20
-  )
-  EVENT_PID=$!
-  if ! read -r -t 10 ready <&"$EVENT_FD" || [ "$ready" != "READY" ]; then
-    fail "subscription: agent-report readiness was not observed"
+run_authorized_report() {
+  local marker="$1" event_output="$TMP_DIR/event.json"
+  local response_output="$TMP_DIR/accepted.json"
+  rm -f "$event_output" "$response_output"
+  if ! python3 "$ROOT/evals/plan-authorized-reporting/event_wait.py" \
+    "$(dev_api_url)" "$(dev_token)" agent-report "$marker" "$event_output" 20 | {
+      local ready
+      read -r ready && [ "$ready" = "READY" ] || exit 1
+      unset CODETERM_PLAN_ID CODETERM_TASK_ID
+      CODETERM_SESSION_ID="$QA_SESSION" CODETERM_SESSION_BINDING_NONCE="$QA_NONCE" \
+        dc --as-tab "$QA_TAB" agent report "$marker" --plan "$PLAN_ID" --json \
+        >"$response_output"
+    }; then
+    fail "subscription: report mutation or matching agent-report event failed"
   fi
-}
-
-finish_report_subscription() {
-  if ! wait "$EVENT_PID"; then
-    fail "subscription: matching agent-report event was not observed"
-  fi
-  EVENT_PID=""
-  EVENT_FD=""
-  node "$JSON" event-type <"$TMP_DIR/event.json" || \
+  node "$JSON" event-type <"$event_output" || \
     fail "assertion: subscribed event had the wrong type"
+  capture ACCEPTED node -e 'process.stdout.write(require("node:fs").readFileSync(process.argv[1], "utf8"))' \
+    "$response_output" || fail "assertion: accepted response could not be read"
 }
 
 assert_refused() {
@@ -306,15 +298,7 @@ capture TASK_BEFORE node "$JSON" task-snapshot "$TASK_ID" <<<"$CURRENT_PLAN" || 
   fail "assertion: initial task snapshot failed"
 
 ACCEPTED_TOKEN="qa-evidence-$RUN_ID"
-start_report_subscription "$ACCEPTED_TOKEN"
-if ! ACCEPTED="$(
-  unset CODETERM_PLAN_ID CODETERM_TASK_ID
-  CODETERM_SESSION_ID="$QA_SESSION" CODETERM_SESSION_BINDING_NONCE="$QA_NONCE" \
-    dc --as-tab "$QA_TAB" agent report "$ACCEPTED_TOKEN" --plan "$PLAN_ID" --json
-)"; then
-  fail "assertion: authorized QA report was refused"
-fi
-finish_report_subscription
+run_authorized_report "$ACCEPTED_TOKEN"
 node "$JSON" accepted-response "$PLAN_ID" <<<"$ACCEPTED" || \
   fail "assertion: authorized response contract failed"
 plan_json CURRENT_PLAN
