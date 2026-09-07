@@ -8,6 +8,8 @@ const deadline = AbortSignal.timeout(45_000);
 deadline.addEventListener("abort", () => controller.abort(deadline.reason), { once: true });
 const observedEventTypes = new Set();
 let lastMatchingTab = null;
+let lastLifecycleTitles = [];
+const matchingTabStates = [];
 
 async function json(path) {
   const response = await fetch(`${api}${path}`, { headers, signal: controller.signal });
@@ -17,8 +19,11 @@ async function json(path) {
 
 async function observedState() {
   const mux = await json("/api/mux/state");
-  const tabEnvelope = await json("/api/tabs?all_workspaces=true&agents=true");
+  const tabEnvelope = await json("/api/tabs?all_workspaces=true");
   const tabs = Array.isArray(tabEnvelope) ? tabEnvelope : (tabEnvelope.tabs || []);
+  lastLifecycleTitles = tabs
+    .map((candidate) => candidate.title)
+    .filter((title) => typeof title === "string" && title.startsWith("LR-"));
   if (mode === "live" || mode === "absent") {
     const [title] = values;
     const tab = tabs.find((candidate) => candidate.title === title);
@@ -32,6 +37,7 @@ async function observedState() {
           team_id: tab.team_id ?? null,
         }
       : null;
+    if (lastMatchingTab) matchingTabStates.push(lastMatchingTab);
     if (!tab || tab.agent_liveness !== mode) return null;
     if (
       mode === "absent"
@@ -116,8 +122,11 @@ async function run() {
 
 run().catch((error) => {
   const evidence = JSON.stringify({
+    values,
     event_types: [...observedEventTypes],
+    lifecycle_titles: lastLifecycleTitles,
     last_matching_tab: lastMatchingTab,
+    matching_tab_states: matchingTabStates,
   });
   process.stderr.write(`FAIL wait-state ${mode}: ${error.message}; evidence=${evidence}\n`);
   process.exitCode = 1;
