@@ -357,8 +357,10 @@ impl ServiceContext {
             });
         }
 
-        let cli_warning =
-            crate::service::spawn::provider_cli_install_warning(&self.agent_registry, &agent_cmd)?;
+        let clearance =
+            crate::service::spawn::provider_launch_preflight(&self.agent_registry, &agent_cmd)
+                .map_err(|e| e.to_string())?;
+        let cli_warning = clearance.warning.clone();
         if let Some(ref warning) = cli_warning {
             log::warn!("[spawn] {}", warning);
         }
@@ -418,7 +420,9 @@ impl ServiceContext {
             let mut mux = self.mux.write();
             let result = match params.existing_tab_id.as_deref() {
                 Some(existing) => mux.claim_existing_tab(&ws_id, existing)?,
-                None => mux.create_tab(&ws_id)?,
+                None => {
+                    crate::service::spawn::create_cleared_agent_tab(&mut mux, &ws_id, &clearance)?
+                }
             };
             if let Some(ref t) = params.title {
                 if !t.trim().is_empty() {

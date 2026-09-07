@@ -289,6 +289,16 @@ fn print_report_notices(json: bool, val: &serde_json::Value) {
 pub const AVAILABILITY_UNAVAILABLE: &str = " (unavailable)";
 pub const AVAILABILITY_UNKNOWN: &str = " (availability unknown)";
 
+/// The provider row's own three-state marker, read off the SAME descriptor
+/// field the API serves and the UI picker consumes.
+fn provider_availability_marker(provider: &serde_json::Value) -> &'static str {
+    match provider.get("availability").and_then(|v| v.as_str()) {
+        Some("available") => "",
+        Some("unavailable") => AVAILABILITY_UNAVAILABLE,
+        _ => AVAILABILITY_UNKNOWN,
+    }
+}
+
 fn availability_marker(model: &serde_json::Value) -> &'static str {
     match model.get("availability").and_then(|v| v.as_str()) {
         Some("unavailable") => AVAILABILITY_UNAVAILABLE,
@@ -405,8 +415,13 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                         .map(|a| a.len())
                         .unwrap_or(0);
                     println!(
-                        "{:<12} {:<6} {:<20} default={}  models={}",
-                        id, kind, name, default_model, models_count
+                        "{:<12} {:<6} {:<20} default={}  models={}{}",
+                        id,
+                        kind,
+                        name,
+                        default_model,
+                        models_count,
+                        provider_availability_marker(p)
                     );
                 }
             }
