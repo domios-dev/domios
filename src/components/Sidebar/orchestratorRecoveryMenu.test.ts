@@ -81,10 +81,18 @@ const api: OrchestratorRecoveryApi = {
     calls.push({ teamId, providerId });
   },
 };
-await replaceOrchestrator(eligible, "provider-neutral", api);
-assert.deepEqual(calls, [{ teamId: "team-hubble", providerId: "provider-neutral" }]);
 
-await assert.rejects(() => replaceOrchestrator(eligible, "chat-neutral", api));
-assert.equal(calls.length, 1);
+async function runReplacementAssertions(): Promise<void> {
+  await replaceOrchestrator(eligible, "provider-neutral", api);
+  assert.deepEqual(calls, [{ teamId: "team-hubble", providerId: "provider-neutral" }]);
 
-console.log("Orchestrator recovery menu tests: passed");
+  await assert.rejects(() => replaceOrchestrator(eligible, "chat-neutral", api));
+  assert.equal(calls.length, 1);
+
+  console.log("Orchestrator recovery menu tests: passed");
+}
+
+void runReplacementAssertions().catch((error: unknown) => {
+  console.error(error);
+  process.exitCode = 1;
+});
