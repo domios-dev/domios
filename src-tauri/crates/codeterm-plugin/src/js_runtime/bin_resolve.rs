@@ -427,6 +427,7 @@ mod tests {
         std::fs::create_dir_all(&empty).unwrap();
 
         let searched = probe_bin_in(&name, std::slice::from_ref(&empty));
+        RESOLVED_BINS.lock().clear();
         process_env.remove("PATH");
         let unsearchable = probe_bin_in(&name, std::slice::from_ref(&empty));
         let _ = std::fs::remove_dir_all(&empty);
