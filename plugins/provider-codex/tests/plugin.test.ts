@@ -1128,6 +1128,7 @@ for (const [name, fixture] of [
   const status = p.checkIntegration();
   assert(status.hook_contract_current === false, "owned SessionStart without Stop is an incomplete contract");
   assert(status.integration_state === "stale_version", "trusted missing-Stop contract is classified stale");
+  assert(status.repair_requires_consent === true, "checkIntegration exposes the user-facing consent requirement");
   const result = p.ensureIntegrationOnStartup(7686);
   assert(result.ok === false && result.actionable === true, "missing Stop requires an actionable consented repair");
   assert(rewrites === 0, "startup never invents consent for an owned stale contract");
