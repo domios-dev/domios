@@ -161,9 +161,11 @@ pub fn apply_env(cmd: &mut CommandBuilder, shell: &str) {
         let shell_name = std::path::Path::new(shell)
             .file_stem()
             .and_then(|name| name.to_str());
-        if shell_name.is_some_and(|name| {
-            name.eq_ignore_ascii_case("pwsh") || name.eq_ignore_ascii_case("powershell")
-        }) {
+        if !cmd.is_default_prog()
+            && shell_name.is_some_and(|name| {
+                name.eq_ignore_ascii_case("pwsh") || name.eq_ignore_ascii_case("powershell")
+            })
+        {
             let script = dir.join("powershell.ps1");
             if script.exists() {
                 cmd.arg("-NoExit");
@@ -477,5 +479,17 @@ mod tests {
         assert_eq!(argv[1], "-NoExit");
         assert_eq!(argv[2], "-File");
         assert_eq!(argv[3], script.as_os_str());
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn apply_env_keeps_default_powershell_builders_argument_free() {
+        ensure_scripts();
+        for shell in ["powershell.exe", "pwsh.exe"] {
+            let mut cmd = CommandBuilder::new_default_prog();
+            apply_env(&mut cmd, shell);
+            assert!(cmd.is_default_prog());
+            assert!(cmd.get_argv().is_empty());
+        }
     }
 }

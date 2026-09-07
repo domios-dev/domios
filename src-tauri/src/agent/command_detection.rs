@@ -87,15 +87,15 @@ impl CwdDetection {
     }
 }
 
-/// Folds command-lifecycle events into a command list. Nonce-checked: a
-/// `CommandLine` whose nonce mismatches the session nonce is rejected as
-/// untrusted output spoofing.
+/// Folds command-lifecycle events into a command list. With a configured nonce,
+/// only a matching command-line marker can authorize one finished cycle.
 #[derive(Clone, Debug, Default)]
 pub struct CommandDetection {
     nonce: Option<String>,
     commands: Vec<ShellCommand>,
     current: ShellCommand,
     active: bool,
+    authenticated_cycle: bool,
     cwd: CwdDetection,
 }
 
@@ -144,6 +144,7 @@ impl CommandDetection {
                 if self.nonce_ok(nonce.as_deref()) {
                     self.ensure_active();
                     self.current.command_line = Some(decode_command(&text));
+                    self.authenticated_cycle = self.nonce.is_some();
                 }
                 None
             }
@@ -173,6 +174,7 @@ impl CommandDetection {
     fn begin_command(&mut self) {
         self.current = ShellCommand::default();
         self.active = true;
+        self.authenticated_cycle = false;
         self.cwd.begin_cycle();
     }
 
@@ -186,6 +188,13 @@ impl CommandDetection {
     }
 
     fn finish_command(&mut self, exit_code: Option<i32>) -> Option<CommandLifecycle> {
+        let accepted = self.nonce.is_none() || self.authenticated_cycle;
+        self.authenticated_cycle = false;
+        if !accepted {
+            self.current = ShellCommand::default();
+            self.active = false;
+            return None;
+        }
         self.ensure_active();
         self.current.exit_code = exit_code;
         if self.current.cwd.is_none() {
