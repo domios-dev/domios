@@ -14,7 +14,6 @@ fail() {
   exit 2
 }
 command -v node >/dev/null 2>&1 || fail "prerequisite: node is required"
-command -v python3 >/dev/null 2>&1 || fail "prerequisite: python3 is required"
 [ -f "$ROOT/evals/_lib/lib.sh" ] || fail "prerequisite: eval library is missing"
 if ! source "$ROOT/evals/_lib/lib.sh"; then
   fail "prerequisite: eval library could not be loaded"
@@ -167,24 +166,12 @@ token_absent_everywhere() {
 }
 
 run_authorized_report() {
-  local marker="$1" event_output="$TMP_DIR/event.json"
-  local response_output="$TMP_DIR/accepted.json"
-  rm -f "$event_output" "$response_output"
-  if ! python3 "$ROOT/evals/plan-authorized-reporting/event_wait.py" \
-    "$(dev_api_url)" "$(dev_token)" agent-report "$marker" "$event_output" 20 | {
-      local ready
-      read -r ready && [ "$ready" = "READY" ] || exit 1
-      unset CODETERM_PLAN_ID CODETERM_TASK_ID
-      CODETERM_SESSION_ID="$QA_SESSION" CODETERM_SESSION_BINDING_NONCE="$QA_NONCE" \
-        dc --as-tab "$QA_TAB" agent report "$marker" --plan "$PLAN_ID" --json \
-        >"$response_output"
-    }; then
+  local marker="$1"
+  if ! capture ACCEPTED node "$ROOT/evals/plan-authorized-reporting/event_report.mjs" \
+    "$(dev_api_url)" "$(dev_token)" "$marker" "$ROOT/evals/_lib/lib.sh" \
+    "$QA_TAB" "$QA_SESSION" "$QA_NONCE" "$PLAN_ID"; then
     fail "subscription: report mutation or matching agent-report event failed"
   fi
-  node "$JSON" event-type <"$event_output" || \
-    fail "assertion: subscribed event had the wrong type"
-  capture ACCEPTED node -e 'process.stdout.write(require("node:fs").readFileSync(process.argv[1], "utf8"))' \
-    "$response_output" || fail "assertion: accepted response could not be read"
 }
 
 assert_refused() {
