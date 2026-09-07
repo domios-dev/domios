@@ -143,10 +143,11 @@ hook_digest() {
   node -e 'const fs=require("node:fs"),c=require("node:crypto"),p=process.argv[1]; process.stdout.write(fs.existsSync(p)?c.createHash("sha256").update(fs.readFileSync(p)).digest("hex"):"absent")' "$HOME/.codex/hooks.json"
 }
 read_receipt() {
-  local expected_kind="$1" expected_token="$2" marker kind encoded
-  IFS=' ' read -r -t 45 marker kind encoded <&"$RECEIVER_FD" || fail "$expected_kind receiver deadline"
-  [ "$marker" = OBSERVED ] && [ "$kind" = "$expected_kind" ] || fail "$expected_kind receiver event"
-  RECEIPT_TAB="$(printf '%s' "$encoded" | node "$STATE" receipt64 "$expected_token")" || fail "$expected_kind exact-token receipt"
+  local expected_kind="$1" expected_token="$2" encoded_kind encoded_token receipt
+  encoded_kind="$(node -e 'process.stdout.write(encodeURIComponent(process.argv[1]))' "$expected_kind")"
+  encoded_token="$(node -e 'process.stdout.write(encodeURIComponent(process.argv[1]))' "$expected_token")"
+  receipt="$(curl -sS --fail --max-time 45 "$COLLECTOR_URL/wait?kind=$encoded_kind&token=$encoded_token")" || fail "$expected_kind receiver deadline"
+  RECEIPT_TAB="$(printf '%s' "$receipt" | node "$STATE" receipt "$expected_token")" || fail "$expected_kind exact-token receipt"
 }
 
 HEALTH="$(dev_get /api/health)" || exit 7
@@ -171,6 +172,8 @@ exec {RECEIVER_FD}< <(node "$ROOT/evals/provider-setup-lifecycle/receiver.mjs")
 RECEIVER_PROCESS=$!
 IFS=' ' read -r -t 10 RECEIVER_READY COLLECTOR_URL <&"$RECEIVER_FD" || fail "receiver startup"
 [ "$RECEIVER_READY" = READY ] && [ -n "$COLLECTOR_URL" ] || fail "receiver readiness"
+exec {RECEIVER_FD}<&-
+RECEIVER_FD=""
 [ ! -e "${FIXTURE_DIR%/plugin}" ] || fail "unique fixture directory already exists"
 FIXTURE_OWNED=1
 node "$ROOT/evals/provider-setup-lifecycle/prepare-fixture.mjs" "$FIXTURE_DIR" "$COLLECTOR_URL" "$INSTALL_TOKEN" "$PROVIDER_ID"
