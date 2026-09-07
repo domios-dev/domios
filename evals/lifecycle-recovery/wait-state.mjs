@@ -48,6 +48,17 @@ async function observedState() {
     if (matchingTeams.length !== 1 || liveOwners.length !== 1 || !owner) return null;
     return { team_id: teamId, plan_id: planId, owner_tab_id: owner.id };
   }
+  if (mode === "team-owner") {
+    const [teamId] = values;
+    const matchingTeams = (mux.teams || []).filter((team) => team.id === teamId);
+    const liveOwners = tabs.filter((candidate) => (
+      candidate.team_id === teamId
+      && candidate.role_profile === "orchestrator"
+      && candidate.agent_liveness === "live"
+    ));
+    if (matchingTeams.length !== 1 || liveOwners.length !== 1) return null;
+    return { team_id: teamId, owner_tab_id: liveOwners[0].id };
+  }
   throw new Error(`unknown wait mode: ${mode}`);
 }
 

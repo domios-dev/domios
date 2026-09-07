@@ -16,12 +16,13 @@ RUN_ID="${EXPECTED_SHA:0:8}-$$"
 WORKSPACE=""
 EXIT_TAB=""
 EXIT_TEAM_ID=""
+EXIT_REPLACEMENT=""
 OLD_ORCHESTRATOR=""
 REPLACEMENT=""
 TEAM_ID=""
 cleanup() {
   [ -z "$TEAM_ID" ] || [ -z "$REPLACEMENT" ] || dc --as-tab "$REPLACEMENT" team close "$TEAM_ID" --json >/dev/null 2>&1 || true
-  [ -z "$EXIT_TEAM_ID" ] || dc team close "$EXIT_TEAM_ID" --json >/dev/null 2>&1 || true
+  [ -z "$EXIT_TEAM_ID" ] || [ -z "$EXIT_REPLACEMENT" ] || dc --as-tab "$EXIT_REPLACEMENT" team close "$EXIT_TEAM_ID" --json >/dev/null 2>&1 || true
   for tab in "$EXIT_TAB" "$OLD_ORCHESTRATOR"; do
     [ -z "$tab" ] || dc tab close "$tab" >/dev/null 2>&1 || true
   done
@@ -53,7 +54,24 @@ RESTART_OUTPUT="$(dc --json agent restart --tab "$EXIT_TAB" 2>&1)"
 RESTART_RC=$?
 set -e
 [ "$RESTART_RC" -ne 0 ] || fail "absent process was advertised as restartable: $RESTART_OUTPUT"
-pass "process-exited Orchestrator is an absent shell with truthful replacement eligibility"
+coproc EXIT_RECOVERY_WAIT { dev_run node "$ROOT/evals/lifecycle-recovery/wait-state.mjs" team-owner "$EXIT_TEAM_ID"; }
+EXIT_RECOVERY_WAIT_PROCESS="$EXIT_RECOVERY_WAIT_PID"
+read -r ready <&"${EXIT_RECOVERY_WAIT[0]}"
+[ "$ready" = READY ] || fail "exited-shell replacement observer readiness"
+EXIT_REPLACEMENT_SPAWN="$(dc --json agent spawn claude --team "$EXIT_TEAM_ID" --role Orchestrator)"
+EXIT_REPLACEMENT="$(json_field "$EXIT_REPLACEMENT_SPAWN" '.tab_id')"
+read -r EXIT_RECOVERED <&"${EXIT_RECOVERY_WAIT[0]}"
+wait "$EXIT_RECOVERY_WAIT_PROCESS"
+[ "$(json_field "$EXIT_RECOVERED" '.owner_tab_id')" = "$EXIT_REPLACEMENT" ] || fail "exited-shell replacement observation"
+EXIT_TEAMS="$(dc --json team list)"
+EXIT_REPLACEMENT_VISIBLE="$(dc --json tab inspect --tab "$EXIT_REPLACEMENT")"
+jq -e --arg team "$EXIT_TEAM_ID" '[.teams[] | select(.id == $team)] | length == 1' <<<"$EXIT_TEAMS" >/dev/null || fail "exited-shell Team cardinality"
+jq -e --arg owner "$EXIT_REPLACEMENT" '.. | objects | select(.id? == $owner and .agent_liveness? == "live")' <<<"$EXIT_REPLACEMENT_VISIBLE" >/dev/null || fail "exited-shell replacement liveness"
+pass "process-exited Orchestrator is truthfully absent and replaced by one live Team owner"
+dc --as-tab "$EXIT_REPLACEMENT" team close "$EXIT_TEAM_ID" --json >/dev/null
+EXIT_TAB=""
+EXIT_TEAM_ID=""
+EXIT_REPLACEMENT=""
 
 ORCH_TITLE="LR-owner-$RUN_ID"
 coproc OWNER_WAIT { dev_run node "$ROOT/evals/lifecycle-recovery/wait-state.mjs" live "$ORCH_TITLE"; }
