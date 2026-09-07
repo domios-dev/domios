@@ -2,17 +2,29 @@ use tauri::State;
 
 use crate::service::ServiceState;
 
-/// Result of `install_provider_in_tab` — the new tab where the install
-/// command was queued. Frontend uses this to switch focus.
 #[derive(serde::Serialize)]
 pub struct InstallTabResult {
     pub tab_id: String,
+    pub launch_state: &'static str,
 }
 
-/// Spawn a fresh tab in the active workspace and queue the provider's
-/// install command into it. The install command comes from the provider
-/// plugin's `install_command(platform)`. The Install card on the
-/// per-provider settings screen calls this.
+fn complete_install_launch(
+    tab_id: String,
+    launch: impl FnOnce(&str) -> Result<(), String>,
+    rollback: impl FnOnce(&str),
+) -> Result<InstallTabResult, String> {
+    if let Err(error) = launch(&tab_id) {
+        rollback(&tab_id);
+        return Err(error);
+    }
+    Ok(InstallTabResult {
+        tab_id,
+        launch_state: "command_dispatched",
+    })
+}
+
+/// Spawn a fresh tab and return only after its PTY accepts the provider's
+/// platform install command. Any launch failure rolls the tab back.
 pub fn install_provider_in_tab_core(
     svc: &ServiceState,
     provider_id: String,
@@ -39,47 +51,35 @@ pub fn install_provider_in_tab_core(
     };
 
     let tab_id = svc.create_named_tab(&ws_id, &format!("Install {}", provider_id))?;
-
-    let svc_clone = svc.clone();
-    let tab_id_clone = tab_id.clone();
-    std::thread::spawn(move || {
-        let frontend_deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        let pty_id = loop {
-            if let Some(pid) = svc_clone
-                .mux
-                .try_write()
-                .and_then(|m| m.get_tab(&tab_id_clone).and_then(|p| p.pty_id.clone()))
-            {
-                break pid;
-            }
-            if std::time::Instant::now() > frontend_deadline {
-                log::warn!(
-                    "install_provider_in_tab: PTY didn't appear for Tab {}",
-                    tab_id_clone
-                );
-                return;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(300));
-        };
-        crate::service::pty_io::poll_shell_prompt(
-            &svc_clone.screen_state,
-            &pty_id,
-            std::time::Duration::from_secs(10),
-        );
-        if let Err(e) = svc_clone.send_shell_spawn(&pty_id, &install_cmd) {
-            log::error!("install_provider_in_tab: failed to send cmd: {}", e);
-        }
-    });
-
-    Ok(InstallTabResult { tab_id })
+    complete_install_launch(
+        tab_id,
+        |tab_id| {
+            svc.ensure_tab_pty_for_send(tab_id)
+                .map_err(|error| format!("installer PTY launch failed: {error}"))?;
+            let pty_id = svc
+                .resolve_pty_id(tab_id)
+                .map_err(|error| format!("installer PTY acknowledgement failed: {error}"))?;
+            svc.send_shell_spawn(&pty_id, &install_cmd)
+                .map_err(|error| format!("installer command dispatch failed: {error}"))
+        },
+        |tab_id| {
+            let _ = svc.close_tab_with_reason(
+                tab_id,
+                crate::multiplexer::types::TabCloseReason::SpawnRollback,
+            );
+        },
+    )
 }
 
 #[tauri::command]
-pub fn install_provider_in_tab(
+pub async fn install_provider_in_tab(
     svc: State<'_, ServiceState>,
     provider_id: String,
 ) -> Result<InstallTabResult, String> {
-    install_provider_in_tab_core(&svc, provider_id)
+    let svc = (*svc).clone();
+    tokio::task::spawn_blocking(move || install_provider_in_tab_core(&svc, provider_id))
+        .await
+        .map_err(|error| format!("installer launch worker failed: {error}"))?
 }
 
 #[tauri::command]
@@ -213,6 +213,41 @@ pub async fn acknowledge_provider_update_prompt(
 #[tauri::command]
 pub fn check_cli_installed(binary: String) -> Result<bool, String> {
     Ok(crate::service::spawn::cli_binary_on_path(&binary))
+}
+
+#[cfg(test)]
+mod install_provider_tests {
+    use super::*;
+    use std::cell::RefCell;
+
+    #[test]
+    fn install_success_is_returned_only_after_command_dispatch_ack() {
+        let events = RefCell::new(Vec::new());
+        let result = complete_install_launch(
+            "tab-fixture".into(),
+            |tab_id| {
+                events.borrow_mut().push(format!("dispatch:{tab_id}"));
+                Ok(())
+            },
+            |_| events.borrow_mut().push("rollback".into()),
+        )
+        .unwrap();
+        assert_eq!(events.into_inner(), vec!["dispatch:tab-fixture"]);
+        assert_eq!(result.launch_state, "command_dispatched");
+    }
+
+    #[test]
+    fn install_dispatch_failure_is_exact_and_rolls_back_empty_tab() {
+        let events = RefCell::new(Vec::new());
+        let failure = "opaque installer dispatch failure b921";
+        let result = complete_install_launch(
+            "tab-fixture".into(),
+            |_| Err(failure.into()),
+            |tab_id| events.borrow_mut().push(format!("rollback:{tab_id}")),
+        );
+        assert_eq!(result.err().as_deref(), Some(failure));
+        assert_eq!(events.into_inner(), vec!["rollback:tab-fixture"]);
+    }
 }
 
 /// TTL-gated re-probe for a reader that just opened the model picker. An open

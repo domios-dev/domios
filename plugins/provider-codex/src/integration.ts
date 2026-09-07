@@ -385,6 +385,8 @@ export function ensureIntegrationOnStartup(
   apiPort: number,
   install: (apiPort: number, options?: CodexIntegrationInstallOptions) => unknown,
 ): unknown {
+  void apiPort;
+  void install;
   const path = codexHooksPath();
   if (!path || !host.fs.fileExists(path)) return { ok: true, changed: false };
   const json = host.fs.readJson<CodexHooks>(path);
@@ -412,12 +414,15 @@ export function ensureIntegrationOnStartup(
       },
     );
   });
-  if (!scriptStale && !commandStale) return { ok: true, changed: false };
+  const stopOwned = (json.hooks.Stop || []).some(isCodetermCodexHook);
+  if (!scriptStale && !commandStale && stopOwned) return { ok: true, changed: false };
 
-  const result = install(apiPort, { consent: true }) as { ok?: boolean; error?: string };
-  return result && result.ok
-    ? { ok: true, changed: true, reason: "refreshed a stale CodeTerm-owned hook" }
-    : { ok: false, changed: false, error: (result && result.error) || "refresh failed" };
+  return {
+    ok: false,
+    changed: false,
+    actionable: true,
+    error: "Codex hook repair requires recorded integration consent; open provider integration settings and approve Repair",
+  };
 }
 
 function codexHooksPath(): string | null {

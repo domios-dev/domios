@@ -1719,6 +1719,8 @@ function restoreIntegration() {
   return { ok: true };
 }
 function ensureIntegrationOnStartup(apiPort, install) {
+  void apiPort;
+  void install;
   const path = codexHooksPath();
   if (!path || !host.fs.fileExists(path)) return { ok: true, changed: false };
   const json = host.fs.readJson(path);
@@ -1739,9 +1741,14 @@ function ensureIntegrationOnStartup(apiPort, install) {
       }
     );
   });
-  if (!scriptStale && !commandStale) return { ok: true, changed: false };
-  const result = install(apiPort, { consent: true });
-  return result && result.ok ? { ok: true, changed: true, reason: "refreshed a stale CodeTerm-owned hook" } : { ok: false, changed: false, error: result && result.error || "refresh failed" };
+  const stopOwned = (json.hooks.Stop || []).some(isCodetermCodexHook);
+  if (!scriptStale && !commandStale && stopOwned) return { ok: true, changed: false };
+  return {
+    ok: false,
+    changed: false,
+    actionable: true,
+    error: "Codex hook repair requires recorded integration consent; open provider integration settings and approve Repair"
+  };
 }
 function codexHooksPath() {
   const home = host.homeDir();

@@ -490,9 +490,13 @@ config knobs. Core falls back to `description` + a rendering of `settingsSchema`
 A reserved glance/settings action, **`configure-with-ai`**, is appended by core to
 **every** plugin — you get it for free, no wiring needed (you may also place it
 explicitly in `renderGlance` if you want it in a specific spot). Clicking it opens
-a focused General-agent Tab preloaded with the plugin's `configHelp`, then asks
+a focused Tab using the configured General-Agent provider, preloaded with the plugin's `configHelp`, then asks
 the user what they want. For a configurable plugin it is "configure for me"; for a
 knob-less plugin it is "help me use this".
+
+The button asks the spawn lifecycle for a delivery acknowledgement. It focuses
+the Tab only after the wrapped task is confirmed; launch or delivery failure is
+returned to the caller instead of presenting focus as proof.
 
 **It never auto-executes.** The button *spawns a Tab with a task* — it does not
 run any command. The agent must ask the user, confirm, and then use the existing
@@ -736,4 +740,4 @@ share these consent, backup, merge, uninstall, and restore semantics.
      release the app first/together** (see "App + plugin ship together"). Test
      path: install the new app, then `codeterm plugin install <id>`.
 
-<!-- revision: 24 -->
+<!-- revision: 25 -->

@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useId, useMemo, useState } from "react";
-import { invoke } from "../../lib/bridge";
 import type { ProviderDescriptor } from "../../lib/types";
+import { launchProviderInstaller } from "../../lib/providerInstall";
 import { ProviderCard, ProviderInstallPanel, providerInstallSortKey } from "./ProviderCard";
 import {
   hasAnyInstalledProvider,
@@ -31,6 +31,7 @@ export function AgentProviderPicker({
   const { installedByBinary, state, refresh } = useProviderAvailability(providers);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [installBusy, setInstallBusy] = useState(false);
+  const [installError, setInstallError] = useState<string | null>(null);
 
   const anyInstalled = useMemo(
     () => hasAnyInstalledProvider(providers, installedByBinary),
@@ -49,8 +50,11 @@ export function AgentProviderPicker({
 
   const onInstall = async (providerId: string) => {
     setInstallBusy(true);
+    setInstallError(null);
     try {
-      await invoke("install_provider_in_tab", { providerId });
+      await launchProviderInstaller(providerId);
+    } catch (error) {
+      setInstallError(error instanceof Error ? error.message : String(error));
     } finally {
       setInstallBusy(false);
     }
@@ -71,6 +75,7 @@ export function AgentProviderPicker({
       className="flex h-full w-full items-center justify-center p-6 overflow-auto"
     >
       <div className="w-full max-w-2xl space-y-6">
+        {installError && <div role="alert" className="text-sm text-[var(--ct-red)]">{installError}</div>}
         <div className="text-center space-y-1">
           <h1 id={headlineId} className="text-lg font-semibold text-[var(--ct-fg)]">{headline}</h1>
           <p className="text-xs text-[var(--ct-muted-fg)]">
