@@ -244,10 +244,12 @@ mod install_provider_tests {
     };
     use crate::multiplexer::state::MultiplexerState;
     use crate::service::test_fixture::ServiceFixture;
+    use crate::session::SessionStore;
     use std::cell::RefCell;
     use std::path::PathBuf;
     use std::sync::Arc;
     use std::time::Duration;
+    use tauri::Manager;
 
     struct InstallerProvider {
         id: String,
@@ -306,6 +308,10 @@ mod install_provider_tests {
         let workspace = mux.create_workspace("Installer fixture".into(), None).id;
         mux.set_active_workspace(&workspace).unwrap();
         let fixture = ServiceFixture::new(mux);
+        let session: crate::session::SessionState = Arc::new(parking_lot::Mutex::new(
+            SessionStore::for_test_dir(fixture.temp.path().join("sessions")),
+        ));
+        fixture._app.manage(session);
         fixture
             .service
             .agent_registry
