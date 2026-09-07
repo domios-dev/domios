@@ -378,10 +378,16 @@ jobs:
           gh api --paginate --slurp \
             "repos/${SOURCE_REPO}/pulls?state=closed&sort=updated&direction=desc&per_page=100" \
             > "$RUNNER_TEMP/closed-pr-pages.json"
-          jq --slurpfile commits "$RUNNER_TEMP/release-commits.json" '
+          jq --arg source_sha "$SOURCE_SHA" \
+            --slurpfile commits "$RUNNER_TEMP/release-commits.json" '
             ($commits[0] | map({key: .sha, value: true}) | from_entries) as $included
             | [.[][]
                 | select(.merged_at != null and ($included[.merge_commit_sha] // false))
+                | select(
+                    ((.body // "") | test("(?im)^(?:Public-Issue:|Repository-Issue:)"))
+                    or (.merge_commit_sha == $source_sha and
+                        ((.body // "") | test("(?im)^(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\\s+")))
+                  )
                 | {number, url: .html_url, body, base_ref: .base.ref}]
             | unique_by(.number)
           ' "$RUNNER_TEMP/closed-pr-pages.json" > "$RUNNER_TEMP/release-prs.json"
