@@ -226,10 +226,23 @@ create_workspace PRIMARY_WORKSPACE "reporting-primary-$RUN_ID" "$PRIMARY_CWD"
 create_workspace FOREIGN_WORKSPACE "reporting-foreign-$RUN_ID" "$FOREIGN_CWD"
 new_tab OWNER_TAB "reporting-owner-$RUN_ID" "$PRIMARY_WORKSPACE" "$PRIMARY_CWD"
 bind_tab OWNER_NONCE "$OWNER_TAB" "$OWNER_SESSION"
-if ! CODETERM_SESSION_ID="$OWNER_SESSION" CODETERM_SESSION_BINDING_NONCE="$OWNER_NONCE" \
-  dc --as-tab "$OWNER_TAB" agent set-orchestrator --json >/dev/null; then
+capture OWNER_BEFORE dc tab inspect --tab "$OWNER_TAB" --json || \
+  fail "fixture_owner: pre-promotion inspection failed"
+node "$JSON" tab-no-team <<<"$OWNER_BEFORE" || \
+  fail "fixture_owner: new owner tab unexpectedly belonged to a Team"
+if ! OWNER_PROMOTION="$(
+  CODETERM_SESSION_ID="$OWNER_SESSION" CODETERM_SESSION_BINDING_NONCE="$OWNER_NONCE" \
+    dc --as-tab "$OWNER_TAB" agent set-orchestrator --json
+)"; then
   fail "fixture_owner: orchestrator registration failed"
 fi
+node "$JSON" bind-ok <<<"$OWNER_PROMOTION" || \
+  fail "fixture_owner: orchestrator registration was not acknowledged"
+capture OWNER_AFTER dc tab inspect --tab "$OWNER_TAB" --json || \
+  fail "fixture_owner: post-promotion inspection failed"
+capture TEAM_ID node "$JSON" tab-team <<<"$OWNER_AFTER" || \
+  fail "fixture_team: promotion did not mint a Team"
+TEAM_OWNED=1
 
 if ! PLAN_RESPONSE="$(
   CODETERM_SESSION_ID="$OWNER_SESSION" CODETERM_SESSION_BINDING_NONCE="$OWNER_NONCE" \
@@ -241,10 +254,8 @@ fi
 capture PLAN_ID node "$JSON" plan-id <<<"$PLAN_RESPONSE" || fail "fixture_plan: missing id"
 [ -n "$PLAN_ID" ] || fail "fixture_plan: missing id"
 PLAN_OWNED=1
-capture TEAM_ID node "$JSON" team-id <<<"$PLAN_RESPONSE" || fail "fixture_team: missing id"
-[ -n "$TEAM_ID" ] || fail "fixture_team: missing id"
-TEAM_OWNED=1
-node "$JSON" team-minted <<<"$PLAN_RESPONSE" || fail "fixture_team: Team was not uniquely minted"
+node "$JSON" team-reused "$TEAM_ID" <<<"$PLAN_RESPONSE" || \
+  fail "fixture_team: Plan did not reuse the uniquely promoted owner's Team"
 
 QA_SESSION="qa-session-$RUN_ID"
 FOREIGN_SESSION="foreign-session-$RUN_ID"
