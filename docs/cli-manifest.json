@@ -8100,7 +8100,7 @@
                 {
                   "name": "plan_id",
                   "positional": true,
-                  "required": true,
+                  "required": false,
                   "value_name": "PLAN_ID",
                   "possible_values": [],
                   "default": null,
@@ -8676,7 +8676,7 @@
                 {
                   "name": "plan_id",
                   "positional": true,
-                  "required": false,
+                  "required": true,
                   "value_name": "PLAN_ID",
                   "possible_values": [],
                   "default": null,
