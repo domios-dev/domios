@@ -235,19 +235,6 @@ the assignment and lane intact, and every verdict requires `--note`, never
 ```bash
 codeterm plan review reconcile-credit <plan> --reason "<incident evidence>"
 ```
-
 Both mutations require the live bound Orchestrator session and record an immutable plan stride.
-
-## Task-less review and canonical-QA evidence
-
-The live Plan owner can grant one task-less tab an evidence-only capability:
-
-```bash
-codeterm plan review authorize-reporter <plan> <tab> --class review
-codeterm plan review authorize-reporter <plan> <tab> --class canonical_qa
-```
-
-The grant durably captures the target tab's current session and a one-way binding-nonce digest, without publishing the bearer nonce. The authorized tab then uses `codeterm agent report --plan <plan>` without `--task` or `--status`. An accepted report appends a `plan_evidence_report` stride and emits the ordinary Orchestrator report event. It does not bind or transition a task, create task provenance, or grant Planner/Orchestrator authority.
-
-The daemon refuses a missing or foreign grant, a stale/rebound identity, a dead or replaced Plan owner, and any tab that currently holds a task. Refusal happens before Plan persistence or report delivery. Reauthorize after a reporter session changes.
-<!-- revision: 72 -->
+For task-less review or canonical-QA evidence, the live Plan owner runs `codeterm plan review authorize-reporter <plan> <tab> --class review|canonical_qa`; the exact current session receives evidence-only authority. The tab reports with `codeterm agent report --plan <plan>` and no task/status, producing an immutable Plan stride and ordinary owner event without task transition or elevated authority. Missing, foreign, rebound, task-bound, or stale-owner grants fail before persistence or delivery and require reauthorization.
+<!-- revision: 73 -->

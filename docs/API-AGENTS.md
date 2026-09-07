@@ -1,5 +1,4 @@
 # Agent and orchestration API
-
 REST endpoints for agent lifecycle, plans, teams, updates, batches, and orchestration state.
 
 #### Agent Restart (POST /api/tabs/{id}/agent/restart)
@@ -189,9 +188,7 @@ The worker then just runs `codeterm agent report "..."` — no `--mesh`, no `--t
 Report routing precedence: **remote mesh target → `parent_tab_id` → `report_target_tab_id` → `spawned_by_tab_id`**; never self.
 
 ### Plan-authorized task-less evidence reports
-
 The live authenticated Plan owner grants a review or canonical-QA tab with `plan.review.authorize-reporter` / `codeterm plan review authorize-reporter`. The durable grant records the target's exact tab id, session id, and a one-way binding-nonce digest; it never exposes the bearer nonce through Plan history. The target reports with `plan_id` only: `task_id`, `status`, and task provenance remain absent. Success appends an immutable `plan_evidence_report` Plan stride, publishes the ordinary `agent-report` event to the live owner, and returns `plan_report` with the stride id and `task_transition:false`.
-
 Authorization is capability-based; role labels grant nothing. A foreign, unbound, stale/rebound, or currently task-bound tab is rejected before either Plan history or the Orchestrator report store changes. A reporter session change requires a fresh owner grant. Registered Planner plan-only reports and task-bound Worker reports keep their existing paths.
 
 Each inbound mesh report registers the worker in the orchestrator-side registry exposed by `GET /api/remote-workers` and the `remote-workers-changed` event, which the sidebar renders as a read-only "remote tab" ghost node under its orchestrator (peer chip + status, no local PTY).
@@ -240,4 +237,4 @@ On error, individual commands return `{"error": "message", "method": "..."}` but
 
 Planner authority over task structure, partial `plan goal set`, lane persistence on dispatch, and recording an external executor: see `codeterm docs API-PLAN`.
 
-<!-- revision: 16 -->
+<!-- revision: 17 -->
