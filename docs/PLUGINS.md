@@ -696,6 +696,11 @@ standard hook install. Hook commands must require the tab-scoped
 exit without side effects outside a CodeTerm tab. JS and native provider paths
 share these consent, backup, merge, uninstall, and restore semantics.
 
+Startup checks do not themselves constitute a user-visible refusal: the JS
+provider return is intentionally not a UI channel. The Settings integration card
+reads `checkIntegration` through the registered command and renders the provider's
+consent-required status; only its explicit repair action enters the write path.
+
 ### Lessons paid for in this migration (don't relearn them)
 
 - A sandboxed iframe that touches `localStorage` crashes on mount — guard browser APIs.
@@ -740,4 +745,4 @@ share these consent, backup, merge, uninstall, and restore semantics.
      release the app first/together** (see "App + plugin ship together"). Test
      path: install the new app, then `codeterm plugin install <id>`.
 
-<!-- revision: 25 -->
+<!-- revision: 26 -->

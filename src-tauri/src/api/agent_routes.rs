@@ -1048,16 +1048,21 @@ pub async fn complete_general_agent_first_run(
 }
 
 /// Web-mirror twin of `install_provider_in_tab`.
+#[derive(Default, serde::Deserialize)]
+pub struct InstallProviderQuery {
+    #[cfg(debug_assertions)]
+    fixture_dispatch_failure: Option<String>,
+}
+
 pub async fn install_provider_in_tab(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(provider_id): Path<String>,
+    Query(query): Query<InstallProviderQuery>,
 ) -> Result<Json<crate::commands::InstallTabResult>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let svc = state.svc.clone();
-    tokio::task::spawn_blocking(move || {
-        crate::commands::install_provider_in_tab_core(&svc, provider_id)
-    })
+    tokio::task::spawn_blocking(move || install_provider_request(&svc, provider_id, query))
         .await
         .map_err(|error| {
             (
@@ -1067,6 +1072,31 @@ pub async fn install_provider_in_tab(
         })?
         .map(Json)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))
+}
+
+#[cfg(debug_assertions)]
+fn install_provider_request(
+    svc: &crate::service::ServiceState,
+    provider_id: String,
+    query: InstallProviderQuery,
+) -> Result<crate::commands::InstallTabResult, String> {
+    match query.fixture_dispatch_failure.filter(|value| !value.is_empty()) {
+        Some(failure) => crate::commands::install_provider_in_tab_with_fixture_failure(
+            svc,
+            provider_id,
+            failure,
+        ),
+        None => crate::commands::install_provider_in_tab_core(svc, provider_id),
+    }
+}
+
+#[cfg(not(debug_assertions))]
+fn install_provider_request(
+    svc: &crate::service::ServiceState,
+    provider_id: String,
+    _query: InstallProviderQuery,
+) -> Result<crate::commands::InstallTabResult, String> {
+    crate::commands::install_provider_in_tab_core(svc, provider_id)
 }
 
 #[cfg(test)]

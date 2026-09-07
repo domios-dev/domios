@@ -8,26 +8,24 @@ pub struct InstallTabResult {
     pub launch_state: &'static str,
 }
 
-fn complete_install_launch(
-    tab_id: String,
-    launch: impl FnOnce(&str) -> Result<(), String>,
-    rollback: impl FnOnce(&str),
-) -> Result<InstallTabResult, String> {
-    if let Err(error) = launch(&tab_id) {
-        rollback(&tab_id);
-        return Err(error);
-    }
-    Ok(InstallTabResult {
-        tab_id,
-        launch_state: "command_dispatched",
-    })
+fn dispatch_install_command(
+    svc: &ServiceState,
+    tab_id: &str,
+    install_cmd: &str,
+) -> Result<(), String> {
+    svc.ensure_tab_pty_for_send(tab_id)
+        .map_err(|error| format!("installer PTY launch failed: {error}"))?;
+    let pty_id = svc
+        .resolve_pty_id(tab_id)
+        .map_err(|error| format!("installer PTY acknowledgement failed: {error}"))?;
+    svc.send_shell_spawn(&pty_id, install_cmd)
+        .map_err(|error| format!("installer command dispatch failed: {error}"))
 }
 
-/// Spawn a fresh tab and return only after its PTY accepts the provider's
-/// platform install command. Any launch failure rolls the tab back.
-pub fn install_provider_in_tab_core(
+fn install_provider_in_tab_with_dispatch(
     svc: &ServiceState,
     provider_id: String,
+    dispatch: impl FnOnce(&ServiceState, &str, &str) -> Result<(), String>,
 ) -> Result<InstallTabResult, String> {
     let platform = crate::agent::provider::current_platform_tag();
     let install_cmd = svc
@@ -51,24 +49,47 @@ pub fn install_provider_in_tab_core(
     };
 
     let tab_id = svc.create_named_tab(&ws_id, &format!("Install {}", provider_id))?;
-    complete_install_launch(
+    if let Err(error) = dispatch(svc, &tab_id, &install_cmd) {
+        let _ = svc.close_tab_with_reason(
+            &tab_id,
+            crate::multiplexer::types::TabCloseReason::SpawnRollback,
+        );
+        return Err(error);
+    }
+    Ok(InstallTabResult {
         tab_id,
-        |tab_id| {
-            svc.ensure_tab_pty_for_send(tab_id)
-                .map_err(|error| format!("installer PTY launch failed: {error}"))?;
-            let pty_id = svc
-                .resolve_pty_id(tab_id)
-                .map_err(|error| format!("installer PTY acknowledgement failed: {error}"))?;
-            svc.send_shell_spawn(&pty_id, &install_cmd)
-                .map_err(|error| format!("installer command dispatch failed: {error}"))
-        },
-        |tab_id| {
-            let _ = svc.close_tab_with_reason(
-                tab_id,
-                crate::multiplexer::types::TabCloseReason::SpawnRollback,
-            );
-        },
-    )
+        launch_state: "command_dispatched",
+    })
+}
+
+/// Spawn a fresh tab and return only after its PTY accepts the provider's
+/// platform install command. Any launch failure rolls the tab back.
+pub fn install_provider_in_tab_core(
+    svc: &ServiceState,
+    provider_id: String,
+) -> Result<InstallTabResult, String> {
+    install_provider_in_tab_with_dispatch(svc, provider_id, dispatch_install_command)
+}
+
+#[cfg(debug_assertions)]
+pub(crate) fn install_provider_in_tab_with_fixture_failure(
+    svc: &ServiceState,
+    provider_id: String,
+    failure: String,
+) -> Result<InstallTabResult, String> {
+    install_provider_in_tab_with_dispatch(svc, provider_id, |svc, tab_id, _| {
+        svc.ensure_tab_pty_for_send(tab_id)
+            .map_err(|error| format!("installer PTY launch failed: {error}"))?;
+        let pty_id = svc
+            .resolve_pty_id(tab_id)
+            .map_err(|error| format!("installer PTY acknowledgement failed: {error}"))?;
+        crate::api::events::emit_everywhere(
+            &svc.app_handle,
+            "provider-install-fixture-dispatch-refused",
+            serde_json::json!({ "tab_id": tab_id, "pty_id": pty_id }),
+        );
+        Err(failure)
+    })
 }
 
 #[tauri::command]
@@ -218,35 +239,131 @@ pub fn check_cli_installed(binary: String) -> Result<bool, String> {
 #[cfg(test)]
 mod install_provider_tests {
     use super::*;
+    use crate::agent::provider::{
+        AgentLaunchParams, AgentProvider, ReadinessStrategy, TaskDelivery,
+    };
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::service::test_fixture::ServiceFixture;
     use std::cell::RefCell;
+    use std::path::PathBuf;
+    use std::sync::Arc;
+    use std::time::Duration;
 
-    #[test]
-    fn install_success_is_returned_only_after_command_dispatch_ack() {
-        let events = RefCell::new(Vec::new());
-        let result = complete_install_launch(
-            "tab-fixture".into(),
-            |tab_id| {
-                events.borrow_mut().push(format!("dispatch:{tab_id}"));
-                Ok(())
-            },
-            |_| events.borrow_mut().push("rollback".into()),
-        )
-        .unwrap();
-        assert_eq!(events.into_inner(), vec!["dispatch:tab-fixture"]);
-        assert_eq!(result.launch_state, "command_dispatched");
+    struct InstallerProvider {
+        id: String,
+        command: String,
+    }
+
+    impl AgentProvider for InstallerProvider {
+        fn id(&self) -> &str {
+            &self.id
+        }
+        fn display_name(&self) -> &str {
+            &self.id
+        }
+        fn build_launch_command(&self, _params: &AgentLaunchParams) -> String {
+            self.id.clone()
+        }
+        fn readiness_strategy(&self) -> ReadinessStrategy {
+            ReadinessStrategy::PollShellPrompt {
+                timeout: Duration::from_secs(10),
+            }
+        }
+        fn task_delivery(&self) -> TaskDelivery {
+            TaskDelivery::InlineFlag
+        }
+        fn detect_from_title(&self, _title: &str) -> bool {
+            false
+        }
+        fn detect_from_output(&self, _text: &str) -> bool {
+            false
+        }
+        fn session_file_path(&self, _cwd: &str, _session_id: &str) -> Option<PathBuf> {
+            None
+        }
+        fn build_resume_command(
+            &self,
+            _session_id: &str,
+            _skip_permissions: bool,
+        ) -> Option<String> {
+            None
+        }
+        fn detect_session_id(
+            &self,
+            _cwd: &str,
+            _exclude: &[String],
+            _max_age: Option<Duration>,
+        ) -> Option<String> {
+            None
+        }
+        fn install_command(&self, _platform: &str) -> Option<String> {
+            Some(self.command.clone())
+        }
+    }
+
+    fn fixture_with_provider(id: &str, command: &str) -> (ServiceFixture, ServiceState) {
+        let (mut mux, _) = MultiplexerState::new();
+        let workspace = mux.create_workspace("Installer fixture".into(), None).id;
+        mux.set_active_workspace(&workspace).unwrap();
+        let fixture = ServiceFixture::new(mux);
+        fixture
+            .service
+            .agent_registry
+            .register_provider(Box::new(InstallerProvider {
+                id: id.into(),
+                command: command.into(),
+            }));
+        let service = Arc::new(fixture.service.clone());
+        (fixture, service)
     }
 
     #[test]
-    fn install_dispatch_failure_is_exact_and_rolls_back_empty_tab() {
-        let events = RefCell::new(Vec::new());
+    #[cfg_attr(
+        not(windows),
+        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+    )]
+    fn production_core_returns_only_after_real_pty_dispatch_ack() {
+        let (_fixture, service) =
+            fixture_with_provider("install-success", "echo provider-install-fixture");
+        let result = install_provider_in_tab_core(&service, "install-success".into()).unwrap();
+        assert_eq!(result.launch_state, "command_dispatched");
+        let tab = service.mux.read().get_tab(&result.tab_id).cloned().unwrap();
+        let pty_id = tab
+            .pty_id
+            .expect("production install core must link a PTY before success");
+        assert!(service.pty.lock().get_session(&pty_id).is_some());
+    }
+
+    #[test]
+    #[cfg_attr(
+        not(windows),
+        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+    )]
+    fn production_transaction_rolls_back_real_provisional_tab_on_dispatch_failure() {
+        let (_fixture, service) = fixture_with_provider("install-failure", "echo never-dispatched");
         let failure = "opaque installer dispatch failure b921";
-        let result = complete_install_launch(
-            "tab-fixture".into(),
-            |_| Err(failure.into()),
-            |tab_id| events.borrow_mut().push(format!("rollback:{tab_id}")),
+        let provisional_pty = RefCell::new(None);
+        let result = install_provider_in_tab_with_dispatch(
+            &service,
+            "install-failure".into(),
+            |svc, tab_id, _| {
+                svc.ensure_tab_pty_for_send(tab_id).unwrap();
+                provisional_pty.replace(Some(svc.resolve_pty_id(tab_id).unwrap()));
+                Err(failure.into())
+            },
         );
         assert_eq!(result.err().as_deref(), Some(failure));
-        assert_eq!(events.into_inner(), vec!["rollback:tab-fixture"]);
+        let mux = service.mux.read();
+        assert!(mux
+            .snapshot()
+            .tabs
+            .values()
+            .all(|tab| tab.title != "Install install-failure"));
+        drop(mux);
+        let pty_id = provisional_pty
+            .into_inner()
+            .expect("fixture must link a provisional PTY");
+        assert!(service.pty.lock().get_session(&pty_id).is_none());
     }
 }
 
