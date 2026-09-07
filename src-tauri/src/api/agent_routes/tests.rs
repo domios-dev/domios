@@ -258,6 +258,10 @@ impl crate::agent::provider::AgentProvider for BinaryProvider {
         self.id.into()
     }
 
+    fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
+        None
+    }
+
     fn readiness_strategy(&self) -> crate::agent::provider::ReadinessStrategy {
         crate::agent::provider::ReadinessStrategy::FixedDelay {
             duration: std::time::Duration::ZERO,

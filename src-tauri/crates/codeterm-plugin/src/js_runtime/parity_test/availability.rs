@@ -61,6 +61,10 @@ impl AgentProvider for NativeAvailabilityStub {
     ) -> Option<String> {
         None
     }
+
+    fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
+        None
+    }
 }
 
 fn js_with_binary_name(id: &str, binary_name: Option<&str>) -> JsProvider {

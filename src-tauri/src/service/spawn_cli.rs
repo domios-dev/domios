@@ -45,6 +45,7 @@ pub(crate) enum ProviderPreflightError {
 }
 
 impl ProviderPreflightError {
+    #[cfg(test)]
     pub(crate) fn code(&self) -> &'static str {
         match self {
             Self::UnknownProvider { .. } => "unknown_provider",
@@ -75,6 +76,7 @@ impl std::fmt::Display for ProviderPreflightError {
                 provider_id, binary
             ),
             Self::BinaryUnavailable {
+                provider_id,
                 display_name,
                 binary,
                 searched,
@@ -82,8 +84,9 @@ impl std::fmt::Display for ProviderPreflightError {
                 ..
             } => write!(
                 f,
-                "Provider not installed: {} launches `{}`, which is not on this machine. Searched: [{}]. Install command: {}",
+                "Provider not installed: {} (`{}`) launches `{}`, which is not on this machine. Searched: [{}]. Install command: {}",
                 display_name,
+                provider_id,
                 binary,
                 searched
                     .iter()
@@ -100,6 +103,7 @@ impl std::fmt::Display for ProviderPreflightError {
 
 /// Proof that a provider's launch binary was observed BEFORE a tab existed.
 /// `create_cleared_agent_tab` takes one, so a refusal cannot leave a tab behind.
+#[derive(Debug)]
 pub(crate) struct LaunchClearance {
     pub(crate) warning: Option<String>,
 }
