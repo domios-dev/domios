@@ -15,12 +15,17 @@ mod worker_handoff;
 pub(crate) use worker_handoff::WorkerTurnSignal;
 
 pub(crate) use planner_binding::clear_planner_bindings_for_lifecycle_exit;
-pub(crate) use report_plan_ctx::{resolve_plan_ctx, verify_planner_report_authority};
+pub(crate) use report_plan_ctx::{
+    classify_plan_only_report_authority, resolve_plan_ctx, PlanOnlyReportAuthority,
+};
 pub use status::TabStatusInfo;
 pub(crate) use team_plan_creation::{TeamPlanCaller, TeamPlanCreationError};
 
 use planner_delivery::{epoch_ms, planner_rehydrate_payload, planner_request_payload};
-use report_persistence::{persist_authorized_local_task_report, rejected_report_delivery_message};
+use report_persistence::{
+    persist_authorized_local_task_report, persist_plan_only_evidence,
+    rejected_report_delivery_message,
+};
 
 use super::{
     RejectedTaskTransition, ReportResult, ReportSubmissionError, ServiceContext, ServiceState,
@@ -415,19 +420,29 @@ impl ServiceContext {
             };
         let mut report_requirement = worker_handoff::claim_explicit_report(&self.gateway, tab_id);
 
-        // A plan-only claim (no task_id) is a Planner claim: hard-refused
-        // before any resolution, delivery, or persistence — codeterm#371.
-        if let (Some(claimed_plan), None) = (
+        let plan_only_authority = if let (Some(claimed_plan), None) = (
             plan_id.map(str::trim).filter(|id| !id.is_empty()),
             task_id.map(str::trim).filter(|id| !id.is_empty()),
         ) {
-            verify_planner_report_authority(
+            let authority = classify_plan_only_report_authority(
                 &self.plan_store,
                 &self.mux.read(),
                 claimed_plan,
                 tab_id,
+                &details,
             )?;
-        }
+            if matches!(authority, PlanOnlyReportAuthority::EvidenceReporter(_)) {
+                if details.status.is_some() {
+                    return Err("PLAN EVIDENCE AUTHORITY REFUSED: a task-less plan evidence report cannot carry --status or transition any task".to_string().into());
+                }
+                if !details.attachments.is_empty() {
+                    return Err("PLAN EVIDENCE AUTHORITY REFUSED: plan-level evidence attachments are not supported; include the durable evidence reference in the report body".to_string().into());
+                }
+            }
+            Some(authority)
+        } else {
+            None
+        };
 
         let mut notices: Vec<String> = Vec::new();
         let mut binding_refused = false;
@@ -573,8 +588,22 @@ impl ServiceContext {
             }
         }
 
+        let persisted_plan_evidence = persist_plan_only_evidence(
+            self,
+            plan_only_authority,
+            tab_id,
+            eff_plan_id.as_deref(),
+            &from_ref,
+            message,
+            epoch_ms(),
+        )?;
+
         if let Some(ref plan_id) = eff_plan_id {
-            if !homed_to_remote && !foreign && rejected_task_transition.is_none() {
+            if !homed_to_remote
+                && !foreign
+                && rejected_task_transition.is_none()
+                && persisted_plan_evidence.is_none()
+            {
                 let persistence = eff_task_id
                     .as_deref()
                     .ok_or_else(|| {
@@ -716,6 +745,7 @@ impl ServiceContext {
             orchestrator_tab_id: storage_key,
             notices,
             persisted_task,
+            persisted_plan_evidence,
             rejected_task_transition,
         })
     }

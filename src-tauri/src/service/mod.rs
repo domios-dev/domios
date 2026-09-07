@@ -880,6 +880,7 @@ pub struct ReportResult {
     /// Non-fatal notices from plan/task resolution (stale env ids, auto-resolution).
     pub notices: Vec<String>,
     pub persisted_task: Option<(String, String)>,
+    pub persisted_plan_evidence: Option<(String, String)>,
     pub rejected_task_transition: Option<RejectedTaskTransition>,
 }
 

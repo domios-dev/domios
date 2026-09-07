@@ -85,6 +85,46 @@ pub(super) fn persist_authorized_local_task_report(
     result
 }
 
+fn persist_authorized_plan_evidence_report(
+    svc: &ServiceContext,
+    tab_id: &str,
+    plan_id: &str,
+    from: &AgentRef,
+    message: &str,
+    now_ms: u64,
+) -> Result<String, crate::service::ReportSubmissionError> {
+    let stride_id = svc
+        .plan_store
+        .add_plan_evidence_report(plan_id, message, from.clone(), now_ms)
+        .map_err(crate::service::ReportSubmissionError::from)?;
+    svc.plan_turn_counter.reset_activity(tab_id);
+    crate::api::events::emit_everywhere(
+        &svc.app_handle,
+        "plan-changed",
+        serde_json::json!({ "plan_id": plan_id }),
+    );
+    Ok(stride_id)
+}
+
+pub(super) fn persist_plan_only_evidence(
+    svc: &ServiceContext,
+    authority: Option<super::PlanOnlyReportAuthority>,
+    tab_id: &str,
+    plan_id: Option<&str>,
+    from: &AgentRef,
+    message: &str,
+    now_ms: u64,
+) -> Result<Option<(String, String)>, crate::service::ReportSubmissionError> {
+    let (Some(plan_id), Some(super::PlanOnlyReportAuthority::EvidenceReporter(_))) =
+        (plan_id, authority)
+    else {
+        return Ok(None);
+    };
+    let stride_id =
+        persist_authorized_plan_evidence_report(svc, tab_id, plan_id, from, message, now_ms)?;
+    Ok(Some((plan_id.to_string(), stride_id)))
+}
+
 fn report_authority(
     details: &ReportDetails,
     tab_id: &str,
