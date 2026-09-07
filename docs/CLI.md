@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 55 -->
+<!-- revision: 56 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -1951,6 +1951,14 @@ Grant daemon-owned review-capacity provenance to one task
 - `--class`
 - `<plan_id>`
 - `<task_id>`
+
+#### `codeterm plan review authorize-reporter`
+
+Authorize one task-less tab to append plan-level review or canonical-QA evidence
+
+- `--class`
+- `<plan_id>`
+- `<reporter_tab_id>`
 
 #### `codeterm plan review bounce`
 

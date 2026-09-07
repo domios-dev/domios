@@ -4,14 +4,23 @@
 //! observable end state — that a refused report writes NO status and NO milestone
 //! while the report itself still reaches the parent.
 
-use super::{resolve_plan_ctx, PLANNER_AUTHORITY_REFUSAL, STALE_TASK_HINT_REFUSAL};
+use super::{
+    resolve_plan_ctx, PLANNER_AUTHORITY_REFUSAL, PLAN_EVIDENCE_AUTHORITY_REFUSAL,
+    STALE_TASK_HINT_REFUSAL,
+};
 use crate::agent::reports::{ReportDetails, ReportStatus};
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::AgentRole;
-use crate::plan::{AgentRef, OrchestratorRef, Plan, PlannerRef, Task, TaskStatus};
+use crate::plan::{
+    AgentRef, OrchestratorRef, Plan, PlanEvidenceClass, PlannerRef, Task, TaskStatus,
+};
 use crate::service::plan::{NewTask, PlanStore};
 use crate::service::test_fixture::ServiceFixture;
 use crate::service::AuthenticatedPlanCaller;
+
+mod plan_evidence_owner_test;
+mod plan_evidence_role_test;
+mod plan_evidence_status_test;
 
 fn add_task(store: &PlanStore, plan_id: &str, name: &str, now_ms: u64) -> String {
     store
@@ -612,6 +621,15 @@ struct PlannerReportHarness {
 }
 
 impl PlannerReportHarness {
+    fn details(&self, tab_id: &str, identity: &str) -> ReportDetails {
+        ReportDetails {
+            caller_tab_id: Some(tab_id.into()),
+            caller_session_id: Some(format!("{identity}-session")),
+            session_binding_nonce: Some(format!("{identity}-nonce")),
+            ..Default::default()
+        }
+    }
+
     fn stale_planner_session(&self) {
         let mut mux = self.fx.service.mux.write();
         mux.get_tab_mut(&self.planner_tab)
@@ -643,6 +661,12 @@ fn planner_report_harness() -> PlannerReportHarness {
     let fx = ServiceFixture::new(mux);
     {
         let mut mux = fx.service.mux.write();
+        let owner = mux.get_tab_mut(&root).unwrap();
+        owner.role = Some(AgentRole::Manager);
+        owner.role_profile = Some("orchestrator".into());
+        owner.agent_session_id = Some("owner-session".into());
+        owner.session_binding_nonce = Some("owner-nonce".into());
+        owner.reported_session_binding_nonce = Some("owner-nonce".into());
         for (tab_id, session) in [(&planner_tab, "planner"), (&foreign_tab, "foreign")] {
             let tab = mux.get_tab_mut(tab_id).unwrap();
             tab.agent_session_id = Some(format!("{session}-session"));
@@ -733,36 +757,6 @@ fn planner_report_refuses_a_stale_session_binding() {
     not(windows),
     ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
 )]
-fn planner_report_refuses_a_non_planner_manager() {
-    let h = planner_report_harness();
-    {
-        let mut mux = h.fx.service.mux.write();
-        let tab = mux.get_tab_mut(&h.foreign_tab).unwrap();
-        tab.role = Some(AgentRole::Manager);
-        tab.role_profile = Some("orchestrator".into());
-    }
-
-    let error =
-        h.fx.service
-            .submit_report(
-                &h.foreign_tab,
-                "NON_PLANNER_MANAGER_PAYLOAD",
-                ReportDetails::default(),
-                Some(&h.plan_id),
-                None,
-                None,
-            )
-            .unwrap_err();
-
-    assert!(error.contains(PLANNER_AUTHORITY_REFUSAL), "{error}");
-    assert!(!h.reports().contains("NON_PLANNER_MANAGER_PAYLOAD"));
-}
-
-#[test]
-#[cfg_attr(
-    not(windows),
-    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
-)]
 fn planner_report_refuses_a_foreign_tab_that_is_not_the_registered_planner() {
     let h = planner_report_harness();
 
@@ -771,14 +765,14 @@ fn planner_report_refuses_a_foreign_tab_that_is_not_the_registered_planner() {
             .submit_report(
                 &h.foreign_tab,
                 "FOREIGN_TAB_PAYLOAD",
-                ReportDetails::default(),
+                h.details(&h.foreign_tab, "foreign"),
                 Some(&h.plan_id),
                 None,
                 None,
             )
             .unwrap_err();
 
-    assert!(error.contains(PLANNER_AUTHORITY_REFUSAL), "{error}");
+    assert!(error.contains(PLAN_EVIDENCE_AUTHORITY_REFUSAL), "{error}");
     assert!(!h.reports().contains("FOREIGN_TAB_PAYLOAD"));
 }
 
@@ -795,14 +789,14 @@ fn planner_report_refuses_the_registered_planner_of_a_different_plan() {
             .submit_report(
                 &h.planner_tab,
                 "FOREIGN_PLAN_PAYLOAD",
-                ReportDetails::default(),
+                h.details(&h.planner_tab, "planner"),
                 Some(&h.foreign_plan_id),
                 None,
                 None,
             )
             .unwrap_err();
 
-    assert!(error.contains(PLANNER_AUTHORITY_REFUSAL), "{error}");
+    assert!(error.contains(PLAN_EVIDENCE_AUTHORITY_REFUSAL), "{error}");
     assert!(!h.reports().contains("FOREIGN_PLAN_PAYLOAD"));
 }
 
@@ -905,4 +899,274 @@ fn planner_report_refuses_an_unknown_plan_before_any_fallback() {
 
     assert!(error.contains("pl_does_not_exist"), "{error}");
     assert!(!h.reports().contains("UNKNOWN_PLAN_PAYLOAD"));
+}
+
+struct PlanEvidenceHarness {
+    fx: ServiceFixture,
+    root: String,
+    reporter: String,
+    ordinary: String,
+    bound: String,
+    plan_id: String,
+    task_id: String,
+}
+
+impl PlanEvidenceHarness {
+    fn details(&self, tab_id: &str, session: &str, nonce: &str) -> ReportDetails {
+        ReportDetails {
+            plan_id: Some(self.plan_id.clone()),
+            caller_tab_id: Some(tab_id.into()),
+            caller_session_id: Some(session.into()),
+            session_binding_nonce: Some(nonce.into()),
+            ..Default::default()
+        }
+    }
+
+    fn reports(&self) -> String {
+        serde_json::to_string(&self.fx.service.report_store.lock().get(&self.root, false)).unwrap()
+    }
+
+    fn plan(&self) -> Plan {
+        self.fx.service.plan_store.get(&self.plan_id).unwrap()
+    }
+}
+
+fn plan_evidence_harness() -> PlanEvidenceHarness {
+    let (mut mux, root) = MultiplexerState::new();
+    let workspace = mux.find_workspace_for_tab(&root).unwrap();
+    let reporter = mux.create_tab(&workspace).unwrap();
+    let ordinary = mux.create_tab(&workspace).unwrap();
+    let bound = mux.create_tab(&workspace).unwrap();
+    {
+        let owner = mux.get_tab_mut(&root).unwrap();
+        owner.role = Some(AgentRole::Manager);
+        owner.role_profile = Some("orchestrator".into());
+        owner.team_id = Some("team-evidence".into());
+        owner.agent_session_id = Some("owner-session".into());
+        owner.session_binding_nonce = Some("owner-nonce".into());
+        owner.reported_session_binding_nonce = Some("owner-nonce".into());
+    }
+    for (tab_id, session, nonce) in [
+        (&reporter, "reporter-session", "reporter-nonce"),
+        (&ordinary, "ordinary-session", "ordinary-nonce"),
+        (&bound, "bound-session", "bound-nonce"),
+    ] {
+        let tab = mux.get_tab_mut(tab_id).unwrap();
+        tab.agent_session_id = Some(session.into());
+        tab.session_binding_nonce = Some(nonce.into());
+        tab.reported_session_binding_nonce = Some(nonce.into());
+        tab.parent_tab_id = Some(root.clone());
+    }
+    let fx = ServiceFixture::new(mux);
+    let mut plan = Plan::new(
+        "plan evidence".into(),
+        fx.temp.path().display().to_string(),
+        OrchestratorRef::from_tab(&root),
+    );
+    plan.team_id = Some("team-evidence".into());
+    fx.service.plan_store.save(&mut plan, 1).unwrap();
+    let task_id = add_task(&fx.service.plan_store, &plan.id, "unchanged task", 2);
+    fx.service
+        .plan_store
+        .grant_plan_evidence_reporter(
+            &plan.id,
+            &reporter,
+            "reporter-session",
+            "reporter-nonce",
+            PlanEvidenceClass::CanonicalQa,
+            AgentRef {
+                tab_id: Some(root.clone()),
+                session_id: Some("owner-session".into()),
+                title: None,
+            },
+            3,
+        )
+        .unwrap();
+    fx.service
+        .plan_store
+        .grant_plan_evidence_reporter(
+            &plan.id,
+            &bound,
+            "bound-session",
+            "bound-nonce",
+            PlanEvidenceClass::Review,
+            AgentRef {
+                tab_id: Some(root.clone()),
+                session_id: Some("owner-session".into()),
+                title: None,
+            },
+            4,
+        )
+        .unwrap();
+    fx.service
+        .plan_store
+        .assign_task(&plan.id, &task_id, &bound, None, 5)
+        .unwrap();
+    PlanEvidenceHarness {
+        fx,
+        root,
+        reporter,
+        ordinary,
+        bound,
+        plan_id: plan.id,
+        task_id,
+    }
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn authorized_taskless_reporter_persists_plan_evidence_and_reaches_owner_without_task_mutation() {
+    let h = plan_evidence_harness();
+    let task_before = h
+        .plan()
+        .tasks
+        .into_iter()
+        .find(|task| task.id == h.task_id)
+        .unwrap();
+    let token = "qa-report-7fb62d8b";
+
+    let result =
+        h.fx.service
+            .submit_report(
+                &h.reporter,
+                token,
+                h.details(&h.reporter, "reporter-session", "reporter-nonce"),
+                Some(&h.plan_id),
+                None,
+                None,
+            )
+            .unwrap();
+
+    assert!(result.persisted_task.is_none());
+    assert!(result.rejected_task_transition.is_none());
+    assert!(result.persisted_plan_evidence.is_some());
+    let plan = h.plan();
+    let evidence = plan
+        .strides
+        .iter()
+        .find(|stride| stride.text == token)
+        .unwrap();
+    assert_eq!(evidence.kind, "plan_evidence_report");
+    assert_eq!(evidence.from.tab_id.as_deref(), Some(h.reporter.as_str()));
+    assert_eq!(
+        evidence.from.session_id.as_deref(),
+        Some("reporter-session")
+    );
+    let task_after = plan.tasks.iter().find(|task| task.id == h.task_id).unwrap();
+    assert_eq!(task_after.status, task_before.status);
+    assert_eq!(task_after.assigned_tab_id, task_before.assigned_tab_id);
+    assert_eq!(task_after.milestones, task_before.milestones);
+    assert!(h.reports().contains(token));
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn ordinary_taskless_tab_is_refused_without_plan_or_delivery_mutation() {
+    let h = plan_evidence_harness();
+    let token = "ordinary-refused-36d4b0f8";
+    let strides_before = h.plan().strides;
+
+    let error =
+        h.fx.service
+            .submit_report(
+                &h.ordinary,
+                token,
+                h.details(&h.ordinary, "ordinary-session", "ordinary-nonce"),
+                Some(&h.plan_id),
+                None,
+                None,
+            )
+            .unwrap_err();
+
+    assert!(error.contains(PLAN_EVIDENCE_AUTHORITY_REFUSAL));
+    assert_eq!(h.plan().strides, strides_before);
+    assert!(!h.reports().contains(token));
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn evidence_grant_is_plan_scoped_and_cannot_write_a_foreign_plan() {
+    let h = plan_evidence_harness();
+    let mut foreign = Plan::new(
+        "foreign evidence plan".into(),
+        h.fx.temp.path().display().to_string(),
+        OrchestratorRef::from_tab(&h.root),
+    );
+    foreign.team_id = Some("team-evidence".into());
+    h.fx.service.plan_store.save(&mut foreign, 20).unwrap();
+    let token = "foreign-plan-refused-2f5ec639";
+    let original_before = h.plan().strides;
+    let foreign_before = foreign.strides.clone();
+    let mut details = h.details(&h.reporter, "reporter-session", "reporter-nonce");
+    details.plan_id = Some(foreign.id.clone());
+
+    let error =
+        h.fx.service
+            .submit_report(&h.reporter, token, details, Some(&foreign.id), None, None)
+            .unwrap_err();
+
+    assert!(error.contains(PLAN_EVIDENCE_AUTHORITY_REFUSAL));
+    assert_eq!(h.plan().strides, original_before);
+    assert_eq!(
+        h.fx.service.plan_store.get(&foreign.id).unwrap().strides,
+        foreign_before
+    );
+    assert!(!h.reports().contains(token));
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn rebound_authorized_reporter_is_refused_without_plan_or_delivery_mutation() {
+    let h = plan_evidence_harness();
+    let token = "rebound-refused-f5c9d7a1";
+    let strides_before = h.plan().strides;
+    {
+        let mut mux = h.fx.service.mux.write();
+        let tab = mux.get_tab_mut(&h.reporter).unwrap();
+        tab.agent_session_id = Some("rebound-session".into());
+        tab.session_binding_nonce = Some("rebound-nonce".into());
+        tab.reported_session_binding_nonce = Some("rebound-nonce".into());
+    }
+
+    let error =
+        h.fx.service
+            .submit_report(
+                &h.reporter,
+                token,
+                h.details(&h.reporter, "reporter-session", "reporter-nonce"),
+                Some(&h.plan_id),
+                None,
+                None,
+            )
+            .unwrap_err();
+
+    assert!(error.contains(PLAN_EVIDENCE_AUTHORITY_REFUSAL));
+    assert_eq!(h.plan().strides, strides_before);
+    assert!(!h.reports().contains(token));
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn task_bound_reporter_cannot_use_plan_evidence_capability() {
+    let h = plan_evidence_harness();
+    let token = "task-bound-refused-3cf68e0a";
+    let plan_before = h.plan();
+
+    let error =
+        h.fx.service
+            .submit_report(
+                &h.bound,
+                token,
+                h.details(&h.bound, "bound-session", "bound-nonce"),
+                Some(&h.plan_id),
+                None,
+                None,
+            )
+            .unwrap_err();
+
+    assert!(error.contains(PLAN_EVIDENCE_AUTHORITY_REFUSAL));
+    let plan_after = h.plan();
+    assert_eq!(plan_after.strides, plan_before.strides);
+    assert_eq!(plan_after.tasks, plan_before.tasks);
+    assert!(!h.reports().contains(token));
 }
