@@ -89,7 +89,8 @@ ORIGINAL_PROVIDER="$(printf '%s' "$ORIGINAL_PROVIDER_JSON" | node "$STATE" confi
 PROVIDER_JSON="$(node -e 'process.stdout.write(JSON.stringify(process.argv[1]))' "$PROVIDER_ID")"
 dc config set general_agent.agent_provider "$PROVIDER_JSON" >/dev/null
 
-WORKSPACE_JSON="$(dc --json workspace create "provider-setup-$RUN_ID" --cwd "$ROOT")"
+WORKSPACE_JSON="$(dc --json workspace create "provider-setup-$RUN_ID" --cwd "${FIXTURE_DIR%/plugin}")"
+[ "$(printf '%s' "$WORKSPACE_JSON" | field existing)" = "false" ] || fail "fixture workspace was not newly owned"
 WORKSPACE="$(printf '%s' "$WORKSPACE_JSON" | field id)"
 [ -n "$WORKSPACE" ] || WORKSPACE="$(printf '%s' "$WORKSPACE_JSON" | field workspace_id)"
 [ -n "$WORKSPACE" ] || fail "fixture workspace creation"
