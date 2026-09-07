@@ -83,6 +83,7 @@ const api: OrchestratorRecoveryApi = {
 };
 
 async function runReplacementAssertions(): Promise<void> {
+  if (!eligible) throw new Error("expected recovery menu eligibility");
   await replaceOrchestrator(eligible, "provider-neutral", api);
   assert.deepEqual(calls, [{ teamId: "team-hubble", providerId: "provider-neutral" }]);
 
