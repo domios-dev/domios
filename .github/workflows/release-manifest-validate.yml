@@ -366,7 +366,6 @@ jobs:
             --releases-file "$RUNNER_TEMP/release-history.json")
           if [ -n "$START" ]; then RANGE="$START..$SOURCE_SHA"; else RANGE="$SOURCE_SHA"; fi
           printf '[]' > "$RUNNER_TEMP/release-commits.json"
-          printf '[]' > "$RUNNER_TEMP/release-prs.json"
           for sha in $(git rev-list "$RANGE"); do
             git show -s --format=%B "$sha" > "$RUNNER_TEMP/commit-body.txt"
             jq --arg sha "$sha" \
@@ -375,14 +374,17 @@ jobs:
               '. + [{sha: $sha, url: $url, body: $body}]' \
               "$RUNNER_TEMP/release-commits.json" > "$RUNNER_TEMP/release-commits.next.json"
             mv "$RUNNER_TEMP/release-commits.next.json" "$RUNNER_TEMP/release-commits.json"
-            gh api "repos/${SOURCE_REPO}/commits/$sha/pulls" \
-              --jq '[.[] | select(.merged_at != null) | {number, url: .html_url, body, base_ref: .base.ref}]' \
-              > "$RUNNER_TEMP/commit-prs.json"
-            jq -s 'add | unique_by(.number)' \
-              "$RUNNER_TEMP/release-prs.json" "$RUNNER_TEMP/commit-prs.json" \
-              > "$RUNNER_TEMP/release-prs.next.json"
-            mv "$RUNNER_TEMP/release-prs.next.json" "$RUNNER_TEMP/release-prs.json"
           done
+          gh api --paginate --slurp \
+            "repos/${SOURCE_REPO}/pulls?state=closed&sort=updated&direction=desc&per_page=100" \
+            > "$RUNNER_TEMP/closed-pr-pages.json"
+          jq --slurpfile commits "$RUNNER_TEMP/release-commits.json" '
+            ($commits[0] | map({key: .sha, value: true}) | from_entries) as $included
+            | [.[][]
+                | select(.merged_at != null and ($included[.merge_commit_sha] // false))
+                | {number, url: .html_url, body, base_ref: .base.ref}]
+            | unique_by(.number)
+          ' "$RUNNER_TEMP/closed-pr-pages.json" > "$RUNNER_TEMP/release-prs.json"
           python3 scripts/release_issue_contract.py resolve \
             --commits-file "$RUNNER_TEMP/release-commits.json" \
             --prs-file "$RUNNER_TEMP/release-prs.json" \
