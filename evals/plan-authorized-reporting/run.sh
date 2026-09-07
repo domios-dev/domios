@@ -264,22 +264,12 @@ if ! TASK_RESPONSE="$(
     dc --as-tab "$OWNER_TAB" plan task add "$PLAN_ID" \
       --name "task-bound misuse sentinel $RUN_ID" --executor-role "oracle-worker" \
       --role-guidance "opaque-fixture-$RUN_ID" --criterion "opaque-criterion-$RUN_ID" \
-      --test-plan "opaque-test-$RUN_ID" --json
+      --test-plan "opaque-test-$RUN_ID" --assign-tab "$BOUND_TAB" --json
 )"; then
   fail "fixture_task: create failed"
 fi
 capture TASK_ID node "$JSON" task-id <<<"$TASK_RESPONSE" || fail "fixture_task: missing id"
 [ -n "$TASK_ID" ] || fail "fixture_task: missing id"
-set +e
-TASK_ASSIGNMENT="$(
-  CODETERM_SESSION_ID="$OWNER_SESSION" CODETERM_SESSION_BINDING_NONCE="$OWNER_NONCE" \
-    dc --as-tab "$OWNER_TAB" plan task assign "$PLAN_ID" "$TASK_ID" \
-    --tab "$BOUND_TAB" --json 2>&1
-)"
-TASK_ASSIGNMENT_RC=$?
-set -e
-[ "$TASK_ASSIGNMENT_RC" -eq 0 ] || fail "fixture_task: assignment failed: $TASK_ASSIGNMENT"
-node "$JSON" bind-ok <<<"$TASK_ASSIGNMENT" || fail "fixture_task: assignment was not acknowledged"
 
 echo "FIXTURE run=$RUN_ID"
 echo "FIXTURE workspace.primary=$PRIMARY_WORKSPACE cwd=$PRIMARY_CWD owned=unique_cwd"
