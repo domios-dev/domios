@@ -97,6 +97,11 @@ switch (operation) {
     write(JSON.stringify({ status: task.status, assigned_tab_id: task.assigned_tab_id, milestones: task.milestones }));
     break;
   }
+  case "task-bound-to": {
+    const task = tasks().find((item) => item.id === args[0]);
+    failUnless(task?.assigned_tab_id === args[1]);
+    break;
+  }
   case "accepted-response":
     failUnless(data?.accepted === true
       && data?.plan_report?.persisted === true
