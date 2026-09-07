@@ -1,5 +1,6 @@
 // Run: npx tsx src/components/AgentPicker/preselectProvider.test.ts
 
+import { readFileSync } from "node:fs";
 import type { ProviderAvailability, ProviderDescriptor } from "../../lib/types";
 import {
   generalAgentProviders,
@@ -41,17 +42,19 @@ function mkProvider(
   };
 }
 
-/**
- * The same four rows the Rust CLI test reads
- * (`PROVIDER_AVAILABILITY_FIXTURE` in cli/src/cmd/agent_tests.rs), so the two
- * surfaces cannot drift on what a verdict means.
- */
-const FIXTURE = [
-  mkProvider("fixture-available", "fixture-available-cli", "available"),
-  mkProvider("fixture-unavailable", "fixture-unavailable-cli", "unavailable"),
-  mkProvider("fixture-unknown", "fixture-unknown-cli", "unknown"),
-  mkProvider("fixture-legacy", "fixture-legacy-cli"),
-];
+interface AvailabilityFixtureRow {
+  id: string;
+  availability?: ProviderAvailability;
+}
+
+const FIXTURE = (JSON.parse(
+  readFileSync(
+    new URL("../../../fixtures/provider_availability.json", import.meta.url),
+    "utf8",
+  ),
+) as AvailabilityFixtureRow[]).map((row) =>
+  mkProvider(row.id, `${row.id}-cli`, row.availability),
+);
 
 test("the picker reads the descriptor's own three-valued field", () => {
   assert(providerAvailability(FIXTURE[0]) === "available", "available row");
