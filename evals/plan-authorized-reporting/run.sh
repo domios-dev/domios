@@ -2,81 +2,160 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-source "$ROOT/evals/_lib/lib.sh"
+JSON="$ROOT/evals/plan-authorized-reporting/json.mjs"
+
+fail() {
+  echo "FAIL $1" >&2
+  exit 1
+}
 
 [ "${1:-}" = "--check" ] || {
   echo "usage: bash evals/plan-authorized-reporting/run.sh --check" >&2
   exit 2
 }
+command -v node >/dev/null 2>&1 || fail "prerequisite: node is required"
+command -v python3 >/dev/null 2>&1 || fail "prerequisite: python3 is required"
+[ -f "$ROOT/evals/_lib/lib.sh" ] || fail "prerequisite: eval library is missing"
+if ! source "$ROOT/evals/_lib/lib.sh"; then
+  fail "prerequisite: eval library could not be loaded"
+fi
 
-WORKSPACE_ID=""
+TMP_DIR="$(mktemp -d)" || fail "prerequisite: temporary directory creation failed"
+RUN_ID="$(basename "$TMP_DIR")-${BASHPID}"
+PRIMARY_CWD="$TMP_DIR/primary-$RUN_ID"
+FOREIGN_CWD="$TMP_DIR/foreign-$RUN_ID"
+TMP_MARKER="$TMP_DIR/.plan-authorized-reporting-owned"
+mkdir -p "$PRIMARY_CWD" "$FOREIGN_CWD" || fail "fixture_cwd: creation failed"
+touch "$TMP_MARKER" || fail "fixture_cwd: ownership marker failed"
+
+OWNED_WORKSPACES=()
+CREATED_TABS=()
+CREATED_SESSIONS=()
 PLAN_ID=""
+PLAN_OWNED=0
+TEAM_ID=""
+TEAM_OWNED=0
 OWNER_TAB=""
-OWNER_SESSION="owner-session-91f0c4"
+OWNER_SESSION="owner-session-$RUN_ID"
 OWNER_NONCE=""
 EVENT_PID=""
 EVENT_FD=""
-TMP_DIR="$(mktemp -d)"
-JSON="$ROOT/evals/plan-authorized-reporting/json.mjs"
 
 cleanup() {
-  local status=$?
-  [ -z "$EVENT_PID" ] || kill "$EVENT_PID" >/dev/null 2>&1 || true
-  if [ -n "$PLAN_ID" ] && [ -n "$OWNER_TAB" ] && [ -n "$OWNER_NONCE" ]; then
-    CODETERM_SESSION_ID="$OWNER_SESSION" CODETERM_SESSION_BINDING_NONCE="$OWNER_NONCE" \
-      dc --as-tab "$OWNER_TAB" plan delete "$PLAN_ID" --yes >/dev/null 2>&1 || true
-  fi
-  [ -z "$WORKSPACE_ID" ] || dc workspace close "$WORKSPACE_ID" >/dev/null 2>&1 || true
-  rm -rf "$TMP_DIR"
+  local status=$? cleanup_failed=0 workspace_id
   trap - EXIT
+  if [ -n "$EVENT_PID" ]; then
+    kill "$EVENT_PID" >/dev/null 2>&1 || true
+    wait "$EVENT_PID" >/dev/null 2>&1 || true
+  fi
+  if [ "$PLAN_OWNED" -eq 1 ]; then
+    if ! CODETERM_SESSION_ID="$OWNER_SESSION" CODETERM_SESSION_BINDING_NONCE="$OWNER_NONCE" \
+      dc --as-tab "$OWNER_TAB" plan delete "$PLAN_ID" --yes >/dev/null 2>&1; then
+      echo "FAIL cleanup: owned plan $PLAN_ID was not deleted" >&2
+      cleanup_failed=1
+    fi
+  fi
+  if [ "$TEAM_OWNED" -eq 1 ]; then
+    if ! CODETERM_SESSION_ID="$OWNER_SESSION" CODETERM_SESSION_BINDING_NONCE="$OWNER_NONCE" \
+      dc --as-tab "$OWNER_TAB" team close "$TEAM_ID" >/dev/null 2>&1; then
+      echo "FAIL cleanup: owned Team $TEAM_ID was not closed" >&2
+      cleanup_failed=1
+    fi
+  fi
+  for workspace_id in "${OWNED_WORKSPACES[@]}"; do
+    if ! dc workspace close "$workspace_id" --force >/dev/null 2>&1; then
+      echo "FAIL cleanup: owned workspace $workspace_id was not closed" >&2
+      cleanup_failed=1
+    fi
+  done
+  if [ -f "$TMP_MARKER" ]; then
+    rm -rf -- "$TMP_DIR" || cleanup_failed=1
+  else
+    echo "FAIL cleanup: temporary ownership guard is missing" >&2
+    cleanup_failed=1
+  fi
+  if [ "$status" -eq 0 ] && [ "$cleanup_failed" -ne 0 ]; then
+    status=1
+  fi
   exit "$status"
 }
 trap cleanup EXIT
 
-capture_json() {
-  local output
-  output="$("$@")"
-  printf '%s\n' "$output"
+capture() {
+  local result_var="$1" output
+  shift
+  if ! output="$("$@")"; then
+    return 1
+  fi
+  printf -v "$result_var" '%s' "$output"
 }
 
-tab_id_from_create() {
-  node "$JSON" tab-id
-}
-
-plan_id_from_create() {
-  node "$JSON" plan-id
-}
-
-tab_nonce() {
-  node "$JSON" tab-nonce
-}
-
-bind_tab() {
-  local tab_id="$1" session_id="$2" nonce body response
-  nonce="$(capture_json dc tab inspect --tab "$tab_id" --json | tab_nonce)"
-  [ -n "$nonce" ] || { echo "FAIL fixture_binding: missing nonce for $tab_id"; exit 1; }
-  body="$(node "$JSON" session-body "$session_id" "$nonce" </dev/null)"
-  response="$(dev_post "/api/tabs/$tab_id/hook/session_start" "$body")"
-  node "$JSON" bind-ok "$session_id" <<<"$response"
-  printf '%s\n' "$nonce"
+create_workspace() {
+  local result_var="$1" name="$2" cwd="$3" response workspace_id
+  if ! capture response dc workspace create "$name" --cwd "$cwd" --json; then
+    fail "fixture_workspace: create failed for $name"
+  fi
+  if ! capture workspace_id node "$JSON" workspace-owned "$cwd" <<<"$response"; then
+    fail "fixture_workspace: $name was reused or returned no owned id"
+  fi
+  OWNED_WORKSPACES+=("$workspace_id")
+  printf -v "$result_var" '%s' "$workspace_id"
 }
 
 new_tab() {
-  local title="$1" response tab
-  response="$(capture_json dc tab new --workspace "$WORKSPACE_ID" --cwd "$ROOT" --title "$title" --eager --json)"
-  tab="$(tab_id_from_create <<<"$response")"
-  [ -n "$tab" ] || { echo "FAIL fixture_tab: $title"; exit 1; }
-  printf '%s\n' "$tab"
+  local result_var="$1" title="$2" workspace_id="$3" cwd="$4" response tab_id
+  if ! capture response dc tab new --workspace "$workspace_id" --cwd "$cwd" \
+    --title "$title" --no-team --eager --json; then
+    fail "fixture_tab: create failed for $title"
+  fi
+  if ! capture tab_id node "$JSON" tab-id <<<"$response" || [ -z "$tab_id" ]; then
+    fail "fixture_tab: missing id for $title"
+  fi
+  CREATED_TABS+=("$tab_id")
+  printf -v "$result_var" '%s' "$tab_id"
+}
+
+tab_nonce() {
+  local result_var="$1" tab_id="$2" response nonce
+  if ! capture response dc tab inspect --tab "$tab_id" --json; then
+    fail "fixture_binding: inspect failed for $tab_id"
+  fi
+  if ! capture nonce node "$JSON" tab-nonce <<<"$response" || [ -z "$nonce" ]; then
+    fail "fixture_binding: missing nonce for $tab_id"
+  fi
+  printf -v "$result_var" '%s' "$nonce"
+}
+
+bind_tab() {
+  local result_var="$1" tab_id="$2" session_id="$3" nonce body response
+  tab_nonce nonce "$tab_id"
+  if ! capture body node "$JSON" session-body "$session_id" "$nonce" </dev/null; then
+    fail "fixture_binding: request encoding failed for $tab_id"
+  fi
+  if ! capture response dev_post "/api/tabs/$tab_id/hook/session_start" "$body"; then
+    fail "fixture_binding: session_start failed for $tab_id"
+  fi
+  if ! node "$JSON" bind-ok "$session_id" <<<"$response"; then
+    fail "fixture_binding: session_start was not acknowledged for $tab_id"
+  fi
+  CREATED_SESSIONS+=("$session_id")
+  printf -v "$result_var" '%s' "$nonce"
 }
 
 plan_json() {
-  capture_json dc plan get "$PLAN_ID" --json
+  local result_var="$1" response
+  if ! capture response dc plan get "$PLAN_ID" --json; then
+    fail "assertion: plan $PLAN_ID could not be read"
+  fi
+  printf -v "$result_var" '%s' "$response"
 }
 
 token_absent_everywhere() {
-  local token="$1"
-  plan_json | node "$JSON" token-absent "$token"
-  dev_get "/api/tabs/$OWNER_TAB/reports" | node "$JSON" report-token-absent "$token"
+  local token="$1" current_plan reports
+  plan_json current_plan
+  node "$JSON" token-absent "$token" <<<"$current_plan" || return 1
+  capture reports dev_get "/api/tabs/$OWNER_TAB/reports" || return 1
+  node "$JSON" report-token-absent "$token" <<<"$reports"
 }
 
 start_report_subscription() {
@@ -89,100 +168,150 @@ start_report_subscription() {
   EVENT_PID="$REPORT_EVENT_PID"
   EVENT_FD="${REPORT_EVENT[0]}"
   if ! read -r -t 10 ready <&"$EVENT_FD" || [ "$ready" != "READY" ]; then
-    echo "FAIL subscription_ready: agent-report" >&2
-    exit 1
+    fail "subscription: agent-report readiness was not observed"
   fi
 }
 
 finish_report_subscription() {
-  wait "$EVENT_PID"
+  if ! wait "$EVENT_PID"; then
+    fail "subscription: matching agent-report event was not observed"
+  fi
   EVENT_PID=""
   EVENT_FD=""
-  node "$JSON" event-type <"$TMP_DIR/event.json"
+  node "$JSON" event-type <"$TMP_DIR/event.json" || \
+    fail "assertion: subscribed event had the wrong type"
 }
 
 assert_refused() {
-  local label="$1" tab="$2" session="$3" nonce="$4" token="$5" before after output rc
-  before="$(plan_json | node "$JSON" plan-snapshot)"
+  local label="$1" tab="$2" session="$3" nonce="$4" token="$5"
+  local current_plan before after output rc
+  plan_json current_plan
+  capture before node "$JSON" plan-snapshot <<<"$current_plan" || \
+    fail "$label: before snapshot failed"
   set +e
-  output="$(
+  output="$({
     unset CODETERM_PLAN_ID CODETERM_TASK_ID
     CODETERM_SESSION_ID="$session" CODETERM_SESSION_BINDING_NONCE="$nonce" \
-      dc --as-tab "$tab" agent report "$token" --plan "$PLAN_ID" --json 2>&1
-  )"
+      dc --as-tab "$tab" agent report "$token" --plan "$PLAN_ID" --json
+  } 2>&1)"
   rc=$?
   set -e
-  [ "$rc" -ne 0 ] || { echo "FAIL $label: report accepted"; exit 1; }
-  [ -n "$output" ] || { echo "FAIL $label: refusal had no actionable output"; exit 1; }
-  after="$(plan_json | node "$JSON" plan-snapshot)"
-  [ "$before" = "$after" ] || { echo "FAIL $label: plan evidence or task state changed"; exit 1; }
-  token_absent_everywhere "$token" || { echo "FAIL $label: token persisted or delivered"; exit 1; }
+  [ "$rc" -ne 0 ] || fail "$label: report accepted"
+  [ -n "$output" ] || fail "$label: refusal had no actionable output"
+  plan_json current_plan
+  capture after node "$JSON" plan-snapshot <<<"$current_plan" || \
+    fail "$label: after snapshot failed"
+  [ "$before" = "$after" ] || fail "$label: plan evidence or task state changed"
+  token_absent_everywhere "$token" || fail "$label: token persisted or delivered"
   echo "PASS $label"
 }
 
-dev_get /api/health >/dev/null
-WORKSPACE_ID="$(capture_json dc workspace create "plan-authorized-reporting" --cwd "$ROOT" --json | node "$JSON" tab-id)"
-[ -n "$WORKSPACE_ID" ] || { echo "FAIL fixture_workspace"; exit 1; }
+dev_get /api/health >/dev/null || fail "prerequisite: dev API is unavailable"
 
-OWNER_TAB="$(new_tab "reporting-owner")"
-OWNER_NONCE="$(bind_tab "$OWNER_TAB" "$OWNER_SESSION")"
-CODETERM_SESSION_ID="$OWNER_SESSION" CODETERM_SESSION_BINDING_NONCE="$OWNER_NONCE" \
-  dc --as-tab "$OWNER_TAB" agent set-orchestrator --json >/dev/null
-PLAN_ID="$(
+create_workspace PRIMARY_WORKSPACE "reporting-primary-$RUN_ID" "$PRIMARY_CWD"
+create_workspace FOREIGN_WORKSPACE "reporting-foreign-$RUN_ID" "$FOREIGN_CWD"
+new_tab OWNER_TAB "reporting-owner-$RUN_ID" "$PRIMARY_WORKSPACE" "$PRIMARY_CWD"
+bind_tab OWNER_NONCE "$OWNER_TAB" "$OWNER_SESSION"
+if ! CODETERM_SESSION_ID="$OWNER_SESSION" CODETERM_SESSION_BINDING_NONCE="$OWNER_NONCE" \
+  dc --as-tab "$OWNER_TAB" agent set-orchestrator --json >/dev/null; then
+  fail "fixture_owner: orchestrator registration failed"
+fi
+
+if ! PLAN_RESPONSE="$(
   CODETERM_SESSION_ID="$OWNER_SESSION" CODETERM_SESSION_BINDING_NONCE="$OWNER_NONCE" \
-    capture_json dc --as-tab "$OWNER_TAB" plan create \
-      --title "plan-authorized-reporting" --project "$ROOT" --json | plan_id_from_create
-)"
-[ -n "$PLAN_ID" ] || { echo "FAIL fixture_plan"; exit 1; }
+    dc --as-tab "$OWNER_TAB" plan create \
+      --title "plan-authorized-reporting-$RUN_ID" --project "$PRIMARY_CWD" --json
+)"; then
+  fail "fixture_plan: create failed"
+fi
+capture PLAN_ID node "$JSON" plan-id <<<"$PLAN_RESPONSE" || fail "fixture_plan: missing id"
+[ -n "$PLAN_ID" ] || fail "fixture_plan: missing id"
+PLAN_OWNED=1
+capture TEAM_ID node "$JSON" team-id <<<"$PLAN_RESPONSE" || fail "fixture_team: missing id"
+[ -n "$TEAM_ID" ] || fail "fixture_team: missing id"
+TEAM_OWNED=1
+node "$JSON" team-minted <<<"$PLAN_RESPONSE" || fail "fixture_team: Team was not uniquely minted"
 
-QA_TAB="$(new_tab "authorized-canonical-qa")"
-QA_SESSION="qa-session-c307b1"
-QA_NONCE="$(bind_tab "$QA_TAB" "$QA_SESSION")"
-FOREIGN_TAB="$(new_tab "foreign-reviewer")"
-FOREIGN_SESSION="foreign-session-a4d8e2"
-FOREIGN_NONCE="$(bind_tab "$FOREIGN_TAB" "$FOREIGN_SESSION")"
-UNBOUND_TAB="$(new_tab "unbound-reviewer")"
-UNBOUND_NONCE="$(capture_json dc tab inspect --tab "$UNBOUND_TAB" --json | tab_nonce)"
-BOUND_TAB="$(new_tab "task-bound-reviewer")"
-BOUND_SESSION="bound-session-89a7c5"
-BOUND_NONCE="$(bind_tab "$BOUND_TAB" "$BOUND_SESSION")"
+QA_SESSION="qa-session-$RUN_ID"
+FOREIGN_SESSION="foreign-session-$RUN_ID"
+BOUND_SESSION="bound-session-$RUN_ID"
+UNBOUND_SESSION="unbound-session-$RUN_ID"
+new_tab QA_TAB "authorized-canonical-qa-$RUN_ID" "$PRIMARY_WORKSPACE" "$PRIMARY_CWD"
+bind_tab QA_NONCE "$QA_TAB" "$QA_SESSION"
+new_tab FOREIGN_TAB "foreign-reviewer-$RUN_ID" "$FOREIGN_WORKSPACE" "$FOREIGN_CWD"
+bind_tab FOREIGN_NONCE "$FOREIGN_TAB" "$FOREIGN_SESSION"
+new_tab UNBOUND_TAB "unbound-reviewer-$RUN_ID" "$PRIMARY_WORKSPACE" "$PRIMARY_CWD"
+tab_nonce UNBOUND_NONCE "$UNBOUND_TAB"
+new_tab BOUND_TAB "task-bound-reviewer-$RUN_ID" "$PRIMARY_WORKSPACE" "$PRIMARY_CWD"
+bind_tab BOUND_NONCE "$BOUND_TAB" "$BOUND_SESSION"
 
-CODETERM_SESSION_ID="$OWNER_SESSION" CODETERM_SESSION_BINDING_NONCE="$OWNER_NONCE" \
+if ! CODETERM_SESSION_ID="$OWNER_SESSION" CODETERM_SESSION_BINDING_NONCE="$OWNER_NONCE" \
   dc --as-tab "$OWNER_TAB" plan review authorize-reporter "$PLAN_ID" "$QA_TAB" \
-    --class canonical_qa --json >/dev/null
-CODETERM_SESSION_ID="$OWNER_SESSION" CODETERM_SESSION_BINDING_NONCE="$OWNER_NONCE" \
+    --class canonical_qa --json >/dev/null; then
+  fail "fixture_authorization: canonical QA grant failed"
+fi
+if ! CODETERM_SESSION_ID="$OWNER_SESSION" CODETERM_SESSION_BINDING_NONCE="$OWNER_NONCE" \
   dc --as-tab "$OWNER_TAB" plan review authorize-reporter "$PLAN_ID" "$BOUND_TAB" \
-    --class review --json >/dev/null
+    --class review --json >/dev/null; then
+  fail "fixture_authorization: task-bound grant failed"
+fi
 
-TASK_ID="$(
+if ! TASK_RESPONSE="$(
   CODETERM_SESSION_ID="$OWNER_SESSION" CODETERM_SESSION_BINDING_NONCE="$OWNER_NONCE" \
-    capture_json dc --as-tab "$OWNER_TAB" plan task add "$PLAN_ID" \
-      --name "task-bound misuse sentinel" --executor-role "oracle-worker" \
-      --role-guidance "opaque-fixture-7ea61b" --criterion "opaque-criterion-c1fb35" \
-      --test-plan "opaque-test-5e4d29" --assign-tab "$BOUND_TAB" --json |
-    node "$JSON" task-id
-)"
-[ -n "$TASK_ID" ] || { echo "FAIL fixture_task"; exit 1; }
-TASK_BEFORE="$(plan_json | node "$JSON" task-snapshot "$TASK_ID")"
+    dc --as-tab "$OWNER_TAB" plan task add "$PLAN_ID" \
+      --name "task-bound misuse sentinel $RUN_ID" --executor-role "oracle-worker" \
+      --role-guidance "opaque-fixture-$RUN_ID" --criterion "opaque-criterion-$RUN_ID" \
+      --test-plan "opaque-test-$RUN_ID" --assign-tab "$BOUND_TAB" --json
+)"; then
+  fail "fixture_task: create failed"
+fi
+capture TASK_ID node "$JSON" task-id <<<"$TASK_RESPONSE" || fail "fixture_task: missing id"
+[ -n "$TASK_ID" ] || fail "fixture_task: missing id"
 
-ACCEPTED_TOKEN="qa-evidence-4c95a037"
+echo "FIXTURE run=$RUN_ID"
+echo "FIXTURE workspace.primary=$PRIMARY_WORKSPACE cwd=$PRIMARY_CWD owned=unique_cwd"
+echo "FIXTURE workspace.foreign=$FOREIGN_WORKSPACE cwd=$FOREIGN_CWD owned=unique_cwd"
+echo "FIXTURE plan=$PLAN_ID team=$TEAM_ID owner_tab=$OWNER_TAB owner_session=$OWNER_SESSION"
+echo "FIXTURE tab.qa=$QA_TAB session=$QA_SESSION"
+echo "FIXTURE tab.foreign=$FOREIGN_TAB session=$FOREIGN_SESSION"
+echo "FIXTURE tab.unbound=$UNBOUND_TAB session=$UNBOUND_SESSION"
+echo "FIXTURE tab.task_bound=$BOUND_TAB session=$BOUND_SESSION task=$TASK_ID"
+
+plan_json CURRENT_PLAN
+capture TASK_BEFORE node "$JSON" task-snapshot "$TASK_ID" <<<"$CURRENT_PLAN" || \
+  fail "assertion: initial task snapshot failed"
+
+ACCEPTED_TOKEN="qa-evidence-$RUN_ID"
 start_report_subscription "$ACCEPTED_TOKEN"
-ACCEPTED="$(
+if ! ACCEPTED="$(
   unset CODETERM_PLAN_ID CODETERM_TASK_ID
   CODETERM_SESSION_ID="$QA_SESSION" CODETERM_SESSION_BINDING_NONCE="$QA_NONCE" \
     dc --as-tab "$QA_TAB" agent report "$ACCEPTED_TOKEN" --plan "$PLAN_ID" --json
-)"
+)"; then
+  fail "assertion: authorized QA report was refused"
+fi
 finish_report_subscription
-node "$JSON" accepted-response "$PLAN_ID" <<<"$ACCEPTED"
-plan_json | node "$JSON" plan-evidence "$ACCEPTED_TOKEN"
-dev_get "/api/tabs/$OWNER_TAB/reports" | node "$JSON" owner-report "$ACCEPTED_TOKEN"
-TASK_AFTER="$(plan_json | node "$JSON" task-snapshot "$TASK_ID")"
-[ "$TASK_BEFORE" = "$TASK_AFTER" ] || { echo "FAIL authorized_qa_task_non_mutation"; exit 1; }
+node "$JSON" accepted-response "$PLAN_ID" <<<"$ACCEPTED" || \
+  fail "assertion: authorized response contract failed"
+plan_json CURRENT_PLAN
+node "$JSON" plan-evidence "$ACCEPTED_TOKEN" <<<"$CURRENT_PLAN" || \
+  fail "assertion: authorized token was not persisted"
+capture OWNER_REPORTS dev_get "/api/tabs/$OWNER_TAB/reports" || \
+  fail "assertion: owner report channel could not be read"
+node "$JSON" owner-report "$ACCEPTED_TOKEN" <<<"$OWNER_REPORTS" || \
+  fail "assertion: authorized token did not reach the owner"
+capture TASK_AFTER node "$JSON" task-snapshot "$TASK_ID" <<<"$CURRENT_PLAN" || \
+  fail "assertion: final task snapshot failed"
+[ "$TASK_BEFORE" = "$TASK_AFTER" ] || fail "authorized_qa_task_non_mutation"
 echo "PASS authorized_qa_persistence_and_delivery"
 
-assert_refused foreign_tab "$FOREIGN_TAB" "$FOREIGN_SESSION" "$FOREIGN_NONCE" "foreign-refused-0ef21c"
-assert_refused unbound_tab "$UNBOUND_TAB" "unbound-session-82ba13" "$UNBOUND_NONCE" "unbound-refused-c306d8"
-assert_refused stale_rebound_identity "$QA_TAB" "stale-session-b127ea" "stale-nonce-2e81f9" "stale-refused-95b1ac"
-assert_refused task_bound_misuse "$BOUND_TAB" "$BOUND_SESSION" "$BOUND_NONCE" "task-bound-refused-89e40d"
+assert_refused foreign_tab "$FOREIGN_TAB" "$FOREIGN_SESSION" "$FOREIGN_NONCE" \
+  "foreign-refused-$RUN_ID"
+assert_refused unbound_tab "$UNBOUND_TAB" "$UNBOUND_SESSION" "$UNBOUND_NONCE" \
+  "unbound-refused-$RUN_ID"
+assert_refused stale_rebound_identity "$QA_TAB" "stale-session-$RUN_ID" \
+  "stale-nonce-$RUN_ID" "stale-refused-$RUN_ID"
+assert_refused task_bound_misuse "$BOUND_TAB" "$BOUND_SESSION" "$BOUND_NONCE" \
+  "task-bound-refused-$RUN_ID"
 
 echo "PASS plan_authorized_reporting"
