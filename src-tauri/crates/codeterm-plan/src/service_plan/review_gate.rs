@@ -1,17 +1,20 @@
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 
 use super::mutations::plan_contains_id;
 use super::{PlanError, PlanStore};
 use crate::plan::{
-    AgentRef, Milestone, Plan, ReviewAuditEntry, ReviewCapacityClass, ReviewCapacityGrant,
-    ReviewEvidence, ReviewOverride, ReviewPolicy, ReviewStage, ReviewVerdict, Task, TaskStatus,
-    DEFAULT_MAX_REVIEW_ROUNDS,
+    AgentRef, Milestone, Plan, PlanEvidenceClass, PlanEvidenceReporterGrant, ReviewAuditEntry,
+    ReviewCapacityClass, ReviewCapacityGrant, ReviewEvidence, ReviewOverride, ReviewPolicy,
+    ReviewStage, ReviewVerdict, Task, TaskStatus, DEFAULT_MAX_REVIEW_ROUNDS,
 };
 
 pub const REVIEW_MILESTONE_KIND: &str = "review";
 pub const REVIEW_ESCALATION_MILESTONE_KIND: &str = "review_escalation";
 pub const REVIEW_CREDIT_RECONCILE_MILESTONE_KIND: &str = "review_credit_reconcile";
 pub const REVIEW_CAPACITY_GRANT_MILESTONE_KIND: &str = "review_capacity_grant";
+pub const EVIDENCE_REPORTER_GRANT_MILESTONE_KIND: &str = "evidence_reporter_grant";
+pub const PLAN_EVIDENCE_REPORT_MILESTONE_KIND: &str = "plan_evidence_report";
 const REPEATED_STRATEGY_MESSAGE: &str = "Stop iterating this strategy. Re-diagnose per `codeterm docs BOUNCE`. Consider a fresh independent reviewer with a distinct oracle, a decision gate, or model escalation; then continue autonomously.";
 
 fn max_review_rounds() -> u32 {
@@ -388,6 +391,18 @@ pub struct ReviewCapacityGrantResult {
     pub stride_id: Option<String>,
 }
 
+pub fn plan_evidence_binding_digest(nonce: &str) -> String {
+    format!("sha256:{:x}", Sha256::digest(nonce.as_bytes()))
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct PlanEvidenceReporterGrantResult {
+    pub plan_id: String,
+    pub grant: PlanEvidenceReporterGrant,
+    pub created: bool,
+    pub stride_id: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct QaWave {
     pub wave_id: String,
@@ -542,6 +557,93 @@ impl PlanStore {
             Ok(())
         })?;
         result.ok_or(PlanError::NotFound)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn grant_plan_evidence_reporter(
+        &self,
+        plan_id: &str,
+        tab_id: &str,
+        session_id: &str,
+        session_binding_nonce: &str,
+        class: PlanEvidenceClass,
+        from: AgentRef,
+        now_ms: u64,
+    ) -> Result<PlanEvidenceReporterGrantResult, PlanError> {
+        let mut result = None;
+        let session_binding_digest = plan_evidence_binding_digest(session_binding_nonce);
+        self.with_plan(plan_id, now_ms, |plan| {
+            if let Some(existing) = plan
+                .evidence_reporters
+                .iter()
+                .find(|grant| {
+                    grant.tab_id == tab_id
+                        && grant.session_id == session_id
+                        && grant.session_binding_digest == session_binding_digest
+                })
+                .cloned()
+            {
+                if existing.class != class {
+                    return Err(PlanError::Io(
+                        "plan evidence class is immutable for an authorized identity".into(),
+                    ));
+                }
+                result = Some(PlanEvidenceReporterGrantResult {
+                    plan_id: plan.id.clone(),
+                    grant: existing,
+                    created: false,
+                    stride_id: None,
+                });
+                return Ok(());
+            }
+            let stride_id =
+                crate::plan::ids::mint_id("ms", |candidate| plan_contains_id(plan, candidate));
+            let grant = PlanEvidenceReporterGrant {
+                tab_id: tab_id.to_string(),
+                session_id: session_id.to_string(),
+                session_binding_digest,
+                class,
+                granted_by: from.clone(),
+                granted_at: now_ms,
+            };
+            plan.evidence_reporters.push(grant.clone());
+            plan.strides.push(Milestone {
+                id: stride_id.clone(),
+                from,
+                kind: EVIDENCE_REPORTER_GRANT_MILESTONE_KIND.into(),
+                text: format!("authorized {:?} plan evidence reporter {}", class, tab_id),
+                ts: now_ms,
+                links: vec![],
+                loop_id: None,
+                iteration: None,
+                canvas: Default::default(),
+                attachments: vec![],
+            });
+            result = Some(PlanEvidenceReporterGrantResult {
+                plan_id: plan.id.clone(),
+                grant,
+                created: true,
+                stride_id: Some(stride_id),
+            });
+            Ok(())
+        })?;
+        result.ok_or(PlanError::NotFound)
+    }
+
+    pub fn add_plan_evidence_report(
+        &self,
+        plan_id: &str,
+        text: &str,
+        from: AgentRef,
+        now_ms: u64,
+    ) -> Result<String, PlanError> {
+        self.add_plan_stride(
+            plan_id,
+            PLAN_EVIDENCE_REPORT_MILESTONE_KIND,
+            text,
+            from,
+            now_ms,
+        )
     }
 
     pub fn grant_review_capacity(

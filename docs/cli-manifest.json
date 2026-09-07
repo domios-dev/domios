@@ -8656,6 +8656,47 @@
               "subcommands": []
             },
             {
+              "name": "authorize-reporter",
+              "about": "Authorize one task-less tab to append plan-level review or canonical-QA evidence",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "class",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "CLASS",
+                  "possible_values": [
+                    "review",
+                    "canonical_qa"
+                  ],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "required": false,
+                  "value_name": "PLAN_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "reporter_tab_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "REPORTER_TAB_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
               "name": "bounce",
               "about": "BOUNCE: atomically exits in_review back to in_progress",
               "aliases": [],

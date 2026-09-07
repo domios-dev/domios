@@ -626,13 +626,23 @@ pub async fn submit_report(
             body.kind.as_deref(),
         )
         .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
-    Ok(Json(serde_json::json!({
+    let mut response = serde_json::json!({
         "ok": true,
         "accepted": true,
         "state": "recorded",
         "report_id": result.report_id,
         "target_tab_id": result.orchestrator_tab_id,
-    })))
+    });
+    if let Some((plan_id, stride_id)) = result.persisted_plan_evidence {
+        response["plan_report"] = serde_json::json!({
+            "persisted": true,
+            "plan_id": plan_id,
+            "stride_id": stride_id,
+            "task_id": serde_json::Value::Null,
+            "task_transition": false,
+        });
+    }
+    Ok(Json(response))
 }
 
 #[derive(Deserialize)]

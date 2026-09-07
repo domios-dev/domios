@@ -6,9 +6,10 @@
 //! holds it. The hint may disambiguate among the tasks a tab holds; it may never
 //! name a task the tab does not hold.
 
+use crate::agent::reports::ReportDetails;
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::Tab;
-use crate::plan::{PlannerRef, Task};
+use crate::plan::{PlanEvidenceClass, PlannerRef, Task};
 use crate::service::plan::PlanStore;
 
 /// Marks the refusal class so a wrong-task report stays distinguishable from the
@@ -24,6 +25,13 @@ pub(crate) const NOWHERE_TO_DELIVER_REFUSAL: &str = "NOWHERE TO DELIVER";
 /// A plan-only report claims Planner authority; this marks that the claim
 /// itself was refused, distinct from the task-hint refusal family above.
 pub(crate) const PLANNER_AUTHORITY_REFUSAL: &str = "PLANNER AUTHORITY REFUSED";
+pub(crate) const PLAN_EVIDENCE_AUTHORITY_REFUSAL: &str = "PLAN EVIDENCE AUTHORITY REFUSED";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PlanOnlyReportAuthority {
+    Planner,
+    EvidenceReporter(PlanEvidenceClass),
+}
 
 /// Names what did NOT happen, so a caller cannot read the failure as a delivery
 /// that merely missed its task. When a task write was refused too, that cause is
@@ -198,6 +206,84 @@ pub(crate) fn verify_planner_report_authority(
         ));
     }
     Ok(())
+}
+
+pub(crate) fn classify_plan_only_report_authority(
+    plan_store: &PlanStore,
+    mux: &MultiplexerState,
+    plan_id: &str,
+    tab_id: &str,
+    details: &ReportDetails,
+) -> Result<PlanOnlyReportAuthority, String> {
+    let plan = plan_store
+        .get(plan_id)
+        .ok_or_else(|| format!("plan '{plan_id}' not found"))?;
+    if matches!(
+        &plan.planner,
+        Some(PlannerRef::Tab { tab_id: planner_tab, .. }) if planner_tab == tab_id
+    ) {
+        verify_planner_report_authority(plan_store, mux, plan_id, tab_id)?;
+        return Ok(PlanOnlyReportAuthority::Planner);
+    }
+    if !plan_store
+        .task_bindings_with_name_for_tab(tab_id)
+        .is_empty()
+    {
+        return Err(format!(
+            "{PLAN_EVIDENCE_AUTHORITY_REFUSAL}: tab '{tab_id}' holds a task; use ordinary `codeterm agent report --status ...` for that task"
+        ));
+    }
+    let caller_matches = details.caller_tab_id.as_deref() == Some(tab_id);
+    let supplied_session = details.caller_session_id.as_deref();
+    let supplied_nonce = details.session_binding_nonce.as_deref();
+    let tab = mux
+        .get_tab(tab_id)
+        .ok_or_else(|| format!("{PLAN_EVIDENCE_AUTHORITY_REFUSAL}: tab '{tab_id}' is not live"))?;
+    if !caller_matches
+        || tab.agent_session_id.as_deref() != supplied_session
+        || tab.session_binding_nonce.as_deref() != supplied_nonce
+        || tab.reported_session_binding_nonce.as_deref() != supplied_nonce
+        || supplied_session.is_none()
+        || supplied_nonce.is_none()
+    {
+        return Err(format!(
+            "{PLAN_EVIDENCE_AUTHORITY_REFUSAL}: tab '{tab_id}' has a stale, rebound, or unverified caller identity"
+        ));
+    }
+    let current_owner = plan.owner.tab_id.as_deref().ok_or_else(|| {
+        format!("{PLAN_EVIDENCE_AUTHORITY_REFUSAL}: plan '{plan_id}' has no current owner")
+    })?;
+    let owner = mux.get_tab(current_owner).ok_or_else(|| {
+        format!("{PLAN_EVIDENCE_AUTHORITY_REFUSAL}: plan '{plan_id}' owner is not live")
+    })?;
+    if !owner.has_team_orchestrator_authority()
+        || owner.agent_session_id.is_none()
+        || !session_binding_is_live(owner)
+    {
+        return Err(format!(
+            "{PLAN_EVIDENCE_AUTHORITY_REFUSAL}: plan '{plan_id}' owner is not a live authenticated Orchestrator"
+        ));
+    }
+    let grant = plan
+        .evidence_reporters
+        .iter()
+        .rev()
+        .find(|grant| {
+            grant.tab_id == tab_id
+                && grant.session_id == supplied_session.unwrap_or_default()
+                && grant.session_binding_digest
+                    == crate::service::plan::review_gate::plan_evidence_binding_digest(
+                        supplied_nonce.unwrap_or_default(),
+                    )
+                && grant.granted_by.tab_id.as_deref() == Some(current_owner)
+                && grant.granted_by.session_id.as_deref() == owner.agent_session_id.as_deref()
+        })
+        .ok_or_else(|| {
+            format!(
+                "{PLAN_EVIDENCE_AUTHORITY_REFUSAL}: tab '{tab_id}' has no current plan evidence grant; the live Plan owner must run `codeterm plan review authorize-reporter {plan_id} {tab_id} --class review|canonical_qa`"
+            )
+        })?;
+    Ok(PlanOnlyReportAuthority::EvidenceReporter(grant.class))
 }
 
 fn session_binding_is_live(tab: &Tab) -> bool {
