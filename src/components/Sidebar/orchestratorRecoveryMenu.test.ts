@@ -44,7 +44,7 @@ const ptyProvider = provider("provider-neutral", "pty");
 const chatProvider = provider("chat-neutral", "chat_backend");
 const hubble = tab();
 const eligible = orchestratorRecoveryMenuView(hubble, [chatProvider, ptyProvider], [hubble]);
-assert(eligible);
+if (!eligible) throw new Error("expected recovery menu eligibility");
 assert.equal(eligible.teamId, "team-hubble");
 assert.deepEqual(eligible.providers.map((candidate) => candidate.id), ["provider-neutral"]);
 
