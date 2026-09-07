@@ -217,12 +217,45 @@ fn explicit_lifecycle_exit_clears_planner_identity_once() {
     ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
 )]
 fn command_finished_marker_makes_a_ready_agent_observably_absent() {
-    let (mux, tab_id, _, _) = seed_live_planner();
+    let (mut mux, tab_id, _, _) = seed_live_planner();
+    mux.get_tab_mut(&tab_id).unwrap().shell_integration_nonce = Some("nonce-current".into());
     let harness = ServiceFixture::new(mux);
 
     harness
         .service
         .process_pty_output("pty-planner", b"\x1b]633;D\x07");
+    assert_eq!(
+        observe_tab_liveness(&harness.service, &tab_id),
+        AgentLiveness::Live
+    );
+    assert!(harness
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .unwrap()
+        .agent_type
+        .is_some());
+    harness.service.process_pty_output(
+        "pty-planner",
+        b"\x1b]633;E;;nonce-wrong\x07\x1b]633;D\x07",
+    );
+    assert_eq!(
+        observe_tab_liveness(&harness.service, &tab_id),
+        AgentLiveness::Live
+    );
+    assert!(harness
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .unwrap()
+        .agent_type
+        .is_some());
+    harness.service.process_pty_output(
+        "pty-planner",
+        b"\x1b]633;E;;nonce-current\x07\x1b]633;D\x07",
+    );
 
     assert_eq!(
         observe_tab_liveness(&harness.service, &tab_id),

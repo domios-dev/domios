@@ -497,20 +497,51 @@ fn final_orchestrator_unlink_retains_team_and_plan_for_replacement() {
         .unwrap()
         .team_id;
     let workspace_id = mux.find_workspace_for_tab(&owner).unwrap();
+    let planner = mux.create_tab(&workspace_id).unwrap();
+    mux.set_tab_role_kind(
+        &planner,
+        AgentRole::Manager,
+        Some("planner"),
+        Some(&owner),
+    )
+    .unwrap();
+    arm_session(mux.get_tab_mut(&planner).unwrap(), "planner");
+    let worker = mux.create_tab(&workspace_id).unwrap();
+    mux.set_tab_role(&worker, AgentRole::Worker, Some(&owner))
+        .unwrap();
+    arm_session(mux.get_tab_mut(&worker).unwrap(), "worker");
     let mut plan = Plan::new(
         "Recovery continuity".into(),
         dir.path().display().to_string(),
         OrchestratorRef::from_tab(&owner),
     );
     plan.team_id = Some(team_id.clone());
+    plan.planner = Some(crate::plan::PlannerRef::Tab {
+        tab_id: planner.clone(),
+        session_id: None,
+        title: None,
+    });
     store.save(&mut plan, 1).unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            crate::service::plan::NewTask {
+                name: "Stale descendant".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    store
+        .set_task_assignment(&task_id, Some(&worker), Some("worker"), 3)
+        .unwrap();
 
     execute_transition_at(
         &mut mux,
         &store,
         AgentTransitionRequest::roleless(owner.clone()),
         TransitionFailurePoint::None,
-        2,
+        4,
     )
     .unwrap();
 
@@ -521,9 +552,29 @@ fn final_orchestrator_unlink_retains_team_and_plan_for_replacement() {
     assert_eq!(retired.team_id.as_deref(), Some(team_id.as_str()));
     assert_eq!(retired.status, crate::plan::PlanStatus::Active);
     assert_eq!(retired.owner.tab_id, None);
+    assert!(retired.planner.is_none());
+    assert!(retired.tasks[0].assigned_tab_id.is_none());
     let retirement = retired.owner_history.last().unwrap();
     assert_eq!(retirement.from.tab_id.as_deref(), Some(owner.as_str()));
     assert_eq!(retirement.to.tab_id, None);
+
+    for stale_caller in [&planner, &worker] {
+        let error = crate::service::team::prepare_team_member_spawn_with_provider_validation(
+            &mux,
+            &team_id,
+            Some(stale_caller),
+            crate::service::team::AddTeamMemberParams {
+                provider: "provider-neutral".into(),
+                role: "orchestrator".into(),
+                title: None,
+                task: None,
+                model: None,
+            },
+            |_| Ok(()),
+        )
+        .unwrap_err();
+        assert!(error.starts_with(codeterm_types::team::staffing::TEAM_CALLER_UNAUTHORIZED));
+    }
 
     let prepared = crate::service::team::prepare_team_member_spawn_with_provider_validation(
         &mux,
@@ -557,7 +608,7 @@ fn final_orchestrator_unlink_retains_team_and_plan_for_replacement() {
         &store,
         &team_id,
         &replacement,
-        3,
+        5,
     )
     .unwrap();
 
