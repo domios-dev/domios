@@ -83,7 +83,13 @@ fn surviving_shell_stale_metadata_is_cleared_before_restart_acceptance() {
     let result = fixture.service.snapshot_tab_for_restart(&tab_id);
 
     assert!(matches!(result, Err(AgentRestartError::BadRequest(_))));
-    let tab = fixture.service.mux.read().get_tab(&tab_id).cloned().unwrap();
+    let tab = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .cloned()
+        .unwrap();
     assert_eq!(tab.agent_type, None);
     assert_eq!(tab.agent_session_id, None);
     assert_eq!(tab.agent_session_model, None);

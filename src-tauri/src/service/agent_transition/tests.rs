@@ -492,19 +492,11 @@ fn final_orchestrator_unlink_retains_team_and_plan_for_replacement() {
     let (mut mux, owner) = MultiplexerState::new();
     arm_session(mux.get_tab_mut(&owner).unwrap(), "owner");
     mux.set_orchestrator_role(&owner).unwrap();
-    let team_id = mux
-        .resolve_or_mint_team_for_parent(&owner)
-        .unwrap()
-        .team_id;
+    let team_id = mux.resolve_or_mint_team_for_parent(&owner).unwrap().team_id;
     let workspace_id = mux.find_workspace_for_tab(&owner).unwrap();
     let planner = mux.create_tab(&workspace_id).unwrap();
-    mux.set_tab_role_kind(
-        &planner,
-        AgentRole::Manager,
-        Some("planner"),
-        Some(&owner),
-    )
-    .unwrap();
+    mux.set_tab_role_kind(&planner, AgentRole::Manager, Some("planner"), Some(&owner))
+        .unwrap();
     arm_session(mux.get_tab_mut(&planner).unwrap(), "planner");
     let worker = mux.create_tab(&workspace_id).unwrap();
     mux.set_tab_role(&worker, AgentRole::Worker, Some(&owner))
@@ -603,14 +595,9 @@ fn final_orchestrator_unlink_retains_team_and_plan_for_replacement() {
         &prepared.expected_profile,
     )
     .unwrap();
-    let takeover = crate::service::team::take_over_team_plan(
-        &mut mux,
-        &store,
-        &team_id,
-        &replacement,
-        5,
-    )
-    .unwrap();
+    let takeover =
+        crate::service::team::take_over_team_plan(&mut mux, &store, &team_id, &replacement, 5)
+            .unwrap();
 
     assert_eq!(takeover.error, None);
     assert_eq!(takeover.plan_id, plan.id);
@@ -628,7 +615,10 @@ fn final_orchestrator_unlink_retains_team_and_plan_for_replacement() {
         .collect();
     assert_eq!(live_anchors, vec![replacement.clone()]);
     let recovered = store.get(&plan.id).unwrap();
-    assert_eq!(recovered.owner.tab_id.as_deref(), Some(replacement.as_str()));
+    assert_eq!(
+        recovered.owner.tab_id.as_deref(),
+        Some(replacement.as_str())
+    );
     assert_eq!(recovered.team_id.as_deref(), Some(team_id.as_str()));
     assert_eq!(recovered.status, crate::plan::PlanStatus::Active);
     assert_eq!(recovered.owner_history.len(), 2);

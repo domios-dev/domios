@@ -405,10 +405,8 @@ fn agent_models_prefers_the_explicit_availability_verdict() {
 /// never the negative that would read as "this machine said no".
 #[test]
 fn agent_providers_renders_the_three_valued_descriptor_field() {
-    let rows: Vec<serde_json::Value> = serde_json::from_str(include_str!(
-        "../../../fixtures/provider_availability.json"
-    ))
-    .unwrap();
+    let rows: Vec<serde_json::Value> =
+        serde_json::from_str(include_str!("../../../fixtures/provider_availability.json")).unwrap();
     let marker = |id: &str| {
         provider_availability_marker(
             rows.iter()

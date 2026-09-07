@@ -15,10 +15,9 @@ fn spawn_body_empty_object() {
 
 #[test]
 fn configure_spawn_can_require_delivery_ack_without_naming_a_provider() {
-    let body: SpawnAgentBody = serde_json::from_str(
-        r#"{"task":"opaque-configure-token","require_delivery_ack":true}"#,
-    )
-    .unwrap();
+    let body: SpawnAgentBody =
+        serde_json::from_str(r#"{"task":"opaque-configure-token","require_delivery_ack":true}"#)
+            .unwrap();
     assert!(body.require_delivery_ack);
     assert_eq!(body.agent, None);
     assert_eq!(body.task.as_deref(), Some("opaque-configure-token"));
@@ -44,8 +43,7 @@ fn configure_spawn_refuses_a_pending_delivery_after_launch_ack() {
     assert_eq!(
         require_no_pending_delivery(Some("Unconfirmed".into())),
         Err(
-            "agent launch ended without confirmed task delivery; pending state: Unconfirmed"
-                .into()
+            "agent launch ended without confirmed task delivery; pending state: Unconfirmed".into()
         )
     );
 }

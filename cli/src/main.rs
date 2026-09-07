@@ -572,9 +572,7 @@ fn hydrate_tab_task_binding_env(args: &[String]) {
     let explicit_task = option_is_present(args, "--task");
     let has_plan = explicit_plan || nonempty_env("CODETERM_PLAN_ID").is_some();
     let has_task = explicit_task || nonempty_env("CODETERM_TASK_ID").is_some();
-    if tab_id.trim().is_empty()
-        || (has_plan && has_task)
-    {
+    if tab_id.trim().is_empty() || (has_plan && has_task) {
         return;
     }
     let Ok(socket_path) = discover_socket() else {
@@ -605,8 +603,12 @@ fn hydrate_tab_task_binding_env(args: &[String]) {
 }
 
 fn option_is_present(args: &[String], name: &str) -> bool {
-    args.iter()
-        .any(|arg| arg == name || arg.strip_prefix(name).is_some_and(|rest| rest.starts_with('=')))
+    args.iter().any(|arg| {
+        arg == name
+            || arg
+                .strip_prefix(name)
+                .is_some_and(|rest| rest.starts_with('='))
+    })
 }
 
 pub(crate) fn nonempty_env(name: &str) -> Option<String> {
