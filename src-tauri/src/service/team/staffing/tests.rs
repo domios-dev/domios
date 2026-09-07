@@ -163,6 +163,28 @@ fn a_headless_team_accepts_a_new_orchestrator_from_a_spawn_capable_member() {
 }
 
 #[test]
+fn a_foreign_team_agent_cannot_replace_the_missing_orchestrator() {
+    let (mut mux, team_id, orchestrator, _planner, _worker) = live_team();
+    mux.close_tab(&orchestrator).unwrap();
+    let workspace_id = mux.get_team(&team_id).unwrap().workspace_id.clone();
+    let foreign = mux.create_tab(&workspace_id).unwrap();
+    mux.set_orchestrator_role(&foreign).unwrap();
+    give_agent_identity(&mut mux, &foreign);
+    mux.resolve_or_mint_team_for_parent(&foreign).unwrap();
+
+    let error = prepare_team_member_spawn(
+        &mux,
+        &team_id,
+        Some(&foreign),
+        orchestrator_params(),
+    )
+    .unwrap_err();
+
+    assert!(error.starts_with(codes::TEAM_CALLER_UNAUTHORIZED));
+    assert!(live_team_orchestrators(&mux, &team_id).is_empty());
+}
+
+#[test]
 fn a_second_live_orchestrator_is_refused_by_error_code_constant() {
     let (mux, team_id, orchestrator, _planner, _worker) = live_team();
 

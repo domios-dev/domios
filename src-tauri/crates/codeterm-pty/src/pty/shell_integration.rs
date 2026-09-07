@@ -70,6 +70,34 @@ fi
     let bashrc = dir.join("bashrc");
     let _ = std::fs::write(&bashrc, BASH_RC);
 
+    let powershell = dir.join("powershell.ps1");
+    let powershell_content = r#"# CodeTerm shell integration - do not edit
+if (-not $global:__CodeTermShellIntegrationLoaded) {
+  $global:__CodeTermShellIntegrationLoaded = $true
+  $global:__CodeTermPromptSeen = $false
+  $global:__CodeTermShellNonce = $env:CODETERM_SHELL_NONCE
+  Remove-Item Env:CODETERM_SHELL_NONCE -ErrorAction SilentlyContinue
+  $global:__CodeTermOriginalPrompt = $function:prompt
+  if ($null -eq $global:__CodeTermOriginalPrompt) {
+    $global:__CodeTermOriginalPrompt = { "PS $($executionContext.SessionState.Path.CurrentLocation)> " }
+  }
+
+  function global:prompt {
+    $commandFinished = $global:__CodeTermPromptSeen
+    $global:__CodeTermPromptSeen = $true
+    if ($commandFinished -and -not [string]::IsNullOrEmpty($global:__CodeTermShellNonce)) {
+      [Console]::Write(([char]27 + ']633;E;;' + $global:__CodeTermShellNonce + [char]7))
+      [Console]::Write(([char]27 + ']633;D' + [char]7))
+    }
+    [Console]::Write(([char]27 + ']633;A' + [char]7))
+    $rendered = & $global:__CodeTermOriginalPrompt
+    [Console]::Write(([char]27 + ']633;B' + [char]7))
+    $rendered
+  }
+}
+"#;
+    let _ = std::fs::write(&powershell, powershell_content);
+
     // fish: auto-sourced from $XDG_DATA_DIRS/fish/vendor_conf.d on interactive start.
     let fish_dir = dir.join("fish").join("vendor_conf.d");
     if let Err(e) = std::fs::create_dir_all(&fish_dir) {
@@ -130,10 +158,21 @@ pub fn apply_env(cmd: &mut CommandBuilder, shell: &str) {
 
     #[cfg(target_os = "windows")]
     {
-        // Windows PowerShell startup must stay argument-free under ConPTY.
-        let _ = cmd;
-        let _ = shell;
-        let _ = dir;
+        let shell_name = std::path::Path::new(shell)
+            .file_stem()
+            .and_then(|name| name.to_str());
+        if !cmd.is_default_prog()
+            && shell_name.is_some_and(|name| {
+                name.eq_ignore_ascii_case("pwsh") || name.eq_ignore_ascii_case("powershell")
+            })
+        {
+            let script = dir.join("powershell.ps1");
+            if script.exists() {
+                cmd.arg("-NoExit");
+                cmd.arg("-File");
+                cmd.arg(script.as_os_str());
+            }
+        }
     }
 }
 
@@ -419,5 +458,38 @@ mod tests {
         let mut cmd = CommandBuilder::new("/bin/bash");
         apply_env(&mut cmd, "/bin/bash"); // must not panic
         assert!(!cmd.is_default_prog());
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn apply_env_wires_powershell_command_finished_observation() {
+        ensure_scripts();
+        let script = integration_dir().join("powershell.ps1");
+        let content = std::fs::read_to_string(&script).unwrap();
+        let authenticated_command = content.find("']633;E;;'").unwrap();
+        let command_finished = content.find("']633;D'").unwrap();
+        assert!(content.contains("$env:CODETERM_SHELL_NONCE"));
+        assert!(content.contains("Remove-Item Env:CODETERM_SHELL_NONCE"));
+        assert!(content.contains("IsNullOrEmpty($global:__CodeTermShellNonce)"));
+        assert!(authenticated_command < command_finished);
+
+        let mut cmd = CommandBuilder::new("powershell.exe");
+        apply_env(&mut cmd, "powershell.exe");
+        let argv = cmd.get_argv();
+        assert_eq!(argv[1], "-NoExit");
+        assert_eq!(argv[2], "-File");
+        assert_eq!(argv[3], script.as_os_str());
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn apply_env_keeps_default_powershell_builders_argument_free() {
+        ensure_scripts();
+        for shell in ["powershell.exe", "pwsh.exe"] {
+            let mut cmd = CommandBuilder::new_default_prog();
+            apply_env(&mut cmd, shell);
+            assert!(cmd.is_default_prog());
+            assert!(cmd.get_argv().is_empty());
+        }
     }
 }

@@ -3,7 +3,7 @@ use codeterm_types::team::Team;
 use tauri::Manager;
 
 use crate::multiplexer::state::MultiplexerState;
-use crate::multiplexer::types::{AgentRole, TabBacking};
+use crate::multiplexer::types::{AgentRole, TabBacking, TabCloseReason};
 use crate::service::plan::PlanError;
 use crate::service::ServiceContext;
 
@@ -111,7 +111,7 @@ impl ServiceContext {
         );
         let result = {
             let mut mux = self.mux.write();
-            let mut result = commit_team_member_spawn(
+            commit_team_member_with_plan_takeover(
                 &mut mux,
                 &self.events,
                 team_id,
@@ -119,22 +119,15 @@ impl ServiceContext {
                 &tab_id,
                 &prepared.expected_role,
                 &prepared.expected_profile,
-            );
-            // An anchor only ever lands in a Team with no live Orchestrator, so
-            // the plan it finds there is by definition owned by a gone tab.
-            if anchors {
-                if let Ok(committed) = result.as_mut() {
-                    committed.plan_takeover =
-                        take_over_team_plan(&mut mux, &self.plan_store, team_id, &tab_id, now_ms());
-                }
-            }
-            result
+                anchors,
+                |mux| take_over_team_plan(mux, &self.plan_store, team_id, &tab_id, now_ms()),
+            )
         };
         let result = match result {
             Ok(result) => result,
             Err(error) => {
-                // commit's invalid-hierarchy branch closed the member inside the
-                // mux-level fn; persist here, the nearest point with &self.
+                // Commit and takeover failures close the spawned member inside
+                // the mux-level transaction; persist at the nearest &self.
                 crate::service::session_persist::persist_session_after_close(self);
                 if let Some(lane) = lane.take() {
                     let _ = tauri::async_runtime::spawn_blocking(move || lane.cleanup()).await;
@@ -444,6 +437,51 @@ impl ServiceContext {
         }
         Ok(team_id)
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn commit_team_member_with_plan_takeover<F>(
+    mux: &mut MultiplexerState,
+    events: &crate::api::events::EventBroadcaster,
+    team_id: &str,
+    caller_tab_id: Option<&str>,
+    tab_id: &str,
+    expected_role: &str,
+    expected_profile: &Option<String>,
+    anchors: bool,
+    take_over: F,
+) -> Result<AddTeamMemberResult, String>
+where
+    F: FnOnce(&mut MultiplexerState) -> Option<staffing::PlanTakeover>,
+{
+    let mut result = commit_team_member_spawn(
+        mux,
+        events,
+        team_id,
+        caller_tab_id,
+        tab_id,
+        expected_role,
+        expected_profile,
+    )?;
+    if !anchors {
+        return Ok(result);
+    }
+    let takeover = take_over(mux);
+    if let Some(cause) = takeover
+        .as_ref()
+        .and_then(|takeover| takeover.error.as_deref())
+    {
+        if let Some(tab) = mux.get_tab_mut(tab_id) {
+            tab.team_id = None;
+        }
+        mux.close_tab_with_reason(tab_id, TabCloseReason::SpawnRollback)
+            .map_err(|rollback| {
+                format!("plan takeover failed: {cause}; rollback failed: {rollback}")
+            })?;
+        return Err(format!("plan takeover failed: {cause}"));
+    }
+    result.plan_takeover = takeover;
+    Ok(result)
 }
 
 fn adopt_plan_for_team_core(

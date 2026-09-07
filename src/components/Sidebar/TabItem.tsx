@@ -39,6 +39,10 @@ import {
   declaredAttentionLabel,
   type DeclaredAttentionLevel,
 } from "./declaredAttention";
+import {
+  orchestratorRecoveryMenuView,
+  replaceOrchestrator,
+} from "./orchestratorRecoveryMenu";
 
 interface TabItemProps {
   tab: Tab;
@@ -175,7 +179,7 @@ function TabItemInner({
   declaredAttention,
   onRename: _onRename,
   tab,
-  orchestrators: _orchestrators,
+  orchestrators,
   isAppearing,
   isClosing,
   touchMode = false,
@@ -325,6 +329,29 @@ function TabItemInner({
         },
       });
     }
+    const recoveryMenu = tab
+      ? orchestratorRecoveryMenuView(tab, listAgentDescriptors(), orchestrators)
+      : null;
+    if (recoveryMenu) {
+      items.push({
+        label: "Replace Orchestrator",
+        icon: <UserCog size={11} strokeWidth={2} />,
+        "data-testid": "tab-menu-replace-orchestrator",
+        submenu: {
+          label: "Replace Orchestrator",
+          description: "Starts a new Team owner without resuming this session.",
+          items: recoveryMenu.providers.map((candidate) => ({
+            label: candidate.display_name,
+            icon: <Bot size={11} strokeWidth={2} />,
+            onClick: () => {
+              void replaceOrchestrator(recoveryMenu, candidate.id)
+                .catch((error) => console.warn("Orchestrator replacement failed:", error));
+            },
+            "data-testid": `tab-menu-replace-orchestrator-${candidate.id}`,
+          })),
+        },
+      });
+    }
     const sessionActions = tab ? tabSessionActionView(tab) : null;
     if (tab && sessionActions?.canReconnect) {
       items.push({
@@ -351,7 +378,7 @@ function TabItemInner({
       });
     }
     return items;
-  }, [activity, canonicalTitle, tab, canClose, descriptor, hasAgent, onClose, providerName, status]);
+  }, [activity, canonicalTitle, tab, canClose, descriptor, hasAgent, onClose, orchestrators, providerName, status]);
 
   const sessionActions = tab ? tabSessionActionView(tab) : null;
   const sessionId = sessionActions?.sessionId ?? null;

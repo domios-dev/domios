@@ -1,6 +1,6 @@
 // Run: npx tsx src/components/Sidebar/SidebarWorkspaceTabs.test.tsx
 
-import type { Tab, TabStatus, Workspace } from "../../lib/types";
+import type { ProviderDescriptor, Tab, TabStatus, Workspace } from "../../lib/types";
 import { TaskStatus, type Plan } from "../Canvas/types";
 import { PLAN_STATUS_COLORS } from "../shared/SegmentedDonut";
 import { canvasFocusStore } from "../Canvas/canvasFocusStore";
@@ -8,6 +8,7 @@ import { SidebarDnd } from "./sortable";
 import { SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
 import { forwardTerminalFallback } from "../../lib/terminalFallbackInput";
 import { __setInvokeForTest } from "../../lib/bridge";
+import { setAgentDescriptors } from "../../lib/agentDescriptorCache";
 import {
   plan,
   planIndexEntry,
@@ -596,6 +597,77 @@ test("team worker close control calls onCloseTab", async () => {
   await act(async () => close.click());
   assert(JSON.stringify(closed) === JSON.stringify(["worker"]), "worker close receives the tab id exactly once");
   await act(async () => root.unmount());
+});
+
+test("absent final Orchestrator offers one provider-backed staffing request", async () => {
+  const calls: Array<{ command: string; args?: Record<string, unknown> }> = [];
+  const provider = (id: string, transport: "pty" | "chat_backend"): ProviderDescriptor => ({
+    schema_version: 1,
+    id,
+    display_name: id,
+    transport,
+    system_prompt_delivery: "external",
+    available_models: [],
+    settings_schema: [],
+    notifications_schema: [],
+    supports_lazy_skills: false,
+    has_hooks: false,
+  } as ProviderDescriptor);
+  setAgentDescriptors([
+    provider("provider-neutral", "pty"),
+    provider("chat-neutral", "chat_backend"),
+  ]);
+  __setInvokeForTest((async (command: string, args?: Record<string, unknown>) => {
+    calls.push({ command, args });
+    return {};
+  }) as never);
+  const hubble = tab({
+    id: "hubble",
+    title: "Hubble",
+    role: "Manager",
+    role_profile: "orchestrator",
+    team_id: TEAM.id,
+    pty_id: "pty-hubble",
+    backing: { kind: "pty" },
+    agent_type: null,
+    agent_session_id: "session-hubble",
+    boot_stage: "shell_ready",
+    agent_booting: false,
+  });
+  const { host, root } = await renderSidebar({
+    tabs: { hubble },
+    sortedTabs: [tab("tab-hubble", "hubble", 0)],
+  });
+  const row = host.querySelector('[data-tab-id="hubble"]');
+  assert(row, "Hubble-shaped row rendered");
+  await openTabActionsMenu(row);
+  const recovery = document.querySelector(
+    '[data-testid="tab-menu-replace-orchestrator"]',
+  ) as HTMLButtonElement | null;
+  assert(recovery, "honestly absent final Orchestrator exposes recovery submenu");
+  await act(async () => recovery.click());
+  assert(
+    !document.querySelector('[data-testid="tab-menu-replace-orchestrator-chat-neutral"]'),
+    "chat-backend provider is excluded from PTY staffing",
+  );
+  const replacement = document.querySelector(
+    '[data-testid="tab-menu-replace-orchestrator-provider-neutral"]',
+  ) as HTMLButtonElement | null;
+  assert(replacement, "PTY provider is available for replacement");
+  await act(async () => replacement.click());
+  const staffing = calls.filter((call) => call.command === "mux_add_team_member");
+  assert(staffing.length === 1, "selection emits exactly one staffing request");
+  assert(
+    JSON.stringify(staffing[0].args) === JSON.stringify({
+      teamId: TEAM.id,
+      provider: "provider-neutral",
+      role: "orchestrator",
+    }),
+    "staffing preserves Team and Orchestrator role through the direct-user path",
+  );
+  await act(async () => root.unmount());
+  setAgentDescriptors([]);
+  __setInvokeForTest(null);
 });
 
 test("Team disclosure stays user-owned across rerenders and remounts", async () => {
