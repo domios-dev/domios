@@ -19,7 +19,7 @@ fn plan_review_authorize_reporter_parses_capability_class_and_target() {
         Commands::Plan {
             action: PlanAction::Review {
                 action: crate::args::plan::PlanReviewAction::AuthorizeReporter {
-                    plan_id: Some(ref plan_id),
+                    ref plan_id,
                     ref reporter_tab_id,
                     ref class,
                 }

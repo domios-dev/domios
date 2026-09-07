@@ -85,12 +85,10 @@ pub(super) fn handle(
             class,
         } => {
             let mut params = json!({
+                "plan_id": plan_id,
                 "reporter_tab_id": reporter_tab_id,
                 "class": class,
             });
-            if let Some(plan_id) = plan_id {
-                params["plan_id"] = json!(plan_id);
-            }
             inject_trusted_session(&mut params);
             call_plan_rpc(client, "plan.review.authorize-reporter", params).map(Some)
         }
