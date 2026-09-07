@@ -68,6 +68,14 @@ async function main() {
     return;
   }
 
+  if (mode === "general-agent") {
+    const tabs = Array.isArray(value) ? value : (value.tabs || []);
+    const generalAgent = tabs.find((tab) => tab.role_profile === "general_agent");
+    requireState(Boolean(generalAgent?.id));
+    if (generalAgent?.id) process.stdout.write(generalAgent.id);
+    return;
+  }
+
   if (mode === "plan-state") {
     const [planId, teamId, ownerId, minimumHistory] = args;
     const plan = value.plan ?? value;

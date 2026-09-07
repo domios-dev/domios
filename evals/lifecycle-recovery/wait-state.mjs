@@ -15,10 +15,11 @@ async function json(path) {
 
 async function observedState() {
   const mux = await json("/api/mux/state");
-  const tabs = Object.values(mux.tabs || {});
+  const tabEnvelope = await json("/api/tabs?all_workspaces=true&agents=true");
+  const tabs = Array.isArray(tabEnvelope) ? tabEnvelope : (tabEnvelope.tabs || []);
   if (mode === "live" || mode === "absent") {
     const [title] = values;
-    const tab = tabs.find((candidate) => candidate.tab_title === title);
+    const tab = tabs.find((candidate) => candidate.title === title);
     if (!tab || tab.agent_liveness !== mode) return null;
     if (
       mode === "absent"

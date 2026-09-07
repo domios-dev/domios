@@ -12,6 +12,9 @@ json_field() { node "$JSON_STATE" field "$2" <<<"$1"; }
 HEALTH="$(dev_get /api/health)"
 EXPECTED_SHA="$(git -C "$ROOT" rev-parse HEAD)"
 [ "$(json_field "$HEALTH" '.build_sha')" = "$EXPECTED_SHA" ] || fail "build SHA mismatch"
+CONTROL_TABS="$(dev_get '/api/tabs?all_workspaces=true&agents=true')"
+CONTROL_TAB="$(node "$JSON_STATE" general-agent <<<"$CONTROL_TABS")"
+[ -n "$CONTROL_TAB" ] || fail "external cleanup caller"
 
 RUN_ID="${EXPECTED_SHA:0:8}-$$"
 WORKSPACE=""
@@ -25,9 +28,9 @@ cleanup() {
   [ -z "$TEAM_ID" ] || [ -z "$REPLACEMENT" ] || dc --as-tab "$REPLACEMENT" team close "$TEAM_ID" --json >/dev/null 2>&1 || true
   [ -z "$EXIT_TEAM_ID" ] || [ -z "$EXIT_REPLACEMENT" ] || dc --as-tab "$EXIT_REPLACEMENT" team close "$EXIT_TEAM_ID" --json >/dev/null 2>&1 || true
   for tab in "$EXIT_TAB" "$OLD_ORCHESTRATOR"; do
-    [ -z "$tab" ] || dc tab close "$tab" >/dev/null 2>&1 || true
+    [ -z "$tab" ] || dc --as-tab "$CONTROL_TAB" tab close "$tab" >/dev/null 2>&1 || true
   done
-  [ -z "$WORKSPACE" ] || dc workspace close "$WORKSPACE" >/dev/null 2>&1 || true
+  [ -z "$WORKSPACE" ] || dc --as-tab "$CONTROL_TAB" workspace close "$WORKSPACE" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
