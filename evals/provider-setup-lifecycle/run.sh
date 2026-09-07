@@ -57,7 +57,7 @@ PASS_ROWS=()
 CURRENT_ROW="hook contract/refusal and whole-file non-mutation"
 
 cleanup() {
-  local status=$? cleanup_failed=0 process row tabs workspaces providers original_json
+  local status=$? cleanup_failed=0 process row tabs workspaces providers original_json remove_fd remove_pid remove_ready remove_observed
   set +e
   trap - EXIT
 
@@ -109,7 +109,22 @@ cleanup() {
     dc --json config get general_agent.agent_provider | node "$STATE" config-equals "$ORIGINAL_PROVIDER" || { echo "FAIL cleanup: General Agent provider residue" >&2; cleanup_failed=1; }
   fi
   if [ "$PLUGIN_OWNED" -eq 1 ]; then
-    dc plugin remove "$PROVIDER_ID" >/dev/null 2>&1 || { echo "FAIL cleanup: owned fixture provider removal" >&2; cleanup_failed=1; }
+    exec {remove_fd}< <(node "$WAIT" "$DEV_API_URL" "$DEV_API_TOKEN" provider-absent "$PROVIDER_ID")
+    remove_pid=$!
+    read -r -t 10 remove_ready <&"$remove_fd"
+    if [ "$remove_ready" != READY ]; then
+      echo "FAIL cleanup: provider removal observer readiness" >&2
+      cleanup_failed=1
+    elif ! dc plugin remove "$PROVIDER_ID" >/dev/null 2>&1; then
+      echo "FAIL cleanup: owned fixture provider removal" >&2
+      cleanup_failed=1
+    elif ! read -r -t 45 remove_observed <&"$remove_fd" || ! wait "$remove_pid"; then
+      echo "FAIL cleanup: provider removal observation" >&2
+      cleanup_failed=1
+    fi
+    kill "$remove_pid" >/dev/null 2>&1
+    wait "$remove_pid" >/dev/null 2>&1
+    exec {remove_fd}<&-
   fi
   if [ "$PLUGIN_INSTALL_ATTEMPTED" -eq 1 ]; then
     providers="$(dev_get '/api/agents/providers')" || { echo "FAIL cleanup: provider residue query" >&2; cleanup_failed=1; providers=""; }
@@ -172,8 +187,6 @@ exec {RECEIVER_FD}< <(node "$ROOT/evals/provider-setup-lifecycle/receiver.mjs")
 RECEIVER_PROCESS=$!
 IFS=' ' read -r -t 10 RECEIVER_READY COLLECTOR_URL <&"$RECEIVER_FD" || fail "receiver startup"
 [ "$RECEIVER_READY" = READY ] && [ -n "$COLLECTOR_URL" ] || fail "receiver readiness"
-exec {RECEIVER_FD}<&-
-RECEIVER_FD=""
 [ ! -e "${FIXTURE_DIR%/plugin}" ] || fail "unique fixture directory already exists"
 FIXTURE_OWNED=1
 node "$ROOT/evals/provider-setup-lifecycle/prepare-fixture.mjs" "$FIXTURE_DIR" "$COLLECTOR_URL" "$INSTALL_TOKEN" "$PROVIDER_ID"
