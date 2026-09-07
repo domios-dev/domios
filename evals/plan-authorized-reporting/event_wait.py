@@ -5,15 +5,14 @@ import urllib.error
 import urllib.request
 
 
-api_url, token, event_type, marker, ready_fifo, output_path, timeout = sys.argv[1:]
+api_url, token, event_type, marker, output_path, timeout = sys.argv[1:]
 request = urllib.request.Request(
     f"{api_url}/api/events/stream",
     headers={"Authorization": f"Bearer {token}"},
 )
 try:
     with urllib.request.urlopen(request, timeout=float(timeout)) as response:
-        with open(ready_fifo, "w", encoding="utf-8") as ready:
-            ready.write("ready\n")
+        print("READY", flush=True)
         for raw in response:
             line = raw.decode("utf-8").strip()
             if not line.startswith("data: "):
