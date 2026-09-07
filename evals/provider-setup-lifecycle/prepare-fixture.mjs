@@ -26,6 +26,7 @@ const manifest = {
   id: providerId,
   version: "0.1.0",
   displayName: `Provider Setup Fixture ${providerId}`,
+  binaryName: "node",
   hostApi: 2,
   entry: "plugin.js",
   spawn: {
