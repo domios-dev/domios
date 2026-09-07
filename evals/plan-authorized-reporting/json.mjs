@@ -42,6 +42,10 @@ switch (operation) {
   case "team-minted":
     failUnless((data?.team_minted ?? data?.data?.team_minted) === true);
     break;
+  case "team-reused":
+    failUnless((data?.team_id ?? data?.data?.team_id) === args[0]
+      && (data?.team_minted ?? data?.data?.team_minted) === false);
+    break;
   case "tab-nonce": {
     const tab = Array.isArray(data) ? data[0] : (data?.tabs?.[0] ?? data);
     write(tab?.session_binding_nonce);
@@ -50,6 +54,17 @@ switch (operation) {
   case "tab-session": {
     const tab = Array.isArray(data) ? data[0] : (data?.tabs?.[0] ?? data);
     failUnless(tab?.agent_session_id === args[0]);
+    break;
+  }
+  case "tab-no-team": {
+    const tab = Array.isArray(data) ? data[0] : (data?.tabs?.[0] ?? data);
+    failUnless(tab?.team_id == null);
+    break;
+  }
+  case "tab-team": {
+    const tab = Array.isArray(data) ? data[0] : (data?.tabs?.[0] ?? data);
+    failUnless(typeof tab?.team_id === "string" && tab.team_id.length > 0);
+    write(tab.team_id);
     break;
   }
   case "session-body":
