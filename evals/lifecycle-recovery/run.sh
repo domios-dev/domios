@@ -32,7 +32,13 @@ cleanup() {
   done
   [ -z "$WORKSPACE" ] || dc --as-tab "$CONTROL_TAB" workspace close "$WORKSPACE" >/dev/null 2>&1 || true
 }
-trap cleanup EXIT
+on_exit() {
+  local status=$?
+  trap - EXIT
+  cleanup
+  exit "$status"
+}
+trap on_exit EXIT
 
 WORKSPACE_JSON="$(dc --json workspace create "lifecycle-recovery-$RUN_ID")"
 WORKSPACE="$(json_field "$WORKSPACE_JSON" '.id // .workspace_id')"
