@@ -6,6 +6,8 @@ const headers = { Authorization: `Bearer ${process.env.CODETERM_API_TOKEN}` };
 const controller = new AbortController();
 const deadline = AbortSignal.timeout(45_000);
 deadline.addEventListener("abort", () => controller.abort(deadline.reason), { once: true });
+const observedEventTypes = new Set();
+let lastMatchingTab = null;
 
 async function json(path) {
   const response = await fetch(`${api}${path}`, { headers, signal: controller.signal });
@@ -20,6 +22,16 @@ async function observedState() {
   if (mode === "live" || mode === "absent") {
     const [title] = values;
     const tab = tabs.find((candidate) => candidate.title === title);
+    lastMatchingTab = tab
+      ? {
+          id: tab.id,
+          agent_liveness: tab.agent_liveness,
+          agent_type: tab.agent_type ?? null,
+          boot_stage: tab.boot_stage ?? null,
+          role_profile: tab.role_profile ?? null,
+          team_id: tab.team_id ?? null,
+        }
+      : null;
     if (!tab || tab.agent_liveness !== mode) return null;
     if (
       mode === "absent"
@@ -87,6 +99,7 @@ async function run() {
         .join("\n");
       if (payload) {
         const event = JSON.parse(payload);
+        observedEventTypes.add(event.event_type);
         if (event.event_type === "mux-state-changed" || event.event_type === "plan-changed") {
           const state = await observedState();
           if (state) {
@@ -102,6 +115,10 @@ async function run() {
 }
 
 run().catch((error) => {
-  process.stderr.write(`FAIL wait-state ${mode}: ${error.message}\n`);
+  const evidence = JSON.stringify({
+    event_types: [...observedEventTypes],
+    last_matching_tab: lastMatchingTab,
+  });
+  process.stderr.write(`FAIL wait-state ${mode}: ${error.message}; evidence=${evidence}\n`);
   process.exitCode = 1;
 });
