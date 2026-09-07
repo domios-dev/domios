@@ -11,6 +11,8 @@ const api = (
 ).replace(/\/$/, "");
 const token = process.env.CODETERM_API_TOKEN || "";
 const tabId = process.env.CODETERM_TAB_ID || "";
+const bindingNonce = process.env.CODETERM_SESSION_BINDING_NONCE || "";
+const sessionId = randomUUID();
 
 process.stdout.write("╭──────────────────────────╮\n│ ❯                        │\n╰──────────────────────────╯\n");
 
@@ -22,14 +24,34 @@ if (api && token && tabId) {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      session_id: randomUUID(),
+      session_id: sessionId,
       source: "startup",
       provider,
-      binding_nonce: process.env.CODETERM_SESSION_BINDING_NONCE || undefined,
+      binding_nonce: bindingNonce || undefined,
     }),
     signal: AbortSignal.timeout(10_000),
   });
   if (!response.ok) throw new Error(`session_start failed: ${response.status}`);
+
+  if (exitsToShell) {
+    const planResponse = await fetch(`${api}/api/plans`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        "X-CodeTerm-Tab-Id": tabId,
+      },
+      body: JSON.stringify({
+        title: `lifecycle-exit-${tabId}`,
+        project_path: process.cwd(),
+        owner: { tab_id: tabId, session_id: sessionId, title: process.env.CODETERM_TAB_TITLE || null },
+        session_id: sessionId,
+        session_binding_nonce: bindingNonce || null,
+      }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!planResponse.ok) throw new Error(`plan_create failed: ${planResponse.status}`);
+  }
 }
 
 if (exitsToShell) process.exit(0);
