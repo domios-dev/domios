@@ -7,8 +7,8 @@ use parking_lot::RwLock;
 
 use crate::model_catalog::{self, RegisteredDefaults};
 use crate::provider::{
-    BehaviorConfig, ContextOwner, ModelInfo, ProviderDescriptor, ProviderTransport, ProviderTrust,
-    SystemPromptDelivery, PROVIDER_DESCRIPTOR_SCHEMA_VERSION,
+    BehaviorConfig, ContextOwner, ModelInfo, ProviderAvailability, ProviderDescriptor,
+    ProviderTransport, ProviderTrust, SystemPromptDelivery, PROVIDER_DESCRIPTOR_SCHEMA_VERSION,
 };
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
@@ -226,6 +226,7 @@ pub trait ChatBackendProvider: Send + Sync {
                 SystemPromptDelivery::External
             },
             context_owner: self.context_owner(),
+            availability: ProviderAvailability::default(),
         }
     }
 }

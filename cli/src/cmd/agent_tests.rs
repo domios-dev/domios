@@ -399,3 +399,26 @@ fn agent_models_prefers_the_explicit_availability_verdict() {
     });
     assert!(format_agent_models(&provider, "claude").contains(AVAILABILITY_UNKNOWN));
 }
+
+/// `agent providers` renders the descriptor field itself. Unknown gets its own
+/// marker; a row from a peer that never carried the field is unknown too,
+/// never the negative that would read as "this machine said no".
+#[test]
+fn agent_providers_renders_the_three_valued_descriptor_field() {
+    let rows: Vec<serde_json::Value> = serde_json::from_str(include_str!(
+        "../../../fixtures/provider_availability.json"
+    ))
+    .unwrap();
+    let marker = |id: &str| {
+        provider_availability_marker(
+            rows.iter()
+                .find(|r| r["id"] == id)
+                .expect("fixture row present"),
+        )
+    };
+
+    assert_eq!(marker("fixture-available"), "");
+    assert_eq!(marker("fixture-unavailable"), AVAILABILITY_UNAVAILABLE);
+    assert_eq!(marker("fixture-unknown"), AVAILABILITY_UNKNOWN);
+    assert_eq!(marker("fixture-legacy"), AVAILABILITY_UNKNOWN);
+}

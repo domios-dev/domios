@@ -1154,6 +1154,7 @@ mod hook_event_roster;
 /// now matches the native control instead of overflowing the stack.
 mod no_native_fallback_recursion;
 
+mod availability;
 mod codex;
 mod context_owner;
 mod cursor;

@@ -7,9 +7,10 @@ export {
   isFirstRunGeneralTab,
 } from "./constants";
 export {
-  hasAnyInstalledProvider,
-  isProviderInstalled,
+  hasAnySelectableProvider,
+  isProviderSelectable,
   preselectProviderId,
+  providerAvailability,
   providerRequiresCli,
 } from "./preselectProvider";
-export { probeProviderAvailability, useProviderAvailability } from "./useProviderAvailability";
+export { recheckProviderDescriptors, useProviderAvailability } from "./useProviderAvailability";

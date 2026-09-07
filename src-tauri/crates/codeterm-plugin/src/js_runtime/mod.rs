@@ -1,4 +1,5 @@
 mod agent_commands;
+mod bin_resolve;
 mod bubble;
 #[cfg(test)]
 mod call_gate;
@@ -22,13 +23,22 @@ mod view;
 mod vm;
 
 pub use agent_commands::JsAgentCommandHandler;
+pub use bin_resolve::{
+    forget_resolved_bin, forget_resolved_bins, probe_bin, probe_bin_in, resolved_bin_path,
+    well_known_bin_dirs, BinProbe, BinResolution,
+};
 pub use bubble::JsBubbleProvider;
 pub use chatbackend::JsChatBackend;
 pub use chatpreprocessor::JsChatPreprocessor;
 pub use glance::JsGlanceProvider;
-pub use host_exec::{forget_resolved_bins, resolved_bin_path};
 pub use transcriber::JsTranscriber;
 pub use view::JsViewProvider;
+
+/// Serializes the tests that mutate process-wide env or the shared resolver
+/// memo, which now live in more than one module.
+#[cfg(test)]
+pub(crate) static PROCESS_TEST_LOCK: std::sync::LazyLock<parking_lot::Mutex<()>> =
+    std::sync::LazyLock::new(|| parking_lot::Mutex::new(()));
 
 #[cfg(test)]
 mod parity_test;
