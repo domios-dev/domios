@@ -234,11 +234,14 @@ pub(crate) fn classify_plan_only_report_authority(
         ));
     }
     let caller_matches = details.caller_tab_id.as_deref() == Some(tab_id);
-    let supplied_session = details.caller_session_id.as_deref();
     let supplied_nonce = details.session_binding_nonce.as_deref();
     let tab = mux
         .get_tab(tab_id)
         .ok_or_else(|| format!("{PLAN_EVIDENCE_AUTHORITY_REFUSAL}: tab '{tab_id}' is not live"))?;
+    let supplied_session = details
+        .caller_session_id
+        .as_deref()
+        .or(tab.agent_session_id.as_deref());
     if !caller_matches
         || tab.agent_session_id.as_deref() != supplied_session
         || tab.session_binding_nonce.as_deref() != supplied_nonce

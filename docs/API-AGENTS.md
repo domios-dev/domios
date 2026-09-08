@@ -237,4 +237,6 @@ On error, individual commands return `{"error": "message", "method": "..."}` but
 
 Planner authority over task structure, partial `plan goal set`, lane persistence on dispatch, and recording an external executor: see `codeterm docs API-PLAN`.
 
-<!-- revision: 17 -->
+When a reporting shell has no `CODETERM_SESSION_ID`, the daemon resolves its exact tab's registered session only while validating the supplied nonce against both stored and hook-reported binding. An explicitly supplied mismatching session still refuses. This does not replace the owner-issued evidence grant or permit task transitions.
+
+<!-- revision: 18 -->
