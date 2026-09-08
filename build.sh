@@ -631,6 +631,7 @@ prepare_local_install_target() {
   fi
   identity="$(printf '%s' "$canonical" | git hash-object --stdin)"
   dir="$(ct_gateway_dir)/targets/local-install/$identity"
+  node scripts/local-install-cache.mjs "$dir"
   export CARGO_TARGET_DIR="$dir"
   export CARGO_INCREMENTAL=0
   export CODETERM_ALLOW_EXTERNAL_TARGET=1
@@ -1540,6 +1541,7 @@ EOF
     node --test scripts/tests/release-closure-authority.test.mjs
     node --test scripts/tests/release-notes-sync.test.mjs
     node --test scripts/tests/bundled-cli-name.test.mjs
+    node --test scripts/tests/local-install-cache.test.mjs
     node node_modules/@biomejs/biome/bin/biome check .
     ;;
   test)
