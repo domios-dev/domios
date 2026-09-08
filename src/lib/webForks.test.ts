@@ -75,6 +75,7 @@ const INVENTORY: ForkSite[] = [
   { file: "src/lib/lifecycle.ts", anchor: "if (!IS_WEB) return () => {};", ordinal: 1, cls: "capability-gate", note: "visibility/pageshow/online wake resync is web-only (native webview inert)" },
   { file: "src/lib/webEvents.ts", anchor: "if (started || !IS_WEB) return;", ordinal: 1, cls: "transport-shim", note: "THE seam: web-only SSE bootstrap guard (no-op on native); relay target byte-piped via relay-stream" },
   { file: "src/lib/outputStream.ts", anchor: "return IS_WEB && outputStreamEnabled();", ordinal: 1, cls: "transport-shim", note: "multiplexed PTY output over HTTP (web); relay target byte-piped via relay-stream" },
+  { file: "src/lib/outputStream.ts", anchor: "const target = IS_WEB ? relayTarget() : null;", ordinal: 1, cls: "transport-shim", note: "whole-peer web subscriptions qualify plain tab ids for the existing scoped relay transport" },
   { file: "src/store/multiplexer/index.tsx", anchor: "return IS_WEB && loadCachedStateSync() !== null;", ordinal: 1, cls: "capability-gate", note: "cache-hydrated-at-boot detection is web-only (native has no cache path)" },
   { file: "src/store/multiplexer/index.tsx", anchor: "if (!IS_WEB) return empty;", ordinal: 1, cls: "capability-gate", note: "lazy-init hydration from the boot snapshot cache is web-only" },
   { file: "src/store/multiplexer/index.tsx", anchor: "if (IS_WEB) saveStateSnapshot(s);", ordinal: 1, cls: "capability-gate", note: "persist boot snapshot cache only where it can ever be read back (web)" },

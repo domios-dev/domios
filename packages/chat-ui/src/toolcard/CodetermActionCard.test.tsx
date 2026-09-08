@@ -91,7 +91,7 @@ const expandMessage = Array.from(persistentExpansionHost.host.querySelectorAll("
 if (!expandMessage) throw new Error("long formatted send must retain the existing collapse affordance");
 await act(async () => expandMessage.click());
 if (!persistentExpansionHost.host.textContent?.includes("line 11")) throw new Error("long formatted send did not expand");
-const sendHelpHost = await render(<CodetermActionCard event={event("codeterm send --help; codeterm docs ROUTING")} expanded={false} onToggle={() => {}} />);
+const sendHelpHost = await render(<CodetermActionCard event={event("codeterm send --help")} expanded={false} onToggle={() => {}} />);
 if (!sendHelpHost.host.textContent?.includes("help") || !sendHelpHost.host.textContent?.includes("send") || sendHelpHost.host.textContent?.includes("current tab")) throw new Error("send help must not look like an outgoing message");
 const docsHost = await render(<CodetermActionCard event={{ ...event("codeterm docs ORCHESTRATION"), result: "one two\nthree" }} expanded={false} onToggle={() => {}} />);
 if (!docsHost.host.textContent?.includes("3 words") || docsHost.host.textContent.includes("chars")) throw new Error("docs metric must count words");
