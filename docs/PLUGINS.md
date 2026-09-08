@@ -9,6 +9,12 @@ This guide reflects **what exists in the code today**.
 
 ## Ecosystem at a glance
 
+Codex session ownership is checked by exact id in its session index through
+`sessionExists`, independently of transcript storage. A missing JSONL path does
+not mean the indexed session is absent; it must not block restore or rebind.
+Provider ownership checks use provider-declared records, not the shared
+hook-reported transcript-path cache. Transcript readers still use that cache.
+
 Three moving parts, two channels, one published SDK:
 
 - **`@codeterm/plugin-sdk` (npm).** The type-only SDK every plugin compiles
@@ -745,4 +751,4 @@ consent-required status; only its explicit repair action enters the write path.
      release the app first/together** (see "App + plugin ship together"). Test
      path: install the new app, then `codeterm plugin install <id>`.
 
-<!-- revision: 26 -->
+<!-- revision: 27 -->

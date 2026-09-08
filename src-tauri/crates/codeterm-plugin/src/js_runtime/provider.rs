@@ -188,6 +188,19 @@ impl JsProvider {
         };
         Some(root.join(leaf))
     }
+
+    fn owned_session_file_path(&self, cwd: &str, session_id: &str) -> Option<PathBuf> {
+        if let Some(path) =
+            self.try_call::<Option<String>>("sessionFilePath", &[json!(cwd), json!(session_id)])
+        {
+            return path.map(PathBuf::from);
+        }
+        let cfg = self.manifest.sessions.as_ref()?;
+        Some(
+            self.sessions_dir(cwd)?
+                .join(format!("{}.{}", session_id, cfg.file_extension)),
+        )
+    }
 }
 
 #[async_trait::async_trait]
@@ -381,21 +394,14 @@ impl AgentProvider for JsProvider {
         if let Some(stored) = crate::session_evidence::stored_transcript_path(session_id) {
             return Some(stored);
         }
-        if let Some(p) =
-            self.try_call::<Option<String>>("sessionFilePath", &[json!(cwd), json!(session_id)])
-        {
-            return p.map(PathBuf::from);
-        }
-        let cfg = self.manifest.sessions.as_ref()?;
-        let dir = self.sessions_dir(cwd)?;
-        Some(dir.join(format!("{}.{}", session_id, cfg.file_extension)))
+        self.owned_session_file_path(cwd, session_id)
     }
 
     fn session_exists(&self, cwd: &str, session_id: &str) -> bool {
         if let Some(b) = self.try_call::<bool>("sessionExists", &[json!(cwd), json!(session_id)]) {
             return b;
         }
-        self.session_file_path(cwd, session_id)
+        self.owned_session_file_path(cwd, session_id)
             .map(|p| p.exists())
             .unwrap_or(false)
     }
