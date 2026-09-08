@@ -89,6 +89,9 @@ console.log("\n--- session_index folding and shared store paths ---\n");
   eq(folded?.filePath, indexPath, "enumeration reports the current session index store");
   eq(p.sessionFilePath("/work/proj", projectSession), null, "the new store has no JSONL session file");
   eq(p.sessionJsonlPath("/work/proj", projectSession), null, "chat path stays honest when no JSONL transcript exists");
+  eq(p.sessionExists?.("/work/proj", projectSession), true, "claimed indexed session exists without a JSONL path");
+  eq(p.sessionExists?.("/work/proj", "unknown-session"), false, "another indexed session cannot prove the claimed session");
+  eq(p.sessionExists?.("/work/proj", ""), false, "empty session claims are refused");
 }
 
 console.log("\n--- detection refuses a cross-project recency guess ---\n");

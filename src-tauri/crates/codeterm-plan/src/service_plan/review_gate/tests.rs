@@ -186,7 +186,7 @@ fn accepted_reconcile_fix_repays_review_credit_exactly_once() {
 }
 
 #[test]
-fn wip_limit_blocks_dispatch_and_closing_a_review_restores_capacity() {
+fn wip_threshold_warns_without_blocking_and_review_closure_clears_warning() {
     let (_dir, store, plan_id) = setup();
     store
         .with_plan(&plan_id, 1, |p| {
@@ -205,19 +205,12 @@ fn wip_limit_blocks_dispatch_and_closing_a_review_restores_capacity() {
     set_status(&store, &plan_id, &b, "in_review", 4).unwrap();
 
     let gate = store.review_gate_status(&plan_id).unwrap();
-    assert!(gate.blocked);
+    assert!(!gate.blocked);
+    assert!(gate.reason.is_some());
     assert_eq!(gate.wip_count, 2);
     assert_eq!(gate.wip_limit, 2);
 
-    let err = dispatch(&store, &plan_id, &c, "tab_c", 5).unwrap_err();
-    assert!(matches!(
-        err,
-        PlanError::ReviewWipExceeded {
-            wip_count: 2,
-            wip_limit: 2,
-            ..
-        }
-    ));
+    dispatch(&store, &plan_id, &c, "tab_c", 5).unwrap();
 
     store
         .accept_review(
@@ -243,11 +236,11 @@ fn wip_limit_blocks_dispatch_and_closing_a_review_restores_capacity() {
     let gate = store.review_gate_status(&plan_id).unwrap();
     assert!(!gate.blocked, "accepting one review must free capacity");
 
-    dispatch(&store, &plan_id, &c, "tab_c", 7).unwrap();
+    assert!(gate.reason.is_none());
 }
 
 #[test]
-fn stranded_debt_allows_only_explicit_review_capacity_work() {
+fn stranded_debt_is_advisory_without_capacity_grants() {
     let (_dir, store, plan_id) = setup();
     let review = add_ready_task(&store, &plan_id, "review", 2);
     let implementation = add_ready_task(&store, &plan_id, "implementation", 2);
@@ -265,24 +258,15 @@ fn stranded_debt_allows_only_explicit_review_capacity_work() {
         })
         .unwrap();
 
-    let spoofed = dispatch(&store, &plan_id, &review, "spoofed_tab", 4).unwrap_err();
-    assert!(matches!(spoofed, PlanError::ReviewWipExceeded { .. }));
-    store
-        .grant_review_capacity(
-            &plan_id,
-            &review,
-            ReviewCapacityClass::Review,
-            AgentRef::from_tab("orch"),
-            5,
-        )
-        .unwrap();
+    let gate = store.review_gate_status(&plan_id).unwrap();
+    assert!(!gate.blocked);
+    assert!(gate.reason.is_some());
     dispatch(&store, &plan_id, &review, "review_tab", 6).unwrap();
-    let error = dispatch(&store, &plan_id, &implementation, "implementation_tab", 7).unwrap_err();
-    assert!(matches!(error, PlanError::ReviewWipExceeded { .. }));
+    dispatch(&store, &plan_id, &implementation, "implementation_tab", 7).unwrap();
 }
 
 #[test]
-fn capacity_classification_does_not_bypass_actual_review_saturation() {
+fn actual_review_saturation_does_not_block_dispatch() {
     let (_dir, store, plan_id) = setup();
     let capacity_task = add_ready_task(&store, &plan_id, "capacity", 2);
     let active_reviews = (0..5)
@@ -311,15 +295,11 @@ fn capacity_classification_does_not_bypass_actual_review_saturation() {
         })
         .unwrap();
 
-    let error = dispatch(&store, &plan_id, &capacity_task, "review_tab", 5).unwrap_err();
-    assert!(matches!(
-        error,
-        PlanError::ReviewWipExceeded {
-            wip_count: 5,
-            wip_limit: 5,
-            ..
-        }
-    ));
+    dispatch(&store, &plan_id, &capacity_task, "review_tab", 5).unwrap();
+    let gate = store.review_gate_status(&plan_id).unwrap();
+    assert_eq!((gate.wip_count, gate.wip_limit, gate.credit), (5, 5, -5));
+    assert!(!gate.blocked);
+    assert!(gate.reason.is_some());
 }
 
 #[test]
@@ -346,15 +326,14 @@ fn assignment_status_transition_uses_the_same_capacity_classification() {
     store
         .set_task_assignment(&review, Some("review_tab"), Some("worker"), 5)
         .unwrap();
-    let error = store
+    store
         .set_task_assignment(
             &implementation,
             Some("implementation_tab"),
             Some("worker"),
             6,
         )
-        .unwrap_err();
-    assert!(matches!(error, PlanError::ReviewWipExceeded { .. }));
+        .unwrap();
 }
 
 #[test]

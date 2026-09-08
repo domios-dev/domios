@@ -369,7 +369,7 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 | REST port-release fails only in the parallel macOS suite | Closing a real occupier races Darwin. | Inject the first bind failure, then prove recovery binds a healthy listener. |
 | Linux clippy rejects a test-only parameter | Only `cfg(test)` uses it. | Keep injection at the test call site, outside production signatures. |
 | Standalone crate tests fail after local `verify` passed | The old gate ran only the app package. | Use current `verify`; it runs every workspace library package to completion. |
-| CLI docs report `BUILD exceeds 24 KiB` | Troubleshooting grew too large. | Compress it or move detail to `BUILD-REFERENCE`. |
+| CLI docs report `BUILD exceeds 24 KiB` or `ORCHESTRATION exceeds 240 lines` | Troubleshooting or the compact operating contract outgrew its reading boundary. | Compress repetition or move detail to the named reference playbook; rerun `build.ps1 test-one cli registered_documents_have_one_title_and_fit_the_reading_boundary`. |
 | Windows plan-index reports `queue did not drain` | An inner deadline raced background work. | Wait on the queue condition and rely on the test process exit. |
 | Linux semantic search gets `Permission denied` or `Exec format error` for `codeterm-embed` | Clippy replaced the built runtime sidecar's mode or bytes. | Preserve the verified ELF before clippy, then restore its bytes and executable mode before tests. |
 
@@ -377,4 +377,18 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 
 Tooling, outputs, platform notes, and repository layout: `docs/BUILD-REFERENCE.md`. Test workflows: `codeterm docs TESTING`.
 
-<!-- revision: 126 -->
+### Windows provider launch verification
+
+If Codex exits with invalid TOML containing `developer_instructions = {"value":...}`,
+Windows PowerShell serialized `Get-Content` filesystem metadata instead of a plain
+string. Load instructions through `System.IO.File.ReadAllText`; run
+`node node_modules/tsx/dist/cli.mjs plugins/provider-codex/tests/windows-launch.test.ts`
+and a real dev spawn before local self-install. The regression executes the generated
+PowerShell command with an isolated profile and verifies exact instruction bytes.
+
+If `verify` fails because a review-capacity test expects a refusal at WIP saturation,
+update that owning test to the advisory contract and retain separate real-failure
+rollback coverage. Run `build.ps1 test-one app spawn_plan_task`, then `verify`;
+do not restore a hard gate merely to preserve an obsolete assertion.
+
+<!-- revision: 128 -->

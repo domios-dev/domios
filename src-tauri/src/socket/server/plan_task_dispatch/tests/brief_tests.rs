@@ -213,7 +213,7 @@ fn dispatch_treats_batch_personality_without_legacy_provenance_as_provisional() 
 }
 
 #[test]
-fn socket_dispatch_requires_daemon_owned_capacity_provenance() {
+fn socket_dispatch_allows_review_debt_without_capacity_grants() {
     let mut plan = Plan::new(
         "review debt".into(),
         "/repo".into(),
@@ -234,10 +234,7 @@ fn socket_dispatch_requires_daemon_owned_capacity_provenance() {
         "status": "pending",
     }));
 
-    assert!(matches!(
-        preflight_review_capacity(&plan, &review),
-        Err(crate::service::plan::PlanError::ReviewWipExceeded { .. })
-    ));
+    preflight_review_capacity(&plan, &review).unwrap();
     plan.review_policy
         .capacity_grants
         .push(crate::plan::ReviewCapacityGrant {
@@ -247,10 +244,7 @@ fn socket_dispatch_requires_daemon_owned_capacity_provenance() {
             granted_at: 1,
         });
     preflight_review_capacity(&plan, &review).unwrap();
-    assert!(matches!(
-        preflight_review_capacity(&plan, &implementation),
-        Err(crate::service::plan::PlanError::ReviewWipExceeded { .. })
-    ));
+    preflight_review_capacity(&plan, &implementation).unwrap();
 }
 
 #[test]
