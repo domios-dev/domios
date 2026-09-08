@@ -185,6 +185,20 @@ impl ServiceContext {
     ) -> Result<SpawnResult, String> {
         params.title = spawn_title::normalize_agent_title(params.title.take());
         params.normalize_role_profile()?;
+        if params.role_profile.as_deref() == Some(builtins::PLANNER)
+            && params.parent_tab_id.is_none()
+        {
+            let plan_id = params
+                .plan_id
+                .as_deref()
+                .ok_or("Planner requires --plan <id>")?;
+            params.parent_tab_id = Some(crate::service::agent_transition::resolve_planner_parent(
+                &self.plan_store,
+                &self.mux.read(),
+                plan_id,
+                None,
+            )?);
+        }
         crate::service::spawn_plan_task::validate_worker_plan_task_spawn(&params)?;
         crate::service::spawn_params::reject_team_with_binding(&params)?;
         self.preflight_worker_plan_task_spawn(&params)?;
