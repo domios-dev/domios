@@ -208,8 +208,8 @@ function questionForMenu(lines, firstLine) {
   }
   return "Permission required";
 }
-function parseCodexLetteredPrompt(text) {
-  const lines = prosePromptLines(text);
+function parseCodexLetteredPrompt(text2) {
+  const lines = prosePromptLines(text2);
   const starts = [];
   const optionRe = /^\s*(?:[-*•]\s*)?([A-Z])[.)]\s+(.+?)\s*$/;
   for (let i = 0; i < lines.length; i++) {
@@ -220,8 +220,8 @@ function parseCodexLetteredPrompt(text) {
   if (starts.length < 3) return null;
   return promptFromOptionStarts(lines, starts, "letter");
 }
-function parseCodexNumberedQuestion(text) {
-  const lines = prosePromptLines(text);
+function parseCodexNumberedQuestion(text2) {
+  const lines = prosePromptLines(text2);
   const starts = [];
   const optionRe = /^\s*(?:[-*•]\s*)?(\d+)[.)]\s+(.+?)\s*$/;
   for (let i = 0; i < lines.length; i++) {
@@ -274,8 +274,8 @@ function groupOptions(lines, starts, kind) {
   }
   return groups;
 }
-function normalizeLines(text) {
-  return String(text || "").replace(/\r\n?/g, "\n").split("\n");
+function normalizeLines(text2) {
+  return String(text2 || "").replace(/\r\n?/g, "\n").split("\n");
 }
 function lastMeaningfulLineIndex(lines) {
   for (let i = lines.length - 1; i >= 0; i--) {
@@ -285,8 +285,8 @@ function lastMeaningfulLineIndex(lines) {
   }
   return -1;
 }
-function prosePromptLines(text) {
-  const lines = normalizeLines(text);
+function prosePromptLines(text2) {
+  const lines = normalizeLines(text2);
   for (let i = lines.length - 1; i >= 0; i--) {
     if (/^\s*•\s+.+\?\s*$/.test(lines[i])) return lines.slice(i);
   }
@@ -319,8 +319,8 @@ function findCompoundTitle(lines, beforeQuestionIndex) {
   }
   return null;
 }
-function findQuestion(text) {
-  const lines = normalizeLines(text).map((line) => line.trim()).filter(Boolean);
+function findQuestion(text2) {
+  const lines = normalizeLines(text2).map((line) => line.trim()).filter(Boolean);
   for (let i = lines.length - 1; i >= 0; i--) {
     if (lines[i].endsWith("?")) return cleanPromptText(lines[i]);
   }
@@ -401,8 +401,8 @@ function parseCodexUsage(rawText, nowMs) {
       raw_text: raw
     };
   }
-  const text = raw.split("\r").join("").split("\u2588").join(" ").split("\u2591").join(" ");
-  const lines = text.split("\n");
+  const text2 = raw.split("\r").join("").split("\u2588").join(" ").split("\u2591").join(" ");
+  const lines = text2.split("\n");
   const limits = parseCodexLimits(lines, nowMs);
   const session = limits.find((line) => line.family === "general") ?? limits.find((line) => line.family === "legacy-session");
   const weekly = limits.find((line) => line.family === "weekly");
@@ -504,8 +504,8 @@ function codexPctToUsed(value, mode) {
   return Math.min(100, Math.max(0, pct));
 }
 var CODEX_MODEL_NAME_RE = /\b(?:gpt|opus|haiku|sonnet|claude|codex|o\d|gemini)\b.*\d+\.\d+/i;
-function codexLimitFamily(text, sectionHeader) {
-  const lower = String(text || "").toLowerCase();
+function codexLimitFamily(text2, sectionHeader) {
+  const lower = String(text2 || "").toLowerCase();
   const hasGeneral = /\bgeneral\b/.test(lower);
   const hasWeekly = /\bweekly\b/.test(lower);
   const hasSession = /\b5(?:\s*|-\s*)(?:h|hour|hours)\b/.test(lower);
@@ -756,6 +756,53 @@ function patchEdits(patch) {
   } catch (_) {
     return [];
   }
+}
+
+// plugins/provider-codex/src/activity.ts
+function text(value) {
+  return typeof value === "string" ? value : "";
+}
+function completedActivity(value, ts, timestamp) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const item = value;
+  const id = text(item.id);
+  if (!id) return null;
+  const message = { role: "assistant", uuid: `activity-${id}`, blocks: [], ts, timestamp };
+  if (item.type === "CommandExecution") {
+    const command = text(item.command);
+    if (!command || item.status !== "completed" && item.status !== "failed") return null;
+    const failed = item.status === "failed" || typeof item.exit_code === "number" && item.exit_code !== 0;
+    const output = text(item.aggregated_output) || [text(item.stdout), text(item.stderr)].filter(Boolean).join("\n");
+    message.blocks = [
+      { kind: "tool_use", data: {
+        id,
+        name: "command_execution",
+        input: { command },
+        tool_kind: "command",
+        tool_summary: command,
+        tool_detail: command,
+        tool_status: failed ? "error" : "success"
+      } },
+      { kind: "tool_result", data: { tool_use_id: id, content: output, is_error: failed } }
+    ];
+    return message;
+  }
+  if (item.type === "SubAgentActivity") {
+    const kind = text(item.kind);
+    const path = text(item.agent_path);
+    if (!kind || !path) return null;
+    message.blocks = [{ kind: "tool_use", data: {
+      id,
+      name: "agent_activity",
+      input: { kind, agent_path: path, agent_thread_id: text(item.agent_thread_id) },
+      tool_kind: "task",
+      tool_summary: `${kind} ${path}`,
+      tool_detail: `${kind} ${path}`,
+      tool_status: "success"
+    } }];
+    return message;
+  }
+  return null;
 }
 
 // plugins/provider-codex/src/tabState.ts
@@ -1411,28 +1458,28 @@ var CODEX_HOOK_SCRIPT_CONTRACT = [
   "CODETERM_SESSION_BINDING_NONCE",
   "/api/tabs/"
 ];
-function codexHookContentHash(text) {
+function codexHookContentHash(text2) {
   let hash = 2166136261;
-  for (let i = 0; i < text.length; i++) {
-    hash ^= text.charCodeAt(i);
+  for (let i = 0; i < text2.length; i++) {
+    hash ^= text2.charCodeAt(i);
     hash = hash + ((hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24)) >>> 0;
   }
   return ("0000000" + hash.toString(16)).slice(-8);
 }
-function isOwnedCodexHookScriptContent(text) {
-  return text.indexOf(CODETERM_CODEX_HOOK_MARKER) !== -1;
+function isOwnedCodexHookScriptContent(text2) {
+  return text2.indexOf(CODETERM_CODEX_HOOK_MARKER) !== -1;
 }
-function isCurrentCodexHookScriptContent(text) {
-  if (!isOwnedCodexHookScriptContent(text)) return false;
-  if (/:\d{2,5}/.test(text)) return false;
+function isCurrentCodexHookScriptContent(text2) {
+  if (!isOwnedCodexHookScriptContent(text2)) return false;
+  if (/:\d{2,5}/.test(text2)) return false;
   for (let i = 0; i < CODEX_HOOK_SCRIPT_CONTRACT.length; i++) {
-    if (text.indexOf(CODEX_HOOK_SCRIPT_CONTRACT[i]) === -1) return false;
+    if (text2.indexOf(CODEX_HOOK_SCRIPT_CONTRACT[i]) === -1) return false;
   }
   return true;
 }
 function isOwnedCodexWindowsHookScript(path) {
-  const text = host.fs.readFile(path);
-  return typeof text === "string" && isCurrentCodexHookScriptContent(text);
+  const text2 = host.fs.readFile(path);
+  return typeof text2 === "string" && isCurrentCodexHookScriptContent(text2);
 }
 
 // plugins/provider-codex/src/integration.ts
@@ -1799,9 +1846,9 @@ function restoreIntegrationFiles(snapshots) {
 function codexHookTrustState(hooksPath) {
   const cfg = codexConfigPath();
   if (!cfg || !host.fs.fileExists(cfg)) return "missing";
-  const text = String(host.fs.readFile(cfg) || "");
-  if (!text) return "missing";
-  const block = findCodexHookTrustBlock(text, hooksPath);
+  const text2 = String(host.fs.readFile(cfg) || "");
+  if (!text2) return "missing";
+  const block = findCodexHookTrustBlock(text2, hooksPath);
   if (block == null) return "missing";
   const m = block.match(/(?:^|\n)\s*enabled\s*=\s*(true|false)\s*(?:\n|$)/);
   if (m) return m[1] === "true" ? "enabled" : "disabled";
@@ -1811,40 +1858,40 @@ function codexHookTrustState(hooksPath) {
 function enableExistingCodexHookTrust(hooksPath) {
   const cfg = codexConfigPath();
   if (!cfg || !host.fs.fileExists(cfg)) return { state: "missing", changed: false, write_failed: false };
-  const text = String(host.fs.readFile(cfg) || "");
-  if (!text) return { state: "missing", changed: false, write_failed: false };
-  const span = findCodexHookTrustBlockSpan(text, hooksPath);
+  const text2 = String(host.fs.readFile(cfg) || "");
+  if (!text2) return { state: "missing", changed: false, write_failed: false };
+  const span = findCodexHookTrustBlockSpan(text2, hooksPath);
   if (!span) return { state: "missing", changed: false, write_failed: false };
-  const block = text.substring(span.start, span.end);
+  const block = text2.substring(span.start, span.end);
   if (!/(?:^|\n)\s*enabled\s*=\s*false\s*(?:\n|$)/.test(block)) {
     const current = codexHookTrustState(hooksPath);
     const state = current === "enabled" || current === "trusted" ? current : "unknown";
     return { state, changed: false, write_failed: false };
   }
   const nextBlock = block.replace(/(^|\n)(\s*enabled\s*=\s*)false(\s*(?:\n|$))/, "$1$2true$3");
-  const next = text.substring(0, span.start) + nextBlock + text.substring(span.end);
+  const next = text2.substring(0, span.start) + nextBlock + text2.substring(span.end);
   return host.fs.writeFile(cfg, next) ? { state: "enabled", changed: true, write_failed: false } : { state: "unknown", changed: false, write_failed: true };
 }
 function disableOwnedCodexHookTrust(hooksPath) {
   const cfg = codexConfigPath();
   if (!cfg || !host.fs.fileExists(cfg)) return true;
-  const text = host.fs.readFile(cfg);
-  if (typeof text !== "string") return false;
-  const span = findCodexHookTrustBlockSpan(text, hooksPath);
+  const text2 = host.fs.readFile(cfg);
+  if (typeof text2 !== "string") return false;
+  const span = findCodexHookTrustBlockSpan(text2, hooksPath);
   if (!span) return true;
-  const block = text.substring(span.start, span.end);
+  const block = text2.substring(span.start, span.end);
   const nextBlock = block.replace(/(^|\n)(\s*enabled\s*=\s*)true(\s*(?:\n|$))/, "$1$2false$3");
   if (nextBlock === block) return true;
-  const next = text.substring(0, span.start) + nextBlock + text.substring(span.end);
+  const next = text2.substring(0, span.start) + nextBlock + text2.substring(span.end);
   return host.fs.writeFile(cfg, next);
 }
-function findCodexHookTrustBlock(text, hooksPath) {
-  const span = findCodexHookTrustBlockSpan(text, hooksPath);
-  return span ? text.substring(span.start, span.end) : null;
+function findCodexHookTrustBlock(text2, hooksPath) {
+  const span = findCodexHookTrustBlockSpan(text2, hooksPath);
+  return span ? text2.substring(span.start, span.end) : null;
 }
-function findCodexHookTrustBlockSpan(text, hooksPath) {
+function findCodexHookTrustBlockSpan(text2, hooksPath) {
   const marker = hooksPath + ":session_start:";
-  const lines = text.split("\n");
+  const lines = text2.split("\n");
   let offset = 0;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -1852,7 +1899,7 @@ function findCodexHookTrustBlockSpan(text, hooksPath) {
     const isHeader = trimmed.charAt(0) === "[" && trimmed.charAt(trimmed.length - 1) === "]";
     if (isHeader && trimmed.indexOf("hooks.state.") !== -1 && trimmed.indexOf(marker) !== -1) {
       const start = offset;
-      let end = text.length;
+      let end = text2.length;
       let scanOffset = offset + line.length + 1;
       for (let j = i + 1; j < lines.length; j++) {
         const t = lines[j].trim();
@@ -1955,23 +2002,23 @@ var plugin = {
   detectFromTitle(title) {
     return TITLE_RE.test(String(title || ""));
   },
-  detectFromOutput(text) {
-    const t = String(text || "");
+  detectFromOutput(text2) {
+    const t = String(text2 || "");
     for (let i = 0; i < OUTPUT_FINGERPRINTS.length; i++) {
       if (t.indexOf(OUTPUT_FINGERPRINTS[i]) !== -1) return true;
     }
     return false;
   },
   screenHasTui(screen) {
-    const text = String(screen || "");
-    const lower = text.toLowerCase();
+    const text2 = String(screen || "");
+    const lower = text2.toLowerCase();
     for (let i = 0; i < TUI_FRAGMENTS.length; i++) {
       if (lower.indexOf(TUI_FRAGMENTS[i]) !== -1) return true;
     }
-    return hasPromptAndStatusFooter(text);
+    return hasPromptAndStatusFooter(text2);
   },
-  isOutputNoise(text) {
-    const trimmed = String(text || "").trim();
+  isOutputNoise(text2) {
+    const trimmed = String(text2 || "").trim();
     if (!trimmed) return true;
     for (let i = 0; i < trimmed.length; i++) {
       const c = trimmed[i];
@@ -1986,16 +2033,16 @@ var plugin = {
     return c.indexOf("Would you like") !== -1 || c.indexOf("approve") !== -1 || c.indexOf("run the following") !== -1 || c.indexOf("make the following") !== -1 || c.indexOf("grant these permissions") !== -1 || // screen off the auto-approve path; the universal numbered parser then extracts.
     c.indexOf("to confirm") !== -1 || c.indexOf("esc to go back") !== -1 || c.indexOf("Select Model") !== -1 || c.indexOf("Select Reasoning") !== -1 || c.indexOf("\u203A") !== -1 || c.indexOf("\u276F") !== -1;
   },
-  detectEvents(text) {
-    const t = String(text || "");
+  detectEvents(text2) {
+    const t = String(text2 || "");
     const events = [];
     if (t.indexOf("Would you like to run the following command") !== -1 || t.indexOf("Would you like to make the following edits") !== -1 || t.indexOf("Do you want to approve network access") !== -1 || t.indexOf("Would you like to grant these permissions") !== -1) {
       events.push("permission_request");
     }
     return events;
   },
-  parsePrompt(text) {
-    return parseCodexPrompt(String(text || ""));
+  parsePrompt(text2) {
+    return parseCodexPrompt(String(text2 || ""));
   },
   buildPromptResponse(optionIndex, screen) {
     return responseKeysForIndex(optionIndex, String(screen || ""));
@@ -2071,6 +2118,7 @@ var plugin = {
   // Duplicated by design across provider bundles (QuickJS, no imports) — parity guarded by provider-helper-parity.test.ts.
   parseSessionDelta(chunk) {
     const out = [];
+    const activityIds = /* @__PURE__ */ new Set();
     const lines = String(chunk || "").split("\n");
     let hadInvalid = false;
     for (let i = 0; i < lines.length; i++) {
@@ -2098,6 +2146,14 @@ var plugin = {
         const d = Date.parse(v.timestamp);
         if (!isNaN(d)) ts = Math.floor(d / 1e3);
       }
+      if (v.type === "event_msg" && v.payload?.type === "item_completed") {
+        const activity = completedActivity(v.payload.item, ts, tsIso);
+        if (activity && !activityIds.has(activity.uuid)) {
+          activityIds.add(activity.uuid);
+          out.push(activity);
+        }
+        continue;
+      }
       if (v.type === "event_msg" && v.payload && v.payload.type === "patch_apply_end") {
         const p2 = v.payload;
         const content = typeof p2.stdout === "string" ? p2.stdout : "";
@@ -2115,21 +2171,21 @@ var plugin = {
       if (p.type === "message") {
         const role = p.role === "assistant" ? "assistant" : p.role === "user" ? "user" : null;
         if (!role) continue;
-        let text = "";
+        let text2 = "";
         if (Array.isArray(p.content)) {
           for (let j = 0; j < p.content.length; j++) {
             const c = p.content[j];
-            if (c && typeof c.text === "string") text += c.text;
+            if (c && typeof c.text === "string") text2 += c.text;
           }
         } else if (typeof p.content === "string") {
-          text = p.content;
+          text2 = p.content;
         }
-        if (!text) continue;
-        const systemSubtype = classifyCodexSystemText(text);
+        if (!text2) continue;
+        const systemSubtype = classifyCodexSystemText(text2);
         if (systemSubtype) {
           out.push({
             role: "system",
-            blocks: [{ kind: "text", data: { text, subtype: systemSubtype } }],
+            blocks: [{ kind: "text", data: { text: text2, subtype: systemSubtype } }],
             sourceType: v.type,
             sourceSubtype: systemSubtype,
             ts,
@@ -2137,7 +2193,7 @@ var plugin = {
           });
           continue;
         }
-        out.push({ role, blocks: [{ kind: "text", data: { text } }], ts, timestamp: tsIso });
+        out.push({ role, blocks: [{ kind: "text", data: { text: text2 } }], ts, timestamp: tsIso });
       } else if (p.type === "function_call") {
         let input = {};
         try {
@@ -2237,9 +2293,9 @@ var plugin = {
     return detectSessionModel(cwd, sessionId);
   },
   // Mirror native parse_session_messages for response_item message blocks.
-  parseSessionMessages(text) {
+  parseSessionMessages(text2) {
     const out = [];
-    const lines = String(text || "").split("\n");
+    const lines = String(text2 || "").split("\n");
     let hadInvalid = false;
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
@@ -2276,18 +2332,18 @@ var plugin = {
           chunks.push(b.text);
         }
       }
-      const text2 = chunks.join(" ");
-      if (!text2.trim()) continue;
+      const text22 = chunks.join(" ");
+      if (!text22.trim()) continue;
       let ts = null;
       if (typeof v.timestamp === "string") {
         const d = Date.parse(v.timestamp);
         if (!isNaN(d)) ts = Math.floor(d / 1e3);
       }
-      const systemSubtype = classifyCodexSystemText(text2);
+      const systemSubtype = classifyCodexSystemText(text22);
       if (systemSubtype) {
-        out.push({ role: "system", text: text2, ts, isMeta: true, sourceSubtype: systemSubtype });
+        out.push({ role: "system", text: text22, ts, isMeta: true, sourceSubtype: systemSubtype });
       } else {
-        out.push({ role, text: text2, ts, isMeta: false });
+        out.push({ role, text: text22, ts, isMeta: false });
       }
     }
     return out;
@@ -2338,7 +2394,7 @@ function isValidCodexSessionDelta(v) {
   if (!v || typeof v !== "object" || Array.isArray(v)) return false;
   if (v.type === "event_msg") {
     if (!v.payload || typeof v.payload !== "object" || Array.isArray(v.payload)) return false;
-    return v.payload.type === "patch_apply_end";
+    return v.payload.type === "patch_apply_end" || v.payload.type === "item_completed";
   }
   if (v.type !== "response_item") return false;
   if (!v.payload || typeof v.payload !== "object" || Array.isArray(v.payload)) return false;
@@ -2351,14 +2407,14 @@ function isValidCodexSessionDelta(v) {
 function codexToolOutputText(output) {
   if (typeof output === "string") return output;
   if (Array.isArray(output)) {
-    const text = [];
+    const text2 = [];
     for (let i = 0; i < output.length; i++) {
       const item = output[i];
       if (item && typeof item === "object" && typeof item.text === "string") {
-        text.push(item.text);
+        text2.push(item.text);
       }
     }
-    if (text.length > 0) return text.join("");
+    if (text2.length > 0) return text2.join("");
   }
   if (output == null) return "";
   return typeof output === "object" ? JSON.stringify(output) : String(output);
@@ -2374,8 +2430,8 @@ function hasUsefulFunctionCall(name, input, args) {
 function isInternalOrchestrationCall(name) {
   return name === "send_message" || name === "spawn_agent" || name === "followup_task" || name === "interrupt_agent" || name === "list_agents" || name === "wait_agent";
 }
-function classifyCodexSystemText(text) {
-  const trimmed = String(text || "").trim();
+function classifyCodexSystemText(text2) {
+  const trimmed = String(text2 || "").trim();
   if (!trimmed) return null;
   if (trimmed.indexOf("<turn_aborted>") === 0 && trimmed.indexOf("</turn_aborted>") !== -1) {
     return "turn_aborted";
