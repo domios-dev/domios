@@ -189,7 +189,7 @@ Report routing precedence: **remote mesh target → `parent_tab_id` → `report_
 
 ### Plan-authorized task-less evidence reports
 The live authenticated Plan owner grants a review or canonical-QA tab with `plan.review.authorize-reporter` / `codeterm plan review authorize-reporter`. The durable grant records the target's exact tab id, session id, and a one-way binding-nonce digest; it never exposes the bearer nonce through Plan history. The target reports with `plan_id` only: `task_id`, `status`, and task provenance remain absent. Success appends an immutable `plan_evidence_report` Plan stride, publishes the ordinary `agent-report` event to the live owner, and returns `plan_report` with the stride id and `task_transition:false`.
-Authorization is capability-based; role labels grant nothing. A foreign, unbound, stale/rebound, or currently task-bound tab is rejected before either Plan history or the Orchestrator report store changes. A reporter session change requires a fresh owner grant. Registered Planner plan-only reports and task-bound Worker reports keep their existing paths.
+Authorization is capability-based; role labels grant nothing. An absent caller session is resolved from the exact registered tab only with a matching stored and hook-reported nonce; an explicitly wrong session still refuses. Foreign, unbound, stale/rebound, task-bound, or ungranted callers change no Plan history or report store. A session change requires a fresh owner grant. Registered Planner and task-bound Worker paths are unchanged.
 
 Each inbound mesh report registers the worker in the orchestrator-side registry exposed by `GET /api/remote-workers` and the `remote-workers-changed` event, which the sidebar renders as a read-only "remote tab" ghost node under its orchestrator (peer chip + status, no local PTY).
 
@@ -237,6 +237,4 @@ On error, individual commands return `{"error": "message", "method": "..."}` but
 
 Planner authority over task structure, partial `plan goal set`, lane persistence on dispatch, and recording an external executor: see `codeterm docs API-PLAN`.
 
-When a reporting shell has no `CODETERM_SESSION_ID`, the daemon resolves its exact tab's registered session only while validating the supplied nonce against both stored and hook-reported binding. An explicitly supplied mismatching session still refuses. This does not replace the owner-issued evidence grant or permit task transitions.
-
-<!-- revision: 18 -->
+<!-- revision: 19 -->
