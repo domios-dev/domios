@@ -751,4 +751,10 @@ consent-required status; only its explicit repair action enters the write path.
      release the app first/together** (see "App + plugin ship together"). Test
      path: install the new app, then `codeterm plugin install <id>`.
 
-<!-- revision: 27 -->
+Full access for Codex adds both `--dangerously-bypass-approvals-and-sandbox` and
+`--dangerously-bypass-hook-trust` to fresh and resumed invocations. With Full
+access disabled, neither flag is emitted. This bypass is invocation-scoped; it
+does not rewrite global hooks or persist a new trust grant. Enable it only for
+vetted hooks and an environment where unrestricted command execution is intended.
+
+<!-- revision: 28 -->

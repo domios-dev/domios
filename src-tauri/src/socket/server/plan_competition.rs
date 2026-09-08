@@ -648,10 +648,10 @@ mod lane_isolation_tests;
 mod tests {
     use super::*;
     use crate::plan::{AgentRef, OrchestratorRef, Plan, ReviewCapacityClass};
-    use crate::service::plan::{NewTask, PlanError, PlanStore};
+    use crate::service::plan::{NewTask, PlanStore};
 
     #[test]
-    fn compete_cannot_bypass_review_debt_with_spoofed_task_metadata() {
+    fn compete_allows_review_debt_without_capacity_grants() {
         let dir = tempfile::tempdir().unwrap();
         let store = PlanStore::new_for_test(dir.path());
         let mut plan = Plan::new(
@@ -676,10 +676,7 @@ mod tests {
         persisted.review_policy.credit = -(persisted.review_policy.wip_limit as i64);
         store.save(&mut persisted, 3).unwrap();
 
-        assert!(matches!(
-            preflight_compete_review_capacity(&store, &plan.id, &task_id),
-            Err(PlanError::ReviewWipExceeded { .. })
-        ));
+        preflight_compete_review_capacity(&store, &plan.id, &task_id).unwrap();
         store
             .grant_review_capacity(
                 &plan.id,

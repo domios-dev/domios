@@ -377,4 +377,18 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 
 Tooling, outputs, platform notes, and repository layout: `docs/BUILD-REFERENCE.md`. Test workflows: `codeterm docs TESTING`.
 
-<!-- revision: 126 -->
+### Windows provider launch verification
+
+If Codex exits with invalid TOML containing `developer_instructions = {"value":...}`,
+Windows PowerShell serialized `Get-Content` filesystem metadata instead of a plain
+string. Load instructions through `System.IO.File.ReadAllText`; run
+`node node_modules/tsx/dist/cli.mjs plugins/provider-codex/tests/windows-launch.test.ts`
+and a real dev spawn before local self-install. The regression executes the generated
+PowerShell command with an isolated profile and verifies exact instruction bytes.
+
+If `verify` fails because a review-capacity test expects a refusal at WIP saturation,
+update that owning test to the advisory contract and retain separate real-failure
+rollback coverage. Run `build.ps1 test-one app spawn_plan_task`, then `verify`;
+do not restore a hard gate merely to preserve an obsolete assertion.
+
+<!-- revision: 127 -->
