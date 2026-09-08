@@ -762,6 +762,13 @@ function patchEdits(patch) {
 function text(value) {
   return typeof value === "string" ? value : "";
 }
+function commandText(value) {
+  if (typeof value === "string") return value;
+  if (!Array.isArray(value) || value.length === 0 || !value.every((argument) => typeof argument === "string")) return "";
+  const argv = value;
+  if (!argv[0].trim()) return "";
+  return argv.map((argument) => argument === "" || /[\s"]/.test(argument) ? JSON.stringify(argument) : argument).join(" ");
+}
 function completedActivity(value, ts, timestamp) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const item = value;
@@ -769,7 +776,7 @@ function completedActivity(value, ts, timestamp) {
   if (!id) return null;
   const message = { role: "assistant", uuid: `activity-${id}`, blocks: [], ts, timestamp };
   if (item.type === "CommandExecution") {
-    const command = text(item.command);
+    const command = commandText(item.command);
     if (!command || item.status !== "completed" && item.status !== "failed") return null;
     const failed = item.status === "failed" || typeof item.exit_code === "number" && item.exit_code !== 0;
     const output = text(item.aggregated_output) || [text(item.stdout), text(item.stderr)].filter(Boolean).join("\n");
@@ -777,7 +784,7 @@ function completedActivity(value, ts, timestamp) {
       { kind: "tool_use", data: {
         id,
         name: "command_execution",
-        input: { command },
+        input: { command, ...Array.isArray(item.command) ? { argv: item.command } : {} },
         tool_kind: "command",
         tool_summary: command,
         tool_detail: command,
