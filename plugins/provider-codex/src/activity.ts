@@ -24,6 +24,14 @@ function text(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
+function commandText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (!Array.isArray(value) || value.length === 0 || !value.every((argument) => typeof argument === "string")) return "";
+  const argv = value as string[];
+  if (!argv[0].trim()) return "";
+  return argv.map((argument) => argument === "" || /[\s"]/.test(argument) ? JSON.stringify(argument) : argument).join(" ");
+}
+
 export function completedActivity(value: unknown, ts: number | null, timestamp: string | null): ActivityMessage | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const item = value as ActivityItem;
@@ -31,13 +39,13 @@ export function completedActivity(value: unknown, ts: number | null, timestamp: 
   if (!id) return null;
   const message: ActivityMessage = { role: "assistant", uuid: `activity-${id}`, blocks: [], ts, timestamp };
   if (item.type === "CommandExecution") {
-    const command = text(item.command);
+    const command = commandText(item.command);
     if (!command || (item.status !== "completed" && item.status !== "failed")) return null;
     const failed = item.status === "failed" || (typeof item.exit_code === "number" && item.exit_code !== 0);
     const output = text(item.aggregated_output) || [text(item.stdout), text(item.stderr)].filter(Boolean).join("\n");
     message.blocks = [
       { kind: "tool_use", data: {
-        id, name: "command_execution", input: { command },
+        id, name: "command_execution", input: { command, ...(Array.isArray(item.command) ? { argv: item.command } : {}) },
         tool_kind: "command", tool_summary: command, tool_detail: command,
         tool_status: failed ? "error" : "success",
       } },
