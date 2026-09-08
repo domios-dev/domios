@@ -17,9 +17,9 @@ fn sync_planner_spawn_resolves_plan_owner_before_provisioning() {
         plan_id: Some(plan.id.clone()),
         ..Default::default()
     });
-    let error = result
-        .err()
-        .expect("a missing Plan owner must refuse before spawn");
+    let Err(error) = result else {
+        panic!("a missing Plan owner must refuse before spawn");
+    };
     assert!(error.contains(&plan.id));
     assert!(error.contains("absent-owner-fixture"));
     assert_eq!(fixture.service.mux.read().all_tabs().count(), before);

@@ -174,6 +174,7 @@ Sign out and back in for a repaired PATH to reach new processes.
 | `release-preflight` reports a source file one or two lines over 1200 | Test responsibilities accumulated in an inline or monolithic test module until formatting crossed the hard limit | Move a cohesive test group into a child module, verify both focused suites, then rerun `release-preflight`; do not hide the overflow by compacting whitespace. |
 | `release-preflight` fails under `-D warnings` for an enum field read only by tests | Production already logs the diagnostic, but an outcome variant retained a duplicate payload solely for a test assertion | Make the production outcome carry only consumed state and assert that state in the focused test; do not suppress `dead_code`. |
 | `release-preflight` fails with Clippy `never_loop` in a bounded silence oracle | The helper wrapped one `recv_timeout` in a loop even though every match arm returned on the first pass | Express the oracle as one bounded event wait, keep timeout/disconnect as silence, then rerun `release-preflight`; do not add a settle loop or sleep. |
+| `release-preflight` reports Clippy `err_expect` in a spawn refusal test | The assertion used `result.err().expect(...)` instead of matching the failure. | Use `expect_err` or `let Err(error) = result else { panic!(...) }` when the success type is not `Debug`; rerun preflight. |
 | `release-preflight` fails compiling `state_doctor` after a classifier signal rename/removal | The standalone testbench still consumed an obsolete `BoundarySignals` field that ordinary library tests do not compile | Update the doctor to the current structural signal and subtype ownership, then run the exact `state_doctor` test target before retrying preflight. |
 | PR `source-of-truth` reports prompt files missing from `docs/PROMPTS.md` | A new runtime or frozen-reference Markdown file was added under `src-tauri/prompts/` without registering its constant and ownership in the prompt inventory | Add every reported path to the prompt table, explain any frozen never-edit contract, bump the doc revision, then run `bash scripts/check-prompts-doc.sh` before pushing. |
 | `Release lock version mismatch` during a version bump | An older preflight checked lock versions before Cargo refreshed the workspace packages | Use the current `release-preflight`, which checks both manifests before verifying both lockfiles; commit the refreshed lockfiles, then retry. |
@@ -391,4 +392,4 @@ update that owning test to the advisory contract and retain separate real-failur
 rollback coverage. Run `build.ps1 test-one app spawn_plan_task`, then `verify`;
 do not restore a hard gate merely to preserve an obsolete assertion.
 
-<!-- revision: 128 -->
+<!-- revision: 129 -->
