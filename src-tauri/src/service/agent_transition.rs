@@ -673,7 +673,7 @@ fn plan_owner(
 }
 
 /// An explicit parent wins; otherwise resolves from the plan's live owner.
-fn resolve_planner_parent(
+pub(super) fn resolve_planner_parent(
     plan_store: &crate::service::plan::PlanStore,
     mux: &MultiplexerState,
     plan_id: &str,
