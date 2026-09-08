@@ -16,7 +16,9 @@ Provider ownership checks use provider-declared records, not the shared
 hook-reported transcript-path cache. Transcript readers still use that cache.
 
 Codex chat projects structured `item_completed` command results and subagent
-activity using their source item IDs. Repeated activity records keep the same
+activity using their source item IDs. Commands may be strings or argument
+arrays; arrays retain their original arguments alongside a quoted display
+description. Repeated activity records keep the same
 presentation identity. An outer `exec` batch and its completed inner commands
 remain separate: the completion record does not identify the outer call, so
 the renderer does not infer a relationship from command text or timestamps.
@@ -766,4 +768,4 @@ access disabled, neither flag is emitted. This bypass is invocation-scoped; it
 does not rewrite global hooks or persist a new trust grant. Enable it only for
 vetted hooks and an environment where unrestricted command execution is intended.
 
-<!-- revision: 29 -->
+<!-- revision: 30 -->
