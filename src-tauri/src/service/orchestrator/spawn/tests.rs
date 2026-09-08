@@ -1,6 +1,31 @@
 use super::*;
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+fn sync_planner_spawn_resolves_plan_owner_before_provisioning() {
+    let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let mut plan = crate::plan::Plan::new(
+        "parent resolution fixture".into(),
+        fixture.temp.path().display().to_string(),
+        crate::plan::OrchestratorRef::from_tab("absent-owner-fixture"),
+    );
+    fixture.service.plan_store.save(&mut plan, 1).unwrap();
+    let before = fixture.service.mux.read().all_tabs().count();
+    let result = fixture.service.spawn_agent_sync(SpawnAgentParams {
+        role: Some("Planner".into()),
+        plan_id: Some(plan.id.clone()),
+        ..Default::default()
+    });
+    let error = result
+        .err()
+        .expect("a missing Plan owner must refuse before spawn");
+    assert!(error.contains(&plan.id));
+    assert!(error.contains("absent-owner-fixture"));
+    assert_eq!(fixture.service.mux.read().all_tabs().count(), before);
+}
+
+#[test]
 fn effort_provenance_keeps_plan_and_request_distinct() {
     let planned = resolved_effort_provenance(Some("high".into()), Some("medium".into()));
     assert_eq!(planned.planned.as_deref(), Some("high"));

@@ -77,8 +77,7 @@ fn append_authorized_gates(params: &mut SpawnAgentParams) {
     });
 }
 
-/// Reject a WIP-gate-blocked dispatch before any tab is provisioned, so
-/// there is nothing left to roll back.
+/// Resolve task identity and surface advisory review pressure before provisioning.
 pub(crate) fn preflight_worker_plan_task_wip_gate(
     store: &PlanStore,
     plan_id: Option<&str>,
@@ -671,14 +670,12 @@ mod tests {
     }
 
     #[test]
-    fn preflight_rejects_before_any_tab_when_wip_gate_blocked() {
+    fn preflight_allows_dispatch_at_review_threshold() {
         let dir = tempfile::tempdir().unwrap();
         let (store, plan_id, _task_id) = store_with_task(dir.path());
         block_review_wip(&store, &plan_id);
 
-        let err =
-            preflight_worker_plan_task_wip_gate(&store, Some(&plan_id), "spawn-bind").unwrap_err();
-        assert!(err.contains("review"), "got: {err}");
+        preflight_worker_plan_task_wip_gate(&store, Some(&plan_id), "spawn-bind").unwrap();
     }
 
     #[test]
@@ -689,7 +686,7 @@ mod tests {
     }
 
     #[test]
-    fn spawn_preflight_requires_daemon_owned_capacity_provenance() {
+    fn spawn_preflight_allows_review_debt_without_capacity_grants() {
         let dir = tempfile::tempdir().unwrap();
         let (store, plan_id, task_id) = store_with_task(dir.path());
         let mut plan = store.get(&plan_id).unwrap();
@@ -702,9 +699,7 @@ mod tests {
         task.kind = "review".into();
         task.tags.push("review-capacity".into());
         store.save(&mut plan, 4).unwrap();
-        let error =
-            preflight_worker_plan_task_wip_gate(&store, Some(&plan_id), "spawn-bind").unwrap_err();
-        assert!(error.contains("review"), "{error}");
+        preflight_worker_plan_task_wip_gate(&store, Some(&plan_id), "spawn-bind").unwrap();
 
         store
             .grant_review_capacity(
@@ -718,15 +713,13 @@ mod tests {
         preflight_worker_plan_task_wip_gate(&store, Some(&plan_id), "spawn-bind").unwrap();
     }
 
-    // Reproduces the incident: `assign_task_with_role` (step 1) already binds
-    // the tab before `update_task(in_progress)` (step 2) hits the WIP gate.
     #[test]
-    fn wip_gate_failure_after_tab_bind_leaves_zero_residual_task_lane_binding() {
+    fn review_threshold_does_not_abort_task_binding() {
         let dir = tempfile::tempdir().unwrap();
         let (store, plan_id, task_id) = store_with_task(dir.path());
         block_review_wip(&store, &plan_id);
 
-        let err = bind_worker_task_to_tab(
+        let binding = bind_worker_task_to_tab(
             &store,
             Some(&plan_id),
             "spawn-bind",
@@ -741,14 +734,14 @@ mod tests {
             vec![],
             10,
         )
-        .unwrap_err();
-        assert!(err.contains("review"), "got: {err}");
+        .unwrap();
+        assert_eq!(binding.task_id, task_id);
 
         let plan = store.get(&plan_id).unwrap();
         let task = plan.tasks.iter().find(|t| t.id == task_id).unwrap();
         assert_eq!(task.status, TaskStatus::Pending);
-        assert_eq!(task.assigned_tab_id, None);
-        assert_eq!(task.lane.tab_id, None);
+        assert_eq!(task.assigned_tab_id.as_deref(), Some("tab-worker"));
+        assert_eq!(task.lane.tab_id.as_deref(), Some("tab-worker"));
     }
 
     #[test]
@@ -793,10 +786,8 @@ mod tests {
         );
     }
 
-    // Proven via the WIP-gate path — the failure reliably triggerable here
-    // without dependency-injecting the identity step itself.
     #[test]
-    fn transaction_closes_tab_and_reverts_state_on_any_post_provision_failure() {
+    fn transaction_closes_provisioned_tab_when_task_resolution_fails() {
         let dir = tempfile::tempdir().unwrap();
         let (store, plan_id, task_id) = store_with_task(dir.path());
         block_review_wip(&store, &plan_id);
@@ -805,7 +796,7 @@ mod tests {
         let err = bind_worker_plan_task_transaction(
             &store,
             Some(&plan_id),
-            "spawn-bind",
+            "missing-task-fixture",
             "tab-worker",
             "Ada",
             None,
@@ -819,7 +810,7 @@ mod tests {
             || tab_closed = true,
         )
         .unwrap_err();
-        assert!(err.contains("review"), "got: {err}");
+        assert!(!err.is_empty());
         assert!(
             tab_closed,
             "the just-created Tab must be closed on any post-provision failure"

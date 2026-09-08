@@ -18,6 +18,7 @@ import {
   enumerateSessions as enumerateCodexSessions,
   extractSessionUuid,
   sessionFilePath as resolveCodexSessionFilePath,
+  sessionExists as codexSessionExists,
 } from "./sessions";
 import {
   checkIntegration as checkCodexIntegration,
@@ -165,6 +166,7 @@ const plugin: PluginModule = {
     parts.push("codex");
     if (p.skipPermissions) {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
+      parts.push("--dangerously-bypass-hook-trust");
     }
     if (p.args && p.args.length > 0) {
       // Quote each caller-supplied arg to prevent shell injection.
@@ -175,7 +177,7 @@ const plugin: PluginModule = {
       if (!taskPath) throw new Error("failed to write Codex task instructions");
       const quotedPath = host.shell.quoteFor(taskPath, host.platform());
       if (host.platform() === "windows") {
-        prefix = `$ctTaskInstructions = Get-Content -Raw -Encoding UTF8 ${quotedPath}; `
+        prefix = `$ctTaskInstructions = [System.IO.File]::ReadAllText(${quotedPath}, [System.Text.Encoding]::UTF8); `
           + "$ctTaskJson = ($ctTaskInstructions | ConvertTo-Json -Compress); "
           + "$ctProfileSuffix = if ($env:CODETERM_TAB_ID) { $env:CODETERM_TAB_ID -replace '[^A-Za-z0-9_-]', '-' } else { [guid]::NewGuid().ToString('N') }; "
           + "$ctProfileName = 'codeterm-' + $ctProfileSuffix; "
@@ -204,6 +206,7 @@ const plugin: PluginModule = {
     const parts = ["codex", "resume"];
     if (skipPermissions) {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
+      parts.push("--dangerously-bypass-hook-trust");
     }
     // session_id accepts UUID or rollout filename stem.
     const uuid = extractSessionUuid(sessionId) || sessionId;
@@ -213,6 +216,10 @@ const plugin: PluginModule = {
 
   sessionFilePath(_cwd: string, sessionId: string): string | null {
     return resolveCodexSessionFilePath(_cwd, sessionId);
+  },
+
+  sessionExists(cwd: string, sessionId: string): boolean {
+    return codexSessionExists(cwd, sessionId);
   },
 
   // Codex 0.153 has no per-session JSONL transcript; keep the path capability honest.
