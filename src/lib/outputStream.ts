@@ -256,6 +256,12 @@ export function subscribeTabOutput(tabId: string, sink: TabOutputSink): () => vo
   }
   const remote = parseCompositeTabId(tabId);
   if (remote) return subscribeRemoteTabOutput(remote.ordinaryTabId, remote.peerId, sink);
+  const target = IS_WEB ? relayTarget() : null;
+  if (target) {
+    const scopedId = `mesh:${target.id}/${tabId}`;
+    if (!parseCompositeTabId(scopedId)) throw new Error(`Invalid remote tab id "${scopedId}"`);
+    return subscribeRemoteTabOutput(scopedId, target.id, sink);
+  }
   let set = sinks.get(tabId);
   if (!set) {
     set = new Set();
@@ -420,8 +426,10 @@ function handleRemoteOutputFrame(
     for (const target of remoteSinks.get(ordinaryTabId) ?? []) target.onOutput(message.output);
     return;
   }
-  if (message.boot_changed && message.boot) {
-    record.recovery.noteProgress(generation, { boot: message.boot, offset: 0 });
+  if (message.boot) {
+    const previous = record.recovery.currentCursor();
+    const offset = previous?.boot === message.boot ? previous.offset : 0;
+    record.recovery.noteProgress(generation, { boot: message.boot, offset });
     return;
   }
   if (!record.recovery.isCurrent(generation)) return; // stale generation never delivers control frames.
