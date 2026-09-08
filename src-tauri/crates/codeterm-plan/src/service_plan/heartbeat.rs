@@ -260,7 +260,9 @@ fn render_heartbeat(
     });
     let has_open_gates = plan.gates.iter().any(|g| g.is_open());
     let has_regression_gates = !super::milestone_gates::pending_regression_gates(plan).is_empty();
-    let has_review_gate = super::review_gate::review_gate_status(plan).reason.is_some();
+    let has_review_gate = super::review_gate::review_gate_status(plan)
+        .reason
+        .is_some();
     let has_reflection =
         !super::reflection::pending_reflections(plan, reflect_every_gates()).is_empty();
     let has_digests = !extra_digest_lines.is_empty();
