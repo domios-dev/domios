@@ -18,6 +18,7 @@ import {
   enumerateSessions as enumerateCodexSessions,
   extractSessionUuid,
   sessionFilePath as resolveCodexSessionFilePath,
+  sessionExists as codexSessionExists,
 } from "./sessions";
 import {
   checkIntegration as checkCodexIntegration,
@@ -213,6 +214,10 @@ const plugin: PluginModule = {
 
   sessionFilePath(_cwd: string, sessionId: string): string | null {
     return resolveCodexSessionFilePath(_cwd, sessionId);
+  },
+
+  sessionExists(cwd: string, sessionId: string): boolean {
+    return codexSessionExists(cwd, sessionId);
   },
 
   // Codex 0.153 has no per-session JSONL transcript; keep the path capability honest.

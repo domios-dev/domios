@@ -971,6 +971,11 @@ function sessionFilePath(_cwd, sessionId) {
   if (!store || !sessionIndexEntry(store.indexPath, sessionId)) return null;
   return null;
 }
+function sessionExists(_cwd, sessionId) {
+  if (!sessionId) return false;
+  const store = codexSessionStore();
+  return store !== null && sessionIndexEntry(store.indexPath, sessionId) !== null;
+}
 function detectSessionId(cwd, exclude, maxAgeMs) {
   if (!cwd) return null;
   const store = codexSessionStore();
@@ -2053,6 +2058,9 @@ var plugin = {
   },
   sessionFilePath(_cwd, sessionId) {
     return sessionFilePath(_cwd, sessionId);
+  },
+  sessionExists(cwd, sessionId) {
+    return sessionExists(cwd, sessionId);
   },
   // Codex 0.153 has no per-session JSONL transcript; keep the path capability honest.
   sessionJsonlPath(cwd, sessionId) {
