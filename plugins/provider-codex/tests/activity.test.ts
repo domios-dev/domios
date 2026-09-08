@@ -51,8 +51,29 @@ for (const parser of parsers) {
   assert.equal(parse([completed({ ...execution, exit_code: 2 })])[0].blocks[1].data.is_error, true);
   assert.equal(parse([completed({ ...execution, aggregated_output: "" })])[0].blocks[0].data.tool_status, "success");
 
+  const argv = ["C:\\Opaque Tools\\pwsh.exe", "-Command", "runner --input 'opaque value'; runner opaque-tail"];
+  const argvExecution = { ...execution, id: "exec-opaque-argv", command: argv };
+  const argvMessage = parse([completed(argvExecution)])[0];
+  assert.equal(argvMessage.uuid, `activity-${argvExecution.id}`);
+  assert.equal(argvMessage.blocks[0].data.id, argvExecution.id);
+  const argvInput = argvMessage.blocks[0].data.input as { command: string; argv: string[] };
+  assert.deepEqual(argvInput.argv, argv);
+  assert.equal(argvInput.command, `${JSON.stringify(argv[0])} ${argv[1]} ${JSON.stringify(argv[2])}`);
+  assert.equal(argvMessage.blocks[0].data.tool_detail, argvInput.command);
+  assert.equal(argvMessage.blocks[1].data.content, output);
+  assert.equal(argvMessage.blocks[1].data.tool_use_id, argvExecution.id);
+  assert.equal(argvMessage.blocks[1].data.is_error, false);
+  assert.deepEqual(parse([completed(argvExecution)]), [argvMessage]);
+
+  const unixArgv = ["/bin/sh", "-c", "runner opaque-input", ""];
+  const unixInput = parse([completed({ ...execution, command: unixArgv })])[0].blocks[0].data.input as { command: string; argv: string[] };
+  assert.deepEqual(unixInput.argv, unixArgv);
+  assert.equal(unixInput.command, '/bin/sh -c "runner opaque-input" ""');
+
   const ignored = [
     { ...execution, id: "" }, { ...execution, command: "" }, { ...execution, status: "in_progress" },
+    { ...execution, command: [] }, { ...execution, command: ["", "opaque"] },
+    { ...execution, command: ["runner", 7] },
     { ...activity, agent_path: "" }, { type: "AgentMessage", id: "opaque", text: "opaque-text" },
     { type: "Reasoning", id: "opaque" },
   ];
