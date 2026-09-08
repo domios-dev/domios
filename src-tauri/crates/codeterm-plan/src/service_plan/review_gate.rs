@@ -72,8 +72,7 @@ pub struct ReviewGateStatus {
     pub reason: Option<String>,
 }
 
-/// Read-only: does review capacity/credit currently forbid dispatching new
-/// ordinary implementation work? Never mutates.
+/// Review backlog is advisory; authorization and task lifecycle gates are separate.
 pub fn review_gate_status(plan: &Plan) -> ReviewGateStatus {
     let wip_count = in_review_count(plan);
     let wip_limit = plan.review_policy.wip_limit;
@@ -82,15 +81,14 @@ pub fn review_gate_status(plan: &Plan) -> ReviewGateStatus {
     // in the red, review throughput (not raw slot count) is the constraint.
     let credit_debt_exceeded = credit <= -(wip_limit as i64);
     let wip_exceeded = wip_count >= wip_limit as usize;
-    let blocked = wip_exceeded || credit_debt_exceeded;
-    let reason = blocked.then(|| {
+    let reason = (wip_exceeded || credit_debt_exceeded).then(|| {
         if wip_exceeded {
             format!(
-                "review_wip_exceeded: {wip_count}/{wip_limit} tasks in_review; close a review before dispatching more implementation work"
+                "review_backlog_warning: {wip_count}/{wip_limit} tasks in_review; prioritize closing reviews and avoid growing the backlog. Dispatch remains allowed."
             )
         } else {
             format!(
-                "review_credit_exceeded: credit={credit} (limit=-{wip_limit}); implementation is outrunning review closures"
+                "review_debt_warning: credit={credit} (threshold=-{wip_limit}); prioritize review closures. Dispatch remains allowed."
             )
         }
     });
@@ -98,7 +96,7 @@ pub fn review_gate_status(plan: &Plan) -> ReviewGateStatus {
         wip_count,
         wip_limit,
         credit,
-        blocked,
+        blocked: false,
         reason,
     }
 }
@@ -112,19 +110,10 @@ pub fn clears_review_capacity(plan: &Plan, task: &Task) -> bool {
 
 pub fn validate_dispatch_review_capacity(plan: &Plan, task: &Task) -> Result<(), PlanError> {
     let gate = review_gate_status(plan);
-    if !gate.blocked {
-        return Ok(());
+    if let Some(reason) = gate.reason {
+        log::warn!("[review-backlog] task={}: {}", task.id, reason);
     }
-    let debt_only =
-        gate.wip_count < gate.wip_limit as usize && gate.credit <= -(gate.wip_limit as i64);
-    if debt_only && clears_review_capacity(plan, task) {
-        return Ok(());
-    }
-    Err(PlanError::ReviewWipExceeded {
-        wip_count: gate.wip_count,
-        wip_limit: gate.wip_limit,
-        credit: gate.credit,
-    })
+    Ok(())
 }
 
 /// The gate a review re-entry actually trips, before any override is considered.
@@ -164,9 +153,7 @@ fn tripped_review_gate(task: &Task, rounds: u32) -> Option<ReviewEntryGate> {
 }
 
 /// Validates entry into `in_review`: evidence, review-depth bound, and oracle
-/// stability. Does NOT check WIP/credit — that gates ordinary dispatch
-/// (Pending -> in_progress), not review entry, so a task already in flight can
-/// always be submitted for review.
+/// stability. WIP/credit is advisory and never prevents review entry.
 pub fn validate_enter_review(task: &Task) -> Result<(), PlanError> {
     if !has_exact_qa_evidence(task) && !has_independent_review_evidence(task) {
         return Err(PlanError::ReviewEvidenceRequired);

@@ -25,6 +25,7 @@ case "${1:-all}" in
       plugins/provider-codex/tests/classify-tab-state.test.ts
       plugins/provider-codex/tests/usage.test.ts
       plugins/provider-codex/tests/profile-sweep.test.ts
+      plugins/provider-codex/tests/windows-launch.test.ts
       plugins/provider-opencode/tests/plugin.test.ts
       plugins/provider-cursor/tests/plugin.test.ts
       plugins/chat-preprocessor/tests/plugin.test.ts
@@ -61,6 +62,7 @@ case "${1:-all}" in
       plugins/provider-codex/tests/classify-tab-state.test.ts
       plugins/provider-codex/tests/usage.test.ts
       plugins/provider-codex/tests/profile-sweep.test.ts
+      plugins/provider-codex/tests/windows-launch.test.ts
     )
     ;;
   chat-preprocessor)
