@@ -36,11 +36,19 @@ function codex {
   [IO.File]::WriteAllText(${quote(receiptPath)}, ($value | ConvertTo-Json -Compress))
 }
 ${command}`;
-    const result = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")], { encoding: "utf8" });
-    assert.equal(result.status, 0, result.stderr || result.error?.message);
-    assert.equal(JSON.parse(fs.readFileSync(receiptPath, "utf8")), token);
-    assert.equal(fs.readdirSync(path.join(root, ".codex")).length, 0);
-    console.log("PASS Windows PowerShell exact instruction round trip and owned profile cleanup");
+    for (const shell of ["powershell.exe", "pwsh.exe"]) {
+      fs.rmSync(receiptPath, { force: true });
+      const result = spawnSync(shell, ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")], { encoding: "utf8" });
+      if ((result.error as NodeJS.ErrnoException | undefined)?.code === "ENOENT" && shell === "pwsh.exe") {
+        console.log("SKIP PowerShell 7 is not installed");
+        continue;
+      }
+      assert.equal(result.status, 0, result.stderr || result.error?.message);
+      assert.equal(JSON.parse(fs.readFileSync(receiptPath, "utf8")), token);
+      assert.equal(fs.readdirSync(path.join(root, ".codex")).length, 0);
+      assert.equal(fs.readFileSync(taskPath, "utf8"), token);
+      console.log(`PASS ${shell} exact instruction round trip, retained brief, and owned profile cleanup`);
+    }
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
