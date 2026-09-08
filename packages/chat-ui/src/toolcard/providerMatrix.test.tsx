@@ -43,8 +43,8 @@ for (const [detail, icon] of [["rg TODO src | head -20", ".lucide-search"], ["ca
   if (!host.querySelector(icon)) throw new Error(`reader-only pipeline lost its card: ${detail}`);
 }
 
-for (const detail of ["runner opaque-input\n\ncodeterm agent spawn --help", "codeterm agent spawn --help\n\nrunner opaque-input"]) {
-  const mixed = event({ kind: "command", summary: "runner opaque-input (+1 more)", detail });
+for (const detail of ["runner opaque-input\n\ncodeterm agent spawn --help", "codeterm agent spawn --help\n\nrunner opaque-input", "codeterm send --help; codeterm docs ROUTING"]) {
+  const mixed = event({ kind: "command", summary: detail, detail });
   const host = await render(<ToolCallBubble event={mixed} expanded={false} onToggle={() => {}} />);
   if (!host.querySelector(".lucide-terminal") || host.querySelector(".lucide-book-open")) {
     throw new Error("mixed command batch was reduced to its help action");
