@@ -45,8 +45,8 @@ it("whole-peer Web terminals use tab-scoped gateway streams without cross-peer o
       unsubscribers.push(output.subscribeTabOutput(tabId, {
         onOutput(value) { received.push(value); resolve(); }, onTruncated() {}, onEnded() {},
       }));
-      assert.equal(requests.at(-1)?.searchParams.get("tab"), `mesh:${expectedPeer}/same-tab`);
-      assert.equal(requests.at(-1)?.searchParams.get("peer"), expectedPeer);
+      assert.equal(requests[requests.length - 1]?.searchParams.get("tab"), `mesh:${expectedPeer}/same-tab`);
+      assert.equal(requests[requests.length - 1]?.searchParams.get("peer"), expectedPeer);
       await delivered;
       assert.deepEqual(received, ["owned"]);
     }
