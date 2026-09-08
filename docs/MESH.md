@@ -90,6 +90,15 @@ direct signed peer request. REST config responses redact `api.token`, and
 Relay protocol version `1` is intentionally incompatible with older daemons. Both relay paths reject
 older peers with `426 Upgrade Required`; the Mesh card disables **Open** and requests an update.
 
+Whole-peer Web views scope each terminal subscription to `mesh:<peer>/<tab>`,
+just like remote desktop tabs. The gateway requires that composite identity for
+output streams; an unscoped request returns 400 even when metadata reads succeed.
+Each subscription keeps its own peer-qualified replay cursor and uses only the
+serving gateway's credentials. The initial standalone boot frame establishes the
+cursor namespace before output arrives, so reconnects resume rather than discard
+the saved byte offset. A matching relay protocol does not by itself prove
+every feature is available on an older application version.
+
 `POST /api/mesh/relay-to` returns `404 peer_not_paired` when no paired record exists and
 `503 peer_unroutable` when the paired peer has no reachable address. Both reasons are stable constants.
 
@@ -194,4 +203,4 @@ Mesh inventory is target-authoritative: machine-qualified rows carry provenance 
 
 Inventory opens as a full-screen searchable List beside the existing Mesh network graph. One shared mode bubble switches between the List and the graph of connected computers. Keyboard navigation preserves resource identity and focus; peer detail separates Services and Schedules and labels cached, offline, denied, and partial states.
 
-<!-- revision: 28 -->
+<!-- revision: 29 -->
