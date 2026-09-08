@@ -7,6 +7,7 @@ import {
 import { fetchCodexUsage, parseCodexUsage } from "./usage";
 import { summarizeExecScript, unwrapShellCommand } from "./execWrapper";
 import { patchEdits } from "./patchEdits";
+import { completedActivity } from "./activity";
 import {
   classifyCodexTabState,
   type TabStateClassification,
@@ -230,6 +231,7 @@ const plugin: PluginModule = {
   // Duplicated by design across provider bundles (QuickJS, no imports) — parity guarded by provider-helper-parity.test.ts.
   parseSessionDelta(chunk: string): unknown {
     const out: unknown[] = [];
+    const activityIds = new Set<string>();
     const lines = String(chunk || "").split("\n");
     let hadInvalid = false;
     for (let i = 0; i < lines.length; i++) {
@@ -254,6 +256,14 @@ const plugin: PluginModule = {
       if (typeof v.timestamp === "string") {
         const d = Date.parse(v.timestamp);
         if (!isNaN(d)) ts = Math.floor(d / 1000);
+      }
+      if (v.type === "event_msg" && v.payload?.type === "item_completed") {
+        const activity = completedActivity(v.payload.item, ts, tsIso);
+        if (activity && !activityIds.has(activity.uuid)) {
+          activityIds.add(activity.uuid);
+          out.push(activity);
+        }
+        continue;
       }
       if (v.type === "event_msg" && v.payload && v.payload.type === "patch_apply_end") {
         const p = v.payload;
@@ -485,6 +495,7 @@ const plugin: PluginModule = {
 
 interface CodexContentBlock { type?: string; text?: string }
 interface CodexPayload {
+  item?: unknown;
   type?: string;
   role?: string;
   content?: string | CodexContentBlock[];
@@ -540,7 +551,7 @@ function isValidCodexSessionDelta(v: CodexEntry): boolean {
   if (!v || typeof v !== "object" || Array.isArray(v)) return false;
   if (v.type === "event_msg") {
     if (!v.payload || typeof v.payload !== "object" || Array.isArray(v.payload)) return false;
-    return v.payload.type === "patch_apply_end";
+    return v.payload.type === "patch_apply_end" || v.payload.type === "item_completed";
   }
   if (v.type !== "response_item") return false;
   if (!v.payload || typeof v.payload !== "object" || Array.isArray(v.payload)) return false;

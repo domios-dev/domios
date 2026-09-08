@@ -15,6 +15,15 @@ not mean the indexed session is absent; it must not block restore or rebind.
 Provider ownership checks use provider-declared records, not the shared
 hook-reported transcript-path cache. Transcript readers still use that cache.
 
+Codex chat projects structured `item_completed` command results and subagent
+activity using their source item IDs. Repeated activity records keep the same
+presentation identity. An outer `exec` batch and its completed inner commands
+remain separate: the completion record does not identify the outer call, so
+the renderer does not infer a relationship from command text or timestamps.
+Mixed command batches retain their command summary instead of becoming a card
+for one embedded CodeTerm action. These projections affect tool presentation
+only; they are not user-turn delivery evidence or session-binding signals.
+
 Three moving parts, two channels, one published SDK:
 
 - **`@codeterm/plugin-sdk` (npm).** The type-only SDK every plugin compiles
@@ -757,4 +766,4 @@ access disabled, neither flag is emitted. This bypass is invocation-scoped; it
 does not rewrite global hooks or persist a new trust grant. Enable it only for
 vetted hooks and an environment where unrestricted command execution is intended.
 
-<!-- revision: 28 -->
+<!-- revision: 29 -->
