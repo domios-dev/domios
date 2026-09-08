@@ -211,6 +211,69 @@ where
 }
 
 impl ServiceContext {
+    pub(crate) fn recover_missing_restored_provider(&self, tab_id: &str) -> Result<(), String> {
+        use crate::agent::provider_identity::{
+            provider_for_claimed_session, ProviderIdentityEvidence,
+        };
+        use crate::session::lifecycle::AgentTypeWriteOrigin;
+
+        let (evidence, epoch, operation, pty_id) = {
+            let mux = self.mux.read();
+            let tab = mux
+                .get_tab(tab_id)
+                .ok_or_else(|| format!("Tab {tab_id} not found"))?;
+            if !tab.restored_from_snapshot
+                || tab.agent_booting
+                || tab.protected
+                || tab.agent_type.is_some()
+                || tab.agent_session_id.is_none()
+            {
+                return Ok(());
+            }
+            (
+                ProviderIdentityEvidence::capture(tab),
+                tab.lifecycle_epoch,
+                tab.lifecycle_operation_id.clone(),
+                tab.pty_id.clone(),
+            )
+        };
+        let provider = evidence.cwd.as_deref().zip(evidence.session_id.as_deref())
+            .and_then(|(cwd, session)| provider_for_claimed_session(&self.agent_registry, cwd, session))
+            .ok_or_else(|| format!("restored_provider_unresolved: Tab {tab_id} retains its session but has no unique provider owner"))?;
+        let result = self.commit_verified_tab_agent_type_with_origin(
+            tab_id,
+            provider,
+            AgentTypeWriteOrigin::Repair,
+            None,
+            &evidence,
+            |mux| {
+                let tab = mux.get_tab(tab_id).ok_or(())?;
+                if !tab.restored_from_snapshot
+                    || tab.agent_booting
+                    || tab.protected
+                    || tab.agent_type.is_some()
+                    || tab.lifecycle_epoch != epoch
+                    || tab.lifecycle_operation_id != operation
+                    || tab.pty_id != pty_id
+                {
+                    return Err(());
+                }
+                Ok(())
+            },
+        );
+        match result {
+            Ok(Some(crate::service::provider_identity::ConditionalAgentTypeWrite::Committed {
+                ..
+            })) => {
+                self.emit_state_changed();
+                Ok(())
+            }
+            _ => Err(format!(
+                "restored_provider_changed: Tab {tab_id} changed while checking its session owner"
+            )),
+        }
+    }
+
     pub(crate) fn start_backend_reader_for(&self, pty_id: String) {
         let svc_reader = std::sync::Arc::new(self.clone());
         std::thread::spawn(move || {
@@ -325,6 +388,7 @@ impl ServiceContext {
     }
 
     pub(crate) fn materialize_restored_agent_for_send(&self, tab_id: &str) -> Result<(), String> {
+        self.recover_missing_restored_provider(tab_id)?;
         let (provider_id, session_id, cwd) = {
             let mux = self.mux.read();
             let tab = mux
@@ -529,6 +593,10 @@ impl ServiceContext {
         .await;
     }
 }
+
+#[cfg(test)]
+#[path = "lifecycle_recovery_tests.rs"]
+mod lifecycle_recovery_tests;
 
 #[cfg(test)]
 mod restored_snapshot_launch_tests {

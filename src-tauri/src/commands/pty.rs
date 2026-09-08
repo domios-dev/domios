@@ -190,6 +190,13 @@ pub async fn spawn_pty_core(
 
     // Auto-resume tab session after shell is ready.
     if let Some(ref pid) = tab_id {
+        let recovery_service = svc.clone();
+        let recovery_tab = pid.clone();
+        tokio::task::spawn_blocking(move || {
+            recovery_service.recover_missing_restored_provider(&recovery_tab)
+        })
+        .await
+        .map_err(|error| format!("restore provider recovery failed: {error}"))??;
         let Some(restore) = crate::service::pty_io::claim_restored_pty_boot(mux_state, pid)? else {
             return Ok(pty_id);
         };
