@@ -41,20 +41,28 @@ impl EnvEntry {
 
 #[cfg(windows)]
 fn merge_path_values(existing: Option<&OsStr>, persisted: &OsStr) -> OsString {
-    match (
-        existing.filter(|value| !value.is_empty()),
-        persisted.is_empty(),
-    ) {
-        (Some(existing), false) => {
-            let mut merged = existing.to_os_string();
-            merged.push(";");
-            merged.push(persisted);
-            merged
+    use std::collections::HashSet;
+    use std::os::windows::ffi::OsStringExt;
+
+    let mut seen = HashSet::new();
+    let mut merged = Vec::new();
+    for value in existing.into_iter().chain(std::iter::once(persisted)) {
+        if value.is_empty() {
+            continue;
         }
-        (Some(existing), true) => existing.to_os_string(),
-        (None, false) => persisted.to_os_string(),
-        (None, true) => OsString::new(),
+        let wide: Vec<u16> = value.encode_wide().collect();
+        for entry in wide.split(|unit| *unit == u16::from(b';')) {
+            let key = OsString::from_wide(entry);
+            if !seen.insert(EnvEntry::map_key(key)) {
+                continue;
+            }
+            if seen.len() > 1 {
+                merged.push(u16::from(b';'));
+            }
+            merged.extend_from_slice(entry);
+        }
     }
+    OsString::from_wide(&merged)
 }
 
 #[cfg(unix)]
@@ -866,5 +874,22 @@ mod tests {
             OsString::from("process-path-fixture;machine-path-fixture;user-path-fixture")
         );
         assert_eq!(std::env::var_os("PATH"), before);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn repeated_persisted_path_merge_does_not_expand_inherited_entries() {
+        let inherited = OsString::from(r"C:\Tools;C:\Program Files\Runtime;C:\UserBins");
+        let persisted = OsStr::new(r"c:\tools;C:\UserBins;C:\NewBin");
+        let first = merge_path_values(Some(&inherited), persisted);
+        assert_eq!(
+            first,
+            OsString::from(r"C:\Tools;C:\Program Files\Runtime;C:\UserBins;C:\NewBin")
+        );
+        assert_eq!(merge_path_values(Some(&first), persisted), first);
+        assert_eq!(
+            merge_path_values(Some(OsStr::new(";C:\\Tools")), OsStr::new("C:\\Tools")),
+            OsString::from(";C:\\Tools")
+        );
     }
 }

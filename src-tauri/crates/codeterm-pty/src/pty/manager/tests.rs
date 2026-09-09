@@ -190,7 +190,8 @@ fn conpty_pwsh_prompt_produces_output_beyond_cursor_query() {
     let mut writer = pair.master.take_writer().expect("take writer");
     let mut cmd = CommandBuilder::new(&shell);
     crate::pty::shell_integration::apply_env(&mut cmd, &shell);
-    let _child = pair.slave.spawn_command(cmd).expect("spawn pwsh");
+    let path_length = cmd.get_env("PATH").map(|path| path.to_string_lossy().len());
+    let mut child = pair.slave.spawn_command(cmd).expect("spawn pwsh");
     drop(pair.slave);
 
     let (tx, rx) = mpsc::channel();
@@ -233,9 +234,10 @@ fn conpty_pwsh_prompt_produces_output_beyond_cursor_query() {
         got
     );
     let text = String::from_utf8_lossy(&got);
+    let child_status = child.try_wait();
     assert!(
         text.contains("PS ") && text.contains('>'),
-        "pwsh never produced a prompt beyond cursor query; bytes={:?}, text={:?}",
+        "shell={shell:?}, PATH length={path_length:?}, child={child_status:?}; no prompt beyond cursor query; bytes={:?}, text={:?}",
         got,
         text
     );
