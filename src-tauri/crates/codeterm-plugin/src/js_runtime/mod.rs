@@ -24,8 +24,9 @@ mod vm;
 
 pub use agent_commands::JsAgentCommandHandler;
 pub use bin_resolve::{
-    forget_resolved_bin, forget_resolved_bins, probe_bin, probe_bin_in, resolved_bin_path,
-    well_known_bin_dirs, BinProbe, BinResolution,
+    forget_resolved_bin, forget_resolved_bins, probe_bin, probe_bin_in,
+    probe_bin_with_environment, resolved_bin_path, well_known_bin_dirs, BinProbe,
+    BinResolution, BinSearchEnvironment, EnvironmentValue,
 };
 pub use bubble::JsBubbleProvider;
 pub use chatbackend::JsChatBackend;

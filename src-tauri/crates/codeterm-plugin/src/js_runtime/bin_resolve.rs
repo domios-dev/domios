@@ -1,15 +1,54 @@
-//! The one binary-resolution ladder the whole app shares: `which` over the
-//! daemon PATH, then a probe of well-known rescue dirs a GUI-launched process
-//! may not inherit. Enumeration, spawn preflight and `host.exec` all read it,
-//! so a second ladder anywhere is a bug, not an optimisation.
+//! The one binary-resolution ladder the whole app shares: current process and
+//! persisted Windows PATHs, then rescue dirs a GUI-launched process may miss.
+//! Enumeration, spawn preflight and `host.exec` all read it.
 
 use std::collections::HashMap;
+use std::ffi::{OsStr, OsString};
+use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
+pub use codeterm_util::windows_env::EnvironmentValue;
+use codeterm_util::windows_env::read_persisted_path;
 use parking_lot::Mutex;
 
-static RESOLVED_BINS: LazyLock<Mutex<HashMap<String, BinResolution>>> =
+static RESOLVED_BINS: LazyLock<Mutex<HashMap<ResolutionKey, BinResolution>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct ResolutionKey {
+    binary: String,
+    roots: Vec<PathBuf>,
+    names: Vec<String>,
+    environment_readable: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BinSearchEnvironment {
+    pub inherited_path: Option<OsString>,
+    pub machine_path: EnvironmentValue,
+    pub user_path: EnvironmentValue,
+    pub pathext: Option<OsString>,
+}
+
+impl BinSearchEnvironment {
+    pub fn current() -> Self {
+        let persisted = read_persisted_path();
+        Self {
+            inherited_path: std::env::var_os("PATH"),
+            machine_path: persisted.machine,
+            user_path: persisted.user,
+            pathext: std::env::var_os("PATHEXT"),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct SearchContext {
+    roots: Vec<PathBuf>,
+    names: Vec<String>,
+    path_searchable: bool,
+    environment_readable: bool,
+}
 
 /// What one walk of the resolution ladder concluded. `Unknown` is the answer a
 /// ladder that could not search must give: `Missing` means the search ran.
@@ -29,170 +68,249 @@ pub struct BinProbe {
 }
 
 /// True when `p` is a regular file with an executable bit (any) set.
-fn is_executable_file(p: &std::path::Path) -> bool {
-    let Ok(meta) = std::fs::metadata(p) else {
-        return false;
-    };
-    if !meta.is_file() {
-        return false;
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        return meta.permissions().mode() & 0o111 != 0;
-    }
-    #[cfg(not(unix))]
-    {
-        true
-    }
+fn is_executable_file(p: &Path) -> bool {
+    matches!(inspect_executable_file(p), FileProbe::Found(_))
 }
 
-/// Resolve `bin` to a runnable path, memoized per process. Ladder: (1) `which`
-/// over the daemon PATH — unchanged when it hits; (2) on a miss, probe each
-/// `extra_dirs` entry in order for the first executable regular file named
-/// `bin`, or `bin` plus one of the platform's executable suffixes; (3) fall
-/// back to the bare name (OS resolves at spawn). The fallback only WIDENS
-/// discovery: a probe may add an executable suffix, never change the
-/// allowlisted basename.
-pub(super) fn resolve_bin(bin: &str, extra_dirs: &[std::path::PathBuf]) -> std::path::PathBuf {
+pub(super) fn resolve_bin(bin: &str, extra_dirs: &[PathBuf]) -> PathBuf {
     match resolve_bin_memoized(bin, extra_dirs) {
         BinResolution::Found(path) => path,
-        _ => std::path::PathBuf::from(bin),
+        _ => PathBuf::from(bin),
     }
 }
 
-/// One memoized walk of the ladder. `Unknown` is never memoized: a search that
-/// could not run must be retried, not frozen into a capability answer.
-fn resolve_bin_memoized(bin: &str, extra_dirs: &[std::path::PathBuf]) -> BinResolution {
-    if let Some(hit) = RESOLVED_BINS.lock().get(bin) {
-        return hit.clone();
+fn resolve_bin_memoized(bin: &str, extra_dirs: &[PathBuf]) -> BinResolution {
+    let context = search_context(bin, &BinSearchEnvironment::current(), extra_dirs);
+    resolve_bin_memoized_with_context(bin, &context)
+}
+
+pub fn probe_bin(bin: &str) -> BinProbe {
+    probe_bin_current(bin, &well_known_bin_dirs())
+}
+
+pub fn probe_bin_in(bin: &str, extra_dirs: &[PathBuf]) -> BinProbe {
+    probe_bin_current(bin, extra_dirs)
+}
+
+fn probe_bin_current(bin: &str, extra_dirs: &[PathBuf]) -> BinProbe {
+    let environment = BinSearchEnvironment::current();
+    let context = search_context(bin, &environment, extra_dirs);
+    BinProbe {
+        resolution: resolve_bin_memoized_with_context(bin, &context),
+        searched: context.roots,
     }
-    let resolved = resolve_bin_uncached(bin, extra_dirs);
-    if resolved != BinResolution::Unknown {
-        RESOLVED_BINS
-            .lock()
-            .insert(bin.to_string(), resolved.clone());
+}
+
+pub fn probe_bin_with_environment(
+    bin: &str,
+    extra_dirs: &[PathBuf],
+    environment: &BinSearchEnvironment,
+) -> BinProbe {
+    let context = search_context(bin, environment, extra_dirs);
+    BinProbe {
+        resolution: resolve_bin_memoized_with_context(bin, &context),
+        searched: context.roots,
+    }
+}
+
+fn resolve_bin_memoized_with_context(bin: &str, context: &SearchContext) -> BinResolution {
+    let key = resolution_key(bin, context);
+    if let Some(hit) = RESOLVED_BINS.lock().get(&key).cloned() {
+        if let BinResolution::Found(path) = &hit {
+            if is_executable_file(path) {
+                return hit;
+            }
+        }
+        RESOLVED_BINS.lock().remove(&key);
+    }
+    let resolved = resolve_bin_with_context(bin, context);
+    if matches!(resolved, BinResolution::Found(_)) {
+        RESOLVED_BINS.lock().insert(key, resolved.clone());
     }
     resolved
 }
 
-/// The shared resolver as a capability question: what does THIS machine say
-/// about `bin`, and where was it looked for. Enumeration and spawn preflight
-/// both read this rather than growing a second ladder.
-pub fn probe_bin(bin: &str) -> BinProbe {
-    probe_bin_in(bin, &well_known_bin_dirs())
-}
-
-pub fn probe_bin_in(bin: &str, extra_dirs: &[std::path::PathBuf]) -> BinProbe {
-    BinProbe {
-        resolution: resolve_bin_memoized(bin, extra_dirs),
-        searched: search_roots(extra_dirs),
+fn resolution_key(bin: &str, context: &SearchContext) -> ResolutionKey {
+    ResolutionKey {
+        binary: bin.to_string(),
+        roots: context.roots.clone(),
+        names: context.names.clone(),
+        environment_readable: context.environment_readable,
     }
 }
 
-/// PATH entries plus the rescue dirs, in ladder order — the search an error
-/// message has to be able to name.
-fn search_roots(extra_dirs: &[std::path::PathBuf]) -> Vec<std::path::PathBuf> {
-    let mut roots: Vec<std::path::PathBuf> = std::env::var_os("PATH")
-        .map(|path| std::env::split_paths(&path).collect())
-        .unwrap_or_default();
+fn search_context(
+    bin: &str,
+    environment: &BinSearchEnvironment,
+    extra_dirs: &[PathBuf],
+) -> SearchContext {
+    let mut roots = Vec::new();
+    let mut path_searchable = false;
+    let mut environment_readable = true;
+    if let Some(path) = environment.inherited_path.as_ref().filter(|p| !p.is_empty()) {
+        roots.extend(split_path_entries(path));
+        path_searchable = true;
+    }
+    for value in [&environment.machine_path, &environment.user_path] {
+        match value {
+            EnvironmentValue::Value(path) if !path.is_empty() => {
+                roots.extend(split_path_entries(path));
+                path_searchable = true;
+            }
+            EnvironmentValue::Value(_) | EnvironmentValue::Missing => {}
+            EnvironmentValue::Unreadable(_) => environment_readable = false,
+        }
+    }
     for dir in extra_dirs {
         if !roots.contains(dir) {
             roots.push(dir.clone());
         }
     }
-    roots
+    SearchContext {
+        roots,
+        names: probe_names(bin, environment.pathext.as_deref()),
+        path_searchable,
+        environment_readable,
+    }
 }
 
-/// Drop every memoized resolution so the next call re-walks the ladder. A
-/// self-updated or newly installed CLI is otherwise invisible for the process
-/// lifetime, which turns one failed probe into a permanent capability answer.
+fn split_path_entries(value: &OsStr) -> Vec<PathBuf> {
+    std::env::split_paths(value)
+        .map(unquote_path_entry)
+        .collect()
+}
+
+#[cfg(windows)]
+fn unquote_path_entry(path: PathBuf) -> PathBuf {
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+
+    let mut value: Vec<u16> = path.as_os_str().encode_wide().collect();
+    if value.first() == Some(&(b'"' as u16)) && value.last() == Some(&(b'"' as u16)) {
+        value.remove(0);
+        value.pop();
+    }
+    PathBuf::from(OsString::from_wide(&value))
+}
+
+#[cfg(not(windows))]
+fn unquote_path_entry(path: PathBuf) -> PathBuf {
+    path
+}
+
+fn resolve_bin_with_context(bin: &str, context: &SearchContext) -> BinResolution {
+    if has_path_separator(bin) {
+        return match inspect_executable_file(Path::new(bin)) {
+            FileProbe::Found(path) => BinResolution::Found(path),
+            FileProbe::Missing if context.environment_readable => BinResolution::Missing,
+            FileProbe::Missing | FileProbe::Unreadable => BinResolution::Unknown,
+        };
+    }
+    match probe_dirs(&context.roots, &context.names) {
+        FileProbe::Found(path) => BinResolution::Found(path),
+        FileProbe::Unreadable => BinResolution::Unknown,
+        FileProbe::Missing if context.path_searchable && context.environment_readable => {
+            BinResolution::Missing
+        }
+        FileProbe::Missing => BinResolution::Unknown,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FileProbe {
+    Found(PathBuf),
+    Missing,
+    Unreadable,
+}
+
+fn inspect_executable_file(path: &Path) -> FileProbe {
+    let metadata = match std::fs::metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return FileProbe::Missing,
+        Err(_) => return FileProbe::Unreadable,
+    };
+    if !metadata.is_file() {
+        return FileProbe::Missing;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if metadata.permissions().mode() & 0o111 == 0 {
+            return FileProbe::Missing;
+        }
+    }
+    FileProbe::Found(path.to_path_buf())
+}
+
+fn probe_dirs(roots: &[PathBuf], names: &[String]) -> FileProbe {
+    let mut unreadable = false;
+    for dir in roots {
+        for name in names {
+            match inspect_executable_file(&dir.join(name)) {
+                FileProbe::Found(path) => return FileProbe::Found(path),
+                FileProbe::Missing => {}
+                FileProbe::Unreadable => unreadable = true,
+            }
+        }
+    }
+    if unreadable {
+        FileProbe::Unreadable
+    } else {
+        FileProbe::Missing
+    }
+}
+
+fn has_path_separator(bin: &str) -> bool {
+    bin.contains('/') || bin.contains('\\')
+}
+
+fn probe_names(bin: &str, pathext: Option<&OsStr>) -> Vec<String> {
+    #[cfg(windows)]
+    {
+        let mut names = vec![bin.to_string()];
+        if Path::new(bin).extension().is_some() {
+            return names;
+        }
+        let pathext = pathext
+            .and_then(|value| value.to_str())
+            .unwrap_or(".COM;.EXE;.BAT;.CMD");
+        names.extend(
+            pathext
+                .split(';')
+                .map(str::trim)
+                .filter(|extension| extension.starts_with('.'))
+                .map(|extension| format!("{bin}{}", extension.to_ascii_lowercase())),
+        );
+        names
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = pathext;
+        vec![bin.to_string()]
+    }
+}
+
 pub fn forget_resolved_bins() {
     RESOLVED_BINS.lock().clear();
 }
 
-/// Drop one memoized resolution. An explicit user re-check must re-walk the
-/// ladder for that binary without discarding every other provider's answer.
 pub fn forget_resolved_bin(bin: &str) {
-    RESOLVED_BINS.lock().remove(bin);
+    RESOLVED_BINS.lock().retain(|key, _| key.binary != bin);
 }
 
-/// The concrete file a prior resolution landed on, when it landed on one at
-/// all. A bare-name fallback is not a path, so it yields `None` rather than a
-/// path nothing can watch.
-pub fn resolved_bin_path(bin: &str) -> Option<std::path::PathBuf> {
-    let BinResolution::Found(hit) = RESOLVED_BINS.lock().get(bin).cloned()? else {
+pub fn resolved_bin_path(bin: &str) -> Option<PathBuf> {
+    let context = search_context(bin, &BinSearchEnvironment::current(), &well_known_bin_dirs());
+    resolved_bin_path_in_context(bin, &context)
+}
+
+fn resolved_bin_path_in_context(bin: &str, context: &SearchContext) -> Option<PathBuf> {
+    let BinResolution::Found(hit) = RESOLVED_BINS
+        .lock()
+        .get(&resolution_key(bin, context))
+        .cloned()?
+    else {
         return None;
     };
-    (hit.parent().is_some_and(|p| !p.as_os_str().is_empty()) && hit.is_file()).then_some(hit)
-}
-
-/// File names that answer a probe for `bin`: the bare name, plus the
-/// platform's executable suffixes so a Windows `claude.exe` answers `claude`.
-#[cfg(windows)]
-fn probe_names(bin: &str) -> Vec<String> {
-    let mut names = vec![bin.to_string()];
-    if std::path::Path::new(bin).extension().is_none() {
-        let pathext = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into());
-        for ext in pathext
-            .split(';')
-            .map(str::trim)
-            .filter(|e| e.starts_with('.'))
-        {
-            names.push(format!("{bin}{}", ext.to_ascii_lowercase()));
-        }
-    }
-    names
-}
-
-#[cfg(not(windows))]
-fn probe_names(bin: &str) -> Vec<String> {
-    vec![bin.to_string()]
-}
-
-fn resolve_bin_uncached(bin: &str, extra_dirs: &[std::path::PathBuf]) -> BinResolution {
-    let path_was_searchable = match which::which(bin) {
-        Ok(p) => return BinResolution::Found(p),
-        Err(which::Error::CannotFindBinaryPath) => path_env_readable(),
-        Err(_) => false,
-    };
-    if let Some(found) = probe_extra_dirs(bin, extra_dirs) {
-        return BinResolution::Found(found);
-    }
-    if path_was_searchable {
-        BinResolution::Missing
-    } else {
-        BinResolution::Unknown
-    }
-}
-
-/// A daemon that inherited no PATH never searched it, so a miss there is an
-/// unanswered question rather than an absent binary.
-fn path_env_readable() -> bool {
-    std::env::var_os("PATH").is_some_and(|path| !path.is_empty())
-}
-
-fn probe_extra_dirs(bin: &str, extra_dirs: &[std::path::PathBuf]) -> Option<std::path::PathBuf> {
-    let names = probe_names(bin);
-    for dir in extra_dirs {
-        for name in &names {
-            let candidate = dir.join(name);
-            if is_executable_file(&candidate) {
-                debug_assert!(
-                    candidate
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .is_some_and(|found| found == bin
-                            || found
-                                .strip_prefix(bin)
-                                .is_some_and(|suffix| suffix.starts_with('.'))),
-                    "a probe may add an executable suffix, never change the allowlisted bin"
-                );
-                return Some(candidate);
-            }
-        }
-    }
-    None
+    is_executable_file(&hit).then_some(hit)
 }
 
 /// Well-known dirs a GUI-launched app may miss from a login shell's PATH.
@@ -234,6 +352,29 @@ mod tests {
     use super::*;
     use crate::js_runtime::PROCESS_TEST_LOCK as TEST_LOCK;
 
+    fn environment_with_paths(
+        inherited: Option<&Path>,
+        machine: EnvironmentValue,
+        user: EnvironmentValue,
+    ) -> BinSearchEnvironment {
+        let inherited_path = inherited
+            .map(|path| std::env::join_paths([path.as_os_str()]).unwrap());
+        BinSearchEnvironment {
+            inherited_path,
+            machine_path: machine,
+            user_path: user,
+            pathext: Some(OsString::from(".COM;.EXE;.BAT;.CMD")),
+        }
+    }
+
+    fn cached_count(bin: &str) -> usize {
+        RESOLVED_BINS
+            .lock()
+            .keys()
+            .filter(|key| key.binary == bin)
+            .count()
+    }
+
     #[test]
     fn resolve_bin_probes_fallback_dir_when_not_on_path() {
         // A bin absent from PATH must still resolve through a fallback candidate
@@ -264,9 +405,8 @@ mod tests {
     }
 
     #[test]
-    fn resolve_bin_ignores_probe_dirs_when_which_succeeds() {
+    fn resolve_bin_preserves_process_path_precedence() {
         let _guard = TEST_LOCK.lock();
-        let mut process_env = codeterm_util::test_env::EnvGuard::lock();
         RESOLVED_BINS.lock().clear();
         #[cfg(windows)]
         let name = format!("host_exec_{}.cmd", uuid::Uuid::new_v4().simple());
@@ -286,14 +426,6 @@ mod tests {
             std::fs::set_permissions(&expected, perm).unwrap();
         }
 
-        let old_path = std::env::var_os("PATH");
-        let mut paths = vec![path_dir.clone()];
-        if let Some(old) = old_path.as_deref() {
-            paths.extend(std::env::split_paths(old));
-        }
-        process_env.set("PATH", std::env::join_paths(paths).unwrap());
-
-        // Decoy dir holding a same-named executable must be ignored: which() wins.
         let dir =
             std::env::temp_dir().join(format!("host_exec_decoy_{}", uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -307,13 +439,19 @@ mod tests {
             std::fs::set_permissions(&decoy, perm).unwrap();
         }
 
-        let resolved = resolve_bin(&name, std::slice::from_ref(&dir));
+        let environment = environment_with_paths(
+            Some(&path_dir),
+            EnvironmentValue::Missing,
+            EnvironmentValue::Value(std::env::join_paths([dir.as_os_str()]).unwrap()),
+        );
+        let resolved = probe_bin_with_environment(&name, &[], &environment).resolution;
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_dir_all(&path_dir);
         RESOLVED_BINS.lock().clear();
         assert_eq!(
-            resolved, expected,
-            "which() result must win over probe dirs"
+            resolved,
+            BinResolution::Found(expected),
+            "the inherited process PATH must retain precedence over persisted PATH"
         );
     }
 
@@ -370,10 +508,8 @@ mod tests {
         );
     }
 
-    /// A memoized miss outlives the install that fixes it, so a refresh that
-    /// does not clear the memo rewrites the same wrong answer forever.
     #[test]
-    fn forget_resolved_bins_reprobes_after_the_binary_appears() {
+    fn a_miss_is_reprobed_after_the_binary_appears_without_forget() {
         let _guard = TEST_LOCK.lock();
         RESOLVED_BINS.lock().clear();
         let name = format!("bwmemo_{}", uuid::Uuid::new_v4().simple());
@@ -398,18 +534,138 @@ mod tests {
             std::fs::set_permissions(&bin_path, perm).unwrap();
         }
 
-        assert_eq!(
-            resolve_bin(&name, std::slice::from_ref(&dir)),
-            std::path::PathBuf::from(&name),
-            "the memo must still be serving the stale miss before it is cleared"
-        );
-        forget_resolved_bins();
         let reprobed = resolve_bin(&name, std::slice::from_ref(&dir));
-        let watched = resolved_bin_path(&name);
+        let watched = resolved_bin_path_in_context(
+            &name,
+            &search_context(&name, &BinSearchEnvironment::current(), std::slice::from_ref(&dir)),
+        );
         let _ = std::fs::remove_dir_all(&dir);
         RESOLVED_BINS.lock().clear();
         assert_eq!(reprobed, bin_path);
         assert_eq!(watched, Some(bin_path));
+    }
+
+    #[test]
+    fn removing_a_found_file_invalidates_the_cached_available_result() {
+        let _guard = TEST_LOCK.lock();
+        RESOLVED_BINS.lock().clear();
+        let name = format!("bwremoved_{}", uuid::Uuid::new_v4().simple());
+        let dir = std::env::temp_dir().join(format!(
+            "bin_resolve_removed_{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let bin_path = dir.join(&name);
+        std::fs::write(&bin_path, b"#!/bin/sh\nexit 0\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perm = std::fs::metadata(&bin_path).unwrap().permissions();
+            perm.set_mode(0o755);
+            std::fs::set_permissions(&bin_path, perm).unwrap();
+        }
+
+        assert_eq!(resolve_bin(&name, std::slice::from_ref(&dir)), bin_path);
+        std::fs::remove_file(&bin_path).unwrap();
+        assert_eq!(resolve_bin(&name, std::slice::from_ref(&dir)), PathBuf::from(&name));
+        assert_eq!(resolved_bin_path_in_context(
+            &name,
+            &search_context(&name, &BinSearchEnvironment::current(), std::slice::from_ref(&dir)),
+        ), None);
+        let _ = std::fs::remove_dir_all(&dir);
+        RESOLVED_BINS.lock().clear();
+    }
+
+    #[test]
+    fn persisted_path_finds_a_binary_missing_from_the_daemon_path() {
+        let _guard = TEST_LOCK.lock();
+        let name = format!("bwpersisted_{}", uuid::Uuid::new_v4().simple());
+        let stale = std::env::temp_dir().join(format!(
+            "bin_resolve_stale_{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        let installed = std::env::temp_dir().join(format!(
+            "bin_resolve_installed spaced_{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir_all(&stale).unwrap();
+        std::fs::create_dir_all(&installed).unwrap();
+        let expected = installed.join(&name);
+
+        let missing_environment = environment_with_paths(
+            Some(&stale),
+            EnvironmentValue::Missing,
+            EnvironmentValue::Missing,
+        );
+        assert_eq!(
+            probe_bin_with_environment(&name, &[], &missing_environment).resolution,
+            BinResolution::Missing
+        );
+        std::fs::write(&expected, b"#!/bin/sh\nexit 0\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perm = std::fs::metadata(&expected).unwrap().permissions();
+            perm.set_mode(0o755);
+            std::fs::set_permissions(&expected, perm).unwrap();
+        }
+
+        let environment = environment_with_paths(
+            Some(&stale),
+            EnvironmentValue::Missing,
+            EnvironmentValue::Value(std::env::join_paths([installed.as_os_str()]).unwrap()),
+        );
+        let probe = probe_bin_with_environment(&name, &[], &environment);
+        assert_eq!(probe.resolution, BinResolution::Found(expected.clone()));
+        assert_eq!(probe.searched, vec![stale.clone(), installed.clone()]);
+        let _ = std::fs::remove_dir_all(expected.parent().unwrap());
+        let _ = std::fs::remove_dir_all(&stale);
+    }
+
+    #[test]
+    fn unreadable_persisted_path_is_unknown_until_a_search_can_answer() {
+        let _guard = TEST_LOCK.lock();
+        let name = format!("bwunreadable_{}", uuid::Uuid::new_v4().simple());
+        let stale = std::env::temp_dir().join(format!(
+            "bin_resolve_unreadable_{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        let installed = std::env::temp_dir().join(format!(
+            "bin_resolve_recovered_{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir_all(&stale).unwrap();
+        std::fs::create_dir_all(&installed).unwrap();
+        let expected = installed.join(&name);
+        std::fs::write(&expected, b"#!/bin/sh\nexit 0\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perm = std::fs::metadata(&expected).unwrap().permissions();
+            perm.set_mode(0o755);
+            std::fs::set_permissions(&expected, perm).unwrap();
+        }
+
+        let unreadable = environment_with_paths(
+            Some(&stale),
+            EnvironmentValue::Missing,
+            EnvironmentValue::Unreadable("fixture read failure".into()),
+        );
+        assert_eq!(
+            probe_bin_with_environment(&name, &[], &unreadable).resolution,
+            BinResolution::Unknown
+        );
+        let readable = environment_with_paths(
+            Some(&stale),
+            EnvironmentValue::Missing,
+            EnvironmentValue::Value(std::env::join_paths([installed.as_os_str()]).unwrap()),
+        );
+        assert_eq!(
+            probe_bin_with_environment(&name, &[], &readable).resolution,
+            BinResolution::Found(expected.clone())
+        );
+        let _ = std::fs::remove_dir_all(expected.parent().unwrap());
+        let _ = std::fs::remove_dir_all(&stale);
     }
 
     /// A ladder with no PATH to read never searched, so its miss is an
@@ -417,7 +673,6 @@ mod tests {
     #[test]
     fn probe_reports_unknown_when_the_path_could_not_be_searched() {
         let _guard = TEST_LOCK.lock();
-        let mut process_env = codeterm_util::test_env::EnvGuard::lock();
         RESOLVED_BINS.lock().clear();
         let name = format!("bwunk_{}", uuid::Uuid::new_v4().simple());
         let empty = std::env::temp_dir().join(format!(
@@ -426,10 +681,23 @@ mod tests {
         ));
         std::fs::create_dir_all(&empty).unwrap();
 
-        let searched = probe_bin_in(&name, std::slice::from_ref(&empty));
+        let searchable = environment_with_paths(
+            Some(&empty),
+            EnvironmentValue::Missing,
+            EnvironmentValue::Missing,
+        );
+        let searched = probe_bin_with_environment(&name, &[], &searchable);
         RESOLVED_BINS.lock().clear();
-        process_env.remove("PATH");
-        let unsearchable = probe_bin_in(&name, std::slice::from_ref(&empty));
+        let unsearchable = probe_bin_with_environment(
+            &name,
+            std::slice::from_ref(&empty),
+            &BinSearchEnvironment {
+                inherited_path: None,
+                machine_path: EnvironmentValue::Missing,
+                user_path: EnvironmentValue::Missing,
+                pathext: Some(OsString::from(".COM;.EXE;.BAT;.CMD")),
+            },
+        );
         let _ = std::fs::remove_dir_all(&empty);
         RESOLVED_BINS.lock().clear();
 
@@ -446,13 +714,19 @@ mod tests {
     #[test]
     fn unknown_is_never_memoized() {
         let _guard = TEST_LOCK.lock();
-        let mut process_env = codeterm_util::test_env::EnvGuard::lock();
         RESOLVED_BINS.lock().clear();
         let name = format!("bwnomemo_{}", uuid::Uuid::new_v4().simple());
-        process_env.remove("PATH");
-
-        assert_eq!(probe_bin_in(&name, &[]).resolution, BinResolution::Unknown);
-        let memoized = RESOLVED_BINS.lock().contains_key(&name);
+        let environment = BinSearchEnvironment {
+            inherited_path: None,
+            machine_path: EnvironmentValue::Missing,
+            user_path: EnvironmentValue::Missing,
+            pathext: Some(OsString::from(".COM;.EXE;.BAT;.CMD")),
+        };
+        assert_eq!(
+            probe_bin_with_environment(&name, &[], &environment).resolution,
+            BinResolution::Unknown
+        );
+        let memoized = cached_count(&name) != 0;
         RESOLVED_BINS.lock().clear();
         assert!(!memoized, "an unanswered probe must stay retryable");
     }

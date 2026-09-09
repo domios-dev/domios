@@ -1327,7 +1327,6 @@ dependencies = [
  "toml 0.8.2",
  "uuid",
  "wait-timeout",
- "which 4.4.2",
 ]
 
 [[package]]
@@ -1389,6 +1388,8 @@ dependencies = [
  "tempfile",
  "uuid",
  "vt100",
+ "winapi",
+ "winreg 0.10.1",
 ]
 
 [[package]]
