@@ -344,6 +344,11 @@ Windows provider-discovery preflight caught an unformatted `js_runtime/mod.rs`
 re-export after focused tests passed. Formatting only implementation files missed
 the facade; format the exports and rerun the complete release preflight.
 
+Windows preflight can stop with `os error 112` when accumulated Cargo targets
+exhaust the checkout volume. Stop the failed gate, inspect free space, dry-run
+`cargo sweep --time 2` for the canonical app and CLI manifests, then reclaim
+only those stale artifacts and rerun preflight. Never delete source or live lanes.
+
 | Symptom | Cause | Fix |
 |---|---|---|
 | Parallel platform jobs publish valid installers, but final verification briefly 404s or `latest.json` loses a platform that has an uploaded fragment | A lane merged before its large public asset upload, then clobbered a newer peer manifest with that stale snapshot; GitHub may also expose release metadata before the asset download URL is ready | Rebuild `latest.json` from all non-deb `updater-*.json` fragments, upload it to both releases, and verify the cache-busted public URL. Prevention: mirror each platform's large assets first, then make its final manifest reconciliation the lane's last publish mutation. |
@@ -647,4 +652,4 @@ node scripts/sync-release-notes.mjs --backfill 10
 The command refuses missing mirror releases, empty generated notes, and bodies too short to be
 meaningful. It then writes the exact same Markdown to both repositories.
 
-<!-- revision: 41 -->
+<!-- revision: 42 -->
