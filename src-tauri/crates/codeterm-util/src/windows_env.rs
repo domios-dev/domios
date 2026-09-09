@@ -59,7 +59,6 @@ fn read_path_value(root: winreg::RegKey, subkey: &str) -> EnvironmentValue {
 
 #[cfg(windows)]
 fn registry_value_to_string(value: &winreg::RegValue) -> std::io::Result<OsString> {
-    use std::os::windows::ffi::{OsStrExt, OsStringExt};
     use winreg::enums::RegType;
     use winreg::types::FromRegValue;
     use winapi::um::processenv::ExpandEnvironmentStringsW;
@@ -80,9 +79,8 @@ fn registry_value_to_string(value: &winreg::RegValue) -> std::io::Result<OsStrin
             Some(buffer) => (buffer.as_mut_ptr(), buffer.len() as u32),
             None => (std::ptr::null_mut(), 0),
         };
-        let written = unsafe {
-            ExpandEnvironmentStringsW(input.as_ptr(), output, capacity)
-        };
+        let written =
+            unsafe { ExpandEnvironmentStringsW(input.as_ptr(), output, capacity) };
         if written == 0 {
             Err(std::io::Error::last_os_error())
         } else {
@@ -92,7 +90,10 @@ fn registry_value_to_string(value: &winreg::RegValue) -> std::io::Result<OsStrin
 }
 
 #[cfg(windows)]
-fn expand_environment_strings_with<F>(source: &std::ffi::OsStr, mut expand: F) -> std::io::Result<OsString>
+fn expand_environment_strings_with<F>(
+    source: &std::ffi::OsStr,
+    mut expand: F,
+) -> std::io::Result<OsString>
 where
     F: FnMut(&[u16], Option<&mut [u16]>) -> std::io::Result<usize>,
 {
