@@ -45,17 +45,9 @@ fn read_path_value(root: winreg::RegKey, subkey: &str) -> EnvironmentValue {
         Err(error) => return EnvironmentValue::Unreadable(error.to_string()),
     };
 
-    let raw = match key
-        .enum_values()
-        .find_map(|entry| match entry {
-            Ok((name, value)) if name.eq_ignore_ascii_case("Path") => Some(Ok(value)),
-            Ok(_) => None,
-            Err(error) => Some(Err(error)),
-        })
-        .transpose()
-    {
-        Ok(Some(value)) => value,
-        Ok(None) => return EnvironmentValue::Missing,
+    let raw = match key.get_raw_value("Path") {
+        Ok(value) => value,
+        Err(error) if error.kind() == ErrorKind::NotFound => return EnvironmentValue::Missing,
         Err(error) => return EnvironmentValue::Unreadable(error.to_string()),
     };
 
@@ -83,28 +75,61 @@ fn registry_value_to_string(value: &winreg::RegValue) -> std::io::Result<OsStrin
         return Ok(source);
     }
 
+    expand_environment_strings_with(&source, |input, output| {
+        let (output, capacity) = match output {
+            Some(buffer) => (buffer.as_mut_ptr(), buffer.len() as u32),
+            None => (std::ptr::null_mut(), 0),
+        };
+        let written = unsafe {
+            ExpandEnvironmentStringsW(input.as_ptr(), output, capacity)
+        };
+        if written == 0 {
+            Err(std::io::Error::last_os_error())
+        } else {
+            Ok(written as usize)
+        }
+    })
+}
+
+#[cfg(windows)]
+fn expand_environment_strings_with<F>(source: &std::ffi::OsStr, mut expand: F) -> std::io::Result<OsString>
+where
+    F: FnMut(&[u16], Option<&mut [u16]>) -> std::io::Result<usize>,
+{
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+
     let input: Vec<u16> = source
         .encode_wide()
         .chain(std::iter::once(0))
         .collect();
-    let required = unsafe { ExpandEnvironmentStringsW(input.as_ptr(), std::ptr::null_mut(), 0) };
+    let required = expand(&input, None)?;
     if required == 0 {
-        return Err(std::io::Error::last_os_error());
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "expanded PATH size query returned zero",
+        ));
     }
-    let mut output = vec![0u16; required as usize];
-    let written = unsafe {
-        ExpandEnvironmentStringsW(input.as_ptr(), output.as_mut_ptr(), output.len() as u32)
-    };
-    if written == 0 {
-        return Err(std::io::Error::last_os_error());
+    let mut output = vec![0u16; required];
+    let written = expand(&input, Some(&mut output))?;
+    if written > output.len() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "expanded PATH did not fit the queried buffer",
+        ));
     }
-    output.truncate(written.saturating_sub(1) as usize);
+    if written == 0 || output.get(written - 1) != Some(&0) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "expanded PATH was not terminated",
+        ));
+    }
+    output.truncate(written - 1);
     Ok(OsString::from_wide(&output))
 }
 
 #[cfg(all(test, windows))]
 mod tests {
-    use super::registry_value_to_string;
+    use super::{expand_environment_strings_with, registry_value_to_string};
     use std::ffi::OsString;
     use std::os::windows::ffi::OsStrExt;
 
@@ -125,5 +150,42 @@ mod tests {
         let expanded = registry_value_to_string(&value).unwrap();
         let expected = std::path::PathBuf::from(root).join("codeterm-resolver-fixture");
         assert_eq!(expanded, expected.into_os_string());
+    }
+
+    #[test]
+    fn converts_expansion_with_an_injected_size_and_write_fixture() {
+        let source = OsString::from("%fixture%");
+        let expected: Vec<u16> = OsString::from("C:\\fixture\\bin")
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        let mut calls = 0;
+        let expanded = expand_environment_strings_with(&source, |_, output| {
+            calls += 1;
+            match output {
+                None => Ok(expected.len()),
+                Some(buffer) => {
+                    buffer.copy_from_slice(&expected);
+                    Ok(expected.len())
+                }
+            }
+        })
+        .unwrap();
+
+        assert_eq!(calls, 2);
+        assert_eq!(expanded, OsString::from("C:\\fixture\\bin"));
+    }
+
+    #[test]
+    fn rejects_an_expansion_that_grows_after_the_size_query() {
+        let source = OsString::from("%fixture%");
+        let error = expand_environment_strings_with(&source, |_, output| match output {
+            None => Ok(2),
+            Some(buffer) => Ok(buffer.len() + 1),
+        })
+        .expect_err("a second-call size increase must not be accepted as a truncated PATH");
+
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        assert_eq!(error.to_string(), "expanded PATH did not fit the queried buffer");
     }
 }
