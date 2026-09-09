@@ -148,6 +148,12 @@ impl AgentProvider for ClaudeProvider {
         sessions::session_file_path(cwd, session_id)
     }
 
+    fn session_exists(&self, cwd: &str, session_id: &str) -> bool {
+        sessions::sessions_dir(cwd)
+            .map(|dir| dir.join(format!("{session_id}.jsonl")).is_file())
+            .unwrap_or(false)
+    }
+
     fn detect_session_id(
         &self,
         cwd: &str,

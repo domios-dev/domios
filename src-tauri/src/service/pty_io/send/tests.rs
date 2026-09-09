@@ -6,9 +6,7 @@ use super::{
 };
 use crate::multiplexer::state::MultiplexerState;
 
-// ---------------------------------------------------------------------------
 // shell_ready_wait_tests
-// ---------------------------------------------------------------------------
 
 use codeterm_pty::pty::screen_state::ScreenState;
 use codeterm_util::lock_hold::TimedMutex;
@@ -114,9 +112,7 @@ fn an_expired_deadline_reports_not_ready() {
     assert!(!await_shell_prompt(&screen_state, "pty-1", Duration::ZERO));
 }
 
-// ---------------------------------------------------------------------------
 // planner_delivery_tests
-// ---------------------------------------------------------------------------
 
 #[test]
 fn pty_planner_input_spy_never_degrades_to_shell_write() {
@@ -266,11 +262,7 @@ fn alternate_screen_composer_proves_provider_readiness_without_text_patterns() {
     assert!(!provider_frame_ready(false, false, true, true, false));
 }
 
-// ---------------------------------------------------------------------------
-// routability_wait_tests
-//
 // The wait and delivery predicates must remain identical.
-// ---------------------------------------------------------------------------
 
 fn fully_routable_tab() -> (MultiplexerState, String) {
     let (mut mux, tab_id) = MultiplexerState::new();
@@ -428,9 +420,7 @@ fn inactive_tab_is_still_routable_after_activation() {
     );
 }
 
-// ---------------------------------------------------------------------------
 // Integration: a restored or inactive tab retains a routable live session.
-// ---------------------------------------------------------------------------
 
 #[test]
 fn restored_tab_target_survives_reconnect_and_activation() {

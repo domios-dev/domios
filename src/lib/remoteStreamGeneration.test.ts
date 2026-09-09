@@ -3,6 +3,7 @@ import {
   remoteOutputSubscriptionGeneration, resumeRemoteOutputStreams, subscribeTabOutput,
   remoteOutputSubscriptionSnapshot,
   waitForRemoteOutputGenerationSettlement,
+  remoteOutputSinceCursor,
 } from "./outputStream";
 
 const encoder = new TextEncoder();
@@ -18,6 +19,32 @@ const closedStream = (...frames: Uint8Array[]): Response =>
   new Response(new ReadableStream({ start(controller) { for (const f of frames) controller.enqueue(f); controller.close(); } }));
 
 describe("remote output generation replacement", () => {
+  it("retains a separate boot frame when resuming output after EOF", async () => {
+    vi.stubGlobal("window", new EventTarget());
+    const requests: URL[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (...args: unknown[]) => {
+      requests.push(new URL(String(args[0])));
+      const output = frame({ tab_id: "boot-test", output: "first", offset: 5 });
+      if (requests.length === 1) return closedStream(frame({ boot: "separate-boot" }), output);
+      return openStream(output, frame({ tab_id: "boot-test", output: "next", offset: 9 }));
+    }));
+    let resolve!: () => void;
+    const received = new Promise<void>((done) => { resolve = done; });
+    const outputs: string[] = [];
+    const unsubscribe = subscribeTabOutput("mesh:peer/boot-test", {
+      onOutput(value) { outputs.push(value); if (value === "next") resolve(); },
+      onTruncated() {}, onEnded() {},
+    });
+    try {
+      await received;
+      const since = requests[1].searchParams.get("since");
+      expect(since).toBe(remoteOutputSinceCursor("boot-test", "separate-boot", 5));
+      expect(outputs).toEqual(["first", "next"]);
+    } finally {
+      unsubscribe();
+      vi.unstubAllGlobals();
+    }
+  });
   it("resume does not supersede a connection awaiting its first frame", async () => {
     // Credential and mesh-state changes must not restart an initial replay before its first frame.
     vi.stubGlobal("fetch", vi.fn().mockReturnValue(new Promise(() => {})));

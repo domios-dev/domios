@@ -300,7 +300,7 @@ fn competition_keeps_planned_model_separate_from_lane_requests() {
 }
 
 #[test]
-fn compete_commit_revalidates_debt_after_preflight_interleaving() {
+fn compete_commit_preserves_admission_when_review_debt_changes() {
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(PlanStore::new_for_test(dir.path()));
     let mut plan = Plan::new(
@@ -362,10 +362,7 @@ fn compete_commit_revalidates_debt_after_preflight_interleaving() {
         .unwrap();
     phase.wait();
 
-    assert!(matches!(
-        commit.join().unwrap(),
-        Err(PlanError::ReviewWipExceeded { .. })
-    ));
+    commit.join().unwrap().unwrap();
     let task = store
         .get(&plan.id)
         .unwrap()
@@ -373,14 +370,12 @@ fn compete_commit_revalidates_debt_after_preflight_interleaving() {
         .into_iter()
         .find(|task| task.id == task_id)
         .unwrap();
-    assert_eq!(task.status, TaskStatus::Pending);
-    assert_eq!(task.assigned_tab_id, None);
-    assert_eq!(task.lane.tab_id, None);
-    assert!(task.execution_attempts.is_empty());
+    assert_eq!(task.execution_attempts.len(), 1);
+    assert_eq!(store.get(&plan.id).unwrap().review_policy.credit, -5);
 }
 
 #[test]
-fn respawn_commit_revalidates_wip_after_preflight_interleaving() {
+fn respawn_commit_preserves_admission_when_review_backlog_changes() {
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(PlanStore::new_for_test(dir.path()));
     let mut plan = Plan::new(
@@ -473,10 +468,7 @@ fn respawn_commit_revalidates_wip_after_preflight_interleaving() {
         .unwrap();
     phase.wait();
 
-    assert!(matches!(
-        commit.join().unwrap(),
-        Err(PlanError::ReviewWipExceeded { .. })
-    ));
+    commit.join().unwrap().unwrap();
     let after = store
         .get(&plan.id)
         .unwrap()
@@ -485,9 +477,12 @@ fn respawn_commit_revalidates_wip_after_preflight_interleaving() {
         .find(|task| task.id == task_id)
         .unwrap();
     assert_eq!(after.status, before.status);
-    assert_eq!(after.assigned_tab_id, before.assigned_tab_id);
-    assert_eq!(after.lane.tab_id, before.lane.tab_id);
-    assert_eq!(after.execution_attempts, before.execution_attempts);
+    assert_eq!(after.assigned_tab_id.as_deref(), Some("spawned-tab"));
+    assert_eq!(after.lane.tab_id.as_deref(), Some("spawned-tab"));
+    assert_eq!(
+        after.execution_attempts.len(),
+        before.execution_attempts.len() + 1
+    );
 }
 
 #[test]

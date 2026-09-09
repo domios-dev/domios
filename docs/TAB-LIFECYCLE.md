@@ -19,6 +19,11 @@ change that decision.
 2. A PTY agent tab resolves the unique provider whose store owns that tab's
    claimed session id, then relaunches that provider with the session
    (`--resume`-style continuation; `commands::pty::spawn_pty` owns the choice).
+   A missing provider label does not bypass that lookup: a unique owner repairs
+   the label before either visible or lazy restoration claims the launch. The
+   repair preserves the session and checks the tab's identity again before
+   committing; it never replays a historical task. Missing or ambiguous ownership
+   retains the saved session and refuses agent materialization.
 3. If a claimed session has no unique provider record, the tab comes back as a
    shell with a null provider label. A snapshot with no claimed session may
    still fresh-launch its explicitly persisted provider. Restore never chooses
@@ -226,4 +231,4 @@ transaction, so the intermediate state is never observable.
 - **Rollback to a named checkpoint** is not implemented. The journal records
   history; it does not replay it.
 
-<!-- revision: 15 -->
+<!-- revision: 16 -->

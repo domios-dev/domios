@@ -20,6 +20,7 @@ use crate::service::AuthenticatedPlanCaller;
 
 mod plan_evidence_owner_test;
 mod plan_evidence_role_test;
+mod plan_evidence_session_test;
 mod plan_evidence_status_test;
 
 fn add_task(store: &PlanStore, plan_id: &str, name: &str, now_ms: u64) -> String {

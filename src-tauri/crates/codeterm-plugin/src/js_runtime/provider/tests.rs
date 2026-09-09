@@ -29,6 +29,28 @@ const MIN_MANIFEST: &str = r#"{
     }"#;
 
 #[test]
+fn session_ownership_uses_only_provider_declared_records() {
+    let dir = tempfile::tempdir().unwrap();
+    let owned = dir.path().join("owned.jsonl");
+    std::fs::write(&owned, "{}").unwrap();
+    let path_json = serde_json::to_string(&owned.to_string_lossy()).unwrap();
+    let script = format!(
+        "module.exports.default = {{ sessionFilePath(cwd, id) {{ return id === 'owned' ? {path_json} : null; }} }};"
+    );
+    let provider = load(MIN_MANIFEST, &script);
+    assert!(provider.session_exists("/work", "owned"));
+    assert!(!provider.session_exists("/work", "foreign"));
+    let undeclared = load(MIN_MANIFEST, "module.exports.default = {};");
+    assert!(!undeclared.session_exists("/work", "owned"));
+    let indexed = load(
+        MIN_MANIFEST,
+        "module.exports.default = { sessionExists(cwd, id) { return id === 'indexed'; }, sessionFilePath() { return null; } };",
+    );
+    assert!(indexed.session_exists("/work", "indexed"));
+    assert!(!indexed.session_exists("/work", "foreign"));
+}
+
+#[test]
 fn id_display_binary_from_manifest() {
     let p = load(MIN_MANIFEST, "module.exports.default = {};");
     assert_eq!(p.id(), "demo");

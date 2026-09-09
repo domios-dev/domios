@@ -140,7 +140,7 @@ console.log("\n--- task instructions launch ---\n");
   assert(!cmd.includes("System.Web"), "Windows launch never references System.Web (PowerShell 7 has no .NET Framework assembly to load)");
   assert(!cmd.includes("JavaScriptSerializer"), "Windows launch never references JavaScriptSerializer (Framework-only type)");
   assert(cmd.includes("ConvertTo-Json -Compress"), "Windows serializes instructions with the built-in cmdlet available on both PowerShell editions");
-  assert(cmd.includes("$ctTaskInstructions = Get-Content -Raw -Encoding UTF8 'C:\\Temp\\codeterm task.md'"), "Windows loads developer instructions from the task file");
+  assert(cmd.includes("$ctTaskInstructions = [System.IO.File]::ReadAllText('C:\\Temp\\codeterm task.md', [System.Text.Encoding]::UTF8)"), "Windows loads a plain UTF-8 string without PowerShell file metadata");
   assert(cmd.includes("$env:CODETERM_TAB_ID -replace '[^A-Za-z0-9_-]', '-'"), "Windows scopes the temporary profile to the tab lifecycle");
   assert(cmd.includes("Set-Content -LiteralPath $ctProfilePath"), "Windows writes a temporary Codex profile");
   const profileValueAssignment = /-Value \('developer_instructions = ' \+ (\$\w+)\)/.exec(cmd);
@@ -190,7 +190,7 @@ console.log("\n--- task instructions launch ---\n");
   assert(!firstLaunch.includes("Remove-Item -LiteralPath 'C:\\Temp\\codeterm task.md'"), "the first launch attempt never deletes the task file");
   assert(!secondLaunch.includes("Remove-Item -LiteralPath 'C:\\Temp\\codeterm task.md'"), "a rebuilt relaunch command never deletes the task file either");
   assert(
-    secondLaunch.includes("Get-Content -Raw -Encoding UTF8 'C:\\Temp\\codeterm task.md'"),
+    secondLaunch.includes("[System.IO.File]::ReadAllText('C:\\Temp\\codeterm task.md', [System.Text.Encoding]::UTF8)"),
     "a relaunch still reads the task file from the exact path the prior attempt left in place",
   );
 }
@@ -221,7 +221,7 @@ eq(plugin.meta.displayName, "Codex", "meta.displayName");
   const expectedSurface = [
     "starterPromptText", "detectFromTitle", "detectFromOutput", "screenHasTui", "isOutputNoise",
     "hasEventMarkers", "detectEvents", "parsePrompt", "buildPromptResponse", "directoryTrustPromptResponse",
-    "discoverModels", "buildLaunchCommand", "buildResumeCommand", "sessionFilePath", "sessionJsonlPath",
+    "discoverModels", "buildLaunchCommand", "buildResumeCommand", "sessionFilePath", "sessionExists", "sessionJsonlPath",
     "parseSessionDelta", "detectSessionId", "checkIntegration", "installIntegration", "grantIntegrationTrust",
     "uninstallIntegration", "restoreIntegration", "ensureIntegrationOnStartup", "parseUsage", "fetchUsage",
     "detectActiveSession", "enumerateSessions", "detectSessionModel", "parseSessionMessages", "classifyTabState",
@@ -1091,6 +1091,13 @@ for (const [name, fixture] of [
     "codex resume Q(windows:11111111-1111-1111-1111-111111111111)",
     "buildResumeCommand quotes session id with quoteFor(platform)",
   );
+  for (const enabled of [false, true]) {
+    for (const command of [p.buildLaunchCommand({ skipPermissions: enabled }), p.buildResumeCommand("session-fixture", enabled)]) {
+      for (const flag of ["--dangerously-bypass-approvals-and-sandbox", "--dangerously-bypass-hook-trust"]) {
+        eq(command.includes(flag), enabled, `full access controls ${flag}`);
+      }
+    }
+  }
 }
 
 {
