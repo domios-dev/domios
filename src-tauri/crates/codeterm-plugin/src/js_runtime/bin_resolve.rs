@@ -289,21 +289,18 @@ fn has_path_separator(bin: &str) -> bool {
 fn probe_names(bin: &str, pathext: Option<&OsStr>) -> Vec<String> {
     #[cfg(windows)]
     {
-        let mut names = vec![bin.to_string()];
         if Path::new(bin).extension().is_some() {
-            return names;
+            return vec![bin.to_string()];
         }
         let pathext = pathext
             .and_then(|value| value.to_str())
             .unwrap_or(".COM;.EXE;.BAT;.CMD");
-        names.extend(
-            pathext
-                .split(';')
-                .map(str::trim)
-                .filter(|extension| extension.starts_with('.'))
-                .map(|extension| format!("{bin}{}", extension.to_ascii_lowercase())),
-        );
-        names
+        pathext
+            .split(';')
+            .map(str::trim)
+            .filter(|extension| extension.starts_with('.'))
+            .map(|extension| format!("{bin}{}", extension.to_ascii_lowercase()))
+            .collect()
     }
     #[cfg(not(windows))]
     {
@@ -408,6 +405,9 @@ mod tests {
             uuid::Uuid::new_v4().simple()
         ));
         std::fs::create_dir_all(&dir).unwrap();
+        #[cfg(windows)]
+        let bin_path = dir.join(format!("{name}.exe"));
+        #[cfg(not(windows))]
         let bin_path = dir.join(&name);
         std::fs::write(&bin_path, b"#!/bin/sh\nexit 0\n").unwrap();
         #[cfg(unix)]
@@ -538,12 +538,9 @@ mod tests {
     }
 
     #[test]
-    fn explicit_and_relative_paths_are_checked_directly() {
+    fn explicit_and_relative_extensionless_paths_are_checked_directly() {
         let _guard = TEST_LOCK.lock();
         RESOLVED_BINS.lock().clear();
-        #[cfg(windows)]
-        let name = format!("bwdirect_{}.exe", uuid::Uuid::new_v4().simple());
-        #[cfg(not(windows))]
         let name = format!("bwdirect_{}", uuid::Uuid::new_v4().simple());
         let root = std::env::current_dir()
             .unwrap()
@@ -551,6 +548,10 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         let absolute = root.join(&name);
         std::fs::write(&absolute, b"#!/bin/sh\nexit 0\n").unwrap();
+        #[cfg(windows)]
+        let explicit_suffixed = root.join(format!("{name}.exe"));
+        #[cfg(windows)]
+        std::fs::write(&explicit_suffixed, b"MZ fixture bytes; never executed").unwrap();
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -563,8 +564,11 @@ mod tests {
             EnvironmentValue::Missing,
             EnvironmentValue::Missing,
         );
-        let explicit = probe_bin_with_environment(
-            absolute.to_str().unwrap(),
+        let explicit =
+            probe_bin_with_environment(absolute.to_str().unwrap(), &[], &environment).resolution;
+        #[cfg(windows)]
+        let suffixed = probe_bin_with_environment(
+            explicit_suffixed.to_str().unwrap(),
             &[],
             &environment,
         )
@@ -578,12 +582,75 @@ mod tests {
             &[],
             &environment,
         )
-            .resolution;
+        .resolution;
         let _ = std::fs::remove_dir_all(&root);
         RESOLVED_BINS.lock().clear();
 
         assert_eq!(explicit, BinResolution::Found(absolute));
         assert_eq!(relative, BinResolution::Found(relative_input));
+        #[cfg(windows)]
+        assert_eq!(suffixed, BinResolution::Found(explicit_suffixed));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_bare_names_ignore_extensionless_shims_for_path_and_rescue() {
+        let _guard = TEST_LOCK.lock();
+        RESOLVED_BINS.lock().clear();
+        let name = format!("bwshim_{}", uuid::Uuid::new_v4().simple());
+        let path_root = std::env::temp_dir().join(format!(
+            "bin_resolve_shim_path_{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        let rescue_root = std::env::temp_dir().join(format!(
+            "bin_resolve_shim_rescue_{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir_all(&path_root).unwrap();
+        std::fs::create_dir_all(&rescue_root).unwrap();
+
+        let path_shim = path_root.join(&name);
+        let path_cmd = path_root.join(format!("{name}.cmd"));
+        std::fs::write(&path_shim, b"#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::write(&path_cmd, b"@echo off\r\nexit /b 0\r\n").unwrap();
+        let path_environment = environment_with_paths(
+            Some(&path_root),
+            EnvironmentValue::Missing,
+            EnvironmentValue::Missing,
+        );
+        let path_probe = probe_bin_with_environment(&name, &[], &path_environment);
+        let path_cached = probe_bin_with_environment(&name, &[], &path_environment);
+
+        let rescue_shim = rescue_root.join(&name);
+        let rescue_exe = rescue_root.join(format!("{name}.exe"));
+        std::fs::write(&rescue_shim, b"#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::write(&rescue_exe, b"MZ fixture bytes; never executed").unwrap();
+        let rescue_environment = environment_with_paths(
+            None,
+            EnvironmentValue::Missing,
+            EnvironmentValue::Missing,
+        );
+        let rescue_probe = probe_bin_with_environment(
+            &name,
+            std::slice::from_ref(&rescue_root),
+            &rescue_environment,
+        );
+        let rescue_cached = probe_bin_with_environment(
+            &name,
+            std::slice::from_ref(&rescue_root),
+            &rescue_environment,
+        );
+        let cache_entries = cached_count(&name);
+
+        let _ = std::fs::remove_dir_all(&path_root);
+        let _ = std::fs::remove_dir_all(&rescue_root);
+        RESOLVED_BINS.lock().clear();
+
+        assert_eq!(path_probe.resolution, BinResolution::Found(path_cmd));
+        assert_eq!(path_cached.resolution, path_probe.resolution);
+        assert_eq!(rescue_probe.resolution, BinResolution::Found(rescue_exe));
+        assert_eq!(rescue_cached.resolution, rescue_probe.resolution);
+        assert_eq!(cache_entries, 2);
     }
 
     #[test]
@@ -728,6 +795,9 @@ mod tests {
         #[cfg(windows)]
         let bin_path = dir.join(format!("{name}.exe"));
         #[cfg(not(windows))]
+        #[cfg(windows)]
+        let bin_path = dir.join(format!("{name}.exe"));
+        #[cfg(not(windows))]
         let bin_path = dir.join(&name);
         std::fs::write(&bin_path, b"#!/bin/sh\nexit 0\n").unwrap();
         #[cfg(unix)]
@@ -770,6 +840,9 @@ mod tests {
         ));
         std::fs::create_dir_all(&stale).unwrap();
         std::fs::create_dir_all(&installed).unwrap();
+        #[cfg(windows)]
+        let expected = installed.join(format!("{name}.exe"));
+        #[cfg(not(windows))]
         let expected = installed.join(&name);
 
         let missing_environment = environment_with_paths(
@@ -816,6 +889,9 @@ mod tests {
         ));
         std::fs::create_dir_all(&stale).unwrap();
         std::fs::create_dir_all(&installed).unwrap();
+        #[cfg(windows)]
+        let expected = installed.join(format!("{name}.exe"));
+        #[cfg(not(windows))]
         let expected = installed.join(&name);
         std::fs::write(&expected, b"#!/bin/sh\nexit 0\n").unwrap();
         #[cfg(unix)]
@@ -933,13 +1009,16 @@ mod tests {
     }
 
     #[test]
-    fn resolve_bin_via_probe_preserves_basename() {
+    fn resolve_bin_via_probe_returns_platform_candidate() {
         let _guard = TEST_LOCK.lock();
         RESOLVED_BINS.lock().clear();
         let name = format!("bwbase_{}", uuid::Uuid::new_v4().simple());
         let dir =
             std::env::temp_dir().join(format!("host_exec_base_{}", uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(&dir).unwrap();
+        #[cfg(windows)]
+        let bin_path = dir.join(format!("{name}.exe"));
+        #[cfg(not(windows))]
         let bin_path = dir.join(&name);
         std::fs::write(&bin_path, b"#!/bin/sh\nexit 0\n").unwrap();
         #[cfg(unix)]
@@ -954,9 +1033,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         RESOLVED_BINS.lock().clear();
         assert_eq!(
-            resolved.file_name().and_then(|n| n.to_str()),
-            Some(name.as_str()),
-            "a probe-dir resolution must preserve the requested basename"
+            resolved, bin_path,
+            "a probe-dir resolution must return the platform candidate"
         );
     }
 }

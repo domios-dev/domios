@@ -48,6 +48,11 @@ The same ordered roots are returned in the `searched` diagnostic. Registry
 reads and expandable values are handled in-process; the resolver never changes
 the process-wide environment.
 
+On Windows, a bare launch-binary name is searched only with the configured
+`PATHEXT` suffixes; an extensionless regular file is not a PATH or rescue-root
+candidate. An explicit or relative path containing a separator is checked
+directly as supplied, including an extensionless path.
+
 `available` means a runnable regular file was observed, `unavailable` means a
 readable search completed without finding one, and `unknown` means the search
 could not answer (for example, an environment read failed). A missing result
@@ -340,4 +345,4 @@ The honest seam, in three parts:
 No machinery bridges these tiers (no Rust-free parity runner, no WASM QuickJS
 harness); the promotion-time boundary is the cheap, honest seam.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->
