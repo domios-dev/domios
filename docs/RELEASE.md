@@ -340,6 +340,11 @@ yet.
 
 ## 6. Troubleshooting
 
+If CLI preflight reports `API exceeds 24 KiB`, the registered API overview exceeded
+its reading boundary. Keep endpoint summaries concise and link detailed provider
+behavior to `docs/contributing/providers.md`; rerun the document-boundary test
+and full release preflight rather than increasing or bypassing the limit.
+
 Windows provider-discovery preflight caught an unformatted `js_runtime/mod.rs`
 re-export after focused tests passed. Formatting only implementation files missed
 the facade; format the exports and rerun the complete release preflight.
@@ -657,4 +662,4 @@ node scripts/sync-release-notes.mjs --backfill 10
 The command refuses missing mirror releases, empty generated notes, and bodies too short to be
 meaningful. It then writes the exact same Markdown to both repositories.
 
-<!-- revision: 43 -->
+<!-- revision: 44 -->
