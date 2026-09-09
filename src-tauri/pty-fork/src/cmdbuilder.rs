@@ -41,7 +41,10 @@ impl EnvEntry {
 
 #[cfg(windows)]
 fn merge_path_values(existing: Option<&OsStr>, persisted: &OsStr) -> OsString {
-    match (existing.filter(|value| !value.is_empty()), persisted.is_empty()) {
+    match (
+        existing.filter(|value| !value.is_empty()),
+        persisted.is_empty(),
+    ) {
         (Some(existing), false) => {
             let mut merged = existing.to_os_string();
             merged.push(";");
@@ -860,9 +863,7 @@ mod tests {
 
         assert_eq!(
             user,
-            OsString::from(
-                "process-path-fixture;machine-path-fixture;user-path-fixture"
-            )
+            OsString::from("process-path-fixture;machine-path-fixture;user-path-fixture")
         );
         assert_eq!(std::env::var_os("PATH"), before);
     }
