@@ -405,6 +405,9 @@ mod tests {
             uuid::Uuid::new_v4().simple()
         ));
         std::fs::create_dir_all(&dir).unwrap();
+        #[cfg(windows)]
+        let bin_path = dir.join(format!("{name}.exe"));
+        #[cfg(not(windows))]
         let bin_path = dir.join(&name);
         std::fs::write(&bin_path, b"#!/bin/sh\nexit 0\n").unwrap();
         #[cfg(unix)]
@@ -792,6 +795,9 @@ mod tests {
         #[cfg(windows)]
         let bin_path = dir.join(format!("{name}.exe"));
         #[cfg(not(windows))]
+        #[cfg(windows)]
+        let bin_path = dir.join(format!("{name}.exe"));
+        #[cfg(not(windows))]
         let bin_path = dir.join(&name);
         std::fs::write(&bin_path, b"#!/bin/sh\nexit 0\n").unwrap();
         #[cfg(unix)]
@@ -834,6 +840,9 @@ mod tests {
         ));
         std::fs::create_dir_all(&stale).unwrap();
         std::fs::create_dir_all(&installed).unwrap();
+        #[cfg(windows)]
+        let expected = installed.join(format!("{name}.exe"));
+        #[cfg(not(windows))]
         let expected = installed.join(&name);
 
         let missing_environment = environment_with_paths(
@@ -880,6 +889,9 @@ mod tests {
         ));
         std::fs::create_dir_all(&stale).unwrap();
         std::fs::create_dir_all(&installed).unwrap();
+        #[cfg(windows)]
+        let expected = installed.join(format!("{name}.exe"));
+        #[cfg(not(windows))]
         let expected = installed.join(&name);
         std::fs::write(&expected, b"#!/bin/sh\nexit 0\n").unwrap();
         #[cfg(unix)]
@@ -997,13 +1009,16 @@ mod tests {
     }
 
     #[test]
-    fn resolve_bin_via_probe_preserves_basename() {
+    fn resolve_bin_via_probe_returns_platform_candidate() {
         let _guard = TEST_LOCK.lock();
         RESOLVED_BINS.lock().clear();
         let name = format!("bwbase_{}", uuid::Uuid::new_v4().simple());
         let dir =
             std::env::temp_dir().join(format!("host_exec_base_{}", uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(&dir).unwrap();
+        #[cfg(windows)]
+        let bin_path = dir.join(format!("{name}.exe"));
+        #[cfg(not(windows))]
         let bin_path = dir.join(&name);
         std::fs::write(&bin_path, b"#!/bin/sh\nexit 0\n").unwrap();
         #[cfg(unix)]
@@ -1018,9 +1033,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         RESOLVED_BINS.lock().clear();
         assert_eq!(
-            resolved.file_name().and_then(|n| n.to_str()),
-            Some(name.as_str()),
-            "a probe-dir resolution must preserve the requested basename"
+            resolved, bin_path,
+            "a probe-dir resolution must return the platform candidate"
         );
     }
 }
