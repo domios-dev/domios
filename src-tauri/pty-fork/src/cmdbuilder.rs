@@ -144,6 +144,21 @@ fn get_base_env() -> BTreeMap<OsString, EnvEntry> {
                         continue;
                     }
                     if let Ok(value) = reg_value_to_string(&value) {
+                        let value = if name.eq_ignore_ascii_case("path") {
+                            match env.get(&EnvEntry::map_key(name.clone().into())) {
+                                Some(entry) if !entry.value.is_empty() && !value.is_empty() => {
+                                    let mut result = entry.value.clone();
+                                    result.push(";");
+                                    result.push(&value);
+                                    result
+                                }
+                                Some(entry) if entry.value.is_empty() => value,
+                                Some(entry) => entry.value.clone(),
+                                None => value,
+                            }
+                        } else {
+                            value
+                        };
                         log::trace!("adding SYS env: {:?} {:?}", name, value);
                         env.insert(
                             EnvEntry::map_key(name.clone().into()),
