@@ -59,9 +59,9 @@ fn read_path_value(root: winreg::RegKey, subkey: &str) -> EnvironmentValue {
 
 #[cfg(windows)]
 fn registry_value_to_string(value: &winreg::RegValue) -> std::io::Result<OsString> {
+    use winapi::um::processenv::ExpandEnvironmentStringsW;
     use winreg::enums::RegType;
     use winreg::types::FromRegValue;
-    use winapi::um::processenv::ExpandEnvironmentStringsW;
 
     if !matches!(value.vtype, RegType::REG_SZ | RegType::REG_EXPAND_SZ) {
         return Err(std::io::Error::new(
@@ -79,8 +79,7 @@ fn registry_value_to_string(value: &winreg::RegValue) -> std::io::Result<OsStrin
             Some(buffer) => (buffer.as_mut_ptr(), buffer.len() as u32),
             None => (std::ptr::null_mut(), 0),
         };
-        let written =
-            unsafe { ExpandEnvironmentStringsW(input.as_ptr(), output, capacity) };
+        let written = unsafe { ExpandEnvironmentStringsW(input.as_ptr(), output, capacity) };
         if written == 0 {
             Err(std::io::Error::last_os_error())
         } else {
@@ -99,10 +98,7 @@ where
 {
     use std::os::windows::ffi::{OsStrExt, OsStringExt};
 
-    let input: Vec<u16> = source
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect();
+    let input: Vec<u16> = source.encode_wide().chain(std::iter::once(0)).collect();
     let required = expand(&input, None)?;
     if required == 0 {
         return Err(std::io::Error::new(
@@ -187,6 +183,9 @@ mod tests {
         .expect_err("a second-call size increase must not be accepted as a truncated PATH");
 
         assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
-        assert_eq!(error.to_string(), "expanded PATH did not fit the queried buffer");
+        assert_eq!(
+            error.to_string(),
+            "expanded PATH did not fit the queried buffer"
+        );
     }
 }

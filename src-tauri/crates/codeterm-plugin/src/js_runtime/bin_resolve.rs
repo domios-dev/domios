@@ -7,8 +7,8 @@ use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
-pub use codeterm_util::windows_env::EnvironmentValue;
 use codeterm_util::windows_env::read_persisted_path;
+pub use codeterm_util::windows_env::EnvironmentValue;
 use parking_lot::Mutex;
 
 static RESOLVED_BINS: LazyLock<Mutex<HashMap<ResolutionKey, BinResolution>>> =
@@ -170,7 +170,11 @@ fn search_context(
     let mut roots = Vec::new();
     let mut path_searchable = false;
     let mut environment_readable = true;
-    if let Some(path) = environment.inherited_path.as_ref().filter(|p| !p.is_empty()) {
+    if let Some(path) = environment
+        .inherited_path
+        .as_ref()
+        .filter(|p| !p.is_empty())
+    {
         roots.extend(split_path_entries(path));
         path_searchable = true;
     }
@@ -318,7 +322,11 @@ pub fn forget_resolved_bin(bin: &str) {
 }
 
 pub fn resolved_bin_path(bin: &str) -> Option<PathBuf> {
-    let context = search_context(bin, &BinSearchEnvironment::current(), &well_known_bin_dirs());
+    let context = search_context(
+        bin,
+        &BinSearchEnvironment::current(),
+        &well_known_bin_dirs(),
+    );
     resolved_bin_path_in_context(bin, &context)
 }
 
@@ -377,8 +385,8 @@ mod tests {
         machine: EnvironmentValue,
         user: EnvironmentValue,
     ) -> BinSearchEnvironment {
-        let inherited_path = inherited
-            .map(|path| std::env::join_paths([path.as_os_str()]).unwrap());
+        let inherited_path =
+            inherited.map(|path| std::env::join_paths([path.as_os_str()]).unwrap());
         BinSearchEnvironment {
             inherited_path,
             machine_path: machine,
@@ -542,9 +550,10 @@ mod tests {
         let _guard = TEST_LOCK.lock();
         RESOLVED_BINS.lock().clear();
         let name = format!("bwdirect_{}", uuid::Uuid::new_v4().simple());
-        let root = std::env::current_dir()
-            .unwrap()
-            .join(format!("bin_resolve_paths_{}", uuid::Uuid::new_v4().simple()));
+        let root = std::env::current_dir().unwrap().join(format!(
+            "bin_resolve_paths_{}",
+            uuid::Uuid::new_v4().simple()
+        ));
         std::fs::create_dir_all(&root).unwrap();
         let absolute = root.join(&name);
         std::fs::write(&absolute, b"#!/bin/sh\nexit 0\n").unwrap();
@@ -559,30 +568,21 @@ mod tests {
             perm.set_mode(0o755);
             std::fs::set_permissions(&absolute, perm).unwrap();
         }
-        let environment = environment_with_paths(
-            None,
-            EnvironmentValue::Missing,
-            EnvironmentValue::Missing,
-        );
+        let environment =
+            environment_with_paths(None, EnvironmentValue::Missing, EnvironmentValue::Missing);
         let explicit =
             probe_bin_with_environment(absolute.to_str().unwrap(), &[], &environment).resolution;
         #[cfg(windows)]
-        let suffixed = probe_bin_with_environment(
-            explicit_suffixed.to_str().unwrap(),
-            &[],
-            &environment,
-        )
-        .resolution;
+        let suffixed =
+            probe_bin_with_environment(explicit_suffixed.to_str().unwrap(), &[], &environment)
+                .resolution;
         let relative_input = absolute
             .strip_prefix(std::env::current_dir().unwrap())
             .unwrap()
             .to_path_buf();
-        let relative = probe_bin_with_environment(
-            relative_input.to_str().unwrap(),
-            &[],
-            &environment,
-        )
-        .resolution;
+        let relative =
+            probe_bin_with_environment(relative_input.to_str().unwrap(), &[], &environment)
+                .resolution;
         let _ = std::fs::remove_dir_all(&root);
         RESOLVED_BINS.lock().clear();
 
@@ -625,11 +625,8 @@ mod tests {
         let rescue_exe = rescue_root.join(format!("{name}.exe"));
         std::fs::write(&rescue_shim, b"#!/bin/sh\nexit 0\n").unwrap();
         std::fs::write(&rescue_exe, b"MZ fixture bytes; never executed").unwrap();
-        let rescue_environment = environment_with_paths(
-            None,
-            EnvironmentValue::Missing,
-            EnvironmentValue::Missing,
-        );
+        let rescue_environment =
+            environment_with_paths(None, EnvironmentValue::Missing, EnvironmentValue::Missing);
         let rescue_probe = probe_bin_with_environment(
             &name,
             std::slice::from_ref(&rescue_root),
@@ -774,7 +771,11 @@ mod tests {
         let reprobed = resolve_bin(&name, std::slice::from_ref(&dir));
         let watched = resolved_bin_path_in_context(
             &name,
-            &search_context(&name, &BinSearchEnvironment::current(), std::slice::from_ref(&dir)),
+            &search_context(
+                &name,
+                &BinSearchEnvironment::current(),
+                std::slice::from_ref(&dir),
+            ),
         );
         let _ = std::fs::remove_dir_all(&dir);
         RESOLVED_BINS.lock().clear();
