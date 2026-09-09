@@ -1327,7 +1327,6 @@ dependencies = [
  "toml 0.8.2",
  "uuid",
  "wait-timeout",
- "which 4.4.2",
 ]
 
 [[package]]
@@ -1389,6 +1388,8 @@ dependencies = [
  "tempfile",
  "uuid",
  "vt100",
+ "winapi",
+ "winreg 0.10.1",
 ]
 
 [[package]]
@@ -9100,18 +9101,6 @@ name = "weezl"
 version = "0.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a28ac98ddc8b9274cb41bb4d9d4d5c425b6020c50c46f25559911905610b4a88"
-
-[[package]]
-name = "which"
-version = "4.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "87ba24419a2078cd2b0f2ede2691b6c66d8e47836da3b6db8265ebad47afbfc7"
-dependencies = [
- "either",
- "home",
- "once_cell",
- "rustix 0.38.44",
-]
 
 [[package]]
 name = "which"

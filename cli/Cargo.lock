@@ -328,7 +328,6 @@ dependencies = [
  "toml",
  "uuid",
  "wait-timeout",
- "which",
 ]
 
 [[package]]
@@ -363,6 +362,8 @@ dependencies = [
  "parking_lot",
  "uuid",
  "vt100",
+ "winapi",
+ "winreg 0.10.1",
 ]
 
 [[package]]
@@ -2719,18 +2720,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7dcd9d09a39985f5344844e66b0c530a33843579125f23e21e9f0f220850f22a"
 dependencies = [
  "rustls-pki-types",
-]
-
-[[package]]
-name = "which"
-version = "4.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "87ba24419a2078cd2b0f2ede2691b6c66d8e47836da3b6db8265ebad47afbfc7"
-dependencies = [
- "either",
- "home",
- "once_cell",
- "rustix 0.38.44",
 ]
 
 [[package]]
