@@ -115,9 +115,10 @@ pub fn probe_bin_with_environment(
 
 fn resolve_bin_memoized_with_context(bin: &str, context: &SearchContext) -> BinResolution {
     let key = resolution_key(bin, context);
-    if let Some(hit) = RESOLVED_BINS.lock().get(&key).cloned() {
+    let cached = { RESOLVED_BINS.lock().get(&key).cloned() };
+    if let Some(hit) = cached {
         if let BinResolution::Found(path) = &hit {
-            if is_executable_file(path) {
+            if cached_path_is_current(bin, path, context) {
                 return hit;
             }
         }
@@ -128,6 +129,28 @@ fn resolve_bin_memoized_with_context(bin: &str, context: &SearchContext) -> BinR
         RESOLVED_BINS.lock().insert(key, resolved.clone());
     }
     resolved
+}
+
+fn cached_path_is_current(bin: &str, path: &Path, context: &SearchContext) -> bool {
+    if !is_executable_file(path) {
+        return false;
+    }
+    if has_path_separator(bin) {
+        return true;
+    }
+
+    for root in &context.roots {
+        for name in &context.names {
+            let candidate = root.join(name);
+            if candidate == path {
+                return true;
+            }
+            if matches!(inspect_executable_file(&candidate), FileProbe::Found(_)) {
+                return false;
+            }
+        }
+    }
+    false
 }
 
 fn resolution_key(bin: &str, context: &SearchContext) -> ResolutionKey {
@@ -201,8 +224,8 @@ fn resolve_bin_with_context(bin: &str, context: &SearchContext) -> BinResolution
     if has_path_separator(bin) {
         return match inspect_executable_file(Path::new(bin)) {
             FileProbe::Found(path) => BinResolution::Found(path),
-            FileProbe::Missing if context.environment_readable => BinResolution::Missing,
-            FileProbe::Missing | FileProbe::Unreadable => BinResolution::Unknown,
+            FileProbe::Missing => BinResolution::Missing,
+            FileProbe::Unreadable => BinResolution::Unknown,
         };
     }
     match probe_dirs(&context.roots, &context.names) {
@@ -215,7 +238,7 @@ fn resolve_bin_with_context(bin: &str, context: &SearchContext) -> BinResolution
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum FileProbe {
     Found(PathBuf),
     Missing,
@@ -499,13 +522,160 @@ mod tests {
             std::fs::set_permissions(&bin_path, perm).unwrap();
         }
 
-        let resolved = resolve_bin(&name, std::slice::from_ref(&dir));
+        let environment = environment_with_paths(
+            None,
+            EnvironmentValue::Missing,
+            EnvironmentValue::Value(std::env::join_paths([dir.as_os_str()]).unwrap()),
+        );
+        let resolved = probe_bin_with_environment(&name, &[], &environment).resolution;
         let _ = std::fs::remove_dir_all(&dir);
         RESOLVED_BINS.lock().clear();
         assert_eq!(
-            resolved, bin_path,
+            resolved,
+            BinResolution::Found(bin_path),
             "a probe dir holding the platform-suffixed executable must answer the bare bin"
         );
+    }
+
+    #[test]
+    fn explicit_and_relative_paths_are_checked_directly() {
+        let _guard = TEST_LOCK.lock();
+        RESOLVED_BINS.lock().clear();
+        #[cfg(windows)]
+        let name = format!("bwdirect_{}.exe", uuid::Uuid::new_v4().simple());
+        #[cfg(not(windows))]
+        let name = format!("bwdirect_{}", uuid::Uuid::new_v4().simple());
+        let root = std::env::current_dir()
+            .unwrap()
+            .join(format!("bin_resolve_paths_{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&root).unwrap();
+        let absolute = root.join(&name);
+        std::fs::write(&absolute, b"#!/bin/sh\nexit 0\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perm = std::fs::metadata(&absolute).unwrap().permissions();
+            perm.set_mode(0o755);
+            std::fs::set_permissions(&absolute, perm).unwrap();
+        }
+        let environment = environment_with_paths(
+            None,
+            EnvironmentValue::Missing,
+            EnvironmentValue::Missing,
+        );
+        let explicit = probe_bin_with_environment(
+            absolute.to_str().unwrap(),
+            &[],
+            &environment,
+        )
+        .resolution;
+        let relative_input = absolute
+            .strip_prefix(std::env::current_dir().unwrap())
+            .unwrap()
+            .to_path_buf();
+        let relative = probe_bin_with_environment(
+            relative_input.to_str().unwrap(),
+            &[],
+            &environment,
+        )
+            .resolution;
+        let _ = std::fs::remove_dir_all(&root);
+        RESOLVED_BINS.lock().clear();
+
+        assert_eq!(explicit, BinResolution::Found(absolute));
+        assert_eq!(relative, BinResolution::Found(relative_input));
+    }
+
+    #[test]
+    fn non_runnable_candidates_are_not_reported_as_found() {
+        let _guard = TEST_LOCK.lock();
+        RESOLVED_BINS.lock().clear();
+        let name = format!("bwnonrun_{}", uuid::Uuid::new_v4().simple());
+        let root = std::env::temp_dir().join(format!(
+            "bin_resolve_nonrun_{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir_all(root.join(&name)).unwrap();
+        let environment = environment_with_paths(
+            Some(&root),
+            EnvironmentValue::Missing,
+            EnvironmentValue::Missing,
+        );
+        let probe = probe_bin_with_environment(&name, &[], &environment);
+        #[cfg(unix)]
+        let non_executable = {
+            let file_name = format!("{name}_file");
+            let file = root.join(&file_name);
+            std::fs::write(&file, b"not executable").unwrap();
+            let mut perm = std::fs::metadata(&file).unwrap().permissions();
+            use std::os::unix::fs::PermissionsExt;
+            perm.set_mode(0o644);
+            std::fs::set_permissions(&file, perm).unwrap();
+            probe_bin_with_environment(&file_name, &[], &environment).resolution
+        };
+        let _ = std::fs::remove_dir_all(&root);
+        RESOLVED_BINS.lock().clear();
+
+        assert_eq!(probe.resolution, BinResolution::Missing);
+        #[cfg(unix)]
+        assert_eq!(non_executable, BinResolution::Missing);
+    }
+
+    #[test]
+    fn an_earlier_path_candidate_takes_precedence_after_it_appears() {
+        let _guard = TEST_LOCK.lock();
+        RESOLVED_BINS.lock().clear();
+        let name = format!("bwprecedence_{}", uuid::Uuid::new_v4().simple());
+        let earlier = std::env::temp_dir().join(format!(
+            "bin_resolve_earlier_{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        let later = std::env::temp_dir().join(format!(
+            "bin_resolve_later_{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir_all(&earlier).unwrap();
+        std::fs::create_dir_all(&later).unwrap();
+        #[cfg(windows)]
+        let later_path = later.join(format!("{name}.exe"));
+        #[cfg(not(windows))]
+        let later_path = later.join(&name);
+        std::fs::write(&later_path, b"#!/bin/sh\nexit 0\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perm = std::fs::metadata(&later_path).unwrap().permissions();
+            perm.set_mode(0o755);
+            std::fs::set_permissions(&later_path, perm).unwrap();
+        }
+        let environment = environment_with_paths(
+            None,
+            EnvironmentValue::Value(
+                std::env::join_paths([earlier.as_os_str(), later.as_os_str()]).unwrap(),
+            ),
+            EnvironmentValue::Missing,
+        );
+        let first = probe_bin_with_environment(&name, &[], &environment).resolution;
+
+        #[cfg(windows)]
+        let earlier_path = earlier.join(format!("{name}.exe"));
+        #[cfg(not(windows))]
+        let earlier_path = earlier.join(&name);
+        std::fs::write(&earlier_path, b"#!/bin/sh\nexit 0\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perm = std::fs::metadata(&earlier_path).unwrap().permissions();
+            perm.set_mode(0o755);
+            std::fs::set_permissions(&earlier_path, perm).unwrap();
+        }
+        let second = probe_bin_with_environment(&name, &[], &environment).resolution;
+        let _ = std::fs::remove_dir_all(&earlier);
+        let _ = std::fs::remove_dir_all(&later);
+        RESOLVED_BINS.lock().clear();
+
+        assert_eq!(first, BinResolution::Found(later_path));
+        assert_eq!(second, BinResolution::Found(earlier_path));
     }
 
     #[test]
@@ -555,6 +725,9 @@ mod tests {
             uuid::Uuid::new_v4().simple()
         ));
         std::fs::create_dir_all(&dir).unwrap();
+        #[cfg(windows)]
+        let bin_path = dir.join(format!("{name}.exe"));
+        #[cfg(not(windows))]
         let bin_path = dir.join(&name);
         std::fs::write(&bin_path, b"#!/bin/sh\nexit 0\n").unwrap();
         #[cfg(unix)]
@@ -565,13 +738,20 @@ mod tests {
             std::fs::set_permissions(&bin_path, perm).unwrap();
         }
 
-        assert_eq!(resolve_bin(&name, std::slice::from_ref(&dir)), bin_path);
+        let environment = environment_with_paths(
+            Some(&dir),
+            EnvironmentValue::Missing,
+            EnvironmentValue::Missing,
+        );
+        assert_eq!(
+            probe_bin_with_environment(&name, &[], &environment).resolution,
+            BinResolution::Found(bin_path.clone())
+        );
         std::fs::remove_file(&bin_path).unwrap();
-        assert_eq!(resolve_bin(&name, std::slice::from_ref(&dir)), PathBuf::from(&name));
-        assert_eq!(resolved_bin_path_in_context(
-            &name,
-            &search_context(&name, &BinSearchEnvironment::current(), std::slice::from_ref(&dir)),
-        ), None);
+        assert_eq!(
+            probe_bin_with_environment(&name, &[], &environment).resolution,
+            BinResolution::Missing
+        );
         let _ = std::fs::remove_dir_all(&dir);
         RESOLVED_BINS.lock().clear();
     }
