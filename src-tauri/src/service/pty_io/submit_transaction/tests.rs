@@ -365,8 +365,7 @@ pub(super) fn opts() -> VerifyOpts {
         verify_echo: true,
         verify_submit: true,
         echo_timeout: Duration::ZERO,
-        // Mock transports acknowledge or refuse synchronously (wait_change
-        // never blocks); the budget only keeps bounded retries reachable —
+        // Synchronous mock responses keep bounded retries reachable;
         // an expired deadline forbids retry writes entirely.
         submit_timeout: Duration::from_secs(5),
         prompt_timeout: Duration::ZERO,

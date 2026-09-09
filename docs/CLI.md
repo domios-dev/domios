@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 56 -->
+<!-- revision: 57 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -8,6 +8,12 @@ do not edit it by hand. Conventions: target tabs use `--tab`; `--json` is
 a global flag on every command. For agent orientation, prefer the human-readable
 workspace and tab maps, then inspect one selected record. Whole-list JSON is for
 checked-in automation rather than interactive discovery.
+
+Review status reports the configured WIP threshold and credit ledger as advisory
+backpressure: `blocked` remains false, while `reason` carries a warning when the
+backlog or debt reaches the threshold. Dispatch, compete, and respawn do not need
+capacity grants. Prioritize review closures; all ownership, dependency, evidence,
+and review-verdict requirements remain unchanged.
 
 `workspace current` prints a bare id for shell use. Its point-query `--json`
 form identifies `explicit`, `caller-tab`, `workspace-env`, or `focus-fallback`

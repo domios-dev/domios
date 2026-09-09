@@ -41,6 +41,10 @@ eq(
 );
 ok(recognize("~/.codeterm/bin/codeterm mem search foo") !== null, "abs path binary recognized");
 ok(recognize("ls -la") === null, "non-codeterm → null");
+ok(recognize("runner opaque-input\n\ncodeterm agent spawn --help") === null, "mixed batch keeps its command presentation");
+ok(recognize("codeterm agent spawn --help\nrunner opaque-input") === null, "trailing batch command remains visible");
+ok(recognize("codeterm docs API\ncodeterm docs CONFIG") === null, "multiple CodeTerm actions remain a batch");
+eq(recognize("$env:OPAQUE = 'value'; codeterm docs API")?.path, ["docs"], "standalone environment setup preserves the action");
 ok(recognize('echo hi | codeterm send "x"') === null, "buried after pipe → null");
 ok(recognize("codeterm-dev tab list") !== null, "codeterm-dev recognized");
 ok(recognize("codeterm tabs") === null, "legacy tabs command stays unknown");

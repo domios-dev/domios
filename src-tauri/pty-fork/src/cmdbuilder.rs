@@ -39,6 +39,32 @@ impl EnvEntry {
     }
 }
 
+#[cfg(windows)]
+fn merge_path_values(existing: Option<&OsStr>, persisted: &OsStr) -> OsString {
+    use std::collections::HashSet;
+    use std::os::windows::ffi::OsStringExt;
+
+    let mut seen = HashSet::new();
+    let mut merged = Vec::new();
+    for value in existing.into_iter().chain(std::iter::once(persisted)) {
+        if value.is_empty() {
+            continue;
+        }
+        let wide: Vec<u16> = value.encode_wide().collect();
+        for entry in wide.split(|unit| *unit == u16::from(b';')) {
+            let key = OsString::from_wide(entry);
+            if !seen.insert(EnvEntry::map_key(key)) {
+                continue;
+            }
+            if seen.len() > 1 {
+                merged.push(u16::from(b';'));
+            }
+            merged.extend_from_slice(entry);
+        }
+    }
+    OsString::from_wide(&merged)
+}
+
 #[cfg(unix)]
 fn get_shell() -> String {
     use nix::unistd::{access, AccessFlags};
@@ -120,16 +146,33 @@ fn get_base_env() -> BTreeMap<OsString, EnvEntry> {
                     };
                     let size =
                         unsafe { ExpandEnvironmentStringsW(src.as_ptr(), std::ptr::null_mut(), 0) };
-                    let mut buf = vec![0u16; size as usize + 1];
-                    unsafe {
+                    if size == 0 {
+                        return Err(anyhow::anyhow!(
+                            "ExpandEnvironmentStringsW size query failed"
+                        ));
+                    }
+                    let mut buf = vec![0u16; size as usize];
+                    let written = unsafe {
                         ExpandEnvironmentStringsW(src.as_ptr(), buf.as_mut_ptr(), buf.len() as u32)
                     };
-
-                    let mut buf = buf.as_slice();
-                    while let Some(0) = buf.last() {
-                        buf = &buf[0..buf.len() - 1];
+                    if written == 0 {
+                        return Err(anyhow::anyhow!(
+                            "ExpandEnvironmentStringsW expansion failed"
+                        ));
                     }
-                    Ok(OsString::from_wide(buf))
+                    let written = written as usize;
+                    if written > buf.len() {
+                        return Err(anyhow::anyhow!(
+                            "ExpandEnvironmentStringsW expansion exceeded its size query"
+                        ));
+                    }
+                    if buf.get(written - 1) != Some(&0) {
+                        return Err(anyhow::anyhow!(
+                            "ExpandEnvironmentStringsW expansion was not terminated"
+                        ));
+                    }
+                    buf.truncate(written - 1);
+                    Ok(OsString::from_wide(&buf))
                 }
                 _ => Ok(OsString::from_reg_value(value)?),
             }
@@ -144,6 +187,15 @@ fn get_base_env() -> BTreeMap<OsString, EnvEntry> {
                         continue;
                     }
                     if let Ok(value) = reg_value_to_string(&value) {
+                        let value = if name.eq_ignore_ascii_case("path") {
+                            merge_path_values(
+                                env.get(&EnvEntry::map_key(name.clone().into()))
+                                    .map(|entry| entry.value.as_os_str()),
+                                &value,
+                            )
+                        } else {
+                            value
+                        };
                         log::trace!("adding SYS env: {:?} {:?}", name, value);
                         env.insert(
                             EnvEntry::map_key(name.clone().into()),
@@ -162,18 +214,12 @@ fn get_base_env() -> BTreeMap<OsString, EnvEntry> {
             for res in sys_env.enum_values() {
                 if let Ok((name, value)) = res {
                     if let Ok(value) = reg_value_to_string(&value) {
-                        // Merge the system and user paths together
                         let value = if name.eq_ignore_ascii_case("path") {
-                            match env.get(&EnvEntry::map_key(name.clone().into())) {
-                                Some(entry) => {
-                                    let mut result = OsString::new();
-                                    result.push(&entry.value);
-                                    result.push(";");
-                                    result.push(&value);
-                                    result
-                                }
-                                None => value,
-                            }
+                            merge_path_values(
+                                env.get(&EnvEntry::map_key(name.clone().into()))
+                                    .map(|entry| entry.value.as_os_str()),
+                                &value,
+                            )
                         } else {
                             value
                         };
@@ -813,5 +859,37 @@ mod tests {
 
         cmd.env_remove("cARGO_pKG_aUTHORS");
         assert!(cmd.get_env("CARGO_PKG_AUTHORS").is_none());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn persisted_path_merge_preserves_process_machine_user_order_without_mutation() {
+        let before = std::env::var_os("PATH");
+        let process = OsString::from("process-path-fixture");
+        let machine = merge_path_values(Some(&process), OsStr::new("machine-path-fixture"));
+        let user = merge_path_values(Some(&machine), OsStr::new("user-path-fixture"));
+
+        assert_eq!(
+            user,
+            OsString::from("process-path-fixture;machine-path-fixture;user-path-fixture")
+        );
+        assert_eq!(std::env::var_os("PATH"), before);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn repeated_persisted_path_merge_does_not_expand_inherited_entries() {
+        let inherited = OsString::from(r"C:\Tools;C:\Program Files\Runtime;C:\UserBins");
+        let persisted = OsStr::new(r"c:\tools;C:\UserBins;C:\NewBin");
+        let first = merge_path_values(Some(&inherited), persisted);
+        assert_eq!(
+            first,
+            OsString::from(r"C:\Tools;C:\Program Files\Runtime;C:\UserBins;C:\NewBin")
+        );
+        assert_eq!(merge_path_values(Some(&first), persisted), first);
+        assert_eq!(
+            merge_path_values(Some(OsStr::new(";C:\\Tools")), OsStr::new("C:\\Tools")),
+            OsString::from(";C:\\Tools")
+        );
     }
 }

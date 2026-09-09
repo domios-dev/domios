@@ -9,6 +9,23 @@ This guide reflects **what exists in the code today**.
 
 ## Ecosystem at a glance
 
+Codex session ownership is checked by exact id in its session index through
+`sessionExists`, independently of transcript storage. A missing JSONL path does
+not mean the indexed session is absent; it must not block restore or rebind.
+Provider ownership checks use provider-declared records, not the shared
+hook-reported transcript-path cache. Transcript readers still use that cache.
+
+Codex chat projects structured `item_completed` command results and subagent
+activity using their source item IDs. Commands may be strings or argument
+arrays; arrays retain their original arguments alongside a quoted display
+description. Repeated activity records keep the same
+presentation identity. An outer `exec` batch and its completed inner commands
+remain separate: the completion record does not identify the outer call, so
+the renderer does not infer a relationship from command text or timestamps.
+Mixed command batches retain their command summary instead of becoming a card
+for one embedded CodeTerm action. These projections affect tool presentation
+only; they are not user-turn delivery evidence or session-binding signals.
+
 Three moving parts, two channels, one published SDK:
 
 - **`@codeterm/plugin-sdk` (npm).** The type-only SDK every plugin compiles
@@ -745,4 +762,10 @@ consent-required status; only its explicit repair action enters the write path.
      release the app first/together** (see "App + plugin ship together"). Test
      path: install the new app, then `codeterm plugin install <id>`.
 
-<!-- revision: 26 -->
+Full access for Codex adds both `--dangerously-bypass-approvals-and-sandbox` and
+`--dangerously-bypass-hook-trust` to fresh and resumed invocations. With Full
+access disabled, neither flag is emitted. This bypass is invocation-scoped; it
+does not rewrite global hooks or persist a new trust grant. Enable it only for
+vetted hooks and an environment where unrestricted command execution is intended.
+
+<!-- revision: 30 -->

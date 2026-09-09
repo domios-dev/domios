@@ -38,6 +38,31 @@ Third-party manifests must declare `hostApi` matching the running build's
 without it (or with an unsupported value) is **skipped at daemon load** — not
 rejected at install — so always pin it. First-party bundled plugins are exempt.
 
+### Launch-binary availability
+
+The availability shown by provider enumeration is a live capability observation,
+not a provider-name rule. The shared resolver checks the daemon's inherited
+process `PATH`, then the current Windows machine and user `PATH` values read
+from the environment registry, and finally the configured rescue directories.
+The same ordered roots are returned in the `searched` diagnostic. Registry
+reads and expandable values are handled in-process; the resolver never changes
+the process-wide environment.
+
+On Windows, a bare launch-binary name is searched only with the configured
+`PATHEXT` suffixes; an extensionless regular file is not a PATH or rescue-root
+candidate. An explicit or relative path containing a separator is checked
+directly as supplied, including an extensionless path.
+
+`available` means a runnable regular file was observed, `unavailable` means a
+readable search completed without finding one, and `unknown` means the search
+could not answer (for example, an environment read failed). A missing result
+is not retained across observations, a found path is rechecked before reuse,
+and a changed root set creates a fresh observation. This lets an installed CLI
+become available without restarting the daemon and prevents a removed file from
+remaining available. Preflight, enumeration, and `host.exec` use this shared
+observation; Windows PTY launch preserves the same process → machine → user
+PATH precedence without mutating the caller's environment.
+
 ## Minimal vs full: pick your tier
 
 The contract supports a thin provider; nothing forces codex-grade depth.
@@ -320,4 +345,4 @@ The honest seam, in three parts:
 No machinery bridges these tiers (no Rust-free parity runner, no WASM QuickJS
 harness); the promotion-time boundary is the cheap, honest seam.
 
-<!-- revision: 3 -->
+<!-- revision: 5 -->

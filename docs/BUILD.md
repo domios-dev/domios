@@ -169,11 +169,15 @@ Sign out and back in for a repaired PATH to reach new processes.
 
 | Symptom | Cause | Recovery |
 |---|---|---|
+| `registered_documents_have_one_title_and_fit_the_reading_boundary` rejects a CLI document | A contract addition exceeds the 240-line reading boundary | Integrate the clarification into its owning contract section and remove duplicate explanation, or move a separate concern to its linked reference. Run the focused CLI document test before the full preflight. |
+| A real newly spawned QA tab reports stale identity although its hook binding is live, while fixture-only report tests pass | Plan evidence authorization required a session environment variable that a fresh provider process does not have; tests always supplied one | Exercise `plan_evidence_session_test` with absent session metadata and an attested nonce. Resolve only the exact daemon-registered tab session, retain all grant/session/nonce refusals, and verify the real CLI after installation. |
+| `release-preflight` fails the action-card or Web fork inventory suite after a transport/presentation change | A card fixture bypassed the batch router, or a new platform branch lacked its required transport classification | Test single help invocations in the action card and multi-action batches through `ToolCallBubble`; register the exact Web transport branch in `webForks.test.ts`. Run both focused suites, then repeat preflight. |
 | `build.ps1 verify` fails only `cli_manifest_is_fresh` with sccache `os error 10055` / socket buffer exhaustion | The freshness test launched a nested `cargo run` when no standalone debug CLI binary existed, competing with the parent Cargo test process for compiler/socket resources | Keep freshness generation in-process through `manifest::to_json()` / `to_markdown()`. Run `build.ps1 test-one cli cli_manifest_is_fresh`, then rerun `build.ps1 verify`; do not regenerate committed CLI artifacts for this infrastructure error. |
 | `release-preflight` prints a Rust formatting diff and exits before lock validation | One or both Rust workspaces were not formatted with the repository toolchain | Run `cargo fmt --manifest-path src-tauri/Cargo.toml --all` and `cargo fmt --manifest-path cli/Cargo.toml --all`, inspect the changed files, then rerun `release-preflight`. |
 | `release-preflight` reports a source file one or two lines over 1200 | Test responsibilities accumulated in an inline or monolithic test module until formatting crossed the hard limit | Move a cohesive test group into a child module, verify both focused suites, then rerun `release-preflight`; do not hide the overflow by compacting whitespace. |
 | `release-preflight` fails under `-D warnings` for an enum field read only by tests | Production already logs the diagnostic, but an outcome variant retained a duplicate payload solely for a test assertion | Make the production outcome carry only consumed state and assert that state in the focused test; do not suppress `dead_code`. |
 | `release-preflight` fails with Clippy `never_loop` in a bounded silence oracle | The helper wrapped one `recv_timeout` in a loop even though every match arm returned on the first pass | Express the oracle as one bounded event wait, keep timeout/disconnect as silence, then rerun `release-preflight`; do not add a settle loop or sleep. |
+| `release-preflight` reports Clippy `err_expect` in a spawn refusal test | The assertion used `result.err().expect(...)` instead of matching the failure. | Use `expect_err` or `let Err(error) = result else { panic!(...) }` when the success type is not `Debug`; rerun preflight. |
 | `release-preflight` fails compiling `state_doctor` after a classifier signal rename/removal | The standalone testbench still consumed an obsolete `BoundarySignals` field that ordinary library tests do not compile | Update the doctor to the current structural signal and subtype ownership, then run the exact `state_doctor` test target before retrying preflight. |
 | PR `source-of-truth` reports prompt files missing from `docs/PROMPTS.md` | A new runtime or frozen-reference Markdown file was added under `src-tauri/prompts/` without registering its constant and ownership in the prompt inventory | Add every reported path to the prompt table, explain any frozen never-edit contract, bump the doc revision, then run `bash scripts/check-prompts-doc.sh` before pushing. |
 | `Release lock version mismatch` during a version bump | An older preflight checked lock versions before Cargo refreshed the workspace packages | Use the current `release-preflight`, which checks both manifests before verifying both lockfiles; commit the refreshed lockfiles, then retry. |
@@ -185,6 +189,7 @@ Sign out and back in for a repaired PATH to reach new processes.
 | CodeTerm restarts but the initiating tab does not resume | The continuation send failed or the Tab id changed before session persistence | Inspect `%LOCALAPPDATA%\codeterm\self-install.log`; the retained `%TEMP%\codeterm-continuation-*.txt` contains the undelivered intent. |
 | Self-install succeeds but gateway history reports `owner_lost` | An older build script kept the gateway owned until after the installer restarted CodeTerm and killed the calling Tab | Update the build scripts and run `build.ps1 install-local`; the current operation releases the verified build before detached installer handoff. Prove installation separately with `self-install.log`, port 7685 health, and `codeterm identify`. |
 | Repeated local install recompiles the full release graph | The clean-room `build` route was used instead of the persistent local cache | Use `build.ps1 install-local`; reserve `build` for public-release-equivalent verification. |
+| Local install cannot read Tauri permissions under a deleted release directory | A relocated Cargo target retained absolute build-script `root-output` paths. | `install-local` now detects mismatched output roots before Cargo, preserves that exact cache in a sibling `.relocated-*` directory, and regenerates its local target; it leaves current warm caches and the machine sccache intact. |
 | A focused Rust test spends most of its runtime linking app binaries | The test omitted `--lib`, so Cargo built unrelated binary test targets | Run the focused filter through `scripts/test-capped.sh ... --lib <filter>`. |
 | PowerShell drops the standalone `--` before `--nocapture`, so Cargo rejects `--nocapture` as its own option | Native argument forwarding consumed the test-harness separator before Git Bash received it | Run the exact wrapper command through `bash -lc 'scripts/test-capped.sh ... <filter> -- --nocapture'` so the separator reaches Cargo's test binary. |
 | `verify` fails `daemon_windows_spawns_use_no_window_helper` after adding a Rust test fixture that invokes Git | The fixture constructed `std::process::Command` directly, so Windows could flash a console and the repository spawn audit rejected it | Build the command in a mutable variable and call `crate::process_util::no_window_std(&mut command)` before execution; run the spawn audit and the owning focused test, then retry `verify`. |
@@ -321,6 +326,8 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 
 | Symptom | Cause | Recovery |
 |---|---|---|
+| Windows `npm run test:plugins` says `node` is not recognized before any suite starts | npm's command shell lost the Node executable directory although the parent PowerShell resolves it | Run `node scripts/run-plugin-tests.mjs provider-codex` from canonical; this repository runner pins its own Node directory for child suites. This launcher refusal is not a passing test result. |
+| A TS test runs in Node but verification reports TS2550 for `Array.at` | Node supports a newer library than the project's TypeScript target | Use indexed access in the test; keep the project target unchanged and rerun verification. |
 | Linux CI reaches `cargo fmt --check` and prints formatting diffs across otherwise green Rust changes | An integration wave merged source-only lanes without applying the repository rustfmt version before push | Run the two manifest-scoped `cargo fmt` commands from canonical, inspect the resulting file list, then rerun both checks before pushing. |
 | `pnpm exec tsc --noEmit` reports TS2367 after a test first asserts two literal provider ids and then compares them | The assertion function narrowed both values to disjoint literals, making the later boolean expression statically unconditional even though it documents invalidation | Use `assert.notEqual` for the cross-snapshot comparison so the mechanism remains checked without constructing an always-true expression. |
 | `npm run test:unit` terminates healthy workers at the same elapsed time while files are still passing | The TypeScript scheduler applied an implicit suite deadline, so repository growth was misclassified as a hang | Use the current uncapped default and let the suite finish. Set `TS_UNIT_TIMEOUT_SECONDS` or `TS_UNIT_SUITE_TIMEOUT_SECONDS` only for a targeted diagnostic. |
@@ -369,7 +376,7 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 | REST port-release fails only in the parallel macOS suite | Closing a real occupier races Darwin. | Inject the first bind failure, then prove recovery binds a healthy listener. |
 | Linux clippy rejects a test-only parameter | Only `cfg(test)` uses it. | Keep injection at the test call site, outside production signatures. |
 | Standalone crate tests fail after local `verify` passed | The old gate ran only the app package. | Use current `verify`; it runs every workspace library package to completion. |
-| CLI docs report `BUILD exceeds 24 KiB` | Troubleshooting grew too large. | Compress it or move detail to `BUILD-REFERENCE`. |
+| CLI docs report `BUILD exceeds 24 KiB` or `ORCHESTRATION exceeds 240 lines` | Troubleshooting or the compact operating contract outgrew its reading boundary. | Compress repetition or move detail to the named reference playbook; rerun `build.ps1 test-one cli registered_documents_have_one_title_and_fit_the_reading_boundary`. |
 | Windows plan-index reports `queue did not drain` | An inner deadline raced background work. | Wait on the queue condition and rely on the test process exit. |
 | Linux semantic search gets `Permission denied` or `Exec format error` for `codeterm-embed` | Clippy replaced the built runtime sidecar's mode or bytes. | Preserve the verified ELF before clippy, then restore its bytes and executable mode before tests. |
 
@@ -377,4 +384,18 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 
 Tooling, outputs, platform notes, and repository layout: `docs/BUILD-REFERENCE.md`. Test workflows: `codeterm docs TESTING`.
 
-<!-- revision: 126 -->
+### Windows provider launch verification
+
+If Codex exits with invalid TOML containing `developer_instructions = {"value":...}`,
+Windows PowerShell serialized `Get-Content` filesystem metadata instead of a plain
+string. Load instructions through `System.IO.File.ReadAllText`; run
+`node node_modules/tsx/dist/cli.mjs plugins/provider-codex/tests/windows-launch.test.ts`
+and a real dev spawn before local self-install. The regression executes the generated
+PowerShell command with an isolated profile and verifies exact instruction bytes.
+
+If `verify` fails because a review-capacity test expects a refusal at WIP saturation,
+update that owning test to the advisory contract and retain separate real-failure
+rollback coverage. Run `build.ps1 test-one app spawn_plan_task`, then `verify`;
+do not restore a hard gate merely to preserve an obsolete assertion.
+
+<!-- revision: 135 -->

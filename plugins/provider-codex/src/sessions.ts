@@ -63,6 +63,12 @@ export function sessionFilePath(_cwd: string, sessionId: string): string | null 
   return null;
 }
 
+export function sessionExists(_cwd: string, sessionId: string): boolean {
+  if (!sessionId) return false;
+  const store = codexSessionStore();
+  return store !== null && sessionIndexEntry(store.indexPath, sessionId) !== null;
+}
+
 export function detectSessionId(cwd: string, exclude?: string[] | string, maxAgeMs?: number): string | null {
   if (!cwd) return null;
   const store = codexSessionStore();

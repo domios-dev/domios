@@ -474,8 +474,7 @@ pub async fn refresh_live(
     let default = provider.default_model();
     // blocking pool. Use an independent executor, not `Handle::block_on` (deadlocks nested in spawn_blocking).
     let task = tokio::task::spawn_blocking(move || {
-        // A refresh that re-reads a memoized failed resolution rewrites the same
-        // wrong answer, so the memo is dropped before every probe, not after.
+        // A refresh must observe current filesystem and PATH state before live discovery.
         crate::js_runtime::forget_resolved_bins();
         let models = futures_executor::block_on(provider.discover_models())?;
         let models = sanitize_live(models);

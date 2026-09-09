@@ -42,15 +42,11 @@ GOAL → Spec (WHAT/WHY) ⊥ Plan (HOW) → Tasks → Strides
 - Strides record evidence, decisions, reports, and working points.
 - Do not replace planner state with a standalone markdown implementation plan.
 
-The Orchestrator states the GOAL and delegates planning to the Planner by default;
-the Planner drafts structure, and the Orchestrator approves or revises it,
-dispatches execution, judges reports, integrates accepted lanes, and owns cleanup.
+The Orchestrator states the GOAL and delegates planning by default; the Planner drafts structure, and the Orchestrator approves or revises it, dispatches execution, judges reports, integrates accepted lanes, and owns cleanup.
 A bound Planner's authority over sections and tasks is durable, not phase-scoped: it survives approval. Approval and dispatch stay the Orchestrator's alone.
 The Orchestrator may implement a genuinely small local change when delegation
 would cost more than the work, but Worker dispatch is the default for plan-owned source work. Never self-assign a normal implementation task merely because canonical is writable.
-When Team-bound, ordinary utility shells and cron jobs inherit the same Team so
-Team close and cleanup own their lifecycle. Use `--no-team` only when a resource
-must deliberately outlive that Team.
+When Team-bound, utility shells and cron jobs inherit the same Team for cleanup. Use `--no-team` only when a resource must deliberately outlive it.
 
 Plan-owned work is dispatched atomically with `codeterm plan task dispatch`,
 which spawns the Worker, assigns the task, and delivers the brief in one call.
@@ -216,10 +212,11 @@ review wave and canonical QA group. After real merge, the Orchestrator may fix a
 bounded mechanical integration defect directly in canonical. Bounce ownership,
 correctness, authority, scope, or design defects instead of grinding tiny edits.
 
-Review backpressure blocks ordinary implementation dispatch. A task that exists
-only to clear stranded review debt needs daemon-owned provenance. Task names,
-kinds, tags, and executor roles never grant capacity. The live bound
-Orchestrator authorizes the task explicitly:
+Review backlog and credit debt are advisory, not dispatch blockers. At the default five-review threshold, status and heartbeats warn the Orchestrator to prioritize review closures and avoid growing the backlog.
+Ordinary dispatch, competition, and respawn remain allowed without a capacity grant. Authorization, dependency, regression, and review-acceptance checks remain enforced; never fake acceptance or adjust credit merely to silence a warning.
+
+The following owner-only commands can still record review-work classification;
+they are not required for dispatch and do not grant additional authority:
 
 ```bash
 codeterm plan review authorize-capacity <plan> <task> --class review
@@ -237,4 +234,7 @@ codeterm plan review reconcile-credit <plan> --reason "<incident evidence>"
 ```
 Both mutations require the live bound Orchestrator session and record an immutable plan stride.
 For task-less review or canonical-QA evidence, the live Plan owner runs `codeterm plan review authorize-reporter <plan> <tab> --class review|canonical_qa`; the exact current session receives evidence-only authority. The tab reports with `codeterm agent report --plan <plan>` and no task/status, producing an immutable Plan stride and ordinary owner event without task transition or elevated authority. Missing, foreign, rebound, task-bound, or stale-owner grants fail before persistence or delivery and require reauthorization.
-<!-- revision: 73 -->
+Planner spawns through CLI, REST, and synchronous service callers resolve an omitted `--parent-tab` from the supplied Plan owner before provisioning. A missing owner refuses with the Plan identity and creates no tab; an explicit parent still wins.
+Fresh shells may omit `CODETERM_SESSION_ID`: evidence reporting resolves the exact registered tab session only with a matching stored and hook-reported nonce. Explicit wrong sessions and missing grants still refuse; never inject another tab's session.
+
+<!-- revision: 78 -->

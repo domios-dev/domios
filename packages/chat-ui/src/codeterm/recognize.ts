@@ -119,9 +119,20 @@ function codetermSegment(input: string): string | null {
   return i < tokens.length && BINARIES.has(basename(tokens[i])) ? input : null;
 }
 
+function isShellSetup(input: string): boolean {
+  const tokens = tokenize(input);
+  if (/^(?:cd|Set-Location)$/i.test(tokens[0] ?? "")) return tokens.length === 2;
+  return /^(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|\S*)$/.test(input)
+    || /^\$env:[A-Za-z_][A-Za-z0-9_]*\s*=\s*(?:"[^"]*"|'[^']*'|\S+)$/i.test(input);
+}
+
 export function recognize(command: string): CodetermInvocation | null {
   if (!command) return null;
-  const normalized = executableSegments(command).find((part) => codetermSegment(part) != null) ?? command;
+  const segments = executableSegments(command);
+  const actions = segments.filter((part) => !isShellSetup(part));
+  if (actions.length !== 1) return null;
+  const normalized = codetermSegment(actions[0]);
+  if (!normalized) return null;
 
   const tokens = tokenize(normalized);
   let i = commandStartIndex(tokens);
