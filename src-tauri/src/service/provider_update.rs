@@ -227,6 +227,62 @@ impl ProviderUpdateRegistry {
         if entry.phase != ProviderUpdatePhase::AwaitingConsent {
             return Err("Provider update prompt authority was already consumed".to_string());
         }
+        Ok(Self::claim_response_entry(entry, prompt_id, accept, principal))
+    }
+
+    fn claim_provider_responses(
+        &self,
+        prompt_id: &str,
+        accept: bool,
+        principals: &HashMap<String, ConsentPrincipal>,
+    ) -> Result<Vec<ClaimedResponse>, String> {
+        let mut entries = self.entries.lock();
+        let provider_id = entries
+            .get(prompt_id)
+            .ok_or_else(|| "Provider update prompt is no longer active".to_string())?
+            .provider_id
+            .clone();
+        let mut prompt_ids = vec![prompt_id.to_string()];
+        prompt_ids.extend(entries.values().filter_map(|entry| {
+            (entry.provider_id == provider_id
+                && entry.view.prompt_id != prompt_id
+                && entry.phase == ProviderUpdatePhase::AwaitingConsent)
+                .then_some(entry.view.prompt_id.clone())
+        }));
+        for target_id in &prompt_ids {
+            if !principals.contains_key(target_id) {
+                return Err("A provider update prompt lost its live tab".to_string());
+            }
+            if entries
+                .get(target_id)
+                .is_none_or(|entry| entry.phase != ProviderUpdatePhase::AwaitingConsent)
+            {
+                return Err("Provider update prompt authority was already consumed".to_string());
+            }
+        }
+        prompt_ids
+            .into_iter()
+            .map(|target_id| {
+                let principal = principals[&target_id];
+                let entry = entries
+                    .get_mut(&target_id)
+                    .ok_or_else(|| "Provider update prompt is no longer active".to_string())?;
+                Ok(Self::claim_response_entry(
+                    entry,
+                    &target_id,
+                    accept,
+                    principal,
+                ))
+            })
+            .collect()
+    }
+
+    fn claim_response_entry(
+        entry: &mut PendingProviderUpdate,
+        prompt_id: &str,
+        accept: bool,
+        principal: ConsentPrincipal,
+    ) -> ClaimedResponse {
         let decline_reason = match principal {
             ConsentPrincipal::Unauthorized(reason) => Some(reason),
             ConsentPrincipal::LocalInteractive if !accept => Some(DeclineReason::UserDeclined),
@@ -236,13 +292,37 @@ impl ProviderUpdateRegistry {
             entry.phase = ProviderUpdatePhase::Terminal;
             entry.view.status = ProviderUpdateStatus::Declined;
             entry.view.message = format!("Update declined: {}.", decline_reason_text(reason));
-            return Ok(ClaimedResponse::Decline(entry.clone(), reason));
+            return ClaimedResponse::Decline(entry.clone(), reason);
         }
         entry.phase = ProviderUpdatePhase::Deferred;
         entry.consent = Some(RecordedConsent {
             prompt_id: prompt_id.to_string(),
         });
-        Ok(ClaimedResponse::Accept(entry.clone()))
+        ClaimedResponse::Accept(entry.clone())
+    }
+
+    fn awaiting_provider_prompt_sources(&self, provider_id: &str) -> Vec<(String, String)> {
+        self.entries
+            .lock()
+            .values()
+            .filter(|entry| {
+                entry.provider_id == provider_id
+                    && entry.phase == ProviderUpdatePhase::AwaitingConsent
+            })
+            .map(|entry| (entry.view.prompt_id.clone(), entry.view.tab_id.clone()))
+            .collect()
+    }
+
+    fn provider_has_active_execution(&self, provider_id: &str) -> bool {
+        self.entries.lock().values().any(|entry| {
+            entry.provider_id == provider_id
+                && matches!(
+                    entry.phase,
+                    ProviderUpdatePhase::Deferred
+                        | ProviderUpdatePhase::Installing
+                        | ProviderUpdatePhase::Completing
+                )
+        })
     }
 
     fn defer(&self, prompt_id: &str, message: String) -> Option<PendingProviderUpdate> {
@@ -468,6 +548,7 @@ impl ServiceContext {
         if matches!(decision, PolicyDecision::AwaitConsent) {
             self.create_provider_update_notification(
                 prompt_id,
+                provider_id,
                 &entry.view.provider_name,
                 entry.view.message.clone(),
                 tab_id.to_string(),
@@ -514,41 +595,64 @@ impl ServiceContext {
             .provider_updates
             .get(prompt_id)
             .ok_or_else(|| "Provider update prompt is no longer active".to_string())?;
-        let receiver = self.events.subscribe();
-        let claimed = {
+        let provider_execution_started = self
+            .provider_updates
+            .provider_has_active_execution(&entry.provider_id);
+        let sources = self
+            .provider_updates
+            .awaiting_provider_prompt_sources(&entry.provider_id);
+        let principals = {
             let mux = self.mux.read();
-            let tab = mux
-                .get_tab(&entry.view.tab_id)
-                .ok_or_else(|| "Provider update tab is no longer available".to_string())?;
-            self.provider_updates.claim_response(
-                prompt_id,
-                accept,
-                consent_principal(tab.audience, tab.report_target_mesh_peer.is_some()),
-            )?
+            sources
+                .into_iter()
+                .map(|(target_id, tab_id)| {
+                    let principal = mux
+                        .get_tab(&tab_id)
+                        .map(|tab| {
+                            consent_principal(tab.audience, tab.report_target_mesh_peer.is_some())
+                        })
+                        .unwrap_or(ConsentPrincipal::Unauthorized(DeclineReason::StalePrompt));
+                    (target_id, principal)
+                })
+                .collect()
         };
-        match claimed {
-            ClaimedResponse::Decline(entry, reason) => {
-                self.resolve_provider_update_notification(prompt_id);
-                self.emit_provider_update(&entry.view);
-                self.write_provider_update_keys(&entry, &entry.decline_writes)?;
-                log::info!(
-                    "[provider-update] prompt consumed decision=decline prompt={} tab={} provider={} reason={:?}",
-                    prompt_id,
-                    entry.view.tab_id,
-                    entry.provider_id,
-                    reason
-                );
-            }
-            ClaimedResponse::Accept(entry) => {
-                self.resolve_provider_update_notification(prompt_id);
-                log::info!(
-                    "[provider-update] prompt consumed authority=local_interactive prompt={} tab={} provider={}",
-                    prompt_id,
-                    entry.view.tab_id,
-                    entry.provider_id
-                );
-                if !self.try_execute_provider_update(prompt_id)? {
-                    self.start_provider_update_waiter(prompt_id.to_string(), receiver);
+        let mut receiver = Some(self.events.subscribe());
+        let claimed = self
+            .provider_updates
+            .claim_provider_responses(prompt_id, accept, &principals)?;
+        self.resolve_provider_update_notification(prompt_id);
+        let mut execution_started = provider_execution_started;
+        for claimed in claimed {
+            match claimed {
+                ClaimedResponse::Decline(entry, reason) => {
+                    self.emit_provider_update(&entry.view);
+                    self.write_provider_update_keys(&entry, &entry.decline_writes)?;
+                    log::info!(
+                        "[provider-update] prompt consumed decision=decline prompt={} tab={} provider={} reason={:?}",
+                        entry.view.prompt_id,
+                        entry.view.tab_id,
+                        entry.provider_id,
+                        reason
+                    );
+                }
+                ClaimedResponse::Accept(entry) => {
+                    log::info!(
+                        "[provider-update] prompt consumed authority=local_interactive prompt={} tab={} provider={}",
+                        entry.view.prompt_id,
+                        entry.view.tab_id,
+                        entry.provider_id
+                    );
+                    if execution_started {
+                        self.finish_converged_provider_update(entry);
+                    } else {
+                        execution_started = true;
+                        let prompt_id = entry.view.prompt_id.clone();
+                        if !self.try_execute_provider_update(&prompt_id)? {
+                            if let Some(receiver) = receiver.take() {
+                                self.start_provider_update_waiter(prompt_id, receiver);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -988,6 +1092,18 @@ impl ServiceContext {
         );
         entry.view.status = ProviderUpdateStatus::Failed;
         entry.view.message = message.to_string();
+        self.emit_provider_update(&entry.view);
+    }
+
+    fn finish_converged_provider_update(&self, mut entry: PendingProviderUpdate) {
+        let message = "Provider update approval was handled by another tab.".to_string();
+        self.provider_updates.finish(
+            entry.clone(),
+            ProviderUpdateStatus::Installing,
+            message.clone(),
+        );
+        entry.view.status = ProviderUpdateStatus::Installing;
+        entry.view.message = message;
         self.emit_provider_update(&entry.view);
     }
 }

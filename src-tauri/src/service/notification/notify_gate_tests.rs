@@ -212,6 +212,7 @@ fn notify_gate_leaves_non_agent_routes_unchanged() {
 
     let id = create_notification_with_delivery(
         NotificationAdmission::ProviderUpdate {
+            provider_id: "codex".into(),
             prompt_id: "prompt_1".into(),
         },
         &sinks.store,
