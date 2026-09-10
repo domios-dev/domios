@@ -214,24 +214,6 @@ impl ProviderUpdateRegistry {
         Ok(())
     }
 
-    fn claim_response(
-        &self,
-        prompt_id: &str,
-        accept: bool,
-        principal: ConsentPrincipal,
-    ) -> Result<ClaimedResponse, String> {
-        let mut entries = self.entries.lock();
-        let entry = entries
-            .get_mut(prompt_id)
-            .ok_or_else(|| "Provider update prompt is no longer active".to_string())?;
-        if entry.phase != ProviderUpdatePhase::AwaitingConsent {
-            return Err("Provider update prompt authority was already consumed".to_string());
-        }
-        Ok(Self::claim_response_entry(
-            entry, prompt_id, accept, principal,
-        ))
-    }
-
     fn claim_provider_responses(
         &self,
         prompt_id: &str,
