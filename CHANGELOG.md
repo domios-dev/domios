@@ -60,6 +60,17 @@ lives in `git log` with no aggregated narrative.
   (`skills/codeterm/SKILL.md` + `references/telegram.md`) gained a
   `bridge migrate` quick-reference.
 
+### Fixed
+
+- **Team bootstrap no longer burns a turn on a readiness ping.** A freshly
+  paired Planner read "say you are ready" as "tell the Orchestrator", wrote a
+  pad file and sent it across, which forced the Orchestrator to wake, read and
+  reply before the user had stated any goal. Both idle wake-up surfaces
+  (`prompts/team_bootstrap_starter.md`, `prompts/planner_suffix.md`) now keep
+  the acknowledgement inside the agent's own tab and name the counterpart
+  message as reserved for a draft, decision, evidence or state change. A
+  prompt-surface regression test guards both.
+
 ## [1.1.14] — 2026-05-05
 
 Patch: stop the periodic console-window flash users were seeing on
