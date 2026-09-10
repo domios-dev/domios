@@ -243,7 +243,7 @@ export function NotificationToastContainer({
 
   if (embedded) {
     return (
-      <div className="flex h-full min-w-0 max-w-[min(620px,48vw)] items-center gap-1 overflow-hidden pl-1">
+      <div className="flex h-full min-w-0 max-w-[min(620px,48vw)] flex-1 items-center justify-end gap-1 overflow-hidden pl-1">
         {hiddenCount > 0 && (
           <div className="ct-toast-pending">
             <Check size={10} />
