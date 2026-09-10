@@ -2,7 +2,7 @@ use serde::Serialize;
 
 use super::session_binding_deferral::{DeferredSessionBinding, RefusedSessionBinding};
 use super::ServiceContext;
-use crate::multiplexer::types::TabBacking;
+use crate::multiplexer::types::{PriorBindingNonce, TabBacking};
 use codeterm_types::pty::BootStage;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -11,6 +11,7 @@ pub(crate) enum SessionBindingStateKind {
     Healthy,
     DeferredPending,
     Refused,
+    NeverBound,
     Unbound,
     StalePending,
 }
@@ -33,10 +34,15 @@ fn deferral_holds_current_session(
     current_session_id == Some(binding.previous_session_id.as_str())
 }
 
+fn has_prior_session_binding(lineage: &[PriorBindingNonce]) -> bool {
+    lineage.iter().any(|entry| entry.session_id.is_some())
+}
+
 fn classify_session_binding_state(
     tab_id: &str,
     current_session_id: Option<&str>,
     agent_alive: bool,
+    prior_session_binding_nonces: &[PriorBindingNonce],
     pending: Option<DeferredSessionBinding>,
     refused: Option<RefusedSessionBinding>,
 ) -> SessionBindingState {
@@ -73,7 +79,11 @@ fn classify_session_binding_state(
     SessionBindingState {
         tab_id: tab_id.to_string(),
         kind: if agent_alive && current_session_id.is_none() {
-            SessionBindingStateKind::Unbound
+            if has_prior_session_binding(prior_session_binding_nonces) {
+                SessionBindingStateKind::Unbound
+            } else {
+                SessionBindingStateKind::NeverBound
+            }
         } else {
             SessionBindingStateKind::Healthy
         },
@@ -85,7 +95,7 @@ fn classify_session_binding_state(
 
 impl ServiceContext {
     pub(crate) fn session_binding_state(&self, tab_id: &str) -> Option<SessionBindingState> {
-        let (current_session_id, agent_alive) = {
+        let (current_session_id, agent_alive, prior_session_binding_nonces) = {
             let mux = self.mux.read();
             let tab = mux.get_tab(tab_id)?;
             (
@@ -96,12 +106,14 @@ impl ServiceContext {
                         tab.boot_stage,
                         Some(BootStage::AgentReady | BootStage::PtyReattached)
                     ),
+                tab.prior_session_binding_nonces.clone(),
             )
         };
         Some(classify_session_binding_state(
             tab_id,
             current_session_id.as_deref(),
             agent_alive,
+            &prior_session_binding_nonces,
             self.deferred_session_bindings.pending(tab_id),
             self.deferred_session_bindings.refused(tab_id),
         ))
@@ -154,12 +166,20 @@ mod tests {
         }
     }
 
+    fn prior_session(session_id: &str) -> Vec<PriorBindingNonce> {
+        vec![PriorBindingNonce {
+            session_id: Some(session_id.into()),
+            nonce: "prior-nonce".into(),
+        }]
+    }
+
     #[test]
     fn session_binding_state_distinguishes_pending_from_stale_pending() {
         let deferred = classify_session_binding_state(
             "tab-a",
             Some("previous"),
             false,
+            &[],
             Some(pending("previous")),
             None,
         );
@@ -167,6 +187,7 @@ mod tests {
             "tab-a",
             Some("replacement"),
             true,
+            &prior_session("previous"),
             Some(pending("previous")),
             None,
         );
@@ -185,25 +206,47 @@ mod tests {
             "tab-a",
             Some("previous"),
             true,
+            &[],
             None,
             Some(refusal.clone()),
         );
         assert_eq!(state.kind, SessionBindingStateKind::Refused);
         assert_eq!(state.requested_session_id.as_deref(), Some("requested"));
         let superseded =
-            classify_session_binding_state("tab-a", Some("replacement"), true, None, Some(refusal));
+            classify_session_binding_state(
+                "tab-a",
+                Some("replacement"),
+                true,
+                &[],
+                None,
+                Some(refusal),
+            );
         assert_eq!(superseded.kind, SessionBindingStateKind::Healthy);
     }
 
     #[test]
     fn session_binding_state_exposes_live_agent_without_session() {
-        let state = classify_session_binding_state("tab-a", None, true, None, None);
-        assert_eq!(state.kind, SessionBindingStateKind::Unbound);
+        let state = classify_session_binding_state("tab-a", None, true, &[], None, None);
+        assert_eq!(state.kind, SessionBindingStateKind::NeverBound);
+    }
+
+    #[test]
+    fn session_binding_state_distinguishes_never_bound_from_lost() {
+        let never_bound = classify_session_binding_state("tab-a", None, true, &[], None, None);
+        let prior = prior_session("previous");
+        let lost = classify_session_binding_state("tab-a", None, true, &prior, None, None);
+
+        assert_eq!(never_bound.kind, SessionBindingStateKind::NeverBound);
+        assert_eq!(lost.kind, SessionBindingStateKind::Unbound);
+        assert_eq!(never_bound.current_session_id, None);
+        assert_eq!(lost.current_session_id, None);
     }
 
     #[test]
     fn session_binding_state_keeps_bound_tab_healthy() {
-        let state = classify_session_binding_state("tab-a", Some("current"), true, None, None);
+        let state = classify_session_binding_state(
+            "tab-a", Some("current"), true, &[], None, None,
+        );
         assert_eq!(state.kind, SessionBindingStateKind::Healthy);
         assert_eq!(state.current_session_id.as_deref(), Some("current"));
     }
@@ -216,6 +259,7 @@ mod tests {
             "tab-a",
             Some("previous"),
             true,
+            &prior_session("previous"),
             Some(pending("previous")),
             None,
         );
@@ -232,6 +276,7 @@ mod tests {
             "tab-a",
             Some("previous"),
             false,
+            &prior_session("previous"),
             Some(pending("previous")),
             None,
         );
@@ -250,6 +295,7 @@ mod tests {
             "tab-a",
             Some("replacement"),
             true,
+            &[],
             Some(pending("previous")),
             None,
         );
@@ -259,6 +305,7 @@ mod tests {
             "tab-a",
             Some("previous"),
             true,
+            &[],
             None,
             Some(RefusedSessionBinding {
                 session_id: "requested".into(),
@@ -269,7 +316,14 @@ mod tests {
         assert_eq!(refused.kind, SessionBindingStateKind::Refused);
         assert_eq!(refused.reason.as_deref(), Some("refused"));
 
-        let unbound = classify_session_binding_state("tab-a", None, true, None, None);
+        let unbound = classify_session_binding_state(
+            "tab-a",
+            None,
+            true,
+            &prior_session("previous"),
+            None,
+            None,
+        );
         assert_eq!(unbound.kind, SessionBindingStateKind::Unbound);
     }
 
