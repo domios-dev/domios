@@ -38,7 +38,7 @@ const tests: Test[] = [
     assert(surface.agentState?.state === "quiet", "a refused daemon fact reaches the quiet rail");
     assert(surface.showRecoveryAction, "the refusal exposes recovery without a status sequence");
   }],
-  ["binding_state_surface gives all five daemon states their stated outcome", () => {
+  ["binding_state_surface gives all daemon states their stated outcome", () => {
     const deferred = sessionBindingSurfaceFromFact("tab-a", "session-a", fact("deferred_pending"));
     const refused = sessionBindingSurfaceFromFact("tab-a", "session-a", fact("refused"));
     const unbound = sessionBindingSurfaceFromFact(
@@ -75,14 +75,23 @@ const tests: Test[] = [
     assert(first.agentState === null, "the sibling refusal cannot contaminate this healthy tab");
     assert(second.agentState === null, "this tab's healthy fact cannot clear a sibling verdict");
   }],
-  ["binding_state_surface handles the live agent with no registry entry or session id", () => {
+  ["binding_state_surface_silences_never_bound_launch", () => {
+    const surface = sessionBindingSurfaceFromFact(
+      "tab-a",
+      null,
+      fact("never_bound", { current_session_id: null }),
+    );
+    assert(surface.agentState === null, "a never-bound launch stays silent");
+    assert(!surface.showRecoveryAction, "a never-bound launch exposes no repair action");
+  }],
+  ["binding_state_surface_keeps_recovery_for_lost_binding", () => {
     const surface = sessionBindingSurfaceFromFact(
       "tab-a",
       null,
       fact("unbound", { current_session_id: null }),
     );
-    assert(surface.agentState?.state === "quiet", "the #291 route does not fall through as healthy");
-    assert(surface.showRecoveryAction, "the unbound tab offers the recovery mechanism");
+    assert(surface.agentState?.status_line === "Session not connected", "a lost binding exposes the required status");
+    assert(surface.showRecoveryAction, "a lost binding keeps the repair action");
   }],
   ["binding_state_surface silences a fact carrying a foreign current session", () => {
     const foreign = sessionBindingSurfaceFromFact(
