@@ -1219,3 +1219,14 @@ fn idle_wake_up_surfaces_keep_the_acknowledgement_in_the_tab() {
         );
     }
 }
+
+/// Silencing only the wake-up leaves the same defect available every later
+/// turn. The Planner surface must state the standing cost of a message, not
+/// just the one it is forbidden to send at launch.
+#[test]
+fn planner_surface_prices_every_message_to_the_orchestrator() {
+    assert!(
+        PLANNER_SUFFIX.contains("a bare acknowledgement, a restatement, or a readiness note is not sent at all"),
+        "the Planner surface must refuse contentless messages for the whole session, not only at wake-up"
+    );
+}
