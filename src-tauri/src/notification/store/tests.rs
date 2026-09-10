@@ -110,7 +110,7 @@ fn provider_update_notification_is_actionable_deduplicated_and_resolvable() {
     let actions = vec![NotificationAction::Invoke {
         label: "Update".into(),
         command: codeterm_types::notification::DaemonCommand::RespondProviderUpdatePrompt,
-        args: None,
+        args: Some(serde_json::json!({ "promptId": "prompt-1", "accept": true })),
     }];
     let provenance = NotificationProvenance {
         tab_id: Some("tab-1".into()),
@@ -119,6 +119,7 @@ fn provider_update_notification_is_actionable_deduplicated_and_resolvable() {
         peer_name: None,
     };
     let first = store.add_provider_update(
+        "codex".into(),
         "prompt-1".into(),
         "Update available".into(),
         "Install separately".into(),
@@ -126,6 +127,7 @@ fn provider_update_notification_is_actionable_deduplicated_and_resolvable() {
         provenance.clone(),
     );
     let second = store.add_provider_update(
+        "codex".into(),
         "prompt-1".into(),
         "Duplicate".into(),
         "Duplicate".into(),
@@ -144,10 +146,78 @@ fn provider_update_notification_is_actionable_deduplicated_and_resolvable() {
 }
 
 #[test]
-fn provider_updates_coalesce_into_one_live_actionable_record() {
+fn provider_updates_for_one_provider_keep_one_action_pair_and_resolve_together() {
     let mut store = NotificationStore::new(100);
-    let action = |prompt: &str| NotificationAction::Invoke {
-        label: format!("Update {prompt}"),
+    const ACTION_LABELS: [&str; 2] = ["Update Codex", "Not now — Codex"];
+    let actions = |prompt: &str| vec![
+        NotificationAction::Invoke {
+            label: ACTION_LABELS[0].into(),
+            command: codeterm_types::notification::DaemonCommand::RespondProviderUpdatePrompt,
+            args: Some(serde_json::json!({ "promptId": prompt, "accept": true })),
+        },
+        NotificationAction::Invoke {
+            label: ACTION_LABELS[1].into(),
+            command: codeterm_types::notification::DaemonCommand::RespondProviderUpdatePrompt,
+            args: Some(serde_json::json!({ "promptId": prompt, "accept": false })),
+        },
+    ];
+    let provenance = NotificationProvenance {
+        tab_id: Some("tab-1".into()),
+        tab_title: Some("Agent".into()),
+        workspace_id: Some("workspace-1".into()),
+        peer_name: None,
+    };
+    let first = store.add_provider_update(
+        "codex".into(),
+        "prompt-a".into(),
+        "Codex update available".into(),
+        "Codex is ready".into(),
+        actions("prompt-a"),
+        provenance.clone(),
+    );
+    let second = store.add_provider_update(
+        "codex".into(),
+        "prompt-b".into(),
+        "Codex update available".into(),
+        "Codex is ready in another tab".into(),
+        actions("prompt-b"),
+        NotificationProvenance {
+            tab_id: Some("tab-2".into()),
+            ..provenance
+        },
+    );
+    let id = match first {
+        DedupAdmission::Added(id) => id,
+        other => panic!("unexpected first admission: {other:?}"),
+    };
+    assert_eq!(second, DedupAdmission::Coalesced(id.clone()));
+    let records = store.list(false);
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].actions.as_ref().map(Vec::len), Some(2));
+    let labels: Vec<&str> = records[0]
+        .actions
+        .as_ref()
+        .unwrap()
+        .iter()
+        .map(|action| match action {
+            NotificationAction::Invoke { label, .. } => label.as_str(),
+            _ => panic!("provider update actions must be invokes"),
+        })
+        .collect();
+    assert_eq!(labels, ACTION_LABELS);
+
+    assert!(store.resolve_provider_update("prompt-b").is_none());
+    assert_eq!(store.list(false).len(), 1);
+    assert_eq!(store.resolve_provider_update("prompt-a"), Some(id.clone()));
+    assert!(store.list(false).is_empty());
+    assert!(store.resolve_provider_update("prompt-b").is_none());
+}
+
+#[test]
+fn provider_updates_for_different_providers_keep_independent_action_pairs() {
+    let mut store = NotificationStore::new(100);
+    let action = |prompt: &str, label: &str| NotificationAction::Invoke {
+        label: label.into(),
         command: codeterm_types::notification::DaemonCommand::RespondProviderUpdatePrompt,
         args: Some(serde_json::json!({ "promptId": prompt, "accept": true })),
     };
@@ -158,32 +228,38 @@ fn provider_updates_coalesce_into_one_live_actionable_record() {
         peer_name: None,
     };
     let first = store.add_provider_update(
+        "codex".into(),
         "prompt-a".into(),
-        "Provider A update".into(),
-        "A is ready".into(),
-        vec![action("prompt-a")],
+        "Provider update available".into(),
+        "An update is ready".into(),
+        vec![action("prompt-a", "Update Codex"), action("prompt-a", "Not now — Codex")],
         provenance.clone(),
     );
     let second = store.add_provider_update(
+        "claude".into(),
         "prompt-b".into(),
-        "Provider B update".into(),
-        "B is ready".into(),
-        vec![action("prompt-b")],
+        "Provider update available".into(),
+        "An update is ready".into(),
+        vec![action("prompt-b", "Update Claude"), action("prompt-b", "Not now — Claude")],
         provenance,
     );
     let id = match first {
         DedupAdmission::Added(id) => id,
         other => panic!("unexpected first admission: {other:?}"),
     };
-    assert_eq!(second, DedupAdmission::Coalesced(id.clone()));
+    let claude_id = match second {
+        DedupAdmission::Added(id) => id,
+        other => panic!("unexpected second admission: {other:?}"),
+    };
+    assert_ne!(id, claude_id);
     let records = store.list(false);
-    assert_eq!(records.len(), 1);
-    assert_eq!(records[0].actions.as_ref().map(Vec::len), Some(2));
+    assert_eq!(records.len(), 2);
+    assert!(records.iter().all(|record| record.actions.as_ref().map(Vec::len) == Some(2)));
 
     assert_eq!(store.resolve_provider_update("prompt-a"), Some(id.clone()));
     assert_eq!(store.list(false).len(), 1);
-    assert_eq!(store.list(false)[0].actions.as_ref().map(Vec::len), Some(1));
-    assert_eq!(store.resolve_provider_update("prompt-b"), Some(id));
+    assert_eq!(store.list(false)[0].id, claude_id);
+    assert_eq!(store.resolve_provider_update("prompt-b"), Some(claude_id));
     assert!(store.list(false).is_empty());
 }
 
@@ -208,6 +284,7 @@ fn stale_provider_update_mappings_are_pruned_when_their_record_is_evicted() {
     };
 
     let first = store.add_provider_update(
+        "codex".into(),
         "prompt-a".into(),
         "Codex update available".into(),
         "1.2.3 is ready".into(),
@@ -239,6 +316,7 @@ fn stale_provider_update_mappings_are_pruned_when_their_record_is_evicted() {
     );
 
     let second = store.add_provider_update(
+        "codex".into(),
         "prompt-b".into(),
         "Codex update available".into(),
         "1.2.4 is ready".into(),

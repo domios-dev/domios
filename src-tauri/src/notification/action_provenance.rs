@@ -141,6 +141,7 @@ fn action_provenance_daemon_invoke_action_survives_construction_and_storage() {
         args: Some(serde_json::json!({ "promptId": "prompt-1", "accept": true })),
     }];
     let admitted = store.add_provider_update(
+        "codex".into(),
         "prompt-1".into(),
         "Update available".into(),
         "Install separately".into(),
