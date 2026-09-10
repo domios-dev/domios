@@ -17,10 +17,26 @@ on:
 
 jobs:
   cli-doctor:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux-build]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+
+      # The Linux runner service PATH can miss rustc even when rustup is
+      # installed for the runner user (same guard as tests.yml).
+      - name: Ensure Rust toolchain on PATH
+        run: |
+          if command -v rustc >/dev/null 2>&1; then rustc -vV; exit 0; fi
+          for dir in "$CARGO_HOME/bin" "$HOME/.cargo/bin" /home/*/.cargo/bin; do
+            if [ -x "$dir/rustc" ]; then
+              echo "$dir" >> "$GITHUB_PATH"
+              "$dir/rustc" -vV
+              exit 0
+            fi
+          done
+          echo "rustc not found; restore Rust on the runner" >&2
+          exit 1
+
       - name: cli manifest + doctor tests
         working-directory: cli
         run: cargo test -p codeterm-cli cmd::manifest
@@ -29,7 +45,7 @@ jobs:
         run: cargo test -p codeterm-cli plugin_subcommands_parse
 
   chat-card-tests:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux-build]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
