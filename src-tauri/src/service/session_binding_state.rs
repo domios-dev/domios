@@ -212,15 +212,14 @@ mod tests {
         );
         assert_eq!(state.kind, SessionBindingStateKind::Refused);
         assert_eq!(state.requested_session_id.as_deref(), Some("requested"));
-        let superseded =
-            classify_session_binding_state(
-                "tab-a",
-                Some("replacement"),
-                true,
-                &[],
-                None,
-                Some(refusal),
-            );
+        let superseded = classify_session_binding_state(
+            "tab-a",
+            Some("replacement"),
+            true,
+            &[],
+            None,
+            Some(refusal),
+        );
         assert_eq!(superseded.kind, SessionBindingStateKind::Healthy);
     }
 
@@ -244,9 +243,7 @@ mod tests {
 
     #[test]
     fn session_binding_state_keeps_bound_tab_healthy() {
-        let state = classify_session_binding_state(
-            "tab-a", Some("current"), true, &[], None, None,
-        );
+        let state = classify_session_binding_state("tab-a", Some("current"), true, &[], None, None);
         assert_eq!(state.kind, SessionBindingStateKind::Healthy);
         assert_eq!(state.current_session_id.as_deref(), Some("current"));
     }

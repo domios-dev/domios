@@ -441,8 +441,7 @@ impl NotificationStore {
         if let Some(id) = self.provider_updates.get(&provider_id).cloned() {
             if let Some(notification) = self.notifications.iter_mut().find(|item| item.id == id) {
                 notification.read = false;
-                self.provider_update_prompts
-                    .insert(prompt_id, provider_id);
+                self.provider_update_prompts.insert(prompt_id, provider_id);
                 return DedupAdmission::Coalesced(id);
             }
             self.provider_updates.remove(&provider_id);
@@ -456,7 +455,8 @@ impl NotificationStore {
             Some(true),
             None,
         );
-        self.provider_updates.insert(provider_id.clone(), id.clone());
+        self.provider_updates
+            .insert(provider_id.clone(), id.clone());
         self.provider_update_prompts.insert(prompt_id, provider_id);
         DedupAdmission::Added(id)
     }
@@ -465,10 +465,11 @@ impl NotificationStore {
         let provider_id = self.provider_update_prompts.get(prompt_id)?.clone();
         let id = self.provider_updates.get(&provider_id)?.clone();
         if let Some(notification) = self.notifications.iter().find(|item| item.id == id) {
-            let target_is_valid = notification
-                .actions
-                .as_deref()
-                .is_some_and(|actions| actions.iter().any(|action| action_targets_prompt(action, prompt_id)));
+            let target_is_valid = notification.actions.as_deref().is_some_and(|actions| {
+                actions
+                    .iter()
+                    .any(|action| action_targets_prompt(action, prompt_id))
+            });
             if !target_is_valid {
                 return None;
             }
@@ -510,7 +511,8 @@ impl NotificationStore {
             Some(id) => {
                 self.notifications.retain(|n| n.id != id);
                 self.provider_updates.retain(|_, value| value != id);
-                let live_providers: HashSet<String> = self.provider_updates.keys().cloned().collect();
+                let live_providers: HashSet<String> =
+                    self.provider_updates.keys().cloned().collect();
                 self.provider_update_prompts
                     .retain(|_, provider| live_providers.contains(provider));
                 self.close_push_slot_for(id);

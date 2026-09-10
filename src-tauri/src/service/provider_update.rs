@@ -227,7 +227,9 @@ impl ProviderUpdateRegistry {
         if entry.phase != ProviderUpdatePhase::AwaitingConsent {
             return Err("Provider update prompt authority was already consumed".to_string());
         }
-        Ok(Self::claim_response_entry(entry, prompt_id, accept, principal))
+        Ok(Self::claim_response_entry(
+            entry, prompt_id, accept, principal,
+        ))
     }
 
     fn claim_provider_responses(
@@ -268,10 +270,7 @@ impl ProviderUpdateRegistry {
                     .get_mut(&target_id)
                     .ok_or_else(|| "Provider update prompt is no longer active".to_string())?;
                 Ok(Self::claim_response_entry(
-                    entry,
-                    &target_id,
-                    accept,
-                    principal,
+                    entry, &target_id, accept, principal,
                 ))
             })
             .collect()
@@ -617,9 +616,9 @@ impl ServiceContext {
                 .collect()
         };
         let mut receiver = Some(self.events.subscribe());
-        let claimed = self
-            .provider_updates
-            .claim_provider_responses(prompt_id, accept, &principals)?;
+        let claimed =
+            self.provider_updates
+                .claim_provider_responses(prompt_id, accept, &principals)?;
         self.resolve_provider_update_notification(prompt_id);
         let mut execution_started = provider_execution_started;
         for claimed in claimed {
