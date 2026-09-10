@@ -475,7 +475,7 @@ jobs:
     name: publish Windows completion signal
     if: ${{ always() }}
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux-build]
     permissions:
       actions: read
       contents: write

@@ -44,7 +44,7 @@ concurrency:
 jobs:
   guards:
     name: gateway guards
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux-build]
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
