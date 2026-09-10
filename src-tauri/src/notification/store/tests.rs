@@ -149,18 +149,20 @@ fn provider_update_notification_is_actionable_deduplicated_and_resolvable() {
 fn provider_updates_for_one_provider_keep_one_action_pair_and_resolve_together() {
     let mut store = NotificationStore::new(100);
     const ACTION_LABELS: [&str; 2] = ["Update Codex", "Not now — Codex"];
-    let actions = |prompt: &str| vec![
-        NotificationAction::Invoke {
-            label: ACTION_LABELS[0].into(),
-            command: codeterm_types::notification::DaemonCommand::RespondProviderUpdatePrompt,
-            args: Some(serde_json::json!({ "promptId": prompt, "accept": true })),
-        },
-        NotificationAction::Invoke {
-            label: ACTION_LABELS[1].into(),
-            command: codeterm_types::notification::DaemonCommand::RespondProviderUpdatePrompt,
-            args: Some(serde_json::json!({ "promptId": prompt, "accept": false })),
-        },
-    ];
+    let actions = |prompt: &str| {
+        vec![
+            NotificationAction::Invoke {
+                label: ACTION_LABELS[0].into(),
+                command: codeterm_types::notification::DaemonCommand::RespondProviderUpdatePrompt,
+                args: Some(serde_json::json!({ "promptId": prompt, "accept": true })),
+            },
+            NotificationAction::Invoke {
+                label: ACTION_LABELS[1].into(),
+                command: codeterm_types::notification::DaemonCommand::RespondProviderUpdatePrompt,
+                args: Some(serde_json::json!({ "promptId": prompt, "accept": false })),
+            },
+        ]
+    };
     let provenance = NotificationProvenance {
         tab_id: Some("tab-1".into()),
         tab_title: Some("Agent".into()),
@@ -232,7 +234,10 @@ fn provider_updates_for_different_providers_keep_independent_action_pairs() {
         "prompt-a".into(),
         "Provider update available".into(),
         "An update is ready".into(),
-        vec![action("prompt-a", "Update Codex"), action("prompt-a", "Not now — Codex")],
+        vec![
+            action("prompt-a", "Update Codex"),
+            action("prompt-a", "Not now — Codex"),
+        ],
         provenance.clone(),
     );
     let second = store.add_provider_update(
@@ -240,7 +245,10 @@ fn provider_updates_for_different_providers_keep_independent_action_pairs() {
         "prompt-b".into(),
         "Provider update available".into(),
         "An update is ready".into(),
-        vec![action("prompt-b", "Update Claude"), action("prompt-b", "Not now — Claude")],
+        vec![
+            action("prompt-b", "Update Claude"),
+            action("prompt-b", "Not now — Claude"),
+        ],
         provenance,
     );
     let id = match first {
@@ -254,7 +262,9 @@ fn provider_updates_for_different_providers_keep_independent_action_pairs() {
     assert_ne!(id, claude_id);
     let records = store.list(false);
     assert_eq!(records.len(), 2);
-    assert!(records.iter().all(|record| record.actions.as_ref().map(Vec::len) == Some(2)));
+    assert!(records
+        .iter()
+        .all(|record| record.actions.as_ref().map(Vec::len) == Some(2)));
 
     assert_eq!(store.resolve_provider_update("prompt-a"), Some(id.clone()));
     assert_eq!(store.list(false).len(), 1);
