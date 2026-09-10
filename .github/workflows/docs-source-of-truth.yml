@@ -22,7 +22,7 @@ on:
 
 jobs:
   source-of-truth:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux-build]
     steps:
       - uses: actions/checkout@v4
         with:

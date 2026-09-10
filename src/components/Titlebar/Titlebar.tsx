@@ -121,7 +121,7 @@ export function Titlebar({
 
       <div className="min-w-0 flex-1" data-tauri-drag-region />
 
-      <div className="flex shrink-0 items-center h-full gap-0.5 pr-1 sm:gap-1 sm:pr-1.5">
+      <div className="flex min-w-0 flex-1 items-center justify-end h-full overflow-hidden">
         {onDismissToast && (
           <NotificationToastContainer
             toasts={toasts}
@@ -131,25 +131,27 @@ export function Titlebar({
             embedded
           />
         )}
-        {showBell && onMarkNotificationRead && onMarkAllNotificationsRead && onDeleteNotification && onClearNotifications && onNavigateToast && (
-          <NotificationBell
-            notifications={notifications}
-            onMarkRead={onMarkNotificationRead}
-            onMarkAllRead={onMarkAllNotificationsRead}
-            onDelete={onDeleteNotification}
-            onClearAll={onClearNotifications}
-            onNavigate={onNavigateToast}
-            onAnswer={onAnswerNotification}
-          />
-        )}
-        {onOpenExtensions && <ExtensionsTray onOpen={onOpenExtensions} />}
-        <KeepAwakeTray />
-        {onOpenSettings && (
-          <>
-            <span className={UI_TRAY_DIVIDER} aria-hidden />
-            <SettingsMenu onOpenSection={onOpenSettings} />
-          </>
-        )}
+        <div className="flex shrink-0 items-center gap-0.5 pr-1 sm:gap-1 sm:pr-1.5">
+          {showBell && onMarkNotificationRead && onMarkAllNotificationsRead && onDeleteNotification && onClearNotifications && onNavigateToast && (
+            <NotificationBell
+              notifications={notifications}
+              onMarkRead={onMarkNotificationRead}
+              onMarkAllRead={onMarkAllNotificationsRead}
+              onDelete={onDeleteNotification}
+              onClearAll={onClearNotifications}
+              onNavigate={onNavigateToast}
+              onAnswer={onAnswerNotification}
+            />
+          )}
+          {onOpenExtensions && <ExtensionsTray onOpen={onOpenExtensions} />}
+          <KeepAwakeTray />
+          {onOpenSettings && (
+            <>
+              <span className={UI_TRAY_DIVIDER} aria-hidden />
+              <SettingsMenu onOpenSection={onOpenSettings} />
+            </>
+          )}
+        </div>
       </div>
 
       {/* Windows/Linux: controls on the right */}

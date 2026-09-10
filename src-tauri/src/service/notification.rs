@@ -159,6 +159,7 @@ pub(crate) enum NotificationAdmission {
     /// Explicitly requested (CLI/REST/frontend): stored, emitted, native best-effort.
     Explicit,
     ProviderUpdate {
+        provider_id: String,
         prompt_id: String,
     },
 }
@@ -254,7 +255,10 @@ pub(crate) fn create_notification_with_delivery(
                 admitted.id().to_string()
             }
         },
-        NotificationAdmission::ProviderUpdate { prompt_id } => {
+        NotificationAdmission::ProviderUpdate {
+            provider_id,
+            prompt_id,
+        } => {
             // The prompt's only action targets its tab; a tab that no longer
             // resolves leaves nothing to navigate to or answer.
             if provenance.tab_id.is_none() {
@@ -262,6 +266,7 @@ pub(crate) fn create_notification_with_delivery(
             }
             let mut store = store.lock();
             match store.add_provider_update(
+                provider_id,
                 prompt_id,
                 title.clone(),
                 body.clone().unwrap_or_default(),
@@ -346,6 +351,7 @@ impl ServiceContext {
     pub(crate) fn create_provider_update_notification(
         &self,
         prompt_id: String,
+        provider_id: &str,
         provider_name: &str,
         message: String,
         tab_id: String,
@@ -361,6 +367,7 @@ impl ServiceContext {
         ];
         create_notification_with_delivery(
             NotificationAdmission::ProviderUpdate {
+                provider_id: provider_id.to_string(),
                 prompt_id: prompt_id.clone(),
             },
             &self.notif,
