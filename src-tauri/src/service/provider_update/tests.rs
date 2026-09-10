@@ -1033,12 +1033,16 @@ fn lagged_provider_update_waiter_rechecks_authoritative_state() {
     let prompt = await_status(&receiver, ProviderUpdateStatus::AwaitingConsent);
     // Consent through the state machine rather than the public responder, so
     // this test owns the exact wake stream the waiter is handed.
+    let principals = std::collections::HashMap::from([(
+        prompt.prompt_id.clone(),
+        ConsentPrincipal::LocalInteractive,
+    )]);
     let claimed = fixture
         .service
         .provider_updates
-        .claim_response(&prompt.prompt_id, true, ConsentPrincipal::LocalInteractive)
+        .claim_provider_responses(&prompt.prompt_id, true, &principals)
         .unwrap();
-    assert!(matches!(claimed, ClaimedResponse::Accept(_)));
+    assert!(matches!(claimed.as_slice(), [ClaimedResponse::Accept(_)]));
     assert!(!fixture
         .service
         .try_execute_provider_update(&prompt.prompt_id)

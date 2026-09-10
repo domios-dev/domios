@@ -14,7 +14,7 @@ on:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux-build]
     permissions:
       id-token: write # required for OIDC trusted publishing
       contents: read

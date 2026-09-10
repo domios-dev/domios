@@ -1,6 +1,8 @@
 //! Prompt-fragment tests. Split out of `prompts.rs` to keep the source file
 //! inside the repository size gate; the module contract is unchanged.
 
+mod idle_coordination;
+
 use super::*;
 
 /// The committed clap manifest is the authority on which commands exist.

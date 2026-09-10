@@ -4,6 +4,7 @@ export type SessionBindingStateKind =
   | "healthy"
   | "deferred_pending"
   | "refused"
+  | "never_bound"
   | "unbound"
   | "stale_pending";
 
@@ -52,6 +53,8 @@ export function sessionBindingSurfaceFromFact(
         rebindSessionId: fact.requested_session_id,
         showRecoveryAction: true,
       };
+    case "never_bound":
+      return silentSessionBindingSurface;
     case "unbound":
       return {
         agentState: { state: "quiet", status_line: "Session not connected" },

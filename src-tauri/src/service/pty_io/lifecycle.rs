@@ -123,6 +123,7 @@ pub(crate) fn claim_restored_launch(
         RestoredAgentMaterialization::Fresh => None,
     };
     if matches!(mode, RestoredAgentMaterialization::Fresh) {
+        tab.remember_superseded_binding_nonce();
         tab.agent_session_id = None;
     }
     tab.restored_from_snapshot = false;

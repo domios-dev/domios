@@ -122,7 +122,7 @@ jobs:
     name: publish release completion signal
     if: ${{ always() }}
     needs: release
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux-build]
     permissions:
       actions: read
       contents: write
