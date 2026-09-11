@@ -1,8 +1,43 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { clearStateSnapshot } from "../lib/stateCache";
+import { clearRelayTarget } from "../lib/webApi";
 
-type Props = { children: ReactNode };
-type State = { error: Error | null };
+export const SAFE_START_KEY = "codeterm:crash-safe-start";
+
+/** Same document, relay reset to this machine — a hash-only diff so `replace` + `reload` is one deterministic load. */
+function safeStartUrl(location: { origin: string; pathname: string; search: string }): string {
+  return `${location.origin}${location.pathname}${location.search}#relay=self`;
+}
+
+function armSafeStart(): void {
+  try {
+    window.sessionStorage.setItem(SAFE_START_KEY, "1");
+  } catch {
+  }
+}
+
+function consumeSafeStart(): boolean {
+  try {
+    if (!window.sessionStorage.getItem(SAFE_START_KEY)) return false;
+    window.sessionStorage.removeItem(SAFE_START_KEY);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function hardNavigate(url: string): void {
+  window.location.replace(url);
+  window.location.reload();
+}
+
+type Props = {
+  children: ReactNode;
+  /** Injected by tests; production performs a real document navigation. */
+  navigate?: (url: string) => void;
+};
+type State = { error: Error | null; safeStart: boolean };
 
 function CrashWindowChrome() {
   const appWindow = "__TAURI_INTERNALS__" in window ? getCurrentWindow() : null;
@@ -21,9 +56,9 @@ function CrashWindowChrome() {
 }
 
 export class FrontendCrashBoundary extends Component<Props, State> {
-  state: State = { error: null };
+  state: State = { error: null, safeStart: consumeSafeStart() };
 
-  static getDerivedStateFromError(error: Error): State {
+  static getDerivedStateFromError(error: Error): Pick<State, "error"> {
     return { error };
   }
 
@@ -31,7 +66,42 @@ export class FrontendCrashBoundary extends Component<Props, State> {
     console.error("[frontend-crash] React render failed", error, info.componentStack);
   }
 
+  // The snapshot cache is keyed by relay target, so it must be dropped before the target is.
+  private leaveCrashedLocation = (): void => {
+    clearStateSnapshot();
+    clearRelayTarget();
+    armSafeStart();
+    (this.props.navigate ?? hardNavigate)(safeStartUrl(window.location));
+  };
+
+  private openAfterSafeStart = (): void => {
+    this.setState({ error: null, safeStart: false });
+  };
+
   render(): ReactNode {
+    if (this.state.safeStart) {
+      return (
+        <div className="frontend-crash__shell">
+          <CrashWindowChrome />
+          <main className="frontend-crash" role="status" aria-labelledby="frontend-safe-start-title">
+            <section className="frontend-crash__panel">
+              <p className="frontend-crash__eyebrow">Safe start</p>
+              <h1 id="frontend-safe-start-title">Left the location that crashed</h1>
+              <p>
+                The restored workspace snapshot and the remote machine target were cleared, so CodeTerm opens on this
+                machine instead of re-entering the view that failed.
+              </p>
+              <div className="frontend-crash__actions">
+                <button type="button" onClick={this.openAfterSafeStart}>
+                  Open CodeTerm
+                </button>
+              </div>
+            </section>
+          </main>
+        </div>
+      );
+    }
+
     if (!this.state.error) return this.props.children;
 
     return (
@@ -43,9 +113,14 @@ export class FrontendCrashBoundary extends Component<Props, State> {
             <h1 id="frontend-crash-title">The interface could not render</h1>
             <p>The daemon and terminals may still be running. Reload the interface after reviewing the error.</p>
             <pre>{this.state.error.stack ?? this.state.error.message}</pre>
-            <button type="button" onClick={() => window.location.reload()}>
-              Reload interface
-            </button>
+            <div className="frontend-crash__actions">
+              <button type="button" onClick={this.leaveCrashedLocation}>
+                Leave this location
+              </button>
+              <button type="button" className="frontend-crash__secondary" onClick={() => window.location.reload()}>
+                Reload interface
+              </button>
+            </div>
           </section>
         </main>
       </div>
