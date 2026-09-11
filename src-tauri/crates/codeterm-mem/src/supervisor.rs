@@ -373,7 +373,9 @@ mod tests {
 
     /// The write descriptor is released only after the supervisor has been
     /// observed refused, so the pass proves retry, never a lucky elapsed wait.
-    #[cfg(unix)]
+    // macOS does not refuse a shebang script's exec while a write descriptor is
+    // open, so the fixture cannot arm there; Linux is where the race is real.
+    #[cfg(target_os = "linux")]
     #[tokio::test]
     async fn spawn_retries_after_deterministic_etxtbsy_fixture() {
         let dir = tempfile::tempdir().unwrap();
