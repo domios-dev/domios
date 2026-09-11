@@ -9,12 +9,11 @@ violation id (`lane.mutating_write_in_canonical_checkout`,
 `lane.mutating_write_in_foreign_lane`) and the exact `plan task update` command
 that supplies an isolated lane.
 
-**A dispatch with no recorded lane is refused too, and the Orchestrator must
-provision the lane itself.** The dispatcher does not auto-provision: with no
-lane on the task, the resolved worktree is the caller's `--cwd`, which for an
-Orchestrator is canonical, so the first hard stop fires. `provision_isolated_lane`
-exists but is reached only from the competition path, never from
-`plan task dispatch`. The working sequence is:
+**A mutating dispatch with no recorded lane provisions one.** With no lane on
+the task, the resolved worktree is the caller's `--cwd`; when that is canonical
+the dispatcher branches an isolated lane from it, records the lane on the task,
+and spawns the Worker there. Record a lane yourself only when its placement must
+be specific:
 
 ```bash
 git worktree add -b lane/<plan>-<task>-<slug> ../<repo>-worktrees/<slug> <base>
