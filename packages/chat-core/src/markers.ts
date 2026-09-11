@@ -76,7 +76,12 @@ export function parseMarker(text: string): ParsedMarker | null {
   if (close < 0) return null;
   const head = rest.slice(0, close);
   const raw = rest.slice(close + MARKER_CLOSE.length);
-  const payload = raw.startsWith("\n") ? raw.slice(1) : raw;
+  // A PTY rewrites the separator to CR in transit, so accept either form.
+  const payload = raw.startsWith("\r\n")
+    ? raw.slice(2)
+    : raw.startsWith("\n") || raw.startsWith("\r")
+      ? raw.slice(1)
+      : raw;
   const tokens = head.split(" ");
   const kind = tokens.shift() ?? "";
   if (!kind) return null;

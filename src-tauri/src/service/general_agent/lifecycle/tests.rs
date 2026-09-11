@@ -196,7 +196,7 @@ fn fallback_provider_receives_one_composed_startup_turn() {
 
     assert_eq!(
         message,
-        "-=-codeterm:system context=general-bootstrap-=-BOOTSTRAP_SENTINEL"
+        "-=-codeterm:system context=general-bootstrap-=-\nBOOTSTRAP_SENTINEL"
     );
     assert_runtime_contract_cardinality(&contract, &message);
     assert_eq!(message.matches("BOOTSTRAP_SENTINEL").count(), 1);
@@ -211,7 +211,7 @@ fn provider_with_native_system_prompt_receives_only_bootstrap_turn() {
 
     assert_eq!(
         message,
-        "-=-codeterm:system context=general-bootstrap-=-BOOTSTRAP_SENTINEL"
+        "-=-codeterm:system context=general-bootstrap-=-\nBOOTSTRAP_SENTINEL"
     );
     assert_runtime_contract_cardinality(&contract, &message);
     assert_eq!(message.matches("BOOTSTRAP_SENTINEL").count(), 1);
