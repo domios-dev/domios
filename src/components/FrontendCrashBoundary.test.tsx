@@ -93,11 +93,13 @@ async function main() {
   await act(async () => escapeButton.click());
 
   assert(navigated.length === 1, "the escape navigates exactly once");
+  // Before the exact-match assertion below, which narrows the value to a literal
+  // and would make this comparison vacuous to the compiler.
+  assert(navigated[0] !== CRASHING_URL, "the escape destination is not the location that crashed");
   assert(
     navigated[0] === "http://blackstar.example/app?e2e=1#relay=self",
     "the escape targets a safe-start URL on this machine",
   );
-  assert(navigated[0] !== CRASHING_URL, "the escape destination is not the location that crashed");
   assert(navigated[0].endsWith("#relay=self"), "the escape leaves the relayed machine for this one");
   assert(relayTarget() === null, "the escape drops the stored remote machine target");
 
