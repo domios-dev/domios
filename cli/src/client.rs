@@ -522,6 +522,17 @@ fn discover_windows_pipe() -> Result<String, String> {
 }
 
 #[cfg(not(target_os = "windows"))]
+/// Whether a `/tmp` entry can name a CodeTerm daemon socket.
+///
+/// `build.sh` leaves `codeterm-gateway-mutex-*.sock` behind for its cargo and
+/// rustc build locks. Those match the daemon prefix but never speak the CLI
+/// protocol, so a leftover one must never be offered as a candidate.
+fn is_daemon_socket_name(name: &str) -> bool {
+    name.starts_with("codeterm-")
+        && name.ends_with(".sock")
+        && !name.starts_with("codeterm-gateway-mutex-")
+}
+
 fn discover_unix_socket() -> Result<String, String> {
     use std::fs;
 
@@ -530,9 +541,12 @@ fn discover_unix_socket() -> Result<String, String> {
         let mut candidates: Vec<String> = entries
             .flatten()
             .filter_map(|e| e.file_name().to_str().map(|s| s.to_string()))
-            .filter(|n| n.starts_with("codeterm-") && n.ends_with(".sock"))
+            .filter(|n| is_daemon_socket_name(n))
             .collect();
         candidates.sort();
+        // A socket file outlives its daemon, and returning a dead one here
+        // would shadow the pgrep probe below that still finds the live one.
+        candidates.retain(|name| socket_is_live(name));
         if let Some(name) = pick_preferred_socket(&candidates, prefers_dev_socket()) {
             return Ok(name);
         }
@@ -565,6 +579,20 @@ fn discover_unix_socket() -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn build_gateway_mutex_files_are_not_daemon_sockets() {
+        assert!(!is_daemon_socket_name(
+            "codeterm-gateway-mutex-13026-2189552-cargo.sock"
+        ));
+        assert!(!is_daemon_socket_name(
+            "codeterm-gateway-mutex-13026-2189552-rustc.sock"
+        ));
+        assert!(is_daemon_socket_name("codeterm-49765.sock"));
+        assert!(is_daemon_socket_name("codeterm-dev.sock"));
+        assert!(!is_daemon_socket_name("codeterm-49765"));
+        assert!(!is_daemon_socket_name("other-49765.sock"));
+    }
 
     #[test]
     fn picks_dev_when_dev_preferred() {
