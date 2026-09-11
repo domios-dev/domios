@@ -22,6 +22,7 @@ pub enum MessageKind {
     Reminder,
     Mesh,
     Telegram,
+    Pebble,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -58,6 +59,7 @@ impl MessageKind {
             Self::Reminder => "reminder",
             Self::Mesh => "mesh",
             Self::Telegram => "telegram",
+            Self::Pebble => "pebble",
         }
     }
 
@@ -69,6 +71,7 @@ impl MessageKind {
             Self::Reminder => "reminder",
             Self::Mesh => "mesh",
             Self::Telegram => "telegram",
+            Self::Pebble => "pebble",
         }
     }
 }
@@ -118,6 +121,14 @@ impl MessageEnvelope {
             kind: MessageKind::Reminder,
             from_label: from_label.into(),
             from_tab: from_tab.into(),
+            ..Default::default()
+        }
+    }
+
+    pub fn pebble() -> Self {
+        Self {
+            kind: MessageKind::Pebble,
+            from_label: "Pebble".into(),
             ..Default::default()
         }
     }
@@ -491,6 +502,11 @@ impl Messenger {
         if self.envelope.kind == MessageKind::Reminder {
             return self.build_reminder();
         }
+        if self.envelope.kind == MessageKind::Pebble {
+            return crate::message_markers::Marker::new("pebble")
+                .attr("source", "Pebble")
+                .build();
+        }
         let tab = short_id(&self.envelope.from_tab);
         let base = clean_name(&self.envelope.from_label);
         // Peer-qualify the label for cross-mesh deliveries; skip `@peer` when no distinct source label exists.
@@ -569,7 +585,8 @@ fn pty_submit_entry(
         | MessageKind::System
         | MessageKind::Reminder
         | MessageKind::Mesh
-        | MessageKind::Telegram => {
+        | MessageKind::Telegram
+        | MessageKind::Pebble => {
             crate::service::pty_io::submit_transaction::PtySubmitEntry::Messenger
         }
     }
@@ -676,7 +693,10 @@ fn should_prefix_pty(
     if !target_is_agent {
         return false;
     }
-    if matches!(kind, MessageKind::Reminder | MessageKind::System) {
+    if matches!(
+        kind,
+        MessageKind::Reminder | MessageKind::System | MessageKind::Pebble
+    ) {
         return true;
     }
     !from_tab.is_empty() && from_tab != resolved_target
@@ -730,6 +750,10 @@ mod tests {
             crate::service::pty_io::submit_transaction::PtySubmitEntry::Messenger
         );
         assert_eq!(
+            pty_submit_entry(MessageKind::Pebble),
+            crate::service::pty_io::submit_transaction::PtySubmitEntry::Messenger
+        );
+        assert_eq!(
             pty_submit_entry(MessageKind::Report),
             crate::service::pty_io::submit_transaction::PtySubmitEntry::Report
         );
@@ -751,6 +775,29 @@ mod tests {
             p,
             "-=-codeterm:tab label=Edison tab=e8a0ac20 model=opus mesh=Mac-Air-=-"
         );
+    }
+
+    #[test]
+    fn inbound_webhook_pebble_pty_and_chatbackend_metadata_are_originated_as_pebble() {
+        let envelope = MessageEnvelope::pebble();
+        let marker = Messenger::from(envelope.clone()).build();
+        let parsed = crate::message_markers::parse(&marker).expect("pebble marker parses");
+        assert_eq!(parsed.kind, "pebble");
+        assert_eq!(parsed.attr("source"), Some("Pebble"));
+
+        let (msg, marked) =
+            build_chatbackend_inbound(&envelope, "focus enabled", "pebble-1".into());
+        assert_eq!(msg.inbound_kind.as_deref(), Some("pebble"));
+        assert_eq!(msg.from_label.as_deref(), Some("Pebble"));
+        let parsed = crate::message_markers::parse(&marked).expect("inbound marker parses");
+        assert_eq!(parsed.attr("kind"), Some("pebble"));
+        assert_eq!(parsed.payload, "focus enabled");
+    }
+
+    #[test]
+    fn inbound_webhook_pebble_pty_delivery_marks_an_agent_even_without_a_source_tab() {
+        assert!(should_prefix_pty(MessageKind::Pebble, true, "", "general"));
+        assert!(!should_prefix_pty(MessageKind::Pebble, false, "", "shell"));
     }
 
     #[test]
