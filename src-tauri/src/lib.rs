@@ -444,6 +444,8 @@ pub fn run() {
                 Arc::new(crate::chatpreprocessor::ChatPreprocessorRegistry::new());
             let agent_command_registry: crate::agent_commands::AgentCommandRegistryHandle =
                 Arc::new(crate::agent_commands::AgentCommandRegistry::new());
+            let webhook_registry: codeterm_plugin::WebhookRegistryHandle =
+                Arc::new(codeterm_plugin::WebhookRegistry::new());
             // One bundle of registry handles, shared by the startup loop and the hot-reload watcher (same register_plugin path, no drift).
             let cap_registries = plugin::js_runtime::CapabilityRegistries {
                 secret: Some(std::sync::Arc::new(
@@ -456,6 +458,7 @@ pub fn run() {
                 chatbackend: chatbackend_registry.clone(),
                 chat_preprocessor: chat_preprocessor_registry.clone(),
                 agent_command: agent_command_registry.clone(),
+                webhook_receiver: webhook_registry.clone(),
             };
             // VMs collected as they load, so the `ServiceContext` can be late-bound into each sandbox once it's built below.
             let mut plugin_vms: Vec<Arc<plugin::js_runtime::PluginVm>> = Vec::new();
@@ -831,6 +834,7 @@ pub fn run() {
                 provider_registry,
                 chat_preprocessor_registry: chat_preprocessor_registry.clone(),
                 agent_command_registry: agent_command_registry.clone(),
+                webhook_registry: webhook_registry.clone(),
                 mux_emit_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 mux_emit_stats: Arc::new(crate::service::MuxEmitStats::default()),
                 session_persist_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),

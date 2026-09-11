@@ -265,6 +265,18 @@ impl Serialize for ChatBackendCap {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WebhookReceiverKind {
+    Pebble,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct WebhookReceiverCap {
+    pub kind: WebhookReceiverKind,
+}
+
 /// The core capability traits a plugin can implement. Drives which adapters the
 /// loader builds (`JsProvider` / `JsSecretBackend` / `JsTranscriber` /
 /// `JsGlanceProvider` / `JsBubbleProvider`).
@@ -301,6 +313,8 @@ pub struct Capabilities {
     /// Bool or `{ match }` object (the §6 slot).
     #[serde(default)]
     pub chat_preprocessor: ChatPreprocessorCap,
+    #[serde(default)]
+    pub webhook_receiver: Option<WebhookReceiverCap>,
 }
 
 impl Capabilities {
