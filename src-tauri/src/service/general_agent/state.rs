@@ -191,9 +191,8 @@ fn is_general_agent_session_file(path: &Path) -> bool {
         return false;
     };
     if text.len() > MARKER_SCAN_LIMIT {
-        // `String::truncate` panics unless the index is a char boundary, and a
-        // transcript carrying non-ASCII text lands mid-codepoint often enough
-        // that this took down General Agent startup. Walk back to a boundary.
+        // `String::truncate` panics off a char boundary, and a non-ASCII
+        // transcript lands mid-codepoint here often enough to kill startup.
         let mut end = MARKER_SCAN_LIMIT;
         while end > 0 && !text.is_char_boundary(end) {
             end -= 1;
@@ -270,9 +269,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let ga = dir.path().join("ga.jsonl");
 
-        // Pad so that a Cyrillic codepoint straddles MARKER_SCAN_LIMIT: the
-        // byte at the limit is then a UTF-8 continuation byte, which is what
-        // used to panic the startup thread.
+        // Pad so a Cyrillic codepoint straddles MARKER_SCAN_LIMIT, leaving a
+        // UTF-8 continuation byte at the limit — what used to panic startup.
         let mut line =
             String::from(r##"{"type":"system","message":{"content":"# CodeTerm General Agent"}}"##);
         line.push_str(&"a".repeat(MARKER_SCAN_LIMIT - line.len() - 1));
