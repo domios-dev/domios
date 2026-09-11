@@ -24,3 +24,11 @@ Every figure on the board frames was read from plan `pl_ad3tcu`, the tab
 snapshot and `codeterm usage` on the night of drawing. The KPI ledger was off
 on that machine, so the effort card shows its not-recording state and no ledger
 figure on the canvas is measured.
+
+## The day strip is generated, not drawn
+
+`timeline.py` reads the plan's attempt records and milestones out of the plan
+store into `timeline.json`; `gen_board.py` draws `Main`, `Watcher` and `Phone`
+from that file, so every bar, tick and figure on the board is a timestamp the
+daemon recorded. Re-run both, then paste `_kit.css` into the style block (the
+generator leaves a `/*KIT*/` marker), to redraw the board for another night.
