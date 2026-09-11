@@ -36,7 +36,7 @@ impl ServiceContext {
         let lanes = lane_rows::build_lane_rows(&plan, |p| self.tab_probe(p), now_ms);
         let planner_resolution =
             resolve_planner_ref(&plan.planner, &plan.owner, |tab_id| self.tab_probe(tab_id));
-        Ok(build_plan_state_snapshot(
+        let mut snapshot = build_plan_state_snapshot(
             &plan,
             coverage,
             drift,
@@ -45,6 +45,9 @@ impl ServiceContext {
             &live_tabs,
             Some(planner_resolution),
             now_ms,
-        ))
+        );
+        snapshot.mission_control.kpi = super::mission_control_ext::plan_kpi(self, plan_id);
+        snapshot.mission_control.runway = super::mission_control_ext::provider_runway(self);
+        Ok(snapshot)
     }
 }
