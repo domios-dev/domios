@@ -273,7 +273,7 @@ pub(crate) fn verify_worker_lane(
             worktree.display()
         ));
     }
-    let branch = git_value(worktree_path, ["branch", "--show-current"])?;
+    let branch = current_branch(worktree_path)?;
     if branch.is_empty() && !protection.is_waived() {
         return Err("worker lane is on a detached HEAD".into());
     }
@@ -363,6 +363,18 @@ fn run_git<'a>(project_cwd: &str, args: impl IntoIterator<Item = &'a str>) -> Re
         "failed to provision worker lane: {}",
         String::from_utf8_lossy(&output.stderr).trim()
     ))
+}
+
+// `git branch --show-current` needs git 2.22, and a GUI-launched daemon inherits
+// the launchd PATH, where Apple's bundled git can still be 2.21.
+fn current_branch(worktree_path: &str) -> Result<String, String> {
+    // symbolic-ref exits non-zero on a detached HEAD, which is the empty-branch
+    // case the caller already handles; it predates every git in use.
+    Ok(git_value(
+        worktree_path,
+        ["symbolic-ref", "--quiet", "--short", "HEAD"],
+    )
+    .unwrap_or_default())
 }
 
 fn git_value<'a>(
@@ -517,6 +529,48 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.contains("branch mismatch"));
+        lane.cleanup().unwrap();
+    }
+
+    /// The branch lookup once used `git branch --show-current`, which needs git
+    /// 2.22. A GUI-launched daemon can resolve an older git, and the failure
+    /// surfaced as "no repository checkout resolved" for every lane on the box.
+    #[test]
+    fn branch_lookup_reads_attached_and_detached_heads() {
+        let root = tempfile::tempdir().unwrap();
+        let project = root.path().join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        git(&project, &["init", "-q"]);
+        git(&project, &["config", "user.email", "test@example.com"]);
+        git(&project, &["config", "user.name", "Test"]);
+        std::fs::write(project.join("README.md"), "fixture").unwrap();
+        git(&project, &["add", "README.md"]);
+        git(&project, &["commit", "-qm", "fixture"]);
+
+        let lane = provision_lane(project.to_str().unwrap(), "head-shape").unwrap();
+        assert_eq!(current_branch(&lane.cwd).unwrap(), lane.branch);
+
+        let head = git_value(&lane.cwd, ["rev-parse", "HEAD"]).unwrap();
+        git(Path::new(&lane.cwd), &["checkout", "-q", "--detach", &head]);
+        assert_eq!(current_branch(&lane.cwd).unwrap(), "");
+
+        let error = verify_worker_lane(
+            project.to_str().unwrap(),
+            &lane.cwd,
+            None,
+            None,
+            LaneProtection::Enforced,
+        )
+        .unwrap_err();
+        assert!(error.contains("detached HEAD"), "{error}");
+        verify_worker_lane(
+            project.to_str().unwrap(),
+            &lane.cwd,
+            None,
+            None,
+            LaneProtection::Waived,
+        )
+        .expect("a waived lane may sit on a detached HEAD");
         lane.cleanup().unwrap();
     }
 }
