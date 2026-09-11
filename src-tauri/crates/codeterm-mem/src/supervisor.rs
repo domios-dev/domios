@@ -27,6 +27,9 @@ fn no_window_tokio(cmd: &mut Command) {
 fn no_window_tokio(_cmd: &mut Command) {}
 
 const WORKER_TIMEOUT: Duration = Duration::from_secs(300);
+/// Bounded retry for `ETXTBSY`, which is transient by construction.
+const SPAWN_BUSY_ATTEMPTS: usize = 10;
+const SPAWN_BUSY_BACKOFF: Duration = Duration::from_millis(20);
 const FAILURE_WINDOW: Duration = Duration::from_secs(60);
 const FAILURE_THRESHOLD: usize = 3;
 
@@ -175,26 +178,36 @@ impl Supervisor {
     }
 
     async fn spawn_and_wait(&self, kind: WorkerKind) -> Result<serde_json::Value, String> {
-        let mut cmd = Command::new(&self.cli_path);
-        cmd.args([
-            MEM_PARENT_SUBCMD,
-            RUN_WORKER_SUBCMD,
-            kind.as_arg(),
-            DB_PATH_FLAG,
-            &self.db_path.to_string_lossy(),
-        ]);
-        cmd.kill_on_drop(true);
-        no_window_tokio(&mut cmd);
+        let mut attempt = 0;
+        let output = loop {
+            let mut cmd = Command::new(&self.cli_path);
+            cmd.args([
+                MEM_PARENT_SUBCMD,
+                RUN_WORKER_SUBCMD,
+                kind.as_arg(),
+                DB_PATH_FLAG,
+                &self.db_path.to_string_lossy(),
+            ]);
+            cmd.kill_on_drop(true);
+            no_window_tokio(&mut cmd);
 
-        let output = match tokio::time::timeout(WORKER_TIMEOUT, cmd.output()).await {
-            Ok(Ok(out)) => out,
-            Ok(Err(e)) => return Err(format!("spawn {}: {}", self.cli_path.display(), e)),
-            Err(_) => {
-                return Err(format!(
-                    "timeout after {}s (cli={})",
-                    WORKER_TIMEOUT.as_secs(),
-                    self.cli_path.display(),
-                ))
+            match tokio::time::timeout(WORKER_TIMEOUT, cmd.output()).await {
+                Ok(Ok(out)) => break out,
+                Ok(Err(e))
+                    if e.kind() == std::io::ErrorKind::ExecutableFileBusy
+                        && attempt + 1 < SPAWN_BUSY_ATTEMPTS =>
+                {
+                    attempt += 1;
+                    tokio::time::sleep(SPAWN_BUSY_BACKOFF).await;
+                }
+                Ok(Err(e)) => return Err(format!("spawn {}: {}", self.cli_path.display(), e)),
+                Err(_) => {
+                    return Err(format!(
+                        "timeout after {}s (cli={})",
+                        WORKER_TIMEOUT.as_secs(),
+                        self.cli_path.display(),
+                    ))
+                }
             }
         };
 
@@ -345,6 +358,29 @@ mod tests {
         let report = sup.run(WorkerKind::DreamingLight).await.unwrap();
         assert_eq!(report.get("phase").and_then(|v| v.as_str()), Some("light"));
         assert_eq!(report.get("promoted").and_then(|v| v.as_u64()), Some(1));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn spawn_retries_while_the_binary_is_still_open_for_writing() {
+        let dir = tempfile::tempdir().unwrap();
+        let cli = fake_cli(
+            &dir,
+            r#"{"ok":true,"report":{"phase":"light","considered":3,"promoted":1,"dropped":0}}"#,
+            0,
+        );
+
+        // An fd open for writing makes the kernel refuse to exec the file with
+        // ETXTBSY — the race a concurrent fork loses under a parallel suite.
+        let holder = std::fs::OpenOptions::new().write(true).open(&cli).unwrap();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(30)).await;
+            drop(holder);
+        });
+
+        let sup = make_supervisor(cli);
+        let report = sup.run(WorkerKind::DreamingLight).await.unwrap();
+        assert_eq!(report.get("phase").and_then(|v| v.as_str()), Some("light"));
     }
 
     #[tokio::test]
