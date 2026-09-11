@@ -74,6 +74,15 @@ impl ServiceContext {
         self.heal_recovery_state_if_ready();
     }
 
+    /// Retire the echoed launch nonce where the process that echoed it is gone
+    /// or belongs to an earlier launch. A proof no live agent stands behind
+    /// must never outrank an honest spawn failure.
+    pub(crate) fn void_launch_session_proof(&self, tab_id: &str) {
+        if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
+            tab.reported_session_binding_nonce = None;
+        }
+    }
+
     /// Rotate the per-launch binding nonce before a provider command is
     /// written. This is the launch boundary, so it opens the operation.
     pub fn rotate_session_binding_nonce(&self, tab_id: &str) -> String {

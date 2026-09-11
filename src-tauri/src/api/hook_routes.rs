@@ -771,6 +771,7 @@ pub(crate) async fn finish_session_binding(
     acknowledge_authenticated_launch(&state.svc.mux, tab_id, &claim, report_nonce);
     if claim.nonce_verified {
         state.svc.rearm_authenticated_agent_input(&tab_id);
+        state.svc.reconcile_boot_stage_with_session_binding(&tab_id);
     }
 
     // while it runs — not only after completion.
