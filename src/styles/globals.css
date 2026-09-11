@@ -3153,6 +3153,312 @@ button,
   background: var(--ct-bg);
   color: var(--ct-fg);
 }
+.plan-document-surface {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--ct-bg);
+  color: var(--ct-fg);
+}
+.plan-document-content {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+}
+.plan-document-view {
+  min-width: 0;
+  min-height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: var(--ct-bg);
+  color: var(--ct-fg);
+}
+.plan-document-layout {
+  display: grid;
+  grid-template-columns: minmax(11rem, 14rem) minmax(0, 76ch);
+  align-items: start;
+  gap: clamp(1.25rem, 4vw, 4rem);
+  width: min(100%, 94rem);
+  min-width: 0;
+  margin: 0 auto;
+  padding: clamp(1.5rem, 4vw, 4rem) clamp(0.9rem, 4vw, 4rem) 5rem;
+}
+.plan-document-readable {
+  min-width: 0;
+  max-width: 76ch;
+}
+.plan-document-eyebrow {
+  margin: 0 0 0.4rem;
+  color: var(--ct-muted-fg);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.plan-document-title {
+  margin: 0;
+  color: var(--ct-fg);
+  font-size: clamp(1.45rem, 3vw, 2.2rem);
+  font-weight: 750;
+  line-height: 1.12;
+  overflow-wrap: anywhere;
+}
+.plan-document-sections {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(2.2rem, 5vw, 4rem);
+  margin-top: clamp(2rem, 5vw, 3.5rem);
+  min-width: 0;
+}
+.plan-document-section {
+  min-width: 0;
+  scroll-margin-top: 1.5rem;
+}
+.plan-document-section-title {
+  margin: 0 0 0.85rem;
+  color: var(--ct-fg);
+  font-size: 1.2rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+.plan-document-section h3.plan-document-section-title {
+  font-size: 1rem;
+}
+.plan-document-section-body {
+  min-width: 0;
+  color: var(--ct-fg);
+  font-size: 0.98rem;
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+.plan-document-section-body p:first-child,
+.plan-document-section-body ul:first-child,
+.plan-document-section-body ol:first-child,
+.plan-document-section-body h1:first-child,
+.plan-document-section-body h2:first-child,
+.plan-document-section-body h3:first-child,
+.plan-document-section-body pre:first-child {
+  margin-top: 0;
+}
+.plan-document-section-body p:last-child,
+.plan-document-section-body ul:last-child,
+.plan-document-section-body ol:last-child,
+.plan-document-section-body pre:last-child {
+  margin-bottom: 0;
+}
+.plan-document-section-body pre {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.plan-document-section-empty {
+  margin: 0;
+  color: var(--ct-muted-fg);
+  font-size: 0.9rem;
+  font-style: italic;
+  line-height: 1.6;
+}
+.plan-document-index {
+  position: sticky;
+  top: 1.25rem;
+  min-width: 0;
+  padding: 0.8rem 0;
+}
+.plan-document-index h2 {
+  margin: 0 0 0.65rem;
+  color: var(--ct-muted-fg);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.plan-document-index ol,
+.plan-document-index-mobile ol {
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.plan-document-index a,
+.plan-document-index-mobile a {
+  display: block;
+  min-width: 0;
+  padding: 0.26rem 0.45rem;
+  border-inline-start: 2px solid transparent;
+  color: var(--ct-muted-fg);
+  font-size: 0.78rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  text-decoration: none;
+}
+.plan-document-index a:hover,
+.plan-document-index a:focus-visible,
+.plan-document-index-mobile a:hover,
+.plan-document-index-mobile a:focus-visible {
+  border-inline-start-color: var(--ct-accent);
+  color: var(--ct-fg);
+  outline: none;
+}
+.plan-document-index-mobile {
+  display: none;
+}
+.plan-document-goal {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--ct-border);
+  border-radius: var(--ct-radius-lg);
+  background: color-mix(in srgb, var(--ct-surface) 42%, var(--ct-bg));
+}
+.plan-document-goal h2 {
+  margin: 0;
+  color: var(--ct-fg);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.plan-document-goal-field {
+  min-width: 0;
+}
+.plan-document-goal-field h3 {
+  margin: 0 0 0.3rem;
+  color: var(--ct-muted-fg);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.plan-document-goal-field p,
+.plan-document-goal-field ul {
+  margin: 0;
+  color: var(--ct-fg);
+  font-size: 0.96rem;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.plan-document-goal-field ul {
+  padding-inline-start: 1.1rem;
+}
+.plan-document-section-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.5rem;
+  margin-top: 1rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--ct-border);
+}
+.plan-document-section-links-label {
+  color: var(--ct-muted-fg);
+  font-size: 0.67rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.plan-document-section-links a {
+  max-width: 100%;
+  padding: 0.18rem 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--ct-accent) 35%, var(--ct-border));
+  border-radius: var(--ct-radius-sm);
+  background: color-mix(in srgb, var(--ct-accent) 9%, var(--ct-bg));
+  color: var(--ct-accent);
+  font-size: 0.76rem;
+  font-weight: 650;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  text-decoration: none;
+}
+.plan-document-section-links a:hover,
+.plan-document-section-links a:focus-visible {
+  border-color: var(--ct-accent);
+  outline: none;
+}
+.plan-document-state {
+  margin: auto;
+  padding: 1.5rem;
+  color: var(--ct-muted-fg);
+  font-size: 0.9rem;
+  text-align: center;
+}
+.plan-document-reconnecting {
+  flex-shrink: 0;
+  padding: 0.35rem 0.9rem;
+}
+.plan-document-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 12rem;
+  padding: 2rem 1.25rem;
+  color: var(--ct-muted-fg);
+  font-size: 0.9rem;
+  line-height: 1.6;
+  text-align: center;
+}
+.plan-document-empty p {
+  max-width: 48ch;
+  margin: 0;
+}
+.plan-board-status {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--ct-border);
+  border-radius: var(--ct-radius-lg);
+  background: color-mix(in srgb, var(--ct-bg) 94%, var(--ct-surface));
+}
+.plan-board-status-topline,
+.plan-board-status-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-width: 0;
+}
+.plan-board-status-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+.plan-board-done-count {
+  flex-shrink: 0;
+  color: var(--ct-muted-fg);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.plan-board-status-title {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ct-fg);
+  font: inherit;
+  font-size: 0.98rem;
+  font-weight: 700;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.plan-board-status-title:hover,
+.plan-board-status-title:focus-visible {
+  color: var(--ct-accent);
+  outline: none;
+}
 .plan-board-state {
   margin: auto;
   padding: 1.5rem;
@@ -4863,6 +5169,41 @@ button.plan-recent-activity-item:hover .plan-recent-activity-task {
 }
 
 @media (max-width: 768px), (pointer: coarse) {
+  .plan-document-layout {
+    display: block;
+    padding: 1.25rem 0.9rem 3rem;
+  }
+  .plan-document-index-desktop {
+    display: none;
+  }
+  .plan-document-index-mobile {
+    display: block;
+    margin-bottom: 1.5rem;
+    border: 1px solid var(--ct-border);
+    border-radius: var(--ct-radius-md);
+    background: color-mix(in srgb, var(--ct-surface) 35%, var(--ct-bg));
+  }
+  .plan-document-index-mobile summary {
+    min-height: 44px;
+    padding: 0.65rem 0.75rem;
+    color: var(--ct-fg);
+    cursor: pointer;
+    font-size: 0.78rem;
+    font-weight: 700;
+    list-style-position: inside;
+  }
+  .plan-document-index-mobile nav {
+    padding: 0.2rem 0.75rem 0.75rem;
+  }
+  .plan-document-readable {
+    max-width: none;
+  }
+  .plan-document-section-body {
+    font-size: 0.96rem;
+  }
+  .plan-board-status-topline {
+    align-items: flex-start;
+  }
   .plan-board-columns {
     display: flex;
     flex-direction: row;

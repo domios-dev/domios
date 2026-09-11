@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ApiConfig } from "../../../lib/types";
 import type { PlanViewSurfaceProps } from "../planViewSurfaceProps";
 import { fetchSpecSections } from "../plansApi";
 import { fixtureSpecSectionsByPlan } from "../perfFixture";
@@ -17,7 +16,7 @@ import {
 import { BoardTaskCard } from "./BoardTaskCard";
 import { CancelledTasksPanel } from "./CancelledTasksPanel";
 import { listCancelledTasks } from "./cancelledTasks";
-import { PlanContextHeader } from "./PlanContextHeader";
+import { PlanBoardStatusHeader } from "./PlanBoardStatusHeader";
 import { PlanSwitcher } from "./PlanSwitcher";
 import { usePlanSwitcherActions } from "./usePlanSwitcherActions";
 import { enrichSwitcherOptions, selectActiveWork } from "./activeWork";
@@ -142,7 +141,6 @@ function BoardPlanBoard({
   specSections: Section[];
   onOpenDetail: (detail: BoardDetail) => void;
   onOpenTab?: (tabId: string) => void;
-  api?: ApiConfig;
 }) {
   const [doneExpanded, setDoneExpanded] = useState(false);
   const [cancelledOpen, setCancelledOpen] = useState(false);
@@ -150,19 +148,10 @@ function BoardPlanBoard({
 
   return (
     <section data-testid="plan-board-plan" data-plan-id={model.planId} className="plan-board-plan">
-      <PlanContextHeader
+      <PlanBoardStatusHeader
         summary={model.planSummary}
-        spec={model.spec}
         onOpenPlan={() => onOpenDetail({ kind: "plan", plan, specSections })}
-        onOpenSpec={
-          model.spec
-            ? () => onOpenDetail({ kind: "spec", plan, specSections })
-            : undefined
-        }
         onOpenTab={onOpenTab}
-        planId={model.planId}
-        plan={plan}
-        api={api}
       />
       <div data-testid="plan-board-columns" className="plan-board-columns" role="list">
         {model.columns.map((column) => (
@@ -387,7 +376,6 @@ export function PlanBoardView({
             specSections={selectedSpecSections}
             onOpenDetail={setDetail}
             onOpenTab={onOpenTab}
-            api={api}
           />
         </div>
       )}
