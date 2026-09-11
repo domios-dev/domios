@@ -134,7 +134,6 @@ function BoardPlanBoard({
   specSections,
   onOpenDetail,
   onOpenTab,
-  api,
 }: {
   model: BoardPlanModel;
   plan: Plan;
