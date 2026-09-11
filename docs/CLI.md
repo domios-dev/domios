@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 57 -->
+<!-- revision: 58 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -1628,6 +1628,14 @@ Set the declared milestone kind columns (CSV)
 
 - `--kinds`
 - `<plan_id>`
+
+#### `codeterm plan lane-remove`
+
+Remove one lane worktree and its branch, refusing while a live tab's shell sits inside it
+
+- `--branch` — Lane branch to delete after the worktree is gone
+- `--project` — Canonical checkout that owns the lane (default: derived from the lane itself)
+- `<worktree>` — Lane worktree path to remove
 
 #### `codeterm plan lanes`
 

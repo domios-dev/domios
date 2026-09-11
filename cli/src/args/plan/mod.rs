@@ -89,6 +89,18 @@ pub enum PlanAction {
         #[arg(long)]
         stale: bool,
     },
+    /// Remove one lane worktree and its branch, refusing while a live tab's shell sits inside it
+    LaneRemove {
+        /// Lane worktree path to remove
+        #[arg(value_name = "WORKTREE")]
+        worktree: String,
+        /// Lane branch to delete after the worktree is gone
+        #[arg(long, value_name = "BRANCH")]
+        branch: Option<String>,
+        /// Canonical checkout that owns the lane (default: derived from the lane itself)
+        #[arg(long, value_name = "PATH")]
+        project: Option<String>,
+    },
     /// Prioritized, advisory next-action guidance computed from plan state
     Next { plan_id: String },
     /// Show section coverage (% + gaps)
