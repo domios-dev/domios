@@ -84,7 +84,7 @@ STYLE = """
 .small { font-size: 11px; color: #828a92; line-height: 1.5; margin: 0; }
 .small b { color: #c9d1d9; font-weight: 500; font-family: "JetBrains Mono", Consolas, monospace; font-size: 11px; }
 .row { display: grid; grid-template-columns: 96px minmax(0, 1fr) 64px 56px 80px 74px; gap: 10px; align-items: center; height: 26px; }
-.kv { display: grid; grid-template-columns: minmax(0, 1fr) 72px 56px; gap: 10px; align-items: baseline; max-width: 520px; }
+.kv { display: grid; grid-template-columns: minmax(0, 1fr) 72px 56px; gap: 10px; align-items: baseline; }
 .kv .k { font-size: 0.8125rem; color: #c9d1d9; }
 .kv .v { font-family: "JetBrains Mono", Consolas, monospace; font-variant-numeric: tabular-nums; font-size: 12px; font-weight: 600; color: #c9d1d9; text-align: right; }
 .share { font-family: "JetBrains Mono", Consolas, monospace; font-variant-numeric: tabular-nums; font-size: 11px; color: #828a92; text-align: right; }
