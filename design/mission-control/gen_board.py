@@ -4,8 +4,28 @@ import json, os, html
 HERE = os.path.dirname(os.path.abspath(__file__))
 D = json.load(open(os.path.join(HERE, "tokens.json"), encoding="utf-8"))
 
-# Read from `codeterm usage latest` and the Codex rollout's rate_limits at the time tokens.json was written.
-USAGE = [("Claude session", 24, "resets 23:10 · in 58m", "session"), ("Claude weekly", 27, "resets Sat 17:00", "weekly"), ("Codex weekly", 80, "resets Tue 05:50", "codex")]
+# Runway is read from ~/.codeterm/usage/usage.db: the latest parsed snapshot per provider, each carrying its own reset.
+import sqlite3, time
+def read_usage():
+    conn = sqlite3.connect(os.path.join(os.path.expanduser("~"), ".codeterm", "usage", "usage.db"))
+    now = time.time() * 1000
+    def when(ms):
+        if not ms: return ""
+        t = time.localtime(ms / 1000); same = time.strftime("%Y%m%d", t) == time.strftime("%Y%m%d", time.localtime(now / 1000))
+        if same:
+            left = max(0, ms - now) / 60000; h, m = divmod(int(left), 60)
+            return f"resets {time.strftime('%H:%M', t)} · in {h} h {m:02d} m" if h else f"resets {time.strftime('%H:%M', t)} · in {m} min"
+        return f"resets {time.strftime('%a %H:%M', t)}"
+    out = []
+    for prov, label in (("claude", "Claude"), ("codex", "Codex")):
+        r = conn.execute("select session_pct, session_resets_at, weekly_pct, weekly_resets_at, captured_at from usage_snapshots where provider=? and parsed_ok=1 order by captured_at desc limit 1", (prov,)).fetchone()
+        if not r: continue
+        sp, sr, wp, wr, cap = r
+        if sp is not None: out.append((f"{label} session", sp, when(sr), "session"))
+        if wp is not None: out.append((f"{label} weekly", wp, when(wr) + ("" if sp is not None else " · this provider reports weekly only"), "weekly" if prov == "claude" else "codex"))
+        read_usage.captured = time.strftime("%H:%M", time.localtime(cap / 1000))
+    return out
+USAGE = read_usage()
 
 agents = D["agents"]
 T = {k: sum(a["usage"][k] for a in agents) for k in ("turns", "output", "cache_read", "cache_write", "uncached")}
@@ -64,6 +84,9 @@ STYLE = """
 .small { font-size: 11px; color: #828a92; line-height: 1.5; margin: 0; }
 .small b { color: #c9d1d9; font-weight: 500; font-family: "JetBrains Mono", Consolas, monospace; font-size: 11px; }
 .row { display: grid; grid-template-columns: 96px minmax(0, 1fr) 64px 56px 80px 74px; gap: 10px; align-items: center; height: 26px; }
+.kv { display: grid; grid-template-columns: minmax(0, 1fr) 72px 56px; gap: 10px; align-items: baseline; }
+.kv .k { font-size: 0.8125rem; color: #c9d1d9; }
+.kv .v { font-family: "JetBrains Mono", Consolas, monospace; font-variant-numeric: tabular-nums; font-size: 12px; font-weight: 600; color: #c9d1d9; text-align: right; }
 .share { font-family: "JetBrains Mono", Consolas, monospace; font-variant-numeric: tabular-nums; font-size: 11px; color: #828a92; text-align: right; }
 .row .name { font-size: 0.8125rem; color: #c9d1d9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .row .who { font-size: .6875rem; color: #484f58; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -76,6 +99,7 @@ STYLE = """
 .gauge .label { font-size: 11px; color: #c9d1d9; font-weight: 500; letter-spacing: .02em; }
 .gauge .pct { font-family: "JetBrains Mono", Consolas, monospace; font-variant-numeric: tabular-nums; font-size: 12px; font-weight: 600; color: #c9d1d9; }
 .gauge .pct.warn { color: #d29922; }
+.gauge .pct.danger { color: #ff7b72; }
 .gauge .bar { grid-column: 1 / 3; position: relative; margin-top: 6px; height: 6px; border-radius: 99px; background: color-mix(in srgb, #c9d1d9 8%, transparent); overflow: hidden; }
 .gauge .bar::before, .gauge .bar::after { content: ""; position: absolute; top: 0; bottom: 0; width: 1px; background: color-mix(in srgb, #c9d1d9 8%, transparent); }
 .gauge .bar::before { left: 60%; } .gauge .bar::after { left: 85%; }
@@ -143,34 +167,25 @@ def stat_cards(phone):
     return f'<div style="display: grid; grid-template-columns: {cols}; gap: {8 if phone else 12}px; align-items: stretch;">{tokens}{turns}{bounces}{wait}</div>'
 
 
-def by_agent(phone):
-    rows = sorted(agents, key=lambda a: -a["usage"]["output"])
-    shown = rows[:6] if phone else rows
-    out = []
-    for a in shown:
-        u = a["usage"]; chip, col = status_chip(a)
-        share = 100 * u["output"] / T["output"]
-        who = f'{a["group"]} · {a["model"]}'
-        if phone:
-            out.append(f'<div class="row" style="grid-template-columns: 72px minmax(0, 1fr) 56px 44px; height: 24px;"><span class="name">{html.escape(a["name"])}</span><span class="who">{who}</span><span class="val">{n(u["output"])}</span><span class="share">{share:.0f} %</span></div>')
-        else:
-            out.append(f'<div class="row"><span class="name">{html.escape(a["name"])}</span><span class="who">{who}</span><span class="val">{n(u["output"])}</span><span class="share">{share:.0f} %</span><span class="turns">{u["turns"]:,} turns</span><span class="st" style="color: {col};">{chip}</span></div>')
-    more = f'<p class="small">and {len(rows) - len(shown)} more, {n(sum(a["usage"]["output"] for a in rows[len(shown):]))} between them</p>' if len(shown) < len(rows) else ""
-    cols = "" if phone else '<div class="row" style="height: 18px;"><span class="caption">agent</span><span class="caption">role · model</span><span class="caption" style="text-align: right;">output</span><span class="caption" style="text-align: right;">share</span><span class="caption" style="text-align: right;">turns</span><span class="caption" style="text-align: right;">status</span></div>'
-    head = ('<div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;"><h2>By agent</h2>'
-            + ("" if phone else switcher(["Output", "Context read", "Turns"], "Output")) + '</div>')
-    return f'<div class="ct-panel-card card">{head}{cols}<div style="display: flex; flex-direction: column; gap: 2px;">{"".join(out)}</div>{more}</div>'
+def where_it_went(phone):
+    total = T["output"]
+    kinds = [("design tasks", by_role.get("design", 0)), ("fix tasks", by_role.get("fix", 0)), ("orchestration", by_role.get("orchestrator", 0)), ("planning", by_role.get("planner", 0))]
+    kinds.sort(key=lambda k: -k[1])
+    lines = "".join(f'<div class="kv"><span class="k">{k}</span><span class="v">{n(v)}</span><span class="share">{100*v/total:.0f} %</span></div>' for k, v in kinds)
+    overhead = (f'<p class="small">The Orchestrator alone took <b>{100*orch["usage"]["turns"]/T["turns"]:.0f} %</b> of all turns and re-read <b>{100*orch["usage"]["cache_read"]/T["cache_read"]:.0f} %</b> of all context: that is the cost of coordination, not of work.</p>')
+    waste = f'<p class="small">Spent on attempts that were bounced: <b>{n(sum(a["usage"]["output"] for a in agents if a["attempts"] >= 2))}</b> output tokens.</p>'
+    return f'<div class="ct-panel-card card"><h2>Where the output went</h2><div style="display: flex; flex-direction: column; gap: 4px;">{lines}</div>{overhead}{waste}</div>'
 
 
 def runway(phone):
     gs = []
     for label, pct, reset, kind in USAGE:
-        warn = pct >= 60
-        fill = "#d29922" if warn else {"session": "#93a6c8", "weekly": "#a78bfa", "codex": "#93a6c8"}[kind]
-        gs.append(f'<div class="gauge"><span class="label">{label}</span><span class="pct{" warn" if warn else ""}">{pct} %</span>'
+        state = "danger" if pct >= 85 else ("warn" if pct >= 60 else "")
+        fill = {"danger": "#ff7b72", "warn": "#d29922"}.get(state) or {"session": "#93a6c8", "weekly": "#a78bfa", "codex": "#93a6c8"}[kind]
+        gs.append(f'<div class="gauge"><span class="label">{label}</span><span class="pct{" " + state if state else ""}">{pct:.0f} %</span>'
                   f'<div class="bar"><div class="fill" style="width: {pct}%; background: linear-gradient(90deg, color-mix(in srgb, {fill} 70%, transparent), {fill});"></div></div><span class="reset">{reset}</span></div>')
     cols = "1fr" if phone else "repeat(3, minmax(0, 1fr))"
-    return f'<div class="ct-panel-card card"><h2>Runway</h2><div style="display: grid; grid-template-columns: {cols}; gap: 12px 20px;">{"".join(gs)}</div></div>'
+    return f'<div class="ct-panel-card card"><div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px;"><h2>Runway</h2><span class="caption">one snapshot per provider, read {read_usage.captured}</span></div><div style="display: grid; grid-template-columns: {cols}; gap: 12px 20px;">{"".join(gs)}</div></div>'
 
 
 def watcher_card():
@@ -183,7 +198,7 @@ def watcher_card():
 
 
 def page(width, phone=False, watcher=False):
-    body = [status_header(phone, watcher), stat_cards(phone), by_agent(phone), runway(phone)]
+    body = [status_header(phone, watcher), stat_cards(phone), where_it_went(phone), runway(phone)]
     if watcher:
         body.append(watcher_card())
     return (HEAD % STYLE + f'<div style="width: {width}px; display: flex; flex-direction: column; background: #131921;">{toolbar(phone)}'
