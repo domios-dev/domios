@@ -15,6 +15,26 @@ interface NotificationBellProps {
   onAnswer?: (id: string, label: string) => void;
 }
 
+/// Where the panel sits relative to the bell, and how wide it may grow.
+///
+/// The panel is right-anchored and grows leftward, so its own max-width cannot
+/// stop it running off the left edge on a narrow viewport; only the room
+/// remaining to the left of the anchor can.
+export function anchoredPanelPosition(
+  rect: { bottom: number; right: number },
+  viewportWidth: number,
+): { top: number; right: number; maxWidth: number } {
+  const right = Math.max(EDGE_GUTTER, viewportWidth - rect.right);
+  return {
+    top: rect.bottom + 6,
+    right,
+    maxWidth: Math.max(MIN_PANEL_WIDTH, viewportWidth - right - EDGE_GUTTER),
+  };
+}
+
+const EDGE_GUTTER = 8;
+const MIN_PANEL_WIDTH = 240;
+
 export function NotificationBell({
   notifications,
   onMarkRead,
@@ -25,7 +45,7 @@ export function NotificationBell({
   onAnswer,
 }: NotificationBellProps) {
   const [open, setOpen] = useState(false);
-  const [position, setPosition] = useState({ top: 38, right: 8 });
+  const [position, setPosition] = useState({ top: 38, right: 8, maxWidth: 360 });
   const [lookedAtId, setLookedAtId] = useState<string | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -41,10 +61,7 @@ export function NotificationBell({
   const updatePosition = useCallback(() => {
     const rect = buttonRef.current?.getBoundingClientRect();
     if (!rect) return;
-    setPosition({
-      top: rect.bottom + 6,
-      right: Math.max(8, window.innerWidth - rect.right),
-    });
+    setPosition(anchoredPanelPosition(rect, window.innerWidth));
   }, []);
 
   const toggle = useCallback(() => {
@@ -111,7 +128,7 @@ export function NotificationBell({
         <div
           ref={panelRef}
           className="fixed z-[70]"
-          style={{ top: position.top, right: position.right }}
+          style={{ top: position.top, right: position.right, maxWidth: position.maxWidth }}
         >
           <NotificationPanel
             notifications={notifications}

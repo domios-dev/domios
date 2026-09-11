@@ -52,10 +52,10 @@ export function NotificationPanel({
     <div
       data-testid="notification-panel"
       data-expanded={anyExpanded ? "true" : "false"}
-      className="flex max-w-[calc(100vw-16px)] flex-col overflow-hidden rounded-md border border-[var(--ct-border)] bg-[var(--ct-surface)] shadow-2xl ct-float"
+      className="flex max-w-full flex-col overflow-hidden rounded-md border border-[var(--ct-border)] bg-[var(--ct-surface)] shadow-2xl ct-float"
       style={{
-        // A plain width, clamped by the `max-w` above rather than by a `min()`
-        // wrapped around it — same rendering, one fewer expression to read.
+        // A plain width. `max-w-full` hands the clamp to the anchored wrapper,
+        // which knows how much room exists to the left of the bell.
         width: anyExpanded ? "560px" : "360px",
         transition: "width var(--ct-duration-normal) var(--ct-ease-out-expo)",
         maxHeight: "min(520px, calc(100dvh - var(--ct-safe-top, 0px) - var(--ct-safe-bottom, 0px) - 48px))",
