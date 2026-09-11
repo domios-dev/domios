@@ -21,6 +21,7 @@ pub(crate) mod toolcall_parse;
 mod transcriber;
 mod view;
 mod vm;
+mod webhook;
 
 pub use agent_commands::JsAgentCommandHandler;
 pub use bin_resolve::{
@@ -34,6 +35,7 @@ pub use chatpreprocessor::JsChatPreprocessor;
 pub use glance::JsGlanceProvider;
 pub use transcriber::JsTranscriber;
 pub use view::JsViewProvider;
+pub use webhook::JsWebhookReceiver;
 
 /// Serializes the tests that mutate process-wide env or the shared resolver
 /// memo, which now live in more than one module.
@@ -56,7 +58,7 @@ pub use manifest::{
     IntegrationKind, PermissionsConfig, PluginManifest, RuleConfig, SerdeHookEventBinding,
     SerdeModelInfo, SerdeProviderReadinessStrategy, SerdeReadinessStrategy,
     SerdeSessionIdInjection, SerdeTaskDelivery, SerdeVerifySubmit, SessionsConfig, SkillsConfig,
-    SpawnConfig, TrustGrantConfig, UsageConfig, LAUNCH_TEMPLATE_PLACEHOLDERS,
-    RESUME_TEMPLATE_PLACEHOLDERS,
+    SpawnConfig, TrustGrantConfig, UsageConfig, WebhookReceiverCap, WebhookReceiverKind,
+    LAUNCH_TEMPLATE_PLACEHOLDERS, RESUME_TEMPLATE_PLACEHOLDERS,
 };
 pub use vm::{call_json, has_method, PluginVm, VmError, ASYNC_JOB_TIMEOUT_ERROR};

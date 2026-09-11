@@ -5,6 +5,42 @@ use crate::provider::{
 };
 
 #[test]
+fn webhook_receiver_contract_accepts_pebble_object() {
+    let json = r#"{
+            "id": "pebble",
+            "version": "0.1.0",
+            "displayName": "Pebble",
+            "capabilities": { "webhookReceiver": { "kind": "pebble" } }
+        }"#;
+    let manifest: PluginManifest = serde_json::from_str(json).expect("parse pebble receiver");
+    assert_eq!(
+        manifest.capabilities.webhook_receiver,
+        Some(WebhookReceiverCap {
+            kind: WebhookReceiverKind::Pebble,
+        })
+    );
+    assert_eq!(
+        serde_json::to_value(manifest.capabilities.webhook_receiver).expect("serialize receiver"),
+        serde_json::json!({ "kind": "pebble" })
+    );
+}
+
+#[test]
+fn webhook_receiver_contract_rejects_unknown_field() {
+    let manifest = serde_json::json!({
+        "id": "pebble",
+        "version": "0.1.0",
+        "displayName": "Pebble",
+        "capabilities": {
+            "webhookReceiver": { "kind": "pebble", "extra": true }
+        }
+    });
+    let error = serde_json::from_value::<PluginManifest>(manifest)
+        .expect_err("unknown receiver fields must be rejected");
+    assert!(error.to_string().contains("extra"), "got: {error}");
+}
+
+#[test]
 fn parse_minimal_manifest() {
     let json = r#"{
             "id": "demo",
