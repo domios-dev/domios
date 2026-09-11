@@ -49,9 +49,8 @@ impl ServiceContext {
         if changed {
             self.deferred_session_bindings.clear(tab_id);
             self.emit_session_binding_state(tab_id);
-            // Chat reads its authority from the tab record, and the binding
-            // commit shuts the tab's tailer down; without this broadcast no
-            // subscriber learns to re-attach and the transcript stops.
+            // The binding commit shuts this tab's tailer down, and chat reads
+            // its authority from the tab record: no broadcast, no re-attach.
             self.emit_state_changed();
             self.invalidate_guarded_agent_input(tab_id);
         }
