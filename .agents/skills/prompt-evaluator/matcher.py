@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import tempfile
 from dataclasses import dataclass
 
 try:
@@ -84,6 +85,18 @@ Do NOT output anything after the VERDICT line.
 
 
 _VERDICT_RE = re.compile(r"VERDICT:\s*(PASS|FAIL)\b\s*[:—–-]?\s*(.*?)\s*$", re.IGNORECASE | re.MULTILINE)
+
+
+def sandbox_env() -> dict:
+    """Environment for a nested `claude` call.
+
+    A nested call must not present the caller's CodeTerm identity: the
+    provider hooks are machine-global, so an inherited CODETERM_TAB_ID makes
+    the daemon attribute the nested session to the calling tab.
+    """
+    import os
+
+    return {k: v for k, v in os.environ.items() if not k.startswith("CODETERM_")}
 
 
 def _parse_verdict(text: str) -> tuple[bool | None, str]:
@@ -165,6 +178,8 @@ def match_expectation(
             encoding="utf-8",
             errors="replace",
             timeout=timeout_s,
+            env=sandbox_env(),
+            cwd=tempfile.mkdtemp(prefix="codeterm-judge-"),
         )
     except subprocess.TimeoutExpired:
         return MatchResult(False, "llm-judge", f"judge timeout after {timeout_s}s")
