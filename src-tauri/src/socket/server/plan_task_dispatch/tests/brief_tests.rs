@@ -199,6 +199,23 @@ fn dispatch_treats_planner_personality_as_provisional() {
 }
 
 #[test]
+fn task_dispatch_uses_planned_executor_name() {
+    let t = task(json!({
+        "id": "task_executor_title",
+        "name": "Keep identity stable",
+        "type": "code",
+        "status": "pending",
+        "personality": "Ada",
+        "executor_role": "dispatch-identity-dev",
+    }));
+
+    let (title, provenance) = dispatch_worker_identity(&t);
+
+    assert_eq!(title.as_deref(), Some("dispatch-identity-dev"));
+    assert_eq!(provenance, Some(SpawnIdentityProvenance::Suggested));
+}
+
+#[test]
 fn dispatch_treats_batch_personality_without_legacy_provenance_as_provisional() {
     let t = task(json!({
         "id": "task_batch_persona",
