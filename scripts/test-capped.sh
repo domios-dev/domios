@@ -7,6 +7,10 @@
 # Uncapped by default. An explicit cap exits 124 on timeout (matches GNU timeout);
 # otherwise the wrapper passes through cargo's own exit code.
 #
+# Fail-closed filtering: when the caller supplies a test-name filter, a run that
+# executed zero tests exits 97 instead of reporting cargo's success. A run with
+# no filter is never subject to that check.
+#
 # Usage:
 #   scripts/test-capped.sh [-- <cargo-test-args>...]
 #   TEST_CAP_SECS=30 scripts/test-capped.sh -- my_crate::my_mod
@@ -129,6 +133,47 @@ configure_embed_cache
 isolate_conpty_test_dir
 ensure_embed_sidecar
 
+ZERO_MATCH_EXIT=97
+REQUESTED_FILTER=""
+FILTER_PACKAGE=""
+FILTER_MANIFEST=""
+
+# Cargo test syntax is `cargo test [options] [TESTNAME] [-- harness-args]`, so the
+# filter is the first positional that no value-taking option already consumed.
+detect_requested_filter() {
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --) return 0 ;;
+            -p|--package) FILTER_PACKAGE="${2:-}"; shift 2 || return 0 ;;
+            --manifest-path) FILTER_MANIFEST="${2:-}"; shift 2 || return 0 ;;
+            -p=*|--package=*) FILTER_PACKAGE="${1#*=}"; shift ;;
+            --manifest-path=*) FILTER_MANIFEST="${1#*=}"; shift ;;
+            --features|-F|--target|--target-dir|--test|--bin|--bench|--example|--exclude|-j|--jobs|--message-format|--profile|--config|-Z|--color)
+                shift 2 || return 0 ;;
+            -*) shift ;;
+            *) REQUESTED_FILTER="$1"; return 0 ;;
+        esac
+    done
+}
+
+# Zero-match only when libtest actually reported, and every reported binary ran
+# nothing; a full run's own "running 0 tests" binaries never reach this check.
+filtered_run_matched_nothing() {
+    local log="$1"
+    grep -Eq '^running [0-9]+ tests?[[:space:]]*$' "$log" || return 1
+    ! grep -Eq '^running [1-9][0-9]* tests?[[:space:]]*$' "$log"
+}
+
+report_zero_match() {
+    local context="${FILTER_PACKAGE:-${FILTER_MANIFEST:-unspecified crate}}"
+    printf '\n'
+    printf '══════════════════════════════════════════════════════════════════\n'
+    printf '  ZERO MATCHES: filter %s selected no tests in %s.\n' "$REQUESTED_FILTER" "$context"
+    printf '  A filtered run that executed nothing is not a pass.\n'
+    printf '  Fix the test name, or drop the filter to run the whole target.\n'
+    printf '══════════════════════════════════════════════════════════════════\n'
+}
+
 # The cap owns the bounded failure deadline. It preserves the child status unless
 # it enforces the deadline, avoiding MSYS job-control group kills.
 run_capped() {
@@ -170,7 +215,21 @@ run_test() {
     fi
 }
 
-if run_test "$@"; then
+detect_requested_filter "$@"
+
+if [ -n "$REQUESTED_FILTER" ]; then
+    TEST_LOG=$(mktemp)
+    trap 'rm -f "$TEST_LOG"' EXIT
+    if run_test "$@" | tee "$TEST_LOG"; then
+        if filtered_run_matched_nothing "$TEST_LOG"; then
+            report_zero_match
+            exit "$ZERO_MATCH_EXIT"
+        fi
+        exit 0
+    else
+        CARGO_EXIT=$?
+    fi
+elif run_test "$@"; then
     exit 0
 else
     CARGO_EXIT=$?
