@@ -1,7 +1,7 @@
 """Draw the board and its sheets from tokens.json with the product's own kit. Every figure is a field lookup or arithmetic over fields."""
 import json, os, html, sqlite3, time, collections
 
-from labels import ROLE_FAMILIES, OTHER, KIND_LABELS, kind_label, role_label
+from labels import AREAS, AREA_LABEL, UNTAGGED, AREA_FACET_COMPACT, KIND_LABELS, kind_label
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 D = json.load(open(os.path.join(HERE, "tokens.json"), encoding="utf-8"))
@@ -9,10 +9,14 @@ agents = D["agents"]
 T = {k: sum(a["usage"][k] for a in agents) for k in ("turns", "output", "cache_read", "cache_write", "uncached")}
 orch = next(a for a in agents if a["team_role"] == "orchestrator")
 c = D["counts"]
-by_label = collections.OrderedDict()
-for a in sorted(agents, key=lambda a: -a["usage"]["output"]):
-    key = a["label"] if not a["unmapped"] else f'{OTHER} ({a["unmapped"]})'
-    by_label[key] = by_label.get(key, 0) + a["usage"]["output"]
+by_area = collections.OrderedDict((v, 0) for v, _ in AREAS); by_area[UNTAGGED] = 0
+inferred = 0
+for a in agents:
+    if a["team_role"] != "worker": continue
+    key = a["area"] or a["area_hint"] or UNTAGGED
+    if not a["area"] and a["area_hint"]: inferred += 1
+    by_area[key] = by_area.get(key, 0) + a["usage"]["output"]
+team = {r: sum(a["usage"]["output"] for a in agents if a["team_role"] == r) for r in ("orchestrator", "planner")}
 files = D["files"]
 FILES_LINE = f'{len(files)} session files read: {sum(1 for f in files if f["provider"] == "claude")} Claude logs and {sum(1 for f in files if f["provider"] == "codex")} Codex rollouts, {sum(f["bytes"] for f in files)/1e6:.0f} MB, {sum(f["lines"] for f in files):,} lines, in {D["extract_seconds"]} s'
 
@@ -108,7 +112,7 @@ STYLE = """
 .sheet h2 { margin: 0; font-size: 0.8125rem; font-weight: 600; color: #c9d1d9; }
 .sheet p { margin: 0; font-size: 0.8125rem; line-height: 1.5; color: #828a92; }
 .sheet p b { color: #c9d1d9; font-weight: 500; }
-.sheet code { font-family: "JetBrains Mono", Consolas, monospace; font-size: .6875rem; color: #c9d1d9; }
+.sheet code { font-family: "JetBrains Mono", Consolas, monospace; font-size: .6875rem; color: #c9d1d9; overflow-wrap: anywhere; }
 table { border-collapse: collapse; width: 100%; font-size: 0.8125rem; }
 th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: #484f58; font-weight: 700; padding: 6px 10px 6px 0; border-bottom: 1px solid #232930; }
 td { padding: 7px 10px 7px 0; border-bottom: 1px solid color-mix(in srgb, #232930 65%, transparent); vertical-align: top; line-height: 1.45; color: #828a92; }
@@ -149,7 +153,7 @@ def status_header(phone, watcher):
              '<span class="chip"><span class="role">orchestrator</span>Planck</span>'
              '<span class="chip"><span class="role">planner</span>Pasteur</span>'
              + ('<span class="chip"><span class="role">watcher</span>haiku, every 5 min</span>' if watcher else ""))
-    dc = f'{c["done"]} of {D["total_tasks"]} done · {c["in_review"]} in review' + ("" if phone else f' · {c["cancelled"]} cancelled')
+    dc = f'{c["done"]} of {D["total_tasks"]} done · {c["in_review"]} in review' + ("" if phone else f' · {c["cancelled"]} cancelled') + f' · <b style="color: #c9d1d9; font-weight: 500;">{n(T["output"])}</b> output tokens · <b style="color: #c9d1d9; font-weight: 500;">{n(T["cache_read"] + T["cache_write"] + T["uncached"])}</b> read'  
     return (f'<div class="status"><div class="topline"><div class="chips">{chips}</div><span class="done-count">{dc}</span></div>'
             f'<div class="topline"><span class="title">{html.escape(D["title"])}</span></div></div>')
 
@@ -179,17 +183,16 @@ def stat_cards(phone):
 
 def where_it_went(phone):
     total = T["output"]
-    lines = ""
-    for label, v in by_label.items():
-        name = label
-        if label.startswith(OTHER + " ("):
-            name = f'{OTHER} <i>{html.escape(label[len(OTHER)+2:-1])}</i>'
-        lines += f'<div class="kv"><span class="k">{name}</span><span class="v">{n(v)}</span><span class="share">{100*v/total:.0f} %</span></div>'
-    overhead = f'<p class="small">Orchestrator: <b>{100*orch["usage"]["turns"]/T["turns"]:.0f} %</b> of all turns, <b>{100*orch["usage"]["cache_read"]/T["cache_read"]:.0f} %</b> of all context read.</p>'
-    bounced = sum(a["usage"]["output"] for a in agents if a["attempts"] >= 2)
-    return (f'<div class="ct-panel-card card"><h2>Where the output went</h2><div style="display: flex; flex-direction: column; gap: 4px;">{lines}</div>{overhead}'
-            f'<p class="small">On attempts that were bounced: <b>{n(bounced)}</b> output tokens.</p>'
-            + ("" if phone else '<p class="src">labels by the role scheme on the Labels sheet, from each task\'s executor_role; an unmapped role is shown as Other with the role beside it</p>') + '</div>')
+    rows = [(AREA_LABEL.get(k, k), v) for k, v in by_area.items() if v]
+    rows.sort(key=lambda r: -r[1])
+    lines = "".join(f'<div class="kv"><span class="k">{html.escape(k)}</span><span class="v">{n(v)}</span><span class="share">{100*v/total:.0f} %</span></div>' for k, v in rows)
+    roles = "".join(f'<div class="kv"><span class="k">{k} <i>team role, not a tag</i></span><span class="v">{n(v)}</span><span class="share">{100*v/total:.0f} %</span></div>'
+                    for k, v in (("Orchestration", team["orchestrator"]), ("Planning", team["planner"])))
+    note = (f'<p class="small">No task on this plan carries an area tag yet, so <b>{inferred}</b> of {sum(1 for a in agents if a["team_role"] == "worker")} tasks are shown under the area their role suggests; in the product the Planner sets one from the list when the task is created, and nothing is inferred.</p>' if inferred else "")
+    return (f'<div class="ct-panel-card card"><div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px;"><h2>Spend by area</h2><span class="caption">one area per task, from the plan list of {len(AREAS)}</span></div>'
+            f'<div style="display: flex; flex-direction: column; gap: 4px;">{lines}</div>'
+            f'<div style="display: flex; flex-direction: column; gap: 4px; padding-top: 8px; border-top: 1px solid color-mix(in srgb, #232930 65%, transparent);">{roles}</div>{note}'
+            + ("" if phone else '<p class="src">the area:&lt;value&gt; tag on each task, one value of the area facet declared on the plan; output tokens from the session files, summed per area</p>') + '</div>')
 
 
 def runway(phone):
@@ -256,25 +259,24 @@ def page(width, phone=False, watcher=False):
 
 def labels_sheet():
     conn = sqlite3.connect(os.path.join(os.path.expanduser("~"), ".codeterm", "plans.db"))
-    roles = collections.Counter(); tasks_by_label = collections.Counter(); unmapped = collections.Counter()
+    tags = collections.Counter(); tagged = 0; total = 0
     for (doc,) in conn.execute("select document_json from plans"):
         for t in json.loads(doc).get("tasks", []):
-            r = t.get("executor_role"); roles[r] += 1
-            label, um = role_label("worker", r); tasks_by_label[label] += 1
-            if um: unmapped[um] += 1
-    fam = "".join(f'<tr><td class="k">{l}</td><td>{", ".join(keys)}</td><td class="n">{tasks_by_label.get(l, 0):,}</td></tr>' for l, keys in ROLE_FAMILIES)
-    fam += f'<tr><td class="k">{OTHER}</td><td>no family matched, or no executor role stored; the raw role is shown beside the label</td><td class="n">{tasks_by_label.get(OTHER, 0):,}</td></tr>'
-    none_count = unmapped.get("no executor role stored", 0)
-    top_unmapped = ", ".join(f'{html.escape(str(r))} ({k})' for r, k in unmapped.most_common(16) if r != "no executor role stored")
+            total += 1
+            if t.get("tags"): tagged += 1
+            for g in t.get("tags") or []: tags[g] += 1
+    areas = "".join(f'<tr><td class="k">{l}</td><td><code>area:{v}</code></td></tr>' for v, l in AREAS)
+    top = ", ".join(f'{html.escape(t)} ({k})' for t, k in tags.most_common(12))
+    tonight = "".join(f'<tr><td class="k">{html.escape(str(a["name"]))}</td><td><code>{html.escape(str(a["executor_role"] or a["team_role"]))}</code></td><td>{("tagged " + AREA_LABEL[a["area"]]) if a["area"] else (("inferred " + AREA_LABEL[a["area_hint"]]) if a["area_hint"] else ("team role" if a["team_role"] != "worker" else UNTAGGED))}</td></tr>' for a in agents)
     kinds = "".join(f'<tr><td class="k">{v}</td><td><code>{k}</code></td></tr>' for k, v in KIND_LABELS.items())
-    tonight = "".join(f'<tr><td class="k">{html.escape(str(a["name"]))}</td><td><code>{html.escape(str(a["executor_role"] or a["team_role"]))}</code></td><td>{a["label"]}{(" · " + html.escape(a["unmapped"])) if a["unmapped"] else ""}</td></tr>' for a in agents)
-    return (HEAD % STYLE + '<div class="sheet"><h1>The labelling scheme</h1>'
-            '<p>Every label on the board is produced by <code>labels.py</code>. An agent is labelled by what it is: the Orchestrator and the Planner by their team role, a worker by its task\'s stored <code>executor_role</code>, matched against the families below in order. A role that matches nothing is not swallowed: it is labelled Other with the raw role beside it, on the board and here.</p>'
-            f'<h2>Role families, and how many of the store\'s {sum(roles.values()):,} tasks across {len(roles):,} distinct roles each takes</h2>'
-            f'<table><tr><th>Label</th><th>Matches when the role contains</th><th>Tasks</th></tr>{fam}</table>'
-            f'<p>{tasks_by_label.get(OTHER, 0) - none_count:,} tasks carry a role no family matches and {none_count:,} carry none; both land in Other, visibly. Roles reaching Other most often: {top_unmapped}.</p>'
-            '<h2>Tonight\'s agents through the scheme</h2>'
-            f'<table><tr><th>Agent</th><th>Stored role</th><th>Label</th></tr>{tonight}</table>'
+    return (HEAD % STYLE + '<div class="sheet"><h1>The tag list</h1>'
+            f'<p>Spend by area only means something if the area is one value from one short list that the Planner picks when the task is created, not a word invented in the moment. The store shows what happens otherwise: <b>{tagged:,}</b> of <b>{total:,}</b> tasks carry tags and there are <b>{len(tags):,}</b> distinct ones. The most used: {top}.</p>'
+            '<p>The product already has the mechanism. A plan declares a tag facet, a key with its allowed values and labels; a task carries one <code>key:value</code> tag per facet, and <code>apply_tags</code> in <code>tag_model.rs</code> clears the old value of that facet when a new one is set, so a task never carries two. No plan has declared one yet.</p>'
+            '<h2>The area facet</h2>'
+            f'<table><tr><th>Area</th><th>Tag on the task</th></tr>{areas}</table>'
+            f'<p>Declared once per plan, in the syntax the product accepts: <code>codeterm plan facets set &lt;plan&gt; "{html.escape(AREA_FACET_COMPACT)}"</code>. A value outside the list is reported by <code>tag_report</code> as undeclared. A task with no area tag shows as Untagged on the board; the board never guesses.</p>'
+            '<h2>Tonight, task by task</h2><p>This plan was created before the facet existed, so no task carries an area tag. The board shows the area each role suggests and says so; the column below is what the Planner would have set.</p>'
+            f'<table><tr><th>Agent</th><th>Stored role</th><th>Area</th></tr>{tonight}</table>'
             '<h2>Event kinds</h2><p>The log shows each milestone and stride under the label for its stored kind. A kind not in this table shows as Note with the kind in brackets, never silently.</p>'
             f'<table><tr><th>Label</th><th>Kind field</th></tr>{kinds}</table></div>\n</x-dc>\n</body>\n</html>\n')
 
@@ -304,4 +306,4 @@ for name, w, ph, wa in (("Main", 960, False, False), ("Watcher", 960, False, Tru
     open(os.path.join(HERE, name + ".src"), "w", encoding="utf-8").write(page(w, ph, wa))
 open(os.path.join(HERE, "Labels.src"), "w", encoding="utf-8").write(labels_sheet())
 open(os.path.join(HERE, "Cost.src"), "w", encoding="utf-8").write(cost_sheet())
-print("frames written; output", n(T["output"]), "turns", T["turns"], "labels", dict(by_label))
+print("frames written; output", n(T["output"]), "turns", T["turns"], "by area", {k: n(v) for k, v in by_area.items() if v})

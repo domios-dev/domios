@@ -8,7 +8,7 @@ the usage store. No text is parsed for meaning anywhere in this file.
 """
 import glob, json, os, sqlite3, time
 
-from labels import role_label
+from labels import task_area, area_hint
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 HOME = os.path.expanduser("~")
@@ -74,13 +74,13 @@ def codex_usage(session_id):
 agents = []
 for t in plan["tasks"]:
     for a in t.get("execution_attempts", []):
-        label, unmapped = role_label("worker", t.get("executor_role"))
-        agents.append({"name": a.get("executor_title"), "team_role": "worker", "executor_role": t.get("executor_role"), "label": label, "unmapped": unmapped,
+        area = task_area(t.get("tags"))
+        agents.append({"name": a.get("executor_title"), "team_role": "worker", "executor_role": t.get("executor_role"), "tags": t.get("tags") or [],
+                       "area": area, "area_hint": None if area else area_hint(t.get("executor_role")),
                        "model": (a.get("model") or "").split(":")[-1], "provider": a.get("provider"), "session": a.get("session_id"), "task": t["id"],
                        "status": t["status"], "status_label": t.get("status_label"), "attempts": len(t.get("execution_attempts", []))})
 for team_role, ref, model, prov in (("orchestrator", plan["owner"], "opus", "claude"), ("planner", plan["planner"], "gpt-5.6", "codex")):
-    label, _ = role_label(team_role, None)
-    agents.append({"name": ref["title"], "team_role": team_role, "executor_role": None, "label": label, "unmapped": None, "model": model, "provider": prov,
+    agents.append({"name": ref["title"], "team_role": team_role, "executor_role": None, "tags": [], "area": None, "area_hint": None, "model": model, "provider": prov,
                    "session": ref["session_id"], "task": None, "status": "live", "status_label": None, "attempts": 0})
 for ag in agents:
     ag["usage"] = claude_usage(claude_logs[ag["session"]]) if ag["session"] in claude_logs else codex_usage(ag["session"])
