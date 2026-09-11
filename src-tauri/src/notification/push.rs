@@ -44,10 +44,15 @@ pub const MAX_SOURCE_CHARS: usize = 48;
 /// filesystem path is not.
 pub const OVERFLOW_NOTE: &str = "… truncated — the full text is in the bell";
 
-/// Room the assembly spends on everything that is not the body: the
-/// level-prefixed title line, the provenance line, their separators, and the
-/// overflow marker.
+/// Room the assembly spends on everything that is not the body: the source
+/// label, the level-prefixed title it leads, their separators, and the overflow
+/// marker.
 const NON_BODY_RESERVE: usize = MAX_TITLE_CHARS + MAX_SOURCE_CHARS + 128;
+
+/// What parts the source label from the title it introduces. The source leads
+/// the message: a phone preview shows the opening line and nothing else, and
+/// which tab is speaking is what the reader needs from it.
+pub const SOURCE_SEPARATOR: &str = " · ";
 
 /// The length budget of one channel's own transport. Core owns the shape of the
 /// split; the ceiling itself is stated by the channel that has to carry the
@@ -147,6 +152,9 @@ fn tidy(text: &str) -> String {
 /// body, and the resolved provenance labels — never cwd, prompt text, task
 /// text, logs, or ids. A wider bound is more room for those three, never
 /// permission to read a fourth.
+///
+/// The opening line names where the notification came from, so the sender is
+/// legible in a phone preview that shows nothing else.
 pub fn render_push(
     level: NotifyLevel,
     title: &str,
@@ -154,16 +162,18 @@ pub fn render_push(
     provenance: &NotificationProvenance,
     bounds: PushBounds,
 ) -> String {
-    let mut lines = vec![format!(
+    let titled = format!(
         "[{}] {}",
         level.label(),
         cap(&collapse(title), bounds.title)
-    )];
+    );
+    let headline = match render_source(provenance) {
+        Some(source) => format!("{source}{SOURCE_SEPARATOR}{titled}"),
+        None => titled,
+    };
+    let mut lines = vec![headline];
     if let Some(body) = body.map(tidy).filter(|b| !b.is_empty()) {
         lines.push(cap_and_tell(&body, bounds.body));
-    }
-    if let Some(source) = render_source(provenance) {
-        lines.push(format!("via {source}"));
     }
     cap_and_tell(&lines.join("\n"), bounds.total)
 }
@@ -268,7 +278,10 @@ mod push_render {
         );
         assert!(!rendered.contains("tab_7f21c0de"), "full ids are excluded");
         assert!(!rendered.contains("ws_lanes"), "workspace ids are excluded");
-        assert!(rendered.contains("via Worker lane"));
+        assert!(
+            rendered.starts_with("Worker lane"),
+            "the message opens with the tab that sent it"
+        );
     }
 
     #[test]
