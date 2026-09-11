@@ -10,12 +10,15 @@ import {
 } from "./planViewMode";
 import { PlanBoardView } from "./planView/PlanBoardView";
 import { PlanListView } from "./planView/PlanListView";
+import { PlanPlanView, PlanSpecView } from "./planView/PlanDocumentView";
 import { PlanCompanionBubble } from "./planView/PlanCompanionBubble";
 import { TabSessionChat } from "../Terminal/TabSessionChat";
 
 const BoardSurface = memo(PlanBoardView);
 const ListSurface = memo(PlanListView);
 const CanvasSurface = memo(MissionControlPlanSurface);
+const SpecSurface = memo(PlanSpecView);
+const PlanSurface = memo(PlanPlanView);
 const CompanionSurface = memo(PlanCompanionBubble);
 
 const PLAN_VIEW_MODE_STORAGE_KEY = "codeterm.planViewMode";
@@ -56,7 +59,10 @@ export function PlanViewShell(props: PlanViewSurfaceProps) {
   const [viewMode, setViewMode] = usePersistedPlanViewMode();
   const canvasProps = useFrozenWhenHidden(props, viewMode === "canvas");
   const listProps = useFrozenWhenHidden(props, viewMode === "list");
+  const specProps = useFrozenWhenHidden(props, viewMode === "spec");
+  const planProps = useFrozenWhenHidden(props, viewMode === "plan");
   const boardProps = useFrozenWhenHidden(props, viewMode === "board");
+  const openSpec = useCallback(() => setViewMode("spec"), [setViewMode]);
 
   const renderCompanionChat = useCallback(
     ({ tabId, chatBackend }: { tabId: string; chatBackend: boolean }) => (
@@ -93,6 +99,20 @@ export function PlanViewShell(props: PlanViewSurfaceProps) {
         )}
       </header>
       <div className="relative min-h-0 flex-1">
+        <div
+          className="absolute inset-0"
+          hidden={viewMode !== "spec"}
+          aria-hidden={viewMode !== "spec"}
+        >
+          <SpecSurface {...specProps} />
+        </div>
+        <div
+          className="absolute inset-0"
+          hidden={viewMode !== "plan"}
+          aria-hidden={viewMode !== "plan"}
+        >
+          <PlanSurface {...planProps} onOpenSpec={openSpec} />
+        </div>
         <div
           className="absolute inset-0"
           hidden={viewMode !== "canvas"}
