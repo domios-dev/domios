@@ -174,9 +174,14 @@ pub fn parse(text: &str) -> Option<ParsedMarker> {
     let rest = normalized.strip_prefix(OPEN)?;
     let close = rest.find(CLOSE)?;
     let head = &rest[..close];
-    let payload = rest[close + CLOSE.len()..]
-        .strip_prefix(NEWLINE_CHAR)
-        .unwrap_or(&rest[close + CLOSE.len()..]);
+    let body = &rest[close + CLOSE.len()..];
+    // The separator the builder adds. A PTY rewrites it to CR in transit, so
+    // accept either form and hand the receiver the payload it was sent.
+    let payload = body
+        .strip_prefix("\r\n")
+        .or_else(|| body.strip_prefix(NEWLINE_CHAR))
+        .or_else(|| body.strip_prefix('\r'))
+        .unwrap_or(body);
 
     let mut tokens = head.split(' ');
     let kind = tokens.next()?.to_string();
