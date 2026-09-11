@@ -533,48 +533,65 @@ fn is_daemon_socket_name(name: &str) -> bool {
         && !name.starts_with("codeterm-gateway-mutex-")
 }
 
+/// Resolve a scanned socket name from raw `/tmp` entry names.
+///
+/// Liveness, selection and the process probe are injected so the fall-through
+/// order can be exercised without a running daemon.
+#[cfg(not(target_os = "windows"))]
+fn resolve_scanned_socket(
+    entry_names: impl Iterator<Item = String>,
+    is_live: &dyn Fn(&str) -> bool,
+    select: &dyn Fn(&[String]) -> Option<String>,
+    probe_running_daemon: &dyn Fn() -> Option<String>,
+) -> Result<String, String> {
+    let mut candidates: Vec<String> = entry_names.filter(|n| is_daemon_socket_name(n)).collect();
+    candidates.sort();
+    // A socket file outlives its daemon, and returning a dead one here would
+    // shadow the process probe that still finds the live one.
+    candidates.retain(|name| is_live(name));
+    if let Some(name) = select(&candidates) {
+        return Ok(name);
+    }
+
+    probe_running_daemon()
+        .ok_or_else(|| "No CodeTerm socket found. Is CodeTerm running?".to_string())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn pgrep_daemon_socket() -> Option<String> {
+    let output = std::process::Command::new("pgrep")
+        .arg("-f")
+        .arg("codeterm")
+        .output()
+        .ok()?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    stdout
+        .lines()
+        .filter_map(|line| line.trim().parse::<u32>().ok())
+        .map(|pid| format!("codeterm-{}.sock", pid))
+        .find(|name| socket_is_live(name))
+}
+
 #[cfg(not(target_os = "windows"))]
 fn discover_unix_socket() -> Result<String, String> {
     use std::fs;
 
-    // Scan /tmp for codeterm-*.sock files and return the bare name (GenericNamespaced will prepend /tmp/ when connecting)
-    if let Ok(entries) = fs::read_dir("/tmp") {
-        let mut candidates: Vec<String> = entries
-            .flatten()
-            .filter_map(|e| e.file_name().to_str().map(|s| s.to_string()))
-            .filter(|n| is_daemon_socket_name(n))
-            .collect();
-        candidates.sort();
-        // A socket file outlives its daemon, and returning a dead one here
-        // would shadow the pgrep probe below that still finds the live one.
-        candidates.retain(|name| socket_is_live(name));
-        if let Some(name) = pick_preferred_socket(&candidates, prefers_dev_socket()) {
-            return Ok(name);
-        }
-    }
+    // Bare names only: GenericNamespaced prepends /tmp/ when connecting.
+    let entry_names: Vec<String> = fs::read_dir("/tmp")
+        .map(|entries| {
+            entries
+                .flatten()
+                .filter_map(|e| e.file_name().to_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
 
-    if let Ok(output) = std::process::Command::new("pgrep")
-        .arg("-f")
-        .arg("codeterm")
-        .output()
-    {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        for line in stdout.lines() {
-            if let Ok(pid) = line.trim().parse::<u32>() {
-                let sock_name = format!("codeterm-{}.sock", pid);
-                let test = sock_name
-                    .clone()
-                    .to_ns_name::<GenericNamespaced>()
-                    .ok()
-                    .and_then(|name| interprocess::local_socket::Stream::connect(name).ok());
-                if test.is_some() {
-                    return Ok(sock_name);
-                }
-            }
-        }
-    }
-
-    Err("No CodeTerm socket found. Is CodeTerm running?".to_string())
+    resolve_scanned_socket(
+        entry_names.into_iter(),
+        &socket_is_live,
+        &|candidates| pick_preferred_socket(candidates, prefers_dev_socket()),
+        &pgrep_daemon_socket,
+    )
 }
 
 #[cfg(test)]
@@ -595,6 +612,65 @@ mod tests {
         assert!(is_daemon_socket_name("codeterm-dev.sock"));
         assert!(!is_daemon_socket_name("codeterm-49765"));
         assert!(!is_daemon_socket_name("other-49765.sock"));
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn stale_socket_file_falls_through_to_live_probe() {
+        use std::cell::RefCell;
+
+        let entry_names = vec![
+            "codeterm-gateway-mutex-13026-2189552-cargo.sock".to_string(),
+            "codeterm-777.sock".to_string(),
+            "unrelated.sock".to_string(),
+        ];
+        let liveness_checked: RefCell<Vec<String>> = RefCell::new(Vec::new());
+        let probe_calls = RefCell::new(0usize);
+
+        let resolved = resolve_scanned_socket(
+            entry_names.into_iter(),
+            &|name| {
+                liveness_checked.borrow_mut().push(name.to_string());
+                false
+            },
+            &|candidates| pick_preferred_socket_for(candidates, false, None),
+            &|| {
+                *probe_calls.borrow_mut() += 1;
+                Some("codeterm-4242.sock".to_string())
+            },
+        );
+
+        assert_eq!(
+            *probe_calls.borrow(),
+            1,
+            "a stale socket file must not stop discovery before the live probe"
+        );
+        assert_eq!(resolved, Ok("codeterm-4242.sock".to_string()));
+        assert_eq!(
+            *liveness_checked.borrow(),
+            vec!["codeterm-777.sock".to_string()],
+            "only daemon-named candidates may reach the liveness check"
+        );
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn live_socket_file_wins_without_probing() {
+        use std::cell::RefCell;
+
+        let probe_calls = RefCell::new(0usize);
+        let resolved = resolve_scanned_socket(
+            vec!["codeterm-777.sock".to_string()].into_iter(),
+            &|_| true,
+            &|candidates| pick_preferred_socket_for(candidates, false, None),
+            &|| {
+                *probe_calls.borrow_mut() += 1;
+                Some("codeterm-4242.sock".to_string())
+            },
+        );
+
+        assert_eq!(resolved, Ok("codeterm-777.sock".to_string()));
+        assert_eq!(*probe_calls.borrow(), 0);
     }
 
     #[test]
