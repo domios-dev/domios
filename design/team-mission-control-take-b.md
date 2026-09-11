@@ -4,9 +4,9 @@ Artboards: `design/team-mission-control-take-b.html`. One file, six parts. The
 toggle at top right switches between the two shipped themes.
 
 - **Part 1 · The Board** — A1 live plan, A2 no plan.
-- **Part 2 · The Tasks card menu** — B1 kanban with an illegal drag, B2 the menu
-  across five card states plus both confirm weights, B3 the same menu inside the
-  expanded task.
+- **Part 2 · The Tasks card menu** — B1 the board with one card's overflow open,
+  B2 the remove confirm in two weights, close shown where it actually lives, and
+  the menu at every state.
 - **Part 3 · The Board menu** — C1 in four plan states, C2 clear-everything in
   two weights, C3 the approve transition.
 - **Part 4 · Behind the cost door** — D1 as it opens, D2 with the depth expanded.
@@ -87,48 +87,55 @@ a small read route. Bucket 3 is not drawn.
 
 ## Part 2 — the Tasks card menu
 
-This is the piece that would have embarrassed the product if it were designed as
-a whiteboard. A column is a lifecycle state and the daemon refuses illegal
-writes. Every verb in the artboards is a real CLI verb, and every disabled item
-carries the reason the daemon would actually give.
+One verb: Remove the task. A menu with one item is a good menu, and this one is
+better than the lifecycle tutorial it replaces.
 
-Verified in `service_plan/mutations/mod.rs`:
+Drag between columns is gone, and so is every move verb. A kanban column here is
+a lifecycle state the daemon owns, and the honest version of hand-moving cards
+was a menu that changed shape five times and spent most of its items explaining
+what you could not do. The Orchestrator moves cards as work actually progresses.
+A card's state changes what the card says, never what its menu offers, so there
+is nothing to learn and nothing to misread.
 
-- **Entering `in_progress` requires a tab.** Without `assigned_tab_id` or
-  `lane.tab_id`, the write fails with `InProgressRequiresTab`. A person dragging
-  a card into In progress cannot make that true by saying so, so the column
-  refuses the drop while the card is still in the air and offers the two verbs
-  that would get it there: dispatch a worker, or assign a tab. The gesture ends
-  in an action instead of a snap-back.
-- **`in_review` is a one-way door.** Any plain status write out of review is
-  refused with `TransitionDenied`, and the error itself names the remedy verb.
-  So the review card's menu offers only Accept, Bounce and Hold — the three real
-  verbs from `plan review` — and the move items are present but disabled with
-  "Review is a one-way door."
-- **Pausing from review is refused separately** with `ReviewHoldRequired`, so
-  Pause is disabled on that card with "Hold is the review version of it."
-- **Pausing is never a bare status write.** `TaskPauseRequiresReason` forces
-  `plan task pause --reason`, so the menu collects the reason inside itself
-  before the verb fires. Asking after the fact would be worse than asking first.
-- **Blocking requires a label**, so the item reads "Mark blocked…" with the
-  ellipsis that promises a prompt.
-- **Done is rejected while subtasks are open**, and the error lists them by name.
+**One candidate for a second item was considered and cut.** "Go to the agent's
+tab" is useful, but clicking the card already opens the task, and the agent link
+belongs in the open task where there is room to name who and since when. A second
+item turns a button into a list that has to be read.
 
-Weight is carried three ways. A verb with consequences beyond a status change —
-dispatch spawns a worker and provisions a lane, assign binds a tab, respawn
-starts a fresh worker — gets a short accent mark and a one-line explanation, and
-sits in its own group. A destructive verb sits alone under a rule and is the only
-red thing in the menu. **Closing and removing are different and do not read the
-same:** closing is a normal outcome with an optional result, and its confirm is a
-plain one-sentence box; removing deletes the task, its milestones and its
-attempts, and its confirm is a two-column ledger of what goes and what stays,
-with a red border.
+**Remove is destructive and confirms, and the confirm says what goes.** It is a
+two-column ledger — what the plan loses, what it keeps — not "are you sure". One
+thing changes it: if a worker is holding the task, that leads. The confirm opens
+with a red-railed line naming the agent, says its lane and branch are left on
+disk with nothing pointing at them, notes the agent itself is untouched, suggests
+stopping it first, and swaps the button order so **Keep it** reads first.
 
-Keyboard behaviour is specified on artboard B2: `Shift+F10` opens from a focused
-card, arrows skip disabled items, type-ahead jumps, `Esc` returns focus to the
-kebab, and a confirm opens with focus on cancel so a held `Enter` cannot destroy
-anything. Disabled items stay in the accessibility tree with `aria-disabled` so a
-screen reader hears the reason rather than silence.
+**Closing and removing are different, and they no longer live in the same place.**
+Close is a normal outcome, so it is a quiet secondary button inside the open task
+with a line saying it records the task finished and keeps everything. Remove is
+red, behind an overflow, and confirms. Different place, different weight,
+different colour: nobody reaches one while meaning the other.
+
+The transition rules I verified in `service_plan/mutations/mod.rs` no longer
+drive this menu, but they are the reason it is one item rather than six, and they
+remain true of the surface underneath:
+
+- Entering `in_progress` without a tab binding fails with
+  `InProgressRequiresTab`, which is why hand-dragging a card into that column was
+  never going to work.
+- `in_review` refuses any plain status write with `TransitionDenied`, and only
+  the three `plan review` verbs — accept, bounce, hold — move a task out of it.
+- `TaskPauseRequiresReason` means pausing is never a bare status set, and
+  `BlockedRequiresLabel` means blocking always carries a reason.
+
+Every one of those is an Orchestrator concern. None of them belongs behind three
+dots on a card.
+
+Keyboard behaviour, on artboard B2: the overflow opens on `Enter`, `Space` or
+`Shift+F10` from the focused card, and `Esc` closes it and returns focus to the
+kebab. The confirm opens with focus on **Keep it**, never on the destructive
+button, so a held `Enter` cannot delete a task. The card stays a single
+activation target — clicking it opens the task, and the overflow does not steal
+that.
 
 ## Part 3 — the Board menu
 
