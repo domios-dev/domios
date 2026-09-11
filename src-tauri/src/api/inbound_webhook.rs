@@ -22,7 +22,7 @@ const MAX_DELIVERY_TEXT_BYTES: usize = 64 * 1024;
 const MAX_EVENT_ID_BYTES: usize = 256;
 
 #[derive(Debug, Clone, Copy)]
-struct WebhookRejection {
+pub(crate) struct WebhookRejection {
     status: StatusCode,
     code: &'static str,
     message: &'static str,
@@ -128,7 +128,7 @@ impl IntoResponse for WebhookRejection {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct WebhookResponse {
+pub(crate) struct WebhookResponse {
     ok: bool,
     status: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -226,7 +226,7 @@ fn receive_and_deliver(
         return Err(WebhookRejection::receiver_failed());
     }
 
-    let target = ServiceBridgeTabPort(svc.clone())
+    let target = ServiceBridgeTabPort((*svc).clone())
         .resolve_general_tab()
         .map_err(|_| WebhookRejection::general_agent_missing())?;
     let event_id = delivery.event_id.filter(|event_id| !event_id.is_empty());
@@ -483,12 +483,16 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(
+        not(windows),
+        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+    )]
     fn receiver_noop_is_successful_without_general_agent_delivery() {
         let fixture = crate::service::test_fixture::ServiceFixture::new(
             crate::multiplexer::state::MultiplexerState::empty(),
         );
         let result = receive_and_deliver(
-            fixture.service.clone(),
+            std::sync::Arc::new(fixture.service.clone()),
             "pebble".into(),
             std::sync::Arc::new(NoopReceiver),
             WebhookReceiveContext {
@@ -502,12 +506,16 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(
+        not(windows),
+        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+    )]
     fn missing_general_agent_is_a_non_delivering_failure() {
         let fixture = crate::service::test_fixture::ServiceFixture::new(
             crate::multiplexer::state::MultiplexerState::empty(),
         );
         let result = receive_and_deliver(
-            fixture.service.clone(),
+            std::sync::Arc::new(fixture.service.clone()),
             "pebble".into(),
             std::sync::Arc::new(SuccessfulReceiver),
             WebhookReceiveContext {
