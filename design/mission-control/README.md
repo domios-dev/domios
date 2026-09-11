@@ -1,0 +1,26 @@
+# Mission control as a reading of the team
+
+Design artboards for the team Board: what a background watcher over the plan
+state and the KPI ledger could conclude, and the same conclusions read straight
+off compact cards without one. Two versions on one canvas; they differ only in
+the told-whom lines.
+
+Seed the canvas with the design skill's helper from this directory:
+
+```
+node <skill>/seed-canvas.mjs --template <skill>/payload.template.html \
+  --out ../mission-control-insights.html --title "Mission Control Insights" \
+  --artboard Main.dc.html --artboard Watcher.dc.html --artboard Message.dc.html \
+  --artboard Phone.dc.html --artboard States.dc.html --artboard Kpis.dc.html \
+  --artboard Conclusions.dc.html --canvas canvas.json
+```
+
+The seeded bundle is gitignored; the `.dc.html` files are the sources. Each
+inlines `_kit.css`, which carries the values lifted from `src/styles/tokens.css`
+and `globals.css` under the github-dark default; edit the kit once and paste it
+into every artboard's style block.
+
+Every figure on the board frames was read from plan `pl_ad3tcu`, the tab
+snapshot and `codeterm usage` on the night of drawing. The KPI ledger was off
+on that machine, so the effort card shows its not-recording state and no ledger
+figure on the canvas is measured.

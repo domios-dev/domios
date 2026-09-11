@@ -1,0 +1,233 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+/* Values lifted from src/styles/tokens.css and the github-dark output of themeToCSS(); classes reproduce globals.css. */
+* { box-sizing: border-box; }
+body { margin: 0; font-family: "Inter", "Segoe UI", "Avenir Next", "Avenir", "Helvetica Neue", sans-serif; font-size: 0.8125rem; line-height: 1.45; color: #c9d1d9; background: #131921; -webkit-font-smoothing: antialiased; }
+a { color: #58a6ff; } a:hover { color: #79c0ff; }
+button { font: inherit; cursor: pointer; }
+.mono { font-family: "JetBrains Mono", "Cascadia Code", Consolas, Menlo, monospace; font-variant-numeric: tabular-nums; }
+.ct-toolbar { height: 2.5rem; display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: 0 1rem; border-bottom: 1px solid #232930; background: #131921; }
+.ct-panel-tab { border: 0; border-bottom: 2px solid transparent; background: transparent; font-size: 0.8125rem; text-transform: capitalize; color: #828a92; padding: .5rem .75rem; }
+.ct-panel-tab--active { border-bottom-color: #58a6ff; color: #c9d1d9; }
+.ct-panel-card { border: 1px solid #232930; background: #0d1117; border-radius: 8px; }
+.ct-panel-card--soft { background: color-mix(in srgb, #0d1117 85%, #c9d1d9 15%); border-style: dashed; }
+.ct-small-pill { display: inline-flex; align-items: center; gap: .25rem; min-height: 1.25rem; padding: 0 .45rem; border-radius: 999px; border: 1px solid #232930; color: #828a92; font-size: .6875rem; }
+.ct-chip-accent { border-color: color-mix(in srgb, #58a6ff 40%, transparent); color: #58a6ff; }
+.ct-chip-success { border-color: color-mix(in srgb, #7ee787 40%, transparent); color: #7ee787; }
+.ct-chip-danger { border-color: color-mix(in srgb, #ff7b72 40%, transparent); color: #ff7b72; }
+.ct-chip-warning { border-color: color-mix(in srgb, #d29922 40%, transparent); color: #d29922; }
+.ct-chip-muted { border-color: transparent; color: #484f58; }
+.ct-meta { font-size: 0.8125rem; color: #828a92; }
+.ct-meta-muted { font-size: 0.8125rem; color: #484f58; }
+.ct-kbd { min-width: 1.5rem; height: 1.25rem; padding: 0 .3rem; border-radius: .35rem; border: 1px solid #232930; background: #131921; color: #828a92; font-family: "JetBrains Mono", Consolas, monospace; font-size: .7rem; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; }
+.ct-btn { display: inline-flex; align-items: center; justify-content: center; gap: .3rem; min-height: 1.875rem; padding: 0 .75rem; border-radius: 4px; border: 1px solid #232930; background: #0d1117; color: #c9d1d9; font-size: 0.8125rem; }
+.ct-btn-ghost { background: transparent; color: #828a92; border-color: transparent; }
+.ct-btn-compact { min-height: 1.625rem; padding-top: .25rem; padding-bottom: .25rem; }
+.ct-plan-status-breakdown { display: inline-flex; gap: 0; font-size: 10.5px; font-weight: 600; line-height: 1.4; white-space: nowrap; }
+.ct-plan-status-breakdown .sep { color: #484f58; }
+/* Board layout: one 12px gap between and inside the wells; the host is chrome. */
+.card { display: flex; flex-direction: column; min-width: 0; padding: 12px; gap: 10px; }
+.card h2 { margin: 0; font-size: 0.8125rem; font-weight: 600; letter-spacing: -.006em; }
+.label { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: #484f58; font-weight: 700; }
+.door { border: 0; background: none; padding: 0; color: #58a6ff; font-size: 0.8125rem; align-self: flex-start; }
+.door:hover { text-decoration: underline; text-underline-offset: 3px; }
+.plan-title { font-size: 1rem; font-weight: 600; line-height: 1.28; letter-spacing: -.012em; color: #c9d1d9; }
+.red { color: #ff7b72; }
+.amber { color: #d29922; }
+.green { color: #7ee787; }
+/* Conclusions: ranked, unequal. The first is at reading size with air; the rest are quieter lines. */
+.lead { font-size: 1rem; line-height: 1.4; letter-spacing: -.008em; color: #c9d1d9; }
+.lead b, .line b { font-weight: 600; }
+.line { font-size: 0.8125rem; line-height: 1.45; color: #c9d1d9; padding-top: 8px; border-top: 1px solid color-mix(in srgb, #232930 65%, transparent); }
+.why { color: #828a92; }
+.who { font-size: .6875rem; color: #484f58; }
+.figure { font-size: 1.5rem; font-weight: 600; line-height: 1.1; letter-spacing: -.02em; }
+
+h2 { margin: 0; font-size: 1rem; font-weight: 600; letter-spacing: -.012em; }
+p { margin: 0; }
+.rule { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 4px 14px; padding-top: 12px; border-top: 1px solid #232930; font-size: 0.8125rem; line-height: 1.45; }
+.rule .n { font-weight: 600; color: #c9d1d9; grid-column: 1 / -1; }
+.rule .k { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: #484f58; font-weight: 700; padding-top: 3px; }
+.rule .v { color: #828a92; }
+.rule .v i { color: #c9d1d9; font-style: normal; }
+.rule code { font-family: "JetBrains Mono", Consolas, monospace; font-size: .6875rem; color: #c9d1d9; }
+blockquote { margin: 0; padding: 10px 0 0; border-top: 1px solid #232930; color: #828a92; font-size: 0.8125rem; line-height: 1.5; display: flex; flex-direction: column; gap: 8px; }
+blockquote b { color: #c9d1d9; }
+  </style>
+</helmet>
+<div style="width: 800px; display: flex; flex-direction: column; gap: 22px; padding: 16px; background: #131921;">
+  <div style="display: flex; flex-direction: column; gap: 4px;">
+    <span class="plan-title">What the watcher would conclude, and to whom it would write</span>
+    <span class="ct-meta">Fifteen conclusions in priority order, then two readings. For each: the fields it reads, when it fires, when it is silenced, the sentence, and in the watcher version the recipient and the transitions on which it writes. Five fire on this plan tonight; the rest are silent because the team is healthy, which makes the near-empty card the common case.</span>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 6px;">
+    <h2>When writing is warranted at all</h2>
+    <p class="ct-meta">A message is warranted only when it names an action the recipient can take and has not taken. Once when the conclusion becomes true, once when it stops being true. Never on the timer, never to confirm, never to a worker: a third voice in a worker's context is more of what is already wrong. To the Orchestrator for anything the Orchestrator can do. To the user only when the Orchestrator is the one who cannot: a held gate, a dead Planner, a silent Orchestrator, the account's budget. Conclusions that become true in the same wake go in one message. This is the lesson of the acknowledgement loop on this very plan, and the surface version needs none of it, because a sentence on a page cannot loop.</p>
+  </div>
+
+  <div class="rule" style="border-top: 0; padding-top: 0;">
+    <span class="n">1 · Waiting on your answer</span>
+    <span class="k">reads</span><span class="v"><code>plan.gates[]</code> open or escalated; <code>owner.tab_id</code> against the probe with <code>exists</code> true and <code>agent_accepting_work</code> false; review holds whose note names the user.</span>
+    <span class="k">fires</span><span class="v">Any of those. Never silenced; it silences the wedge sentence.</span>
+    <span class="k">sentence</span><span class="v"><i>Planck is waiting on your answer.</i> For a gate: <i>Pasteur asked you something 8 minutes ago and two tasks are stopped behind it.</i> For a hold, the note is printed word for word.</span>
+    <span class="k">tonight</span><span class="v">No gate is open and Planck is routable. The hold on task_pra2ti names the user, and kind 4 carries it.</span>
+    <span class="k">watcher</span><span class="v">To the user, once when the gate opens, once when it is answered. An unanswered gate is not a reason to write again; that is what the badge is for.</span>
+  </div>
+
+  <div class="rule">
+    <span class="n">2 · The Planner is gone</span>
+    <span class="k">reads</span><span class="v"><code>planner_dead</code>, <code>undelivered_request_count</code>, <code>planner_recovery_action</code>, <code>planner.title</code>.</span>
+    <span class="k">fires</span><span class="v">planner_dead true. Never silenced; it makes every planning statement below it stale.</span>
+    <span class="k">sentence</span><span class="v"><i>Pasteur is gone. Six requests never reached it.</i> Then the daemon's recovery action, verbatim.</span>
+    <span class="k">tonight</span><span class="v">Does not fire. Pasteur is alive on its tab, nothing undelivered.</span>
+    <span class="k">watcher</span><span class="v">To the user. The central instance of the rule, not an exception: the Planner cannot be nudged because it is gone.</span>
+  </div>
+
+  <div class="rule">
+    <span class="n">3 · The Orchestrator is gone, or not driving</span>
+    <span class="k">reads</span><span class="v"><code>owner.tab_id</code> and <code>owner.session_id</code> against the probe: <code>exists</code>, <code>live_agent</code>, <code>session_binding_valid</code>, <code>agent_accepting_work</code>.</span>
+    <span class="k">fires</span><span class="v">Four states. Unbound: silence. Gone, the tab absent: the real death. Present but not driving: on a question is kind 1; no agent running, or a stale binding after a relaunch, are quieter and recoverable. Routable: silence. Applying the Planner's test verbatim would call a question a death.</span>
+    <span class="k">sentence</span><span class="v"><i>Planck's tab is gone. Nothing is dispatching, reviewing or closing.</i> No evidence count: the daemon keeps no request queue for the Orchestrator.</span>
+    <span class="k">tonight</span><span class="v">Does not fire.</span>
+    <span class="k">watcher</span><span class="v">To the user only. Every other recipient is the thing that died.</span>
+  </div>
+
+  <div class="rule">
+    <span class="n">4 · Review is the constraint</span>
+    <span class="k">reads</span><span class="v"><code>review_policy.wip_limit</code>, <code>review_policy.credit</code>, the in-review count; <code>live_agents</code> against tasks in review; the oldest <code>reported_at</code> among open attempts and its hold notes.</span>
+    <span class="k">fires</span><span class="v">Two of three legs: <code>credit − 1 ≤ −wip_limit</code>; <code>wip_count + 1 ≥ wip_limit</code>; half or more of live agents holding a task in review. One subtraction before the daemon's own warning, because its reason appears only at the wall and ends with "Dispatch remains allowed", so its numbers are read and its string is never printed. Silenced while the Orchestrator is dead or a gate is open, which explain the same symptom. When the oldest wait is a hold on the user, the human's latency is this sentence's second clause and gets no kind of its own: a standalone card would be a scold, the same fact as the top conclusion with a duration in it is a status report.</span>
+    <span class="k">sentence</span><span class="v"><i>Review is the constraint tonight, and the oldest verdict is waiting on you. Stop a successful first-run spawn reporting as failed has waited three hours. Three of four workers are idle waiting for a verdict. One more dispatch without a closure trips the daemon's review-debt warning.</i></span>
+    <span class="k">tonight</span><span class="v">Fires on all three legs. wip 4 of 5, credit −4 against −5, task_pra2ti reported 3 h 17 m ago and unclosed, of four live agents one is working.</span>
+    <span class="k">watcher</span><span class="v">To the Orchestrator, because closing a review is its own action. To the user when the oldest wait is a hold on them, once, when the hold appears.</span>
+  </div>
+
+  <div class="rule">
+    <span class="n">5 · Far too long</span>
+    <span class="k">reads</span><span class="v"><code>drift.items[]</code> of the stale kinds, which the daemon computes against <code>stale_threshold_ms</code>: two hours unjudged in review, four hours in progress, pending or blocked. History rides along as a bound: the p90 of 1300 closed verdict waits is 82 minutes.</span>
+    <span class="k">fires</span><span class="v">Any stale drift item. Names one task; more become a count.</span>
+    <span class="k">sentence</span><span class="v"><i>One task has waited three hours for a verdict. Planck has held it twice; the hold note reads held pending the user's direct approval, not on quality. Three hours is longer than the slowest tenth of verdicts this machine has recorded.</i></span>
+    <span class="k">tonight</span><span class="v">Fires for task_pra2ti and folds into kind 4.</span>
+    <span class="k">watcher</span><span class="v">To the Orchestrator, once per task on crossing, once on leaving. If the Orchestrator is itself the reviewer and has been told twice, the second crossing goes to the user.</span>
+  </div>
+
+  <div class="rule">
+    <span class="n">6 · No one left to nudge</span>
+    <span class="k">reads</span><span class="v"><code>drift.items[]</code> of kind tab gone or bound to closed tab; the task's <code>status_label</code>.</span>
+    <span class="k">fires</span><span class="v">A task still in flight whose executor tab is absent. 102 of 2044 tasks in history ended this way.</span>
+    <span class="k">sentence</span><span class="v"><i>One task has no one left to nudge. Give Spec and Plan their own pages reported in review two hours ago and Gina's tab is gone since.</i></span>
+    <span class="k">tonight</span><span class="v">Fires. task_qsxe06, label tab-gone, stale in review 7 418 710 ms when read.</span>
+    <span class="k">watcher</span><span class="v">To the Orchestrator, once. The review is its own to do and there is nobody else to ask.</span>
+  </div>
+
+  <div class="rule">
+    <span class="n">7 · A worker stuck on a question</span>
+    <span class="k">reads</span><span class="v">The holder's tab probe: <code>agent_accepting_work</code> false while its task is in progress, which the daemon derives from a timeline state other than working or idle.</span>
+    <span class="k">fires</span><span class="v">The flag false for longer than a short grace. Silenced never: a prompt nobody sees does not clear itself.</span>
+    <span class="k">sentence</span><span class="v"><i>Mabel is stuck on a question in her tab. Her task has been in progress for 40 minutes and nothing has happened since the prompt appeared.</i></span>
+    <span class="k">tonight</span><span class="v">Does not fire. The three idle workers are idle, not asking.</span>
+    <span class="k">watcher</span><span class="v">To the Orchestrator, which can answer a picker; to the user when it is a permission only they can grant.</span>
+  </div>
+
+  <div class="rule">
+    <span class="n">8 · The team is wedged</span>
+    <span class="k">reads</span><span class="v">Newest of milestone <code>ts</code>, <code>status_changed_at</code> and <code>updated_at</code> across in-flight tasks, against now; <code>live_agents</code>.</span>
+    <span class="k">fires</span><span class="v">Newest activity older than the window while two or more tasks are in flight. Silenced while a gate is open, the Orchestrator is on a question, or the Orchestrator is dead.</span>
+    <span class="k">sentence</span><span class="v"><i>Nothing has advanced in 41 minutes. Five tasks say they are running. The last thing that happened was Vera reporting on Design the team view as mission control.</i></span>
+    <span class="k">tonight</span><span class="v">Does not fire. The newest stride is minutes old.</span>
+    <span class="k">watcher</span><span class="v">To the Orchestrator, once on entering the state, once on the first movement after.</span>
+  </div>
+
+  <div class="rule">
+    <span class="n">9 · Nobody picked it up</span>
+    <span class="k">reads</span><span class="v"><code>status</code> pending with no <code>assigned_tab_id</code> and no lane; <code>live_agents</code> for capacity; the review numbers.</span>
+    <span class="k">fires</span><span class="v">Pending and unbound past the four-hour floor. Silenced one step before the review wall: <code>wip_count ≥ wip_limit − 1</code> or <code>credit ≤ −(wip_limit − 1)</code>, on the fields that move. An earlier draft silenced on the gate's blocked flag, which is a hardcoded false and can never hold.</span>
+    <span class="k">sentence</span><span class="v"><i>Two tasks have sat unclaimed for two days and three agents are idle.</i></span>
+    <span class="k">tonight</span><span class="v">Does not fire. Nothing is pending.</span>
+    <span class="k">watcher</span><span class="v">To the Orchestrator. Dispatching is its job and it holds the briefs.</span>
+  </div>
+
+  <div class="rule">
+    <span class="n">10 · Bounced repeatedly</span>
+    <span class="k">reads</span><span class="v"><code>execution_attempts[]</code> length, review rounds on those attempts; with the ledger on, compaction rows per tab on the same task, and uncached input share behind the door.</span>
+    <span class="k">fires</span><span class="v">Two or more attempts. 179 of 2044 tasks in history.</span>
+    <span class="k">sentence</span><span class="v"><i>One task is on its third attempt. Two bounces gave the same reason, and the last worker was compacted twice on it. The brief is the problem.</i></span>
+    <span class="k">tonight</span><span class="v">Does not fire. Every task took exactly one attempt.</span>
+    <span class="k">watcher</span><span class="v">To the Orchestrator. Rewriting a brief is precisely its job and precisely what a worker cannot do for itself.</span>
+  </div>
+
+  <div class="rule">
+    <span class="n">11 · Reports that moved nothing</span>
+    <span class="k">reads</span><span class="v">Task milestones of kind worker report: <code>ts</code>, text length, author, the task's <code>status</code> across the span, and whether a new sha appears in the text.</span>
+    <span class="k">fires</span><span class="v">Three or more inside ten minutes with no transition and no new sha.</span>
+    <span class="k">sentence</span><span class="v"><i>Five reports moved nothing. Vera filed five reports on Design the team view as mission control in seventy seconds and the task did not move. Four of them said No change.</i></span>
+    <span class="k">tonight</span><span class="v">Fires, on the acknowledgement loop the three of us were in. Five reports spanning 69.5 seconds; the middle four are 690, 750, 575 and 786 bytes and all open with No change.</span>
+    <span class="k">watcher</span><span class="v">To the Orchestrator, once on the third report. Never to the worker. Tonight it would write to nobody: the loop ended before a five-minute watcher would have woken.</span>
+  </div>
+
+  <div class="rule">
+    <span class="n">12 · Messaged without reporting</span>
+    <span class="k">reads</span><span class="v">Ledger rows: kind send is charged to the receiving tab, kind report to the reporting tab, so one <code>tab_id</code> carries inbound and outbound in opposite directions. <code>agent_state</code> for the guard.</span>
+    <span class="k">fires</span><span class="v">Many sends to one tab over a window with no report from it. Silenced while that agent is working.</span>
+    <span class="k">sentence</span><span class="v"><i>Hugo has been messaged fourteen times in forty minutes and has filed nothing. Stop nudging and go look.</i></span>
+    <span class="k">tonight</span><span class="v">Cannot fire. The ledger is off: not zero rows, no table. It needs only the flag.</span>
+    <span class="k">watcher</span><span class="v">To the Orchestrator, which is usually the one doing the messaging.</span>
+  </div>
+
+  <div class="rule">
+    <span class="n">13 · Burn without progress</span>
+    <span class="k">reads</span><span class="v">Ledger token rows per plan over the last hour against strides written in the same hour; chasing share in the same window.</span>
+    <span class="k">fires</span><span class="v">Tokens above a floor and no stride. With chasing high the sentence blames protocol; with chasing low it names the one worker grinding.</span>
+    <span class="k">sentence</span><span class="v"><i>Four hundred thousand tokens in the last hour and nothing moved.</i></span>
+    <span class="k">tonight</span><span class="v">Cannot fire. The ledger is off.</span>
+    <span class="k">watcher</span><span class="v">To the Orchestrator; to the user if it holds for two wakes.</span>
+  </div>
+
+  <div class="rule">
+    <span class="n">14 · Runway</span>
+    <span class="k">reads</span><span class="v"><code>codeterm usage projection</code>: end-of-cycle projection with its confidence marker, and the reset time; in-flight counts.</span>
+    <span class="k">fires</span><span class="v">A high-confidence projection crossing 100 before the reset while work is in flight. Renders nothing otherwise.</span>
+    <span class="k">sentence</span><span class="v"><i>At tonight's pace the weekly budget runs out before the reset with four tasks still open.</i></span>
+    <span class="k">tonight</span><span class="v">Silent, rightly. Session 6 percent resetting 23:10 with no projection; weekly 24 percent, projected 50 at end of cycle at high confidence.</span>
+    <span class="k">watcher</span><span class="v">The user only, once on crossing. An Orchestrator told about a budget can only stop working, which is the worst available response.</span>
+  </div>
+
+  <div class="rule">
+    <span class="n">15 · A loop near its budget</span>
+    <span class="k">reads</span><span class="v"><code>loops[]</code>: iteration against budget at 80 percent, stagnation, deviation. The daemon already emits ConsiderStop.</span>
+    <span class="k">sentence</span><span class="v"><i>A loop is nine of ten iterations in. Stop it, or raise the budget on purpose.</i> To the Orchestrator, once at the threshold. Nearly free and expensive to miss; no plan on this machine has a loop tonight, so it is listed and not drawn as a frame of its own.</span>
+  </div>
+
+  <div class="rule">
+    <span class="n">Two readings, not alerts</span>
+    <span class="k">what is left</span><span class="v">Reads <code>task_counts</code> once the plan is approved; fires when nothing is pending and five or fewer tasks are in flight. <i>Nothing is left to start. Four verdicts and one task, then this plan is done.</i> Fires tonight. Written to nobody: it has no transition worth a message.</span>
+    <span class="k">hygiene</span><span class="v">Reads <code>cleanup_debt</code>; the commands stay behind the line. <i>Six finished tasks still hold their worktrees.</i> Fires tonight, quietly, while we sit in three of them. The watcher writes to the Orchestrator only when the count crosses a threshold, because this is the kind most likely to become noise: it is always slightly true.</span>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 8px;">
+    <h2>What degrades without the watcher</h2>
+    <blockquote>
+      <p><b>Thirteen of the fifteen conclusions are arithmetic.</b> They compare timestamps, count rows, and read fields the daemon already computes. A tab is absent from the snapshot or it is not. A review has been unjudged for 197 minutes or it has not. Credit is one closure from the wall or it is not. None of it is inference, none of it degrades, and none of it needs a model. Running these on a timer would buy nothing except a second copy of the same arithmetic and a token bill for it.</p>
+      <p><b>Two conclusions are judgments over prose, and the watcher earns its place on exactly those and nowhere else.</b> Reports that moved nothing fires on three or more reports against one task inside ten minutes with no transition and no new sha. What it measures is the shape of the reporting; what it stands in for is whether any of those reports said something. It is wrong in both directions. It misses the slow version: two empty reports eleven minutes apart are indistinguishable from two useful ones, so the loop that is actually expensive, an agent re-reporting its own unchanged conclusion every few minutes for an hour, sits just outside the window. It false-fires on fast real work: three genuine findings filed in quick succession on a task that correctly stays in progress look identical to three restatements of nothing, and that is the costlier error, because the sentence sends someone to interrupt an agent that is working well. A model reading the five reports resolves both. It is not doing anything clever; it is reading four hundred words and deciding whether they contain a claim.</p>
+      <p>The second is a recurring bounce reason across tasks. <code>review_audit.reason</code> is free text and the eight most common in history are eight unique strings; no threshold clusters them by meaning. A model reading three bounce notes and seeing they cite the same missing thing can, and the fix is the brief template, so the recipient is the Planner, who authors task bodies, not the Orchestrator. It is also the only conclusion on this canvas that nobody can confirm is correct, because the clustering has no ground truth.</p>
+      <p><b>And the watcher is not free.</b> Its judgment is over text an agent wrote, so a confident report that says nothing can talk it out of the correct conclusion, a failure the count rule is immune to, because a rule cannot be persuaded. It wakes 288 times a day on haiku, reads the snapshot and bills for it, while the rules run when the page is opened and cost nothing when nobody is looking. Its memory is the plan's own stride log: each conclusion is written as a stride with a fingerprint and read back on the next wake, so once-on-true and once-on-false need no new storage. It is a Team cron, and it dies with the Team.</p>
+      <p><b>So the honest summary is a ratio, not a claim.</b> Two conclusions out of fifteen improve, in the specific case where the question is about the meaning of text rather than the arithmetic of events. Everything else is identical in both versions, and in the version without the watcher it is identical and exact. That is why the surface version is the one to build, and why the two frames on this canvas differ only in the told-whom lines.</p>
+    </blockquote>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 8px;">
+    <h2>Low-hanging fruit, in the order to pick it</h2>
+    <p class="ct-meta">1. Turn the ledger on: kpi.enabled, a config flag, and nothing on the effort card can be judged until it has run for a week. 2. Render the Board from the one state snapshot the daemon already serves; every plan-state conclusion above reads fields it carries. 3. Show the dead Planner: three fields, displayed nowhere. 4. Derive the four Orchestrator states and the stuck worker from the probe the Planner check already runs. 5. The review-debt predicate: one subtraction over three numbers the snapshot carries. 6. Print the hold note verbatim. 7. Working time and verdict wait from the attempt record as ranges; never lead time. 8. The reports-that-moved-nothing count over task milestones. 9. What is left, and the cleanup line. 10. The usage projection at high confidence. 11. History as rates and bounds over plans.db: tab-gone, second attempts, the verdict p90. 12. A read route over the ledger aggregates that exist and expose nothing. Later, and each a schema change: a sender column on ledger rows for pairwise chatter, and a skill-read event for the documents.</p>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

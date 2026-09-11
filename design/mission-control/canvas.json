@@ -1,0 +1,19 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 960, "h": 680, "title": "Read off the surface" },
+    { "file": "Watcher.dc.html", "x": 1040, "y": 0, "w": 960, "h": 700, "title": "With a watcher" },
+    { "file": "Message.dc.html", "x": 2080, "y": 0, "w": 520, "h": 600, "title": "What the watcher wrote" },
+    { "file": "Phone.dc.html", "x": 2680, "y": 0, "w": 390, "h": 900, "title": "Phone" },
+    { "file": "States.dc.html", "x": 0, "y": 1080, "w": 960, "h": 2150, "title": "Every state of the card" },
+    { "file": "Kpis.dc.html", "x": 1040, "y": 1080, "w": 800, "h": 2500, "title": "Which figures matter" },
+    { "file": "Conclusions.dc.html", "x": 1920, "y": 1080, "w": 800, "h": 3400, "title": "The catalogue" }
+  ],
+  "annotations": [
+    { "id": "red-lines", "x": 0, "y": -220, "w": 440, "text": "Red lines kept.\n\nNot a task list: two of thirteen tasks appear, as sentences, and a sentence names at most one task.\nNo orchestration verbs: the only buttons are doors to Tasks, Documents and Settings.\nNo dots, diamonds, circles or coloured left edges: weight and colour of the words carry the signal.\nThree cards by kind of object, unequal on purpose: the plan, what needs someone, where the time goes." },
+    { "id": "two-versions", "x": 1040, "y": -200, "w": 440, "text": "The two versions differ only in the told-whom lines and one sentence in the plan card.\n\nThirteen of fifteen conclusions are arithmetic over fields the daemon already computes. The watcher improves exactly two, both judgments over prose agents wrote. That is the whole case for choosing the version without it." },
+    { "id": "real-figures", "x": 2080, "y": -200, "w": 440, "text": "Every figure on the two board frames is read from plan pl_ad3tcu, the tab snapshot and codeterm usage tonight.\n\nNothing is measured by the KPI ledger: kpi.enabled is false on this machine and no ledger file exists. The effort card shows that as its honest state. The Hugo figures on the state sheet are the one measured run on record, another team." },
+    { "id": "unobserved", "x": 2680, "y": -140, "w": 390, "text": "Rendered pixels were not observed: the Chrome extension is not connected in any of our three sessions. Layout is reasoned from the kit's own CSS, and every value is lifted from tokens.css and globals.css." },
+    { "id": "baseline", "x": 1040, "y": 3660, "w": 800, "text": "We tried to compare tonight with this team's past and the past contains no comparable work: no history for tonight's roles, eight observations, and the slowest verdicts censored out because they have not closed. One rule, two baselines, opposite outcomes: the verdict median failed every test and became absolutes; the holds median passed three, survived the attack aimed at it, and failed only on wording, which we changed. A surface that quotes a baseline it cannot support is worse than one that quotes none." }
+  ],
+  "launch": { "view": "canvas" }
+}

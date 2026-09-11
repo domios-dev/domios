@@ -1,0 +1,162 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+/* Values lifted from src/styles/tokens.css and the github-dark output of themeToCSS(); classes reproduce globals.css. */
+* { box-sizing: border-box; }
+body { margin: 0; font-family: "Inter", "Segoe UI", "Avenir Next", "Avenir", "Helvetica Neue", sans-serif; font-size: 0.8125rem; line-height: 1.45; color: #c9d1d9; background: #131921; -webkit-font-smoothing: antialiased; }
+a { color: #58a6ff; } a:hover { color: #79c0ff; }
+button { font: inherit; cursor: pointer; }
+.mono { font-family: "JetBrains Mono", "Cascadia Code", Consolas, Menlo, monospace; font-variant-numeric: tabular-nums; }
+.ct-toolbar { height: 2.5rem; display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: 0 1rem; border-bottom: 1px solid #232930; background: #131921; }
+.ct-panel-tab { border: 0; border-bottom: 2px solid transparent; background: transparent; font-size: 0.8125rem; text-transform: capitalize; color: #828a92; padding: .5rem .75rem; }
+.ct-panel-tab--active { border-bottom-color: #58a6ff; color: #c9d1d9; }
+.ct-panel-card { border: 1px solid #232930; background: #0d1117; border-radius: 8px; }
+.ct-panel-card--soft { background: color-mix(in srgb, #0d1117 85%, #c9d1d9 15%); border-style: dashed; }
+.ct-small-pill { display: inline-flex; align-items: center; gap: .25rem; min-height: 1.25rem; padding: 0 .45rem; border-radius: 999px; border: 1px solid #232930; color: #828a92; font-size: .6875rem; }
+.ct-chip-accent { border-color: color-mix(in srgb, #58a6ff 40%, transparent); color: #58a6ff; }
+.ct-chip-success { border-color: color-mix(in srgb, #7ee787 40%, transparent); color: #7ee787; }
+.ct-chip-danger { border-color: color-mix(in srgb, #ff7b72 40%, transparent); color: #ff7b72; }
+.ct-chip-warning { border-color: color-mix(in srgb, #d29922 40%, transparent); color: #d29922; }
+.ct-chip-muted { border-color: transparent; color: #484f58; }
+.ct-meta { font-size: 0.8125rem; color: #828a92; }
+.ct-meta-muted { font-size: 0.8125rem; color: #484f58; }
+.ct-kbd { min-width: 1.5rem; height: 1.25rem; padding: 0 .3rem; border-radius: .35rem; border: 1px solid #232930; background: #131921; color: #828a92; font-family: "JetBrains Mono", Consolas, monospace; font-size: .7rem; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; }
+.ct-btn { display: inline-flex; align-items: center; justify-content: center; gap: .3rem; min-height: 1.875rem; padding: 0 .75rem; border-radius: 4px; border: 1px solid #232930; background: #0d1117; color: #c9d1d9; font-size: 0.8125rem; }
+.ct-btn-ghost { background: transparent; color: #828a92; border-color: transparent; }
+.ct-btn-compact { min-height: 1.625rem; padding-top: .25rem; padding-bottom: .25rem; }
+.ct-plan-status-breakdown { display: inline-flex; gap: 0; font-size: 10.5px; font-weight: 600; line-height: 1.4; white-space: nowrap; }
+.ct-plan-status-breakdown .sep { color: #484f58; }
+/* Board layout: one 12px gap between and inside the wells; the host is chrome. */
+.card { display: flex; flex-direction: column; min-width: 0; padding: 12px; gap: 10px; }
+.card h2 { margin: 0; font-size: 0.8125rem; font-weight: 600; letter-spacing: -.006em; }
+.label { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: #484f58; font-weight: 700; }
+.door { border: 0; background: none; padding: 0; color: #58a6ff; font-size: 0.8125rem; align-self: flex-start; }
+.door:hover { text-decoration: underline; text-underline-offset: 3px; }
+.plan-title { font-size: 1rem; font-weight: 600; line-height: 1.28; letter-spacing: -.012em; color: #c9d1d9; }
+.red { color: #ff7b72; }
+.amber { color: #d29922; }
+.green { color: #7ee787; }
+/* Conclusions: ranked, unequal. The first is at reading size with air; the rest are quieter lines. */
+.lead { font-size: 1rem; line-height: 1.4; letter-spacing: -.008em; color: #c9d1d9; }
+.lead b, .line b { font-weight: 600; }
+.line { font-size: 0.8125rem; line-height: 1.45; color: #c9d1d9; padding-top: 8px; border-top: 1px solid color-mix(in srgb, #232930 65%, transparent); }
+.why { color: #828a92; }
+.who { font-size: .6875rem; color: #484f58; }
+.figure { font-size: 1.5rem; font-weight: 600; line-height: 1.1; letter-spacing: -.02em; }
+
+.state { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 16px; align-items: start; padding-top: 14px; border-top: 1px solid #232930; }
+.state h3 { margin: 0; font-size: 0.8125rem; font-weight: 600; }
+.state .cap { font-size: .6875rem; color: #828a92; line-height: 1.5; margin-top: 4px; }
+.state .cap code { font-family: "JetBrains Mono", Consolas, monospace; font-size: .6875rem; color: #c9d1d9; }
+.state .tag { display: inline-block; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; font-weight: 700; margin-top: 6px; }
+  </style>
+</helmet>
+<div style="width: 960px; display: flex; flex-direction: column; gap: 14px; padding: 16px; background: #131921;">
+  <div style="display: flex; flex-direction: column; gap: 4px;">
+    <span class="plan-title">The conclusions card in every state it can be in</span>
+    <span class="ct-meta">One card, one sentence per state, the worst first, in the priority order the catalogue gives them. Three states fire on this plan tonight and carry its real figures. The rest are written as the sentence would read and marked as such, with the fields each one reads named underneath. Nothing here uses a dot, a diamond, a circle or a coloured edge: the sentence and its weight are the whole signal.</span>
+  </div>
+
+  <div class="state" style="border-top: 0; padding-top: 0;">
+    <div><h3>Nothing needs anyone</h3><div class="cap">The whole card, and the common case on a healthy team. Reassurance is a real sentence with a time and a name in it, so it reads as deliberate rather than broken.</div></div>
+    <div class="ct-panel-card card"><p class="lead" style="margin: 0;"><b>Nothing needs you.</b> Last activity a minute ago: Louis reported on Work out what mission control should conclude.</p></div>
+  </div>
+
+  <div class="state">
+    <div><h3>Waiting on your answer</h3><div class="cap">Outranks everything. The Orchestrator's tab exists and its agent is on a question: <code>owner.tab_id</code> against the probe, <code>exists</code> true and <code>agent_accepting_work</code> false, which the daemon derives from a timeline state other than working or idle. Or any open decision gate in <code>plan.gates[]</code>. Both silence the wedge sentence, because waiting is then correct.</div><span class="tag amber">not on this plan tonight</span></div>
+    <div class="ct-panel-card card"><p class="lead" style="margin: 0;"><b class="amber">Planck is waiting on your answer.</b> The team is idle because it should be: nothing moves until you reply in Planck's tab.</p></div>
+  </div>
+
+  <div class="state">
+    <div><h3>The Planner is gone</h3><div class="cap">Plain red sentence, no box. A validity statement on everything below it: with the Planner dead the plan is stale and the other sentences are unreliable. Reads <code>planner_dead</code>, <code>undelivered_request_count</code> and <code>planner_recovery_action</code>; the recovery clause is the daemon's, printed verbatim.</div><span class="tag amber">not on this plan tonight</span></div>
+    <div class="ct-panel-card card"><p class="lead" style="margin: 0;"><b class="red">Pasteur is gone.</b> <span class="red">Requests to it never landed, so the task states below may be fiction.</span> <span class="why">Then the daemon's recovery action, word for word.</span></p></div>
+  </div>
+
+  <div class="state">
+    <div><h3>The Orchestrator is gone</h3><div class="cap">Real death: <code>owner.tab_id</code> set and the probe says the tab does not exist. Two look-alikes are not deaths and get quieter sentences: tab open with no agent running, and a stale session binding after a relaunch. Unbound is silence. The daemon hands the Planner three fields for this and the Orchestrator none, so the wording is ours and carries no evidence count.</div><span class="tag amber">not on this plan tonight</span></div>
+    <div class="ct-panel-card card"><p class="lead" style="margin: 0;"><b class="red">Planck's tab is gone.</b> <span class="red">Nothing is dispatching, reviewing or closing.</span></p>
+      <p class="line" style="margin: 0;"><b>Planck's tab is open but no agent is running in it.</b></p>
+      <p class="line" style="margin: 0;"><b>Planck's session binding is stale after a relaunch.</b> <span class="why">Recoverable; this is what rebind is for.</span></p></div>
+  </div>
+
+  <div class="state">
+    <div><h3>Review is the constraint</h3><div class="cap">Two of three legs: <code>credit − 1 ≤ −wip_limit</code>, <code>wip_count + 1 ≥ wip_limit</code>, half or more of live agents holding a task in review. One step before the daemon's own warning, deliberately: its reason string appears only at the wall and ends with "Dispatch remains allowed", so it is read for its three numbers and never printed. When the oldest wait is a hold on the user, the human's latency folds into this sentence rather than getting a kind of its own.</div><span class="tag green">fires tonight, all three legs, real figures</span></div>
+    <div class="ct-panel-card card"><p class="lead" style="margin: 0;"><b class="amber">Review is the constraint tonight, and the oldest verdict is waiting on you.</b> Stop a successful first-run spawn reporting as failed has waited three hours. Three of four workers are idle waiting for a verdict. One more dispatch without a closure trips the daemon's review-debt warning.</p><span class="who">wip 4 of 5 · credit −4 against −5 · task_pra2ti reported 3 h 17 m ago and unclosed · of four live agents one is working</span></div>
+  </div>
+
+  <div class="state">
+    <div><h3>Far too long</h3><div class="cap">The daemon's own drift items against its stale floor: two hours unjudged in review, four hours in progress, pending or blocked. History rides along as a bound, never a baseline: the p90 of 1300 closed verdict waits on this machine is 82 minutes. Names one task; more become a count.</div><span class="tag green">fires tonight; folded into the lead above when review is the constraint</span></div>
+    <div class="ct-panel-card card"><p class="lead" style="margin: 0;"><b class="amber">One task has waited three hours for a verdict.</b> Stop a successful first-run spawn reporting as failed is the oldest thing on the board. Planck has held it twice; the hold note reads <i>held pending the user's direct approval, not on quality</i>. Three hours is longer than the slowest tenth of verdicts this machine has recorded.</p></div>
+  </div>
+
+  <div class="state">
+    <div><h3>No one left to nudge</h3><div class="cap">Drift: tab gone or bound to a closed tab, on a task still in flight. The Orchestrator must act itself. Across all 89 plans on this machine 102 of 2044 tasks ended with the worker's tab gone, which is why this is a permanent kind and not tonight's accident.</div><span class="tag green">fires tonight, real figures</span></div>
+    <div class="ct-panel-card card"><p class="lead" style="margin: 0;"><b>One task has no one left to nudge.</b> Give Spec and Plan their own pages reported in review two hours ago and Gina's tab is gone since.</p><span class="who">task_qsxe06 · status label tab-gone · drift stale_in_review 7 418 710 ms when read</span></div>
+  </div>
+
+  <div class="state">
+    <div><h3>A worker stuck on a question</h3><div class="cap">The same probe as the Orchestrator's, on a worker: <code>agent_accepting_work</code> false while its task is in progress. A permission prompt or a picker in a tab nobody is looking at, and the task sits forever. The most practical kind on the list, and nothing surfaces it today.</div><span class="tag amber">not on this plan tonight</span></div>
+    <div class="ct-panel-card card"><p class="lead" style="margin: 0;"><b>Mabel is stuck on a question in her tab.</b> <span class="why">Her task has been in progress for 40 minutes and nothing has happened since the prompt appeared.</span></p></div>
+  </div>
+
+  <div class="state">
+    <div><h3>The team is wedged</h3><div class="cap">Newest activity across every in-flight task against now, while two or more claim to be running. Silenced while a gate is open, the Orchestrator is on a question, or the Orchestrator is dead: the reason is already on screen.</div><span class="tag amber">not on this plan tonight</span></div>
+    <div class="ct-panel-card card"><p class="lead" style="margin: 0;"><b class="amber">Nothing has advanced in 41 minutes.</b> Five tasks say they are running. The last thing that happened was Vera reporting on Design the team view as mission control.</p></div>
+  </div>
+
+  <div class="state">
+    <div><h3>Nobody picked it up</h3><div class="cap">Pending, unbound, past the four-hour floor, or the stale-pending-unstaffed drift item. Silenced one step before the review wall, on the fields that move: <code>wip_count ≥ wip_limit − 1</code> or <code>credit ≤ −(wip_limit − 1)</code>. When review is full, dispatching more is the wrong move and this sentence would push toward it.</div><span class="tag amber">not on this plan tonight</span></div>
+    <div class="ct-panel-card card"><p class="lead" style="margin: 0;"><b>Two tasks have sat unclaimed for two days</b> and three agents are idle.</p></div>
+  </div>
+
+  <div class="state">
+    <div><h3>Bounced repeatedly</h3><div class="cap">Two or more execution attempts on one task. Paired with the ledger's compaction rows per tab when it is on: a worker compacted and bounced has lost the thread and needs a fresh brief, not a nudge. Uncached input share sits behind the door as the why. 179 of 2044 tasks in history needed a second attempt.</div><span class="tag amber">not on this plan tonight: every task took one attempt</span></div>
+    <div class="ct-panel-card card"><p class="lead" style="margin: 0;"><b>One task is on its third attempt.</b> Two bounces gave the same reason, and the last worker was compacted twice on it. <span class="why">The brief is the problem, not the worker.</span></p></div>
+  </div>
+
+  <div class="state">
+    <div><h3>Reports that moved nothing</h3><div class="cap">Three or more reports on one task inside ten minutes, no status transition, no new sha. Plan store only, exact by count. The one sentence a watcher improves by reading the text.</div><span class="tag green">fires tonight, real figures</span></div>
+    <div class="ct-panel-card card"><p class="lead" style="margin: 0;"><b>Five reports moved nothing.</b> Vera filed five reports on Design the team view as mission control in seventy seconds and the task did not move. Four of them said <i>No change</i>.</p><span class="who">task_h9ti9y · 69.5 s span · the four middle reports 690, 750, 575 and 786 bytes · in review throughout</span></div>
+  </div>
+
+  <div class="state">
+    <div><h3>Messaged without reporting</h3><div class="cap">Ledger: a send row is charged to the receiving tab and a report row to the reporting tab, so one tab, two kinds, no join. Silenced while that agent is working. Needs the ledger on.</div><span class="tag amber">cannot fire here: the ledger is off</span></div>
+    <div class="ct-panel-card card"><p class="lead" style="margin: 0;"><b>Hugo has been messaged fourteen times in forty minutes and has filed nothing.</b> <span class="why">Stop nudging and go look at the tab.</span></p></div>
+  </div>
+
+  <div class="state">
+    <div><h3>Runway</h3><div class="cap">The shipped projection, not ours: <code>codeterm usage projection</code> carries its own rhythm, scaling and confidence marker. Fires only when a high-confidence projection crosses 100 before the reset while work is in flight. Renders nothing otherwise, because a percentage without a rate is not a runway and a line that is always visible is a status bar.</div><span class="tag amber">silent tonight, rightly: weekly end-of-cycle 50 percent at high confidence, session has no projection</span></div>
+    <div class="ct-panel-card card"><p class="lead" style="margin: 0;"><b class="amber">At tonight's pace the weekly budget runs out before the reset</b> with four tasks still open.</p></div>
+  </div>
+
+  <div class="state">
+    <div><h3>A loop near its budget</h3><div class="cap">Reads <code>loops[]</code>: iteration against budget at 80 percent, and stagnation. The daemon already emits ConsiderStop; we write the sentence.</div><span class="tag amber">not on this plan tonight: no loops</span></div>
+    <div class="ct-panel-card card"><p class="lead" style="margin: 0;"><b>A loop is nine of ten iterations in.</b> <span class="why">Stop it, or raise the budget on purpose.</span></p></div>
+  </div>
+
+  <div class="state">
+    <div><h3>Two readings that live in the plan card</h3><div class="cap">Not alerts: they have no transition worth a message and their whole value is being on screen. What is left reads <code>task_counts</code> once the plan is approved. Hygiene reads <code>cleanup_debt</code>, whose entries carry the exact commands; it is rate-limited to one line and may never lead.</div><span class="tag green">both fire tonight, real figures</span></div>
+    <div class="ct-panel-card card"><p style="margin: 0;">Nothing is left to start. Four verdicts and one task, then this plan is done.</p><p class="ct-meta" style="margin: 0;">Six finished tasks still hold their worktrees.</p><span class="who">pending 0 · in progress 1 · in review 4 · done 7 · cleanup_debt 6 entries · percent_done says 54, the least true number on the page</span></div>
+  </div>
+
+  <div class="state">
+    <div><h3>Where the time goes, with the ledger on</h3><div class="cap">Figures from the Hugo team autopsy: 37 hours, 97 worker spawns, the one measured run on record. Chasing share is polls, nudges and heartbeats over all coordination events. No money anywhere: there is no price table in the product.</div><span class="tag green">real figures, another team</span></div>
+    <div class="ct-panel-card card" style="max-width: 280px;">
+      <h2>Where the time goes</h2>
+      <div style="display: flex; align-items: baseline; gap: 8px;"><span class="figure amber">3 in 4</span><span class="ct-meta">coordination events were chasing</span></div>
+      <p class="ct-meta" style="margin: 0;">289 polls against 91 reports. The heartbeat was re-sent verbatim 40 times, 6.7 KB each time.</p>
+      <p class="ct-meta-muted" style="margin: 0; padding-top: 8px; border-top: 1px solid color-mix(in srgb, #232930 65%, transparent);">97 spawns over 37 hours · 7.5 M output tokens, 3 percent of them messages between agents</p>
+      <button class="door">Ledger</button>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>
