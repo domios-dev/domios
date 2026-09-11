@@ -268,6 +268,9 @@ pub struct ServiceContext {
     /// grant). The socket dispatch routes `plugin:<id>.<verb>` here — the inverse
     /// seam letting a spawned agent drive a plugin's `onAgentCommand`.
     pub agent_command_registry: crate::agent_commands::AgentCommandRegistryHandle,
+    /// Registry of synchronous webhook receivers declared by JS plugins.
+    /// Inbound API routes resolve the receiver here by manifest plugin id.
+    pub webhook_registry: codeterm_plugin::WebhookRegistryHandle,
     /// Coalesces `mux-state-changed` emits — see `emit_state_changed`.
     pub mux_emit_pending: Arc<AtomicBool>,
     /// Evidence counters for the daemon→desktop event path (event-freeze probe).
