@@ -293,7 +293,7 @@ pub(crate) fn verify_worker_lane(
             worktree.display()
         ));
     }
-    let branch = git_value(worktree_path, ["branch", "--show-current"])?;
+    let branch = current_branch(worktree_path)?;
     if branch.is_empty() && !protection.is_waived() {
         return Err("worker lane is on a detached HEAD".into());
     }
@@ -385,23 +385,52 @@ fn run_git<'a>(project_cwd: &str, args: impl IntoIterator<Item = &'a str>) -> Re
     ))
 }
 
+// `git branch --show-current` needs git 2.22, and a GUI-launched daemon inherits
+// the launchd PATH, where Apple's bundled git can still be 2.21.
+fn current_branch(worktree_path: &str) -> Result<String, String> {
+    let output = git_output(
+        worktree_path,
+        ["symbolic-ref", "--quiet", "--short", "HEAD"],
+    )?;
+    if output.status.success() {
+        return Ok(String::from_utf8_lossy(&output.stdout).trim().to_string());
+    }
+    // `--quiet` reduces a detached HEAD to a silent exit 1; git dies with 128 and
+    // cannot run at all without a binary, so neither may read as an empty branch.
+    if output.status.code() == Some(1) && output.stdout.is_empty() {
+        return Ok(String::new());
+    }
+    Err(inspect_failure(&output.stderr))
+}
+
+fn git_output<'a>(
+    project_cwd: &str,
+    args: impl IntoIterator<Item = &'a str>,
+) -> Result<std::process::Output, String> {
+    let args: Vec<&str> = args.into_iter().collect();
+    let mut command = Command::new("git");
+    process_util::no_window_std(&mut command);
+    command
+        .current_dir(project_cwd)
+        .args(&args)
+        .output()
+        .map_err(|error| format!("failed to inspect worker lane: {error}"))
+}
+
+fn inspect_failure(stderr: &[u8]) -> String {
+    format!(
+        "failed to inspect worker lane: {}",
+        String::from_utf8_lossy(stderr).trim()
+    )
+}
+
 fn git_value<'a>(
     project_cwd: &str,
     args: impl IntoIterator<Item = &'a str>,
 ) -> Result<String, String> {
-    let args: Vec<&str> = args.into_iter().collect();
-    let mut command = Command::new("git");
-    process_util::no_window_std(&mut command);
-    let output = command
-        .current_dir(project_cwd)
-        .args(&args)
-        .output()
-        .map_err(|error| format!("failed to inspect worker lane: {error}"))?;
+    let output = git_output(project_cwd, args)?;
     if !output.status.success() {
-        return Err(format!(
-            "failed to inspect worker lane: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        ));
+        return Err(inspect_failure(&output.stderr));
     }
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
@@ -538,5 +567,80 @@ mod tests {
         .unwrap_err();
         assert!(error.contains("branch mismatch"));
         lane.cleanup().unwrap();
+    }
+
+    /// The branch lookup once used `git branch --show-current`, which needs git
+    /// 2.22. A GUI-launched daemon can resolve an older git, and the failure
+    /// surfaced as "no repository checkout resolved" for every lane on the box.
+    #[test]
+    fn branch_lookup_reads_attached_and_detached_heads() {
+        let root = tempfile::tempdir().unwrap();
+        let project = root.path().join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        git(&project, &["init", "-q"]);
+        git(&project, &["config", "user.email", "test@example.com"]);
+        git(&project, &["config", "user.name", "Test"]);
+        std::fs::write(project.join("README.md"), "fixture").unwrap();
+        git(&project, &["add", "README.md"]);
+        git(&project, &["commit", "-qm", "fixture"]);
+
+        let lane = provision_lane(project.to_str().unwrap(), "head-shape").unwrap();
+        assert_eq!(current_branch(&lane.cwd).unwrap(), lane.branch);
+
+        let head = git_value(&lane.cwd, ["rev-parse", "HEAD"]).unwrap();
+        git(Path::new(&lane.cwd), &["checkout", "-q", "--detach", &head]);
+        assert_eq!(current_branch(&lane.cwd).unwrap(), "");
+
+        let error = verify_worker_lane(
+            project.to_str().unwrap(),
+            &lane.cwd,
+            None,
+            None,
+            LaneProtection::Enforced,
+        )
+        .unwrap_err();
+        assert!(error.contains("detached HEAD"), "{error}");
+        verify_worker_lane(
+            project.to_str().unwrap(),
+            &lane.cwd,
+            None,
+            None,
+            LaneProtection::Waived,
+        )
+        .expect("a waived lane may sit on a detached HEAD");
+        lane.cleanup().unwrap();
+    }
+
+    /// An inspection that never reached a repository is not evidence of a
+    /// detached HEAD, and reading it as an empty branch once turned a missing
+    /// git into a detached-lane refusal on every lane of the machine.
+    #[test]
+    fn missing_git_or_non_repository_is_not_reported_as_detached_head() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = root.path().join("not-a-repository");
+        std::fs::create_dir_all(&outside).unwrap();
+        // A garbage gitfile pins the discovery boundary here, so the lookup fails
+        // on this directory instead of finding whatever repository encloses TMPDIR.
+        std::fs::write(outside.join(".git"), "not a gitfile").unwrap();
+        let outside = outside.to_str().unwrap();
+
+        let error = current_branch(outside).unwrap_err();
+        assert!(error.contains("failed to inspect worker lane"), "{error}");
+        assert!(!error.contains("detached HEAD"), "{error}");
+
+        // No binary to run is the missing-git shape: the spawn fails before any
+        // exit status exists to classify as a detached HEAD.
+        let unspawnable = root.path().join("absent").join("deeper");
+        let error = current_branch(unspawnable.to_str().unwrap()).unwrap_err();
+        assert!(error.contains("failed to inspect worker lane"), "{error}");
+
+        let error =
+            verify_worker_lane(outside, outside, None, None, LaneProtection::Enforced).unwrap_err();
+        assert!(error.contains("failed to inspect worker lane"), "{error}");
+        assert!(!error.contains("detached HEAD"), "{error}");
+
+        let error =
+            verify_worker_lane(outside, outside, None, None, LaneProtection::Waived).unwrap_err();
+        assert!(error.contains("failed to inspect worker lane"), "{error}");
     }
 }
