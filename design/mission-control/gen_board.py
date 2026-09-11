@@ -63,7 +63,8 @@ STYLE = """
 .caption { font-size: 11px; color: #828a92; }
 .small { font-size: 11px; color: #828a92; line-height: 1.5; margin: 0; }
 .small b { color: #c9d1d9; font-weight: 500; font-family: "JetBrains Mono", Consolas, monospace; font-size: 11px; }
-.row { display: grid; grid-template-columns: 96px 118px minmax(0, 1fr) 64px 72px 74px; gap: 10px; align-items: center; height: 26px; }
+.row { display: grid; grid-template-columns: 96px minmax(0, 1fr) 64px 56px 80px 74px; gap: 10px; align-items: center; height: 26px; }
+.share { font-family: "JetBrains Mono", Consolas, monospace; font-variant-numeric: tabular-nums; font-size: 11px; color: #828a92; text-align: right; }
 .row .name { font-size: 0.8125rem; color: #c9d1d9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .row .who { font-size: .6875rem; color: #484f58; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .track { position: relative; height: 6px; border-radius: 99px; background: color-mix(in srgb, #c9d1d9 8%, transparent); overflow: hidden; }
@@ -144,21 +145,21 @@ def stat_cards(phone):
 
 def by_agent(phone):
     rows = sorted(agents, key=lambda a: -a["usage"]["output"])
-    top = rows[0]["usage"]["output"]
     shown = rows[:6] if phone else rows
     out = []
     for a in shown:
         u = a["usage"]; chip, col = status_chip(a)
-        pct = 100 * u["output"] / top
+        share = 100 * u["output"] / T["output"]
         who = f'{a["group"]} · {a["model"]}'
         if phone:
-            out.append(f'<div class="row" style="grid-template-columns: 72px minmax(0, 1fr) 52px; height: 24px;"><span class="name">{html.escape(a["name"])}</span><div class="track"><div class="fill" style="width: {pct:.1f}%;"></div></div><span class="val">{n(u["output"])}</span></div>')
+            out.append(f'<div class="row" style="grid-template-columns: 72px minmax(0, 1fr) 56px 44px; height: 24px;"><span class="name">{html.escape(a["name"])}</span><span class="who">{who}</span><span class="val">{n(u["output"])}</span><span class="share">{share:.0f} %</span></div>')
         else:
-            out.append(f'<div class="row"><span class="name">{html.escape(a["name"])}</span><span class="who">{who}</span><div class="track"><div class="fill" style="width: {pct:.1f}%;"></div></div><span class="val">{n(u["output"])}</span><span class="turns">{u["turns"]:,} turns</span><span class="st" style="color: {col};">{chip}</span></div>')
+            out.append(f'<div class="row"><span class="name">{html.escape(a["name"])}</span><span class="who">{who}</span><span class="val">{n(u["output"])}</span><span class="share">{share:.0f} %</span><span class="turns">{u["turns"]:,} turns</span><span class="st" style="color: {col};">{chip}</span></div>')
     more = f'<p class="small">and {len(rows) - len(shown)} more, {n(sum(a["usage"]["output"] for a in rows[len(shown):]))} between them</p>' if len(shown) < len(rows) else ""
+    cols = "" if phone else '<div class="row" style="height: 18px;"><span class="caption">agent</span><span class="caption">role · model</span><span class="caption" style="text-align: right;">output</span><span class="caption" style="text-align: right;">share</span><span class="caption" style="text-align: right;">turns</span><span class="caption" style="text-align: right;">status</span></div>'
     head = ('<div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;"><h2>By agent</h2>'
             + ("" if phone else switcher(["Output", "Context read", "Turns"], "Output")) + '</div>')
-    return f'<div class="ct-panel-card card">{head}<div style="display: flex; flex-direction: column; gap: 2px;">{"".join(out)}</div>{more}</div>'
+    return f'<div class="ct-panel-card card">{head}{cols}<div style="display: flex; flex-direction: column; gap: 2px;">{"".join(out)}</div>{more}</div>'
 
 
 def runway(phone):
