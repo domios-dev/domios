@@ -1,6 +1,5 @@
-use super::super::lane_resolution::DispatchLaneResolution;
 use super::super::lane_safety::{isolated_lane_update_command, preflight_checkout_occupancy};
-use super::super::{preflight_dispatch_placement, should_provision_worker_lane};
+use super::super::{preflight_dispatch_placement, DispatchLanePlacement};
 use crate::plan::{ExecutionIntent, OrchestratorRef, TaskExecutionAttempt};
 use crate::service::plan::{NewTask, PlanStore};
 use crate::service::LaneProtection;
@@ -222,16 +221,15 @@ fn closed_attempt_history_does_not_occupy_checkout() {
 fn read_only_attempt_does_not_block_lane_bound_mutating_dispatch() {
     let (root, plan, _read_only_task_id, mutating_task_id) = plan_with_attempt(None, None);
     let canonical_checkout = root.path().display().to_string();
-    let unresolved_lane = DispatchLaneResolution {
-        spawn_cwd: canonical_checkout.clone(),
-        existing: None,
+    let placement = DispatchLanePlacement::Provision {
+        base_checkout: canonical_checkout.clone(),
     };
-    let will_provision_lane =
-        should_provision_worker_lane(true, &ExecutionIntent::Mutating, Some(&unresolved_lane));
+    let will_provision_lane = placement.provisions();
     assert!(
         will_provision_lane,
         "a mutating task with no recorded worktree must be provisioned its own isolated lane"
     );
+    assert_eq!(placement.spawn_cwd(), canonical_checkout);
 
     preflight_dispatch_placement(
         &plan,
