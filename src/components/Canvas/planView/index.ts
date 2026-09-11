@@ -1,5 +1,6 @@
 export { PlanBoardView } from "./PlanBoardView";
 export { PlanListView } from "./PlanListView";
+export { PlanDocumentView, PlanPlanView, PlanSpecView } from "./PlanDocumentView";
 export { PlanContextHeader, type PlanContextHeaderProps } from "./PlanContextHeader";
 export {
   PlanSwitcher,

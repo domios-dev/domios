@@ -72,6 +72,8 @@ test("renders board columns with context header and task cards", async () => {
   const plan: Plan = {
     ...FIXTURE_PLAN,
     primary_spec_id: "spec-fixture",
+    planning_state: "approved",
+    planner: { kind: "tab", tab_id: "planner-1", title: "Planner" },
     heartbeat: { current_focus: "task:task-dante" },
     goal: { vector: "Deliver auth" },
     tasks: [
@@ -106,10 +108,14 @@ test("renders board columns with context header and task cards", async () => {
     />,
   );
   assert(host.querySelector('[data-testid="plan-board-view"]'), "board root");
-  assert(host.querySelector('[data-testid="plan-context-header"]'), "context header");
+  assert(host.querySelector('[data-testid="plan-board-status"]'), "board status");
   assert(host.querySelector('[data-testid="plan-board-plan-title"]')?.textContent?.includes("Auth rollout"), "plan title");
-  assert(host.querySelector('[data-testid="plan-board-spec-title"]'), "spec trigger");
-  assert(host.querySelector('[data-testid="plan-board-plan-goal"]')?.textContent?.includes("Deliver auth"), "goal");
+  assert(host.querySelector('[data-testid="plan-board-approval-state"]')?.textContent === "Approved", "approval state");
+  assert(host.querySelector('[data-testid="plan-board-peer-orchestrator"]')?.textContent?.includes("Orchestrator"), "orchestrator identity");
+  assert(host.querySelector('[data-testid="plan-board-peer-planner"]')?.textContent?.includes("Planner"), "planner identity");
+  assert(host.querySelector('[data-testid="plan-board-done-count"]')?.textContent?.includes("0/2 done"), "done count");
+  assert(!host.querySelector('[data-testid="plan-board-spec-title"]'), "spec summary removed from board");
+  assert(!host.querySelector('[data-testid="plan-board-plan-goal"]'), "goal summary removed from board");
   const columns = host.querySelectorAll('[data-testid="plan-board-column"]');
   assert(columns.length === 5, `column count=${columns.length}`);
   const inProgress = host.querySelector('[data-testid="plan-board-column"][data-column="in_progress"]');
