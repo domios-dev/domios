@@ -128,6 +128,7 @@ impl ServiceFixture {
                 crate::chatpreprocessor::ChatPreprocessorRegistry::new(),
             ),
             agent_command_registry: Arc::new(crate::agent_commands::AgentCommandRegistry::new()),
+            webhook_registry: Arc::new(codeterm_plugin::WebhookRegistry::new()),
             mux_emit_pending: Arc::new(AtomicBool::new(false)),
             mux_emit_stats: Arc::new(crate::service::MuxEmitStats::default()),
             session_persist_pending: Arc::new(AtomicBool::new(false)),
