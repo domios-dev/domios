@@ -5,7 +5,7 @@
       "x": 0,
       "y": 0,
       "w": 960,
-      "h": 1120,
+      "h": 660,
       "title": "Read off the surface"
     },
     {
@@ -13,7 +13,7 @@
       "x": 1040,
       "y": 0,
       "w": 960,
-      "h": 1300,
+      "h": 810,
       "title": "With a watcher"
     },
     {
@@ -21,13 +21,13 @@
       "x": 2080,
       "y": 0,
       "w": 390,
-      "h": 1180,
+      "h": 1020,
       "title": "Phone"
     },
     {
       "file": "Kpis.dc.html",
       "x": 0,
-      "y": 1460,
+      "y": 1040,
       "w": 800,
       "h": 2650,
       "title": "Which figures matter"
@@ -35,7 +35,7 @@
     {
       "file": "Conclusions.dc.html",
       "x": 880,
-      "y": 1460,
+      "y": 1040,
       "w": 800,
       "h": 3450,
       "title": "The catalogue"
@@ -68,7 +68,7 @@
       "x": 2080,
       "y": -200,
       "w": 390,
-      "text": "Rendered pixels were not observed: the Chrome extension is not connected in this session. Layout is reasoned from the kit's own CSS; every value is lifted from tokens.css, globals.css and the usage panel's stylesheet."
+      "text": "Rendered in headless Chrome at 960 and 390 and sized to the content; the frames match the pixels. Every value is lifted from tokens.css, globals.css and the usage panel's stylesheet."
     }
   ],
   "launch": {

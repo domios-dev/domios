@@ -84,7 +84,7 @@ STYLE = """
 .small { font-size: 11px; color: #828a92; line-height: 1.5; margin: 0; }
 .small b { color: #c9d1d9; font-weight: 500; font-family: "JetBrains Mono", Consolas, monospace; font-size: 11px; }
 .row { display: grid; grid-template-columns: 96px minmax(0, 1fr) 64px 56px 80px 74px; gap: 10px; align-items: center; height: 26px; }
-.kv { display: grid; grid-template-columns: minmax(0, 1fr) 72px 56px; gap: 10px; align-items: baseline; }
+.kv { display: grid; grid-template-columns: minmax(0, 1fr) 72px 56px; gap: 10px; align-items: baseline; max-width: 520px; }
 .kv .k { font-size: 0.8125rem; color: #c9d1d9; }
 .kv .v { font-family: "JetBrains Mono", Consolas, monospace; font-variant-numeric: tabular-nums; font-size: 12px; font-weight: 600; color: #c9d1d9; text-align: right; }
 .share { font-family: "JetBrains Mono", Consolas, monospace; font-variant-numeric: tabular-nums; font-size: 11px; color: #828a92; text-align: right; }
@@ -96,7 +96,7 @@ STYLE = """
 .turns { font-family: "JetBrains Mono", Consolas, monospace; font-variant-numeric: tabular-nums; font-size: 11px; color: #828a92; text-align: right; white-space: nowrap; }
 .st { font-size: .6875rem; text-align: right; white-space: nowrap; }
 .gauge { display: grid; grid-template-columns: 1fr auto; align-items: baseline; column-gap: 10px; }
-.gauge .label { font-size: 11px; color: #c9d1d9; font-weight: 500; letter-spacing: .02em; }
+.gauge .glabel { font-size: 11px; color: #c9d1d9; font-weight: 500; letter-spacing: .02em; text-transform: none; }
 .gauge .pct { font-family: "JetBrains Mono", Consolas, monospace; font-variant-numeric: tabular-nums; font-size: 12px; font-weight: 600; color: #c9d1d9; }
 .gauge .pct.warn { color: #d29922; }
 .gauge .pct.danger { color: #ff7b72; }
@@ -135,7 +135,7 @@ def switcher(labels, selected):
 
 def toolbar(phone):
     right = "" if phone else '<span class="ct-meta-muted">Planck\'s team</span>'
-    return f'<div class="ct-toolbar"{" style=\"padding: 0 .5rem;\"" if phone else ""}>{switcher(["Board", "Tasks", "Spec", "Plan"], "Board")}{right}</div>'
+    return f'<div class="ct-toolbar"{" style=\"padding: 0 .5rem;\"" if phone else ""}>{switcher(["Board", "Spec", "Plan", "Tasks"], "Board")}{right}</div>'
 
 
 def status_header(phone, watcher):
@@ -182,7 +182,7 @@ def runway(phone):
     for label, pct, reset, kind in USAGE:
         state = "danger" if pct >= 85 else ("warn" if pct >= 60 else "")
         fill = {"danger": "#ff7b72", "warn": "#d29922"}.get(state) or {"session": "#93a6c8", "weekly": "#a78bfa", "codex": "#93a6c8"}[kind]
-        gs.append(f'<div class="gauge"><span class="label">{label}</span><span class="pct{" " + state if state else ""}">{pct:.0f} %</span>'
+        gs.append(f'<div class="gauge"><span class="glabel">{label}</span><span class="pct{" " + state if state else ""}">{pct:.0f} %</span>'
                   f'<div class="bar"><div class="fill" style="width: {pct}%; background: linear-gradient(90deg, color-mix(in srgb, {fill} 70%, transparent), {fill});"></div></div><span class="reset">{reset}</span></div>')
     cols = "1fr" if phone else "repeat(3, minmax(0, 1fr))"
     return f'<div class="ct-panel-card card"><div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px;"><h2>Runway</h2><span class="caption">one snapshot per provider, read {read_usage.captured}</span></div><div style="display: grid; grid-template-columns: {cols}; gap: 12px 20px;">{"".join(gs)}</div></div>'
