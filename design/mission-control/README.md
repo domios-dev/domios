@@ -27,17 +27,20 @@ figure on the canvas is measured.
 
 ## The board is generated, not drawn
 
-`tokens.py` sums every agent's token usage from its own session log, the
-Claude jsonl files under `~/.claude/projects` and the Codex rollouts under
-`~/.codex/sessions`, which are the files the KPI ledger imports when it is on,
-and writes them with the plan's counts and holds into `tokens.json`.
-`gen_board.py` draws `Main`, `Watcher` and `Phone` from that file, so every
-figure on the board is read, not typed. The runway gauges are read at draw
-time from `~/.codeterm/usage/usage.db`, table `usage_snapshots`: the latest
-parsed snapshot per provider, taking each percentage and its reset from the
-same row, so a Claude reset can never be attached to a Codex percentage. Codex
-records no session figure and the card says so. Do not take runway from
+`tokens.py` extracts everything the board shows into `tokens.json`: each
+agent's token usage from its own session log, the Claude jsonl files under
+`~/.claude/projects` and the Codex rollouts under `~/.codex/sessions`, which
+are the files the KPI ledger imports when it is on; the plan's counts,
+attempts, held reviews (the stored `review held` label, never a note's text),
+decision gates, and every milestone, stride, planning entry and gate as the
+event log; and the files it read with how long it took. `labels.py` is the
+labelling scheme: role families evaluated in order with a visible Other, and
+the kind labels for the log. `gen_board.py` draws `Main`, `Watcher` and
+`Phone` from that file and writes the `Labels` and `Cost` sheets; runway is
+read at draw time from `~/.codeterm/usage/usage.db`, the latest parsed
+snapshot per provider with that provider's own reset. Never take runway from
 `codeterm usage latest`, which prints one provider only.
 
-Re-run both, then paste `_kit.css` into the style block (the generator leaves a
-`/*KIT*/` marker), to redraw the board for another night.
+Re-run `tokens.py` then `gen_board.py`, paste `_kit.css` into each `/*KIT*/`
+marker, render the frames in headless Chrome to size the artboards, and
+re-seed.
