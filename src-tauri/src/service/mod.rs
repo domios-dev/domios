@@ -30,6 +30,7 @@ pub mod inject_verify;
 pub mod input_parser;
 pub(crate) mod integration_silence;
 mod kpi_hooks;
+pub(crate) mod lane_removal;
 pub(crate) mod launch_delivery;
 pub(crate) mod launch_diagnostics;
 pub mod message_gateway;
