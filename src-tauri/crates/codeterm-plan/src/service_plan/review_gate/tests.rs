@@ -758,72 +758,6 @@ fn review_bounce_replay_is_idempotent_for_same_review_round() {
 }
 
 #[test]
-fn review_round_bound_rejects_third_round_without_override_and_accepts_with_one() {
-    let (_dir, store, plan_id) = setup();
-    let task_id = add_ready_task(&store, &plan_id, "deep-review", 2);
-    dispatch(&store, &plan_id, &task_id, "tab_impl", 3).unwrap();
-
-    set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
-    let first = store
-        .bounce_review(
-            &plan_id,
-            &task_id,
-            "round 1 findings",
-            false,
-            false,
-            AgentRef::from_tab("rev"),
-            5,
-        )
-        .unwrap();
-    deliver_bounce(&store, &plan_id, &task_id, &first, 6);
-    set_status(&store, &plan_id, &task_id, "in_review", 8).unwrap();
-    let second = store
-        .bounce_review(
-            &plan_id,
-            &task_id,
-            "round 2 findings",
-            false,
-            false,
-            AgentRef::from_tab("rev"),
-            9,
-        )
-        .unwrap();
-    deliver_bounce(&store, &plan_id, &task_id, &second, 10);
-
-    // Third round: default max is 2, so this must be rejected without an override.
-    let err = set_status(&store, &plan_id, &task_id, "in_review", 12).unwrap_err();
-    assert!(matches!(
-        err,
-        PlanError::ReviewRoundExceeded {
-            round: 2,
-            max_rounds: 2
-        }
-    ));
-
-    let err = store.record_review_override(&plan_id, &task_id, "", "reason", "repro", 13);
-    assert!(matches!(err, Err(PlanError::ReviewOverrideIncomplete)));
-
-    store
-        .record_review_override(
-            &plan_id,
-            &task_id,
-            "andrey",
-            "P0 hotfix",
-            "steps to repro",
-            14,
-        )
-        .unwrap();
-    set_status(&store, &plan_id, &task_id, "in_review", 15).unwrap();
-
-    let plan = store.get(&plan_id).unwrap();
-    let task = plan.tasks.iter().find(|t| t.id == task_id).unwrap();
-    assert_eq!(task.review_override, None, "override is consumed on use");
-    assert_eq!(task.review_audit.len(), 1);
-    assert_eq!(task.review_audit[0].owner, "andrey");
-    assert_eq!(task.review_audit[0].round, 2);
-}
-
-#[test]
 fn oracle_scope_expansion_rejected_without_override() {
     let (_dir, store, plan_id) = setup();
     let task_id = add_ready_task(&store, &plan_id, "oracle-lock", 2);
@@ -1043,4 +977,5 @@ fn stale_review_escalation_is_idempotent() {
 mod bounce_ref_resolution;
 mod plan_evidence_persistence;
 mod qa_waves;
+mod round_bound_advisory;
 mod strategy_warning_payload;

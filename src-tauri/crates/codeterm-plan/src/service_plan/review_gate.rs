@@ -4,9 +4,9 @@ use sha2::{Digest, Sha256};
 use super::mutations::plan_contains_id;
 use super::{PlanError, PlanStore};
 use crate::plan::{
-    AgentRef, Milestone, Plan, PlanEvidenceClass, PlanEvidenceReporterGrant, ReviewAuditEntry,
-    ReviewCapacityClass, ReviewCapacityGrant, ReviewEvidence, ReviewOverride, ReviewPolicy,
-    ReviewStage, ReviewVerdict, Task, TaskStatus, DEFAULT_MAX_REVIEW_ROUNDS,
+    AgentRef, Milestone, Plan, PlanEvidenceClass, PlanEvidenceReporterGrant, ReviewCapacityClass,
+    ReviewCapacityGrant, ReviewEvidence, ReviewOverride, ReviewPolicy, ReviewStage, ReviewVerdict,
+    Task, TaskStatus, DEFAULT_MAX_REVIEW_ROUNDS,
 };
 
 pub const REVIEW_MILESTONE_KIND: &str = "review";
@@ -15,6 +15,7 @@ pub const REVIEW_CREDIT_RECONCILE_MILESTONE_KIND: &str = "review_credit_reconcil
 pub const REVIEW_CAPACITY_GRANT_MILESTONE_KIND: &str = "review_capacity_grant";
 pub const EVIDENCE_REPORTER_GRANT_MILESTONE_KIND: &str = "evidence_reporter_grant";
 pub const PLAN_EVIDENCE_REPORT_MILESTONE_KIND: &str = "plan_evidence_report";
+const ROUND_BOUND_STRATEGY_ADVICE: &str = "Round bound passed — this bounce and the Worker's next report are accepted, so treat it as advice, not a gate. Change strategy rather than re-running it: grant the Worker authority to run its own focused tests, take part of the work directly, or dispatch a second Worker with a distinct oracle.";
 const REPEATED_STRATEGY_MESSAGE: &str = "Stop iterating this strategy. Re-diagnose per `codeterm docs BOUNCE`. Consider a fresh independent reviewer with a distinct oracle, a decision gate, or model escalation; then continue autonomously.";
 
 fn max_review_rounds() -> u32 {
@@ -116,15 +117,6 @@ pub fn validate_dispatch_review_capacity(plan: &Plan, task: &Task) -> Result<(),
     Ok(())
 }
 
-/// The gate a review re-entry actually trips, before any override is considered.
-/// Both arms are reachable from the same input, so which one is NAMED has to be
-/// a decision rather than source order.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ReviewEntryGate {
-    RoundBound,
-    OracleScope,
-}
-
 /// A BOUNCE recorded with `distinct_oracle` is the reviewer stating that this
 /// correction needs a different acceptance oracle. The correction answering it
 /// is compliance, not expansion, so the scope gate must not claim it — otherwise
@@ -138,56 +130,41 @@ fn latest_bounce_reopened_oracle(task: &Task) -> bool {
         .is_some_and(|evidence| evidence.distinct_oracle)
 }
 
-/// Single source of gate selection: the round bound is the outer bound on how
-/// many times a task may iterate, so it is named whenever it is breached; the
-/// scope gate speaks only for an oracle change no bounce authorized.
-fn tripped_review_gate(task: &Task, rounds: u32) -> Option<ReviewEntryGate> {
-    if task.review_round >= rounds {
-        return Some(ReviewEntryGate::RoundBound);
-    }
+/// The only gate a review re-entry trips: an acceptance oracle that moved with
+/// no bounce authorizing the change. Review depth is advisory, never a refusal.
+fn oracle_scope_expanded(task: &Task) -> bool {
     if task.review_round == 0 || latest_bounce_reopened_oracle(task) {
-        return None;
+        return false;
     }
-    let prev_oracle = task.review_oracle.as_deref()?;
-    (prev_oracle != oracle_signature(task)).then_some(ReviewEntryGate::OracleScope)
+    task.review_oracle
+        .as_deref()
+        .is_some_and(|prev_oracle| prev_oracle != oracle_signature(task))
 }
 
-/// Validates entry into `in_review`: evidence, review-depth bound, and oracle
-/// stability. WIP/credit is advisory and never prevents review entry.
+/// Validates entry into `in_review`: evidence and oracle stability. Review
+/// depth, WIP and credit are advisory and never prevent review entry.
 pub fn validate_enter_review(task: &Task) -> Result<(), PlanError> {
     if !has_exact_qa_evidence(task) && !has_independent_review_evidence(task) {
         return Err(PlanError::ReviewEvidenceRequired);
     }
-    let rounds = max_review_rounds();
-    let Some(gate) = tripped_review_gate(task, rounds) else {
+    if !oracle_scope_expanded(task) {
         return Ok(());
-    };
+    }
     match &task.review_override {
         Some(o) if override_is_complete(o) => Ok(()),
         Some(_) => Err(PlanError::ReviewOverrideIncomplete),
-        None => Err(match gate {
-            ReviewEntryGate::RoundBound => PlanError::ReviewRoundExceeded {
-                round: task.review_round,
-                max_rounds: rounds,
-            },
-            ReviewEntryGate::OracleScope => PlanError::ReviewOracleScopeExpansion,
-        }),
+        None => Err(PlanError::ReviewOracleScopeExpansion),
     }
 }
 
 /// Fixes the acceptance oracle on first review entry or an authorized correction,
 /// then retires the override it spent.
 ///
-/// Consumption and auditing are separate on purpose. An override is CONSUMED
-/// whichever gate it cleared, so one recorded for scope cannot survive to
-/// silently satisfy the round bound later. It is AUDITED only when it cleared
-/// the round bound, because `ReviewAuditEntry` is by definition the record that
-/// a review-round-limit exception was used — writing scope corrections into it
-/// would rewrite that history into something it does not mean.
-pub fn fix_oracle_and_consume_override(task: &mut Task, now_ms: u64) {
-    let rounds = max_review_rounds();
-    // Read before the oracle moves: the gate verdict depends on the stored one.
-    let spent_on = tripped_review_gate(task, rounds);
+/// Nothing is written to `review_audit` any more: that log records review-ROUND-
+/// LIMIT exceptions, and the round limit no longer refuses anything.
+pub fn fix_oracle_and_consume_override(task: &mut Task, _now_ms: u64) {
+    // Read before the oracle moves: the scope verdict depends on the stored one.
+    let spent_on_scope = oracle_scope_expanded(task);
     let current_oracle = oracle_signature(task);
     let authorized_correction = task.review_round > 0
         && task.review_oracle.as_deref() != Some(current_oracle.as_str())
@@ -199,25 +176,14 @@ pub fn fix_oracle_and_consume_override(task: &mut Task, now_ms: u64) {
     if task.review_oracle.is_none() || authorized_correction {
         task.review_oracle = Some(current_oracle);
     }
-    let Some(gate) = spent_on else {
+    if !spent_on_scope {
         return;
-    };
+    }
     let Some(spent) = task.review_override.take() else {
         return;
     };
     if !override_is_complete(&spent) {
         task.review_override = Some(spent);
-        return;
-    }
-    if gate == ReviewEntryGate::RoundBound {
-        task.review_audit.push(ReviewAuditEntry {
-            id: crate::plan::ids::short_id("aud"),
-            owner: spent.owner,
-            reason: spent.reason,
-            reproduction: spent.reproduction,
-            round: task.review_round,
-            at: now_ms,
-        });
     }
 }
 
@@ -284,15 +250,17 @@ pub struct StrategyWarning {
     pub consecutive_bounces: usize,
     pub review_round: u32,
     pub message: String,
+    /// Set when this advisory was raised because the round bound was passed, so
+    /// a caller reads the condition as a flag instead of parsing the message.
+    pub round_bound_advisory: bool,
     /// The task's recorded decisions, so the moment most likely to need them
     /// (a stuck strategy) is the moment they're re-surfaced. Empty when none
     /// were ever recorded — the warning still fires; it never gets suppressed.
     pub decisions: Vec<DecisionStride>,
 }
 
-pub fn strategy_warning(task: &Task) -> Option<StrategyWarning> {
-    let consecutive_bounces = task
-        .review_evidence
+fn consecutive_stagnant_bounces(task: &Task) -> usize {
+    task.review_evidence
         .iter()
         .rev()
         .take_while(|evidence| {
@@ -300,11 +268,43 @@ pub fn strategy_warning(task: &Task) -> Option<StrategyWarning> {
                 && !evidence.changed_executable_surfaces
                 && !evidence.distinct_oracle
         })
-        .count();
+        .count()
+}
+
+pub fn strategy_warning(task: &Task) -> Option<StrategyWarning> {
+    let consecutive_bounces = consecutive_stagnant_bounces(task);
     (consecutive_bounces >= 3).then(|| StrategyWarning {
         consecutive_bounces,
         review_round: task.review_round,
         message: REPEATED_STRATEGY_MESSAGE.into(),
+        round_bound_advisory: false,
+        decisions: task_decision_strides(task),
+    })
+}
+
+/// True once the task has bounced past the configured round bound — the third
+/// bounce under the default of two rounds.
+pub fn past_round_bound(task: &Task) -> bool {
+    task.review_round > max_review_rounds()
+}
+
+/// The advisory a recorded bounce carries back to the Orchestrator. Past the
+/// round bound the strategy-change advice leads; a stagnant streak keeps its own
+/// re-diagnosis guidance appended rather than replaced.
+pub fn bounce_strategy_advice(task: &Task) -> Option<StrategyWarning> {
+    let stagnant = strategy_warning(task);
+    if !past_round_bound(task) {
+        return stagnant;
+    }
+    let message = match &stagnant {
+        Some(warning) => format!("{ROUND_BOUND_STRATEGY_ADVICE} {}", warning.message),
+        None => ROUND_BOUND_STRATEGY_ADVICE.to_string(),
+    };
+    Some(StrategyWarning {
+        consecutive_bounces: consecutive_stagnant_bounces(task),
+        review_round: task.review_round,
+        message,
+        round_bound_advisory: true,
         decisions: task_decision_strides(task),
     })
 }
@@ -758,7 +758,7 @@ impl PlanStore {
                     verdict: ReviewVerdict::Bounce,
                     review_round: p.tasks[idx].review_round,
                     follow_up_task_id: None,
-                    strategy_warning: strategy_warning(&p.tasks[idx]),
+                    strategy_warning: bounce_strategy_advice(&p.tasks[idx]),
                     continuation: Some(ReviewContinuation {
                         attempt_id: attempt.id.clone(),
                         executor_tab_id: attempt.executor_tab_id.clone(),
@@ -827,7 +827,7 @@ impl PlanStore {
                 verdict: ReviewVerdict::Bounce,
                 review_round: p.tasks[idx].review_round,
                 follow_up_task_id: None,
-                strategy_warning: strategy_warning(&p.tasks[idx]),
+                strategy_warning: bounce_strategy_advice(&p.tasks[idx]),
                 continuation: p.tasks[idx]
                     .execution_attempts
                     .get(attempt_index)
