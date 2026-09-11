@@ -15,7 +15,12 @@ use crate::service::inject_verify::{
 use crate::service::ServiceContext;
 
 const TAIL_ROWS: usize = 8;
-const MAX_SUBMIT_KEY_WRITES: usize = 3;
+/// Offsets from the first submit key at which to press again, dense early and
+/// sparse later, until the composer takes it or a newer send supersedes us.
+/// Pressing a key an empty composer ignores costs nothing; leaving a message
+/// unsent costs everything.
+const SUBMIT_RETRY_OFFSETS_MS: [u64; 6] = [200, 500, 900, 1500, 2200, 3000];
+const MAX_SUBMIT_KEY_WRITES: usize = SUBMIT_RETRY_OFFSETS_MS.len() + 1;
 const BRACKETED_PASTE_START: &str = "\x1b[200~";
 const BRACKETED_PASTE_END: &str = "\x1b[201~";
 
@@ -636,7 +641,11 @@ fn run_with_submit_key<T: SubmitTransport>(
             if !transport.retry_active() {
                 break;
             }
-            let retry_deadline = submit_started + Duration::from_secs(submit_key_writes as u64);
+            let offset = SUBMIT_RETRY_OFFSETS_MS
+                .get(submit_key_writes - 1)
+                .copied()
+                .unwrap_or(*SUBMIT_RETRY_OFFSETS_MS.last().expect("non-empty"));
+            let retry_deadline = submit_started + Duration::from_millis(offset);
             transport.wait_retry_deadline(retry_deadline.min(turn_deadline));
             if !transport.retry_active() || Instant::now() >= turn_deadline {
                 break;
@@ -758,7 +767,16 @@ pub(crate) fn submit_text_with_key_claimed(
     let result = run_with_submit_key(&transport, text, enter, submit_key, strategy, opts).inspect(
         |result| {
             if recovery_attempted(result) {
-                log::warn!(
+                // `recovered=false` is not evidence of a lost message: for a TUI
+                // strategy the only accepted proof is a turn transition, which a
+                // busy tab cannot produce. See rollacode/codeterm#475.
+                let level = if result.submit_observed {
+                    log::Level::Debug
+                } else {
+                    log::Level::Trace
+                };
+                log::log!(
+                    level,
                     "[submit-recovery] pty={} recovered={} bytes_written={} key_writes={} elapsed_ms={}",
                     pty_id,
                     result.submit_observed,
