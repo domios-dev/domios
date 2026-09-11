@@ -62,3 +62,4 @@ src-tauri/bundled-embed
 
 # Seeded design canvas — regenerable from the .dc.html sources
 design/codeterm-notifications.html
+design/mission-control-insights.html
