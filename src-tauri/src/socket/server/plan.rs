@@ -3,6 +3,7 @@ use super::plan_linking::{owner_from_params, tags_field};
 use super::plan_refs;
 use super::{get_string_param, JsonRpcError};
 use crate::plan::{OrchestratorRef, PlanStatus, PlannerRef};
+use crate::service::lane_removal::LaneRemovalRequest;
 use crate::service::plan::adopt::AdoptPlanExt;
 use crate::service::plan::batch::{BatchRequest, BatchResult};
 use crate::service::plan::{hints, PlanError, PlanStore};
@@ -64,6 +65,40 @@ pub(super) fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
     crate::api::events::emit_everywhere(app, "plan-changed", json!({ "plan_id": plan_id }));
 }
 
+/// The CodeTerm-owned lane removal boundary. A live tab whose shell sits inside
+/// the worktree owns that directory, so the refusal happens here rather than as
+/// a bare git failure after the fact.
+fn lane_remove(params: &Option<Value>, svc: &ServiceState) -> Result<Value, JsonRpcError> {
+    let p = params.as_ref();
+    let request = LaneRemovalRequest {
+        worktree_path: get_string_param(params, "worktree_path")?,
+        branch: optional_string(p, "branch"),
+        canonical_cwd: optional_string(p, "project_path"),
+    };
+    let outcome = svc
+        .remove_owned_lane(&request)
+        .map_err(|message| JsonRpcError {
+            code: -32003,
+            message,
+            data: None,
+        })?;
+    Ok(json!({
+        "ok": true,
+        "canonical_cwd": outcome.canonical_cwd,
+        "worktree_path": outcome.worktree_path,
+        "branch": outcome.branch,
+    }))
+}
+
+fn optional_string(params: Option<&Value>, key: &str) -> Option<String> {
+    params
+        .and_then(|value| value.get(key))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
 pub(super) fn dispatch(
     method: &str,
     params: &Option<Value>,
@@ -109,6 +144,9 @@ pub(super) fn dispatch(
     }
     if super::plan_skills_rpc::handles(method) {
         return super::plan_skills_rpc::dispatch(method, params, svc, now);
+    }
+    if method == "plan.lane_remove" {
+        return lane_remove(params, svc);
     }
     let p = params.as_ref();
     let store = &svc.plan_store;

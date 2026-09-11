@@ -7084,6 +7084,44 @@
           ]
         },
         {
+          "name": "lane-remove",
+          "about": "Remove one lane worktree and its branch, refusing while a live tab's shell sits inside it",
+          "aliases": [],
+          "args": [
+            {
+              "name": "branch",
+              "positional": false,
+              "required": false,
+              "value_name": "BRANCH",
+              "possible_values": [],
+              "default": null,
+              "help": "Lane branch to delete after the worktree is gone",
+              "aliases": []
+            },
+            {
+              "name": "project",
+              "positional": false,
+              "required": false,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": "Canonical checkout that owns the lane (default: derived from the lane itself)",
+              "aliases": []
+            },
+            {
+              "name": "worktree",
+              "positional": true,
+              "required": true,
+              "value_name": "WORKTREE",
+              "possible_values": [],
+              "default": null,
+              "help": "Lane worktree path to remove",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "lanes",
           "about": "Lane hygiene table: one row per open lane (task/status/tab/branch/worktree/cleanup)",
           "aliases": [],

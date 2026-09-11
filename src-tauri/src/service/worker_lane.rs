@@ -90,7 +90,7 @@ impl LaneProtection {
 pub(crate) struct ProvisionedWorkerLane {
     canonical_cwd: String,
     pub(crate) cwd: String,
-    branch: String,
+    pub(crate) branch: String,
     base: String,
     pub(crate) bootstrap: LaneBootstrap,
 }
