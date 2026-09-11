@@ -33,3 +33,7 @@ task's recorded ancestry/cleanup evidence and pass `-AllowUnregisteredResidue`.
 After successful deletion, remove the merged branch with `git branch -d` and
 record task cleanup as done. Use `-PlanId` and `-TaskId` to let the script record
 that state automatically.
+
+When you do not already know which tab owns the lane, prefer the daemon-side verb
+`codeterm plan lane-remove <worktree> --branch <branch>`: it names the live tab
+holding the directory and refuses before anything is deleted.
