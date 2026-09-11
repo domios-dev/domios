@@ -5,7 +5,7 @@
       "x": 0,
       "y": 0,
       "w": 960,
-      "h": 2620,
+      "h": 2650,
       "title": "Read off the surface"
     },
     {
@@ -13,7 +13,7 @@
       "x": 1040,
       "y": 0,
       "w": 960,
-      "h": 2760,
+      "h": 2800,
       "title": "With a watcher"
     },
     {
@@ -21,7 +21,7 @@
       "x": 2080,
       "y": 0,
       "w": 390,
-      "h": 1640,
+      "h": 1670,
       "title": "Phone"
     },
     {
@@ -29,21 +29,21 @@
       "x": 2560,
       "y": 0,
       "w": 800,
-      "h": 2120,
-      "title": "The labelling scheme"
+      "h": 2190,
+      "title": "The tag list"
     },
     {
       "file": "Cost.dc.html",
       "x": 3440,
       "y": 0,
       "w": 800,
-      "h": 1040,
+      "h": 1020,
       "title": "Cost and caching"
     },
     {
       "file": "Kpis.dc.html",
       "x": 2560,
-      "y": 2260,
+      "y": 2330,
       "w": 800,
       "h": 2650,
       "title": "Which figures matter"
@@ -63,14 +63,14 @@
       "x": 0,
       "y": -280,
       "w": 460,
-      "text": "The board, in the product's own kit.\n\nFour figures a person understands at a glance, each with its source printed on the card: output tokens from the agents' own session logs, turns counted from the same files, bounces from the attempt records, held reviews from the stored review-held label and decision gates. Then where the output went by an explicit labelling scheme, then runway per provider from the usage store, then what happened today: every recorded event in time order, with what was written."
+      "text": "The board, in the product's own kit.\n\nThe header carries the plan and its total spend. Four figures with their sources on the card: output tokens and turns from the agents' own session logs, bounces from the attempt records, held reviews from the stored review-held label and decision gates. Then spend by area, one tag per task from a list the plan declares once, so Planners cannot invent areas between sessions; then runway per provider; then what happened today, every recorded event in time order with what was written."
     },
     {
       "id": "sources",
       "x": 500,
       "y": -280,
       "w": 460,
-      "text": "Every figure is a field lookup or arithmetic over fields. No text is read for meaning anywhere: a held review is the status_label the review gate writes, not a note that starts with Hold; authors are the plan record's own titles; the log shows notes as written and labels them by their stored kind.\n\nThe watcher version adds one chip and one card. Nothing on either board is summarised by a model."
+      "text": "Every figure is a field lookup or arithmetic over fields. No text is read for meaning: a held review is the label the review gate writes, authors are the plan record's own titles, the log shows notes as written under their stored kind.\n\nThe area facet is the product's own tag mechanism, declared once per plan; no plan has declared one yet, so tonight's tasks are shown under the area their role suggests and the box says so. The tag-list sheet has the list and the command."
     },
     {
       "id": "cost",

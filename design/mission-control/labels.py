@@ -1,41 +1,63 @@
 """The labelling scheme the board uses. Every label on the board comes from here.
 
-Roles: an agent's label is derived from what it is. The Orchestrator and the
-Planner are labelled by their team role. A worker is labelled from its task's
-stored executor_role by the first matching family below, evaluated in order.
-A role that matches no family is not swallowed: it is labelled Other and the
-raw role is shown beside it.
+Areas: the plan declares one tag facet, `area`, with the closed list below.
+A task carries exactly one `area:<value>` tag, set when the task is created;
+the plan store's apply_tags clears a facet's old value when a new one is set,
+so a task can never carry two. The list is declared once and does not change
+between sessions. A task without an area tag is shown as Untagged, never
+guessed on the board.
+
+Kinds: the milestone and stride kinds the plan store writes, each shown under
+one label; an unknown kind shows as Note with the kind in brackets.
 """
 
-ROLE_FAMILIES = [
-    ("Design", ("design",)),
-    ("Frontend", ("frontend", "storefront", "electron", "web-ui", "react")),
-    ("Backend", ("backend", "rust", "python", "cli", "server", "api", "service", "plan-service", "runtime", "mem", "lane", "orchestration", "lifecycle", "agent", "daemon", "socket", "pty")),
-    ("Infrastructure and release", ("infra", "build", "release", "ops", "operations", "deploy", "packaging", "mesh")),
-    ("Testing and verification", ("test", "qa", "verif", "e2e", "bench", "eval")),
-    ("Review and audit", ("review", "audit", "adversarial")),
-    ("Docs", ("docs", "documentation", "writer")),
-    ("Full stack", ("fullstack", "full-stack", "chat", "product")),
+AREA_FACET_KEY = "area"
+AREAS = [
+    ("design", "Design"),
+    ("frontend", "Frontend"),
+    ("backend", "Backend"),
+    ("infra", "Infrastructure"),
+    ("testing", "Testing"),
+    ("review", "Review"),
+    ("docs", "Docs"),
+    ("research", "Research"),
 ]
-OTHER = "Other"
+AREA_LABEL = dict(AREAS)
+UNTAGGED = "Untagged"
+
+# The facet in the product's own compact syntax, the one `plan tag-facets set` accepts: key:label:value=Label|...
+AREA_FACET_COMPACT = f"{AREA_FACET_KEY}:Area:" + "|".join(f"{v}={l}" for v, l in AREAS)
 
 
-def role_label(team_role, executor_role):
-    """team_role is orchestrator, planner or worker; executor_role is the task's stored field."""
-    if team_role == "orchestrator":
-        return "Orchestrator", None
-    if team_role == "planner":
-        return "Planner", None
+def task_area(tags):
+    """The task's area from its tags: the value after `area:` if it is on the list, else None."""
+    for tag in tags or []:
+        key, _, value = tag.partition(":")
+        if key == AREA_FACET_KEY and value in AREA_LABEL:
+            return value
+    return None
+
+
+# Used only to show what tonight's plan would look like once tagged: it was created before the facet existed.
+ROLE_HINTS = [
+    ("design", ("design",)),
+    ("frontend", ("frontend", "storefront", "electron", "react")),
+    ("backend", ("backend", "rust", "python", "cli", "server", "api", "service", "runtime", "mem", "lane", "orchestration", "lifecycle", "agent", "daemon", "socket", "pty")),
+    ("infra", ("infra", "build", "release", "ops", "deploy", "packaging", "mesh")),
+    ("testing", ("test", "qa", "verif", "e2e", "bench", "eval")),
+    ("review", ("review", "audit", "adversarial")),
+    ("docs", ("docs", "documentation", "writer")),
+]
+
+
+def area_hint(executor_role):
     r = (executor_role or "").lower()
-    if not r:
-        return OTHER, "no executor role stored"
-    for label, keys in ROLE_FAMILIES:
+    for value, keys in ROLE_HINTS:
         if any(k in r for k in keys):
-            return label, None
-    return OTHER, executor_role
+            return value
+    return None
 
 
-# Event kinds are the milestone and stride kinds the plan store writes. Each is shown under this label; an unknown kind shows as "Note (<kind>)".
 KIND_LABELS = {
     "planning": "Plan approved",
     "task_created": "Task added",
