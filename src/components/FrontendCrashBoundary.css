@@ -103,3 +103,15 @@
   outline: 2px solid white;
   outline-offset: 3px;
 }
+
+.frontend-crash__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.frontend-crash__panel button.frontend-crash__secondary {
+  border-color: var(--ct-border, #334155);
+  background: transparent;
+  color: var(--ct-text, #d8dee9);
+}
