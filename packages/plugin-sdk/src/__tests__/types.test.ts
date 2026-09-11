@@ -90,8 +90,8 @@ const synchronousNoOp: WebhookReceiver = {
 };
 void synchronousNoOp;
 
-// @ts-expect-error webhookReceive must return a normalized delivery or null
 const malformedReceiver: WebhookReceiver = {
+  // @ts-expect-error webhookReceive must return a normalized delivery or null
   webhookReceive: () => ({ message: "not a delivery" }),
 };
 void malformedReceiver;
