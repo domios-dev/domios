@@ -77,6 +77,12 @@ console.log("detectChatPrefix");
 }
 
 {
+  const r = detectChatPrefix("-=-codeterm:pebble source=Pebble-=-yo");
+  eq(r?.origin, { kind: "pebble" }, "ct Pebble marker parses");
+  eq(r?.body, "yo", "ct Pebble marker body stripped");
+}
+
+{
   const r = detectChatPrefix("-=-codeterm:system_prompt-=-# Shell rules\n\nUse tools carefully.");
   eq(r?.origin, { kind: "system_prompt" }, "ct system_prompt marker parses");
   eq(r?.body, "# Shell rules\n\nUse tools carefully.", "ct system_prompt marker body stripped");
