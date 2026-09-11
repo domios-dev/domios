@@ -49,6 +49,10 @@ impl ServiceContext {
         if changed {
             self.deferred_session_bindings.clear(tab_id);
             self.emit_session_binding_state(tab_id);
+            // Chat reads its authority from the tab record, and the binding
+            // commit shuts the tab's tailer down; without this broadcast no
+            // subscriber learns to re-attach and the transcript stops.
+            self.emit_state_changed();
             self.invalidate_guarded_agent_input(tab_id);
         }
         if session_bound {
@@ -126,5 +130,42 @@ impl ServiceContext {
         } else {
             uuid::Uuid::new_v4().to_string()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::service::test_fixture::ServiceFixture;
+    use std::sync::atomic::Ordering;
+
+    /// Chat reads its authority from the tab record, and the binding commit
+    /// shuts that tab's tailer down. A binding change that never reaches the
+    /// tab-state subscribers therefore leaves the transcript frozen with no
+    /// tailer and nothing to re-attach it.
+    #[test]
+    #[cfg_attr(
+        not(windows),
+        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+    )]
+    fn binding_change_broadcasts_tab_state() {
+        let (mux, tab) = MultiplexerState::new();
+        let fixture = ServiceFixture::new(mux);
+        let svc = &fixture.service;
+
+        let before = svc.mux_emit_stats.requests.load(Ordering::Relaxed);
+        svc.set_agent_session_id(&tab, Some("session-1".into()));
+        let after_bind = svc.mux_emit_stats.requests.load(Ordering::Relaxed);
+        assert!(
+            after_bind > before,
+            "a binding change must broadcast tab state (before={before} after={after_bind})"
+        );
+
+        svc.set_agent_session_id(&tab, Some("session-1".into()));
+        assert_eq!(
+            svc.mux_emit_stats.requests.load(Ordering::Relaxed),
+            after_bind,
+            "an unchanged binding must not broadcast"
+        );
     }
 }
