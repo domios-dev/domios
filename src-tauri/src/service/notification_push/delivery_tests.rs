@@ -194,3 +194,144 @@ async fn push_delivery_reaches_the_send_endpoint_end_to_end() {
         "the agent's own words reached the far end"
     );
 }
+
+/// The tab a named lane sends from, and the body it staged in its pad. The
+/// title is what the push has to open with; the id is what it may never carry.
+const PROBE_TAB_ID: &str = "tab_9a41be07";
+const PROBE_TAB_TITLE: &str = "release lane";
+const PROBE_BODY_CHARS: usize = 1500;
+const PROBE_HEAD: &str = "BODY-HEAD";
+const PROBE_TAIL: &str = "BODY-TAIL";
+
+/// Exactly 1500 characters, with distinct ends so a cut anywhere between them
+/// is visible rather than inferred from a count alone. No whitespace inside the
+/// filler: tidying then cannot change the length the fixture claims.
+fn probe_body() -> String {
+    let filler_len = PROBE_BODY_CHARS - PROBE_HEAD.len() - PROBE_TAIL.len() - 2;
+    let filler: String = (0..filler_len)
+        .map(|i| char::from(b'a' + (i % 26) as u8))
+        .collect();
+    format!("{PROBE_HEAD} {filler} {PROBE_TAIL}")
+}
+
+fn probe_registry(candidate: &str) -> Option<NotificationProvenance> {
+    (candidate == PROBE_TAB_ID).then(|| NotificationProvenance {
+        tab_id: Some(PROBE_TAB_ID.to_string()),
+        tab_title: Some(PROBE_TAB_TITLE.to_string()),
+        workspace_id: Some("ws_release".to_string()),
+        peer_name: None,
+    })
+}
+
+/// The contract a real send has to keep: the message Telegram receives opens
+/// with the tab that sent it and carries every character of a 1500-character
+/// body, unmarked by any truncation note, inside Telegram's own 4096 ceiling.
+#[tokio::test]
+async fn telegram_notification_render_preserves_body_and_tab_name() {
+    let body = probe_body();
+    assert_eq!(
+        body.chars().count(),
+        PROBE_BODY_CHARS,
+        "the fixture is the size of the body that arrived cut"
+    );
+
+    let captured: Arc<PLMutex<Vec<(String, serde_json::Value)>>> =
+        Arc::new(PLMutex::new(Vec::new()));
+    let api_base = spawn_api_stand_in(captured.clone()).await;
+
+    let cfg = opted_in_config();
+    let (outbound, mut inbox) = create_outbound_channel();
+    let host = BridgeBackedHost { outbound };
+
+    let plan = plan_push(
+        &cfg,
+        &channels::roster(),
+        &host,
+        PushIntent {
+            level: Some(NotifyLevel::Verbose),
+            event_key: Some("telegram-body-probe".to_string()),
+        },
+    );
+    assert_eq!(plan.targets.len(), 1);
+    assert_eq!(plan.targets[0].service, "telegram");
+
+    let store = Arc::new(PLMutex::new(NotificationStore::new(10)));
+    let targets = plan.targets;
+    let refusals = plan.refusals;
+    create_notification_with_delivery(
+        NotificationAdmission::Explicit,
+        &store,
+        |_, _| {},
+        "telegram-body-probe".to_string(),
+        Some(body.clone()),
+        Some("info"),
+        crate::notification::store::Ask::default(),
+        None,
+        NotificationOrigin::local_tab(PROBE_TAB_ID.to_string()),
+        probe_registry,
+        PushDispatch {
+            intent: plan.intent,
+            per_scope_limit: plan.per_scope_limit,
+            deliver: |envelope: PushEnvelope| deliver_plan(&targets, &refusals, &host, &envelope),
+        },
+        SurfaceDispatch::silent(),
+        |_| {},
+    );
+
+    let queued = inbox.recv().await.expect("the outbound queue carried it");
+    let OutboundContent::Text { text } = queued.content else {
+        panic!("a push is text");
+    };
+
+    let telegram = TelegramService::with_base(
+        "test-token".to_string(),
+        api_base,
+        crate::bridge_host::attachment_store(),
+    );
+    telegram
+        .send_message(CHAT_ID, &text)
+        .await
+        .expect("the send completes");
+
+    let seen = captured.lock().clone();
+    assert_eq!(
+        seen.len(),
+        1,
+        "the whole message fits one send; it is not split to fit"
+    );
+    let sent = seen[0].1["text"]
+        .as_str()
+        .expect("a text send carries text")
+        .to_string();
+
+    assert!(
+        sent.starts_with(PROBE_TAB_TITLE),
+        "the delivered message opens with the tab that sent it, got: {}",
+        sent.chars().take(80).collect::<String>()
+    );
+    assert!(
+        sent.contains(&body),
+        "the 1500-character body arrives whole, {PROBE_HEAD} through {PROBE_TAIL}"
+    );
+    assert!(
+        !sent.contains(push::OVERFLOW_NOTE) && !sent.contains('…'),
+        "nothing on this path marks the message as cut, because nothing cut it"
+    );
+    assert!(
+        !sent.contains(PROBE_TAB_ID) && !sent.contains("ws_release"),
+        "naming the tab is its title, never its id or its workspace"
+    );
+    assert!(
+        sent.chars().count() <= telegram::CHANNEL.bounds().total,
+        "and the whole thing stays inside Telegram's own ceiling"
+    );
+    assert_eq!(
+        telegram::CHANNEL.bounds().total,
+        4096,
+        "which is Telegram's number, not one core picked"
+    );
+    assert!(
+        telegram::CHANNEL.bounds().body >= PROBE_BODY_CHARS,
+        "the body budget has room for this body without cutting it"
+    );
+}
