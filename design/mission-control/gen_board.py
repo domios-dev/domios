@@ -4,8 +4,9 @@ SC = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.dirname(os.path.abspath(__file__))
 D = json.load(open(os.path.join(SC, "timeline.json"), encoding="utf-8"))
 now, approved = D["now"], D["approved"]
-rows = [r for r in D["rows"]]
-span = now - approved
+rows = [r for r in D["rows"] if any(a.get("assigned") for a in r["attempts"])]
+origin = min(r["created"] for r in D["rows"] if any(a.get("assigned") for a in r["attempts"]))
+span = now - origin
 
 def hm(ts): return time.strftime("%H:%M", time.localtime(ts / 1000))
 def dur(m):
@@ -15,23 +16,28 @@ def dur(m):
 # aggregates
 work = sum((a["reported"] - a["assigned"]) for r in rows for a in r["attempts"] if a.get("reported") and a.get("assigned")) / 60000
 wait = sum(((a["closed"] or now) - a["reported"]) for r in rows for a in r["attempts"] if a.get("reported")) / 60000
-pickup = sum((r["attempts"][0]["assigned"] - max(r["created"], approved)) for r in rows if r["attempts"] and r["attempts"][0].get("assigned")) / 60000
+wait_open = sum((now - a["reported"]) for r in rows for a in r["attempts"] if a.get("reported") and not a.get("closed")) / 60000
+wait_closed = wait - wait_open
+pickup = sum((r["attempts"][0]["assigned"] - r["created"]) for r in rows if r["attempts"] and r["attempts"][0].get("assigned")) / 60000
 FLOOR = 120 * 60000
 
 def strip(width, label_w, phone=False):
     rh = 20 if phone else 24
     bar = 6 if phone else 8
     scale = width / span
-    x = lambda t: max(0, min(width, (t - approved) * scale))
+    x = lambda t: max(0, min(width, (t - origin) * scale))
     out = []
     for r in rows:
         name = r["name"]
         who = (r["attempts"][0].get("who") if r["attempts"] else None) or ""
         done = r["status"] in ("done", "cancelled")
-        ncol = "#484f58" if done else "#c9d1d9"
-        maxc = 18 if phone else 34
+        ncol = "#484f58" if done else "#828a92"
+        maxc = 16 if phone else 30
         short = name if len(name) <= maxc else name[:maxc - 1].rstrip() + "…"
         segs = []
+        if r["attempts"] and r["attempts"][0].get("assigned"):
+            x0, x1 = x(r["created"]), x(r["attempts"][0]["assigned"])
+            segs.append(f'<div title="waiting to be picked up {dur((r["attempts"][0]["assigned"]-r["created"])/60000)}" style="position: absolute; left: {x0:.1f}px; width: {max(2, x1-x0-2):.1f}px; top: {(rh-bar)//2}px; height: {bar}px; border-radius: 1px; background: #232930;"></div>')
         for a in r["attempts"]:
             if a.get("assigned") and a.get("reported"):
                 x0, x1 = x(a["assigned"]), x(a["reported"])
@@ -40,32 +46,39 @@ def strip(width, label_w, phone=False):
                     end = a["closed"] or now
                     x2, x3 = x(a["reported"]), x(end)
                     over = (not a.get("closed")) and (end - a["reported"] > FLOOR)
-                    color = "#d29922" if over else ("rgba(210,153,34,0.62)" if not a.get("closed") else "rgba(210,153,34,0.32)")
-                    segs.append(f'<div title="waiting for a verdict {dur((end-a["reported"])/60000)}" style="position: absolute; left: {x2+1:.1f}px; width: {max(1, x3-x2-1):.1f}px; top: {(rh-bar)//2}px; height: {bar}px; border-radius: 1px; background: {color};"></div>')
+                    color = "#d29922" if over else ("#828a92" if not a.get("closed") else "rgba(72,79,88,0.55)")
+                    segs.append(f'<div title="waiting for a verdict {dur((end-a["reported"])/60000)}" style="position: absolute; left: {x2+1:.1f}px; width: {max(2, x3-x2-1):.1f}px; top: {(rh-bar)//2}px; height: {bar}px; border-radius: 1px; background: {color};"></div>')
             elif a.get("assigned"):
                 x0 = x(a["assigned"])
                 segs.append(f'<div title="{html.escape(who)} working {dur((now-a["assigned"])/60000)}, no report yet" style="position: absolute; left: {x0:.1f}px; width: {max(2, width-x0):.1f}px; top: {(rh-bar)//2}px; height: {bar}px; border-radius: 1px; background: #58a6ff;"></div>')
         for h in r["holds"]:
             segs.append(f'<div title="held {hm(h)}" style="position: absolute; left: {x(h)-1:.1f}px; width: 2px; top: {(rh-bar)//2 - 4}px; height: {bar+8}px; background: #d29922;"></div>')
-        for rp in r["reports"]:
-            segs.append(f'<div style="position: absolute; left: {x(rp):.1f}px; width: 1px; top: {(rh-bar)//2 + bar + 2}px; height: 4px; background: #828a92;"></div>')
+        clusters = []
+        for rp in sorted(r["reports"]):
+            if clusters and x(rp) - clusters[-1][0] < 6: clusters[-1][1] += 1
+            else: clusters.append([x(rp), 1])
+        for cx, n in clusters:
+            segs.append(f'<div title="{n} report{"s" if n > 1 else ""}" style="position: absolute; left: {cx:.1f}px; width: 1px; top: {(rh-bar)//2 + bar + 2}px; height: 4px; background: #828a92;"></div>')
+            if n > 1:
+                segs.append(f'<span style="position: absolute; left: {cx+3:.1f}px; top: {(rh-bar)//2 + bar - 1}px; font-family: JetBrains Mono, Consolas, monospace; font-size: .6875rem; line-height: 1; color: #828a92;">{n}</span>')
         whotxt = f' <span style="color: #484f58;">{html.escape(who)}</span>' if who and not phone else ""
         out.append(
             f'<div style="display: grid; grid-template-columns: {label_w}px minmax(0, 1fr); gap: 8px; align-items: center; height: {rh}px;">'
-            f'<span style="font-size: {".6875rem" if phone else "0.8125rem"}; color: {ncol}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{html.escape(short)}{whotxt}</span>'
+            f'<span style="font-size: .6875rem; color: {ncol}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{html.escape(short)}{whotxt}</span>'
             f'<div style="position: relative; height: {rh}px; min-width: 0;">{"".join(segs)}</div></div>')
     # axis
     ticks = []
-    t0 = approved
+    t0 = origin
     first = (int(t0 / 3600000) + 1) * 3600000
     t = first
     while t < now:
         if (not phone) or (int(t / 3600000) % 2 == 0):
             ticks.append(f'<span style="position: absolute; left: {x(t):.1f}px; transform: translateX(-50%); font-family: JetBrains Mono, Consolas, monospace; font-size: .6875rem; color: #484f58;">{hm(t)}</span>')
         t += 3600000
+    appr = f'<span style="position: absolute; left: {x(approved):.1f}px; top: -1px; width: 1px; height: 5px; background: #484f58;"></span><span style="position: absolute; left: {x(approved)+4:.1f}px; font-size: .6875rem; color: #484f58;">approved</span>'
     axis = (f'<div style="display: grid; grid-template-columns: {label_w}px minmax(0, 1fr); gap: 8px; align-items: start; height: 18px;">'
-            f'<span style="font-size: .6875rem; color: #484f58;">{"" if phone else "approved " + hm(approved)}</span>'
-            f'<div style="position: relative; height: 18px; border-top: 1px solid #232930;">{"".join(ticks)}'
+            f'<span style="font-size: .6875rem; color: #484f58;">{"" if phone else "from " + hm(origin)}</span>'
+            f'<div style="position: relative; height: 18px; border-top: 1px solid #232930;">{"" if phone else appr}{"".join(ticks)}'
             f'<span style="position: absolute; right: 0; transform: translateX(0); font-family: JetBrains Mono, Consolas, monospace; font-size: .6875rem; color: #c9d1d9;">now {hm(now)}</span></div></div>')
     nowline = f'<div style="position: absolute; right: 0; top: 0; bottom: 18px; width: 1px; background: rgba(201,209,217,0.35); animation: ct-now-breathe 2.6s cubic-bezier(.42,0,.58,1) infinite;"></div>'
     return (f'<div style="position: relative; display: flex; flex-direction: column; gap: 0;">'
@@ -74,12 +87,12 @@ def strip(width, label_w, phone=False):
 
 def split_bar(width):
     tot = work + wait + pickup
-    parts = [("working", work, "#58a6ff"), ("waiting for a verdict", wait, "#d29922"), ("waiting to be picked up", pickup, "#484f58")]
+    parts = [("waiting to be picked up", pickup, "#232930"), ("working", work, "#58a6ff"), ("waiting for a verdict, elapsed", wait_closed, "#484f58"), ("waiting for a verdict, still running", wait_open, "#828a92")]
     cells = "".join(f'<div title="{n} {dur(v)}" style="width: {max(2, v/tot*width-2):.1f}px; height: 8px; border-radius: 1px; background: {c};"></div>' for n, v, c in parts)
-    legend = " · ".join(f'<b style="color: #c9d1d9; font-weight: 500;">{dur(v)}</b> {n}' for n, v, c in parts)
     return (f'<div style="display: flex; flex-direction: column; gap: 6px;">'
+            f'<div class="fig"><span class="figure">{dur(tot)}</span><span class="unit">of task time today, summed over tasks; up to four agents ran at once, so this is not the clock</span></div>'
             f'<div style="display: flex; gap: 2px; align-items: center;">{cells}</div>'
-            f'<p class="q" style="margin: 0;">{legend}, summed over the plan\'s tasks</p></div>')
+            f'<p class="q" style="margin: 0;"><b>{dur(pickup)}</b> waiting to be picked up · <b>{dur(work)}</b> working · <b>{dur(wait)}</b> waiting for a verdict, of which <b>{dur(wait_open)}</b> is a clock still running on two open reviews</p></div>')
 
 STYLE = """
 .kpi { display: flex; flex-direction: column; gap: 6px; padding: 12px; min-width: 0; }
@@ -170,11 +183,11 @@ def day_card(width, label_w, phone=False, watcher=False):
         ms = "".join(f'<span style="position: absolute; left: {max(0,(day0 + m*60000 - approved)*scale):.1f}px; transform: translateX(-50%); font-size: .6875rem; color: #c9d1d9; white-space: nowrap;">{t} {who}</span>' for t, who, m in pts)
         marks = (f'<div style="display: grid; grid-template-columns: {label_w}px minmax(0, 1fr); gap: 8px; height: 18px;"><span class="q" style="font-size: .6875rem;">the watcher wrote</span>'
                  f'<div style="position: relative; height: 18px;">{ms}</div></div>')
-    cap = ("Today, by task: blue while a worker held it, amber while it waited for a verdict, a tick for each report filed. Names fade when the task is done."
-           if not phone else "Blue: a worker held it. Amber: waiting for a verdict. Ticks: reports.")
+    cap = ("Today, by task: blue while a worker held it, grey while it waited for a verdict, amber only where that wait is still open past the two-hour floor. A tick for each report, a taller one for each hold; a numeral where reports fell too close to draw apart."
+           if not phone else "Blue: a worker held it. Grey: waiting for a verdict. Amber: still waiting past the floor. Ticks: reports.")
     return (f'<div class="ct-panel-card kpi" style="gap: 10px;">'
-            f'<p class="q">{cap}</p>{marks}{strip(width, label_w, phone)}'
-            f'<div style="padding-top: 10px; border-top: 1px solid color-mix(in srgb, #232930 65%, transparent);">{split_bar(width + label_w + 8)}</div></div>')
+            f'{split_bar(width + label_w + 8)}'
+            f'<div style="padding-top: 10px; border-top: 1px solid color-mix(in srgb, #232930 65%, transparent);"><p class="q">{cap}</p></div>{marks}{strip(width, label_w, phone)}</div>')
 
 def log_card():
     return ('<div class="ct-panel-card kpi" style="gap: 8px;">'
@@ -199,4 +212,4 @@ def page(width, phone=False, watcher=False):
 for name, w, ph, wa in (("Main", 960, False, False), ("Watcher", 960, False, True), ("Phone", 390, True, False)):
     open(os.path.join(OUT, name + ".src"), "w", encoding="utf-8").write(page(w, ph, wa))
     print(name, "written")
-print("minutes: work %.0f wait %.0f pickup %.0f" % (work, wait, pickup))
+print("minutes: work %.0f wait %.0f (open %.0f) pickup %.0f; origin %s" % (work, wait, wait_open, pickup, hm(origin)))
