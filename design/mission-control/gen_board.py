@@ -125,7 +125,7 @@ def header(watcher=False, phone=False):
     meta = "Planck · Pasteur planning · 3 agents live" + (" · a watcher on haiku" if watcher else "")
     right = "" if phone else f'<span class="ct-meta-muted" style="white-space: nowrap;">{meta}</span>'
     line = ('<p class="ct-meta" style="margin: 0;"><span style="color: #c9d1d9">Two verdicts and one task, then done.</span> '
-            + ("" if phone else 'Last activity a minute ago: Planck accepted <span style="color: #c9d1d9">Give Spec and Plan their own pages</span>. ')
+            + ("" if phone else 'Last activity 21:43: Planck accepted <span style="color: #c9d1d9">Design the team view as mission control</span>. ')
             + 'Eight finished lanes not cleaned.' + ("" if phone else ' <button class="door" style="display: inline;">Plan</button>') + '</p>')
     return (f'<div style="display: flex; flex-direction: column; gap: 6px; padding: 4px 2px 0;">'
             f'<div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;"><span class="plan-title">CodeTerm 1.10.17 — land the fix wave and triage the issue backlog</span>{right}</div>'
