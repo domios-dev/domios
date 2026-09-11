@@ -64,5 +64,13 @@ export function sessionBindingSurfaceFromFact(
     case "healthy":
     case "stale_pending":
       return silentSessionBindingSurface;
+    default:
+      return unmappedSessionBindingSurface(fact.kind);
   }
+}
+
+// The daemon kind arrives as untyped JSON, so a build that does not know it must
+// degrade to silence; returning undefined here crashes the render that reads it.
+function unmappedSessionBindingSurface(_kind: never): SessionBindingSurfaceState {
+  return silentSessionBindingSurface;
 }
