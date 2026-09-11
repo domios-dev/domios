@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 use tokio::process::Command;
+use tokio::sync::watch;
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -27,6 +28,10 @@ fn no_window_tokio(cmd: &mut Command) {
 fn no_window_tokio(_cmd: &mut Command) {}
 
 const WORKER_TIMEOUT: Duration = Duration::from_secs(300);
+/// Narrow no-sleep exception: ETXTBSY is kernel-error recovery, not readiness
+/// polling. 10 spawn attempts, 9 backoffs of 20 ms between them (180 ms).
+const SPAWN_BUSY_ATTEMPTS: usize = 10;
+const SPAWN_BUSY_BACKOFF: Duration = Duration::from_millis(20);
 const FAILURE_WINDOW: Duration = Duration::from_secs(60);
 const FAILURE_THRESHOLD: usize = 3;
 
@@ -80,6 +85,7 @@ pub struct Supervisor {
     state: Mutex<HashMap<WorkerKind, KindState>>,
     cli_path: PathBuf,
     db_path: PathBuf,
+    spawn_busy_retries: watch::Sender<u64>,
 }
 
 impl Supervisor {
@@ -88,7 +94,14 @@ impl Supervisor {
             state: Mutex::new(HashMap::new()),
             cli_path,
             db_path,
+            spawn_busy_retries: watch::channel(0).0,
         }
+    }
+
+    /// Observable count of ETXTBSY spawn refusals, so a caller can wait on the
+    /// refusal itself instead of guessing when the writer's descriptor closes.
+    pub fn spawn_busy_retries(&self) -> watch::Receiver<u64> {
+        self.spawn_busy_retries.subscribe()
     }
 
     /// Resolve the CLI binary path used to spawn maintenance workers.
@@ -175,26 +188,37 @@ impl Supervisor {
     }
 
     async fn spawn_and_wait(&self, kind: WorkerKind) -> Result<serde_json::Value, String> {
-        let mut cmd = Command::new(&self.cli_path);
-        cmd.args([
-            MEM_PARENT_SUBCMD,
-            RUN_WORKER_SUBCMD,
-            kind.as_arg(),
-            DB_PATH_FLAG,
-            &self.db_path.to_string_lossy(),
-        ]);
-        cmd.kill_on_drop(true);
-        no_window_tokio(&mut cmd);
+        let mut attempts = 1usize;
+        let output = loop {
+            let mut cmd = Command::new(&self.cli_path);
+            cmd.args([
+                MEM_PARENT_SUBCMD,
+                RUN_WORKER_SUBCMD,
+                kind.as_arg(),
+                DB_PATH_FLAG,
+                &self.db_path.to_string_lossy(),
+            ]);
+            cmd.kill_on_drop(true);
+            no_window_tokio(&mut cmd);
 
-        let output = match tokio::time::timeout(WORKER_TIMEOUT, cmd.output()).await {
-            Ok(Ok(out)) => out,
-            Ok(Err(e)) => return Err(format!("spawn {}: {}", self.cli_path.display(), e)),
-            Err(_) => {
-                return Err(format!(
-                    "timeout after {}s (cli={})",
-                    WORKER_TIMEOUT.as_secs(),
-                    self.cli_path.display(),
-                ))
+            match tokio::time::timeout(WORKER_TIMEOUT, cmd.output()).await {
+                Ok(Ok(out)) => break out,
+                Ok(Err(e))
+                    if e.kind() == std::io::ErrorKind::ExecutableFileBusy
+                        && attempts < SPAWN_BUSY_ATTEMPTS =>
+                {
+                    attempts += 1;
+                    self.spawn_busy_retries.send_modify(|n| *n += 1);
+                    tokio::time::sleep(SPAWN_BUSY_BACKOFF).await;
+                }
+                Ok(Err(e)) => return Err(format!("spawn {}: {}", self.cli_path.display(), e)),
+                Err(_) => {
+                    return Err(format!(
+                        "timeout after {}s (cli={})",
+                        WORKER_TIMEOUT.as_secs(),
+                        self.cli_path.display(),
+                    ))
+                }
             }
         };
 
@@ -345,6 +369,60 @@ mod tests {
         let report = sup.run(WorkerKind::DreamingLight).await.unwrap();
         assert_eq!(report.get("phase").and_then(|v| v.as_str()), Some("light"));
         assert_eq!(report.get("promoted").and_then(|v| v.as_u64()), Some(1));
+    }
+
+    /// The write descriptor is released only after the supervisor has been
+    /// observed refused, so the pass proves retry, never a lucky elapsed wait.
+    // macOS does not refuse a shebang script's exec while a write descriptor is
+    // open, so the fixture cannot arm there; Linux is where the race is real.
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn spawn_retries_after_deterministic_etxtbsy_fixture() {
+        let dir = tempfile::tempdir().unwrap();
+        let cli = fake_cli(
+            &dir,
+            r#"{"ok":true,"report":{"phase":"light","considered":3,"promoted":1,"dropped":0}}"#,
+            0,
+        );
+
+        let holder = std::fs::OpenOptions::new().write(true).open(&cli).unwrap();
+        let refused = std::process::Command::new(&cli)
+            .output()
+            .expect_err("fixture is only armed when the kernel refuses this exec");
+        assert_eq!(
+            refused.kind(),
+            std::io::ErrorKind::ExecutableFileBusy,
+            "fixture did not arm ETXTBSY: {refused}"
+        );
+
+        let sup = Arc::new(make_supervisor(cli));
+        let mut refusals = sup.spawn_busy_retries();
+        let runner = {
+            let sup = Arc::clone(&sup);
+            tokio::spawn(async move { sup.run(WorkerKind::DreamingLight).await })
+        };
+
+        // Bounded failure deadline around the event wait, never a readiness wait.
+        tokio::time::timeout(Duration::from_secs(5), refusals.changed())
+            .await
+            .expect("supervisor never reported an ETXTBSY refusal")
+            .expect("supervisor dropped the refusal channel");
+        drop(holder);
+
+        let outcome = runner.await.unwrap();
+        let report = outcome.expect("spawn succeeds once the writer releases");
+        assert_eq!(report.get("phase").and_then(|v| v.as_str()), Some("light"));
+        assert_eq!(report.get("promoted").and_then(|v| v.as_u64()), Some(1));
+        assert!(*refusals.borrow() >= 1);
+    }
+
+    #[tokio::test]
+    async fn spawn_does_not_retry_non_busy_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let sup = make_supervisor(dir.path().join("absent-cli"));
+        let err = sup.run(WorkerKind::DreamingLight).await.unwrap_err();
+        assert!(err.starts_with("spawn "), "got: {err}");
+        assert_eq!(*sup.spawn_busy_retries().borrow(), 0);
     }
 
     #[tokio::test]
