@@ -343,14 +343,8 @@ body {
   box-shadow: 0 8px 16px rgba(0, 0, 0, 0.35), 0 24px 64px rgba(0, 0, 0, 0.3);
 }
 .mc-menu-left { right: auto; left: 0; }
+.mc-menu-narrow { width: auto; min-width: 172px; }
 .mc-menu-static { position: static; width: 268px; }
-.mc-menu-context {
-  display: block; padding: var(--s2) 9px var(--s2);
-  margin-bottom: var(--s1); border-bottom: 1px solid var(--ct-border-subtle);
-  font-size: var(--t-mono); line-height: 1.5; color: var(--ct-muted-fg);
-}
-.mc-menu-context b { display: block; font-family: var(--ct-font-mono); color: var(--ct-fg); font-weight: 500; }
-.mc-menu-group { display: block; padding: var(--s2) 9px 3px; font-size: var(--t-micro); font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--ct-muted-fg); }
 
 .mc-menu-item {
   display: flex; align-items: baseline; justify-content: space-between; gap: var(--s4);
@@ -361,10 +355,6 @@ body {
 .mc-menu-item:hover { background: var(--ct-bg-hover); }
 .mc-menu-item kbd { font-family: var(--ct-font-mono); font-size: var(--t-micro); color: var(--ct-muted-fg); flex: none; }
 .mc-menu-sep { display: block; height: 1px; margin: var(--s1) var(--s2); background: var(--ct-border-subtle); }
-
-/* A verb with real consequences is not a status tweak; it carries a mark. */
-.mc-menu-heavy { position: relative; padding-left: var(--s5); }
-.mc-menu-heavy::before { content: ""; position: absolute; left: 9px; top: 50%; transform: translateY(-50%); width: 3px; height: 13px; border-radius: 2px; background: var(--ct-accent); }
 
 .mc-menu-danger { color: var(--ct-red); }
 .mc-menu-danger:hover { background: color-mix(in srgb, var(--ct-red) 14%, var(--ct-bg)); }
@@ -436,21 +426,7 @@ body {
 .mc-card-top { display: flex; align-items: flex-start; gap: var(--s2); }
 .mc-card-name { flex: 1; min-width: 0; margin: 0; font-size: var(--t-small); font-weight: 600; line-height: 1.4; }
 .mc-card-meta { display: flex; align-items: center; gap: var(--s2); margin-top: var(--s2); font-family: var(--ct-font-mono); font-size: var(--t-micro); color: var(--ct-muted-fg); }
-.mc-card-drag { border-color: color-mix(in srgb, var(--ct-accent) 60%, var(--ct-border)); box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4); transform: rotate(-1.2deg); }
 
-.mc-col-body[data-drop="reject"] {
-  outline: 1px dashed color-mix(in srgb, var(--ct-red) 60%, transparent);
-  outline-offset: 3px;
-  background: color-mix(in srgb, var(--ct-red) 7%, transparent);
-}
-.mc-col-body[data-drop="accept"] {
-  outline: 1px dashed color-mix(in srgb, var(--ct-accent) 60%, transparent);
-  outline-offset: 3px;
-  background: color-mix(in srgb, var(--ct-accent) 7%, transparent);
-}
-.mc-drop-note { padding: var(--s3); font-size: 11.5px; line-height: 1.5; color: var(--ct-muted-fg); }
-.mc-drop-note b { display: block; margin-bottom: var(--s1); color: var(--ct-red); font-size: var(--t-small); }
-.mc-drop-note-ok b { color: var(--ct-accent); }
 
 /* Expanded task detail */
 .mc-detail { border: 1px solid var(--ct-border); border-radius: var(--ct-radius-lg); background: color-mix(in srgb, var(--ct-bg) 94%, var(--ct-surface)); overflow: visible; }
@@ -827,16 +803,16 @@ button:focus-visible, a:focus-visible, summary:focus-visible {
   </div>
 </section>
 
-<!-- ════════ PART 2 — THE TASKS KANBAN MENU ════════════════════════════ -->
+<!-- ════════ PART 2 — THE TASKS CARD MENU ══════════════════════════════ -->
 <div style="width:100%">
   <div class="mc-part">
     <h2>Part 2 · The Tasks card menu</h2>
-    <p>A column here is a lifecycle state, not a label, and the daemon refuses illegal writes. Every verb below is a real CLI verb, and every disabled item carries the real reason the daemon would give. The interesting part is how the offered set changes between states.</p>
+    <p>One verb. A card carries a discreet overflow and behind it is Remove, which confirms and says what goes. The lifecycle belongs to the Orchestrator, so the card does not teach it: no drag between columns, no move verbs, no menu that changes shape with the card's state.</p>
   </div>
 </div>
 
 <section>
-  <div class="mc-board-label"><b>B1</b>Tasks · the kanban, one card mid-drag<i>1240 wide</i></div>
+  <div class="mc-board-label"><b>B1</b>Tasks · the board, with one card's overflow open<i>1240 wide</i></div>
   <div class="mc-board mc-desktop">
     <div class="mc-chrome">
       <div class="mc-seg" role="tablist" aria-label="Team view">
@@ -849,8 +825,16 @@ button:focus-visible, a:focus-visible, summary:focus-visible {
         <div class="mc-col">
           <div class="mc-col-head"><span class="mc-col-name">Pending</span><span class="mc-col-count">2</span></div>
           <div class="mc-col-body">
-            <article class="mc-card mc-card-drag" data-status="pending">
-              <div class="mc-card-top"><h4 class="mc-card-name">Publish both design takes as a canvas</h4></div>
+            <article class="mc-card" data-status="pending" style="overflow:visible">
+              <div class="mc-card-top">
+                <h4 class="mc-card-name">Publish both design takes as a canvas</h4>
+                <div class="mc-menu-anchor">
+                  <button type="button" class="mc-kebab mc-kebab-shown" aria-label="Task actions" aria-expanded="true">⋯</button>
+                  <div class="mc-menu mc-menu-narrow" role="menu">
+                    <button type="button" class="mc-menu-item mc-menu-danger" role="menuitem">Remove the task</button>
+                  </div>
+                </div>
+              </div>
               <div class="mc-card-meta"><span>p1 · implement</span><span>5h 20m</span></div>
             </article>
             <article class="mc-card" data-status="pending">
@@ -862,15 +846,15 @@ button:focus-visible, a:focus-visible, summary:focus-visible {
 
         <div class="mc-col">
           <div class="mc-col-head"><span class="mc-col-name">In progress</span><span class="mc-col-count">2</span></div>
-          <div class="mc-col-body" data-drop="reject">
-            <div class="mc-drop-note">
-              <b>This card cannot enter In progress.</b>
-              A task only runs once an agent holds it, so the move is refused. Dispatch a worker or assign a tab, and the card lands here on its own.
-              <div class="mc-btn-row" style="margin-top:var(--s3)">
-                <button type="button" class="mc-btn">Dispatch a worker</button>
-                <button type="button" class="mc-btn mc-btn-quiet">Assign a tab</button>
-              </div>
-            </div>
+          <div class="mc-col-body">
+            <article class="mc-card" data-status="in_progress">
+              <div class="mc-card-top"><h4 class="mc-card-name">Design the team view as mission control, second take</h4><button type="button" class="mc-kebab" aria-label="Task actions" aria-expanded="false">⋯</button></div>
+              <div class="mc-card-meta"><span>@design-mc2</span><span>1h 04m</span></div>
+            </article>
+            <article class="mc-card" data-status="in_progress">
+              <div class="mc-card-top"><h4 class="mc-card-name">Design the team view as mission control, first take</h4><button type="button" class="mc-kebab" aria-label="Task actions" aria-expanded="false">⋯</button></div>
+              <div class="mc-card-meta"><span>@design-mc1</span><span class="mc-flagpill">needs you</span></div>
+            </article>
           </div>
         </div>
 
@@ -895,125 +879,22 @@ button:focus-visible, a:focus-visible, summary:focus-visible {
           </div>
         </div>
       </div>
-      <p class="mc-empty-note" style="margin-top:var(--s5);max-width:76ch">Drag is supported for the moves that are legal. A column that cannot accept the card says so while the card is still in the air and offers the two verbs that would actually get it there, so the gesture ends in an action rather than a snap-back.</p>
+
+      <p class="mc-empty-note" style="margin-top:var(--s5);max-width:80ch">The overflow is invisible until the card is hovered or focused, and it holds one item in every column. A card's state changes what the card says, never what its menu offers — so there is nothing to learn and nothing to misread. Cards do not move by hand; the Orchestrator moves them as work actually progresses.</p>
     </div>
   </div>
 </section>
 
 <section>
-  <div class="mc-board-label"><b>B2</b>The card menu across five states<i>the contrast is the design</i></div>
+  <div class="mc-board-label"><b>B2</b>Remove · one verb, two weights of consequence<i>and why close is not here</i></div>
   <div class="mc-board mc-mid">
     <div class="mc-page">
       <div class="mc-annot-menus">
 
         <div>
-          <div class="mc-case-head"><h3>1 · Pending, nobody on it</h3><p>Everything that starts work is here, and the one illegal move says why.</p></div>
-          <div class="mc-menu mc-menu-static" role="menu">
-            <button type="button" class="mc-menu-item" role="menuitem">Open the task<kbd>↵</kbd></button>
-            <span class="mc-menu-group">Start it</span>
-            <button type="button" class="mc-menu-item mc-menu-heavy" role="menuitem">Dispatch a worker…</button>
-            <span class="mc-why">Spawns an agent, provisions a lane and delivers the brief in one call.</span>
-            <button type="button" class="mc-menu-item mc-menu-heavy" role="menuitem">Assign to an open tab…</button>
-            <span class="mc-menu-group">Move it</span>
-            <button type="button" class="mc-menu-item" role="menuitem" aria-disabled="true">Move to In progress</button>
-            <span class="mc-why mc-why-strong">A task only runs once an agent holds it. Dispatch or assign first.</span>
-            <button type="button" class="mc-menu-item" role="menuitem">Mark blocked…</button>
-            <span class="mc-why">Asks for the reason; blocked without one is refused.</span>
-            <button type="button" class="mc-menu-item" role="menuitem">Pause…</button>
-            <button type="button" class="mc-menu-item" role="menuitem">Close it</button>
-            <span class="mc-menu-sep"></span>
-            <button type="button" class="mc-menu-item mc-menu-danger" role="menuitem">Remove the task</button>
-          </div>
-        </div>
-
-        <div>
-          <div class="mc-case-head"><h3>2 · In progress, a worker on it</h3><p>Starting verbs are gone. Every item now assumes someone is holding it.</p></div>
-          <div class="mc-menu mc-menu-static" role="menu">
-            <span class="mc-menu-context">held by <b>@design-mc2</b>claude · opus, working 41s</span>
-            <button type="button" class="mc-menu-item" role="menuitem">Open the task<kbd>↵</kbd></button>
-            <button type="button" class="mc-menu-item" role="menuitem">Go to @design-mc2’s tab</button>
-            <span class="mc-menu-group">Move it</span>
-            <button type="button" class="mc-menu-item" role="menuitem">Send it to review</button>
-            <button type="button" class="mc-menu-item" role="menuitem">Mark blocked…</button>
-            <button type="button" class="mc-menu-item" role="menuitem">Pause…</button>
-            <span class="mc-why">A pause holds the task without releasing the lane or the tab.</span>
-            <button type="button" class="mc-menu-item" role="menuitem">Close it</button>
-            <span class="mc-menu-group">Reassign</span>
-            <button type="button" class="mc-menu-item mc-menu-heavy" role="menuitem">Hand it to another agent…</button>
-            <span class="mc-menu-sep"></span>
-            <button type="button" class="mc-menu-item mc-menu-danger" role="menuitem">Remove the task</button>
-          </div>
-        </div>
-
-        <div>
-          <div class="mc-case-head"><h3>3 · In review</h3><p>The sharpest case. From review, a plain move is refused; only the three review verbs work, so only they are offered.</p></div>
-          <div class="mc-menu mc-menu-static" role="menu">
-            <span class="mc-menu-context">reported by <b>@design-docs</b>waiting on a verdict for 3h 12m</span>
-            <button type="button" class="mc-menu-item" role="menuitem">Open the task<kbd>↵</kbd></button>
-            <span class="mc-menu-group">Judge it</span>
-            <button type="button" class="mc-menu-item" role="menuitem">Accept<kbd>done</kbd></button>
-            <button type="button" class="mc-menu-item" role="menuitem">Bounce it back…<kbd>in progress</kbd></button>
-            <button type="button" class="mc-menu-item" role="menuitem">Hold it<kbd>keeps the lane</kbd></button>
-            <span class="mc-menu-group">Move it</span>
-            <button type="button" class="mc-menu-item" role="menuitem" aria-disabled="true">Move to any column</button>
-            <span class="mc-why mc-why-strong">Review is a one-way door. Use Accept, Bounce or Hold above.</span>
-            <button type="button" class="mc-menu-item" role="menuitem" aria-disabled="true">Pause</button>
-            <span class="mc-why mc-why-strong">Pausing from review is refused; Hold is the review version of it.</span>
-            <span class="mc-menu-sep"></span>
-            <button type="button" class="mc-menu-item mc-menu-danger" role="menuitem">Remove the task</button>
-          </div>
-        </div>
-
-        <div>
-          <div class="mc-case-head"><h3>4 · Paused</h3><p>The reason is the first thing in the menu, because it is the thing you came to check.</p></div>
-          <div class="mc-menu mc-menu-static" role="menu">
-            <span class="mc-menu-context">paused 2d ago<b>“waiting on the signing cert”</b></span>
-            <button type="button" class="mc-menu-item" role="menuitem">Open the task<kbd>↵</kbd></button>
-            <span class="mc-menu-group">Move it</span>
-            <button type="button" class="mc-menu-item" role="menuitem">Resume it</button>
-            <span class="mc-why">Returns it to pending, waiting on its dependencies again.</span>
-            <button type="button" class="mc-menu-item" role="menuitem" aria-disabled="true">Dispatch a worker</button>
-            <span class="mc-why mc-why-strong">A paused task cannot be started. Resume it first.</span>
-            <button type="button" class="mc-menu-item" role="menuitem">Close it</button>
-            <span class="mc-menu-sep"></span>
-            <button type="button" class="mc-menu-item mc-menu-danger" role="menuitem">Remove the task</button>
-          </div>
-        </div>
-
-        <div>
-          <div class="mc-case-head"><h3>5 · Done</h3><p>A finished task earns a short menu. Nothing here pretends the work can be rewound by a status write.</p></div>
-          <div class="mc-menu mc-menu-static" role="menu">
-            <span class="mc-menu-context">accepted 2h ago by <b>@rc-wave</b>after one bounce</span>
-            <button type="button" class="mc-menu-item" role="menuitem">Open the task<kbd>↵</kbd></button>
-            <button type="button" class="mc-menu-item" role="menuitem">Read the verdict</button>
-            <button type="button" class="mc-menu-item mc-menu-heavy" role="menuitem">Respawn from this attempt…</button>
-            <span class="mc-why">Starts a fresh worker from the attempt that produced it.</span>
-            <span class="mc-menu-sep"></span>
-            <button type="button" class="mc-menu-item mc-menu-danger" role="menuitem">Remove the task</button>
-          </div>
-        </div>
-
-        <div>
-          <div class="mc-case-head"><h3>Asking before acting, and the two weights of ending a task</h3><p>Pause needs a reason, so the menu asks inside itself rather than firing and prompting after.</p></div>
-          <div class="mc-menu mc-menu-static" role="menu" style="margin-bottom:var(--s5)">
-            <span class="mc-menu-ask">
-              <label for="mc-pause-reason">Pause “Integrate both design lanes” because…</label>
-              <span class="mc-fakefield" id="mc-pause-reason">waiting on the signing cert<i></i></span>
-            </span>
-            <div class="mc-btn-row" style="padding:0 9px var(--s2)">
-              <button type="button" class="mc-btn">Pause it</button>
-              <button type="button" class="mc-btn mc-btn-quiet">Cancel</button>
-            </div>
-          </div>
-
-          <div class="mc-confirm mc-confirm-static mc-confirm-light" role="dialog" aria-label="Close task" style="margin-bottom:var(--s4)">
-            <h4>Close “Write the release note”?</h4>
-            <p>Closing records it as finished and stops any work on it. The task, its milestones and its attempts all stay on the plan.</p>
-            <div class="mc-btn-row"><button type="button" class="mc-btn">Close it</button><button type="button" class="mc-btn mc-btn-quiet">Cancel</button></div>
-          </div>
-
+          <div class="mc-case-head"><h3>Removing a task nobody is on</h3><p>An inventory of what goes and what stays. Nothing is running, so nothing is interrupted.</p></div>
           <div class="mc-confirm mc-confirm-static mc-confirm-heavy" role="dialog" aria-label="Remove task">
-            <h4>Remove “Write the release note”?</h4>
+            <h4>Remove “Publish both design takes as a canvas”?</h4>
             <ul class="mc-ledger mc-loses">
               <li><b>−</b>The task and its 3 milestones are deleted.</li>
               <li><b>−</b>Its 2 execution attempts go with it.</li>
@@ -1026,41 +907,62 @@ button:focus-visible, a:focus-visible, summary:focus-visible {
           </div>
         </div>
 
-      </div>
-
-      <p class="mc-footnote" style="margin-top:var(--s7)">Keyboard: the kebab opens on <code>Enter</code> or <code>Space</code> and on <code>Shift+F10</code> from the focused card. Arrow keys walk the items and skip disabled ones; <code>Home</code> and <code>End</code> jump the ends; typing a letter jumps to the next item starting with it. <code>Esc</code> closes and returns focus to the kebab. A destructive item never takes focus first, and its confirm opens with focus on the cancel control, so a held <code>Enter</code> cannot destroy anything. Disabled items stay in the accessibility tree with <code>aria-disabled</code> so a screen reader hears the reason rather than silence.</p>
-    </div>
-  </div>
-</section>
-
-<section>
-  <div class="mc-board-label"><b>B3</b>The same menu from inside the expanded task<i>same verbs, same order, one surface</i></div>
-  <div class="mc-board" style="width: 720px;">
-    <div class="mc-page">
-      <div class="mc-detail">
-        <div class="mc-detail-head">
-          <h4>Give plan documents dedicated Spec and Plan views</h4>
-          <div class="mc-menu-anchor">
-            <button type="button" class="mc-kebab mc-kebab-head" aria-label="Task actions" aria-expanded="true">⋯</button>
-            <div class="mc-menu" role="menu">
-              <span class="mc-menu-context">reported by <b>@design-docs</b>waiting on a verdict for 3h 12m</span>
-              <span class="mc-menu-group">Judge it</span>
-              <button type="button" class="mc-menu-item" role="menuitem">Accept<kbd>done</kbd></button>
-              <button type="button" class="mc-menu-item" role="menuitem">Bounce it back…<kbd>in progress</kbd></button>
-              <button type="button" class="mc-menu-item" role="menuitem">Hold it<kbd>keeps the lane</kbd></button>
-              <span class="mc-menu-sep"></span>
-              <button type="button" class="mc-menu-item mc-menu-danger" role="menuitem">Remove the task</button>
+        <div>
+          <div class="mc-case-head"><h3>Removing a task a worker is holding</h3><p>The only thing that changes the confirm is live work, and it leads.</p></div>
+          <div class="mc-confirm mc-confirm-static mc-confirm-heavy" role="dialog" aria-label="Remove task">
+            <h4>Remove “Design the team view, second take”?</h4>
+            <span class="mc-alarm"><b>@design-mc2 is working on this right now</b>, in its own lane. It keeps running with nowhere to report, and its work is not merged.</span>
+            <ul class="mc-ledger mc-loses">
+              <li><b>−</b>The task, its 5 milestones and its attempt are deleted.</li>
+              <li><b>−</b>Its lane and branch are left on disk with nothing pointing at them.</li>
+            </ul>
+            <ul class="mc-ledger mc-keeps">
+              <li><b>+</b>The agent and its tab are untouched.</li>
+            </ul>
+            <p>Stopping the agent first is usually what you want.</p>
+            <div class="mc-btn-row">
+              <button type="button" class="mc-btn mc-btn-quiet">Keep it</button>
+              <button type="button" class="mc-btn mc-btn-danger">Remove anyway</button>
             </div>
           </div>
+          <p class="mc-empty-note" style="margin-top:var(--s4);max-width:44ch">When a worker is on it the buttons swap order and Keep reads first, because the safe choice should be the one under the thumb.</p>
         </div>
-        <div class="mc-detail-body">
-          <div class="mc-chips" style="margin-top:0">
-            <span class="mc-chip">in review</span><span class="mc-chip mc-flagpill" style="border-radius:999px">stalled 3h 12m</span><span class="mc-chip">p1 · implement</span>
+
+        <div>
+          <div class="mc-case-head"><h3>Close is a different thing, in a different place</h3><p>Closing records a normal outcome. It is a plain action inside the open task, not a red item in an overflow.</p></div>
+          <div class="mc-detail" style="max-width:460px">
+            <div class="mc-detail-head">
+              <h4>Write the release note for 1.10.17</h4>
+              <div class="mc-menu-anchor">
+                <button type="button" class="mc-kebab mc-kebab-head" aria-label="Task actions" aria-expanded="true">⋯</button>
+                <div class="mc-menu mc-menu-narrow" role="menu">
+                  <button type="button" class="mc-menu-item mc-menu-danger" role="menuitem">Remove the task</button>
+                </div>
+              </div>
+            </div>
+            <div class="mc-detail-body">
+              <div class="mc-chips" style="margin-top:0"><span class="mc-chip">pending</span><span class="mc-chip">p2 · docs</span></div>
+              <p style="margin:var(--s4) 0 var(--s5)">Write the user-facing note for the release, covering the plan document views and the lane-ancestry fix.</p>
+              <div class="mc-btn-row">
+                <button type="button" class="mc-btn mc-btn-quiet">Close it</button>
+                <span class="mc-empty-note">records it finished and keeps everything</span>
+              </div>
+            </div>
           </div>
-          <p style="margin:var(--s4) 0 0">Spec and Plan each get a readable document page with a section index, and the Board keeps only the columns. The report names the three files it touched and the one prop it removed.</p>
+          <p class="mc-empty-note" style="margin-top:var(--s4);max-width:44ch">Different place, different weight, different colour. Close is quiet and reversible in spirit; Remove is red and behind an overflow. Nobody reaches one while meaning the other.</p>
         </div>
+
+        <div>
+          <div class="mc-case-head"><h3>The menu, at every state</h3><p>Five cards, five states, one item. This is the whole design.</p></div>
+          <div class="mc-menu mc-menu-static mc-menu-narrow" role="menu" style="margin-bottom:var(--s4)">
+            <button type="button" class="mc-menu-item mc-menu-danger" role="menuitem">Remove the task</button>
+          </div>
+          <p class="mc-empty-note" style="max-width:44ch;line-height:1.7">One candidate was considered for a second item and cut: “Go to the agent's tab”. Clicking the card already opens the task, and the agent link belongs in the open task where there is room to name who and since when. A second item would turn a button into a list that has to be read.</p>
+        </div>
+
       </div>
-      <p class="mc-empty-note" style="margin-top:var(--s4)">The expanded task carries the identical menu: same items, same order, same disabled reasons. A verb that is unavailable on the card is unavailable here, for the same stated reason.</p>
+
+      <p class="mc-footnote" style="margin-top:var(--s7)">Keyboard: the overflow opens on <code>Enter</code>, <code>Space</code> or <code>Shift+F10</code> from the focused card, and <code>Esc</code> closes it and returns focus to the kebab. The confirm opens with focus on <em>Keep it</em>, never on the destructive button, so a held <code>Enter</code> cannot delete a task. The card itself stays a single activation target: clicking it opens the task, and the overflow does not steal that.</p>
     </div>
   </div>
 </section>
