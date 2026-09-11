@@ -114,7 +114,10 @@ impl AgentProvider for ClaudeProvider {
 
     fn verify_submit_strategy(&self) -> VerifySubmitStrategy {
         VerifySubmitStrategy::TuiInputDrained {
-            initial_key_delay: Duration::ZERO,
+            // The composer swallows a submit key glued to a paste it is still
+            // ingesting, which leaves the text sitting unsent. Codex carries the
+            // same guard in its manifest; Claude had none.
+            initial_key_delay: Duration::from_millis(100),
         }
     }
 
