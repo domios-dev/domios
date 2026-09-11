@@ -141,6 +141,18 @@ globalThis.__ct_invoke__ = function () {
     }
     return JSON.stringify(out === undefined ? null : out);
 };
+globalThis.__ct_invoke_strict__ = function () {
+    var m = globalThis.__ct_method__;
+    var p = globalThis.__plugin__;
+    var fn = p ? p[m] : undefined;
+    if (typeof fn !== 'function') { throw new Error('not a function: ' + m); }
+    var out = fn.apply(p, JSON.parse(globalThis.__ct_args__));
+    if (out && typeof out.then === 'function') {
+        throw new Error(m + ' returned a Promise; plugin methods must be synchronous');
+    }
+    if (out === undefined) { return '{"__ctUndefined__":true}'; }
+    return JSON.stringify(out);
+};
 globalThis.__ct_resume__ = function () {
     var take = globalThis.__ct_await_take__;
     var fn = typeof take === 'function' ? take(globalThis.__ct_await_k__) : undefined;
@@ -150,6 +162,17 @@ globalThis.__ct_resume__ = function () {
         throw new Error('await continuation returned a Promise; plugin methods must be synchronous');
     }
     return JSON.stringify(out === undefined ? null : out);
+};
+globalThis.__ct_resume_strict__ = function () {
+    var take = globalThis.__ct_await_take__;
+    var fn = typeof take === 'function' ? take(globalThis.__ct_await_k__) : undefined;
+    if (typeof fn !== 'function') { throw new Error('await continuation is gone'); }
+    var out = fn(JSON.parse(globalThis.__ct_await_result__));
+    if (out && typeof out.then === 'function') {
+        throw new Error('await continuation returned a Promise; plugin methods must be synchronous');
+    }
+    if (out === undefined) { return '{"__ctUndefined__":true}'; }
+    return JSON.stringify(out);
 };
 globalThis.__ct_has__ = function () {
     var p = globalThis.__plugin__;
@@ -500,10 +523,27 @@ pub fn call_json<R: serde::de::DeserializeOwned>(
     method: &str,
     args: &[serde_json::Value],
 ) -> Result<R, VmError> {
+    call_json_mode(vm, method, args, false)
+}
+
+pub(super) fn call_json_strict<R: serde::de::DeserializeOwned>(
+    vm: &PluginVm,
+    method: &str,
+    args: &[serde_json::Value],
+) -> Result<R, VmError> {
+    call_json_mode(vm, method, args, true)
+}
+
+fn call_json_mode<R: serde::de::DeserializeOwned>(
+    vm: &PluginVm,
+    method: &str,
+    args: &[serde_json::Value],
+    strict: bool,
+) -> Result<R, VmError> {
     let started = std::time::Instant::now();
     CALL_YIELDED.with(|y| y.set(false));
     // bad drop-in can't unwind through the host and take the daemon down (#16).
-    let run = std::panic::AssertUnwindSafe(|| call_json_inner::<R>(vm, method, args));
+    let run = std::panic::AssertUnwindSafe(|| call_json_inner::<R>(vm, method, args, strict));
     let result = match std::panic::catch_unwind(run) {
         Ok(res) => res,
         Err(_) => Err(VmError::Script(format!(
@@ -555,10 +595,11 @@ fn call_json_inner<R: serde::de::DeserializeOwned>(
     vm: &PluginVm,
     method: &str,
     args: &[serde_json::Value],
+    strict: bool,
 ) -> Result<R, VmError> {
     let args_json =
         serde_json::to_string(args).map_err(|e| VmError::ArgSerialize(method.to_string(), e))?;
-    let mut result_json = enter_call(vm, method, &args_json)?;
+    let mut result_json = enter_call(vm, method, &args_json, strict)?;
     while let Some(pending) = parse_await(&result_json) {
         CALL_YIELDED.with(|y| y.set(true));
         // No guard is held here: the frame unwound to produce the marker, so the
@@ -567,7 +608,7 @@ fn call_json_inner<R: serde::de::DeserializeOwned>(
             super::host_exec::WaitResult::Completed(result) => result,
             super::host_exec::WaitResult::TimedOut => return Err(VmError::AsyncJobTimedOut),
         };
-        result_json = resume_call(vm, method, &pending.continuation, &job_result)?;
+        result_json = resume_call(vm, method, &pending.continuation, &job_result, strict)?;
     }
     serde_json::from_str(&result_json)
         .map_err(|e| VmError::InvalidJson(method.to_string(), e.to_string()))
@@ -576,7 +617,12 @@ fn call_json_inner<R: serde::de::DeserializeOwned>(
 /// One entry into the context, guard taken and released around it. Every entry
 /// into `_ctx` goes through `enter_call` or `resume_call`, which is what keeps a
 /// single JS frame live at a time.
-fn enter_call(vm: &PluginVm, method: &str, args_json: &str) -> Result<String, VmError> {
+fn enter_call(
+    vm: &PluginVm,
+    method: &str,
+    args_json: &str,
+    strict: bool,
+) -> Result<String, VmError> {
     let inner = vm.inner.lock();
     inner._ctx.with(|ctx| -> Result<String, VmError> {
         let plugin_obj: Value = ctx
@@ -602,7 +648,11 @@ fn enter_call(vm: &PluginVm, method: &str, args_json: &str) -> Result<String, Vm
             .catch(&ctx)
             .map_err(|e| VmError::Script(format!("setting args failed: {e:?}")))?;
         let invoke: Function = globals
-            .get("__ct_invoke__")
+            .get(if strict {
+                "__ct_invoke_strict__"
+            } else {
+                "__ct_invoke__"
+            })
             .catch(&ctx)
             .map_err(|e| VmError::Script(format!("__ct_invoke__ missing: {e:?}")))?;
         let result: String = invoke
@@ -618,6 +668,7 @@ fn resume_call(
     method: &str,
     continuation: &str,
     job_result: &str,
+    strict: bool,
 ) -> Result<String, VmError> {
     let inner = vm.inner.lock();
     inner._ctx.with(|ctx| -> Result<String, VmError> {
@@ -631,7 +682,11 @@ fn resume_call(
             .catch(&ctx)
             .map_err(|e| VmError::Script(format!("setting await result failed: {e:?}")))?;
         let resume: Function = globals
-            .get("__ct_resume__")
+            .get(if strict {
+                "__ct_resume_strict__"
+            } else {
+                "__ct_resume__"
+            })
             .catch(&ctx)
             .map_err(|e| VmError::Script(format!("__ct_resume__ missing: {e:?}")))?;
         let result: String = resume

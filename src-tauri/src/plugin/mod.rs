@@ -26,6 +26,7 @@ pub use codeterm_plugin::transcribe;
 pub use codeterm_plugin::usage_parser;
 pub use codeterm_plugin::view;
 pub use codeterm_plugin::view_host;
+pub use codeterm_plugin::webhook;
 
 pub use codeterm_plugin::plugin_manager::SkillFile;
 pub use codeterm_plugin::AgentProvider;
@@ -36,4 +37,8 @@ pub use codeterm_plugin::{
 pub use codeterm_plugin::{
     Plugin, PluginActivation, PluginCapabilities, PluginManager, PluginManifest, PluginMeta,
     PluginPermissions, PluginPrompt, PluginTier,
+};
+pub use codeterm_plugin::{
+    WebhookDelivery, WebhookReceiveContext, WebhookReceiveError, WebhookReceiver,
+    WebhookReceiverKind, WebhookRegistry, WebhookRegistryHandle,
 };
