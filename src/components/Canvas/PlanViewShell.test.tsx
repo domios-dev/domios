@@ -95,6 +95,10 @@ test("PlanViewShell defaults to board mode", async () => {
   const { host, unmount } = await render(<PlanViewShell {...SHELL_PROPS} />);
   const shell = host.querySelector('[data-testid="plan-view-shell"]');
   assert(shell?.getAttribute("data-plan-view-mode") === "board", "default mode attr");
+  const modeLabels = Array.from(host.querySelectorAll('[data-testid="plan-view-mode-switch"] [role="tab"]'))
+    .map((tab) => tab.textContent?.trim());
+  assert(modeLabels.join(",") === "Spec,Plan,Board", `switcher entries=${modeLabels.join(",")}`);
+  assert(!modeLabels.includes("List") && !modeLabels.includes("Canvas"), "parked views absent from switcher");
   const board = panelFor(host, "plan-board-view");
   assert(board && !board.hasAttribute("hidden"), "board visible");
   const list = panelFor(host, "plan-list-view");
@@ -121,36 +125,44 @@ test("PlanViewShell restores persisted mode from localStorage", async () => {
   hostEl.remove();
 });
 
-test("PlanViewShell persists mode changes to localStorage", async () => {
+test("PlanViewShell persists Spec mode changes to localStorage", async () => {
   setupDom();
   window.localStorage.removeItem(PLAN_VIEW_MODE_STORAGE_KEY);
   const { host, unmount } = await render(<PlanViewShell {...SHELL_PROPS} />);
   await act(async () => {
-    clickTab(host, "Canvas");
+    clickTab(host, "Spec");
   });
-  assert(window.localStorage.getItem(PLAN_VIEW_MODE_STORAGE_KEY) === "canvas", "canvas persisted");
+  assert(window.localStorage.getItem(PLAN_VIEW_MODE_STORAGE_KEY) === "spec", "spec persisted");
   await unmount();
 });
 
-test("PlanViewShell switches to list and board without losing shell target", async () => {
+test("PlanViewShell switches between Spec, Plan, and Board without losing shell target", async () => {
   setupDom();
   window.localStorage.removeItem(PLAN_VIEW_MODE_STORAGE_KEY);
   const { host, unmount } = await render(<PlanViewShell {...SHELL_PROPS} />);
   await act(async () => {
-    clickTab(host, "List");
+    clickTab(host, "Plan");
   });
   const shell = host.querySelector('[data-testid="plan-view-shell"]');
-  assert(shell?.getAttribute("data-plan-view-mode") === "list", "list mode attr");
-  const list = panelFor(host, "plan-list-view");
-  assert(list && !list.hasAttribute("hidden"), "list visible");
+  assert(shell?.getAttribute("data-plan-view-mode") === "plan", "plan mode attr");
+  const plan = panelFor(host, "plan-plan-surface");
+  assert(plan && !plan.hasAttribute("hidden"), "plan visible");
   const canvas = panelFor(host, "mission-control-plan-surface");
   assert(canvas?.hasAttribute("hidden"), "canvas hidden but mounted");
+
+  await act(async () => {
+    clickTab(host, "Spec");
+  });
+  assert(shell?.getAttribute("data-plan-view-mode") === "spec", "spec mode attr");
+  const spec = panelFor(host, "plan-spec-surface");
+  assert(spec && !spec.hasAttribute("hidden"), "spec visible");
+  const board = panelFor(host, "plan-board-view");
+  assert(board?.hasAttribute("hidden"), "board hidden but mounted");
 
   await act(async () => {
     clickTab(host, "Board");
   });
   assert(shell?.getAttribute("data-plan-view-mode") === "board", "board mode attr");
-  const board = panelFor(host, "plan-board-view");
   assert(board && !board.hasAttribute("hidden"), "board visible");
   await unmount();
 });
