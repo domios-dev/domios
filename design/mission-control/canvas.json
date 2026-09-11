@@ -5,7 +5,7 @@
       "x": 0,
       "y": 0,
       "w": 960,
-      "h": 660,
+      "h": 2620,
       "title": "Read off the surface"
     },
     {
@@ -13,7 +13,7 @@
       "x": 1040,
       "y": 0,
       "w": 960,
-      "h": 810,
+      "h": 2760,
       "title": "With a watcher"
     },
     {
@@ -21,21 +21,37 @@
       "x": 2080,
       "y": 0,
       "w": 390,
-      "h": 1020,
+      "h": 1640,
       "title": "Phone"
     },
     {
+      "file": "Labels.dc.html",
+      "x": 2560,
+      "y": 0,
+      "w": 800,
+      "h": 2120,
+      "title": "The labelling scheme"
+    },
+    {
+      "file": "Cost.dc.html",
+      "x": 3440,
+      "y": 0,
+      "w": 800,
+      "h": 1040,
+      "title": "Cost and caching"
+    },
+    {
       "file": "Kpis.dc.html",
-      "x": 0,
-      "y": 1040,
+      "x": 2560,
+      "y": 2260,
       "w": 800,
       "h": 2650,
       "title": "Which figures matter"
     },
     {
       "file": "Conclusions.dc.html",
-      "x": 880,
-      "y": 1040,
+      "x": 3440,
+      "y": 1180,
       "w": 800,
       "h": 3450,
       "title": "The catalogue"
@@ -45,30 +61,30 @@
     {
       "id": "what",
       "x": 0,
-      "y": -260,
+      "y": -280,
       "w": 460,
-      "text": "The board in the product's own voice.\n\nThe segmented switcher, the plan board's status header and chips, panel cards, and the usage panel's amount, caption and six-pixel gauge with its 60 and 85 percent marks: every element is one the app already ships, at its shipped values.\n\nFour figures a person understands at a glance: tokens, turns, bounces, and what is waiting on them. Then who spent what, ranked, with the metric switchable. Then runway as the usage gauges."
+      "text": "The board, in the product's own kit.\n\nFour figures a person understands at a glance, each with its source printed on the card: output tokens from the agents' own session logs, turns counted from the same files, bounces from the attempt records, held reviews from the stored review-held label and decision gates. Then where the output went by an explicit labelling scheme, then runway per provider from the usage store, then what happened today: every recorded event in time order, with what was written."
     },
     {
-      "id": "real",
+      "id": "sources",
       "x": 500,
-      "y": -260,
+      "y": -280,
       "w": 460,
-      "text": "Every token figure is summed from the agents' own session logs, the files the KPI ledger imports when it is on: 12 Claude sessions under ~/.claude/projects and 2 Codex rollouts under ~/.codex/sessions. tokens.py extracts them into tokens.json; gen_board.py draws the frames. Read at 22:12.\n\nWhat the numbers say without a sentence: design work wrote 64 percent of today's output tokens, the Orchestrator took 37 percent of all turns and read 54 percent of all context, and 1.2 billion of the 1.22 billion input tokens came back from cache."
+      "text": "Every figure is a field lookup or arithmetic over fields. No text is read for meaning anywhere: a held review is the status_label the review gate writes, not a note that starts with Hold; authors are the plan record's own titles; the log shows notes as written and labels them by their stored kind.\n\nThe watcher version adds one chip and one card. Nothing on either board is summarised by a model."
     },
     {
-      "id": "two-versions",
-      "x": 1040,
+      "id": "cost",
+      "x": 3440,
       "y": -200,
-      "w": 440,
-      "text": "The two versions are the same board. The watcher version adds a chip in the header and one card of what it wrote and to whom. Everything on the board is arithmetic a person reads directly; the watcher improves only the two conclusions on the catalogue that are judgments over prose."
+      "w": 380,
+      "text": "Cost and caching are measured, not estimated: 14 files, 60 MB, under half a second warm and 1.6 s cold; a day of sessions about 8 s; incremental reads under a second. The KPI ledger already ingests the same files behind per-file cursors and is off on this machine; the sheet says what it covers and the one column it lacks."
     },
     {
-      "id": "unobserved",
+      "id": "rendered",
       "x": 2080,
       "y": -200,
       "w": 390,
-      "text": "Rendered in headless Chrome at 960 and 390 and sized to the content; the frames match the pixels. Every value is lifted from tokens.css, globals.css and the usage panel's stylesheet."
+      "text": "Every frame was rendered in headless Chrome and sized to its measured content before publishing. Values are lifted from tokens.css, globals.css and the usage panel's stylesheet."
     }
   ],
   "launch": {

@@ -1,11 +1,40 @@
-"""Draw Main, Watcher and Phone from tokens.json with the product's own kit."""
-import json, os, html
+"""Draw the board and its sheets from tokens.json with the product's own kit. Every figure is a field lookup or arithmetic over fields."""
+import json, os, html, sqlite3, time, collections
+
+from labels import ROLE_FAMILIES, OTHER, KIND_LABELS, kind_label, role_label
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 D = json.load(open(os.path.join(HERE, "tokens.json"), encoding="utf-8"))
+agents = D["agents"]
+T = {k: sum(a["usage"][k] for a in agents) for k in ("turns", "output", "cache_read", "cache_write", "uncached")}
+orch = next(a for a in agents if a["team_role"] == "orchestrator")
+c = D["counts"]
+by_label = collections.OrderedDict()
+for a in sorted(agents, key=lambda a: -a["usage"]["output"]):
+    key = a["label"] if not a["unmapped"] else f'{OTHER} ({a["unmapped"]})'
+    by_label[key] = by_label.get(key, 0) + a["usage"]["output"]
+files = D["files"]
+FILES_LINE = f'{len(files)} session files read: {sum(1 for f in files if f["provider"] == "claude")} Claude logs and {sum(1 for f in files if f["provider"] == "codex")} Codex rollouts, {sum(f["bytes"] for f in files)/1e6:.0f} MB, {sum(f["lines"] for f in files):,} lines, in {D["extract_seconds"]} s'
 
-# Runway is read from ~/.codeterm/usage/usage.db: the latest parsed snapshot per provider, each carrying its own reset.
-import sqlite3, time
+
+def n(v):
+    v = float(v)
+    for s, d in (("B", 1e9), ("M", 1e6), ("K", 1e3)):
+        if v >= d:
+            x = v / d
+            return (f"{x:.1f}" if x < 10 else f"{x:.0f}") + s
+    return f"{v:.0f}"
+
+
+def dur(m):
+    m = int(round(m)); h, mm = divmod(m, 60)
+    return f"{h} h {mm:02d} m" if h else f"{mm} min"
+
+
+def hm(ms):
+    return time.strftime("%H:%M", time.localtime(ms / 1000))
+
+
 def read_usage():
     conn = sqlite3.connect(os.path.join(os.path.expanduser("~"), ".codeterm", "usage", "usage.db"))
     now = time.time() * 1000
@@ -25,43 +54,9 @@ def read_usage():
         if wp is not None: out.append((f"{label} weekly", wp, when(wr) + ("" if sp is not None else " · this provider reports weekly only"), "weekly" if prov == "claude" else "codex"))
         read_usage.captured = time.strftime("%H:%M", time.localtime(cap / 1000))
     return out
+
+
 USAGE = read_usage()
-
-agents = D["agents"]
-T = {k: sum(a["usage"][k] for a in agents) for k in ("turns", "output", "cache_read", "cache_write", "uncached")}
-by_role = {}
-for a in agents:
-    r = "design" if a["role"].startswith("frontend-designer") else ("fix" if a["role"] not in ("orchestrator", "planner") else a["role"])
-    a["group"] = r
-    by_role.setdefault(r, 0)
-    by_role[r] += a["usage"]["output"]
-orch = next(a for a in agents if a["group"] == "orchestrator")
-c = D["counts"]
-hold = D["holds"][0] if D["holds"] else None
-
-
-def n(v):
-    v = float(v)
-    for s, d in (("B", 1e9), ("M", 1e6), ("K", 1e3)):
-        if v >= d:
-            x = v / d
-            return (f"{x:.1f}" if x < 10 else f"{x:.0f}") + s
-    return f"{v:.0f}"
-
-
-def dur(m):
-    m = int(round(m)); h, mm = divmod(m, 60)
-    return f"{h} h {mm:02d} m" if h else f"{mm} min"
-
-
-def status_chip(a):
-    s = a["status"]
-    if a["label"] in ("tab-gone", "pane-gone"):
-        return ("gone", "#ff7b72")
-    if a["group"] in ("orchestrator", "planner"):
-        return ("working" if a["group"] == "orchestrator" else "idle", "#828a92")
-    return ({"in review": "in review", "done": "done", "in progress": "working"}.get(s, s), {"in review": "#d29922", "done": "#7ee787", "in progress": "#58a6ff"}.get(s, "#828a92"))
-
 
 STYLE = """
 .seg { --seg-count: 3; --seg-index: 2; position: relative; display: inline-flex; overflow: hidden; padding: 3px; border: 1px solid #232930; border-radius: 999px; background: color-mix(in srgb, #141b24 80%, transparent); height: 26px; box-sizing: border-box; }
@@ -83,18 +78,12 @@ STYLE = """
 .caption { font-size: 11px; color: #828a92; }
 .small { font-size: 11px; color: #828a92; line-height: 1.5; margin: 0; }
 .small b { color: #c9d1d9; font-weight: 500; font-family: "JetBrains Mono", Consolas, monospace; font-size: 11px; }
-.row { display: grid; grid-template-columns: 96px minmax(0, 1fr) 64px 56px 80px 74px; gap: 10px; align-items: center; height: 26px; }
+.src { font-size: 10px; color: #484f58; line-height: 1.5; margin: 0; padding-top: 6px; border-top: 1px solid color-mix(in srgb, #232930 65%, transparent); margin-top: auto; }
 .kv { display: grid; grid-template-columns: minmax(0, 1fr) 72px 56px; gap: 10px; align-items: baseline; }
 .kv .k { font-size: 0.8125rem; color: #c9d1d9; }
+.kv .k i { font-style: normal; color: #484f58; font-size: .6875rem; }
 .kv .v { font-family: "JetBrains Mono", Consolas, monospace; font-variant-numeric: tabular-nums; font-size: 12px; font-weight: 600; color: #c9d1d9; text-align: right; }
 .share { font-family: "JetBrains Mono", Consolas, monospace; font-variant-numeric: tabular-nums; font-size: 11px; color: #828a92; text-align: right; }
-.row .name { font-size: 0.8125rem; color: #c9d1d9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.row .who { font-size: .6875rem; color: #484f58; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.track { position: relative; height: 6px; border-radius: 99px; background: color-mix(in srgb, #c9d1d9 8%, transparent); overflow: hidden; }
-.fill { height: 100%; border-radius: inherit; background: linear-gradient(90deg, color-mix(in srgb, #58a6ff 70%, transparent), #58a6ff); }
-.val { font-family: "JetBrains Mono", Consolas, monospace; font-variant-numeric: tabular-nums; font-size: 12px; font-weight: 600; color: #c9d1d9; text-align: right; }
-.turns { font-family: "JetBrains Mono", Consolas, monospace; font-variant-numeric: tabular-nums; font-size: 11px; color: #828a92; text-align: right; white-space: nowrap; }
-.st { font-size: .6875rem; text-align: right; white-space: nowrap; }
 .gauge { display: grid; grid-template-columns: 1fr auto; align-items: baseline; column-gap: 10px; }
 .gauge .glabel { font-size: 11px; color: #c9d1d9; font-weight: 500; letter-spacing: .02em; text-transform: none; }
 .gauge .pct { font-family: "JetBrains Mono", Consolas, monospace; font-variant-numeric: tabular-nums; font-size: 12px; font-weight: 600; color: #c9d1d9; }
@@ -103,11 +92,28 @@ STYLE = """
 .gauge .bar { grid-column: 1 / 3; position: relative; margin-top: 6px; height: 6px; border-radius: 99px; background: color-mix(in srgb, #c9d1d9 8%, transparent); overflow: hidden; }
 .gauge .bar::before, .gauge .bar::after { content: ""; position: absolute; top: 0; bottom: 0; width: 1px; background: color-mix(in srgb, #c9d1d9 8%, transparent); }
 .gauge .bar::before { left: 60%; } .gauge .bar::after { left: 85%; }
-.gauge .bar .fill { position: absolute; inset: 0 auto 0 0; }
+.gauge .bar .fill { position: absolute; inset: 0 auto 0 0; height: 100%; border-radius: inherit; }
 .gauge .reset { grid-column: 1 / 3; margin-top: 4px; font-family: "JetBrains Mono", Consolas, monospace; font-size: 9.5px; color: #828a92; letter-spacing: .02em; }
-.log { display: grid; grid-template-columns: 44px 68px minmax(0, 1fr); gap: 5px 10px; font-size: 0.8125rem; line-height: 1.45; }
-.log .t { font-family: "JetBrains Mono", Consolas, monospace; font-size: .6875rem; color: #484f58; padding-top: 2px; }
-.log .to { color: #828a92; } .log .m { color: #c9d1d9; }
+.log { display: grid; grid-template-columns: 40px 96px 76px minmax(0, 1fr); gap: 3px 10px; font-size: 0.8125rem; line-height: 1.45; align-items: baseline; }
+.log .t { font-family: "JetBrains Mono", Consolas, monospace; font-size: .6875rem; color: #484f58; }
+.log .k { font-size: .6875rem; color: #828a92; white-space: nowrap; }
+.log .k.strong { color: #c9d1d9; font-weight: 600; }
+.log .w { font-size: .6875rem; color: #828a92; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.log .m { color: #c9d1d9; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.log .m.quiet { color: #828a92; }
+.log .m i { font-style: normal; color: #484f58; }
+.hour { grid-column: 1 / -1; padding-top: 6px; margin-top: 2px; border-top: 1px solid color-mix(in srgb, #232930 65%, transparent); font-family: "JetBrains Mono", Consolas, monospace; font-size: .6875rem; color: #484f58; }
+.sheet { width: 800px; display: flex; flex-direction: column; gap: 18px; padding: 16px; background: #131921; }
+.sheet h1 { margin: 0; font-size: 1rem; font-weight: 600; color: #c9d1d9; letter-spacing: -.012em; }
+.sheet h2 { margin: 0; font-size: 0.8125rem; font-weight: 600; color: #c9d1d9; }
+.sheet p { margin: 0; font-size: 0.8125rem; line-height: 1.5; color: #828a92; }
+.sheet p b { color: #c9d1d9; font-weight: 500; }
+.sheet code { font-family: "JetBrains Mono", Consolas, monospace; font-size: .6875rem; color: #c9d1d9; }
+table { border-collapse: collapse; width: 100%; font-size: 0.8125rem; }
+th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: #484f58; font-weight: 700; padding: 6px 10px 6px 0; border-bottom: 1px solid #232930; }
+td { padding: 7px 10px 7px 0; border-bottom: 1px solid color-mix(in srgb, #232930 65%, transparent); vertical-align: top; line-height: 1.45; color: #828a92; }
+td.k { color: #c9d1d9; font-weight: 600; white-space: nowrap; }
+td.n { font-family: "JetBrains Mono", Consolas, monospace; font-variant-numeric: tabular-nums; color: #c9d1d9; text-align: right; white-space: nowrap; }
 """
 
 HEAD = """<!doctype html>
@@ -149,32 +155,41 @@ def status_header(phone, watcher):
 
 
 def stat_cards(phone):
+    src = (lambda s: "" if phone else f'<p class="src">{s}</p>')
     tokens = (f'<div class="ct-panel-card card"><h2>Tokens today</h2>'
-              f'<div><div class="amount">{n(T["output"])}</div><div class="caption">output tokens, all agents on this plan</div></div>'
-              f'<p class="small"><b>{n(T["cache_read"])}</b> of context read back from cache · <b>{n(T["cache_write"])}</b> written to cache · <b>{n(T["uncached"])}</b> fresh input</p>'
-              + ("" if phone else f'<p class="small">Design work wrote <b>{100*by_role["design"]/T["output"]:.0f} %</b> of the output; the orchestrator read <b>{100*orch["usage"]["cache_read"]/T["cache_read"]:.0f} %</b> of all context.</p>')
-              + '</div>')
+              f'<div><div class="amount">{n(T["output"])}</div><div class="caption">output tokens, every agent on this plan</div></div>'
+              f'<p class="small"><b>{n(T["cache_read"])}</b> of context read from cache · <b>{n(T["cache_write"])}</b> written to cache · <b>{n(T["uncached"])}</b> fresh input</p>'
+              + src(FILES_LINE) + '</div>')
     turns = (f'<div class="ct-panel-card card"><h2>Turns</h2><div><div class="amount">{T["turns"]:,}</div><div class="caption">model turns today</div></div>'
-             f'<p class="small">Planck took <b>{100*orch["usage"]["turns"]/T["turns"]:.0f} %</b> of them</p></div>')
-    bounces = (f'<div class="ct-panel-card card"><h2>Bounces</h2><div><div class="amount">{D["second_attempts"]}</div><div class="caption">tasks sent back for a second attempt</div></div>'
-               f'<p class="small"><b>{D["attempts"]}</b> attempts · <b>{D["first_try"]}</b> finished on the first</p></div>')
-    if hold:
-        wait = (f'<div class="ct-panel-card card"><h2>Waiting on you</h2><div><div class="amount warn">{dur(hold["waiting_min"])}</div><div class="caption">one verdict held for your approval</div></div>'
-                f'<p class="small">Held <b>{hold["holds"]}</b> times, the latest {dur(hold["latest_min"])} ago</p></div>')
+             f'<p class="small">Orchestrator <b>{100*orch["usage"]["turns"]/T["turns"]:.0f} %</b> of them</p>' + src("count of usage records in the same session files") + '</div>')
+    bounces = (f'<div class="ct-panel-card card"><h2>Bounces</h2><div><div class="amount">{D["second_attempts"]}</div><div class="caption">tasks on a second attempt</div></div>'
+               f'<p class="small"><b>{D["attempts"]}</b> attempts · <b>{D["first_try"]}</b> finished on the first · <b>{D["bounced_label"]}</b> labelled bounced</p>'
+               + src("execution_attempts and status_label in the plan store") + '</div>')
+    held = D["held"]; gates = D["gates"]
+    if held:
+        oldest = max(held, key=lambda h: h["since_last_verdict_min"] or 0)
+        card = (f'<div class="ct-panel-card card"><h2>Held for a decision</h2><div><div class="amount warn">{len(held)}</div><div class="caption">review{"s" if len(held) > 1 else ""} held, the oldest {dur(oldest["since_last_verdict_min"])} since its last verdict</div></div>'
+                f'<p class="small"><b>{len(gates)}</b> decision gates open · <b>{sum(h["verdicts"] for h in held)}</b> verdicts on the held tasks</p>')
     else:
-        wait = '<div class="ct-panel-card card"><h2>Waiting on you</h2><div><div class="amount">0</div><div class="caption">nothing needs your answer</div></div></div>'
+        card = (f'<div class="ct-panel-card card"><h2>Held for a decision</h2><div><div class="amount">{len(gates)}</div><div class="caption">decision gates open, no review held</div></div>')
+    card += src('status_label "review held" and plan.gates; no note text is read') + '</div>'
     cols = "repeat(2, minmax(0, 1fr))" if phone else "1.6fr 1fr 1fr 1fr"
-    return f'<div style="display: grid; grid-template-columns: {cols}; gap: {8 if phone else 12}px; align-items: stretch;">{tokens}{turns}{bounces}{wait}</div>'
+    return f'<div style="display: grid; grid-template-columns: {cols}; gap: {8 if phone else 12}px; align-items: stretch;">{tokens}{turns}{bounces}{card}</div>'
 
 
 def where_it_went(phone):
     total = T["output"]
-    kinds = [("design tasks", by_role.get("design", 0)), ("fix tasks", by_role.get("fix", 0)), ("orchestration", by_role.get("orchestrator", 0)), ("planning", by_role.get("planner", 0))]
-    kinds.sort(key=lambda k: -k[1])
-    lines = "".join(f'<div class="kv"><span class="k">{k}</span><span class="v">{n(v)}</span><span class="share">{100*v/total:.0f} %</span></div>' for k, v in kinds)
-    overhead = (f'<p class="small">The Orchestrator alone took <b>{100*orch["usage"]["turns"]/T["turns"]:.0f} %</b> of all turns and re-read <b>{100*orch["usage"]["cache_read"]/T["cache_read"]:.0f} %</b> of all context: that is the cost of coordination, not of work.</p>')
-    waste = f'<p class="small">Spent on attempts that were bounced: <b>{n(sum(a["usage"]["output"] for a in agents if a["attempts"] >= 2))}</b> output tokens.</p>'
-    return f'<div class="ct-panel-card card"><h2>Where the output went</h2><div style="display: flex; flex-direction: column; gap: 4px;">{lines}</div>{overhead}{waste}</div>'
+    lines = ""
+    for label, v in by_label.items():
+        name = label
+        if label.startswith(OTHER + " ("):
+            name = f'{OTHER} <i>{html.escape(label[len(OTHER)+2:-1])}</i>'
+        lines += f'<div class="kv"><span class="k">{name}</span><span class="v">{n(v)}</span><span class="share">{100*v/total:.0f} %</span></div>'
+    overhead = f'<p class="small">Orchestrator: <b>{100*orch["usage"]["turns"]/T["turns"]:.0f} %</b> of all turns, <b>{100*orch["usage"]["cache_read"]/T["cache_read"]:.0f} %</b> of all context read.</p>'
+    bounced = sum(a["usage"]["output"] for a in agents if a["attempts"] >= 2)
+    return (f'<div class="ct-panel-card card"><h2>Where the output went</h2><div style="display: flex; flex-direction: column; gap: 4px;">{lines}</div>{overhead}'
+            f'<p class="small">On attempts that were bounced: <b>{n(bounced)}</b> output tokens.</p>'
+            + ("" if phone else '<p class="src">labels by the role scheme on the Labels sheet, from each task\'s executor_role; an unmapped role is shown as Other with the role beside it</p>') + '</div>')
 
 
 def runway(phone):
@@ -185,27 +200,108 @@ def runway(phone):
         gs.append(f'<div class="gauge"><span class="glabel">{label}</span><span class="pct{" " + state if state else ""}">{pct:.0f} %</span>'
                   f'<div class="bar"><div class="fill" style="width: {pct}%; background: linear-gradient(90deg, color-mix(in srgb, {fill} 70%, transparent), {fill});"></div></div><span class="reset">{reset}</span></div>')
     cols = "1fr" if phone else "repeat(3, minmax(0, 1fr))"
-    return f'<div class="ct-panel-card card"><div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px;"><h2>Runway</h2><span class="caption">one snapshot per provider, read {read_usage.captured}</span></div><div style="display: grid; grid-template-columns: {cols}; gap: 12px 20px;">{"".join(gs)}</div></div>'
+    return (f'<div class="ct-panel-card card"><div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px;"><h2>Runway</h2><span class="caption">one snapshot per provider, read {read_usage.captured}</span></div>'
+            f'<div style="display: grid; grid-template-columns: {cols}; gap: 12px 20px;">{"".join(gs)}</div>' + ("" if phone else '<p class="src">usage_snapshots, latest parsed row per provider, percentage and reset from the same row</p>') + '</div>')
+
+
+def event_log(phone, limit=None):
+    events = D["events"]
+    rows = []
+    for e in events:
+        if rows and e["kind"] == "worker_report" and rows[-1]["kind"] == "worker_report" and rows[-1]["who"] == e["who"] and rows[-1]["task"] == e["task"]:
+            rows[-1]["n"] += 1; rows[-1]["last"] = e["ts"]; continue
+        rows.append(dict(e, n=1, last=e["ts"]))
+    if limit: rows = rows[-limit:]
+    out = []; hour = None
+    strong = {"decision", "review", "planning", "gate", "bounce", "incident"}
+    for r in rows:
+        h = time.strftime("%H", time.localtime(r["ts"] / 1000))
+        if h != hour:
+            hour = h; out.append(f'<span class="hour">{h}:00</span>')
+        label = kind_label(r["kind"])
+        task = D["task_names"].get(r["task"], "") if r["task"] else ""
+        text = r["text"].split("\n")[0]
+        if r["kind"] == "worker_report":
+            head = text.split("STATUS:")[0].strip(" :")
+            text = f'{head or "reported"}' + (f' <i>×{r["n"]}, {hm(r["ts"])} to {hm(r["last"])}</i>' if r["n"] > 1 else "")
+        elif r["kind"] == "task_created":
+            text = html.escape(task); task = ""
+        else:
+            text = html.escape(text)
+        quiet = "" if r["kind"] in strong else " quiet"
+        kcls = " strong" if r["kind"] in strong else ""
+        tasktxt = f'<i>{html.escape(task[:38] + ("…" if len(task) > 38 else ""))}</i> ' if task else ""
+        out.append(f'<span class="t">{hm(r["ts"])}</span><span class="k{kcls}">{label}</span><span class="w">{html.escape(r["who"][:12])}</span><span class="m{quiet}">{tasktxt}{text}</span>')
+    cap = f'{len(events)} recorded events, {len(rows)} lines; a run of reports by one agent on one task is one line with a count'
+    return (f'<div class="ct-panel-card card"><div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px;"><h2>What happened today</h2><span class="caption">{cap}</span></div>'
+            f'<div class="log">{"".join(out)}</div>' + ("" if phone else '<p class="src">plan milestones, strides, planning log and gates in time order; kind, time and author are fields, the line is the first line as written</p>') + '</div>')
 
 
 def watcher_card():
     return ('<div class="ct-panel-card card"><div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px;"><h2>What the watcher wrote today</h2><span class="caption">last woke 3 min ago and said nothing new</span></div>'
-            '<div class="log">'
-            '<span class="t">18:24</span><span class="to">to you</span><span class="m">Stop a successful first-run spawn reporting as failed is held pending your direct approval; Planck cannot clear it alone. Nothing again until the hold clears.</span>'
-            '<span class="t">21:05</span><span class="to">to Planck</span><span class="m">Review at 4 of 5 slots and credit one closure from the wall: close a review before dispatching.</span>'
-            '<span class="t">21:35</span><span class="to">to Planck</span><span class="m">Review back to 2 of 5; the warning is withdrawn. One hold remains on the user.</span>'
+            '<div class="log" style="grid-template-columns: 40px 68px minmax(0, 1fr);">'
+            '<span class="t">18:24</span><span class="k">to you</span><span class="m" style="white-space: normal;">Stop a successful first-run spawn reporting as failed is held pending your direct approval; Planck cannot clear it alone. Nothing again until the hold clears.</span>'
+            '<span class="t">21:05</span><span class="k">to Planck</span><span class="m" style="white-space: normal;">Review at 4 of 5 slots and credit one closure from the wall: close a review before dispatching.</span>'
+            '<span class="t">21:35</span><span class="k">to Planck</span><span class="m" style="white-space: normal;">Review back to 2 of 5; the warning is withdrawn. One hold remains on the user.</span>'
             '</div></div>')
 
 
 def page(width, phone=False, watcher=False):
     body = [status_header(phone, watcher), stat_cards(phone), where_it_went(phone), runway(phone)]
-    if watcher:
-        body.append(watcher_card())
+    if watcher: body.append(watcher_card())
+    body.append(event_log(phone, limit=18 if phone else None))
     return (HEAD % STYLE + f'<div style="width: {width}px; display: flex; flex-direction: column; background: #131921;">{toolbar(phone)}'
             + '<div style="display: flex; flex-direction: column; gap: 12px; padding: 12px 12px 16px;">' + "".join(body) + '</div></div>\n</x-dc>\n</body>\n</html>\n')
 
 
+def labels_sheet():
+    conn = sqlite3.connect(os.path.join(os.path.expanduser("~"), ".codeterm", "plans.db"))
+    roles = collections.Counter(); tasks_by_label = collections.Counter(); unmapped = collections.Counter()
+    for (doc,) in conn.execute("select document_json from plans"):
+        for t in json.loads(doc).get("tasks", []):
+            r = t.get("executor_role"); roles[r] += 1
+            label, um = role_label("worker", r); tasks_by_label[label] += 1
+            if um: unmapped[um] += 1
+    fam = "".join(f'<tr><td class="k">{l}</td><td>{", ".join(keys)}</td><td class="n">{tasks_by_label.get(l, 0):,}</td></tr>' for l, keys in ROLE_FAMILIES)
+    fam += f'<tr><td class="k">{OTHER}</td><td>no family matched, or no executor role stored; the raw role is shown beside the label</td><td class="n">{tasks_by_label.get(OTHER, 0):,}</td></tr>'
+    none_count = unmapped.get("no executor role stored", 0)
+    top_unmapped = ", ".join(f'{html.escape(str(r))} ({k})' for r, k in unmapped.most_common(16) if r != "no executor role stored")
+    kinds = "".join(f'<tr><td class="k">{v}</td><td><code>{k}</code></td></tr>' for k, v in KIND_LABELS.items())
+    tonight = "".join(f'<tr><td class="k">{html.escape(str(a["name"]))}</td><td><code>{html.escape(str(a["executor_role"] or a["team_role"]))}</code></td><td>{a["label"]}{(" · " + html.escape(a["unmapped"])) if a["unmapped"] else ""}</td></tr>' for a in agents)
+    return (HEAD % STYLE + '<div class="sheet"><h1>The labelling scheme</h1>'
+            '<p>Every label on the board is produced by <code>labels.py</code>. An agent is labelled by what it is: the Orchestrator and the Planner by their team role, a worker by its task\'s stored <code>executor_role</code>, matched against the families below in order. A role that matches nothing is not swallowed: it is labelled Other with the raw role beside it, on the board and here.</p>'
+            f'<h2>Role families, and how many of the store\'s {sum(roles.values()):,} tasks across {len(roles):,} distinct roles each takes</h2>'
+            f'<table><tr><th>Label</th><th>Matches when the role contains</th><th>Tasks</th></tr>{fam}</table>'
+            f'<p>{tasks_by_label.get(OTHER, 0) - none_count:,} tasks carry a role no family matches and {none_count:,} carry none; both land in Other, visibly. Roles reaching Other most often: {top_unmapped}.</p>'
+            '<h2>Tonight\'s agents through the scheme</h2>'
+            f'<table><tr><th>Agent</th><th>Stored role</th><th>Label</th></tr>{tonight}</table>'
+            '<h2>Event kinds</h2><p>The log shows each milestone and stride under the label for its stored kind. A kind not in this table shows as Note with the kind in brackets, never silently.</p>'
+            f'<table><tr><th>Label</th><th>Kind field</th></tr>{kinds}</table></div>\n</x-dc>\n</body>\n</html>\n')
+
+
+def cost_sheet():
+    fb = sum(f["bytes"] for f in files) / 1e6; fl = sum(f["lines"] for f in files)
+    return (HEAD % STYLE + '<div class="sheet"><h1>What this costs to compute, and where it should live</h1>'
+            '<h2>Measured, not estimated</h2>'
+            f'<p>A full extraction for this plan, <code>tokens.py</code>, read <b>{len(files)} session files</b>, <b>{fb:.1f} MB</b>, <b>{fl:,} lines</b>, and took <b>{D["extract_seconds"]} s</b> wall time on this machine with the files warm in the cache, 1.6 s cold, including the plan store read and the event list. Reading only the last 64 KB of each file, which is what an incremental pass does, took <b>0.025 s</b> for 0.9 MB.</p>'
+            '<p>Scaled to a day rather than a plan: this machine touched <b>74 Claude logs (142 MB)</b> and <b>50 Codex rollouts (166 MB)</b> today, so a whole-day full pass is about <b>8 s</b> at the cold rate, and an incremental pass stays under a second. Everything on disk is <b>1,299 Claude logs (1.2 GB)</b> and <b>2,638 Codex rollouts (39 GB)</b>; a full rescan of history is not something to do on open, and never needs doing, because the figures are additive and a cursor per file makes every later read incremental.</p>'
+            '<p><b>Verdict:</b> cheap enough to run on open for one plan, cheap enough to run continuously behind cursors, and a schedule buys nothing. The board is arithmetic over fields; there is no model call anywhere in it.</p>'
+            '<h2>The ledger that already exists</h2>'
+            '<p>The KPI ledger in <code>src-tauri/src/agent/kpi_ledger.rs</code> is a SQLite table <code>kpi_events</code> with <code>plan_id, task_id, tab_id, role, provider, model, timestamp, kind, bytes</code>, three token columns <code>input, uncached_input, output</code>, and a <code>dedup_key</code>. Its <code>kpi_usage_cursors</code> table keeps a forward-only read offset per session file. <code>kpi/usage/records.rs</code> parses the two record shapes <code>tokens.py</code> parses: Claude\'s <code>message.usage</code> with cache read and cache creation, and Codex\'s <code>payload.info.last_token_usage</code> with cached input. <code>kpi/recorder.rs</code> ingests from the cursor and writes one batch per file. It is off on this machine: <code>kpi.enabled</code> is false and no <code>kpi_ledger.db</code> exists.</p>'
+            '<h2>What the board would read from it, what it already covers, what it lacks</h2>'
+            '<table><tr><th>Board figure</th><th>Source today</th><th>From the ledger</th></tr>'
+            '<tr><td class="k">Output, cache read, cache write, fresh input</td><td>session files, full read</td><td>token_usage rows carry input, uncached input and output; cache write is folded into uncached input, so the read and write split is lost and needs one more column</td></tr>'
+            '<tr><td class="k">Turns, per agent and total</td><td>usage records counted</td><td>one token_usage row per turn: a count</td></tr>'
+            '<tr><td class="k">Role labels</td><td>executor_role from the plan store</td><td>the role column stores the role kind\'s label with its profile; the raw executor_role stays in the plan store, so the scheme joins on task_id</td></tr>'
+            '<tr><td class="k">Bounces, attempts, held reviews, decision gates, the event log</td><td>plan store fields</td><td>already persisted in the plan store; the ledger\'s bounce and report rows add timestamps but are not needed</td></tr>'
+            '<tr><td class="k">Runway</td><td>usage_snapshots per provider</td><td>already persisted; not ledger material</td></tr>'
+            '</table>'
+            '<p><b>Answer:</b> turn <code>kpi.enabled</code> on and the ledger records the token figures incrementally from the same files behind per-file cursors; the board then reads <code>kpi_events</code> instead of scanning logs, and the plan store and usage store already hold the rest. Two additions make it exact: a cache-write column so the read and write split survives, and the token columns added to <code>aggregate_by_plan</code>, which today rolls up counts and bytes. Nothing else is missing.</p>'
+            '</div>\n</x-dc>\n</body>\n</html>\n')
+
+
 for name, w, ph, wa in (("Main", 960, False, False), ("Watcher", 960, False, True), ("Phone", 390, True, False)):
     open(os.path.join(HERE, name + ".src"), "w", encoding="utf-8").write(page(w, ph, wa))
-    print(name, "written")
-print("tokens: output", n(T["output"]), "cache_read", n(T["cache_read"]), "turns", T["turns"], "orchestrator share %.0f%%" % (100 * orch["usage"]["turns"] / T["turns"]))
+open(os.path.join(HERE, "Labels.src"), "w", encoding="utf-8").write(labels_sheet())
+open(os.path.join(HERE, "Cost.src"), "w", encoding="utf-8").write(cost_sheet())
+print("frames written; output", n(T["output"]), "turns", T["turns"], "labels", dict(by_label))

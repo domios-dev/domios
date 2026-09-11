@@ -1,0 +1,116 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+/* Values lifted from src/styles/tokens.css and the github-dark output of themeToCSS(); classes reproduce globals.css. */
+* { box-sizing: border-box; }
+body { margin: 0; font-family: "Inter", "Segoe UI", "Avenir Next", "Avenir", "Helvetica Neue", sans-serif; font-size: 0.8125rem; line-height: 1.45; color: #c9d1d9; background: #131921; -webkit-font-smoothing: antialiased; }
+a { color: #58a6ff; } a:hover { color: #79c0ff; }
+button { font: inherit; cursor: pointer; }
+.mono { font-family: "JetBrains Mono", "Cascadia Code", Consolas, Menlo, monospace; font-variant-numeric: tabular-nums; }
+.ct-toolbar { height: 2.5rem; display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: 0 1rem; border-bottom: 1px solid #232930; background: #131921; }
+.ct-panel-tab { border: 0; border-bottom: 2px solid transparent; background: transparent; font-size: 0.8125rem; text-transform: capitalize; color: #828a92; padding: .5rem .75rem; }
+.ct-panel-tab--active { border-bottom-color: #58a6ff; color: #c9d1d9; }
+.ct-panel-card { border: 1px solid #232930; background: #0d1117; border-radius: 8px; }
+.ct-panel-card--soft { background: color-mix(in srgb, #0d1117 85%, #c9d1d9 15%); border-style: dashed; }
+.ct-small-pill { display: inline-flex; align-items: center; gap: .25rem; min-height: 1.25rem; padding: 0 .45rem; border-radius: 999px; border: 1px solid #232930; color: #828a92; font-size: .6875rem; }
+.ct-chip-accent { border-color: color-mix(in srgb, #58a6ff 40%, transparent); color: #58a6ff; }
+.ct-chip-success { border-color: color-mix(in srgb, #7ee787 40%, transparent); color: #7ee787; }
+.ct-chip-danger { border-color: color-mix(in srgb, #ff7b72 40%, transparent); color: #ff7b72; }
+.ct-chip-warning { border-color: color-mix(in srgb, #d29922 40%, transparent); color: #d29922; }
+.ct-chip-muted { border-color: transparent; color: #484f58; }
+.ct-meta { font-size: 0.8125rem; color: #828a92; }
+.ct-meta-muted { font-size: 0.8125rem; color: #484f58; }
+.ct-kbd { min-width: 1.5rem; height: 1.25rem; padding: 0 .3rem; border-radius: .35rem; border: 1px solid #232930; background: #131921; color: #828a92; font-family: "JetBrains Mono", Consolas, monospace; font-size: .7rem; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; }
+.ct-btn { display: inline-flex; align-items: center; justify-content: center; gap: .3rem; min-height: 1.875rem; padding: 0 .75rem; border-radius: 4px; border: 1px solid #232930; background: #0d1117; color: #c9d1d9; font-size: 0.8125rem; }
+.ct-btn-ghost { background: transparent; color: #828a92; border-color: transparent; }
+.ct-btn-compact { min-height: 1.625rem; padding-top: .25rem; padding-bottom: .25rem; }
+.ct-plan-status-breakdown { display: inline-flex; gap: 0; font-size: 10.5px; font-weight: 600; line-height: 1.4; white-space: nowrap; }
+.ct-plan-status-breakdown .sep { color: #484f58; }
+/* Board layout: one 12px gap between and inside the wells; the host is chrome. */
+.card { display: flex; flex-direction: column; min-width: 0; padding: 12px; gap: 10px; }
+.card h2 { margin: 0; font-size: 0.8125rem; font-weight: 600; letter-spacing: -.006em; }
+.label { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: #484f58; font-weight: 700; }
+.door { border: 0; background: none; padding: 0; color: #58a6ff; font-size: 0.8125rem; align-self: flex-start; }
+.door:hover { text-decoration: underline; text-underline-offset: 3px; }
+.plan-title { font-size: 1rem; font-weight: 600; line-height: 1.28; letter-spacing: -.012em; color: #c9d1d9; }
+.red { color: #ff7b72; }
+.amber { color: #d29922; }
+.green { color: #7ee787; }
+/* Conclusions: ranked, unequal. The first is at reading size with air; the rest are quieter lines. */
+.lead { font-size: 1rem; line-height: 1.4; letter-spacing: -.008em; color: #c9d1d9; }
+.lead b, .line b { font-weight: 600; }
+.line { font-size: 0.8125rem; line-height: 1.45; color: #c9d1d9; padding-top: 8px; border-top: 1px solid color-mix(in srgb, #232930 65%, transparent); }
+.why { color: #828a92; }
+.who { font-size: .6875rem; color: #484f58; }
+.figure { font-size: 1.5rem; font-weight: 600; line-height: 1.1; letter-spacing: -.02em; }
+
+
+.seg { --seg-count: 3; --seg-index: 2; position: relative; display: inline-flex; overflow: hidden; padding: 3px; border: 1px solid #232930; border-radius: 999px; background: color-mix(in srgb, #141b24 80%, transparent); height: 26px; box-sizing: border-box; }
+.seg .thumb { position: absolute; z-index: 0; top: 3px; bottom: 3px; left: 3px; width: calc((100% - 6px) / var(--seg-count)); border: 1px solid color-mix(in srgb, #58a6ff 45%, transparent); border-radius: 999px; background: color-mix(in srgb, #58a6ff 22%, transparent); transform: translateX(calc(var(--seg-index) * 100%)); pointer-events: none; }
+.seg .opt { position: relative; z-index: 1; display: flex; flex: 1 0 0; align-items: center; justify-content: center; gap: .375rem; padding: 0 .75rem; border: 0; border-radius: 999px; background: transparent; color: #828a92; font-size: .6875rem; white-space: nowrap; cursor: pointer; }
+.seg .opt[aria-selected="true"] { color: #c9d1d9; font-weight: 600; }
+.status { display: flex; flex-direction: column; gap: .45rem; padding: .7rem .8rem; border: 1px solid #232930; border-radius: 12px; background: color-mix(in srgb, #0d1117 94%, #141b24); }
+.status .topline { display: flex; align-items: center; justify-content: space-between; gap: .75rem; min-width: 0; }
+.chips { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; min-width: 0; }
+.chip { display: inline-flex; align-items: center; gap: .3rem; padding: .1rem .45rem; font-size: .72rem; line-height: 1.4; border: 1px solid #232930; border-radius: 999px; color: #c9d1d9; }
+.chip .role { opacity: .65; text-transform: uppercase; font-size: .62rem; letter-spacing: .04em; }
+.chip.state { border-color: color-mix(in srgb, #58a6ff 40%, transparent); color: #58a6ff; }
+.done-count { flex-shrink: 0; color: #828a92; font-size: .75rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.title { color: #c9d1d9; font-size: .98rem; font-weight: 700; line-height: 1.3; }
+.card { display: flex; flex-direction: column; gap: 8px; padding: 12px; min-width: 0; }
+.card h2 { margin: 0; font-size: 0.8125rem; font-weight: 600; color: #c9d1d9; }
+.amount { font-family: "JetBrains Mono", "Cascadia Code", Consolas, monospace; font-size: 26px; font-weight: 600; color: #c9d1d9; letter-spacing: .01em; line-height: 1.1; }
+.amount.warn { color: #d29922; }
+.caption { font-size: 11px; color: #828a92; }
+.small { font-size: 11px; color: #828a92; line-height: 1.5; margin: 0; }
+.small b { color: #c9d1d9; font-weight: 500; font-family: "JetBrains Mono", Consolas, monospace; font-size: 11px; }
+.src { font-size: 10px; color: #484f58; line-height: 1.5; margin: 0; padding-top: 6px; border-top: 1px solid color-mix(in srgb, #232930 65%, transparent); margin-top: auto; }
+.kv { display: grid; grid-template-columns: minmax(0, 1fr) 72px 56px; gap: 10px; align-items: baseline; }
+.kv .k { font-size: 0.8125rem; color: #c9d1d9; }
+.kv .k i { font-style: normal; color: #484f58; font-size: .6875rem; }
+.kv .v { font-family: "JetBrains Mono", Consolas, monospace; font-variant-numeric: tabular-nums; font-size: 12px; font-weight: 600; color: #c9d1d9; text-align: right; }
+.share { font-family: "JetBrains Mono", Consolas, monospace; font-variant-numeric: tabular-nums; font-size: 11px; color: #828a92; text-align: right; }
+.gauge { display: grid; grid-template-columns: 1fr auto; align-items: baseline; column-gap: 10px; }
+.gauge .glabel { font-size: 11px; color: #c9d1d9; font-weight: 500; letter-spacing: .02em; text-transform: none; }
+.gauge .pct { font-family: "JetBrains Mono", Consolas, monospace; font-variant-numeric: tabular-nums; font-size: 12px; font-weight: 600; color: #c9d1d9; }
+.gauge .pct.warn { color: #d29922; }
+.gauge .pct.danger { color: #ff7b72; }
+.gauge .bar { grid-column: 1 / 3; position: relative; margin-top: 6px; height: 6px; border-radius: 99px; background: color-mix(in srgb, #c9d1d9 8%, transparent); overflow: hidden; }
+.gauge .bar::before, .gauge .bar::after { content: ""; position: absolute; top: 0; bottom: 0; width: 1px; background: color-mix(in srgb, #c9d1d9 8%, transparent); }
+.gauge .bar::before { left: 60%; } .gauge .bar::after { left: 85%; }
+.gauge .bar .fill { position: absolute; inset: 0 auto 0 0; height: 100%; border-radius: inherit; }
+.gauge .reset { grid-column: 1 / 3; margin-top: 4px; font-family: "JetBrains Mono", Consolas, monospace; font-size: 9.5px; color: #828a92; letter-spacing: .02em; }
+.log { display: grid; grid-template-columns: 40px 96px 76px minmax(0, 1fr); gap: 3px 10px; font-size: 0.8125rem; line-height: 1.45; align-items: baseline; }
+.log .t { font-family: "JetBrains Mono", Consolas, monospace; font-size: .6875rem; color: #484f58; }
+.log .k { font-size: .6875rem; color: #828a92; white-space: nowrap; }
+.log .k.strong { color: #c9d1d9; font-weight: 600; }
+.log .w { font-size: .6875rem; color: #828a92; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.log .m { color: #c9d1d9; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.log .m.quiet { color: #828a92; }
+.log .m i { font-style: normal; color: #484f58; }
+.hour { grid-column: 1 / -1; padding-top: 6px; margin-top: 2px; border-top: 1px solid color-mix(in srgb, #232930 65%, transparent); font-family: "JetBrains Mono", Consolas, monospace; font-size: .6875rem; color: #484f58; }
+.sheet { width: 800px; display: flex; flex-direction: column; gap: 18px; padding: 16px; background: #131921; }
+.sheet h1 { margin: 0; font-size: 1rem; font-weight: 600; color: #c9d1d9; letter-spacing: -.012em; }
+.sheet h2 { margin: 0; font-size: 0.8125rem; font-weight: 600; color: #c9d1d9; }
+.sheet p { margin: 0; font-size: 0.8125rem; line-height: 1.5; color: #828a92; }
+.sheet p b { color: #c9d1d9; font-weight: 500; }
+.sheet code { font-family: "JetBrains Mono", Consolas, monospace; font-size: .6875rem; color: #c9d1d9; }
+table { border-collapse: collapse; width: 100%; font-size: 0.8125rem; }
+th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: #484f58; font-weight: 700; padding: 6px 10px 6px 0; border-bottom: 1px solid #232930; }
+td { padding: 7px 10px 7px 0; border-bottom: 1px solid color-mix(in srgb, #232930 65%, transparent); vertical-align: top; line-height: 1.45; color: #828a92; }
+td.k { color: #c9d1d9; font-weight: 600; white-space: nowrap; }
+td.n { font-family: "JetBrains Mono", Consolas, monospace; font-variant-numeric: tabular-nums; color: #c9d1d9; text-align: right; white-space: nowrap; }
+
+  </style>
+</helmet>
+<div class="sheet"><h1>What this costs to compute, and where it should live</h1><h2>Measured, not estimated</h2><p>A full extraction for this plan, <code>tokens.py</code>, read <b>14 session files</b>, <b>63.0 MB</b>, <b>15,919 lines</b>, and took <b>0.4 s</b> wall time on this machine with the files warm in the cache, 1.6 s cold, including the plan store read and the event list. Reading only the last 64 KB of each file, which is what an incremental pass does, took <b>0.025 s</b> for 0.9 MB.</p><p>Scaled to a day rather than a plan: this machine touched <b>74 Claude logs (142 MB)</b> and <b>50 Codex rollouts (166 MB)</b> today, so a whole-day full pass is about <b>8 s</b> at the cold rate, and an incremental pass stays under a second. Everything on disk is <b>1,299 Claude logs (1.2 GB)</b> and <b>2,638 Codex rollouts (39 GB)</b>; a full rescan of history is not something to do on open, and never needs doing, because the figures are additive and a cursor per file makes every later read incremental.</p><p><b>Verdict:</b> cheap enough to run on open for one plan, cheap enough to run continuously behind cursors, and a schedule buys nothing. The board is arithmetic over fields; there is no model call anywhere in it.</p><h2>The ledger that already exists</h2><p>The KPI ledger in <code>src-tauri/src/agent/kpi_ledger.rs</code> is a SQLite table <code>kpi_events</code> with <code>plan_id, task_id, tab_id, role, provider, model, timestamp, kind, bytes</code>, three token columns <code>input, uncached_input, output</code>, and a <code>dedup_key</code>. Its <code>kpi_usage_cursors</code> table keeps a forward-only read offset per session file. <code>kpi/usage/records.rs</code> parses the two record shapes <code>tokens.py</code> parses: Claude's <code>message.usage</code> with cache read and cache creation, and Codex's <code>payload.info.last_token_usage</code> with cached input. <code>kpi/recorder.rs</code> ingests from the cursor and writes one batch per file. It is off on this machine: <code>kpi.enabled</code> is false and no <code>kpi_ledger.db</code> exists.</p><h2>What the board would read from it, what it already covers, what it lacks</h2><table><tr><th>Board figure</th><th>Source today</th><th>From the ledger</th></tr><tr><td class="k">Output, cache read, cache write, fresh input</td><td>session files, full read</td><td>token_usage rows carry input, uncached input and output; cache write is folded into uncached input, so the read and write split is lost and needs one more column</td></tr><tr><td class="k">Turns, per agent and total</td><td>usage records counted</td><td>one token_usage row per turn: a count</td></tr><tr><td class="k">Role labels</td><td>executor_role from the plan store</td><td>the role column stores the role kind's label with its profile; the raw executor_role stays in the plan store, so the scheme joins on task_id</td></tr><tr><td class="k">Bounces, attempts, held reviews, decision gates, the event log</td><td>plan store fields</td><td>already persisted in the plan store; the ledger's bounce and report rows add timestamps but are not needed</td></tr><tr><td class="k">Runway</td><td>usage_snapshots per provider</td><td>already persisted; not ledger material</td></tr></table><p><b>Answer:</b> turn <code>kpi.enabled</code> on and the ledger records the token figures incrementally from the same files behind per-file cursors; the board then reads <code>kpi_events</code> instead of scanning logs, and the plan store and usage store already hold the rest. Two additions make it exact: a cache-write column so the read and write split survives, and the token columns added to <code>aggregate_by_plan</code>, which today rolls up counts and bytes. Nothing else is missing.</p></div>
+</x-dc>
+</body>
+</html>
