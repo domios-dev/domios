@@ -1,0 +1,116 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+/* Values lifted from src/styles/tokens.css and the github-dark output of themeToCSS(); classes reproduce globals.css. */
+* { box-sizing: border-box; }
+body { margin: 0; font-family: "Inter", "Segoe UI", "Avenir Next", "Avenir", "Helvetica Neue", sans-serif; font-size: 0.8125rem; line-height: 1.45; color: #c9d1d9; background: #131921; -webkit-font-smoothing: antialiased; }
+a { color: #58a6ff; } a:hover { color: #79c0ff; }
+button { font: inherit; cursor: pointer; }
+.mono { font-family: "JetBrains Mono", "Cascadia Code", Consolas, Menlo, monospace; font-variant-numeric: tabular-nums; }
+.ct-toolbar { height: 2.5rem; display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: 0 1rem; border-bottom: 1px solid #232930; background: #131921; }
+.ct-panel-tab { border: 0; border-bottom: 2px solid transparent; background: transparent; font-size: 0.8125rem; text-transform: capitalize; color: #828a92; padding: .5rem .75rem; }
+.ct-panel-tab--active { border-bottom-color: #58a6ff; color: #c9d1d9; }
+.ct-panel-card { border: 1px solid #232930; background: #0d1117; border-radius: 8px; }
+.ct-panel-card--soft { background: color-mix(in srgb, #0d1117 85%, #c9d1d9 15%); border-style: dashed; }
+.ct-small-pill { display: inline-flex; align-items: center; gap: .25rem; min-height: 1.25rem; padding: 0 .45rem; border-radius: 999px; border: 1px solid #232930; color: #828a92; font-size: .6875rem; }
+.ct-chip-accent { border-color: color-mix(in srgb, #58a6ff 40%, transparent); color: #58a6ff; }
+.ct-chip-success { border-color: color-mix(in srgb, #7ee787 40%, transparent); color: #7ee787; }
+.ct-chip-danger { border-color: color-mix(in srgb, #ff7b72 40%, transparent); color: #ff7b72; }
+.ct-chip-warning { border-color: color-mix(in srgb, #d29922 40%, transparent); color: #d29922; }
+.ct-chip-muted { border-color: transparent; color: #484f58; }
+.ct-meta { font-size: 0.8125rem; color: #828a92; }
+.ct-meta-muted { font-size: 0.8125rem; color: #484f58; }
+.ct-kbd { min-width: 1.5rem; height: 1.25rem; padding: 0 .3rem; border-radius: .35rem; border: 1px solid #232930; background: #131921; color: #828a92; font-family: "JetBrains Mono", Consolas, monospace; font-size: .7rem; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; }
+.ct-btn { display: inline-flex; align-items: center; justify-content: center; gap: .3rem; min-height: 1.875rem; padding: 0 .75rem; border-radius: 4px; border: 1px solid #232930; background: #0d1117; color: #c9d1d9; font-size: 0.8125rem; }
+.ct-btn-ghost { background: transparent; color: #828a92; border-color: transparent; }
+.ct-btn-compact { min-height: 1.625rem; padding-top: .25rem; padding-bottom: .25rem; }
+.ct-plan-status-breakdown { display: inline-flex; gap: 0; font-size: 10.5px; font-weight: 600; line-height: 1.4; white-space: nowrap; }
+.ct-plan-status-breakdown .sep { color: #484f58; }
+/* Board layout: one 12px gap between and inside the wells; the host is chrome. */
+.card { display: flex; flex-direction: column; min-width: 0; padding: 12px; gap: 10px; }
+.card h2 { margin: 0; font-size: 0.8125rem; font-weight: 600; letter-spacing: -.006em; }
+.label { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: #484f58; font-weight: 700; }
+.door { border: 0; background: none; padding: 0; color: #58a6ff; font-size: 0.8125rem; align-self: flex-start; }
+.door:hover { text-decoration: underline; text-underline-offset: 3px; }
+.plan-title { font-size: 1rem; font-weight: 600; line-height: 1.28; letter-spacing: -.012em; color: #c9d1d9; }
+.red { color: #ff7b72; }
+.amber { color: #d29922; }
+.green { color: #7ee787; }
+/* Conclusions: ranked, unequal. The first is at reading size with air; the rest are quieter lines. */
+.lead { font-size: 1rem; line-height: 1.4; letter-spacing: -.008em; color: #c9d1d9; }
+.lead b, .line b { font-weight: 600; }
+.line { font-size: 0.8125rem; line-height: 1.45; color: #c9d1d9; padding-top: 8px; border-top: 1px solid color-mix(in srgb, #232930 65%, transparent); }
+.why { color: #828a92; }
+.who { font-size: .6875rem; color: #484f58; }
+.figure { font-size: 1.5rem; font-weight: 600; line-height: 1.1; letter-spacing: -.02em; }
+
+
+.seg { --seg-count: 3; --seg-index: 2; position: relative; display: inline-flex; overflow: hidden; padding: 3px; border: 1px solid #232930; border-radius: 999px; background: color-mix(in srgb, #141b24 80%, transparent); height: 26px; box-sizing: border-box; }
+.seg .thumb { position: absolute; z-index: 0; top: 3px; bottom: 3px; left: 3px; width: calc((100% - 6px) / var(--seg-count)); border: 1px solid color-mix(in srgb, #58a6ff 45%, transparent); border-radius: 999px; background: color-mix(in srgb, #58a6ff 22%, transparent); transform: translateX(calc(var(--seg-index) * 100%)); pointer-events: none; }
+.seg .opt { position: relative; z-index: 1; display: flex; flex: 1 0 0; align-items: center; justify-content: center; gap: .375rem; padding: 0 .75rem; border: 0; border-radius: 999px; background: transparent; color: #828a92; font-size: .6875rem; white-space: nowrap; cursor: pointer; }
+.seg .opt[aria-selected="true"] { color: #c9d1d9; font-weight: 600; }
+.status { display: flex; flex-direction: column; gap: .45rem; padding: .7rem .8rem; border: 1px solid #232930; border-radius: 12px; background: color-mix(in srgb, #0d1117 94%, #141b24); }
+.status .topline { display: flex; align-items: center; justify-content: space-between; gap: .75rem; min-width: 0; }
+.chips { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; min-width: 0; }
+.chip { display: inline-flex; align-items: center; gap: .3rem; padding: .1rem .45rem; font-size: .72rem; line-height: 1.4; border: 1px solid #232930; border-radius: 999px; color: #c9d1d9; }
+.chip .role { opacity: .65; text-transform: uppercase; font-size: .62rem; letter-spacing: .04em; }
+.chip.state { border-color: color-mix(in srgb, #58a6ff 40%, transparent); color: #58a6ff; }
+.done-count { flex-shrink: 0; color: #828a92; font-size: .75rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.title { color: #c9d1d9; font-size: .98rem; font-weight: 700; line-height: 1.3; }
+.card { display: flex; flex-direction: column; gap: 8px; padding: 12px; min-width: 0; }
+.card h2 { margin: 0; font-size: 0.8125rem; font-weight: 600; color: #c9d1d9; }
+.amount { font-family: "JetBrains Mono", "Cascadia Code", Consolas, monospace; font-size: 26px; font-weight: 600; color: #c9d1d9; letter-spacing: .01em; line-height: 1.1; }
+.amount.warn { color: #d29922; }
+.caption { font-size: 11px; color: #828a92; }
+.small { font-size: 11px; color: #828a92; line-height: 1.5; margin: 0; }
+.small b { color: #c9d1d9; font-weight: 500; font-family: "JetBrains Mono", Consolas, monospace; font-size: 11px; }
+.src { font-size: 10px; color: #484f58; line-height: 1.5; margin: 0; padding-top: 6px; border-top: 1px solid color-mix(in srgb, #232930 65%, transparent); margin-top: auto; }
+.kv { display: grid; grid-template-columns: minmax(0, 1fr) 72px 56px; gap: 10px; align-items: baseline; }
+.kv .k { font-size: 0.8125rem; color: #c9d1d9; }
+.kv .k i { font-style: normal; color: #484f58; font-size: .6875rem; }
+.kv .v { font-family: "JetBrains Mono", Consolas, monospace; font-variant-numeric: tabular-nums; font-size: 12px; font-weight: 600; color: #c9d1d9; text-align: right; }
+.share { font-family: "JetBrains Mono", Consolas, monospace; font-variant-numeric: tabular-nums; font-size: 11px; color: #828a92; text-align: right; }
+.gauge { display: grid; grid-template-columns: 1fr auto; align-items: baseline; column-gap: 10px; }
+.gauge .glabel { font-size: 11px; color: #c9d1d9; font-weight: 500; letter-spacing: .02em; text-transform: none; }
+.gauge .pct { font-family: "JetBrains Mono", Consolas, monospace; font-variant-numeric: tabular-nums; font-size: 12px; font-weight: 600; color: #c9d1d9; }
+.gauge .pct.warn { color: #d29922; }
+.gauge .pct.danger { color: #ff7b72; }
+.gauge .bar { grid-column: 1 / 3; position: relative; margin-top: 6px; height: 6px; border-radius: 99px; background: color-mix(in srgb, #c9d1d9 8%, transparent); overflow: hidden; }
+.gauge .bar::before, .gauge .bar::after { content: ""; position: absolute; top: 0; bottom: 0; width: 1px; background: color-mix(in srgb, #c9d1d9 8%, transparent); }
+.gauge .bar::before { left: 60%; } .gauge .bar::after { left: 85%; }
+.gauge .bar .fill { position: absolute; inset: 0 auto 0 0; height: 100%; border-radius: inherit; }
+.gauge .reset { grid-column: 1 / 3; margin-top: 4px; font-family: "JetBrains Mono", Consolas, monospace; font-size: 9.5px; color: #828a92; letter-spacing: .02em; }
+.log { display: grid; grid-template-columns: 40px 96px 76px minmax(0, 1fr); gap: 3px 10px; font-size: 0.8125rem; line-height: 1.45; align-items: baseline; }
+.log .t { font-family: "JetBrains Mono", Consolas, monospace; font-size: .6875rem; color: #484f58; }
+.log .k { font-size: .6875rem; color: #828a92; white-space: nowrap; }
+.log .k.strong { color: #c9d1d9; font-weight: 600; }
+.log .w { font-size: .6875rem; color: #828a92; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.log .m { color: #c9d1d9; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.log .m.quiet { color: #828a92; }
+.log .m i { font-style: normal; color: #484f58; }
+.hour { grid-column: 1 / -1; padding-top: 6px; margin-top: 2px; border-top: 1px solid color-mix(in srgb, #232930 65%, transparent); font-family: "JetBrains Mono", Consolas, monospace; font-size: .6875rem; color: #484f58; }
+.sheet { width: 800px; display: flex; flex-direction: column; gap: 18px; padding: 16px; background: #131921; }
+.sheet h1 { margin: 0; font-size: 1rem; font-weight: 600; color: #c9d1d9; letter-spacing: -.012em; }
+.sheet h2 { margin: 0; font-size: 0.8125rem; font-weight: 600; color: #c9d1d9; }
+.sheet p { margin: 0; font-size: 0.8125rem; line-height: 1.5; color: #828a92; }
+.sheet p b { color: #c9d1d9; font-weight: 500; }
+.sheet code { font-family: "JetBrains Mono", Consolas, monospace; font-size: .6875rem; color: #c9d1d9; }
+table { border-collapse: collapse; width: 100%; font-size: 0.8125rem; }
+th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: #484f58; font-weight: 700; padding: 6px 10px 6px 0; border-bottom: 1px solid #232930; }
+td { padding: 7px 10px 7px 0; border-bottom: 1px solid color-mix(in srgb, #232930 65%, transparent); vertical-align: top; line-height: 1.45; color: #828a92; }
+td.k { color: #c9d1d9; font-weight: 600; white-space: nowrap; }
+td.n { font-family: "JetBrains Mono", Consolas, monospace; font-variant-numeric: tabular-nums; color: #c9d1d9; text-align: right; white-space: nowrap; }
+
+  </style>
+</helmet>
+<div class="sheet"><h1>The labelling scheme</h1><p>Every label on the board is produced by <code>labels.py</code>. An agent is labelled by what it is: the Orchestrator and the Planner by their team role, a worker by its task's stored <code>executor_role</code>, matched against the families below in order. A role that matches nothing is not swallowed: it is labelled Other with the raw role beside it, on the board and here.</p><h2>Role families, and how many of the store's 2,051 tasks across 637 distinct roles each takes</h2><table><tr><th>Label</th><th>Matches when the role contains</th><th>Tasks</th></tr><tr><td class="k">Design</td><td>design</td><td class="n">9</td></tr><tr><td class="k">Frontend</td><td>frontend, storefront, electron, web-ui, react</td><td class="n">148</td></tr><tr><td class="k">Backend</td><td>backend, rust, python, cli, server, api, service, plan-service, runtime, mem, lane, orchestration, lifecycle, agent, daemon, socket, pty</td><td class="n">541</td></tr><tr><td class="k">Infrastructure and release</td><td>infra, build, release, ops, operations, deploy, packaging, mesh</td><td class="n">169</td></tr><tr><td class="k">Testing and verification</td><td>test, qa, verif, e2e, bench, eval</td><td class="n">84</td></tr><tr><td class="k">Review and audit</td><td>review, audit, adversarial</td><td class="n">58</td></tr><tr><td class="k">Docs</td><td>docs, documentation, writer</td><td class="n">25</td></tr><tr><td class="k">Full stack</td><td>fullstack, full-stack, chat, product</td><td class="n">98</td></tr><tr><td class="k">Other</td><td>no family matched, or no executor role stored; the raw role is shown beside the label</td><td class="n">919</td></tr></table><p>328 tasks carry a role no family matches and 591 carry none; both land in Other, visibly. Roles reaching Other most often: integration-developer (21), auth-integration-developer (3), settings-surface-engineer (3), spec-fixture-engineer (3), linux-platform-owner (2), contracts-developer (2), data-engineer (2), payments-developer (2), measurement-integrity-engineer (2), owner-liaison (2), customer-message-incident-engineer (2), session-binding-engineer (2), tab-state-honesty-engineer (2), integration-repair-engineer (2), authority-convergence-engineer (2).</p><h2>Tonight's agents through the scheme</h2><table><tr><th>Agent</th><th>Stored role</th><th>Label</th></tr><tr><td class="k">Alex</td><td><code>cli-platform-dev</code></td><td>Backend</td></tr><tr><td class="k">Lucy</td><td><code>runtime-mem-dev</code></td><td>Backend</td></tr><tr><td class="k">Rose</td><td><code>lane-diagnostics-dev</code></td><td>Backend</td></tr><tr><td class="k">Dylan</td><td><code>orchestration-safety-dev</code></td><td>Backend</td></tr><tr><td class="k">Peter</td><td><code>test-infrastructure-dev</code></td><td>Infrastructure and release</td></tr><tr><td class="k">Mabel</td><td><code>general-agent-lifecycle</code></td><td>Backend</td></tr><tr><td class="k">Rita</td><td><code>frontend-render-dev</code></td><td>Frontend</td></tr><tr><td class="k">Nora</td><td><code>frontend-recovery-dev</code></td><td>Frontend</td></tr><tr><td class="k">Gina</td><td><code>frontend-plan-view</code></td><td>Frontend</td></tr><tr><td class="k">Vera</td><td><code>frontend-designer</code></td><td>Design</td></tr><tr><td class="k">Simon</td><td><code>frontend-designer</code></td><td>Design</td></tr><tr><td class="k">Louis</td><td><code>frontend-designer</code></td><td>Design</td></tr><tr><td class="k">Planck</td><td><code>orchestrator</code></td><td>Orchestrator</td></tr><tr><td class="k">Pasteur</td><td><code>planner</code></td><td>Planner</td></tr></table><h2>Event kinds</h2><p>The log shows each milestone and stride under the label for its stored kind. A kind not in this table shows as Note with the kind in brackets, never silently.</p><table><tr><th>Label</th><th>Kind field</th></tr><tr><td class="k">Plan approved</td><td><code>planning</code></td></tr><tr><td class="k">Task added</td><td><code>task_created</code></td></tr><tr><td class="k">Decision</td><td><code>decision</code></td></tr><tr><td class="k">Verdict</td><td><code>review</code></td></tr><tr><td class="k">Report</td><td><code>worker_report</code></td></tr><tr><td class="k">Question to you</td><td><code>gate</code></td></tr><tr><td class="k">Status</td><td><code>status_update</code></td></tr><tr><td class="k">QA</td><td><code>qa</code></td></tr><tr><td class="k">Bounce</td><td><code>bounce</code></td></tr><tr><td class="k">Accepted</td><td><code>accepted</code></td></tr><tr><td class="k">Accepted</td><td><code>acceptance</code></td></tr><tr><td class="k">Dispatch</td><td><code>dispatch</code></td></tr><tr><td class="k">Incident</td><td><code>incident</code></td></tr><tr><td class="k">Evidence</td><td><code>evidence</code></td></tr><tr><td class="k">Testing</td><td><code>testing</code></td></tr><tr><td class="k">Verification</td><td><code>verification</code></td></tr><tr><td class="k">Integration</td><td><code>integration</code></td></tr><tr><td class="k">Cleanup</td><td><code>cleanup</code></td></tr><tr><td class="k">Skill kept</td><td><code>skill</code></td></tr><tr><td class="k">Regression gate</td><td><code>regression</code></td></tr><tr><td class="k">Retrospective</td><td><code>retrospective</code></td></tr><tr><td class="k">Note</td><td><code>note</code></td></tr></table></div>
+</x-dc>
+</body>
+</html>
