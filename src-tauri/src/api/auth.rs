@@ -54,9 +54,8 @@ fn remote_network_allowed(mesh_enabled: bool, address: Option<SocketAddr>) -> bo
     mesh_enabled || address.is_none_or(|address| address.ip().is_loopback())
 }
 
-/// Paths whose handler does its OWN authentication (a mesh-signed token, not the
-/// bearer API token) and must therefore skip the bearer-token middleware. This
-/// is an EXACT allowlist on purpose: an earlier `starts_with("/api/mesh/peers/")`
+/// Paths whose handlers authenticate independently and must skip bearer middleware.
+/// This is an EXACT allowlist on purpose: an earlier `starts_with("/api/mesh/peers/")`
 /// prefix match exempted every peer sub-route (services, approve, add-manual,
 /// addr, …) whose handlers only call the no-op `check_auth`, leaving them fully
 /// unauthenticated — an anonymous caller on the network could self-approve a
@@ -66,6 +65,9 @@ fn is_custom_auth(method: &Method, path: &str) -> bool {
     if path == "/api/mesh/relay" || path == "/api/mesh/introduce" {
         return true;
     }
+    if is_inbound_webhook_path(method, path) {
+        return true;
+    }
     if path.starts_with("/api/mesh/relay-asset/") {
         return true;
     }
@@ -73,6 +75,19 @@ fn is_custom_auth(method: &Method, path: &str) -> bool {
     method == Method::DELETE
         && path.starts_with("/api/mesh/peers/")
         && path.matches('/').count() == 4
+}
+
+pub(crate) fn is_inbound_webhook_path(method: &Method, path: &str) -> bool {
+    if method != Method::POST {
+        return false;
+    }
+    let Some(plugin_id) = path
+        .strip_prefix("/api/plugins/")
+        .and_then(|rest| rest.strip_suffix("/webhook"))
+    else {
+        return false;
+    };
+    !plugin_id.is_empty() && !plugin_id.contains('/')
 }
 
 /// Non-leaking token fingerprint for diagnostics: byte length + a short
@@ -351,6 +366,32 @@ mod tests {
         ));
         // Unpair must be DELETE — a GET on the same path is not exempt.
         assert!(!is_custom_auth(&Method::GET, "/api/mesh/peers/abc123"));
+
+        assert!(is_inbound_webhook_path(
+            &Method::POST,
+            "/api/plugins/pebble/webhook"
+        ));
+        assert!(is_custom_auth(&Method::POST, "/api/plugins/pebble/webhook"));
+        assert!(!is_inbound_webhook_path(
+            &Method::GET,
+            "/api/plugins/pebble/webhook"
+        ));
+        assert!(!is_inbound_webhook_path(
+            &Method::POST,
+            "/api/plugins/pebble/webhook/extra"
+        ));
+        assert!(!is_inbound_webhook_path(
+            &Method::POST,
+            "/api/plugins/pebble/ui/webhook"
+        ));
+        assert!(!is_inbound_webhook_path(
+            &Method::POST,
+            "/api/plugins//webhook"
+        ));
+        assert!(!is_custom_auth(
+            &Method::POST,
+            "/api/plugins/pebble/webhook/extra"
+        ));
     }
 
     #[test]

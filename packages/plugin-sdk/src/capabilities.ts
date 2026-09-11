@@ -315,7 +315,7 @@ export interface NormalizedChatMessage {
   fromTab?: string;
   fromModel?: string;
   fromMesh?: string;
-  inboundKind?: "tab" | "report" | "reminder" | "mesh" | "telegram";
+  inboundKind?: "tab" | "report" | "reminder" | "mesh" | "telegram" | "pebble";
   /** Provider-neutral canonical tool metadata, available on any chat transport. */
   toolKind?: ToolEventKind;
   toolSummary?: string;
