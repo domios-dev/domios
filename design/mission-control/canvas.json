@@ -5,7 +5,7 @@
       "x": 0,
       "y": 0,
       "w": 960,
-      "h": 1000,
+      "h": 1120,
       "title": "Read off the surface"
     },
     {
@@ -13,7 +13,7 @@
       "x": 1040,
       "y": 0,
       "w": 960,
-      "h": 1220,
+      "h": 1300,
       "title": "With a watcher"
     },
     {
@@ -21,79 +21,57 @@
       "x": 2080,
       "y": 0,
       "w": 390,
-      "h": 1260,
+      "h": 1180,
       "title": "Phone"
     },
     {
-      "file": "States.dc.html",
-      "x": 0,
-      "y": 1400,
-      "w": 960,
-      "h": 1500,
-      "title": "The cards in other states"
-    },
-    {
       "file": "Kpis.dc.html",
-      "x": 1040,
-      "y": 1400,
+      "x": 0,
+      "y": 1460,
       "w": 800,
       "h": 2650,
       "title": "Which figures matter"
     },
     {
       "file": "Conclusions.dc.html",
-      "x": 1920,
-      "y": 1400,
+      "x": 880,
+      "y": 1460,
       "w": 800,
       "h": 3450,
       "title": "The catalogue"
     }
   ],
-  "launch": {
-    "view": "canvas"
-  },
   "annotations": [
     {
-      "id": "red-lines",
+      "id": "what",
       "x": 0,
-      "y": -300,
+      "y": -260,
       "w": 460,
-      "text": "Red lines kept.\n\nNot a task list: cover the row labels on the strip and it still says the same thing; a list goes mute. Rows are bounded to the day, names are small and subordinate, and no row carries an affordance.\nNo orchestration verbs: the only buttons are doors to Plan and Settings.\nNo dots, diamonds, circles or coloured edges: bars with square ends, ticks, and colour only on a figure or a bar that is abnormal."
+      "text": "The board in the product's own voice.\n\nThe segmented switcher, the plan board's status header and chips, panel cards, and the usage panel's amount, caption and six-pixel gauge with its 60 and 85 percent marks: every element is one the app already ships, at its shipped values.\n\nFour figures a person understands at a glance: tokens, turns, bounces, and what is waiting on them. Then who spent what, ranked, with the metric switchable. Then runway as the usage gauges."
     },
     {
-      "id": "hero",
+      "id": "real",
       "x": 500,
-      "y": -300,
+      "y": -260,
       "w": 460,
-      "text": "The hero is the team's day, drawn from its own timestamps.\n\nOne row per task with an attempt today: grey before pickup, blue while a worker held it, grey while it waited for a verdict, amber only where that wait is still open past the daemon's two-hour floor. A tick per report, a taller one per hold, a numeral where ticks fall too close to draw apart. Nothing is typed: timeline.py reads the plan store, gen_board.py draws it.\n\nThe bar above it is task time summed over tasks, 15 h 06 m against an 8-hour clock, because up to four agents ran at once; nearly half its waiting is a clock still running on two open reviews."
+      "text": "Every token figure is summed from the agents' own session logs, the files the KPI ledger imports when it is on: 12 Claude sessions under ~/.claude/projects and 2 Codex rollouts under ~/.codex/sessions. tokens.py extracts them into tokens.json; gen_board.py draws the frames. Read at 22:12.\n\nWhat the numbers say without a sentence: design work wrote 64 percent of today's output tokens, the Orchestrator took 37 percent of all turns and read 54 percent of all context, and 1.2 billion of the 1.22 billion input tokens came back from cache."
     },
     {
       "id": "two-versions",
       "x": 1040,
-      "y": -220,
+      "y": -200,
       "w": 440,
-      "text": "The two versions are the same figures and the same day. The watcher version adds its three messages placed on the time axis and its log beneath.\n\nThirteen of fifteen conclusions on the catalogue are arithmetic a reader does from the figures beside each other; the watcher improves exactly two, both judgments over prose agents wrote."
-    },
-    {
-      "id": "real-figures",
-      "x": 2080,
-      "y": -220,
-      "w": 390,
-      "text": "Every figure and every bar is read from plan pl_ad3tcu, the tab snapshot and codeterm usage at 21:52. Nothing is measured by the KPI ledger: kpi.enabled is false on this machine, so the conditions line says so instead of showing a zero. The Hugo figures on the state sheet are the one measured run on record, another team."
+      "text": "The two versions are the same board. The watcher version adds a chip in the header and one card of what it wrote and to whom. Everything on the board is arithmetic a person reads directly; the watcher improves only the two conclusions on the catalogue that are judgments over prose."
     },
     {
       "id": "unobserved",
-      "x": 2540,
-      "y": -220,
-      "w": 300,
-      "text": "Rendered pixels were not observed: the Chrome extension is not connected in any of our three sessions. Layout is reasoned from the kit's own CSS; every value is lifted from tokens.css and globals.css."
-    },
-    {
-      "id": "baseline",
-      "x": 1040,
-      "y": 4140,
-      "w": 800,
-      "text": "We tried to compare tonight with this team's past and the past contains no comparable work. One rule, two baselines, opposite outcomes: the verdict median failed every test and became ranges; the holds median passed three, survived the attack aimed at it, and failed only on wording. A surface that quotes a baseline it cannot support is worse than one that quotes none."
+      "x": 2080,
+      "y": -200,
+      "w": 390,
+      "text": "Rendered pixels were not observed: the Chrome extension is not connected in this session. Layout is reasoned from the kit's own CSS; every value is lifted from tokens.css, globals.css and the usage panel's stylesheet."
     }
-  ]
+  ],
+  "launch": {
+    "view": "canvas"
+  }
 }
