@@ -20,6 +20,8 @@ enum KpiCommand {
 
 struct RecorderInner {
     tx: Sender<KpiCommand>,
+    /// Read side for callers that project ledger aggregates; writes stay on the thread.
+    ledger: Arc<KpiLedger>,
 }
 
 /// Cheap to clone; a disabled recorder holds no channel, no thread and no db file.
@@ -52,6 +54,7 @@ impl KpiRecorder {
     }
 
     pub fn with_ledger(ledger: Arc<KpiLedger>) -> Self {
+        let reader = Arc::clone(&ledger);
         let (tx, rx) = channel::<KpiCommand>();
         std::thread::Builder::new()
             .name("kpi-ledger".into())
@@ -82,8 +85,14 @@ impl KpiRecorder {
             })
             .expect("spawn kpi-ledger thread");
         Self {
-            inner: Some(Arc::new(RecorderInner { tx })),
+            inner: Some(Arc::new(RecorderInner { tx, ledger: reader })),
         }
+    }
+
+    /// `None` when the flag is off — the caller then renders its not-recording state
+    /// instead of falling back to any other source.
+    pub fn ledger(&self) -> Option<Arc<KpiLedger>> {
+        self.inner.as_ref().map(|inner| Arc::clone(&inner.ledger))
     }
 
     /// Choke points must gate attribution work on this — when off, nothing is resolved.
