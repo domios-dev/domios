@@ -3,7 +3,7 @@ use std::time::{Duration, SystemTime};
 
 use crate::host_traits::PluginProviderRegistrar;
 use crate::provider::AgentProvider;
-use crate::webhook::{WebhookReceiveContext, WebhookReceiver};
+use crate::webhook::WebhookReceiveContext;
 
 struct TestRegistrar {
     providers: parking_lot::Mutex<Vec<(String, Box<dyn AgentProvider>)>>,
