@@ -25,20 +25,17 @@ snapshot and `codeterm usage` on the night of drawing. The KPI ledger was off
 on that machine, so the effort card shows its not-recording state and no ledger
 figure on the canvas is measured.
 
-## The day strip is generated, not drawn
+## The board is generated, not drawn
 
-`timeline.py` reads the plan's attempt records and milestones out of the plan
-store into `timeline.json`; `gen_board.py` draws `Main`, `Watcher` and `Phone`
-from that file, so every bar, tick and figure on the board is a timestamp the
-daemon recorded. Re-run both, then paste `_kit.css` into the style block (the
-generator leaves a `/*KIT*/` marker), to redraw the board for another night.
+`tokens.py` sums every agent's token usage from its own session log, the
+Claude jsonl files under `~/.claude/projects` and the Codex rollouts under
+`~/.codex/sessions`, which are the files the KPI ledger imports when it is on,
+and writes them with the plan's counts and holds into `tokens.json`.
+`gen_board.py` draws `Main`, `Watcher` and `Phone` from that file, so every
+figure on the board is read, not typed. The runway gauges are the one
+exception: their percentages are copied from `codeterm usage latest` and the
+Codex rollout's rate-limit record at the time of the read, and the generator
+names them at its top.
 
-To check the headline figure: it equals pick-up plus working plus waiting
-elapsed plus waiting still running, each summed over the rows of
-`timeline.json` as assigned minus created, reported minus assigned, closed
-minus reported for closed attempts, and now minus reported for open ones. The
-four segments of the summary bar are those same four terms in that order, so
-the bar and the strip cannot disagree. Two of the terms contain now, so the
-figure grows between reads without an event; a re-run that differs from a
-committed frame by minutes is time passing, not a defect. A cancelled task with
-no attempt is not a row, because nobody is waiting for it.
+Re-run both, then paste `_kit.css` into the style block (the generator leaves a
+`/*KIT*/` marker), to redraw the board for another night.

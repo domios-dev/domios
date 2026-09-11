@@ -1,118 +1,88 @@
-import json, os, time, html
+"""Draw Main, Watcher and Phone from tokens.json with the product's own kit."""
+import json, os, html
 
-SC = os.path.dirname(os.path.abspath(__file__))
-OUT = os.path.dirname(os.path.abspath(__file__))
-D = json.load(open(os.path.join(SC, "timeline.json"), encoding="utf-8"))
-now, approved = D["now"], D["approved"]
-rows = [r for r in D["rows"] if any(a.get("assigned") for a in r["attempts"])]
-origin = min(r["created"] for r in D["rows"] if any(a.get("assigned") for a in r["attempts"]))
-span = now - origin
+HERE = os.path.dirname(os.path.abspath(__file__))
+D = json.load(open(os.path.join(HERE, "tokens.json"), encoding="utf-8"))
 
-def hm(ts): return time.strftime("%H:%M", time.localtime(ts / 1000))
+# Read from `codeterm usage latest` and the Codex rollout's rate_limits at the time tokens.json was written.
+USAGE = [("Claude session", 24, "resets 23:10 · in 58m", "session"), ("Claude weekly", 27, "resets Sat 17:00", "weekly"), ("Codex weekly", 80, "resets Tue 05:50", "codex")]
+
+agents = D["agents"]
+T = {k: sum(a["usage"][k] for a in agents) for k in ("turns", "output", "cache_read", "cache_write", "uncached")}
+by_role = {}
+for a in agents:
+    r = "design" if a["role"].startswith("frontend-designer") else ("fix" if a["role"] not in ("orchestrator", "planner") else a["role"])
+    a["group"] = r
+    by_role.setdefault(r, 0)
+    by_role[r] += a["usage"]["output"]
+orch = next(a for a in agents if a["group"] == "orchestrator")
+c = D["counts"]
+hold = D["holds"][0] if D["holds"] else None
+
+
+def n(v):
+    v = float(v)
+    for s, d in (("B", 1e9), ("M", 1e6), ("K", 1e3)):
+        if v >= d:
+            x = v / d
+            return (f"{x:.1f}" if x < 10 else f"{x:.0f}") + s
+    return f"{v:.0f}"
+
+
 def dur(m):
     m = int(round(m)); h, mm = divmod(m, 60)
     return f"{h} h {mm:02d} m" if h else f"{mm} min"
 
-# aggregates
-work = sum((a["reported"] - a["assigned"]) for r in rows for a in r["attempts"] if a.get("reported") and a.get("assigned")) / 60000
-wait = sum(((a["closed"] or now) - a["reported"]) for r in rows for a in r["attempts"] if a.get("reported")) / 60000
-wait_open = sum((now - a["reported"]) for r in rows for a in r["attempts"] if a.get("reported") and not a.get("closed")) / 60000
-wait_closed = wait - wait_open
-pickup = sum((r["attempts"][0]["assigned"] - r["created"]) for r in rows if r["attempts"] and r["attempts"][0].get("assigned")) / 60000
-FLOOR = 120 * 60000
 
-def strip(width, label_w, phone=False):
-    rh = 20 if phone else 24
-    bar = 6 if phone else 8
-    scale = width / span
-    x = lambda t: max(0, min(width, (t - origin) * scale))
-    out = []
-    for r in rows:
-        name = r["name"]
-        who = (r["attempts"][0].get("who") if r["attempts"] else None) or ""
-        done = r["status"] in ("done", "cancelled")
-        ncol = "#484f58" if done else "#828a92"
-        maxc = 16 if phone else 30
-        short = name if len(name) <= maxc else name[:maxc - 1].rstrip() + "…"
-        segs = []
-        if r["attempts"] and r["attempts"][0].get("assigned"):
-            x0, x1 = x(r["created"]), x(r["attempts"][0]["assigned"])
-            segs.append(f'<div title="waiting to be picked up {dur((r["attempts"][0]["assigned"]-r["created"])/60000)}" style="position: absolute; left: {x0:.1f}px; width: {max(2, x1-x0-2):.1f}px; top: {(rh-bar)//2}px; height: {bar}px; border-radius: 1px; background: #232930;"></div>')
-        for a in r["attempts"]:
-            if a.get("assigned") and a.get("reported"):
-                x0, x1 = x(a["assigned"]), x(a["reported"])
-                segs.append(f'<div title="{html.escape(who)} working {dur((a["reported"]-a["assigned"])/60000)}" style="position: absolute; left: {x0:.1f}px; width: {max(2, x1-x0-2):.1f}px; top: {(rh-bar)//2}px; height: {bar}px; border-radius: 1px; background: #58a6ff;"></div>')
-                if a.get("reported"):
-                    end = a["closed"] or now
-                    x2, x3 = x(a["reported"]), x(end)
-                    over = (not a.get("closed")) and (end - a["reported"] > FLOOR)
-                    color = "#d29922" if over else "rgba(72,79,88,0.55)"
-                    segs.append(f'<div title="waiting for a verdict {dur((end-a["reported"])/60000)}{"" if a.get("closed") else ", still running"}" style="position: absolute; left: {x2+1:.1f}px; width: {max(2, x3-x2-1):.1f}px; top: {(rh-bar)//2}px; height: {bar}px; border-radius: 1px; background: {color};"></div>')
-                    if not a.get("closed"):
-                        segs.append(f'<div title="still running" style="position: absolute; left: {x3-1:.1f}px; width: 2px; top: {(rh-bar)//2 - 3}px; height: {bar+6}px; background: #c9d1d9;"></div>')
-            elif a.get("assigned"):
-                x0 = x(a["assigned"])
-                segs.append(f'<div title="{html.escape(who)} working {dur((now-a["assigned"])/60000)}, no report yet" style="position: absolute; left: {x0:.1f}px; width: {max(2, width-x0):.1f}px; top: {(rh-bar)//2}px; height: {bar}px; border-radius: 1px; background: #58a6ff;"></div>')
-                segs.append(f'<div title="still running" style="position: absolute; left: {width-1:.1f}px; width: 2px; top: {(rh-bar)//2 - 3}px; height: {bar+6}px; background: #c9d1d9;"></div>')
-        for h in r["holds"]:
-            segs.append(f'<div title="held {hm(h)}" style="position: absolute; left: {x(h)-1:.1f}px; width: 2px; top: {(rh-bar)//2 - 4}px; height: {bar+8}px; background: #d29922;"></div>')
-        clusters = []
-        for rp in sorted(r["reports"]):
-            if clusters and x(rp) - clusters[-1][0] < 6: clusters[-1][1] += 1
-            else: clusters.append([x(rp), 1])
-        for cx, n in clusters:
-            segs.append(f'<div title="{n} report{"s" if n > 1 else ""}" style="position: absolute; left: {cx:.1f}px; width: 1px; top: {(rh-bar)//2 + bar + 2}px; height: 4px; background: #828a92;"></div>')
-            if n > 1:
-                segs.append(f'<span style="position: absolute; left: {cx+3:.1f}px; top: {(rh-bar)//2 + bar - 1}px; font-family: JetBrains Mono, Consolas, monospace; font-size: .6875rem; line-height: 1; color: #828a92;">{n}</span>')
-        whotxt = f' <span style="color: #484f58;">{html.escape(who)}</span>' if who and not phone else ""
-        out.append(
-            f'<div style="display: grid; grid-template-columns: {label_w}px minmax(0, 1fr); gap: 8px; align-items: center; height: {rh}px;">'
-            f'<span style="font-size: .6875rem; color: {ncol}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{html.escape(short)}{whotxt}</span>'
-            f'<div style="position: relative; height: {rh}px; min-width: 0;">{"".join(segs)}</div></div>')
-    # axis
-    ticks = []
-    t0 = origin
-    first = (int(t0 / 3600000) + 1) * 3600000
-    t = first
-    while t < now:
-        if (not phone) or (int(t / 3600000) % 2 == 0):
-            ticks.append(f'<span style="position: absolute; left: {x(t):.1f}px; transform: translateX(-50%); font-family: JetBrains Mono, Consolas, monospace; font-size: .6875rem; color: #484f58;">{hm(t)}</span>')
-        t += 3600000
-    appr = f'<span style="position: absolute; left: {x(approved):.1f}px; top: -1px; width: 1px; height: 5px; background: #484f58;"></span><span style="position: absolute; left: {x(approved)+4:.1f}px; font-size: .6875rem; color: #484f58;">approved</span>'
-    axis = (f'<div style="display: grid; grid-template-columns: {label_w}px minmax(0, 1fr); gap: 8px; align-items: start; height: 18px;">'
-            f'<span style="font-size: .6875rem; color: #484f58;">{"" if phone else "from " + hm(origin)}</span>'
-            f'<div style="position: relative; height: 18px; border-top: 1px solid #232930;">{"" if phone else appr}{"".join(ticks)}'
-            f'<span style="position: absolute; right: 0; transform: translateX(0); font-family: JetBrains Mono, Consolas, monospace; font-size: .6875rem; color: #c9d1d9;">now {hm(now)}</span></div></div>')
-    nowline = f'<div style="position: absolute; right: 0; top: 0; bottom: 18px; width: 1px; background: rgba(201,209,217,0.35); animation: ct-now-breathe 2.6s cubic-bezier(.42,0,.58,1) infinite;"></div>'
-    return (f'<div style="position: relative; display: flex; flex-direction: column; gap: 0;">'
-            f'<div style="position: absolute; left: {label_w+8}px; right: 0; top: 0; bottom: 0; pointer-events: none;">{nowline}</div>'
-            f'{"".join(out)}{axis}</div>')
+def status_chip(a):
+    s = a["status"]
+    if a["label"] in ("tab-gone", "pane-gone"):
+        return ("gone", "#ff7b72")
+    if a["group"] in ("orchestrator", "planner"):
+        return ("working" if a["group"] == "orchestrator" else "idle", "#828a92")
+    return ({"in review": "in review", "done": "done", "in progress": "working"}.get(s, s), {"in review": "#d29922", "done": "#7ee787", "in progress": "#58a6ff"}.get(s, "#828a92"))
 
-def split_bar(width):
-    tot = work + wait + pickup
-    parts = [("waiting to be picked up", pickup, "#232930"), ("working", work, "#58a6ff"), ("waiting for a verdict, elapsed", wait_closed, "rgba(72,79,88,0.55)"), ("waiting for a verdict, still running", wait_open, "rgba(72,79,88,0.55)")]
-    cells = "".join(f'<div title="{n} {dur(v)}" style="width: {max(2, v/tot*width-2):.1f}px; height: 8px; border-radius: 1px; background: {c};"></div>' for n, v, c in parts)
-    cells += '<div title="still running" style="width: 2px; height: 14px; margin-left: -2px; background: #c9d1d9;"></div>'
-    return (f'<div style="display: flex; flex-direction: column; gap: 6px;">'
-            f'<div class="fig"><span class="figure">{dur(tot)}</span><span class="unit">of task time today, summed over tasks; up to four agents ran at once, so this is not the clock</span></div>'
-            f'<div style="display: flex; gap: 2px; align-items: center;">{cells}</div>'
-            f'<p class="q" style="margin: 0;"><b>{dur(pickup)}</b> waiting to be picked up · <b>{dur(work)}</b> working · <b>{dur(wait)}</b> waiting for a verdict, of which <b>{dur(wait_open)}</b> is a clock still running on two open reviews</p></div>')
 
 STYLE = """
-.kpi { display: flex; flex-direction: column; gap: 6px; padding: 12px; min-width: 0; }
-.kpi .fig { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-.kpi .fig .unit { font-size: 0.8125rem; color: #828a92; }
-.q { font-size: 0.8125rem; line-height: 1.45; color: #828a92; margin: 0; }
-.q b { color: #c9d1d9; font-weight: 500; }
-.kpi .read { font-size: 0.8125rem; line-height: 1.45; color: #c9d1d9; margin: 0; padding-top: 6px; border-top: 1px solid color-mix(in srgb, #232930 65%, transparent); }
-.cond { font-size: 0.8125rem; line-height: 1.5; color: #828a92; margin: 0; }
-.cond b { color: #c9d1d9; font-weight: 500; }
+.seg { --seg-count: 3; --seg-index: 2; position: relative; display: inline-flex; overflow: hidden; padding: 3px; border: 1px solid #232930; border-radius: 999px; background: color-mix(in srgb, #141b24 80%, transparent); height: 26px; box-sizing: border-box; }
+.seg .thumb { position: absolute; z-index: 0; top: 3px; bottom: 3px; left: 3px; width: calc((100% - 6px) / var(--seg-count)); border: 1px solid color-mix(in srgb, #58a6ff 45%, transparent); border-radius: 999px; background: color-mix(in srgb, #58a6ff 22%, transparent); transform: translateX(calc(var(--seg-index) * 100%)); pointer-events: none; }
+.seg .opt { position: relative; z-index: 1; display: flex; flex: 1 0 0; align-items: center; justify-content: center; gap: .375rem; padding: 0 .75rem; border: 0; border-radius: 999px; background: transparent; color: #828a92; font-size: .6875rem; white-space: nowrap; cursor: pointer; }
+.seg .opt[aria-selected="true"] { color: #c9d1d9; font-weight: 600; }
+.status { display: flex; flex-direction: column; gap: .45rem; padding: .7rem .8rem; border: 1px solid #232930; border-radius: 12px; background: color-mix(in srgb, #0d1117 94%, #141b24); }
+.status .topline { display: flex; align-items: center; justify-content: space-between; gap: .75rem; min-width: 0; }
+.chips { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; min-width: 0; }
+.chip { display: inline-flex; align-items: center; gap: .3rem; padding: .1rem .45rem; font-size: .72rem; line-height: 1.4; border: 1px solid #232930; border-radius: 999px; color: #c9d1d9; }
+.chip .role { opacity: .65; text-transform: uppercase; font-size: .62rem; letter-spacing: .04em; }
+.chip.state { border-color: color-mix(in srgb, #58a6ff 40%, transparent); color: #58a6ff; }
+.done-count { flex-shrink: 0; color: #828a92; font-size: .75rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.title { color: #c9d1d9; font-size: .98rem; font-weight: 700; line-height: 1.3; }
+.card { display: flex; flex-direction: column; gap: 8px; padding: 12px; min-width: 0; }
+.card h2 { margin: 0; font-size: 0.8125rem; font-weight: 600; color: #c9d1d9; }
+.amount { font-family: "JetBrains Mono", "Cascadia Code", Consolas, monospace; font-size: 26px; font-weight: 600; color: #c9d1d9; letter-spacing: .01em; line-height: 1.1; }
+.amount.warn { color: #d29922; }
+.caption { font-size: 11px; color: #828a92; }
+.small { font-size: 11px; color: #828a92; line-height: 1.5; margin: 0; }
+.small b { color: #c9d1d9; font-weight: 500; font-family: "JetBrains Mono", Consolas, monospace; font-size: 11px; }
+.row { display: grid; grid-template-columns: 96px 118px minmax(0, 1fr) 64px 72px 74px; gap: 10px; align-items: center; height: 26px; }
+.row .name { font-size: 0.8125rem; color: #c9d1d9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .who { font-size: .6875rem; color: #484f58; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.track { position: relative; height: 6px; border-radius: 99px; background: color-mix(in srgb, #c9d1d9 8%, transparent); overflow: hidden; }
+.fill { height: 100%; border-radius: inherit; background: linear-gradient(90deg, color-mix(in srgb, #58a6ff 70%, transparent), #58a6ff); }
+.val { font-family: "JetBrains Mono", Consolas, monospace; font-variant-numeric: tabular-nums; font-size: 12px; font-weight: 600; color: #c9d1d9; text-align: right; }
+.turns { font-family: "JetBrains Mono", Consolas, monospace; font-variant-numeric: tabular-nums; font-size: 11px; color: #828a92; text-align: right; white-space: nowrap; }
+.st { font-size: .6875rem; text-align: right; white-space: nowrap; }
+.gauge { display: grid; grid-template-columns: 1fr auto; align-items: baseline; column-gap: 10px; }
+.gauge .label { font-size: 11px; color: #c9d1d9; font-weight: 500; letter-spacing: .02em; }
+.gauge .pct { font-family: "JetBrains Mono", Consolas, monospace; font-variant-numeric: tabular-nums; font-size: 12px; font-weight: 600; color: #c9d1d9; }
+.gauge .pct.warn { color: #d29922; }
+.gauge .bar { grid-column: 1 / 3; position: relative; margin-top: 6px; height: 6px; border-radius: 99px; background: color-mix(in srgb, #c9d1d9 8%, transparent); overflow: hidden; }
+.gauge .bar::before, .gauge .bar::after { content: ""; position: absolute; top: 0; bottom: 0; width: 1px; background: color-mix(in srgb, #c9d1d9 8%, transparent); }
+.gauge .bar::before { left: 60%; } .gauge .bar::after { left: 85%; }
+.gauge .bar .fill { position: absolute; inset: 0 auto 0 0; }
+.gauge .reset { grid-column: 1 / 3; margin-top: 4px; font-family: "JetBrains Mono", Consolas, monospace; font-size: 9.5px; color: #828a92; letter-spacing: .02em; }
 .log { display: grid; grid-template-columns: 44px 68px minmax(0, 1fr); gap: 5px 10px; font-size: 0.8125rem; line-height: 1.45; }
 .log .t { font-family: "JetBrains Mono", Consolas, monospace; font-size: .6875rem; color: #484f58; padding-top: 2px; }
-.log .to { color: #828a92; }
-.log .m { color: #c9d1d9; }
-@keyframes ct-now-breathe { 0%, 100% { opacity: .35; } 50% { opacity: .9; } }
-@media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+.log .to { color: #828a92; } .log .m { color: #c9d1d9; }
 """
 
 HEAD = """<!doctype html>
@@ -131,89 +101,95 @@ HEAD = """<!doctype html>
 </helmet>
 """
 
-def toolbar(phone=False):
-    pad = ' style="padding: 0 .5rem;"' if phone else ""
+
+def switcher(labels, selected):
+    idx = labels.index(selected)
+    opts = "".join(f'<button class="opt" role="tab" aria-selected="{"true" if l == selected else "false"}">{l}</button>' for l in labels)
+    return f'<div class="seg" role="tablist" style="--seg-count: {len(labels)}; --seg-index: {idx};"><span class="thumb" aria-hidden="true"></span>{opts}</div>'
+
+
+def toolbar(phone):
     right = "" if phone else '<span class="ct-meta-muted">Planck\'s team</span>'
-    return (f'<div class="ct-toolbar"{pad}><div style="display: flex; align-items: stretch; gap: 0;">'
-            '<button class="ct-panel-tab ct-panel-tab--active">Board</button><button class="ct-panel-tab">Spec</button>'
-            f'<button class="ct-panel-tab">Plan</button><button class="ct-panel-tab">Tasks</button></div>{right}</div>')
+    return f'<div class="ct-toolbar"{" style=\"padding: 0 .5rem;\"" if phone else ""}>{switcher(["Board", "Tasks", "Spec", "Plan"], "Board")}{right}</div>'
 
-def header(watcher=False, phone=False):
-    meta = "Planck · Pasteur planning · 3 agents live" + (" · a watcher on haiku" if watcher else "")
-    right = "" if phone else f'<span class="ct-meta-muted" style="white-space: nowrap;">{meta}</span>'
-    line = ('<p class="ct-meta" style="margin: 0;"><span style="color: #c9d1d9">Two verdicts and one task, then done.</span> '
-            + ("" if phone else 'Last activity 21:43: Planck accepted <span style="color: #c9d1d9">Design the team view as mission control</span>. ')
-            + 'Eight finished lanes not cleaned.' + ("" if phone else ' <button class="door" style="display: inline;">Plan</button>') + '</p>')
-    return (f'<div style="display: flex; flex-direction: column; gap: 6px; padding: 4px 2px 0;">'
-            f'<div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;"><span class="plan-title">CodeTerm 1.10.17 — land the fix wave and triage the issue backlog</span>{right}</div>'
-            '<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px;"><span class="ct-small-pill ct-chip-accent">execution</span>'
-            '<span class="ct-plan-status-breakdown"><span style="color: #58a6ff">0 todo</span><span class="sep">&nbsp;·&nbsp;</span><span style="color: #d29922">2 review</span><span class="sep">&nbsp;·&nbsp;</span><span style="color: #ff7b72">0 blocked</span><span class="sep">&nbsp;·&nbsp;</span><span style="color: #7ee787">9 done</span></span>'
-            f'<span class="ct-meta-muted">of 13, one cancelled</span></div>{line}</div>')
 
-def cards(phone=False, with_read=True):
-    read = '<p class="read">Ordinary for you, and what the plan waits on.</p>' if with_read else ""
-    c = [
-        ('<div class="fig"><span class="figure amber">3 h 34 m</span><span class="unit">oldest verdict outstanding</span></div>'
-         '<p class="q"><b>2</b> of 5 review slots · credit <b>−2</b>, three closures from the wall</p>'
-         + ("" if phone else '<p class="q">Tonight\'s closed verdicts took <b>0 min to 1 h 52 m</b></p>')),
-        ('<div class="fig"><span class="figure">2 of 3</span><span class="unit">agents idle, waiting on a verdict</span></div>'
-         '<p class="q"><b>1</b> working · <b>0</b> stuck on a question · <b>1</b> tab gone today</p>'),
-        ('<div class="fig"><span class="figure amber">3 h 34 m</span><span class="unit">stopped on your approval</span></div>'
-         '<p class="q">Asked twice; the current ask is 53 minutes old: <b>pending the user\'s direct approval, not on quality</b></p>'
-         '<p class="q">Half of your holds clear in 20 min to 4 h</p>' + read),
-        ('<div class="fig"><span class="figure">9</span><span class="unit">finished today, each on the first attempt</span></div>'
-         '<p class="q">Workers held them <b>5 min to 1 h 50 m</b></p>'
-         + ("" if phone else '<p class="q">Verdicts then took <b>0 min to 1 h 52 m</b> · two open now, 29 min and 3 h 34 m</p>')),
-        ('<div class="fig"><span class="figure">16 of 32</span><span class="unit">reports tonight were on one task</span></div>'
-         '<p class="q"><b>7</b> reported no change; the task did not move</p>'),
-    ]
-    cols = "repeat(2, minmax(0, 1fr))" if phone else "repeat(3, minmax(0, 1fr))"
-    inner = "".join(f'<div class="ct-panel-card kpi">{x}</div>' for x in c)
-    return f'<div style="display: grid; grid-template-columns: {cols}; gap: {8 if phone else 12}px; align-items: stretch;">{inner}</div>'
+def status_header(phone, watcher):
+    chips = ('<span class="chip state">execution</span>'
+             '<span class="chip"><span class="role">orchestrator</span>Planck</span>'
+             '<span class="chip"><span class="role">planner</span>Pasteur</span>'
+             + ('<span class="chip"><span class="role">watcher</span>haiku, every 5 min</span>' if watcher else ""))
+    dc = f'{c["done"]} of {D["total_tasks"]} done · {c["in_review"]} in review' + ("" if phone else f' · {c["cancelled"]} cancelled')
+    return (f'<div class="status"><div class="topline"><div class="chips">{chips}</div><span class="done-count">{dc}</span></div>'
+            f'<div class="topline"><span class="title">{html.escape(D["title"])}</span></div></div>')
 
-def cond(watcher=False, phone=False):
-    extra = ", so the watcher cannot read them either" if watcher else ""
-    door = '<button class="door" style="display: inline;">Settings</button>'
-    return (f'<p class="cond">Weekly <b>25 %</b>, projected <b>50 %</b> by the reset at high confidence; session <b>12 %</b>, resets 23:10. '
-            f'Chasing and compactions are not being recorded: the KPI ledger is off{extra}. {door}</p>')
 
-def day_card(width, label_w, phone=False, watcher=False):
-    marks = ""
-    if watcher and not phone:
-        # the watcher's own messages, placed in time above the strip
-        scale = width / span
-        pts = [("18:24", "to you", 18*60+24), ("21:05", "to Planck", 21*60+5), ("21:35", "to Planck", 21*60+35)]
-        base = time.localtime(now / 1000); day0 = time.mktime((base.tm_year, base.tm_mon, base.tm_mday, 0, 0, 0, 0, 0, -1)) * 1000
-        ms = "".join(f'<span style="position: absolute; left: {max(0,(day0 + m*60000 - approved)*scale):.1f}px; transform: translateX(-50%); font-size: .6875rem; color: #c9d1d9; white-space: nowrap;">{t} {who}</span>' for t, who, m in pts)
-        marks = (f'<div style="display: grid; grid-template-columns: {label_w}px minmax(0, 1fr); gap: 8px; height: 18px;"><span class="q" style="font-size: .6875rem;">the watcher wrote</span>'
-                 f'<div style="position: relative; height: 18px;">{ms}</div></div>')
-    cap = ("Today, by task: dark before pickup, blue while a worker held it, grey while it waited for a verdict. A bright edge at the end of a bar is a clock still running; amber is that clock past the two-hour floor. A tick for each report, a taller one for each hold; a numeral where reports fell too close to draw apart."
-           if not phone else "Blue: a worker held it. Grey: waiting for a verdict. A bright end: still running. Amber: past the floor. Ticks: reports.")
-    return (f'<div class="ct-panel-card kpi" style="gap: 10px;">'
-            f'{split_bar(width + label_w + 8)}'
-            f'<div style="padding-top: 10px; border-top: 1px solid color-mix(in srgb, #232930 65%, transparent);"><p class="q">{cap}</p></div>{marks}{strip(width, label_w, phone)}</div>')
+def stat_cards(phone):
+    tokens = (f'<div class="ct-panel-card card"><h2>Tokens today</h2>'
+              f'<div><div class="amount">{n(T["output"])}</div><div class="caption">output tokens, all agents on this plan</div></div>'
+              f'<p class="small"><b>{n(T["cache_read"])}</b> of context read back from cache · <b>{n(T["cache_write"])}</b> written to cache · <b>{n(T["uncached"])}</b> fresh input</p>'
+              + ("" if phone else f'<p class="small">Design work wrote <b>{100*by_role["design"]/T["output"]:.0f} %</b> of the output; the orchestrator read <b>{100*orch["usage"]["cache_read"]/T["cache_read"]:.0f} %</b> of all context.</p>')
+              + '</div>')
+    turns = (f'<div class="ct-panel-card card"><h2>Turns</h2><div><div class="amount">{T["turns"]:,}</div><div class="caption">model turns today</div></div>'
+             f'<p class="small">Planck took <b>{100*orch["usage"]["turns"]/T["turns"]:.0f} %</b> of them</p></div>')
+    bounces = (f'<div class="ct-panel-card card"><h2>Bounces</h2><div><div class="amount">{D["second_attempts"]}</div><div class="caption">tasks sent back for a second attempt</div></div>'
+               f'<p class="small"><b>{D["attempts"]}</b> attempts · <b>{D["first_try"]}</b> finished on the first</p></div>')
+    if hold:
+        wait = (f'<div class="ct-panel-card card"><h2>Waiting on you</h2><div><div class="amount warn">{dur(hold["waiting_min"])}</div><div class="caption">one verdict held for your approval</div></div>'
+                f'<p class="small">Held <b>{hold["holds"]}</b> times, the latest {dur(hold["latest_min"])} ago</p></div>')
+    else:
+        wait = '<div class="ct-panel-card card"><h2>Waiting on you</h2><div><div class="amount">0</div><div class="caption">nothing needs your answer</div></div></div>'
+    cols = "repeat(2, minmax(0, 1fr))" if phone else "1.6fr 1fr 1fr 1fr"
+    return f'<div style="display: grid; grid-template-columns: {cols}; gap: {8 if phone else 12}px; align-items: stretch;">{tokens}{turns}{bounces}{wait}</div>'
 
-def log_card():
-    return ('<div class="ct-panel-card kpi" style="gap: 8px;">'
-            '<div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px;"><span class="q" style="color: #c9d1d9;">What the watcher wrote today</span>'
-            '<span class="ct-meta-muted">wakes every five minutes · last woke 3 min ago and said nothing new</span></div>'
+
+def by_agent(phone):
+    rows = sorted(agents, key=lambda a: -a["usage"]["output"])
+    top = rows[0]["usage"]["output"]
+    shown = rows[:6] if phone else rows
+    out = []
+    for a in shown:
+        u = a["usage"]; chip, col = status_chip(a)
+        pct = 100 * u["output"] / top
+        who = f'{a["group"]} · {a["model"]}'
+        if phone:
+            out.append(f'<div class="row" style="grid-template-columns: 72px minmax(0, 1fr) 52px; height: 24px;"><span class="name">{html.escape(a["name"])}</span><div class="track"><div class="fill" style="width: {pct:.1f}%;"></div></div><span class="val">{n(u["output"])}</span></div>')
+        else:
+            out.append(f'<div class="row"><span class="name">{html.escape(a["name"])}</span><span class="who">{who}</span><div class="track"><div class="fill" style="width: {pct:.1f}%;"></div></div><span class="val">{n(u["output"])}</span><span class="turns">{u["turns"]:,} turns</span><span class="st" style="color: {col};">{chip}</span></div>')
+    more = f'<p class="small">and {len(rows) - len(shown)} more, {n(sum(a["usage"]["output"] for a in rows[len(shown):]))} between them</p>' if len(shown) < len(rows) else ""
+    head = ('<div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;"><h2>By agent</h2>'
+            + ("" if phone else switcher(["Output", "Context read", "Turns"], "Output")) + '</div>')
+    return f'<div class="ct-panel-card card">{head}<div style="display: flex; flex-direction: column; gap: 2px;">{"".join(out)}</div>{more}</div>'
+
+
+def runway(phone):
+    gs = []
+    for label, pct, reset, kind in USAGE:
+        warn = pct >= 60
+        fill = "#d29922" if warn else {"session": "#93a6c8", "weekly": "#a78bfa", "codex": "#93a6c8"}[kind]
+        gs.append(f'<div class="gauge"><span class="label">{label}</span><span class="pct{" warn" if warn else ""}">{pct} %</span>'
+                  f'<div class="bar"><div class="fill" style="width: {pct}%; background: linear-gradient(90deg, color-mix(in srgb, {fill} 70%, transparent), {fill});"></div></div><span class="reset">{reset}</span></div>')
+    cols = "1fr" if phone else "repeat(3, minmax(0, 1fr))"
+    return f'<div class="ct-panel-card card"><h2>Runway</h2><div style="display: grid; grid-template-columns: {cols}; gap: 12px 20px;">{"".join(gs)}</div></div>'
+
+
+def watcher_card():
+    return ('<div class="ct-panel-card card"><div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px;"><h2>What the watcher wrote today</h2><span class="caption">last woke 3 min ago and said nothing new</span></div>'
             '<div class="log">'
             '<span class="t">18:24</span><span class="to">to you</span><span class="m">Stop a successful first-run spawn reporting as failed is held pending your direct approval; Planck cannot clear it alone. Nothing again until the hold clears.</span>'
-            '<span class="t">21:05</span><span class="to">to Planck</span><span class="m">Review at 4 of 5 slots and credit one closure from the wall: close a review before dispatching. Give Spec and Plan their own pages has waited 2 h and the tab that filed it is gone; that verdict is yours.</span>'
+            '<span class="t">21:05</span><span class="to">to Planck</span><span class="m">Review at 4 of 5 slots and credit one closure from the wall: close a review before dispatching.</span>'
             '<span class="t">21:35</span><span class="to">to Planck</span><span class="m">Review back to 2 of 5; the warning is withdrawn. One hold remains on the user.</span>'
-            '<span class="t">—</span><span class="to">to nobody</span><span class="m">Seven reports that moved nothing: the loop ended before the watcher woke. Two verdicts from done: a reading, not an alert. Eight lanes uncleaned: below the threshold worth saying.</span>'
             '</div></div>')
 
+
 def page(width, phone=False, watcher=False):
-    label_w = 110 if phone else 236
-    strip_w = width - 24 - 24 - label_w - 8
-    body = [header(watcher, phone), cards(phone), day_card(strip_w, label_w, phone, watcher), cond(watcher, phone)]
-    if watcher: body.append(log_card())
-    return (HEAD % (STYLE + (".ct-panel-tab { padding: .75rem .75rem; font-size: 0.875rem; }" if phone else ""))
-            + f'<div style="width: {width}px; display: flex; flex-direction: column; background: #131921;">{toolbar(phone)}'
-            + '<div style="display: flex; flex-direction: column; gap: 14px; padding: 12px 12px 16px;">' + "".join(body) + '</div></div>\n</x-dc>\n</body>\n</html>\n')
+    body = [status_header(phone, watcher), stat_cards(phone), by_agent(phone), runway(phone)]
+    if watcher:
+        body.append(watcher_card())
+    return (HEAD % STYLE + f'<div style="width: {width}px; display: flex; flex-direction: column; background: #131921;">{toolbar(phone)}'
+            + '<div style="display: flex; flex-direction: column; gap: 12px; padding: 12px 12px 16px;">' + "".join(body) + '</div></div>\n</x-dc>\n</body>\n</html>\n')
+
 
 for name, w, ph, wa in (("Main", 960, False, False), ("Watcher", 960, False, True), ("Phone", 390, True, False)):
-    open(os.path.join(OUT, name + ".src"), "w", encoding="utf-8").write(page(w, ph, wa))
+    open(os.path.join(HERE, name + ".src"), "w", encoding="utf-8").write(page(w, ph, wa))
     print(name, "written")
-print("minutes: work %.0f wait %.0f (open %.0f) pickup %.0f; origin %s" % (work, wait, wait_open, pickup, hm(origin)))
+print("tokens: output", n(T["output"]), "cache_read", n(T["cache_read"]), "turns", T["turns"], "orchestrator share %.0f%%" % (100 * orch["usage"]["turns"] / T["turns"]))
