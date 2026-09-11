@@ -1,0 +1,147 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+/* Values lifted from src/styles/tokens.css and the github-dark output of themeToCSS(); classes reproduce globals.css. */
+* { box-sizing: border-box; }
+body { margin: 0; font-family: "Inter", "Segoe UI", "Avenir Next", "Avenir", "Helvetica Neue", sans-serif; font-size: 0.8125rem; line-height: 1.45; color: #c9d1d9; background: #131921; -webkit-font-smoothing: antialiased; }
+a { color: #58a6ff; } a:hover { color: #79c0ff; }
+button { font: inherit; cursor: pointer; }
+.mono { font-family: "JetBrains Mono", "Cascadia Code", Consolas, Menlo, monospace; font-variant-numeric: tabular-nums; }
+.ct-toolbar { height: 2.5rem; display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: 0 1rem; border-bottom: 1px solid #232930; background: #131921; }
+.ct-panel-tab { border: 0; border-bottom: 2px solid transparent; background: transparent; font-size: 0.8125rem; text-transform: capitalize; color: #828a92; padding: .5rem .75rem; }
+.ct-panel-tab--active { border-bottom-color: #58a6ff; color: #c9d1d9; }
+.ct-panel-card { border: 1px solid #232930; background: #0d1117; border-radius: 8px; }
+.ct-panel-card--soft { background: color-mix(in srgb, #0d1117 85%, #c9d1d9 15%); border-style: dashed; }
+.ct-small-pill { display: inline-flex; align-items: center; gap: .25rem; min-height: 1.25rem; padding: 0 .45rem; border-radius: 999px; border: 1px solid #232930; color: #828a92; font-size: .6875rem; }
+.ct-chip-accent { border-color: color-mix(in srgb, #58a6ff 40%, transparent); color: #58a6ff; }
+.ct-chip-success { border-color: color-mix(in srgb, #7ee787 40%, transparent); color: #7ee787; }
+.ct-chip-danger { border-color: color-mix(in srgb, #ff7b72 40%, transparent); color: #ff7b72; }
+.ct-chip-warning { border-color: color-mix(in srgb, #d29922 40%, transparent); color: #d29922; }
+.ct-chip-muted { border-color: transparent; color: #484f58; }
+.ct-meta { font-size: 0.8125rem; color: #828a92; }
+.ct-meta-muted { font-size: 0.8125rem; color: #484f58; }
+.ct-kbd { min-width: 1.5rem; height: 1.25rem; padding: 0 .3rem; border-radius: .35rem; border: 1px solid #232930; background: #131921; color: #828a92; font-family: "JetBrains Mono", Consolas, monospace; font-size: .7rem; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; }
+.ct-btn { display: inline-flex; align-items: center; justify-content: center; gap: .3rem; min-height: 1.875rem; padding: 0 .75rem; border-radius: 4px; border: 1px solid #232930; background: #0d1117; color: #c9d1d9; font-size: 0.8125rem; }
+.ct-btn-ghost { background: transparent; color: #828a92; border-color: transparent; }
+.ct-btn-compact { min-height: 1.625rem; padding-top: .25rem; padding-bottom: .25rem; }
+.ct-plan-status-breakdown { display: inline-flex; gap: 0; font-size: 10.5px; font-weight: 600; line-height: 1.4; white-space: nowrap; }
+.ct-plan-status-breakdown .sep { color: #484f58; }
+/* Board layout: one 12px gap between and inside the wells; the host is chrome. */
+.card { display: flex; flex-direction: column; min-width: 0; padding: 12px; gap: 10px; }
+.card h2 { margin: 0; font-size: 0.8125rem; font-weight: 600; letter-spacing: -.006em; }
+.label { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: #484f58; font-weight: 700; }
+.door { border: 0; background: none; padding: 0; color: #58a6ff; font-size: 0.8125rem; align-self: flex-start; }
+.door:hover { text-decoration: underline; text-underline-offset: 3px; }
+.plan-title { font-size: 1rem; font-weight: 600; line-height: 1.28; letter-spacing: -.012em; color: #c9d1d9; }
+.red { color: #ff7b72; }
+.amber { color: #d29922; }
+.green { color: #7ee787; }
+/* Conclusions: ranked, unequal. The first is at reading size with air; the rest are quieter lines. */
+.lead { font-size: 1rem; line-height: 1.4; letter-spacing: -.008em; color: #c9d1d9; }
+.lead b, .line b { font-weight: 600; }
+.line { font-size: 0.8125rem; line-height: 1.45; color: #c9d1d9; padding-top: 8px; border-top: 1px solid color-mix(in srgb, #232930 65%, transparent); }
+.why { color: #828a92; }
+.who { font-size: .6875rem; color: #484f58; }
+.figure { font-size: 1.5rem; font-weight: 600; line-height: 1.1; letter-spacing: -.02em; }
+
+table { border-collapse: collapse; width: 100%; font-size: 0.8125rem; }
+th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: #484f58; font-weight: 700; padding: 6px 10px 6px 0; border-bottom: 1px solid #232930; }
+td { padding: 8px 10px 8px 0; border-bottom: 1px solid color-mix(in srgb, #232930 65%, transparent); vertical-align: top; line-height: 1.45; }
+td.k { color: #c9d1d9; font-weight: 600; width: 190px; }
+td.v { white-space: nowrap; width: 110px; }
+td.r { color: #828a92; }
+h2 { margin: 0; font-size: 1rem; font-weight: 600; letter-spacing: -.012em; }
+p { margin: 0; }
+  </style>
+</helmet>
+<div style="width: 800px; display: flex; flex-direction: column; gap: 22px; padding: 16px; background: #131921;">
+  <div style="display: flex; flex-direction: column; gap: 4px;">
+    <span class="plan-title">Which figures are worth acting on</span>
+    <span class="ct-meta">The test for every one: what would a person do differently after reading it. A figure that changes no action is a number, and numbers go behind the door.</span>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 8px;">
+    <h2>From the ledger</h2>
+    <p class="ct-meta">The ledger is off on this machine and has never been on: kpi.enabled is false and no ledger file exists. Every ledger sentence on this canvas is therefore unverified against real data, and the card needs a not-recording state distinct from zero. A card reading 0 percent chasing while nothing is counted would be a lie.</p>
+    <table>
+      <tr><th>Figure</th><th>Verdict</th><th>Why</th></tr>
+      <tr><td class="k">Chasing share</td><td class="v green">act on it</td><td class="r">Heartbeat, poll, nudge and bounce over all coordination events. Above a third the protocol is the cost: fewer polls, no acknowledgements. Hugo ran at three in four. The threshold cannot be set until the ledger has run for a week.</td></tr>
+      <tr><td class="k">Compactions per tab, with bounces</td><td class="v green">act on it</td><td class="r">A compaction row is exact and per tab. Paired with bounces on the same task it names a worker that has lost the thread, and the fix is a fresh brief. Alone it is inert.</td></tr>
+      <tr><td class="k">Sends in, reports out, per tab</td><td class="v green">act on it</td><td class="r">A send row is charged to the receiving tab, a report row to the reporting tab. One tab, two kinds, opposite directions: messaged much and reporting nothing means stop nudging and look.</td></tr>
+      <tr><td class="k">Tokens per hour against strides per hour</td><td class="v green">act on it</td><td class="r">Burn without progress. Neither spend nor work can say it alone. With chasing high it is protocol; with chasing low it is one worker grinding on a task that is too big.</td></tr>
+      <tr><td class="k">Spawns per task finished</td><td class="v amber">exception only</td><td class="r">Shows only above one and a half, excluding competition groups, with the finished count windowed to the same period as the spawns. Every task on this plan took one attempt, so it says nothing, which is right.</td></tr>
+      <tr><td class="k">Uncached input share</td><td class="v amber">behind the door</td><td class="r">The explanation for compactions, not an alarm.</td></tr>
+      <tr><td class="k">Total bytes, per kind or per plan</td><td class="v red">number</td><td class="r">Bigger is not worse. No threshold anyone would set.</td></tr>
+      <tr><td class="k">p50 and p95 bytes per kind</td><td class="v red">number</td><td class="r">For the person tuning the protocol once; nothing a team reader acts on. Argued for in the second take and withdrawn.</td></tr>
+      <tr><td class="k">Spawn count, raw</td><td class="v red">number</td><td class="r">Meaningless without the finished count.</td></tr>
+      <tr><td class="k">Input and output token totals</td><td class="v red">number</td><td class="r">Real but static; a conclusion only as a rate against progress. Money never: there is no price table.</td></tr>
+    </table>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 8px;">
+    <h2>From the plan state and the tab probe</h2>
+    <table>
+      <tr><th>Figure</th><th>Verdict</th><th>Why</th></tr>
+      <tr><td class="k">Dead Planner, undelivered requests, recovery action</td><td class="v green">act on it</td><td class="r">Three fields the daemon computes and nothing displays. The worst state the product has.</td></tr>
+      <tr><td class="k">Orchestrator tab against the probe</td><td class="v green">act on it</td><td class="r">Derived, not a field. Four states, one of which, waiting on your answer, is the highest-priority thing that can be true of a team.</td></tr>
+      <tr><td class="k">A worker's accepting-work flag</td><td class="v green">act on it</td><td class="r">The same probe on a worker holding an in-progress task: false means a prompt nobody sees. Cheap, practical, and surfaced nowhere today.</td></tr>
+      <tr><td class="k">Review gate: wip, limit, credit</td><td class="v green">act on it</td><td class="r">Read the three numbers, write our sentence one step before the wall. The gate's blocked flag is a hardcoded false and its reason appears only at the wall and ends with "Dispatch remains allowed"; ReviewWipBlocked is declared and never emitted. Never print the daemon's string. Tonight: 4 of 5 in review, credit −4.</td></tr>
+      <tr><td class="k">Drift items</td><td class="v green">act on it</td><td class="r">Tab gone, stale in review, stale pending unstaffed, bound to closed tab, accepted but not done. Each carries a suggested fix. Tonight: two stale reviews.</td></tr>
+      <tr><td class="k">Review holds and decision gates</td><td class="v green">act on it</td><td class="r">Name the person as the blocker and silence the wedge sentence while open. The hold note is printed verbatim, never paraphrased.</td></tr>
+      <tr><td class="k">Loops: iteration, budget, stagnation</td><td class="v green">act on it</td><td class="r">Near budget or stagnating is a stop decision the daemon already flags.</td></tr>
+      <tr><td class="k">Usage projection with its confidence marker</td><td class="v green">act on it</td><td class="r">Shipped. Fires only at high confidence crossing 100 before the reset with work in flight. Silent tonight at 50 percent end-of-cycle.</td></tr>
+      <tr><td class="k">Task counts, once approved</td><td class="v amber">as a sentence</td><td class="r">"Four verdicts and one task, then done" is a reading. Percent done says 54 tonight and is the least true number on the page: it counts cancelled work and weights a verdict the same as a task nobody has begun.</td></tr>
+      <tr><td class="k">Cleanup debt</td><td class="v amber">one line</td><td class="r">Six finished tasks still hold their worktrees; the daemon writes the commands. Always slightly true, so rate-limited and never a lead.</td></tr>
+      <tr><td class="k">Working time and verdict wait, per attempt</td><td class="v amber">absolutes</td><td class="r">From the attempt record: reported minus assigned is the worker holding the task, closed minus reported the wait for a verdict, summed over attempts. Quoted as ranges, never as a median: eight observations move by 80 percent when one is dropped, and the slowest verdicts are the ones not yet closed.</td></tr>
+      <tr><td class="k">Lead time, created to done</td><td class="v red">misleading</td><td class="r">Looks like how long work takes; is how long things wait. status_changed_at keeps only the last transition, so this is the field one reaches for first and it is the wrong one.</td></tr>
+      <tr><td class="k">Heartbeat learnings</td><td class="v amber">when present</td><td class="r">The team's own discoveries in its own words. On this plan the list is empty, so it is a line in the plan card when present, never a card. The second thing verifying against real data killed.</td></tr>
+      <tr><td class="k">Coverage</td><td class="v amber">negative only</td><td class="r">One sentence when a spec section has no task; nothing at 100 percent.</td></tr>
+      <tr><td class="k">Recent strides as a feed</td><td class="v red">list</td><td class="r">A feed is a task list with timestamps. The newest one, as a sentence with a name and a time, is reassurance.</td></tr>
+    </table>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 8px;">
+    <h2>From history: what survives and what did not</h2>
+    <p class="ct-meta">plans.db holds 89 plans, 2044 tasks and 1544 attempts, and nothing reads it. We tried to use it as "usually for you" and the comparison failed on its own terms: a pooled verdict median hides a 57-fold spread between executor roles, the three roles running tonight have no history at all, tonight's eight closed verdicts move by 80 percent when one is dropped, and the slowest verdicts are censored out because they have not closed. So history is quoted only as rates over thousands and as bounds, never as a per-team median.</p>
+    <table>
+      <tr><th>Figure</th><th>Verdict</th><th>Why</th></tr>
+      <tr><td class="k">Workers whose tab vanished</td><td class="v green">rate</td><td class="r">102 of 2044 tasks ended with the status label pane-gone or tab-gone, 5 percent of everything this product has run. This is why "no one left to nudge" is a permanent kind.</td></tr>
+      <tr><td class="k">Tasks needing a second attempt</td><td class="v green">rate</td><td class="r">179 of 2044, 9 percent. The baseline for "bounced repeatedly" being worth a sentence.</td></tr>
+      <tr><td class="k">Slowest tenth of verdicts</td><td class="v green">bound</td><td class="r">p90 of 1300 closed verdict waits is 82 minutes. Tonight's three hours is outside all normal experience on this machine, and that sentence is stable where a median is not.</td></tr>
+      <tr><td class="k">How long holds wait on the user</td><td class="v amber">bound, conditional</td><td class="r">115 holds across every plan, 92 resolved: a quarter clear inside 19 minutes, half inside 65, three quarters inside four hours, one in ten past a day; the 23 unresolved push the middle up, not down. Dropping the largest or smallest moves the median 7 percent where the verdict median moved 80. Tonight's 2 h 50 m sits at the 71st percentile: ordinary, and still what the plan is waiting on. That is the sentence, because the interesting thing is that the bottleneck is the normal case.</td></tr>
+      <tr><td class="k">Verdict wait, tonight against usual</td><td class="v red">dropped</td><td class="r">Replaced by absolutes on the card. A surface that quotes a baseline it cannot support is worse than one that quotes none, because the reader cannot tell which kind they are looking at.</td></tr>
+    </table>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 8px;">
+    <h2>Which tasks are interesting</h2>
+    <p class="ct-meta">A task doing what its status says is fully described by the Tasks kanban and does not appear here. Only exceptions do, and a conclusion names at most one task; more become a count that opens Tasks. That single rule is what stops the list growing back with better grammar.</p>
+    <table>
+      <tr><th>Kind</th><th>Read from</th><th>Why it earns a sentence</th></tr>
+      <tr><td class="k">Waiting on a person</td><td class="r">review holds, decision gates, Orchestrator on a question</td><td class="r">The one blocker nobody on the team can clear.</td></tr>
+      <tr><td class="k">Far too long</td><td class="r">the daemon's drift items against its stale floor</td><td class="r">Two hours unjudged in review, four in progress or pending.</td></tr>
+      <tr><td class="k">No one left to nudge</td><td class="r">drift: tab gone, bound to closed tab</td><td class="r">The Orchestrator must act itself; there is no worker to ask.</td></tr>
+      <tr><td class="k">Stuck on a question</td><td class="r">the tab probe on the holder</td><td class="r">A prompt in a tab nobody is watching.</td></tr>
+      <tr><td class="k">Nobody picked it up</td><td class="r">pending and unbound past the floor</td><td class="r">Idle capacity beside ready work. Silent one step before the review wall.</td></tr>
+      <tr><td class="k">Bounced repeatedly</td><td class="r">execution_attempts, review rounds</td><td class="r">Looping, not slow. The brief is the fix.</td></tr>
+      <tr><td class="k">Reporting without change</td><td class="r">task milestones: count, span, sha</td><td class="r">An acknowledgement loop, caught by shape.</td></tr>
+      <tr><td class="k">Loop near budget</td><td class="r">loops[]</td><td class="r">A stop decision.</td></tr>
+      <tr><td class="k">Everything else</td><td class="r">nothing</td><td class="r">Not surfaced: in progress inside the floor, in review under two hours, done, cancelled, pending on a dependency that is itself moving. Eleven of the thirteen tasks on this plan tonight.</td></tr>
+    </table>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 8px;">
+    <h2>Considered and dropped</h2>
+    <p class="ct-meta">Seven of thirteen tasks were created after the plan was approved seven and a half hours ago: true, real, and not a board reading; it belongs on the plan page as a fact about the plan. Provider vanish rate: no signal, claude 8 and codex 4 gone out of roughly 500 attempts each. Design tasks tonight took 85 to 87 minutes of working time against 10 to 24 for every engineering role in history: a Planner budgeting note, not a team reading. Pairwise chatter between two agents: the ledger has no sender column, only the receiver, so it waits on a schema change. Lead time and percent done, for the reasons above. Money, in any form: there is no price table in the ledger, the model catalog or the config, so cost is stated in tokens and wakes.</p>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>
