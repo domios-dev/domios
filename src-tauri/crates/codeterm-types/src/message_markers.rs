@@ -18,6 +18,7 @@
 use std::collections::HashMap;
 
 pub const OPEN: &str = "-=-codeterm:";
+const NEWLINE_CHAR: char = '\n';
 pub const CLOSE: &str = "-=-";
 const BRACKETED_PASTE_START: &str = "\x1b[200~";
 const BRACKETED_PASTE_END: &str = "\x1b[201~";
@@ -101,6 +102,12 @@ impl Marker {
             head.push_str(v);
         }
         head.push_str(CLOSE);
+        // A newline after the frame so the body reads as its own paragraph
+        // rather than running on from the routing header. `parse` strips it
+        // back off, so the payload a receiver sees is unchanged.
+        if !self.payload.is_empty() {
+            head.push(NEWLINE_CHAR);
+        }
         head.push_str(&self.payload);
         head
     }
@@ -167,7 +174,9 @@ pub fn parse(text: &str) -> Option<ParsedMarker> {
     let rest = normalized.strip_prefix(OPEN)?;
     let close = rest.find(CLOSE)?;
     let head = &rest[..close];
-    let payload = &rest[close + CLOSE.len()..];
+    let payload = rest[close + CLOSE.len()..]
+        .strip_prefix(NEWLINE_CHAR)
+        .unwrap_or(&rest[close + CLOSE.len()..]);
 
     let mut tokens = head.split(' ');
     let kind = tokens.next()?.to_string();

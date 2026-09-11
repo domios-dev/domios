@@ -49,7 +49,7 @@ eq(shortTabRef("915fae8effffffff"), "915fae8e", "shortTabRef keeps display-safe 
 // `message_markers_tests.rs` PARITY[6] exactly (name space percent-encoded).
 eq(
   markPluginConfig("lmstudio", "LM Studio", "hello body"),
-  "-=-codeterm:plugin_config plugin=lmstudio name=LM%20Studio-=-hello body",
+  "-=-codeterm:plugin_config plugin=lmstudio name=LM%20Studio-=-\nhello body",
   "markPluginConfig wire matches Rust parity fixture",
 );
 
@@ -57,7 +57,7 @@ const systemPrompt = "You are CodeTerm.\nUse tools carefully.";
 const systemPromptWire = markSystemPrompt(systemPrompt);
 eq(
   systemPromptWire,
-  "-=-codeterm:system_prompt-=-You are CodeTerm.\nUse tools carefully.",
+  "-=-codeterm:system_prompt-=-\nYou are CodeTerm.\nUse tools carefully.",
   "markSystemPrompt wire matches Rust parity fixture",
 );
 const systemPromptParsed = parseMarker(systemPromptWire);
@@ -67,12 +67,12 @@ eq(systemPromptParsed?.payload, systemPrompt, "system_prompt payload is prompt t
 
 const contextBody = '{"state":{},"input":{"tick":1}}';
 const contextWire = markContextRequest(contextBody);
-eq(contextWire, "-=-codeterm:context_request-=-{\"state\":{},\"input\":{\"tick\":1}}", "markContextRequest wire");
+eq(contextWire, "-=-codeterm:context_request-=-\n{\"state\":{},\"input\":{\"tick\":1}}", "markContextRequest wire");
 eq(parseMarker(contextWire)?.kind, "context_request", "context_request marker kind parses");
 
 const verdictBody = '{"status":"ok","summary":"All good"}';
 const verdictWire = markWatcherVerdict(verdictBody);
-eq(verdictWire, "-=-codeterm:watcher_verdict-=-{\"status\":\"ok\",\"summary\":\"All good\"}", "markWatcherVerdict wire");
+eq(verdictWire, "-=-codeterm:watcher_verdict-=-\n{\"status\":\"ok\",\"summary\":\"All good\"}", "markWatcherVerdict wire");
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

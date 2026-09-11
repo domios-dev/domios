@@ -392,8 +392,8 @@ async fn body_includes_transcript_and_file_uri() {
         "builtin-http",
     )
     .await;
-    // -=-codeterm:voice file=/tmp/voice.oga-=-привет мир — transcript is the payload.
-    assert_eq!(body, "-=-codeterm:voice file=/tmp/voice.oga-=-привет мир");
+    // The frame, a newline, then the transcript as the payload.
+    assert_eq!(body, "-=-codeterm:voice file=/tmp/voice.oga-=-\nпривет мир");
 
     let _ = stop.send(());
     let _ = handle.await;
@@ -486,7 +486,7 @@ async fn multiple_voice_attachments_each_transcribed() {
         "body: {}",
         body
     );
-    assert_eq!(body.matches("-=-ok").count(), 2, "body: {}", body);
+    assert_eq!(body.matches("-=-\nok").count(), 2, "body: {}", body);
     assert!(body.contains("file=/tmp/a.oga"));
     assert!(body.contains("file=/tmp/b.oga"));
 

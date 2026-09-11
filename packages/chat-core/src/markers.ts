@@ -56,7 +56,9 @@ export function buildMarker(
 ): string {
   let head = MARKER_OPEN + kind;
   for (const [k, v] of attrs) head += ` ${k}=${encode(v)}`;
-  return head + MARKER_CLOSE + payload;
+  // Newline after the frame so the body reads apart from the routing
+  // header; parseMarker strips it so the payload is unchanged.
+  return head + MARKER_CLOSE + (payload ? "\n" + payload : "");
 }
 
 /** Parse a marker, or null if `text` isn't a CodeTerm marker frame. */
@@ -73,7 +75,8 @@ export function parseMarker(text: string): ParsedMarker | null {
   const close = rest.indexOf(MARKER_CLOSE);
   if (close < 0) return null;
   const head = rest.slice(0, close);
-  const payload = rest.slice(close + MARKER_CLOSE.length);
+  const raw = rest.slice(close + MARKER_CLOSE.length);
+  const payload = raw.startsWith("\n") ? raw.slice(1) : raw;
   const tokens = head.split(" ");
   const kind = tokens.shift() ?? "";
   if (!kind) return null;
