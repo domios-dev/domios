@@ -440,6 +440,20 @@ export interface ChatPreprocessor {
   }): { text: string } | null; // null = passthrough
 }
 
+export interface WebhookReceiveContext {
+  payload: unknown;
+  receivedAt: string;
+}
+
+export interface WebhookDelivery {
+  text: string;
+  eventId?: string;
+}
+
+export interface WebhookReceiver {
+  webhookReceive(ctx: WebhookReceiveContext): WebhookDelivery | null;
+}
+
 // ── onAgentCommand (the inverse seam) ──
 
 export interface AgentCommandCtx {
@@ -460,6 +474,7 @@ export interface PluginModule
     Partial<Transcriber>,
     Partial<ChatBackend>,
     Partial<ChatPreprocessor>,
+    Partial<WebhookReceiver>,
     Partial<AgentCommandHandler> {
   statusBubble?(ctx: TabContext): StatusBubble | null;
   renderGlance?(ctx: TabContext): GlanceView;
