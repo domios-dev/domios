@@ -10,6 +10,19 @@ pub const MAX_TAB_DESCRIPTION_CHARS: usize = 200;
 
 /// Prefix on every self-termination refusal so transports can classify it.
 pub(crate) const SELF_CLOSE_REFUSAL_PREFIX: &str = "self-termination refused";
+pub(crate) const TASK_BOUND_RENAME_REFUSAL_PREFIX: &str = "task-bound rename refused";
+
+fn refuse_task_bound_rename(
+    tab_id: &str,
+    task_binding: Option<&crate::multiplexer::types::TaskBinding>,
+) -> Result<(), String> {
+    if task_binding.is_some() {
+        return Err(format!(
+            "{TASK_BOUND_RENAME_REFUSAL_PREFIX}: Tab '{tab_id}' keeps its task-bound identity and planned name; use `codeterm tab describe` for progress"
+        ));
+    }
+    Ok(())
+}
 
 /// A coordinator must not self-terminate. Planner identity comes from the plan
 /// graph, not from the structural role.
@@ -230,6 +243,13 @@ impl ServiceContext {
     }
 
     pub fn rename_tab(&self, tab_id: &str, title: &str) -> Result<(), String> {
+        {
+            let mux = self.mux.read();
+            let tab = mux
+                .get_tab(tab_id)
+                .ok_or_else(|| format!("Tab not found: {tab_id}"))?;
+            refuse_task_bound_rename(tab_id, tab.task_binding.as_ref())?;
+        }
         self.mux.write().rename_tab(tab_id, title)?;
         self.emit_tab_title_pinned(tab_id, title);
         self.emit_state_changed();
@@ -856,6 +876,32 @@ impl ServiceContext {
 
         self.emit_state_changed();
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod rename_tests {
+    use super::{refuse_task_bound_rename, TASK_BOUND_RENAME_REFUSAL_PREFIX};
+    use crate::multiplexer::types::TaskBinding;
+
+    #[test]
+    fn task_bound_tab_rename_is_refused() {
+        let binding = TaskBinding {
+            plan_id: Some("plan".into()),
+            task_id: Some("task".into()),
+            ..Default::default()
+        };
+
+        let error = refuse_task_bound_rename("tab", Some(&binding)).expect_err("rename refused");
+
+        assert!(error.starts_with(TASK_BOUND_RENAME_REFUSAL_PREFIX));
+        assert!(error.contains("task-bound identity"));
+        assert!(error.contains("tab describe"));
+    }
+
+    #[test]
+    fn unbound_tab_rename_remains_allowed() {
+        assert!(refuse_task_bound_rename("tab", None).is_ok());
     }
 }
 

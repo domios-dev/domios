@@ -115,6 +115,16 @@ pub(crate) fn prepare_worker_plan_task_prompt(
     let detail = store
         .show_task(&resolved.task_id)
         .ok_or_else(|| "task not found".to_string())?;
+    if let Some(executor_role) = detail
+        .task
+        .executor_role
+        .as_deref()
+        .map(str::trim)
+        .filter(|role| !role.is_empty())
+    {
+        params.title = Some(executor_role.to_string());
+        params.title_provenance = Some(crate::service::SpawnIdentityProvenance::Suggested);
+    }
     if params.planned_reasoning_effort.is_none() {
         params.planned_reasoning_effort = params.reasoning_effort.clone();
     }
