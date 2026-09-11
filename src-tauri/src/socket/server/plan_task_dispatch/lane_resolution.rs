@@ -65,12 +65,16 @@ pub(super) fn resolve_dispatch_lane(
         let Some(path) = path.filter(|path| !path.trim().is_empty()) else {
             continue;
         };
-        attempted.push(format!("{label} '{path}'"));
-        if let Ok(existing) = verify_worker_lane(path, path, branch, base, protection) {
-            return Ok(DispatchLaneResolution {
-                spawn_cwd: existing.worktree_path.clone(),
-                existing: Some(existing),
-            });
+        match verify_worker_lane(path, path, branch, base, protection) {
+            Ok(existing) => {
+                return Ok(DispatchLaneResolution {
+                    spawn_cwd: existing.worktree_path.clone(),
+                    existing: Some(existing),
+                })
+            }
+            // Carry each candidate's own reason: one generic message here once
+            // hid an unrelated git incompatibility behind "no checkout resolved".
+            Err(reason) => attempted.push(format!("{label} '{path}': {reason}")),
         }
     }
 
