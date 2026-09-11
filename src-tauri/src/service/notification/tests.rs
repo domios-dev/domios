@@ -416,12 +416,12 @@ mod push_render {
 
         let delivered = sent.lock();
         assert_eq!(delivered.len(), 1);
-        // Counted inside the body: the title and the provenance label carry
-        // letters of their own, so a whole-message count is not the body's.
+        // Counted inside the body: the headline carries letters of its own, so
+        // a whole-message count is not the body's.
         let body_line = delivered[0]
             .lines()
             .nth(1)
-            .expect("the body is the line between the title and the label");
+            .expect("the body is the line under the headline");
         assert_eq!(
             body_line.matches('q').count(),
             BOUNDS.body - CUT_NOTE.chars().count(),
@@ -431,7 +431,7 @@ mod push_render {
             delivered[0].chars().count() <= BOUNDS.total,
             "and the truncated message still fits the channel's own ceiling"
         );
-        assert!(delivered[0].contains("via Worker lane"));
+        assert!(delivered[0].starts_with("Worker lane"));
         assert!(!delivered[0].contains("tab_worker"));
         drop(delivered);
 
