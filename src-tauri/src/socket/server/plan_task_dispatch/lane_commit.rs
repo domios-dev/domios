@@ -83,3 +83,23 @@ pub(super) fn dispatch_ready_event(
     apply_safety_nudges(&mut event, nudges);
     event
 }
+
+/// The immediate dispatch response's lane block. It lives beside
+/// `dispatch_ready_event` because the two must name the same canonical
+/// checkout: the response used the provenance's own `canonical_cwd`, which for
+/// a lane verified against itself is the WORKER lane (codeterm#77).
+pub(super) fn dispatch_response_lane(
+    provenance: &WorkerLaneProvenance,
+    canonical_project_path: &str,
+    lane: &TaskLaneMetadata,
+) -> Value {
+    json!({
+        "worktree_path": provenance.worktree_path,
+        "branch": provenance.branch,
+        "base": provenance.base,
+        "canonical_project_path": canonical_project_path,
+        "destination": lane.destination,
+        "workspace_id": lane.workspace_id,
+        "workspace_name": lane.workspace_name,
+    })
+}

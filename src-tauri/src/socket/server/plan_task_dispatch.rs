@@ -37,8 +37,13 @@ use dispatch_failure::{
     DispatchFailureDisposition, DispatchWaitFailure,
 };
 use gates::dispatch_authorized_gates;
-use lane_commit::{dispatch_ready_event, lane_metadata_for_dispatch, DispatchEvidence};
-use lane_resolution::{checkout_required, invalid_dispatch, resolve_dispatch_lane};
+use lane_commit::{
+    dispatch_ready_event, dispatch_response_lane, lane_metadata_for_dispatch, DispatchEvidence,
+};
+use lane_resolution::{
+    checkout_required, invalid_dispatch, plan_dispatch_lane_placement, resolve_dispatch_lane,
+    DispatchLanePlacement,
+};
 use lane_safety::{
     atomic_lane_commitment, dispatch_safety_nudges, preflight_checkout_occupancy,
     refuse_unsafe_mutating_write,
@@ -184,16 +189,6 @@ fn apply_dispatch_starting_contract(
     result["spawn"] = spawn_metadata;
 }
 
-fn should_provision_worker_lane(
-    requires_repository: bool,
-    execution_intent: &crate::plan::ExecutionIntent,
-    lane_resolution: Option<&lane_resolution::DispatchLaneResolution>,
-) -> bool {
-    requires_repository
-        && *execution_intent == crate::plan::ExecutionIntent::Mutating
-        && lane_resolution.is_some_and(|resolution| resolution.existing.is_none())
-}
-
 /// Decide placement first — occupancy only applies to a checkout the task
 /// will actually land on, never a pre-provisioning placeholder — codeterm#343.
 fn preflight_dispatch_placement(
@@ -225,10 +220,11 @@ fn record_lane_safety_incident(
     let Some(data) = error.data.as_ref() else {
         return;
     };
-    let violation_id = data
-        .get("violation_id")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
+    // Only a lane-safety refusal is an incident; a checkout that simply did not
+    // resolve carries no violation and must not be filed as one.
+    let Some(violation_id) = data.get("violation_id").and_then(Value::as_str) else {
+        return;
+    };
     let reason = data
         .get("reason")
         .and_then(Value::as_str)
@@ -819,34 +815,37 @@ pub(super) fn dispatch(
     } else {
         None
     };
-    let spawn_cwd = lane_resolution
-        .as_ref()
-        .map(|lane| lane.spawn_cwd.clone())
-        .unwrap_or_else(|| {
-            explicit_cwd
-                .clone()
-                .unwrap_or_else(|| canonical_cwd.clone())
-        });
-    let will_provision_lane = should_provision_worker_lane(
-        requires_repository,
-        &execution_intent,
-        lane_resolution.as_ref(),
-    );
-    if requires_repository {
-        // Refuse only a lane the caller resolved as final. The `existing: None`
-        // branch still holds canonical here and provisions an isolated lane below.
-        if let Some(existing) = lane_resolution
-            .as_ref()
-            .and_then(|resolution| resolution.existing.as_ref())
-        {
-            refuse_unsafe_mutating_write(
-                &plan,
-                &task_id,
-                &existing.worktree_path,
-                execution_intent.clone(),
+    // Placement decides lane-vs-canonical before a tab exists, so a refusal and
+    // a provisioning both happen with nothing yet to clean up.
+    let lane_placement = match lane_resolution.as_ref() {
+        Some(resolution) if execution_intent == crate::plan::ExecutionIntent::Mutating => {
+            let resolved = resolution.existing.clone().ok_or_else(|| {
+                checkout_required("mutating dispatch resolved no repository checkout")
+            })?;
+            Some(
+                plan_dispatch_lane_placement(&plan, &task_id, &detail.task.lane, resolved)
+                    .inspect_err(|error| {
+                        record_lane_safety_incident(store, &plan_id, &task_id, error)
+                    })?,
             )
-            .inspect_err(|error| record_lane_safety_incident(store, &plan_id, &task_id, error))?;
         }
+        _ => None,
+    };
+    let will_provision_lane = lane_placement
+        .as_ref()
+        .is_some_and(DispatchLanePlacement::provisions);
+    let spawn_cwd = match lane_placement.as_ref() {
+        Some(placement) => placement.spawn_cwd().to_string(),
+        None => lane_resolution
+            .as_ref()
+            .map(|lane| lane.spawn_cwd.clone())
+            .unwrap_or_else(|| {
+                explicit_cwd
+                    .clone()
+                    .unwrap_or_else(|| canonical_cwd.clone())
+            }),
+    };
+    if requires_repository {
         preflight_dispatch_placement(
             &plan,
             &task_id,
@@ -876,26 +875,26 @@ pub(super) fn dispatch(
     };
 
     let lane_label = format!("{plan_id}-{task_id}");
-    let provisioned_lane = if will_provision_lane {
-        svc.provision_worker_lane_for_spawn(&mut spawn_params, &lane_label)
-            .map_err(|error| dispatch_failed("lane_provision", error))?
-    } else {
-        None
+    let provisioned_lane = match lane_placement.as_ref() {
+        Some(DispatchLanePlacement::Provision { base_checkout }) => Some(
+            svc.provision_dispatch_worker_lane(&mut spawn_params, base_checkout, &lane_label)
+                .map_err(|error| dispatch_failed("lane_provision", error))?,
+        ),
+        _ => None,
     };
-    let initial_provenance = if execution_intent == crate::plan::ExecutionIntent::Mutating
-        && requires_repository
-    {
-        match provisioned_lane.as_ref() {
-            Some(lane) => lane.verify(),
-            None => lane_resolution
-                .as_ref()
-                .and_then(|resolution| resolution.existing.clone())
-                .ok_or_else(|| "dispatch did not provision or resolve a worker lane".to_string()),
-        }
-        .map(Some)
-    } else {
-        Ok(None)
-    };
+    let initial_provenance =
+        if execution_intent == crate::plan::ExecutionIntent::Mutating && requires_repository {
+            match provisioned_lane.as_ref() {
+                Some(lane) => lane.verify(),
+                None => match lane_placement.as_ref() {
+                    Some(DispatchLanePlacement::Existing(provenance)) => Ok(provenance.clone()),
+                    _ => Err("dispatch did not provision or resolve a worker lane".to_string()),
+                },
+            }
+            .map(Some)
+        } else {
+            Ok(None)
+        };
     let initial_provenance = match initial_provenance {
         Ok(provenance) => provenance,
         Err(error) => {
@@ -910,6 +909,28 @@ pub(super) fn dispatch(
             return Err(dispatch_failed("provenance_validation", error));
         }
     };
+    // The red line, asked of the lane the Worker will actually hold. A
+    // provisioned lane has not been through the placement check, and this is
+    // the last statement before a tab can exist.
+    if let Some(provenance) = initial_provenance.as_ref() {
+        if let Err(error) = refuse_unsafe_mutating_write(
+            &plan,
+            &task_id,
+            &provenance.worktree_path,
+            execution_intent.clone(),
+        ) {
+            record_lane_safety_incident(store, &plan_id, &task_id, &error);
+            if let Some(lane) = provisioned_lane {
+                if let Err(cleanup) = lane.cleanup() {
+                    return Err(dispatch_failed(
+                        "compensation",
+                        format!("{}; lane cleanup failed: {cleanup}", error.message),
+                    ));
+                }
+            }
+            return Err(error);
+        }
+    }
     let original_task = detail.task.clone();
     let original_plan_mode = plan.mode.clone();
     let mut lane_for_commit = detail.task.lane.clone();
@@ -1071,15 +1092,7 @@ pub(super) fn dispatch(
         "authorized_gates": authorized_gates,
     });
     if let Some(provenance) = initial_provenance.as_ref() {
-        result["lane"] = json!({
-            "worktree_path": provenance.worktree_path,
-            "branch": provenance.branch,
-            "base": provenance.base,
-            "canonical_project_path": provenance.canonical_cwd,
-            "destination": detail.task.lane.destination,
-            "workspace_id": detail.task.lane.workspace_id,
-            "workspace_name": detail.task.lane.workspace_name,
-        });
+        result["lane"] = dispatch_response_lane(provenance, &canonical_cwd, &detail.task.lane);
         if !bootstrap_links.is_empty() {
             result["lane"]["bootstrap_links"] = json!(bootstrap_links);
         }

@@ -103,6 +103,11 @@ pub(crate) use team::close_team_with_state_change;
 pub(crate) use team::rename_team_core;
 #[cfg(test)]
 pub(crate) use team::rename_team_with_state_change;
+mod task_lane_guard;
+pub(crate) use task_lane_guard::{
+    canonical_path_of, classify_mutating_lane, recorded_lane_matches,
+    refuse_unsafe_task_bound_mutating_lane, UnsafeMutatingLane,
+};
 #[cfg(test)]
 pub(crate) mod test_fixture;
 #[cfg(test)]

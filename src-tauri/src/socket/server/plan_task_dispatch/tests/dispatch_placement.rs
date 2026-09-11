@@ -1,10 +1,7 @@
 use crate::plan::{ExecutionIntent, OrchestratorRef, TaskLaneMetadata};
 use crate::service::plan::{NewTask, PlanStore, TaskLaneUpdate};
 
-use super::super::{
-    complete_dispatch_transaction, dispatch_ready_event, lane_resolution::DispatchLaneResolution,
-    should_provision_worker_lane, DispatchEvidence,
-};
+use super::super::{complete_dispatch_transaction, dispatch_ready_event, DispatchEvidence};
 
 const WORKER_TAB: &str = "worker-tab";
 
@@ -64,29 +61,6 @@ fn dispatch_placement_read_only_keeps_canonical_metadata_empty() {
         .unwrap();
     let task = store.show_task(&task).unwrap().task;
     assert!(task.lane.worktree_path.is_none());
-}
-
-#[test]
-fn dispatch_placement_mutating_still_requires_an_isolated_lane() {
-    let unresolved_lane = DispatchLaneResolution {
-        spawn_cwd: "canonical".into(),
-        existing: None,
-    };
-    assert!(should_provision_worker_lane(
-        true,
-        &ExecutionIntent::Mutating,
-        Some(&unresolved_lane)
-    ));
-    assert!(!should_provision_worker_lane(
-        true,
-        &ExecutionIntent::ReadOnly,
-        Some(&unresolved_lane)
-    ));
-    assert!(!should_provision_worker_lane(
-        true,
-        &ExecutionIntent::Mutating,
-        None
-    ));
 }
 
 #[test]

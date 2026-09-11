@@ -34,6 +34,7 @@ mod brief_tests;
 mod checkout_occupancy;
 mod dispatch_placement;
 mod lane_persist;
+mod lane_provisioning;
 mod lane_resolution_multirepo;
 mod lane_safety;
 mod qa_pass;
