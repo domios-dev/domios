@@ -175,6 +175,26 @@ impl ServiceContext {
             .map(|workspace| (workspace.id.clone(), workspace.name.clone()))
     }
 
+    pub(crate) fn worker_spawn_workspace_cwd(&self, params: &SpawnAgentParams) -> Option<String> {
+        self.resolve_worker_spawn_workspace_cwd(params)
+    }
+
+    /// Dispatcher-owned provisioning. Unlike `provision_worker_lane_for_spawn`
+    /// it never no-ops: the dispatcher has already decided this checkout is the
+    /// base to branch from, so inferring that again could only disagree.
+    pub(crate) fn provision_dispatch_worker_lane(
+        &self,
+        params: &mut SpawnAgentParams,
+        base_checkout: &str,
+        lane_label: &str,
+    ) -> Result<ProvisionedWorkerLane, String> {
+        let lane = provision_lane(base_checkout, lane_label)?;
+        params.cwd = Some(lane.cwd.clone());
+        params.provisioned_cwd = Some(lane.cwd.clone());
+        params.lane_setup_command = lane.bootstrap.setup_command.clone();
+        Ok(lane)
+    }
+
     fn resolve_worker_spawn_workspace_cwd(&self, params: &SpawnAgentParams) -> Option<String> {
         let mux = self.mux.read();
         let id = crate::service::spawn::resolve_spawn_workspace_id(
