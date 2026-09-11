@@ -94,7 +94,16 @@ async function run() {
   assert(host.querySelector('[role="status"]')?.textContent === "", "the status region should fall silent");
   const panel = document.querySelector('[data-testid="notification-panel"]');
   assert(panel, "bell should open a portal panel");
-  assert(panel.className.includes("max-w-[calc(100vw-16px)]"), "panel should stay within the mobile viewport width");
+  // The old assertion pinned `max-w-[calc(100vw-16px)]`, which clamps the panel
+  // to the viewport but not to the room left of its anchor, so it passed while
+  // the panel ran off the left edge on a phone. The on-screen guarantee is the
+  // wrapper's computed max-width; anchoredPanelPosition owns the arithmetic.
+  assert(panel.className.includes("max-w-full"), "panel should defer its width clamp to the anchored wrapper");
+  const anchoredWrapper = panel.parentElement;
+  assert(
+    anchoredWrapper?.getAttribute("style")?.includes("max-width"),
+    "the anchored wrapper should carry the computed max-width that keeps the panel on screen",
+  );
   assert(panel.getAttribute("style")?.includes("100dvh"), "panel height should follow the dynamic mobile viewport");
   assert(panel.querySelector('[aria-label="Close notifications"]'), "panel should expose a visible close control");
   const update = Array.from(panel.querySelectorAll("button")).find(
