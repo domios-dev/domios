@@ -130,12 +130,17 @@ pub struct KindAggregate {
     pub p95_bytes: u64,
 }
 
-/// `plan_id: None` is the unattributable/workspace-scope bucket.
-#[derive(Debug, Clone, PartialEq)]
+/// `plan_id: None` is the unattributable/workspace-scope bucket. Only `token_usage`
+/// rows carry token columns, so `turns` counts the rows that reported a usage record.
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct PlanAggregate {
     pub plan_id: Option<String>,
     pub count: u64,
     pub total_bytes: u64,
+    pub turns: u64,
+    pub input_tokens: u64,
+    pub uncached_input_tokens: u64,
+    pub output_tokens: u64,
 }
 
 pub struct KpiLedger {
@@ -489,7 +494,14 @@ impl KpiLedger {
     pub fn aggregate_by_plan(&self) -> Result<Vec<PlanAggregate>, String> {
         let conn = self.conn.lock();
         let mut stmt = conn
-            .prepare("SELECT plan_id, COUNT(*), COALESCE(SUM(bytes), 0) FROM kpi_events GROUP BY plan_id")
+            .prepare(
+                r#"SELECT plan_id, COUNT(*), COALESCE(SUM(bytes), 0),
+                          COUNT(input_tokens),
+                          COALESCE(SUM(input_tokens), 0),
+                          COALESCE(SUM(uncached_input_tokens), 0),
+                          COALESCE(SUM(output_tokens), 0)
+                   FROM kpi_events GROUP BY plan_id"#,
+            )
             .map_err(|e| format!("kpi ledger plan aggregate prepare: {}", e))?;
         let rows = stmt
             .query_map([], |r| {
@@ -497,6 +509,10 @@ impl KpiLedger {
                     plan_id: r.get(0)?,
                     count: r.get::<_, i64>(1)? as u64,
                     total_bytes: r.get::<_, i64>(2)? as u64,
+                    turns: r.get::<_, i64>(3)? as u64,
+                    input_tokens: r.get::<_, i64>(4)? as u64,
+                    uncached_input_tokens: r.get::<_, i64>(5)? as u64,
+                    output_tokens: r.get::<_, i64>(6)? as u64,
                 })
             })
             .map_err(|e| format!("kpi ledger plan aggregate query: {}", e))?

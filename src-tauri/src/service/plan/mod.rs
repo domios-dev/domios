@@ -8,5 +8,8 @@ pub mod search_port_impl;
 pub mod sink_impl;
 
 // ServiceContext extensions implemented in the app crate
+mod mission_control_ext;
+#[cfg(test)]
+mod mission_control_tests;
 mod relink_ext;
 mod state_ext;
